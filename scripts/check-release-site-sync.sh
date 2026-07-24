@@ -1,6 +1,7 @@
 #!/bin/sh
-# check-release-site-sync.sh — require the public product site to be updated
-# and pushed before non-patch releases.
+# check-release-site-sync.sh — gate the public product surfaces before a
+# release. The MCP discovery JSON stamps are checked on EVERY release; the
+# static site push is required only before non-patch releases.
 set -eu
 
 version=${1:-}
@@ -40,14 +41,28 @@ case "$major:$minor:$patch" in
     ;;
 esac
 
-if [ "$patch" -ne 0 ]; then
-  echo "release-site-check: $version is a patch release; static site push not required"
-  exit 0
-fi
-
 if [ ! -d docs ]; then
   echo "release-site-check: docs/ missing; run from the ibkr repo root" >&2
   exit 1
+fi
+
+plain=${version#v}
+
+# Machine-readable MCP discovery metadata ships on EVERY release, patch
+# included, so it is gated before the patch short-circuit below. v2.3.1 cut
+# with all three files lagging at 2.3.0 because this loop used to sit after
+# the early return, where no patch release ever reached it.
+for f in docs/mcp-server.json docs/.well-known/mcp/server.json docs/.well-known/mcp/server-card.json; do
+  if ! grep -q "\"version\": \"$plain\"" "$f"; then
+    echo "release-site-check: $f version is not $plain" >&2
+    echo "                    bump docs/mcp-server.json, then run \`make docs-regen\`" >&2
+    exit 1
+  fi
+done
+
+if [ "$patch" -ne 0 ]; then
+  echo "release-site-check: $version is a patch release; MCP discovery stamps OK, static site push not required"
+  exit 0
 fi
 
 if [ -n "$(git status --porcelain)" ]; then
@@ -67,25 +82,19 @@ if [ "$head" != "$main" ]; then
   exit 1
 fi
 
-plain=${version#v}
 if ! grep -q "\"softwareVersion\": \"$plain\"" docs/index.html; then
   echo "release-site-check: docs/index.html softwareVersion is not $plain" >&2
   echo "                    update the osauer.dev/ibkr landing page for this non-patch release" >&2
   exit 1
 fi
 
-# Every public version stamp must move together: spoke-page JSON-LD plus the
-# MCP discovery JSONs (the v1.10.0 prep caught all of these lagging at the
-# previous release version while only index.html was gated).
+# Every public version stamp must move together: spoke-page JSON-LD alongside
+# the landing page (the v1.10.0 prep caught these lagging at the previous
+# release version while only index.html was gated). The MCP discovery JSONs
+# are gated above, on every release.
 if ! grep -q "\"softwareVersion\": \"$plain\"" docs/interactive-brokers-mcp-server/index.html; then
   echo "release-site-check: docs/interactive-brokers-mcp-server/index.html softwareVersion is not $plain" >&2
   exit 1
 fi
-for f in docs/mcp-server.json docs/.well-known/mcp/server.json docs/.well-known/mcp/server-card.json; do
-  if ! grep -q "\"version\": \"$plain\"" "$f"; then
-    echo "release-site-check: $f version is not $plain" >&2
-    exit 1
-  fi
-done
 
 echo "release-site-check: $version requires and has a pushed osauer.dev/ibkr docs update"

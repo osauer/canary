@@ -67,12 +67,17 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 ## Stage 2 — Tree readiness
 
 - Version stamps that must already equal the target: `.claude-plugin/plugin.json`
-  (gate-enforced by `make release`), `mcp-server.json`, the `.well-known`
-  pair, `bug_report.yml`, and the `hooks/session-start.sh` fallback semver
+  (gate-enforced by `make release`), `docs/mcp-server.json` — the canonical
+  MCP discovery file, whose two `docs/.well-known/mcp/` copies are generated;
+  bump the canonical one and run `make docs-regen`, never hand-edit the copies
+  (`docs-check` rejects that) — `bug_report.yml`, and the
+  `hooks/session-start.sh` fallback semver
   (major.minor only — unchanged for patch releases; a real bump there is a
-  code edit, see hard policy). Non-patch releases additionally need the five
-  public site stamps — authoritative list in
-  `scripts/check-release-site-sync.sh` — committed AND pushed.
+  code edit, see hard policy). `release-site-check` gates the three MCP
+  discovery stamps on every release, patch included. Non-patch releases
+  additionally need the two landing/spoke-page `softwareVersion` stamps —
+  authoritative list in `scripts/check-release-site-sync.sh` — committed
+  AND pushed.
 - Changelog: rename the accumulated stub heading to `## vX.Y.Z — <ts>` (no
   `## Unreleased` survives — `check-changelog-public.sh` bans it), then
   `make changelog-lint RELEASE_VERSION=vX.Y.Z`. Give `### What's new` a voice

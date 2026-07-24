@@ -152,8 +152,11 @@ remote-relay-check: ## Cloudflare remote-relay unit tests (node --test, no npm n
 	@command -v node >/dev/null 2>&1 || { echo "remote-relay-check: node not found — this gate is binding, install Node.js" >&2; exit 1; }
 	cd cloudflare/remote-relay && node --test test/*.test.js
 
-release-packaging-check: ## Verify tag-isolated assembly, archive contents, and release-pinned links
+release-packaging-check: ## Verify tag-isolated assembly, archive contents, release-pinned links, and release-gate fixtures
 	./scripts/check-release-packaging.sh
+	@# release-site-check itself is release-time only (it needs RELEASE_VERSION
+	@# and reads the real tree), so its fixture runs here to stay inside `check`.
+	@./scripts/check-release-site-sync_test.sh
 
 # Static drift gate between the Playwright app scripts and the SPA they
 # assert against, plus the other web/app contract tests. Born of the
