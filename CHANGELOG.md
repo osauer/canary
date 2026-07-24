@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.3.1 — 2026-07-24 09:00 CEST
+
+### What's new
+
+- **Releases now fail fast on the paper account, exact-session currency conversion, and broker WhatIf path.** A read-only SPY preview runs before the full test suite and proves that its USD notional was converted into the different account base currency using a current typed IBKR FX quote. It never submits an order; the existing one-share paper place, acknowledgement, cancellation, and cancellation-confirmation round-trip remains the final binding release gate.
+- **Release automation is shorter and clearer without weakening authority.** The repository harness prefers typed MCP reads and falls back to the CLI only for uncovered read surfaces, while explicit Codex rules make both the read-only preflight and the sole `make release RELEASE_VERSION=vX.Y.Z` path discoverable. Direct tagging, pushing, GitHub release creation, and registry publication remain owned by the release target.
+
+### Fixed
+
+- The early release preflight can no longer claim FX coverage from a same-currency identity conversion or a preview missing exact-session FX provenance. Its regression fixture now proves both rejection and the absence of any order submission.
+- Paper-smoke output no longer prints the connected account, broker order reference, raw broker response, or raw daemon-log tail. Failures retain an allowlisted lifecycle summary while private broker identifiers stay local.
+
 ## v2.3.0 — 2026-07-24 07:37 CEST
 
 ### What's new

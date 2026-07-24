@@ -14,7 +14,12 @@
 #   - smoke result != passed      → release aborts
 #
 # Usage:
-#   scripts/release-paper-smoke.sh <bin/ibkr>
+#   scripts/release-paper-smoke.sh [--preview-only] <bin/ibkr>
+#
+# --preview-only runs a production order preview through account-currency,
+# notional/FX, and broker WhatIf authority, then exits without placing an
+# order. The release target runs this inexpensive read-only mode before its
+# full test gate; the binding round-trip remains after every test.
 #
 # Environment hooks:
 #   IBKR_TEST_HOST        — gateway host (default 127.0.0.1)
@@ -26,7 +31,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-daemon-control.sh"
 
-BIN="${1:?usage: release-paper-smoke.sh <bin/ibkr>}"
+MODE="smoke"
+if [[ "${1:-}" == "--preview-only" ]]; then
+    MODE="preview"
+    shift
+fi
+
+BIN="${1:?usage: release-paper-smoke.sh [--preview-only] <bin/ibkr>}"
 if [[ ! -x "$BIN" ]]; then
     echo "release-paper-smoke: $BIN not executable" >&2
     exit 2
@@ -46,7 +57,11 @@ for port in "${probe_ports[@]}"; do
 done
 if [[ -z "$PORT" ]]; then
     echo "release-paper-smoke: FAIL — no paper TWS/Gateway reachable at ${HOST} ports ${probe_ports[*]}." >&2
-    echo "  The release gate transmits a 1-share paper round-trip and refuses to run against live." >&2
+    if [[ "$MODE" == "preview" ]]; then
+        echo "  The read-only release preflight requires paper TWS/Gateway and refuses to inspect a live route." >&2
+    else
+        echo "  The release gate transmits a 1-share paper round-trip and refuses to run against live." >&2
+    fi
     echo "  Log TWS (7497) or IB Gateway (4002) into the paper account, then re-run \`make release\`." >&2
     exit 1
 fi
@@ -74,8 +89,7 @@ cleanup() {
     kill_daemon_from_lockfile "$LOCK"
     if [[ $code -ne 0 && -r "$LOG" ]]; then
         echo "" >&2
-        echo "release-paper-smoke: daemon log tail ($LOG):" >&2
-        tail -25 "$LOG" >&2 || true
+        echo "release-paper-smoke: isolated daemon log withheld because it may contain private broker identifiers" >&2
     fi
     rm -rf "$SMOKE_DIR" 2>/dev/null || true
     return $code
@@ -109,11 +123,15 @@ fi
 case "$ACCOUNT" in
     DU*|du*) ;;
     *)
-        echo "release-paper-smoke: FAIL — account '$ACCOUNT' on ${HOST}:${PORT} is not a paper (DU) account; refusing to transmit" >&2
+        echo "release-paper-smoke: FAIL — connected account on ${HOST}:${PORT} is not classified as paper; refusing to transmit" >&2
         exit 1
         ;;
 esac
-echo "release-paper-smoke: paper account $ACCOUNT"
+if [[ "$MODE" == "preview" ]]; then
+    echo "release-paper-preflight: paper account verified (redacted)"
+else
+    echo "release-paper-smoke: paper account verified (redacted)"
+fi
 
 # Phase 2 — restart the isolated daemon with the trading gate pinned to
 # that account, then run the smoke through the production order path.
@@ -143,16 +161,113 @@ if [[ "$CONNECTED" != "True" ]]; then
     exit 1
 fi
 
+if [[ "$MODE" == "preview" ]]; then
+    QUOTE_OUT="$(timeout 30 "$BIN" quote SPY --json)" || {
+        echo "release-paper-preflight: FAIL — SPY reference quote errored" >&2
+        exit 1
+    }
+    if ! LIMIT_PRICE="$(printf '%s' "$QUOTE_OUT" | python3 -c '
+import json
+import math
+import sys
+
+quote = json.load(sys.stdin)
+reference = next(
+    (float(quote[name]) for name in ("bid", "last", "mark", "price", "ask")
+     if quote.get(name) is not None and float(quote[name]) > 0),
+    0,
+)
+if reference <= 0:
+    sys.exit(1)
+limit = math.floor((reference * 0.98 + 1e-9) * 100) / 100
+if limit <= 0:
+    sys.exit(1)
+print(f"{limit:.2f}")
+')"; then
+        echo "release-paper-preflight: FAIL — SPY reference quote had no usable price" >&2
+        exit 1
+    fi
+    PREVIEW_OUT="$(timeout 90 "$BIN" order preview buy SPY 1 \
+        --strategy explicit-limit --order-type LMT --limit "$LIMIT_PRICE" --tif DAY --json)" || {
+        echo "release-paper-preflight: FAIL — read-only SPY preview errored" >&2
+        exit 1
+    }
+    if ! PREVIEW_SUMMARY="$(printf '%s' "$PREVIEW_OUT" | python3 -c '
+import json
+import math
+import sys
+
+data = json.load(sys.stdin)
+what_if = data.get("what_if") or {}
+notional_currency = str(data.get("notional_currency") or "").upper()
+base_currency = str(data.get("base_currency") or "").upper()
+fx_rate = data.get("fx_rate")
+fx_data_type = data.get("fx_data_type")
+fx_source = data.get("fx_source")
+fx_evidence_at = data.get("fx_evidence_at")
+fx_ok = (
+    len(notional_currency) == 3
+    and len(base_currency) == 3
+    and notional_currency != base_currency
+    and isinstance(fx_rate, (int, float))
+    and math.isfinite(fx_rate)
+    and fx_rate > 0
+    and isinstance(fx_evidence_at, str)
+    and bool(fx_evidence_at.strip())
+    and fx_data_type in {"live", "frozen", "delayed", "delayed-frozen"}
+    and fx_source == "ibkr.tws.exact_fx_quote"
+)
+summary = "mode={} token_minted={} submit_eligible={} what_if={} cross_currency_fx={}".format(
+    data.get("mode", "unknown"),
+    bool(data.get("token_minted")),
+    bool(data.get("submit_eligible")),
+    what_if.get("status", "unknown"),
+    fx_ok,
+)
+print(summary)
+ok = (
+    data.get("mode") == "paper"
+    and data.get("token_minted") is True
+    and data.get("submit_eligible") is True
+    and data.get("executable") is True
+    and (data.get("draft") or {}).get("contract", {}).get("symbol") == "SPY"
+    and fx_ok
+)
+sys.exit(0 if ok else 1)
+')"; then
+        echo "release-paper-preflight: FAIL — preview did not clear the paper submit-eligibility contract ($PREVIEW_SUMMARY)" >&2
+        exit 1
+    fi
+    echo "release-paper-preflight: PASS — account/cross-currency FX/WhatIf preview is eligible; no order submitted ($PREVIEW_SUMMARY)"
+    exit 0
+fi
+
 OUT="$(timeout 150 "$BIN" trading paper-smoke --json)" || {
-    echo "release-paper-smoke: FAIL — paper-smoke command errored:" >&2
-    echo "$OUT" >&2
+    echo "release-paper-smoke: FAIL — paper-smoke command errored; raw broker response withheld" >&2
     exit 1
 }
-RESULT="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("result",""))')"
+RESULT="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("result",""))')" || {
+    echo "release-paper-smoke: FAIL — paper-smoke returned invalid JSON; raw broker response withheld" >&2
+    exit 1
+}
 if [[ "$RESULT" != "passed" ]]; then
-    echo "release-paper-smoke: FAIL — smoke result '$RESULT' (want passed):" >&2
-    printf '%s\n' "$OUT" | python3 -m json.tool >&2 || printf '%s\n' "$OUT" >&2
+    SAFE_SUMMARY="$(printf '%s' "$OUT" | python3 -c '
+import json
+import sys
+
+data = json.load(sys.stdin)
+print(
+    "mode={} symbol={} quantity={} acknowledged={} cancelled={} evidence_saved={}".format(
+        data.get("mode", "unknown"),
+        data.get("symbol", "unknown"),
+        data.get("quantity", "unknown"),
+        data.get("ack_lifecycle_status", "unknown"),
+        data.get("cancel_lifecycle_status", "unknown"),
+        bool(data.get("evidence_saved")),
+    )
+)
+')"
+    echo "release-paper-smoke: FAIL — smoke result '$RESULT' (want passed; $SAFE_SUMMARY; private identifiers withheld)" >&2
     exit 1
 fi
-ORDER_REF="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("order_ref",""))')"
-echo "release-paper-smoke: PASS — order pipeline round-trip confirmed on $ACCOUNT (${ORDER_REF:-no ref})"
+echo "release-paper-smoke: PASS — order pipeline round-trip confirmed on verified paper account (private identifiers withheld)"

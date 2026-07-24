@@ -151,6 +151,24 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["make", "release"],
+    decision = "prompt",
+    justification = "The canonical release target tags, pushes, publishes, and runs one paper-only SPY place/ack/cancel round-trip; require an exact version and current-turn release authority.",
+    match = [
+        "make release RELEASE_VERSION=v2.3.1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", "release-paper-preflight"],
+    decision = "prompt",
+    justification = "The release paper preflight reaches the configured paper gateway and broker WhatIf surface but never submits an order.",
+    match = [
+        "make release-paper-preflight VERSION=v2.3.1",
+    ],
+)
+
+prefix_rule(
     pattern = ["ibkr", "purge", "--all"],
     decision = "prompt",
     justification = "Purge execution is a broker write and requires a transaction-specific current-turn instruction.",

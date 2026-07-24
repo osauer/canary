@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/with-release-tag-checkout_test.sh
 ./scripts/build-release-target_test.sh
+./scripts/release-paper-smoke_test.sh
 
 for path in SECURITY.md docs/guides/trading-preview.md; do
 	grep -Fq "blob/__VERSION__/$path" .github/release-notes-template.md || {

@@ -3,7 +3,7 @@
   "name": "io.github.osauer/ibkr",
   "title": "canary ibkr MCP",
   "description": "Local IBKR MCP server for agentic trading desks: market data, portfolio context, risk checks.",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "websiteUrl": "https://osauer.dev/ibkr/",
   "repository": {
     "url": "https://github.com/osauer/ibkr",

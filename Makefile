@@ -55,7 +55,7 @@ MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publis
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-publish release-verify release-smoke release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-publish release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -344,9 +344,12 @@ agent-config-check: hook-behavior-check ## Validate project agent config, hooks,
 		offline_gate_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make check | jq -r .decision); \
 		live_gate_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make restart-daemon | jq -r .decision); \
 		smoke_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make smoke | jq -r .decision); \
+		release_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make release RELEASE_VERSION=v2.3.1 | jq -r .decision); \
+		release_preflight_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make release-paper-preflight VERSION=v2.3.1 | jq -r .decision); \
 		[ "$$read_decision" = allow ] && [ "$$write_decision" = prompt ] && [ "$$human_only_decision" = forbidden ] \
-			&& [ "$$offline_gate_decision" = allow ] && [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] || { \
-			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision offline-gate=$$offline_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision" >&2; exit 1; \
+			&& [ "$$offline_gate_decision" = allow ] && [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
+			&& [ "$$release_decision" = prompt ] && [ "$$release_preflight_decision" = prompt ] || { \
+			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision offline-gate=$$offline_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision release=$$release_decision release-preflight=$$release_preflight_decision" >&2; exit 1; \
 		}; \
 	fi
 
@@ -619,6 +622,9 @@ release-smoke: smoke-build ## Release gate: JSON contract + wire smoke in one re
 	fi
 	IBKR_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/release-smoke.sh bin/ibkr $(RELEASE_VERSION) bin/wire-assert
 
+release-paper-preflight: build ## Early read-only paper account/FX/WhatIf gate; never submits an order
+	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh --preview-only bin/ibkr
+
 release-site-check: ## Require osauer.dev/ibkr static site sync for non-patch releases
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-site-check: RELEASE_VERSION is required, e.g. make release-site-check RELEASE_VERSION=v1.8.0" >&2; \
@@ -828,11 +834,10 @@ version: ## Print the version string the next build would embed
 # - HEAD not synced with origin/<MAIN_BRANCH> (tag would point at a commit
 #   GitHub doesn't have)
 # - tag already exists locally or on origin
-# Sequence: gate → build with VERSION override → smoke against reachable
-# TWS/Gateway → create annotated tag → push tag. The smoke runs BEFORE
-# tagging so a gateway failure leaves no orphan tag to clean up; the
-# build target accepts VERSION=$(RELEASE_VERSION) so the smoke daemon
-# stamps the target version even before the tag exists.
+# Sequence: cheap gates → read-only paper preview → full tests → stamped build
+# → live/paper smoke → annotated tag → publish. The early preview exercises the
+# account-currency, FX, and broker WhatIf path before the expensive test suite.
+# The transmitting smoke still runs only after every test and before tagging.
 # Does NOT push commits — push those first.
 release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE="..."]
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
@@ -900,6 +905,11 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 		git status --short >&2; \
 		exit 1; \
 	fi
+	@# Exercise the paper account, cross-currency notional, and broker WhatIf
+	@# path before the ~10-minute full gate. This mints an isolated preview
+	@# token but never places an order; the binding place/ack/cancel smoke stays
+	@# below, after all tests. Late v2.3.0 preview failures motivated this gate.
+	$(MAKE) release-paper-preflight VERSION=$(RELEASE_VERSION)
 	@# Run the existing full test gate with parallel prerequisites. This
 	@# keeps the same checks/tests but overlaps check, pkg, and daemon work.
 	@# GOVULN_FORCE=1: the release gate never takes the daily-stamp skip.
