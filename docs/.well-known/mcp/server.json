@@ -5,7 +5,7 @@
   "homepage": "https://osauer.dev/ibkr/",
   "repository": "https://github.com/osauer/ibkr",
   "license": "MIT",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "transport": {
     "type": "stdio",
     "command": "ibkr",
