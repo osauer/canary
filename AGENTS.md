@@ -32,6 +32,14 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   journaling; daemon authorization; and `trading.freeze` must all remain binding.
   Never place, modify, cancel, submit, exercise, purge, or restore through the
   paired PWA or browser automation; Browser use is read-only QA.
+- One exception, and only this one: the release target's fixed paper round-trip
+  (`ibkr trading paper-smoke`, reachable only through `make release`) places a
+  one-share far-off-market SPY limit order and cancels it. Authorizing a named
+  release authorizes that round-trip; it is not a separate broker write and
+  needs no second transaction-specific instruction. The exemption attaches to
+  that verb alone — it covers no other order, symbol, size, account, or
+  invocation — and the paper pin, far-off-market limit, acknowledgement, and
+  self-cancel remain binding.
 - `ibkr settings set trading.freeze=true` and all freeze/limit changes are
   human-only. Never weaken trading guardrails in code, config, hooks, tests, or
   docs without an explicit human decision about that exact policy change.
@@ -68,6 +76,13 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   `docs/templates/daemon-cli-trading-contract.md`.
 - Canary SPA semantic or rendered-flow change: read `web/app/AGENTS.md` and use
   `docs/templates/spa-authority-matrix.md`.
+- Cutting, shipping, or verifying a release: read `.claude/skills/release/SKILL.md`
+  as the procedure of record in every lane, Codex included. It holds the stage
+  order, the shared-tree and hygiene checks, and the exact push/tag boundary that
+  the release section below only summarizes; read it rather than inferring policy
+  from that summary. In Codex the execpolicy `prompt` on `make release` is the
+  single human stop — present findings, then fire; do not ask for the same
+  authority a second time in prose.
 - `internal/mcp/**`: read `.claude/rules/mcp-tool-descriptions.md`.
 - Any new `IBKR_*` environment read: add its `// docgen:env` contract and run
   `make docs-regen`; `.claude/rules/env-var-docgen.md` has the exact convention.
@@ -100,10 +115,18 @@ in-flight work. See `docs/guides/agent-session-hygiene.md` for rationale.
 
 ## Releases and public surfaces
 
-Use only `make release RELEASE_VERSION=vX.Y.Z`; never tag, push, or create a
-GitHub release directly. The target owns its clean-tree, origin, live-TWS,
-paper-round-trip, signing, publishing, and registry checks. After success,
-verify the GitHub release, remote tag, and registry artifact.
+Use only `make release RELEASE_VERSION=vX.Y.Z`; never create tags, push tags, or
+create GitHub releases directly, and never force-push as a release step. The
+target owns its clean-tree, origin, live-TWS, paper-round-trip, signing,
+publishing, and registry checks. After success, verify the GitHub release,
+remote tag, and registry artifact.
+
+Publishing the release commit is a prerequisite, not a release step. The target
+requires `HEAD == origin/main`, so a fast-forward `git push origin main` of
+reviewed commits is normal and permitted — the prohibition above is on tags and
+releases, not on commits. Check `git log origin/main..HEAD` first and confirm it
+holds only your own reviewed commits: a push carries every local commit, and
+this tree runs concurrent sessions.
 
 Before editing or pushing public `osauer.dev/ibkr` copy, verify the active Pages
 publisher with `gh api repos/osauer/ibkr/pages` and a live header request. Do not
