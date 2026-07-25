@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.4.0 — 2026-07-25 08:11 CEST
+
+### What's new
+
+- **The documentation has a home.** [osauer.dev/ibkr/docs/](https://osauer.dev/ibkr/docs/) is a handbook index reached from a Documentation entry in the site navigation. Before this the site published fifteen documentation pages with no index and no navigation entry; nine of them had no inbound link from the landing page at all and were reachable only through the sitemap. The handbook runs in five sections, ordered by how far a reader has travelled: **Start** (install, connect an MCP host, first session, updating, troubleshooting), **Operate** (the daily desk routine, working with agents, the paired app, alerts, order previews, protection, reconciliation), **Understand** (concepts, sensors, trading policy, the rulebook, writing a risk policy, market data and entitlements, glossary), **Reference** (CLI, MCP tools, MCP resources, configuration, releases), and **Under the hood** (architecture, storage, the TWS wire protocol, published design notes, packaging). The first four are written for someone trading their own account; the fifth is for someone reading the code. Three pages that existed but had never been published are now on the site: the paired app, order previews and the trading build, and the opportunity research harness. Fourteen pages that do not exist yet are listed with their scope and a "not written yet" marker, without a link and without a URL, so the shape of the whole is visible while only finished pages are reachable or indexed.
+- **Every documentation page moved to a sectioned URL, and every old URL still works.** `architecture.html` is now `docs/internals/architecture.html`, `policies.html` is `docs/understand/policy.html`, `database.html` is `docs/internals/storage.html`, and the pages under `guides/`, `reference/`, and `specs/` moved into the section that matches their audience. All fifteen retired paths serve a `noindex` redirect to the canonical URL, so existing links and search results keep working. The sitemap, `llms.txt`, `llms-full.txt`, and the MCP discovery metadata all point at the new locations.
+
+### Changed
+
+- **`spec_doc` in a regime response is now a fetchable URL.** The field exists so an agent consults the published methodology instead of inventing threshold band edges, and it previously carried a path inside this repository, which a remote MCP client cannot open. It now carries `https://osauer.dev/ibkr/docs/internals/regime-dashboard.html`. Consumers that pinned the old string need to update; the field name, type, and purpose are unchanged.
+- **`docs/` in the repository is the published website and nothing else.** It previously held both the site and the project's own engineering documentation, so design records, agent task contracts, contributor guides, and the diagram build script were all being served publicly. Design records and developer guides now live in `internal-docs/`, the task contracts and session-hygiene notes an agent is instructed to load live in `.agents/docs/`, and the diagram renderer lives in `scripts/`. Each published page's Markdown now sits beside the HTML it produces, so a source path is the URL it publishes to and a link that is correct in the source is correct on the site.
+
+### Removed
+
+- **The checked-in regime and canary backtest corpora are gone.** Twelve JSONL files totalling about 30 MB sat in the unit-test fixture directory while no test, script, or make target read any of them. They recorded verdicts produced by regime code that has been corrected repeatedly since capture, so replaying them measured old defects rather than the current engine. The backtest runbook now captures a fresh tuning and holdout split instead, and built corpora land in a git-ignored directory so a capture cannot quietly become a fixture again. The small samples that tests do read are unchanged.
+
 ## v2.3.1 — 2026-07-24 09:00 CEST
 
 ### What's new
