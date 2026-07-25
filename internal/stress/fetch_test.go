@@ -1,4 +1,4 @@
-package canary
+package stress
 
 import (
 	"context"
@@ -11,14 +11,14 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-type canaryCallStub struct {
+type stressCallStub struct {
 	calls         []string
 	failMethod    string
 	accountCalls  int
 	marketSymbols []string
 }
 
-func (s *canaryCallStub) Call(_ context.Context, method string, params, result any) error {
+func (s *stressCallStub) Call(_ context.Context, method string, params, result any) error {
 	s.calls = append(s.calls, method)
 	if method == s.failMethod {
 		return errors.New("stub failure")
@@ -50,9 +50,9 @@ func (s *canaryCallStub) Call(_ context.Context, method string, params, result a
 	return nil
 }
 
-func TestFetchCanarySnapshotPreservesCallOrderAndFallbacks(t *testing.T) {
+func TestFetchStressSnapshotPreservesCallOrderAndFallbacks(t *testing.T) {
 	t.Parallel()
-	conn := &canaryCallStub{}
+	conn := &stressCallStub{}
 	result, positions, _, err := FetchStressSnapshotWithRegime(t.Context(), conn)
 	if err != nil {
 		t.Fatalf("FetchStressSnapshotWithRegime: %v", err)
@@ -93,7 +93,7 @@ func TestFetchCanarySnapshotPreservesCallOrderAndFallbacks(t *testing.T) {
 	}
 }
 
-func TestFetchCanarySnapshotWrapsRequiredSourceErrors(t *testing.T) {
+func TestFetchStressSnapshotWrapsRequiredSourceErrors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		method string
@@ -105,7 +105,7 @@ func TestFetchCanarySnapshotWrapsRequiredSourceErrors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.method, func(t *testing.T) {
-			conn := &canaryCallStub{failMethod: test.method}
+			conn := &stressCallStub{failMethod: test.method}
 			_, _, _, err := FetchStressSnapshotWithRegime(t.Context(), conn)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)

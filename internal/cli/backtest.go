@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	canaryengine "github.com/osauer/ibkr/v2/internal/canary"
 	"github.com/osauer/ibkr/v2/internal/risk"
 	"github.com/osauer/ibkr/v2/internal/rpc"
+	stressengine "github.com/osauer/ibkr/v2/internal/stress"
 )
 
 // CanaryBacktestObservation is one point-in-time canary input and its labelled
@@ -1148,7 +1148,7 @@ func runCanaryBacktest(observations []CanaryBacktestObservation, runAt time.Time
 	}
 	res := CanaryBacktestResult{
 		RunAt:     runAt,
-		Policy:    canaryengine.PolicyName(),
+		Policy:    stressengine.PolicyName(),
 		NotAdvice: "Backtest diagnostic only; not investment advice or a trade recommendation.",
 	}
 	total := &canaryBacktestAccumulator{}

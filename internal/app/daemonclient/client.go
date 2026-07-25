@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/canary"
 	"github.com/osauer/ibkr/v2/internal/dial"
 	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/ibkr/v2/internal/stress"
 )
 
 // Client is the app host's typed daemon capability surface. Implementations
@@ -179,7 +179,7 @@ func (c Real) Canary(ctx context.Context) (*rpc.StressResult, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	out, err := canary.FetchStress(ctx, conn)
+	out, err := stress.FetchStress(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (c Real) CanaryWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.Reg
 		return nil, nil, err
 	}
 	defer conn.Close()
-	canaryResult, _, regime, err := canary.FetchStressSnapshotWithRegime(ctx, conn)
+	canaryResult, _, regime, err := stress.FetchStressSnapshotWithRegime(ctx, conn)
 	if err != nil {
 		return nil, nil, err
 	}

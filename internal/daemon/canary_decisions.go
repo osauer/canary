@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/canary"
 	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
 	"github.com/osauer/ibkr/v2/internal/risk"
 	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/ibkr/v2/internal/stress"
 )
 
 // canaryDecisionJournal appends one typed SQLite event per decision-relevant
@@ -350,7 +350,7 @@ func (s *Server) canaryEvaluationTick(ctx context.Context) bool {
 	if events != nil {
 		in.MarketEvents = *events
 	}
-	can := canary.ComputeStress(in)
+	can := stress.ComputeStress(in)
 	s.journalCanaryDecision(&can)
 	return true
 }

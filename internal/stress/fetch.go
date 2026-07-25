@@ -1,4 +1,4 @@
-package canary
+package stress
 
 import (
 	"context"
@@ -48,22 +48,22 @@ func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
 	if err := conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &regime); err != nil {
 		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
 	}
-	marketEvents := fetchCanaryMarketEvents(ctx, conn, pos)
+	marketEvents := fetchStressMarketEvents(ctx, conn, pos)
 	if acct.DailyPnL == nil {
 		var refreshed rpc.AccountResult
 		if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &refreshed); err == nil && refreshed.DailyPnL != nil {
 			acct = refreshed
 		}
 	}
-	canary := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents})
+	res := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents})
 	rpc.CompactRegimeSnapshot(&regime)
-	return canary, pos, regime, nil
+	return res, pos, regime, nil
 }
 
-func fetchCanaryMarketEvents(ctx context.Context, conn interface {
+func fetchStressMarketEvents(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }, pos rpc.PositionsResult) rpc.MarketEventsResult {
-	symbols := canaryMarketEventSymbols(pos)
+	symbols := stressMarketEventSymbols(pos)
 	if len(symbols) == 0 {
 		return rpc.MarketEventsResult{}
 	}
@@ -98,7 +98,7 @@ func fetchCanaryMarketEvents(ctx context.Context, conn interface {
 	return out
 }
 
-func canaryMarketEventSymbols(pos rpc.PositionsResult) []string {
+func stressMarketEventSymbols(pos rpc.PositionsResult) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	add := func(value string) {

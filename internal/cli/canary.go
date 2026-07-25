@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/canary"
 	"github.com/osauer/ibkr/v2/internal/risk"
 	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/ibkr/v2/internal/stress"
 )
 
 // StressInput is the typed input consumed by the shared canary evaluator.
@@ -28,52 +28,52 @@ type StressMarketIndicator = rpc.StressMarketIndicator
 type StressMarketSummary = rpc.StressMarketSummary
 
 const (
-	canaryActionWatch         = canary.ActionWatch
-	canaryActionDefend        = canary.ActionDefend
-	canaryActionRebalance     = canary.ActionRebalance
-	canaryActionDeploy        = canary.ActionDeploy
-	canaryActionConfirmInputs = canary.ActionConfirmInputs
-	canaryInputOK             = canary.InputOK
-	canaryInputDegraded       = canary.InputDegraded
-	canaryPortfolioFitLow     = canary.PortfolioFitLow
-	canaryPortfolioFitUnknown = canary.PortfolioFitUnknown
+	canaryActionWatch         = stress.ActionWatch
+	canaryActionDefend        = stress.ActionDefend
+	canaryActionRebalance     = stress.ActionRebalance
+	canaryActionDeploy        = stress.ActionDeploy
+	canaryActionConfirmInputs = stress.ActionConfirmInputs
+	canaryInputOK             = stress.InputOK
+	canaryInputDegraded       = stress.InputDegraded
+	canaryPortfolioFitLow     = stress.PortfolioFitLow
+	canaryPortfolioFitUnknown = stress.PortfolioFitUnknown
 )
 
 // ComputeStress evaluates in through the shared pure canary engine.
 func ComputeStress(in StressInput) StressResult {
-	return canary.ComputeStress(in)
+	return stress.ComputeStress(in)
 }
 
 func summarizeCanaryMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
-	return canary.SummarizeMarket(r, now)
+	return stress.SummarizeMarket(r, now)
 }
 
 func severityRankAtLeast(got, want risk.SignalSeverity) bool {
-	return canary.SeverityAtLeast(got, want)
+	return stress.SeverityAtLeast(got, want)
 }
 
 func canaryGammaDegraded(g rpc.RegimeGammaZero) bool {
-	return canary.GammaDegraded(g)
+	return stress.GammaDegraded(g)
 }
 
 func canaryMarketEvidence(m StressMarketSummary) string {
-	return canary.MarketEvidence(m)
+	return stress.MarketEvidence(m)
 }
 
 func canaryPortfolioEvidence(p rpc.StressPortfolioSummary) string {
-	return canary.PortfolioEvidence(p)
+	return stress.PortfolioEvidence(p)
 }
 
 func canaryAmbiguityEvidence(m StressMarketSummary) string {
-	return canary.AmbiguityEvidence(m)
+	return stress.AmbiguityEvidence(m)
 }
 
 func formatProtectionCoverageEvidence(c *rpc.ProtectionCoverageSummary) string {
-	return canary.FormatProtectionCoverageEvidence(c)
+	return stress.FormatProtectionCoverageEvidence(c)
 }
 
 func appendUniqueString(values []string, value string) []string {
-	return canary.AppendUniqueString(values, value)
+	return stress.AppendUniqueString(values, value)
 }
 
 func runCanary(ctx context.Context, env *Env, args []string) int {
@@ -98,14 +98,14 @@ func runCanary(ctx context.Context, env *Env, args []string) int {
 	}
 	if !*jsonOut && isTerminal(env.Stdout) {
 		stop := startCanarySpinner(env)
-		res, err := canary.FetchStress(ctx, env.Conn)
+		res, err := stress.FetchStress(ctx, env.Conn)
 		stop()
 		if err != nil {
 			return fail(env, "canary: %v", err)
 		}
 		return renderCanaryTextDetails(env, env.Stdout, &res, *details)
 	}
-	res, positions, err := canary.FetchStressSnapshot(ctx, env.Conn)
+	res, positions, err := stress.FetchStressSnapshot(ctx, env.Conn)
 	if err != nil {
 		return fail(env, "canary: %v", err)
 	}

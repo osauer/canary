@@ -1,4 +1,4 @@
-package canary
+package stress
 
 import (
 	"time"
@@ -7,68 +7,68 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// Canary action, input-health, and portfolio-fit tokens shared by adapters.
+// Stress action, input-health, and portfolio-fit tokens shared by adapters.
 const (
-	ActionWatch         = canaryActionWatch
-	ActionDefend        = canaryActionDefend
-	ActionRebalance     = canaryActionRebalance
-	ActionDeploy        = canaryActionDeploy
-	ActionConfirmInputs = canaryActionConfirmInputs
+	ActionWatch         = stressActionWatch
+	ActionDefend        = stressActionDefend
+	ActionRebalance     = stressActionRebalance
+	ActionDeploy        = stressActionDeploy
+	ActionConfirmInputs = stressActionConfirmInputs
 
-	InputOK       = canaryInputOK
-	InputDegraded = canaryInputDegraded
+	InputOK       = stressInputOK
+	InputDegraded = stressInputDegraded
 
-	PortfolioFitLow     = canaryPortfolioFitLow
-	PortfolioFitUnknown = canaryPortfolioFitUnknown
+	PortfolioFitLow     = stressPortfolioFitLow
+	PortfolioFitUnknown = stressPortfolioFitUnknown
 )
 
-// PolicyName returns the active Canary risk-policy profile name.
+// PolicyName returns the active Stress risk-policy profile name.
 func PolicyName() string {
-	return canaryPolicy.Name
+	return stressPolicy.Name
 }
 
 // SummarizeMarket converts a typed regime snapshot into the market summary used
-// by Canary evaluation.
+// by Stress evaluation.
 func SummarizeMarket(r rpc.RegimeSnapshotResult, now time.Time) rpc.StressMarketSummary {
-	return summarizeCanaryMarket(r, now)
+	return summarizeStressMarket(r, now)
 }
 
-// SeverityAtLeast reports whether got ranks at or above want in Canary's
+// SeverityAtLeast reports whether got ranks at or above want in Stress's
 // severity ordering.
 func SeverityAtLeast(got, want risk.SignalSeverity) bool {
 	return severityRankAtLeast(got, want)
 }
 
 // GammaDegraded reports whether the gamma input is unsuitable for an
-// undegraded Canary assessment.
+// undegraded Stress assessment.
 func GammaDegraded(g rpc.RegimeGammaZero) bool {
-	return canaryGammaDegraded(g)
+	return stressGammaDegraded(g)
 }
 
-// MarketEvidence formats the redacted market evidence used in Canary output.
+// MarketEvidence formats the redacted market evidence used in Stress output.
 func MarketEvidence(m rpc.StressMarketSummary) string {
-	return canaryMarketEvidence(m)
+	return stressMarketEvidence(m)
 }
 
-// PortfolioEvidence formats the redacted portfolio evidence used in Canary
+// PortfolioEvidence formats the redacted portfolio evidence used in Stress
 // output.
 func PortfolioEvidence(p rpc.StressPortfolioSummary) string {
-	return canaryPortfolioEvidence(p)
+	return stressPortfolioEvidence(p)
 }
 
 // AmbiguityEvidence formats evidence explaining incomplete or ambiguous market
 // confirmation.
 func AmbiguityEvidence(m rpc.StressMarketSummary) string {
-	return canaryAmbiguityEvidence(m)
+	return stressAmbiguityEvidence(m)
 }
 
 // FormatProtectionCoverageEvidence formats a protection-coverage summary for a
-// Canary evidence row.
+// Stress evidence row.
 func FormatProtectionCoverageEvidence(c *rpc.ProtectionCoverageSummary) string {
 	return formatProtectionCoverageEvidence(c)
 }
 
-// AppendUniqueString appends a non-duplicate string using Canary's canonical
+// AppendUniqueString appends a non-duplicate string using Stress's canonical
 // equality rules.
 func AppendUniqueString(values []string, value string) []string {
 	return appendUniqueString(values, value)

@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/canary"
 	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
 	"github.com/osauer/ibkr/v2/internal/risk"
 	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/ibkr/v2/internal/stress"
 )
 
 const (
@@ -784,7 +784,7 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 	if events != nil {
 		canaryInput.MarketEvents = *events
 	}
-	can := canary.ComputeStress(canaryInput)
+	can := stress.ComputeStress(canaryInput)
 	out.Stress = rpc.BriefStressRow{
 		BriefRowState: briefOK("pure canary composition over daemon snapshots"),
 		Action:        can.Action, Severity: string(can.Severity), Summary: can.Summary,

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/canary"
 	"github.com/osauer/ibkr/v2/internal/dial"
 	"github.com/osauer/ibkr/v2/internal/risk"
 	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/ibkr/v2/internal/stress"
 	"github.com/osauer/ibkr/v2/internal/watchlist"
 )
 
@@ -767,7 +767,7 @@ var Tools = []Tool{
 			if in.View != rpc.ViewFull && in.View != rpc.ViewAlert {
 				return nil, fmt.Errorf("view must be %q or %q (got %q)", rpc.ViewFull, rpc.ViewAlert, in.View)
 			}
-			res, positions, err := canary.FetchStressSnapshot(ctx, conn)
+			res, positions, err := stress.FetchStressSnapshot(ctx, conn)
 			if err != nil {
 				return nil, err
 			}

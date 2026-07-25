@@ -46,7 +46,7 @@ type StressResult struct {
 	PortfolioFit       string                   `json:"portfolio_fit,omitempty"`
 	// PortfolioAlertRelevant is the producer-stamped verdict for "does this
 	// snapshot concern the live portfolio enough to alert on". The policy has
-	// exactly one copy, in internal/canary; the app alert gate and the SPA
+	// exactly one copy, in internal/stress; the app alert gate and the SPA
 	// preview gate read this field instead of re-deriving fit/exposure edge
 	// cases. Nil means the producer predates the stamp — consumers fail open
 	// to relevant, so version skew can add market-weather noise but never

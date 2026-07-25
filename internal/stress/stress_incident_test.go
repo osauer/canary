@@ -1,4 +1,4 @@
-package canary
+package stress
 
 import (
 	"slices"
@@ -10,18 +10,18 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// TestCanaryIncident20260612Regression replays the 2026-06-12 false positive
-// on the canary surface — the SPA panel and alert pipeline the user actually
-// watches. Canary previously recomputed cluster confirmation from raw bands
+// TestStressIncident20260612Regression replays the 2026-06-12 false positive
+// on the stress surface — the SPA panel and alert pipeline the user actually
+// watches. Stress previously recomputed cluster confirmation from raw bands
 // and emitted "Confirmed market stress" (severity act) for two marginal
-// reds. With served eligibility both reds are provisional: canary must hold
+// reds. With served eligibility both reds are provisional: stress must hold
 // at watch, emit no confirmed-stress row or act-grade regime signal, and
 // disclose the unconfirmed clusters.
-func TestCanaryIncident20260612Regression(t *testing.T) {
+func TestStressIncident20260612Regression(t *testing.T) {
 	t.Parallel()
 	spyChange := 0.3
 	vixChange := -3.45
-	r := healthyCanaryRegime()
+	r := healthyStressRegime()
 	r.Composite = rpc.RegimeComposite{
 		ClusterGreenCount: 4, ClusterYellowCount: 1, ClusterRedCount: 1,
 		ClusterRankedCount: 6, ClusterProvisionalRedCount: 2,
@@ -42,7 +42,7 @@ func TestCanaryIncident20260612Regression(t *testing.T) {
 	}
 
 	res := ComputeStress(StressInput{
-		Account: baseCanaryAccount(),
+		Account: baseStressAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 12, 13, 30, 0, 0, time.UTC),
 	})
@@ -55,7 +55,7 @@ func TestCanaryIncident20260612Regression(t *testing.T) {
 			t.Fatalf("unconfirmed = %v, want %s disclosed", res.Market.UnconfirmedRedClusterNames, want)
 		}
 	}
-	if res.MarketConfirmation == canaryMarketConfirmed {
+	if res.MarketConfirmation == stressMarketConfirmed {
 		t.Fatalf("market_confirmation = %s, want not confirmed for provisional reds", res.MarketConfirmation)
 	}
 	for _, row := range res.Rows {
