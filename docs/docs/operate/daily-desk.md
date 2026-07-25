@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-07-25 12:12 CEST
+Updated: 2026-07-25 20:23 CEST
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -13,7 +13,7 @@ ibkr brief
 
 `ibkr status` answers one question before anything else matters: which broker session am I attached to. It exits 1 when the gateway is not connected, so it also works as a guard in a script.
 
-`ibkr brief` is the assembled read. It arrives as two movements: **Review** covers the last completed session (session P&L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and **Ready** covers today (regime, breadth, dealer gamma, canary, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, policy drift, and the day's artefacts).
+`ibkr brief` is the assembled read. It arrives as two movements: **Review** covers the last completed session (session P&L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and **Ready** covers today (regime, breadth, dealer gamma, stress, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, policy drift, and the day's artefacts).
 
 Every row carries a status word, and the two families mean different things:
 
@@ -38,12 +38,12 @@ There is no MCP tool for `brief`. An agent can read the same underlying surfaces
 
 ```sh
 ibkr regime
-ibkr canary
+ibkr stress
 ```
 
-`ibkr regime` gives the broad-market stage. `ibkr canary` asks the narrower question of whether that state matters for the book you actually hold.
+`ibkr regime` gives the broad-market stage. `ibkr stress` asks the narrower question of whether that state matters for the book you actually hold.
 
-One rule about canary is worth carrying into every session: account-only stress is evidence, not a trigger. A zero margin cushion with no confirmed market pressure renders its evidence row and still returns `stand_down`. The `defend` action needs defensive direction at act severity, confirmed market stress, high portfolio fit, and healthy inputs together.
+One rule about the stress read is worth carrying into every session: account-only stress is evidence, not a trigger. A zero margin cushion with no confirmed market pressure renders its evidence row and still returns `stand_down`. The `defend` action needs defensive direction at act severity, confirmed market stress, high portfolio fit, and healthy inputs together.
 
 ## Discipline
 
@@ -59,7 +59,7 @@ A rule that cannot get clean inputs reports `unknown`. It never reports `pass`. 
 
 The surfaces worth leaving open poll with `--watch`: `account` and `positions` (one-second default), `quote` (a 250ms render throttle), `regime` (five minutes), and `watch` for the watchlist. Those are the ones where a number moving is the information.
 
-`canary`, `rules`, and `brief` have no watch mode. They are checkpoints you run when something changed, not tickers. For the conditions that should interrupt you, use the push path in [Alerts and notifications](alerts.md) rather than a terminal you have to keep reading.
+`stress`, `rules`, and `brief` have no watch mode. They are checkpoints you run when something changed, not tickers. For the conditions that should interrupt you, use the push path in [Alerts and notifications](alerts.md) rather than a terminal you have to keep reading.
 
 ## Protection
 

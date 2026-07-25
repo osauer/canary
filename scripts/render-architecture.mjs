@@ -693,10 +693,16 @@ function erSemantic(d, label, labelX, labelY) {
   return `<g><path d="${d}" fill="none" stroke="${C.blue}" stroke-width="1.4" stroke-dasharray="7 6" stroke-linecap="round" stroke-linejoin="round"/><text x="${labelX}" y="${labelY}" class="er-semantic">${esc(label)}</text></g>`;
 }
 
+// coreStoreSchemaInventory reports the table and foreign-key inventory a
+// daemon.db carries once the whole migration plan has been applied, which is
+// the database an operator actually opens. CREATE TABLE names the table at
+// creation time; a later `ALTER TABLE ... RENAME TO ...` moves it, so the
+// renames are replayed over the created set in file order. The highest
+// `version:` in the plan is the schema version that inventory belongs to.
 function coreStoreSchemaInventory() {
   const source = fs.readFileSync(path.join(repoRoot, "internal/daemon/corestore/schema.go"), "utf8");
-  const tables = [];
-  const foreignKeys = [];
+  let tables = [];
+  let foreignKeys = [];
   const tablePattern = /`CREATE TABLE\s+([a-z_]+)\s+\(([\s\S]*?)\n\) STRICT`/g;
   for (const match of source.matchAll(tablePattern)) {
     const child = match[1];
@@ -705,7 +711,19 @@ function coreStoreSchemaInventory() {
       foreignKeys.push(`${child}->${reference[1]}`);
     }
   }
+  const renamePattern = /`ALTER TABLE\s+([a-z_]+)\s+RENAME TO\s+([a-z_]+)`/g;
+  for (const [, from, to] of source.matchAll(renamePattern)) {
+    tables = tables.map((table) => (table === from ? to : table));
+    foreignKeys = foreignKeys.map((fk) =>
+      fk
+        .split("->")
+        .map((side) => (side === from ? to : side))
+        .join("->"),
+    );
+  }
+  const versions = [...source.matchAll(/^\s*version:\s*(\d+),$/gm)].map((match) => Number(match[1]));
   return {
+    version: versions.length ? Math.max(...versions) : 1,
     tables: tables.sort(),
     foreignKeys: foreignKeys.sort(),
   };
@@ -727,6 +745,7 @@ function validateSQLiteER(svg) {
 }
 
 function sqliteDataModel() {
+  const schema = coreStoreSchemaInventory();
   const body = `
   ${header("daemon.db: How the Tables Relate", "Solid lines are SQLite foreign keys. Dashed lines are relationships enforced by the daemon.")}
 
@@ -745,7 +764,7 @@ function sqliteDataModel() {
   ${dbTable({ x: 36, y: 354, width: 270, title: "event_log", rows: [["PK", "event_seq"], ["UQ", "scope + event_key"], ["", "type · action · origin"], ["", "payload JSON · sha256"]], accent: C.slate })}
   ${dbTable({ x: 350, y: 354, width: 270, title: "regime_decisions", rows: [["PK/FK", "event_seq"], ["", "stage · verdict"]], accent: C.slate })}
   ${dbTable({ x: 654, y: 354, width: 270, title: "rule_transitions", rows: [["PK/FK", "event_seq"], ["", "rule · status"]], accent: C.slate })}
-  ${dbTable({ x: 350, y: 480, width: 270, title: "canary_transitions", rows: [["PK/FK", "event_seq"], ["", "action · health"]], accent: C.slate })}
+  ${dbTable({ x: 350, y: 480, width: 270, title: "stress_transitions", rows: [["PK/FK", "event_seq"], ["", "action · health"]], accent: C.slate })}
   ${dbTable({ x: 654, y: 480, width: 270, title: "capital_events", rows: [["PK/FK", "event_seq"], ["", "kind · amount"]], accent: C.slate })}
   ${dbTable({ x: 350, y: 606, width: 270, title: "risk_policy_events", rows: [["PK/FK", "event_seq"], ["", "policy identity"]], accent: C.slate })}
   ${dbTable({ x: 654, y: 606, width: 270, title: "proposal_outcomes", rows: [["PK/FK", "event_seq"], ["", "proposal · state"]], accent: C.slate })}
@@ -753,7 +772,7 @@ function sqliteDataModel() {
   ${dbTable({ x: 654, y: 732, width: 270, title: "regime_indicators", rows: [["PK", "decision + indicator"], ["FK", "decision_event_seq"], ["", "value · status"]], accent: C.slate })}
 
   ${erFK({ parent: "event_log", child: "regime_decisions", d: "M306 420H326V406H350", parentLabel: "1", childLabel: "0..1", parentX: 312, parentY: 410, childX: 330, childY: 398 })}
-  ${erFK({ parent: "event_log", child: "canary_transitions", d: "M306 420H326V532H350", childLabel: "0..1", childX: 330, childY: 524 })}
+  ${erFK({ parent: "event_log", child: "stress_transitions", d: "M306 420H326V532H350", childLabel: "0..1", childX: 330, childY: 524 })}
   ${erFK({ parent: "event_log", child: "risk_policy_events", d: "M306 420H326V658H350", childLabel: "0..1", childX: 330, childY: 650 })}
   ${erFK({ parent: "event_log", child: "order_events", d: "M306 420H326V770H350", childLabel: "0..1", childX: 330, childY: 762 })}
   ${erFK({ parent: "event_log", child: "rule_transitions", d: "M171 354V336H940V406H924", childLabel: "0..1", childX: 878, childY: 398 })}
@@ -789,14 +808,14 @@ function sqliteDataModel() {
   ${erSemantic("M418 1256V1294", "written together · no FK", 286, 1282)}
   ${erSemantic("M747 1278V1294", "", 0, 0)}
 
-  <text x="924" y="1466" text-anchor="end" class="footnote">schema v1 · 21 tables · inventory checked against internal/daemon/corestore/schema.go</text>
+  <text x="924" y="1466" text-anchor="end" class="footnote">schema v${schema.version} · ${schema.tables.length} tables · inventory checked against internal/daemon/corestore/schema.go</text>
   `;
 
   const svg = svgFrame({
     width: 960,
     height: 1490,
     title: "How daemon.db Tables Relate (ibkr canary)",
-    description: "A physical entity relationship diagram for SQLite schema version 1. Solid lines represent declared foreign keys with cardinalities. Dashed lines identify application-level relationships that are not enforced by SQLite. Standalone state, observation, migration, import, and order-floor tables have no invented relationships.",
+    description: `A physical entity relationship diagram for SQLite schema version ${schema.version}. Solid lines represent declared foreign keys with cardinalities. Dashed lines identify application-level relationships that are not enforced by SQLite. Standalone state, observation, migration, import, and order-floor tables have no invented relationships.`,
     body,
     extraStyles: storageERStyles,
   });
@@ -911,7 +930,7 @@ function sensorAuthorityPipeline() {
 
   <rect x="692" y="158" width="368" height="570" rx="17" fill="${C.panel}" stroke="${C.greenLine}" stroke-width="1.4"/>
   ${sensorBox({ x: 710, y: 184, width: 332, height: 126, title: "Regime", lines: ["8 rows → 6 clusters", "5-minute last-good authority"], color: C.green, iconName: "serverCog", fill: C.terminal, dark: true })}
-  ${sensorBox({ x: 710, y: 352, width: 332, height: 126, title: "Canary", lines: ["Regime + held portfolio", "one-minute fail-closed view"], color: C.amber, iconName: "shieldCheck" })}
+  ${sensorBox({ x: 710, y: 352, width: 332, height: 126, title: "Stress", lines: ["Regime + held portfolio", "one-minute fail-closed view"], color: C.amber, iconName: "shieldCheck" })}
   ${sensorBox({ x: 710, y: 520, width: 332, height: 126, title: "Rulebook", lines: ["account + book + events", "one-minute advisory checks"], color: C.slate, iconName: "fileText" })}
 
   <rect x="1096" y="158" width="320" height="570" rx="17" fill="${C.panelAlt}" stroke="${C.line}"/>
@@ -944,7 +963,7 @@ function sensorAuthorityPipeline() {
     width: 1440,
     height: 780,
     title: "Sensor Measurement and Authority (ibkr canary)",
-    description: "Broker and public observations enter daemon-owned Gamma, market-series, and market-event sensors. Regime consumes Gamma and market series; Canary consumes Regime, portfolio, and held-name events; Rulebook consumes current desk evidence. Alerts and read-only surfaces consume typed results without recreating authority.",
+    description: "Broker and public observations enter daemon-owned Gamma, market-series, and market-event sensors. Regime consumes Gamma and market series; Stress consumes Regime, portfolio, and held-name events; Rulebook consumes current desk evidence. Alerts and read-only surfaces consume typed results without recreating authority.",
     body,
     extraStyles: policyReadableStyles,
   });

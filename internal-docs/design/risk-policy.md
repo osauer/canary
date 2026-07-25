@@ -119,8 +119,8 @@ cutover inputs, not live fallbacks.
 
 MCP `ibkr_policy` tool; SPA card; push alerts; Flex/Activity ingestion;
 promotion of any control to hard; automated reports (phase 4); capital
-allocation responses (phase 5). The canary fingerprint label was renamed
-`canary-policy-fp-v1` (was `risk-policy-fp-v1`) to keep identities
+allocation responses (phase 5). The stress policy fingerprint label is
+`stress-policy-fp-v1` (originally `risk-policy-fp-v1`) to keep identities
 unambiguous; fingerprint keys are unchanged.
 
 ## Rollback

@@ -52,7 +52,7 @@
 <h1 id="ibkr-mcp-server">IBKR MCP server</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
 <p><code>ibkr mcp</code> is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed, Continue, and other stdio MCP hosts to the machine already running IB Gateway or Trader Workstation (TWS).</p>
-<p>ibkr canary has grown from an MCP server into a small local trading-desk platform for individual traders. Agents get full market data: real-time and streaming quotes, chains with Greeks and open interest, history, and scanners. The risk side stays advisory and operator-controlled: regime dashboard, canary stress checks, a 14-rule rulebook, plus <code>ibkr policy</code> and <code>ibkr recon</code> in the terminal.</p>
+<p>ibkr canary has grown from an MCP server into a small local trading-desk platform for individual traders. Agents get full market data: real-time and streaming quotes, chains with Greeks and open interest, history, and scanners. The risk side stays advisory and operator-controlled: regime dashboard, portfolio stress checks, a 14-rule rulebook, plus <code>ibkr policy</code> and <code>ibkr recon</code> in the terminal.</p>
 <p>Use this page when you searched for &#34;IBKR MCP&#34;, &#34;ibkr mcp server&#34;, or &#34;Interactive Brokers MCP&#34;. If your exact query was &#34;ibkr mcp tws&#34;, use the <a href="../ibkr-mcp-tws/index.html">IBKR MCP TWS setup</a> page. The short version: install the Claude Desktop MCP Bundle or the <code>ibkr</code> binary, run it beside your local IBKR session, and expose account, positions, quotes, calendars, options, scanners, breadth, gamma, regime, stress-monitoring, and sizing context to an AI workflow. The bundled MCP surface is read-side only, so agents can review, monitor, and size plans without receiving order-entry tools.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
@@ -86,11 +86,11 @@ ibkr setup claude-desktop</code></pre>
 <li>Snapshot stock and ETF quotes, daily history, previous close, and quote freshness.</li>
 <li>Official market calendars for US equities, US listed options, and Xetra.</li>
 <li>Option expiries, implied volatility, expected moves, strike grids, deltas, and open interest.</li>
-<li>Market scanners, fixed-fractional position sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, broad-market regime lifecycle, and the <code>ibkr_canary</code> portfolio-aware stress-lifecycle tool.</li>
+<li>Market scanners, fixed-fractional position sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, broad-market regime lifecycle, and the <code>ibkr_stress</code> portfolio-aware stress-lifecycle tool.</li>
 <li>Streaming stock and ETF quote resources through <code>ibkr://quote/{symbol}</code>.</li>
 </ul>
 <p>The full schema is in the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> and <a href="../docs/reference/mcp-resources.html">MCP resources reference</a>.</p>
-<p>For a scheduled stress-monitoring workflow that returns lifecycle stage, readiness, confidence, source health, fingerprints, row table, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_canary_prompt.md">examples/ibkr_portfolio_canary_prompt.md</a>. It is intentionally narrow: it gives the decision surface and leaves notifications or escalation policy to your host workflow.</p>
+<p>For a scheduled stress-monitoring workflow that returns lifecycle stage, readiness, confidence, source health, fingerprints, row table, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_stress_prompt.md">examples/ibkr_portfolio_stress_prompt.md</a>. It is intentionally narrow: it gives the decision surface and leaves notifications or escalation policy to your host workflow.</p>
 <h2 id="current-execution-boundary">Current execution boundary</h2>
 <p>The current bundled CLI and MCP server expose analysis and sizing tools. They do not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If a host asks to buy or sell securities through this MCP server, the correct answer is that the current public server has no order-entry interface.</p>
 <h2 id="related-pages">Related pages</h2>

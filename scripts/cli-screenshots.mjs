@@ -17,7 +17,7 @@ const DEFAULT_COLOR = "#e6edf7";
 
 const SCREENS = [
   { name: "regime", title: "ibkr regime", width: 1280 },
-  { name: "canary", title: "ibkr canary", width: 1280 },
+  { name: "stress", title: "ibkr stress", width: 1280 },
   { name: "chain", title: "ibkr chain SPY", width: 1080 },
   { name: "positions", title: "ibkr positions --by underlying", width: 1280 },
 ];

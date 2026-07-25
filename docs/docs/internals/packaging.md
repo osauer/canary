@@ -1,6 +1,6 @@
 # Packaging and distribution
 
-Updated: 2026-07-25 09:45 CEST
+Updated: 2026-07-25 20:23 CEST
 
 `ibkr` ships as a Claude Code plugin, a Claude Desktop `.mcpb` bundle, and a
 separately installed binary. This page covers what each package contains and
@@ -9,13 +9,13 @@ what you can check before trusting a download.
 `ibkr` is a local platform for running an agentic trading desk on Interactive
 Brokers, aimed at individual traders who already run IB Gateway or TWS. Agents
 get the full market-data surface (real-time per your IBKR market-data
-subscriptions) and portfolio context. Regime, canary, and rulebook checks stay
+subscriptions) and portfolio context. Regime, stress, and rulebook checks stay
 advisory, and risk policy plus statement reconciliation stay operator-owned in
 the terminal.
 
 The description used in listings:
 
-> An agentic trading desk for Interactive Brokers: account, positions, real-time and streaming quotes (per your IBKR market-data subscriptions), official market calendars, option chains, history, technical/relative-strength screens, scans, fixed-fractional sizing, S&P 500 breadth, SPY+SPX dealer gamma, a broad-market stress-lifecycle regime dashboard, a 14-rule advisory trading rulebook, and a stateless portfolio canary through a local CLI/MCP server connected to IB Gateway or TWS.
+> An agentic trading desk for Interactive Brokers: account, positions, real-time and streaming quotes (per your IBKR market-data subscriptions), official market calendars, option chains, history, technical/relative-strength screens, scans, fixed-fractional sizing, S&P 500 breadth, SPY+SPX dealer gamma, a broad-market stress-lifecycle regime dashboard, a 14-rule advisory trading rulebook, and a stateless portfolio stress read through a local CLI/MCP server connected to IB Gateway or TWS.
 
 ## Requirements and boundaries
 

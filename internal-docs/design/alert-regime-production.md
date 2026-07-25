@@ -14,7 +14,7 @@ it opened, escalated, or recovered. The app records that decision, decides
 whether the selected notification level permits a push, and owns every
 delivery attempt and receipt.
 
-This cutover replaces the earlier record-only commissioning topology. Canary,
+This cutover replaces the earlier record-only commissioning topology. Stress,
 governance, and order-integrity alerts no longer have separate send owners.
 They enter the same source-neutral candidate snapshot, inbox, unread cursor,
 and dispatcher as every other alert source.
@@ -188,13 +188,15 @@ previous context without marking the old condition recovered or read.
 
 ## Producer contract
 
-The fixed producer universe is Canary, Regime, Rulebook, risk policy,
+The fixed producer universe is Stress, Regime, Rulebook, risk policy,
 Protection, order integrity, reconciliation, governance, and Data Health.
 Delivery health is a downstream result, not a producer in that universe.
 
-- **Canary** consumes current account, positions, Regime, and applicable
+- **Stress** consumes current account, positions, Regime, and applicable
   market-event evidence. A required source failure makes its result unknown;
-  it does not become a reassuring clear or a market warning.
+  it does not become a reassuring clear or a market warning. Its on-wire
+  `source` value stays `canary`: the value keys retained records and episode
+  identities, so it is deliberately not renamed with the producer.
 - **Regime** opens from producer-qualified stress states only. `data_quality`,
   stale or unavailable authority, overdue required evidence, and invalid
   `not_due` claims cannot open or recover an episode.

@@ -90,7 +90,7 @@
                 <li><a href="../internals/storage.html">Storage</a></li>
                 <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
@@ -102,14 +102,14 @@
     </details>
     <main class="doc">
 <h1 id="concepts">Concepts</h1>
-<p>Updated: 2026-07-25 09:41 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p>What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. This page is the mental model. <a href="sensors.html">Sensors</a> owns authority, freshness, last-good behavior, and the safe checks; the <a href="../internals/regime-dashboard.html">regime dashboard contract</a> owns methodology.</p>
 <nav class="toc" aria-label="On this page">
 <span class="toc-label">On this page</span>
 <ul>
 <li><a href="#market-calendars"><span class="n">01</span>Market calendars</a></li>
 <li><a href="#regime"><span class="n">02</span>Regime</a></li>
-<li><a href="#canary"><span class="n">03</span>Canary</a></li>
+<li><a href="#stress"><span class="n">03</span>Stress</a></li>
 <li><a href="#market-events"><span class="n">04</span>Market events</a></li>
 <li><a href="#protective-stops"><span class="n">05</span>Protective stops</a></li>
 <li><a href="#gamma"><span class="n">06</span>Gamma</a></li>
@@ -143,8 +143,8 @@
 <p>Every row bands green / yellow / red and carries a <code>streak</code> count of consecutive sessions in that band. A Day-1 stress event reads differently from a Day-5 one. The lifecycle layer keeps weak or unconfirmed red evidence visible while stopping a single noisy proxy from dominating the broad-market trigger.</p>
 <p>Two things to expect on the wire. Gamma and breadth are heavy computes: gamma reports <code>status: &quot;computing&quot;</code> with an ETA, breadth <code>state: &quot;computing&quot;</code>, until a result is serveable. <a href="sensors.html">Sensors</a> has the refresh and last-good rules. Live IBKR rows may carry a <code>fields_missing</code> array for optional sub-fields that missed the fetch budget; the primary measurement still landed, so treat it as a render hint, not an error.</p>
 <p>Calibrate your own threshold bands against <a href="../internals/regime-dashboard.html">the regime dashboard contract</a>; its suggestions are starting points, not gospel.</p>
-<h2 id="canary"><span class="secno" aria-hidden="true">03</span>Canary</h2>
-<p>The portfolio canary is narrower than regime: it asks whether today's market weather matters for the portfolio currently held. From account, positions, and regime snapshots it derives an action, planner readiness, and a semantic alert fingerprint for monitor dedupe. <a href="sensors.html#canary">Sensors</a> lists the output fields.</p>
+<h2 id="stress"><span class="secno" aria-hidden="true">03</span>Stress</h2>
+<p>The portfolio stress read is narrower than regime: it asks whether today's market weather matters for the portfolio currently held. From account, positions, and regime snapshots it derives an action, planner readiness, and a semantic alert fingerprint for monitor dedupe. <a href="sensors.html#stress">Sensors</a> lists the output fields.</p>
 <p>The high-precision rule is intentional: broad-market stress must be confirmed by market evidence, not by the user's own losses or margin pressure. Account-only facts and portfolio-only facts can appear as evidence, but <code>defend</code> requires confirmed market pressure, vulnerable portfolio fit, and usable input health. Portfolio-only pressure normally becomes <code>rebalance</code> or <code>watch</code>.</p>
 <p><code>portfolio.held_stress[]</code> is the positions-only single-name stress surface. It is bounded to material held underlyings and appears only when an existing position shows one of these conditions:</p>
 <ul>
@@ -152,8 +152,8 @@
 <li>near-expiry held-option delta concentration</li>
 <li>held-name stock quote or option bid/ask degradation</li>
 </ul>
-<p>Canary calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.</p>
-<p>Canary marks the alert boundary. The diagnosis behind an alert comes from <code>ibkr_positions</code>, <code>ibkr_regime</code>, <code>ibkr_market_events</code>, or <code>ibkr_account</code>.</p>
+<p>The stress read calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.</p>
+<p>Stress marks the alert boundary. The diagnosis behind an alert comes from <code>ibkr_positions</code>, <code>ibkr_regime</code>, <code>ibkr_market_events</code>, or <code>ibkr_account</code>.</p>
 <h2 id="market-events"><span class="secno" aria-hidden="true">04</span>Market events</h2>
 <p>Market events answer a single-name context question: does this held or requested stock or ETF have borrow, threshold-list, LULD, or halt evidence that should affect risk review or protection proposals?</p>
 <p>V1 flags are reduce-only context and gates. They can annotate, prioritize, or block an existing protection proposal, but they never create buy-to-open, buy-add, or squeeze-style opportunity recommendations. The separate Opportunities surface is daemon-calculated from positions and executable market data; its MVP bucket is option exercise only. When a <code>BUY</code> proposal reduces an existing short, the user-facing copy is <code>Buy to cover</code>.</p>

@@ -90,7 +90,7 @@
                 <li><a href="storage.html">Storage</a></li>
                 <li><a href="protocol.html">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="packaging.html" class="is-current" aria-current="page">Packaging and distribution</a></li>
@@ -102,19 +102,19 @@
     </details>
     <main class="doc">
 <h1 id="packaging-and-distribution">Packaging and distribution</h1>
-<p>Updated: 2026-07-25 09:45 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p><code>ibkr</code> ships as a Claude Code plugin, a Claude Desktop <code>.mcpb</code> bundle, and a
 separately installed binary. This page covers what each package contains and
 what you can check before trusting a download.</p>
 <p><code>ibkr</code> is a local platform for running an agentic trading desk on Interactive
 Brokers, aimed at individual traders who already run IB Gateway or TWS. Agents
 get the full market-data surface (real-time per your IBKR market-data
-subscriptions) and portfolio context. Regime, canary, and rulebook checks stay
+subscriptions) and portfolio context. Regime, stress, and rulebook checks stay
 advisory, and risk policy plus statement reconciliation stay operator-owned in
 the terminal.</p>
 <p>The description used in listings:</p>
 <blockquote>
-<p>An agentic trading desk for Interactive Brokers: account, positions, real-time and streaming quotes (per your IBKR market-data subscriptions), official market calendars, option chains, history, technical/relative-strength screens, scans, fixed-fractional sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, a broad-market stress-lifecycle regime dashboard, a 14-rule advisory trading rulebook, and a stateless portfolio canary through a local CLI/MCP server connected to IB Gateway or TWS.</p>
+<p>An agentic trading desk for Interactive Brokers: account, positions, real-time and streaming quotes (per your IBKR market-data subscriptions), official market calendars, option chains, history, technical/relative-strength screens, scans, fixed-fractional sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, a broad-market stress-lifecycle regime dashboard, a 14-rule advisory trading rulebook, and a stateless portfolio stress read through a local CLI/MCP server connected to IB Gateway or TWS.</p>
 </blockquote>
 <h2 id="requirements-and-boundaries">Requirements and boundaries</h2>
 <ul>

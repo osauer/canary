@@ -36,7 +36,7 @@ Principles (approved):
 
 1. **Brief surface.** The daemon composes a typed morning/EOD brief from
    existing results (policy tier + latch, recon clock, rules deltas since the
-   last brief, canary state, Phase-2 day counter, artefacts due). Rendered by
+   last brief, stress state, Phase-2 day counter, artefacts due). Rendered by
    `ibkr brief` and a card in the paired PWA. Rendering on a human-origin
    surface journals the artefact completion; agent-origin renders never stamp.
 2. **Push nudges** over the existing relay/PWA pairing: artefact not done by
@@ -300,7 +300,7 @@ fixture), then `make app-refresh` on the real host.
 
 - **Content scope grew by operator decision (interview, same day, two
   rounds):** the approved six-row list became a five-section desk-style
-  brief — A Market (regime, breadth, dealer gamma, canary), B Calendar
+  brief — A Market (regime, breadth, dealer gamma, stress), B Calendar
   (session, held-name event flags), C Portfolio (equity + daily P&L, top-3
   movers, premium-at-risk, best-effort hedge cost, working orders), D Risk &
   limits (tier, latch + latch age, active overrides, sibling-pin drift),
@@ -441,7 +441,7 @@ verbatim — that split is unchanged.
   adjusted-peak provenance); reconcile / auto-extend / one-tap sign-off (the tap
   closes the movement); working-orders end state.
 - **Ready** — pre-trade for today. Rows: overnight & market (regime posture +
-  canary verdict + breadth/gamma tape with their existing provenance stamps);
+  stress verdict + breadth/gamma tape with their existing provenance stamps);
   calendar (session phase/next open, held-name earnings with the rule-unknown
   cross-link, event flags); risk capacity (capital tier, drawdown latch, premium
   at risk, hedge carry); desk readiness (policy-pin drift, cadence artefacts, the

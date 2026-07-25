@@ -4,12 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Regime and canary backtest runbook | ibkr</title>
-  <meta name="description" content="Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.">
+  <title>Regime and stress backtest runbook | ibkr</title>
+  <meta name="description" content="Runbook for proving and tuning the ibkr regime and Stress lifecycle against point-in-time evidence.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/regime-backtest.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.","headline":"Regime and canary backtest runbook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/regime-backtest.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Runbook for proving and tuning the ibkr regime and Stress lifecycle against point-in-time evidence.","headline":"Regime and stress backtest runbook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/regime-backtest.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
@@ -90,7 +90,7 @@
                 <li><a href="storage.html">Storage</a></li>
                 <li><a href="protocol.html">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html" class="is-current" aria-current="page">Regime and canary backtest runbook</a></li>
+                <li><a href="regime-backtest.html" class="is-current" aria-current="page">Regime and stress backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="packaging.html">Packaging and distribution</a></li>
@@ -101,12 +101,12 @@
       </nav>
     </details>
     <main class="doc">
-<h1 id="regime-and-canary-backtest-runbook">Regime and canary backtest runbook</h1>
-<p>Updated: 2026-07-25 09:45 CEST</p>
+<h1 id="regime-and-stress-backtest-runbook">Regime and stress backtest runbook</h1>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p>This is the single umbrella for proving and tuning <code>ibkr regime</code> and
-<code>ibkr canary</code>. Keep the work here. Do not add another experiment plan, tuning
+<code>ibkr stress</code>. Keep the work here. Do not add another experiment plan, tuning
 plan, or backtest framework unless this runbook says to.</p>
-<p>The goal: prove that regime and canary produce useful stress detection without
+<p>The goal: prove that regime and stress produce useful stress detection without
 overfitting to named events.</p>
 <h2 id="plain-definitions">Plain definitions</h2>
 <ul>
@@ -114,11 +114,11 @@ overfitting to named events.</p>
 have been known on that date.</li>
 <li>A target label is for scoring only. It must not feed the signal.</li>
 <li><code>regime</code> answers: what is the broad market state?</li>
-<li><code>canary</code> answers: given account, positions, and regime, should the monitor
+<li><code>stress</code> answers: given account, positions, and regime, should the monitor
 stay quiet, watch, act, rebalance, flag opportunity, or block on data quality?</li>
 <li>Portfolio-only stress, including positions-only held-underlying stress,
-belongs to canary. Regime can keep those rows for context, but they are
-out-of-scope for market-regime precision and recall.</li>
+belongs to the stress read. Regime can keep those rows for context, but they
+are out-of-scope for market-regime precision and recall.</li>
 </ul>
 <h2 id="artifact-map">Artifact map</h2>
 <p>All backtest artifacts live in one of these places:</p>
@@ -294,14 +294,14 @@ while preserving watch-level visibility: before 67% precision / 100% recall /
 <li>Curated sourced regime tuning improves precision from 68% to 75% and false
 alarms from 32% to 21%; recall falls from 93% to 86%, which is a monitoring
 item but not a collapse.</li>
-<li>Curated canary holdout catches labelled stress at watch level: watch
+<li>Curated stress holdout catches labeled stress at watch level: watch
 precision 73%, recall 100%; act precision 86%, recall 75%, false alarms 6%.</li>
-<li>Canary adds portfolio-specific lift beyond regime alone: sourced holdout
-portfolio-stress recall moves from 75% regime-only to 100% canary, with one
-additional portfolio true positive.</li>
-<li>Canary action/readiness metrics are now first-class: watch recall of later
+<li>The stress read adds portfolio-specific lift beyond regime alone: sourced
+holdout portfolio-stress recall moves from 75% regime-only to 100% with the
+stress read, with one additional portfolio true positive.</li>
+<li>Stress action/readiness metrics are now first-class: watch recall of later
 confirmed stress is 100% on the sourced holdout, median lead is 1.0 day,
-and action buckets are tracked separately from the stateless canary JSON
+and action buckets are tracked separately from the stateless stress JSON
 surface.</li>
 <li>Category reporting is split for market-driven, portfolio-driven,
 concentration-driven, margin-driven, options-driven, and data-quality cases;
@@ -411,7 +411,8 @@ public source is proven.</li>
 <li>Major events are not hidden: Volmageddon, COVID, 2022 bear-market stress,
 yen carry unwind, and tariff shock remain visible at least at watch level.</li>
 <li>Calm/rally controls get quieter or the remaining false alarms are explainable.</li>
-<li>Portfolio-only stress is evaluated by canary, not counted as regime failure.</li>
+<li>Portfolio-only stress is evaluated by the stress read, not counted as regime
+failure.</li>
 <li>Data-quality warnings are separate from stress false positives.</li>
 </ul>
 <p>If Tier 2 cannot materially improve precision without destroying recall, stop

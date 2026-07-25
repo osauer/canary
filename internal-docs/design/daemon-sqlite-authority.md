@@ -14,7 +14,7 @@ observations. It does not promote or reuse `history.db`: that database, its
 WAL/SHM files, JSONL journals, and rotated archives belong to the sealed legacy
 epoch and are never opened by normal runtime paths.
 
-This is a clean semantic epoch. Legacy regime, rules, canary, proposal, and
+This is a clean semantic epoch. Legacy regime, rules, stress, proposal, and
 opportunity histories are not imported because they may encode behavior from
 buggy implementations. Irreplaceable observations and state whose loss could
 weaken a guardrail are imported through an explicit allowlist. Former live
@@ -77,7 +77,7 @@ result, import class, and row or payload count.
 - Current regime/streak state and regime decision history.
 - Derived brief fingerprints and comparison baselines.
 - Rule transition history.
-- Canary decision history.
+- Stress decision history.
 - Proposal and proposal-outcome history and current proposal snapshot.
 - Opportunity history and current opportunity snapshot.
 - Trading-readiness proof; broker writes remain blocked until a new paper-smoke

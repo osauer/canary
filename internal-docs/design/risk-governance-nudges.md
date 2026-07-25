@@ -130,7 +130,7 @@ The operator approved this pack on 2026-07-18:
 | Monthly schedule | Day 1 at local `09:00` | `approved` |
 | Monthly completion | An authenticated paired-device foreground render records completion only when all sibling pins are readable and match; it is not proof that a person reviewed the content | `approved` |
 | Persistent-condition repeats | Once per stable occurrence per active subscription/device; no periodic reminders | `approved` |
-| Existing Canary alert mode | `none` disables all push delivery; `act_only` vs `watch_and_act` filters Canary only, not governance nudges | `approved` |
+| Existing stress alert mode | `none` disables all push delivery; `act_only` vs `watch_and_act` filters stress alerts only, not governance nudges | `approved` |
 | Subscription target set | Every valid subscription belonging to a current non-revoked paired device; success/failure tracked independently | `approved` |
 | Per-kind severity | `watch`: reconcile due soon, confirmed flow, monthly; `act`: overdue recon, recon exception, shadow would-block, open latch, policy drift | `approved` |
 | Shadow-event/latch aggregation | Keep two trigger types; notify on the first qualifying risk-increasing preview in a latch episode and count later previews in the visible record | `approved` |
@@ -321,7 +321,7 @@ physical-phone delivery. Device removal and subscription revocation prune the
 corresponding retry obligation through the existing device lifecycle.
 
 Clearing visible governance history never clears receipts or dedupe state.
-Governance records never inherit Canary account/mode fingerprint staleness.
+Governance records never inherit stress account/mode fingerprint staleness.
 
 Daemon state contains no push endpoint, subscription, device attempt, or
 delivery status. It persists only the redacted event facts required to recover
@@ -333,9 +333,9 @@ only for that subscription; a resolved or expired candidate stops all retry;
 every attempt is recorded. The final backoff numbers are engineering
 constants, not risk-policy thresholds, and belong in tests.
 
-The governance path does not reuse Canary's history-cap lookup as its durable
-dedupe authority: dropping an old UI row must not make an unchanged latch or
-drift episode notify again. Canary alert behavior stays unchanged.
+The governance path does not reuse the stress read's history-cap lookup as its
+durable dedupe authority: dropping an old UI row must not make an unchanged
+latch or drift episode notify again. Stress alert behavior stays unchanged.
 
 The Web Push payload is an allowlist of safe title, safe body, destination enum,
 kind, severity, and an app-minted non-sensitive display ID. Semantic dedupe
@@ -375,8 +375,8 @@ flows have no expiry.
 ## Paired-App Surface
 
 - The Alerts tab labels governance history as `Risk & process`, distinct from
-  Canary signal history.
-- Existing Canary severity filtering remains conceptually separate from
+  stress signal history.
+- Existing stress severity filtering remains conceptually separate from
   governance delivery; the exact global `none` behavior is decided before
   implementation.
 - The brief process section shows monthly status as `not due`, `due`,
@@ -396,14 +396,14 @@ flows have no expiry.
 ### SPA authority matrix
 
 These are planned, stable JSON paths. The SPA renders them directly and never
-derives governance state from prose, Canary rows, or `stamp_target`.
+derives governance state from prose, stress rows, or `stamp_target`.
 
 | Visible concept | Authority | App/SPA path | Fixture states | Stale/error behavior | Rendered gate |
 |---|---|---|---|---|---|
 | Current eligible nudges | daemon `nudges.snapshot` | `bootstrap.snapshot.nudges.candidates[]`; live `snapshot.nudges.candidates[]` | empty, one per kind, multiple kinds | use `bootstrap.snapshot.sources.nudges`; unavailable is explicit and never means empty/clear | candidate grouping and safe-copy fixture assertions |
 | Nudge RPC freshness | app live poll metadata | `bootstrap.snapshot.sources.nudges` | current, stale, allowlisted transport error | retain last successful RPC time and show unavailable | RPC-stale/unavailable browser assertion |
 | Evaluator input health | daemon `NudgeSourceHealth` | `bootstrap.snapshot.nudges.source_health`; live `snapshot.nudges.source_health` | ready, suppressed by unapproved/stale/unavailable input, degraded | render allowlisted per-input state/reason/as-of; current RPC never turns suppressed authority into empty/clear | current-RPC-with-suppressed-input fixture assertion |
-| Governance occurrence history | daemon safe candidate plus app occurrence record | `bootstrap.governance.occurrences[]`; same object from `GET /api/governance` | active, resolved, expired, cleared-from-view | persisted rows remain source-labelled; no Canary staleness rules | `Risk & process` grouping assertion |
+| Governance occurrence history | daemon safe candidate plus app occurrence record | `bootstrap.governance.occurrences[]`; same object from `GET /api/governance` | active, resolved, expired, cleared-from-view | persisted rows remain source-labelled; no stress staleness rules | `Risk & process` grouping assertion |
 | Delivery attempt evidence | app transport store | `bootstrap.governance.attempts[]`; same object from `GET /api/governance` | accepted, no subscription, missing keys/sender, timeout, non-2xx | label exact allowlisted class; never "delivered" | failed/partial/multi-device fixtures |
 | Delivery health | app transport store | `bootstrap.governance.delivery_health`; same object from `GET /api/governance` | healthy, suppressed, degraded, unavailable, overflow | show current state, last service acceptance, unresolved allowlisted failure, and suppression reason | persistent failure/recovery assertions |
 | Monthly pulse | daemon typed brief row | `bootstrap.snapshot.brief.process.monthly_pulse` | `not_due`, `due`, `completed`, `blocked` | unavailable or unreadable pins produce `blocked`, never client inference | all four mobile fixtures |
@@ -501,7 +501,7 @@ Starts after Cluster 0 and can run parallel to Cluster 1. Ownership:
 Deliverables:
 
 - one-minute candidate polling without policy re-evaluation;
-- governance delivery separate from Canary alert semantics;
+- governance delivery separate from stress alert semantics;
 - retention-controlled attempt history, durable receipt index, and fail-loud
   overflow behavior;
 - explicit missed-attempt records and truthful retry behavior;

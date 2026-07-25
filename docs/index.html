@@ -75,7 +75,7 @@
           "Full market-data access for agents: real-time and streaming quotes, option chains with Greeks and open interest, daily history, and scanners, following the user's IBKR market-data subscriptions",
           "MCP server for Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts",
           "Risk-regime dashboard across volatility, credit, funding, FX, dealer gamma, and S&P 500 breadth",
-          "Scheduled portfolio stress checks (canary) with watch/warn/critical status",
+          "Scheduled portfolio stress checks that return a typed action: stand down, watch, defend, rebalance, deploy, or confirm inputs",
           "Advisory 14-rule trading discipline rulebook that never renders a false pass",
           "Operator-authored risk policy with advisory drawdown reporting (CLI)",
           "Daily broker-statement ingestion and reconciliation (CLI)",
@@ -141,7 +141,7 @@
             "name": "What is an agentic trading desk?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "A setup where AI agents work with live broker and market context under rules the trader controls. ibkr canary is a local platform for that: read-side MCP tools with full market data, advisory risk surfaces (regime dashboard, canary stress checks, a 14-rule rulebook, an operator-written risk policy, daily statement reconciliation), and a paired monitoring app."
+              "text": "A setup where AI agents work with live broker and market context under rules the trader controls. ibkr canary is a local platform for that: read-side MCP tools with full market data, advisory risk surfaces (regime dashboard, portfolio stress checks, a 14-rule rulebook, an operator-written risk policy, daily statement reconciliation), and a paired monitoring app."
             }
           }
         ]
@@ -754,8 +754,8 @@ ibkr setup claude-desktop
         </article>
         <article class="feature">
           <small>Stress checks</small>
-          <h3>Portfolio canary</h3>
-          <p>Scheduled stress checks that combine account, exposure, regime, and data-quality gates into a watch, warn, or critical status an agent can poll.</p>
+          <h3>Portfolio stress</h3>
+          <p>Scheduled stress checks that combine account, exposure, regime, and data-quality gates into one action an agent can poll: stand down, watch, defend, rebalance, deploy, or confirm inputs.</p>
         </article>
         <article class="feature">
           <small>Discipline</small>
@@ -802,7 +802,7 @@ ibkr setup claude-desktop
           <p>One dashboard for volatility, credit, funding, FX carry, dealer gamma, and S&amp;P 500 breadth.</p>
         </article>
         <article class="proof">
-          <img src="social/canary.png" width="1280" height="680" loading="lazy" alt="synthetic ibkr canary terminal output">
+          <img src="social/stress.png" width="1280" height="699" loading="lazy" alt="synthetic ibkr stress terminal output">
           <h3>Stress monitor</h3>
           <p>Scheduled lifecycle, readiness, source-health, and stress checks from account, exposure, regime, and data-quality gates.</p>
         </article>
@@ -852,7 +852,7 @@ ibkr setup claude-desktop
         <article class="feature">
           <small>Terminal CLI</small>
           <h3>For fast checks</h3>
-          <p>Run commands such as <code>ibkr status</code>, <code>ibkr positions</code>, <code>ibkr canary</code>, <code>ibkr calendar</code>, <code>ibkr chain SPY</code>, and <code>ibkr regime</code>. Since v2.1 the CLI also carries the operator risk workflow: <code>ibkr policy show</code> reads the risk policy you declared and <code>ibkr recon</code> checks daily broker statements against it. Both are advisory. Every data command supports JSON; the CLI is useful, but the Claude/MCP path is the main path.</p>
+          <p>Run commands such as <code>ibkr status</code>, <code>ibkr positions</code>, <code>ibkr stress</code>, <code>ibkr calendar</code>, <code>ibkr chain SPY</code>, and <code>ibkr regime</code>. Since v2.1 the CLI also carries the operator risk workflow: <code>ibkr policy show</code> reads the risk policy you declared and <code>ibkr recon</code> checks daily broker statements against it. Both are advisory. Every data command supports JSON; the CLI is useful, but the Claude/MCP path is the main path.</p>
         </article>
         <article class="feature">
           <small>Go library</small>
@@ -871,7 +871,7 @@ ibkr setup claude-desktop
         <article class="proof">
           <img src="social/canary-app-mobile.png" width="780" height="1688" loading="lazy" alt="Canary mobile app monitor screen">
           <h3>Mobile monitor</h3>
-          <p>Daily brief, market regime, portfolio canary, protection, alerts, positions, and settings in the paired PWA.</p>
+          <p>Daily brief, market regime, portfolio stress, protection, alerts, positions, and settings in the paired PWA.</p>
         </article>
         <article class="proof">
           <img src="social/canary-app-desktop.png" width="2360" height="1520" loading="lazy" alt="Canary app wide viewport">
@@ -915,7 +915,7 @@ ibkr setup claude-desktop
         <article class="feature">
           <small>Measurements</small>
           <h3><a href="docs/understand/sensors.html">Sensors</a></h3>
-          <p>What Gamma, Regime, Canary, Rulebook, and market events measure, when their evidence is fresh, and how gaps fail closed.</p>
+          <p>What Gamma, Regime, Stress, Rulebook, and market events measure, when their evidence is fresh, and how gaps fail closed.</p>
         </article>
       </div>
     </section>

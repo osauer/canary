@@ -1,13 +1,13 @@
 ---
 name: ibkr-harness
-description: Use repo-local IBKR MCP/CLI for account, market, rulebook, canary, proposal, opportunity, and order investigations while developing the trading harness. Read/preview first; explicit current-turn broker writes use only the gated CLI.
+description: Use repo-local IBKR MCP/CLI for account, market, rulebook, stress, proposal, opportunity, and order investigations while developing the trading harness. Read/preview first; explicit current-turn broker writes use only the gated CLI.
 ---
 
 Updated: 2026-07-24 08:40 CEST
 
 ## Contract
 
-Use the typed `ibkr` MCP tools for read-only account, market, rulebook, canary,
+Use the typed `ibkr` MCP tools for read-only account, market, rulebook, stress,
 proposal, opportunity, settings, reconciliation, and order-preview/status
 work. Use `ibkr ... --json` only when MCP is unavailable, a CLI-only diagnostic
 is required, or the project needs an exact reproducible CLI artifact.

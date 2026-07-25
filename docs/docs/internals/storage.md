@@ -88,22 +88,22 @@ keys, foreign keys, constraints, indexes, and triggers make those rules visible
 to SQLite. Varied current snapshots stay versioned JSON documents, and immutable
 events keep their original payloads. Frequently queried event fields may also
 appear in relational projection tables. Those projections are not the read path
-yet: the main Regime, rules, Canary, and capital-history readers still load
+yet: the main Regime, rules, Stress, and capital-history readers still load
 matching `event_log` JSON and filter it in Go.
 
-[![Physical entity relationships in daemon.db schema version 1](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
+[![Physical entity relationships in daemon.db schema version 3](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
 
 [PNG fallback](../../diagrams/sqlite-data-model.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Canonical DDL](https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go)
 
-The diagram shows schema version 1. Solid lines are declared SQLite foreign
+The diagram shows schema version 3. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
 such as `scope_key` creates a namespace only when no foreign key joins it.
 
 | Parent | Child | Cardinality |
 |---|---|---|
-| `event_log` | Each event projection: `regime_decisions`, `rule_transitions`, `canary_transitions`, `capital_events`, `risk_policy_events`, `proposal_outcomes`, and `order_events` | One event to zero or one row in each individual child table. |
+| `event_log` | Each event projection: `regime_decisions`, `rule_transitions`, `stress_transitions`, `capital_events`, `risk_policy_events`, `proposal_outcomes`, and `order_events` | One event to zero or one row in each individual child table. |
 | `regime_decisions` | `regime_indicators` | One decision to zero or more indicators. |
 | `broker_scopes` | `consumed_preview_tokens` | One broker route to zero or more consumed tokens. |
 | `broker_scopes` | `order_events` | One broker route to zero or more order events. |
@@ -159,7 +159,7 @@ dashboards, and alternate files cannot replace this durable safety evidence.
 | Question | Supported path | Present limitation |
 |---|---|---|
 | Current product or dashboard state | Typed daemon RPC and a daemon-owned reader | A new dashboard needs a defined contract before it gets a query. |
-| Regime, rules, Canary, or capital history | Existing CLI commands over typed daemon RPC | Most paths still scan canonical event JSON instead of indexed projections. |
+| Regime, rules, Stress, or capital history | Existing CLI commands over typed daemon RPC | Most paths still scan canonical event JSON instead of indexed projections. |
 | Orders | `ibkr orders open`, `ibkr orders history`, and `ibkr order status` | Local lifecycle records explain intent and evidence; the broker Activity Statement remains execution truth. |
 | Statement-derived equity | Typed reconciliation and equity readers | The current reader has a fixed result ceiling rather than a general paginated API. |
 | Retained observations | Narrow daemon-owned readers for their product purpose | General research access awaits a corrected time-and-ID pagination cursor. |
@@ -227,9 +227,11 @@ typed migrations. Append-only events are not rewritten to fit a new shape; a new
 event or payload version retains a compatible reader or feeds a new projection.
 
 The full crash-boundary protocol lives in the
-[SQLite implementation contract](../../../internal-docs/design/daemon-sqlite-authority.md). Schema
-version 1 remains the only production migration, so the general coordinator
-has yet to carry a released schema transition.
+[SQLite implementation contract](../../../internal-docs/design/daemon-sqlite-authority.md). Migration 1
+creates the schema. Migrations 2 and 3 rename the portfolio-stress sensor's
+projection table, its `event_log` label, and the observations imported from the
+pre-rename decision journal; they are the first transitions the general
+coordinator carries on an existing database.
 
 ### Backup and restore
 

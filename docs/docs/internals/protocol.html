@@ -90,7 +90,7 @@
                 <li><a href="storage.html">Storage</a></li>
                 <li><a href="protocol.html" class="is-current" aria-current="page">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="packaging.html">Packaging and distribution</a></li>
@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="tws-wire-protocol">TWS wire protocol</h1>
-<p>Updated: 2026-07-25 09:45 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p><code>pkg/ibkr</code> is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
 narrow order-wire operations used by the <code>ibkr</code> binary and daemon.</p>
@@ -143,7 +143,7 @@ approved. These disabled daemon capabilities do not become available merely
 because the lower-level wire method or a platform workflow setting exists.</p>
 <h2 id="semantic-fingerprints">Semantic fingerprints</h2>
 <p>Monitor-facing decision surfaces expose a semantic <code>fingerprint</code> object:</p>
-<pre><code class="language-json">{&quot;version&quot;: &quot;canary-fp-v2&quot;, &quot;key&quot;: &quot;sha256:...&quot;}
+<pre><code class="language-json">{&quot;version&quot;: &quot;stress-fp-v2&quot;, &quot;key&quot;: &quot;sha256:...&quot;}
 </code></pre>
 <p>The key is a SHA-256 hash of classified state rather than of the full JSON
 response. It deliberately excludes timestamps, raw prices, exact observed
@@ -162,7 +162,7 @@ timestamps, exact rates/share counts, retry timing, source prose, and rendering
 order. V3 retains the V2 typed failure code/stage projection and adds coverage
 scope, exact-contract identity, source/data type, entitlement, scale status,
 policy eligibility, and closed reason/status buckets.</p>
-<p><code>canary</code> emits <code>canary-fp-v2</code> from policy, action, market confirmation,
+<p><code>stress</code> emits <code>stress-fp-v2</code> from policy, action, market confirmation,
 portfolio fit, input health, direction, severity, planner mode/readiness,
 primary drivers, signal semantics including held-underlying stress buckets,
 classified market state, source-health buckets, row titles/states, and
@@ -170,7 +170,7 @@ classified market state, source-health buckets, row titles/states, and
 <code>source_fingerprints.regime</code>, and <code>source_fingerprints.market_events</code>.
 V2 includes typed source failure
 code/stage. The separate <code>established_alert_projection</code> intentionally retains
-its frozen <code>canary-fp-v1</code> compatibility identity for delivery continuity.</p>
+its frozen <code>stress-fp-v1</code> compatibility identity for delivery continuity.</p>
 <p><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md"><code>rules.snapshot</code></a> emits
 <code>rulebook-fp-v3</code>, a policy-identity fingerprint rather than a classified-state
 hash. The key is a SHA-256 of a JSON projection of the active Rulebook model
@@ -180,7 +180,7 @@ changes, not when verdicts move. The rules-decisions journal records the same
 produced each journaled verdict.</p>
 <p>Regime also exposes a nested <code>lifecycle.fingerprint</code> for consumers that dedupe
 by broad-market lifecycle transition rather than by the full regime snapshot.
-Canary is stateless and exposes no lifecycle fingerprint of its own. Source
+Stress is stateless and exposes no lifecycle fingerprint of its own. Source
 fingerprints and source-health entries use semantic buckets only; timestamps,
 tiny raw-value movement inside a bucket, and prose changes must not churn the
 hash.</p>

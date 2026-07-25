@@ -90,7 +90,7 @@
                 <li><a href="internals/storage.html">Storage</a></li>
                 <li><a href="internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="internals/regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="internals/opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="internals/packaging.html">Packaging and distribution</a></li>
@@ -118,9 +118,9 @@
 <h2>Operate</h2>
 <p class="hub-blurb">The daily loop: briefs, agent sessions, the paired app, order previews, protection, and reconciliation.</p>
 <ul class="hub-list">
-<li class="hub-item"><a href="operate/daily-desk.html"><span class="hub-title">The daily desk</span><span class="hub-summary">A working routine from the morning brief through regime, canary, and rules to the end-of-day read.</span></a></li>
+<li class="hub-item"><a href="operate/daily-desk.html"><span class="hub-title">The daily desk</span><span class="hub-summary">A working routine from the morning brief through regime, stress, and rules to the end-of-day read.</span></a></li>
 <li class="hub-item"><a href="operate/agents.html"><span class="hub-title">Working with agents</span><span class="hub-summary">Workflows, limits, and worked examples for driving ibkr from an MCP host.</span></a></li>
-<li class="hub-item"><a href="operate/app.html"><span class="hub-title">The paired app</span><span class="hub-summary">Running ibkr app, pairing a phone, the event stream, and opt-in canary push notifications.</span></a></li>
+<li class="hub-item"><a href="operate/app.html"><span class="hub-title">The paired app</span><span class="hub-summary">Running ibkr app, pairing a phone, the event stream, and opt-in push notifications.</span></a></li>
 <li class="hub-item"><a href="operate/alerts.html"><span class="hub-title">Alerts and notifications</span><span class="hub-summary">What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.</span></a></li>
 <li class="hub-item"><a href="operate/orders.html"><span class="hub-title">Order previews and the trading build</span><span class="hub-summary">The read-only default, what an order preview does and does not do, and the separate opt-in trading build.</span></a></li>
 <li class="hub-item"><a href="operate/protection.html"><span class="hub-title">Protection and emergency exits</span><span class="hub-summary">Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.</span></a></li>
@@ -131,7 +131,7 @@
 <h2>Understand</h2>
 <p class="hub-blurb">What the numbers measure, when they can be trusted, and who sets the limits they are measured against.</p>
 <ul class="hub-list">
-<li class="hub-item"><a href="understand/concepts.html"><span class="hub-title">Concepts</span><span class="hub-summary">Calendars, regime, canary, market events, protective stops, gamma, and breadth in one mental model.</span></a></li>
+<li class="hub-item"><a href="understand/concepts.html"><span class="hub-title">Concepts</span><span class="hub-summary">Calendars, regime, stress, market events, protective stops, gamma, and breadth in one mental model.</span></a></li>
 <li class="hub-item"><a href="understand/sensors.html"><span class="hub-title">Sensors</span><span class="hub-summary">How each measurement establishes authority and freshness, and how a gap fails closed instead of guessing.</span></a></li>
 <li class="hub-item"><a href="understand/policy.html"><span class="hub-title">Trading policy</span><span class="hub-summary">Who decides the risk boundaries, what the daemon evaluates, and what never becomes submit authority.</span></a></li>
 <li class="hub-item"><a href="understand/rulebook.html"><span class="hub-title">The rulebook</span><span class="hub-summary">The fourteen advisory rules, what each one is protecting against, and how a breach is reported.</span></a></li>
@@ -159,7 +159,7 @@
 <li class="hub-item"><a href="internals/storage.html"><span class="hub-title">Storage</span><span class="hub-summary">Why the daemon uses SQLite, how the data model follows from its job, and how state survives a restart.</span></a></li>
 <li class="hub-item"><a href="internals/protocol.html"><span class="hub-title">TWS wire protocol</span><span class="hub-summary">Coverage and semantic fingerprints for the clean-room Go implementation of the TWS protocol.</span></a></li>
 <li class="hub-item"><a href="internals/regime-dashboard.html"><span class="hub-title">Regime dashboard contract</span><span class="hub-summary">Source quality, cluster logic, lifecycle decisions, and the backtest that has to pass before a change ships.</span></a></li>
-<li class="hub-item"><a href="internals/regime-backtest.html"><span class="hub-title">Regime and canary backtest runbook</span><span class="hub-summary">How the regime and canary lifecycle is proven and tuned against point-in-time evidence.</span></a></li>
+<li class="hub-item"><a href="internals/regime-backtest.html"><span class="hub-title">Regime and stress backtest runbook</span><span class="hub-summary">How the regime and stress lifecycle is proven and tuned against point-in-time evidence.</span></a></li>
 <li class="hub-item"><a href="internals/opportunity-research.html"><span class="hub-title">Opportunity research harness</span><span class="hub-summary">The diagnostic harness for testing candidate strategies against point-in-time evidence before trusting them.</span></a></li>
 <li class="hub-item"><a href="internals/gamma-cache.html"><span class="hub-title">Gamma cache persistence</span><span class="hub-summary">Design and invalidation semantics for the daemon&#39;s persistent dealer zero-gamma cache.</span></a></li>
 <li class="hub-item"><a href="internals/packaging.html"><span class="hub-title">Packaging and distribution</span><span class="hub-summary">What each published artifact contains, how it is signed, and the boundary every channel ships with.</span></a></li>

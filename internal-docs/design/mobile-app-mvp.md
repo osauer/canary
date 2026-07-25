@@ -11,16 +11,16 @@ describes the MVP release, not the current product.
 
 Ship the smallest useful application layer for mobile access to the local IBKR
 daemon: a HyperServe-backed `ibkr app` process that serves a paired PWA, streams
-live state over SSE, and sends opt-in Web Push canary alerts.
+live state over SSE, and sends opt-in Web Push stress alerts.
 
 The MVP proves these boundaries:
 
 - A phone can pair with the Mac without receiving a long-lived secret in the QR.
-- The browser can render daemon status, account, positions, canary state, alert
+- The browser can render daemon status, account, positions, stress state, alert
   history, and debug-only tools.
-- Live account, positions, status, and canary changes flow through one snapshot
+- Live account, positions, status, and stress changes flow through one snapshot
   cache and SSE fanout.
-- Canary alerts are explicitly enabled by the user and pushed with redacted
+- Stress alerts are explicitly enabled by the user and pushed with redacted
   payloads.
 - Remote access can use the Cloudflare Worker relay; HTTP MCP is not part of
   this release.
@@ -54,7 +54,7 @@ flowchart LR
   App -->|"Outbound connector"| Relay
   App -->|"Unix socket RPC"| Daemon["ibkr daemon"]
   Daemon -->|"TWS/GW API"| TWS["IBKR TWS/Gateway"]
-  App -->|"Web Push canary alerts"| Push["Browser push service"]
+  App -->|"Web Push stress alerts"| Push["Browser push service"]
   Push --> Phone
 ```
 
@@ -69,7 +69,7 @@ Main PWA dashboard:
 - Daemon/gateway status.
 - Account summary.
 - Positions summary.
-- Canary state and alert history.
+- Stress state and alert history.
 - Alert mode: `none`, `act_only`, `watch_and_act`.
 
 No debug diagnostics, quote, chain, scan, size, regime, trading forms, or HTTP
@@ -107,7 +107,7 @@ Threats considered for MVP:
 - `internal/app/state`: durable local JSON state.
 - `internal/app/daemonclient`: narrow adapter over daemon RPC.
 - `internal/app/live`: polling, snapshot cache, change detection, fanout.
-- `internal/app/alerts`: canary alert policy, dedupe, redaction.
+- `internal/app/alerts`: stress alert policy, dedupe, redaction.
 - `internal/app/push`: Web Push sender and subscription validation.
 - `internal/app/relay`: outbound remote relay connector and pairing URL routing.
 - `cloudflare/remote-relay`: Cloudflare Worker + Durable Object relay transport.

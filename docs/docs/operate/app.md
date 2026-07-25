@@ -1,10 +1,10 @@
 # The paired app
 
-Updated: 2026-07-25 09:40 CEST
+Updated: 2026-07-25 20:23 CEST
 
 Run `ibkr app` on the Mac to get ibkr on your phone. That single process serves
 the progressive web app, handles pairing, streams live updates to paired devices
-over `/api/events`, and sends opt-in canary push notifications.
+over `/api/events`, and sends opt-in push notifications.
 
 ## Pair a phone
 

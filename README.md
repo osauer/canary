@@ -20,7 +20,7 @@ Use it from a shell:
 ibkr status
 ibkr positions --by underlying
 ibkr regime
-ibkr canary
+ibkr stress
 ibkr market-events --symbol GME --json
 ibkr watch IBM --add
 ibkr watch
@@ -89,7 +89,7 @@ For v1.0.0+ releases, the installer, `ibkr update`, and the MCPB release asset a
 - **Market breadth.** S&P 500 participation from constituent daily bars: percent above 50-DMA, percent above 200-DMA, and fresh 52-week highs/lows. A fresh cache is instant; first-ever cold start can take about an hour because of IBKR pacing.
 - **Dealer gamma.** Production-ready SPX/SPXW-canonical zero-gamma and concentration view, with SPY used as corroborating context when its option surface is usable. A fresh, rankable SPX result is the stable headline signal; SPY-only is a labeled proxy. Treat the signed level as a regime hint, not a precise trading level.
 - **Risk regime.** One call returns the eight-row dashboard: VIX term structure, VVIX, HYG/SPY divergence, HY/IG OAS, funding spread, USD/JPY weekly move, SPX-canonical dealer gamma, and S&P 500 breadth. Heavy rows report `computing` instead of pretending stale data is fresh.
-- **Portfolio canary.** `ibkr canary` and MCP `ibkr_canary` produce a stateless `market regime × portfolio shape` monitor with `action`, `market_confirmation`, `portfolio_fit`, `input_health`, planner readiness, stable fingerprints, and supporting `signals[]`. It also emits bounded `portfolio.held_stress[]` rows for material held underlyings when existing positions data shows held-name daily P&L shock, near-expiry held-option delta concentration, or held-name liquidity degradation. Account-only risk stays evidence, not a canary DEFEND trigger; DEFEND requires confirmed market pressure, vulnerable portfolio fit, and clean enough inputs. Use `ibkr canary --details` for the full evidence rows.
+- **Portfolio stress.** `ibkr stress` and MCP `ibkr_stress` produce a stateless `market regime × portfolio shape` monitor with `action`, `market_confirmation`, `portfolio_fit`, `input_health`, planner readiness, stable fingerprints, and supporting `signals[]`. It also emits bounded `portfolio.held_stress[]` rows for material held underlyings when existing positions data shows held-name daily P&L shock, near-expiry held-option delta concentration, or held-name liquidity degradation. Account-only risk stays evidence, not a DEFEND trigger; DEFEND requires confirmed market pressure, vulnerable portfolio fit, and clean enough inputs. Use `ibkr stress --details` for the full evidence rows.
 - **Market-event flags.** `ibkr market-events` and MCP `ibkr_market_events` annotate held or requested stock/ETF symbols with borrow inventory, extreme borrow fee, Nasdaq Reg SHO threshold-list, LULD pause, and regulatory/news halt context. Flags are context and proposal gates: active halt/LULD can block protection proposals, borrow stress can strengthen short buy-to-cover context, and unknown sources remain unknown rather than false. Borrow-fee output also discloses global versus exact-held-short coverage; the narrow TWS `FEE_RATE` fallback remains scale-unverified and cannot create or clear the 50% flag.
 - **Protection proposals and order views.** The daemon maintains trailing-stop, theta-hygiene, and risk-reduction proposals with per-row blockers; `ibkr proposals` and MCP `ibkr_proposals` read them. Order state is a local journal read (`ibkr orders open`, `ibkr orders history`, `ibkr order status`) that reconciles itself against the broker's open-order list after each reconnect and every 30 minutes, closing rows the broker no longer reports as `closed_reconciled`. A protective stop that no longer matches its position is flagged critical with the exact reduce-to-position quantity. These are reads; acting on any of it stays behind the separate gated order path.
 - **Platform settings.** `ibkr settings show` and MCP `ibkr_settings` report runtime preferences, trading/build capability, account mode, and compact observed market-data quality with `access`, `source`, and read-only reasons. `features.purge_restore.enabled` controls the workflow/read surface while `purge status` stays readable; it never authorizes broker submission, which is currently unavailable and must be handled manually in TWS.
@@ -98,13 +98,13 @@ Every data command supports `--json`. `ibkr restart --json` is also useful for s
 
 For schemas and edge cases, see the [agent skill schema notes](skills/ibkr/schemas.md), [MCP tools reference](docs/docs/reference/mcp-tools.md), [MCP resources reference](docs/docs/reference/mcp-resources.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
 
-For ready-to-run prompts, see [examples/ibkr_portfolio_analysis_prompt.md](examples/ibkr_portfolio_analysis_prompt.md) for portfolio review and [examples/ibkr_portfolio_canary_prompt.md](examples/ibkr_portfolio_canary_prompt.md) for scheduled stress checks.
+For ready-to-run prompts, see [examples/ibkr_portfolio_analysis_prompt.md](examples/ibkr_portfolio_analysis_prompt.md) for portfolio review and [examples/ibkr_portfolio_stress_prompt.md](examples/ibkr_portfolio_stress_prompt.md) for scheduled stress checks.
 
 ## Pick your path
 
 ### Claude Desktop, Cursor, Continue, Zed
 
-`ibkr mcp` starts a local stdio MCP server. MCP hosts can call the same account, watchlist, quote, calendar, position, scanner, sizing, regime, canary, and preview-only order-draft tools that the CLI exposes as JSON. The order preview surface can mint a local non-submitting preview token, but it cannot place, modify, cancel, or transmit broker orders. Watchlist access through MCP can return either the saved symbols or enriched quote rows; local lifecycle verbs such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` stay outside the MCP tool set.
+`ibkr mcp` starts a local stdio MCP server. MCP hosts can call the same account, watchlist, quote, calendar, position, scanner, sizing, regime, stress, and preview-only order-draft tools that the CLI exposes as JSON. The order preview surface can mint a local non-submitting preview token, but it cannot place, modify, cancel, or transmit broker orders. Watchlist access through MCP can return either the saved symbols or enriched quote rows; local lifecycle verbs such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` stay outside the MCP tool set.
 
 The server also exposes quotes for stocks and ETFs as an MCP resource:
 
@@ -172,7 +172,7 @@ $ ibkr quote AAPL,MSFT --json | jq '.[] | {sym: .symbol, price: .price, chg: .ch
 $ ibkr quote MBG --market de --json | jq '{sym: .symbol, ccy: .contract.currency, last: .last}'
 $ ibkr calendar --market us-options --date 2026-11-27 --json | jq '.session'
 $ ibkr positions --by underlying --json | jq '.portfolio.effective_delta'
-$ ibkr canary --json | jq '{action, market_confirmation, portfolio_fit, held_stress: .portfolio.held_stress}'
+$ ibkr stress --json | jq '{action, market_confirmation, portfolio_fit, held_stress: .portfolio.held_stress}'
 $ ibkr market-events --symbol GME --json | jq '{flags, source_health, fingerprint}'
 $ ibkr settings show --json | jq '.features.purge_restore.enabled'
 $ ibkr chain NVDA --json | jq '.expiries[] | select(.iv > 0.6)'
@@ -183,7 +183,7 @@ $ ibkr size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 
 ### Mobile app
 
-`ibkr app` serves a paired PWA for iPhone-sized checks when you are away from the desk: daemon status, account and positions, market context, canary state, alerts, and settings. The app has Monitor, Alerts, and Settings tabs; Settings can toggle the purge/restore workflow preference, but broker submission remains unavailable and requires manual TWS action. Start it on the Mac running TWS or IB Gateway, then run `ibkr app pair` and scan the QR code.
+`ibkr app` serves a paired PWA for iPhone-sized checks when you are away from the desk: daemon status, account and positions, market context, stress state, alerts, and settings. The app has Monitor, Alerts, and Settings tabs; Settings can toggle the purge/restore workflow preference, but broker submission remains unavailable and requires manual TWS action. Start it on the Mac running TWS or IB Gateway, then run `ibkr app pair` and scan the QR code.
 
 For access away from the LAN without router setup, run `ibkr app --remote` to use the Cloudflare Worker relay at `remote.osauer.dev`, then run `ibkr app pair` as usual.
 
@@ -257,7 +257,7 @@ References:
 - [Trading Rulebook](internal-docs/design/trading-rulebook.md) for the compiled advisory
   discipline model, its evidence contract, ownership, freshness, and limits.
 - [Storage](docs/docs/internals/storage.md) for how the daemon preserves state and evidence with SQLite, including data relationships, query boundaries, durability, recovery, and current limits.
-- [Sensors](docs/docs/understand/sensors.md) for Gamma, Regime, Canary, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.
+- [Sensors](docs/docs/understand/sensors.md) for Gamma, Regime, Stress, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.
 - [Experimental trading config](docs/docs/operate/orders.md) for the inactive `config.toml.trading` pattern and release-channel expectations.
 - [Concepts](docs/docs/understand/concepts.md) for breadth, gamma, and regime interpretation.
 - [Working with agents](docs/docs/operate/agents.md) for Claude and MCP workflows.

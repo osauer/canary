@@ -26,7 +26,7 @@ Run this first. If any hard gate fails, stop with a readiness report that names 
 3. `ibkr_quote` for `["SPY"]`: require `quote_quality:"firm"` during US RTH. Treat indicative, stale, wide, or previous-close-only quotes as not trade-selectable.
 4. `ibkr_chain` for `SPY` with `require_live_iv:true` and no `expiry`: require any usable live IV and `implied_move`. This is only a live-IV readiness probe; do not require the default expiry list to include the later 90-180 DTE trade horizon.
 5. `ibkr_rules`: require a current policy fingerprint and capture breached or missing rules. If policy is unavailable or conflicting, return `insufficient_policy` and keep all candidates watch-only.
-6. `ibkr_canary`: capture the governed market/portfolio posture and input health. Do not promote a candidate when it would worsen an existing breach or when the canary says inputs need confirmation.
+6. `ibkr_stress`: capture the governed market/portfolio posture and input health. Do not promote a candidate when it would worsen an existing breach or when the stress read says inputs need confirmation.
 
 If the SPY chain returns `live_option_iv_unavailable`, `expiry_iv_unavailable`, no implied move, or times out, stop unless `TEST_MODE=true`. Do not continue into scans with fake option confidence.
 

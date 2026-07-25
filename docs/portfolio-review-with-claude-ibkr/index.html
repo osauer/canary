@@ -76,7 +76,7 @@
 <li><code>ibkr_chain</code> for option expiries, IV, expected move, strikes, deltas, and open interest</li>
 <li><code>ibkr_watch</code> and <code>ibkr_scan</code> for watchlist and market-discovery context</li>
 <li><code>ibkr_breadth</code>, <code>ibkr_gamma</code>, and <code>ibkr_regime</code> for market background and broad-market lifecycle</li>
-<li><code>ibkr_canary</code> for portfolio-aware lifecycle, readiness, source-health, and stress checks</li>
+<li><code>ibkr_stress</code> for portfolio-aware lifecycle, readiness, source-health, and stress checks</li>
 <li><code>ibkr_size</code> for fixed-fractional position sizing math</li>
 </ul>
 <p>The assistant should not treat any single tool result as a trade signal. The value is in combining the evidence, naming uncertainty, and showing which follow-up checks would change the decision.</p>
@@ -89,7 +89,7 @@ risk-regime lifecycle. Rank the risks I should inspect today, explain the eviden
 behind each one, and separate observations from possible next actions. Do not
 place or imply orders.</code></pre>
 <p>For a deeper review, use the full example prompt and let Claude decide which MCP calls are needed before it writes the answer.</p>
-<p>For a scheduled stress check that preserves lifecycle stage, planner readiness, source health, fingerprints, confidence, rows, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_canary_prompt.md">examples/ibkr_portfolio_canary_prompt.md</a>.</p>
+<p>For a scheduled stress check that preserves lifecycle stage, planner readiness, source health, fingerprints, confidence, rows, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_stress_prompt.md">examples/ibkr_portfolio_stress_prompt.md</a>.</p>
 <h2 id="what-a-useful-answer-looks-like">What a useful answer looks like</h2>
 <p>A strong review is compact, evidence-led, and explicit about missing data. It should read like a desk note, not a stream of tool output.</p>
 <p>Sanitized sample:</p>

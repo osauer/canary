@@ -45,7 +45,7 @@ runtime producer or consumer opens them.
 
 ## Clean semantic epoch
 
-Current regime/streak state, regime decisions, rule transitions, canary
+Current regime/streak state, regime decisions, rule transitions, stress
 decisions, proposals, proposal outcomes, and opportunities begin empty at
 cutover. Their history surfaces contain only decisions produced by the current
 implementation after the new authority became live.
@@ -78,7 +78,7 @@ The public request/result shapes remain stable:
 |---|---|---|
 | `regime.history` | Post-cutover regime decision events | Seven-day default window; optional stage filter; newest first. |
 | [`rules.history`](trading-rulebook.md) | Post-cutover Rulebook state-transition events | Optional rule filter; advisory/read-only; records evaluator state, not trade causality or broker evidence. |
-| `canary.history` | Post-cutover canary decision events | Optional severity/action filters; advisory/read-only. |
+| `stress.history` | Post-cutover stress decision events | Optional severity/action filters; advisory/read-only. |
 | `recon.equity` | Current statement-equity projection plus retained capital events | Ninety-day default window; newest first; Flex XML remains original broker evidence. |
 | Order open/history/status reads | Authoritative order events and projections | No journal freshness proof or scan fallback exists after attach. |
 
@@ -130,9 +130,9 @@ decision JSONL files. `history.rotation.enabled` and
 may remain in typed responses during the API transition, but they do not start
 a maintenance worker, relocate evidence, or authorize writes to `rotated/`.
 
-The `regime.journal.enabled` and `canary.journal.enabled` names remain for API
-compatibility; they control forward collection of typed SQLite decision events,
-not JSONL files.
+The `regime.journal.enabled` and `stress.journal.enabled` names retain their
+`journal` element for API compatibility; they control forward collection of
+typed SQLite decision events, not JSONL files.
 
 ## Recovery and offline inspection
 

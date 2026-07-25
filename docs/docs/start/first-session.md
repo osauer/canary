@@ -1,6 +1,6 @@
 # Your first session
 
-Updated: 2026-07-25 11:33 CEST
+Updated: 2026-07-25 20:23 CEST
 
 Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; [Install and first run](install.md) covers getting there.
 
@@ -91,7 +91,7 @@ A dash in the NVDA row marks a field that never arrived. The daemon leaves an ab
 ibkr brief
 ```
 
-`ibkr brief` is the assembled read. `Review` covers the last completed session: session P&L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, canary action, session state, market-event counts, and capital tier.
+`ibkr brief` is the assembled read. `Review` covers the last completed session: session P&L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.
 
 Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. `ibkr brief --json` renders without stamping, and an agent-origin invocation prints `agent-origin render — not stamped`. There is no MCP tool for `brief`; it is a CLI surface.
 
@@ -99,14 +99,14 @@ Run from a terminal it also stamps the day's brief artefact when one is due, and
 
 ```sh
 ibkr regime
-ibkr canary
+ibkr stress
 ```
 
-`ibkr regime` returns the eight-row stress dashboard plus a lifecycle stage. `ibkr canary` asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.
+`ibkr regime` returns the eight-row stress dashboard plus a lifecycle stage. `ibkr stress` asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.
 
 Two of the regime rows are heavy computes and will not be ready on a cold daemon. Gamma reports `status: "computing"` with an ETA and progress, and the first-ever breadth build is paced by IBKR's historical-data limits into about 74 minutes of wall clock. Neither is broken; both fill in.
 
-What the output means is owned elsewhere, and those pages go deeper than this one should. [Concepts → Regime](../understand/concepts.md#regime) and [Concepts → Canary](../understand/concepts.md#canary) give the mental model. [Sensors](../understand/sensors.md) covers authority, freshness, and the safe check for each one.
+What the output means is owned elsewhere, and those pages go deeper than this one should. [Concepts → Regime](../understand/concepts.md#regime) and [Concepts → Stress](../understand/concepts.md#stress) give the mental model. [Sensors](../understand/sensors.md) covers authority, freshness, and the safe check for each one.
 
 ## 7. Ask the same questions through an agent
 
@@ -118,7 +118,7 @@ With an MCP host wired up, the same reads happen as tool calls. Ask the question
 | "Is SPY quoting live or delayed?" | `ibkr_quote` |
 | "How does the market regime look?" | `ibkr_regime` |
 
-The answers are the same data with the interpretation written out, which is most of the value on the regime and canary surfaces. [Working with agents](../operate/agents.md) has the setup commands and a longer list of worked examples.
+The answers are the same data with the interpretation written out, which is most of the value on the regime and stress surfaces. [Working with agents](../operate/agents.md) has the setup commands and a longer list of worked examples.
 
 Two boundaries are worth knowing before you start asking. The bundled MCP surface has no order-entry tools, so no host can place, modify, or cancel an order through it. And several CLI surfaces have no MCP tool at all, `brief` among them, along with the advisory `ibkr policy` and `ibkr recon`.
 

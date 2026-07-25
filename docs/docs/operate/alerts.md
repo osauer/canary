@@ -1,12 +1,12 @@
 # Alerts and notifications
 
-Updated: 2026-07-25 12:12 CEST
+Updated: 2026-07-25 20:23 CEST
 
 An alert is a daemon-owned fact with a lifecycle. The daemon decides whether a condition exists, how serious it is, and whether it opened, escalated, or recovered. The paired app records that decision, decides whether your chosen notification level permits a push, and owns every delivery attempt and receipt. The app never recomputes severity, dwell, escalation, or recovery.
 
 ## What raises one
 
-Nine producers can raise an alert, and the list is fixed in the daemon: Canary, Regime, Rulebook, risk policy, Protection, order integrity, reconciliation, governance, and Data Health. Delivery health sits outside that universe on purpose, because it is a downstream result, so a transport failure never counts toward source coverage.
+Nine producers can raise an alert, and the list is fixed in the daemon: Stress, Regime, Rulebook, risk policy, Protection, order integrity, reconciliation, governance, and Data Health. Delivery health sits outside that universe on purpose, because it is a downstream result, so a transport failure never counts toward source coverage.
 
 Each producer classifies its condition at one of four severities, in rank order: `observe`, `watch`, `act`, `urgent`. Thresholds stay with the producer; [Sensors](../understand/sensors.md) covers where each one gets its evidence.
 
@@ -16,7 +16,7 @@ Daemon-owned heartbeats re-observe the sources every 30 seconds, so a condition 
 
 Every occurrence enters one inbox on the Alerts tab of [the paired app](app.md), under a single read-through cursor shared by all paired devices. The inbox shows a redacted display id and fixed app-authored copy; producer keys, targets, and receipts stay private.
 
-The CLI has no alerts command. `ibkr canary --view alert` (which requires `--json`) gives the compact canary view, and `ibkr brief` and `ibkr rules` carry the same facts as rows.
+The CLI has no alerts command. `ibkr stress --view alert` (which requires `--json`) gives the compact stress view, and `ibkr brief` and `ibkr rules` carry the same facts as rows.
 
 Phone notifications are configured under Settings → Phone notifications. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.
 

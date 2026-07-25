@@ -94,7 +94,7 @@
                 <li><a href="storage.html" class="is-current" aria-current="page">Storage</a></li>
                 <li><a href="protocol.html">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="packaging.html">Packaging and distribution</a></li>
@@ -254,13 +254,13 @@ keys, foreign keys, constraints, indexes, and triggers make those rules visible
 to SQLite. Varied current snapshots stay versioned JSON documents, and immutable
 events keep their original payloads. Frequently queried event fields may also
 appear in relational projection tables. Those projections are not the read path
-yet: the main Regime, rules, Canary, and capital-history readers still load
+yet: the main Regime, rules, Stress, and capital-history readers still load
 matching <code>event_log</code> JSON and filter it in Go.</p>
-<p><a href="../../diagrams/sqlite-data-model.svg"><img src="../../diagrams/sqlite-data-model.svg" alt="Physical entity relationships in daemon.db schema version 1"></a></p>
+<p><a href="../../diagrams/sqlite-data-model.svg"><img src="../../diagrams/sqlite-data-model.svg" alt="Physical entity relationships in daemon.db schema version 3"></a></p>
 <p><a href="../../diagrams/sqlite-data-model.png">PNG fallback</a> ·
 <a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go">Canonical DDL</a></p>
-<p>The diagram shows schema version 1. Solid lines are declared SQLite foreign
+<p>The diagram shows schema version 3. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
 such as <code>scope_key</code> creates a namespace only when no foreign key joins it.</p>
 <div class="tblwrap">
@@ -275,7 +275,7 @@ such as <code>scope_key</code> creates a namespace only when no foreign key join
 <tbody>
 <tr>
 <td><code>event_log</code></td>
-<td>Each event projection: <code>regime_decisions</code>, <code>rule_transitions</code>, <code>canary_transitions</code>, <code>capital_events</code>, <code>risk_policy_events</code>, <code>proposal_outcomes</code>, and <code>order_events</code></td>
+<td>Each event projection: <code>regime_decisions</code>, <code>rule_transitions</code>, <code>stress_transitions</code>, <code>capital_events</code>, <code>risk_policy_events</code>, <code>proposal_outcomes</code>, and <code>order_events</code></td>
 <td>One event to zero or one row in each individual child table.</td>
 </tr>
 <tr>
@@ -361,7 +361,7 @@ dashboards, and alternate files cannot replace this durable safety evidence.</p>
 <td>A new dashboard needs a defined contract before it gets a query.</td>
 </tr>
 <tr>
-<td>Regime, rules, Canary, or capital history</td>
+<td>Regime, rules, Stress, or capital history</td>
 <td>Existing CLI commands over typed daemon RPC</td>
 <td>Most paths still scan canonical event JSON instead of indexed projections.</td>
 </tr>
@@ -436,9 +436,11 @@ mutable JSON documents carry independent, kind-specific payload versions and
 typed migrations. Append-only events are not rewritten to fit a new shape; a new
 event or payload version retains a compatible reader or feeds a new projection.</p>
 <p>The full crash-boundary protocol lives in the
-<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Schema
-version 1 remains the only production migration, so the general coordinator
-has yet to carry a released schema transition.</p>
+<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Migration 1
+creates the schema. Migrations 2 and 3 rename the portfolio-stress sensor's
+projection table, its <code>event_log</code> label, and the observations imported from the
+pre-rename decision journal; they are the first transitions the general
+coordinator carries on an existing database.</p>
 <h3 id="backup-and-restore">Backup and restore</h3>
 <p>The code can create and verify a standalone backup, and upgrades use that
 primitive. The operator surface still lacks scheduled-current backups, backup

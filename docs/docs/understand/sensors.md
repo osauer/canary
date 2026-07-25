@@ -17,12 +17,12 @@ typed results without refetching sources or recreating the verdict.
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
-Gamma feeds Regime; Regime and market events feed Canary and Rulebook. Alerts
+Gamma feeds Regime; Regime and market events feed Stress and Rulebook. Alerts
 may consume the resulting typed state, but a sensor result is not evidence that
 delivery is active or that a notification arrived.
 
 A dependent sensor receives the upstream result with its health and does not
-recompute it. Canary uses the exact Regime publication; Rulebook uses the
+recompute it. Stress uses the exact Regime publication; Rulebook uses the
 daemon's classified Regime stage rather than rebuilding one from market rows.
 
 ## Read the state before the number
@@ -218,11 +218,11 @@ Check Regime authority health, `as_of`, lifecycle readiness, each cluster's
 does not prove the whole result is usable when another required cluster is
 overdue.
 
-## Canary
+## Stress
 
 ### What it answers
 
-Canary asks whether the current broad-market state is relevant to the portfolio
+Stress asks whether the current broad-market state is relevant to the portfolio
 actually held. It combines four daemon-owned inputs: account, positions, the
 exact published Regime result, and market events for held names. It does not
 fetch a second market view, and it never treats the portfolio's own losses as
@@ -235,7 +235,7 @@ held-name stress, source health, drivers, warnings, and a semantic fingerprint.
 
 ### Timing and fail-closed prerequisites
 
-The daemon evaluates Canary every minute, even when the app is closed.
+The daemon evaluates Stress every minute, even when the app is closed.
 Evaluation is stateless; retained decision events are history, not an alternate
 current authority. Account and positions observations older than 10 minutes are
 stale during pre-market and RTH, 90 minutes outside those phases. Regime must
@@ -261,7 +261,7 @@ evidence may stay visible, but the input gap remains the headline condition.
 ### Safe check
 
 ```sh
-ibkr canary --json
+ibkr stress --json
 ```
 
 Read `input_health`, `action`, and `planner_readiness` before the summary. Then
@@ -365,7 +365,8 @@ Use read-only checks in this order:
 2. Open the sensor's own JSON result. Check status, authority or source health,
    scope, `as_of`, freshness, and warnings before interpreting measurements.
 3. Follow the named dependency. Investigate Gamma before treating Regime's gamma
-   row as a problem, and Regime before treating Canary as a portfolio verdict.
+   row as a problem, and Regime before treating the stress read as a portfolio
+   verdict.
 4. Re-read after the typed retry or publication window. Do not create a fetch
    storm around a source that reports `not_due` or a future `next_attempt`.
 5. Treat an alert surface as a downstream view. Sensor health does not prove
@@ -382,9 +383,9 @@ an order.
   preview, alert, and authority semantics.
 - [Storage](../internals/storage.md): last-good documents, observations, evidence,
   and recovery boundaries.
-- [Concepts](concepts.md): how to interpret calendars, Gamma, Regime, Canary,
+- [Concepts](concepts.md): how to interpret calendars, Gamma, Regime, Stress,
   market events, and breadth.
-- [Regime and Canary Backtest Runbook](../internals/regime-backtest.md): evidence
+- [Regime and Stress Backtest Runbook](../internals/regime-backtest.md): evidence
   required to replace pending heuristics with calibrated policy.
 - [Risk Regime Dashboard Contract](../internals/regime-dashboard.md): row
   methodology and model detail.

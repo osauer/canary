@@ -5,15 +5,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sensors | ibkr</title>
-  <meta name="description" content="How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
+  <meta name="description" content="How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/sensors.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
   <meta property="og:title" content="Sensors | ibkr">
-  <meta property="og:description" content="How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
+  <meta property="og:description" content="How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
   <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/sensor-authority-pipeline.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.","headline":"Sensors","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/sensors.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.","headline":"Sensors","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/sensors.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
@@ -94,7 +94,7 @@
                 <li><a href="../internals/storage.html">Storage</a></li>
                 <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
@@ -120,7 +120,7 @@ typed results without refetching sources or recreating the verdict.</p>
 <li><a href="#read-the-state-before-the-number"><span class="n">02</span>Read the state before the number</a></li>
 <li><a href="#gamma"><span class="n">03</span>Gamma</a></li>
 <li><a href="#regime"><span class="n">04</span>Regime</a></li>
-<li><a href="#canary"><span class="n">05</span>Canary</a></li>
+<li><a href="#stress"><span class="n">05</span>Stress</a></li>
 <li><a href="#rulebook"><span class="n">06</span>Rulebook</a></li>
 <li><a href="#market-events"><span class="n">07</span>Market events</a></li>
 <li><a href="#operator-checklist"><span class="n">08</span>Operator checklist</a></li>
@@ -132,11 +132,11 @@ typed results without refetching sources or recreating the verdict.</p>
 <p><a href="../../diagrams/sensor-authority-pipeline.png">PNG fallback</a> ·
 <a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
-<p>Gamma feeds Regime; Regime and market events feed Canary and Rulebook. Alerts
+<p>Gamma feeds Regime; Regime and market events feed Stress and Rulebook. Alerts
 may consume the resulting typed state, but a sensor result is not evidence that
 delivery is active or that a notification arrived.</p>
 <p>A dependent sensor receives the upstream result with its health and does not
-recompute it. Canary uses the exact Regime publication; Rulebook uses the
+recompute it. Stress uses the exact Regime publication; Rulebook uses the
 daemon's classified Regime stage rather than rebuilding one from market rows.</p>
 <h2 id="read-the-state-before-the-number"><span class="secno" aria-hidden="true">02</span>Read the state before the number</h2>
 <p><a href="../../diagrams/sensor-freshness-timeline.svg"><img src="../../diagrams/sensor-freshness-timeline.svg" alt="Freshness timeline from proactive refresh through expiry, not-due carry, and a fail-closed gap"></a></p>
@@ -363,9 +363,9 @@ ibkr regime --explain
 <code>source_health</code>, row freshness and eligibility, then <code>governors</code>. A green row
 does not prove the whole result is usable when another required cluster is
 overdue.</p>
-<h2 id="canary"><span class="secno" aria-hidden="true">05</span>Canary</h2>
+<h2 id="stress"><span class="secno" aria-hidden="true">05</span>Stress</h2>
 <h3 id="what-it-answers-2">What it answers</h3>
-<p>Canary asks whether the current broad-market state is relevant to the portfolio
+<p>Stress asks whether the current broad-market state is relevant to the portfolio
 actually held. It combines four daemon-owned inputs: account, positions, the
 exact published Regime result, and market events for held names. It does not
 fetch a second market view, and it never treats the portfolio's own losses as
@@ -375,7 +375,7 @@ then derives an action such as <code>stand_down</code>, <code>watch</code>, <cod
 <code>deploy</code>, or <code>confirm_inputs</code>. It also reports planner readiness, bounded
 held-name stress, source health, drivers, warnings, and a semantic fingerprint.</p>
 <h3 id="timing-and-fail-closed-prerequisites">Timing and fail-closed prerequisites</h3>
-<p>The daemon evaluates Canary every minute, even when the app is closed.
+<p>The daemon evaluates Stress every minute, even when the app is closed.
 Evaluation is stateless; retained decision events are history, not an alternate
 current authority. Account and positions observations older than 10 minutes are
 stale during pre-market and RTH, 90 minutes outside those phases. Regime must
@@ -396,7 +396,7 @@ portfolio defense instruction without usable portfolio fit, and portfolio loss o
 margin pressure cannot manufacture market confirmation. Independently current
 evidence may stay visible, but the input gap remains the headline condition.</p>
 <h3 id="safe-check-2">Safe check</h3>
-<pre><code class="language-sh">ibkr canary --json
+<pre><code class="language-sh">ibkr stress --json
 </code></pre>
 <p>Read <code>input_health</code>, <code>action</code>, and <code>planner_readiness</code> before the summary. Then
 compare <code>source_as_of</code>, <code>source_health</code>, the embedded market lifecycle, and held
@@ -506,7 +506,8 @@ tasks, sensor subsystems, and top-level data-quality warnings.</li>
 <li>Open the sensor's own JSON result. Check status, authority or source health,
 scope, <code>as_of</code>, freshness, and warnings before interpreting measurements.</li>
 <li>Follow the named dependency. Investigate Gamma before treating Regime's gamma
-row as a problem, and Regime before treating Canary as a portfolio verdict.</li>
+row as a problem, and Regime before treating the stress read as a portfolio
+verdict.</li>
 <li>Re-read after the typed retry or publication window. Do not create a fetch
 storm around a source that reports <code>not_due</code> or a future <code>next_attempt</code>.</li>
 <li>Treat an alert surface as a downstream view. Sensor health does not prove
@@ -522,9 +523,9 @@ an order.</p>
 preview, alert, and authority semantics.</li>
 <li><a href="../internals/storage.html">Storage</a>: last-good documents, observations, evidence,
 and recovery boundaries.</li>
-<li><a href="concepts.html">Concepts</a>: how to interpret calendars, Gamma, Regime, Canary,
+<li><a href="concepts.html">Concepts</a>: how to interpret calendars, Gamma, Regime, Stress,
 market events, and breadth.</li>
-<li><a href="../internals/regime-backtest.html">Regime and Canary Backtest Runbook</a>: evidence
+<li><a href="../internals/regime-backtest.html">Regime and Stress Backtest Runbook</a>: evidence
 required to replace pending heuristics with calibrated policy.</li>
 <li><a href="../internals/regime-dashboard.html">Risk Regime Dashboard Contract</a>: row
 methodology and model detail.</li>

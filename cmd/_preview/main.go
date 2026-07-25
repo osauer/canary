@@ -17,7 +17,7 @@
 //	go run cmd/_preview/main.go scan
 //	go run cmd/_preview/main.go size
 //	go run cmd/_preview/main.go status
-//	go run cmd/_preview/main.go canary
+//	go run cmd/_preview/main.go stress
 //
 // Color is forced on so a tee'd capture (`… | tee /tmp/preview.txt`) keeps
 // the ANSI escapes that screenshot tools like freezer.dev / ray.so /
@@ -52,9 +52,9 @@ func main() {
 		"size":           func() { cli.PreviewRenderSize(env, fixtureSize()) },
 		"status":         func() { cli.PreviewRenderStatus(env, fixtureStatus()) },
 		"regime":         func() { cli.PreviewRenderRegime(env, fixtureRegime()) },
-		"canary":         func() { cli.PreviewRenderStress(env, fixtureCanary()) },
+		"stress":         func() { cli.PreviewRenderStress(env, fixtureStress()) },
 	}
-	order := []string{"status", "account", "positions", "positions-flat", "chain", "chain-strikes", "quote", "history", "scan", "size", "regime", "canary"}
+	order := []string{"status", "account", "positions", "positions-flat", "chain", "chain-strikes", "quote", "history", "scan", "size", "regime", "stress"}
 
 	if which == "all" {
 		for i, key := range order {
@@ -68,7 +68,7 @@ func main() {
 	fn, ok := screens[which]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown preview: %q\n", which)
-		fmt.Fprintln(os.Stderr, "screens: account | positions | positions-flat | chain | chain-strikes | quote | history | scan | size | status | regime | canary | all")
+		fmt.Fprintln(os.Stderr, "screens: account | positions | positions-flat | chain | chain-strikes | quote | history | scan | size | status | regime | stress | all")
 		os.Exit(2)
 	}
 	fn()
@@ -385,7 +385,7 @@ func fixtureStatus() *rpc.HealthResult {
 	}
 }
 
-func fixtureCanary() *rpc.StressResult {
+func fixtureStress() *rpc.StressResult {
 	acct := *fixtureAccount()
 	regime := *fixtureRegime()
 

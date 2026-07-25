@@ -5,8 +5,8 @@ Updated: 2026-07-10 08:50 CEST
 ## Purpose
 
 The target is a personal trading harness that protects assets and makes risk
-decisions explicit before and after a trade. Canary is one input and one user
-surface; it is not the policy authority. The harness should help the user follow
+decisions explicit before and after a trade. The stress read is one input and
+the Canary app is one user surface; neither is the policy authority. The harness should help the user follow
 an approved process, not turn model judgment into an undocumented trading rule.
 
 ## Four Different Things
@@ -91,7 +91,7 @@ Ask for one kind of work at a time:
   Preserve <invariants>. Done means <tests, redacted artifact, smoke tier>.`
 - **Live investigate:** read the
   [Rulebook authority](../design/trading-rulebook.md), then ask:
-  `Use $ibkr-harness read-only to compare the current rulebook, canary,
+  `Use $ibkr-harness read-only to compare the current rulebook, stress,
   positions, and data quality. Return insufficient data rather than guessing.`
 - **Render/QA:** `Refresh the embedded Canary app and verify the displayed
   contract in the in-app Browser. Browser QA is read-only.`

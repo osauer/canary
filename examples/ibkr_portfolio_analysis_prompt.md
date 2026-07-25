@@ -26,7 +26,7 @@ Run this first. If a hard gate fails, stop with a readiness report that names th
 2. `ibkr_account`: capture net liquidation value, buying power, cash, margin, base currency, daily P&L, and currency exposure.
 3. `ibkr_positions`: capture stocks, options, `portfolio.exposure_base`, per-underlying grouping, portfolio-level Greeks, daily P&L fields, quote freshness, and FX/base-currency fields.
 4. `ibkr_rules`: capture the current rulebook policy fingerprint, rule verdicts, missing inputs, and any existing breach. If it is unavailable or conflicts with the user's stated policy, mark the review `insufficient_policy`; do not supply a model-invented threshold.
-5. `ibkr_canary`: use the typed top-level action, market confirmation, portfolio fit, and input health as the governed combined posture. Do not reconstruct a stronger action from lower-level signals.
+5. `ibkr_stress`: use the typed top-level action, market confirmation, portfolio fit, and input health as the governed combined posture. Do not reconstruct a stronger action from lower-level signals.
 
 Hard stop when the gateway is disconnected, the wrong account is clearly selected, or `ibkr_positions` cannot return holdings. If market-data subsystems are unavailable but positions are present, continue with a partial portfolio review and label quote-dependent conclusions as blocked.
 

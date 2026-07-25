@@ -1,8 +1,8 @@
 # ibkr canary full context
 
-Updated: 2026-07-25 12:19 CEST
+Updated: 2026-07-25 20:23 CEST
 
-`ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as a Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and Canary app. AI agents get the full market-data surface plus portfolio context; the risk side stays advisory and operator-controlled: a risk-regime dashboard, scheduled canary stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
+`ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as a Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and Canary app. AI agents get the full market-data surface plus portfolio context; the risk side stays advisory and operator-controlled: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
 Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise. The surface covers snapshot quotes with freshness and spread context, a streaming stock/ETF quote resource, option chains with implied volatility, Greeks, and open interest, daily history bars, market scanners, S&P 500 breadth, and dealer gamma.
 
@@ -128,7 +128,7 @@ Important tools:
 - `ibkr_regime`: risk-regime dashboard across volatility, credit/funding, breadth, momentum, dealer gamma, currency stress, and freshness.
 - `ibkr_breadth`: S&P 500 breadth, moving-average participation, and new high/new low context.
 - `ibkr_gamma`: SPY and SPX dealer gamma context with zero-gamma estimates and cache provenance.
-- `ibkr_canary`: portfolio stress-check tool that combines account, positions, market, and regime context into a watch/warn/critical status.
+- `ibkr_stress`: portfolio stress-check tool that combines account, positions, market, and regime context into one action: stand down, watch, defend, rebalance, deploy, or confirm inputs.
 - `ibkr_rules`: portfolio risk-rulebook check with per-rule pass/watch/act verdicts, named offenders, and disclosed data gaps.
 - `ibkr_size`: fixed-fractional position sizing from entry, stop, account equity, and configured risk rules.
 - `ibkr_scan_params`: scanner catalog discovery, listing every gateway-supported scan code, location code, and instrument type for composing ad-hoc scans.

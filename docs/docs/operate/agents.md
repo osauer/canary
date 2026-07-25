@@ -1,6 +1,6 @@
 # Working with agents
 
-Updated: 2026-07-25 09:40 CEST
+Updated: 2026-07-25 20:23 CEST
 
 `ibkr mcp` makes read/status CLI operations and preview-only stock/ETF order drafts available to MCP clients: Claude Code, Claude Desktop, or any other host that speaks the protocol. The same daemon serves the CLI and MCP, and the MCP layer is a thin adapter over the existing RPCs. Official market calendars and stock/ETF quotes are also available; quote resources can be read once or subscribed to for streaming updates.
 
@@ -35,17 +35,17 @@ Returns the eight-row dashboard. Each row carries raw measurements, compact band
 
 Claude composes an answer that names which indicators are in which band, calls out any in red, and flags streaks (a Day-5 stress event reads differently from a Day-1 spike). The dashboard is *information*, not a verdict; the user's risk tolerance determines what to do with it. [Concepts → Regime](../understand/concepts.md#regime) names the rows.
 
-### "Should the canary stay quiet, watch, act, rebalance, flag opportunity, or block on data quality?"
+### "Should the monitor stay quiet, watch, act, rebalance, flag opportunity, or block on data quality?"
 
-→ Claude invokes `ibkr_canary`.
+→ Claude invokes `ibkr_stress`.
 
-Returns a stateless market-context portfolio monitor for scheduled stress checks. The canary combines market-regime clusters, direct SPY/VIX tape shock, current exposures, concentration, positions-only held-underlying stress, option-greeks coverage, and input-health gates into `action`, `market_confirmation`, `portfolio_fit`, and `input_health`.
+Returns a stateless market-context portfolio monitor for scheduled stress checks. The stress read combines market-regime clusters, direct SPY/VIX tape shock, current exposures, concentration, positions-only held-underlying stress, option-greeks coverage, and input-health gates into `action`, `market_confirmation`, `portfolio_fit`, and `input_health`.
 
-The tool is deliberately high-precision: a standalone pre-market SPY drawdown or VIX spike can raise `watch`, while `defend` requires confirmed market pressure, vulnerable portfolio fit, and clean enough inputs. Account-only margin or P&L facts remain evidence; they do not become a canary `defend` action by themselves. Missing, stale, degraded, warming, or computing inputs become explicit input-health rows instead of being treated as safe.
+The tool is deliberately high-precision: a standalone pre-market SPY drawdown or VIX spike can raise `watch`, while `defend` requires confirmed market pressure, vulnerable portfolio fit, and clean enough inputs. Account-only margin or P&L facts remain evidence; they do not become a `defend` action by themselves. Missing, stale, degraded, warming, or computing inputs become explicit input-health rows instead of being treated as safe.
 
-Held-underlying stress appears in `portfolio.held_stress[]` only when a material held name has a real positions-derived condition. For held-name market-structure context, use `ibkr_market_events`; the canary consumes that signal as supporting context, not as a standalone trigger. [Concepts → Canary](../understand/concepts.md#canary) lists those conditions and the fuller policy.
+Held-underlying stress appears in `portfolio.held_stress[]` only when a material held name has a real positions-derived condition. For held-name market-structure context, use `ibkr_market_events`; the stress read consumes that signal as supporting context, not as a standalone trigger. [Concepts → Stress](../understand/concepts.md#stress) lists those conditions and the fuller policy.
 
-For a scheduler-friendly prompt that preserves action, market confirmation, portfolio fit, input health, readiness, source health, fingerprints, and warnings, use [examples/ibkr_portfolio_canary_prompt.md](https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_canary_prompt.md). The current tool returns the decision surface; notifications, circuit breakers, and broker-specific automation policies are intentionally left to the host or user workflow.
+For a scheduler-friendly prompt that preserves action, market confirmation, portfolio fit, input health, readiness, source health, fingerprints, and warnings, use [examples/ibkr_portfolio_stress_prompt.md](https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_stress_prompt.md). The current tool returns the decision surface; notifications, circuit breakers, and broker-specific automation policies are intentionally left to the host or user workflow.
 
 ### "Does GME have borrow, Reg SHO, LULD, or halt context?"
 
@@ -144,7 +144,7 @@ Other things outside the scope today:
 - **Ask the question, don't name the tool.** "How does my portfolio look?" works better than "Run ibkr_positions." Claude picks the right tool based on the question; naming the tool just adds friction.
 - **Chain follow-ups freely.** Each tool call is cheap (cached when possible). "And what about gamma for those?" or "How did that look yesterday?" generate natural follow-up tool calls.
 - **For the dashboard, ask "how does the market regime look?"** It triggers `ibkr_regime`, which returns the eight-row dashboard in one call. Faster than asking about each indicator separately.
-- **For scheduled stress checks, ask for the canary.** "How does market weather interact with my portfolio right now?" triggers `ibkr_canary`, which returns the whole decision surface plus evidence rows in one call, so the assistant never composes its own escalation ladder.
+- **For scheduled stress checks, ask for the stress read.** "How does market weather interact with my portfolio right now?" triggers `ibkr_stress`, which returns the whole decision surface plus evidence rows in one call, so the assistant never composes its own escalation ladder.
 - **For sizing, give Claude the full plan.** "I want to enter AAPL at 180 with a stop at 175 and a target at 195, risking 1% of NLV" lets `ibkr_size` return the R-multiple, breakeven win rate, and share count in one round-trip.
 
 ## Reference

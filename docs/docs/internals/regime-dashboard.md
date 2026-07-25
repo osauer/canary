@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-07-25 09:45 CEST
+Updated: 2026-07-25 20:23 CEST
 
 `ibkr regime` reports the broad-market stress lifecycle: `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -10,9 +10,9 @@ system, portfolio planner, or investment recommendation.
 Use it to answer one question: are several independent market-risk indicators
 confirming each other, or is the market still broadly calm?
 
-Canary may consume this output, but Canary owns account and portfolio action. A
-portfolio concentration problem can be real even while the broad market regime
-is calm.
+The stress read may consume this output, but Stress owns account and portfolio
+action. A portfolio concentration problem can be real even while the broad
+market regime is calm.
 
 ## Output shape
 
@@ -132,12 +132,12 @@ useful confirmation when other clusters are also deteriorating.
 
 USD/JPY can still show a red row by itself. For the cluster count, an isolated
 FX red is treated as a yellow watch until another independent cluster confirms
-stress. Canary may still act on a fast carry unwind when direct SPY/VIX tape or
-breadth confirms the move. On official non-trading dates (weekend or holiday)
-frozen last-session SPY/VIX prints cannot supply that tape confirmation. Inside
-Canary only the breadth arm can, until live prints return at the next open, and
-Canary's direct tape-shock row demotes to observe with confirm-at-next-open
-guidance.
+stress. The stress read may still act on a fast carry unwind when direct SPY/VIX
+tape or breadth confirms the move. On official non-trading dates (weekend or
+holiday) frozen last-session SPY/VIX prints cannot supply that tape
+confirmation. Inside the stress read only the breadth arm can, until live prints
+return at the next open, and its direct tape-shock row demotes to observe with
+confirm-at-next-open guidance.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
@@ -377,4 +377,4 @@ and a version-label bump documented here. Disable collection via
 ## Backtesting
 
 The active backtest sequence, tuning gates, and source-data backlog live in
-[Regime and Canary Backtest Runbook](regime-backtest.md).
+[Regime and Stress Backtest Runbook](regime-backtest.md).

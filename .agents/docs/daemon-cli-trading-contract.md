@@ -3,7 +3,7 @@
 Updated: 2026-06-11 22:14 CEST
 
 Use this before changing daemon, RPC, CLI, MCP, trading capability, order
-preview/status, purge, account, position, canary, regime, gamma, breadth, or
+preview/status, purge, account, position, stress, regime, gamma, breadth, or
 market-data semantics.
 
 ## Scope

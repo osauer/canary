@@ -5,8 +5,8 @@
 **Last update:** 2026-07-21
 **Owner:** osauer
 **Related:** `docs/docs/internals/regime-dashboard.md`, `docs/docs/internals/regime-backtest.md`,
-`internal/rpc/lifecycle.go`, `internal/daemon/regime*.go`, `internal/cli/canary.go`,
-`internal/cli/backtest.go`, `internal-docs/design/platform-settings.md`,
+`internal/rpc/lifecycle.go`, `internal/rpc/regime_policy.go`, `internal/daemon/regime*.go`,
+`internal/stress/stress.go`, `internal/cli/backtest.go`, `internal-docs/design/platform-settings.md`,
 `.agents/docs/daemon-cli-trading-contract.md`, `.agents/docs/spa-authority-matrix.md`
 
 ## Why this exists — the 2026-06-12 false positive
@@ -17,7 +17,13 @@ confirmed_stress / severity act"** while every live tape input was green: SPY
 maintainer judged the market calm; the engine's own tape evidence agreed.
 
 The escalation was mechanically correct under current policy and wrong in
-substance. The exact chain, verified in code:
+substance. Every citation below names the pre-fix tree as it stood on
+2026-06-12; Part 5 records where each piece went. Two moves since then matter
+most for navigation: the duplicated band and rescue logic collapsed onto
+`internal/rpc/regime_policy.go` (`BuildRegimeClusterBands`), and the stress
+engine moved out of `internal/cli` into `internal/stress`.
+
+The exact chain, verified in code:
 
 1. **A 7 bps credit break counted as a full red.** HYG 79.95 sat 0.07% below
    its 50DMA (80.008) with SPY above the 97%-of-52-week-high line.
@@ -59,15 +65,15 @@ substance. The exact chain, verified in code:
    (`internal/cli/backtest.go:1131`). The SPA and MCP posture showed "Broad
    stress regime" while `composite.verdict` said "Stress signal present" for
    the same snapshot.
-6. **The canary surface independently reproduces the same false positive.**
+6. **The stress surface independently reproduces the same false positive.**
    `summarizeCanaryMarket` (`internal/cli/canary.go:539-611`) recomputes
    cluster bands through a *third copy* of the band/rescue logic
    (`rawRegimeClusterBands` / `confirmedRegimeClusterBands` /
    `hasIndependentRegimeRedCluster`, `internal/cli/backtest.go:1076-1116`)
    and `canaryConfirmedMarketStress` (`canary.go:1063`) confirms on raw
-   `RedClusters >= 2`. Canary feeds the SPA regime panel
-   (`renderRegimePanel` reads `snap.canary`, `web/app/app.js:3149-3164`) and
-   the alert pipeline (`BuildCanaryFingerprint`,
+   `RedClusters >= 2`. The stress read feeds the SPA regime panel
+   (`renderRegimePanel` reads the stress snapshot key, `web/app/app.js:3149-3164`)
+   and the alert pipeline (`BuildCanaryFingerprint`,
    `internal/rpc/fingerprint.go:106`, deduped by
    `internal/app/alerts/alerts.go:32-44`) — the surfaces the user actually
    watches. Fixing the daemon lifecycle alone would not have fixed the
@@ -103,7 +109,7 @@ evidence escalate to the strongest non-panic posture against a green tape.
   every confirming witness must prove current on both its row and source-health
   contracts.
 - **One copy of policy.** Band classification, rescue/confirmation, and
-  headline wording each exist in one shared place; daemon, CLI, canary, and
+  headline wording each exist in one shared place; daemon, CLI, stress, and
   backtest consume served values or the shared functions. (The third-reader
   threshold promised in `regime_composite.go:27-30` has been crossed.)
 - **Raw measurements stay on the wire; banding stays disclosed.** New policy
@@ -207,7 +213,7 @@ Rationale highlights:
 - **Exit hysteresis** prevents band flapping at the boundary (red → green →
   red consuming the streak reset each time). It is applied **once, in the
   daemon fetch/annotate path**, so the served `Band` is post-hysteresis;
-  every downstream reader (CLI, canary, SPA, MCP) consumes served bands and
+  every downstream reader (CLI, stress, SPA, MCP) consumes served bands and
   needs no store access. The previous band comes from the daemon-owned streak
   state (`StreakStore.Get`), which is backed by `daemon.db` where banding
   happens.
@@ -266,7 +272,7 @@ Saturday print: SPY change collapsed to 0.00 while VIX kept Friday's +12%).
 The stage arms, the governor's SPY/VIX co-sign arms, and the pure-tape panic
 exemption therefore require a confirmable session — `tape_session_state !=
 closed_date`, classified by `rpc.TapeSessionFor` (marketcal US-equity date
-state; the shared copy the canary tape row also keys on), stamped by the
+state; the shared copy the stress tape row also keys on), stamped by the
 daemon at snapshot time and by the backtest replay from the observation
 clock, empty-and-fail-open outside embedded calendar coverage. Cluster-driven
 terms and the status-gated term-inversion co-sign are untouched. The isolated
@@ -492,7 +498,7 @@ Fingerprints feed alert dedupe, so new fields need an explicit stance:
 - `daemon.db` immutable observations: HMDS/official series, breadth windows,
   gamma results/OI/expiry grids, and skew diagnostics with source,
   method/version, as-of, quality, and original payload.
-- `daemon.db` append-only decision events: the forward regime and canary
+- `daemon.db` append-only decision events: the forward regime and stress
   calibration corpora, deduped by semantic fingerprint with an hourly
   heartbeat.
 - `ibkr regime --log <path>`: manual, opt-in JSONL of full snapshots.
@@ -502,11 +508,11 @@ Fingerprints feed alert dedupe, so new fields need an explicit stance:
 The 2026-06-12 incident still cannot be reconstructed completely from data
 that did not exist then, so promotion remains forward-data-driven. The SQLite
 cutover deliberately starts current regime/streak state and the
-regime/rules/canary/proposal/opportunity decision histories clean. Imported
+regime/rules/stress/proposal/opportunity decision histories clean. Imported
 historic market and gamma measurements are immutable observations stamped
 `decision_eligible=false`, never current state or retrospective decisions.
 
-`ibkr regime history` and `ibkr canary history` query the post-cutover event
+`ibkr regime history` and `ibkr stress history` query the post-cutover event
 corpus directly through typed daemon RPC. There is no derived `history.db`,
 JSONL backfill/tail ingest, raw-month rotation, archive query, file fallback,
 or dual write. See `internal-docs/design/history-index.md`.
@@ -555,7 +561,7 @@ contract template.
 | Cadence/staleness policy (max ages) | daemon policy, served | `SourceHealth.MaxAgeSeconds` + row `freshness` | SPA badges, CLI as-of column |
 | Lifecycle stage/severity + governors | shared rpc lifecycle builder | `LifecycleState` + new `governors[]` | CLI summary, MCP, SPA headline |
 | Headline wording + tone | single shared function in `internal/rpc` | `composite.verdict` == `posture.label` | all (CLI renders served verdict) |
-| Canary market-stress confirmation | served eligible tallies / lifecycle | existing canary contract fields | canary CLI, SPA, alerts |
+| Stress market confirmation | served eligible tallies / lifecycle | existing stress contract fields | stress CLI, SPA, alerts |
 | Decision history | append-only events in `daemon.db` | typed history RPC | CLI, backtest tooling, read-only analysis |
 
 ### Daemon (`internal/daemon`)
@@ -601,15 +607,15 @@ Additive only; raw measurements untouched:
 - `backtest.go` — `rawRegimeClusterBands` / `confirmedRegimeClusterBands` /
   `hasIndependentRegimeRedCluster` / `backtestRegimeVerdict` collapse onto
   the shared rpc functions (the promised lift-on-third-reader).
-- `canary.go` — **blocker fix:** `summarizeCanaryMarket` and
-  `canaryConfirmedMarketStress` consume served eligible tallies / the shared
-  confirmation function instead of recomputing from raw bands; canary's
-  market severity inherits the governor. Canary row wording gains the same
-  provisional language.
+- `stress.go` (the engine has since moved to `internal/stress`) — **blocker
+  fix:** `summarizeStressMarket` and `confirmedMarketStress` consume served
+  eligible tallies / the shared confirmation function instead of recomputing
+  from raw bands; the stress read's market severity inherits the governor.
+  Stress row wording gains the same provisional language.
 
 ### MCP (`internal/mcp/tools.go`)
 
-`ibkr_regime` (and the regime-relevant text in `ibkr_canary`) updated to
+`ibkr_regime` (and the regime-relevant text in `ibkr_stress`) updated to
 documentation grade: explain eligible-vs-provisional reds, the governor (why
 severity may read watch while two rows show red), cadence freshness, and that
 `governors[]` is the place to look before concluding the engine is "ignoring"
@@ -646,9 +652,9 @@ red rows. Then `make docs-regen`; `make check` enforces no drift.
   asserting `data_quality / watch / blocked / low`, headline “Market state
   undefined — data incomplete,” and both red measurements retained in
   `unconfirmed` for diagnosis.
-- **Incident regression fixture (canary):** same inputs through
-  `summarizeCanaryMarket` asserting no "Confirmed market stress" row and no
-  act-severity canary alert.
+- **Incident regression fixture (stress):** same inputs through
+  `summarizeStressMarket` asserting no "Confirmed market stress" row and no
+  act-severity stress alert.
 - Eligibility unit tables per indicator (depth/streak/fast-path/freshness/
   latch), incl. gamma's three red paths and nil-streak fresh-install.
 - Required-input fail-closed tables: missing source health, blank status,
@@ -672,7 +678,7 @@ red rows. Then `make docs-regen`; `make check` enforces no drift.
   change does not re-key).
 - Verification per repo rules: `make check`; **full `make smoke`** (daemon +
   wire-path change), `make restart-daemon`, then `ibkr regime` /
-  `ibkr regime --json --explain` and an `ibkr canary` output pasted in the
+  `ibkr regime --json --explain` and an `ibkr stress` output pasted in the
   completion message.
 
 ## Part 6 — Settings knobs (deliberately almost none)
@@ -770,5 +776,5 @@ also fork the decision corpus's comparability, undermining Part 4. So:
    explainability?
 2. Label wording at 2 eligible reds: "Confirmed stress regime" (proposed) vs
    keeping "Broad stress regime" and accepting 2-cluster breadth.
-3. **Resolved:** regime and canary lifecycle decisions use sibling typed event
+3. **Resolved:** regime and stress lifecycle decisions use sibling typed event
    kinds in the same `daemon.db`; neither uses a decision file.

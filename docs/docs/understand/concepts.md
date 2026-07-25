@@ -1,6 +1,6 @@
 # Concepts
 
-Updated: 2026-07-25 09:41 CEST
+Updated: 2026-07-25 20:23 CEST
 
 What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. This page is the mental model. [Sensors](sensors.md) owns authority, freshness, last-good behavior, and the safe checks; the [regime dashboard contract](../internals/regime-dashboard.md) owns methodology.
 
@@ -41,9 +41,9 @@ Two things to expect on the wire. Gamma and breadth are heavy computes: gamma re
 
 Calibrate your own threshold bands against [the regime dashboard contract](../internals/regime-dashboard.md); its suggestions are starting points, not gospel.
 
-## Canary
+## Stress
 
-The portfolio canary is narrower than regime: it asks whether today's market weather matters for the portfolio currently held. From account, positions, and regime snapshots it derives an action, planner readiness, and a semantic alert fingerprint for monitor dedupe. [Sensors](sensors.md#canary) lists the output fields.
+The portfolio stress read is narrower than regime: it asks whether today's market weather matters for the portfolio currently held. From account, positions, and regime snapshots it derives an action, planner readiness, and a semantic alert fingerprint for monitor dedupe. [Sensors](sensors.md#stress) lists the output fields.
 
 The high-precision rule is intentional: broad-market stress must be confirmed by market evidence, not by the user's own losses or margin pressure. Account-only facts and portfolio-only facts can appear as evidence, but `defend` requires confirmed market pressure, vulnerable portfolio fit, and usable input health. Portfolio-only pressure normally becomes `rebalance` or `watch`.
 
@@ -53,9 +53,9 @@ The high-precision rule is intentional: broad-market stress must be confirmed by
 - near-expiry held-option delta concentration
 - held-name stock quote or option bid/ask degradation
 
-Canary calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.
+The stress read calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.
 
-Canary marks the alert boundary. The diagnosis behind an alert comes from `ibkr_positions`, `ibkr_regime`, `ibkr_market_events`, or `ibkr_account`.
+Stress marks the alert boundary. The diagnosis behind an alert comes from `ibkr_positions`, `ibkr_regime`, `ibkr_market_events`, or `ibkr_account`.
 
 ## Market events
 

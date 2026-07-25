@@ -69,7 +69,7 @@ decision.
 | Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema | Material choices remain `unapproved` | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results | Edit approved values and raise `policy_version` |
 | Protection and opportunity policy | Human-customizable TOML, otherwise a system-provided embedded default | The embedded default is usable, but it is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Print the default, review it, save a custom file, and raise `policy_version` |
 | Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files | `ibkr settings set`, Settings UI, or typed API; freeze and trading-limit changes remain human-only |
-| Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Canary, and related results | Reviewed code and release change |
+| Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Stress, and related results | Reviewed code and release change |
 | Broker safety controls | Explicit human transaction decision plus non-overridable daemon/code checks | The path stays unavailable | Can block a broker write; cannot be weakened by policy or settings | Exact human decision plus reviewed guardrail change where applicable |
 
 MCP exposes research and preview surfaces, not broker-write tools. An agent may

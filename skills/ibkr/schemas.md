@@ -1707,7 +1707,7 @@ regime itself.
     "positions": "2026-05-31T21:11:04+02:00",
     "regime": "2026-05-31T21:11:20+02:00"
   },
-  "fingerprint": {"version": "canary-fp-v2", "key": "sha256:..."},
+  "fingerprint": {"version": "stress-fp-v2", "key": "sha256:..."},
   "source_fingerprints": {
     "account": {"version": "account-fp-v1", "key": "sha256:..."},
     "positions": {"version": "positions-fp-v1", "key": "sha256:..."},
@@ -1725,7 +1725,7 @@ regime itself.
      "notes": ["stale clusters: breadth,credit,vol"],
      "fingerprint_stability": "semantic_buckets_only"}
   ],
-  "policy": "canary-default",
+  "policy": "active-v1",
   "action": "confirm_inputs",
   "market_confirmation": "blocked",
   "portfolio_fit": "high",

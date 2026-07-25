@@ -10,7 +10,7 @@ document in `$XDG_STATE_HOME/ibkr/daemon.db` (or the corresponding fallback
 state root). It does not read, mirror, or fall back to
 `platform-settings.json` after SQLite authority attaches. Only user
 preferences owned by `ibkr` belong in this document: feature toggles, the
-`trading.freeze` brake, rulebook earnings overrides, the regime/canary
+`trading.freeze` brake, rulebook earnings overrides, the regime/stress
 forward-collection switches, and optional experimental trading-limit
 overrides.
 
@@ -90,7 +90,7 @@ in the atomic audit event.
 collection of typed regime-decision events in `daemon.db`. It does not enable
 a JSONL writer.
 
-`canary.journal.enabled` similarly controls typed canary-decision events in
+`stress.journal.enabled` similarly controls typed stress-decision events in
 `daemon.db`. It defaults to `true`; disabling it stops future collection
 without deleting existing evidence.
 

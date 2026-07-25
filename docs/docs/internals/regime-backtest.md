@@ -1,12 +1,12 @@
-# Regime and canary backtest runbook
+# Regime and stress backtest runbook
 
-Updated: 2026-07-25 09:45 CEST
+Updated: 2026-07-25 20:23 CEST
 
 This is the single umbrella for proving and tuning `ibkr regime` and
-`ibkr canary`. Keep the work here. Do not add another experiment plan, tuning
+`ibkr stress`. Keep the work here. Do not add another experiment plan, tuning
 plan, or backtest framework unless this runbook says to.
 
-The goal: prove that regime and canary produce useful stress detection without
+The goal: prove that regime and stress produce useful stress detection without
 overfitting to named events.
 
 ## Plain definitions
@@ -15,11 +15,11 @@ overfitting to named events.
   have been known on that date.
 - A target label is for scoring only. It must not feed the signal.
 - `regime` answers: what is the broad market state?
-- `canary` answers: given account, positions, and regime, should the monitor
+- `stress` answers: given account, positions, and regime, should the monitor
   stay quiet, watch, act, rebalance, flag opportunity, or block on data quality?
 - Portfolio-only stress, including positions-only held-underlying stress,
-  belongs to canary. Regime can keep those rows for context, but they are
-  out-of-scope for market-regime precision and recall.
+  belongs to the stress read. Regime can keep those rows for context, but they
+  are out-of-scope for market-regime precision and recall.
 
 ## Artifact map
 
@@ -147,14 +147,14 @@ is downgraded from stress to watch.
 - Curated sourced regime tuning improves precision from 68% to 75% and false
   alarms from 32% to 21%; recall falls from 93% to 86%, which is a monitoring
   item but not a collapse.
-- Curated canary holdout catches labelled stress at watch level: watch
+- Curated stress holdout catches labeled stress at watch level: watch
   precision 73%, recall 100%; act precision 86%, recall 75%, false alarms 6%.
-- Canary adds portfolio-specific lift beyond regime alone: sourced holdout
-  portfolio-stress recall moves from 75% regime-only to 100% canary, with one
-  additional portfolio true positive.
-- Canary action/readiness metrics are now first-class: watch recall of later
+- The stress read adds portfolio-specific lift beyond regime alone: sourced
+  holdout portfolio-stress recall moves from 75% regime-only to 100% with the
+  stress read, with one additional portfolio true positive.
+- Stress action/readiness metrics are now first-class: watch recall of later
   confirmed stress is 100% on the sourced holdout, median lead is 1.0 day,
-  and action buckets are tracked separately from the stateless canary JSON
+  and action buckets are tracked separately from the stateless stress JSON
   surface.
 - Category reporting is split for market-driven, portfolio-driven,
   concentration-driven, margin-driven, options-driven, and data-quality cases;
@@ -266,7 +266,8 @@ A tuning change is allowed only if all are true:
 - Major events are not hidden: Volmageddon, COVID, 2022 bear-market stress,
   yen carry unwind, and tariff shock remain visible at least at watch level.
 - Calm/rally controls get quieter or the remaining false alarms are explainable.
-- Portfolio-only stress is evaluated by canary, not counted as regime failure.
+- Portfolio-only stress is evaluated by the stress read, not counted as regime
+  failure.
 - Data-quality warnings are separate from stress false positives.
 
 If Tier 2 cannot materially improve precision without destroying recall, stop

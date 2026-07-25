@@ -5,15 +5,15 @@
 # earlier, best-effort rejection for command shapes prefix rules cannot express.
 
 prefix_rule(
-    pattern = ["ibkr", ["status", "version", "account", "positions", "quote", "calendar", "chain", "history", "scan", "size", "technical", "market-events", "breadth", "gamma", "regime", "canary", "rules"]],
+    pattern = ["ibkr", ["status", "version", "account", "positions", "quote", "calendar", "chain", "history", "scan", "size", "technical", "market-events", "breadth", "gamma", "regime", "stress", "rules"]],
     decision = "allow",
-    justification = "Read-only IBKR account, market-data, screen, regime, canary, and sizing commands are routine project work.",
+    justification = "Read-only IBKR account, market-data, screen, regime, stress, and sizing commands are routine project work.",
     match = [
         "ibkr status --json",
         "ibkr quote AAPL --json",
         "ibkr market-events --symbol CRWV --json",
         "ibkr regime --json",
-        "ibkr canary --json",
+        "ibkr stress --json",
     ],
 )
 

@@ -58,9 +58,14 @@ refreshable in-memory views do not.
   `daemon.db`, risk-capital runtime state, daily Flex ingestion, and
   post-trade reconciliation.
 - `internal/risk` is the pure evaluation library behind advisory verdicts:
-  thresholds and fingerprints, canary signal types, option math, the daily
+  thresholds and fingerprints, stress signal types, option math, the daily
   [trading rulebook](../../../internal-docs/design/trading-rulebook.md), and risk-constitution
   evaluation. It does no I/O and owns no broker state.
+- `internal/stress` composes the portfolio stress read from typed account,
+  position, regime, and market-event inputs. Evaluation is deterministic once
+  its inputs and clock are supplied; the fetch helpers collect those snapshots
+  through the daemon's typed call surface and preserve unavailable or stale
+  evidence rather than filling it in.
 - `internal/rpc` defines the typed method names and request/response structs
   that daemon, CLI, app, and MCP adapters share. Add fields here first; teach
   surfaces to render them second.
@@ -192,7 +197,7 @@ durability and upgrade mechanics, and current recovery limits.
 ### History and imported observations
 
 The four history commands (`ibkr regime history`, `ibkr rules history`,
-`ibkr canary history`, and `ibkr recon equity`) query `daemon.db` through typed
+`ibkr stress history`, and `ibkr recon equity`) query `daemon.db` through typed
 daemon RPC; MCP and the app currently expose no history surface. Order reads use
 the same database authority. There is no `history.db` ingest path, journal scan
 fallback, rotation job, or dual write after cutover, and the legacy decision
@@ -213,7 +218,7 @@ authority.
 Cutover preserves safety-critical settings, capital/governance continuity,
 active or uncertain order chains, consumed-token tombstones, conservative
 order-ID floors, and purge rows and fill cursors. Trading readiness resets;
-current regime state and regime/rules/canary/proposal/opportunity decision
+current regime state and regime/rules/stress/proposal/opportunity decision
 history start clean, as do brief comparison baselines and proposal/opportunity
 snapshots.
 
@@ -311,7 +316,7 @@ is no external metrics stack and no tracing.
   the market calendar, and governance report stale, partial, degraded, or
   unknown instead of guessing.
 - Append-only SQLite events are the evidence trail for orders, regime, rule,
-  and canary decisions, proposal outcomes, capital events, and risk-policy
+  and stress decisions, proposal outcomes, capital events, and risk-policy
   governance. Mutable documents use compare-and-swap revisions, while coupled
   state/event changes share one transaction. `ibkr brief` and the CLI history
   commands compose or query this typed daemon authority directly.

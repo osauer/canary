@@ -90,7 +90,7 @@
                 <li><a href="../internals/storage.html">Storage</a></li>
                 <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="connect-an-mcp-host">Connect an MCP host</h1>
-<p>Updated: 2026-07-25 11:38 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p><code>ibkr mcp</code> is a local MCP server that speaks JSON-RPC over stdin and stdout. Your host starts it as a child process, and it exits when that parent goes away. It opens no network listener of its own: each request dials the daemon's Unix socket, and the daemon is the only thing holding the gateway connection.</p>
 <p>That means the wiring is the same everywhere. Point the host at the absolute path of the <code>ibkr</code> binary, pass the single argument <code>mcp</code>, and restart the host.</p>
 <p>Install first. <a href="install.html">Install and first run</a> covers prerequisites, paths, and the <code>ibkr status</code> check that tells you whether the gateway half of this is working.</p>
@@ -147,9 +147,9 @@ claude plugin install ibkr@ibkr
 <h2 id="trimming-the-tool-surface">Trimming the tool surface</h2>
 <pre><code class="language-sh">ibkr mcp --profile monitor
 </code></pre>
-<p>The <code>monitor</code> profile exposes exactly two tools, <code>ibkr_canary</code> and <code>ibkr_status</code>. It exists for scheduled low-token checks. Register it as a second server entry if you want both the full surface and a cheap one.</p>
+<p>The <code>monitor</code> profile exposes exactly two tools, <code>ibkr_stress</code> and <code>ibkr_status</code>. It exists for scheduled low-token checks. Register it as a second server entry if you want both the full surface and a cheap one.</p>
 <h2 id="what-the-agent-can-then-see">What the agent can then see</h2>
-<p>26 tools cover account and positions, snapshot quotes and the watchlist, official market calendars, option chains, daily history, technical screens, scans, fixed-fractional sizing, S&amp;P 500 breadth, dealer gamma, the regime dashboard, the portfolio canary, the rulebook verdict, market-event flags, protection proposals, opportunities, settings, and read-only order-journal views. Streaming quotes come through the <code>ibkr://quote/{symbol}</code> resource template rather than a tool. Local lifecycle verbs (<code>setup</code>, <code>update</code>, <code>restart</code>, <code>mcp</code>, <code>daemon</code>, <code>version</code>) are deliberately absent, and so are <code>ibkr policy</code> and <code>ibkr recon</code>, which stay CLI-only and advisory. The <a href="../reference/mcp-tools.html">MCP tools reference</a> and <a href="../reference/mcp-resources.html">MCP resources reference</a> are generated from the registry and list every parameter.</p>
+<p>26 tools cover account and positions, snapshot quotes and the watchlist, official market calendars, option chains, daily history, technical screens, scans, fixed-fractional sizing, S&amp;P 500 breadth, dealer gamma, the regime dashboard, the portfolio stress read, the rulebook verdict, market-event flags, protection proposals, opportunities, settings, and read-only order-journal views. Streaming quotes come through the <code>ibkr://quote/{symbol}</code> resource template rather than a tool. Local lifecycle verbs (<code>setup</code>, <code>update</code>, <code>restart</code>, <code>mcp</code>, <code>daemon</code>, <code>version</code>) are deliberately absent, and so are <code>ibkr policy</code> and <code>ibkr recon</code>, which stay CLI-only and advisory. The <a href="../reference/mcp-tools.html">MCP tools reference</a> and <a href="../reference/mcp-resources.html">MCP resources reference</a> are generated from the registry and list every parameter.</p>
 <p>The bundled MCP surface has no order-entry tools. The order-preview tool can mint a local preview token and reports <code>submit_eligible</code> separately, and it cannot place, modify, cancel, or transmit a broker order. A unit test enforces that boundary against the tool registry by name. <a href="../operate/orders.html">Order previews and the trading build</a> owns the full story.</p>
     </main>
   </div>

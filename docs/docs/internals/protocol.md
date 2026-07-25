@@ -1,6 +1,6 @@
 # TWS wire protocol
 
-Updated: 2026-07-25 09:45 CEST
+Updated: 2026-07-25 20:23 CEST
 
 `pkg/ibkr` is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
@@ -53,7 +53,7 @@ because the lower-level wire method or a platform workflow setting exists.
 Monitor-facing decision surfaces expose a semantic `fingerprint` object:
 
 ```json
-{"version": "canary-fp-v2", "key": "sha256:..."}
+{"version": "stress-fp-v2", "key": "sha256:..."}
 ```
 
 The key is a SHA-256 hash of classified state rather than of the full JSON
@@ -76,7 +76,7 @@ order. V3 retains the V2 typed failure code/stage projection and adds coverage
 scope, exact-contract identity, source/data type, entitlement, scale status,
 policy eligibility, and closed reason/status buckets.
 
-`canary` emits `canary-fp-v2` from policy, action, market confirmation,
+`stress` emits `stress-fp-v2` from policy, action, market confirmation,
 portfolio fit, input health, direction, severity, planner mode/readiness,
 primary drivers, signal semantics including held-underlying stress buckets,
 classified market state, source-health buckets, row titles/states, and
@@ -84,7 +84,7 @@ classified market state, source-health buckets, row titles/states, and
 `source_fingerprints.regime`, and `source_fingerprints.market_events`.
 V2 includes typed source failure
 code/stage. The separate `established_alert_projection` intentionally retains
-its frozen `canary-fp-v1` compatibility identity for delivery continuity.
+its frozen `stress-fp-v1` compatibility identity for delivery continuity.
 
 [`rules.snapshot`](../../../internal-docs/design/trading-rulebook.md) emits
 `rulebook-fp-v3`, a policy-identity fingerprint rather than a classified-state
@@ -96,7 +96,7 @@ produced each journaled verdict.
 
 Regime also exposes a nested `lifecycle.fingerprint` for consumers that dedupe
 by broad-market lifecycle transition rather than by the full regime snapshot.
-Canary is stateless and exposes no lifecycle fingerprint of its own. Source
+Stress is stateless and exposes no lifecycle fingerprint of its own. Source
 fingerprints and source-health entries use semantic buckets only; timestamps,
 tiny raw-value movement inside a bucket, and prose changes must not churn the
 hash.

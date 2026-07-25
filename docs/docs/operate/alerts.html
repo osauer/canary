@@ -90,7 +90,7 @@
                 <li><a href="../internals/storage.html">Storage</a></li>
                 <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
@@ -102,15 +102,15 @@
     </details>
     <main class="doc">
 <h1 id="alerts-and-notifications">Alerts and notifications</h1>
-<p>Updated: 2026-07-25 12:12 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p>An alert is a daemon-owned fact with a lifecycle. The daemon decides whether a condition exists, how serious it is, and whether it opened, escalated, or recovered. The paired app records that decision, decides whether your chosen notification level permits a push, and owns every delivery attempt and receipt. The app never recomputes severity, dwell, escalation, or recovery.</p>
 <h2 id="what-raises-one">What raises one</h2>
-<p>Nine producers can raise an alert, and the list is fixed in the daemon: Canary, Regime, Rulebook, risk policy, Protection, order integrity, reconciliation, governance, and Data Health. Delivery health sits outside that universe on purpose, because it is a downstream result, so a transport failure never counts toward source coverage.</p>
+<p>Nine producers can raise an alert, and the list is fixed in the daemon: Stress, Regime, Rulebook, risk policy, Protection, order integrity, reconciliation, governance, and Data Health. Delivery health sits outside that universe on purpose, because it is a downstream result, so a transport failure never counts toward source coverage.</p>
 <p>Each producer classifies its condition at one of four severities, in rank order: <code>observe</code>, <code>watch</code>, <code>act</code>, <code>urgent</code>. Thresholds stay with the producer; <a href="../understand/sensors.html">Sensors</a> covers where each one gets its evidence.</p>
 <p>Daemon-owned heartbeats re-observe the sources every 30 seconds, so a condition can open with no app or CLI window anywhere. A source that cannot express both an active fact and a trustworthy negative counts as uncovered, and an uncovered source can neither clear a condition nor authorize a push.</p>
 <h2 id="where-it-goes">Where it goes</h2>
 <p>Every occurrence enters one inbox on the Alerts tab of <a href="app.html">the paired app</a>, under a single read-through cursor shared by all paired devices. The inbox shows a redacted display id and fixed app-authored copy; producer keys, targets, and receipts stay private.</p>
-<p>The CLI has no alerts command. <code>ibkr canary --view alert</code> (which requires <code>--json</code>) gives the compact canary view, and <code>ibkr brief</code> and <code>ibkr rules</code> carry the same facts as rows.</p>
+<p>The CLI has no alerts command. <code>ibkr stress --view alert</code> (which requires <code>--json</code>) gives the compact stress view, and <code>ibkr brief</code> and <code>ibkr rules</code> carry the same facts as rows.</p>
 <p>Phone notifications are configured under Settings → Phone notifications. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.</p>
 <div class="tblwrap">
 <table>

@@ -1,6 +1,6 @@
 # Connect an MCP host
 
-Updated: 2026-07-25 11:38 CEST
+Updated: 2026-07-25 20:23 CEST
 
 `ibkr mcp` is a local MCP server that speaks JSON-RPC over stdin and stdout. Your host starts it as a child process, and it exits when that parent goes away. It opens no network listener of its own: each request dials the daemon's Unix socket, and the daemon is the only thing holding the gateway connection.
 
@@ -75,10 +75,10 @@ After upgrading the binary, fully quit and relaunch the host. Hosts keep the ser
 ibkr mcp --profile monitor
 ```
 
-The `monitor` profile exposes exactly two tools, `ibkr_canary` and `ibkr_status`. It exists for scheduled low-token checks. Register it as a second server entry if you want both the full surface and a cheap one.
+The `monitor` profile exposes exactly two tools, `ibkr_stress` and `ibkr_status`. It exists for scheduled low-token checks. Register it as a second server entry if you want both the full surface and a cheap one.
 
 ## What the agent can then see
 
-26 tools cover account and positions, snapshot quotes and the watchlist, official market calendars, option chains, daily history, technical screens, scans, fixed-fractional sizing, S&P 500 breadth, dealer gamma, the regime dashboard, the portfolio canary, the rulebook verdict, market-event flags, protection proposals, opportunities, settings, and read-only order-journal views. Streaming quotes come through the `ibkr://quote/{symbol}` resource template rather than a tool. Local lifecycle verbs (`setup`, `update`, `restart`, `mcp`, `daemon`, `version`) are deliberately absent, and so are `ibkr policy` and `ibkr recon`, which stay CLI-only and advisory. The [MCP tools reference](../reference/mcp-tools.md) and [MCP resources reference](../reference/mcp-resources.md) are generated from the registry and list every parameter.
+26 tools cover account and positions, snapshot quotes and the watchlist, official market calendars, option chains, daily history, technical screens, scans, fixed-fractional sizing, S&P 500 breadth, dealer gamma, the regime dashboard, the portfolio stress read, the rulebook verdict, market-event flags, protection proposals, opportunities, settings, and read-only order-journal views. Streaming quotes come through the `ibkr://quote/{symbol}` resource template rather than a tool. Local lifecycle verbs (`setup`, `update`, `restart`, `mcp`, `daemon`, `version`) are deliberately absent, and so are `ibkr policy` and `ibkr recon`, which stay CLI-only and advisory. The [MCP tools reference](../reference/mcp-tools.md) and [MCP resources reference](../reference/mcp-resources.md) are generated from the registry and list every parameter.
 
 The bundled MCP surface has no order-entry tools. The order-preview tool can mint a local preview token and reports `submit_eligible` separately, and it cannot place, modify, cancel, or transmit a broker order. A unit test enforces that boundary against the tool registry by name. [Order previews and the trading build](../operate/orders.md) owns the full story.

@@ -38,7 +38,7 @@ local while using the daemon's sole live SQLite authority:
   authority.
 - Snapshot-time `quality.rankability` separates "served for context" from
   "rankable market evidence" so stale/degraded cache cannot confirm regime or
-  canary state.
+  stress state.
 
 The live location is `$XDG_STATE_HOME/ibkr/daemon.db`, falling back to
 `$HOME/.local/state/ibkr/daemon.db`. Former

@@ -90,7 +90,7 @@
                 <li><a href="storage.html">Storage</a></li>
                 <li><a href="protocol.html">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html" class="is-current" aria-current="page">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="packaging.html">Packaging and distribution</a></li>
@@ -102,16 +102,16 @@
     </details>
     <main class="doc">
 <h1 id="regime-dashboard-contract">Regime dashboard contract</h1>
-<p>Updated: 2026-07-25 09:45 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p><code>ibkr regime</code> reports the broad-market stress lifecycle: <code>quiet</code>,
 <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>, <code>opportunity</code>,
 or <code>data_quality</code>. It is an evidence-balance read, not a prediction, trading
 system, portfolio planner, or investment recommendation.</p>
 <p>Use it to answer one question: are several independent market-risk indicators
 confirming each other, or is the market still broadly calm?</p>
-<p>Canary may consume this output, but Canary owns account and portfolio action. A
-portfolio concentration problem can be real even while the broad market regime
-is calm.</p>
+<p>The stress read may consume this output, but Stress owns account and portfolio
+action. A portfolio concentration problem can be real even while the broad
+market regime is calm.</p>
 <h2 id="output-shape">Output shape</h2>
 <p>Each row carries:</p>
 <ul>
@@ -311,12 +311,12 @@ can unwind at the same time. That does not predict every selloff, but it is
 useful confirmation when other clusters are also deteriorating.</p>
 <p>USD/JPY can still show a red row by itself. For the cluster count, an isolated
 FX red is treated as a yellow watch until another independent cluster confirms
-stress. Canary may still act on a fast carry unwind when direct SPY/VIX tape or
-breadth confirms the move. On official non-trading dates (weekend or holiday)
-frozen last-session SPY/VIX prints cannot supply that tape confirmation. Inside
-Canary only the breadth arm can, until live prints return at the next open, and
-Canary's direct tape-shock row demotes to observe with confirm-at-next-open
-guidance.</p>
+stress. The stress read may still act on a fast carry unwind when direct SPY/VIX
+tape or breadth confirms the move. On official non-trading dates (weekend or
+holiday) frozen last-session SPY/VIX prints cannot supply that tape
+confirmation. Inside the stress read only the breadth arm can, until live prints
+return at the next open, and its direct tape-shock row demotes to observe with
+confirm-at-next-open guidance.</p>
 <div class="tblwrap">
 <table>
 <thead>
@@ -716,7 +716,7 @@ and a version-label bump documented here. Disable collection via
 <code>ibkr settings set regime.journal.enabled=false</code>.</p>
 <h2 id="backtesting">Backtesting</h2>
 <p>The active backtest sequence, tuning gates, and source-data backlog live in
-<a href="regime-backtest.html">Regime and Canary Backtest Runbook</a>.</p>
+<a href="regime-backtest.html">Regime and Stress Backtest Runbook</a>.</p>
     </main>
   </div>
   <footer>

@@ -90,7 +90,7 @@
                 <li><a href="../internals/storage.html">Storage</a></li>
                 <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and stress backtest runbook</a></li>
                 <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
                 <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="your-first-session">Your first session</h1>
-<p>Updated: 2026-07-25 11:33 CEST</p>
+<p>Updated: 2026-07-25 20:23 CEST</p>
 <p>Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; <a href="install.html">Install and first run</a> covers getting there.</p>
 <p>The terminal output below comes from the repository's fixture renderer (<code>go run cmd/_preview/main.go</code>), which draws the real CLI screens from synthetic data on the placeholder account <code>DU0000000</code>. Your figures will differ. The shape of each screen will not.</p>
 <h2 id="1-prove-the-gateway-is-reachable">1. Prove the gateway is reachable</h2>
@@ -156,15 +156,15 @@ SPX members    cache:2026-05-22, 503 names
 <h2 id="5-let-one-command-assemble-the-rest">5. Let one command assemble the rest</h2>
 <pre><code class="language-sh">ibkr brief
 </code></pre>
-<p><code>ibkr brief</code> is the assembled read. <code>Review</code> covers the last completed session: session P&amp;L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. <code>Ready</code> covers today: regime stage, breadth, dealer gamma, canary action, session state, market-event counts, and capital tier.</p>
+<p><code>ibkr brief</code> is the assembled read. <code>Review</code> covers the last completed session: session P&amp;L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. <code>Ready</code> covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.</p>
 <p>Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. <code>ibkr brief --json</code> renders without stamping, and an agent-origin invocation prints <code>agent-origin render — not stamped</code>. There is no MCP tool for <code>brief</code>; it is a CLI surface.</p>
 <h2 id="6-read-the-market-context">6. Read the market context</h2>
 <pre><code class="language-sh">ibkr regime
-ibkr canary
+ibkr stress
 </code></pre>
-<p><code>ibkr regime</code> returns the eight-row stress dashboard plus a lifecycle stage. <code>ibkr canary</code> asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.</p>
+<p><code>ibkr regime</code> returns the eight-row stress dashboard plus a lifecycle stage. <code>ibkr stress</code> asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.</p>
 <p>Two of the regime rows are heavy computes and will not be ready on a cold daemon. Gamma reports <code>status: &quot;computing&quot;</code> with an ETA and progress, and the first-ever breadth build is paced by IBKR's historical-data limits into about 74 minutes of wall clock. Neither is broken; both fill in.</p>
-<p>What the output means is owned elsewhere, and those pages go deeper than this one should. <a href="../understand/concepts.html#regime">Concepts → Regime</a> and <a href="../understand/concepts.html#canary">Concepts → Canary</a> give the mental model. <a href="../understand/sensors.html">Sensors</a> covers authority, freshness, and the safe check for each one.</p>
+<p>What the output means is owned elsewhere, and those pages go deeper than this one should. <a href="../understand/concepts.html#regime">Concepts → Regime</a> and <a href="../understand/concepts.html#stress">Concepts → Stress</a> give the mental model. <a href="../understand/sensors.html">Sensors</a> covers authority, freshness, and the safe check for each one.</p>
 <h2 id="7-ask-the-same-questions-through-an-agent">7. Ask the same questions through an agent</h2>
 <p>With an MCP host wired up, the same reads happen as tool calls. Ask the question rather than naming the tool:</p>
 <div class="tblwrap">
@@ -191,7 +191,7 @@ ibkr canary
 </tbody>
 </table>
 </div>
-<p>The answers are the same data with the interpretation written out, which is most of the value on the regime and canary surfaces. <a href="../operate/agents.html">Working with agents</a> has the setup commands and a longer list of worked examples.</p>
+<p>The answers are the same data with the interpretation written out, which is most of the value on the regime and stress surfaces. <a href="../operate/agents.html">Working with agents</a> has the setup commands and a longer list of worked examples.</p>
 <p>Two boundaries are worth knowing before you start asking. The bundled MCP surface has no order-entry tools, so no host can place, modify, or cancel an order through it. And several CLI surfaces have no MCP tool at all, <code>brief</code> among them, along with the advisory <code>ibkr policy</code> and <code>ibkr recon</code>.</p>
 <h2 id="where-to-go-next">Where to go next</h2>
 <ul>

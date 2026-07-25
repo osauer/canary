@@ -30,8 +30,8 @@ operator approval of every compiled threshold. The behavioral target is
 The Rulebook is the desk's **mechanical discipline layer**. It is deliberately
 separate from adjacent surfaces:
 
-- Regime and Canary answer whether market stress exists and whether it matters
-  to the held portfolio.
+- Regime and the stress read answer whether market stress exists and whether
+  it matters to the held portfolio.
 - The risk constitution answers whether capital, drawdown, evidence, and
   reconciliation remain inside the operator-approved policy.
 - Protection proposals answer which current positions have executable
@@ -68,7 +68,7 @@ authorize or block a broker write.
   state (`daemon.db`), manual earnings overrides + feature toggle (runtime
   platform settings), canonical evaluation and alert lifecycle (daemon), and
   rendering (CLI/MCP/app/SPA adapters, no policy duplication).
-- Existing behavior: canary signals already cover margin cushion, gross/net
+- Existing behavior: stress signals already cover margin cushion, gross/net
   exposure, and single-name exposure; proposals already run theta_hygiene
   and risk_reduction buckets. The rulebook does not replace these; it
   presents a fixed 14-rule daily contract on top of the same aggregation.
@@ -76,7 +76,7 @@ authorize or block a broker write.
 ## Which verdict wins when
 
 Three surfaces measure overlapping metrics with different bars, by design:
-the **canary** is regime×portfolio alerting (compiled thresholds, push
+the **stress read** is regime×portfolio alerting (compiled thresholds, push
 alerts), **proposals** are executable protection orders (protection-policy
 TOML), and the **rulebook** is a compiled advisory discipline model
 (`rulebook-v2`; an operator TOML loader is not shipped). Same
@@ -84,14 +84,14 @@ measurements, different questions. Containment so this never drifts into
 contradiction:
 
 - One aggregation: rule evaluation consumes the same
-  `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the canary
-  reads; a Go test asserts observed values are identical across both
+  `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
+  read consumes; a Go test asserts observed values are identical across both
   consumers. Bars may differ; observations may not.
 - The compiled Rulebook policy and risk-constitution sibling pin identify
   `rulebook-v2` version 2. The sibling pin currently compares ID/version, not the
   Rulebook fingerprint; it detects version drift but is not threshold-level
   approval provenance. The design cross-references the sibling thresholds
-  (canary single-name watch 35 compiled; protection risk-reduction target 25)
+  (stress single-name watch 35 compiled; protection risk-reduction target 25)
   and which surface owns which question. A future operator TOML must preserve
   those disclosures and version/fingerprint semantics.
 - Every rendered breach shows observed value next to threshold, so two
@@ -322,7 +322,7 @@ approval):
 
 ## Input health (result-level gate)
 
-`RulesResult.InputHealth` mirrors the canary's source-health pattern: one
+`RulesResult.InputHealth` mirrors the stress read's source-health pattern: one
 entry per source (account, positions, regime_stage, earnings, tape) with
 status/as_of/reason. When positions or account are pending, stale, or absent
 — boot races included — every portfolio-dependent row is `unknown` with the
@@ -366,12 +366,12 @@ internal/app/live/service.go      snapshot.rules sibling section (SSE)
 web/app/*                         rules card + drill-in
 ```
 
-- **Placement:** Canary and Rulebook share pure evaluators but remain separate
-  typed results. The daemon now runs the canonical Canary and Rulebook
+- **Placement:** Stress and Rulebook share pure evaluators but remain separate
+  typed results. The daemon now runs the canonical Stress and Rulebook
   cadences; CLI/MCP/app readers reuse those daemon-owned inputs and contracts.
-  Rules do not attach to `CanaryResult`: `rules.snapshot` remains a sibling
+  Rules do not attach to `StressResult`: `rules.snapshot` remains a sibling
   section of the app live snapshot (`Rules *rpc.RulesResult` beside
-  `Canary`), riding the existing SSE event.
+  `Stress *rpc.StressResult`), riding the existing SSE event.
 - The pure Rulebook evaluator is stateless and lives in `internal/risk` with
   table tests. Production evaluation is daemon-owned: a complete canonical
   evaluation runs every minute independently of the app, and interactive
@@ -561,7 +561,7 @@ web/app/*                         rules card + drill-in
 |---|---|---|---|---|---|---|
 | Rules card | "Rules" | live snapshot sibling section | `snapshot.rules` | browser_script_ids_test + app-browser-smoke | worst 2–3 breaches as tone pills; `unknown` neutral; InputHealth degradation reachable behind the "Data notes" info affordance; card hidden when disabled | `make app-check` + `make app-refresh-smoke` |
 
-Card: `#canaryRulesCard` beside the canary hero (worst 2–3 breaches as
+Card: `#canaryRulesCard` beside the stress hero (worst 2–3 breaches as
 severity pills, ranked hardest-first) + `#canaryRulesToggle` expanding
 `#canaryRulesDetailPanel` with the full 14-row `.detail-grid` (tone classes
 `risk|warn|ok|neutral`; `info` and `unknown` render neutral). Each breach
@@ -575,6 +575,11 @@ opened by `#canaryRulesNotesToggle` ("Data notes · N", attention tone while an
 unknown-rule note is present). The trigger stays visible whenever any notice
 exists — degradation is collapsed, never suppressed.
 
+The `canary*` element ids and `canary-*` CSS class names in this section are
+deliberately unchanged by the stress rename: they are DOM and stylesheet
+contracts pinned by `browser_script_ids_test` and the compat test, not sensor
+naming.
+
 ## Safety invariants (unchanged)
 
 - Advisory only: no rulebook state may alter `submit_eligible`, blockers,
@@ -583,7 +588,7 @@ exists — degradation is collapsed, never suppressed.
   `not_evaluated`; absent inputs are `unknown`. Never false pass.
 - `as_of`, InputHealth, and policy fingerprint ride every result.
 - MCP description states when to invoke (daily review, "what should I fix
-  today") and when not (`ibkr_canary` for regime×portfolio alerting,
+  today") and when not (`ibkr_stress` for regime×portfolio alerting,
   `ibkr_proposals` for executable protection orders).
 
 ## Agent hook boundary
@@ -641,7 +646,7 @@ part of the Rulebook semantic contract.
   wrong-symbol, stale, future, malformed, cross-bound, duplicate-receipt, or
   duplicate-terminal-ConID applicability authority and accepts only valid
   terminal, broker, or per-symbol mixed evidence.
-- Aggregation-consistency drift test: canary concentration and rule 1 read
+- Aggregation-consistency drift test: stress concentration and rule 1 read
   identical exposure values (review finding 6a).
 - Portfolio receipt gate: current completed empty snapshot is a trustworthy
   negative; stale silence and account changes stay uncovered and retain active
