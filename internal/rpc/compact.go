@@ -27,18 +27,18 @@ const (
 	defaultRiskExposureLimit         = 5
 )
 
-// CanaryAlertResult is a bounded, alert-safe projection of Canary state. Empty
+// StressAlertResult is a bounded, alert-safe projection of Canary state. Empty
 // flags are not reassuring unless the carried source health is conclusive.
-type CanaryAlertResult struct {
+type StressAlertResult struct {
 	AsOf               time.Time                `json:"as_of"`
 	Fingerprint        Fingerprint              `json:"fingerprint"`
-	SourceFingerprints CanarySourceFingerprints `json:"source_fingerprints,omitzero"`
+	SourceFingerprints StressSourceFingerprints `json:"source_fingerprints,omitzero"`
 	SourceHealth       []CompactSourceHealth    `json:"source_health,omitempty"`
 	Action             string                   `json:"action,omitempty"`
 	MarketConfirmation string                   `json:"market_confirmation,omitempty"`
 	PortfolioFit       string                   `json:"portfolio_fit,omitempty"`
 	// PortfolioAlertRelevant carries the producer-stamped relevance verdict
-	// through the alert view; see CanaryResult.PortfolioAlertRelevant.
+	// through the alert view; see StressResult.PortfolioAlertRelevant.
 	PortfolioAlertRelevant *bool                      `json:"portfolio_alert_relevant,omitempty"`
 	InputHealth            string                     `json:"input_health,omitempty"`
 	Direction              risk.SignalDirection       `json:"direction,omitempty"`
@@ -47,18 +47,18 @@ type CanaryAlertResult struct {
 	PlannerReadiness       risk.PlannerReadiness      `json:"planner_readiness,omitempty"`
 	Summary                string                     `json:"summary"`
 	PrimaryDrivers         []risk.SignalID            `json:"primary_drivers,omitempty"`
-	Portfolio              CanaryPortfolioSummary     `json:"portfolio"`
-	Market                 CanaryMarketSummary        `json:"market"`
+	Portfolio              StressPortfolioSummary     `json:"portfolio"`
+	Market                 StressMarketSummary        `json:"market"`
 	OptionHealth           OptionHealthSummary        `json:"option_health"`
 	ProtectionCoverage     *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
 	SPYHedgeOffsetPct      *float64                   `json:"spy_hedge_offset_pct,omitempty"`
-	Flags                  []CanaryAlertFlag          `json:"flags,omitempty"`
+	Flags                  []StressAlertFlag          `json:"flags,omitempty"`
 	Warnings               []string                   `json:"warnings,omitempty"`
 	NotExecution           string                     `json:"not_execution"`
 }
 
-// CanaryAlertFlag is one compact advisory finding.
-type CanaryAlertFlag struct {
+// StressAlertFlag is one compact advisory finding.
+type StressAlertFlag struct {
 	Title     string               `json:"title"`
 	Direction risk.SignalDirection `json:"direction,omitempty"`
 	Severity  risk.SignalSeverity  `json:"severity"`
@@ -158,13 +158,13 @@ type OptionRiskLegSummary struct {
 	AsOf         time.Time `json:"as_of,omitzero"`
 }
 
-// CompactCanaryAlert builds an alert-safe projection without changing the
+// CompactStressAlert builds an alert-safe projection without changing the
 // authority or freshness of its source snapshots.
-func CompactCanaryAlert(c *CanaryResult, positions *PositionsResult) CanaryAlertResult {
+func CompactStressAlert(c *StressResult, positions *PositionsResult) StressAlertResult {
 	if c == nil {
-		return CanaryAlertResult{}
+		return StressAlertResult{}
 	}
-	out := CanaryAlertResult{
+	out := StressAlertResult{
 		AsOf:                   c.AsOf,
 		Fingerprint:            c.Fingerprint,
 		SourceFingerprints:     c.SourceFingerprints,
@@ -187,7 +187,7 @@ func CompactCanaryAlert(c *CanaryResult, positions *PositionsResult) CanaryAlert
 	}
 	for _, row := range c.Rows {
 		if row.Severity != "" && row.Severity != risk.SeverityObserve {
-			out.Flags = append(out.Flags, CanaryAlertFlag{
+			out.Flags = append(out.Flags, StressAlertFlag{
 				Title:     row.Title,
 				Direction: row.Direction,
 				Severity:  row.Severity,

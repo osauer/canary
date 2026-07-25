@@ -30,10 +30,10 @@ const (
 // identifiers.
 type AlertSource string
 
-// AlertSourceCanary and the related constants identify candidate-producing
+// AlertSourceStress and the related constants identify candidate-producing
 // subsystems without carrying private subject identity.
 const (
-	AlertSourceCanary         AlertSource = "canary"
+	AlertSourceStress         AlertSource = "canary"
 	AlertSourceRegime         AlertSource = "regime"
 	AlertSourceRulebook       AlertSource = "rulebook"
 	AlertSourceRiskPolicy     AlertSource = "risk_policy"
@@ -101,7 +101,7 @@ type AlertPresentationCode string
 // version-2 registry is upgraded; the next producer observation replaces them
 // with the precise code without opening a new occurrence.
 const (
-	AlertPresentationCanaryPortfolioStress            AlertPresentationCode = "canary_portfolio_stress"
+	AlertPresentationPortfolioStress                  AlertPresentationCode = "canary_portfolio_stress"
 	AlertPresentationRegimeMarketStress               AlertPresentationCode = "regime_market_stress"
 	AlertPresentationRulebookSingleNameExposure       AlertPresentationCode = "rulebook_single_name_exposure"
 	AlertPresentationRulebookOptionLinePremium        AlertPresentationCode = "rulebook_option_line_premium"
@@ -790,7 +790,7 @@ func validOpaqueSHA256(value, prefix string) bool {
 
 func validAlertSource(value AlertSource) bool {
 	switch value {
-	case AlertSourceCanary, AlertSourceRegime, AlertSourceRulebook, AlertSourceRiskPolicy,
+	case AlertSourceStress, AlertSourceRegime, AlertSourceRulebook, AlertSourceRiskPolicy,
 		AlertSourceProtection, AlertSourceOrderIntegrity, AlertSourceReconciliation,
 		AlertSourceGovernance, AlertSourceDataHealth, AlertSourceDelivery:
 		return true
@@ -820,8 +820,8 @@ func validAlertSeverity(value AlertSeverity) bool {
 
 func validAlertPresentationCode(source AlertSource, value AlertPresentationCode) bool {
 	switch source {
-	case AlertSourceCanary:
-		return value == AlertPresentationCanaryPortfolioStress
+	case AlertSourceStress:
+		return value == AlertPresentationPortfolioStress
 	case AlertSourceRegime:
 		return value == AlertPresentationRegimeMarketStress
 	case AlertSourceRulebook:

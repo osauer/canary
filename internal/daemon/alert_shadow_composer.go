@@ -68,7 +68,7 @@ const (
 // alertShadowExpectedSources is deliberately fixed. Delivery is not a producer
 // and therefore never belongs in the measurement universe.
 var alertShadowExpectedSources = [...]rpc.AlertSource{
-	rpc.AlertSourceCanary,
+	rpc.AlertSourceStress,
 	rpc.AlertSourceRegime,
 	rpc.AlertSourceRulebook,
 	rpc.AlertSourceRiskPolicy,
@@ -363,11 +363,11 @@ func (c *alertShadowComposer) scopeStateLocked(scope alertShadowBrokerScope) (*a
 	return state, nil
 }
 
-// ObserveCanary consumes the daemon-authored Canary result. Eligibility is the
+// ObserveStress consumes the daemon-authored Canary result. Eligibility is the
 // existing legacy occurrence gate exactly, including its nil-relevance
 // fail-open for positives. A missing relevance stamp can never authorize a
 // negative or source coverage.
-func (c *alertShadowComposer) ObserveCanary(ctx context.Context, scope alertShadowBrokerScope, result rpc.CanaryResult) (rpc.AlertCandidateSnapshot, error) {
+func (c *alertShadowComposer) ObserveStress(ctx context.Context, scope alertShadowBrokerScope, result rpc.StressResult) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
 	}
@@ -389,15 +389,15 @@ func (c *alertShadowComposer) ObserveCanary(ctx context.Context, scope alertShad
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
 	}
-	if snapshot, handled, err := c.handleInputCursorLocked(ctx, state, &state.lastCanary, result.AsOf, inputFingerprint, []rpc.AlertSource{rpc.AlertSourceCanary}, observedAt); handled {
+	if snapshot, handled, err := c.handleInputCursorLocked(ctx, state, &state.lastCanary, result.AsOf, inputFingerprint, []rpc.AlertSource{rpc.AlertSourceStress}, observedAt); handled {
 		return snapshot, err
 	}
-	previous := state.sources[rpc.AlertSourceCanary]
-	state.sources[rpc.AlertSourceCanary] = alertShadowMapCanary(scope, result, observedAt)
+	previous := state.sources[rpc.AlertSourceStress]
+	state.sources[rpc.AlertSourceStress] = alertShadowMapCanary(scope, result, observedAt)
 	cursor := alertShadowInputCursor{AsOf: result.AsOf.UTC(), Fingerprint: inputFingerprint}
-	snapshot, err := c.applyLocked(ctx, state, observedAt, []rpc.AlertSource{rpc.AlertSourceCanary}, alertShadowCursorCanary, cursor)
+	snapshot, err := c.applyLocked(ctx, state, observedAt, []rpc.AlertSource{rpc.AlertSourceStress}, alertShadowCursorCanary, cursor)
 	if err != nil {
-		state.sources[rpc.AlertSourceCanary] = previous
+		state.sources[rpc.AlertSourceStress] = previous
 		c.recordApplyFailureLocked(ctx, state, observedAt)
 		return rpc.AlertCandidateSnapshot{}, err
 	}
@@ -1940,9 +1940,9 @@ func alertDataHealthPresentationCode(root string) rpc.AlertPresentationCode {
 	}
 }
 
-func alertShadowMapCanary(scope alertShadowBrokerScope, result rpc.CanaryResult, observedAt time.Time) alertShadowSourceBatch {
+func alertShadowMapCanary(scope alertShadowBrokerScope, result rpc.StressResult, observedAt time.Time) alertShadowSourceBatch {
 	batch := alertShadowSourceBatch{
-		Source: rpc.AlertSourceCanary, Status: alertShadowStatusUnavailable, Reason: alertShadowReasonSourceHealthUnavailable,
+		Source: rpc.AlertSourceStress, Status: alertShadowStatusUnavailable, Reason: alertShadowReasonSourceHealthUnavailable,
 		InputAsOf: result.AsOf.UTC(), ObservedAt: observedAt.UTC(), EvidenceAsOf: result.AsOf.UTC(),
 		EvidenceHealth: rpc.AlertEvidenceUnavailable, PolicyFingerprint: result.PolicyFingerprint.Key,
 		NegativeEvidenceFingerprint: result.Fingerprint.Key, NegativeDestination: rpc.AlertDestinationAlerts,
@@ -1962,7 +1962,7 @@ func alertShadowMapCanary(scope alertShadowBrokerScope, result rpc.CanaryResult,
 		batch.Status = alertShadowStatusCurrent
 		batch.Reason = alertShadowReasonCurrent
 	}
-	if result.Fingerprint.Version != rpc.CanaryFingerprintVersion || !validAlertRegistryFingerprint(result.Fingerprint.Key) {
+	if result.Fingerprint.Version != rpc.StressFingerprintVersion || !validAlertRegistryFingerprint(result.Fingerprint.Key) {
 		batch.Covered = false
 		batch.NegativeReady = false
 		batch.Status = alertShadowStatusError
@@ -1993,7 +1993,7 @@ func alertShadowMapCanary(scope alertShadowBrokerScope, result rpc.CanaryResult,
 		return batch
 	}
 	episodeKey, err := rpc.BuildAlertEpisodeKey(
-		rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk,
+		rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk,
 		scope.account, scope.mode, "portfolio_canary",
 	)
 	if err != nil {
@@ -2005,8 +2005,8 @@ func alertShadowMapCanary(scope alertShadowBrokerScope, result rpc.CanaryResult,
 		return batch
 	}
 	batch.Observations = append(batch.Observations, alertEpisodeObservation{
-		EpisodeKey: episodeKey, Source: rpc.AlertSourceCanary, Kind: rpc.AlertKindPortfolioRisk,
-		PresentationCode: rpc.AlertPresentationCanaryPortfolioStress, Active: true, Severity: severity,
+		EpisodeKey: episodeKey, Source: rpc.AlertSourceStress, Kind: rpc.AlertKindPortfolioRisk,
+		PresentationCode: rpc.AlertPresentationPortfolioStress, Active: true, Severity: severity,
 		EvidenceFingerprint: result.Fingerprint.Key, EvidenceHealth: batch.EvidenceHealth,
 		Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: batch.EvidenceAsOf, ObservedAt: observedAt.UTC(),
 		PolicyFingerprint: result.PolicyFingerprint.Key, ProducerDecisionReason: alertShadowDecisionLegacyGateActive,
@@ -2014,7 +2014,7 @@ func alertShadowMapCanary(scope alertShadowBrokerScope, result rpc.CanaryResult,
 	return batch
 }
 
-func alertShadowCanaryFreshUntil(result rpc.CanaryResult, observedAt time.Time) time.Time {
+func alertShadowCanaryFreshUntil(result rpc.StressResult, observedAt time.Time) time.Time {
 	deadline := observedAt.UTC().Add(alertShadowCanarySilenceHorizon)
 	for _, source := range result.SourceHealth {
 		if source.AsOf.IsZero() || source.MaxAgeSeconds <= 0 {
@@ -2031,7 +2031,7 @@ func alertShadowCanaryFreshUntil(result rpc.CanaryResult, observedAt time.Time) 
 	return deadline
 }
 
-func alertShadowCanaryHealth(result rpc.CanaryResult) (bool, rpc.AlertEvidenceHealth, string, time.Time) {
+func alertShadowCanaryHealth(result rpc.StressResult) (bool, rpc.AlertEvidenceHealth, string, time.Time) {
 	if result.PortfolioAlertRelevant == nil {
 		return false, rpc.AlertEvidencePartial, alertShadowReasonMissingRelevanceStamp, alertShadowOldestCanarySourceTime(result)
 	}
@@ -2100,7 +2100,7 @@ func alertShadowCanarySourceHealth(source rpc.SourceHealth) (rpc.AlertEvidenceHe
 	}
 }
 
-func alertShadowOldestCanarySourceTime(result rpc.CanaryResult) time.Time {
+func alertShadowOldestCanarySourceTime(result rpc.StressResult) time.Time {
 	oldest := time.Time{}
 	for _, source := range result.SourceHealth {
 		if source.AsOf.IsZero() {
@@ -2116,7 +2116,7 @@ func alertShadowOldestCanarySourceTime(result rpc.CanaryResult) time.Time {
 	return oldest
 }
 
-func alertShadowCanaryOccurrenceEligible(result rpc.CanaryResult) bool {
+func alertShadowCanaryOccurrenceEligible(result rpc.StressResult) bool {
 	// This is intentionally identical to internal/app/alerts' approved legacy
 	// occurrence policy. Nil relevance fails open for the positive gate only.
 	relevant := result.PortfolioAlertRelevant == nil || *result.PortfolioAlertRelevant
@@ -2899,7 +2899,7 @@ func alertShadowCandidateMatchesScope(candidate rpc.AlertCandidate, scope alertS
 		return true
 	}
 	identity := candidate.EvidenceFingerprint
-	if candidate.Source == rpc.AlertSourceCanary {
+	if candidate.Source == rpc.AlertSourceStress {
 		identity = "portfolio_canary"
 	}
 	key, err := rpc.BuildAlertEpisodeKey(
@@ -2964,7 +2964,7 @@ func alertShadowEvidenceRank(health rpc.AlertEvidenceHealth) int {
 	}
 }
 
-func alertShadowCanaryInputFingerprint(scope alertShadowBrokerScope, result rpc.CanaryResult) (string, error) {
+func alertShadowCanaryInputFingerprint(scope alertShadowBrokerScope, result rpc.StressResult) (string, error) {
 	type sourceHealth struct {
 		Source      string           `json:"source"`
 		Status      string           `json:"status"`

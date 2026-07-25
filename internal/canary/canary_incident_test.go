@@ -41,7 +41,7 @@ func TestCanaryIncident20260612Regression(t *testing.T) {
 		Quality:   &rpc.GammaSignalQuality{Rankability: rpc.GammaRankabilityRankable},
 	}
 
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 12, 13, 30, 0, 0, time.UTC),

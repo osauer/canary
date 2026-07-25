@@ -38,7 +38,7 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 			"TLT": {Symbol: "TLT", Price: new(92.0), ChangePct: new(-0.1), DataType: rpc.MarketDataLive},
 		},
 		regime:       &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}, Composite: rpc.RegimeComposite{Verdict: "Stress signal present", ClusterRedCount: 1, ClusterRankedCount: 6}},
-		canary:       &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}, Severity: risk.SeverityWatch, Action: "watch"},
+		canary:       &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}, Severity: risk.SeverityWatch, Action: "watch"},
 		brief:        &rpc.BriefResult{BriefFingerprint: "brief-1"},
 		marketEvents: &rpc.MarketEventsResult{Kind: rpc.MarketEventsKind, SchemaVersion: rpc.MarketEventsSchemaVersion, Fingerprint: rpc.Fingerprint{Key: "market-events-1"}},
 		trading:      &rpc.TradingStatus{CanPreview: true},
@@ -214,7 +214,7 @@ func TestCanaryRegimePollIsAtomicOnFailure(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 20, 19, 0, 0, 0, time.UTC)
 	client := &fakeClient{
-		canary: &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "canary-last-good"}},
+		canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary-last-good"}},
 		regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-last-good"}},
 		brief:  &rpc.BriefResult{BriefFingerprint: "brief-ready"},
 	}
@@ -229,7 +229,7 @@ func TestCanaryRegimePollIsAtomicOnFailure(t *testing.T) {
 		}
 	}
 
-	client.canary = &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "must-not-publish"}}
+	client.canary = &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "must-not-publish"}}
 	client.regime = &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "must-not-publish"}}
 	client.canaryErr = errors.New("regime: private transport sentinel")
 	now = now.Add(time.Minute)
@@ -261,12 +261,12 @@ func TestCanaryRegimeNilSuccessIsUnavailableAndNeverPublishes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name          string
-		canary        *rpc.CanaryResult
+		canary        *rpc.StressResult
 		regime        *rpc.RegimeMonitorResult
 		missingSource []string
 	}{
 		{name: "nil canary", regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}}, missingSource: []string{"canary"}},
-		{name: "nil regime", canary: &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "canary"}}, missingSource: []string{"regime"}},
+		{name: "nil regime", canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary"}}, missingSource: []string{"regime"}},
 		{name: "nil pair", missingSource: []string{"canary", "regime"}},
 	}
 	for _, tt := range tests {
@@ -303,7 +303,7 @@ func TestRulesAndBriefFailuresRetainLastGoodAndRecover(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC)
 	client := &fakeClient{
-		canary: &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "canary"}},
+		canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary"}},
 		regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}},
 		rules:  &rpc.RulesResult{Enabled: true, Status: "first"},
 		brief:  &rpc.BriefResult{BriefFingerprint: "brief-first"},
@@ -370,7 +370,7 @@ func TestCadenceSourceFreshnessAgesCurrentButNotUnavailable(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 20, 20, 30, 0, 0, time.UTC)
 	client := &fakeClient{
-		canary: &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "canary"}},
+		canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary"}},
 		regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}},
 		rules:  &rpc.RulesResult{Enabled: true, Status: "ok"},
 		brief:  &rpc.BriefResult{BriefFingerprint: "brief"},
@@ -510,7 +510,7 @@ func TestStartPublishesStatusBeforeFullPollCompletes(t *testing.T) {
 		positions:   &rpc.PositionsResult{Stocks: []rpc.PositionView{}},
 		quotes:      map[string]rpc.Quote{"SPY": {Symbol: "SPY", Price: new(500.0)}},
 		regime:      &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
-		canary:      &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+		canary:      &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		trading:     &rpc.TradingStatus{CanPreview: true},
 		canaryBlock: canaryBlock,
 	}
@@ -559,7 +559,7 @@ func TestPollOncePublishesPositionsBeforeMarketQuotesComplete(t *testing.T) {
 		positions:  &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "SAP"}}},
 		quotes:     map[string]rpc.Quote{"SPY": {Symbol: "SPY", Price: new(500.0)}},
 		regime:     &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
-		canary:     &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+		canary:     &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		trading:    &rpc.TradingStatus{CanPreview: true},
 		quoteBlock: quoteBlock,
 	}
@@ -667,7 +667,7 @@ func TestPollOnceIncludesHeldUnderlyingQuotes(t *testing.T) {
 			"AAPL": {Symbol: "AAPL", Price: &aaplPrice, DataType: rpc.MarketDataLive},
 		},
 		regime:  &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
-		canary:  &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+		canary:  &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		trading: &rpc.TradingStatus{CanPreview: true},
 	}
 	svc := New(client, time.Minute, time.Minute)
@@ -973,7 +973,7 @@ func TestAlertCandidatesPollOnCanaryCadenceThroughAuthority(t *testing.T) {
 
 	// Returned snapshots cannot mutate the service-owned typed contract.
 	first.AlertCandidates.Coverage.ExpectedSources[0] = rpc.AlertSourceRegime
-	if got := service.Snapshot().AlertCandidates.Coverage.ExpectedSources[0]; got != rpc.AlertSourceCanary {
+	if got := service.Snapshot().AlertCandidates.Coverage.ExpectedSources[0]; got != rpc.AlertSourceStress {
 		t.Fatalf("snapshot clone aliased expected sources: %q", got)
 	}
 
@@ -997,7 +997,7 @@ func TestAlertCandidatesPollAfterCurrentCanaryProducerInSameCadence(t *testing.T
 		t.Fatal(err)
 	}
 	client := &alertCandidateFakeClient{
-		fakeClient: &fakeClient{canary: &rpc.CanaryResult{}, regime: &rpc.RegimeMonitorResult{}},
+		fakeClient: &fakeClient{canary: &rpc.StressResult{}, regime: &rpc.RegimeMonitorResult{}},
 		snapshot:   liveAlertSnapshot(now.Add(-time.Minute)),
 	}
 	current := liveAlertCandidate(t, now)
@@ -1022,7 +1022,7 @@ func TestAlertCandidatePollFollowsAllSameCycleProducers(t *testing.T) {
 	now := time.Date(2026, 7, 21, 12, 45, 0, 0, time.UTC)
 	client := &alertCandidateFakeClient{
 		fakeClient: &fakeClient{
-			canary: &rpc.CanaryResult{AsOf: now}, regime: &rpc.RegimeMonitorResult{AsOf: now},
+			canary: &rpc.StressResult{AsOf: now}, regime: &rpc.RegimeMonitorResult{AsOf: now},
 			rules: &rpc.RulesResult{AsOf: now, Enabled: true, Status: "ok"},
 		},
 		orders:   &rpc.OrdersOpenResult{AsOf: now, Orders: []rpc.OrderView{}},
@@ -1389,11 +1389,11 @@ func liveAlertSnapshot(at time.Time, candidates ...rpc.AlertCandidate) *rpc.Aler
 			State:           rpc.AlertCoverageComplete,
 			Freshness:       rpc.AlertCoverageCurrent,
 			AsOf:            at,
-			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary},
-			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceCanary},
+			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress},
+			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceStress},
 		},
 		Sources: []rpc.AlertSourceCoverage{{
-			Source: rpc.AlertSourceCanary, Status: "current", Reason: "current", EvidenceHealth: rpc.AlertEvidenceCurrent,
+			Source: rpc.AlertSourceStress, Status: "current", Reason: "current", EvidenceHealth: rpc.AlertEvidenceCurrent,
 			InputAsOf: at, ObservedAt: at, EvidenceAsOf: at, FreshUntil: at.Add(time.Hour), Covered: true,
 		}},
 		Candidates: append([]rpc.AlertCandidate{}, candidates...),
@@ -1402,7 +1402,7 @@ func liveAlertSnapshot(at time.Time, candidates ...rpc.AlertCandidate) *rpc.Aler
 
 func liveAlertCandidate(t *testing.T, at time.Time) rpc.AlertCandidate {
 	t.Helper()
-	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceCanary, rpc.AlertKindMarketState, "live-service-test")
+	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceStress, rpc.AlertKindMarketState, "live-service-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1413,7 +1413,7 @@ func liveAlertCandidate(t *testing.T, at time.Time) rpc.AlertCandidate {
 	return rpc.AlertCandidate{
 		EpisodeKey: episode, OccurrenceKey: occurrence,
 		EvidenceFingerprint: "sha256:" + strings.Repeat("a", 64),
-		Source:              rpc.AlertSourceCanary, Kind: rpc.AlertKindMarketState, PresentationCode: rpc.AlertPresentationCanaryPortfolioStress,
+		Source:              rpc.AlertSourceStress, Kind: rpc.AlertKindMarketState, PresentationCode: rpc.AlertPresentationPortfolioStress,
 		State: rpc.AlertEpisodeOpen, Severity: rpc.AlertSeverityWatch,
 		EvidenceHealth: rpc.AlertEvidenceCurrent, Destination: rpc.AlertDestinationAlerts,
 		EvidenceAsOf: at, StateChangedAt: at, ObservedAt: at,
@@ -1479,7 +1479,7 @@ type fakeClient struct {
 	quotes       map[string]rpc.Quote
 	quoteErrs    map[string]error
 	regime       *rpc.RegimeMonitorResult
-	canary       *rpc.CanaryResult
+	canary       *rpc.StressResult
 	canaryErr    error
 	rules        *rpc.RulesResult
 	rulesErr     error
@@ -1541,7 +1541,7 @@ func (c *blockingAlertCandidateClient) AlertCandidates(ctx context.Context) (*rp
 	}
 }
 
-func (c *alertCandidateFakeClient) CanaryWithRegime(ctx context.Context) (*rpc.CanaryResult, *rpc.RegimeMonitorResult, error) {
+func (c *alertCandidateFakeClient) CanaryWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	c.mu.Lock()
 	c.canaryCalls++
 	c.callOrder = append(c.callOrder, "canary")
@@ -1691,11 +1691,11 @@ func (c *fakeClient) MarketEvents(context.Context, rpc.MarketEventsParams) (*rpc
 	return c.marketEvents, nil
 }
 
-func (c *fakeClient) Canary(context.Context) (*rpc.CanaryResult, error) {
+func (c *fakeClient) Canary(context.Context) (*rpc.StressResult, error) {
 	return c.canary, nil
 }
 
-func (c *fakeClient) CanaryWithRegime(context.Context) (*rpc.CanaryResult, *rpc.RegimeMonitorResult, error) {
+func (c *fakeClient) CanaryWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	if c.canaryBlock != nil {
 		<-c.canaryBlock
 	}

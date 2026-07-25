@@ -24,8 +24,8 @@ type Client interface {
 	Quote(context.Context, rpc.ContractParams) (*rpc.Quote, error)
 	StreamQuote(context.Context, rpc.ContractParams, func(rpc.Frame) error) error
 	MarketEvents(context.Context, rpc.MarketEventsParams) (*rpc.MarketEventsResult, error)
-	Canary(context.Context) (*rpc.CanaryResult, error)
-	CanaryWithRegime(context.Context) (*rpc.CanaryResult, *rpc.RegimeMonitorResult, error)
+	Canary(context.Context) (*rpc.StressResult, error)
+	CanaryWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error)
 	Rules(context.Context) (*rpc.RulesResult, error)
 	Brief(context.Context) (*rpc.BriefResult, error)
 	NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResult, error)
@@ -173,13 +173,13 @@ func (c Real) MarketEvents(ctx context.Context, params rpc.MarketEventsParams) (
 }
 
 // Canary fetches the daemon-authored Canary result over one connection.
-func (c Real) Canary(ctx context.Context) (*rpc.CanaryResult, error) {
+func (c Real) Canary(ctx context.Context) (*rpc.StressResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-	out, err := canary.FetchCanary(ctx, conn)
+	out, err := canary.FetchStress(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -188,13 +188,13 @@ func (c Real) Canary(ctx context.Context) (*rpc.CanaryResult, error) {
 
 // CanaryWithRegime fetches one coordinated Canary/regime snapshot and compacts
 // the regime result for app consumption.
-func (c Real) CanaryWithRegime(ctx context.Context) (*rpc.CanaryResult, *rpc.RegimeMonitorResult, error) {
+func (c Real) CanaryWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer conn.Close()
-	canaryResult, _, regime, err := canary.FetchCanarySnapshotWithRegime(ctx, conn)
+	canaryResult, _, regime, err := canary.FetchStressSnapshotWithRegime(ctx, conn)
 	if err != nil {
 		return nil, nil, err
 	}

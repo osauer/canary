@@ -161,15 +161,15 @@ func TestCompactPositionsRiskOptionHealthAndHedge(t *testing.T) {
 	}
 }
 
-func TestCompactCanaryAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
+func TestCompactStressAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 6, 3, 8, 45, 0, 0, time.UTC)
 	nextAttempt := now.Add(15 * time.Minute)
-	canary := CanaryResult{
+	stress := StressResult{
 		AsOf:               now,
-		Fingerprint:        Fingerprint{Version: CanaryFingerprintVersion, Key: "sha256:canary"},
-		SourceFingerprints: CanarySourceFingerprints{Positions: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"}},
+		Fingerprint:        Fingerprint{Version: StressFingerprintVersion, Key: "sha256:canary"},
+		SourceFingerprints: StressSourceFingerprints{Positions: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"}},
 		SourceHealth: []SourceHealth{{
 			Source: "positions", Status: "ok", RefreshState: SourceRefreshFetchFailedBackoff, NextAttempt: &nextAttempt,
 			Fingerprint: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"},
@@ -182,17 +182,17 @@ func TestCompactCanaryAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
 		Severity:           risk.SeverityWatch,
 		Summary:            "Freeze new risk.",
 		Signals:            []risk.Signal{{ID: risk.SignalMarginCushionLow, Severity: risk.SeverityWatch}},
-		Rows: []CanaryRow{
+		Rows: []StressRow{
 			{Title: "Context only", Severity: risk.SeverityObserve, Guidance: "No action."},
 			{Title: "Margin cushion", Severity: risk.SeverityWatch, Guidance: "Watch cushion."},
 		},
-		Portfolio:    CanaryPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
-		Market:       CanaryMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
+		Portfolio:    StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
+		Market:       StressMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
 		NotExecution: "Read-only recommendation; no orders are placed by ibkr.",
 	}
 	positions := PositionsResult{AsOf: now, Portfolio: &PositionsPortfolio{GreeksCoverage: 0, GreeksTotal: 0}}
 
-	out := CompactCanaryAlert(&canary, &positions)
+	out := CompactStressAlert(&stress, &positions)
 	if len(out.Flags) != 1 || out.Flags[0].Title != "Margin cushion" {
 		t.Fatalf("flags = %+v, want only the non-observe row", out.Flags)
 	}
@@ -203,12 +203,12 @@ func TestCompactCanaryAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
 	wire := string(b)
 	for _, absent := range []string{`"signals"`, `"rows"`, `"market_indicators"`, `"policy"`} {
 		if strings.Contains(wire, absent) {
-			t.Fatalf("compact canary alert should omit %s: %s", absent, wire)
+			t.Fatalf("compact stress alert should omit %s: %s", absent, wire)
 		}
 	}
 	for _, present := range []string{`"flags"`, `"option_health"`, `"source_health"`, `"source_fingerprints"`} {
 		if !strings.Contains(wire, present) {
-			t.Fatalf("compact canary alert missing %s: %s", present, wire)
+			t.Fatalf("compact stress alert missing %s: %s", present, wire)
 		}
 	}
 	if !strings.Contains(wire, `"refresh_state":"fetch_failed_backoff"`) || !strings.Contains(wire, `"next_attempt"`) {
@@ -219,14 +219,14 @@ func TestCompactCanaryAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
 	}
 }
 
-func TestCompactCanaryAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
+func TestCompactStressAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 6, 3, 8, 45, 0, 0, time.UTC)
-	full := CanaryResult{
+	full := StressResult{
 		AsOf:               now,
-		Fingerprint:        Fingerprint{Version: CanaryFingerprintVersion, Key: "sha256:canary"},
-		SourceFingerprints: CanarySourceFingerprints{Account: &Fingerprint{Version: AccountFingerprintVersion, Key: "sha256:account"}, Positions: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"}, Regime: &Fingerprint{Version: RegimeFingerprintVersion, Key: "sha256:regime"}},
+		Fingerprint:        Fingerprint{Version: StressFingerprintVersion, Key: "sha256:canary"},
+		SourceFingerprints: StressSourceFingerprints{Account: &Fingerprint{Version: AccountFingerprintVersion, Key: "sha256:account"}, Positions: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"}, Regime: &Fingerprint{Version: RegimeFingerprintVersion, Key: "sha256:regime"}},
 		SourceHealth: []SourceHealth{
 			{Source: "account", Status: "ok", Fingerprint: &Fingerprint{Version: AccountFingerprintVersion, Key: "sha256:account"}, FingerprintStability: FingerprintStabilitySemanticBuckets},
 			{Source: "positions", Status: "ok", Fingerprint: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"}, FingerprintStability: FingerprintStabilitySemanticBuckets},
@@ -242,8 +242,8 @@ func TestCompactCanaryAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 		PlannerModeHint:    risk.PlannerModeStage,
 		PlannerReadiness:   risk.PlannerReadinessPrestage,
 		Summary:            "Freeze new risk and stage reductions.",
-		Portfolio:          CanaryPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
-		Market:             CanaryMarketSummary{RegimeVerdict: "Elevated stress watch", RankedClusters: 5, YellowClusters: 3},
+		Portfolio:          StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
+		Market:             StressMarketSummary{RegimeVerdict: "Elevated stress watch", RankedClusters: 5, YellowClusters: 3},
 		NotExecution:       "Read-only canary snapshot; no orders are placed by ibkr.",
 	}
 	for i := range 12 {
@@ -257,13 +257,13 @@ func TestCompactCanaryAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 		if i == 0 {
 			severity = risk.SeverityWatch
 		}
-		full.Rows = append(full.Rows, CanaryRow{
+		full.Rows = append(full.Rows, StressRow{
 			Title:    "Diagnostic evidence row",
 			Severity: severity,
 			Guidance: "Full payload row used for detailed investigation after the one-call monitor path.",
 			Evidence: "row evidence includes context that alert view intentionally omits unless severity is actionable",
 		})
-		full.MarketIndicators = append(full.MarketIndicators, CanaryMarketIndicator{
+		full.MarketIndicators = append(full.MarketIndicators, StressMarketIndicator{
 			Name:    "Indicator",
 			Status:  "amber",
 			AsOf:    "live",
@@ -277,7 +277,7 @@ func TestCompactCanaryAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal full: %v", err)
 	}
-	alertBytes, err := json.Marshal(CompactCanaryAlert(&full, &positions))
+	alertBytes, err := json.Marshal(CompactStressAlert(&full, &positions))
 	if err != nil {
 		t.Fatalf("marshal alert: %v", err)
 	}

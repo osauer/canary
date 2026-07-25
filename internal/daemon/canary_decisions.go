@@ -75,11 +75,11 @@ type canaryDecisionLine struct {
 	Summary                string                       `json:"summary"`
 	PrimaryDrivers         []risk.SignalID              `json:"primary_drivers,omitempty"`
 	Policy                 canaryDecisionPolicy         `json:"policy,omitzero"`
-	Market                 rpc.CanaryMarketSummary      `json:"market"`
-	HeldStress             []rpc.CanaryHeldStress       `json:"held_stress,omitempty"`
-	Rows                   []rpc.CanaryRow              `json:"rows,omitempty"`
-	SourceFingerprints     rpc.CanarySourceFingerprints `json:"source_fingerprints,omitzero"`
-	SourceAsOf             rpc.CanarySourceAsOf         `json:"source_as_of,omitzero"`
+	Market                 rpc.StressMarketSummary      `json:"market"`
+	HeldStress             []rpc.HeldStress             `json:"held_stress,omitempty"`
+	Rows                   []rpc.StressRow              `json:"rows,omitempty"`
+	SourceFingerprints     rpc.StressSourceFingerprints `json:"source_fingerprints,omitzero"`
+	SourceAsOf             rpc.StressSourceAsOf         `json:"source_as_of,omitzero"`
 	Warnings               []string                     `json:"warnings,omitempty"`
 }
 
@@ -97,7 +97,7 @@ func (s *Server) installCanaryDecisionJournal() {
 // to warnings — journaling must never fail a snapshot or brief. Disabled
 // via `ibkr settings set canary.journal.enabled=false`. Always ends with
 // the data-free history-index kick.
-func (s *Server) journalCanaryDecision(res *rpc.CanaryResult) {
+func (s *Server) journalCanaryDecision(res *rpc.StressResult) {
 	if s == nil || res == nil {
 		return
 	}
@@ -135,7 +135,7 @@ func (s *Server) canaryJournalEnabled() bool {
 // marshal, directory ensure, open, write, and close — the writer-quiescence
 // contract rotation relies on (a live-file rename is invisible to an
 // open-per-append writer only while no append is in flight).
-func (j *canaryDecisionJournal) append(now time.Time, account, accountMode string, res *rpc.CanaryResult) error {
+func (j *canaryDecisionJournal) append(now time.Time, account, accountMode string, res *rpc.StressResult) error {
 	if j == nil || res == nil {
 		return nil
 	}
@@ -339,7 +339,7 @@ func (s *Server) canaryEvaluationTick(ctx context.Context) bool {
 	if pos != nil {
 		events, _ = reader.marketEvents(ctx, marketEventSymbolsFromPositions(pos))
 	}
-	in := rpc.CanaryInput{Now: reader.now()}
+	in := rpc.StressInput{Now: reader.now()}
 	if acct != nil {
 		in.Account = *acct
 	}
@@ -350,7 +350,7 @@ func (s *Server) canaryEvaluationTick(ctx context.Context) bool {
 	if events != nil {
 		in.MarketEvents = *events
 	}
-	can := canary.ComputeCanary(in)
+	can := canary.ComputeStress(in)
 	s.journalCanaryDecision(&can)
 	return true
 }

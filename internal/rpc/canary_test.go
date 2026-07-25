@@ -71,10 +71,10 @@ func TestEstablishedAlertProjectionDecoderRequiresExactPresentContract(t *testin
 	}
 }
 
-func TestCanaryResultAllowsAbsentEstablishedProjectionForOlderDaemonSkew(t *testing.T) {
+func TestStressResultAllowsAbsentEstablishedProjectionForOlderDaemonSkew(t *testing.T) {
 	t.Parallel()
 	for _, wire := range []string{`{}`, `{"established_alert_projection":null}`} {
-		var result CanaryResult
+		var result StressResult
 		if err := json.Unmarshal([]byte(wire), &result); err != nil {
 			t.Fatalf("decode older-daemon shape %s: %v", wire, err)
 		}
@@ -87,7 +87,7 @@ func TestCanaryResultAllowsAbsentEstablishedProjectionForOlderDaemonSkew(t *test
 func validEstablishedAlertProjection() EstablishedAlertProjection {
 	return EstablishedAlertProjection{
 		SchemaVersion:        EstablishedAlertProjectionSchemaVersion,
-		CanonicalFingerprint: Fingerprint{Version: EstablishedCanaryFingerprintVersion, Key: "sha256:" + strings.Repeat("a", 64)},
+		CanonicalFingerprint: Fingerprint{Version: EstablishedStressFingerprintVersion, Key: "sha256:" + strings.Repeat("a", 64)},
 		OccurrenceEligible:   true,
 		ActOnlyEligible:      true,
 		Action:               "confirm_inputs",

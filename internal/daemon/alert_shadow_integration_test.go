@@ -52,7 +52,7 @@ func TestAlertShadowHandlersAreScopedColdRedactedAndDeliveryInactive(t *testing.
 	}
 	relevant := true
 	result := alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "handler-a")
-	if _, err := server.alertShadow.ObserveCanary(t.Context(), scopeA, result); err != nil {
+	if _, err := server.alertShadow.ObserveStress(t.Context(), scopeA, result); err != nil {
 		t.Fatal(err)
 	}
 	active, err := server.handleAlertCandidates(t.Context(), &rpc.Request{})

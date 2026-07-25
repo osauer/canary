@@ -197,7 +197,7 @@ type legacyRegimeMeasurementV1 struct {
 }
 
 // legacyCanaryMarketMeasurement deliberately omits RegimeVerdict and
-// RegimePosture: both are decision outputs embedded in CanaryMarketSummary,
+// RegimePosture: both are decision outputs embedded in StressMarketSummary,
 // not market measurements suitable for a clean-slate epoch.
 type legacyCanaryMarketMeasurement struct {
 	RedClusters                int        `json:"red_clusters"`

@@ -33,7 +33,7 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 			Regime:        rpc.BriefRegimeRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "gateway unavailable"}},
 			Breadth:       rpc.BriefBreadthRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "cold"}},
 			Gamma:         rpc.BriefGammaRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "cold"}},
-			Canary:        rpc.BriefCanaryRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "partial"}},
+			Stress:        rpc.BriefStressRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "partial"}},
 			Session:       rpc.BriefSessionRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "official"}},
 			Capital:       rpc.BriefCapitalRow{BriefRowState: rpc.BriefRowState{Status: "attention", Detail: "block tier breached"}, Tier: "block", Enforcement: "shadow"},
 			Latch:         rpc.BriefLatchRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "open"}},

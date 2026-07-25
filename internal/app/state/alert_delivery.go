@@ -2796,7 +2796,7 @@ func validAlertDeliveryAttemptClass(class string) bool {
 
 func validAlertDeliverySource(source rpc.AlertSource) bool {
 	switch source {
-	case rpc.AlertSourceCanary, rpc.AlertSourceRegime, rpc.AlertSourceRulebook, rpc.AlertSourceRiskPolicy,
+	case rpc.AlertSourceStress, rpc.AlertSourceRegime, rpc.AlertSourceRulebook, rpc.AlertSourceRiskPolicy,
 		rpc.AlertSourceProtection, rpc.AlertSourceOrderIntegrity, rpc.AlertSourceReconciliation,
 		rpc.AlertSourceGovernance, rpc.AlertSourceDataHealth, rpc.AlertSourceDelivery:
 		return true

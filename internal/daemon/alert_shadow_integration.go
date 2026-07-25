@@ -129,7 +129,7 @@ func (s *Server) handleAlertStatus(ctx context.Context, req *rpc.Request) (*rpc.
 	return result, nil
 }
 
-func (s *Server) observeCanaryAlertShadow(result *rpc.CanaryResult, brokerScope brokerStateScope) {
+func (s *Server) observeCanaryAlertShadow(result *rpc.StressResult, brokerScope brokerStateScope) {
 	if s == nil || s.alertShadow == nil || result == nil {
 		return
 	}
@@ -144,7 +144,7 @@ func (s *Server) observeCanaryAlertShadow(result *rpc.CanaryResult, brokerScope 
 		ctx = s.serverCtx
 	}
 	s.mu.Unlock()
-	if _, err := s.alertShadow.ObserveCanary(ctx, scope, *result); err != nil {
+	if _, err := s.alertShadow.ObserveStress(ctx, scope, *result); err != nil {
 		s.warnf("alert producer: Canary observation failed: %v", err)
 	}
 }

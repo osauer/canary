@@ -17,9 +17,9 @@ import (
 
 // testCanaryResult is a fully-populated canary snapshot for round-trip
 // drift guards.
-func testCanaryResult(key string) *rpc.CanaryResult {
+func testCanaryResult(key string) *rpc.StressResult {
 	relevant := true
-	return &rpc.CanaryResult{
+	return &rpc.StressResult{
 		AsOf:                   time.Now(),
 		Fingerprint:            rpc.Fingerprint{Version: "v1", Key: key},
 		Action:                 "watch",
@@ -30,7 +30,7 @@ func testCanaryResult(key string) *rpc.CanaryResult {
 		PortfolioAlertRelevant: &relevant,
 		InputHealth:            "ok",
 		Summary:                "round-trip canary summary",
-		Market: rpc.CanaryMarketSummary{
+		Market: rpc.StressMarketSummary{
 			RegimePosture: rpc.RegimePosture{Stage: "early_warning", Tone: "watch"},
 			RedClusters:   1,
 		},

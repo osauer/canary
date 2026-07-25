@@ -350,14 +350,14 @@ func TestImportLegacyDecisionMeasurementsRedactsDecisionAndAccountData(t *testin
 	canaryLine := canaryDecisionLine{
 		V: 1, TS: now, SessionKey: "2026-06-02", Fingerprint: "canary-decision-must-not-import",
 		Account: "SECRET-ACCOUNT", AccountMode: "live", Action: "defend", Summary: "decision summary",
-		Market: rpc.CanaryMarketSummary{
+		Market: rpc.StressMarketSummary{
 			RegimeVerdict: "Stress signal present",
 			RegimePosture: rpc.RegimePosture{Stage: "confirmed_stress", Severity: "red"},
 			RedClusters:   2, EligibleRedClusters: 1, SPYPrice: &spy, VIX: &vix,
 			TapeSessionState: rpc.TapeSessionTradingDate,
 		},
-		SourceAsOf: rpc.CanarySourceAsOf{Account: now, Positions: now, Regime: now, MarketEvents: now},
-		SourceFingerprints: rpc.CanarySourceFingerprints{
+		SourceAsOf: rpc.StressSourceAsOf{Account: now, Positions: now, Regime: now, MarketEvents: now},
+		SourceFingerprints: rpc.StressSourceFingerprints{
 			Account: accountFingerprint, Positions: accountFingerprint,
 			Regime: regimeFingerprint, MarketEvents: regimeFingerprint,
 		},
@@ -588,7 +588,7 @@ func seedLegacyDecisionRotationCrash(t *testing.T, family, crashStage string) ([
 		case "canary":
 			value = canaryDecisionLine{
 				V: 1, TS: at, SessionKey: sessions[i], Fingerprint: "decision-only",
-				Market: rpc.CanaryMarketSummary{RedClusters: i + 1},
+				Market: rpc.StressMarketSummary{RedClusters: i + 1},
 			}
 		default:
 			t.Fatalf("unknown fixture family %q", family)

@@ -90,7 +90,7 @@ type BriefMarketSection struct {
 	Regime  BriefRegimeRow  `json:"regime"`
 	Breadth BriefBreadthRow `json:"breadth"`
 	Gamma   BriefGammaRow   `json:"gamma"`
-	Canary  BriefCanaryRow  `json:"canary"`
+	Stress  BriefStressRow  `json:"stress"`
 }
 
 // BriefRegimeRow summarizes the current regime lifecycle and verdict.
@@ -122,8 +122,8 @@ type BriefGammaRow struct {
 	AsOf      time.Time `json:"as_of,omitzero"`
 }
 
-// BriefCanaryRow summarizes the current advisory action and severity.
-type BriefCanaryRow struct {
+// BriefStressRow summarizes the current advisory action and severity.
+type BriefStressRow struct {
 	BriefRowState
 	Action   string `json:"action,omitempty"`
 	Severity string `json:"severity,omitempty"`
@@ -396,7 +396,7 @@ type BriefReadySection struct {
 	Regime        BriefRegimeRow        `json:"regime"`
 	Breadth       BriefBreadthRow       `json:"breadth"`
 	Gamma         BriefGammaRow         `json:"gamma"`
-	Canary        BriefCanaryRow        `json:"canary"`
+	Stress        BriefStressRow        `json:"stress"`
 	Session       BriefSessionRow       `json:"session"`
 	MarketEvents  []BriefMarketEventRow `json:"market_events"`
 	Capital       BriefCapitalRow       `json:"capital"`

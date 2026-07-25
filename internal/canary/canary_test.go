@@ -18,7 +18,7 @@ var canaryTestNow = time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
 
 func TestComputeCanaryAmbiguityDoesNotLookSafe(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime: rpc.RegimeSnapshotResult{
 			Composite: rpc.RegimeComposite{ClusterRankedCount: 0, ClusterUnrankedCount: 6},
@@ -50,7 +50,7 @@ func TestComputeCanaryConfirmedStressWithIncompleteGammaBreadthStillDelevers(t *
 	acct := baseCanaryAccount()
 	acct.GrossPositionValue = 130_000
 	delta := 95_000.0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Positions: rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{
 			DollarDeltaBase: &delta,
@@ -77,7 +77,7 @@ func TestComputeCanaryImmediateMarginDangerLiquidatesDespiteAmbiguousMarket(t *t
 	t.Parallel()
 	acct := baseCanaryAccount()
 	acct.Cushion = 0.07
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Regime: rpc.RegimeSnapshotResult{
 			Composite: rpc.RegimeComposite{ClusterRankedCount: 1, ClusterUnrankedCount: 5},
@@ -100,7 +100,7 @@ func TestComputeCanaryZeroExcessLiquidityLiquidatesWhenMarginContextPresent(t *t
 	acct.Cushion = 0
 	acct.ExcessLiquidity = 0
 	acct.MaintenanceMargin = 80_000
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: freshCanaryPositions(),
 		Regime:    healthyCanaryRegime(),
@@ -120,7 +120,7 @@ func TestComputeCanaryLookAheadMarginDangerLiquidates(t *testing.T) {
 	t.Parallel()
 	acct := baseCanaryAccount()
 	acct.LookAheadExcess = 8_000
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: freshCanaryPositions(),
 		Regime:    healthyCanaryRegime(),
@@ -140,7 +140,7 @@ func TestComputeCanaryEarlyStressRequiresSecondIndependentCluster(t *testing.T) 
 	r.VIXTermStructure.Band = "red"
 	r.VolOfVol.Band = "red"
 	r.Breadth.Band = "yellow"
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -165,7 +165,7 @@ func TestComputeCanaryLowExposureMarketWatchDoesNotClaimPortfolioExposed(t *test
 	r.VIXTermStructure.Band = "red"
 	r.VolOfVol.Band = "red"
 	r.Breadth.Band = "yellow"
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: acct,
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -194,7 +194,7 @@ func TestComputeCanarySingleGammaRedIsNotLifecycleConfirmation(t *testing.T) {
 	vixPct := 5.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -237,7 +237,7 @@ func TestComputeCanaryContextOnlyGammaDoesNotConfirmStress(t *testing.T) {
 	}
 	r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
 
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account:   baseCanaryAccount(),
 		Positions: freshCanaryPositions(),
 		Regime:    r,
@@ -291,7 +291,7 @@ func TestComputeCanaryGammaRequiresExplicitRankableQuality(t *testing.T) {
 				Quality: tc.quality,
 			}
 
-			res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+			res := ComputeStress(StressInput{Now: canaryTestNow,
 				Account: baseCanaryAccount(),
 				Regime:  r,
 			})
@@ -322,7 +322,7 @@ func TestComputeCanaryStandalonePremarketSPYDropWatches(t *testing.T) {
 	vixPct := 2.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -356,7 +356,7 @@ func TestComputeCanaryProvisionalRedDoesNotConfirmHardTapeStress(t *testing.T) {
 	vixPct := 2.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: acct,
 		Positions: rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{
 			ExposureBase: []rpc.UnderlyingExposure{{
@@ -394,7 +394,7 @@ func TestComputeCanaryConfirmedSPYVIXShockDelevers(t *testing.T) {
 	vixPct := 12.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -420,7 +420,7 @@ func TestComputeCanaryConfirmedSPYVIXShockDelevers(t *testing.T) {
 func TestComputeCanaryGrossDollarDeltaCatchesOffsettingOptionBook(t *testing.T) {
 	t.Parallel()
 	net := 0.0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{
 			DollarDeltaBase: &net,
@@ -443,7 +443,7 @@ func TestComputeCanaryStressedExposureDeleverHasMatchingSignal(t *testing.T) {
 	t.Parallel()
 	acct := baseCanaryAccount()
 	acct.GrossPositionValue = 110_000
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 	})
@@ -461,7 +461,7 @@ func TestComputeCanaryStressedExposureDeleverHasMatchingSignal(t *testing.T) {
 
 func TestComputeCanaryLargestDeltaConcentrationWatchesWithoutMarketStress(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{AsOf: canaryTestNow, Portfolio: &rpc.PositionsPortfolio{
 			ExposureBase: []rpc.UnderlyingExposure{
@@ -500,7 +500,7 @@ func TestComputeCanaryProvisionalRedsDoNotCreateShortConvexityActSignal(t *testi
 	r := healthyCanaryRegime()
 	r.FundingStress.Band = "red"
 	r.GammaZero.Band = "red"
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{
 			Gamma:          &gamma,
@@ -524,7 +524,7 @@ func TestComputeCanaryProvisionalRedsDoNotCreateShortConvexityActSignal(t *testi
 func TestComputeCanaryHeldUnderlyingPnLShockRebalancesWithoutMarketConfirmation(t *testing.T) {
 	t.Parallel()
 	dailyLoss := -2_500.0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf: time.Now(),
@@ -563,7 +563,7 @@ func TestComputeCanaryHeldOptionExpiryConcentrationRebalances(t *testing.T) {
 	underlying := 50.0
 	delta := 0.60
 	gamma := -0.03
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf: now,
@@ -606,7 +606,7 @@ func TestComputeCanaryHeldOptionExpiryConcentrationRebalances(t *testing.T) {
 func TestComputeCanaryHeldLiquidityDegradedIsDataQualityOnly(t *testing.T) {
 	t.Parallel()
 	spread := 1.20
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf: time.Now(),
@@ -637,7 +637,7 @@ func TestComputeCanaryHeldLiquidityDegradedIsDataQualityOnly(t *testing.T) {
 func TestComputeCanarySignalsExposureAndDecisionShape(t *testing.T) {
 	t.Parallel()
 	delta := 140_000.0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{AsOf: canaryTestNow, Portfolio: &rpc.PositionsPortfolio{
 			DollarDeltaBase: &delta,
@@ -681,7 +681,7 @@ func TestComputeCanaryFastCarryUnwindActs(t *testing.T) {
 	vixPct := 16.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -705,7 +705,7 @@ func TestComputeCanaryConstructiveTapeShowsOpportunityPosture(t *testing.T) {
 	r := healthyCanaryRegime()
 	r.HYGSPYDivergence.SPYChangePct = new(3.0)
 	r.VIXTermStructure.VIXChangePct = new(-25.0)
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account:   baseCanaryAccount(),
 		Positions: freshCanaryPositions(),
 		Regime:    r,
@@ -728,7 +728,7 @@ func TestComputeCanaryPositivePnLShockProtectsGains(t *testing.T) {
 	acct := baseCanaryAccount()
 	daily := 12_000.0
 	acct.DailyPnL = &daily
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: freshCanaryPositions(),
 		Regime:    healthyCanaryRegime(),
@@ -752,7 +752,7 @@ func TestComputeCanaryMissingDailyPnLIsDataQuality(t *testing.T) {
 	t.Parallel()
 	acct := baseCanaryAccount()
 	acct.DailyPnL = nil
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Regime:  healthyCanaryRegime(),
 	})
@@ -787,7 +787,7 @@ func TestComputeCanaryMissingDailyPnLPostCloseIsExpected(t *testing.T) {
 	acct.DailyPnLObservation = &rpc.DailyPnLObservation{
 		Status: rpc.DailyPnLObservationNotDue, SessionKey: "2026-06-01", AsOf: now,
 	}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Now:       now,
 		Account:   acct,
 		Positions: rpc.PositionsResult{AsOf: now},
@@ -814,7 +814,7 @@ func TestComputeCanaryDailyPnLFailureRemainsDegradedPostClose(t *testing.T) {
 	acct.DailyPnLObservation = &rpc.DailyPnLObservation{
 		Status: rpc.DailyPnLObservationMissing, SessionKey: "2026-06-01", AsOf: now.Add(-10 * time.Minute),
 	}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Now: now, Account: acct, Positions: rpc.PositionsResult{AsOf: now}, Regime: healthyCanaryRegime(),
 	})
 	if res.InputHealth != canaryInputDegraded {
@@ -830,7 +830,7 @@ func TestComputeCanaryWatchMarginSignalDoesNotPublishLowerTarget(t *testing.T) {
 	t.Parallel()
 	acct := baseCanaryAccount()
 	acct.Cushion = 0.30
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Regime:  healthyCanaryRegime(),
 	})
@@ -853,7 +853,7 @@ func TestComputeCanaryStandaloneVIXSpikeWatches(t *testing.T) {
 	vixPct := 18.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -868,7 +868,7 @@ func TestComputeCanaryStandaloneVIXSpikeWatches(t *testing.T) {
 func TestComputeCanarySurfacesProtectionCoverage(t *testing.T) {
 	t.Parallel()
 	unprotected := 12_000.0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			ProtectionCoverage: &rpc.ProtectionCoverageSummary{
@@ -896,7 +896,7 @@ func TestComputeCanarySurfacesProtectionCoverage(t *testing.T) {
 
 	// A largest-unprotected row without a valued notional still contributes
 	// its name — an unvalued exposure must not fall out of the copy.
-	unvalued := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	unvalued := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			ProtectionCoverage: &rpc.ProtectionCoverageSummary{
@@ -916,7 +916,7 @@ func TestComputeCanaryStaleGreenClusterStillWatches(t *testing.T) {
 	t.Parallel()
 	r := healthyCanaryRegime()
 	r.VIXTermStructure.Status = rpc.RegimeStatusStale
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -958,7 +958,7 @@ func TestComputeCanaryOffHoursVolStaleIsContext(t *testing.T) {
 		Scope:   "vix_term_structure",
 		Message: "volatility term structure stale",
 	}}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account:   baseCanaryAccount(),
 		Positions: freshCanaryPositions(),
 		Regime:    r,
@@ -990,7 +990,7 @@ func TestComputeCanaryOffHoursVolOverdueIsDataQuality(t *testing.T) {
 	r.DataQuality = []rpc.DataQualityHealth{{
 		Surface: "regime", Status: rpc.RegimeStatusStale, StaleClusters: []string{"vol"},
 	}}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(), Positions: freshCanaryPositions(), Regime: r,
 		Now: time.Date(2026, 6, 1, 11, 5, 0, 0, time.UTC),
 	})
@@ -1006,7 +1006,7 @@ func TestComputeCanaryGreenClustersAreNotAmbiguous(t *testing.T) {
 	r.GammaZero.Band = "red"
 	r.Breadth.Band = "unranked"
 	r.Breadth.Status = rpc.RegimeStatusComputing
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -1022,7 +1022,7 @@ func TestComputeCanaryCarriesSourceTimestamps(t *testing.T) {
 	posAsOf := time.Date(2026, 5, 29, 13, 2, 0, 0, time.UTC)
 	regime := healthyCanaryRegime()
 	regime.AsOf = time.Date(2026, 5, 29, 13, 3, 0, 0, time.UTC)
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: rpc.PositionsResult{AsOf: posAsOf},
 		Regime:    regime,
@@ -1038,12 +1038,12 @@ func TestComputeCanaryCarriesSemanticFingerprints(t *testing.T) {
 	regime.Fingerprint = rpc.BuildRegimeFingerprint(&regime)
 	acct := baseCanaryAccount()
 	acct.Cushion = 0.30
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Regime:  regime,
 	})
-	if res.Fingerprint.Version != rpc.CanaryFingerprintVersion || res.Fingerprint.Key == "" {
-		t.Fatalf("canary fingerprint = %+v, want populated %s", res.Fingerprint, rpc.CanaryFingerprintVersion)
+	if res.Fingerprint.Version != rpc.StressFingerprintVersion || res.Fingerprint.Key == "" {
+		t.Fatalf("canary fingerprint = %+v, want populated %s", res.Fingerprint, rpc.StressFingerprintVersion)
 	}
 	if res.SourceFingerprints.Regime == nil || *res.SourceFingerprints.Regime != regime.Fingerprint {
 		t.Fatalf("source regime fingerprint = %+v, want %+v", res.SourceFingerprints.Regime, regime.Fingerprint)
@@ -1056,7 +1056,7 @@ func TestComputeCanaryJSONCarriesMonitorFields(t *testing.T) {
 	regime.Fingerprint = rpc.BuildRegimeFingerprint(&regime)
 	acct := baseCanaryAccount()
 	acct.Cushion = 0.30
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: freshCanaryPositions(),
 		Regime:    regime,
@@ -1089,7 +1089,7 @@ func TestComputeCanaryJSONCarriesMonitorFields(t *testing.T) {
 		t.Fatalf("signal posture missing: %#v", wire["signals"])
 	}
 	fp, ok := wire["fingerprint"].(map[string]any)
-	if !ok || fp["version"] != rpc.CanaryFingerprintVersion || fp["key"] == "" {
+	if !ok || fp["version"] != rpc.StressFingerprintVersion || fp["key"] == "" {
 		t.Fatalf("fingerprint missing/malformed: %#v", wire["fingerprint"])
 	}
 	sources, ok := wire["source_fingerprints"].(map[string]any)
@@ -1123,7 +1123,7 @@ func TestComputeCanaryJSONCarriesMonitorFields(t *testing.T) {
 func TestComputeCanaryJSONCarriesHeldStress(t *testing.T) {
 	t.Parallel()
 	dailyLoss := -2_500.0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf: time.Now(),
@@ -1162,7 +1162,7 @@ func TestComputeCanaryFingerprintIgnoresTimestampsAndRawValuesInsideBucket(t *te
 	acct := baseCanaryAccount()
 	acct.Cushion = 0.30
 	regime := healthyCanaryRegime()
-	first := ComputeCanary(CanaryInput{
+	first := ComputeStress(StressInput{
 		Account: acct,
 		Regime:  regime,
 		Now:     time.Date(2026, 5, 31, 8, 30, 0, 0, time.UTC),
@@ -1171,7 +1171,7 @@ func TestComputeCanaryFingerprintIgnoresTimestampsAndRawValuesInsideBucket(t *te
 	acct.AsOf = time.Date(2026, 5, 31, 8, 35, 0, 0, time.UTC)
 	acct.Cushion = 0.29
 	regime.AsOf = time.Date(2026, 5, 31, 8, 36, 0, 0, time.UTC)
-	second := ComputeCanary(CanaryInput{
+	second := ComputeStress(StressInput{
 		Account: acct,
 		Regime:  regime,
 		Now:     time.Date(2026, 5, 31, 8, 37, 0, 0, time.UTC),
@@ -1181,7 +1181,7 @@ func TestComputeCanaryFingerprintIgnoresTimestampsAndRawValuesInsideBucket(t *te
 	}
 
 	acct.Cushion = 0.19
-	third := ComputeCanary(CanaryInput{Now: canaryTestNow, Account: acct, Regime: regime})
+	third := ComputeStress(StressInput{Now: canaryTestNow, Account: acct, Regime: regime})
 	if first.Fingerprint == third.Fingerprint {
 		t.Fatal("fingerprint did not change after crossing margin severity bucket")
 	}
@@ -1191,10 +1191,10 @@ func TestComputeCanaryFingerprintIncludesSourceRegimeFingerprint(t *testing.T) {
 	t.Parallel()
 	regime := healthyCanaryRegime()
 	regime.Fingerprint = rpc.Fingerprint{Version: rpc.RegimeFingerprintVersion, Key: "sha256:a"}
-	first := ComputeCanary(CanaryInput{Now: canaryTestNow, Account: baseCanaryAccount(), Regime: regime})
+	first := ComputeStress(StressInput{Now: canaryTestNow, Account: baseCanaryAccount(), Regime: regime})
 
 	regime.Fingerprint = rpc.Fingerprint{Version: rpc.RegimeFingerprintVersion, Key: "sha256:b"}
-	second := ComputeCanary(CanaryInput{Now: canaryTestNow, Account: baseCanaryAccount(), Regime: regime})
+	second := ComputeStress(StressInput{Now: canaryTestNow, Account: baseCanaryAccount(), Regime: regime})
 	if first.Fingerprint == second.Fingerprint {
 		t.Fatal("canary fingerprint did not change when source regime fingerprint changed")
 	}
@@ -1204,7 +1204,7 @@ func TestComputeCanaryFingerprintIncludesSourceMarketEventsFingerprint(t *testin
 	t.Parallel()
 	regime := healthyCanaryRegime()
 	positions := rpc.PositionsResult{AsOf: canaryTestNow, Stocks: []rpc.PositionView{{Symbol: "XYZ", SecType: rpc.SecTypeStock, Quantity: -1}}}
-	first := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	first := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   baseCanaryAccount(),
 		Positions: positions,
 		Regime:    regime,
@@ -1213,7 +1213,7 @@ func TestComputeCanaryFingerprintIncludesSourceMarketEventsFingerprint(t *testin
 			Fingerprint: rpc.Fingerprint{Version: rpc.MarketEventsFingerprintVersion, Key: "sha256:market-a"},
 		},
 	})
-	second := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	second := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   baseCanaryAccount(),
 		Positions: positions,
 		Regime:    regime,
@@ -1249,10 +1249,10 @@ func TestComputeCanaryFingerprintIgnoresBorrowHealthWithoutShortStock(t *testing
 		}
 	}
 	failedEvents.Fingerprint = rpc.BuildMarketEventsFingerprint(&failedEvents)
-	input := CanaryInput{Now: canaryTestNow, Account: baseCanaryAccount(), Positions: positions, Regime: healthyCanaryRegime(), MarketEvents: baseEvents}
-	baseline := ComputeCanary(input)
+	input := StressInput{Now: canaryTestNow, Account: baseCanaryAccount(), Positions: positions, Regime: healthyCanaryRegime(), MarketEvents: baseEvents}
+	baseline := ComputeStress(input)
 	input.MarketEvents = failedEvents
-	changed := ComputeCanary(input)
+	changed := ComputeStress(input)
 	if baseline.Fingerprint != changed.Fingerprint {
 		t.Fatalf("all-long borrow failure changed Canary fingerprint: %s -> %s", baseline.Fingerprint.Key, changed.Fingerprint.Key)
 	}
@@ -1271,15 +1271,15 @@ func TestComputeCanaryFingerprintIgnoresBorrowHealthWithoutShortStock(t *testing
 	}
 	nonBorrowFailure.Fingerprint = rpc.BuildMarketEventsFingerprint(&nonBorrowFailure)
 	input.MarketEvents = nonBorrowFailure
-	if got := ComputeCanary(input); got.Fingerprint == baseline.Fingerprint {
+	if got := ComputeStress(input); got.Fingerprint == baseline.Fingerprint {
 		t.Fatal("all-long relevance filter suppressed non-borrow source-health identity")
 	}
 
 	input.Positions.Stocks[0].Quantity = -100
 	input.MarketEvents = baseEvents
-	shortHealthy := ComputeCanary(input)
+	shortHealthy := ComputeStress(input)
 	input.MarketEvents = failedEvents
-	shortFailed := ComputeCanary(input)
+	shortFailed := ComputeStress(input)
 	if shortHealthy.Fingerprint == shortFailed.Fingerprint {
 		t.Fatal("short-book borrow failure did not change Canary fingerprint")
 	}
@@ -1306,13 +1306,13 @@ func TestComputeCanaryEstablishedFingerprintIgnoresTypedFailureDetails(t *testin
 		events.Fingerprint = rpc.BuildMarketEventsFingerprint(&events)
 		return events
 	}
-	input := CanaryInput{
+	input := StressInput{
 		Now: canaryTestNow, Account: baseCanaryAccount(), Positions: positions,
 		Regime: healthyCanaryRegime(), MarketEvents: withFailure(rpc.SourceFailureTimeout, rpc.SourceFailureStageFTPControlConnect),
 	}
-	first := ComputeCanary(input)
+	first := ComputeStress(input)
 	input.MarketEvents = withFailure(rpc.SourceFailureConnectionRefused, rpc.SourceFailureStageFTPPassiveConnect)
-	second := ComputeCanary(input)
+	second := ComputeStress(input)
 	if first.Fingerprint == second.Fingerprint {
 		t.Fatal("current Canary v2 identity ignored changed typed failure details")
 	}
@@ -1334,7 +1334,7 @@ func TestComputeCanarySurfacesDegradedGammaSeparately(t *testing.T) {
 		},
 		Summary: &rpc.GammaZeroSummary{Confidence: "degraded"},
 	}
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -1364,7 +1364,7 @@ func TestComputeCanaryDoesNotDegradeRankableWarningOnlyGamma(t *testing.T) {
 		Quality:        rankableCanaryGammaQuality(),
 		WarningDetails: []rpc.GammaWarningDetail{{Code: "oi_missing", Severity: "data_quality"}},
 	}
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -1404,7 +1404,7 @@ func TestComputeCanaryMarketIndicatorsCarryDecisionContext(t *testing.T) {
 	}
 	r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
 
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 5, 29, 14, 0, 0, 0, time.UTC),
@@ -1437,7 +1437,7 @@ func TestComputeCanaryMarketSummaryCarriesTapeLevels(t *testing.T) {
 	r.VIXTermStructure.VIX = new(16.34)
 	r.VIXTermStructure.VIXChangePct = new(3.61)
 
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -1470,7 +1470,7 @@ func TestComputeCanaryMarginPressureDoesNotActWithoutMarketConfirmation(t *testi
 	}
 	r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
 
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: freshCanaryPositions(),
 		Regime:    r,
@@ -1504,7 +1504,7 @@ func TestComputeCanaryDailyLossDoesNotActWithoutMarketConfirmation(t *testing.T)
 	}
 	r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
 
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account:   acct,
 		Positions: freshCanaryPositions(),
 		Regime:    r,
@@ -1528,7 +1528,7 @@ func TestComputeCanaryMarginPressureDoesNotConfirmMarketTape(t *testing.T) {
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
 
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Regime:  r,
 	})
@@ -1558,7 +1558,7 @@ func TestComputeCanaryStaleAccountBlocksMarginAction(t *testing.T) {
 	acct.AsOf = now.Add(-2 * time.Hour)
 	acct.Cushion = 0.07
 
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: acct,
 		Regime:  healthyCanaryRegime(),
 		Now:     now,
@@ -1594,7 +1594,7 @@ func TestComputeCanaryStaleRegimeAuthorityCannotLookClear(t *testing.T) {
 		LastSuccessAgeSeconds: &ageSeconds, FailureCode: rpc.RegimeAuthorityFailureRefreshFailed,
 	}
 
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(), Positions: freshCanaryPositions(), Regime: regime, Now: now,
 	})
 	if res.Direction != risk.DirectionDataQuality || res.Severity != risk.SeverityWatch || res.Action != canaryActionConfirmInputs {
@@ -1648,7 +1648,7 @@ func TestComputeCanaryEstablishedAlertProjectionPreservesActAcrossAuthorityHealt
 		LastSuccessAt:         &lastSuccess,
 		LastSuccessAgeSeconds: &ageSeconds,
 	}
-	fresh := ComputeCanary(CanaryInput{Account: account, Positions: positions, Regime: freshRegime, Now: now})
+	fresh := ComputeStress(StressInput{Account: account, Positions: positions, Regime: freshRegime, Now: now})
 	if fresh.Action != canaryActionDefend || fresh.Severity != risk.SeverityAct {
 		t.Fatalf("fresh main decision=%s/%s, want defend/act", fresh.Action, fresh.Severity)
 	}
@@ -1693,7 +1693,7 @@ func TestComputeCanaryEstablishedAlertProjectionPreservesActAcrossAuthorityHealt
 			t.Parallel()
 			changedRegime := regime
 			changedRegime.AuthorityHealth = test.health
-			changed := ComputeCanary(CanaryInput{Account: account, Positions: positions, Regime: changedRegime, Now: now})
+			changed := ComputeStress(StressInput{Account: account, Positions: positions, Regime: changedRegime, Now: now})
 			health := findSourceHealth(changed.SourceHealth, "regime")
 			if health == nil || health.Status != test.status {
 				t.Fatalf("main regime source health=%+v, want %s", health, test.status)
@@ -1719,7 +1719,7 @@ func TestComputeCanaryEstablishedAlertProjectionIgnoresNewMarketEventRequirement
 	}
 	events := healthyCanaryMarketEvents(now, "XYZ")
 	events.Fingerprint = rpc.BuildMarketEventsFingerprint(&events)
-	baseline := ComputeCanary(CanaryInput{
+	baseline := ComputeStress(StressInput{
 		Account: account, Positions: positions, Regime: healthyCanaryRegime(), MarketEvents: events, Now: now,
 	})
 	if baseline.EstablishedAlertProjection == nil {
@@ -1757,7 +1757,7 @@ func TestComputeCanaryEstablishedAlertProjectionIgnoresNewMarketEventRequirement
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			changed := ComputeCanary(CanaryInput{
+			changed := ComputeStress(StressInput{
 				Account: account, Positions: positions, Regime: healthyCanaryRegime(), MarketEvents: test.events, Now: now,
 			})
 			health := findSourceHealth(changed.SourceHealth, "market_events")
@@ -1778,7 +1778,7 @@ func TestComputeCanaryEstablishedAlertProjectionKeepsMissingMarketEventsAdvisory
 	t.Parallel()
 	account := baseCanaryAccount()
 	account.AsOf = canaryTestNow
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: account,
 		Positions: rpc.PositionsResult{
 			AsOf:   canaryTestNow,
@@ -1807,7 +1807,7 @@ func TestComputeCanaryEstablishedAlertProjectionExcludesNewMissingAccountTimesta
 	t.Parallel()
 	account := baseCanaryAccount()
 	account.AsOf = time.Time{}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: account, Positions: freshCanaryPositions(), Regime: healthyCanaryRegime(), Now: canaryTestNow,
 	})
 	if res.Action != canaryActionConfirmInputs || res.InputHealth != canaryInputDegraded {
@@ -1847,7 +1847,7 @@ func TestComputeCanaryEstablishedAlertProjectionKeepsAccountAndPositionsConfirmI
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			res := ComputeCanary(CanaryInput{
+			res := ComputeStress(StressInput{
 				Account: test.account, Positions: test.positions, Regime: healthyCanaryRegime(), Now: now,
 			})
 			projection := res.EstablishedAlertProjection
@@ -1868,7 +1868,7 @@ func TestComputeCanaryEstablishedAlertProjectionKeepsAccountAndPositionsConfirmI
 func TestComputeCanaryStalePositionsBlocksRebalanceAction(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 29, 16, 0, 0, 0, time.UTC)
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf: now.Add(-2 * time.Hour),
@@ -1901,7 +1901,7 @@ func TestComputeCanaryStalePositionsBlockHeldStressAction(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 29, 16, 0, 0, 0, time.UTC)
 	dailyLoss := -2_500.0
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf: now.Add(-2 * time.Hour),
@@ -1936,7 +1936,7 @@ func TestComputeCanaryStaleRedClusterDoesNotConfirmLifecycle(t *testing.T) {
 	r.HYGSPYDivergence.Band = "red"
 	r.CreditSpreads.Band = "red"
 
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -1973,7 +1973,7 @@ func TestComputeCanaryRegimeSourceHealthKeepsStaleAndDegradedNotes(t *testing.T)
 		},
 		Summary: &rpc.GammaZeroSummary{Confidence: "degraded"},
 	}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		Now:     time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
@@ -2027,7 +2027,7 @@ func TestComputeCanaryCriticalMarketEventHealthBlocksCleanInput(t *testing.T) {
 				}
 			}
 
-			res := ComputeCanary(CanaryInput{
+			res := ComputeStress(StressInput{
 				Account:      baseCanaryAccount(),
 				Positions:    positions,
 				Regime:       healthyCanaryRegime(),
@@ -2096,7 +2096,7 @@ func TestComputeCanaryMarketEventHealthRequiresCurrentTimestamps(t *testing.T) {
 			test.mutate(&events)
 			account := baseCanaryAccount()
 			account.AsOf = canaryTestNow
-			res := ComputeCanary(CanaryInput{
+			res := ComputeStress(StressInput{
 				Account: account,
 				Positions: rpc.PositionsResult{
 					AsOf:   canaryTestNow,
@@ -2212,7 +2212,7 @@ func TestComputeCanaryRealAccountRequiresSnapshotTimestamp(t *testing.T) {
 	t.Parallel()
 	account := baseCanaryAccount()
 	account.AsOf = time.Time{}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account:   account,
 		Positions: freshCanaryPositions(),
 		Regime:    healthyCanaryRegime(),
@@ -2229,7 +2229,7 @@ func TestComputeCanaryRealAccountRequiresSnapshotTimestamp(t *testing.T) {
 
 func TestComputeCanaryMissingCriticalMarketEventContextIsUnknown(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf:   canaryTestNow,
@@ -2273,7 +2273,7 @@ func TestComputeCanaryBorrowHealthRequiresShortStockExposure(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			res := ComputeCanary(CanaryInput{
+			res := ComputeStress(StressInput{
 				Account: baseCanaryAccount(),
 				Positions: rpc.PositionsResult{
 					AsOf:   canaryTestNow,
@@ -2331,7 +2331,7 @@ func TestComputeCanarySeparatesPartialFromAmbiguousClusters(t *testing.T) {
 	r.FundingStress.Band = "unranked"
 	r.FundingStress.Status = rpc.RegimeStatusError
 	r.GammaZero.Band = "red"
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -2345,7 +2345,7 @@ func TestComputeCanarySeparatesPartialFromAmbiguousClusters(t *testing.T) {
 
 func TestComputeCanaryOptionsPresentWithoutGreeksIsDataQuality(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: baseCanaryAccount(),
 		Positions: rpc.PositionsResult{
 			AsOf:    time.Now(),
@@ -2404,7 +2404,7 @@ func TestCanaryWarningsPreferScopedInputChecks(t *testing.T) {
 			{Scope: "vix_term_structure", Message: "volatility term structure stale"},
 		},
 	}
-	warnings := canaryWarnings(CanaryMarketSummary{
+	warnings := canaryWarnings(StressMarketSummary{
 		AmbiguousClusters: []string{"funding"},
 		UnrankedClusters:  1,
 	}, regime, time.Date(2026, 6, 1, 11, 0, 0, 0, time.UTC))
@@ -2552,7 +2552,7 @@ func redVolCreditRegimeWithComputingSlowRows() rpc.RegimeSnapshotResult {
 	return r
 }
 
-func rowContains(rows []CanaryRow, title, text string) bool {
+func rowContains(rows []StressRow, title, text string) bool {
 	for _, row := range rows {
 		if row.Title == title && strings.Contains(row.Guidance, text) {
 			return true
@@ -2561,7 +2561,7 @@ func rowContains(rows []CanaryRow, title, text string) bool {
 	return false
 }
 
-func rowContainsEvidence(rows []CanaryRow, title, text string) bool {
+func rowContainsEvidence(rows []StressRow, title, text string) bool {
 	for _, row := range rows {
 		if row.Title == title && strings.Contains(row.Evidence, text) {
 			return true
@@ -2597,16 +2597,16 @@ func findSourceHealth(items []rpc.SourceHealth, source string) *rpc.SourceHealth
 	return nil
 }
 
-func findCanaryIndicator(indicators []CanaryMarketIndicator, name string) (CanaryMarketIndicator, bool) {
+func findCanaryIndicator(indicators []StressMarketIndicator, name string) (StressMarketIndicator, bool) {
 	for _, indicator := range indicators {
 		if indicator.Name == name {
 			return indicator, true
 		}
 	}
-	return CanaryMarketIndicator{}, false
+	return StressMarketIndicator{}, false
 }
 
-func canaryRowByTitle(rows []CanaryRow, title string) *CanaryRow {
+func canaryRowByTitle(rows []StressRow, title string) *StressRow {
 	for i := range rows {
 		if rows[i].Title == title {
 			return &rows[i]
@@ -2622,7 +2622,7 @@ func TestCanaryTapeShockClosedDateDemotesToObserve(t *testing.T) {
 	vixPct := 12.19
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		// Sunday 16:00 ET: the VIX spike is a frozen Friday print.
@@ -2654,7 +2654,7 @@ func TestCanaryTapeShockPreMarketTradingDateKeepsWatch(t *testing.T) {
 	r := healthyCanaryRegime()
 	vixPct := 12.0
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		// Tuesday 05:00 ET pre-market: live extended-hours prints are the
@@ -2675,7 +2675,7 @@ func TestCanaryTapeShockHolidayDemotes(t *testing.T) {
 	r := healthyCanaryRegime()
 	spyPct := -2.0
 	r.HYGSPYDivergence.SPYChangePct = &spyPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		// Thanksgiving Day 2026 (Thursday) 10:00 ET.
@@ -2695,7 +2695,7 @@ func TestCanaryTapeShockOutsideCoverageKeepsLegacySeverity(t *testing.T) {
 	r := healthyCanaryRegime()
 	vixPct := 12.0
 	r.VIXTermStructure.VIXChangePct = &vixPct
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 		// Sunday, but before embedded calendar coverage: replay fails open.
@@ -2714,18 +2714,18 @@ func TestCanaryClosedDateTapeConfirmationGates(t *testing.T) {
 	t.Parallel()
 	spy := -2.6
 	vix := 21.0
-	m := CanaryMarketSummary{SPYChangePct: &spy, VIXChangePct: &vix}
+	m := StressMarketSummary{SPYChangePct: &spy, VIXChangePct: &vix}
 	if !canaryConfirmedTapeStress(m) {
 		t.Fatal("hard drop + hard spike must confirm on a trading/unknown date")
 	}
-	if !canaryPanicMarket(CanaryMarketSummary{SPYChangePct: new(-4.5)}) {
+	if !canaryPanicMarket(StressMarketSummary{SPYChangePct: new(-4.5)}) {
 		t.Fatal("crash tape must reach panic on a trading/unknown date")
 	}
 	m.TapeSessionState = rpc.TapeSessionClosedDate
 	if canaryConfirmedTapeStress(m) {
 		t.Fatal("frozen closed-date tape must not confirm stress")
 	}
-	if canaryPanicMarket(CanaryMarketSummary{SPYChangePct: new(-4.5), TapeSessionState: rpc.TapeSessionClosedDate}) {
+	if canaryPanicMarket(StressMarketSummary{SPYChangePct: new(-4.5), TapeSessionState: rpc.TapeSessionClosedDate}) {
 		t.Fatal("frozen closed-date tape must not reach panic")
 	}
 	if canaryPartialMarketPressure(m) {
@@ -2733,11 +2733,11 @@ func TestCanaryClosedDateTapeConfirmationGates(t *testing.T) {
 	}
 	rally := 3.5
 	crush := -25.0
-	mc := CanaryMarketSummary{SPYChangePct: &rally, VIXChangePct: &crush, TapeSessionState: rpc.TapeSessionClosedDate}
+	mc := StressMarketSummary{SPYChangePct: &rally, VIXChangePct: &crush, TapeSessionState: rpc.TapeSessionClosedDate}
 	if canaryConfirmedConstructiveTape(mc) || canaryPartialConstructiveTape(mc) {
 		t.Fatal("frozen closed-date tape must not confirm constructive either")
 	}
-	fx := CanaryMarketSummary{
+	fx := StressMarketSummary{
 		SPYChangePct:    &spy,
 		RedClusterNames: []string{"fx"},
 	}

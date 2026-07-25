@@ -385,7 +385,7 @@ func fixtureStatus() *rpc.HealthResult {
 	}
 }
 
-func fixtureCanary() *rpc.CanaryResult {
+func fixtureCanary() *rpc.StressResult {
 	acct := *fixtureAccount()
 	regime := *fixtureRegime()
 
@@ -417,7 +417,7 @@ func fixtureCanary() *rpc.CanaryResult {
 		Options:   []rpc.PositionView{},
 	}
 
-	res := cli.ComputeCanary(cli.CanaryInput{
+	res := cli.ComputeStress(cli.StressInput{
 		Account:   acct,
 		Positions: *pos,
 		Regime:    regime,

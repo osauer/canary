@@ -37,7 +37,7 @@ func TestComputeCanaryTreatsContextOnlyGammaAsContextNotDegraded(t *testing.T) {
 		Message:  "dealer gamma context_only: freshness: market is closed; cached gamma is context only",
 		Impact:   "dealer gamma is displayed as context but is not ranked or used as independent stress confirmation.",
 	}}
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  r,
 	})
@@ -97,7 +97,7 @@ func TestCanaryWarningLabelsAreActionOriented(t *testing.T) {
 
 func TestRenderCanaryTextShowsActionEvidenceAndInputHealth(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 		Now:     time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
@@ -136,9 +136,9 @@ func TestRenderCanaryTextShowsActionEvidenceAndInputHealth(t *testing.T) {
 
 func TestCanaryInputHealthRowsHumanizeMarketIssues(t *testing.T) {
 	t.Parallel()
-	res := CanaryResult{
+	res := StressResult{
 		InputHealth: canaryInputDegraded,
-		Market: CanaryMarketSummary{
+		Market: StressMarketSummary{
 			DegradedClusters: []string{"gamma"},
 			StaleClusters:    []string{"credit", "fx", "vol"},
 		},
@@ -157,7 +157,7 @@ func TestCanaryInputHealthRowsHumanizeMarketIssues(t *testing.T) {
 
 func TestRenderCanaryDetailsShowsRowsWhenRequested(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  healthyCanaryRegime(),
 	})
@@ -173,7 +173,7 @@ func TestRenderCanaryDetailsShowsRowsWhenRequested(t *testing.T) {
 
 func TestRenderCanaryTextWrapsAtCommonTerminalWidths(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 		Now:     time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
@@ -201,7 +201,7 @@ func TestRenderCanaryTextWrapsAtCommonTerminalWidths(t *testing.T) {
 
 func TestRenderCanaryTextHidesDetailsUnlessRequested(t *testing.T) {
 	t.Parallel()
-	res := ComputeCanary(CanaryInput{
+	res := ComputeStress(StressInput{
 		Account: baseCanaryAccount(),
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 		Now:     time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
@@ -227,7 +227,7 @@ func TestRenderCanaryTextHidesDetailsUnlessRequested(t *testing.T) {
 
 func TestRenderCanaryTextColorsCurrentState(t *testing.T) {
 	t.Parallel()
-	res := CanaryResult{
+	res := StressResult{
 		AsOf:             time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
 		Action:           canaryActionWatch,
 		Direction:        risk.DirectionDefensive,
@@ -235,7 +235,7 @@ func TestRenderCanaryTextColorsCurrentState(t *testing.T) {
 		PlannerModeHint:  risk.PlannerModeStage,
 		PlannerReadiness: risk.PlannerReadinessPrestage,
 		Summary:          "Freeze new risk.",
-		Rows: []CanaryRow{{
+		Rows: []StressRow{{
 			Title:     "Portfolio canary",
 			Direction: risk.DirectionDefensive,
 			Severity:  risk.SeverityWatch,

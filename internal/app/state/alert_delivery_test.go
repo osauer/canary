@@ -47,8 +47,8 @@ func TestAlertDeliveryCutoverIdentityRedactionAndLegacyIsolation(t *testing.T) {
 	legacyGovernance := store.Governance(time.Now().UTC())
 
 	at := time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "private-account-symbol", "opening-1", at)
-	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent, candidate))
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "private-account-symbol", "opening-1", at)
+	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, candidate))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +105,8 @@ func TestAlertDeliveryAuthorityScopeChangeRetiresPreviousContextWithoutRecoveryO
 		t.Fatal(err)
 	}
 	base := time.Date(2026, 7, 21, 7, 0, 0, 0, time.UTC)
-	oldCandidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "scope-a", "open-a", base)
-	oldSnapshot := testAlertSnapshot(base, []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent, oldCandidate)
+	oldCandidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "scope-a", "open-a", base)
+	oldSnapshot := testAlertSnapshot(base, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, oldCandidate)
 	oldSnapshot.AuthorityScope = scopeA
 	oldView, err := store.ObserveAlertSnapshot(oldSnapshot)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestAlertDeliveryAuthorityScopeChangeRetiresPreviousContextWithoutRecoveryO
 	// The first view for the new authority is unavailable. It must publish an
 	// immutable boundary record without changing the producer-owned A lifecycle.
 	changedAt := base.Add(time.Minute)
-	newUnknown := testAlertSnapshot(changedAt, []rpc.AlertSource{rpc.AlertSourceCanary}, nil, rpc.AlertCoverageUnknown)
+	newUnknown := testAlertSnapshot(changedAt, []rpc.AlertSource{rpc.AlertSourceStress}, nil, rpc.AlertCoverageUnknown)
 	newUnknown.AuthorityScope = scopeB
 	view, err := store.ObserveAlertSnapshot(newUnknown)
 	if err != nil {
@@ -158,7 +158,7 @@ func TestAlertDeliveryAuthorityScopeChangeRetiresPreviousContextWithoutRecoveryO
 	// Reuse the exact producer keys in B. Scope partitioning, not an accidental
 	// global uniqueness assumption, must keep both live occurrences independent.
 	currentCandidate := reviseAlertCandidate(oldCandidate, currentAt, "b", rpc.AlertEpisodeOpen, rpc.AlertSeverityWatch)
-	currentSnapshot := testAlertSnapshot(currentAt, []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent, currentCandidate)
+	currentSnapshot := testAlertSnapshot(currentAt, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, currentCandidate)
 	currentSnapshot.AuthorityScope = scopeB
 	view, err = store.ObserveAlertSnapshot(currentSnapshot)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestAlertDeliveryAuthorityScopeChangeRetiresPreviousContextWithoutRecoveryO
 	// key reuse, inventing recovery, or minting another attention sequence.
 	returnAt := currentAt.Add(time.Minute)
 	resumedA := reviseAlertCandidate(oldCandidate, returnAt, "c", rpc.AlertEpisodeOpen, rpc.AlertSeverityWatch)
-	returnSnapshot := testAlertSnapshot(returnAt, []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent, resumedA)
+	returnSnapshot := testAlertSnapshot(returnAt, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, resumedA)
 	returnSnapshot.AuthorityScope = scopeA
 	view, err = store.ObserveAlertSnapshot(returnSnapshot)
 	if err != nil {
@@ -228,7 +228,7 @@ func TestAlertDeliveryInterruptedUncertaintySurvivesAuthorityScopeChange(t *test
 		t.Fatal(err)
 	}
 	base := time.Now().UTC().Add(-time.Minute)
-	source := rpc.AlertSourceCanary
+	source := rpc.AlertSourceStress
 	baseline := testAlertSnapshot(base, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent)
 	baseline.AuthorityScope = scopeA
 	if _, err := store.ObserveAlertSnapshot(baseline); err != nil {
@@ -293,7 +293,7 @@ func TestAlertDeliveryRestartAfterAuthorityScopeChangeKeepsInterruptedUncertaint
 		t.Fatal(err)
 	}
 	base := time.Now().UTC().Add(-time.Minute)
-	source := rpc.AlertSourceCanary
+	source := rpc.AlertSourceStress
 	baseline := testAlertSnapshot(base, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent)
 	baseline.AuthorityScope = scopeA
 	if _, err := store.ObserveAlertSnapshot(baseline); err != nil {
@@ -343,9 +343,9 @@ func TestAlertDeliveryAuthorityRecoveryReopenAndEscalation(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC)
-	canary := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "book", "canary-open-1", base)
+	canary := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "book", "canary-open-1", base)
 	regime := testAlertCandidate(t, rpc.AlertSourceRegime, rpc.AlertKindMarketState, "market", "regime-open-1", base)
-	expected := []rpc.AlertSource{rpc.AlertSourceCanary, rpc.AlertSourceRegime}
+	expected := []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceRegime}
 	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, expected, expected, rpc.AlertCoverageCurrent, canary, regime))
 	if err != nil {
 		t.Fatal(err)
@@ -355,14 +355,14 @@ func TestAlertDeliveryAuthorityRecoveryReopenAndEscalation(t *testing.T) {
 	}
 
 	partialAt := base.Add(time.Minute)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(partialAt, expected, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent))
+	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(partialAt, expected, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if occurrenceBySource(t, view, rpc.AlertSourceCanary).EndReason != AlertDeliveryEndOmitted || !occurrenceBySource(t, view, rpc.AlertSourceRegime).EndedAt.IsZero() {
+	if occurrenceBySource(t, view, rpc.AlertSourceStress).EndReason != AlertDeliveryEndOmitted || !occurrenceBySource(t, view, rpc.AlertSourceRegime).EndedAt.IsZero() {
 		t.Fatalf("partial authority did not resolve only Canary: %+v", view.Occurrences)
 	}
-	if !view.SourceWatermarks[rpc.AlertSourceCanary].Equal(partialAt) || !view.SourceWatermarks[rpc.AlertSourceRegime].Equal(base) {
+	if !view.SourceWatermarks[rpc.AlertSourceStress].Equal(partialAt) || !view.SourceWatermarks[rpc.AlertSourceRegime].Equal(base) {
 		t.Fatalf("source watermarks = %+v", view.SourceWatermarks)
 	}
 
@@ -539,12 +539,12 @@ func TestAlertDeliveryPersistenceFailureAndDurableOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	overflowStore.alertDeliveryMaxItems = 1
-	if _, err := overflowStore.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent,
-		testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "book-one", "open-one", base))); err != nil {
+	if _, err := overflowStore.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent,
+		testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "book-one", "open-one", base))); err != nil {
 		t.Fatal(err)
 	}
-	second := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindMarginSafety, "book-two", "open-two", base.Add(time.Minute))
-	if _, err := overflowStore.ObserveAlertSnapshot(testAlertSnapshot(base.Add(time.Minute), []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent, second)); !errors.Is(err, ErrAlertDeliveryOverflow) {
+	second := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindMarginSafety, "book-two", "open-two", base.Add(time.Minute))
+	if _, err := overflowStore.ObserveAlertSnapshot(testAlertSnapshot(base.Add(time.Minute), []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, second)); !errors.Is(err, ErrAlertDeliveryOverflow) {
 		t.Fatalf("occurrence overflow did not fail loud: %v", err)
 	}
 	overflow := overflowStore.AlertDelivery(base.Add(time.Minute))
@@ -559,8 +559,8 @@ func TestAlertDeliveryPersistenceFailureAndDurableOverflow(t *testing.T) {
 		t.Fatalf("overflow health did not survive restart: %+v", got)
 	}
 	firstRecoveredAt := base.Add(2 * time.Minute)
-	firstRecovered := reviseAlertCandidate(testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "book-one", "open-one", base), firstRecoveredAt, "c", rpc.AlertEpisodeRecovered, rpc.AlertSeverityWatch)
-	view, err := overflowStore.ObserveAlertSnapshot(testAlertSnapshot(firstRecoveredAt, []rpc.AlertSource{rpc.AlertSourceCanary}, []rpc.AlertSource{rpc.AlertSourceCanary}, rpc.AlertCoverageCurrent, firstRecovered))
+	firstRecovered := reviseAlertCandidate(testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "book-one", "open-one", base), firstRecoveredAt, "c", rpc.AlertEpisodeRecovered, rpc.AlertSeverityWatch)
+	view, err := overflowStore.ObserveAlertSnapshot(testAlertSnapshot(firstRecoveredAt, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, firstRecovered))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -723,7 +723,7 @@ func TestAlertDeliveryConfirmBindsCurrentCandidateAfterDueScanRevision(t *testin
 	}
 	enableTestAlertDelivery(t, store)
 	base := time.Date(2026, 7, 20, 16, 45, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "book", "open-1", base)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "book", "open-1", base)
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
 		t.Fatal(err)
 	}

@@ -129,7 +129,7 @@ function renderReadySection(section, sources = {}) {
       percentValue(section.gamma, "gap_pct", "Gap", true),
       fieldValue(section.gamma, "gamma_sign", "Sign"),
     )),
-    briefRow("Canary", section.canary, joinValues(...canaryHeadline(section.canary), section.canary?.summary)),
+    briefRow("Canary", section.stress, joinValues(...canaryHeadline(section.stress), section.stress?.summary)),
     briefRow("Session", section.session, joinValues(section.session?.market, section.session?.state)),
   ];
   const events = section.market_events || [];

@@ -53,9 +53,9 @@ func (s *canaryCallStub) Call(_ context.Context, method string, params, result a
 func TestFetchCanarySnapshotPreservesCallOrderAndFallbacks(t *testing.T) {
 	t.Parallel()
 	conn := &canaryCallStub{}
-	result, positions, _, err := FetchCanarySnapshotWithRegime(t.Context(), conn)
+	result, positions, _, err := FetchStressSnapshotWithRegime(t.Context(), conn)
 	if err != nil {
-		t.Fatalf("FetchCanarySnapshotWithRegime: %v", err)
+		t.Fatalf("FetchStressSnapshotWithRegime: %v", err)
 	}
 	wantCalls := []string{
 		rpc.MethodAccountSummary,
@@ -106,7 +106,7 @@ func TestFetchCanarySnapshotWrapsRequiredSourceErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.method, func(t *testing.T) {
 			conn := &canaryCallStub{failMethod: test.method}
-			_, _, _, err := FetchCanarySnapshotWithRegime(t.Context(), conn)
+			_, _, _, err := FetchStressSnapshotWithRegime(t.Context(), conn)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}

@@ -646,7 +646,7 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 		Regime:        market.Regime,
 		Breadth:       market.Breadth,
 		Gamma:         market.Gamma,
-		Canary:        market.Canary,
+		Stress:        market.Stress,
 		Session:       calendar.Session,
 		MarketEvents:  calendar.MarketEvents,
 		Capital:       riskLimits.Capital,
@@ -664,7 +664,7 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 func briefReadySectionState(ready rpc.BriefReadySection) rpc.BriefRowState {
 	rows := []rpc.BriefRowState{
 		ready.Regime.BriefRowState, ready.Breadth.BriefRowState, ready.Gamma.BriefRowState,
-		ready.Canary.BriefRowState, ready.Session.BriefRowState,
+		ready.Stress.BriefRowState, ready.Session.BriefRowState,
 	}
 	for _, ev := range ready.MarketEvents {
 		rows = append(rows, ev.BriefRowState)
@@ -728,7 +728,7 @@ func (s *Server) briefProposals(_ time.Time) rpc.BriefProposalsRow {
 // without this function taking on daemon state.
 func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.PositionsResult,
 	regime *rpc.RegimeSnapshotResult, breadth *rpc.BreadthSPXResult, gamma *rpc.GammaZeroSPXResult,
-	events *rpc.MarketEventsResult, acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.CanaryResult) {
+	events *rpc.MarketEventsResult, acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.StressResult) {
 	out := rpc.BriefMarketSection{}
 	if regimeErr != nil || regime == nil {
 		out.Regime.BriefRowState = briefUnavailable("regime snapshot unavailable: " + errText(regimeErr))
@@ -771,7 +771,7 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 		out.Breadth.AsOf, out.Breadth.DataType = breadth.AsOf, breadth.DataType
 	}
 	out.Gamma = composeBriefGamma(gamma, sessionOpen, now)
-	canaryInput := rpc.CanaryInput{Now: now}
+	canaryInput := rpc.StressInput{Now: now}
 	if acct != nil {
 		canaryInput.Account = *acct
 	}
@@ -784,15 +784,15 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 	if events != nil {
 		canaryInput.MarketEvents = *events
 	}
-	can := canary.ComputeCanary(canaryInput)
-	out.Canary = rpc.BriefCanaryRow{
+	can := canary.ComputeStress(canaryInput)
+	out.Stress = rpc.BriefStressRow{
 		BriefRowState: briefOK("pure canary composition over daemon snapshots"),
 		Action:        can.Action, Severity: string(can.Severity), Summary: can.Summary,
 	}
 	if acctErr != nil || posErr != nil || regimeErr != nil || eventsErr != nil || can.InputHealth != "ok" {
-		out.Canary.BriefRowState = briefDegraded("canary inputs are partial; unavailable sources remain explicit")
+		out.Stress.BriefRowState = briefDegraded("canary inputs are partial; unavailable sources remain explicit")
 	}
-	out.BriefRowState = briefSectionState("market", out.Regime.BriefRowState, out.Breadth.BriefRowState, out.Gamma.BriefRowState, out.Canary.BriefRowState)
+	out.BriefRowState = briefSectionState("market", out.Regime.BriefRowState, out.Breadth.BriefRowState, out.Gamma.BriefRowState, out.Stress.BriefRowState)
 	return out, can
 }
 

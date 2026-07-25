@@ -12,20 +12,20 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// CanaryInput is the typed input consumed by the shared canary evaluator.
-type CanaryInput = rpc.CanaryInput
+// StressInput is the typed input consumed by the shared canary evaluator.
+type StressInput = rpc.StressInput
 
-// CanaryResult is the complete typed output of a canary evaluation.
-type CanaryResult = rpc.CanaryResult
+// StressResult is the complete typed output of a canary evaluation.
+type StressResult = rpc.StressResult
 
-// CanaryRow is one evidence row in a canary result.
-type CanaryRow = rpc.CanaryRow
+// StressRow is one evidence row in a canary result.
+type StressRow = rpc.StressRow
 
-// CanaryMarketIndicator is one normalized market input in a canary summary.
-type CanaryMarketIndicator = rpc.CanaryMarketIndicator
+// StressMarketIndicator is one normalized market input in a canary summary.
+type StressMarketIndicator = rpc.StressMarketIndicator
 
-// CanaryMarketSummary is the market-side evidence summarized for the canary.
-type CanaryMarketSummary = rpc.CanaryMarketSummary
+// StressMarketSummary is the market-side evidence summarized for the canary.
+type StressMarketSummary = rpc.StressMarketSummary
 
 const (
 	canaryActionWatch         = canary.ActionWatch
@@ -39,12 +39,12 @@ const (
 	canaryPortfolioFitUnknown = canary.PortfolioFitUnknown
 )
 
-// ComputeCanary evaluates in through the shared pure canary engine.
-func ComputeCanary(in CanaryInput) CanaryResult {
-	return canary.ComputeCanary(in)
+// ComputeStress evaluates in through the shared pure canary engine.
+func ComputeStress(in StressInput) StressResult {
+	return canary.ComputeStress(in)
 }
 
-func summarizeCanaryMarket(r rpc.RegimeSnapshotResult, now time.Time) CanaryMarketSummary {
+func summarizeCanaryMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
 	return canary.SummarizeMarket(r, now)
 }
 
@@ -56,15 +56,15 @@ func canaryGammaDegraded(g rpc.RegimeGammaZero) bool {
 	return canary.GammaDegraded(g)
 }
 
-func canaryMarketEvidence(m CanaryMarketSummary) string {
+func canaryMarketEvidence(m StressMarketSummary) string {
 	return canary.MarketEvidence(m)
 }
 
-func canaryPortfolioEvidence(p rpc.CanaryPortfolioSummary) string {
+func canaryPortfolioEvidence(p rpc.StressPortfolioSummary) string {
 	return canary.PortfolioEvidence(p)
 }
 
-func canaryAmbiguityEvidence(m CanaryMarketSummary) string {
+func canaryAmbiguityEvidence(m StressMarketSummary) string {
 	return canary.AmbiguityEvidence(m)
 }
 
@@ -98,20 +98,20 @@ func runCanary(ctx context.Context, env *Env, args []string) int {
 	}
 	if !*jsonOut && isTerminal(env.Stdout) {
 		stop := startCanarySpinner(env)
-		res, err := canary.FetchCanary(ctx, env.Conn)
+		res, err := canary.FetchStress(ctx, env.Conn)
 		stop()
 		if err != nil {
 			return fail(env, "canary: %v", err)
 		}
 		return renderCanaryTextDetails(env, env.Stdout, &res, *details)
 	}
-	res, positions, err := canary.FetchCanarySnapshot(ctx, env.Conn)
+	res, positions, err := canary.FetchStressSnapshot(ctx, env.Conn)
 	if err != nil {
 		return fail(env, "canary: %v", err)
 	}
 	if *jsonOut {
 		if *view == rpc.ViewAlert {
-			return printJSON(env, rpc.CompactCanaryAlert(&res, &positions))
+			return printJSON(env, rpc.CompactStressAlert(&res, &positions))
 		}
 		return printJSON(env, res)
 	}
@@ -221,11 +221,11 @@ func startCanarySpinner(env *Env) func() {
 	}
 }
 
-func renderCanaryText(env *Env, out io.Writer, r *CanaryResult) int {
+func renderCanaryText(env *Env, out io.Writer, r *StressResult) int {
 	return renderCanaryTextDetails(env, out, r, false)
 }
 
-func renderCanaryTextDetails(env *Env, out io.Writer, r *CanaryResult, details bool) int {
+func renderCanaryTextDetails(env *Env, out io.Writer, r *StressResult, details bool) int {
 	width := outputColumns(out)
 	if width == 0 {
 		width = 120
@@ -233,11 +233,11 @@ func renderCanaryTextDetails(env *Env, out io.Writer, r *CanaryResult, details b
 	return renderCanaryTextWidthDetails(env, out, r, width, details)
 }
 
-func renderCanaryTextWidth(env *Env, out io.Writer, r *CanaryResult, width int) int {
+func renderCanaryTextWidth(env *Env, out io.Writer, r *StressResult, width int) int {
 	return renderCanaryTextWidthDetails(env, out, r, width, false)
 }
 
-func renderCanaryTextWidthDetails(env *Env, out io.Writer, r *CanaryResult, width int, details bool) int {
+func renderCanaryTextWidthDetails(env *Env, out io.Writer, r *StressResult, width int, details bool) int {
 	if width < 40 {
 		width = 80
 	}
@@ -275,11 +275,11 @@ func renderCanaryTextWidthDetails(env *Env, out io.Writer, r *CanaryResult, widt
 	return 0
 }
 
-func canaryHeadlineText(r *CanaryResult) string {
+func canaryHeadlineText(r *StressResult) string {
 	return strings.ToUpper(canaryActionDisplay(r.Action)) + " · " + canaryHeadlineReason(r)
 }
 
-func canaryHeadlineLabel(env *Env, r *CanaryResult) string {
+func canaryHeadlineLabel(env *Env, r *StressResult) string {
 	text := canaryHeadlineText(r)
 	switch r.Action {
 	case canaryActionDefend:
@@ -310,7 +310,7 @@ func canaryActionDisplay(action string) string {
 	}
 }
 
-func canaryHeadlineReason(r *CanaryResult) string {
+func canaryHeadlineReason(r *StressResult) string {
 	switch r.Action {
 	case canaryActionDefend:
 		return "market stress confirmed against vulnerable portfolio"
@@ -330,15 +330,15 @@ func canaryHeadlineReason(r *CanaryResult) string {
 	}
 }
 
-func canaryMarketReadText(r *CanaryResult) string {
+func canaryMarketReadText(r *StressResult) string {
 	return fmt.Sprintf("%s — %s", r.MarketConfirmation, canaryMarketEvidence(r.Market))
 }
 
-func canaryPortfolioFitText(r *CanaryResult) string {
+func canaryPortfolioFitText(r *StressResult) string {
 	return fmt.Sprintf("%s — %s", r.PortfolioFit, canaryPortfolioEvidence(r.Portfolio))
 }
 
-func canaryCombinedReadText(r *CanaryResult) string {
+func canaryCombinedReadText(r *StressResult) string {
 	switch r.Action {
 	case canaryActionDefend:
 		return "market confirmation and portfolio fit agree; defensive action is justified by this canary."
@@ -360,7 +360,7 @@ type canaryInputHealthRow struct {
 	text  string
 }
 
-func canaryInputHealthRows(r *CanaryResult) []canaryInputHealthRow {
+func canaryInputHealthRows(r *StressResult) []canaryInputHealthRow {
 	rows := []canaryInputHealthRow{{
 		label: "Overall",
 		text:  r.InputHealth,
@@ -455,7 +455,7 @@ func renderCanaryKV(out io.Writer, label, value string, width int, color func(st
 	}
 }
 
-func renderCanaryRowsStacked(env *Env, out io.Writer, rows []CanaryRow, width int) {
+func renderCanaryRowsStacked(env *Env, out io.Writer, rows []StressRow, width int) {
 	fmt.Fprintln(out, "  Details")
 	for _, row := range rows {
 		if row.Title == "Portfolio canary" {
@@ -470,7 +470,7 @@ func renderCanaryRowsStacked(env *Env, out io.Writer, rows []CanaryRow, width in
 	}
 }
 
-func renderCanaryMarketIndicators(env *Env, out io.Writer, indicators []CanaryMarketIndicator, width int) {
+func renderCanaryMarketIndicators(env *Env, out io.Writer, indicators []StressMarketIndicator, width int) {
 	if len(indicators) == 0 {
 		return
 	}

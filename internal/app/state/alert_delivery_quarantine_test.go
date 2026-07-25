@@ -46,7 +46,7 @@ func TestOpenArchivesValidLegacyUnscopedLedgerAndRecoversFromScopedV3(t *testing
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 7, 21, 6, 0, 0, 0, time.UTC)
-	legacyCandidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "legacy-unscoped", "open", at)
+	legacyCandidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "legacy-unscoped", "open", at)
 	if _, err := seed.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{legacyCandidate.Source}, []rpc.AlertSource{legacyCandidate.Source}, rpc.AlertCoverageCurrent, legacyCandidate)); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestOpenArchivesValidLegacyUnscopedLedgerAndRecoversFromScopedV3(t *testing
 	}
 
 	currentAt := at.Add(time.Minute)
-	currentCandidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "scoped-v3", "open", currentAt)
+	currentCandidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "scoped-v3", "open", currentAt)
 	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(currentAt, []rpc.AlertSource{currentCandidate.Source}, []rpc.AlertSource{currentCandidate.Source}, rpc.AlertCoverageCurrent, currentCandidate))
 	if err != nil {
 		t.Fatalf("first scoped v3 observation did not recover: %v", err)
@@ -221,7 +221,7 @@ func TestOpenQuarantinesAlertDeliverySemanticCorruptionAndPreservesRawAcrossSave
 	// A valid new observation is not a repair authority. The save boundary
 	// rejects it and retains the exact quarantined value.
 	at := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "quarantine", "repair-attempt", at)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "quarantine", "repair-attempt", at)
 	_, err = store.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate))
 	if !errors.Is(err, ErrAlertDeliveryUnavailable) {
 		t.Fatalf("automatic replacement err=%v, want ErrAlertDeliveryUnavailable", err)

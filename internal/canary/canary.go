@@ -23,35 +23,35 @@ const (
 	canaryEstablishedMarketEventsFingerprintVersion = "market-events-fp-v1"
 )
 
-// CanaryInput is the shared typed input contract defined by package rpc.
-type CanaryInput = rpc.CanaryInput
+// StressInput is the shared typed input contract defined by package rpc.
+type StressInput = rpc.StressInput
 
-// CanaryResult is the shared typed result contract defined by package rpc.
-type CanaryResult = rpc.CanaryResult
+// StressResult is the shared typed result contract defined by package rpc.
+type StressResult = rpc.StressResult
 
-// CanarySourceAsOf carries the source timestamps used by an assessment.
-type CanarySourceAsOf = rpc.CanarySourceAsOf
+// StressSourceAsOf carries the source timestamps used by an assessment.
+type StressSourceAsOf = rpc.StressSourceAsOf
 
-// CanarySourceFingerprints carries semantic identities for source snapshots.
-type CanarySourceFingerprints = rpc.CanarySourceFingerprints
+// StressSourceFingerprints carries semantic identities for source snapshots.
+type StressSourceFingerprints = rpc.StressSourceFingerprints
 
-// CanaryRow is one classified row in the assessment.
-type CanaryRow = rpc.CanaryRow
+// StressRow is one classified row in the assessment.
+type StressRow = rpc.StressRow
 
-// CanaryMarketIndicator is one market indicator exposed with its provenance.
-type CanaryMarketIndicator = rpc.CanaryMarketIndicator
+// StressMarketIndicator is one market indicator exposed with its provenance.
+type StressMarketIndicator = rpc.StressMarketIndicator
 
-// CanaryPortfolioSummary is the redacted portfolio context used by Canary.
-type CanaryPortfolioSummary = rpc.CanaryPortfolioSummary
+// StressPortfolioSummary is the redacted portfolio context used by Canary.
+type StressPortfolioSummary = rpc.StressPortfolioSummary
 
-// CanaryMarketSummary is the classified market context used by Canary.
-type CanaryMarketSummary = rpc.CanaryMarketSummary
+// StressMarketSummary is the classified market context used by Canary.
+type StressMarketSummary = rpc.StressMarketSummary
 
-// ComputeCanary evaluates one typed snapshot. A zero input clock uses the
+// ComputeStress evaluates one typed snapshot. A zero input clock uses the
 // current time. Missing, stale, or incomplete sources remain explicit and do
 // not become healthy zero values. The result is advisory and performs no broker
 // writes.
-func ComputeCanary(in CanaryInput) CanaryResult {
+func ComputeStress(in StressInput) StressResult {
 	now := in.Now
 	if now.IsZero() {
 		now = time.Now()
@@ -67,7 +67,7 @@ func ComputeCanary(in CanaryInput) CanaryResult {
 // mode freezes only the source-interpretation and source-health behavior that
 // existed at ad5b77b; account, positions, market clusters, Regime data quality,
 // and every underlying risk calculation continue through the same producer.
-func computeCanary(in CanaryInput, now time.Time, sourceIssues []canarySourceIssue, established bool) CanaryResult {
+func computeCanary(in StressInput, now time.Time, sourceIssues []canarySourceIssue, established bool) StressResult {
 	accountFingerprint := rpc.BuildAccountFingerprint(&in.Account)
 	positionsFingerprint := rpc.BuildPositionsFingerprint(&in.Positions, in.Account.NetLiquidation)
 	regimeFingerprint := in.Regime.Fingerprint
@@ -81,12 +81,12 @@ func computeCanary(in CanaryInput, now time.Time, sourceIssues []canarySourceIss
 	if established {
 		marketEventsFingerprint = canaryEstablishedMarketEventsFingerprint(in.MarketEvents)
 	}
-	sourceAsOf := CanarySourceAsOf{Account: in.Account.AsOf, Positions: in.Positions.AsOf, Regime: in.Regime.AsOf, MarketEvents: in.MarketEvents.AsOf}
-	sourceFingerprints := CanarySourceFingerprints{Account: &accountFingerprint, Positions: &positionsFingerprint, Regime: &regimeFingerprint}
+	sourceAsOf := StressSourceAsOf{Account: in.Account.AsOf, Positions: in.Positions.AsOf, Regime: in.Regime.AsOf, MarketEvents: in.MarketEvents.AsOf}
+	sourceFingerprints := StressSourceFingerprints{Account: &accountFingerprint, Positions: &positionsFingerprint, Regime: &regimeFingerprint}
 	if marketEventsFingerprint.Key != "" {
 		sourceFingerprints.MarketEvents = &marketEventsFingerprint
 	}
-	res := CanaryResult{
+	res := StressResult{
 		AsOf:               now,
 		SourceAsOf:         sourceAsOf,
 		SourceFingerprints: sourceFingerprints,
@@ -99,7 +99,7 @@ func computeCanary(in CanaryInput, now time.Time, sourceIssues []canarySourceIss
 		MarketIndicators:   canaryMarketIndicators(in.Regime, now),
 		NotExecution:       "Read-only canary snapshot; no orders are placed by ibkr.",
 	}
-	rows := []CanaryRow{
+	rows := []StressRow{
 		canaryMarginRow(res.Portfolio),
 		canaryPnLShockRow(res.Portfolio),
 		canaryTapeShockRow(res.Portfolio, res.Market),
@@ -129,7 +129,7 @@ func computeCanary(in CanaryInput, now time.Time, sourceIssues []canarySourceIss
 	res.PrimaryDrivers = canaryPrimaryDrivers(res.Signals)
 	res.Summary = canaryDecisionSummary(res)
 	overall := canaryOverallRow(res.Direction, res.Severity, res.Summary, res.Market, res.Portfolio)
-	res.Rows = append([]CanaryRow{overall}, rows...)
+	res.Rows = append([]StressRow{overall}, rows...)
 	res.Warnings = canaryWarnings(res.Market, in.Regime, now)
 	if established {
 		res.SourceHealth = canaryEstablishedSourceHealth(in, now, accountFingerprint, positionsFingerprint, regimeFingerprint, marketEventsFingerprint, res.InputHealth, res.Market)
@@ -137,7 +137,7 @@ func computeCanary(in CanaryInput, now time.Time, sourceIssues []canarySourceIss
 		res.Warnings = append(res.Warnings, canaryMarketEventWarnings(sourceIssues)...)
 		res.SourceHealth = canarySourceHealth(in, now, accountFingerprint, positionsFingerprint, regimeFingerprint, marketEventsFingerprint, res.InputHealth, res.Market)
 	}
-	res.Fingerprint = rpc.BuildCanaryFingerprint(&res)
+	res.Fingerprint = rpc.BuildStressFingerprint(&res)
 	return res
 }
 
@@ -228,7 +228,7 @@ func canaryRelevantMarketEvents(pos rpc.PositionsResult, events rpc.MarketEvents
 	return filtered
 }
 
-func canaryEstablishedAlertProjection(result CanaryResult) rpc.EstablishedAlertProjection {
+func canaryEstablishedAlertProjection(result StressResult) rpc.EstablishedAlertProjection {
 	portfolioRelevant := result.PortfolioAlertRelevant != nil && *result.PortfolioAlertRelevant
 	actionEligible := severityRankAtLeast(result.Severity, risk.SeverityAct) ||
 		result.Action == canaryActionDefend ||
@@ -238,7 +238,7 @@ func canaryEstablishedAlertProjection(result CanaryResult) rpc.EstablishedAlertP
 		(severityRankAtLeast(result.Severity, risk.SeverityWatch) || actionEligible)
 	return rpc.EstablishedAlertProjection{
 		SchemaVersion:        rpc.EstablishedAlertProjectionSchemaVersion,
-		CanonicalFingerprint: rpc.Fingerprint{Version: rpc.EstablishedCanaryFingerprintVersion, Key: result.Fingerprint.Key},
+		CanonicalFingerprint: rpc.Fingerprint{Version: rpc.EstablishedStressFingerprintVersion, Key: result.Fingerprint.Key},
 		OccurrenceEligible:   occurrenceEligible,
 		ActOnlyEligible:      occurrenceEligible && actionEligible,
 		Action:               result.Action,
@@ -248,8 +248,8 @@ func canaryEstablishedAlertProjection(result CanaryResult) rpc.EstablishedAlertP
 	}
 }
 
-func summarizeCanaryPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, marketEvents rpc.MarketEventsResult, now time.Time) CanaryPortfolioSummary {
-	out := CanaryPortfolioSummary{
+func summarizeCanaryPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, marketEvents rpc.MarketEventsResult, now time.Time) StressPortfolioSummary {
+	out := StressPortfolioSummary{
 		BaseCurrency:   acct.BaseCurrency,
 		NetLiquidation: acct.NetLiquidation,
 	}
@@ -301,7 +301,7 @@ func summarizeCanaryPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 	return out
 }
 
-func canaryHeldStressSummaries(acct rpc.AccountResult, pos rpc.PositionsResult, marketEvents rpc.MarketEventsResult, now time.Time) []rpc.CanaryHeldStress {
+func canaryHeldStressSummaries(acct rpc.AccountResult, pos rpc.PositionsResult, marketEvents rpc.MarketEventsResult, now time.Time) []rpc.HeldStress {
 	if acct.NetLiquidation <= 0 {
 		return nil
 	}
@@ -315,18 +315,18 @@ func canaryHeldStressSummaries(acct rpc.AccountResult, pos rpc.PositionsResult, 
 
 type canaryHeldStressBuilder struct {
 	netLiquidation float64
-	rowsBySymbol   map[string]*rpc.CanaryHeldStress
+	rowsBySymbol   map[string]*rpc.HeldStress
 	order          []string
 }
 
 func newCanaryHeldStressBuilder(netLiquidation float64) *canaryHeldStressBuilder {
 	return &canaryHeldStressBuilder{
 		netLiquidation: netLiquidation,
-		rowsBySymbol:   map[string]*rpc.CanaryHeldStress{},
+		rowsBySymbol:   map[string]*rpc.HeldStress{},
 	}
 }
 
-func (b *canaryHeldStressBuilder) ensure(underlying string) *rpc.CanaryHeldStress {
+func (b *canaryHeldStressBuilder) ensure(underlying string) *rpc.HeldStress {
 	underlying = strings.ToUpper(strings.TrimSpace(underlying))
 	if underlying == "" {
 		return nil
@@ -334,7 +334,7 @@ func (b *canaryHeldStressBuilder) ensure(underlying string) *rpc.CanaryHeldStres
 	if s := b.rowsBySymbol[underlying]; s != nil {
 		return s
 	}
-	b.rowsBySymbol[underlying] = &rpc.CanaryHeldStress{Underlying: underlying}
+	b.rowsBySymbol[underlying] = &rpc.HeldStress{Underlying: underlying}
 	b.order = append(b.order, underlying)
 	return b.rowsBySymbol[underlying]
 }
@@ -419,8 +419,8 @@ func (b *canaryHeldStressBuilder) addOptionRows(optionsByUnderlying map[string][
 	}
 }
 
-func (b *canaryHeldStressBuilder) rows(marketEvents rpc.MarketEventsResult) []rpc.CanaryHeldStress {
-	out := []rpc.CanaryHeldStress{}
+func (b *canaryHeldStressBuilder) rows(marketEvents rpc.MarketEventsResult) []rpc.HeldStress {
+	out := []rpc.HeldStress{}
 	for _, underlying := range b.order {
 		s := b.rowsBySymbol[underlying]
 		s.MarketFlags = canaryHeldMarketFlags(underlying, marketEvents)
@@ -431,7 +431,7 @@ func (b *canaryHeldStressBuilder) rows(marketEvents rpc.MarketEventsResult) []rp
 		}
 		out = append(out, *s)
 	}
-	slices.SortStableFunc(out, func(a, b rpc.CanaryHeldStress) int {
+	slices.SortStableFunc(out, func(a, b rpc.HeldStress) int {
 		return cmp.Compare(canaryHeldStressSortScore(b), canaryHeldStressSortScore(a))
 	})
 	if len(out) > canaryHeldStressLimit {
@@ -491,7 +491,7 @@ func canaryOptionsByUnderlying(pos rpc.PositionsResult) map[string][]rpc.Positio
 	return out
 }
 
-func canaryApplyHeldOptionStress(s *rpc.CanaryHeldStress, options []rpc.PositionView, now time.Time, nlv float64) {
+func canaryApplyHeldOptionStress(s *rpc.HeldStress, options []rpc.PositionView, now time.Time, nlv float64) {
 	if s == nil || nlv <= 0 {
 		return
 	}
@@ -627,7 +627,7 @@ func canaryOptionDTE(expiry string, now time.Time) (int, bool) {
 	return int(t.Sub(start).Hours() / 24), true
 }
 
-func canaryHeldStressMaterialReasons(s rpc.CanaryHeldStress) []string {
+func canaryHeldStressMaterialReasons(s rpc.HeldStress) []string {
 	reasons := []string{}
 	if s.MarketValuePctNLV != nil && math.Abs(*s.MarketValuePctNLV) >= canaryPolicy.HeldStressMaterialPct {
 		reasons = appendUniqueString(reasons, "market_value")
@@ -644,7 +644,7 @@ func canaryHeldStressMaterialReasons(s rpc.CanaryHeldStress) []string {
 	return reasons
 }
 
-func canaryHeldStressSignalIDs(s rpc.CanaryHeldStress) []risk.SignalID {
+func canaryHeldStressSignalIDs(s rpc.HeldStress) []risk.SignalID {
 	ids := []risk.SignalID{}
 	if s.DailyPnLPctNLV != nil && *s.DailyPnLPctNLV <= -canaryPolicy.HeldUnderlyingPnLWatchPct {
 		ids = append(ids, risk.SignalHeldUnderlyingPnLShock)
@@ -658,7 +658,7 @@ func canaryHeldStressSignalIDs(s rpc.CanaryHeldStress) []risk.SignalID {
 	return ids
 }
 
-func canaryHeldStressSortScore(s rpc.CanaryHeldStress) float64 {
+func canaryHeldStressSortScore(s rpc.HeldStress) float64 {
 	score := 0.0
 	if s.MarketValuePctNLV != nil {
 		score = max(score, math.Abs(*s.MarketValuePctNLV))
@@ -720,12 +720,12 @@ func canaryHasActiveMarginContext(acct rpc.AccountResult) bool {
 		acct.InitialMargin > 0
 }
 
-func summarizeCanaryMarket(r rpc.RegimeSnapshotResult, now time.Time) CanaryMarketSummary {
+func summarizeCanaryMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
 	posture := r.Posture
 	if posture.Label == "" && posture.Tone == "" {
 		posture = rpc.BuildRegimePosture(&r)
 	}
-	out := CanaryMarketSummary{
+	out := StressMarketSummary{
 		RegimeVerdict: r.Composite.Verdict,
 		RegimePosture: posture,
 		SPYPrice:      r.HYGSPYDivergence.SPYPrice,
@@ -828,7 +828,7 @@ func canaryVolClosedSessionContext(r rpc.RegimeSnapshotResult, _ time.Time) bool
 		r.VIXTermStructure.Freshness.Class == rpc.RegimeFreshnessNotDue
 }
 
-func canaryMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []CanaryMarketIndicator {
+func canaryMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressMarketIndicator {
 	if now.IsZero() {
 		now = time.Now()
 	}
@@ -849,14 +849,14 @@ func canaryMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []CanaryM
 		{cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status},
 		{cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status},
 	}
-	out := make([]CanaryMarketIndicator, 0, len(rows))
+	out := make([]StressMarketIndicator, 0, len(rows))
 	for _, item := range rows {
 		reading := item.row.Value
 		if item.row.StateNote != "" && item.row.Band == regimerows.BandUnranked {
 			reading = item.row.StateNote
 		}
 		contextOnly := contextClusters[item.cluster]
-		out = append(out, CanaryMarketIndicator{
+		out = append(out, StressMarketIndicator{
 			Name:    item.row.Name,
 			Status:  canaryIndicatorStatus(item.row.Band, item.status, contextOnly),
 			AsOf:    canaryIndicatorAsOf(item.asOf, item.date, item.row.AsOf),
@@ -976,8 +976,8 @@ func weakestStatus(statuses []string) string {
 	}
 }
 
-func canaryRow(title string, direction risk.SignalDirection, severity risk.SignalSeverity, guidance, evidence string) CanaryRow {
-	return CanaryRow{
+func canaryRow(title string, direction risk.SignalDirection, severity risk.SignalSeverity, guidance, evidence string) StressRow {
+	return StressRow{
 		Title:     title,
 		Direction: direction,
 		Severity:  severity,
@@ -986,7 +986,7 @@ func canaryRow(title string, direction risk.SignalDirection, severity risk.Signa
 	}
 }
 
-func canaryMarginRow(p CanaryPortfolioSummary) CanaryRow {
+func canaryMarginRow(p StressPortfolioSummary) StressRow {
 	cushion := canaryWorstCushionPct(p)
 	if cushion != nil {
 		switch {
@@ -1002,7 +1002,7 @@ func canaryMarginRow(p CanaryPortfolioSummary) CanaryRow {
 	return canaryRow("Immediate margin safety", risk.DirectionDataQuality, risk.SeverityWatch, "No forced margin action, but confirm account cushion before sizing new risk.", "cushion unavailable")
 }
 
-func canaryPnLShockRow(p CanaryPortfolioSummary) CanaryRow {
+func canaryPnLShockRow(p StressPortfolioSummary) StressRow {
 	if p.DailyPnLPct == nil {
 		return canaryRow("Portfolio P&L shock", risk.DirectionDataQuality, risk.SeverityWatch, "Daily P&L is unavailable; this indicator cannot confirm or reject a P&L shock.", "daily P&L unavailable")
 	}
@@ -1024,7 +1024,7 @@ func canaryPnLShockRow(p CanaryPortfolioSummary) CanaryRow {
 	return canaryRow("Portfolio P&L shock", "", risk.SeverityObserve, "No daily P&L shock signal.", evidence)
 }
 
-func canaryMarketRow(m CanaryMarketSummary) CanaryRow {
+func canaryMarketRow(m StressMarketSummary) StressRow {
 	evidence := canaryMarketEvidence(m)
 	switch {
 	case m.EligibleRedClusters >= 3 && m.RankedClusters >= 4:
@@ -1049,7 +1049,7 @@ func canaryMarketRow(m CanaryMarketSummary) CanaryRow {
 	}
 }
 
-func canaryTapeShockRow(p CanaryPortfolioSummary, m CanaryMarketSummary) CanaryRow {
+func canaryTapeShockRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
 	evidence := canaryTapeEvidence(m)
 	if m.SPYChangePct == nil && m.VIXChangePct == nil {
 		return canaryRow("Index tape shock", risk.DirectionDataQuality, risk.SeverityWatch, "Direct SPY/VIX tape is unavailable; do not treat quiet regime clusters as complete overnight coverage.", evidence)
@@ -1082,7 +1082,7 @@ func canaryTapeShockRow(p CanaryPortfolioSummary, m CanaryMarketSummary) CanaryR
 	}
 }
 
-func canaryExposureRow(p CanaryPortfolioSummary, m CanaryMarketSummary) CanaryRow {
+func canaryExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
 	gross := derefPct(p.GrossExposurePctNLV)
 	delta := derefPct(p.NetDeltaPctNLV)
 	grossDelta := derefPct(p.GrossDeltaPctNLV)
@@ -1101,7 +1101,7 @@ func canaryExposureRow(p CanaryPortfolioSummary, m CanaryMarketSummary) CanaryRo
 	}
 }
 
-func canaryConcentrationRow(p CanaryPortfolioSummary, m CanaryMarketSummary) CanaryRow {
+func canaryConcentrationRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
 	if (p.LargestExposurePct == nil || p.LargestExposure == "") && (p.LargestDeltaPctNLV == nil || p.LargestDeltaExposure == "") {
 		return canaryRow("Largest concentration", "", risk.SeverityObserve, "No concentration action from available base-currency exposure map.", "no dominant exposure")
 	}
@@ -1117,7 +1117,7 @@ func canaryConcentrationRow(p CanaryPortfolioSummary, m CanaryMarketSummary) Can
 	return canaryRow("Largest concentration", "", risk.SeverityObserve, "No concentration trim required by the canary.", evidence)
 }
 
-func canaryProtectionCoverageRow(p CanaryPortfolioSummary) CanaryRow {
+func canaryProtectionCoverageRow(p StressPortfolioSummary) StressRow {
 	coverage := p.ProtectionCoverage
 	if coverage == nil {
 		return canaryRow("Protection coverage", risk.DirectionDataQuality, risk.SeverityWatch, "Protection coverage is unavailable; use positions risk and open orders before relying on stop coverage.", "coverage unavailable")
@@ -1142,7 +1142,7 @@ func canaryProtectionCoverageRow(p CanaryPortfolioSummary) CanaryRow {
 	return canaryRow("Protection coverage", "", risk.SeverityObserve, "No stock/ETF protection coverage issue in the current open-order ledger.", evidence)
 }
 
-func canaryHeldStressRow(p CanaryPortfolioSummary, m CanaryMarketSummary) CanaryRow {
+func canaryHeldStressRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
 	if len(p.HeldStress) == 0 {
 		return canaryRow("Held-name stress", "", risk.SeverityObserve, "No material held-name stress from existing positions data.", "no material held-name stress")
 	}
@@ -1184,7 +1184,7 @@ func canaryHeldStressRowState(signals []risk.Signal) (risk.SignalDirection, risk
 	return best.Direction, best.Severity
 }
 
-func canaryOptionsRow(p CanaryPortfolioSummary, pos rpc.PositionsResult, m CanaryMarketSummary) CanaryRow {
+func canaryOptionsRow(p StressPortfolioSummary, pos rpc.PositionsResult, m StressMarketSummary) StressRow {
 	if pos.Portfolio == nil || pos.Portfolio.GreeksTotal == 0 {
 		if len(pos.Options) > 0 {
 			return canaryRow("Options convexity", risk.DirectionDataQuality, risk.SeverityWatch, "Option positions are present but greeks coverage is unavailable; do not escalate options-specific actions from this snapshot.", "option greeks unavailable")
@@ -1202,7 +1202,7 @@ func canaryOptionsRow(p CanaryPortfolioSummary, pos rpc.PositionsResult, m Canar
 	return canaryRow("Options convexity", "", risk.SeverityObserve, "No option-convexity de-risking trigger.", evidence)
 }
 
-func canaryDataQualityRow(m CanaryMarketSummary, r rpc.RegimeSnapshotResult) CanaryRow {
+func canaryDataQualityRow(m StressMarketSummary, r rpc.RegimeSnapshotResult) StressRow {
 	if canaryHasMarketDataIssue(m) && (m.RedClusters > 0 || m.YellowClusters > 0) {
 		return canaryRow("Ambiguity filter", risk.DirectionDataQuality, risk.SeverityWatch, "Some market inputs cannot be confirmed right now; treat the stress readings as tentative until those inputs report.", canaryAmbiguityEvidence(m))
 	}
@@ -1218,7 +1218,7 @@ func canaryDataQualityRow(m CanaryMarketSummary, r rpc.RegimeSnapshotResult) Can
 	return canaryRow("Data quality gate", "", risk.SeverityObserve, "Market data coverage is sufficient for the canary policy.", canaryMarketEvidence(m))
 }
 
-func canaryOverallRow(direction risk.SignalDirection, severity risk.SignalSeverity, summary string, m CanaryMarketSummary, p CanaryPortfolioSummary) CanaryRow {
+func canaryOverallRow(direction risk.SignalDirection, severity risk.SignalSeverity, summary string, m StressMarketSummary, p StressPortfolioSummary) StressRow {
 	return canaryRow("Portfolio canary", direction, severity, summary, fmt.Sprintf("%s; %s", canaryMarketEvidence(m), canaryPortfolioEvidence(p)))
 }
 
@@ -1246,7 +1246,7 @@ const (
 	canaryActionConfirmInputs = "confirm_inputs"
 )
 
-func canaryMarketConfirmation(m CanaryMarketSummary) string {
+func canaryMarketConfirmation(m StressMarketSummary) string {
 	if m.RankedClusters < 4 {
 		return canaryMarketBlocked
 	}
@@ -1259,11 +1259,11 @@ func canaryMarketConfirmation(m CanaryMarketSummary) string {
 	return canaryMarketNone
 }
 
-func canaryConfirmedMarketStress(m CanaryMarketSummary) bool {
+func canaryConfirmedMarketStress(m StressMarketSummary) bool {
 	return (m.EligibleRedClusters >= 2 && len(unhealthyConfirmingClusters(m)) == 0) || canaryConfirmedTapeStress(m)
 }
 
-func canaryPartialMarketPressure(m CanaryMarketSummary) bool {
+func canaryPartialMarketPressure(m StressMarketSummary) bool {
 	return m.RedClusters >= 1 ||
 		m.YellowClusters >= 3 ||
 		len(m.UnconfirmedRedClusterNames) > 0 ||
@@ -1272,19 +1272,19 @@ func canaryPartialMarketPressure(m CanaryMarketSummary) bool {
 				pctAtLeast(m.VIXChangePct, canaryPolicy.VIXSpikePct)))
 }
 
-func canaryConfirmedConstructiveTape(m CanaryMarketSummary) bool {
+func canaryConfirmedConstructiveTape(m StressMarketSummary) bool {
 	return canaryTapeConfirmable(m) &&
 		(pctAtLeast(m.SPYChangePct, canaryPolicy.SPYHardRallyPct) ||
 			pctAtMost(m.VIXChangePct, canaryPolicy.VIXHardCrushPct))
 }
 
-func canaryPartialConstructiveTape(m CanaryMarketSummary) bool {
+func canaryPartialConstructiveTape(m StressMarketSummary) bool {
 	return canaryTapeConfirmable(m) &&
 		(pctAtLeast(m.SPYChangePct, canaryPolicy.SPYRallyPct) ||
 			pctAtMost(m.VIXChangePct, canaryPolicy.VIXCrushPct))
 }
 
-func canaryPortfolioFit(p CanaryPortfolioSummary, signals []risk.Signal) string {
+func canaryPortfolioFit(p StressPortfolioSummary, signals []risk.Signal) string {
 	if p.NetLiquidation <= 0 {
 		return canaryPortfolioFitUnknown
 	}
@@ -1341,7 +1341,7 @@ func canaryPortfolioFit(p CanaryPortfolioSummary, signals []risk.Signal) string 
 // unmeasurable portfolio must never be silenced. The app alert gate and the
 // SPA preview gate read the stamped PortfolioAlertRelevant field instead of
 // re-deriving these edge cases.
-func canaryPortfolioAlertRelevant(r *CanaryResult) bool {
+func canaryPortfolioAlertRelevant(r *StressResult) bool {
 	if r.PortfolioFit != canaryPortfolioFitLow {
 		return true
 	}
@@ -1363,7 +1363,7 @@ func canaryPortfolioAlertRelevant(r *CanaryResult) bool {
 	return false
 }
 
-func canaryInputHealth(in CanaryInput, m CanaryMarketSummary, sourceIssues []canarySourceIssue, now time.Time) string {
+func canaryInputHealth(in StressInput, m StressMarketSummary, sourceIssues []canarySourceIssue, now time.Time) string {
 	switch {
 	case in.Account.NetLiquidation <= 0:
 		return canaryInputFailed
@@ -1379,7 +1379,7 @@ func canaryInputHealth(in CanaryInput, m CanaryMarketSummary, sourceIssues []can
 	}
 }
 
-func canaryDecisionState(marketConfirmation, portfolioFit, inputHealth string, m CanaryMarketSummary, signals []risk.Signal) (risk.SignalDirection, risk.SignalSeverity) {
+func canaryDecisionState(marketConfirmation, portfolioFit, inputHealth string, m StressMarketSummary, signals []risk.Signal) (risk.SignalDirection, risk.SignalSeverity) {
 	if inputHealth == canaryInputFailed || marketConfirmation == canaryMarketBlocked {
 		return risk.DirectionDataQuality, risk.SeverityWatch
 	}
@@ -1452,7 +1452,7 @@ func canaryHasConfirmedConstructiveSignal(signals []risk.Signal) bool {
 	return false
 }
 
-func canaryPanicMarket(m CanaryMarketSummary) bool {
+func canaryPanicMarket(m StressMarketSummary) bool {
 	return m.EligibleRedClusters >= 3 ||
 		(canaryTapeConfirmable(m) &&
 			(pctAtMost(m.SPYChangePct, canaryPolicy.SPYCrashPct) ||
@@ -1528,7 +1528,7 @@ func canaryPlannerReadinessFromAction(action string, severity risk.SignalSeverit
 	}
 }
 
-func canaryDecisionSummary(r CanaryResult) string {
+func canaryDecisionSummary(r StressResult) string {
 	switch r.Action {
 	case canaryActionDefend:
 		return "Market stress is confirmed against a vulnerable portfolio; review defensive actions."
@@ -1561,14 +1561,14 @@ func canaryDecisionSummary(r CanaryResult) string {
 	}
 }
 
-func canaryPartialMarketSummary(m CanaryMarketSummary) string {
+func canaryPartialMarketSummary(m StressMarketSummary) string {
 	if m.EligibleRedClusters == 0 && len(m.UnconfirmedRedClusterNames) > 0 {
 		return "An early market warning is flashing (" + canaryClusterList(m.UnconfirmedRedClusterNames) + " red, not confirmed yet)"
 	}
 	return "Market pressure is building"
 }
 
-func canarySignals(p CanaryPortfolioSummary, pos rpc.PositionsResult, m CanaryMarketSummary, r rpc.RegimeSnapshotResult) []risk.Signal {
+func canarySignals(p StressPortfolioSummary, pos rpc.PositionsResult, m StressMarketSummary, r rpc.RegimeSnapshotResult) []risk.Signal {
 	signals := []risk.Signal{}
 	signals = append(signals, canaryMarginSignals(p)...)
 	signals = append(signals, canaryPnLSignals(p)...)
@@ -1587,7 +1587,7 @@ func canarySignals(p CanaryPortfolioSummary, pos rpc.PositionsResult, m CanaryMa
 	return signals
 }
 
-func canaryMarginSignals(p CanaryPortfolioSummary) []risk.Signal {
+func canaryMarginSignals(p StressPortfolioSummary) []risk.Signal {
 	out := []risk.Signal{}
 	addCushion := func(id risk.SignalID, metric string, observed *float64) {
 		if observed == nil {
@@ -1630,7 +1630,7 @@ func canaryCushionSeverity(v float64) (risk.SignalSeverity, float64, bool) {
 	}
 }
 
-func canaryPnLSignals(p CanaryPortfolioSummary) []risk.Signal {
+func canaryPnLSignals(p StressPortfolioSummary) []risk.Signal {
 	if p.DailyPnLPct == nil {
 		return []risk.Signal{{
 			ID:               risk.SignalRiskDataDegraded,
@@ -1674,7 +1674,7 @@ func canaryPnLSignals(p CanaryPortfolioSummary) []risk.Signal {
 	}}
 }
 
-func canaryTapeSignals(p CanaryPortfolioSummary, m CanaryMarketSummary) []risk.Signal {
+func canaryTapeSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.Signal {
 	out := []risk.Signal{}
 	if !canaryTapeConfirmable(m) {
 		// Closed market date: the frozen day-change prints stay visible as
@@ -1744,7 +1744,7 @@ func tapeSignal(id risk.SignalID, direction risk.SignalDirection, severity risk.
 	return sig
 }
 
-func canaryRegimeSignals(m CanaryMarketSummary) []risk.Signal {
+func canaryRegimeSignals(m StressMarketSummary) []risk.Signal {
 	out := []risk.Signal{}
 	switch {
 	case m.EligibleRedClusters >= 2 && m.RankedClusters >= 3:
@@ -1775,7 +1775,7 @@ func canaryRegimeSignals(m CanaryMarketSummary) []risk.Signal {
 	return out
 }
 
-func unhealthyConfirmingClusters(m CanaryMarketSummary) []string {
+func unhealthyConfirmingClusters(m StressMarketSummary) []string {
 	out := []string{}
 	for _, cluster := range canaryUniqueClusters(m.DegradedClusters, m.StaleClusters, m.PartialClusters, m.ComputingClusters) {
 		if slices.Contains(m.RedClusterNames, cluster) {
@@ -1786,7 +1786,7 @@ func unhealthyConfirmingClusters(m CanaryMarketSummary) []string {
 	return out
 }
 
-func canaryExposureSignals(p CanaryPortfolioSummary, m CanaryMarketSummary) []risk.Signal {
+func canaryExposureSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.Signal {
 	stressed := m.EligibleRedClusters >= 2 || canaryConfirmedTapeStress(m)
 	out := []risk.Signal{}
 	out = appendExposureSignal(out, risk.SignalGrossExposureHigh, "gross_exposure_pct_nlv", p.GrossExposurePctNLV, canaryPolicy.GrossExposureWatchPct, canaryPolicy.GrossExposureStressActPct, canaryPolicy.GrossExposureStressUrgentPct, stressed)
@@ -1832,7 +1832,7 @@ func appendExposureSignal(out []risk.Signal, id risk.SignalID, metric string, ob
 	})
 }
 
-func canaryConcentrationSignals(p CanaryPortfolioSummary, m CanaryMarketSummary) []risk.Signal {
+func canaryConcentrationSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.Signal {
 	stressed := m.EligibleRedClusters >= 2 || canaryConfirmedTapeStress(m)
 	severity := risk.SeverityWatch
 	direction := risk.DirectionRebalance
@@ -1851,7 +1851,7 @@ func canaryConcentrationSignals(p CanaryPortfolioSummary, m CanaryMarketSummary)
 	return out
 }
 
-func canaryHeldStressSignals(stresses []rpc.CanaryHeldStress, m CanaryMarketSummary) []risk.Signal {
+func canaryHeldStressSignals(stresses []rpc.HeldStress, m StressMarketSummary) []risk.Signal {
 	out := []risk.Signal{}
 	stressed := canaryConfirmedMarketStress(m)
 	for _, stress := range stresses {
@@ -1935,7 +1935,7 @@ func canaryHeldStressSignals(stresses []rpc.CanaryHeldStress, m CanaryMarketSumm
 	return out
 }
 
-func canaryOptionSignals(pos rpc.PositionsResult, m CanaryMarketSummary) []risk.Signal {
+func canaryOptionSignals(pos rpc.PositionsResult, m StressMarketSummary) []risk.Signal {
 	if pos.Portfolio == nil || pos.Portfolio.GreeksTotal == 0 {
 		if len(pos.Options) > 0 {
 			return []risk.Signal{{
@@ -1962,7 +1962,7 @@ func canaryOptionSignals(pos rpc.PositionsResult, m CanaryMarketSummary) []risk.
 	return out
 }
 
-func canaryDataQualitySignals(m CanaryMarketSummary, r rpc.RegimeSnapshotResult) []risk.Signal {
+func canaryDataQualitySignals(m StressMarketSummary, r rpc.RegimeSnapshotResult) []risk.Signal {
 	out := []risk.Signal{}
 	blockedBy := canaryUniqueClusters(m.AmbiguousClusters, m.PartialClusters, m.DegradedClusters, m.ComputingClusters)
 	if len(blockedBy) > 0 {
@@ -2021,7 +2021,7 @@ type canarySourceIssue struct {
 	Reason string
 }
 
-func canarySourceIssues(in CanaryInput, now time.Time) []canarySourceIssue {
+func canarySourceIssues(in StressInput, now time.Time) []canarySourceIssue {
 	issues := []canarySourceIssue{}
 	switch {
 	case in.Account.AsOf.IsZero() && in.Account.NetLiquidation > 0:
@@ -2051,7 +2051,7 @@ func canarySourceIssues(in CanaryInput, now time.Time) []canarySourceIssue {
 // health, and MarketEvents required-source health were not delivery inputs.
 // Keep this frozen unless the operator explicitly approves a new established
 // Canary paging policy.
-func canaryEstablishedSourceIssues(in CanaryInput, now time.Time) []canarySourceIssue {
+func canaryEstablishedSourceIssues(in StressInput, now time.Time) []canarySourceIssue {
 	issues := []canarySourceIssue{}
 	if canarySourceStale(in.Account.AsOf, now) {
 		issues = append(issues, canarySourceIssue{Source: "account", Status: rpc.RegimeStatusStale, Reason: "account snapshot stale"})
@@ -2484,7 +2484,7 @@ func canaryPrimaryDrivers(signals []risk.Signal) []risk.SignalID {
 	return out
 }
 
-func canaryWarnings(m CanaryMarketSummary, r rpc.RegimeSnapshotResult, now time.Time) []string {
+func canaryWarnings(m StressMarketSummary, r rpc.RegimeSnapshotResult, now time.Time) []string {
 	var warnings []string
 	detailWarnings, detailedClusters := canaryRegimeWarningDetails(r.WarningDetails, canaryMarketContextClusters(r, now))
 	ambiguousClusters := canaryClustersWithoutDetailedWarning(m.AmbiguousClusters, detailedClusters)
@@ -2588,7 +2588,7 @@ func canaryRegimeWarningCluster(w rpc.RegimeWarning) string {
 // canaryEstablishedSourceHealth preserves the exact ad5b77b source-health
 // projection that participates in the established Canary fingerprint. New authority and
 // required-source interpretations stay on the main Canary result only.
-func canaryEstablishedSourceHealth(in CanaryInput, now time.Time, accountFP, positionsFP, regimeFP, marketEventsFP rpc.Fingerprint, inputHealth string, m CanaryMarketSummary) []rpc.SourceHealth {
+func canaryEstablishedSourceHealth(in StressInput, now time.Time, accountFP, positionsFP, regimeFP, marketEventsFP rpc.Fingerprint, inputHealth string, m StressMarketSummary) []rpc.SourceHealth {
 	out := []rpc.SourceHealth{
 		canaryAccountSourceHealth(in.Account, now, accountFP),
 		canaryTimedSourceHealth("positions", in.Positions.AsOf, now, positionsFP, canaryPositionsSourceStatus(in.Positions, now), canaryPositionsSourceConfidence(in.Positions)),
@@ -2600,7 +2600,7 @@ func canaryEstablishedSourceHealth(in CanaryInput, now time.Time, accountFP, pos
 	return out
 }
 
-func canaryEstablishedRegimeSourceHealth(asOf, now time.Time, fp rpc.Fingerprint, dataConfidence string, m CanaryMarketSummary) rpc.SourceHealth {
+func canaryEstablishedRegimeSourceHealth(asOf, now time.Time, fp rpc.Fingerprint, dataConfidence string, m StressMarketSummary) rpc.SourceHealth {
 	status := rpc.RegimeStatusOK
 	notes := []string{}
 	if len(m.StaleClusters) > 0 {
@@ -2652,7 +2652,7 @@ func canaryEstablishedMarketEventsSourceHealth(pos rpc.PositionsResult, events r
 	return health
 }
 
-func canarySourceHealth(in CanaryInput, now time.Time, accountFP, positionsFP, regimeFP, marketEventsFP rpc.Fingerprint, inputHealth string, m CanaryMarketSummary) []rpc.SourceHealth {
+func canarySourceHealth(in StressInput, now time.Time, accountFP, positionsFP, regimeFP, marketEventsFP rpc.Fingerprint, inputHealth string, m StressMarketSummary) []rpc.SourceHealth {
 	out := []rpc.SourceHealth{
 		canaryAccountSourceHealth(in.Account, now, accountFP),
 		canaryTimedSourceHealth("positions", in.Positions.AsOf, now, positionsFP, canaryPositionsSourceStatus(in.Positions, now), canaryPositionsSourceConfidence(in.Positions)),
@@ -2728,7 +2728,7 @@ func canaryTimedSourceHealth(source string, asOf, now time.Time, fp rpc.Fingerpr
 	}
 }
 
-func canaryRegimeSourceHealth(regime rpc.RegimeSnapshotResult, now time.Time, fp rpc.Fingerprint, dataConfidence string, m CanaryMarketSummary) rpc.SourceHealth {
+func canaryRegimeSourceHealth(regime rpc.RegimeSnapshotResult, now time.Time, fp rpc.Fingerprint, dataConfidence string, m StressMarketSummary) rpc.SourceHealth {
 	status := rpc.RegimeStatusOK
 	notes := []string{}
 	if len(m.StaleClusters) > 0 {
@@ -2918,7 +2918,7 @@ func canaryWarningLine(w rpc.RegimeWarning) string {
 // canaryMarketEvidence renders only the cluster facts that carry information:
 // zero-count buckets never render, and the reporting fraction appears only
 // while coverage is incomplete.
-func canaryMarketEvidence(m CanaryMarketSummary) string {
+func canaryMarketEvidence(m StressMarketSummary) string {
 	parts := []string{}
 	if m.RedClusters > 0 {
 		parts = append(parts, fmt.Sprintf("%d red (%s)", m.RedClusters, canaryClusterList(m.RedClusterNames)))
@@ -2941,7 +2941,7 @@ func canaryMarketEvidence(m CanaryMarketSummary) string {
 
 // Trigger levels render next to the observed numbers so a reading can be
 // judged as near-miss or comfortable without opening the policy.
-func canaryTapeEvidence(m CanaryMarketSummary) string {
+func canaryTapeEvidence(m StressMarketSummary) string {
 	parts := []string{}
 	if m.SPYChangePct != nil {
 		parts = append(parts, fmt.Sprintf("SPY %+.2f%% (drop trigger %.1f%%)", *m.SPYChangePct, canaryPolicy.SPYDropPct))
@@ -2972,11 +2972,11 @@ func canaryTapeSession(now time.Time) (state, reason string, nextOpen *time.Time
 
 // canaryTapeConfirmable reports whether direct SPY/VIX day-change prints may
 // carry severity or confirm stress right now.
-func canaryTapeConfirmable(m CanaryMarketSummary) bool {
+func canaryTapeConfirmable(m StressMarketSummary) bool {
 	return m.TapeSessionState != rpc.TapeSessionClosedDate
 }
 
-func canaryTapeDemotedGuidance(m CanaryMarketSummary) string {
+func canaryTapeDemotedGuidance(m StressMarketSummary) string {
 	msg := "Frozen last-session tape shock on a closed market date"
 	if m.TapeSessionReason != "" {
 		msg += " (" + m.TapeSessionReason + ")"
@@ -2988,7 +2988,7 @@ func canaryTapeDemotedGuidance(m CanaryMarketSummary) string {
 	return msg + "."
 }
 
-func canaryConfirmedTapeStress(m CanaryMarketSummary) bool {
+func canaryConfirmedTapeStress(m StressMarketSummary) bool {
 	if !canaryTapeConfirmable(m) {
 		// Frozen prints cannot confirm; only the cluster-side carry-unwind
 		// arm (fx red + breadth) may still fire.
@@ -3004,7 +3004,7 @@ func canaryConfirmedTapeStress(m CanaryMarketSummary) bool {
 		canaryFastCarryUnwind(m)
 }
 
-func canaryFastCarryUnwind(m CanaryMarketSummary) bool {
+func canaryFastCarryUnwind(m StressMarketSummary) bool {
 	fxRed := slices.Contains(m.RedClusterNames, "fx") || slices.Contains(m.UnconfirmedRedClusterNames, "fx")
 	if !fxRed {
 		return false
@@ -3025,7 +3025,7 @@ func pctAtLeast(v *float64, threshold float64) bool {
 	return v != nil && *v >= threshold
 }
 
-func canaryAmbiguityEvidence(m CanaryMarketSummary) string {
+func canaryAmbiguityEvidence(m StressMarketSummary) string {
 	parts := []string{canaryMarketEvidence(m)}
 	if len(m.StaleClusters) > 0 {
 		parts = append(parts, "stale "+canaryClusterList(m.StaleClusters))
@@ -3045,7 +3045,7 @@ func canaryAmbiguityEvidence(m CanaryMarketSummary) string {
 	return strings.Join(parts, "; ")
 }
 
-func canaryPortfolioEvidence(p CanaryPortfolioSummary) string {
+func canaryPortfolioEvidence(p StressPortfolioSummary) string {
 	out := fmt.Sprintf("%s, gross %.0f%% NLV, net delta %.0f%% NLV, gross delta %.0f%% NLV",
 		canaryCushionEvidence(p), derefPct(p.GrossExposurePctNLV), derefPct(p.NetDeltaPctNLV), derefPct(p.GrossDeltaPctNLV))
 	if p.ProtectionCoverage != nil {
@@ -3118,7 +3118,7 @@ func largestUnprotectedPhrase(c *rpc.ProtectionCoverageSummary) string {
 	return ""
 }
 
-func canaryHasMarketDataIssue(m CanaryMarketSummary) bool {
+func canaryHasMarketDataIssue(m StressMarketSummary) bool {
 	return len(m.AmbiguousClusters) > 0 ||
 		len(m.PartialClusters) > 0 ||
 		len(m.DegradedClusters) > 0 ||
@@ -3126,7 +3126,7 @@ func canaryHasMarketDataIssue(m CanaryMarketSummary) bool {
 		len(m.StaleClusters) > 0
 }
 
-func canaryWorstCushionPct(p CanaryPortfolioSummary) *float64 {
+func canaryWorstCushionPct(p StressPortfolioSummary) *float64 {
 	switch {
 	case p.CushionPct != nil && p.LookAheadCushionPct != nil:
 		v := min(*p.CushionPct, *p.LookAheadCushionPct)
@@ -3141,7 +3141,7 @@ func canaryWorstCushionPct(p CanaryPortfolioSummary) *float64 {
 // The trailing trigger mirrors the tape row's disclosure style: the reader
 // sees how far the printed number sits from the policy line, not just the
 // number. Both cushion variants share the same watch floor.
-func canaryCushionEvidence(p CanaryPortfolioSummary) string {
+func canaryCushionEvidence(p StressPortfolioSummary) string {
 	parts := []string{}
 	if p.CushionPct != nil {
 		parts = append(parts, pctEvidence("cushion", *p.CushionPct))
@@ -3155,7 +3155,7 @@ func canaryCushionEvidence(p CanaryPortfolioSummary) string {
 	return strings.Join(parts, "; ") + fmt.Sprintf(" (watch below %.0f%%)", canaryPolicy.MarginWatchPct)
 }
 
-func canaryConcentrationEvidence(p CanaryPortfolioSummary) string {
+func canaryConcentrationEvidence(p StressPortfolioSummary) string {
 	parts := []string{}
 	if p.LargestExposurePct != nil && p.LargestExposure != "" {
 		parts = append(parts, fmt.Sprintf("%s market %.0f%% NLV (watch %.0f%%)", p.LargestExposure, math.Abs(*p.LargestExposurePct), canaryPolicy.SingleNameExposureWatchPct))
@@ -3166,7 +3166,7 @@ func canaryConcentrationEvidence(p CanaryPortfolioSummary) string {
 	return strings.Join(parts, "; ")
 }
 
-func canaryHeldStressEvidence(stresses []rpc.CanaryHeldStress) string {
+func canaryHeldStressEvidence(stresses []rpc.HeldStress) string {
 	if len(stresses) == 0 {
 		return "no material held-name stress"
 	}
@@ -3200,7 +3200,7 @@ func canaryHeldStressEvidence(stresses []rpc.CanaryHeldStress) string {
 	return strings.Join(parts, "; ")
 }
 
-func canaryHeldStressNames(stresses []rpc.CanaryHeldStress, limit int) string {
+func canaryHeldStressNames(stresses []rpc.HeldStress, limit int) string {
 	if limit <= 0 {
 		limit = len(stresses)
 	}

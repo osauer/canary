@@ -10,43 +10,43 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// FetchCanary reads the three existing snapshots needed by ComputeCanary.
+// FetchStress reads the three existing snapshots needed by ComputeStress.
 // dial.Conn serializes calls internally, so this stays sequential and avoids
 // hidden socket contention in scheduled MCP runs.
-func FetchCanary(ctx context.Context, conn interface {
+func FetchStress(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (CanaryResult, error) {
-	res, _, err := FetchCanarySnapshot(ctx, conn)
+}) (StressResult, error) {
+	res, _, err := FetchStressSnapshot(ctx, conn)
 	return res, err
 }
 
-// FetchCanarySnapshot returns the computed assessment and the positions input
+// FetchStressSnapshot returns the computed assessment and the positions input
 // used to produce it.
-func FetchCanarySnapshot(ctx context.Context, conn interface {
+func FetchStressSnapshot(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (CanaryResult, rpc.PositionsResult, error) {
-	res, positions, _, err := FetchCanarySnapshotWithRegime(ctx, conn)
+}) (StressResult, rpc.PositionsResult, error) {
+	res, positions, _, err := FetchStressSnapshotWithRegime(ctx, conn)
 	return res, positions, err
 }
 
-// FetchCanarySnapshotWithRegime reads account, positions, regime, and relevant
+// FetchStressSnapshotWithRegime reads account, positions, regime, and relevant
 // held-name market-event context sequentially, then returns the assessment,
 // positions input, and compacted regime input. Required-source errors abort the call;
 // market-event failure is retained as unknown source health.
-func FetchCanarySnapshotWithRegime(ctx context.Context, conn interface {
+func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (CanaryResult, rpc.PositionsResult, rpc.RegimeSnapshotResult, error) {
+}) (StressResult, rpc.PositionsResult, rpc.RegimeSnapshotResult, error) {
 	var acct rpc.AccountResult
 	if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &acct); err != nil {
-		return CanaryResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("account: %w", err)
+		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("account: %w", err)
 	}
 	var pos rpc.PositionsResult
 	if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &pos); err != nil {
-		return CanaryResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("positions: %w", err)
+		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("positions: %w", err)
 	}
 	var regime rpc.RegimeSnapshotResult
 	if err := conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &regime); err != nil {
-		return CanaryResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
+		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
 	}
 	marketEvents := fetchCanaryMarketEvents(ctx, conn, pos)
 	if acct.DailyPnL == nil {
@@ -55,7 +55,7 @@ func FetchCanarySnapshotWithRegime(ctx context.Context, conn interface {
 			acct = refreshed
 		}
 	}
-	canary := ComputeCanary(CanaryInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents})
+	canary := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents})
 	rpc.CompactRegimeSnapshot(&regime)
 	return canary, pos, regime, nil
 }

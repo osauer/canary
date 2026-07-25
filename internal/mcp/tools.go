@@ -767,12 +767,12 @@ var Tools = []Tool{
 			if in.View != rpc.ViewFull && in.View != rpc.ViewAlert {
 				return nil, fmt.Errorf("view must be %q or %q (got %q)", rpc.ViewFull, rpc.ViewAlert, in.View)
 			}
-			res, positions, err := canary.FetchCanarySnapshot(ctx, conn)
+			res, positions, err := canary.FetchStressSnapshot(ctx, conn)
 			if err != nil {
 				return nil, err
 			}
 			if in.View == rpc.ViewAlert {
-				return json.Marshal(rpc.CompactCanaryAlert(&res, &positions))
+				return json.Marshal(rpc.CompactStressAlert(&res, &positions))
 			}
 			return json.Marshal(res)
 		},

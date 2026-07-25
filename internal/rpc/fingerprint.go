@@ -22,8 +22,8 @@ const (
 	AccountFingerprintVersion = "account-fp-v1"
 	// PositionsFingerprintVersion identifies a semantic fingerprint projection.
 	PositionsFingerprintVersion = "positions-fp-v1"
-	// CanaryFingerprintVersion identifies a semantic fingerprint projection.
-	CanaryFingerprintVersion = "canary-fp-v2"
+	// StressFingerprintVersion identifies a semantic fingerprint projection.
+	StressFingerprintVersion = "canary-fp-v2"
 )
 
 // BuildMarketEventsFingerprint returns the semantic identity of current
@@ -197,14 +197,14 @@ func buildRegimeFingerprint(r *RegimeSnapshotResult, version string, sources []s
 	return semanticFingerprint(version, projection)
 }
 
-// BuildCanaryFingerprint returns the semantic alert identity of a canary
+// BuildStressFingerprint returns the semantic alert identity of a canary
 // result. It hashes the classified alert state and source fingerprints, not
 // timestamps, exact observed values, evidence strings, or render text.
-func BuildCanaryFingerprint(r *CanaryResult) Fingerprint {
+func BuildStressFingerprint(r *StressResult) Fingerprint {
 	if r == nil {
-		return semanticFingerprint(CanaryFingerprintVersion, nil)
+		return semanticFingerprint(StressFingerprintVersion, nil)
 	}
-	projection := canaryFingerprintProjection{
+	projection := stressFingerprintProjection{
 		Policy:             cleanString(r.Policy),
 		PolicyProfile:      cleanString(r.PolicyProfile),
 		PolicyVersion:      cleanString(r.PolicyVersion),
@@ -218,9 +218,9 @@ func BuildCanaryFingerprint(r *CanaryResult) Fingerprint {
 		PlannerModeHint:    r.PlannerModeHint,
 		PlannerReadiness:   r.PlannerReadiness,
 		PrimaryDrivers:     signalIDs(r.PrimaryDrivers),
-		Signals:            canarySignalFingerprints(r.Signals),
-		Rows:               canaryRowFingerprints(r.Rows),
-		Market: canaryMarketFingerprint{
+		Signals:            stressSignalFingerprints(r.Signals),
+		Rows:               stressRowFingerprints(r.Rows),
+		Market: stressMarketFingerprint{
 			RegimeVerdict:      cleanString(r.Market.RegimeVerdict),
 			RedClusters:        r.Market.RedClusters,
 			YellowClusters:     r.Market.YellowClusters,
@@ -248,7 +248,7 @@ func BuildCanaryFingerprint(r *CanaryResult) Fingerprint {
 	if r.SourceFingerprints.MarketEvents != nil {
 		projection.Source.MarketEvents = *r.SourceFingerprints.MarketEvents
 	}
-	return semanticFingerprint(CanaryFingerprintVersion, projection)
+	return semanticFingerprint(StressFingerprintVersion, projection)
 }
 
 // BuildAccountFingerprint hashes only canary-relevant account buckets. It is
@@ -426,7 +426,7 @@ type dataQualityFingerprint struct {
 	DegradedClusters []string `json:"degraded_clusters,omitempty"`
 }
 
-type canaryFingerprintProjection struct {
+type stressFingerprintProjection struct {
 	Policy             string                    `json:"policy,omitempty"`
 	PolicyProfile      string                    `json:"policy_profile,omitempty"`
 	PolicyVersion      string                    `json:"policy_version,omitempty"`
@@ -440,14 +440,14 @@ type canaryFingerprintProjection struct {
 	PlannerModeHint    risk.PlannerMode          `json:"planner_mode_hint,omitempty"`
 	PlannerReadiness   risk.PlannerReadiness     `json:"planner_readiness,omitempty"`
 	PrimaryDrivers     []string                  `json:"primary_drivers,omitempty"`
-	Signals            []canarySignalFingerprint `json:"signals,omitempty"`
-	Rows               []canaryRowFingerprint    `json:"rows,omitempty"`
-	Market             canaryMarketFingerprint   `json:"market"`
+	Signals            []stressSignalFingerprint `json:"signals,omitempty"`
+	Rows               []stressRowFingerprint    `json:"rows,omitempty"`
+	Market             stressMarketFingerprint   `json:"market"`
 	Sources            []sourceHealthFingerprint `json:"sources,omitempty"`
-	Source             canarySourceFingerprint   `json:"source,omitzero"`
+	Source             stressSourceFingerprint   `json:"source,omitzero"`
 }
 
-type canarySourceFingerprint struct {
+type stressSourceFingerprint struct {
 	Account      Fingerprint `json:"account,omitzero"`
 	Positions    Fingerprint `json:"positions,omitzero"`
 	Regime       Fingerprint `json:"regime,omitzero"`
@@ -486,7 +486,7 @@ type marketEventFlagFingerprint struct {
 	Source   string `json:"source,omitempty"`
 }
 
-type canaryMarketFingerprint struct {
+type stressMarketFingerprint struct {
 	RegimeVerdict      string   `json:"regime_verdict,omitempty"`
 	RedClusters        int      `json:"red_clusters"`
 	YellowClusters     int      `json:"yellow_clusters"`
@@ -501,7 +501,7 @@ type canaryMarketFingerprint struct {
 	StaleClusters      []string `json:"stale_clusters,omitempty"`
 }
 
-type canarySignalFingerprint struct {
+type stressSignalFingerprint struct {
 	ID               string   `json:"id"`
 	Direction        string   `json:"direction,omitempty"`
 	Posture          string   `json:"posture,omitempty"`
@@ -516,7 +516,7 @@ type canarySignalFingerprint struct {
 	ConfidenceImpact string   `json:"confidence_impact,omitempty"`
 }
 
-type canaryRowFingerprint struct {
+type stressRowFingerprint struct {
 	Title     string `json:"title,omitempty"`
 	Direction string `json:"direction,omitempty"`
 	Severity  string `json:"severity,omitempty"`
@@ -689,10 +689,10 @@ func buildSourceHealthFingerprints(values []SourceHealth, includeFailures bool) 
 	return out
 }
 
-func canarySignalFingerprints(signals []risk.Signal) []canarySignalFingerprint {
-	out := make([]canarySignalFingerprint, 0, len(signals))
+func stressSignalFingerprints(signals []risk.Signal) []stressSignalFingerprint {
+	out := make([]stressSignalFingerprint, 0, len(signals))
 	for _, s := range signals {
-		fp := canarySignalFingerprint{
+		fp := stressSignalFingerprint{
 			ID:               cleanString(string(s.ID)),
 			Direction:        cleanString(string(s.Direction)),
 			Posture:          cleanString(string(s.Posture)),
@@ -711,7 +711,7 @@ func canarySignalFingerprints(signals []risk.Signal) []canarySignalFingerprint {
 		}
 		out = append(out, fp)
 	}
-	slices.SortFunc(out, func(a, b canarySignalFingerprint) int {
+	slices.SortFunc(out, func(a, b stressSignalFingerprint) int {
 		return cmp.Or(
 			cmp.Compare(a.ID, b.ID),
 			cmp.Compare(a.Direction, b.Direction),
@@ -730,10 +730,10 @@ func canarySignalFingerprints(signals []risk.Signal) []canarySignalFingerprint {
 	return out
 }
 
-func canaryRowFingerprints(rows []CanaryRow) []canaryRowFingerprint {
-	out := make([]canaryRowFingerprint, 0, len(rows))
+func stressRowFingerprints(rows []StressRow) []stressRowFingerprint {
+	out := make([]stressRowFingerprint, 0, len(rows))
 	for _, row := range rows {
-		fp := canaryRowFingerprint{
+		fp := stressRowFingerprint{
 			Title:     cleanString(row.Title),
 			Direction: cleanString(string(row.Direction)),
 			Severity:  cleanString(string(row.Severity)),
@@ -743,7 +743,7 @@ func canaryRowFingerprints(rows []CanaryRow) []canaryRowFingerprint {
 		}
 		out = append(out, fp)
 	}
-	slices.SortFunc(out, func(a, b canaryRowFingerprint) int {
+	slices.SortFunc(out, func(a, b stressRowFingerprint) int {
 		return cmp.Or(
 			cmp.Compare(a.Title, b.Title),
 			cmp.Compare(a.Direction, b.Direction),

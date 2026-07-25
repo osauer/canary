@@ -55,11 +55,11 @@ func TestBuildAlertEpisodeKeyRejectsUnboundedOrUntypedIdentity(t *testing.T) {
 		parts  []string
 	}{
 		{"unknown source", "broker-free-text", AlertKindPortfolioRisk, []string{"x"}},
-		{"unknown kind", AlertSourceCanary, "caller-selected", []string{"x"}},
-		{"missing parts", AlertSourceCanary, AlertKindPortfolioRisk, nil},
-		{"blank part", AlertSourceCanary, AlertKindPortfolioRisk, []string{" \n\t"}},
-		{"oversized part", AlertSourceCanary, AlertKindPortfolioRisk, []string{strings.Repeat("x", 1025)}},
-		{"too many parts", AlertSourceCanary, AlertKindPortfolioRisk, make([]string, 17)},
+		{"unknown kind", AlertSourceStress, "caller-selected", []string{"x"}},
+		{"missing parts", AlertSourceStress, AlertKindPortfolioRisk, nil},
+		{"blank part", AlertSourceStress, AlertKindPortfolioRisk, []string{" \n\t"}},
+		{"oversized part", AlertSourceStress, AlertKindPortfolioRisk, []string{strings.Repeat("x", 1025)}},
+		{"too many parts", AlertSourceStress, AlertKindPortfolioRisk, make([]string, 17)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := BuildAlertEpisodeKey(test.source, test.kind, test.parts...); err == nil {
@@ -88,7 +88,7 @@ func TestAlertCandidateSeparatesEpisodeAndChangingEvidence(t *testing.T) {
 }
 
 func TestBuildAlertOccurrenceKeySeparatesDaemonOccurrenceFromEpisodeAndEvidence(t *testing.T) {
-	episode, err := BuildAlertEpisodeKey(AlertSourceCanary, AlertKindPortfolioRisk, "root-problem")
+	episode, err := BuildAlertEpisodeKey(AlertSourceStress, AlertKindPortfolioRisk, "root-problem")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestAlertOpaqueIdentityDomainsAreStableAcrossWireSchemaChanges(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	episode, err := BuildAlertEpisodeKey(AlertSourceCanary, AlertKindPortfolioRisk, "DU123", "paper", "portfolio_canary")
+	episode, err := BuildAlertEpisodeKey(AlertSourceStress, AlertKindPortfolioRisk, "DU123", "paper", "portfolio_canary")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,18 +288,18 @@ func TestAlertCoverageSetSemantics(t *testing.T) {
 	}{
 		{"complete", completeAlertCoverage(now), true},
 		{"complete stale", func() AlertCoverage { c := completeAlertCoverage(now); c.Freshness = AlertCoverageStale; return c }(), true},
-		{"partial", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary, AlertSourceRegime}, CoveredSources: []AlertSource{AlertSourceCanary}}, true},
-		{"unavailable", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary}, CoveredSources: []AlertSource{}}, true},
+		{"partial", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress, AlertSourceRegime}, CoveredSources: []AlertSource{AlertSourceStress}}, true},
+		{"unavailable", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress}, CoveredSources: []AlertSource{}}, true},
 		{"nil expected", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, CoveredSources: []AlertSource{}}, false},
-		{"nil covered", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary}}, false},
+		{"nil covered", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress}}, false},
 		{"unknown expected", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{"raw"}, CoveredSources: []AlertSource{}}, false},
-		{"duplicate expected", AlertCoverage{State: AlertCoverageComplete, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary, AlertSourceCanary}, CoveredSources: []AlertSource{AlertSourceCanary}}, false},
-		{"covered outside expected", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary, AlertSourceRegime}, CoveredSources: []AlertSource{AlertSourceRulebook}}, false},
-		{"false complete", AlertCoverage{State: AlertCoverageComplete, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary, AlertSourceRegime}, CoveredSources: []AlertSource{AlertSourceCanary}}, false},
-		{"false partial empty", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary}, CoveredSources: []AlertSource{}}, false},
-		{"false partial full", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary}, CoveredSources: []AlertSource{AlertSourceCanary}}, false},
-		{"false unavailable", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary}, CoveredSources: []AlertSource{AlertSourceCanary}}, false},
-		{"unavailable current", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceCanary}, CoveredSources: []AlertSource{}}, false},
+		{"duplicate expected", AlertCoverage{State: AlertCoverageComplete, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress, AlertSourceStress}, CoveredSources: []AlertSource{AlertSourceStress}}, false},
+		{"covered outside expected", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress, AlertSourceRegime}, CoveredSources: []AlertSource{AlertSourceRulebook}}, false},
+		{"false complete", AlertCoverage{State: AlertCoverageComplete, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress, AlertSourceRegime}, CoveredSources: []AlertSource{AlertSourceStress}}, false},
+		{"false partial empty", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress}, CoveredSources: []AlertSource{}}, false},
+		{"false partial full", AlertCoverage{State: AlertCoveragePartial, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress}, CoveredSources: []AlertSource{AlertSourceStress}}, false},
+		{"false unavailable", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageUnknown, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress}, CoveredSources: []AlertSource{AlertSourceStress}}, false},
+		{"unavailable current", AlertCoverage{State: AlertCoverageUnavailable, Freshness: AlertCoverageCurrent, AsOf: now, ExpectedSources: []AlertSource{AlertSourceStress}, CoveredSources: []AlertSource{}}, false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -323,7 +323,7 @@ func TestAlertSnapshotClearRequiresCompleteCurrentCoverage(t *testing.T) {
 	partial.Sources = append([]AlertSourceCoverage(nil), clear.Sources...)
 	partial.CurrentState = AlertSnapshotUnknown
 	partial.Coverage.State = AlertCoveragePartial
-	partial.Coverage.CoveredSources = []AlertSource{AlertSourceCanary}
+	partial.Coverage.CoveredSources = []AlertSource{AlertSourceStress}
 	partial.Sources[1].Covered = false
 	partial.Sources[1].EvidenceHealth = AlertEvidenceUnavailable
 	if err := partial.Validate(); err != nil || partial.IsClear() {
@@ -421,7 +421,7 @@ func TestAlertSnapshotCurrentEvidenceRequiresCoveredSource(t *testing.T) {
 	snapshot := validAlertSnapshot(now)
 	snapshot.CurrentState = AlertSnapshotActive
 	snapshot.Coverage.State = AlertCoveragePartial
-	snapshot.Coverage.CoveredSources = []AlertSource{AlertSourceCanary}
+	snapshot.Coverage.CoveredSources = []AlertSource{AlertSourceStress}
 	snapshot.Sources[1].Covered = false
 	snapshot.Sources[1].EvidenceHealth = AlertEvidenceUnavailable
 	snapshot.Candidates = []AlertCandidate{candidate}
@@ -481,7 +481,7 @@ func TestAlertJSONRoundTripAndExactObjectBoundary(t *testing.T) {
 func TestAlertPresentationCodeIsClosedAndSourceBound(t *testing.T) {
 	now := time.Date(2026, time.July, 20, 20, 0, 0, 0, time.UTC)
 	candidate := validAlertCandidate(t, now)
-	if candidate.PresentationCode != AlertPresentationCanaryPortfolioStress {
+	if candidate.PresentationCode != AlertPresentationPortfolioStress {
 		t.Fatalf("presentation code=%q", candidate.PresentationCode)
 	}
 	candidate.PresentationCode = AlertPresentationRulebookSingleNameExposure
@@ -492,7 +492,7 @@ func TestAlertPresentationCodeIsClosedAndSourceBound(t *testing.T) {
 
 func validAlertCandidate(t *testing.T, now time.Time) AlertCandidate {
 	t.Helper()
-	key, err := BuildAlertEpisodeKey(AlertSourceCanary, AlertKindPortfolioRisk, "synthetic-book-condition")
+	key, err := BuildAlertEpisodeKey(AlertSourceStress, AlertKindPortfolioRisk, "synthetic-book-condition")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,9 +500,9 @@ func validAlertCandidate(t *testing.T, now time.Time) AlertCandidate {
 		EpisodeKey:          key,
 		OccurrenceKey:       mustTestAlertOccurrenceKey(t, key, "occurrence-1"),
 		EvidenceFingerprint: testAlertFingerprint("a"),
-		Source:              AlertSourceCanary,
+		Source:              AlertSourceStress,
 		Kind:                AlertKindPortfolioRisk,
-		PresentationCode:    AlertPresentationCanaryPortfolioStress,
+		PresentationCode:    AlertPresentationPortfolioStress,
 		State:               AlertEpisodeOpen,
 		Severity:            AlertSeverityWatch,
 		EvidenceHealth:      AlertEvidenceCurrent,
@@ -527,8 +527,8 @@ func completeAlertCoverage(now time.Time) AlertCoverage {
 		State:           AlertCoverageComplete,
 		Freshness:       AlertCoverageCurrent,
 		AsOf:            now,
-		ExpectedSources: []AlertSource{AlertSourceCanary, AlertSourceRegime},
-		CoveredSources:  []AlertSource{AlertSourceCanary, AlertSourceRegime},
+		ExpectedSources: []AlertSource{AlertSourceStress, AlertSourceRegime},
+		CoveredSources:  []AlertSource{AlertSourceStress, AlertSourceRegime},
 	}
 }
 
@@ -543,7 +543,7 @@ func validAlertSnapshot(now time.Time) AlertCandidateSnapshot {
 		CurrentState: AlertSnapshotClear,
 		Coverage:     completeAlertCoverage(now),
 		Sources: []AlertSourceCoverage{
-			{Source: AlertSourceCanary, Status: "current", Reason: "current", EvidenceHealth: AlertEvidenceCurrent, InputAsOf: now, ObservedAt: now, EvidenceAsOf: now, FreshUntil: now.Add(time.Minute), Covered: true},
+			{Source: AlertSourceStress, Status: "current", Reason: "current", EvidenceHealth: AlertEvidenceCurrent, InputAsOf: now, ObservedAt: now, EvidenceAsOf: now, FreshUntil: now.Add(time.Minute), Covered: true},
 			{Source: AlertSourceRegime, Status: "current", Reason: "current", EvidenceHealth: AlertEvidenceCurrent, InputAsOf: now, ObservedAt: now, EvidenceAsOf: now, FreshUntil: now.Add(time.Minute), Covered: true},
 		},
 		Candidates: []AlertCandidate{},

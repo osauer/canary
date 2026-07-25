@@ -12,7 +12,7 @@ import (
 // A portfolio fit of "low" must be a measurement, never a default reached
 // because the exposure-measuring signals were blocked or data-quality.
 func TestCanaryPortfolioFitUnknownWhenExposureSignalsAreDataBlocked(t *testing.T) {
-	p := CanaryPortfolioSummary{NetLiquidation: 100000}
+	p := StressPortfolioSummary{NetLiquidation: 100000}
 	greeksBlind := []risk.Signal{{ID: risk.SignalOptionGreeksDegraded, Direction: risk.DirectionDataQuality}}
 	if got := canaryPortfolioFit(p, greeksBlind); got != canaryPortfolioFitUnknown {
 		t.Fatalf("data-quality greeks signal must yield unknown fit, got %q", got)
@@ -31,7 +31,7 @@ func TestCanaryPortfolioFitUnknownWhenExposureSignalsAreDataBlocked(t *testing.T
 }
 
 func TestCanaryUnknownFitNeverClaimsLowExposure(t *testing.T) {
-	r := CanaryResult{Action: canaryActionWatch, PortfolioFit: canaryPortfolioFitUnknown, MarketConfirmation: canaryMarketPartial}
+	r := StressResult{Action: canaryActionWatch, PortfolioFit: canaryPortfolioFitUnknown, MarketConfirmation: canaryMarketPartial}
 	sum := canaryDecisionSummary(r)
 	if strings.Contains(sum, "exposure is low") || strings.Contains(sum, "no reductions needed") {
 		t.Fatalf("unknown fit must not claim low exposure: %q", sum)
@@ -39,7 +39,7 @@ func TestCanaryUnknownFitNeverClaimsLowExposure(t *testing.T) {
 	if !strings.Contains(sum, "could not be measured") {
 		t.Fatalf("unknown fit summary must disclose the blind spot: %q", sum)
 	}
-	if dir, sev := canaryDecisionState(canaryMarketPartial, canaryPortfolioFitUnknown, canaryInputDegraded, CanaryMarketSummary{}, nil); dir != risk.DirectionDefensive || sev != risk.SeverityWatch {
+	if dir, sev := canaryDecisionState(canaryMarketPartial, canaryPortfolioFitUnknown, canaryInputDegraded, StressMarketSummary{}, nil); dir != risk.DirectionDefensive || sev != risk.SeverityWatch {
 		t.Fatalf("partial market with unknown fit must stay defensive watch, got %v/%v", dir, sev)
 	}
 }
@@ -52,7 +52,7 @@ func TestComputeCanaryNeverFetchedPositionsIsSourceIssueNotLowFit(t *testing.T) 
 	t.Parallel()
 	acct := baseCanaryAccount()
 	acct.GrossPositionValue = 0
-	res := ComputeCanary(CanaryInput{Now: canaryTestNow,
+	res := ComputeStress(StressInput{Now: canaryTestNow,
 		Account: acct,
 		Positions: rpc.PositionsResult{ // real stock-only book, AsOf never stamped
 			Stocks: []rpc.PositionView{{Symbol: "AAPL", SecType: "STK", Quantity: 200}},

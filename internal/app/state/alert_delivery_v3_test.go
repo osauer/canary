@@ -34,7 +34,7 @@ func TestAlertDeliveryV3SamplesModeAfterBaseline(t *testing.T) {
 			if err := store.SetAlertMode(tc.mode); err != nil {
 				t.Fatal(err)
 			}
-			source := rpc.AlertSourceCanary
+			source := rpc.AlertSourceStress
 			if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent)); err != nil {
 				t.Fatal(err)
 			}
@@ -62,7 +62,7 @@ func TestAlertDeliveryV3CutoverNeverRetroactivelyArms(t *testing.T) {
 	if err := store.SetAlertMode(AlertModeNone); err != nil {
 		t.Fatal(err)
 	}
-	source := rpc.AlertSourceCanary
+	source := rpc.AlertSourceStress
 	unknown := testAlertSnapshot(base, []rpc.AlertSource{source}, nil, rpc.AlertCoverageUnknown)
 	if _, err := store.ObserveAlertSnapshot(unknown); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestAlertDeliveryV3ModeDowngradeBeforeConfirmIsTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	enableTestAlertDelivery(t, store)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "mode-race", "open", base)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "mode-race", "open", base)
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestAlertDeliveryV3FreshnessExpiryBeforeConfirmRetriesAfterRefresh(t *testi
 		t.Fatal(err)
 	}
 	enableTestAlertDelivery(t, store)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "freshness-race", "open", base)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "freshness-race", "open", base)
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestAlertDeliveryV3RequiresFreshExactSourceForDeliveryAndOmission(t *testin
 		t.Fatal(err)
 	}
 	enableTestAlertDelivery(t, store)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "exact-source", "open", base)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "exact-source", "open", base)
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestAlertDeliveryV3RequiresFreshExactSourceForDeliveryAndOmission(t *testin
 		t.Fatalf("expired source freshness still authorized delivery: %+v", due)
 	}
 	partialAt := base.Add(2 * time.Minute)
-	expected := []rpc.AlertSource{rpc.AlertSourceCanary, rpc.AlertSourceRegime}
+	expected := []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceRegime}
 	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(partialAt, expected, []rpc.AlertSource{rpc.AlertSourceRegime}, rpc.AlertCoverageCurrent))
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestAlertDeliveryV3ViewAgesClearEvidenceWithoutDroppingSource(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := rpc.AlertSourceCanary
+	source := rpc.AlertSourceStress
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent)); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestAlertDeliveryV2UnknownFieldIsQuarantined(t *testing.T) {
 func testAlertDeliveryV2Ledger(t *testing.T) (json.RawMessage, rpc.AlertCandidate) {
 	t.Helper()
 	at := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "v2-migration", "open", at)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "v2-migration", "open", at)
 	legacyCandidate := legacyAlertCandidate{
 		EpisodeKey: candidate.EpisodeKey, OccurrenceKey: candidate.OccurrenceKey, EvidenceFingerprint: candidate.EvidenceFingerprint,
 		Source: candidate.Source, Kind: candidate.Kind, State: candidate.State, Severity: candidate.Severity,

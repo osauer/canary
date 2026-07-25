@@ -61,7 +61,7 @@ func TestAlertRoutesRequireAuthAndBootstrapMatchesGET(t *testing.T) {
 		t.Fatalf("GET source evidence=%+v", getDTO)
 	}
 	if len(getDTO.Occurrences) != 1 || getDTO.Occurrences[0].DisplayID == "" ||
-		getDTO.Occurrences[0].PresentationCode != rpc.AlertPresentationCanaryPortfolioStress ||
+		getDTO.Occurrences[0].PresentationCode != rpc.AlertPresentationPortfolioStress ||
 		getDTO.Occurrences[0].Title != "Portfolio stress" || getDTO.Occurrences[0].Body != "Canary reports portfolio stress." ||
 		getDTO.Attention.UnreadCount != 1 || len(getDTO.Attention.UnreadRefs) != 1 {
 		t.Fatalf("GET occurrences/attention=%+v", getDTO)
@@ -407,7 +407,7 @@ func TestAlertSSEEmitsFreshnessExpiryWithoutStoreWrite(t *testing.T) {
 
 func alertHTTPObserve(t *testing.T, store *state.Store, at time.Time) (string, string) {
 	t.Helper()
-	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, "private-account-and-symbol")
+	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "private-account-and-symbol")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,9 +419,9 @@ func alertHTTPObserve(t *testing.T, store *state.Store, at time.Time) (string, s
 		EpisodeKey:          episode,
 		OccurrenceKey:       occurrence,
 		EvidenceFingerprint: "sha256:" + strings.Repeat("a", 64),
-		Source:              rpc.AlertSourceCanary,
+		Source:              rpc.AlertSourceStress,
 		Kind:                rpc.AlertKindPortfolioRisk,
-		PresentationCode:    rpc.AlertPresentationCanaryPortfolioStress,
+		PresentationCode:    rpc.AlertPresentationPortfolioStress,
 		State:               rpc.AlertEpisodeOpen,
 		Severity:            rpc.AlertSeverityWatch,
 		EvidenceHealth:      rpc.AlertEvidenceCurrent,
@@ -439,11 +439,11 @@ func alertHTTPObserve(t *testing.T, store *state.Store, at time.Time) (string, s
 			State:           rpc.AlertCoverageComplete,
 			Freshness:       rpc.AlertCoverageCurrent,
 			AsOf:            at,
-			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary},
-			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceCanary},
+			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress},
+			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceStress},
 		},
 		Sources: []rpc.AlertSourceCoverage{{
-			Source:         rpc.AlertSourceCanary,
+			Source:         rpc.AlertSourceStress,
 			Status:         "current",
 			Reason:         "source_current",
 			EvidenceHealth: rpc.AlertEvidenceCurrent,
@@ -472,11 +472,11 @@ func alertHTTPClearObserve(t *testing.T, store *state.Store, at, freshUntil time
 			State:           rpc.AlertCoverageComplete,
 			Freshness:       rpc.AlertCoverageCurrent,
 			AsOf:            at,
-			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary},
-			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceCanary},
+			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress},
+			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceStress},
 		},
 		Sources: []rpc.AlertSourceCoverage{{
-			Source:         rpc.AlertSourceCanary,
+			Source:         rpc.AlertSourceStress,
 			Status:         "current",
 			Reason:         "source_current",
 			EvidenceHealth: rpc.AlertEvidenceCurrent,
@@ -513,11 +513,11 @@ func alertHTTPView(now time.Time, current rpc.AlertSnapshotState, freshness rpc.
 			State:           rpc.AlertCoverageComplete,
 			Freshness:       freshness,
 			AsOf:            now,
-			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary},
-			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceCanary},
+			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress},
+			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceStress},
 		},
 		Sources: []rpc.AlertSourceCoverage{{
-			Source:         rpc.AlertSourceCanary,
+			Source:         rpc.AlertSourceStress,
 			Status:         "current",
 			Reason:         "source_current",
 			EvidenceHealth: health,
@@ -536,9 +536,9 @@ func alertHTTPView(now time.Time, current rpc.AlertSnapshotState, freshness rpc.
 func alertHTTPOccurrence(displayID string, stateChangedAt, endedAt time.Time) state.AlertDeliveryOccurrenceView {
 	return state.AlertDeliveryOccurrenceView{
 		DisplayID:        displayID,
-		Source:           rpc.AlertSourceCanary,
+		Source:           rpc.AlertSourceStress,
 		Kind:             rpc.AlertKindPortfolioRisk,
-		PresentationCode: rpc.AlertPresentationCanaryPortfolioStress,
+		PresentationCode: rpc.AlertPresentationPortfolioStress,
 		State:            rpc.AlertEpisodeOpen,
 		Severity:         rpc.AlertSeverityWatch,
 		EvidenceHealth:   rpc.AlertEvidenceCurrent,

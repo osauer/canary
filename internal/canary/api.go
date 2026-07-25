@@ -29,7 +29,7 @@ func PolicyName() string {
 
 // SummarizeMarket converts a typed regime snapshot into the market summary used
 // by Canary evaluation.
-func SummarizeMarket(r rpc.RegimeSnapshotResult, now time.Time) rpc.CanaryMarketSummary {
+func SummarizeMarket(r rpc.RegimeSnapshotResult, now time.Time) rpc.StressMarketSummary {
 	return summarizeCanaryMarket(r, now)
 }
 
@@ -46,19 +46,19 @@ func GammaDegraded(g rpc.RegimeGammaZero) bool {
 }
 
 // MarketEvidence formats the redacted market evidence used in Canary output.
-func MarketEvidence(m rpc.CanaryMarketSummary) string {
+func MarketEvidence(m rpc.StressMarketSummary) string {
 	return canaryMarketEvidence(m)
 }
 
 // PortfolioEvidence formats the redacted portfolio evidence used in Canary
 // output.
-func PortfolioEvidence(p rpc.CanaryPortfolioSummary) string {
+func PortfolioEvidence(p rpc.StressPortfolioSummary) string {
 	return canaryPortfolioEvidence(p)
 }
 
 // AmbiguityEvidence formats evidence explaining incomplete or ambiguous market
 // confirmation.
-func AmbiguityEvidence(m rpc.CanaryMarketSummary) string {
+func AmbiguityEvidence(m rpc.StressMarketSummary) string {
 	return canaryAmbiguityEvidence(m)
 }
 

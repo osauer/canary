@@ -314,8 +314,8 @@ func unavailableAlertSourceRows(expected []rpc.AlertSource, reason string) []rpc
 
 func legacyAlertPresentationCode(source rpc.AlertSource) rpc.AlertPresentationCode {
 	switch source {
-	case rpc.AlertSourceCanary:
-		return rpc.AlertPresentationCanaryPortfolioStress
+	case rpc.AlertSourceStress:
+		return rpc.AlertPresentationPortfolioStress
 	case rpc.AlertSourceRegime:
 		return rpc.AlertPresentationRegimeMarketStress
 	case rpc.AlertSourceRulebook:

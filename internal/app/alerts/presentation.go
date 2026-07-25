@@ -11,7 +11,7 @@ type Presentation struct {
 }
 
 var presentations = map[rpc.AlertPresentationCode]Presentation{
-	rpc.AlertPresentationCanaryPortfolioStress:            {Title: "Portfolio stress", Body: "Canary reports portfolio stress."},
+	rpc.AlertPresentationPortfolioStress:                  {Title: "Portfolio stress", Body: "Canary reports portfolio stress."},
 	rpc.AlertPresentationRegimeMarketStress:               {Title: "Market stress", Body: "Broad-market stress conditions need attention."},
 	rpc.AlertPresentationRulebookSingleNameExposure:       {Title: "Single-name exposure", Body: "A portfolio concentration rule needs attention."},
 	rpc.AlertPresentationRulebookOptionLinePremium:        {Title: "Option premium limit", Body: "An option-line premium rule needs attention."},

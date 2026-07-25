@@ -178,12 +178,12 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	briefLine(env, "dealer gamma", ready.Gamma.BriefRowState, gamma)
 	// Action and severity are usually the same word; printing both reads as a
 	// stutter, so the pair collapses when equal (the SPA does the same).
-	severity := ready.Canary.Severity
-	if strings.EqualFold(severity, ready.Canary.Action) {
+	severity := ready.Stress.Severity
+	if strings.EqualFold(severity, ready.Stress.Action) {
 		severity = ""
 	}
-	briefLine(env, "canary", ready.Canary.BriefRowState,
-		briefJoin(ready.Canary.Action, severity, ready.Canary.Summary))
+	briefLine(env, "canary", ready.Stress.BriefRowState,
+		briefJoin(ready.Stress.Action, severity, ready.Stress.Summary))
 	briefLine(env, "session", ready.Session.BriefRowState, briefJoin(ready.Session.Market, ready.Session.State))
 	for _, event := range ready.MarketEvents {
 		value := fmt.Sprintf("%d", event.Count)

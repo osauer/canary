@@ -897,10 +897,10 @@ func TestIbkrRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
 
 func TestIbkrCanaryResponseHasSignalsAndFingerprints(t *testing.T) {
 	t.Parallel()
-	res := rpc.CanaryResult{
+	res := rpc.StressResult{
 		AsOf:        time.Date(2026, 5, 31, 8, 45, 0, 0, time.UTC),
-		Fingerprint: rpc.Fingerprint{Version: rpc.CanaryFingerprintVersion, Key: "sha256:canary"},
-		SourceFingerprints: rpc.CanarySourceFingerprints{
+		Fingerprint: rpc.Fingerprint{Version: rpc.StressFingerprintVersion, Key: "sha256:canary"},
+		SourceFingerprints: rpc.StressSourceFingerprints{
 			Account:   &rpc.Fingerprint{Version: rpc.AccountFingerprintVersion, Key: "sha256:account"},
 			Positions: &rpc.Fingerprint{Version: rpc.PositionsFingerprintVersion, Key: "sha256:positions"},
 			Regime:    &rpc.Fingerprint{Version: rpc.RegimeFingerprintVersion, Key: "sha256:regime"},
@@ -922,9 +922,9 @@ func TestIbkrCanaryResponseHasSignalsAndFingerprints(t *testing.T) {
 		Summary:            "Freeze new risk.",
 		PrimaryDrivers:     []risk.SignalID{risk.SignalMarginCushionLow},
 		Signals:            []risk.Signal{{ID: risk.SignalMarginCushionLow, Direction: risk.DirectionDefensive, Posture: risk.PortfolioPostureThreat, Severity: risk.SeverityWatch}},
-		Rows:               []rpc.CanaryRow{{Title: "Portfolio canary", Direction: risk.DirectionDefensive, Severity: risk.SeverityWatch, Guidance: "Freeze new risk."}},
-		Portfolio:          rpc.CanaryPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
-		Market:             rpc.CanaryMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
+		Rows:               []rpc.StressRow{{Title: "Portfolio canary", Direction: risk.DirectionDefensive, Severity: risk.SeverityWatch, Guidance: "Freeze new risk."}},
+		Portfolio:          rpc.StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
+		Market:             rpc.StressMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
 		Warnings:           []string{"stale clusters: vol"},
 		NotExecution:       "Read-only recommendation; no orders are placed by ibkr.",
 	}
@@ -961,7 +961,7 @@ func TestIbkrCanaryResponseHasSignalsAndFingerprints(t *testing.T) {
 		}
 	}
 	fp, ok := wire["fingerprint"].(map[string]any)
-	if !ok || fp["version"] != rpc.CanaryFingerprintVersion || fp["key"] == "" {
+	if !ok || fp["version"] != rpc.StressFingerprintVersion || fp["key"] == "" {
 		t.Fatalf("fingerprint missing or malformed: %#v", wire["fingerprint"])
 	}
 	if wire["action"] != "watch" {

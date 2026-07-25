@@ -42,7 +42,7 @@ const (
 	// AlertCandidateSnapshotVersion identifies a stable wire schema.
 	AlertCandidateSnapshotVersion = risk.AlertCandidateSnapshotVersion
 
-	AlertSourceCanary         = risk.AlertSourceCanary
+	AlertSourceStress         = risk.AlertSourceStress
 	AlertSourceRegime         = risk.AlertSourceRegime
 	AlertSourceRulebook       = risk.AlertSourceRulebook
 	AlertSourceRiskPolicy     = risk.AlertSourceRiskPolicy
@@ -74,7 +74,7 @@ const (
 	AlertSeverityAct     = risk.AlertSeverityAct
 	AlertSeverityUrgent  = risk.AlertSeverityUrgent
 
-	AlertPresentationCanaryPortfolioStress            = risk.AlertPresentationCanaryPortfolioStress
+	AlertPresentationPortfolioStress                  = risk.AlertPresentationPortfolioStress
 	AlertPresentationRegimeMarketStress               = risk.AlertPresentationRegimeMarketStress
 	AlertPresentationRulebookSingleNameExposure       = risk.AlertPresentationRulebookSingleNameExposure
 	AlertPresentationRulebookOptionLinePremium        = risk.AlertPresentationRulebookOptionLinePremium

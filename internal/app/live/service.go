@@ -61,7 +61,7 @@ type Snapshot struct {
 	Quotes          *MarketQuotes               `json:"market_quotes,omitempty"`
 	MarketEvents    *rpc.MarketEventsResult     `json:"market_events,omitempty"`
 	Regime          *rpc.RegimeMonitorResult    `json:"regime,omitempty"`
-	Canary          *rpc.CanaryResult           `json:"canary,omitempty"`
+	Canary          *rpc.StressResult           `json:"canary,omitempty"`
 	AlertCandidates *rpc.AlertCandidateSnapshot `json:"-"`
 	Rules           *rpc.RulesResult            `json:"rules,omitempty"`
 	Brief           *rpc.BriefResult            `json:"brief,omitempty"`

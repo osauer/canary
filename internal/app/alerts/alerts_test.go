@@ -31,7 +31,7 @@ func TestDispatcherObserveConfirmsSendsAndDeduplicates(t *testing.T) {
 	}
 	now := base.Add(time.Minute)
 	dispatcher := Dispatcher{Store: store, Sender: sender, URL: "https://app.example/alerts", Now: func() time.Time { return now }}
-	candidate := alertCandidate(t, rpc.AlertPresentationCanaryPortfolioStress, "opening-one", now)
+	candidate := alertCandidate(t, rpc.AlertPresentationPortfolioStress, "opening-one", now)
 	snapshot := alertSnapshot(t, now, candidate)
 
 	view, err := dispatcher.Observe(context.Background(), snapshot)
@@ -135,7 +135,7 @@ func TestDispatcherRecordsTypedPrerequisiteHealth(t *testing.T) {
 			now := base.Add(time.Minute)
 			dispatcher := Dispatcher{Store: store, Sender: tc.sender, Now: func() time.Time { return now }}
 			view, err := dispatcher.Observe(context.Background(), alertSnapshot(t, now,
-				alertCandidate(t, rpc.AlertPresentationCanaryPortfolioStress, tc.name, now)))
+				alertCandidate(t, rpc.AlertPresentationPortfolioStress, tc.name, now)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -152,7 +152,7 @@ func TestDispatcherKeepsPrerequisiteHealthTruthfulWhenNoWorkRemains(t *testing.T
 	store := newAlertStore(t, t.TempDir(), base)
 	ensureAlertKeys(t, store, base)
 	now := base.Add(time.Minute)
-	candidate := alertCandidate(t, rpc.AlertPresentationCanaryPortfolioStress, "recover-after-prerequisite", now)
+	candidate := alertCandidate(t, rpc.AlertPresentationPortfolioStress, "recover-after-prerequisite", now)
 	dispatcher := Dispatcher{Store: store, Sender: &recordingSender{}, Now: func() time.Time { return now }}
 
 	view, err := dispatcher.Observe(context.Background(), alertSnapshot(t, now, candidate))
@@ -262,7 +262,7 @@ func TestControllerMutationsWaitForConfirmedTransport(t *testing.T) {
 			sender := newBlockingSender()
 			dispatcher := &Dispatcher{Store: store, Sender: sender, Now: func() time.Time { return now }}
 			snapshot := alertSnapshot(t, now,
-				alertCandidate(t, rpc.AlertPresentationCanaryPortfolioStress, tc.name, now))
+				alertCandidate(t, rpc.AlertPresentationPortfolioStress, tc.name, now))
 
 			observeDone := make(chan error, 1)
 			go func() {
@@ -342,7 +342,7 @@ func TestDispatcherRetriesAfterRestartAndRetainsDedupe(t *testing.T) {
 	now := base.Add(time.Minute)
 	retrying := &recordingSender{results: []state.PushAttempt{{Class: state.GovernanceTransportNetworkRetry}}}
 	dispatcher := Dispatcher{Store: store, Sender: retrying, Now: func() time.Time { return now }}
-	candidate := alertCandidate(t, rpc.AlertPresentationCanaryPortfolioStress, "restart-retry", now)
+	candidate := alertCandidate(t, rpc.AlertPresentationPortfolioStress, "restart-retry", now)
 
 	view, err := dispatcher.Observe(context.Background(), alertSnapshot(t, now, candidate))
 	if err != nil {
@@ -387,7 +387,7 @@ func TestDispatcherRetiresDeadSubscription(t *testing.T) {
 		Now: func() time.Time { return now },
 	}
 	view, err := dispatcher.Observe(context.Background(), alertSnapshot(t, now,
-		alertCandidate(t, rpc.AlertPresentationCanaryPortfolioStress, "dead-target", now)))
+		alertCandidate(t, rpc.AlertPresentationPortfolioStress, "dead-target", now)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestDispatcherFinalizesConfirmedAttemptWhenFixedCopyIsUnavailable(t *testin
 	addAlertTarget(t, store, "device-one", "subscription-one", base)
 	ensureAlertKeys(t, store, base)
 	now := base.Add(time.Minute)
-	code := rpc.AlertPresentationCanaryPortfolioStress
+	code := rpc.AlertPresentationPortfolioStress
 	fixed := presentations[code]
 	delete(presentations, code)
 	defer func() { presentations[code] = fixed }()
@@ -428,7 +428,7 @@ func TestDispatcherFinalizesConfirmedAttemptWhenFixedCopyIsUnavailable(t *testin
 func TestPresentationForCoversClosedCodesAndStates(t *testing.T) {
 	t.Parallel()
 	codes := []rpc.AlertPresentationCode{
-		rpc.AlertPresentationCanaryPortfolioStress,
+		rpc.AlertPresentationPortfolioStress,
 		rpc.AlertPresentationRegimeMarketStress,
 		rpc.AlertPresentationRulebookSingleNameExposure,
 		rpc.AlertPresentationRulebookOptionLinePremium,
@@ -483,7 +483,7 @@ func TestPresentationForCoversClosedCodesAndStates(t *testing.T) {
 	if presentation, ok := PresentationFor("producer_supplied_unknown", rpc.AlertEpisodeOpen); ok || presentation != (Presentation{}) {
 		t.Fatalf("unknown producer code did not fail closed: %+v, %v", presentation, ok)
 	}
-	if presentation, ok := PresentationFor(rpc.AlertPresentationCanaryPortfolioStress, "producer_supplied_state"); ok || presentation != (Presentation{}) {
+	if presentation, ok := PresentationFor(rpc.AlertPresentationPortfolioStress, "producer_supplied_state"); ok || presentation != (Presentation{}) {
 		t.Fatalf("unknown lifecycle state did not fail closed: %+v, %v", presentation, ok)
 	}
 }
@@ -583,7 +583,7 @@ func ensureAlertKeys(t *testing.T, store *state.Store, at time.Time) {
 
 func alertCandidate(t *testing.T, code rpc.AlertPresentationCode, opening string, at time.Time) rpc.AlertCandidate {
 	t.Helper()
-	return alertCandidateForSource(t, rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, code, opening, at)
+	return alertCandidateForSource(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, code, opening, at)
 }
 
 func alertCandidateForSource(t *testing.T, source rpc.AlertSource, kind rpc.AlertKind, code rpc.AlertPresentationCode, opening string, at time.Time) rpc.AlertCandidate {
@@ -610,7 +610,7 @@ func alertSnapshot(t *testing.T, at time.Time, candidates ...rpc.AlertCandidate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := rpc.AlertSourceCanary
+	source := rpc.AlertSourceStress
 	if len(candidates) > 0 {
 		source = candidates[0].Source
 		for _, candidate := range candidates[1:] {

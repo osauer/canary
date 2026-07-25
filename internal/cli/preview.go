@@ -73,6 +73,6 @@ func PreviewRenderRegime(env *Env, r *rpc.RegimeSnapshotResult) {
 
 // PreviewRenderCanary renders a synthetic canary result with the production
 // text renderer.
-func PreviewRenderCanary(env *Env, r *rpc.CanaryResult) {
+func PreviewRenderCanary(env *Env, r *rpc.StressResult) {
 	renderCanaryText(env, env.Stdout, r)
 }

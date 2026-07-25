@@ -1582,12 +1582,12 @@ func (routeFakeClient) MarketEvents(context.Context, rpc.MarketEventsParams) (*r
 	return &rpc.MarketEventsResult{Kind: rpc.MarketEventsKind, SchemaVersion: rpc.MarketEventsSchemaVersion, Fingerprint: rpc.Fingerprint{Key: "market-events-1"}}, nil
 }
 
-func (routeFakeClient) Canary(context.Context) (*rpc.CanaryResult, error) {
-	return &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}}, nil
+func (routeFakeClient) Canary(context.Context) (*rpc.StressResult, error) {
+	return &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}}, nil
 }
 
-func (routeFakeClient) CanaryWithRegime(context.Context) (*rpc.CanaryResult, *rpc.RegimeMonitorResult, error) {
-	return &rpc.CanaryResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+func (routeFakeClient) CanaryWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
+	return &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		&rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
 		nil
 }

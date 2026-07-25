@@ -14,11 +14,11 @@ import (
 	"github.com/osauer/ibkr/v2/internal/risk"
 )
 
-// CanaryInput is the pure state input shared by the CLI and MCP tool. It
+// StressInput is the pure state input shared by the CLI and MCP tool. It
 // deliberately consumes existing daemon snapshots instead of adding a second
 // risk-data path: account margin, portfolio exposure, and market regime stay
 // single-source-of-truth.
-type CanaryInput struct {
+type StressInput struct {
 	Account      AccountResult
 	Positions    PositionsResult
 	Regime       RegimeSnapshotResult
@@ -26,16 +26,16 @@ type CanaryInput struct {
 	Now          time.Time
 }
 
-// CanaryResult is the compact scheduled-monitor payload. The canary is
+// StressResult is the compact scheduled-monitor payload. The canary is
 // stateless: it combines current broad-market regime with the current portfolio
 // shape, then emits a fresh action snapshot. Fingerprint is the canonical
 // alert identity for monitors; SourceFingerprints records the classified
 // upstream state the canary consumed.
-type CanaryResult struct {
+type StressResult struct {
 	AsOf               time.Time                `json:"as_of"`
-	SourceAsOf         CanarySourceAsOf         `json:"source_as_of,omitzero"`
+	SourceAsOf         StressSourceAsOf         `json:"source_as_of,omitzero"`
 	Fingerprint        Fingerprint              `json:"fingerprint"`
-	SourceFingerprints CanarySourceFingerprints `json:"source_fingerprints,omitzero"`
+	SourceFingerprints StressSourceFingerprints `json:"source_fingerprints,omitzero"`
 	SourceHealth       []SourceHealth           `json:"source_health,omitempty"`
 	Policy             string                   `json:"policy,omitempty"`
 	PolicyProfile      string                   `json:"policy_profile,omitempty"`
@@ -60,10 +60,10 @@ type CanaryResult struct {
 	Summary                string                  `json:"summary"`
 	PrimaryDrivers         []risk.SignalID         `json:"primary_drivers,omitempty"`
 	Signals                []risk.Signal           `json:"signals,omitempty"`
-	Rows                   []CanaryRow             `json:"rows"`
-	Portfolio              CanaryPortfolioSummary  `json:"portfolio"`
-	Market                 CanaryMarketSummary     `json:"market"`
-	MarketIndicators       []CanaryMarketIndicator `json:"market_indicators,omitempty"`
+	Rows                   []StressRow             `json:"rows"`
+	Portfolio              StressPortfolioSummary  `json:"portfolio"`
+	Market                 StressMarketSummary     `json:"market"`
+	MarketIndicators       []StressMarketIndicator `json:"market_indicators,omitempty"`
 	Warnings               []string                `json:"warnings,omitempty"`
 	NotExecution           string                  `json:"not_execution"`
 	// EstablishedAlertProjection is the producer-authored compatibility
@@ -82,10 +82,10 @@ type CanaryResult struct {
 // projection schema consumed by the established Canary monitor.
 const EstablishedAlertProjectionSchemaVersion = "canary-established-alert-v1"
 
-// EstablishedCanaryFingerprintVersion identifies the frozen fingerprint
+// EstablishedStressFingerprintVersion identifies the frozen fingerprint
 // version carried by EstablishedAlertProjection. It remains v1 even when the
 // current Canary result advances its semantic projection.
-const EstablishedCanaryFingerprintVersion = "canary-fp-v1"
+const EstablishedStressFingerprintVersion = "canary-fp-v1"
 
 // EstablishedAlertProjection atomically carries every producer-owned field
 // the pre-shadow Canary monitor used for occurrence identity and delivery-mode
@@ -138,7 +138,7 @@ func ValidateEstablishedAlertProjection(projection EstablishedAlertProjection) e
 }
 
 func validateEstablishedAlertFingerprint(fingerprint Fingerprint) error {
-	if fingerprint.Version != EstablishedCanaryFingerprintVersion {
+	if fingerprint.Version != EstablishedStressFingerprintVersion {
 		return fmt.Errorf("invalid established alert fingerprint version %q", fingerprint.Version)
 	}
 	const prefix = "sha256:"
@@ -242,26 +242,26 @@ func (projection *EstablishedAlertProjection) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CanarySourceAsOf records each source snapshot's observation time. Zero times
+// StressSourceAsOf records each source snapshot's observation time. Zero times
 // mean the source timestamp is unavailable, not current.
-type CanarySourceAsOf struct {
+type StressSourceAsOf struct {
 	Account      time.Time `json:"account,omitzero"`
 	Positions    time.Time `json:"positions,omitzero"`
 	Regime       time.Time `json:"regime,omitzero"`
 	MarketEvents time.Time `json:"market_events,omitzero"`
 }
 
-// CanarySourceFingerprints carries optional semantic source identities. Nil
+// StressSourceFingerprints carries optional semantic source identities. Nil
 // means the source did not provide an identity.
-type CanarySourceFingerprints struct {
+type StressSourceFingerprints struct {
 	Account      *Fingerprint `json:"account,omitempty"`
 	Positions    *Fingerprint `json:"positions,omitempty"`
 	Regime       *Fingerprint `json:"regime,omitempty"`
 	MarketEvents *Fingerprint `json:"market_events,omitempty"`
 }
 
-// CanaryRow is one bounded, daemon-derived advisory finding.
-type CanaryRow struct {
+// StressRow is one bounded, daemon-derived advisory finding.
+type StressRow struct {
 	Title     string               `json:"title"`
 	Direction risk.SignalDirection `json:"direction,omitempty"`
 	Severity  risk.SignalSeverity  `json:"severity"`
@@ -269,9 +269,9 @@ type CanaryRow struct {
 	Evidence  string               `json:"evidence,omitempty"`
 }
 
-// CanaryMarketIndicator is a display-ready market observation; its status is
+// StressMarketIndicator is a display-ready market observation; its status is
 // advisory evidence rather than execution authority.
-type CanaryMarketIndicator struct {
+type StressMarketIndicator struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"` // green | amber | red | context | n/a
 	AsOf    string `json:"as_of,omitempty"`
@@ -279,9 +279,9 @@ type CanaryMarketIndicator struct {
 	Comment string `json:"comment,omitempty"`
 }
 
-// CanaryPortfolioSummary is a redacted portfolio-risk projection. Pointer
+// StressPortfolioSummary is a redacted portfolio-risk projection. Pointer
 // metrics distinguish unavailable observations from measured zero values.
-type CanaryPortfolioSummary struct {
+type StressPortfolioSummary struct {
 	BaseCurrency         string                     `json:"base_currency,omitempty"`
 	NetLiquidation       float64                    `json:"net_liquidation,omitempty"`
 	CushionPct           *float64                   `json:"cushion_pct,omitempty"`
@@ -296,13 +296,13 @@ type CanaryPortfolioSummary struct {
 	DailyPnLPct          *float64                   `json:"daily_pnl_pct,omitempty"`
 	OptionGreeks         string                     `json:"option_greeks,omitempty"`
 	ProtectionCoverage   *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
-	HeldStress           []CanaryHeldStress         `json:"held_stress,omitempty"`
+	HeldStress           []HeldStress               `json:"held_stress,omitempty"`
 }
 
-// CanaryHeldStress is a bounded, positions-only explanation of stress inside
+// HeldStress is a bounded, positions-only explanation of stress inside
 // material held underlyings. It deliberately avoids option-chain fan-out; all
 // fields come from the existing positions/account snapshot.
-type CanaryHeldStress struct {
+type HeldStress struct {
 	Underlying            string            `json:"underlying"`
 	MaterialReasons       []string          `json:"material_reasons,omitempty"`
 	MarketValuePctNLV     *float64          `json:"market_value_pct_nlv,omitempty"`
@@ -316,9 +316,9 @@ type CanaryHeldStress struct {
 	SignalIDs             []risk.SignalID   `json:"signal_ids,omitempty"`
 }
 
-// CanaryMarketSummary combines regime, tape, and source-quality context used by
+// StressMarketSummary combines regime, tape, and source-quality context used by
 // Canary. Its cluster counts retain rankability and confirmation distinctions.
-type CanaryMarketSummary struct {
+type StressMarketSummary struct {
 	RegimeVerdict string        `json:"regime_verdict,omitempty"`
 	RegimePosture RegimePosture `json:"regime_posture,omitzero"`
 	RedClusters   int           `json:"red_clusters"`
@@ -355,7 +355,7 @@ type CanaryMarketSummary struct {
 	TapeNextOpen      *time.Time `json:"tape_next_open,omitempty"`
 }
 
-// TapeSessionState values shared by CanaryMarketSummary and
+// TapeSessionState values shared by StressMarketSummary and
 // RegimeSnapshotResult. Trading dates keep full direct-tape severity at any
 // hour (pre/post/overnight moves are live prints the tape-shock row exists to
 // catch); closed dates demote frozen tape shocks to observe and bar them from

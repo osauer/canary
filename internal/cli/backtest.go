@@ -99,7 +99,7 @@ type CanaryBacktestRowResult struct {
 	Opportunity        bool                  `json:"opportunity"`
 	RegimeOnlyWatch    bool                  `json:"regime_only_watch"`
 	RegimeOnlyAct      bool                  `json:"regime_only_act"`
-	Canary             *rpc.CanaryResult     `json:"canary,omitempty"`
+	Canary             *rpc.StressResult     `json:"canary,omitempty"`
 }
 
 // CanaryBacktestMetrics summarizes row-level watch and defensive-action
@@ -1284,7 +1284,7 @@ func runOpportunityBacktestWithSlots(observations []OpportunityBacktestObservati
 
 func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestRowResult {
 	input, asOf := canaryBacktestInput(obs)
-	canary := ComputeCanary(input)
+	canary := ComputeStress(input)
 	watch := canaryBacktestDefensiveAtLeast(canary, risk.SeverityWatch)
 	act := canaryBacktestDefensiveAtLeast(canary, risk.SeverityAct)
 	rebalance := canaryBacktestRebalanceAtLeast(canary, risk.SeverityWatch)
@@ -1332,7 +1332,7 @@ func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestR
 	}
 }
 
-func canaryBacktestStage(canary CanaryResult) string {
+func canaryBacktestStage(canary StressResult) string {
 	switch canary.Action {
 	case canaryActionConfirmInputs:
 		return rpc.LifecycleDataQuality
@@ -2135,7 +2135,7 @@ func roundOpportunityMultiple(v float64) float64 {
 	return math.Round(v*10_000) / 10_000
 }
 
-func canaryBacktestInput(obs CanaryBacktestObservation) (CanaryInput, time.Time) {
+func canaryBacktestInput(obs CanaryBacktestObservation) (StressInput, time.Time) {
 	asOf := canaryBacktestAsOf(obs)
 	acct := obs.Account
 	if acct.AsOf.IsZero() {
@@ -2150,7 +2150,7 @@ func canaryBacktestInput(obs CanaryBacktestObservation) (CanaryInput, time.Time)
 		regime.AsOf = asOf
 	}
 	backfillBacktestRegimeComposite(&regime)
-	return CanaryInput{Account: acct, Positions: pos, Regime: regime, Now: asOf}, asOf
+	return StressInput{Account: acct, Positions: pos, Regime: regime, Now: asOf}, asOf
 }
 
 func regimeBacktestInput(obs RegimeBacktestObservation) (rpc.RegimeSnapshotResult, time.Time) {
@@ -2460,14 +2460,14 @@ func backfillBacktestRegimeEligibility(r *rpc.RegimeSnapshotResult) {
 // internal/rpc/regime_policy.go so offline replay uses the same semantics as
 // daemon and rendering adapters.
 
-func canaryBacktestDefensiveAtLeast(res CanaryResult, severity risk.SignalSeverity) bool {
+func canaryBacktestDefensiveAtLeast(res StressResult, severity risk.SignalSeverity) bool {
 	if !severityRankAtLeast(res.Severity, severity) {
 		return false
 	}
 	return res.Direction == risk.DirectionDefensive || res.Direction == risk.DirectionMixed
 }
 
-func canaryBacktestRebalanceAtLeast(res CanaryResult, severity risk.SignalSeverity) bool {
+func canaryBacktestRebalanceAtLeast(res StressResult, severity risk.SignalSeverity) bool {
 	if severityRankAtLeast(res.Severity, severity) && res.Direction == risk.DirectionRebalance {
 		return true
 	}

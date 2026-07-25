@@ -248,7 +248,7 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	unavailableAt := base.Add(time.Minute)
 	unavailableCoverage := rpc.AlertCoverage{
 		State: rpc.AlertCoverageUnavailable, Freshness: rpc.AlertCoverageUnknown, AsOf: unavailableAt,
-		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary}, CoveredSources: []rpc.AlertSource{},
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{},
 	}
 	unavailable, err := registry.Apply(t.Context(), alertRegistryEvaluation(unavailableAt, unavailableCoverage))
 	if err != nil {
@@ -266,8 +266,8 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	partialNegative.ProducerDecisionReason = "classified_clear"
 	partialCoverage := rpc.AlertCoverage{
 		State: rpc.AlertCoveragePartial, Freshness: rpc.AlertCoverageCurrent, AsOf: partialAt,
-		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary, rpc.AlertSourceRegime},
-		CoveredSources:  []rpc.AlertSource{rpc.AlertSourceCanary},
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceRegime},
+		CoveredSources:  []rpc.AlertSource{rpc.AlertSourceStress},
 	}
 	partial, err := registry.Apply(t.Context(), alertRegistryEvaluation(partialAt, partialCoverage, partialNegative))
 	if err != nil {
@@ -283,7 +283,7 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	staleNegative.EvidenceFingerprint = alertRegistryFingerprint("stale-negative")
 	staleCoverage := rpc.AlertCoverage{
 		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageStale, AsOf: staleAt,
-		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary}, CoveredSources: []rpc.AlertSource{rpc.AlertSourceCanary},
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{rpc.AlertSourceStress},
 	}
 	stale, err := registry.Apply(t.Context(), alertRegistryEvaluation(staleAt, staleCoverage, staleNegative))
 	if err != nil {
@@ -341,7 +341,7 @@ func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregateParti
 	canaryNegative.ProducerDecisionReason = "classified_clear"
 	partial := rpc.AlertCoverage{
 		State: rpc.AlertCoveragePartial, Freshness: rpc.AlertCoverageCurrent, AsOf: partialAt,
-		ExpectedSources: expected, CoveredSources: []rpc.AlertSource{rpc.AlertSourceCanary},
+		ExpectedSources: expected, CoveredSources: []rpc.AlertSource{rpc.AlertSourceStress},
 	}
 	recovered, err := registry.Apply(t.Context(), alertRegistryEvaluation(partialAt, partial, canaryNegative))
 	if err != nil {
@@ -393,7 +393,7 @@ func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregateParti
 	for _, candidate := range mixed.Candidates {
 		states[candidate.Source] = candidate.State
 	}
-	if states[rpc.AlertSourceCanary] != rpc.AlertEpisodeRecovered || states[rpc.AlertSourceRegime] != rpc.AlertEpisodeOpen {
+	if states[rpc.AlertSourceStress] != rpc.AlertEpisodeRecovered || states[rpc.AlertSourceRegime] != rpc.AlertEpisodeOpen {
 		t.Fatalf("per-source recovery states=%v", states)
 	}
 }
@@ -660,13 +660,13 @@ func openAlertRegistryTestStore(t *testing.T, path string) *corestore.Store {
 
 func alertRegistryObservation(t *testing.T, identity string, at time.Time, active bool) alertEpisodeObservation {
 	t.Helper()
-	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceCanary, rpc.AlertKindPortfolioRisk, identity)
+	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return alertEpisodeObservation{
-		EpisodeKey: episode, Source: rpc.AlertSourceCanary, Kind: rpc.AlertKindPortfolioRisk,
-		PresentationCode: rpc.AlertPresentationCanaryPortfolioStress, Active: active, Severity: rpc.AlertSeverityWatch,
+		EpisodeKey: episode, Source: rpc.AlertSourceStress, Kind: rpc.AlertKindPortfolioRisk,
+		PresentationCode: rpc.AlertPresentationPortfolioStress, Active: active, Severity: rpc.AlertSeverityWatch,
 		EvidenceFingerprint: alertRegistryFingerprint("evidence-" + identity), EvidenceHealth: rpc.AlertEvidenceCurrent,
 		Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: at, ObservedAt: at,
 		PolicyFingerprint: alertRegistryFingerprint("policy-v1"), ProducerDecisionReason: "classified_active",
@@ -691,13 +691,13 @@ func alertRegistryAuthority() string {
 func alertRegistryCompleteCoverage(at time.Time) rpc.AlertCoverage {
 	return rpc.AlertCoverage{
 		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent, AsOf: at,
-		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceCanary}, CoveredSources: []rpc.AlertSource{rpc.AlertSourceCanary},
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{rpc.AlertSourceStress},
 	}
 }
 
 func alertRegistryExpectedSources() []rpc.AlertSource {
 	return []rpc.AlertSource{
-		rpc.AlertSourceCanary,
+		rpc.AlertSourceStress,
 		rpc.AlertSourceRegime,
 		rpc.AlertSourceRulebook,
 		rpc.AlertSourceRiskPolicy,
