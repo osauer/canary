@@ -33,7 +33,7 @@ type AlertSnapshotAuthority interface {
 type Service struct {
 	client      daemonclient.Client
 	pollEvery   time.Duration
-	canaryEvery time.Duration
+	stressEvery time.Duration
 	now         func() time.Time
 
 	pollMu         sync.Mutex
@@ -43,7 +43,7 @@ type Service struct {
 	hashes         map[string]string
 	lastEventAt    map[string]time.Time
 	subs           map[chan Event]struct{}
-	nextCanary     time.Time
+	nextStress     time.Time
 	nextNudges     time.Time
 	alertAuthority AlertSnapshotAuthority
 }
@@ -61,7 +61,7 @@ type Snapshot struct {
 	Quotes          *MarketQuotes               `json:"market_quotes,omitempty"`
 	MarketEvents    *rpc.MarketEventsResult     `json:"market_events,omitempty"`
 	Regime          *rpc.RegimeMonitorResult    `json:"regime,omitempty"`
-	Canary          *rpc.StressResult           `json:"canary,omitempty"`
+	Stress          *rpc.StressResult           `json:"stress,omitempty"`
 	AlertCandidates *rpc.AlertCandidateSnapshot `json:"-"`
 	Rules           *rpc.RulesResult            `json:"rules,omitempty"`
 	Brief           *rpc.BriefResult            `json:"brief,omitempty"`
@@ -165,7 +165,7 @@ const (
 )
 
 var (
-	errCanaryResultUnavailable    = errors.New("canary result unavailable")
+	errStressResultUnavailable    = errors.New("stress result unavailable")
 	errRegimeResultUnavailable    = errors.New("regime result unavailable")
 	errRulesResultUnavailable     = errors.New("rules result unavailable")
 	errBriefResultUnavailable     = errors.New("brief result unavailable")
@@ -190,24 +190,24 @@ type Diagnostics struct {
 
 // New constructs an unstarted live service. Non-positive intervals select the
 // default poll cadences.
-func New(client daemonclient.Client, pollEvery, canaryEvery time.Duration) *Service {
+func New(client daemonclient.Client, pollEvery, stressEvery time.Duration) *Service {
 	if pollEvery <= 0 {
 		pollEvery = 5 * time.Second
 	}
-	if canaryEvery <= 0 {
-		canaryEvery = time.Minute
+	if stressEvery <= 0 {
+		stressEvery = time.Minute
 	}
 	return &Service{
 		client:      client,
 		pollEvery:   pollEvery,
-		canaryEvery: canaryEvery,
+		stressEvery: stressEvery,
 		now:         time.Now,
 		hashes:      map[string]string{},
 		lastEventAt: map[string]time.Time{},
 		subs:        map[chan Event]struct{}{},
 		snapshot: Snapshot{Sources: map[string]SourceMeta{
 			"nudges":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
-			"canary":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
+			"stress":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
 			"regime":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
 			"alert_candidates": {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
 			"rules":            {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
@@ -368,7 +368,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 	if snap.Sources == nil {
 		snap.Sources = map[string]SourceMeta{}
 	}
-	pollCanary := s.nextCanary.IsZero() || !now.Before(s.nextCanary)
+	pollStress := s.nextStress.IsZero() || !now.Before(s.nextStress)
 	pollNudges := s.nextNudges.IsZero() || !now.Before(s.nextNudges)
 	s.mu.Unlock()
 
@@ -514,20 +514,20 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 		s.nextNudges = now.Add(nudgesPollEvery)
 		s.mu.Unlock()
 	}
-	if pollCanary {
-		canary, regime, err := s.client.CanaryWithRegime(ctx)
-		if err != nil || canary == nil || regime == nil {
-			snap.Sources["canary"] = sourceUnavailable(snap.Sources["canary"], now)
+	if pollStress {
+		stress, regime, err := s.client.StressWithRegime(ctx)
+		if err != nil || stress == nil || regime == nil {
+			snap.Sources["stress"] = sourceUnavailable(snap.Sources["stress"], now)
 			snap.Sources["regime"] = sourceUnavailable(snap.Sources["regime"], now)
 			switch {
 			case err != nil:
-				errors = append(errors, sourceErr("canary", err, now))
+				errors = append(errors, sourceErr("stress", err, now))
 				if strings.HasPrefix(err.Error(), "regime:") {
 					errors = append(errors, sourceErr("regime", err, now))
 				}
 			default:
-				if canary == nil {
-					errors = append(errors, sourceErr("canary", errCanaryResultUnavailable, now))
+				if stress == nil {
+					errors = append(errors, sourceErr("stress", errStressResultUnavailable, now))
 				}
 				if regime == nil {
 					errors = append(errors, sourceErr("regime", errRegimeResultUnavailable, now))
@@ -539,13 +539,13 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			if s.changed("regime", regime) {
 				events = append(events, Event{Type: "regime", Data: regime})
 			}
-			snap.Canary = canary
-			snap.Sources["canary"] = sourceCurrent(now)
-			if s.changed("canary", canary) {
-				events = append(events, Event{Type: "canary", Data: canary})
+			snap.Stress = stress
+			snap.Sources["stress"] = sourceCurrent(now)
+			if s.changed("stress", stress) {
+				events = append(events, Event{Type: "stress", Data: stress})
 			}
 		}
-		// Rules ride the canary cadence: same inputs (positions/account),
+		// Rules ride the stress cadence: same inputs (positions/account),
 		// same daily-discipline freshness needs, no extra poll knob. Observe
 		// them before reading the source-neutral snapshot so the snapshot
 		// includes this cycle's complete unfiltered Rulebook evaluation.
@@ -566,7 +566,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 		// not run a parallel order-mismatch watch; the composed candidate
 		// snapshot below is the only alert input.
 		_, _ = s.client.OrdersOpen(ctx, rpc.OrdersOpenParams{})
-		// Canary, Rulebook, and Order Integrity have now all observed this
+		// Stress, Rulebook, and Order Integrity have now all observed this
 		// cycle. Read their composed source-neutral snapshot without a second
 		// broker evaluation or a full-cycle lag.
 		if alertClient, ok := s.client.(alertCandidateClient); ok {
@@ -581,7 +581,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 				errors = append(errors, sourceErr(errorSource, err, now))
 			}
 		}
-		// The brief composes canary and other daily-discipline inputs, so it
+		// The brief composes stress and other daily-discipline inputs, so it
 		// shares this one-minute cadence instead of the five-second app poll.
 		if brief, err := s.client.Brief(ctx); err != nil {
 			errors = append(errors, sourceErr("brief", err, now))
@@ -597,7 +597,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 		s.mu.Lock()
-		s.nextCanary = now.Add(s.canaryEvery)
+		s.nextStress = now.Add(s.stressEvery)
 		s.mu.Unlock()
 	}
 
@@ -632,7 +632,7 @@ func (s *Service) pollAlertCandidates(ctx context.Context, client alertCandidate
 	authority := s.alertAuthority
 	s.mu.Unlock()
 
-	current, source, observeErr := observeAlertCandidates(ctx, snapshot, err, authority, now, s.canaryEvery, prior, priorSource)
+	current, source, observeErr := observeAlertCandidates(ctx, snapshot, err, authority, now, s.stressEvery, prior, priorSource)
 	s.mu.Lock()
 	s.snapshot.AlertCandidates = cloneAlertCandidateSnapshot(current)
 	s.snapshot.Sources["alert_candidates"] = source
@@ -1339,9 +1339,9 @@ func (s *Service) alertFreshnessDelay(now time.Time) time.Duration {
 	source := s.snapshot.Sources["alert_candidates"]
 	s.mu.Unlock()
 	if source.State != SourceStateCurrent || source.LastSuccessAt.IsZero() {
-		return s.canaryEvery
+		return s.stressEvery
 	}
-	delay := source.LastSuccessAt.Add(s.canaryEvery).Add(time.Nanosecond).Sub(now)
+	delay := source.LastSuccessAt.Add(s.stressEvery).Add(time.Nanosecond).Sub(now)
 	if delay < time.Millisecond {
 		return time.Millisecond
 	}
@@ -1356,7 +1356,7 @@ func (s *Service) expireAlertSnapshot(now time.Time) {
 	priorSource := s.snapshot.Sources["alert_candidates"]
 	authority := s.alertAuthority
 	s.mu.Unlock()
-	if prior == nil || priorSource.State != SourceStateCurrent || priorSource.LastSuccessAt.IsZero() || now.Sub(priorSource.LastSuccessAt) <= s.canaryEvery {
+	if prior == nil || priorSource.State != SourceStateCurrent || priorSource.LastSuccessAt.IsZero() || now.Sub(priorSource.LastSuccessAt) <= s.stressEvery {
 		return
 	}
 
@@ -1401,8 +1401,8 @@ func (s *Service) Snapshot() Snapshot {
 		out.Sources[name] = source
 	}
 	ageSource("nudges", nudgesPollEvery)
-	for _, name := range []string{"canary", "regime", "rules", "brief"} {
-		ageSource(name, s.canaryEvery)
+	for _, name := range []string{"stress", "regime", "rules", "brief"} {
+		ageSource(name, s.stressEvery)
 	}
 	return out
 }

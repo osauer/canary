@@ -2,8 +2,8 @@ import { enablePush, renderAlertMode, renderGovernance, sendGovernanceCutoverRev
 import { renderAlerts, renderSelectedAlert, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard, setupBriefVisibility } from "./brief.js";
-import { canaryStageLabel, canarySummaryText, firstClause, renderCanaryDetail, renderCanaryStatus, renderCanaryTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./canary.js";
-import { ensureRegimeCanaryExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeCanaryExpansion, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
+import { stressStageLabel, stressSummaryText, firstClause, renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
+import { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeStressExpansion, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
 import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.js";
 import { renderOpenOrders } from "./orders.js";
@@ -32,11 +32,11 @@ function installSmokeHooks() {
         ...snapshotPatch.positions,
         portfolio: snapshotPatch.positions.portfolio ? { ...(current.positions?.portfolio || {}), ...snapshotPatch.positions.portfolio } : current.positions?.portfolio,
       } : current.positions,
-      canary: snapshotPatch.canary ? {
-        ...(current.canary || {}),
-        ...snapshotPatch.canary,
-        portfolio: snapshotPatch.canary.portfolio ? { ...(current.canary?.portfolio || {}), ...snapshotPatch.canary.portfolio } : current.canary?.portfolio,
-      } : current.canary,
+      stress: snapshotPatch.stress ? {
+        ...(current.stress || {}),
+        ...snapshotPatch.stress,
+        portfolio: snapshotPatch.stress.portfolio ? { ...(current.stress?.portfolio || {}), ...snapshotPatch.stress.portfolio } : current.stress?.portfolio,
+      } : current.stress,
       proposals: snapshotPatch.proposals ? { ...(current.proposals || {}), ...snapshotPatch.proposals } : current.proposals,
       opportunities: snapshotPatch.opportunities ? { ...(current.opportunities || {}), ...snapshotPatch.opportunities } : current.opportunities,
       sources: snapshotPatch.sources ? {
@@ -65,7 +65,7 @@ function installSmokeHooks() {
     };
     if (Object.prototype.hasOwnProperty.call(patch, "governance")) state.governance = governance;
     if (Object.prototype.hasOwnProperty.call(patch, "governanceRefreshSucceeded")) state.governanceRefreshSucceeded = governanceRefreshSucceeded;
-    for (const key of ["protectionOpen", "portfolioDetailOpen", "canaryDetailOpen", "opportunitiesOpen"]) {
+    for (const key of ["protectionOpen", "portfolioDetailOpen", "stressDetailOpen", "opportunitiesOpen"]) {
       if (Object.prototype.hasOwnProperty.call(ui, key)) state[key] = Boolean(ui[key]);
     }
     renderAll();
@@ -121,7 +121,7 @@ function setupLiveRefreshLoop() {
     renderSyncStrip(snap);
     renderBriefCard(snap);
     if (state.snapshot) {
-      renderAccountPanel(snap.account || {}, snap.positions || {}, snap.canary || {});
+      renderAccountPanel(snap.account || {}, snap.positions || {}, snap.stress || {});
       renderUnderlyings(snap.positions || {}, snap.account || {}, snap.market_events || {});
       renderPortfolioRisk(snap.positions || {}, snap.account || {});
       renderProtectionPanel(snap.proposals || {}, snap.auto_trade || {}, snap.market_events || {});
@@ -135,36 +135,36 @@ function renderAll() {
   const snap = state.snapshot || {};
   const account = snap.account || {};
   const positions = snap.positions || {};
-  const canary = snap.canary || {};
+  const stress = snap.stress || {};
   syncAccountPrivacyState();
-  ensureRegimeCanaryExpansion(canary);
+  ensureRegimeStressExpansion(stress);
   renderBriefCard(snap);
   renderTopbar(snap);
-  renderAccountPanel(account, positions, canary);
+  renderAccountPanel(account, positions, stress);
   renderUnderlyings(positions, account, snap.market_events || {});
   renderSensitiveText("cushion", typeof account.cushion === "number" ? pct(account.cushion * 100) : "--", typeof account.cushion === "number");
   renderFreshnessTimestamp("positionsAsOf", positions.as_of, { staleMinutes: 15, quietWhenFresh: true });
   $("stockCount").textContent = (positions.stocks || []).length;
   $("optionCount").textContent = (positions.options || []).length;
   $("baseCurrency").textContent = account.base_currency || positions.portfolio?.base_currency || "--";
-  $("canarySeverity").textContent = labelize(canary.severity || "--");
-  $("canaryAction").textContent = canaryStageLabel(canary);
+  $("canarySeverity").textContent = labelize(stress.severity || "--");
+  $("canaryAction").textContent = stressStageLabel(stress);
   // The hero clamps to 2 lines; cutting at the first clause reads cleaner
   // than a mid-word ellipsis, and the full text stays one tap away in detail.
-  const canarySummaryFull = canarySummaryText(canary, snap);
-  const canarySummaryEl = $("canarySummary");
-  canarySummaryEl.textContent = firstClause(canarySummaryFull);
-  canarySummaryEl.title = canarySummaryFull;
-  renderCanaryStatus(canary);
+  const stressSummaryFull = stressSummaryText(stress, snap);
+  const stressSummaryEl = $("canarySummary");
+  stressSummaryEl.textContent = firstClause(stressSummaryFull);
+  stressSummaryEl.title = stressSummaryFull;
+  renderStressStatus(stress);
   renderRulesCard(snap.rules);
-  renderCanaryTimestamp(canary);
+  renderStressTimestamp(stress);
   renderSelectedAlert();
   renderProtectionPanel(snap.proposals || {}, snap.auto_trade || {}, snap.market_events || {});
   renderOpportunitiesPanel(snap.opportunities || {});
   renderOpenOrders();
   renderMarketContext(snap);
   renderRegimePanel(snap);
-  renderCanaryDetail(canary, snap);
+  renderStressDetail(stress, snap);
   renderPortfolioRisk(positions, account);
   renderSourceBanners(snap);
   renderAlertMode();
@@ -189,14 +189,14 @@ $("accountPrivacyToggle").addEventListener("click", () => {
 });
 $("accountLargestExposureToggle").addEventListener("click", () => {
   state.accountExposureOpen = !state.accountExposureOpen;
-  renderAccountPanel(state.snapshot?.account || {}, state.snapshot?.positions || {}, state.snapshot?.canary || {});
+  renderAccountPanel(state.snapshot?.account || {}, state.snapshot?.positions || {}, state.snapshot?.stress || {});
 });
 $("accountOverviewToggle").addEventListener("click", () => {
   setAccountOverviewExpansion(!state.accountOverviewOpen);
 });
 $("accountPanel").addEventListener("click", (event) => handleAccountPanelTap(event));
 $("canaryDetailToggle").addEventListener("click", () => {
-  setRegimeCanaryExpansion("canary", !state.canaryDetailOpen);
+  setRegimeStressExpansion("stress", !state.stressDetailOpen);
 });
 $("canaryRulesToggle").addEventListener("click", () => {
   state.rulesDetailOpen = !state.rulesDetailOpen;
@@ -230,13 +230,13 @@ $("clearSelectedAlertButton").addEventListener("click", () => {
   renderSelectedAlert();
 });
   $("regimeDetailToggle").addEventListener("click", () => {
-  setRegimeCanaryExpansion("regime", !state.regimeDetailOpen);
+  setRegimeStressExpansion("regime", !state.regimeDetailOpen);
 });
 $("regimeSummaryCard").addEventListener("click", (event) => {
   handleExpandablePanelTap(event, "regime");
 });
 $("canaryHero").addEventListener("click", (event) => {
-  handleExpandablePanelTap(event, "canary");
+  handleExpandablePanelTap(event, "stress");
 });
 $("underlyingDetailToggle").addEventListener("click", () => {
   setUnderlyingExpansion(!state.underlyingDetailOpen);

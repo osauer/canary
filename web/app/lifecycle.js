@@ -106,7 +106,7 @@ function connectEvents() {
   state.eventSource?.close();
   const es = new EventSource("/api/events", { withCredentials: true });
   state.eventSource = es;
-  for (const type of ["snapshot", "status", "market_calendar", "account", "positions", "market_events", "market_quotes", "trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "canary", "rules", "brief", "nudges", "alerts"]) {
+  for (const type of ["snapshot", "status", "market_calendar", "account", "positions", "market_events", "market_quotes", "trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "stress", "rules", "brief", "nudges", "alerts"]) {
     es.addEventListener(type, (event) => {
       if (type === "alerts") {
         ingestAlertsEvent(event.data);
@@ -135,8 +135,8 @@ function connectEvents() {
       state.lastEventAt = Date.now();
       setConnection("Connected", true);
       renderAll();
-      if (["snapshot", "canary", "nudges"].includes(type)) handleAttentionContextChange();
-      if (type === "canary") {
+      if (["snapshot", "stress", "nudges"].includes(type)) handleAttentionContextChange();
+      if (type === "stress") {
         setTimeout(refreshAlerts, 500);
       }
       if (type === "nudges" && state.authenticated) {

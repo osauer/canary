@@ -38,7 +38,7 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 			"TLT": {Symbol: "TLT", Price: new(92.0), ChangePct: new(-0.1), DataType: rpc.MarketDataLive},
 		},
 		regime:       &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}, Composite: rpc.RegimeComposite{Verdict: "Stress signal present", ClusterRedCount: 1, ClusterRankedCount: 6}},
-		canary:       &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}, Severity: risk.SeverityWatch, Action: "watch"},
+		stress:       &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}, Severity: risk.SeverityWatch, Action: "watch"},
 		brief:        &rpc.BriefResult{BriefFingerprint: "brief-1"},
 		marketEvents: &rpc.MarketEventsResult{Kind: rpc.MarketEventsKind, SchemaVersion: rpc.MarketEventsSchemaVersion, Fingerprint: rpc.Fingerprint{Key: "market-events-1"}},
 		trading:      &rpc.TradingStatus{CanPreview: true},
@@ -60,8 +60,8 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 	if snap.Account == nil || snap.Account.BaseCurrency != "USD" {
 		t.Fatalf("account missing from snapshot: %#v", snap.Account)
 	}
-	if snap.Canary == nil || snap.Canary.Fingerprint.Key != "fp-1" {
-		t.Fatalf("canary missing from snapshot: %#v", snap.Canary)
+	if snap.Stress == nil || snap.Stress.Fingerprint.Key != "fp-1" {
+		t.Fatalf("stress missing from snapshot: %#v", snap.Stress)
 	}
 	if snap.Quotes == nil || len(snap.Quotes.Quotes) != 6 || snap.Quotes.Quotes["QQQ"].Symbol != "QQQ" || snap.Quotes.Quotes["TLT"].Symbol != "TLT" {
 		t.Fatalf("market quotes missing from snapshot: %#v", snap.Quotes)
@@ -91,7 +91,7 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 			t.Fatalf("timed out waiting for live events; seen=%v", seen)
 		}
 	}
-	for _, want := range []string{"status", "market_calendar", "account", "positions", "market_events", "market_quotes", "trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "canary", "rules", "brief", "snapshot"} {
+	for _, want := range []string{"status", "market_calendar", "account", "positions", "market_events", "market_quotes", "trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "stress", "rules", "brief", "snapshot"} {
 		if !seen[want] {
 			t.Fatalf("missing event %q; seen=%v", want, seen)
 		}
@@ -105,7 +105,7 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 	}
 }
 
-func TestBriefPollsOnCanaryCadenceWithoutAcknowledging(t *testing.T) {
+func TestBriefPollsOnStressCadenceWithoutAcknowledging(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC)
 	client := &fakeClient{brief: &rpc.BriefResult{BriefFingerprint: "brief-1"}}
@@ -174,7 +174,7 @@ func TestBriefPollErrorKeepsLastGoodSnapshotAndSetsSourceMeta(t *testing.T) {
 func TestCadenceSourcesStartNotObserved(t *testing.T) {
 	t.Parallel()
 	svc := New(&fakeClient{}, 5*time.Second, time.Minute)
-	for _, name := range []string{"canary", "regime", "alert_candidates", "rules", "brief"} {
+	for _, name := range []string{"stress", "regime", "alert_candidates", "rules", "brief"} {
 		source, ok := svc.Snapshot().Sources[name]
 		if !ok {
 			t.Fatalf("source %q missing at startup", name)
@@ -210,11 +210,11 @@ func TestRegimeAuthorityHealthControlsSourceMetaWithoutPollAgeDrift(t *testing.T
 	}
 }
 
-func TestCanaryRegimePollIsAtomicOnFailure(t *testing.T) {
+func TestStressRegimePollIsAtomicOnFailure(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 20, 19, 0, 0, 0, time.UTC)
 	client := &fakeClient{
-		canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary-last-good"}},
+		stress: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "stress-last-good"}},
 		regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-last-good"}},
 		brief:  &rpc.BriefResult{BriefFingerprint: "brief-ready"},
 	}
@@ -222,22 +222,22 @@ func TestCanaryRegimePollIsAtomicOnFailure(t *testing.T) {
 	svc.now = func() time.Time { return now }
 
 	first := svc.PollOnce(t.Context())
-	for _, name := range []string{"canary", "regime"} {
+	for _, name := range []string{"stress", "regime"} {
 		source := first.Sources[name]
 		if source.State != SourceStateCurrent || source.Reason != SourceReasonNone || !source.LastSuccessAt.Equal(now) || source.Error != "" {
 			t.Fatalf("initial source %q=%+v, want current", name, source)
 		}
 	}
 
-	client.canary = &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "must-not-publish"}}
+	client.stress = &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "must-not-publish"}}
 	client.regime = &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "must-not-publish"}}
-	client.canaryErr = errors.New("regime: private transport sentinel")
+	client.stressErr = errors.New("regime: private transport sentinel")
 	now = now.Add(time.Minute)
 	got := svc.PollOnce(t.Context())
-	if got.Canary == nil || got.Canary.Fingerprint.Key != "canary-last-good" || got.Regime == nil || got.Regime.Fingerprint.Key != "regime-last-good" {
-		t.Fatalf("atomic failure replaced last-good pair: canary=%#v regime=%#v", got.Canary, got.Regime)
+	if got.Stress == nil || got.Stress.Fingerprint.Key != "stress-last-good" || got.Regime == nil || got.Regime.Fingerprint.Key != "regime-last-good" {
+		t.Fatalf("atomic failure replaced last-good pair: stress=%#v regime=%#v", got.Stress, got.Regime)
 	}
-	for _, name := range []string{"canary", "regime"} {
+	for _, name := range []string{"stress", "regime"} {
 		source := got.Sources[name]
 		if source.State != SourceStateUnavailable || source.Reason != SourceReasonTransportUnavailable || !source.LastSuccessAt.Equal(now.Add(-time.Minute)) || source.Error != "" {
 			t.Fatalf("failed source %q=%+v, want allowlisted unavailable with retained success", name, source)
@@ -252,35 +252,35 @@ func TestCanaryRegimePollIsAtomicOnFailure(t *testing.T) {
 			t.Fatalf("raw transport error leaked through SourceError: %#v", sourceErr)
 		}
 	}
-	if !seenErrors["canary"] || !seenErrors["regime"] {
-		t.Fatalf("legacy Canary/Regime SourceError attribution was not retained: %#v", got.Errors)
+	if !seenErrors["stress"] || !seenErrors["regime"] {
+		t.Fatalf("legacy stress/regime SourceError attribution was not retained: %#v", got.Errors)
 	}
 }
 
-func TestCanaryRegimeNilSuccessIsUnavailableAndNeverPublishes(t *testing.T) {
+func TestStressRegimeNilSuccessIsUnavailableAndNeverPublishes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name          string
-		canary        *rpc.StressResult
+		stress        *rpc.StressResult
 		regime        *rpc.RegimeMonitorResult
 		missingSource []string
 	}{
-		{name: "nil canary", regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}}, missingSource: []string{"canary"}},
-		{name: "nil regime", canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary"}}, missingSource: []string{"regime"}},
-		{name: "nil pair", missingSource: []string{"canary", "regime"}},
+		{name: "nil stress", regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}}, missingSource: []string{"stress"}},
+		{name: "nil regime", stress: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "stress"}}, missingSource: []string{"regime"}},
+		{name: "nil pair", missingSource: []string{"stress", "regime"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2026, 7, 20, 19, 30, 0, 0, time.UTC)
-			client := &fakeClient{canary: tt.canary, regime: tt.regime, brief: &rpc.BriefResult{BriefFingerprint: "brief-ready"}}
+			client := &fakeClient{stress: tt.stress, regime: tt.regime, brief: &rpc.BriefResult{BriefFingerprint: "brief-ready"}}
 			svc := New(client, 5*time.Second, time.Minute)
 			svc.now = func() time.Time { return now }
 
 			got := svc.PollOnce(t.Context())
-			if got.Canary != nil || got.Regime != nil {
-				t.Fatalf("partial pair was published: canary=%#v regime=%#v", got.Canary, got.Regime)
+			if got.Stress != nil || got.Regime != nil {
+				t.Fatalf("partial pair was published: stress=%#v regime=%#v", got.Stress, got.Regime)
 			}
-			for _, name := range []string{"canary", "regime"} {
+			for _, name := range []string{"stress", "regime"} {
 				source := got.Sources[name]
 				if source.State != SourceStateUnavailable || source.Reason != SourceReasonTransportUnavailable || !source.LastSuccessAt.IsZero() || source.Error != "" {
 					t.Fatalf("source %q=%+v, want cold unavailable", name, source)
@@ -303,7 +303,7 @@ func TestRulesAndBriefFailuresRetainLastGoodAndRecover(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC)
 	client := &fakeClient{
-		canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary"}},
+		stress: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "stress"}},
 		regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}},
 		rules:  &rpc.RulesResult{Enabled: true, Status: "first"},
 		brief:  &rpc.BriefResult{BriefFingerprint: "brief-first"},
@@ -370,7 +370,7 @@ func TestCadenceSourceFreshnessAgesCurrentButNotUnavailable(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 20, 20, 30, 0, 0, time.UTC)
 	client := &fakeClient{
-		canary: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "canary"}},
+		stress: &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "stress"}},
 		regime: &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime"}},
 		rules:  &rpc.RulesResult{Enabled: true, Status: "ok"},
 		brief:  &rpc.BriefResult{BriefFingerprint: "brief"},
@@ -382,32 +382,32 @@ func TestCadenceSourceFreshnessAgesCurrentButNotUnavailable(t *testing.T) {
 
 	now = now.Add(time.Minute + time.Nanosecond)
 	aged := svc.Snapshot()
-	for _, name := range []string{"canary", "regime", "rules", "brief"} {
+	for _, name := range []string{"stress", "regime", "rules", "brief"} {
 		source := aged.Sources[name]
 		if source.State != SourceStateStale || source.Reason != SourceReasonPollStale || !source.LastSuccessAt.Equal(lastSuccess) {
 			t.Fatalf("aged source %q=%+v", name, source)
 		}
 	}
 
-	client.canaryErr = errors.New("transport down")
+	client.stressErr = errors.New("transport down")
 	client.rulesErr = errors.New("transport down")
 	client.briefErr = errors.New("transport down")
 	svc.PollOnce(t.Context())
 	now = now.Add(2 * time.Minute)
 	unavailable := svc.Snapshot()
-	for _, name := range []string{"canary", "regime", "rules", "brief"} {
+	for _, name := range []string{"stress", "regime", "rules", "brief"} {
 		source := unavailable.Sources[name]
 		if source.State != SourceStateUnavailable || source.Reason != SourceReasonTransportUnavailable || !source.LastSuccessAt.Equal(lastSuccess) {
 			t.Fatalf("explicit outage source %q was reclassified by aging: %+v", name, source)
 		}
 	}
 
-	client.canaryErr = nil
+	client.stressErr = nil
 	client.rulesErr = nil
 	client.briefErr = nil
 	svc.PollOnce(t.Context())
 	recovered := svc.Snapshot()
-	for _, name := range []string{"canary", "regime", "rules", "brief"} {
+	for _, name := range []string{"stress", "regime", "rules", "brief"} {
 		source := recovered.Sources[name]
 		if source.State != SourceStateCurrent || source.Reason != SourceReasonNone || !source.LastSuccessAt.Equal(now) {
 			t.Fatalf("recovered source %q=%+v", name, source)
@@ -502,7 +502,7 @@ func TestSnapshotDeepCopiesNudgeContextAndConsumedPercentage(t *testing.T) {
 
 func TestStartPublishesStatusBeforeFullPollCompletes(t *testing.T) {
 	t.Parallel()
-	canaryBlock := make(chan struct{})
+	stressBlock := make(chan struct{})
 	client := &fakeClient{
 		status:      &rpc.HealthResult{Connected: true, GatewayHost: "127.0.0.1", GatewayPort: 7497},
 		calendar:    &rpc.MarketCalendarResult{Market: "us_equity", Session: rpc.MarketSession{State: "regular", IsOpen: true}},
@@ -510,9 +510,9 @@ func TestStartPublishesStatusBeforeFullPollCompletes(t *testing.T) {
 		positions:   &rpc.PositionsResult{Stocks: []rpc.PositionView{}},
 		quotes:      map[string]rpc.Quote{"SPY": {Symbol: "SPY", Price: new(500.0)}},
 		regime:      &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
-		canary:      &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+		stress:      &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		trading:     &rpc.TradingStatus{CanPreview: true},
-		canaryBlock: canaryBlock,
+		stressBlock: stressBlock,
 	}
 	svc := New(client, time.Hour, time.Hour)
 	ch, release := svc.Subscribe()
@@ -525,7 +525,7 @@ func TestStartPublishesStatusBeforeFullPollCompletes(t *testing.T) {
 		close(done)
 	}()
 	defer func() {
-		close(canaryBlock)
+		close(stressBlock)
 		cancel()
 		select {
 		case <-done:
@@ -559,7 +559,7 @@ func TestPollOncePublishesPositionsBeforeMarketQuotesComplete(t *testing.T) {
 		positions:  &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "SAP"}}},
 		quotes:     map[string]rpc.Quote{"SPY": {Symbol: "SPY", Price: new(500.0)}},
 		regime:     &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
-		canary:     &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+		stress:     &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		trading:    &rpc.TradingStatus{CanPreview: true},
 		quoteBlock: quoteBlock,
 	}
@@ -667,7 +667,7 @@ func TestPollOnceIncludesHeldUnderlyingQuotes(t *testing.T) {
 			"AAPL": {Symbol: "AAPL", Price: &aaplPrice, DataType: rpc.MarketDataLive},
 		},
 		regime:  &rpc.RegimeMonitorResult{Fingerprint: rpc.Fingerprint{Key: "regime-1"}},
-		canary:  &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
+		stress:  &rpc.StressResult{Fingerprint: rpc.Fingerprint{Key: "fp-1"}},
 		trading: &rpc.TradingStatus{CanPreview: true},
 	}
 	svc := New(client, time.Minute, time.Minute)
@@ -925,7 +925,7 @@ func TestNudgesExplicitOutageRemainsUnavailableAfterFreshnessBudget(t *testing.T
 	}
 }
 
-func TestAlertCandidatesPollOnCanaryCadenceThroughAuthority(t *testing.T) {
+func TestAlertCandidatesPollOnStressCadenceThroughAuthority(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	store, err := state.Open(t.TempDir())
@@ -980,16 +980,16 @@ func TestAlertCandidatesPollOnCanaryCadenceThroughAuthority(t *testing.T) {
 	now = now.Add(30 * time.Second)
 	service.PollOnce(t.Context())
 	if calls := client.Calls(); calls != 1 {
-		t.Fatalf("alert candidate calls before canary cadence=%d, want 1", calls)
+		t.Fatalf("alert candidate calls before stress cadence=%d, want 1", calls)
 	}
 	now = now.Add(31 * time.Second)
 	service.PollOnce(t.Context())
 	if calls := client.Calls(); calls != 2 {
-		t.Fatalf("alert candidate calls after canary cadence=%d, want 2", calls)
+		t.Fatalf("alert candidate calls after stress cadence=%d, want 2", calls)
 	}
 }
 
-func TestAlertCandidatesPollAfterCurrentCanaryProducerInSameCadence(t *testing.T) {
+func TestAlertCandidatesPollAfterCurrentStressProducerInSameCadence(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 21, 12, 30, 0, 0, time.UTC)
 	store, err := state.Open(t.TempDir())
@@ -997,7 +997,7 @@ func TestAlertCandidatesPollAfterCurrentCanaryProducerInSameCadence(t *testing.T
 		t.Fatal(err)
 	}
 	client := &alertCandidateFakeClient{
-		fakeClient: &fakeClient{canary: &rpc.StressResult{}, regime: &rpc.RegimeMonitorResult{}},
+		fakeClient: &fakeClient{stress: &rpc.StressResult{}, regime: &rpc.RegimeMonitorResult{}},
 		snapshot:   liveAlertSnapshot(now.Add(-time.Minute)),
 	}
 	current := liveAlertCandidate(t, now)
@@ -1010,8 +1010,8 @@ func TestAlertCandidatesPollAfterCurrentCanaryProducerInSameCadence(t *testing.T
 	if got.AlertCandidates == nil || got.AlertCandidates.CurrentState != rpc.AlertSnapshotActive || len(got.AlertCandidates.Candidates) != 1 {
 		t.Fatalf("same-cycle producer snapshot was not ingested: %+v", got.AlertCandidates)
 	}
-	if canaryCalls, alertCalls := client.CanaryCalls(), client.Calls(); canaryCalls != 1 || alertCalls != 1 {
-		t.Fatalf("same-cycle refresh duplicated work: canary=%d alert_snapshot=%d", canaryCalls, alertCalls)
+	if stressCalls, alertCalls := client.StressCalls(), client.Calls(); stressCalls != 1 || alertCalls != 1 {
+		t.Fatalf("same-cycle refresh duplicated work: stress=%d alert_snapshot=%d", stressCalls, alertCalls)
 	}
 	if view := store.AlertDelivery(now); view.CurrentState != rpc.AlertSnapshotActive || len(view.Occurrences) != 1 {
 		t.Fatalf("same-cycle candidate was not persisted: %+v", view)
@@ -1022,7 +1022,7 @@ func TestAlertCandidatePollFollowsAllSameCycleProducers(t *testing.T) {
 	now := time.Date(2026, 7, 21, 12, 45, 0, 0, time.UTC)
 	client := &alertCandidateFakeClient{
 		fakeClient: &fakeClient{
-			canary: &rpc.StressResult{AsOf: now}, regime: &rpc.RegimeMonitorResult{AsOf: now},
+			stress: &rpc.StressResult{AsOf: now}, regime: &rpc.RegimeMonitorResult{AsOf: now},
 			rules: &rpc.RulesResult{AsOf: now, Enabled: true, Status: "ok"},
 		},
 		orders:   &rpc.OrdersOpenResult{AsOf: now, Orders: []rpc.OrderView{}},
@@ -1032,7 +1032,7 @@ func TestAlertCandidatePollFollowsAllSameCycleProducers(t *testing.T) {
 	service.now = func() time.Time { return now }
 
 	service.PollOnce(t.Context())
-	if got, want := strings.Join(client.CallOrder(), ","), "canary,rules,orders_open,alert_candidates"; got != want {
+	if got, want := strings.Join(client.CallOrder(), ","), "stress,rules,orders_open,alert_candidates"; got != want {
 		t.Fatalf("same-cycle producer order=%q, want %q", got, want)
 	}
 }
@@ -1479,8 +1479,8 @@ type fakeClient struct {
 	quotes       map[string]rpc.Quote
 	quoteErrs    map[string]error
 	regime       *rpc.RegimeMonitorResult
-	canary       *rpc.StressResult
-	canaryErr    error
+	stress       *rpc.StressResult
+	stressErr    error
 	rules        *rpc.RulesResult
 	rulesErr     error
 	rulesNil     bool
@@ -1491,7 +1491,7 @@ type fakeClient struct {
 	marketEvents *rpc.MarketEventsResult
 	trading      *rpc.TradingStatus
 
-	canaryBlock <-chan struct{}
+	stressBlock <-chan struct{}
 	quoteBlock  <-chan struct{}
 	quoteMu     sync.Mutex
 	quoteCalls  []rpc.ContractParams
@@ -1520,7 +1520,7 @@ type alertCandidateFakeClient struct {
 	orders       *rpc.OrdersOpenResult
 	err          error
 	calls        int
-	canaryCalls  int
+	stressCalls  int
 	callOrder    []string
 	producerHook func()
 }
@@ -1541,16 +1541,16 @@ func (c *blockingAlertCandidateClient) AlertCandidates(ctx context.Context) (*rp
 	}
 }
 
-func (c *alertCandidateFakeClient) CanaryWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
+func (c *alertCandidateFakeClient) StressWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	c.mu.Lock()
-	c.canaryCalls++
-	c.callOrder = append(c.callOrder, "canary")
+	c.stressCalls++
+	c.callOrder = append(c.callOrder, "stress")
 	hook := c.producerHook
 	c.mu.Unlock()
 	if hook != nil {
 		hook()
 	}
-	return c.fakeClient.CanaryWithRegime(ctx)
+	return c.fakeClient.StressWithRegime(ctx)
 }
 
 func (c *alertCandidateFakeClient) AlertCandidates(context.Context) (*rpc.AlertCandidateSnapshot, error) {
@@ -1601,10 +1601,10 @@ func (c *alertCandidateFakeClient) Calls() int {
 	return c.calls
 }
 
-func (c *alertCandidateFakeClient) CanaryCalls() int {
+func (c *alertCandidateFakeClient) StressCalls() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.canaryCalls
+	return c.stressCalls
 }
 
 func (c *pollOverlapClient) Status(context.Context) (*rpc.HealthResult, error) {
@@ -1691,15 +1691,15 @@ func (c *fakeClient) MarketEvents(context.Context, rpc.MarketEventsParams) (*rpc
 	return c.marketEvents, nil
 }
 
-func (c *fakeClient) Canary(context.Context) (*rpc.StressResult, error) {
-	return c.canary, nil
+func (c *fakeClient) Stress(context.Context) (*rpc.StressResult, error) {
+	return c.stress, nil
 }
 
-func (c *fakeClient) CanaryWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
-	if c.canaryBlock != nil {
-		<-c.canaryBlock
+func (c *fakeClient) StressWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
+	if c.stressBlock != nil {
+		<-c.stressBlock
 	}
-	return c.canary, c.regime, c.canaryErr
+	return c.stress, c.regime, c.stressErr
 }
 
 func (c *fakeClient) Rules(context.Context) (*rpc.RulesResult, error) {

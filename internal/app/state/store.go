@@ -72,9 +72,16 @@ var (
 // Attention kinds identify the two legacy inbox record families sharing the
 // app's durable read cursor.
 const (
-	AttentionKindCanary     = "canary"
+	AttentionKindStress     = "stress"
 	AttentionKindGovernance = "governance"
 )
+
+// legacyStressAlertIDPrefix is the ID prefix the retired portfolio-stress inbox
+// wrote onto its records. It stays "canary-" because it is a read-side
+// predicate over IDs already on disk: nothing mints these records any more, so
+// a renamed prefix would simply stop matching every retained record and quietly
+// disable their fingerprint-mismatch retention rule.
+const legacyStressAlertIDPrefix = "canary-"
 
 // Governance delivery dispositions freeze whether an occurrence was eligible
 // when the app first persisted it.
@@ -91,7 +98,7 @@ const (
 	// Unread records and still-matching records never expire.
 	alertPreviousContextRetention = 14 * 24 * time.Hour
 	// alertMatchStampInterval bounds LastMatchedAt refresh writes: matching
-	// is observed on the canary cadence (about once a minute), but a
+	// is observed on the stress cadence (about once a minute), but a
 	// 14-day retention only needs hourly stamp granularity.
 	alertMatchStampInterval   = time.Hour
 	defaultGovernanceMaxItems = 4096
@@ -206,8 +213,8 @@ type AlertRecord struct {
 	Title       string    `json:"title"`
 	Body        string    `json:"body"`
 	CreatedAt   time.Time `json:"created_at"`
-	// LastMatchedAt is refreshed while an observed canary still matches this
-	// record's context (fingerprint for canary-source records, account/mode
+	// LastMatchedAt is refreshed while an observed stress result still matches this
+	// record's context (fingerprint for stress-source records, account/mode
 	// for all). Previous-context expiry keys on it; records from before the
 	// stamp existed fall back to CreatedAt.
 	LastMatchedAt time.Time `json:"last_matched_at,omitzero"`
@@ -505,7 +512,7 @@ func (s *Store) load() error {
 
 	// Decode the top-level object a second time without alert_delivery. This
 	// keeps a failure in the optional typed ledger from making the legacy
-	// Canary authority unavailable, while every legacy field still uses its
+	// stress authority unavailable, while every legacy field still uses its
 	// normal typed decoder and remains fatal on corruption.
 	rawAlertDelivery := append(json.RawMessage(nil), topLevel["alert_delivery"]...)
 	delete(topLevel, "alert_delivery")
@@ -596,7 +603,7 @@ func (s *Store) attentionLocked() Attention {
 	entries := make([]attentionEntry, 0)
 	for _, record := range s.data.AlertHistory {
 		if record.AttentionSeq > s.data.AttentionReadThroughSeq && record.AttentionSeq <= s.data.AttentionHighWaterSeq {
-			entries = append(entries, attentionEntry{seq: record.AttentionSeq, ref: AttentionRef{Kind: AttentionKindCanary, ID: record.ID}})
+			entries = append(entries, attentionEntry{seq: record.AttentionSeq, ref: AttentionRef{Kind: AttentionKindStress, ID: record.ID}})
 		}
 	}
 	for _, occurrence := range s.data.GovernanceOccurrences {
@@ -677,7 +684,7 @@ func (s *Store) validateAttentionState() error {
 		return nil
 	}
 	for _, record := range s.data.AlertHistory {
-		if err := validate(record.AttentionSeq, AttentionRef{Kind: AttentionKindCanary, ID: record.ID}); err != nil {
+		if err := validate(record.AttentionSeq, AttentionRef{Kind: AttentionKindStress, ID: record.ID}); err != nil {
 			return err
 		}
 	}
@@ -1026,7 +1033,7 @@ func (s *Store) PushSubscriptions() []PushSubscription {
 }
 
 // ActivePushSubscriptions returns subscriptions only for current, non-revoked
-// paired devices. Governance delivery deliberately does not inherit Canary's
+// paired devices. Governance delivery deliberately does not inherit the legacy stress inbox's
 // looser historical subscription iteration.
 func (s *Store) ActivePushSubscriptions() []PushSubscription {
 	s.mu.Lock()
@@ -1989,7 +1996,7 @@ func (s *Store) RecordAlert(rec AlertRecord) error {
 	return s.recordAlertLocked(rec)
 }
 
-// RecordAlertIfNew atomically deduplicates a semantic Canary occurrence and
+// RecordAlertIfNew atomically deduplicates a semantic portfolio-stress occurrence and
 // records its durable inbox row under the same store transaction.
 func (s *Store) RecordAlertIfNew(rec AlertRecord) (bool, error) {
 	if strings.TrimSpace(rec.Fingerprint) == "" {
@@ -2091,11 +2098,11 @@ func (s *Store) ClearAlertHistory() (int, error) {
 // CompactAlertHistory refreshes the last-matched stamp on records that still
 // match the observed context and drops read records whose context died more
 // than the retention window ago. Matching mirrors the SPA's staleness rule:
-// only a positive mismatch (a different live canary fingerprint for a
-// canary-source record, or a different stated account/mode) marks a record
+// only a positive mismatch (a different live stress fingerprint for a
+// stress-source record, or a different stated account/mode) marks a record
 // previous-context; unknown context never expires anything. Unread records
 // never expire — the operator sees evidence before the store forgets it.
-func (s *Store) CompactAlertHistory(canaryFingerprint, account, mode string, now time.Time) error {
+func (s *Store) CompactAlertHistory(stressFingerprint, account, mode string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now = now.UTC()
@@ -2103,7 +2110,7 @@ func (s *Store) CompactAlertHistory(canaryFingerprint, account, mode string, now
 	changed := false
 	retained := make([]AlertRecord, 0, len(s.data.AlertHistory))
 	for _, rec := range s.data.AlertHistory {
-		if alertRecordMatchesContext(rec, canaryFingerprint, account, mode) {
+		if alertRecordMatchesContext(rec, stressFingerprint, account, mode) {
 			if rec.LastMatchedAt.IsZero() || now.Sub(rec.LastMatchedAt) >= alertMatchStampInterval {
 				rec.LastMatchedAt = now
 				changed = true
@@ -2134,8 +2141,8 @@ func (s *Store) CompactAlertHistory(canaryFingerprint, account, mode string, now
 	return nil
 }
 
-func alertRecordMatchesContext(rec AlertRecord, canaryFingerprint, account, mode string) bool {
-	if strings.HasPrefix(rec.ID, "canary-") && rec.Fingerprint != "" && canaryFingerprint != "" && rec.Fingerprint != canaryFingerprint {
+func alertRecordMatchesContext(rec AlertRecord, stressFingerprint, account, mode string) bool {
+	if strings.HasPrefix(rec.ID, legacyStressAlertIDPrefix) && rec.Fingerprint != "" && stressFingerprint != "" && rec.Fingerprint != stressFingerprint {
 		return false
 	}
 	if rec.Account != "" && account != "" && rec.Account != account {

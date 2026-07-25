@@ -24,8 +24,8 @@ type Client interface {
 	Quote(context.Context, rpc.ContractParams) (*rpc.Quote, error)
 	StreamQuote(context.Context, rpc.ContractParams, func(rpc.Frame) error) error
 	MarketEvents(context.Context, rpc.MarketEventsParams) (*rpc.MarketEventsResult, error)
-	Canary(context.Context) (*rpc.StressResult, error)
-	CanaryWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error)
+	Stress(context.Context) (*rpc.StressResult, error)
+	StressWithRegime(context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error)
 	Rules(context.Context) (*rpc.RulesResult, error)
 	Brief(context.Context) (*rpc.BriefResult, error)
 	NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResult, error)
@@ -172,8 +172,8 @@ func (c Real) MarketEvents(ctx context.Context, params rpc.MarketEventsParams) (
 	return &out, nil
 }
 
-// Canary fetches the daemon-authored Canary result over one connection.
-func (c Real) Canary(ctx context.Context) (*rpc.StressResult, error) {
+// Stress fetches the daemon-authored portfolio-stress result over one connection.
+func (c Real) Stress(ctx context.Context) (*rpc.StressResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return nil, err
@@ -186,20 +186,20 @@ func (c Real) Canary(ctx context.Context) (*rpc.StressResult, error) {
 	return &out, nil
 }
 
-// CanaryWithRegime fetches one coordinated Canary/regime snapshot and compacts
+// StressWithRegime fetches one coordinated stress/regime snapshot and compacts
 // the regime result for app consumption.
-func (c Real) CanaryWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
+func (c Real) StressWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer conn.Close()
-	canaryResult, _, regime, err := stress.FetchStressSnapshotWithRegime(ctx, conn)
+	stressResult, _, regime, err := stress.FetchStressSnapshotWithRegime(ctx, conn)
 	if err != nil {
 		return nil, nil, err
 	}
 	monitor := rpc.CompactRegimeMonitor(&regime)
-	return &canaryResult, &monitor, nil
+	return &stressResult, &monitor, nil
 }
 
 // AlertCandidates is an optional capability rather than part of Client so

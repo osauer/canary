@@ -1,9 +1,9 @@
-import { heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./canary.js";
+import { heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
 import { $, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, pct, privacyMask, purgeRestoreSettingEnabled, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
 import { state } from "./state.js";
 
-function renderAccountPanel(account = {}, positions = {}, canary = {}) {
+function renderAccountPanel(account = {}, positions = {}, stress = {}) {
   const detail = $("accountOverviewDetail");
   const detailToggle = $("accountOverviewToggle");
   detail.hidden = !state.accountOverviewOpen;
@@ -50,7 +50,7 @@ function renderAccountPanel(account = {}, positions = {}, canary = {}) {
     portfolio.fx_sensitivity_per_pct,
     portfolio.fx_base_currency || baseCurrency,
   ), hasNumericValue(portfolio.fx_sensitivity_per_pct));
-  renderAccountLargestExposure(portfolio, canary, baseCurrency);
+  renderAccountLargestExposure(portfolio, stress, baseCurrency);
 }
 
 function renderAccountDailyPnlPct(account = {}) {
@@ -79,7 +79,7 @@ function accountDailyPnlPct(account = {}) {
   return (account.daily_pnl / denominator) * 100;
 }
 
-function renderAccountLargestExposure(portfolio = {}, canary = {}, baseCurrency = "") {
+function renderAccountLargestExposure(portfolio = {}, stress = {}, baseCurrency = "") {
   const panel = $("accountLargestExposurePanel");
   const button = $("accountLargestExposureToggle");
   const list = $("accountLargestExposureList");
@@ -91,13 +91,13 @@ function renderAccountLargestExposure(portfolio = {}, canary = {}, baseCurrency 
   $("accountLargestExposureLabel").textContent = label;
   panel.hidden = !state.accountExposureOpen;
   button.setAttribute("aria-expanded", String(state.accountExposureOpen));
-  button.disabled = exposures.length === 0 && heldStressItems(canary).length === 0;
+  button.disabled = exposures.length === 0 && heldStressItems(stress).length === 0;
   button.title = button.disabled ? "No exposure rows in this snapshot" : "Show largest exposure detail";
   if (panel.hidden) return;
 
   const rows = exposures.map((exposure) => exposureMetricRow(exposure, baseCurrency));
-  const stress = heldStressItems(canary).slice(0, 3);
-  for (const item of stress) {
+  const heldStress = heldStressItems(stress).slice(0, 3);
+  for (const item of heldStress) {
     rows.push(heldStressMetricRow(item));
   }
   if (rows.length === 0) {

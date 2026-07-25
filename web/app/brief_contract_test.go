@@ -65,7 +65,7 @@ func TestBriefCardStaticContract(t *testing.T) {
 		`percentValue(section.latch, "consumed_pct_at_latch", "Engaged at")`,
 		`fetch("/api/recon/signoff"`,
 		`["ok", "attention", "degraded", "unavailable"]`,
-		`canaryHeadline(section.stress)`,
+		`stressHeadline(section.stress)`,
 		`moversValue(section.attribution, currency)`,
 		`other_daily_pnl_base`,
 		`fieldValue(capital, "tier", "Tier")`,

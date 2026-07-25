@@ -67,12 +67,12 @@ async function runRound4SyntheticSmoke() {
     disposition: "push_service_accepted",
   });
   let alerts = {
-    schema_version: "alerts-v1", version: "alert-delivery-v3", initialized: true, generation: 1,
+    schema_version: "alerts-v1", version: "alert-delivery-v4", initialized: true, generation: 1,
     as_of: now, current_state: "active",
     coverage: { state: "complete", freshness: "current", as_of: now, expected_sources: ["canary", "governance"], covered_sources: ["canary", "governance"] },
     sources: [alertSource("canary"), alertSource("governance")],
     occurrences: [
-      alertOccurrence({ display_id: "alert-0123456789abcdef", source: "canary", kind: "portfolio_risk", presentation_code: "canary_portfolio_stress", title: "Synthetic watch", body: "Review the current Canary alert.", state: "open", severity: "watch", ended_at: null, end_reason: null, attention_seq: 3 }),
+      alertOccurrence({ display_id: "alert-0123456789abcdef", source: "canary", kind: "portfolio_risk", presentation_code: "portfolio_stress", title: "Synthetic watch", body: "Review the current Canary alert.", state: "open", severity: "watch", ended_at: null, end_reason: null, attention_seq: 3 }),
       alertOccurrence({ display_id: "alert-abcdef0123456789", source: "governance", kind: "governance", presentation_code: "governance_monthly_pulse", title: "Synthetic process review", body: "Review the retained process alert.", state: "recovered", severity: "act", ended_at: now, end_reason: "recovered", attention_seq: 4 }),
     ],
     attention,
@@ -107,7 +107,7 @@ async function runRound4SyntheticSmoke() {
     snapshot: {
       account: {},
       positions: { stocks: [], options: [], portfolio: {} },
-      canary: { portfolio_fit: "low", portfolio: {}, fingerprint: { key: "synthetic-canary" } },
+      stress: { portfolio_fit: "low", portfolio: {}, fingerprint: { key: "synthetic-canary" } },
       trading: { mode: "disabled", can_preview: false, can_write: false },
       proposals: {},
       opportunities: {},
@@ -372,7 +372,7 @@ await context.addInitScript(() => {
       globalThis.__ibkrSmoke.fetches.push({ url, status: res.status, at: Date.now() });
       if (res.ok && url.endsWith("/api/bootstrap")) {
         res.clone().json().then((body) => {
-          globalThis.__ibkrSmoke.latestCanaryHeldStress = body?.snapshot?.canary?.portfolio?.held_stress?.length || 0;
+          globalThis.__ibkrSmoke.latestStressHeldStress = body?.snapshot?.stress?.portfolio?.held_stress?.length || 0;
         }).catch(() => {});
       }
       return res;
@@ -385,14 +385,14 @@ await context.addInitScript(() => {
   globalThis.EventSource = function smokeEventSource(url, options) {
     const es = new NativeEventSource(url, options);
     globalThis.__ibkrSmoke.openedEvents++;
-    for (const type of ["snapshot", "status", "market_calendar", "account", "positions", "market_quotes", "canary", "rules", "nudges", "heartbeat"]) {
+    for (const type of ["snapshot", "status", "market_calendar", "account", "positions", "market_quotes", "stress", "rules", "nudges", "heartbeat"]) {
       es.addEventListener(type, (event) => {
         globalThis.__ibkrSmoke.eventCounts[type] = (globalThis.__ibkrSmoke.eventCounts[type] || 0) + 1;
-        if (type === "snapshot" || type === "canary") {
+        if (type === "snapshot" || type === "stress") {
           try {
             const data = JSON.parse(event.data);
-            const canary = type === "snapshot" ? data?.canary : data;
-            globalThis.__ibkrSmoke.latestCanaryHeldStress = canary?.portfolio?.held_stress?.length || 0;
+            const stress = type === "snapshot" ? data?.stress : data;
+            globalThis.__ibkrSmoke.latestStressHeldStress = stress?.portfolio?.held_stress?.length || 0;
           } catch {
             // Smoke assertions below stay DOM-based when payload inspection fails.
           }
@@ -1038,7 +1038,7 @@ async function exerciseCanaryDetail(page) {
     cards: document.getElementById("canaryDetailGrid")?.children.length || 0,
     drivers: document.getElementById("canaryDrivers")?.children.length || 0,
     held_stress: document.getElementById("heldStressList")?.children.length || 0,
-    held_stress_payload: globalThis.__ibkrSmoke?.latestCanaryHeldStress || 0,
+    held_stress_payload: globalThis.__ibkrSmoke?.latestStressHeldStress || 0,
   }));
   if (counts.held_stress_payload > 0 && counts.held_stress === 0) {
     throw new Error("canary held_stress payload is present but detail panel did not render it");
@@ -1286,7 +1286,7 @@ async function exerciseProtectionRiskRendering(page) {
         last_message: "current position 0 no longer supports close-only protective order remaining 100; broker reconciliation required",
       }],
     };
-    const canaryCoverage = {
+    const stressCoverage = {
       status: "review",
       counts: { unprotected: 1 },
       unprotected_notional_base: 999,
@@ -1308,10 +1308,10 @@ async function exerciseProtectionRiskRendering(page) {
         portfolio: { base_currency: "USD" },
         protection_coverage: positionsCoverage,
       },
-      canary: {
+      stress: {
         portfolio_fit: "low",
-        portfolio: { protection_coverage: canaryCoverage },
-        protection_coverage: canaryCoverage,
+        portfolio: { protection_coverage: stressCoverage },
+        protection_coverage: stressCoverage,
       },
       proposals: {
         as_of: new Date().toISOString(),
@@ -1375,7 +1375,7 @@ async function exerciseProtectionRiskRendering(page) {
           }],
         }],
       },
-    }, { protectionOpen: true, portfolioDetailOpen: true, canaryDetailOpen: true });
+    }, { protectionOpen: true, portfolioDetailOpen: true, stressDetailOpen: true });
   });
   await page.waitForFunction(() => {
     const portfolio = document.getElementById("portfolioDetailList")?.textContent?.toLowerCase() || "";

@@ -129,7 +129,7 @@ function renderReadySection(section, sources = {}) {
       percentValue(section.gamma, "gap_pct", "Gap", true),
       fieldValue(section.gamma, "gamma_sign", "Sign"),
     )),
-    briefRow("Canary", section.stress, joinValues(...canaryHeadline(section.stress), section.stress?.summary)),
+    briefRow("Canary", section.stress, joinValues(...stressHeadline(section.stress), section.stress?.summary)),
     briefRow("Session", section.session, joinValues(section.session?.market, section.session?.state)),
   ];
   const events = section.market_events || [];
@@ -179,12 +179,12 @@ function heldNameEventsUnavailable(sources) {
   return Boolean(sources?.positions?.error);
 }
 
-// The daemon reports canary action and severity as separate fields that are
+// The daemon reports stress action and severity as separate fields that are
 // usually the same word; printing "watch · watch" reads as a stutter, so the
 // pair collapses when equal and labels itself when it genuinely differs.
-function canaryHeadline(canary = {}) {
-  const action = String(canary?.action || "").trim();
-  const severity = String(canary?.severity || "").trim();
+function stressHeadline(stress = {}) {
+  const action = String(stress?.action || "").trim();
+  const severity = String(stress?.severity || "").trim();
   if (!action && !severity) return [];
   if (!action || !severity || action.toLowerCase() === severity.toLowerCase()) return [action || severity];
   return [action, `severity ${severity}`];

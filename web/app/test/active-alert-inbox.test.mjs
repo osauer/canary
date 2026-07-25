@@ -79,7 +79,7 @@ function occurrence(overrides = {}) {
     display_id: "alert-0123456789abcdef",
     source: "canary",
     kind: "portfolio_risk",
-    presentation_code: "canary_portfolio_stress",
+    presentation_code: "portfolio_stress",
     title: "Portfolio stress",
     body: "Portfolio stress needs attention.",
     state: "open",
@@ -102,7 +102,7 @@ function dto(overrides = {}) {
   const active = occurrence();
   return {
     schema_version: "alerts-v1",
-    version: "alert-delivery-v3",
+    version: "alert-delivery-v4",
     initialized: true,
     generation: 9,
     as_of: at,

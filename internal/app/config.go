@@ -15,7 +15,7 @@ const (
 	DefaultAddr        = "0.0.0.0:8765"
 	DefaultPairingTTL  = 5 * time.Minute
 	DefaultPollEvery   = 5 * time.Second
-	DefaultCanaryEvery = time.Minute
+	DefaultStressEvery = time.Minute
 )
 
 // Options configures one Canary app-host process. Durations control app-local
@@ -33,7 +33,7 @@ type Options struct {
 	Version          string
 	PairingTTL       time.Duration
 	PollEvery        time.Duration
-	CanaryEvery      time.Duration
+	StressEvery      time.Duration
 }
 
 // DefaultOptions returns environment-aware defaults for an app host serving
@@ -71,7 +71,7 @@ func DefaultOptions(version string) Options {
 		Version:          version,
 		PairingTTL:       DefaultPairingTTL,
 		PollEvery:        DefaultPollEvery,
-		CanaryEvery:      DefaultCanaryEvery,
+		StressEvery:      DefaultStressEvery,
 	}
 }
 

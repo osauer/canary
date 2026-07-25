@@ -926,7 +926,7 @@ function buildSyntheticSnapshot() {
         freshness_class: "fresh",
       })),
     },
-    canary: {
+    stress: {
       as_of: asOf,
       source_as_of: { account: asOf, positions: asOf, regime: asOf, market_events: asOf },
       fingerprint: fingerprint("stress-fp-v2", "synthetic-canary-quiet"),
@@ -1042,7 +1042,7 @@ function buildSyntheticSnapshot() {
         regime: { ...briefState("No stress lifecycle is active."), stage: "quiet", verdict: "Normal regime" },
         breadth: { ...briefState("Participation is broad."), pct_above_50dma: 62, pct_above_200dma: 58, net_new_highs_pct: 1.4, as_of: asOf, data_type: "live" },
         gamma: { ...briefState("Dealer positioning is dampening."), spot: 620, zero_gamma: 607, gap_pct: 2.14, gamma_sign: "positive", as_of: asOf },
-        canary: { ...briefState("No defensive action."), action: "stand down", severity: "observe", summary: "Quiet desk" },
+        stress: { ...briefState("No defensive action."), action: "stand down", severity: "observe", summary: "Quiet desk" },
         session: { ...briefState("Regular session context."), market: "US", state: "regular", is_open: true, open: at(-2 * hour), close: at(4 * hour), next_open: at(22 * hour) },
         market_events: [{ ...briefState("No held-name market events."), kind: "earnings", count: 0, symbols: [] }],
         capital: { ...briefState("No drawdown warning."), tier: "normal", enforcement: "open", consumed_pct: 2, drawdown_base: 25_000, adjusted_peak_base: 1_275_000, base_currency: baseCurrency },
@@ -1111,7 +1111,7 @@ function buildSyntheticSnapshot() {
     settings: {},
     errors: [],
     sources: Object.fromEntries([
-      "status", "market_calendar", "account", "positions", "market_quotes", "market_events", "regime", "canary", "rules", "brief", "trading", "auto_trade", "opportunities", "proposals", "settings",
+      "status", "market_calendar", "account", "positions", "market_quotes", "market_events", "regime", "stress", "rules", "brief", "trading", "auto_trade", "opportunities", "proposals", "settings",
     ].map((source) => [source, { updated_at: asOf }])),
     updated_at: asOf,
   };

@@ -1,5 +1,5 @@
 import { renderAll } from "./app.js";
-import { quoteBySymbol } from "./canary.js";
+import { quoteBySymbol } from "./stress.js";
 import { marketEventFlagVisible, marketEventHealthItems, marketEventIDLabel, marketEventTone, marketFlagRow, protectionEffectiveBlockers, protectionEffectiveMarketFlags, renderMarketFlagRail } from "./market-events.js";
 import { refreshOpenOrders } from "./orders.js";
 import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
@@ -537,7 +537,7 @@ function goDurationMinutes(value) {
 function renderProtectionExposure() {
   const el = $("protectionExposure");
   if (!el) return;
-  const gross = state.snapshot?.canary?.portfolio?.gross_exposure_pct_nlv;
+  const gross = state.snapshot?.stress?.portfolio?.gross_exposure_pct_nlv;
   if (typeof gross !== "number") {
     el.hidden = true;
     el.replaceChildren();

@@ -3,7 +3,7 @@ import { state } from "./state.js";
 const $ = (id) => globalThis.document?.getElementById(id) || null;
 
 const ALERT_SCHEMA = "alerts-v1";
-const ALERT_VERSION = "alert-delivery-v3";
+const ALERT_VERSION = "alert-delivery-v4";
 const SOURCES = new Set([
   "canary", "regime", "rulebook", "risk_policy", "protection", "order_integrity",
   "reconciliation", "governance", "data_health", "delivery",

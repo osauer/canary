@@ -1,4 +1,4 @@
-import { humanList } from "./canary.js";
+import { humanList } from "./stress.js";
 import { $, cleanDetail, labelize, parseDate, shortTimeWithZone } from "./shared.js";
 import { state } from "./state.js";
 
@@ -77,8 +77,8 @@ function snapshotSourceLabel(source) {
       return "market calendar";
     case "trading":
       return "trading status";
-    case "canary":
-      return "canary";
+    case "stress":
+      return "stress";
     case "regime":
       return "regime";
     default:

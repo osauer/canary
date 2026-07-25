@@ -150,7 +150,7 @@ func TestAttentionSnapshotReturnsOrderedAllowlistedRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := store.Attention()
-	wantRefs := []AttentionRef{{Kind: AttentionKindCanary, ID: "canary-1"}, {Kind: AttentionKindGovernance, ID: governance.DisplayID}}
+	wantRefs := []AttentionRef{{Kind: AttentionKindStress, ID: "canary-1"}, {Kind: AttentionKindGovernance, ID: governance.DisplayID}}
 	if got.UnreadCount != len(wantRefs) || !reflect.DeepEqual(got.UnreadRefs, wantRefs) {
 		t.Fatalf("attention=%+v want refs=%+v", got, wantRefs)
 	}
@@ -813,7 +813,7 @@ func TestClearAlertHistoryRemovesOnlyLegacyAndReadRows(t *testing.T) {
 	if len(history) != 1 || history[0].ID != "unread" {
 		t.Fatalf("retained history=%+v", history)
 	}
-	want := Attention{UnreadCount: 1, HighWaterSeq: 2, ReadThroughSeq: 1, UnreadRefs: []AttentionRef{{Kind: AttentionKindCanary, ID: "unread"}}}
+	want := Attention{UnreadCount: 1, HighWaterSeq: 2, ReadThroughSeq: 1, UnreadRefs: []AttentionRef{{Kind: AttentionKindStress, ID: "unread"}}}
 	if got := store.Attention(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("attention=%+v want=%+v", got, want)
 	}
@@ -880,7 +880,7 @@ func TestAttentionRefsCoverCappedCanaryAndGovernanceHistory(t *testing.T) {
 	if attention.UnreadCount != 101 || attention.UnreadCount != len(attention.UnreadRefs) || attention.HighWaterSeq != 101 {
 		t.Fatalf("attention=%+v", attention)
 	}
-	if attention.UnreadRefs[0] != (AttentionRef{Kind: AttentionKindCanary, ID: "canary-000"}) || attention.UnreadRefs[100] != (AttentionRef{Kind: AttentionKindGovernance, ID: governance.DisplayID}) {
+	if attention.UnreadRefs[0] != (AttentionRef{Kind: AttentionKindStress, ID: "canary-000"}) || attention.UnreadRefs[100] != (AttentionRef{Kind: AttentionKindGovernance, ID: governance.DisplayID}) {
 		t.Fatalf("ordered refs first=%+v last=%+v", attention.UnreadRefs[0], attention.UnreadRefs[100])
 	}
 	if got := store.AlertHistory(0); len(got) != 100 {
@@ -923,7 +923,7 @@ func TestAttentionConcurrentCreationSnapshotIsCoherentAndOrdered(t *testing.T) {
 	seqByRef := make(map[AttentionRef]uint64, pairs*2)
 	store.mu.Lock()
 	for _, record := range store.data.AlertHistory {
-		seqByRef[AttentionRef{Kind: AttentionKindCanary, ID: record.ID}] = record.AttentionSeq
+		seqByRef[AttentionRef{Kind: AttentionKindStress, ID: record.ID}] = record.AttentionSeq
 	}
 	for _, occurrence := range store.data.GovernanceOccurrences {
 		seqByRef[AttentionRef{Kind: AttentionKindGovernance, ID: occurrence.DisplayID}] = occurrence.AttentionSeq
@@ -967,7 +967,7 @@ func TestAttentionReaderOverlappingLockedCreationGetsCoherentSnapshot(t *testing
 		t.Fatal(err)
 	}
 	got := <-readerDone
-	want := Attention{UnreadCount: 1, HighWaterSeq: 1, UnreadRefs: []AttentionRef{{Kind: AttentionKindCanary, ID: "overlap"}}}
+	want := Attention{UnreadCount: 1, HighWaterSeq: 1, UnreadRefs: []AttentionRef{{Kind: AttentionKindStress, ID: "overlap"}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("overlapping reader saw mixed snapshot: got=%+v want=%+v", got, want)
 	}

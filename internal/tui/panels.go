@@ -63,10 +63,10 @@ func riskPanelLines(m *model, width, height int) []string {
 	}
 	lines := []string{canaryPanelTitle(width)}
 	snap := m.snapshot
-	if snap.Canary != nil {
-		lines = append(lines, riskRow(width, "Canary", severityStyle(string(snap.Canary.Severity))))
-		if snap.Canary.Action != "" {
-			lines = append(lines, riskRow(width, "Action", snap.Canary.Action))
+	if snap.Stress != nil {
+		lines = append(lines, riskRow(width, "Canary", severityStyle(string(snap.Stress.Severity))))
+		if snap.Stress.Action != "" {
+			lines = append(lines, riskRow(width, "Action", snap.Stress.Action))
 		}
 	}
 	if snap.Regime != nil {

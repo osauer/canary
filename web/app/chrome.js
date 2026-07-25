@@ -1,6 +1,6 @@
 import { renderAll } from "./app.js";
 import { handleAttentionContextChange } from "./alert-inbox.js";
-import { renderCanaryDetail, renderRegimePanel } from "./canary.js";
+import { renderStressDetail, renderRegimePanel } from "./stress.js";
 import { renderOpportunitiesPanel } from "./opportunities.js";
 import { setPortfolioExpansion } from "./portfolio.js";
 import { renderProtectionPanel } from "./protection.js";
@@ -81,29 +81,29 @@ function resetViewportScroll() {
   }
 }
 
-function ensureRegimeCanaryExpansion(canary = {}) {
-  if (state.detailPreferenceSet || state.regimeCanaryExpansionInitialized) return;
-  state.canaryDetailOpen = false;
+function ensureRegimeStressExpansion(stress = {}) {
+  if (state.detailPreferenceSet || state.regimeStressExpansionInitialized) return;
+  state.stressDetailOpen = false;
   state.regimeDetailOpen = false;
-  state.regimeCanaryExpansionInitialized = true;
+  state.regimeStressExpansionInitialized = true;
 }
 
 
-// Regime and canary detail can now open independently (or together) — both
+// Regime and stress detail can now open independently (or together) — both
 // live inside one shared deck below the split, so opening one no longer
 // changes the other's position on the page. See docs/design note in the
 // merged-panel spec: the mutual-exclusion this used to enforce existed to
 // stop two independently-tall sibling panels from fighting for vertical
 // rhythm, and that premise no longer holds once they share one deck.
-function setRegimeCanaryExpansion(which, open) {
+function setRegimeStressExpansion(which, open) {
   state.detailPreferenceSet = true;
   if (which === "regime") {
     state.regimeDetailOpen = open;
   } else {
-    state.canaryDetailOpen = open;
+    state.stressDetailOpen = open;
   }
   renderRegimePanel(state.snapshot || {});
-  renderCanaryDetail(state.snapshot?.canary || {});
+  renderStressDetail(state.snapshot?.stress || {});
 }
 
 function panelTapIgnored(target) {
@@ -128,8 +128,8 @@ function panelTapIgnored(target) {
 
 function handleExpandablePanelTap(event, which) {
   if (panelTapIgnored(event.target)) return;
-  const open = which === "regime" ? !state.regimeDetailOpen : !state.canaryDetailOpen;
-  setRegimeCanaryExpansion(which, open);
+  const open = which === "regime" ? !state.regimeDetailOpen : !state.stressDetailOpen;
+  setRegimeStressExpansion(which, open);
 }
 
 function handleUnderlyingPanelTap(event) {
@@ -159,7 +159,7 @@ function handleAccountPanelTap(event) {
 
 function setAccountOverviewExpansion(open) {
   state.accountOverviewOpen = Boolean(open);
-  renderAccountPanel(state.snapshot?.account || {}, state.snapshot?.positions || {}, state.snapshot?.canary || {});
+  renderAccountPanel(state.snapshot?.account || {}, state.snapshot?.positions || {}, state.snapshot?.stress || {});
 }
 
 function setProtectionExpansion(open) {
@@ -172,4 +172,4 @@ function setOpportunitiesExpansion(open) {
   renderOpportunitiesPanel(state.snapshot?.opportunities || {});
 }
 
-export { ensureRegimeCanaryExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeCanaryExpansion, setupBottomTabs, syncAccountPrivacyState };
+export { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeStressExpansion, setupBottomTabs, syncAccountPrivacyState };

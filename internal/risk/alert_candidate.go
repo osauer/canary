@@ -32,6 +32,16 @@ type AlertSource string
 
 // AlertSourceStress and the related constants identify candidate-producing
 // subsystems without carrying private subject identity.
+//
+// AlertSourceStress keeps the wire value "canary" for the same reason
+// stressEpisodeIdentity keeps "portfolio_canary": BuildAlertEpisodeKey hashes
+// the source into the episode key, so changing this string produces a different
+// key for the same condition with no mapping from the old one. The identity
+// parts are raw account/mode values that no stored document carries, so no
+// registry or ledger migration can recompute the new key from the old — every
+// open portfolio-stress episode would be abandoned mid-flight and reopen as a
+// fresh occurrence, re-paging the operator for an alert they already hold.
+// The Go identifier is the name; this literal is a persisted identity.
 const (
 	AlertSourceStress         AlertSource = "canary"
 	AlertSourceRegime         AlertSource = "regime"

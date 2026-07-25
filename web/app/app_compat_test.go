@@ -198,12 +198,12 @@ func TestAppJSConfirmInputsUsesTraderSafeCopy(t *testing.T) {
 	js := embeddedSPASource(t)
 	for _, want := range []string{
 		`if (action === "confirm_inputs") return "Check data";`,
-		"function canarySummaryText(canary, snap = {})",
+		"function stressSummaryText(stress, snap = {})",
 		"before treating canary as a market signal",
 		"no market-stress action",
-		"function canaryNeedsInputCheck(canary)",
-		"function canaryInputCheckBlocksAction(canary)",
-		"function canaryInputIssueSummary(canary, snap = {})",
+		"function stressNeedsInputCheck(stress)",
+		"function stressInputCheckBlocksAction(stress)",
+		"function stressInputIssueSummary(stress, snap = {})",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("app.js missing confirm-inputs copy contract %q", want)
@@ -219,12 +219,12 @@ func TestAppJSRegimeCardSeparatesDataGapsFromRegime(t *testing.T) {
 	js := embeddedSPASource(t)
 	for _, want := range []string{
 		`marketRegimeLabel(posture)`,
-		"function regimePosture(snap = {}, canary = {}, market = {})",
+		"function regimePosture(snap = {}, stress = {}, market = {})",
 		"function regimeWeatherClass(tone)",
 		"function normalizeRegimePosture(candidate)",
 		`snap.regime?.posture`,
 		`market.regime_posture`,
-		"function marketRegimeStatusLine(snap, canary, market, indicators)",
+		"function marketRegimeStatusLine(snap, stress, market, indicators)",
 		"Paper gateway live quotes OK",
 		"HYG 50-DMA",
 		"USD/JPY baseline",
@@ -244,7 +244,7 @@ func TestAppJSRegimeCardSeparatesDataGapsFromRegime(t *testing.T) {
 	}
 }
 
-func TestAppJSCanaryDetailUsesSourceBackedEvidenceRows(t *testing.T) {
+func TestAppJSStressDetailUsesSourceBackedEvidenceRows(t *testing.T) {
 	t.Parallel()
 	js := embeddedSPASource(t)
 	cssData, err := Files.ReadFile("styles.css")
@@ -253,32 +253,32 @@ func TestAppJSCanaryDetailUsesSourceBackedEvidenceRows(t *testing.T) {
 	}
 	css := string(cssData)
 
-	renderDetail := jsFunctionBlock(t, js, "renderCanaryDetail")
+	renderDetail := jsFunctionBlock(t, js, "renderStressDetail")
 	for _, want := range []string{
-		"canaryDriverRows(canary)",
-		"canaryExplanationCards(canary, snap)",
+		"stressDriverRows(stress)",
+		"stressExplanationCards(stress, snap)",
 	} {
 		if !strings.Contains(renderDetail, want) {
-			t.Fatalf("renderCanaryDetail missing canary evidence contract %q", want)
+			t.Fatalf("renderStressDetail missing stress evidence contract %q", want)
 		}
 	}
-	if strings.Contains(renderDetail, "(canary.rows || []).slice(0, 3)") {
-		t.Fatalf("renderCanaryDetail must not show the first three canary rows as drivers")
+	if strings.Contains(renderDetail, "(stress.rows || []).slice(0, 3)") {
+		t.Fatalf("renderStressDetail must not show the first three stress rows as drivers")
 	}
 
-	driverRows := jsFunctionBlock(t, js, "canaryDriverRows")
+	driverRows := jsFunctionBlock(t, js, "stressDriverRows")
 	for _, want := range []string{
 		`cleanDetail(row.title).toLowerCase() !== "portfolio stress"`,
-		"canaryRowNeedsAttention",
-		"canaryDriverPriority",
+		"stressRowNeedsAttention",
+		"stressDriverPriority",
 		".slice(0, 5)",
 	} {
 		if !strings.Contains(driverRows, want) {
-			t.Fatalf("canaryDriverRows missing source-backed driver contract %q", want)
+			t.Fatalf("stressDriverRows missing source-backed driver contract %q", want)
 		}
 	}
 	if strings.Contains(driverRows, ".slice(0, 3)") {
-		t.Fatalf("canaryDriverRows must not cap evidence at the old first-three rows")
+		t.Fatalf("stressDriverRows must not cap evidence at the old first-three rows")
 	}
 
 	for _, want := range []string{
@@ -287,28 +287,28 @@ func TestAppJSCanaryDetailUsesSourceBackedEvidenceRows(t *testing.T) {
 		"market-event sources",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("app.js missing canary clarity contract %q", want)
+			t.Fatalf("app.js missing stress clarity contract %q", want)
 		}
 	}
-	// renderCanaryActions (the "Review blockers"/"Held actions"/"Alerts"
+	// renderStressActions (the "Review blockers"/"Held actions"/"Alerts"
 	// quick-action row) and the standalone Readiness explanation card
 	// ("Prestage only" etc.) were deliberately removed as noise: the first
 	// was self-referential or duplicated top-level navigation already one
 	// tap away, the second had no unique signal a risk-conscious trader
 	// couldn't already get from the Market/Portfolio cards.
 	for _, forbidden := range []string{
-		"function renderCanaryActions(canary)",
+		"function renderStressActions(stress)",
 		"Prestage only",
 	} {
 		if strings.Contains(js, forbidden) {
-			t.Fatalf("app.js should not reintroduce removed canary clutter %q", forbidden)
+			t.Fatalf("app.js should not reintroduce removed stress clutter %q", forbidden)
 		}
 	}
 	if strings.Contains(css, ".canary-hero p {") {
-		t.Fatalf("styles.css must not clamp every paragraph inside the expanded canary panel")
+		t.Fatalf("styles.css must not clamp every paragraph inside the expanded stress panel")
 	}
 	if !strings.Contains(css, ".canary-hero__copy p") || !strings.Contains(css, ".detail-panel--dark .driver-row.warn") {
-		t.Fatalf("styles.css missing scoped canary summary/detail styling")
+		t.Fatalf("styles.css missing scoped stress summary/detail styling")
 	}
 }
 
@@ -331,7 +331,7 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		"function handleExpandablePanelTap(event, which)",
 		`$("regimeSummaryCard").addEventListener("click"`,
 		`$("canaryHero").addEventListener("click"`,
-		`"trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "canary"`,
+		`"trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "stress"`,
 		"function setupLiveRefreshLoop()",
 		"function setupBottomTabs()",
 		"function renderTabs()",
@@ -345,9 +345,9 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		"function protectionMetricText(proposal = {})",
 		"function protectionRiskTicket(proposal = {}, metricText = \"\")",
 		"function protectionCoverageFromPositions(snap = state.snapshot || {})",
-		"function canaryProtectionCoverageFor(snap = state.snapshot || {}, canary = snap.canary || {})",
+		"function stressProtectionCoverageFor(snap = state.snapshot || {}, stress = snap.stress || {})",
 		"function protectionCoverageDetailFact(coverage = null, baseCurrency = \"\")",
-		"function protectionCoverageCanaryLine(canary = {}, snap = state.snapshot || {})",
+		"function protectionCoverageStressLine(stress = {}, snap = state.snapshot || {})",
 		"function protectionRiskExcessSummary(counts = {})",
 		"compactWholeMoney(counts.risk_reduction_excess_notional, riskExcessCurrency)",
 		"counts.risk_reduction_excess_notional_base",
@@ -805,7 +805,7 @@ func TestAppJSRendersProtectionCoverageAndRiskTickets(t *testing.T) {
 	js := embeddedSPASource(t)
 
 	currentCoverage := jsFunctionBlock(t, js, "currentProtectionCoverage")
-	if !strings.Contains(currentCoverage, "protectionCoverageFromPositions(state.snapshot || {})") || strings.Contains(currentCoverage, "canary") {
+	if !strings.Contains(currentCoverage, "protectionCoverageFromPositions(state.snapshot || {})") || strings.Contains(currentCoverage, "stress") {
 		t.Fatalf("currentProtectionCoverage must use positions coverage only, got:\n%s", currentCoverage)
 	}
 	riskTicket := jsFunctionBlock(t, js, "protectionRiskTicketParts")
@@ -888,18 +888,18 @@ func TestAppJSRendersProtectionCoverageAndRiskTickets(t *testing.T) {
 		t.Fatalf("detailFact must append structured protection coverage detail")
 	}
 	portfolioExplanation := jsFunctionBlock(t, js, "portfolioExplanation")
-	if !strings.Contains(portfolioExplanation, "protectionCoverageCanaryLine(canary, snap)") {
-		t.Fatalf("portfolioExplanation must include canary protection coverage context")
+	if !strings.Contains(portfolioExplanation, "protectionCoverageStressLine(stress, snap)") {
+		t.Fatalf("portfolioExplanation must include stress protection coverage context")
 	}
-	canaryLine := jsFunctionBlock(t, js, "protectionCoverageCanaryLine")
+	stressLine := jsFunctionBlock(t, js, "protectionCoverageStressLine")
 	for _, want := range []string{
-		"canaryProtectionCoverageFor(snap, canary)",
+		"stressProtectionCoverageFor(snap, stress)",
 		"Protection coverage: ${headline}",
 		"largest unprotected",
 		"protectionCoverageStaleText(coverage)",
 	} {
-		if !strings.Contains(canaryLine, want) {
-			t.Fatalf("protectionCoverageCanaryLine missing canary coverage contract %q", want)
+		if !strings.Contains(stressLine, want) {
+			t.Fatalf("protectionCoverageStressLine missing stress coverage contract %q", want)
 		}
 	}
 }
@@ -976,7 +976,7 @@ func TestRegimeAuthorityHealthControlsVisibleDataQualityPosture(t *testing.T) {
 	for _, want := range []string{
 		`regimeAuthorityLabel(posture, authority)`,
 		`regimePresentationPosture(posture, authority)`,
-		`renderRegimeAuthorityTimestamp(snap, latestRegimeTimestamp(canary, indicators))`,
+		`renderRegimeAuthorityTimestamp(snap, latestRegimeTimestamp(stress, indicators))`,
 	} {
 		if !strings.Contains(render, want) {
 			t.Fatalf("renderRegimePanel missing authority-health presentation contract %q", want)
@@ -1050,7 +1050,7 @@ func TestActiveAlertInboxIsTheSoleRenderedAuthority(t *testing.T) {
 	}
 	for _, want := range []string{
 		`const ALERT_SCHEMA = "alerts-v1"`,
-		`const ALERT_VERSION = "alert-delivery-v3"`,
+		`const ALERT_VERSION = "alert-delivery-v4"`,
 		`"title", "body"`,
 		`source.status`,
 		`source.reason`,

@@ -66,7 +66,7 @@ func New(opts Options) (*App, error) {
 	liveSvc := live.New(
 		daemonClient,
 		opts.PollEvery,
-		opts.CanaryEvery,
+		opts.StressEvery,
 	)
 	relayClient, err := newRelayClient(opts, store)
 	if err != nil {

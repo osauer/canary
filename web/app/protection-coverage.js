@@ -54,11 +54,11 @@ function protectionCoverageFromPositions(snap = state.snapshot || {}) {
   return protectionCoverageHasData(coverage) ? coverage : null;
 }
 
-function canaryProtectionCoverageFor(snap = state.snapshot || {}, canary = snap.canary || {}) {
+function stressProtectionCoverageFor(snap = state.snapshot || {}, stress = snap.stress || {}) {
   const candidates = [
     protectionCoverageFromPositions(snap),
-    canary.portfolio?.protection_coverage,
-    canary.protection_coverage,
+    stress.portfolio?.protection_coverage,
+    stress.protection_coverage,
   ];
   return candidates.find(protectionCoverageHasData) || null;
 }
@@ -445,4 +445,4 @@ function protectionCoverageDetailBody(coverage = {}, baseCurrency = "") {
   return parts.join(" ");
 }
 
-export { applyProtectionSnapshot, canaryProtectionCoverageFor, currentProtectionCoverage, protectionBlockerIsExistingOrder, protectionCoverageBaseCurrency, protectionCoverageCounts, protectionCoverageDetailBody, protectionCoverageDetailFact, protectionCoverageDisplayRows, protectionCoverageFromPositions, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestRows, protectionCoverageLargestText, protectionCoverageLedger, protectionCoverageNoStopSummary, protectionCoverageNotionalText, protectionCoverageOrderText, protectionCoverageQuantityText, protectionCoverageRowClass, protectionCoverageRowPriority, protectionCoverageRowState, protectionCoverageStaleOrderText, protectionCoverageStaleText, protectionCoverageTone, protectionCoveredByExistingOrder, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionProposalNotional, protectionVisibleRows };
+export { applyProtectionSnapshot, currentProtectionCoverage, protectionBlockerIsExistingOrder, protectionCoverageBaseCurrency, protectionCoverageCounts, protectionCoverageDetailBody, protectionCoverageDetailFact, protectionCoverageDisplayRows, protectionCoverageFromPositions, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestRows, protectionCoverageLargestText, protectionCoverageLedger, protectionCoverageNoStopSummary, protectionCoverageNotionalText, protectionCoverageOrderText, protectionCoverageQuantityText, protectionCoverageRowClass, protectionCoverageRowPriority, protectionCoverageRowState, protectionCoverageStaleOrderText, protectionCoverageStaleText, protectionCoverageTone, protectionCoveredByExistingOrder, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionProposalNotional, protectionVisibleRows, stressProtectionCoverageFor };
