@@ -261,7 +261,7 @@ References:
 - [Experimental trading config](docs/docs/operate/orders.md) for the inactive `config.toml.trading` pattern and release-channel expectations.
 - [Concepts](docs/docs/understand/concepts.md) for breadth, gamma, and regime interpretation.
 - [Agentic use](docs/docs/operate/agents.md) for Claude and MCP workflows.
-- [Marketplace readiness](docs/docs/internals/packaging.md) for packaging notes.
+- [Packaging and distribution](docs/docs/internals/packaging.md) for packaging notes.
 - [Privacy](PRIVACY.md) for data locality and local files.
 
 ### Adding scanners

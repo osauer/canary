@@ -1,16 +1,16 @@
-# Opportunity Research Harness Handbook
+# Opportunity research harness
 
-Updated: 2026-06-16 CEST
+Updated: 2026-07-25 09:45 CEST
 
-The opportunity research harness is a lean way to test stock-candidate
-strategies before trusting them. It is diagnostic only: it captures
-point-in-time evidence, scores later outcomes, compares predeclared strategy
-plans, and reports whether the evidence is still too weak.
+The opportunity research harness tests stock-candidate strategies before you
+trust them. It is diagnostic only: it captures point-in-time evidence, scores
+later outcomes, compares predeclared strategy plans, and reports whether the
+evidence is still too weak.
 
 It does not place orders, preview orders, or convert a passing signal into
 investment advice.
 
-## Mental Model
+## Mental model
 
 The harness has four stages:
 
@@ -25,7 +25,7 @@ were not edited after capture. If a strategy needs macro context, quote
 freshness, or technical state, that context must be captured into `features`
 before the checksum is computed.
 
-## Where It Lives
+## Where it lives
 
 The harness is a local CLI research surface:
 
@@ -37,82 +37,55 @@ The harness is a local CLI research surface:
   strategy plans and ranks their diagnostics.
 - The daemon is only a read-only data source during live capture. Strategy
   policy stays in the harness, not in `internal/daemon`, MCP, or broker-write
-  paths.
+  paths, so a strategy can be researched without becoming execution policy.
 
-That keeps the system decoupled: strategies can be researched without becoming
-execution policy.
+## Capture candidates
 
-## Capture Candidates
-
-Use scanner capture when you want the harness to collect current market
-candidates:
+Scanner capture collects current market candidates:
 
 ```sh
 ibkr backtest capture-opportunity \
   --preset top-movers \
-  --append research/opportunity-pit.jsonl \
+  --append build/backtest/opportunity-pit.jsonl \
   --json
 ```
 
-Use explicit symbols when you already have a watchlist:
+Swap `--preset` for `--symbols NVDA,MSFT,AVGO` when you already have a
+watchlist. Two further flags change what a captured row carries:
 
-```sh
-ibkr backtest capture-opportunity \
-  --symbols NVDA,MSFT,AVGO \
-  --append research/opportunity-pit.jsonl \
-  --json
-```
-
-Use `--include-regime` when a plan will consume macro/regime context:
-
-```sh
-ibkr backtest capture-opportunity \
-  --symbols NVDA,MSFT,AVGO \
-  --include-regime \
-  --append research/opportunity-pit.jsonl \
-  --json
-```
-
-For protected validation, pre-register holdout rows at capture time:
-
-```sh
-ibkr backtest capture-opportunity \
-  --symbols NVDA,MSFT,AVGO \
-  --include-regime \
-  --split holdout \
-  --holdout-plan 2026q3-opportunity-research \
-  --append research/opportunity-pit.jsonl \
-  --json
-```
+| Flag | Effect |
+| --- | --- |
+| `--include-regime` | Captures the macro/regime context a plan will consume. |
+| `--split holdout --holdout-plan 2026q3-opportunity-research` | Pre-registers the row as protected holdout evidence at capture time. |
 
 Rows captured this way are intentionally unscored. Do not edit feature fields
 after capture.
 
-## Score Rows
+## Score rows
 
 After the forward window is observable, export bars and score the PIT ledger:
 
 ```sh
 ibkr backtest export-opportunity-bars \
   --symbols NVDA,MSFT,AVGO,QQQ \
-  --bars research/opportunity-bars.jsonl \
-  --bars-manifest research/opportunity-bars.manifest.json \
+  --bars build/backtest/opportunity-bars.jsonl \
+  --bars-manifest build/backtest/opportunity-bars.manifest.json \
   --benchmark QQQ \
   --json
 
 ibkr backtest score-opportunity \
-  --input research/opportunity-pit.jsonl \
-  --bars research/opportunity-bars.jsonl \
-  --bars-manifest research/opportunity-bars.manifest.json \
+  --input build/backtest/opportunity-pit.jsonl \
+  --bars build/backtest/opportunity-bars.jsonl \
+  --bars-manifest build/backtest/opportunity-bars.manifest.json \
   --target-policy net-excess-positive \
-  > research/opportunity-scored.jsonl
+  > build/backtest/opportunity-scored.jsonl
 ```
 
 Scoring turns captured candidates into rows with forward return, benchmark
 return, excess return, adverse excursion, favorable excursion, and a target
 label.
 
-## Compare Plans
+## Compare plans
 
 List registered plans:
 
@@ -120,28 +93,20 @@ List registered plans:
 ibkr backtest research-opportunity --list-plans
 ```
 
-Compare selected plans:
+Compare selected plans, or pass `--plan all` for every registered plan. Add
+`--json` for notebooks, spreadsheets, or repeatable notes:
 
 ```sh
 ibkr backtest research-opportunity \
-  --input research/opportunity-scored.jsonl \
+  --input build/backtest/opportunity-scored.jsonl \
   --plan pullback_uptrend_rs63_v1,pullback_uptrend_rs63_macro_veto_v1
-```
-
-Use JSON for notebooks, spreadsheets, or repeatable notes:
-
-```sh
-ibkr backtest research-opportunity \
-  --input research/opportunity-scored.jsonl \
-  --plan all \
-  --json
 ```
 
 Treat the output as evidence triage. Prefer plans only when holdout behavior
 improves net excess return, hit rate, drawdown behavior, and sample quality
 without collapsing the number of fired samples. Tuning lift alone is not alpha.
 
-## Strategy Shape
+## Strategy shape
 
 A strategy plan is a small function that maps
 `OpportunityPointInTimeFeatures` to an `OpportunityBacktestSignal`.
@@ -159,7 +124,7 @@ Avoid plans that quietly depend on current data, mutate features, scrape
 external context during evaluation, or rank by information unavailable at the
 capture date.
 
-## Example: Macro-Veto Pullback
+## Example: macro-veto pullback
 
 `pullback_uptrend_rs63_macro_veto_v1` is the first concrete macro-aware
 example. It starts with `pullback_uptrend_rs63_v1`:
@@ -186,7 +151,7 @@ The research question is narrow: does vetoing confirmed broad-market stress
 improve the pullback rule's forward excess returns compared with the plain
 pullback rule?
 
-## Candidate Ranking Today
+## Candidate ranking today
 
 The harness does not yet emit a live ranked buy list. It captures candidates
 and later measures strategy quality.
@@ -204,7 +169,7 @@ The next useful extension is a read-only candidate scorer that applies selected
 plans to captured rows and prints a shortlist, still without order preview or
 broker writes.
 
-## Adding Another Strategy
+## Adding another strategy
 
 Add one plan at a time:
 

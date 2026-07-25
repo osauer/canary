@@ -4,19 +4,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sensors: Measurements, Freshness, and Safe Interpretation | ibkr</title>
+  <title>Sensors | ibkr</title>
   <meta name="description" content="How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/sensors.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Sensors: Measurements, Freshness, and Safe Interpretation | ibkr">
+  <meta property="og:title" content="Sensors | ibkr">
   <meta property="og:description" content="How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
   <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/sensor-authority-pipeline.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.","headline":"Sensors: Measurements, Freshness, and Safe Interpretation","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/sensors.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.","headline":"Sensors","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/sensors.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
-<body class="layout-architecture">
+<body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -28,63 +28,127 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
-<h1 id="sensors-measurements-freshness-and-safe-interpretation">Sensors: Measurements, Freshness, and Safe Interpretation</h1>
-<p>Sensors answer questions about the market and the held portfolio. They turn
-broker and public-source observations into typed measurements with an <code>as_of</code>
-time, source health, freshness, and a semantic fingerprint. They do not decide
-trading policy, authorize an order, or prove that an alert reached a device.</p>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Understand</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="concepts.html">Concepts</a></li>
+                <li><a href="sensors.html" class="is-current" aria-current="page">Sensors</a></li>
+                <li><a href="policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+        <p class="sidenav-note">Dimmed entries are not written yet.</p>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="sensors">Sensors</h1>
+<p>Sensors turn broker and public-source observations into typed measurements with
+an <code>as_of</code> time, source health, freshness, and a semantic fingerprint. They do
+not decide trading policy, authorize an order, or prove that an alert reached a
+device.</p>
 <p>The daemon is the measurement authority. It owns source access, scheduling,
 last-good state, and evaluation. CLI, MCP, app, and web surfaces read the same
-typed results; they do not fetch the sources again or recreate the verdict.</p>
-<p>This page explains five related sensor families:</p>
-<ul>
-<li><strong>Gamma</strong> measures dealer-gamma structure for SPX/SPXW, with SPY as context.</li>
-<li><strong>Regime</strong> combines eight broad-market rows into six independent clusters and
-a market lifecycle.</li>
-<li><strong>Canary</strong> asks how that exact market state interacts with the portfolio now.</li>
-<li><strong>Rulebook</strong> applies 14 advisory discipline checks to current desk evidence.</li>
-<li><strong>Market events</strong> add held-name borrow, threshold-list, and halt context.</li>
-</ul>
+typed results without refetching sources or recreating the verdict.</p>
 <nav class="toc" aria-label="On this page">
 <span class="toc-label">On this page</span>
 <ul>
-<li><a href="#from-measurement-to-downstream-use"><span class="n">01</span>From Measurement to Downstream Use</a></li>
-<li><a href="#read-the-state-before-the-number"><span class="n">02</span>Read the State Before the Number</a></li>
-<li><a href="#sensor-map"><span class="n">03</span>Sensor Map</a></li>
-<li><a href="#gamma"><span class="n">04</span>Gamma</a></li>
-<li><a href="#regime"><span class="n">05</span>Regime</a></li>
-<li><a href="#canary"><span class="n">06</span>Canary</a></li>
-<li><a href="#rulebook"><span class="n">07</span>Rulebook</a></li>
-<li><a href="#market-events"><span class="n">08</span>Market Events</a></li>
-<li><a href="#operator-checklist"><span class="n">09</span>Operator Checklist</a></li>
-<li><a href="#reference-map"><span class="n">10</span>Reference Map</a></li>
+<li><a href="#dependencies-and-boundaries"><span class="n">01</span>Dependencies and boundaries</a></li>
+<li><a href="#read-the-state-before-the-number"><span class="n">02</span>Read the state before the number</a></li>
+<li><a href="#gamma"><span class="n">03</span>Gamma</a></li>
+<li><a href="#regime"><span class="n">04</span>Regime</a></li>
+<li><a href="#canary"><span class="n">05</span>Canary</a></li>
+<li><a href="#rulebook"><span class="n">06</span>Rulebook</a></li>
+<li><a href="#market-events"><span class="n">07</span>Market events</a></li>
+<li><a href="#operator-checklist"><span class="n">08</span>Operator checklist</a></li>
+<li><a href="#related-pages"><span class="n">09</span>Related pages</a></li>
 </ul>
 </nav>
-<h2 id="from-measurement-to-downstream-use"><span class="secno" aria-hidden="true">01</span>From Measurement to Downstream Use</h2>
+<h2 id="dependencies-and-boundaries"><span class="secno" aria-hidden="true">01</span>Dependencies and boundaries</h2>
 <p><a href="../../diagrams/sensor-authority-pipeline.svg"><img src="../../diagrams/sensor-authority-pipeline.svg" alt="How observed sources become daemon-owned sensors, dependent decisions, and downstream alerts"></a></p>
 <p><a href="../../diagrams/sensor-authority-pipeline.png">PNG fallback</a> ·
-<a href="../../diagrams/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
-<p>Sources enter through one daemon-owned path. Gamma is an input to Regime;
-Regime and market events are inputs to Canary and Rulebook. Alerts may consume
-the resulting typed state downstream, but a sensor result is not evidence that
+<p>Gamma feeds Regime; Regime and market events feed Canary and Rulebook. Alerts
+may consume the resulting typed state, but a sensor result is not evidence that
 delivery is active or that a notification arrived.</p>
-<p>The boundary is deliberate: a dependent sensor receives the upstream result,
-including its health, instead of copying its calculations. Canary therefore
-uses the exact Regime publication, and Rulebook uses the daemon's classified
-Regime stage rather than rebuilding one from market rows.</p>
-<h2 id="read-the-state-before-the-number"><span class="secno" aria-hidden="true">02</span>Read the State Before the Number</h2>
+<p>A dependent sensor receives the upstream result with its health and does not
+recompute it. Canary uses the exact Regime publication; Rulebook uses the
+daemon's classified Regime stage rather than rebuilding one from market rows.</p>
+<h2 id="read-the-state-before-the-number"><span class="secno" aria-hidden="true">02</span>Read the state before the number</h2>
 <p><a href="../../diagrams/sensor-freshness-timeline.svg"><img src="../../diagrams/sensor-freshness-timeline.svg" alt="Freshness timeline from proactive refresh through expiry, not-due carry, and a fail-closed gap"></a></p>
 <p><a href="../../diagrams/sensor-freshness-timeline.png">PNG fallback</a> ·
-<a href="../../diagrams/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>Freshness is part of the measurement. The daemon refreshes before a result's
 hard expiry where the source permits it. A successful refresh atomically
 replaces the last-good publication. A failed refresh leaves the older result
 visible with explicit health; it never changes an old value's timestamp or
 turns absence into zero.</p>
-<p>These words describe different conditions:</p>
 <div class="tblwrap">
 <table>
 <thead>
@@ -138,77 +202,30 @@ turns absence into zero.</p>
 </tbody>
 </table>
 </div>
-<p><code>not_due</code> and <code>overdue</code> are opposites. <code>not_due</code> is an expected schedule gap;
-<code>overdue</code> is a missed obligation. Likewise, <code>partial</code> describes incomplete
-coverage, while <code>stale</code> describes time. One source can be both incomplete and
-old at different layers of a result.</p>
-<h2 id="sensor-map"><span class="secno" aria-hidden="true">03</span>Sensor Map</h2>
-<div class="tblwrap">
-<table>
-<thead>
-<tr>
-<th>Sensor</th>
-<th>Question answered</th>
-<th>Authoritative inputs</th>
-<th>Main output</th>
-<th>Evaluation and freshness</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Gamma</td>
-<td>Where does the modeled dealer book switch between amplifying and damping moves, and where is gross gamma concentrated?</td>
-<td>IBKR SPX/SPXW and SPY option contracts, prices or derived IV, open interest, spot, and the US options calendar</td>
-<td>Per-index zero-gamma, gap/distance, signed profiles, 0DTE/1–7/term splits, total absolute gamma, top strikes, agreement, and rankability</td>
-<td>Multi-minute background compute; 15-minute refresh-while-served during options RTH; closed-session last-good does not churn</td>
-</tr>
-<tr>
-<td>Regime</td>
-<td>Is broad-market stress quiet, emerging, confirmed, panicking, stabilizing, or data-incomplete?</td>
-<td>Live IBKR market data, official public series, Gamma, and S&amp;P 500 breadth</td>
-<td>Eight rows, six clusters, posture, lifecycle, source health, eligibility, governors, and fingerprint</td>
-<td>One immutable five-minute last-good publication; proactive refresh starts about one minute before expiry</td>
-</tr>
-<tr>
-<td>Canary</td>
-<td>Does the current market state matter to the portfolio actually held?</td>
-<td>Current account, positions, the exact Regime publication, and held-name market events</td>
-<td>Action, market confirmation, portfolio fit, input health, planner readiness, held stress, and fingerprint</td>
-<td>Stateless evaluation every minute; required input gaps fail closed</td>
-</tr>
-<tr>
-<td>Rulebook</td>
-<td>Which declared daily discipline checks pass, need attention, or cannot be evaluated?</td>
-<td>Account, positions, earnings, classified Regime stage, and SPY tape</td>
-<td>14 ordered rows, hardest-first ranking, counts, input health, offenders, and evidence</td>
-<td>Canonical evaluation every minute; scope-bound cache is reusable for 75 seconds, including previews</td>
-</tr>
-<tr>
-<td>Market events</td>
-<td>Does a held or requested name have borrow, threshold-list, LULD, or halt context?</td>
-<td>Nasdaq Reg SHO and halt feeds, IBKR shortable inventory, IBKR FTP borrow fees, and diagnostic TWS history for exact held shorts</td>
-<td>Typed flags, per-source health, borrow-fee coverage, warnings, and fingerprint</td>
-<td>Source-specific cadence: one minute to daily; failures retain typed retry and last-good state</td>
-</tr>
-</tbody>
-</table>
-</div>
-<h2 id="gamma"><span class="secno" aria-hidden="true">04</span>Gamma</h2>
+<p><code>not_due</code> and <code>overdue</code> are opposites: an expected schedule gap against a missed
+obligation. <code>partial</code> describes coverage and <code>stale</code> describes time. One source
+can be both incomplete and old at different layers of a result.</p>
+<h2 id="gamma"><span class="secno" aria-hidden="true">03</span>Gamma</h2>
 <h3 id="what-it-answers">What it answers</h3>
 <p>Gamma estimates how the aggregate options-dealer book may respond as the
-underlying moves. The signed profile looks for a zero crossing: below that
-level the modeled book is generally amplifying; above it, generally damping.
-The result is a market-structure hint, not a precise trade level.</p>
-<p>SPX/SPXW is the canonical S&amp;P 500 signal. SPY is corroborating ETF context.
-The default <code>spy+spx</code> result keeps separate per-index price levels because SPY
-and SPX use different scales; there is intentionally no combined top-level
-spot or zero-gamma price. A healthy SPX result remains usable when SPY is
-throttled or unavailable. SPY-only remains a labeled proxy when SPX is absent.</p>
+underlying moves, and where gross gamma is concentrated. The signed profile
+looks for a zero crossing: below it the modeled book is generally amplifying
+moves, above it generally damping them. Read the result as a market-structure
+hint. It is not a precise trade level.</p>
+<p>SPX/SPXW is the canonical S&amp;P 500 signal; SPY is corroborating ETF context. The
+two use different scales, so the default <code>spy+spx</code> result keeps separate
+per-index price levels and intentionally has no combined top-level spot or
+zero-gamma price. It also reports whether the two books agree. A healthy SPX
+result stays usable when SPY is throttled or unavailable; SPY-only remains a
+labeled proxy when SPX is absent. <a href="concepts.html#gamma">Concepts</a> has the
+methodology behind that reading, the sign convention, and the agreement
+classifier's values.</p>
 <h3 id="inputs-and-outputs">Inputs and outputs</h3>
-<p>The daemon qualifies option contracts, collects option prices or derives IV,
-captures open interest, and anchors the sweep to observed spot. Missing open
-interest is unknown, never zero. Priced legs can support the IV/skew fit but do
-not contribute open-interest-weighted exposure without observed OI.</p>
+<p>The daemon qualifies IBKR SPX/SPXW and SPY option contracts, collects option
+prices or derives IV, captures open interest, and anchors the sweep to observed
+spot. Missing open interest is unknown, never zero. Priced legs can support the
+IV/skew fit but do not contribute open-interest-weighted exposure without
+observed OI.</p>
 <p>Each per-index result reports:</p>
 <ul>
 <li>zero-gamma status, zero-gamma price when a crossing exists, and spot's
@@ -222,32 +239,32 @@ the largest absolute concentrations;</li>
 </ul>
 <p>Only <code>rankable</code> may contribute a Regime band or confirm stress. <code>context_only</code>
 is displayable but does not vote. <code>blocked</code> and <code>unavailable</code> are not usable
-signals. Missing 0DTE is disclosed but does not by itself block a healthy SPX
-surface when 1–7 DTE and term coverage are present.</p>
-<p>Some Gamma quality bars, including skew-fit quality, remain heuristic pending
-calibration from retained diagnostics. The result exposes the gate and reason;
-it does not present those bars as proven thresholds.</p>
+signals. Missing 0DTE is disclosed in horizon coverage and warnings; it alone
+does not block a healthy SPX surface with 1–7 DTE and term coverage, because
+once the expiring SPXW series closes the 0DTE bucket can be absent while the
+broader surface stays usable.</p>
+<p>Some Gamma quality bars, skew-fit quality among them, remain heuristic pending
+calibration from retained diagnostics. The result exposes the gate and its
+reason instead of presenting those bars as proven thresholds.</p>
 <h3 id="timing-and-last-good-behavior">Timing and last-good behavior</h3>
-<p>After the gateway becomes ready, the daemon prewarms canonical combined Gamma
-and checks refresh eligibility every minute. A request without a serveable
-result returns <code>computing</code> with progress and an ETA. Concurrent callers for the
-same scope share that work. During regular US options hours—normally
-09:30–16:15 ET—a successful result becomes due for refresh after 15 minutes.
-The daemon keeps serving the last-good result while the replacement computes,
-promotes only a successful replacement, and backs off repeated failures.</p>
-<p>The 15-minute interval is the refresh trigger, not the direct quality ceiling.
-During RTH, standalone Gamma rankability requires a current-session result no
-more than 60 minutes old. During a closed session, a cache no more than 24 hours
-old can remain rankable on the direct surface.</p>
-<p>Outside options RTH, automatic refresh is intentionally suppressed. The direct
-Gamma surface can keep a sufficiently recent closed-session cache rankable.
-When Regime consumes that same result, however, the latest completed-options-
-session value is typed <code>not_due</code> context before the next open and cannot
-confirm. When the next options session opens, that prior-session result becomes
-overdue unless a current-session compute replaces it. No last-good result, a
-missed completed session, or a due refresh gap is a data-quality condition.</p>
-<p>The authoritative cadence is a same-session 15-minute RTH refresh trigger,
-served last-good during refresh, and off-hours Regime <code>not_due</code> context.</p>
+<p>After the gateway is ready, the daemon prewarms canonical combined Gamma and
+checks refresh eligibility every minute. A request with no serveable result
+returns <code>computing</code> with progress and an ETA for the multi-minute background
+compute; concurrent callers for one scope share that work.</p>
+<p>During regular US options hours, normally 09:30–16:15 ET on the US options
+calendar, a successful result becomes due for refresh after 15 minutes. The
+daemon serves last-good while the replacement computes, promotes only a
+successful replacement, and backs off repeated failures. Outside those hours,
+automatic refresh is suppressed on purpose.</p>
+<p>The 15-minute interval triggers a refresh; it does not set the quality ceiling.
+Standalone rankability on the direct surface needs a current-session result no
+more than 60 minutes old during RTH, or a closed-session cache no more than 24
+hours old.</p>
+<p>Regime treats that closed-session result differently. The latest
+completed-options-session value is typed <code>not_due</code> context before the next open
+and cannot confirm, then becomes overdue at the open unless a current-session
+compute replaces it. No last-good result, a missed completed session, or a due
+refresh gap is a data-quality condition.</p>
 <h3 id="safe-check">Safe check</h3>
 <pre><code class="language-sh">ibkr gamma --json
 ibkr gamma --only spx --json
@@ -255,96 +272,89 @@ ibkr gamma --only spx --json
 <p>Read <code>status</code> first, then <code>result.quality.rankability</code>, <code>as_of</code>, session keys,
 coverage, and <code>warning_details</code>. Use <code>--force</code> only for an intentional
 diagnostic recompute; it is not the normal freshness mechanism.</p>
-<h2 id="regime"><span class="secno" aria-hidden="true">05</span>Regime</h2>
+<h2 id="regime"><span class="secno" aria-hidden="true">04</span>Regime</h2>
 <h3 id="what-it-answers-1">What it answers</h3>
 <p>Regime asks whether several independent market channels agree that stress is
-developing. Its eight rows form six clusters:</p>
+developing. Its eight rows draw on live IBKR market data, official public
+series, Gamma, and S&amp;P 500 breadth, and group into six clusters.
+<a href="concepts.html#regime">Concepts</a> explains what each row measures. Cluster
+independence is what gates confirmation.</p>
 <div class="tblwrap">
 <table>
 <thead>
 <tr>
 <th>Cluster</th>
 <th>Rows</th>
-<th>What it measures</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Volatility</td>
 <td>VIX/VIX3M term structure; VVIX</td>
-<td>Equity-volatility inversion and demand for convexity</td>
 </tr>
 <tr>
 <td>Credit</td>
 <td>HYG/SPY divergence; HY/IG option-adjusted spreads</td>
-<td>Fast ETF credit pressure plus slower official cash-credit confirmation</td>
 </tr>
 <tr>
 <td>Funding</td>
 <td>Commercial-paper/T-bill spread</td>
-<td>Funding and liquidity pressure</td>
 </tr>
 <tr>
 <td>FX</td>
 <td>USD/JPY weekly move</td>
-<td>Yen-funded carry unwind pressure</td>
 </tr>
 <tr>
 <td>Gamma</td>
 <td>SPX-canonical dealer gamma with SPY context</td>
-<td>Whether modeled dealer hedging may amplify or damp moves</td>
 </tr>
 <tr>
 <td>Breadth</td>
 <td>S&amp;P 500 breadth</td>
-<td>Participation above 50/200-day averages and new-high/new-low balance</td>
 </tr>
 </tbody>
 </table>
 </div>
 <p>Each row carries measurements, band, reason, source and scalar provenance,
 native-cadence freshness, streak, and red-band eligibility. The combined result
-reports raw and confirmed cluster counts, source health, posture, and one of
-<code>quiet</code>, <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>,
-<code>opportunity</code>, or <code>data_quality</code>.</p>
+reports raw and confirmed cluster counts, source health, posture, a semantic
+fingerprint, and one of <code>quiet</code>, <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>,
+<code>stabilization</code>, <code>opportunity</code>, or <code>data_quality</code>.</p>
 <p>Red does not automatically mean confirmed. Depth, persistence, freshness, and
-cluster independence decide whether a red row may confirm stress. A
-provisional red stays visible. It may support <code>early_warning</code> only when the
-required evidence set is otherwise usable. Missing, broken, contradictory, or
-overdue required evidence instead produces <code>data_quality</code>, blocked readiness,
-and “Market state undefined — data incomplete.”</p>
-<p>Thresholds and severity governors currently labeled <code>heuristic</code> and
-<code>pending_backtest</code> are exactly that: reviewed starting assumptions awaiting
-point-in-time calibration. They are not proven market laws. The result exposes
-governors so a lower severity beside red rows is explainable rather than
-silently rewritten.</p>
+cluster independence decide whether a red row may confirm stress. A provisional
+red stays visible and may support <code>early_warning</code> only when the required
+evidence set is otherwise usable. Missing, broken, contradictory, or overdue
+required evidence instead produces <code>data_quality</code>, blocked readiness, and the
+label <code>Market state undefined — data incomplete</code>.</p>
+<p>Thresholds and severity governors labeled <code>heuristic</code> and <code>pending_backtest</code> are
+reviewed starting assumptions awaiting point-in-time calibration, not proven
+market laws. The result exposes governors so a lower severity beside red rows is
+explainable rather than silently rewritten.</p>
 <h3 id="timing-and-authority">Timing and authority</h3>
-<p>Regime publishes one immutable, daemon-owned last-good result to <code>daemon.db</code>.
-Its operational authority window is five minutes. A daemon scheduler checks
-every five seconds and starts a refresh about one minute before expiry, leaving
-the full 45-second acquisition budget plus a cushion. A Gamma publication can
-also wake Regime promptly. App polling and alert consumers do not own this
-schedule.</p>
-<p>Two slower inputs use their own publication clocks. After VIX3M dissemination
-closes, the frozen VIX term observation remains visible but the volatility
-source is healthy and <code>not_due</code> when VVIX is current; it is not a stale-source
-warning. S&amp;P 500 breadth starts after the official equity close plus a 35-minute
-settlement delay. A full broker-paced pass can take about 74 minutes, so the
-immediately prior last-good is healthy <code>not_due</code> context only while an active
-refresh or retry remains inside the explicit 90-minute publication window. It
-becomes stale at the deadline if a current-session result has not published.</p>
+<p>Regime publishes one immutable, daemon-owned last-good result to <code>daemon.db</code>,
+with a five-minute operational authority window. A scheduler checks every five
+seconds and starts a refresh about one minute before expiry, leaving the full
+45-second acquisition budget plus a cushion. A Gamma publication can also wake
+Regime. App polling and alert consumers do not own this schedule.</p>
+<p>Two slower inputs keep their own publication clocks. After VIX3M dissemination
+closes, the frozen VIX term observation stays visible; while VVIX is current the
+volatility source is healthy and <code>not_due</code>, not a stale-source warning. S&amp;P 500
+breadth starts after the official equity close plus a 35-minute settlement
+delay. A full broker-paced pass can take about 74 minutes, so the prior
+last-good is healthy <code>not_due</code> context only while a refresh or retry remains
+inside the explicit 90-minute publication window, and stale at that deadline
+without a current-session result.</p>
 <p>Breadth counts only constituent windows whose last bar matches the requested
 trading session. Successful windows are checkpointed every ten names, so a
-restart resumes near its last completed work instead of repeating the whole
-fan-out. The result exposes refresh start, processed and total names,
-publication deadline, and a redacted failure reason. These fields describe
-work progress; they never make an incomplete snapshot current.</p>
-<p>Only a complete replacement becomes current. While refresh runs, consumers see
-the prior publication with <code>refreshing</code> authority health. A failed refresh
-keeps the last-good result but marks authority stale with the typed failure and
-retry state. A cold start with no valid publication is unavailable. Dependent
-sensors receive this authority health and must not present a stale publication
-as current.</p>
+restart resumes near its last completed work instead of repeating the fan-out.
+The result exposes refresh start, processed and total names, publication
+deadline, and a redacted failure reason. Those fields describe progress; they
+never make an incomplete snapshot current.</p>
+<p>Only a complete replacement becomes current. During a refresh, consumers see the
+prior publication with <code>refreshing</code> authority health; a failed refresh keeps
+last-good and marks authority stale with the typed failure and retry state. A
+cold start with no valid publication is unavailable. Dependent sensors receive
+this authority health and must not present a stale publication as current.</p>
 <h3 id="safe-check-1">Safe check</h3>
 <pre><code class="language-sh">ibkr status --json
 ibkr regime --json
@@ -354,79 +364,75 @@ ibkr regime --explain
 <code>source_health</code>, row freshness and eligibility, then <code>governors</code>. A green row
 does not prove the whole result is usable when another required cluster is
 overdue.</p>
-<h2 id="canary"><span class="secno" aria-hidden="true">06</span>Canary</h2>
+<h2 id="canary"><span class="secno" aria-hidden="true">05</span>Canary</h2>
 <h3 id="what-it-answers-2">What it answers</h3>
-<p>Canary asks whether the current broad-market state is relevant to the current
-book. It combines four daemon-owned inputs: account, positions, the exact
-published Regime result, and market events for held names. It does not fetch a
-second market view or use the portfolio's own losses to “confirm” a broad
-market event.</p>
-<p>The output separates <code>market_confirmation</code>, <code>portfolio_fit</code>, and
-<code>input_health</code>, then derives an action such as <code>stand_down</code>, <code>watch</code>, <code>defend</code>,
-<code>rebalance</code>, <code>deploy</code>, or <code>confirm_inputs</code>. It also reports planner readiness,
-bounded held-name stress, source health, drivers, warnings, and a semantic
-fingerprint.</p>
+<p>Canary asks whether the current broad-market state is relevant to the portfolio
+actually held. It combines four daemon-owned inputs: account, positions, the
+exact published Regime result, and market events for held names. It does not
+fetch a second market view, and it never treats the portfolio's own losses as
+confirmation of a broad market event.</p>
+<p>The output separates <code>market_confirmation</code>, <code>portfolio_fit</code>, and <code>input_health</code>,
+then derives an action such as <code>stand_down</code>, <code>watch</code>, <code>defend</code>, <code>rebalance</code>,
+<code>deploy</code>, or <code>confirm_inputs</code>. It also reports planner readiness, bounded
+held-name stress, source health, drivers, warnings, and a semantic fingerprint.</p>
 <h3 id="timing-and-fail-closed-prerequisites">Timing and fail-closed prerequisites</h3>
 <p>The daemon evaluates Canary every minute, even when the app is closed.
 Evaluation is stateless; retained decision events are history, not an alternate
-current authority. During pre-market and RTH, account and positions observations
-older than 10 minutes are stale; outside those phases the limit is 90 minutes.
-Regime must carry usable last-good authority, and market-event source health
-must remain explicit.</p>
+current authority. Account and positions observations older than 10 minutes are
+stale during pre-market and RTH, 90 minutes outside those phases. Regime must
+carry usable last-good authority, and market-event source health must stay
+explicit.</p>
 <p>The account timestamp still requires a completed, account-scoped broker
 snapshot. Per-currency ledger rows are accepted only through the broker's
-closed, typed ledger field set; aggregate ordinary rows and foreign-account
-rows fail closed. Daily P&amp;L is required during the US equity regular session.
-If that stream is silent outside the session, it is <code>not_due</code> and does not make
-otherwise current account evidence unhealthy; the P&amp;L-specific observation
-remains explicitly unavailable.</p>
-<p>Missing, stale, partial, or failed required inputs produce degraded/failed
-input health and normally <code>confirm_inputs</code> with blocked readiness. Reg SHO and
-halt health are required for a held book; borrow inventory and fee health
-become required only when the book contains a short stock. An all-long book
-does not fail because short-borrow evidence is absent. Market-only stress
-cannot become a portfolio defense instruction without usable portfolio fit,
-and portfolio loss or margin pressure cannot manufacture market confirmation.
-Independently current evidence may stay visible, but the input gap remains the
-headline condition.</p>
+closed, typed ledger field set; aggregate ordinary and foreign-account rows fail
+closed. Daily P&amp;L is required during the US equity regular session. Silence
+outside the session is <code>not_due</code>, leaves otherwise current account evidence
+healthy, and keeps the P&amp;L-specific observation explicitly unavailable.</p>
+<p>Missing, stale, partial, or failed required inputs produce degraded/failed input
+health and normally <code>confirm_inputs</code> with blocked readiness. Reg SHO and halt
+health are required for a held book. Borrow inventory and fee health become
+required only for a book holding a short stock, so an all-long book does not
+fail for absent short-borrow evidence. Market-only stress cannot become a
+portfolio defense instruction without usable portfolio fit, and portfolio loss or
+margin pressure cannot manufacture market confirmation. Independently current
+evidence may stay visible, but the input gap remains the headline condition.</p>
 <h3 id="safe-check-2">Safe check</h3>
 <pre><code class="language-sh">ibkr canary --json
 </code></pre>
 <p>Read <code>input_health</code>, <code>action</code>, and <code>planner_readiness</code> before the summary. Then
 compare <code>source_as_of</code>, <code>source_health</code>, the embedded market lifecycle, and held
-stress. Use the dedicated account, positions, Regime, or market-events command
-to investigate a named gap.</p>
-<h2 id="rulebook"><span class="secno" aria-hidden="true">07</span>Rulebook</h2>
+stress.</p>
+<h2 id="rulebook"><span class="secno" aria-hidden="true">06</span>Rulebook</h2>
 <h3 id="what-it-answers-3">What it answers</h3>
-<p>Rulebook evaluates 14 advisory discipline checks over the current book. Its
-inputs are account and positions evidence, per-name earnings evidence, the
-classified Regime stage, and current SPY tape where a rule needs it. The pure
-evaluator returns all 14 rows in stable order plus a hardest-first ranking,
-breach counts, offenders, observed values, thresholds, and evidence.
-The detailed <a href="../../design/trading-rulebook.md">Trading Rulebook</a> is the semantic
-authority; compiled v2 is an advisory model, not proof that every threshold has
-operator approval.</p>
-<p>Row outcomes are <code>pass</code>, <code>info</code>, <code>watch</code>, <code>act</code>, <code>unknown</code>, or
-<code>not_evaluated</code>. Missing or partial input cannot create a false pass. Provider
-disagreement or an unresolved earnings source remains unknown. A carried or
-stale Regime stage is evaluated conservatively against both the carried and
-calm threshold sets, keeping the worse result so old market state cannot relax
-a rule.</p>
-<p>Outside the US equity regular session, an absent Daily P&amp;L frame is <code>not_due</code>,
-not an account failure. Rules that have complete account and position inputs
+<p>Rulebook evaluates 14 advisory discipline checks over the current book: which
+pass, which need attention, and which cannot be evaluated. Inputs are account
+and positions evidence, per-name earnings evidence, the classified Regime stage,
+and current SPY tape where a rule needs it. The pure evaluator returns all 14
+rows in stable order plus a hardest-first ranking, breach counts, offenders,
+observed values, thresholds, and evidence. The detailed
+<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a> is the semantic authority;
+compiled v2 is an advisory model, not proof that every threshold has operator
+approval.</p>
+<p>Row outcomes are <code>pass</code>, <code>info</code>, <code>watch</code>, <code>act</code>, <code>unknown</code>, or <code>not_evaluated</code>.
+Missing or partial input cannot create a false pass. Provider disagreement or an
+unresolved earnings source remains unknown. A carried or stale Regime stage is
+evaluated against both the carried and calm threshold sets, keeping the worse
+result so old market state cannot relax a rule.</p>
+<p>Outside the US equity regular session, an absent Daily P&amp;L frame is <code>not_due</code>
+rather than an account failure. Rules with complete account and position inputs
 still evaluate; the green-day/P&amp;L rule alone remains <code>not_evaluated</code>. During the
 regular session, missing or malformed Daily P&amp;L continues to degrade account
 health and fail closed.</p>
 <p>Fetched earnings evidence is fresh for 24 hours, retained for bounded recovery
 up to 45 days, and retried after 15 minutes when a provider attempt fails.
-Last-good evidence remains labeled; it never replaces a current successful
+Last-good evidence stays labeled; it never replaces a current successful
 provider outcome or resolves disagreement.</p>
 <h3 id="timing-and-preview-reuse">Timing and preview reuse</h3>
 <p>The daemon owns a complete evaluation every minute, independently of the app.
-CLI, app, and preview readers reuse a scope-, connector-, and broker-generation-
-bound result for up to 75 seconds. After that, a reader gets a bounded canonical
-evaluation or an explicit unavailable advisory; it never silently borrows a
-result from another account or connection generation.</p>
+CLI, app, and preview readers reuse a result bound to scope, connector, and
+broker generation for up to 75 seconds. After that, a reader gets a bounded
+canonical evaluation or an explicit unavailable advisory; it never silently
+borrows a result from another account or connection generation.</p>
 <p>Order previews may include Rulebook causes from this cache, but those warnings
 remain advisory and do not change broker submit eligibility. A missing preview
 warning is not evidence that the underlying input was healthy.</p>
@@ -436,10 +442,10 @@ warning is not evidence that the underlying input was healthy.</p>
 <p>Check top-level <code>status</code> and every <code>input_health</code> row before counting passes.
 Inspect <code>unknown</code> and <code>not_evaluated</code> reasons, policy identity, and the ranked
 rows. Do not treat an old preview's annotations as a new Rulebook evaluation.</p>
-<h2 id="market-events"><span class="secno" aria-hidden="true">08</span>Market Events</h2>
+<h2 id="market-events"><span class="secno" aria-hidden="true">07</span>Market events</h2>
 <h3 id="what-they-answer">What they answer</h3>
-<p>Market events ask whether a held or requested stock/ETF has single-name
-structure that should annotate risk review or protection proposals. The flags
+<p>Market events flag borrow, threshold-list, LULD, and halt context on a held or
+requested stock/ETF, to annotate risk review and protection proposals. The flags
 are reduce-only context and safety gates; they do not create opening-trade
 recommendations.</p>
 <div class="tblwrap">
@@ -480,30 +486,28 @@ recommendations.</p>
 </tbody>
 </table>
 </div>
-<p>The result carries per-source <code>status</code>, <code>refresh_state</code>, <code>next_attempt</code>, and a
-redacted typed <code>last_failure</code>. Empty <code>flags</code> is conclusive only when source
-health establishes current, complete coverage. Unknown and null never mean
-inactive or zero. Borrow-inventory aggregate health can read <code>ok</code> after at
-least one requested symbol reports; check the coverage note because other
-symbols may still lack a tick.</p>
+<p>The result carries per-source <code>status</code>, <code>refresh_state</code>, <code>next_attempt</code>, a
+redacted typed <code>last_failure</code>, warnings, and a semantic fingerprint. Empty
+<code>flags</code> is conclusive only when source health establishes current, complete
+coverage. Unknown and null never mean inactive or zero. Borrow-inventory
+aggregate health can read <code>ok</code> after at least one requested symbol reports, so
+check the coverage note: other symbols may still lack a tick.</p>
 <h3 id="safe-check-4">Safe check</h3>
 <pre><code class="language-sh">ibkr market-events --json
 ibkr market-events --symbol GME --json
 </code></pre>
 <p>Read <code>source_health</code> before <code>flags</code>. For borrow fee, inspect
-<code>borrow_fee_coverage</code> for global versus portfolio-only scope, entitlement,
-scale status, and <code>policy_eligible</code>. Respect <code>not_due</code> and <code>next_attempt</code>
-instead of repeatedly forcing a blocked source.</p>
-<h2 id="operator-checklist"><span class="secno" aria-hidden="true">09</span>Operator Checklist</h2>
+<code>borrow_fee_coverage</code> for global versus portfolio-only scope, entitlement, scale
+status, and <code>policy_eligible</code>.</p>
+<h2 id="operator-checklist"><span class="secno" aria-hidden="true">08</span>Operator checklist</h2>
 <p>Use read-only checks in this order:</p>
 <ol>
 <li>Run <code>ibkr status --json</code> and confirm the gateway, data farms, background
 tasks, sensor subsystems, and top-level data-quality warnings.</li>
 <li>Open the sensor's own JSON result. Check status, authority or source health,
 scope, <code>as_of</code>, freshness, and warnings before interpreting measurements.</li>
-<li>Follow the named dependency. For example, investigate Gamma before treating
-Regime's gamma row as a problem, and Regime before treating Canary as a
-portfolio verdict.</li>
+<li>Follow the named dependency. Investigate Gamma before treating Regime's gamma
+row as a problem, and Regime before treating Canary as a portfolio verdict.</li>
 <li>Re-read after the typed retry or publication window. Do not create a fetch
 storm around a source that reports <code>not_due</code> or a future <code>next_attempt</code>.</li>
 <li>Treat an alert surface as a downstream view. Sensor health does not prove
@@ -511,22 +515,23 @@ push activation, delivery, receipt, or acknowledgement.</li>
 </ol>
 <p>These checks are diagnostic only. None places, modifies, cancels, or authorizes
 an order.</p>
-<h2 id="reference-map"><span class="secno" aria-hidden="true">10</span>Reference Map</h2>
+<h2 id="related-pages"><span class="secno" aria-hidden="true">09</span>Related pages</h2>
 <ul>
 <li><a href="../internals/architecture.html">Architecture</a>: process, source, RPC, and runtime ownership.</li>
 <li><a href="policy.html">Trading Policy</a>: who chooses limits and what remains advisory.</li>
-<li><a href="../../design/trading-rulebook.md">Trading Rulebook</a>: canonical rule, input-health,
+<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: canonical rule, input-health,
 preview, alert, and authority semantics.</li>
-<li><a href="../internals/storage.html">Storage</a>: last-good documents, observations, evidence, and
-recovery boundaries.</li>
-<li><a href="concepts.html">Concepts</a>: deeper interpretation of calendars, Gamma, Regime,
-Canary, market events, and breadth.</li>
-<li><a href="../internals/regime-backtest.html">Regime and Canary Backtest Plan</a>: evidence
+<li><a href="../internals/storage.html">Storage</a>: last-good documents, observations, evidence,
+and recovery boundaries.</li>
+<li><a href="concepts.html">Concepts</a>: how to interpret calendars, Gamma, Regime, Canary,
+market events, and breadth.</li>
+<li><a href="../internals/regime-backtest.html">Regime and Canary Backtest Runbook</a>: evidence
 required to replace pending heuristics with calibrated policy.</li>
-<li><a href="../internals/regime-dashboard.html">Risk-Regime Dashboard Specification</a>: row
+<li><a href="../internals/regime-dashboard.html">Risk Regime Dashboard Contract</a>: row
 methodology and model detail.</li>
 </ul>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>

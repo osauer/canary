@@ -1,60 +1,30 @@
-# Storage: State, Evidence, and Recovery
+# Storage
 
 When `ibkr` restarts, it must pick up the same account context with the same
-safety history. The daemon needs to remember which state was current, which
-evidence supported a decision, which preview tokens were consumed, how far
-broker order IDs advanced, and which broker statements were incorporated.
+safety history: which state was current, which evidence supported a decision,
+which preview tokens were consumed, and how far broker order IDs advanced.
 
-That job belongs to the daemon's storage layer. It uses a local SQLite file
-named `daemon.db`, accessed through a pure-Go driver inside the `ibkr` binary.
-SQLite supplies the storage engine; the surrounding code defines what may be
-stored, who may write it, and how it becomes safe to use.
+That job belongs to the daemon's storage layer, a local SQLite file named
+`daemon.db` reached through a pure-Go driver inside the `ibkr` binary. SQLite
+supplies the storage engine. The surrounding code defines what may be stored,
+who may write it, and how it becomes safe to use.
 
 > One daemon writes durable runtime state. Product surfaces read it through
 > typed daemon APIs. Human-authored policy and original broker evidence keep
 > their own sources of record.
 
-This reference starts with that operating model, then works down through the
-tables, read and write paths, recovery mechanics, and current limits.
-
-## Storage Layer in One View
+## What the daemon owns
 
 [![What the daemon storage layer owns and what remains outside it](../../diagrams/storage-overview.svg)](../../diagrams/storage-overview.svg)
 
 [PNG fallback](../../diagrams/storage-overview.png) ·
-[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
-Inputs with their own owners enter from the left. The daemon validates them,
-combines them with live observations, and commits the resulting state and
-evidence to `daemon.db`. CLI, app, and MCP surfaces receive structured results
-on the right. Analytics use bounded daemon queries or versioned exports, while
-offline inspection uses a stopped daemon or a verified backup.
-
-This boundary keeps the meaning of a row with the code that created it. It also
-gives broker-critical writes one ordered path instead of several competing
-writers.
-
-## Why SQLite Fits This Desk
-
-The current deployment has one application writer on one machine. SQLite fits
-that shape well: it ships with the binary, commits related facts atomically,
-and provides indexed reads without another service to operate.
-
-| Requirement | What SQLite provides | Operating boundary |
-|---|---|---|
-| One daemon owns writes | A local file with no database server, port, credentials, or administrator | Several writers or hosts require a different topology. |
-| Related facts change together | Transactions can commit state, evidence, token tombstones, order floors, and lifecycle events as one unit. | Every writer goes through the daemon's typed transaction APIs. |
-| History needs structured reads | Tables and indexes support bounded state, event, order, observation, and statement queries. | Some current history readers still scan event JSON and need to move onto those indexes. |
-| Installation stays local | The pure-Go driver embeds the engine in the `ibkr` binary. | High availability and centralized concurrent analytics sit outside this deployment model. |
-| Schema changes preserve recoverability | The daemon can upgrade a verified copy and publish it only after validation. | Routine backup, retention, and restore operations still need an operator workflow. |
-
-SQLite remains appropriate while each daemon/account stack has one writer.
-Multi-host writes, automatic failover, or many concurrent analytical readers
-would justify a new topology. Giving those readers the live file would bypass
-the ownership and recovery rules that make the current design safe.
-
-## What the Daemon Remembers
+Inputs with their own owners enter from the left, and CLI, app, and MCP
+surfaces receive structured results on the right. The boundary keeps the
+meaning of a row with the code that created it, and it gives broker-critical
+writes one ordered path instead of several competing writers.
 
 `daemon.db` carries five kinds of continuity:
 
@@ -76,18 +46,32 @@ recovery lifecycles:
 
 | Record | Owning location | Role |
 |---|---|---|
-| Human intent and approved limits | `config.toml` and `policies/*.toml` | People author these declarations; SQLite retains applied identities and resulting events. |
+| Human intent and approved limits | `config.toml` and `policies/*.toml` | People author these declarations. SQLite retains applied identities and resulting events. |
 | Original broker statements | `$XDG_STATE_HOME/ibkr/statements/flex-*.xml` | The retained XML is the broker-supplied evidence behind SQLite's inventory and derived daily views. |
 | Preview signer and Flex credentials | Private config and state files | Secrets and signing material rotate independently from ordinary database rows. |
 | Device grants, push subscriptions, and relay credentials | App-owned state directory | The app has separate authentication duties and never opens `daemon.db`. |
-| Recovery material | `daemon.db.head`, verified backups, and sealed legacy artifacts | These detect rollback or support offline recovery; normal product reads use the published database. |
+| Recovery material | `daemon.db.head`, verified backups, and sealed legacy artifacts | These detect rollback or support offline recovery. Normal product reads use the published database. |
 
-An isolated second daemon needs its own config, socket, broker/account/client
-pins, and XDG state roots. Changing only `IBKR_SOCKET` leaves storage shared. A
-lock beside `daemon.db` prevents alternate socket paths from writing the same
-file concurrently.
+A lock beside `daemon.db` prevents alternate socket paths from writing the same
+file concurrently. A second socket is not isolation on its own;
+[Architecture](architecture.md#running-more-than-one-instance) lists what a
+separate stack needs.
 
-## Five Questions Behind the Data Model
+## Why SQLite fits this desk
+
+The current deployment has one application writer on one machine, and SQLite
+fits that shape. It is a local file with no database server, port, credentials,
+or administrator. One transaction can commit state, evidence, token tombstones,
+order floors, and lifecycle events as a unit, and every writer goes through the
+daemon's typed transaction APIs. Tables and indexes support bounded state,
+event, order, observation, and statement queries.
+
+Several writers or hosts would require a different topology, as would automatic
+failover or many concurrent analytical readers. Giving those readers the live
+file instead would bypass the ownership and recovery rules that make the
+current design safe.
+
+## The data model
 
 The schema follows the questions the product must answer:
 
@@ -99,23 +83,18 @@ The schema follows the questions the product must answer:
 | What must never be reused or move backwards? | `broker_scopes`, `consumed_preview_tokens`, `order_id_floors`, `order_events` | Route identity, a spent capability, a conservative ID floor, or an order-lifecycle fact. |
 | What did the broker originally report? | Retained Flex XML plus four statement tables | SQLite records exact file versions and current or historical daily-equity projections. |
 
-The schema uses relational columns for safety-critical identities and
-irreversible facts. Keys, foreign keys, constraints, indexes, and triggers make
-those rules visible to SQLite. Varied current snapshots remain versioned JSON
-documents, and immutable events retain their original payloads. Frequently
-queried event fields may also appear in relational projection tables.
-
-Those projections are only partly earning their complexity today. The main
-Regime, rules, Canary, and capital-history readers still load matching
-`event_log` JSON and filter it in Go. The projections should become the bounded,
-indexed read path or leave the schema when compatibility permits.
-
-## Physical Data Model
+Relational columns carry safety-critical identities and irreversible facts, and
+keys, foreign keys, constraints, indexes, and triggers make those rules visible
+to SQLite. Varied current snapshots stay versioned JSON documents, and immutable
+events keep their original payloads. Frequently queried event fields may also
+appear in relational projection tables. Those projections are not the read path
+yet: the main Regime, rules, Canary, and capital-history readers still load
+matching `event_log` JSON and filter it in Go.
 
 [![Physical entity relationships in daemon.db schema version 1](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
 
 [PNG fallback](../../diagrams/sqlite-data-model.png) ·
-[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Canonical DDL](https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go)
 
 The diagram shows schema version 1. Solid lines are declared SQLite foreign
@@ -143,14 +122,13 @@ relationships also remain application conventions:
   without a foreign key joining the two families;
 - validated broker-scope values associate order-ID floors with a route.
 
-The canonical columns, constraints, indexes, and triggers live in
-`internal/daemon/corestore/schema.go`. The renderer compares its complete table
-and foreign-key inventory with that file, so schema drift fails the diagram
-gate. Readers of JSON documents, events, and observations still need the
-expected kind and payload version, plus scope, time basis, provenance,
-eligibility, and data quality.
+The renderer compares its complete table and foreign-key inventory with
+`internal/daemon/corestore/schema.go`, so schema drift fails the diagram gate.
+Readers of JSON documents, events, and observations still need the expected kind
+and payload version, plus scope, time basis, provenance, eligibility, and data
+quality.
 
-## Writing and Reading Data
+## Writing and reading data
 
 ### Commit a state change
 
@@ -195,7 +173,7 @@ For a new dashboard or analysis, define scope, row meaning, time basis,
 freshness, eligibility, ordering, pagination, and redaction first. Then add a
 bounded daemon query or typed export backed by a suitable index or projection.
 
-## Durability and Recovery
+## Durability and recovery
 
 ### Normal operation
 
@@ -206,27 +184,50 @@ broker-critical write, so production reads need limits and indexes.
 
 ### Startup gate
 
-Storage becomes ready before the daemon serves RPC, runs schedulers, or
-connects to the broker. Startup checks private file types and modes, SQLite's
-application ID and schema version, the checksummed migration ledger, the exact
-table/index/trigger inventory, `quick_check`, foreign keys, the external minimum
-write counter, and digests for selected payload columns.
+Storage becomes ready before state adapters attach, the daemon serves RPC,
+schedulers run, or either broker connection starts. Startup checks private file
+types and modes, SQLite's application ID and schema version, the checksummed
+migration ledger, the exact table/index/trigger inventory, `quick_check`,
+foreign keys, the external minimum write counter, and digests for selected
+payload columns.
 
 This catches schema drift, structural damage, rollback, and selected payload
 changes. Integrity coverage remains selective: event headers, observation
 metadata and eligibility, typed projections, broker bindings, and current
 statement winners do not yet share one canonical whole-record digest.
 
+The daemon writes and fsyncs the `daemon.db.head` watermark before publishing
+the initial database and after every committed mutation. An existing database
+with no watermark fails closed and waits for explicit verified recovery.
+
 ### Schema upgrades
 
-The daemon upgrades an older valid schema through an unpublished copy. Under
-the persistence lock it creates a verified backup, migrates a same-directory
-candidate, validates the candidate, records recovery state, and atomically
-publishes the result. A future schema refuses downgrade, and ambiguous recovery
-state stops startup.
+A fresh installation is created and validated directly at the binary's target
+schema. For an existing database, an equal schema version still passes full
+validation, a newer one refuses downgrade, and an older valid one enters the
+automatic upgrade coordinator, which never mutates the published database in
+place.
+
+Under the persistence lock the coordinator takes a verified standalone backup at
+the exact current authority head, applies immutable ordered migrations to an
+unpublished same-directory candidate, and runs the full schema, integrity,
+foreign-key, content-hash, and authority checks before advancing the authority
+head once and publishing atomically with the authority epoch and evidence
+intact. A small fsynced recovery manifest carries the durable upgrade phase
+across a restart; it is transient coordination, not another business-state
+authority.
+
+The pre-upgrade backup stays recovery-only. Ambiguous recovery state stops
+startup, and a failed or ambiguous upgrade never triggers automatic repair or
+restore.
+
+SQL schema versions govern tables, indexes, constraints, and triggers, while
+mutable JSON documents carry independent, kind-specific payload versions and
+typed migrations. Append-only events are not rewritten to fit a new shape; a new
+event or payload version retains a compatible reader or feeds a new projection.
 
 The full crash-boundary protocol lives in the
-[SQLite implementation contract](../../design/daemon-sqlite-authority.md). Schema
+[SQLite implementation contract](../../../internal-docs/design/daemon-sqlite-authority.md). Schema
 version 1 remains the only production migration, so the general coordinator
 has yet to carry a released schema transition.
 
@@ -239,7 +240,7 @@ a rehearsed restore runbook. Recovery is an offline procedure because the
 database head, preview signer generation, broker-open orders, and conservative
 order-ID floors must agree before writes resume.
 
-## Current Limits and Evolution
+## Current limits and evolution
 
 | Area | Current state | Next decision |
 |---|---|---|
@@ -264,36 +265,27 @@ retention and recovery objectives. The natural next layer is a central
 read-only analytical and control plane fed by typed, redacted, versioned exports
 or a change stream from each authoritative daemon.
 
-## Glossary
+## Storage terms and references
 
 | Term | Plain-language meaning |
 |---|---|
-| Storage layer | The code and operating rules that preserve state, evidence, and recovery continuity. SQLite is its engine. |
-| Source of record | The location the software is allowed to treat as current for one kind of fact. |
-| Current state | The latest accepted version used by the running product. |
-| Event | An immutable record of something the software observed, decided, or attempted. |
-| Observation | A retained measurement from a named source, kept separately from the conclusion derived from it. |
 | Projection | Selected fields copied from a richer payload into searchable columns. |
 | Revision check | Update only when the caller's expected revision is still current. |
-| Transaction | A group of database changes that all commit or all fail together. |
 | WAL | SQLite's write-ahead log, which may contain committed changes not yet folded into the main database file. |
 | Write counter | An ever-increasing number for the newest committed storage change. `daemon.db.head` records the minimum accepted value. |
 | Verified backup | A standalone copy tied to one known write counter and reopened for validation. |
 | Decision eligible | Allowed to support a live decision. Historical observations may be retained for research without this permission. |
 | Broker route | The exact endpoint, client ID, account, and mode combination belonging to an order lifecycle. |
 
-## Reference Map
-
 - [Architecture](architecture.md): process, broker, RPC, and state ownership.
 - [Sensors](../understand/sensors.md): measurement authority, source cadence, last-good
   behavior, and safe operator checks.
-- [SQLite Implementation Contract](../../design/daemon-sqlite-authority.md): cutover,
+- [SQLite Implementation Contract](../../../internal-docs/design/daemon-sqlite-authority.md): cutover,
   durability, upgrade, and recovery mechanics.
-- [Platform Settings](../../design/platform-settings.md): the typed daemon document for
+- [Platform Settings](../../../internal-docs/design/platform-settings.md): the typed daemon document for
   live preferences.
-- `internal/daemon/corestore/schema.go`: canonical tables, indexes, constraints,
-  triggers, and migration ledger.
+- [Trading Policy](../understand/policy.md): human-authored limits, and the applied
+  state and events the daemon retains.
 - `internal/daemon/corestore`: typed transactions, events, observations,
-  statements, backup, validation, and upgrade code.
-- [Trading Policy](../understand/policy.md): human-authored limits and the applied state and
-  events retained by the daemon.
+  statements, backup, validation, and upgrade code, with the canonical tables,
+  indexes, constraints, triggers, and migration ledger in `schema.go`.

@@ -291,7 +291,7 @@ var pages = []pageSpec{
 	{
 		Source:      "docs/docs/reference/cli.md",
 		Section:     "reference",
-		NavTitle:    "CLI reference",
+		NavTitle:    "CLI",
 		Summary:     "Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.",
 		Description: "Generated reference for every ibkr subcommand, with its usage line, flags, subcommands, guard class, and MCP counterpart.",
 		Status:      statusPublished,
@@ -403,8 +403,8 @@ var pages = []pageSpec{
 		Source:      "docs/docs/internals/packaging.md",
 		Section:     "internals",
 		NavTitle:    "Packaging and distribution",
-		Summary:     "The maintainer checklist behind packaging, signing, trust metadata, and marketplace readiness.",
-		Description: "Maintainer checklist for packaging, trust, documentation, and release readiness in AI tool marketplaces.",
+		Summary:     "What each published artifact contains, how it is signed, and the boundary every channel ships with.",
+		Description: "How ibkr is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/guides/marketplace-readiness.html"},
 	},
@@ -435,6 +435,7 @@ type templateData struct {
 	Layout          string
 	GeneratorNotice template.HTML
 	Nav             template.HTML
+	SideNav         template.HTML
 	Body            template.HTML
 	JSONLD          template.JS
 	SocialHead      template.HTML
@@ -454,13 +455,15 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
   <script type="application/ld+json">{{.JSONLD}}</script>
   <link rel="stylesheet" href="{{.RootPrefix}}shared.css">
 </head>
-<body class="layout-{{.Layout}}">
+<body class="docpage layout-{{.Layout}}">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="{{.RootPrefix}}index.html" aria-label="ibkr canary home"><img src="{{.RootPrefix}}social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
 {{.Nav}}  </header>
-  <main class="wrap doc">
-{{.Body}}  </main>
+  <div class="wrap shell">
+{{.SideNav}}    <main class="doc">
+{{.Body}}    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="{{.RootPrefix}}index.html">ibkr</a><a href="{{.RootPrefix}}docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
@@ -493,6 +496,9 @@ type siteRenderer struct {
 	generated map[string]string
 	tracked   map[string]bool
 	markdown  goldmark.Markdown
+	// unresolved collects relative links that point at nothing tracked, so the
+	// run can fail with the whole list rather than one at a time.
+	unresolved []string
 }
 
 func newSiteRenderer(root string, tracked map[string]bool) *siteRenderer {
@@ -527,6 +533,105 @@ func navHTML(rootPrefix string) string {
 	}
 	out.WriteString("    </nav>\n")
 	return out.String()
+}
+
+// sideNavHTML renders the between-page navigation tree that every generated
+// page carries. It reads the same manifest as the handbook index, so a page
+// added there reaches the tree with no second edit, and a planned page appears
+// without a link exactly as the index shows it. current is the
+// repository-relative output path of the page being rendered; hubOutput asks
+// for the handbook index itself.
+//
+// The tree ships no JavaScript. <details> collapses it on a phone, and wide
+// screens force it open through ::details-content; a browser without that
+// pseudo-element keeps a collapsed control that still opens on click.
+//
+// Each section is its own <details>, open on the section being read. Fully
+// expanded the tree runs about 1100px against a 720px laptop viewport, so a
+// reader on the last section could not see their own position without
+// scrolling the sidebar, which is the question the tree exists to answer.
+func sideNavHTML(rootPrefix, current string) (string, error) {
+	currentDir := filepath.Dir(current)
+
+	here, hereTitle := "", ""
+	for _, page := range pages {
+		if !page.planned() && filepath.ToSlash(page.output()) == current {
+			here = page.Section
+		}
+	}
+	for _, section := range sections {
+		if section.Slug == here {
+			hereTitle = section.Title
+		}
+	}
+
+	var out strings.Builder
+	out.WriteString("    <details class=\"sidenav\">\n")
+	out.WriteString("      <summary class=\"sidenav-summary\">Documentation")
+	if hereTitle != "" {
+		// The closed control on a phone says which section the reader is in,
+		// so the tree does not have to be opened to answer "where am I".
+		fmt.Fprintf(&out, "<span class=\"sidenav-here\">%s</span>", template.HTMLEscapeString(hereTitle))
+	}
+	out.WriteString("</summary>\n")
+	out.WriteString("      <nav class=\"sidenav-tree\" aria-label=\"Documentation\">\n")
+
+	overview, overviewMark := "sidenav-overview", ""
+	if current == hubOutput {
+		overview += " is-current"
+		overviewMark = " aria-current=\"page\""
+	}
+	fmt.Fprintf(&out, "        <a class=\"%s\" href=\"%s\"%s>Overview</a>\n",
+		overview, template.HTMLEscapeString(rootPrefix+hubHref), overviewMark)
+
+	out.WriteString("        <ul class=\"sidenav-sections\">\n")
+	for _, section := range sections {
+		class, open := "sidenav-section", ""
+		if section.Slug == here {
+			class, open = "sidenav-section is-here", " open"
+		}
+		fmt.Fprintf(&out, "          <li class=\"%s\">\n", class)
+		fmt.Fprintf(&out, "            <details class=\"sidenav-group\"%s>\n", open)
+		fmt.Fprintf(&out, "              <summary class=\"sidenav-heading\">%s</summary>\n", template.HTMLEscapeString(section.Title))
+		out.WriteString("              <ul>\n")
+		for _, page := range pages {
+			if page.Section != section.Slug {
+				continue
+			}
+			title := template.HTMLEscapeString(page.NavTitle)
+			if page.planned() {
+				fmt.Fprintf(&out, "                <li><span class=\"sidenav-planned\">%s</span></li>\n", title)
+				continue
+			}
+			output := filepath.ToSlash(page.output())
+			href, err := filepath.Rel(currentDir, output)
+			if err != nil {
+				return "", err
+			}
+			mark := ""
+			if output == current {
+				mark = " class=\"is-current\" aria-current=\"page\""
+			}
+			fmt.Fprintf(&out, "                <li><a href=\"%s\"%s>%s</a></li>\n",
+				template.HTMLEscapeString(filepath.ToSlash(href)), mark, title)
+		}
+		out.WriteString("              </ul>\n")
+		out.WriteString("            </details>\n")
+		out.WriteString("          </li>\n")
+	}
+	out.WriteString("        </ul>\n")
+	// The key belongs only where something is dimmed. Nine pages open a
+	// section that is fully written (the eight under "Under the hood", plus
+	// the index, which opens nothing), and a legend with no referent is noise.
+	for _, page := range pages {
+		if page.Section == here && page.planned() {
+			out.WriteString("        <p class=\"sidenav-note\">Dimmed entries are not written yet.</p>\n")
+			break
+		}
+	}
+	out.WriteString("      </nav>\n")
+	out.WriteString("    </details>\n")
+	return out.String(), nil
 }
 
 func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
@@ -588,6 +693,10 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	if layout == "" {
 		layout = "standard"
 	}
+	sideNav, err := sideNavHTML(rootPrefix, output)
+	if err != nil {
+		return nil, err
+	}
 	data := templateData{
 		Title:           headings[0].Text,
 		Description:     page.Description,
@@ -596,6 +705,7 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 		Layout:          layout,
 		GeneratorNotice: generatorNotice,
 		Nav:             template.HTML(navHTML(rootPrefix)),
+		SideNav:         template.HTML(sideNav),
 		Body:            template.HTML(bodyHTML), // Goldmark escapes source HTML by default.
 		JSONLD:          template.JS(jsonLD),     // json.Marshal produces valid script data.
 	}
@@ -627,12 +737,6 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 	var body strings.Builder
 	body.WriteString("<h1>Documentation</h1>\n")
 	body.WriteString("<p class=\"hub-lead\">Everything written down about running an agentic trading desk on your own Interactive Brokers account. Start at the top if ibkr is new to you; the sections below get progressively closer to the code.</p>\n")
-
-	body.WriteString("<nav class=\"hub-toc\" aria-label=\"Sections\">\n")
-	for _, section := range sections {
-		fmt.Fprintf(&body, "<a href=\"#%s\">%s</a>\n", section.Slug, template.HTMLEscapeString(section.Title))
-	}
-	body.WriteString("</nav>\n")
 
 	for _, section := range sections {
 		fmt.Fprintf(&body, "<section class=\"hub-section\" id=\"%s\">\n", section.Slug)
@@ -676,6 +780,11 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 		return nil, err
 	}
 
+	sideNav, err := sideNavHTML(rootPrefix, hubOutput)
+	if err != nil {
+		return nil, err
+	}
+
 	var out bytes.Buffer
 	err = documentTemplate.Execute(&out, templateData{
 		Title:           "Documentation",
@@ -685,6 +794,7 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 		Layout:          "hub",
 		GeneratorNotice: generatorNotice,
 		Nav:             template.HTML(navHTML(rootPrefix)),
+		SideNav:         template.HTML(sideNav),
 		Body:            template.HTML(body.String()),
 		JSONLD:          template.JS(jsonLD),
 	})
@@ -790,6 +900,11 @@ func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []b
 		}
 		return []byte(github.String())
 	}
+	// A relative link that resolves to nothing tracked is dead on the site.
+	// Passing it through silently is how moving docs/design/ out of the web
+	// root shipped 22 broken links: the page still rendered, and the link
+	// still looked like a link.
+	r.unresolved = append(r.unresolved, fmt.Sprintf("%s -> %s", page.Source, raw))
 	return destination
 }
 
@@ -985,6 +1100,10 @@ func (r *siteRenderer) artifacts() ([]artifact, error) {
 	hub, err := r.renderHub()
 	if err != nil {
 		return nil, fmt.Errorf("render hub: %w", err)
+	}
+	if len(r.unresolved) > 0 {
+		sort.Strings(r.unresolved)
+		return nil, fmt.Errorf("relative links resolve to nothing tracked:\n  %s", strings.Join(r.unresolved, "\n  "))
 	}
 	return append(out, artifact{hubOutput, hub}), nil
 }

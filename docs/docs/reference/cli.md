@@ -42,7 +42,7 @@ The guard column says what a command does: `read-only` reads and prints, `local`
 | [`ibkr settings`](#ibkr-settings) | Runtime platform preferences and observed read-only state | `confirm` | yes |
 | [`ibkr orders`](#ibkr-orders) | Read current-context local order lifecycle state without transmitting orders | `read-only` | yes |
 | [`ibkr order`](#ibkr-order) | Preview, place, modify, cancel, or inspect gated orders | `confirm` | yes |
-| [`ibkr app`](#ibkr-app) | Run the paired mobile PWA application layer | `local` | CLI only |
+| [`ibkr app`](#ibkr-app) | Run the paired mobile PWA application layer | `confirm` | CLI only |
 | [`ibkr mcp`](#ibkr-mcp) | Run the stdio MCP server for local AI clients | `local` | CLI only |
 | [`ibkr daemon`](#ibkr-daemon) | Run the stateful gateway daemon (normally autospawned) | `local` | CLI only |
 | [`ibkr setup`](#ibkr-setup) | Wire ibkr into a local AI client (default: claude-desktop) | `local` | CLI only |
@@ -841,7 +841,7 @@ ibkr order status ID [--json]
 
 Run the paired mobile PWA application layer.
 
-Guard `local`. CLI only, with no MCP tool: local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool.
+Guard `local`, with `confirm` subcommands. CLI only, with no MCP tool: local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool.
 
 Run this from a plain shell rather than the full-screen terminal app: it owns a long-lived process or an installer lifecycle.
 
@@ -850,7 +850,14 @@ ibkr app [--addr HOST:PORT]
 ibkr app pair
 ```
 
-Subcommands: `pair`, `serve`.
+**Subcommands**
+
+| Subcommand | Guard |
+|------------|-------|
+| `pair` | `local` |
+| `serve` | `local` |
+| `devices` | `read-only` |
+| `restart` | `confirm` |
 
 **Flags**
 
@@ -859,6 +866,9 @@ Subcommands: `pair`, `serve`.
 | `--addr` | yes | - |
 | `--public-url` | yes | - |
 | `--state-dir` | yes | - |
+| `--remote` | no | - |
+| `--remote-url` | yes | - |
+| `--keep-days` | yes | - |
 | `--json` | no | - |
 
 ## `ibkr mcp`

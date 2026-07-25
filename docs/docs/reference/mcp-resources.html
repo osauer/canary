@@ -12,7 +12,7 @@
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Reference for the non-tool resources exposed by ibkr mcp, including live quote subscriptions.","headline":"MCP resources reference","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/reference/mcp-resources.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
-<body class="layout-standard">
+<body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -24,7 +24,84 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Reference</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="cli.html">CLI</a></li>
+                <li><a href="mcp-tools.html">MCP tools</a></li>
+                <li><a href="mcp-resources.html" class="is-current" aria-current="page">MCP resources</a></li>
+                <li><a href="config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+        <p class="sidenav-note">Dimmed entries are not written yet.</p>
+      </nav>
+    </details>
+    <main class="doc">
 <h1 id="mcp-resources-reference">MCP resources reference</h1>
 <p>Last reviewed: 2026-06-11 08:17 CEST</p>
 <p>These are the non-tool resources <code>ibkr mcp</code> exposes to MCP clients. Tools are documented separately in <a href="mcp-tools.html">MCP tools reference</a>.</p>
@@ -37,7 +114,8 @@
 <p><code>resources/read</code> returns a one-off quote snapshot with the same JSON shape as <code>ibkr quote AAPL --json</code>, including the enriched headline <code>price</code>, <code>price_source</code>, previous close, change, ranges, volume/average volume, 20-day average volume/dollar volume, <code>price_as_of</code>, stale flags, and optional <code>session_context</code>.</p>
 <p><code>resources/subscribe</code> returns <code>{}</code> and then streams coalesced tick frames through <code>notifications/resources/updated</code> until the client calls <code>resources/unsubscribe</code> or closes the MCP session. Notification payloads embed a JSON frame in <code>params.contents[].text</code>; the frame shape matches <code>ibkr quote AAPL --watch --json</code>.</p>
 <p>Only stock and ETF symbols are supported. Option contract streaming is not exposed as an MCP resource today; use <code>ibkr_chain</code> or CLI option quotes for option snapshots.</p>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>

@@ -1,15 +1,15 @@
-# Regime and Canary Backtest Runbook
+# Regime and canary backtest runbook
 
-**Updated:** 2026-06-04 07:42 CEST
+Updated: 2026-07-25 09:45 CEST
 
 This is the single umbrella for proving and tuning `ibkr regime` and
 `ibkr canary`. Keep the work here. Do not add another experiment plan, tuning
 plan, or backtest framework unless this runbook says to.
 
-The goal is simple: prove that regime and canary produce useful stress
-detection without overfitting to named events.
+The goal: prove that regime and canary produce useful stress detection without
+overfitting to named events.
 
-## Plain Definitions
+## Plain definitions
 
 - A panel is a JSONL table: one row per date, using only information that would
   have been known on that date.
@@ -21,7 +21,7 @@ detection without overfitting to named events.
   belongs to canary. Regime can keep those rows for context, but they are
   out-of-scope for market-regime precision and recall.
 
-## Artifact Map
+## Artifact map
 
 All backtest artifacts live in one of these places:
 
@@ -39,7 +39,7 @@ All backtest artifacts live in one of these places:
 Do not hand-edit generated compact regime rows when the point-in-time panel is
 the source of truth. Rebuild them.
 
-## Command Sequence
+## Command sequence
 
 Small smoke fixtures:
 
@@ -48,10 +48,10 @@ ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
 ibkr backtest canary --input internal/cli/testdata/canary_backtest_sample.jsonl
 ```
 
-The checked-in sourced corpora were deleted in July 2026. They recorded
-verdicts produced by regime code that has since been corrected several times,
-so they measured the old bugs rather than the current engine. Capture a fresh
-tuning and holdout split before tuning anything:
+Capture a fresh tuning and holdout split before tuning anything. The checked-in
+sourced corpora were deleted in July 2026: they recorded verdicts from regime
+code that has been corrected several times since, so they measured the old bugs
+rather than the current engine.
 
 ```bash
 ibkr backtest capture-opportunity --preset top-movers --include-regime --split tuning \
@@ -63,8 +63,7 @@ ibkr backtest canary --input /tmp/regime_tuning.jsonl
 ```
 
 Keep captures outside the repository. A corpus checked in beside the unit-test
-fixtures reads as a fixture, stops being regenerated, and quietly becomes a
-record of whatever the engine believed on the day it was captured.
+fixtures reads as a fixture and stops being regenerated.
 
 Point-in-time regime builder:
 
@@ -77,8 +76,7 @@ ibkr backtest regime --input /tmp/regime_backtest_rows.jsonl
 That is two passes only when starting from raw point-in-time market rows. If the
 input is already compact regime JSONL, run `ibkr backtest regime` directly.
 
-Tier 1 expanded panel. The panel itself is no longer checked in; build it, then
-work from the build output:
+Tier 1 expanded panel. Build it, then work from the build output:
 
 ```bash
 python3 scripts/backtest/build-tier1-regime-panel.py
@@ -88,24 +86,24 @@ ibkr backtest regime --input build/backtest/regime_backtest_tier1.jsonl
 python3 scripts/backtest/compare-tier1-vol-rules.py
 ```
 
-## Data Tiers
+## Data tiers
 
-Tier 0: smoke fixtures.
+### Tier 0: smoke fixtures
 
 - Purpose: keep CLI contracts stable.
 - Gate: tiny samples continue to run and render.
 
-Tier 1: expanded volatility/calm/event panel.
+### Tier 1: expanded volatility/calm/event panel
 
 - Sources: Cboe VIX/VIX3M/VVIX, Nasdaq ETF OHLC, FRED funding/FX/credit where
   available.
-- Current artifact: `build/backtest/regime_pit_panel_tier1.jsonl`, rebuilt on demand.
-- Source ledger: `build/backtest/backtest_sources_tier1.jsonl`, rebuilt on demand.
+- Build outputs: `build/backtest/regime_pit_panel_tier1.jsonl` and its source
+  ledger `build/backtest/backtest_sources_tier1.jsonl`.
 - Primary label: 5-session market stress.
 - Secondary feature: 20-session drawdown for early-warning analysis.
 - Known gap: gamma and breadth are explicitly unavailable.
 
-Tier 2: confirmation proxy panel.
+### Tier 2: confirmation proxy panel
 
 - Purpose: test whether noisy isolated red volatility can be confirmed or
   downgraded without losing major stress events.
@@ -118,7 +116,7 @@ Tier 2: confirmation proxy panel.
 - `LQD/TLT` is context-only for now because it mixes credit spread, duration,
   and rates effects. Do not use it as an active confirmation input.
 
-### Tier 2 Input Classification
+### Tier 2 input classification
 
 The Tier 2 inputs are not all product indicators. This is the final
 classification for the current pass:
@@ -134,12 +132,14 @@ classification for the current pass:
 | FRED rates/curve series | Context or source-data support. | Do not promote as new regime indicators without a separate product definition and point-in-time source gate. |
 
 No Tier 2 ETF proxy is promoted into live `ibkr regime` in this pass. The
-production change is narrower: isolated red `VVIX` is treated as an
+production change is narrower: isolated red VVIX is treated as an
 unconfirmed equity-volatility warning unless severity or already-visible tape
 confirms it. The red row remains visible in `ibkr regime`; only the cluster vote
 is downgraded from stress to watch.
 
-## Current Findings
+## Current findings
+
+### From the sourced corpora
 
 - Curated sourced regime holdout materially improves confirmed-stress precision
   while preserving watch-level visibility: before 67% precision / 100% recall /
@@ -162,21 +162,30 @@ is downgraded from stress to watch.
   delta maps to options-driven, and held-liquidity degradation maps to
   data-quality. Current sourced holdout has no options-driven rows, so that
   slice is instrumented but not yet proven.
-- Tier 1 exposes the broader problem: current `any red cluster` stress signals
+
+### Tier 1
+
+- Tier 1 exposes the broader problem: current "any red cluster" stress signals
   catch stress rows but fire too often in non-stress volatility regimes.
 - A pure confirmation rule cuts false alarms but gives up too much recall.
 - Therefore the next tuning target is narrow: isolated red volatility.
+
+### Tier 2 proxy pass
+
 - Tier 2 source access is usable for a bounded proxy pass. The current build
   fetched all required Nasdaq ETF histories and recorded checksums. The first
   14 rows have unavailable proxy windows because the 20-session lookback is not
   mature yet.
 - Tier 2 stress-label scoring moves the current holdout baseline out of the
-  10.8% Tier 1 forward-label noise zone: current `any red cluster` is 34.2%
+  10.8% Tier 1 forward-label noise zone: current "any red cluster" is 34.2%
   precision and 69.1% recall on the 2024+ observable-stress target.
 - The best tested Tier 2 confirmation rule improves holdout stress precision to
   45.1% and cuts false alarms from 17.2% to 9.2%, but recall falls to 58.2%.
 - This remains a diagnostic proxy result, not a production rule, because it
   relies on ETF proxy groups that are not live regime indicators.
+
+### Promoted severity split
+
 - The promoted runtime-visible severity split improves Tier 2 holdout stress
   precision from 34.2% to 43.9%, keeps recall at 65.5% versus the 69.1%
   current baseline, and cuts false alarms from 17.2% to 10.8%.
@@ -184,7 +193,7 @@ is downgraded from stress to watch.
   improves from 10.8% precision / 66.7% recall / 21.5% false alarms to 14.6% /
   66.7% / 15.2%.
 
-## Next Pass
+## Tuning pass sequence
 
 Run this sequence and stop at the first failed gate:
 
@@ -202,19 +211,17 @@ Run this sequence and stop at the first failed gate:
 5. Tune only the severity split, and only on the tuning split.
 6. Score holdout once the tuning behavior is stable.
 
-Final promoted rule:
+## Promoted rule
 
-- Keep red indicator rows visible.
-- Keep VIX/VIX3M backwardation as stress-level equity volatility.
-- Treat isolated `VVIX` red as stress only when `VVIX >= 120`, VIX is up at
-  least 20% on the day, SPY is down at least 1% on the day, or another
-  independent cluster is red.
-- Otherwise count the equity-volatility cluster as yellow while leaving the
-  `VVIX` row red and auditable.
+The isolated-VVIX downgrade is live policy; the
+[regime dashboard contract](regime-dashboard.md#equity-volatility) owns its
+wording and thresholds, along with which rows stay visible under it. One
+constraint belongs to this runbook rather than to a dashboard row:
+
 - Do not use Tier 2 ETF proxy groups in runtime behavior until they are
   promoted into the live contract.
 
-## Confirmation Gates In Replay
+## Confirmation gates in replay
 
 The live engine applies confirmation eligibility (depth + persistence +
 cadence-freshness, see the dashboard contract) before any red may confirm.
@@ -234,21 +241,22 @@ and governor decisions per snapshot. That event corpus is the calibration
 source for promoting threshold sets out of `pending_backtest`, per versioned
 label, with measured false-alarm and recall rates.
 
-## Data Gates
+## Data gates
 
 Tier 2 data is green only if all are true:
 
 - Every proxy has a reproducible source, retrieval status, and checksum.
 - Missing data stays unavailable; no fabricated green/yellow/red values.
 - The source ledger names every source gap plainly.
-- Gamma remains excluded unless a method-stamped point-in-time source exists.
+- Gamma remains excluded unless the row carries a trusted point-in-time gamma
+  snapshot stamped with method, source, coverage, and timestamp.
 - Official S&P 500 breadth and MOVE are excluded unless a clean licensed or
   public source is proven.
 - The point-in-time panel can rebuild the compact replay file deterministically.
 
 If these fail, do not tune. Fix data or stop.
 
-## Tuning Gates
+## Tuning gates
 
 A tuning change is allowed only if all are true:
 
@@ -265,7 +273,7 @@ If Tier 2 cannot materially improve precision without destroying recall, stop
 tuning and revisit the product definition. Do not add more indicators just to
 force convergence.
 
-## Verification Gates
+## Verification gates
 
 Before calling a pass done:
 
@@ -284,7 +292,7 @@ ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample
 ibkr backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
 ```
 
-## Not Doing
+## Not doing
 
 - No forecast probabilities.
 - No learned cluster weights.

@@ -1,4 +1,4 @@
-# Trading Policy in ibkr: Who Decides and What the System Does
+# Trading policy
 
 You decide how much capital may be at risk, which evidence must be current,
 and when uncertainty requires attention. Today, `ibkr`'s personal risk policy
@@ -6,21 +6,26 @@ observes, explains, and records those decisions; it does not block or authorize
 an order. Every submission remains a transaction-specific human decision and
 must pass separate, code-owned safety controls.
 
-That separation matters. A local record explains what `ibkr` observed and
-decided. Broker confirmations and statements establish what actually executed.
-Missing or unusable evidence remains unknown rather than being treated as safe.
+A local record explains what `ibkr` observed and decided. Broker confirmations
+and statements establish what actually executed. Missing or unusable evidence
+remains unknown rather than being treated as safe.
 
 For one trader, policy is a promise made while calm and applied under pressure.
-One person may own the capital, trade it, and review the result. `ibkr` does not
-implement named-user roles or maker/checker approval. A larger desk can reuse
-the decision concepts, but it needs an additional identity and approval layer.
+The same person owns the capital, trades it, and reviews the result, which keeps
+the workflow direct without weakening the human submission boundary. The
+decision model can inform a family office. The current implementation cannot
+become one by assigning the labels to several people: it lacks named principals,
+role permissions, maker/checker approval, multi-account and book semantics, and
+consolidated reporting. A larger desk needs authenticated identities, scoped
+approvals, durable actor records, and a separate control layer before those
+responsibilities become system-enforced governance.
 
-## How Policy Informs a Trading Decision
+## How policy informs a trading decision
 
 [![How a risk boundary and current evidence inform advice while the human retains the trading decision](../../diagrams/policy-lifecycle.svg)](../../diagrams/policy-lifecycle.svg)
 
 [PNG fallback](../../diagrams/policy-lifecycle.png) ·
-[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 The human chooses the boundary before the market creates pressure. The daemon
@@ -31,7 +36,7 @@ higher policy version, but they never rewrite the active policy by themselves.
 > A policy result, proposal, or preview is never permission to submit an
 > order.
 
-## A Concrete Example
+## Example: a drawdown boundary on stale evidence
 
 Suppose the last accepted equity reading is near a declared drawdown boundary,
 but the evidence needed to rely on the current result has become stale. `ibkr`
@@ -40,29 +45,24 @@ it can record the condition and show what the declared response would mean; the
 personal risk policy still does not change submit eligibility.
 
 The trader decides whether to wait, investigate, reduce risk, or take another
-explicitly authorized action. Separate broker-write controls—route and account
-pins, freeze state, preview-token checks, broker WhatIf/eligibility, journal
-health, daemon authorization, and origin gating—remain binding. If an order is
-submitted, the broker confirmation and later statement establish what
-executed. The local policy record explains the context; it is not execution
-evidence.
+explicitly authorized action. Separate broker-write controls remain binding:
+route and account pins, freeze state, preview-token checks, broker
+WhatIf/eligibility, journal health, daemon authorization, and origin gating. If
+an order is submitted, the broker confirmation and later statement establish
+what executed. The local policy record explains the context; it is not
+execution evidence.
 
-This one situation shows the point of policy: consistent treatment of a known
-boundary, honest uncertainty when evidence is unusable, and a clear human
-decision boundary.
-
-## Where Controls Live and Who Changes Them
+## Where controls live and who changes them
 
 [![Who controls policy, settings, analytical models, and the broker safety path](../../diagrams/policy-authority.svg)](../../diagrams/policy-authority.svg)
 
 [PNG fallback](../../diagrams/policy-authority.png) ·
-[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
-Policy, settings, analytical models, and broker safety controls are different
-sources of control. Current evidence is an input, not another policy. The
-daemon owns evaluation and publishes one structured interpretation wherever a
-surface exposes that decision.
+Current evidence is an input, not another policy. The daemon owns evaluation
+and publishes one structured interpretation wherever a surface exposes that
+decision.
 
 | Source of control | Decision owner and source of record | If absent | Effect today | How it changes |
 |---|---|---|---|---|
@@ -77,9 +77,9 @@ use the gated CLI only after an explicit transaction-specific instruction from
 the user in that turn. Apps and dashboards render daemon results; they do not
 create policy or submission authority.
 
-## How Policy Versions Behave
+## How policy versions behave
 
-Within one running daemon, policy managers apply a simple rule:
+Within one running daemon, policy managers apply these rules:
 
 1. A valid first file or a valid higher `policy_version` is accepted.
 2. Identical content at the accepted version continues unchanged.
@@ -90,12 +90,11 @@ Within one running daemon, policy managers apply a simple rule:
 5. Removing an active personal risk-policy file reports `absent`; deletion is
    not a retirement command.
 
-There is an important restart boundary: accepted policy heads and exact policy
-content are not currently persisted as durable policy artifacts. A new daemon
-starts with no in-memory accepted version. A valid same-version file changed
-while the daemon was stopped can therefore be accepted on startup. If a custom
-protection or opportunity file is absent at startup, its engine can use the
-embedded default.
+Restart is a boundary. Accepted policy heads and exact policy content are not
+currently persisted as durable policy artifacts. A new daemon starts with no
+in-memory accepted version. A valid same-version file changed while the daemon
+was stopped can therefore be accepted on startup. If a custom protection or
+opportunity file is absent at startup, its engine can use the embedded default.
 
 Drift detection is consequently runtime-local today. Always raise the version
 for a material edit and retain the exact applied TOML outside `ibkr`. The
@@ -109,7 +108,7 @@ events retain policy identity, version, and fingerprint, not the complete
 normalized policy body. Historical replay therefore also requires the exact
 archived policy content.
 
-## Configure the Available Controls
+## Configure the available controls
 
 ### Personal risk policy
 
@@ -166,9 +165,9 @@ ibkr settings set <key>=null
 `null` removes an override and exposes the underlying config or build default.
 Every typed setting reports its source and whether it is writable. No setting
 can bypass the non-overridable broker controls. See
-[Platform Settings](../../design/platform-settings.md) for the ownership contract.
+[Platform Settings](../../../internal-docs/design/platform-settings.md) for the ownership contract.
 
-## Read Status and Commissioning Correctly
+## Read status and commissioning correctly
 
 These words describe different facts:
 
@@ -187,20 +186,7 @@ loaded, evaluated, or commissioned; it is not the source of human policy.
 Missing, stale, partial, or contradictory required evidence is an explicit
 unknown or data-quality state, never an implicit zero or pass.
 
-## Single Trader Now, Family Office Later
-
-For one trader, capital owner, trader, and reviewer are responsibilities held
-by the same person. That keeps the workflow direct without weakening the human
-submission boundary.
-
-The decision model can inform a family office, but the current implementation
-cannot become one merely by assigning the labels to several people. It lacks
-named principals, role permissions, maker/checker approval, multi-account and
-book semantics, and consolidated reporting. A larger desk needs authenticated
-identities, scoped approvals, durable actor records, and a separate control
-layer before those responsibilities become system-enforced governance.
-
-## Change a Policy Safely
+## Change a policy safely
 
 For a material policy-file change:
 
@@ -219,20 +205,12 @@ read it back. For a code-owned model or safety control, use a reviewed release
 change. Routine clean cases should be automated; only exceptions should return
 to the human.
 
-## Glossary and References
+## Policy terms and references
 
 - **Advisory:** guidance that does not block or submit an order.
 - **Shadow:** evaluation and recording without enforcing the result.
 - **Submit authority:** an explicit human decision for one transaction; a
   policy result, proposal, preview, or token is not that authority.
-- **Content fingerprint:** an ID derived from normalized policy fields; it
-  deliberately ignores comments and formatting and must accompany retained
-  content when historical reconstruction matters.
-- **Freshness:** whether evidence is recent enough for the decision.
-  **Finality:** whether its source can still revise it.
-- **Local decision record:** what `ibkr` observed, evaluated, or attempted.
-  **Broker execution evidence:** confirmations and statements describing what
-  the broker executed.
 - **Unapproved:** a material human choice has not been made; it is not zero,
   safe, or default.
 
@@ -240,10 +218,10 @@ Detailed references:
 
 - [Configuration Reference](../reference/config.md): every configuration,
   advisory-policy, runtime-setting, and environment key.
-- [Risk Constitution Design](../../design/risk-policy.md): capital,
+- [Risk Constitution Design](../../../internal-docs/design/risk-policy.md): capital,
   reconciliation, safety invariants, and implementation history.
-- [Trading Rulebook](../../design/trading-rulebook.md): compiled discipline checks.
-- [Trading Harness Development](../../guides/trading-harness-development.md): how to
+- [Trading Rulebook](../../../internal-docs/design/trading-rulebook.md): compiled discipline checks.
+- [Trading Harness Development](../../../internal-docs/guides/trading-harness-development.md): how to
   design, shadow, promote, and reconcile a new control.
 - [Architecture](../internals/architecture.md): daemon, RPC, adapter, and broker ownership.
 - [Sensors](sensors.md): what current evidence means, when it expires, and how

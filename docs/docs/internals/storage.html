@@ -4,19 +4,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Storage: State, Evidence, and Recovery | ibkr</title>
+  <title>Storage | ibkr</title>
   <meta name="description" content="How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/storage.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Storage: State, Evidence, and Recovery | ibkr">
+  <meta property="og:title" content="Storage | ibkr">
   <meta property="og:description" content="How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.">
   <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/storage-overview.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.","headline":"Storage: State, Evidence, and Recovery","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/storage.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.","headline":"Storage","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/storage.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
-<body class="layout-architecture">
+<body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -28,98 +28,117 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
-<h1 id="storage-state-evidence-and-recovery">Storage: State, Evidence, and Recovery</h1>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Under the hood</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="storage.html" class="is-current" aria-current="page">Storage</a></li>
+                <li><a href="protocol.html">TWS wire protocol</a></li>
+                <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="storage">Storage</h1>
 <p>When <code>ibkr</code> restarts, it must pick up the same account context with the same
-safety history. The daemon needs to remember which state was current, which
-evidence supported a decision, which preview tokens were consumed, how far
-broker order IDs advanced, and which broker statements were incorporated.</p>
-<p>That job belongs to the daemon's storage layer. It uses a local SQLite file
-named <code>daemon.db</code>, accessed through a pure-Go driver inside the <code>ibkr</code> binary.
-SQLite supplies the storage engine; the surrounding code defines what may be
-stored, who may write it, and how it becomes safe to use.</p>
+safety history: which state was current, which evidence supported a decision,
+which preview tokens were consumed, and how far broker order IDs advanced.</p>
+<p>That job belongs to the daemon's storage layer, a local SQLite file named
+<code>daemon.db</code> reached through a pure-Go driver inside the <code>ibkr</code> binary. SQLite
+supplies the storage engine. The surrounding code defines what may be stored,
+who may write it, and how it becomes safe to use.</p>
 <blockquote>
 <p>One daemon writes durable runtime state. Product surfaces read it through
 typed daemon APIs. Human-authored policy and original broker evidence keep
 their own sources of record.</p>
 </blockquote>
-<p>This reference starts with that operating model, then works down through the
-tables, read and write paths, recovery mechanics, and current limits.</p>
 <nav class="toc" aria-label="On this page">
 <span class="toc-label">On this page</span>
 <ul>
-<li><a href="#storage-layer-in-one-view"><span class="n">01</span>Storage Layer in One View</a></li>
-<li><a href="#why-sqlite-fits-this-desk"><span class="n">02</span>Why SQLite Fits This Desk</a></li>
-<li><a href="#what-the-daemon-remembers"><span class="n">03</span>What the Daemon Remembers</a></li>
-<li><a href="#five-questions-behind-the-data-model"><span class="n">04</span>Five Questions Behind the Data Model</a></li>
-<li><a href="#physical-data-model"><span class="n">05</span>Physical Data Model</a></li>
-<li><a href="#writing-and-reading-data"><span class="n">06</span>Writing and Reading Data</a></li>
-<li><a href="#durability-and-recovery"><span class="n">07</span>Durability and Recovery</a></li>
-<li><a href="#current-limits-and-evolution"><span class="n">08</span>Current Limits and Evolution</a></li>
-<li><a href="#glossary"><span class="n">09</span>Glossary</a></li>
-<li><a href="#reference-map"><span class="n">10</span>Reference Map</a></li>
+<li><a href="#what-the-daemon-owns"><span class="n">01</span>What the daemon owns</a></li>
+<li><a href="#why-sqlite-fits-this-desk"><span class="n">02</span>Why SQLite fits this desk</a></li>
+<li><a href="#the-data-model"><span class="n">03</span>The data model</a></li>
+<li><a href="#writing-and-reading-data"><span class="n">04</span>Writing and reading data</a></li>
+<li><a href="#durability-and-recovery"><span class="n">05</span>Durability and recovery</a></li>
+<li><a href="#current-limits-and-evolution"><span class="n">06</span>Current limits and evolution</a></li>
+<li><a href="#storage-terms-and-references"><span class="n">07</span>Storage terms and references</a></li>
 </ul>
 </nav>
-<h2 id="storage-layer-in-one-view"><span class="secno" aria-hidden="true">01</span>Storage Layer in One View</h2>
+<h2 id="what-the-daemon-owns"><span class="secno" aria-hidden="true">01</span>What the daemon owns</h2>
 <p><a href="../../diagrams/storage-overview.svg"><img src="../../diagrams/storage-overview.svg" alt="What the daemon storage layer owns and what remains outside it"></a></p>
 <p><a href="../../diagrams/storage-overview.png">PNG fallback</a> ·
-<a href="../../diagrams/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
-<p>Inputs with their own owners enter from the left. The daemon validates them,
-combines them with live observations, and commits the resulting state and
-evidence to <code>daemon.db</code>. CLI, app, and MCP surfaces receive structured results
-on the right. Analytics use bounded daemon queries or versioned exports, while
-offline inspection uses a stopped daemon or a verified backup.</p>
-<p>This boundary keeps the meaning of a row with the code that created it. It also
-gives broker-critical writes one ordered path instead of several competing
-writers.</p>
-<h2 id="why-sqlite-fits-this-desk"><span class="secno" aria-hidden="true">02</span>Why SQLite Fits This Desk</h2>
-<p>The current deployment has one application writer on one machine. SQLite fits
-that shape well: it ships with the binary, commits related facts atomically,
-and provides indexed reads without another service to operate.</p>
-<div class="tblwrap">
-<table>
-<thead>
-<tr>
-<th>Requirement</th>
-<th>What SQLite provides</th>
-<th>Operating boundary</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>One daemon owns writes</td>
-<td>A local file with no database server, port, credentials, or administrator</td>
-<td>Several writers or hosts require a different topology.</td>
-</tr>
-<tr>
-<td>Related facts change together</td>
-<td>Transactions can commit state, evidence, token tombstones, order floors, and lifecycle events as one unit.</td>
-<td>Every writer goes through the daemon's typed transaction APIs.</td>
-</tr>
-<tr>
-<td>History needs structured reads</td>
-<td>Tables and indexes support bounded state, event, order, observation, and statement queries.</td>
-<td>Some current history readers still scan event JSON and need to move onto those indexes.</td>
-</tr>
-<tr>
-<td>Installation stays local</td>
-<td>The pure-Go driver embeds the engine in the <code>ibkr</code> binary.</td>
-<td>High availability and centralized concurrent analytics sit outside this deployment model.</td>
-</tr>
-<tr>
-<td>Schema changes preserve recoverability</td>
-<td>The daemon can upgrade a verified copy and publish it only after validation.</td>
-<td>Routine backup, retention, and restore operations still need an operator workflow.</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>SQLite remains appropriate while each daemon/account stack has one writer.
-Multi-host writes, automatic failover, or many concurrent analytical readers
-would justify a new topology. Giving those readers the live file would bypass
-the ownership and recovery rules that make the current design safe.</p>
-<h2 id="what-the-daemon-remembers"><span class="secno" aria-hidden="true">03</span>What the Daemon Remembers</h2>
+<p>Inputs with their own owners enter from the left, and CLI, app, and MCP
+surfaces receive structured results on the right. The boundary keeps the
+meaning of a row with the code that created it, and it gives broker-critical
+writes one ordered path instead of several competing writers.</p>
 <p><code>daemon.db</code> carries five kinds of continuity:</p>
 <ul>
 <li><strong>Current daemon state:</strong> settings, risk-capital state, readiness, purge
@@ -150,7 +169,7 @@ recovery lifecycles:</p>
 <tr>
 <td>Human intent and approved limits</td>
 <td><code>config.toml</code> and <code>policies/*.toml</code></td>
-<td>People author these declarations; SQLite retains applied identities and resulting events.</td>
+<td>People author these declarations. SQLite retains applied identities and resulting events.</td>
 </tr>
 <tr>
 <td>Original broker statements</td>
@@ -170,16 +189,27 @@ recovery lifecycles:</p>
 <tr>
 <td>Recovery material</td>
 <td><code>daemon.db.head</code>, verified backups, and sealed legacy artifacts</td>
-<td>These detect rollback or support offline recovery; normal product reads use the published database.</td>
+<td>These detect rollback or support offline recovery. Normal product reads use the published database.</td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>An isolated second daemon needs its own config, socket, broker/account/client
-pins, and XDG state roots. Changing only <code>IBKR_SOCKET</code> leaves storage shared. A
-lock beside <code>daemon.db</code> prevents alternate socket paths from writing the same
-file concurrently.</p>
-<h2 id="five-questions-behind-the-data-model"><span class="secno" aria-hidden="true">04</span>Five Questions Behind the Data Model</h2>
+<p>A lock beside <code>daemon.db</code> prevents alternate socket paths from writing the same
+file concurrently. A second socket is not isolation on its own;
+<a href="architecture.html#running-more-than-one-instance">Architecture</a> lists what a
+separate stack needs.</p>
+<h2 id="why-sqlite-fits-this-desk"><span class="secno" aria-hidden="true">02</span>Why SQLite fits this desk</h2>
+<p>The current deployment has one application writer on one machine, and SQLite
+fits that shape. It is a local file with no database server, port, credentials,
+or administrator. One transaction can commit state, evidence, token tombstones,
+order floors, and lifecycle events as a unit, and every writer goes through the
+daemon's typed transaction APIs. Tables and indexes support bounded state,
+event, order, observation, and statement queries.</p>
+<p>Several writers or hosts would require a different topology, as would automatic
+failover or many concurrent analytical readers. Giving those readers the live
+file instead would bypass the ownership and recovery rules that make the
+current design safe.</p>
+<h2 id="the-data-model"><span class="secno" aria-hidden="true">03</span>The data model</h2>
 <p>The schema follows the questions the product must answer:</p>
 <div class="tblwrap">
 <table>
@@ -219,19 +249,16 @@ file concurrently.</p>
 </tbody>
 </table>
 </div>
-<p>The schema uses relational columns for safety-critical identities and
-irreversible facts. Keys, foreign keys, constraints, indexes, and triggers make
-those rules visible to SQLite. Varied current snapshots remain versioned JSON
-documents, and immutable events retain their original payloads. Frequently
-queried event fields may also appear in relational projection tables.</p>
-<p>Those projections are only partly earning their complexity today. The main
-Regime, rules, Canary, and capital-history readers still load matching
-<code>event_log</code> JSON and filter it in Go. The projections should become the bounded,
-indexed read path or leave the schema when compatibility permits.</p>
-<h2 id="physical-data-model"><span class="secno" aria-hidden="true">05</span>Physical Data Model</h2>
+<p>Relational columns carry safety-critical identities and irreversible facts, and
+keys, foreign keys, constraints, indexes, and triggers make those rules visible
+to SQLite. Varied current snapshots stay versioned JSON documents, and immutable
+events keep their original payloads. Frequently queried event fields may also
+appear in relational projection tables. Those projections are not the read path
+yet: the main Regime, rules, Canary, and capital-history readers still load
+matching <code>event_log</code> JSON and filter it in Go.</p>
 <p><a href="../../diagrams/sqlite-data-model.svg"><img src="../../diagrams/sqlite-data-model.svg" alt="Physical entity relationships in daemon.db schema version 1"></a></p>
 <p><a href="../../diagrams/sqlite-data-model.png">PNG fallback</a> ·
-<a href="../../diagrams/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go">Canonical DDL</a></p>
 <p>The diagram shows schema version 1. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
@@ -291,13 +318,12 @@ permits several projection rows with the same <code>event_seq</code>;</li>
 without a foreign key joining the two families;</li>
 <li>validated broker-scope values associate order-ID floors with a route.</li>
 </ul>
-<p>The canonical columns, constraints, indexes, and triggers live in
-<code>internal/daemon/corestore/schema.go</code>. The renderer compares its complete table
-and foreign-key inventory with that file, so schema drift fails the diagram
-gate. Readers of JSON documents, events, and observations still need the
-expected kind and payload version, plus scope, time basis, provenance,
-eligibility, and data quality.</p>
-<h2 id="writing-and-reading-data"><span class="secno" aria-hidden="true">06</span>Writing and Reading Data</h2>
+<p>The renderer compares its complete table and foreign-key inventory with
+<code>internal/daemon/corestore/schema.go</code>, so schema drift fails the diagram gate.
+Readers of JSON documents, events, and observations still need the expected kind
+and payload version, plus scope, time basis, provenance, eligibility, and data
+quality.</p>
+<h2 id="writing-and-reading-data"><span class="secno" aria-hidden="true">04</span>Writing and reading data</h2>
 <h3 id="commit-a-state-change">Commit a state change</h3>
 <p>Publishing a market observation follows one ordered path:</p>
 <ol>
@@ -368,30 +394,49 @@ Copying <code>daemon.db</code> alone can therefore produce an inconsistent artif
 <p>For a new dashboard or analysis, define scope, row meaning, time basis,
 freshness, eligibility, ordering, pagination, and redaction first. Then add a
 bounded daemon query or typed export backed by a suitable index or projection.</p>
-<h2 id="durability-and-recovery"><span class="secno" aria-hidden="true">07</span>Durability and Recovery</h2>
+<h2 id="durability-and-recovery"><span class="secno" aria-hidden="true">05</span>Durability and recovery</h2>
 <h3 id="normal-operation">Normal operation</h3>
 <p>The store uses WAL, foreign keys, <code>synchronous=FULL</code>, supported full-fsync
 controls, a bounded busy timeout, and one serialized connection. Serial access
 keeps writer ordering simple. It also means an unbounded read can delay a
 broker-critical write, so production reads need limits and indexes.</p>
 <h3 id="startup-gate">Startup gate</h3>
-<p>Storage becomes ready before the daemon serves RPC, runs schedulers, or
-connects to the broker. Startup checks private file types and modes, SQLite's
-application ID and schema version, the checksummed migration ledger, the exact
-table/index/trigger inventory, <code>quick_check</code>, foreign keys, the external minimum
-write counter, and digests for selected payload columns.</p>
+<p>Storage becomes ready before state adapters attach, the daemon serves RPC,
+schedulers run, or either broker connection starts. Startup checks private file
+types and modes, SQLite's application ID and schema version, the checksummed
+migration ledger, the exact table/index/trigger inventory, <code>quick_check</code>,
+foreign keys, the external minimum write counter, and digests for selected
+payload columns.</p>
 <p>This catches schema drift, structural damage, rollback, and selected payload
 changes. Integrity coverage remains selective: event headers, observation
 metadata and eligibility, typed projections, broker bindings, and current
 statement winners do not yet share one canonical whole-record digest.</p>
+<p>The daemon writes and fsyncs the <code>daemon.db.head</code> watermark before publishing
+the initial database and after every committed mutation. An existing database
+with no watermark fails closed and waits for explicit verified recovery.</p>
 <h3 id="schema-upgrades">Schema upgrades</h3>
-<p>The daemon upgrades an older valid schema through an unpublished copy. Under
-the persistence lock it creates a verified backup, migrates a same-directory
-candidate, validates the candidate, records recovery state, and atomically
-publishes the result. A future schema refuses downgrade, and ambiguous recovery
-state stops startup.</p>
+<p>A fresh installation is created and validated directly at the binary's target
+schema. For an existing database, an equal schema version still passes full
+validation, a newer one refuses downgrade, and an older valid one enters the
+automatic upgrade coordinator, which never mutates the published database in
+place.</p>
+<p>Under the persistence lock the coordinator takes a verified standalone backup at
+the exact current authority head, applies immutable ordered migrations to an
+unpublished same-directory candidate, and runs the full schema, integrity,
+foreign-key, content-hash, and authority checks before advancing the authority
+head once and publishing atomically with the authority epoch and evidence
+intact. A small fsynced recovery manifest carries the durable upgrade phase
+across a restart; it is transient coordination, not another business-state
+authority.</p>
+<p>The pre-upgrade backup stays recovery-only. Ambiguous recovery state stops
+startup, and a failed or ambiguous upgrade never triggers automatic repair or
+restore.</p>
+<p>SQL schema versions govern tables, indexes, constraints, and triggers, while
+mutable JSON documents carry independent, kind-specific payload versions and
+typed migrations. Append-only events are not rewritten to fit a new shape; a new
+event or payload version retains a compatible reader or feeds a new projection.</p>
 <p>The full crash-boundary protocol lives in the
-<a href="../../design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Schema
+<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Schema
 version 1 remains the only production migration, so the general coordinator
 has yet to carry a released schema transition.</p>
 <h3 id="backup-and-restore">Backup and restore</h3>
@@ -401,7 +446,7 @@ status, restore commands, retention, off-host copies, recovery objectives, and
 a rehearsed restore runbook. Recovery is an offline procedure because the
 database head, preview signer generation, broker-open orders, and conservative
 order-ID floors must agree before writes resume.</p>
-<h2 id="current-limits-and-evolution"><span class="secno" aria-hidden="true">08</span>Current Limits and Evolution</h2>
+<h2 id="current-limits-and-evolution"><span class="secno" aria-hidden="true">06</span>Current limits and evolution</h2>
 <div class="tblwrap">
 <table>
 <thead>
@@ -465,7 +510,7 @@ retained data makes startup validation unsafe, or the desk adopts centralized
 retention and recovery objectives. The natural next layer is a central
 read-only analytical and control plane fed by typed, redacted, versioned exports
 or a change stream from each authoritative daemon.</p>
-<h2 id="glossary"><span class="secno" aria-hidden="true">09</span>Glossary</h2>
+<h2 id="storage-terms-and-references"><span class="secno" aria-hidden="true">07</span>Storage terms and references</h2>
 <div class="tblwrap">
 <table>
 <thead>
@@ -476,36 +521,12 @@ or a change stream from each authoritative daemon.</p>
 </thead>
 <tbody>
 <tr>
-<td>Storage layer</td>
-<td>The code and operating rules that preserve state, evidence, and recovery continuity. SQLite is its engine.</td>
-</tr>
-<tr>
-<td>Source of record</td>
-<td>The location the software is allowed to treat as current for one kind of fact.</td>
-</tr>
-<tr>
-<td>Current state</td>
-<td>The latest accepted version used by the running product.</td>
-</tr>
-<tr>
-<td>Event</td>
-<td>An immutable record of something the software observed, decided, or attempted.</td>
-</tr>
-<tr>
-<td>Observation</td>
-<td>A retained measurement from a named source, kept separately from the conclusion derived from it.</td>
-</tr>
-<tr>
 <td>Projection</td>
 <td>Selected fields copied from a richer payload into searchable columns.</td>
 </tr>
 <tr>
 <td>Revision check</td>
 <td>Update only when the caller's expected revision is still current.</td>
-</tr>
-<tr>
-<td>Transaction</td>
-<td>A group of database changes that all commit or all fail together.</td>
 </tr>
 <tr>
 <td>WAL</td>
@@ -530,23 +551,22 @@ or a change stream from each authoritative daemon.</p>
 </tbody>
 </table>
 </div>
-<h2 id="reference-map"><span class="secno" aria-hidden="true">10</span>Reference Map</h2>
 <ul>
 <li><a href="architecture.html">Architecture</a>: process, broker, RPC, and state ownership.</li>
 <li><a href="../understand/sensors.html">Sensors</a>: measurement authority, source cadence, last-good
 behavior, and safe operator checks.</li>
-<li><a href="../../design/daemon-sqlite-authority.md">SQLite Implementation Contract</a>: cutover,
+<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite Implementation Contract</a>: cutover,
 durability, upgrade, and recovery mechanics.</li>
-<li><a href="../../design/platform-settings.md">Platform Settings</a>: the typed daemon document for
+<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/platform-settings.md">Platform Settings</a>: the typed daemon document for
 live preferences.</li>
-<li><code>internal/daemon/corestore/schema.go</code>: canonical tables, indexes, constraints,
-triggers, and migration ledger.</li>
+<li><a href="../understand/policy.html">Trading Policy</a>: human-authored limits, and the applied
+state and events the daemon retains.</li>
 <li><code>internal/daemon/corestore</code>: typed transactions, events, observations,
-statements, backup, validation, and upgrade code.</li>
-<li><a href="../understand/policy.html">Trading Policy</a>: human-authored limits and the applied state and
-events retained by the daemon.</li>
+statements, backup, validation, and upgrade code, with the canonical tables,
+indexes, constraints, triggers, and migration ledger in <code>schema.go</code>.</li>
 </ul>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>

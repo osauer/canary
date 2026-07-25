@@ -1182,11 +1182,16 @@ func TestDesignDocTracksRulebookRuntimeContract(t *testing.T) {
 func TestRulebookDesignDocDiscoverable(t *testing.T) {
 	t.Parallel()
 
+	// The published pages sit at varying depths, so assert that each one links
+	// the authority at all rather than pinning a relative prefix. The old
+	// pinned form outlived the file it pointed at: the links were repointed
+	// when the design docs left the web root and this test still passed on the
+	// broken path.
 	for path, link := range map[string]string{
-		"../../README.md": "(internal-docs/design/trading-rulebook.md)",
-		"../../docs/docs/internals/architecture.md": "(../../design/trading-rulebook.md)",
+		"../../README.md": "internal-docs/design/trading-rulebook.md)",
+		"../../docs/docs/internals/architecture.md": "design/trading-rulebook.md)",
 		"../../docs/index.html":                     `href="docs/understand/sensors.html#rulebook"`,
-		"../../docs/docs/understand/sensors.md":     "(../../design/trading-rulebook.md)",
+		"../../docs/docs/understand/sensors.md":     "design/trading-rulebook.md)",
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil {

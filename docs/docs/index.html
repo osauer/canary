@@ -12,7 +12,7 @@
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","description":"The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"name":"ibkr documentation","url":"https://osauer.dev/ibkr/docs/"}</script>
   <link rel="stylesheet" href="../shared.css">
 </head>
-<body class="layout-hub">
+<body class="docpage layout-hub">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../index.html" aria-label="ibkr canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -24,16 +24,85 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation</summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview is-current" href="../docs/" aria-current="page">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="operate/agents.html">Working with agents</a></li>
+                <li><a href="operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="understand/concepts.html">Concepts</a></li>
+                <li><a href="understand/sensors.html">Sensors</a></li>
+                <li><a href="understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="reference/cli.html">CLI</a></li>
+                <li><a href="reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="reference/config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="internals/architecture.html">Architecture</a></li>
+                <li><a href="internals/storage.html">Storage</a></li>
+                <li><a href="internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="internals/regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="internals/gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
 <h1>Documentation</h1>
 <p class="hub-lead">Everything written down about running an agentic trading desk on your own Interactive Brokers account. Start at the top if ibkr is new to you; the sections below get progressively closer to the code.</p>
-<nav class="hub-toc" aria-label="Sections">
-<a href="#start">Start</a>
-<a href="#operate">Operate</a>
-<a href="#understand">Understand</a>
-<a href="#reference">Reference</a>
-<a href="#internals">Under the hood</a>
-</nav>
 <section class="hub-section" id="start">
 <h2>Start</h2>
 <p class="hub-blurb">Install ibkr, point it at a gateway and an MCP host, and confirm the desk is live.</p>
@@ -75,7 +144,7 @@
 <h2>Reference</h2>
 <p class="hub-blurb">Command, tool, and configuration lookups. Most of this is generated from the code it documents.</p>
 <ul class="hub-list">
-<li class="hub-item"><a href="reference/cli.html"><span class="hub-title">CLI reference</span><span class="hub-summary">Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.</span></a></li>
+<li class="hub-item"><a href="reference/cli.html"><span class="hub-title">CLI</span><span class="hub-summary">Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.</span></a></li>
 <li class="hub-item"><a href="reference/mcp-tools.html"><span class="hub-title">MCP tools</span><span class="hub-summary">Every tool exposed by ibkr mcp, with parameters and invocation guidance. Generated from the registry.</span></a></li>
 <li class="hub-item"><a href="reference/mcp-resources.html"><span class="hub-title">MCP resources</span><span class="hub-summary">The non-tool resources, including the live quote subscription URI template.</span></a></li>
 <li class="hub-item"><a href="reference/config.html"><span class="hub-title">Configuration</span><span class="hub-summary">TOML configuration, policy files, runtime platform settings, and environment variables.</span></a></li>
@@ -93,10 +162,11 @@
 <li class="hub-item"><a href="internals/regime-backtest.html"><span class="hub-title">Regime backtest runbook</span><span class="hub-summary">How the regime and canary lifecycle is proven and tuned against point-in-time evidence.</span></a></li>
 <li class="hub-item"><a href="internals/opportunity-research.html"><span class="hub-title">Opportunity research harness</span><span class="hub-summary">The diagnostic harness for testing candidate strategies against point-in-time evidence before trusting them.</span></a></li>
 <li class="hub-item"><a href="internals/gamma-cache.html"><span class="hub-title">Gamma cache design</span><span class="hub-summary">Design and invalidation semantics for the daemon&#39;s persistent dealer zero-gamma cache.</span></a></li>
-<li class="hub-item"><a href="internals/packaging.html"><span class="hub-title">Packaging and distribution</span><span class="hub-summary">The maintainer checklist behind packaging, signing, trust metadata, and marketplace readiness.</span></a></li>
+<li class="hub-item"><a href="internals/packaging.html"><span class="hub-title">Packaging and distribution</span><span class="hub-summary">What each published artifact contains, how it is signed, and the boundary every channel ships with.</span></a></li>
 </ul>
 </section>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../index.html">ibkr</a><a href="../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>

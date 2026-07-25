@@ -12,7 +12,7 @@
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.","headline":"Gamma zero-cache persistence","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/gamma-cache.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
-<body class="layout-standard">
+<body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -24,20 +24,102 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Under the hood</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="storage.html">Storage</a></li>
+                <li><a href="protocol.html">TWS wire protocol</a></li>
+                <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="gamma-cache.html" class="is-current" aria-current="page">Gamma cache design</a></li>
+                <li><a href="packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
 <h1 id="gamma-zero-cache-persistence">Gamma zero-cache persistence</h1>
-<p><strong>Status:</strong> Implemented and live since v1.0.0; migrated to the daemon.db authority on 2026-07-20.
+<p><strong>Status:</strong> Implemented and live since v1.0.0; migrated to the <code>daemon.db</code> authority on 2026-07-20.
 <strong>Created:</strong> 2026-05-22 07:30 CEST
 <strong>Last update:</strong> 2026-07-20
 <strong>Owner:</strong> osauer
 <strong>Related:</strong> <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_cache.go">internal/daemon/gamma_zero_cache.go</a>, <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_store.go">internal/daemon/gamma_zero_store.go</a>, <a href="../understand/concepts.html#gamma">Concepts</a></p>
 <h2 id="why-this-exists">Why this exists</h2>
-<p>The gamma-zero compute is intentionally heavy: it fans out across SPY and SPX option chains, filters out post-settlement 0DTE expiries, fits sticky-moneyness skew curves, and produces per-index plus combined regime diagnostics. After the slot-anchored expiry picker landed, a cold combined run could cross the five-minute mark. Restarting the daemon during a trading day should not force every dashboard or CLI caller through that full compute again.</p>
-<p>The result's natural TTL is one New York trading session, so the cache can persist safely as long as stale sessions, stale methodology, and wrong-scope data are rejected on load.</p>
+<p>The gamma-zero compute is intentionally heavy. It fans out across SPY and SPX
+option chains, filters out post-settlement 0DTE expiries, fits sticky-moneyness
+skew curves, and produces per-index plus combined regime diagnostics. After the
+slot-anchored expiry picker landed, a cold combined run could cross the
+five-minute mark.</p>
+<p>Restarting the daemon during a trading day should not force every dashboard or
+CLI caller through that full compute again. The result's natural TTL is one New
+York trading session, so the cache can persist safely as long as stale sessions,
+stale methodology, and wrong-scope data are rejected on load.</p>
 <h2 id="design">Design</h2>
-<p>Gamma persistence is deliberately per-domain, not a generic cache layer. It
-keeps gamma's lifecycle and validation local while using the daemon's sole
-live SQLite authority:</p>
+<p>Gamma persistence is per-domain. It keeps gamma's lifecycle and validation
+local while using the daemon's sole live SQLite authority:</p>
 <ul>
 <li>One compare-and-swap state document per scope for the currently served
 result.</li>
@@ -48,7 +130,7 @@ accident during cutover.</li>
 <li>A <code>method</code> token gate tied to the current gamma methodology.</li>
 <li>Missing, stale, or incompatible state documents collapse to a cold cache,
 not a stale-value guess.</li>
-<li>Once daemon.db is attached there is no JSON-file fallback. A persistence
+<li>Once <code>daemon.db</code> is attached there is no JSON-file fallback. A persistence
 failure is disclosed and participates in storage health; it cannot split
 authority.</li>
 <li>Snapshot-time <code>quality.rankability</code> separates &quot;served for context&quot; from
@@ -59,7 +141,7 @@ canary state.</li>
 <code>$HOME/.local/state/ibkr/daemon.db</code>. Former
 <code>$XDG_CACHE_HOME/ibkr/gamma-zero/*.json</code> files are one-time cutover inputs and
 isolated codec-test seams only.</p>
-<h2 id="scope-isolation">Scope Isolation</h2>
+<h2 id="scope-isolation">Scope isolation</h2>
 <p>The daemon supports three cache scopes:</p>
 <ul>
 <li><code>spy+spx</code> for dashboard, regime, and default <code>ibkr gamma</code> calls.</li>
@@ -74,7 +156,7 @@ market/gamma/zero/spx
 <p>Scope-keying is load-bearing. Without it, an SPY-only diagnostic call could
 poison the combined dashboard state, and persistence would make that
 wrong-scope value survive a daemon restart.</p>
-<h2 id="persisted-shape">Persisted Shape</h2>
+<h2 id="persisted-shape">Persisted shape</h2>
 <pre><code class="language-json">{
   &quot;version&quot;: 1,
   &quot;session_key&quot;: &quot;2026-05-22&quot;,
@@ -90,7 +172,8 @@ wrong-scope value survive a daemon restart.</p>
 <li>envelope <code>scope</code> does not match the authority key/requested scope</li>
 <li><code>method</code> does not match the current gamma method token</li>
 </ul>
-<p>The store never migrates or coerces old results. A methodology bump should recompute from IBKR data, not reinterpret prior cache contents.</p>
+<p>The store never migrates or coerces old results. A methodology bump should
+recompute from IBKR data, not reinterpret prior cache contents.</p>
 <p>Closed-session stale fallback and failed-refresh fallback are serve paths, not
 rankability paths. The payload remains inspectable, but <code>quality.rankability</code>
 must be <code>context_only</code>, <code>blocked</code>, or <code>unavailable</code> until freshness and coverage
@@ -98,18 +181,20 @@ gates recover.</p>
 <h2 id="non-goals">Non-goals</h2>
 <ul>
 <li>No second historical file log. Immutable gamma observations live beside the
-current state in daemon.db and are retained for calibration/replay.</li>
+current state in <code>daemon.db</code> and are retained for calibration/replay.</li>
 <li>No background deletion or automatic repair. Current state is replaced on a
 successful compute; observation retention follows the authority recovery
 policy.</li>
-<li>No cross-domain cache abstraction. The shared logic is small, and gamma's invalidation semantics are easier to audit when they stay local.</li>
+<li>No cross-domain cache abstraction. The shared logic is small, and gamma's
+invalidation semantics are easier to audit when they stay local.</li>
 </ul>
-<h2 id="test-coverage">Test Coverage</h2>
-<p>The store tests cover daemon.db round-trip persistence, current-state plus
+<h2 id="test-coverage">Test coverage</h2>
+<p>The store tests cover <code>daemon.db</code> round-trip persistence, current-state plus
 observation writes, scope isolation, missing state, version/session/scope/method
 mismatches, and constructor seeding from valid persisted scopes. Legacy file
 codec tests remain only to prove deterministic one-time import.</p>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>

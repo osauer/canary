@@ -110,6 +110,161 @@ func TestRewriteDestination(t *testing.T) {
 	}
 }
 
+// The navigation tree is generated once per page at a different directory
+// depth, so every one of its links is a fresh relative path. This renders every
+// page the site publishes and checks the tree on each: exactly one current
+// item, every link resolving to a file that exists from that page's directory,
+// and no planned page carrying a link.
+func TestSideNavTree(t *testing.T) {
+	root := repoRoot(t)
+	tracked, err := trackedFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderer := newSiteRenderer(root, tracked)
+
+	published, planned := 0, 0
+	for _, page := range pages {
+		if page.planned() {
+			planned++
+			continue
+		}
+		published++
+	}
+
+	rendered := map[string][]byte{}
+	for _, page := range pages {
+		if page.planned() {
+			continue
+		}
+		document, err := renderer.render(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rendered[filepath.ToSlash(page.output())] = document
+	}
+	hub, err := renderer.renderHub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered[hubOutput] = hub
+
+	for output, document := range rendered {
+		t.Run(output, func(t *testing.T) {
+			tree, err := sideNavSection(string(document))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got := strings.Count(tree, `aria-current="page"`); got != 1 {
+				t.Errorf("tree marks %d current items, want exactly 1", got)
+			}
+
+			// Overview plus every published page, and nothing else.
+			hrefs := hrefPattern.FindAllStringSubmatch(tree, -1)
+			if got, want := len(hrefs), published+1; got != want {
+				t.Errorf("tree has %d links, want %d", got, want)
+			}
+			for _, href := range hrefs {
+				target := filepath.Join(root, filepath.Dir(output), filepath.FromSlash(href[1]))
+				if _, err := os.Stat(target); err != nil {
+					t.Errorf("link %q does not resolve from %s: %v", href[1], output, err)
+				}
+			}
+
+			if got := strings.Count(tree, `class="sidenav-planned"`); got != planned {
+				t.Errorf("tree shows %d planned entries, want %d", got, planned)
+			}
+			for _, page := range pages {
+				if !page.planned() {
+					continue
+				}
+				label := html.EscapeString(page.NavTitle)
+				if !strings.Contains(tree, `<span class="sidenav-planned">`+label+`</span>`) {
+					t.Errorf("planned page %q is missing from the tree", page.NavTitle)
+				}
+				if strings.Contains(tree, filepath.Base(page.output())) {
+					t.Errorf("planned page %q is linked; it has no published URL", page.NavTitle)
+				}
+			}
+
+			for _, section := range sections {
+				if !strings.Contains(tree, `<summary class="sidenav-heading">`+html.EscapeString(section.Title)+`</summary>`) {
+					t.Errorf("tree is missing section %q", section.Title)
+				}
+			}
+
+			// The section being read is the one that opens. The handbook
+			// index belongs to no section, so it opens none.
+			want := 1
+			if output == hubOutput {
+				want = 0
+			}
+			if got := strings.Count(tree, `<details class="sidenav-group" open>`); got != want {
+				t.Errorf("tree opens %d sections, want %d", got, want)
+			}
+		})
+	}
+}
+
+// The current page has to be the page being rendered, not merely some page.
+func TestSideNavMarksThePageItRenders(t *testing.T) {
+	root := repoRoot(t)
+	tracked, err := trackedFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderer := newSiteRenderer(root, tracked)
+
+	page := pageForSource(t, "docs/docs/understand/sensors.md")
+	document, err := renderer.render(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := sideNavSection(string(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `<li><a href="sensors.html" class="is-current" aria-current="page">` + page.NavTitle + `</a></li>`
+	if !strings.Contains(tree, want) {
+		t.Errorf("tree does not mark the rendered page current; want %s", want)
+	}
+	// A sibling section resolves upward out of understand/.
+	if !strings.Contains(tree, `<a href="../internals/architecture.html">Architecture</a>`) {
+		t.Error("tree does not reach another section with a correct relative path")
+	}
+
+	hub, err := renderer.renderHub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err = sideNavSection(string(hub))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tree, `<a class="sidenav-overview is-current" href="../docs/" aria-current="page">Overview</a>`) {
+		t.Error("the handbook index does not mark its own tree entry current")
+	}
+}
+
+var hrefPattern = regexp.MustCompile(`href="([^"]+)"`)
+
+// sideNavSection isolates the tree so an assertion cannot be satisfied by the
+// site header, the per-page section index, or a link in the prose.
+func sideNavSection(document string) (string, error) {
+	start := strings.Index(document, `<details class="sidenav">`)
+	if start < 0 {
+		return "", &sectionError{"page carries no navigation tree"}
+	}
+	// The tree nests a <details> per section, so it ends where the article
+	// begins rather than at the first closing tag.
+	end := strings.Index(document[start:], `<main class="doc">`)
+	if end < 0 {
+		return "", &sectionError{"navigation tree is not followed by the article"}
+	}
+	return document[start : start+end], nil
+}
+
 func TestRenderIsDeterministicAndGeneratorOwned(t *testing.T) {
 	root := repoRoot(t)
 	tracked, err := trackedFiles(root)

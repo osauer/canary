@@ -41,7 +41,15 @@ a { color: var(--green-dark); text-underline-offset: 0.18em; }
 .nav-links { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 15px; font-weight: 650; }
 .nav-links a { color: var(--muted); text-decoration: none; }
 .doc {
+  min-width: 0;
   padding: 28px 0 70px;
+  /* Reference prose carries unbreakable strings: a release URL, a literal such
+     as authority_provenance=recovered_legacy_observation, a slash-joined
+     subsystem list. On a phone each one pushed the whole page sideways.
+     overflow-wrap inherits, and break-word only splits a token that would
+     otherwise overflow, so ordinary identifiers still stay whole. Code blocks
+     set white-space: pre and keep scrolling on their own. */
+  overflow-wrap: break-word;
 }
 .doc h1 {
   max-width: 820px;
@@ -161,18 +169,6 @@ footer .fineprint { margin-top: 10px; font-size: 13px; opacity: .8; }
    reader can take in five sections and thirty entries without scrolling past
    decorative boxes. Planned entries carry no link on purpose. */
 .layout-hub .hub-lead { max-width: 720px; font-size: 19px; line-height: 1.55; }
-.layout-hub .hub-toc { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0 8px; }
-.layout-hub .hub-toc a {
-  padding: 8px 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--paper-strong);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 650;
-  text-decoration: none;
-}
-.layout-hub .hub-toc a:hover { border-color: var(--green); color: var(--green-dark); }
 .layout-hub .hub-section h2 { margin-bottom: 6px; }
 .layout-hub .hub-blurb { max-width: 720px; margin: 0 0 18px; color: var(--muted); }
 .layout-hub .hub-list { margin: 0; padding: 0; list-style: none; }
@@ -203,8 +199,102 @@ footer .fineprint { margin-top: 10px; font-size: 13px; opacity: .8; }
   letter-spacing: .03em;
   white-space: nowrap;
 }
+/* Between-page navigation, generated on every documentation page from the same
+   manifest as the handbook index. It carries no JavaScript: <details> keeps the
+   tree out of the way on a phone, and a wide screen forces it open through
+   ::details-content. A browser without that pseudo-element keeps the collapsed
+   control, which still opens, so the fallback is a smaller nav rather than none.
+
+   Documentation pages widen the shared wrap to pay for the sidebar, which keeps
+   the prose column close to the width it had before. The landing page and the
+   hand-written spokes carry no .docpage class and are untouched. */
+.docpage .wrap { width: min(1280px, calc(100% - 40px)); }
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); }
+.sidenav {
+  margin: 20px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper-strong);
+}
+.sidenav-summary {
+  padding: 11px 15px;
+  color: var(--ink);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sidenav-summary::marker { color: #9aa3b2; font-size: 12px; }
+.sidenav-here { margin-left: 9px; color: var(--muted); font-weight: 600; }
+.sidenav-tree { padding: 2px 15px 14px; }
+.sidenav-overview {
+  display: block;
+  margin: 0 0 11px;
+  padding: 0 10px 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.sidenav-overview:hover { color: var(--green-dark); }
+.sidenav-overview.is-current { color: var(--ink); }
+.sidenav-sections, .sidenav-sections ul { margin: 0; padding: 0; list-style: none; }
+.sidenav-section { margin: 0 0 3px; }
+.sidenav-section li { margin: 0; }
+.sidenav-heading {
+  padding: 5px 0 5px 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sidenav-heading::marker { color: #9aa3b2; font-size: 11px; }
+.sidenav-group[open] > .sidenav-heading { margin-bottom: 2px; }
+.sidenav-group[open] { margin-bottom: 12px; }
+.sidenav-section.is-here .sidenav-heading { color: var(--green-dark); }
+.sidenav-section a,
+.sidenav-planned {
+  display: block;
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+  border-radius: 0 7px 7px 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.sidenav-section a:hover { border-left-color: var(--line); background: var(--paper); color: var(--green-dark); }
+.sidenav-section a.is-current {
+  border-left-color: var(--green);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+}
+.sidenav-planned { color: #7b869a; }
+.sidenav-note { margin: 0; padding-left: 12px; color: #7b869a; font-size: 12px; line-height: 1.4; }
+@media (min-width: 1024px) {
+  .shell { grid-template-columns: 250px minmax(0, 1fr); gap: 44px; align-items: start; }
+  @supports selector(::details-content) {
+    .sidenav {
+      position: sticky;
+      top: 20px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      margin: 36px 0 0;
+      padding: 0 18px 6px 0;
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+    }
+    .sidenav > summary { display: none; }
+    .sidenav::details-content { content-visibility: visible; }
+    .sidenav-tree { padding: 0; }
+  }
+}
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 @media (max-width: 760px) {
+  .docpage .wrap { width: min(100% - 28px, 1280px); }
   .layout-architecture .toc ul { grid-template-columns: repeat(2, 1fr); }
   .layout-hub .hub-item > a,
   .layout-hub .hub-item.is-planned { grid-template-columns: 1fr; gap: 4px; }

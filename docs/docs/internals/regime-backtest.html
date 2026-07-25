@@ -4,15 +4,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Regime and Canary Backtest Runbook | ibkr</title>
+  <title>Regime and canary backtest runbook | ibkr</title>
   <meta name="description" content="Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/regime-backtest.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.","headline":"Regime and Canary Backtest Runbook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/regime-backtest.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.","headline":"Regime and canary backtest runbook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/regime-backtest.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
-<body class="layout-standard">
+<body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -24,15 +24,91 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
-<h1 id="regime-and-canary-backtest-runbook">Regime and Canary Backtest Runbook</h1>
-<p><strong>Updated:</strong> 2026-06-04 07:42 CEST</p>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Under the hood</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="storage.html">Storage</a></li>
+                <li><a href="protocol.html">TWS wire protocol</a></li>
+                <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="regime-backtest.html" class="is-current" aria-current="page">Regime backtest runbook</a></li>
+                <li><a href="opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="regime-and-canary-backtest-runbook">Regime and canary backtest runbook</h1>
+<p>Updated: 2026-07-25 09:45 CEST</p>
 <p>This is the single umbrella for proving and tuning <code>ibkr regime</code> and
 <code>ibkr canary</code>. Keep the work here. Do not add another experiment plan, tuning
 plan, or backtest framework unless this runbook says to.</p>
-<p>The goal is simple: prove that regime and canary produce useful stress
-detection without overfitting to named events.</p>
-<h2 id="plain-definitions">Plain Definitions</h2>
+<p>The goal: prove that regime and canary produce useful stress detection without
+overfitting to named events.</p>
+<h2 id="plain-definitions">Plain definitions</h2>
 <ul>
 <li>A panel is a JSONL table: one row per date, using only information that would
 have been known on that date.</li>
@@ -44,7 +120,7 @@ stay quiet, watch, act, rebalance, flag opportunity, or block on data quality?</
 belongs to canary. Regime can keep those rows for context, but they are
 out-of-scope for market-regime precision and recall.</li>
 </ul>
-<h2 id="artifact-map">Artifact Map</h2>
+<h2 id="artifact-map">Artifact map</h2>
 <p>All backtest artifacts live in one of these places:</p>
 <div class="tblwrap">
 <table>
@@ -92,15 +168,15 @@ out-of-scope for market-regime precision and recall.</li>
 </div>
 <p>Do not hand-edit generated compact regime rows when the point-in-time panel is
 the source of truth. Rebuild them.</p>
-<h2 id="command-sequence">Command Sequence</h2>
+<h2 id="command-sequence">Command sequence</h2>
 <p>Small smoke fixtures:</p>
 <pre><code class="language-bash">ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
 ibkr backtest canary --input internal/cli/testdata/canary_backtest_sample.jsonl
 </code></pre>
-<p>The checked-in sourced corpora were deleted in July 2026. They recorded
-verdicts produced by regime code that has since been corrected several times,
-so they measured the old bugs rather than the current engine. Capture a fresh
-tuning and holdout split before tuning anything:</p>
+<p>Capture a fresh tuning and holdout split before tuning anything. The checked-in
+sourced corpora were deleted in July 2026: they recorded verdicts from regime
+code that has been corrected several times since, so they measured the old bugs
+rather than the current engine.</p>
 <pre><code class="language-bash">ibkr backtest capture-opportunity --preset top-movers --include-regime --split tuning \
   --append /tmp/regime_tuning.jsonl
 ibkr backtest capture-opportunity --preset top-movers --include-regime --split holdout \
@@ -109,8 +185,7 @@ ibkr backtest regime --input /tmp/regime_tuning.jsonl
 ibkr backtest canary --input /tmp/regime_tuning.jsonl
 </code></pre>
 <p>Keep captures outside the repository. A corpus checked in beside the unit-test
-fixtures reads as a fixture, stops being regenerated, and quietly becomes a
-record of whatever the engine believed on the day it was captured.</p>
+fixtures reads as a fixture and stops being regenerated.</p>
 <p>Point-in-time regime builder:</p>
 <pre><code class="language-bash">ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
   &gt; /tmp/regime_backtest_rows.jsonl
@@ -118,31 +193,30 @@ ibkr backtest regime --input /tmp/regime_backtest_rows.jsonl
 </code></pre>
 <p>That is two passes only when starting from raw point-in-time market rows. If the
 input is already compact regime JSONL, run <code>ibkr backtest regime</code> directly.</p>
-<p>Tier 1 expanded panel. The panel itself is no longer checked in; build it, then
-work from the build output:</p>
+<p>Tier 1 expanded panel. Build it, then work from the build output:</p>
 <pre><code class="language-bash">python3 scripts/backtest/build-tier1-regime-panel.py
 ibkr backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl \
   &gt; build/backtest/regime_backtest_tier1.jsonl
 ibkr backtest regime --input build/backtest/regime_backtest_tier1.jsonl
 python3 scripts/backtest/compare-tier1-vol-rules.py
 </code></pre>
-<h2 id="data-tiers">Data Tiers</h2>
-<p>Tier 0: smoke fixtures.</p>
+<h2 id="data-tiers">Data tiers</h2>
+<h3 id="tier-0-smoke-fixtures">Tier 0: smoke fixtures</h3>
 <ul>
 <li>Purpose: keep CLI contracts stable.</li>
 <li>Gate: tiny samples continue to run and render.</li>
 </ul>
-<p>Tier 1: expanded volatility/calm/event panel.</p>
+<h3 id="tier-1-expanded-volatilitycalmevent-panel">Tier 1: expanded volatility/calm/event panel</h3>
 <ul>
 <li>Sources: Cboe VIX/VIX3M/VVIX, Nasdaq ETF OHLC, FRED funding/FX/credit where
 available.</li>
-<li>Current artifact: <code>build/backtest/regime_pit_panel_tier1.jsonl</code>, rebuilt on demand.</li>
-<li>Source ledger: <code>build/backtest/backtest_sources_tier1.jsonl</code>, rebuilt on demand.</li>
+<li>Build outputs: <code>build/backtest/regime_pit_panel_tier1.jsonl</code> and its source
+ledger <code>build/backtest/backtest_sources_tier1.jsonl</code>.</li>
 <li>Primary label: 5-session market stress.</li>
 <li>Secondary feature: 20-session drawdown for early-warning analysis.</li>
 <li>Known gap: gamma and breadth are explicitly unavailable.</li>
 </ul>
-<p>Tier 2: confirmation proxy panel.</p>
+<h3 id="tier-2-confirmation-proxy-panel">Tier 2: confirmation proxy panel</h3>
 <ul>
 <li>Purpose: test whether noisy isolated red volatility can be confirmed or
 downgraded without losing major stress events.</li>
@@ -155,7 +229,7 @@ or reconstructed gamma.</li>
 <li><code>LQD/TLT</code> is context-only for now because it mixes credit spread, duration,
 and rates effects. Do not use it as an active confirmation input.</li>
 </ul>
-<h3 id="tier-2-input-classification">Tier 2 Input Classification</h3>
+<h3 id="tier-2-input-classification">Tier 2 input classification</h3>
 <p>The Tier 2 inputs are not all product indicators. This is the final
 classification for the current pass:</p>
 <div class="tblwrap">
@@ -207,11 +281,12 @@ classification for the current pass:</p>
 </table>
 </div>
 <p>No Tier 2 ETF proxy is promoted into live <code>ibkr regime</code> in this pass. The
-production change is narrower: isolated red <code>VVIX</code> is treated as an
+production change is narrower: isolated red VVIX is treated as an
 unconfirmed equity-volatility warning unless severity or already-visible tape
 confirms it. The red row remains visible in <code>ibkr regime</code>; only the cluster vote
 is downgraded from stress to watch.</p>
-<h2 id="current-findings">Current Findings</h2>
+<h2 id="current-findings">Current findings</h2>
+<h3 id="from-the-sourced-corpora">From the sourced corpora</h3>
 <ul>
 <li>Curated sourced regime holdout materially improves confirmed-stress precision
 while preserving watch-level visibility: before 67% precision / 100% recall /
@@ -234,21 +309,30 @@ held-underlying P&amp;L shock maps to concentration-driven, near-expiry held-opt
 delta maps to options-driven, and held-liquidity degradation maps to
 data-quality. Current sourced holdout has no options-driven rows, so that
 slice is instrumented but not yet proven.</li>
-<li>Tier 1 exposes the broader problem: current <code>any red cluster</code> stress signals
+</ul>
+<h3 id="tier-1">Tier 1</h3>
+<ul>
+<li>Tier 1 exposes the broader problem: current &quot;any red cluster&quot; stress signals
 catch stress rows but fire too often in non-stress volatility regimes.</li>
 <li>A pure confirmation rule cuts false alarms but gives up too much recall.</li>
 <li>Therefore the next tuning target is narrow: isolated red volatility.</li>
+</ul>
+<h3 id="tier-2-proxy-pass">Tier 2 proxy pass</h3>
+<ul>
 <li>Tier 2 source access is usable for a bounded proxy pass. The current build
 fetched all required Nasdaq ETF histories and recorded checksums. The first
 14 rows have unavailable proxy windows because the 20-session lookback is not
 mature yet.</li>
 <li>Tier 2 stress-label scoring moves the current holdout baseline out of the
-10.8% Tier 1 forward-label noise zone: current <code>any red cluster</code> is 34.2%
+10.8% Tier 1 forward-label noise zone: current &quot;any red cluster&quot; is 34.2%
 precision and 69.1% recall on the 2024+ observable-stress target.</li>
 <li>The best tested Tier 2 confirmation rule improves holdout stress precision to
 45.1% and cuts false alarms from 17.2% to 9.2%, but recall falls to 58.2%.</li>
 <li>This remains a diagnostic proxy result, not a production rule, because it
 relies on ETF proxy groups that are not live regime indicators.</li>
+</ul>
+<h3 id="promoted-severity-split">Promoted severity split</h3>
+<ul>
 <li>The promoted runtime-visible severity split improves Tier 2 holdout stress
 precision from 34.2% to 43.9%, keeps recall at 65.5% versus the 69.1%
 current baseline, and cuts false alarms from 17.2% to 10.8%.</li>
@@ -256,7 +340,7 @@ current baseline, and cuts false alarms from 17.2% to 10.8%.</li>
 improves from 10.8% precision / 66.7% recall / 21.5% false alarms to 14.6% /
 66.7% / 15.2%.</li>
 </ul>
-<h2 id="next-pass">Next Pass</h2>
+<h2 id="tuning-pass-sequence">Tuning pass sequence</h2>
 <p>Run this sequence and stop at the first failed gate:</p>
 <ol>
 <li>Validate Tier 2 proxy sources and record them in the source ledger.</li>
@@ -279,19 +363,16 @@ independent confirmation is strong enough.</li>
 <li>Tune only the severity split, and only on the tuning split.</li>
 <li>Score holdout once the tuning behavior is stable.</li>
 </ol>
-<p>Final promoted rule:</p>
+<h2 id="promoted-rule">Promoted rule</h2>
+<p>The isolated-VVIX downgrade is live policy; the
+<a href="regime-dashboard.html#equity-volatility">regime dashboard contract</a> owns its
+wording and thresholds, along with which rows stay visible under it. One
+constraint belongs to this runbook rather than to a dashboard row:</p>
 <ul>
-<li>Keep red indicator rows visible.</li>
-<li>Keep VIX/VIX3M backwardation as stress-level equity volatility.</li>
-<li>Treat isolated <code>VVIX</code> red as stress only when <code>VVIX &gt;= 120</code>, VIX is up at
-least 20% on the day, SPY is down at least 1% on the day, or another
-independent cluster is red.</li>
-<li>Otherwise count the equity-volatility cluster as yellow while leaving the
-<code>VVIX</code> row red and auditable.</li>
 <li>Do not use Tier 2 ETF proxy groups in runtime behavior until they are
 promoted into the live contract.</li>
 </ul>
-<h2 id="confirmation-gates-in-replay">Confirmation Gates In Replay</h2>
+<h2 id="confirmation-gates-in-replay">Confirmation gates in replay</h2>
 <p>The live engine applies confirmation eligibility (depth + persistence +
 cadence-freshness, see the dashboard contract) before any red may confirm.
 Point-in-time panels are independent daily observations, so the replay
@@ -308,19 +389,20 @@ dashboard contract) forward-collect raw values, depths, streaks, eligibility,
 and governor decisions per snapshot. That event corpus is the calibration
 source for promoting threshold sets out of <code>pending_backtest</code>, per versioned
 label, with measured false-alarm and recall rates.</p>
-<h2 id="data-gates">Data Gates</h2>
+<h2 id="data-gates">Data gates</h2>
 <p>Tier 2 data is green only if all are true:</p>
 <ul>
 <li>Every proxy has a reproducible source, retrieval status, and checksum.</li>
 <li>Missing data stays unavailable; no fabricated green/yellow/red values.</li>
 <li>The source ledger names every source gap plainly.</li>
-<li>Gamma remains excluded unless a method-stamped point-in-time source exists.</li>
+<li>Gamma remains excluded unless the row carries a trusted point-in-time gamma
+snapshot stamped with method, source, coverage, and timestamp.</li>
 <li>Official S&amp;P 500 breadth and MOVE are excluded unless a clean licensed or
 public source is proven.</li>
 <li>The point-in-time panel can rebuild the compact replay file deterministically.</li>
 </ul>
 <p>If these fail, do not tune. Fix data or stop.</p>
-<h2 id="tuning-gates">Tuning Gates</h2>
+<h2 id="tuning-gates">Tuning gates</h2>
 <p>A tuning change is allowed only if all are true:</p>
 <ul>
 <li>Watch recall remains high on major broad-market stress events.</li>
@@ -335,7 +417,7 @@ yen carry unwind, and tariff shock remain visible at least at watch level.</li>
 <p>If Tier 2 cannot materially improve precision without destroying recall, stop
 tuning and revisit the product definition. Do not add more indicators just to
 force convergence.</p>
-<h2 id="verification-gates">Verification Gates</h2>
+<h2 id="verification-gates">Verification gates</h2>
 <p>Before calling a pass done:</p>
 <pre><code class="language-bash">make check
 make smoke
@@ -347,7 +429,7 @@ ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample
   &gt; /tmp/ibkr-build-regime-smoke.jsonl
 ibkr backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
 </code></pre>
-<h2 id="not-doing">Not Doing</h2>
+<h2 id="not-doing">Not doing</h2>
 <ul>
 <li>No forecast probabilities.</li>
 <li>No learned cluster weights.</li>
@@ -357,7 +439,8 @@ ibkr backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
 <li>No official S&amp;P 500 breadth without point-in-time constituent coverage.</li>
 <li>No MOVE/rates-vol input without a clean source.</li>
 </ul>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>

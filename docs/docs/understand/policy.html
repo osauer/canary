@@ -4,19 +4,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trading Policy in ibkr: Who Decides and What the System Does | ibkr</title>
+  <title>Trading policy | ibkr</title>
   <meta name="description" content="Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/policy.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Trading Policy in ibkr: Who Decides and What the System Does | ibkr">
+  <meta property="og:title" content="Trading policy | ibkr">
   <meta property="og:description" content="Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.">
   <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/policy-lifecycle.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.","headline":"Trading Policy in ibkr: Who Decides and What the System Does","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/policy.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.","headline":"Trading policy","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/policy.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
-<body class="layout-architecture">
+<body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
@@ -28,38 +28,119 @@
       <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
-  <main class="wrap doc">
-<h1 id="trading-policy-in-ibkr-who-decides-and-what-the-system-does">Trading Policy in ibkr: Who Decides and What the System Does</h1>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Understand</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><span class="sidenav-planned">Install and first run</span></li>
+                <li><span class="sidenav-planned">Connect an MCP host</span></li>
+                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><span class="sidenav-planned">Troubleshooting</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="concepts.html">Concepts</a></li>
+                <li><a href="sensors.html">Sensors</a></li>
+                <li><a href="policy.html" class="is-current" aria-current="page">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><span class="sidenav-planned">Glossary</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><span class="sidenav-planned">Releases and support</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+        <p class="sidenav-note">Dimmed entries are not written yet.</p>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="trading-policy">Trading policy</h1>
 <p>You decide how much capital may be at risk, which evidence must be current,
 and when uncertainty requires attention. Today, <code>ibkr</code>'s personal risk policy
 observes, explains, and records those decisions; it does not block or authorize
 an order. Every submission remains a transaction-specific human decision and
 must pass separate, code-owned safety controls.</p>
-<p>That separation matters. A local record explains what <code>ibkr</code> observed and
-decided. Broker confirmations and statements establish what actually executed.
-Missing or unusable evidence remains unknown rather than being treated as safe.</p>
+<p>A local record explains what <code>ibkr</code> observed and decided. Broker confirmations
+and statements establish what actually executed. Missing or unusable evidence
+remains unknown rather than being treated as safe.</p>
 <p>For one trader, policy is a promise made while calm and applied under pressure.
-One person may own the capital, trade it, and review the result. <code>ibkr</code> does not
-implement named-user roles or maker/checker approval. A larger desk can reuse
-the decision concepts, but it needs an additional identity and approval layer.</p>
+The same person owns the capital, trades it, and reviews the result, which keeps
+the workflow direct without weakening the human submission boundary. The
+decision model can inform a family office. The current implementation cannot
+become one by assigning the labels to several people: it lacks named principals,
+role permissions, maker/checker approval, multi-account and book semantics, and
+consolidated reporting. A larger desk needs authenticated identities, scoped
+approvals, durable actor records, and a separate control layer before those
+responsibilities become system-enforced governance.</p>
 <nav class="toc" aria-label="On this page">
 <span class="toc-label">On this page</span>
 <ul>
-<li><a href="#how-policy-informs-a-trading-decision"><span class="n">01</span>How Policy Informs a Trading Decision</a></li>
-<li><a href="#a-concrete-example"><span class="n">02</span>A Concrete Example</a></li>
-<li><a href="#where-controls-live-and-who-changes-them"><span class="n">03</span>Where Controls Live and Who Changes Them</a></li>
-<li><a href="#how-policy-versions-behave"><span class="n">04</span>How Policy Versions Behave</a></li>
-<li><a href="#configure-the-available-controls"><span class="n">05</span>Configure the Available Controls</a></li>
-<li><a href="#read-status-and-commissioning-correctly"><span class="n">06</span>Read Status and Commissioning Correctly</a></li>
-<li><a href="#single-trader-now-family-office-later"><span class="n">07</span>Single Trader Now, Family Office Later</a></li>
-<li><a href="#change-a-policy-safely"><span class="n">08</span>Change a Policy Safely</a></li>
-<li><a href="#glossary-and-references"><span class="n">09</span>Glossary and References</a></li>
+<li><a href="#how-policy-informs-a-trading-decision"><span class="n">01</span>How policy informs a trading decision</a></li>
+<li><a href="#example-a-drawdown-boundary-on-stale-evidence"><span class="n">02</span>Example: a drawdown boundary on stale evidence</a></li>
+<li><a href="#where-controls-live-and-who-changes-them"><span class="n">03</span>Where controls live and who changes them</a></li>
+<li><a href="#how-policy-versions-behave"><span class="n">04</span>How policy versions behave</a></li>
+<li><a href="#configure-the-available-controls"><span class="n">05</span>Configure the available controls</a></li>
+<li><a href="#read-status-and-commissioning-correctly"><span class="n">06</span>Read status and commissioning correctly</a></li>
+<li><a href="#change-a-policy-safely"><span class="n">07</span>Change a policy safely</a></li>
+<li><a href="#policy-terms-and-references"><span class="n">08</span>Policy terms and references</a></li>
 </ul>
 </nav>
-<h2 id="how-policy-informs-a-trading-decision"><span class="secno" aria-hidden="true">01</span>How Policy Informs a Trading Decision</h2>
+<h2 id="how-policy-informs-a-trading-decision"><span class="secno" aria-hidden="true">01</span>How policy informs a trading decision</h2>
 <p><a href="../../diagrams/policy-lifecycle.svg"><img src="../../diagrams/policy-lifecycle.svg" alt="How a risk boundary and current evidence inform advice while the human retains the trading decision"></a></p>
 <p><a href="../../diagrams/policy-lifecycle.png">PNG fallback</a> ·
-<a href="../../diagrams/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>The human chooses the boundary before the market creates pressure. The daemon
 combines that policy with current evidence and returns a structured advisory or
@@ -69,31 +150,27 @@ higher policy version, but they never rewrite the active policy by themselves.</
 <p>A policy result, proposal, or preview is never permission to submit an
 order.</p>
 </blockquote>
-<h2 id="a-concrete-example"><span class="secno" aria-hidden="true">02</span>A Concrete Example</h2>
+<h2 id="example-a-drawdown-boundary-on-stale-evidence"><span class="secno" aria-hidden="true">02</span>Example: a drawdown boundary on stale evidence</h2>
 <p>Suppose the last accepted equity reading is near a declared drawdown boundary,
 but the evidence needed to rely on the current result has become stale. <code>ibkr</code>
 must disclose stale or unknown input rather than report a pass. In shadow mode
 it can record the condition and show what the declared response would mean; the
 personal risk policy still does not change submit eligibility.</p>
 <p>The trader decides whether to wait, investigate, reduce risk, or take another
-explicitly authorized action. Separate broker-write controls—route and account
-pins, freeze state, preview-token checks, broker WhatIf/eligibility, journal
-health, daemon authorization, and origin gating—remain binding. If an order is
-submitted, the broker confirmation and later statement establish what
-executed. The local policy record explains the context; it is not execution
-evidence.</p>
-<p>This one situation shows the point of policy: consistent treatment of a known
-boundary, honest uncertainty when evidence is unusable, and a clear human
-decision boundary.</p>
-<h2 id="where-controls-live-and-who-changes-them"><span class="secno" aria-hidden="true">03</span>Where Controls Live and Who Changes Them</h2>
+explicitly authorized action. Separate broker-write controls remain binding:
+route and account pins, freeze state, preview-token checks, broker
+WhatIf/eligibility, journal health, daemon authorization, and origin gating. If
+an order is submitted, the broker confirmation and later statement establish
+what executed. The local policy record explains the context; it is not
+execution evidence.</p>
+<h2 id="where-controls-live-and-who-changes-them"><span class="secno" aria-hidden="true">03</span>Where controls live and who changes them</h2>
 <p><a href="../../diagrams/policy-authority.svg"><img src="../../diagrams/policy-authority.svg" alt="Who controls policy, settings, analytical models, and the broker safety path"></a></p>
 <p><a href="../../diagrams/policy-authority.png">PNG fallback</a> ·
-<a href="../../diagrams/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
-<p>Policy, settings, analytical models, and broker safety controls are different
-sources of control. Current evidence is an input, not another policy. The
-daemon owns evaluation and publishes one structured interpretation wherever a
-surface exposes that decision.</p>
+<p>Current evidence is an input, not another policy. The daemon owns evaluation
+and publishes one structured interpretation wherever a surface exposes that
+decision.</p>
 <div class="tblwrap">
 <table>
 <thead>
@@ -148,8 +225,8 @@ surface exposes that decision.</p>
 use the gated CLI only after an explicit transaction-specific instruction from
 the user in that turn. Apps and dashboards render daemon results; they do not
 create policy or submission authority.</p>
-<h2 id="how-policy-versions-behave"><span class="secno" aria-hidden="true">04</span>How Policy Versions Behave</h2>
-<p>Within one running daemon, policy managers apply a simple rule:</p>
+<h2 id="how-policy-versions-behave"><span class="secno" aria-hidden="true">04</span>How policy versions behave</h2>
+<p>Within one running daemon, policy managers apply these rules:</p>
 <ol>
 <li>A valid first file or a valid higher <code>policy_version</code> is accepted.</li>
 <li>Identical content at the accepted version continues unchanged.</li>
@@ -160,12 +237,11 @@ the last accepted in-memory version where one exists.</li>
 <li>Removing an active personal risk-policy file reports <code>absent</code>; deletion is
 not a retirement command.</li>
 </ol>
-<p>There is an important restart boundary: accepted policy heads and exact policy
-content are not currently persisted as durable policy artifacts. A new daemon
-starts with no in-memory accepted version. A valid same-version file changed
-while the daemon was stopped can therefore be accepted on startup. If a custom
-protection or opportunity file is absent at startup, its engine can use the
-embedded default.</p>
+<p>Restart is a boundary. Accepted policy heads and exact policy content are not
+currently persisted as durable policy artifacts. A new daemon starts with no
+in-memory accepted version. A valid same-version file changed while the daemon
+was stopped can therefore be accepted on startup. If a custom protection or
+opportunity file is absent at startup, its engine can use the embedded default.</p>
 <p>Drift detection is consequently runtime-local today. Always raise the version
 for a material edit and retain the exact applied TOML outside <code>ibkr</code>. The
 daemon's status tells you what it currently loaded; the human-owned TOML
@@ -176,7 +252,7 @@ it. It does not reconstruct historical policy by itself: current durable
 events retain policy identity, version, and fingerprint, not the complete
 normalized policy body. Historical replay therefore also requires the exact
 archived policy content.</p>
-<h2 id="configure-the-available-controls"><span class="secno" aria-hidden="true">05</span>Configure the Available Controls</h2>
+<h2 id="configure-the-available-controls"><span class="secno" aria-hidden="true">05</span>Configure the available controls</h2>
 <h3 id="personal-risk-policy">Personal risk policy</h3>
 <p>The personal risk policy has no embedded default and no path override. Start
 from <a href="https://github.com/osauer/ibkr/blob/main/examples/risk-policy.toml">the checked-in template</a>; material numerical
@@ -216,8 +292,8 @@ ibkr settings set &lt;key&gt;=null
 <p><code>null</code> removes an override and exposes the underlying config or build default.
 Every typed setting reports its source and whether it is writable. No setting
 can bypass the non-overridable broker controls. See
-<a href="../../design/platform-settings.md">Platform Settings</a> for the ownership contract.</p>
-<h2 id="read-status-and-commissioning-correctly"><span class="secno" aria-hidden="true">06</span>Read Status and Commissioning Correctly</h2>
+<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/platform-settings.md">Platform Settings</a> for the ownership contract.</p>
+<h2 id="read-status-and-commissioning-correctly"><span class="secno" aria-hidden="true">06</span>Read status and commissioning correctly</h2>
 <p>These words describe different facts:</p>
 <div class="tblwrap">
 <table>
@@ -260,17 +336,7 @@ label exists. Typed status is operational evidence about what the daemon has
 loaded, evaluated, or commissioned; it is not the source of human policy.
 Missing, stale, partial, or contradictory required evidence is an explicit
 unknown or data-quality state, never an implicit zero or pass.</p>
-<h2 id="single-trader-now-family-office-later"><span class="secno" aria-hidden="true">07</span>Single Trader Now, Family Office Later</h2>
-<p>For one trader, capital owner, trader, and reviewer are responsibilities held
-by the same person. That keeps the workflow direct without weakening the human
-submission boundary.</p>
-<p>The decision model can inform a family office, but the current implementation
-cannot become one merely by assigning the labels to several people. It lacks
-named principals, role permissions, maker/checker approval, multi-account and
-book semantics, and consolidated reporting. A larger desk needs authenticated
-identities, scoped approvals, durable actor records, and a separate control
-layer before those responsibilities become system-enforced governance.</p>
-<h2 id="change-a-policy-safely"><span class="secno" aria-hidden="true">08</span>Change a Policy Safely</h2>
+<h2 id="change-a-policy-safely"><span class="secno" aria-hidden="true">07</span>Change a policy safely</h2>
 <p>For a material policy-file change:</p>
 <ol>
 <li>Read the current typed status and retain the exact current file, version,
@@ -287,20 +353,12 @@ replay or shadow evidence and a separate explicit promotion decision.</li>
 read it back. For a code-owned model or safety control, use a reviewed release
 change. Routine clean cases should be automated; only exceptions should return
 to the human.</p>
-<h2 id="glossary-and-references"><span class="secno" aria-hidden="true">09</span>Glossary and References</h2>
+<h2 id="policy-terms-and-references"><span class="secno" aria-hidden="true">08</span>Policy terms and references</h2>
 <ul>
 <li><strong>Advisory:</strong> guidance that does not block or submit an order.</li>
 <li><strong>Shadow:</strong> evaluation and recording without enforcing the result.</li>
 <li><strong>Submit authority:</strong> an explicit human decision for one transaction; a
 policy result, proposal, preview, or token is not that authority.</li>
-<li><strong>Content fingerprint:</strong> an ID derived from normalized policy fields; it
-deliberately ignores comments and formatting and must accompany retained
-content when historical reconstruction matters.</li>
-<li><strong>Freshness:</strong> whether evidence is recent enough for the decision.
-<strong>Finality:</strong> whether its source can still revise it.</li>
-<li><strong>Local decision record:</strong> what <code>ibkr</code> observed, evaluated, or attempted.
-<strong>Broker execution evidence:</strong> confirmations and statements describing what
-the broker executed.</li>
 <li><strong>Unapproved:</strong> a material human choice has not been made; it is not zero,
 safe, or default.</li>
 </ul>
@@ -308,10 +366,10 @@ safe, or default.</li>
 <ul>
 <li><a href="../reference/config.html">Configuration Reference</a>: every configuration,
 advisory-policy, runtime-setting, and environment key.</li>
-<li><a href="../../design/risk-policy.md">Risk Constitution Design</a>: capital,
+<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/risk-policy.md">Risk Constitution Design</a>: capital,
 reconciliation, safety invariants, and implementation history.</li>
-<li><a href="../../design/trading-rulebook.md">Trading Rulebook</a>: compiled discipline checks.</li>
-<li><a href="../../guides/trading-harness-development.md">Trading Harness Development</a>: how to
+<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: compiled discipline checks.</li>
+<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/guides/trading-harness-development.md">Trading Harness Development</a>: how to
 design, shadow, promote, and reconcile a new control.</li>
 <li><a href="../internals/architecture.html">Architecture</a>: daemon, RPC, adapter, and broker ownership.</li>
 <li><a href="sensors.html">Sensors</a>: what current evidence means, when it expires, and how
@@ -319,7 +377,8 @@ dependent decisions fail closed.</li>
 <li><a href="../internals/storage.html">Storage</a>: how applied policy state and local events are stored
 without making SQLite the policy-authoring surface.</li>
 </ul>
-  </main>
+    </main>
+  </div>
   <footer>
     <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
