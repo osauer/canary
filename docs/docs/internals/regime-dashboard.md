@@ -225,7 +225,7 @@ isolated-red downgrade, and never reaches `confirmed_by`. This policy exists
 because of the 2026-06-12 false positive, where a 7 bps HYG break (one session
 old, thin pre-open tick) and a prior-evening gamma cache mutually confirmed
 "Broad stress regime / act" against a green tape
-(docs/design/regime-calibration.md).
+(internal-docs/design/regime-calibration.md).
 
 Eligibility gates per indicator (heuristic noise floors, pending_backtest like
 the band thresholds; values live in `internal/rpc/regime_policy.go`):

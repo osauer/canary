@@ -29,13 +29,13 @@ policy. Code implements a versioned decision; it must not silently create one.
 
 ### 1. Define the policy decision
 
-Use `docs/templates/risk-policy-contract.md`. Decide units, aggregation,
+Use `.agents/docs/risk-policy-contract.md`. Decide units, aggregation,
 risk-increasing versus risk-reducing behavior, stale-data posture, exception
 authority, and operating cadence. Mark unknown choices `unapproved`.
 
 ### 2. Map evidence and authority
 
-Use `docs/templates/daemon-cli-trading-contract.md`. Name the authoritative
+Use `.agents/docs/daemon-cli-trading-contract.md`. Name the authoritative
 source and typed field for each decision input. Nil, stale, partial, delayed,
 and unreconciled must stay distinct from zero, current, complete, live, and
 final.

@@ -132,7 +132,7 @@ alone a no-vote when SPX has healthy 1-7DTE and term coverage.
 After the expiring SPXW series closes, the 0DTE bucket can be absent while the
 broader SPX surface remains usable.</p>
 <p>Compute timing: the first eligible call without a serveable result kicks a multi-minute background job. During options RTH, later calls keep serving the last-good result and trigger one background refresh after 15 minutes; a successful replacement is promoted atomically. Closed-session automatic refresh is suppressed, and the latest completed-session result remains Regime <code>not_due</code> context until the next options open. The cache persists across daemon restarts.</p>
-<p>Full methodology at <a href="../internals/regime-dashboard.html"><code>docs/specs/risk-regime-dashboard.md</code></a>. Cache persistence details are in <a href="../internals/gamma-cache.html"><code>docs/design/gamma-zero-cache-persistence.md</code></a>.</p>
+<p>Full methodology at <a href="../internals/regime-dashboard.html"><code>docs/specs/risk-regime-dashboard.md</code></a>. Cache persistence details are in <a href="../internals/gamma-cache.html"><code>internal-docs/design/gamma-zero-cache-persistence.md</code></a>.</p>
 <hr>
 <h2 id="breadth"><span class="secno" aria-hidden="true">07</span>Breadth</h2>
 <p>S&amp;P 500 breadth tells you whether a rally is broad or narrow, which the index level alone can't. Two readings carry the load:</p>

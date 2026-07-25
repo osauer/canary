@@ -53,7 +53,7 @@ make app-lifecycle-smoke APP_SMOKE_BROWSER=webkit
 For source edits, prefer `make app-refresh` before Browser verification because
 the SPA is embedded in the installed `ibkr` binary. The detailed development
 playbook lives in
-[`docs/guides/canary-spa-dev.md`](../../docs/guides/canary-spa-dev.md).
+[`internal-docs/guides/canary-spa-dev.md`](../../internal-docs/guides/canary-spa-dev.md).
 
 App icons are generated PNGs. The checked-in `icon-512.png` is the canonical
 512×512 asset; regenerate it and the smaller PWA/favicon sizes with:
@@ -75,4 +75,4 @@ Trading workflows, HTTP MCP, debug diagnostics, and production relay hosting are
 future work.
 
 Design and architecture notes live in
-[`docs/design/mobile-app-mvp.md`](../../docs/design/mobile-app-mvp.md).
+[`internal-docs/design/mobile-app-mvp.md`](../../internal-docs/design/mobile-app-mvp.md).

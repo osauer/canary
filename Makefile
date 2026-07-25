@@ -483,7 +483,7 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 docs-html-check: ## Verify generated docs/ HTML exactly matches Markdown sources
 	@go test ./scripts/docgen/docs-html
 	@go run ./scripts/docgen/docs-html -check
-	@node docs/diagrams/render-architecture.mjs --check
+	@node scripts/render-architecture.mjs --check
 
 docs-html-regen: ## Regenerate public docs/ HTML from Markdown sources
 	@go run ./scripts/docgen/docs-html
@@ -664,7 +664,7 @@ SMOKE_STRICT ?= 0
 
 # SPX_EXPECTED_REACHABLE — default ON in this repo because this is the
 # dev machine with CBOE OPRA entitlement; the user's standing guardrail
-# (per docs/design/gamma-spx-coverage.md §11.2): "no SPX data would be
+# (per internal-docs/design/gamma-spx-coverage.md §11.2): "no SPX data would be
 # a bug on my setup." If `ibkr gamma --only=spx` returns the
 # entitlement-skipped banner, fail loudly rather than silently passing
 # the smoke. Override with `make smoke SPX_EXPECTED_REACHABLE=0` on

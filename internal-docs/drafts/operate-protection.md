@@ -20,9 +20,9 @@ offer to do, what it will refuse to do, and what happens in a hurry.
 
 **Draw from**
 
-- `docs/design/protection-trailing-stop-tif.md`.
+- `internal-docs/design/protection-trailing-stop-tif.md`.
 - `internal/cli/proposals.go` and `internal/cli/purge.go`.
-- `docs/design/trading-rulebook.md` for the interaction with rule breaches.
+- `internal-docs/design/trading-rulebook.md` for the interaction with rule breaches.
 
 **Boundaries to keep**
 

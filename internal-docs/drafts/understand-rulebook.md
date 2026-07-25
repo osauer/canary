@@ -20,7 +20,7 @@ below it.
 
 **Draw from**
 
-- `docs/design/trading-rulebook.md`, which is the authority. This page is the
+- `internal-docs/design/trading-rulebook.md`, which is the authority. This page is the
   public distillation of it, not a copy. The design document stays in the
   repository.
 - `internal/cli/rules.go` for the output shape.

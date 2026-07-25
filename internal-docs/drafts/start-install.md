@@ -1,7 +1,7 @@
 # Install and first run
 
 Status: planned. This file is the brief for the page, not the page itself.
-Nothing in `docs/drafts/` is rendered or served.
+Nothing in `internal-docs/drafts/` is rendered or served.
 
 **Audience.** Someone with an IBKR Pro account who has never run ibkr.
 

@@ -351,7 +351,7 @@ type Server struct {
 	// historyIndex is the legacy history adapter serving regime.history and
 	// rules.history. Runtime reads use coreStore; the history.db/file branches
 	// remain only for explicit legacy import and isolated tests
-	// (docs/design/history-index.md).
+	// (internal-docs/design/history-index.md).
 	// Deliberately NOT named history: regimeHistory below already names
 	// the unrelated HMDS daily-bars cache. Opened by the flock winner in
 	// Start, published before the accept loop so handlers read it without
@@ -459,7 +459,7 @@ type Server struct {
 	// declaration or dismissal.
 	reconMu sync.Mutex
 	// flexFetch tracks the daily Flex statement ingestion for post-trade
-	// reconciliation (docs/design/post-trade-truth.md). Read-only toward
+	// reconciliation (internal-docs/design/post-trade-truth.md). Read-only toward
 	// the broker; sanitized status only, never the token.
 	flexFetch flexFetchState
 	// Test-only seams for the broker fetch and retained-statement projection.

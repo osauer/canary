@@ -66,7 +66,7 @@ type PlatformSettings struct {
 // Deliberately one knob: the confirmation-gate values (depth, streaks,
 // co-sign, max ages) are code-owned pending_backtest policy — user-tunable
 // gates would fork the decision corpus's comparability
-// (docs/design/regime-calibration.md Part 6).
+// (internal-docs/design/regime-calibration.md Part 6).
 type PlatformRegimeSettings struct {
 	Journal RegimeJournalSettings `json:"journal"`
 }
@@ -78,7 +78,7 @@ type RegimeJournalSettings struct {
 }
 
 // PlatformCanarySettings holds the canary evidence-collection runtime
-// preference (docs/design/history-index.md).
+// preference (internal-docs/design/history-index.md).
 type PlatformCanarySettings struct {
 	Journal CanaryJournalSettings `json:"journal"`
 }
@@ -125,7 +125,7 @@ type StockProtectionSettings struct {
 }
 
 // RulebookSettings controls the advisory trading rulebook
-// (docs/design/trading-rulebook.md): the 14-rule daily checklist plus its
+// (internal-docs/design/trading-rulebook.md): the 14-rule daily checklist plus its
 // manual earnings-date overrides. Disabling hides the SPA card, empties
 // rules.snapshot, and stops advisory rule_* preview warnings; it cannot
 // affect broker-write gating in either direction.

@@ -580,7 +580,7 @@
 </table>
 </div>
 <h2 id="runtime-platform-settings">Runtime platform settings</h2>
-<p>Daemon-owned preferences persisted in <code>$XDG_STATE_HOME/ibkr/daemon.db</code> and changed at runtime without a restart. Feature preferences may be changed via <code>ibkr settings set &lt;key&gt;=&lt;value&gt;</code>, the SPA Settings tab, or <code>PATCH /api/settings</code>. Setting a key to <code>null</code> clears the runtime override, and every response field carries access/source/reason metadata. <code>trading.freeze</code> and trading-limit keys require <code>ibkr settings set</code> from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with <code>[trading].mode</code> set. Ownership and semantics: <code>docs/design/platform-settings.md</code>.</p>
+<p>Daemon-owned preferences persisted in <code>$XDG_STATE_HOME/ibkr/daemon.db</code> and changed at runtime without a restart. Feature preferences may be changed via <code>ibkr settings set &lt;key&gt;=&lt;value&gt;</code>, the SPA Settings tab, or <code>PATCH /api/settings</code>. Setting a key to <code>null</code> clears the runtime override, and every response field carries access/source/reason metadata. <code>trading.freeze</code> and trading-limit keys require <code>ibkr settings set</code> from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with <code>[trading].mode</code> set. Ownership and semantics: <code>internal-docs/design/platform-settings.md</code>.</p>
 <div class="tblwrap">
 <table>
 <thead>

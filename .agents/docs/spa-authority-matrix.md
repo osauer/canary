@@ -9,8 +9,8 @@ SSE data, app routes, or browser-visible trading/risk posture.
 
 - Root `AGENTS.md`
 - `web/app/AGENTS.md`
-- `docs/guides/canary-spa-dev.md`
-- `docs/design/platform-settings.md` when settings/config/state surfaces are
+- `internal-docs/guides/canary-spa-dev.md`
+- `internal-docs/design/platform-settings.md` when settings/config/state surfaces are
   involved
 
 ## Matrix

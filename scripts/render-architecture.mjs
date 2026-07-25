@@ -8,8 +8,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const canary = fs.readFileSync(path.join(here, "../social/canary-icon.png")).toString("base64");
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Diagrams are published assets, so they are written into the site tree rather
+// than beside this renderer.
+const outDir = path.join(repoRoot, "docs/diagrams");
+const canary = fs.readFileSync(path.join(repoRoot, "docs/social/canary-icon.png")).toString("base64");
 
 const icons = {
   user: `<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/>`,
@@ -352,7 +355,7 @@ function systemArchitecture() {
   <text x="509" y="788" text-anchor="middle" class="flow-label">redacted payloads</text>
   ${stripNode(576, 778, 104, "Canary PWA")}
 
-  <text x="1404" y="806" text-anchor="end" class="footnote">deterministic SVG · docs/diagrams/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
+  <text x="1404" y="806" text-anchor="end" class="footnote">deterministic SVG · scripts/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
   `;
 
   return svgFrame({
@@ -448,7 +451,7 @@ function persistenceArchitecture() {
   ${emptyCell(xs[2], tileY(3), colW, 106)}
   ${matrixTile({ x: xs[3], y: tileY(3), width: colW, height: 106, iconName: "cloud", color: C.amber, accent: C.amber, title: "Hosted Relay Route", lines: ["connector token + expiry", "no grants · no broker state"], format: "Cloudflare Durable Object", sensitive: true, optional: true })}
 
-  <text x="1244" y="916" text-anchor="end" class="footnote">deterministic SVG · docs/diagrams/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
+  <text x="1244" y="916" text-anchor="end" class="footnote">deterministic SVG · scripts/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
   `;
 
   return svgFrame({
@@ -691,7 +694,7 @@ function erSemantic(d, label, labelX, labelY) {
 }
 
 function coreStoreSchemaInventory() {
-  const source = fs.readFileSync(path.join(here, "../../internal/daemon/corestore/schema.go"), "utf8");
+  const source = fs.readFileSync(path.join(repoRoot, "internal/daemon/corestore/schema.go"), "utf8");
   const tables = [];
   const foreignKeys = [];
   const tablePattern = /`CREATE TABLE\s+([a-z_]+)\s+\(([\s\S]*?)\n\) STRICT`/g;
@@ -1051,16 +1054,16 @@ const outputs = new Map([
 if (process.argv.includes("--check")) {
   const stale = [];
   for (const [name, expected] of outputs) {
-    const output = path.join(here, name);
+    const output = path.join(outDir, name);
     if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== expected) stale.push(name);
   }
   if (stale.length) {
-    console.error(`diagram check: stale output: ${stale.join(", ")}; run node docs/diagrams/render-architecture.mjs`);
+    console.error(`diagram check: stale output: ${stale.join(", ")}; run node scripts/render-architecture.mjs`);
     process.exitCode = 1;
   } else {
     console.log(`diagram check: ${outputs.size} SVG diagram(s) match the renderer`);
   }
 } else {
-  for (const [name, content] of outputs) fs.writeFileSync(path.join(here, name), content);
+  for (const [name, content] of outputs) fs.writeFileSync(path.join(outDir, name), content);
   console.log(`rendered ${outputs.size} architecture diagrams`);
 }

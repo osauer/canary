@@ -526,7 +526,7 @@ func render(tables [][]tomlField, envs []envVar) string {
 	out.WriteString("Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `ibkr settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. ")
 	out.WriteString("Setting a key to `null` clears the runtime override, and every response field carries access/source/reason metadata. ")
 	out.WriteString("`trading.freeze` and trading-limit keys require `ibkr settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. ")
-	out.WriteString("Ownership and semantics: `docs/design/platform-settings.md`.\n\n")
+	out.WriteString("Ownership and semantics: `internal-docs/design/platform-settings.md`.\n\n")
 	out.WriteString("| Key | Value | Class | Description |\n")
 	out.WriteString("|-----|-------|-------|-------------|\n")
 	for _, spec := range rpc.SettingsKeys() {

@@ -17,7 +17,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// Reconciliation engine (docs/design/post-trade-truth.md): matches broker
+// Reconciliation engine (internal-docs/design/post-trade-truth.md): matches broker
 // statement flows against the declared capital-event ledger under the
 // constitution's [recon] policy keys. Deterministic and regenerated from
 // retained files on every call — the report id pins the exception and

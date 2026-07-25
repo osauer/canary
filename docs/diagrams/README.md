@@ -7,7 +7,7 @@ SVG output; see `ICON-LICENSE.txt`.
 Regenerate the SVG files and high-resolution PNG fallbacks from this directory:
 
 ```sh
-node render-architecture.mjs
+node ../../scripts/render-architecture.mjs
 rsvg-convert --zoom=2 system-architecture.svg --output system-architecture.png
 rsvg-convert --zoom=2 data-and-persistence.svg --output data-and-persistence.png
 rsvg-convert --zoom=2 policy-lifecycle.svg --output policy-lifecycle.png
@@ -22,7 +22,7 @@ rsvg-convert --zoom=2 sensor-freshness-timeline.svg --output sensor-freshness-ti
 Verify the checked-in SVGs without rewriting them:
 
 ```sh
-node render-architecture.mjs --check
+node ../../scripts/render-architecture.mjs --check
 ```
 
 The Canary logo is read from `../social/canary-icon.png` during generation.

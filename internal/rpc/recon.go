@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Post-trade reconciliation contract (docs/design/post-trade-truth.md).
+// Post-trade reconciliation contract (internal-docs/design/post-trade-truth.md).
 // recon.snapshot is read-only and works from retained statement files;
 // recon.dismiss is a human-only governance write. Nothing here touches
 // broker writes, submit eligibility, or the order path.
@@ -26,7 +26,7 @@ const (
 	// MethodReconBacktest builds the full-window backtest report: every
 	// statement flow labeled for the operator's flow-list review, plus the
 	// capital-ladder replay over the statement equity series
-	// (docs/design/operator-ergonomics.md, accelerated R3 gate).
+	// (internal-docs/design/operator-ergonomics.md, accelerated R3 gate).
 	// Measurement only — it changes no matching, sign-off, or enforcement.
 	MethodReconBacktest = "recon.backtest"
 	// MethodReconDismiss records a human resolution for one exception

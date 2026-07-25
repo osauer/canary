@@ -2,7 +2,7 @@
 # ~/.config/ibkr/policies/risk-policy.toml
 #
 # This file is the authority over personal capital numbers
-# (docs/design/risk-policy.md). There is NO embedded default: a key you do
+# (internal-docs/design/risk-policy.md). There is NO embedded default: a key you do
 # not write does not exist, the dependent control renders "unapproved", and
 # `ibkr policy show --explain` names the gap. Editing any value without
 # raising policy_version puts the manager in drift status.
@@ -48,7 +48,7 @@ block_enforcement = "shadow"
 
 [recon]
 # What counts as a reconciliation exception when broker statement flows
-# are matched against declared capital events (docs/design/post-trade-truth.md).
+# are matched against declared capital events (internal-docs/design/post-trade-truth.md).
 # Reconcile sign-off requires a fresh, fully resolved `ibkr recon` report.
 #amount_tolerance_pct = 0.0
 #amount_tolerance_min = 0.0

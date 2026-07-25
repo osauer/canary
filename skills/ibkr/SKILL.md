@@ -47,7 +47,7 @@ morning/EOD artefact, and JSON mode never stamps for any origin.
 If the user asks "what should I fix today", which checks in the compiled
 discipline model are open, or wants the daily discipline checklist, run
 `ibkr rules --json`. It returns the advisory 14-rule
-[Rulebook](../../docs/design/trading-rulebook.md) (per-name
+[Rulebook](../../internal-docs/design/trading-rulebook.md) (per-name
 exposure cap, option-line premium cap, sell-only cash floor, extrinsic
 budget, expiry runway, earnings catalyst/overwrite/size-freeze checks, tape
 rules, green-day nudge, hedge band, exit discipline on long-option losses,

@@ -141,7 +141,7 @@ func TestGreenDayActionRequiresFiniteDailyPnL(t *testing.T) {
 
 // TestNeverFalsePass is the acceptance test for the design's safety
 // invariant: strip each input dimension and assert the affected rows report
-// unknown/not_evaluated — never pass (docs/design/trading-rulebook.md).
+// unknown/not_evaluated — never pass (internal-docs/design/trading-rulebook.md).
 func TestNeverFalsePass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	portfolioRules := []string{
@@ -1120,7 +1120,7 @@ func abs(v float64) float64 {
 }
 
 // TestDesignDocDisclosesRule1HedgeExemption pins the rule-1 hedge-exemption
-// wording in docs/design/trading-rulebook.md to the semantics implemented
+// wording in internal-docs/design/trading-rulebook.md to the semantics implemented
 // here, so the design doc cannot silently lag another rule-1 change (the
 // trading-paper-smoke drift-guard precedent). The blank reference keeps the
 // doc's predicate name honest: renaming rule12HedgeLeg breaks this file and
@@ -1129,7 +1129,7 @@ func TestDesignDocDisclosesRule1HedgeExemption(t *testing.T) {
 	t.Parallel()
 	_ = rule12HedgeLeg
 
-	data, err := os.ReadFile("../../docs/design/trading-rulebook.md")
+	data, err := os.ReadFile("../../internal-docs/design/trading-rulebook.md")
 	if err != nil {
 		t.Fatalf("read design doc: %v", err)
 	}
@@ -1144,7 +1144,7 @@ func TestDesignDocDisclosesRule1HedgeExemption(t *testing.T) {
 		"no Exempt row",
 	} {
 		if !strings.Contains(doc, pin) {
-			t.Errorf("docs/design/trading-rulebook.md no longer states %q — rule-1 hedge-exemption semantics changed without updating the design doc", pin)
+			t.Errorf("internal-docs/design/trading-rulebook.md no longer states %q — rule-1 hedge-exemption semantics changed without updating the design doc", pin)
 		}
 	}
 }
@@ -1152,7 +1152,7 @@ func TestDesignDocDisclosesRule1HedgeExemption(t *testing.T) {
 func TestDesignDocTracksRulebookRuntimeContract(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("../../docs/design/trading-rulebook.md")
+	data, err := os.ReadFile("../../internal-docs/design/trading-rulebook.md")
 	if err != nil {
 		t.Fatalf("read design doc: %v", err)
 	}
@@ -1165,7 +1165,7 @@ func TestDesignDocTracksRulebookRuntimeContract(t *testing.T) {
 		"source-neutral alert",
 	} {
 		if !strings.Contains(doc, pin) {
-			t.Errorf("docs/design/trading-rulebook.md missing current runtime contract %q", pin)
+			t.Errorf("internal-docs/design/trading-rulebook.md missing current runtime contract %q", pin)
 		}
 	}
 	for _, stale := range []string{
@@ -1174,7 +1174,7 @@ func TestDesignDocTracksRulebookRuntimeContract(t *testing.T) {
 		"operator-tunable thresholds",
 	} {
 		if strings.Contains(doc, stale) {
-			t.Errorf("docs/design/trading-rulebook.md retained stale runtime claim %q", stale)
+			t.Errorf("internal-docs/design/trading-rulebook.md retained stale runtime claim %q", stale)
 		}
 	}
 }
@@ -1183,7 +1183,7 @@ func TestRulebookDesignDocDiscoverable(t *testing.T) {
 	t.Parallel()
 
 	for path, link := range map[string]string{
-		"../../README.md": "(docs/design/trading-rulebook.md)",
+		"../../README.md": "(internal-docs/design/trading-rulebook.md)",
 		"../../docs/docs/internals/architecture.md": "(../../design/trading-rulebook.md)",
 		"../../docs/index.html":                     `href="docs/understand/sensors.html#rulebook"`,
 		"../../docs/docs/understand/sensors.md":     "(../../design/trading-rulebook.md)",

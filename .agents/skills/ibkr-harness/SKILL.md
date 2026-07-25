@@ -33,13 +33,13 @@ schemas, and domain authority stay in:
 
 - [command catalog](../../../skills/ibkr/SKILL.md)
 - [response schemas](../../../skills/ibkr/schemas.md)
-- [Rulebook design and authority](../../../docs/design/trading-rulebook.md)
+- [Rulebook design and authority](../../../internal-docs/design/trading-rulebook.md)
 
 ## Project Workflow
 
 Read the root AGENTS.md before editing. For daemon/CLI/MCP/trading semantic
-changes, use `docs/templates/daemon-cli-trading-contract.md`. For Canary SPA
-changes, use `docs/templates/spa-authority-matrix.md`.
+changes, use `.agents/docs/daemon-cli-trading-contract.md`. For Canary SPA
+changes, use `.agents/docs/spa-authority-matrix.md`.
 
 After daemon or CLI edits, run the required tests and smoke tier, refresh the
 installed daemon, and capture redacted `ibkr status --json` plus one command

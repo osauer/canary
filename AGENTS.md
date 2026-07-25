@@ -3,9 +3,9 @@
 ## Start with authority
 
 Read `docs/docs/internals/architecture.md` in a fresh session. Read
-`docs/design/platform-settings.md` before changing settings, config, or state.
+`internal-docs/design/platform-settings.md` before changing settings, config, or state.
 For broader risk-harness work, use
-`docs/guides/trading-harness-development.md`.
+`internal-docs/guides/trading-harness-development.md`.
 
 The daemon owns broker connectivity and runtime state, `internal/risk` owns pure
 risk semantics, and `internal/rpc` owns typed cross-surface contracts. CLI, MCP,
@@ -67,15 +67,15 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   load `.agents/skills/ibkr-harness/SKILL.md`; start with read-only `ibkr ... --json`
   status/settings/trading/rules/proposals/orders surfaces, then inspect code only
   for gaps the artifacts expose. For Rulebook semantics and authority, read
-  `docs/design/trading-rulebook.md`.
+  `internal-docs/design/trading-rulebook.md`.
 - Risk-policy, enforcement, pre-trade, or post-trade reporting change: use
-  `docs/templates/risk-policy-contract.md` as a checklist or task-local copy,
-  then use `docs/templates/daemon-cli-trading-contract.md`. Do not invent
+  `.agents/docs/risk-policy-contract.md` as a checklist or task-local copy,
+  then use `.agents/docs/daemon-cli-trading-contract.md`. Do not invent
   missing policy thresholds; return the decision to the user.
 - Daemon, CLI, RPC, MCP, or trading semantic change: use
-  `docs/templates/daemon-cli-trading-contract.md`.
+  `.agents/docs/daemon-cli-trading-contract.md`.
 - Canary SPA semantic or rendered-flow change: read `web/app/AGENTS.md` and use
-  `docs/templates/spa-authority-matrix.md`.
+  `.agents/docs/spa-authority-matrix.md`.
 - Cutting, shipping, or verifying a release: read `.claude/skills/release/SKILL.md`
   as the procedure of record in every lane, Codex included. It holds the stage
   order, the shared-tree and hygiene checks, and the exact push/tag boundary that
@@ -111,7 +111,7 @@ reporting the fix as working.
 `make test` already runs `check`; run it once, backgrounded or logged, rather
 than as a foreground pipe. For long sessions, compact or hand off at phase
 boundaries and preserve gateway pins, freeze state, and committed versus
-in-flight work. See `docs/guides/agent-session-hygiene.md` for rationale.
+in-flight work. See `.agents/docs/agent-session-hygiene.md` for rationale.
 
 ## Releases and public surfaces
 

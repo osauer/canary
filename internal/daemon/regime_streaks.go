@@ -33,7 +33,7 @@ type StreakEntry struct {
 	// eligibility (depth + persistence + freshness) at some point in its
 	// life. Once latched, eligibility holds until the band exits red even
 	// if the measurement wobbles back inside the minimum depth — the
-	// depth-boundary churn guard from docs/design/regime-calibration.md.
+	// depth-boundary churn guard from internal-docs/design/regime-calibration.md.
 	// Cleared on any band change. Freshness is NOT latched: overdue data
 	// drops eligibility regardless.
 	EligibleLatched bool `json:"eligible_latched,omitempty"`

@@ -18,7 +18,7 @@ broker actually did, and wants the mismatch surfaced rather than smoothed over.
 
 **Draw from**
 
-- `docs/design/post-trade-truth.md`.
+- `internal-docs/design/post-trade-truth.md`.
 - `internal/cli/recon.go`.
 - `docs/docs/understand/policy.md` for the capital-event vocabulary.
 

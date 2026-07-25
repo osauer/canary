@@ -196,6 +196,6 @@
     <text x="1006" y="859" class="format">Cloudflare Durable Object</text>
   </g>
 
-  <text x="1244" y="916" text-anchor="end" class="footnote">deterministic SVG · docs/diagrams/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
+  <text x="1244" y="916" text-anchor="end" class="footnote">deterministic SVG · scripts/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
   
 </svg>

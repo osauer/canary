@@ -1,6 +1,6 @@
 // Package flexstmt parses IBKR Flex query statements into typed records
 // for the post-trade reconciliation engine
-// (docs/design/post-trade-truth.md). Pure parsing: no I/O, no policy, no
+// (internal-docs/design/post-trade-truth.md). Pure parsing: no I/O, no policy, no
 // matching. Statement content is untrusted broker data — everything is
 // extracted through typed attributes, an unknown cash-transaction type
 // lands in Uncategorized rather than being dropped, and nothing in a

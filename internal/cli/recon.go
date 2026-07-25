@@ -12,7 +12,7 @@ import (
 )
 
 // runRecon renders the post-trade reconciliation report
-// (docs/design/post-trade-truth.md): broker statement flows vs. the
+// (internal-docs/design/post-trade-truth.md): broker statement flows vs. the
 // declared capital-event ledger. show is read-only; dismiss is a human-only
 // governance write the daemon refuses from agent origins. The report id
 // printed here is what `ibkr policy capital-event reconcile`

@@ -119,7 +119,7 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 	// red-exit hysteresis), streak tick, cadence freshness, and
 	// eligibility per row. Every downstream consumer — composite,
 	// lifecycle, CLI, canary, SPA — reads the served results
-	// (docs/design/regime-calibration.md).
+	// (internal-docs/design/regime-calibration.md).
 	evaluatedStreaks := s.streaks
 	if s.streaks != nil {
 		evaluatedStreaks = s.streaks.cloneForRegimeEvaluation()

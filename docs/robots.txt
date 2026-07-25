@@ -1,6 +1,5 @@
 User-agent: *
 Allow: /ibkr/
-Disallow: /ibkr/drafts/
 Sitemap: https://osauer.dev/ibkr/sitemap.xml
 LLMs: https://osauer.dev/ibkr/llms.txt
 LLMs: https://osauer.dev/ibkr/llms-full.txt

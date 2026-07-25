@@ -41,7 +41,7 @@ Reports that demonstrate a deviation from those properties — a successful plac
 ### Agent-origin write gating (trading builds)
 
 Builds with the `trading` tag accept broker writes behind a layered gate
-(see `docs/design/agent-origin-gating.md`). Every write request carries an
+(see `internal-docs/design/agent-origin-gating.md`). Every write request carries an
 origin for audit and any origin-specific policy; agent-origin paper and live
 writes use the same structural gates as human writes: a submit-eligible
 preview token per write, pinned gateway/account/mode checked against the

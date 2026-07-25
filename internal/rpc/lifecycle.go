@@ -212,7 +212,7 @@ const (
 // stress lifecycle used by downstream orchestration. It does not look at
 // account, position, margin, or execution state.
 //
-// Confirmation policy (docs/design/regime-calibration.md): only ELIGIBLE
+// Confirmation policy (internal-docs/design/regime-calibration.md): only ELIGIBLE
 // reds — deep, persistent, cadence-fresh evidence per the shared gates —
 // count toward confirmed_stress/panic and confirmed_by. Provisional reds
 // stay visible and land in unconfirmed. They drive early_warning only while

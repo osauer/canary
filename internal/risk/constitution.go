@@ -86,7 +86,7 @@ type ConstitutionOverride struct {
 
 // ConstitutionRecon sets what counts as a reconciliation exception when
 // broker statement flows are matched against the declared capital-event
-// ledger (docs/design/post-trade-truth.md). These are policy, not
+// ledger (internal-docs/design/post-trade-truth.md). These are policy, not
 // plumbing: they decide which differences the operator must look at.
 type ConstitutionRecon struct {
 	// A statement flow and a declared event match on amount when they

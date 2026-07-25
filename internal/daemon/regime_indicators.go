@@ -16,7 +16,7 @@ import (
 // populateStreaks itself is one loop.
 //
 // The confirmation-policy methods (displayBand, depth, fresh, exitHoldsRed)
-// implement docs/design/regime-calibration.md: classification + hysteresis
+// implement internal-docs/design/regime-calibration.md: classification + hysteresis
 // run HERE, once, daemon-side; every downstream consumer reads the served
 // post-hysteresis band and eligibility verdict.
 type streakIndicator interface {

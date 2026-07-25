@@ -12,7 +12,7 @@ import (
 )
 
 // History-index glue: wiring for the derived evidence index
-// (internal/daemon/history, docs/design/history-index.md). The history
+// (internal/daemon/history, internal-docs/design/history-index.md). The history
 // RPC surfaces render journal evidence and must never feed submit
 // eligibility, freeze, or any broker-write path; the phase-2 indexed
 // order reads (order_index_read.go) are read-path substitutions with an

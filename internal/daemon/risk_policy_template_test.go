@@ -14,7 +14,7 @@ import (
 // ships as a file: examples/risk-policy.toml must decode with no unknown
 // keys and pass Constitution validation, mirroring what riskPolicyManager
 // does with a user copy — a template the loader rejects would hand every
-// user who follows docs/design/risk-policy.md a dead policy file.
+// user who follows internal-docs/design/risk-policy.md a dead policy file.
 func TestRiskPolicyTemplateLoads(t *testing.T) {
 	path := filepath.Join("..", "..", "examples", "risk-policy.toml")
 	data, err := os.ReadFile(path)

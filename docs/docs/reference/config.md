@@ -109,7 +109,7 @@ Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/p
 
 ## Runtime platform settings
 
-Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `ibkr settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. Setting a key to `null` clears the runtime override, and every response field carries access/source/reason metadata. `trading.freeze` and trading-limit keys require `ibkr settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. Ownership and semantics: `docs/design/platform-settings.md`.
+Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `ibkr settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. Setting a key to `null` clears the runtime override, and every response field carries access/source/reason metadata. `trading.freeze` and trading-limit keys require `ibkr settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. Ownership and semantics: `internal-docs/design/platform-settings.md`.
 
 | Key | Value | Class | Description |
 |-----|-------|-------|-------------|

@@ -6,7 +6,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/risk"
 )
 
-// Risk-constitution contract (docs/design/risk-policy.md). policy.snapshot
+// Risk-constitution contract (internal-docs/design/risk-policy.md). policy.snapshot
 // is read-only; the four write methods are governance acts, not broker
 // writes — they are human-origin-only (originIsHuman), journaled, and none
 // of them can touch submit eligibility, blockers, freeze, pins, tokens, or
@@ -76,7 +76,7 @@ type CapitalEventParams struct {
 	// Report is required for type reconcile since phase 3a: the recon
 	// report id being signed off. The daemon refuses a reconcile whose
 	// report is missing, stale, superseded, or carries unresolved
-	// exceptions (docs/design/post-trade-truth.md).
+	// exceptions (internal-docs/design/post-trade-truth.md).
 	Report string `json:"report,omitempty"`
 	// Origin is the write-origin claim; the daemon rejects non-human
 	// origins for every risk-policy write.

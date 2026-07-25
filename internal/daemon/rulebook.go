@@ -19,7 +19,7 @@ import (
 	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
 )
 
-// Trading rulebook assembly (docs/design/trading-rulebook.md). The pure
+// Trading rulebook assembly (internal-docs/design/trading-rulebook.md). The pure
 // evaluator lives in internal/risk; this file maps daemon state into
 // risk.RuleInputs, owns the cached evaluation preview causes read, and the
 // rules-decisions journal. Advisory-only end to end: nothing here touches
@@ -1572,7 +1572,7 @@ func errText(err error) string {
 // rulebookPreviewWarnings maps currently breached rules to advisory
 // DataWarnings on an order preview — only when the draft would WORSEN the
 // breached metric. Reduce/close intents never warn; submit eligibility is
-// never touched (advisory-only, docs/design/trading-rulebook.md).
+// never touched (advisory-only, internal-docs/design/trading-rulebook.md).
 func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, position rpc.OrderPositionImpact) []rpc.DataWarning {
 	if res == nil || !res.Enabled {
 		return nil

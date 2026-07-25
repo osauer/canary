@@ -11,7 +11,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// Risk-constitution RPC handlers (docs/design/risk-policy.md). The snapshot
+// Risk-constitution RPC handlers (internal-docs/design/risk-policy.md). The snapshot
 // is read-only and must work without gateway connectivity (persisted last
 // equity serves, disclosed as stale). The write handlers are governance
 // acts: human-origin-only, journaled, and none of them can reach submit
@@ -158,7 +158,7 @@ func (s *Server) handleRiskPolicyCapitalEvent(_ context.Context, req *rpc.Reques
 
 // reconcileReportGate enforces the phase-3a contract: a reconcile is a
 // sign-off against a specific, fresh, fully resolved recon report — never
-// a bare attestation (docs/design/post-trade-truth.md; operator decision
+// a bare attestation (internal-docs/design/post-trade-truth.md; operator decision
 // 2026-07-13, no shadow period). The sanctioned escape during statement
 // outages is a one-shot override on capital.max_unreconciled_days, not a
 // soft mode here.

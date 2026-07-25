@@ -17,9 +17,9 @@ willing to watch a screen to find out.
 
 **Draw from**
 
-- `docs/design/alert-regime-production.md`.
-- `docs/design/notification-tap-landing.md`.
-- `docs/design/risk-governance-nudges.md` for the nudge class.
+- `internal-docs/design/alert-regime-production.md`.
+- `internal-docs/design/notification-tap-landing.md`.
+- `internal-docs/design/risk-governance-nudges.md` for the nudge class.
 - The active alert inbox contract enforced by `make app-active-alert-inbox-check`.
 
 **Boundaries to keep**

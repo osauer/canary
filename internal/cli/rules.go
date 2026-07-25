@@ -11,7 +11,7 @@ import (
 )
 
 // runRules renders the daemon's advisory trading-rulebook checklist
-// (docs/design/trading-rulebook.md). Read-only; verdicts, ranking, and
+// (internal-docs/design/trading-rulebook.md). Read-only; verdicts, ranking, and
 // thresholds all come from the daemon — this renderer adds no policy.
 func runRules(ctx context.Context, env *Env, args []string) int {
 	if slicesContains(args, "history") {

@@ -220,7 +220,7 @@ func (a AutoTrade) ProposalsEnabledResolved() bool {
 }
 
 // Flex configures daily IBKR Flex statement ingestion for post-trade
-// reconciliation (docs/design/post-trade-truth.md). Read-only toward the
+// reconciliation (internal-docs/design/post-trade-truth.md). Read-only toward the
 // broker: statements feed the recon report; nothing here can touch order
 // entry.
 type Flex struct {

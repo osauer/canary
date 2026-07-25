@@ -521,7 +521,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	market, can := composeBriefMarket(now, acct, pos, regime, breadth, gamma, marketEvents,
 		acctErr, posErr, regimeErr, breadthErr, marketEventsErr, sessionOpen)
 	// Brief-hook canary evidence: the same computed result the brief row
-	// rendered, journaled with dedupe (docs/design/history-index.md).
+	// rendered, journaled with dedupe (internal-docs/design/history-index.md).
 	s.journalCanaryDecision(&can)
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
 	portfolio := s.composeBriefPortfolio(acct, pos, acctErr, posErr, sessionOpen)

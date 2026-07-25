@@ -126,7 +126,7 @@ var pages = []pageSpec{
 		NavTitle: "Install and first run",
 		Summary:  "Prerequisites, the four install paths, and the first commands that prove the gateway is reachable.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/start-install.md",
+		Draft:    "internal-docs/drafts/start-install.md",
 	},
 	{
 		Section:  "start",
@@ -134,7 +134,7 @@ var pages = []pageSpec{
 		NavTitle: "Connect an MCP host",
 		Summary:  "Wiring Claude Desktop, Claude Code, Cursor, and Zed to the local server, and checking the connection.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/start-hosts.md",
+		Draft:    "internal-docs/drafts/start-hosts.md",
 	},
 	{
 		Section:  "start",
@@ -142,7 +142,7 @@ var pages = []pageSpec{
 		NavTitle: "Your first session",
 		Summary:  "A guided half hour: read the account, quote a symbol, run a brief, and interpret what comes back.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/start-first-session.md",
+		Draft:    "internal-docs/drafts/start-first-session.md",
 	},
 	{
 		Source:      "docs/docs/start/updating.md",
@@ -159,7 +159,7 @@ var pages = []pageSpec{
 		NavTitle: "Troubleshooting",
 		Summary:  "Gateway not reachable, stale quotes, a daemon that will not start, and the logs that answer each one.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/start-troubleshooting.md",
+		Draft:    "internal-docs/drafts/start-troubleshooting.md",
 	},
 
 	// ---- Operate -----------------------------------------------------------
@@ -169,7 +169,7 @@ var pages = []pageSpec{
 		NavTitle: "The daily desk",
 		Summary:  "A working routine from the morning brief through regime, canary, and rules to the end-of-day read.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/operate-daily-desk.md",
+		Draft:    "internal-docs/drafts/operate-daily-desk.md",
 	},
 	{
 		Source:      "docs/docs/operate/agents.md",
@@ -194,7 +194,7 @@ var pages = []pageSpec{
 		NavTitle: "Alerts and notifications",
 		Summary:  "What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/operate-alerts.md",
+		Draft:    "internal-docs/drafts/operate-alerts.md",
 	},
 	{
 		Source:      "docs/docs/operate/orders.md",
@@ -210,7 +210,7 @@ var pages = []pageSpec{
 		NavTitle: "Protection and emergency exits",
 		Summary:  "Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/operate-protection.md",
+		Draft:    "internal-docs/drafts/operate-protection.md",
 	},
 	{
 		Section:  "operate",
@@ -218,7 +218,7 @@ var pages = []pageSpec{
 		NavTitle: "Reconciliation",
 		Summary:  "Matching broker statement flows against the declared capital ledger, and handling the lines that will not match.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/operate-reconciliation.md",
+		Draft:    "internal-docs/drafts/operate-reconciliation.md",
 	},
 
 	// ---- Understand --------------------------------------------------------
@@ -260,7 +260,7 @@ var pages = []pageSpec{
 		NavTitle: "The rulebook",
 		Summary:  "The fourteen advisory rules, what each one is protecting against, and how a breach is reported.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/understand-rulebook.md",
+		Draft:    "internal-docs/drafts/understand-rulebook.md",
 	},
 	{
 		Section:  "understand",
@@ -268,7 +268,7 @@ var pages = []pageSpec{
 		NavTitle: "Writing a risk policy",
 		Summary:  "Turning a personal risk mandate into the policy file: limits, drawdown ladder, overrides, and review.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/understand-risk-policy.md",
+		Draft:    "internal-docs/drafts/understand-risk-policy.md",
 	},
 	{
 		Section:  "understand",
@@ -276,7 +276,7 @@ var pages = []pageSpec{
 		NavTitle: "Market data and entitlements",
 		Summary:  "Which subscriptions produce real-time data, what delayed and frozen mean, and how freshness is reported.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/understand-market-data.md",
+		Draft:    "internal-docs/drafts/understand-market-data.md",
 	},
 	{
 		Section:  "understand",
@@ -284,7 +284,7 @@ var pages = []pageSpec{
 		NavTitle: "Glossary",
 		Summary:  "One place for the terms the other pages assume: NLV, R-multiple, zero gamma, last-good, fingerprint.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/understand-glossary.md",
+		Draft:    "internal-docs/drafts/understand-glossary.md",
 	},
 
 	// ---- Reference ---------------------------------------------------------
@@ -294,7 +294,7 @@ var pages = []pageSpec{
 		NavTitle: "CLI reference",
 		Summary:  "Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/reference-cli.md",
+		Draft:    "internal-docs/drafts/reference-cli.md",
 	},
 	{
 		Source:      "docs/docs/reference/mcp-tools.md",
@@ -329,7 +329,7 @@ var pages = []pageSpec{
 		NavTitle: "Releases and support",
 		Summary:  "Version scheme, what a release contains, how signatures are verified, and which versions are supported.",
 		Status:   statusPlanned,
-		Draft:    "docs/drafts/reference-releases.md",
+		Draft:    "internal-docs/drafts/reference-releases.md",
 	},
 
 	// ---- Under the hood ----------------------------------------------------
@@ -397,7 +397,7 @@ var pages = []pageSpec{
 		Summary:     "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
 		Description: "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
 		Status:      statusPublished,
-		Legacy:      []string{"docs/design/gamma-zero-cache-persistence.html"},
+		Legacy:      []string{"internal-docs/design/gamma-zero-cache-persistence.html"},
 	},
 	{
 		Source:      "docs/docs/internals/packaging.md",

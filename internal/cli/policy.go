@@ -11,7 +11,7 @@ import (
 )
 
 // runPolicy renders and operates the risk constitution
-// (docs/design/risk-policy.md). show is read-only; the write verbs are
+// (internal-docs/design/risk-policy.md). show is read-only; the write verbs are
 // governance acts (capital events, one-shot overrides, drawdown reset,
 // artefact completions) — the daemon accepts them from human origins only,
 // so agent sessions can read this surface but never operate it. No verb

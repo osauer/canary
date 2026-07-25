@@ -120,7 +120,7 @@ func TestRegimeBacktestSampleProducesMarketMetrics(t *testing.T) {
 	// design: its funding red is eligible but the VIX-term red is day 1
 	// without a deep inversion and the tape (SPY −1.4%, VIX +18%) misses
 	// the co-sign bars — confirmation arrives with persistence or tape
-	// (docs/design/regime-calibration.md, slow-bleed trade-off). The watch
+	// (internal-docs/design/regime-calibration.md, slow-bleed trade-off). The watch
 	// tier still catches it same-day (watch_recall stays 1 below).
 	if got, want := res.Metrics.StressTruePositive, 4; got != want {
 		t.Fatalf("stress_true_positive = %d, want %d", got, want)

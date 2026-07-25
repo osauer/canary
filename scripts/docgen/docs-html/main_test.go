@@ -84,21 +84,21 @@ func TestSitemapMatchesPublishedPages(t *testing.T) {
 // else tracked in the repository becomes a GitHub blob link.
 func TestRewriteDestination(t *testing.T) {
 	renderer := newSiteRenderer(repoRoot(t), map[string]bool{
-		"SECURITY.md":                   true,
-		"docs/docs/reference/config.md": true,
-		"docs/docs/start/updating.md":   true,
-		"docs/diagrams/example.svg":     true,
-		"docs/design/internal-only.md":  true,
+		"SECURITY.md":                           true,
+		"docs/docs/reference/config.md":         true,
+		"docs/docs/start/updating.md":           true,
+		"docs/diagrams/example.svg":             true,
+		"internal-docs/design/internal-only.md": true,
 	})
 	page := pageSpec{Source: "docs/docs/start/updating.md"}
 	cases := map[string]string{
-		"../reference/config.md?view=full#limits": "../reference/config.html?view=full#limits",
-		"../../../SECURITY.md#release-integrity":  "https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity",
-		"../../design/internal-only.md#details":   "https://github.com/osauer/ibkr/blob/main/docs/design/internal-only.md#details",
-		"../../diagrams/example.svg":              "../../diagrams/example.svg",
-		"../../../LOCAL.md":                       "../../../LOCAL.md",
-		"#reference":                              "#reference",
-		"https://example.com/a.md#x":              "https://example.com/a.md#x",
+		"../reference/config.md?view=full#limits":                "../reference/config.html?view=full#limits",
+		"../../../SECURITY.md#release-integrity":                 "https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity",
+		"../../../internal-docs/design/internal-only.md#details": "https://github.com/osauer/ibkr/blob/main/internal-docs/design/internal-only.md#details",
+		"../../diagrams/example.svg":                             "../../diagrams/example.svg",
+		"../../../LOCAL.md":                                      "../../../LOCAL.md",
+		"#reference":                                             "#reference",
+		"https://example.com/a.md#x":                             "https://example.com/a.md#x",
 	}
 	for input, want := range cases {
 		t.Run(input, func(t *testing.T) {

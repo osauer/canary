@@ -248,6 +248,6 @@
     <text x="628" y="796.5" text-anchor="middle" class="strip-node">Canary PWA</text>
   </g>
 
-  <text x="1404" y="806" text-anchor="end" class="footnote">deterministic SVG · docs/diagrams/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
+  <text x="1404" y="806" text-anchor="end" class="footnote">deterministic SVG · scripts/render-architecture.mjs · icons: Tabler 3.45 (MIT)</text>
   
 </svg>

@@ -60,7 +60,7 @@ type RegimeGate struct {
 }
 
 // regimeGates is the per-indicator eligibility policy table from
-// docs/design/regime-calibration.md Part 1.
+// internal-docs/design/regime-calibration.md Part 1.
 var regimeGates = map[string]RegimeGate{
 	// depth = VIX/VIX3M ratio. Inversion is already discrete; fast path on a
 	// deep day-one inversion.

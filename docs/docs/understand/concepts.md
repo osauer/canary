@@ -126,7 +126,7 @@ broader SPX surface remains usable.
 
 Compute timing: the first eligible call without a serveable result kicks a multi-minute background job. During options RTH, later calls keep serving the last-good result and trigger one background refresh after 15 minutes; a successful replacement is promoted atomically. Closed-session automatic refresh is suppressed, and the latest completed-session result remains Regime `not_due` context until the next options open. The cache persists across daemon restarts.
 
-Full methodology at [`docs/specs/risk-regime-dashboard.md`](../internals/regime-dashboard.md). Cache persistence details are in [`docs/design/gamma-zero-cache-persistence.md`](../internals/gamma-cache.md).
+Full methodology at [`docs/specs/risk-regime-dashboard.md`](../internals/regime-dashboard.md). Cache persistence details are in [`internal-docs/design/gamma-zero-cache-persistence.md`](../internals/gamma-cache.md).
 
 ---
 

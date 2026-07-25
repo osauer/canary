@@ -6,7 +6,7 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/ibkr/v2.svg)](https://pkg.go.dev/github.com/osauer/ibkr/v2)
 [![license](https://img.shields.io/github/license/osauer/ibkr)](LICENSE)
 
-**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [MCP resources](docs/docs/reference/mcp-resources.md) · [Configuration](docs/docs/reference/config.md) · [Sensors](docs/docs/understand/sensors.md) · [Rulebook](docs/design/trading-rulebook.md) · [Trading policy](docs/docs/understand/policy.md) · [Storage](docs/docs/internals/storage.md) · [Architecture](docs/docs/internals/architecture.md) · [Platform settings](docs/design/platform-settings.md) · [Agentic use](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
+**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [MCP resources](docs/docs/reference/mcp-resources.md) · [Configuration](docs/docs/reference/config.md) · [Sensors](docs/docs/understand/sensors.md) · [Rulebook](internal-docs/design/trading-rulebook.md) · [Trading policy](docs/docs/understand/policy.md) · [Storage](docs/docs/internals/storage.md) · [Architecture](docs/docs/internals/architecture.md) · [Platform settings](internal-docs/design/platform-settings.md) · [Agentic use](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
 
 **Agentic portfolio analysis and trading-research workflows for IBKR MCP, TWS, and IB Gateway.**
 
@@ -187,7 +187,7 @@ $ ibkr size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 
 For access away from the LAN without router setup, run `ibkr app --remote` to use the Cloudflare Worker relay at `remote.osauer.dev`, then run `ibkr app pair` as usual.
 
-See [web/app/README.md](web/app/README.md) for the short operator notes and [docs/design/mobile-app-mvp.md](docs/design/mobile-app-mvp.md) for the MVP design.
+See [web/app/README.md](web/app/README.md) for the short operator notes and [internal-docs/design/mobile-app-mvp.md](internal-docs/design/mobile-app-mvp.md) for the MVP design.
 
 ### Go and other agent SDKs
 
@@ -244,7 +244,7 @@ port = 7496
 
 Every section and key — `[gateway]`, `[daemon]`, `[trading]`, `[rulebook]`, `[auto_trade]`, `[opportunities]`, `[spx]`, `[scans.<name>]` — is enumerated with types, defaults, and semantics in the generated [configuration reference](docs/docs/reference/config.md), alongside every `IBKR_*` environment variable. `ibkr status` shows what the daemon ended up using and where each value came from (`pinned` or `discovered`).
 
-**Runtime platform preferences** are daemon-owned, live in `$XDG_STATE_HOME/ibkr/daemon.db`, and change without a restart. Feature toggles and rulebook earnings overrides are available through `ibkr settings set`, the SPA Settings tab, or `PATCH /api/settings`; the `trading.freeze` brake and experimental trading-limit overrides require `ibkr settings set` from an interactive human terminal. The writable keys are listed in the [configuration reference](docs/docs/reference/config.md); ownership and semantics live in the [platform-settings design](docs/design/platform-settings.md).
+**Runtime platform preferences** are daemon-owned, live in `$XDG_STATE_HOME/ibkr/daemon.db`, and change without a restart. Feature toggles and rulebook earnings overrides are available through `ibkr settings set`, the SPA Settings tab, or `PATCH /api/settings`; the `trading.freeze` brake and experimental trading-limit overrides require `ibkr settings set` from an interactive human terminal. The writable keys are listed in the [configuration reference](docs/docs/reference/config.md); ownership and semantics live in the [platform-settings design](internal-docs/design/platform-settings.md).
 
 **Trading policies** turn the desk's risk decisions into repeatable checks. The personal risk constitution at `~/.config/ibkr/policies/risk-policy.toml` has no embedded default: missing material decisions remain `unapproved`. Protection proposals (`protection-policy.toml`) and option-exercise opportunities (`opportunity-policy.toml`) do have conservative embedded defaults, printable with `ibkr policy default <protection|opportunity>`. The [trading-policy reference](docs/docs/understand/policy.md) explains who decides, what is advisory today, how controls change, and why local policy records are not broker execution evidence; every editable engine key remains enumerated in the generated [configuration reference](docs/docs/reference/config.md).
 
@@ -254,7 +254,7 @@ References:
 
 - [Configuration reference](docs/docs/reference/config.md) for TOML sections and `IBKR_*` environment variables.
 - [Trading policy](docs/docs/understand/policy.md) for who decides risk boundaries, how ibkr evaluates them, what is advisory today, and which actions still require a human.
-- [Trading Rulebook](docs/design/trading-rulebook.md) for the compiled advisory
+- [Trading Rulebook](internal-docs/design/trading-rulebook.md) for the compiled advisory
   discipline model, its evidence contract, ownership, freshness, and limits.
 - [Storage](docs/docs/internals/storage.md) for how the daemon preserves state and evidence with SQLite, including data relationships, query boundaries, durability, recovery, and current limits.
 - [Sensors](docs/docs/understand/sensors.md) for Gamma, Regime, Canary, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.

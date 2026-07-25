@@ -16,7 +16,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// Runtime capital state for the risk constitution (docs/design/risk-policy.md):
+// Runtime capital state for the risk constitution (internal-docs/design/risk-policy.md):
 // the cash-flow-adjusted equity peak, the drawdown latch, declared capital
 // events, statement-authoritative v3 facts, one-shot overrides, and cadence
 // artefact completions.

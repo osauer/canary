@@ -22,7 +22,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// Daily IBKR Flex statement ingestion (docs/design/post-trade-truth.md).
+// Daily IBKR Flex statement ingestion (internal-docs/design/post-trade-truth.md).
 // Read-only toward the broker. The Flex token is read from its own 0600
 // file at fetch time and must never appear in any error, log line, journal,
 // RPC result, or saved artifact — errors are built from Flex status codes,
