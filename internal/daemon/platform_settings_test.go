@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/osauer/ibkr/v2/internal/config"
+	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
@@ -263,5 +264,130 @@ func TestPlatformSettingsTradingFreezeBlocksWritesAllowsCancels(t *testing.T) {
 	}
 	if !disabled.tradingFrozen() {
 		t.Fatal("freeze did not engage while trading disabled")
+	}
+}
+
+// TestPlatformSettingsStressJournalMigratesStoredCanaryKey pins the upgrade of
+// an installed daemon.db across the canary→stress rename. Runtime preferences
+// live in daemon.db and survive restarts, so a version-1 document that holds
+// canary.journal.enabled=false must keep the journal disabled under the new
+// key, the settings surface must report the stored value rather than the
+// default, and the next write must persist the document in the new spelling.
+func TestPlatformSettingsStressJournalMigratesStoredCanaryKey(t *testing.T) {
+	t.Parallel()
+	core, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatalf("open authority: %v", err)
+	}
+	defer core.Close()
+
+	// Exactly what a pre-rename daemon persisted after `ibkr settings set
+	// canary.journal.enabled=false`.
+	legacy := []byte(`{"version":1,"trading_control_generation":0,` +
+		`"features":{"purge_restore":{},"stock_protection":{},"rulebook":{}},` +
+		`"trading":{},"regime":{"journal":{}},` +
+		`"canary":{"journal":{"enabled":false}},"history":{"rotation":{}}}`)
+	if _, err := core.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{
+		ScopeKey: daemonStateScope, Kind: stateKindPlatformSettings, JSON: legacy,
+	}); err != nil {
+		t.Fatalf("seed version-1 settings document: %v", err)
+	}
+
+	store := &platformSettingsStore{}
+	if err := store.bindCore(t.Context(), core); err != nil {
+		t.Fatalf("bindCore over a version-1 document: %v", err)
+	}
+	data := store.snapshot()
+	if data.Version != platformSettingsDocVersion {
+		t.Fatalf("upgraded version = %d, want %d", data.Version, platformSettingsDocVersion)
+	}
+	if data.Stress.Journal.Enabled == nil || *data.Stress.Journal.Enabled {
+		t.Fatalf("stored canary.journal.enabled=false did not survive as stress: %+v", data.Stress)
+	}
+	if stressJournalEnabledFrom(data) {
+		t.Fatal("stress journal reads enabled after upgrading a document that disabled it")
+	}
+
+	srv := &Server{cfg: &config.Resolved{}, platformSettings: store}
+	if out := srv.platformSettingsSnapshot(nil); out.Stress.Journal.Enabled.Value {
+		t.Fatalf("settings surface = %+v, want the stored false, not the default true", out.Stress.Journal.Enabled)
+	}
+
+	// An unrelated write rewrites the whole document: it must land as version 2
+	// under "stress", drop "canary" entirely, and carry the migrated value.
+	if _, err := srv.handleSettingsUpdate(t.Context(), &rpc.Request{
+		Params: []byte(`{"features":{"rulebook":{"enabled":false}}}`),
+	}); err != nil {
+		t.Fatalf("settings update after upgrade: %v", err)
+	}
+	doc, ok, err := core.GetStateDocument(t.Context(), daemonStateScope, stateKindPlatformSettings)
+	if err != nil || !ok {
+		t.Fatalf("read persisted settings document: ok=%v err=%v", ok, err)
+	}
+	var persisted map[string]json.RawMessage
+	if err := json.Unmarshal(doc.JSON, &persisted); err != nil {
+		t.Fatalf("decode persisted settings document: %v", err)
+	}
+	if _, stale := persisted["canary"]; stale {
+		t.Fatalf("rewritten document still carries the canary key: %s", doc.JSON)
+	}
+	if string(persisted["version"]) != "2" {
+		t.Fatalf("persisted version = %s, want 2", persisted["version"])
+	}
+	if got := string(persisted["stress"]); got != `{"journal":{"enabled":false}}` {
+		t.Fatalf("persisted stress = %s, want the migrated false", got)
+	}
+
+	// A restart over the rewritten document reads the same value back.
+	reopened := &platformSettingsStore{}
+	if err := reopened.bindCore(t.Context(), core); err != nil {
+		t.Fatalf("bindCore over the rewritten document: %v", err)
+	}
+	if stressJournalEnabledFrom(reopened.snapshot()) {
+		t.Fatal("stress journal reads enabled after restarting over the rewritten document")
+	}
+}
+
+// TestPlatformSettingsDocumentUpgradeRules pins the decode contract itself: an
+// unversioned document is read with the version-1 spelling, a version-2
+// document is taken as-is, and an unknown version is refused rather than
+// silently reset to defaults.
+func TestPlatformSettingsDocumentUpgradeRules(t *testing.T) {
+	t.Parallel()
+	disabled := false
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		want    *bool
+		wantErr string
+	}{
+		{name: "unversioned legacy document", raw: `{"canary":{"journal":{"enabled":false}}}`, want: &disabled},
+		{name: "version 1 canary", raw: `{"version":1,"canary":{"journal":{"enabled":false}}}`, want: &disabled},
+		{name: "version 1 without a preference", raw: `{"version":1}`},
+		{name: "version 2 stress", raw: `{"version":2,"stress":{"journal":{"enabled":false}}}`, want: &disabled},
+		{name: "version 2 ignores a stale canary key", raw: `{"version":2,"canary":{"journal":{"enabled":false}}}`},
+		{name: "unknown version", raw: `{"version":3}`, wantErr: "unsupported version 3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := decodePlatformSettings([]byte(tc.raw))
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("decode error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if data.Version != platformSettingsDocVersion {
+				t.Fatalf("version = %d, want %d", data.Version, platformSettingsDocVersion)
+			}
+			switch got := data.Stress.Journal.Enabled; {
+			case tc.want == nil && got != nil:
+				t.Fatalf("stress.journal.enabled = %v, want unset", *got)
+			case tc.want != nil && (got == nil || *got != *tc.want):
+				t.Fatalf("stress.journal.enabled = %v, want %v", got, *tc.want)
+			}
+		})
 	}
 }

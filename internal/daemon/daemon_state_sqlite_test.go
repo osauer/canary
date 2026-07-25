@@ -233,7 +233,7 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 	notional := 123456.78
 	keepMonths := 7
 	settings := platformSettingsData{
-		Version: 1, TradingControlGeneration: 1,
+		Version: platformSettingsDocVersion, TradingControlGeneration: 1,
 		Features: platformFeatureSettingsData{
 			PurgeRestore:    platformPurgeRestoreSettingsData{Enabled: &flag},
 			StockProtection: platformStockProtectionSettingsData{Enabled: &flag},
@@ -246,7 +246,7 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 			AllowOptionSellToOpen: &flag, Freeze: &flag,
 		},
 		Regime:  platformRegimeSettingsData{Journal: platformRegimeJournalSettingsData{Enabled: &flag}},
-		Canary:  platformCanarySettingsData{Journal: platformCanaryJournalSettingsData{Enabled: &flag}},
+		Stress:  platformStressSettingsData{Journal: platformStressJournalSettingsData{Enabled: &flag}},
 		History: platformHistorySettingsData{Rotation: platformHistoryRotationSettingsData{Enabled: &flag, KeepRawMonths: &keepMonths}},
 	}
 	capital := riskCapitalStateFileV1{
@@ -305,7 +305,15 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 	capitalPath, _ := defaultTradingStatePath(riskCapitalStateFile)
 	nudgePath, _ := defaultTradingStatePath(governanceNudgeStateFile)
 	stagePath, _ := defaultTradingStatePath(rulesRegimeStageFile)
-	writeJSONFixture(t, settingsPath, settings)
+	// The legacy file predates the canary→stress rename, so it is written in the
+	// version-1 shape and the import must land its journal preference in Stress.
+	legacy := platformSettingsDocument{
+		platformSettingsData: settings,
+		LegacyCanary:         &platformStressSettingsData{Journal: platformStressJournalSettingsData{Enabled: &flag}},
+	}
+	legacy.Version = platformSettingsDocVersionCanary
+	legacy.Stress = platformStressSettingsData{}
+	writeJSONFixture(t, settingsPath, legacy)
 	writeJSONFixture(t, capitalPath, capital)
 	writeJSONFixture(t, nudgePath, nudges)
 	writeJSONFixture(t, stagePath, stage)

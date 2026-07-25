@@ -123,7 +123,7 @@ Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and chang
 | `trading.limits.allow_stock_short` | `true/false/null` | trading-limit | Runtime override of [trading].allow_stock_short; null falls back to the TOML value. |
 | `trading.limits.allow_option_sell_to_open` | `true/false/null` | trading-limit | Runtime override of [trading].allow_option_sell_to_open; null falls back to the TOML value. |
 | `regime.journal.enabled` | `true/false/null` | runtime | Turns forward regime decision-event collection in daemon.db on (default true). |
-| `canary.journal.enabled` | `true/false/null` | runtime | Turns forward canary decision-event collection in daemon.db on, mirroring regime.journal.enabled (default true). |
+| `stress.journal.enabled` | `true/false/null` | runtime | Turns forward portfolio-stress decision-event collection in daemon.db on, mirroring regime.journal.enabled (default true). |
 
 ## Environment variables
 

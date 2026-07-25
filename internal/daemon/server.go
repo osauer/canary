@@ -804,7 +804,7 @@ func (s *Server) installPlatformSettingsStore() {
 	// legacy path for the explicit cutover only; never read it here. The Start
 	// winner imports it into an unpublished daemon.db, then bindCore publishes
 	// the authoritative value.
-	s.platformSettings = &platformSettingsStore{path: path, data: platformSettingsData{Version: 1}}
+	s.platformSettings = &platformSettingsStore{path: path, data: platformSettingsData{Version: platformSettingsDocVersion}}
 }
 
 func (s *Server) installRegimeSeriesCache() {

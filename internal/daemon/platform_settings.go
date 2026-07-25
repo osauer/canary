@@ -28,14 +28,69 @@ type platformSettingsStore struct {
 	data     platformSettingsData
 }
 
+// Persisted shape versions of the platform-settings state document. Version 1
+// spelled the portfolio-stress journal preference "canary"; version 2 spells it
+// "stress". Runtime preferences live in daemon.db and change without a restart,
+// so an installed daemon.db still holds a version-1 document: every decode goes
+// through platformSettingsDocument.upgrade, which carries the stored value into
+// the new spelling, and the next settings write persists it as version 2.
+const (
+	platformSettingsDocVersion       = 2
+	platformSettingsDocVersionCanary = 1
+)
+
 type platformSettingsData struct {
 	Version                  int                         `json:"version"`
 	TradingControlGeneration uint64                      `json:"trading_control_generation"`
 	Features                 platformFeatureSettingsData `json:"features"`
 	Trading                  platformTradingSettingsData `json:"trading"`
 	Regime                   platformRegimeSettingsData  `json:"regime"`
-	Canary                   platformCanarySettingsData  `json:"canary"`
+	Stress                   platformStressSettingsData  `json:"stress"`
 	History                  platformHistorySettingsData `json:"history"`
+}
+
+// platformSettingsDocument is the decode shape of a persisted settings
+// document: the current fields plus version 1's "canary" spelling of Stress.
+// The legacy field lives here rather than on platformSettingsData so the stored
+// shape never carries a transitional field — and so the strict cutover decoder
+// still accepts a pre-rename file instead of rejecting "canary" as unknown.
+type platformSettingsDocument struct {
+	platformSettingsData
+	LegacyCanary *platformStressSettingsData `json:"canary,omitempty"`
+}
+
+// upgrade returns the runtime value for a decoded document. A document with no
+// version at all predates versioning and is read as version 1, whose authority
+// for the portfolio-stress journal preference is its "canary" object: that
+// value is carried over verbatim, so an operator who disabled the journal
+// before the rename stays disabled after it. An unknown version is refused
+// rather than guessed.
+func (d platformSettingsDocument) upgrade() (platformSettingsData, error) {
+	data := d.platformSettingsData
+	if data.Version == 0 {
+		data.Version = platformSettingsDocVersionCanary
+	}
+	switch data.Version {
+	case platformSettingsDocVersionCanary:
+		if d.LegacyCanary != nil {
+			data.Stress = *d.LegacyCanary
+		}
+		data.Version = platformSettingsDocVersion
+	case platformSettingsDocVersion:
+	default:
+		return platformSettingsData{}, fmt.Errorf("unsupported version %d", data.Version)
+	}
+	return data, nil
+}
+
+// decodePlatformSettings decodes one persisted settings document and upgrades
+// it to the current version.
+func decodePlatformSettings(raw []byte) (platformSettingsData, error) {
+	var doc platformSettingsDocument
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return platformSettingsData{}, err
+	}
+	return doc.upgrade()
 }
 
 type platformSettingsUpdateEventV1 struct {
@@ -57,11 +112,11 @@ type platformRegimeJournalSettingsData struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
-type platformCanarySettingsData struct {
-	Journal platformCanaryJournalSettingsData `json:"journal"`
+type platformStressSettingsData struct {
+	Journal platformStressJournalSettingsData `json:"journal"`
 }
 
-type platformCanaryJournalSettingsData struct {
+type platformStressJournalSettingsData struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
@@ -132,22 +187,17 @@ func (s *platformSettingsStore) bindCore(ctx context.Context, core *corestore.St
 	if err != nil {
 		return fmt.Errorf("load platform settings from SQLite: %w", err)
 	}
-	data := platformSettingsData{Version: 1}
-	revision := int64(0)
-	if ok {
-		if err := json.Unmarshal(doc.JSON, &data); err != nil {
-			return fmt.Errorf("decode platform settings from SQLite: %w", err)
-		}
-		if data.Version == 0 {
-			data.Version = 1
-		}
-		if data.Version != 1 {
-			return fmt.Errorf("decode platform settings from SQLite: unsupported version %d", data.Version)
-		}
-		revision = doc.Revision
-	} else {
+	if !ok {
 		return fmt.Errorf("platform settings are missing from SQLite; cutover bootstrap was not completed")
 	}
+	// A stored version-1 document is upgraded in memory here and rewritten in the
+	// new shape by the next settings write; the daemon reports the operator's
+	// stored preference from the first read either way.
+	data, err := decodePlatformSettings(doc.JSON)
+	if err != nil {
+		return fmt.Errorf("decode platform settings from SQLite: %w", err)
+	}
+	revision := doc.Revision
 	s.mu.Lock()
 	s.core = core
 	s.revision = revision
@@ -157,26 +207,25 @@ func (s *platformSettingsStore) bindCore(ctx context.Context, core *corestore.St
 }
 
 func (s *platformSettingsStore) load() error {
-	data, err := os.ReadFile(s.path)
+	raw, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			s.data.Version = 1
+			s.data.Version = platformSettingsDocVersion
 			return nil
 		}
 		return fmt.Errorf("read platform settings: %w", err)
 	}
-	if err := json.Unmarshal(data, &s.data); err != nil {
+	data, err := decodePlatformSettings(raw)
+	if err != nil {
 		return fmt.Errorf("decode platform settings: %w", err)
 	}
-	if s.data.Version == 0 {
-		s.data.Version = 1
-	}
+	s.data = data
 	return nil
 }
 
 func (s *platformSettingsStore) snapshot() platformSettingsData {
 	if s == nil {
-		return platformSettingsData{Version: 1}
+		return platformSettingsData{Version: platformSettingsDocVersion}
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -262,7 +311,7 @@ func (s *platformSettingsStore) update(fn func(*platformSettingsData) error) err
 	defer s.mu.Unlock()
 	next := s.data
 	if next.Version == 0 {
-		next.Version = 1
+		next.Version = platformSettingsDocVersion
 	}
 	if err := fn(&next); err != nil {
 		return err
@@ -299,7 +348,7 @@ func (s *platformSettingsStore) updateWithAudit(ctx context.Context, at time.Tim
 	defer s.mu.Unlock()
 	next := s.data
 	if next.Version == 0 {
-		next.Version = 1
+		next.Version = platformSettingsDocVersion
 	}
 	if err := fn(&next); err != nil {
 		return err
@@ -409,8 +458,8 @@ func canonicalPlatformSettingValue(data platformSettingsData, key string) (json.
 		value = data.Trading.AllowOptionSellToOpen
 	case "regime.journal.enabled":
 		value = data.Regime.Journal.Enabled
-	case "canary.journal.enabled":
-		value = data.Canary.Journal.Enabled
+	case "stress.journal.enabled":
+		value = data.Stress.Journal.Enabled
 	default:
 		return nil, errBadRequest("unknown settings field " + key)
 	}
@@ -649,8 +698,8 @@ func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessag
 		return boolField(&next.Trading.AllowOptionSellToOpen)
 	case "regime.journal.enabled":
 		return boolField(&next.Regime.Journal.Enabled)
-	case "canary.journal.enabled":
-		return boolField(&next.Canary.Journal.Enabled)
+	case "stress.journal.enabled":
+		return boolField(&next.Stress.Journal.Enabled)
 	default:
 		return errBadRequest("unknown settings field " + key)
 	}
@@ -813,9 +862,9 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 				Enabled: settingsBool(regimeJournalEnabledFrom(data), rpc.SettingsAccessWrite, rpc.SettingsSourceRuntime, "forward regime decision-event collection in daemon.db (calibration corpus); safe to disable"),
 			},
 		},
-		Canary: rpc.PlatformCanarySettings{
-			Journal: rpc.CanaryJournalSettings{
-				Enabled: settingsBool(canaryJournalEnabledFrom(data), rpc.SettingsAccessWrite, rpc.SettingsSourceRuntime, "forward canary decision-event collection in daemon.db (calibration corpus); safe to disable"),
+		Stress: rpc.PlatformStressSettings{
+			Journal: rpc.StressJournalSettings{
+				Enabled: settingsBool(stressJournalEnabledFrom(data), rpc.SettingsAccessWrite, rpc.SettingsSourceRuntime, "forward portfolio-stress decision-event collection in daemon.db (calibration corpus); safe to disable"),
 			},
 		},
 		History: rpc.PlatformHistorySettings{
@@ -846,11 +895,11 @@ func regimeJournalEnabledFrom(data platformSettingsData) bool {
 	return *data.Regime.Journal.Enabled
 }
 
-func canaryJournalEnabledFrom(data platformSettingsData) bool {
-	if data.Canary.Journal.Enabled == nil {
+func stressJournalEnabledFrom(data platformSettingsData) bool {
+	if data.Stress.Journal.Enabled == nil {
 		return true
 	}
-	return *data.Canary.Journal.Enabled
+	return *data.Stress.Journal.Enabled
 }
 
 // historyRotationSettings is retained only for the disconnected legacy

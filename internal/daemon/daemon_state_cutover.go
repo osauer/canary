@@ -59,7 +59,7 @@ func initializeFreshDaemonState(ctx context.Context, core *corestore.Store) erro
 		kind  string
 		value any
 	}{
-		{stateKindPlatformSettings, platformSettingsData{Version: 1}},
+		{stateKindPlatformSettings, platformSettingsData{Version: platformSettingsDocVersion}},
 		{stateKindRiskCapital, riskCapitalSQLiteDocument{
 			Version: riskCapitalSQLiteDocVer,
 			State:   riskCapitalStateFileV1{Version: riskCapitalStateVer},
@@ -158,19 +158,24 @@ func importPlatformSettingsState(ctx context.Context, core *corestore.Store, sou
 	if _, ok, err := core.GetStateDocument(ctx, daemonStateScope, stateKindPlatformSettings); err != nil || ok {
 		return false, err
 	}
-	state := platformSettingsData{Version: 1}
+	// The legacy file predates the settings-document version stamp, so it is read
+	// as version 1 unless it says otherwise, and it spelled the portfolio-stress
+	// journal preference "canary". Upgrading carries that stored value into the
+	// imported document instead of resetting it to the default at cutover.
+	doc := platformSettingsDocument{
+		platformSettingsData: platformSettingsData{Version: platformSettingsDocVersionCanary},
+	}
 	path, err := defaultPlatformSettingsPath()
 	if err != nil {
 		return false, err
 	}
-	if found, err := readOptionalJSON("platform_settings", path, &state, sources); err != nil {
+	if _, err := readOptionalJSON("platform_settings", path, &doc, sources); err != nil {
 		return false, fmt.Errorf("import platform settings: %w", err)
-	} else if found && state.Version == 0 {
-		state.Version = 1
 	}
-	if state.Version != 1 {
-		markLastCutoverSourceInvalid(sources, fmt.Errorf("unsupported version %d", state.Version))
-		return false, fmt.Errorf("import platform settings: unsupported version %d", state.Version)
+	state, err := doc.upgrade()
+	if err != nil {
+		markLastCutoverSourceInvalid(sources, err)
+		return false, fmt.Errorf("import platform settings: %w", err)
 	}
 	// Legacy settings predate the durable control generation. A carried freeze
 	// or limit is already material authority at cutover, so seed generation one

@@ -111,7 +111,7 @@ func TestCanaryJournalDedupeHeartbeatAndGate(t *testing.T) {
 	// installed store through its own lock (the maintenance loop reads it).
 	if err := s.platformSettings.update(func(next *platformSettingsData) error {
 		disabled := false
-		next.Canary.Journal.Enabled = &disabled
+		next.Stress.Journal.Enabled = &disabled
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -274,17 +274,17 @@ func TestSQLiteOrderJournalRoundTrip(t *testing.T) {
 // controls are no longer writable or active while their response shape stays
 // present as an explicit read-only compatibility disclosure.
 func TestHistoryRotationSettingsRetired(t *testing.T) {
-	next := &platformSettingsData{Version: 1}
+	next := &platformSettingsData{Version: platformSettingsDocVersion}
 	for _, key := range []string{"history.rotation.enabled", "history.rotation.keep_raw_months"} {
 		if err := applySettingsKey(next, key, json.RawMessage(`true`)); err == nil {
 			t.Fatalf("retired key %q remained writable", key)
 		}
 	}
-	if err := applySettingsKey(next, "canary.journal.enabled", json.RawMessage(`false`)); err != nil {
+	if err := applySettingsKey(next, "stress.journal.enabled", json.RawMessage(`false`)); err != nil {
 		t.Fatal(err)
 	}
-	if next.Canary.Journal.Enabled == nil || *next.Canary.Journal.Enabled {
-		t.Fatal("canary.journal.enabled=false did not apply")
+	if next.Stress.Journal.Enabled == nil || *next.Stress.Journal.Enabled {
+		t.Fatal("stress.journal.enabled=false did not apply")
 	}
 
 	s := newHistoryIndexServer(t)
@@ -292,8 +292,8 @@ func TestHistoryRotationSettingsRetired(t *testing.T) {
 	if out.History.Rotation.Enabled.Value || out.History.Rotation.Enabled.Access != rpc.SettingsAccessRead || out.History.Rotation.KeepRawMonths.Value != 0 {
 		t.Fatalf("retired history settings = %+v", out.History)
 	}
-	if !out.Canary.Journal.Enabled.Value {
-		t.Fatalf("default canary settings = %+v", out.Canary)
+	if !out.Stress.Journal.Enabled.Value {
+		t.Fatalf("default stress settings = %+v", out.Stress)
 	}
 	if s.historyMaintenancePass(context.Background()) {
 		t.Fatal("retired history maintenance pass ran")

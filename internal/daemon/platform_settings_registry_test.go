@@ -60,7 +60,7 @@ func TestSettingsRegistryParity(t *testing.T) {
 				if !ok || len(flat) != 1 {
 					t.Fatalf("%s flatten = %v, want exactly %q", name, flat, spec.Key)
 				}
-				next := &platformSettingsData{Version: 1}
+				next := &platformSettingsData{Version: platformSettingsDocVersion}
 				if err := applySettingsKey(next, spec.Key, raw); err != nil {
 					t.Fatalf("%s apply: %v", name, err)
 				}

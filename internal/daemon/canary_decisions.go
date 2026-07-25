@@ -95,7 +95,7 @@ func (s *Server) installCanaryDecisionJournal() {
 // journalCanaryDecision appends the canary snapshot when its semantic
 // fingerprint changed or the heartbeat interval elapsed. Failures degrade
 // to warnings — journaling must never fail a snapshot or brief. Disabled
-// via `ibkr settings set canary.journal.enabled=false`. Always ends with
+// via `ibkr settings set stress.journal.enabled=false`. Always ends with
 // the data-free history-index kick.
 func (s *Server) journalCanaryDecision(res *rpc.StressResult) {
 	if s == nil || res == nil {
@@ -125,10 +125,10 @@ func (s *Server) canaryJournalEnabled() bool {
 		return true
 	}
 	data := s.platformSettings.snapshot()
-	if data.Canary.Journal.Enabled == nil {
+	if data.Stress.Journal.Enabled == nil {
 		return true
 	}
-	return *data.Canary.Journal.Enabled
+	return *data.Stress.Journal.Enabled
 }
 
 // append journals one deduped canary decision. The mutex is held across

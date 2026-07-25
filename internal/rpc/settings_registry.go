@@ -93,8 +93,8 @@ func SettingsKeys() []SettingsKeySpec {
 			Doc: "Turns forward regime decision-event collection in daemon.db on (default true).",
 		},
 		{
-			Key: "canary.journal.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
-			Doc: "Turns forward canary decision-event collection in daemon.db on, mirroring regime.journal.enabled (default true).",
+			Key: "stress.journal.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
+			Doc: "Turns forward portfolio-stress decision-event collection in daemon.db on, mirroring regime.journal.enabled (default true).",
 		},
 	}
 }

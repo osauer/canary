@@ -604,7 +604,7 @@ func TestRegimeDecisionDisabledDispositionSurvivesSettingChange(t *testing.T) {
 	enabled := true
 	server := &Server{
 		coreStore: store, logger: NewLogger(&bytes.Buffer{}, "error"),
-		platformSettings: &platformSettingsStore{data: platformSettingsData{Version: 1, Regime: platformRegimeSettingsData{
+		platformSettings: &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Regime: platformRegimeSettingsData{
 			Journal: platformRegimeJournalSettingsData{Enabled: &disabled},
 		}}},
 	}

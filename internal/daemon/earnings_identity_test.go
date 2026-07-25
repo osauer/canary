@@ -598,7 +598,7 @@ func TestAssembleEarningsBrokerNonIssuerAndOverrideConflict(t *testing.T) {
 		t.Fatal("stock identity proof exempted a mixed stock-and-option group")
 	}
 
-	srv.platformSettings = &platformSettingsStore{data: platformSettingsData{Version: 1, Features: platformFeatureSettingsData{
+	srv.platformSettings = &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Features: platformFeatureSettingsData{
 		Rulebook: platformRulebookSettingsData{EarningsOverrides: map[string]string{"SYNTH1": "2026-08-15"}},
 	}}}
 	earnings, infos = srv.assembleEarnings(t.Context(), []risk.NameInput{name}, risk.DefaultRulebookPolicy(), marketcal.New(), now, false)

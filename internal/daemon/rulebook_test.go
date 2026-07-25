@@ -258,7 +258,7 @@ func TestAssembleEarningsTerminalConflictsFailClosed(t *testing.T) {
 	t.Run("operator override publishes date", func(t *testing.T) {
 		srv := &Server{
 			earningsTerminal: terminal,
-			platformSettings: &platformSettingsStore{data: platformSettingsData{Version: 1, Features: platformFeatureSettingsData{
+			platformSettings: &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Features: platformFeatureSettingsData{
 				Rulebook: platformRulebookSettingsData{EarningsOverrides: map[string]string{"ACMEQ": "2026-08-01"}},
 			}}},
 		}
@@ -1285,7 +1285,7 @@ func TestRulebookSettingsPatch(t *testing.T) {
 		}
 		return nil
 	}
-	next := &platformSettingsData{Version: 1}
+	next := &platformSettingsData{Version: platformSettingsDocVersion}
 	patch := json.RawMessage(`{"rulebook":{"enabled":false,"earnings_overrides":{"now":"2026-07-22Tamc","BB":null}}}`)
 	if err := applyFeatureSettingsPatch(next, patch); err != nil {
 		t.Fatalf("patch: %v", err)

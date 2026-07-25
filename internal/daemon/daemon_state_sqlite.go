@@ -72,7 +72,7 @@ func (s *Server) bindAuthoritativeDaemonState(ctx context.Context, core *coresto
 	}
 	s.coreStore = core
 	if s.platformSettings == nil {
-		s.platformSettings = &platformSettingsStore{data: platformSettingsData{Version: 1}}
+		s.platformSettings = &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion}}
 	}
 	if err := s.platformSettings.bindCore(ctx, core); err != nil {
 		return err

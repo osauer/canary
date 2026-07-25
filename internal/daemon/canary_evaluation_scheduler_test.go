@@ -14,8 +14,8 @@ func TestCanaryEvaluationStartsImmediatelyWhenJournalDisabled(t *testing.T) {
 	disabled := false
 	server := &Server{
 		platformSettings: &platformSettingsStore{data: platformSettingsData{
-			Version: 1,
-			Canary: platformCanarySettingsData{Journal: platformCanaryJournalSettingsData{
+			Version: platformSettingsDocVersion,
+			Stress: platformStressSettingsData{Journal: platformStressJournalSettingsData{
 				Enabled: &disabled,
 			}},
 		}},

@@ -55,7 +55,7 @@ type PlatformSettings struct {
 	Trading    PlatformTradingSettings   `json:"trading"`
 	AutoTrade  PlatformAutoTradeSettings `json:"auto_trade"`
 	Regime     PlatformRegimeSettings    `json:"regime"`
-	Canary     PlatformCanarySettings    `json:"canary"`
+	Stress     PlatformStressSettings    `json:"stress"`
 	History    PlatformHistorySettings   `json:"history"`
 	MarketData PlatformMarketDataSetting `json:"market_data"`
 	Build      PlatformBuildSettings     `json:"build"`
@@ -77,16 +77,15 @@ type RegimeJournalSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 }
 
-// PlatformCanarySettings holds the canary evidence-collection runtime
-// preference (internal-docs/design/history-index.md).
-type PlatformCanarySettings struct {
-	Journal CanaryJournalSettings `json:"journal"`
+// PlatformStressSettings holds the portfolio-stress evidence-collection
+// runtime preference (internal-docs/design/history-index.md).
+type PlatformStressSettings struct {
+	Journal StressJournalSettings `json:"journal"`
 }
 
-// CanaryJournalSettings retains its public name while controlling typed
-// canary-decision event collection in daemon.db, mirroring
-// RegimeJournalSettings.
-type CanaryJournalSettings struct {
+// StressJournalSettings controls typed stress-decision event collection in
+// daemon.db, mirroring RegimeJournalSettings.
+type StressJournalSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 }
 
