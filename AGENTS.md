@@ -2,7 +2,7 @@
 
 ## Start with authority
 
-Read `docs/docs/internals/architecture.md` in a fresh session. Read
+Read `docs/docs/internals/architecture.md` before daemon, risk, or rpc work. Read
 `internal-docs/design/platform-settings.md` before changing settings, config, or state.
 For broader risk-harness work, use
 `internal-docs/guides/trading-harness-development.md`.
@@ -17,8 +17,9 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   edit unless the request also asks for a change.
 - For change, build, or fix requests, make the in-scope local changes and run
   the relevant non-destructive checks without asking first.
-- Delegate bounded, independent exploration and review to read-only subagents;
-  judgment, design, diff review, and integration stay in the main session.
+- When the harness allows subagents, delegate only bounded, independent
+  exploration and review to them; judgment, design, diff review, and
+  integration stay in the main session.
 - The Makefile is the target inventory. Run `make help` before using an
   unfamiliar target.
 
@@ -91,7 +92,8 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
 
 For instructions, docs, or config-only changes, run the targeted check plus
 `make check`. For Go or runtime behavior, `make test` is binding and already
-includes `check`. `make smoke-fast` is the default live-gateway gate; full
+includes `check`; run it once, backgrounded or logged, rather than as a
+foreground pipe. `make smoke-fast` is the default live-gateway gate; full
 `make smoke` is required for daemon, CLI, or wire-path changes and for releases.
 Gateway tests serialize through `scripts/with-gateway-lock.sh`; a busy gateway
 is a wait, not a flake. Report skips and first failures explicitly.
@@ -101,17 +103,16 @@ After daemon or CLI edits, orchestrating sessions on the primary tree run
 plus a command exercising the change. Do not use `pkill` for normal restarts.
 `make smoke` uses an isolated daemon and does not refresh the installed one.
 
-UI, preview, and paired-device claims are proven on the user's actual
-surface — their preview panel, the paired PWA on the physical device — never
-only on Claude's own in-app Browser tab or a desktop lookalike (a desktop
-browser is not the iPhone TWA). If only an internal surface was exercised,
-say so explicitly and name exactly what the user should check, instead of
-reporting the fix as working.
+Verify UI changes yourself rather than asking the user to look; the in-app
+Browser is adequate proof for SPA rendering and behavior. It is not proof for
+pairing, installability, viewport, or anything else specific to the paired PWA
+on the physical device — a desktop browser is not the iPhone TWA. When only an
+internal surface was exercised, say so and name exactly what the user should
+check, instead of reporting the fix as working.
 
-`make test` already runs `check`; run it once, backgrounded or logged, rather
-than as a foreground pipe. For long sessions, compact or hand off at phase
-boundaries and preserve gateway pins, freeze state, and committed versus
-in-flight work. See `.agents/docs/agent-session-hygiene.md` for rationale.
+For long sessions, compact or hand off at phase boundaries and preserve gateway
+pins, freeze state, and committed versus in-flight work. See
+`.agents/docs/agent-session-hygiene.md` for rationale.
 
 ## Releases and public surfaces
 
