@@ -1,0 +1,278 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The rulebook | ibkr</title>
+  <meta name="description" content="What each of the fourteen advisory rulebook checks protects against, why a rule that cannot get clean data never passes, and why a clean run is not permission to trade.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/rulebook.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What each of the fourteen advisory rulebook checks protects against, why a rule that cannot get clean data never passes, and why a clean run is not permission to trade.","headline":"The rulebook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/rulebook.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="docpage layout-architecture">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Understand</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><a href="../start/install.html">Install and first run</a></li>
+                <li><a href="../start/hosts.html">Connect an MCP host</a></li>
+                <li><a href="../start/first-session.html">Your first session</a></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><a href="../start/troubleshooting.html">Troubleshooting</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><a href="../operate/daily-desk.html">The daily desk</a></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><a href="../operate/alerts.html">Alerts and notifications</a></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><a href="../operate/protection.html">Protection and emergency exits</a></li>
+                <li><a href="../operate/reconciliation.html">Reconciliation</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="concepts.html">Concepts</a></li>
+                <li><a href="sensors.html">Sensors</a></li>
+                <li><a href="policy.html">Trading policy</a></li>
+                <li><a href="rulebook.html" class="is-current" aria-current="page">The rulebook</a></li>
+                <li><a href="risk-policy.html">Writing a risk policy</a></li>
+                <li><a href="market-data.html">Market data and entitlements</a></li>
+                <li><a href="glossary.html">Glossary</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="the-rulebook">The rulebook</h1>
+<p><code>ibkr rules</code> evaluates fourteen discipline checks against the book you are
+holding and reports which are breached. Nothing it produces reaches the
+broker.</p>
+<p>The <a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>
+design document is the semantic authority for every threshold and edge case,
+and stays in the repository. <a href="sensors.html#rulebook">Sensors</a> covers the same
+component as a measurement: authority, freshness, and evidence reuse.</p>
+<nav class="toc" aria-label="On this page">
+<span class="toc-label">On this page</span>
+<ul>
+<li><a href="#the-fourteen-rules"><span class="n">01</span>The fourteen rules</a></li>
+<li><a href="#advisory-by-construction"><span class="n">02</span>Advisory by construction</a></li>
+<li><a href="#a-rule-that-cannot-see-does-not-pass"><span class="n">03</span>A rule that cannot see does not pass</a></li>
+<li><a href="#hardest-breach-first"><span class="n">04</span>Hardest breach first</a></li>
+<li><a href="#what-a-clean-run-means"><span class="n">05</span>What a clean run means</a></li>
+<li><a href="#what-history-is-kept"><span class="n">06</span>What history is kept</a></li>
+</ul>
+</nav>
+<h2 id="the-fourteen-rules"><span class="secno" aria-hidden="true">01</span>The fourteen rules</h2>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Rule</th>
+<th>What it is protecting against</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Per-name exposure cap</td>
+<td>One name growing large enough to decide the account's outcome by itself.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Single option line premium</td>
+<td>One line holding so much premium that a volatility crush becomes a portfolio event. Hedge lines get their own higher tier.</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Negative cash sell-only posture</td>
+<td>Adding risk on borrowed cash, where margin interest is negative carry on top of the position risk.</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Portfolio extrinsic budget</td>
+<td>Paying decay on too much of the book at once. Classified hedge legs are excluded; rules 2 and 12 govern those.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Expiry runway</td>
+<td>Long options carried into the final-week decay cliff. Deep in-the-money legs are exempt, disclosed per row.</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Option outlives its catalyst</td>
+<td>An out-of-the-money long that expires before the earnings gap it was bought for.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Overwrite spans earnings</td>
+<td>A short option alive through an earnings print: capped upside or forced assignment through the exact event that pays.</td>
+</tr>
+<tr>
+<td>8</td>
+<td>At size before earnings</td>
+<td>Carrying an oversized name into an earnings print instead of trimming to what you would buy fresh today.</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Relative weakness on a green tape</td>
+<td>Missing that the market is naming your exits, when a held name is red while the tape is green.</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Trim winners into strength</td>
+<td>Failing to sell an oversized winner while the bid is still there.</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Green day is an execution day</td>
+<td>Deferring an open de-risk list to a hypothetical better day.</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Hedge sized to the book</td>
+<td>A hedge too small to protect anything, or so large it is a directional short wearing a hedge's clothing.</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Exit the dead thesis</td>
+<td>Letting theta decide an exit the thesis should have decided.</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Non-base currency exposure</td>
+<td>Currency risk taken by accident rather than on purpose. Watch-only by design, because a permanent alarm here would be pure fatigue.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Rules 3, 4, and 12 take their thresholds from the classified regime stage, so
+the same book can pass in a calm regime and breach in a confirmed one. A stale
+or never-observed stage is evaluated against both its own threshold set and
+the calm set, keeping the worse verdict: old market state may tighten a rule,
+never relax it.</p>
+<p>Thresholds ship compiled as policy <code>rulebook-v2</code>, and every row carries its
+<code>observed</code> value, <code>threshold</code>, and an evidence string, so you can check the
+arithmetic instead of trusting the verdict. A compiled model is not itself
+proof that a threshold has your approval.</p>
+<h2 id="advisory-by-construction"><span class="secno" aria-hidden="true">02</span>Advisory by construction</h2>
+<p>The rulebook has no path to the broker. Its verdicts never touch submit
+eligibility or broker-write authorization, and turning it off with
+<code>features.rulebook.enabled=false</code> cannot affect broker-write gating either. An
+order preview may carry matching advisory <code>rule_*</code> warnings, but they are
+annotations and change nothing about whether it is submittable.</p>
+<p>That is deliberate. A hard block on a discipline heuristic fails in the
+direction nobody wants: it stops a correct trade at the worst moment, and it
+teaches you to route around it. The rules are stated so you can disagree with
+one in a specific case and still see the flag.</p>
+<h2 id="a-rule-that-cannot-see-does-not-pass"><span class="secno" aria-hidden="true">03</span>A rule that cannot see does not pass</h2>
+<p><strong>A rule that cannot get clean data reports that it could not evaluate. It
+never passes.</strong></p>
+<p>When positions or account evidence is unhealthy, the affected rows report
+<code>unknown</code> with the evidence line &quot;not asserting a pass&quot; rather than quietly
+returning a clean result. Partial data may indict but never acquit: where a
+provable minimum alone breaches a cap, the breach is reported as a disclosed
+lower bound; where it does not, the row degrades to <code>unknown</code> instead of
+passing on incomplete arithmetic.</p>
+<p>Row outcomes are <code>pass</code>, <code>info</code>, <code>watch</code>, <code>act</code>, <code>unknown</code>, and
+<code>not_evaluated</code>. The last two differ. <code>unknown</code> means the rule applies but its
+inputs are not trustworthy: an unresolved earnings date, a missing delta, an
+absent currency report. <code>not_evaluated</code> means the rule does not apply right
+now, as with the tape rules outside the US regular session or the hedge rule
+with no long book. Neither is a pass, and the summary line counts them
+separately from passes for that reason.</p>
+<p>Read <code>input_health</code> before you count passes. It is the result-level gate, with
+one row each for account, positions, earnings, regime stage, and tape.</p>
+<h2 id="hardest-breach-first"><span class="secno" aria-hidden="true">04</span>Hardest breach first</h2>
+<p>Rows are ranked <code>act</code>, <code>watch</code>, <code>unknown</code>, <code>info</code>, <code>not_evaluated</code>, <code>pass</code>.
+Ties break on base-currency impact, then rule number. <code>unknown</code> outranks
+<code>info</code> on purpose, so a rule you cannot evaluate surfaces above one that is
+merely noting something.</p>
+<p>Plain <code>ibkr rules</code> shows breaches and hides passes. <code>--all</code> prints the full
+checklist, <code>--symbol</code> narrows offender lists to one underlying, and <code>--json</code>
+returns the ranking and input health alongside the rows.</p>
+<h2 id="what-a-clean-run-means"><span class="secno" aria-hidden="true">05</span>What a clean run means</h2>
+<p>It means fourteen specific checks did not fire on the book as the daemon last
+saw it. That is all.</p>
+<p>A clean rulebook run is not permission to trade and carries no submit
+authority. It says nothing about whether the thesis holds, or whether these
+are the right rules for your account. Every submission stays a
+transaction-specific human decision behind the separate controls described in
+<a href="policy.html">Trading policy</a>.</p>
+<h2 id="what-history-is-kept"><span class="secno" aria-hidden="true">06</span>What history is kept</h2>
+<p>A transition is recorded when a row's status changes, not on every evaluation,
+so the timeline reads as a sequence of events rather than a log of minutes.</p>
+<pre><code class="language-sh">ibkr rules history
+ibkr rules history --rule single_name_exposure --since 2026-01-01 --json
+</code></pre>
+<p>The window defaults to the last 7 days and returns 50 rows newest first, up to
+500 with <code>--limit</code>; <code>--until</code> closes it. Each row carries the transition, the
+evidence string at the time, and the policy identity behind it, so a verdict
+from an older policy version is not read as a current one. Evidence strings
+are free text for display and are never parsed back into authority.</p>
+    </main>
+  </div>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

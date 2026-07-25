@@ -235,9 +235,10 @@ Shipped and active 2026-07-18 evening, all gates green
   same window with |divergence| ≤ `recon.max_equity_divergence_pct`.
   Unmeasurable divergence refuses (positive-evidence rule). At most one
   automatic event per report id; events are ordinary `reconcile` journal
-  entries with origin `daemon-auto` carrying the report id. Evaluation runs
-  only at daemon startup and after a successful Flex ingest — never from any
-  RPC read.
+  entries with origin `daemon-auto` carrying the report id. Evaluation runs at
+  daemon startup, after a successful Flex ingest, and on the day's first
+  account observation, where the broker report can arrive before today's
+  runtime equity. The report-id gate keeps that third path idempotent.
 - **R3/R4:** statement-confirmed post-genesis flows plus not-yet-covered
   declared bridge entries are the authoritative cumFlows input under v3;
   matched declarations are superseded (statement value wins), within-coverage

@@ -466,6 +466,7 @@ ibkr recon dismiss --line ID --reason S
 | Subcommand | Guard |
 |------------|-------|
 | `show` | `read-only` |
+| `backtest` | `read-only` |
 | `equity` | `read-only` |
 | `dismiss` | `confirm` |
 

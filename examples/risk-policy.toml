@@ -9,6 +9,11 @@
 #
 # Every commented-out key below is a decision the operator has not made
 # yet. Do not let a tool fill one in; write the number you actually mean.
+#
+# The 0 beside a commented key marks the slot, it is not a legal value.
+# max_equity_age_minutes, date_window_business_days, max_report_age_days, and
+# max_equity_divergence_pct are all rejected at zero, so uncommenting one
+# without replacing the number fails the load with a message naming the key.
 
 kind = "ibkr.risk_policy"
 schema_version = 1

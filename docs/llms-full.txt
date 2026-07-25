@@ -1,6 +1,6 @@
 # ibkr canary full context
 
-Updated: 2026-07-25 11:44 CEST
+Updated: 2026-07-25 12:19 CEST
 
 `ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as a Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and Canary app. AI agents get the full market-data surface plus portfolio context; the risk side stays advisory and operator-controlled: a risk-regime dashboard, scheduled canary stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -75,7 +75,11 @@ Claude Code plugin path:
 ## Reference Pages
 
 - Documentation handbook: https://osauer.dev/ibkr/docs/
+- The daily desk: https://osauer.dev/ibkr/docs/operate/daily-desk.html
 - Working with agents: https://osauer.dev/ibkr/docs/operate/agents.html
+- Alerts and notifications: https://osauer.dev/ibkr/docs/operate/alerts.html
+- Protection and emergency exits: https://osauer.dev/ibkr/docs/operate/protection.html
+- Reconciliation: https://osauer.dev/ibkr/docs/operate/reconciliation.html
 - Install and first run: https://osauer.dev/ibkr/docs/start/install.html
 - Connect an MCP host: https://osauer.dev/ibkr/docs/start/hosts.html
 - Your first session: https://osauer.dev/ibkr/docs/start/first-session.html
@@ -91,6 +95,9 @@ Claude Code plugin path:
 - Sensors: https://osauer.dev/ibkr/docs/understand/sensors.html
 - Architecture: https://osauer.dev/ibkr/docs/internals/architecture.html
 - Trading policy: https://osauer.dev/ibkr/docs/understand/policy.html
+- The rulebook: https://osauer.dev/ibkr/docs/understand/rulebook.html
+- Writing a risk policy: https://osauer.dev/ibkr/docs/understand/risk-policy.html
+- Market data and entitlements: https://osauer.dev/ibkr/docs/understand/market-data.html
 - Glossary: https://osauer.dev/ibkr/docs/understand/glossary.html
 - Storage: https://osauer.dev/ibkr/docs/internals/storage.html
 - Canary remote app beta: https://osauer.dev/ibkr/canary-remote/

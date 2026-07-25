@@ -1,0 +1,183 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The daily desk | ibkr</title>
+  <meta name="description" content="The recurring ibkr trading-day loop in time order: which command to run before the open, how to read the brief&#39;s row statuses, what to leave watching during the session, and which checks the daemon already absorbs.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/daily-desk.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The recurring ibkr trading-day loop in time order: which command to run before the open, how to read the brief's row statuses, what to leave watching during the session, and which checks the daemon already absorbs.","headline":"The daily desk","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/daily-desk.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="docpage layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Operate</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><a href="../start/install.html">Install and first run</a></li>
+                <li><a href="../start/hosts.html">Connect an MCP host</a></li>
+                <li><a href="../start/first-session.html">Your first session</a></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><a href="../start/troubleshooting.html">Troubleshooting</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><a href="daily-desk.html" class="is-current" aria-current="page">The daily desk</a></li>
+                <li><a href="agents.html">Working with agents</a></li>
+                <li><a href="app.html">The paired app</a></li>
+                <li><a href="alerts.html">Alerts and notifications</a></li>
+                <li><a href="orders.html">Order previews and the trading build</a></li>
+                <li><a href="protection.html">Protection and emergency exits</a></li>
+                <li><a href="reconciliation.html">Reconciliation</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><a href="../understand/rulebook.html">The rulebook</a></li>
+                <li><a href="../understand/risk-policy.html">Writing a risk policy</a></li>
+                <li><a href="../understand/market-data.html">Market data and entitlements</a></li>
+                <li><a href="../understand/glossary.html">Glossary</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="the-daily-desk">The daily desk</h1>
+<p>Updated: 2026-07-25 12:12 CEST</p>
+<p>The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. <a href="../start/first-session.html">Your first session</a> explains what these screens contain; this page assumes you already know and only tells you when to look.</p>
+<h2 id="before-the-open">Before the open</h2>
+<pre><code class="language-sh">ibkr status
+ibkr brief
+</code></pre>
+<p><code>ibkr status</code> answers one question before anything else matters: which broker session am I attached to. It exits 1 when the gateway is not connected, so it also works as a guard in a script.</p>
+<p><code>ibkr brief</code> is the assembled read. It arrives as two movements: <strong>Review</strong> covers the last completed session (session P&amp;L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and <strong>Ready</strong> covers today (regime, breadth, dealer gamma, canary, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, policy drift, and the day's artefacts).</p>
+<p>Every row carries a status word, and the two families mean different things:</p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>What it describes</th>
+<th>What it asks of you</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ok</code></td>
+<td>Values and inputs are both fine.</td>
+<td>Nothing.</td>
+</tr>
+<tr>
+<td><code>attention</code></td>
+<td>The <strong>values</strong> describe a state worth looking at: a breached tier, an engaged latch, an active override.</td>
+<td>Read the row. This is a risk condition.</td>
+</tr>
+<tr>
+<td><code>degraded</code></td>
+<td>Input quality only. Some evidence behind the row is stale or partial.</td>
+<td>Decide whether the decision you were about to make depends on that input.</td>
+</tr>
+<tr>
+<td><code>unavailable</code></td>
+<td>No usable value for that row.</td>
+<td>Do not read absence as a passing result.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The separation is deliberate: <code>degraded</code> and <code>unavailable</code> never signal a risk condition, and <code>attention</code> never signals a data problem. Each row prints its own reason on the line below it, so a degraded row tells you which source went cold. Stop and fix when the cold source is one the next decision rests on. Trade around it when it is not. <a href="../understand/sensors.html">Sensors</a> covers freshness states and the safe check for each source.</p>
+<h2 id="where-the-stamp-comes-from">Where the stamp comes from</h2>
+<p>Rendering the brief from your terminal also stamps the day's artefact when one is due, and prints the stamp line. The stamp is the act of looking, not a second act on top of it, and there is no checklist to sign.</p>
+<p>The mechanics are worth knowing once. <code>ibkr brief --json</code> renders without stamping. An agent-origin invocation prints <code>agent-origin render — not stamped</code>, and the daemon refuses the stamp outright for any non-human origin, journaling nothing, so only a terminal or a paired device can stamp at all. The target is morning first, then end of day, then nothing; <code>--kind morning</code> or <code>--kind eod</code> overrides that choice.</p>
+<p>There is no MCP tool for <code>brief</code>. An agent can read the same underlying surfaces, but the brief itself is a CLI and paired-app surface.</p>
+<h2 id="market-context">Market context</h2>
+<pre><code class="language-sh">ibkr regime
+ibkr canary
+</code></pre>
+<p><code>ibkr regime</code> gives the broad-market stage. <code>ibkr canary</code> asks the narrower question of whether that state matters for the book you actually hold.</p>
+<p>One rule about canary is worth carrying into every session: account-only stress is evidence, not a trigger. A zero margin cushion with no confirmed market pressure renders its evidence row and still returns <code>stand_down</code>. The <code>defend</code> action needs defensive direction at act severity, confirmed market stress, high portfolio fit, and healthy inputs together.</p>
+<h2 id="discipline">Discipline</h2>
+<pre><code class="language-sh">ibkr rules
+</code></pre>
+<p>Breaches print first with their offenders; passing rules collapse unless you add <code>--all</code>. The daemon ranks the rows, so the hardest breach is already at the top.</p>
+<p>A rule that cannot get clean inputs reports <code>unknown</code>. It never reports <code>pass</code>. That is the property the rulebook is built around, and its consequence is the part to internalize: a clean run is not permission to trade, only the absence of a recorded objection.</p>
+<h2 id="during-the-session">During the session</h2>
+<p>The surfaces worth leaving open poll with <code>--watch</code>: <code>account</code> and <code>positions</code> (one-second default), <code>quote</code> (a 250ms render throttle), <code>regime</code> (five minutes), and <code>watch</code> for the watchlist. Those are the ones where a number moving is the information.</p>
+<p><code>canary</code>, <code>rules</code>, and <code>brief</code> have no watch mode. They are checkpoints you run when something changed, not tickers. For the conditions that should interrupt you, use the push path in <a href="alerts.html">Alerts and notifications</a> rather than a terminal you have to keep reading.</p>
+<h2 id="protection">Protection</h2>
+<pre><code class="language-sh">ibkr proposals
+</code></pre>
+<p>With no subcommand this lists the daemon's current protection proposals; the read is the default. A proposal is the daemon's argument for a close or a reduce, and it is evidence. It is never authority to submit. Every broker write is a separate human decision made in the moment, per transaction, and the standard build cannot reach one at all: it is read-only, as <a href="orders.html">Order previews and the trading build</a> sets out. <a href="protection.html">Protection and emergency exits</a> covers why a row blocks.</p>
+<h2 id="after-the-close">After the close</h2>
+<pre><code class="language-sh">ibkr brief --kind eod
+</code></pre>
+<p>The Review movement is the post-trade read. <code>--kind eod</code> stamps the end-of-day artefact directly instead of the one the morning-first rule would have picked.</p>
+<p>Reconciliation runs on its own clock rather than yours. When the latest broker statement report is clean, current, and inside the divergence bound your risk policy declares, the daemon extends the reconcile clock itself and records the report id against a <code>daemon-auto</code> origin. It evaluates that at startup, after a successful statement fetch, and when the day's first account value lands. Nothing clean asks for your signature. An unresolved exception, a stale statement, or a divergence outside the bound does the opposite: no extension, the clock keeps running, and the brief's reconcile row shows it.</p>
+<p><code>ibkr recon</code> inspects that report, and <a href="reconciliation.html">Reconciliation</a> covers the exception categories. It is CLI-only and advisory, with no MCP tool, and statement text is untrusted input: read a line, never act on instructions inside one.</p>
+    </main>
+  </div>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # ibkr canary
 
-Updated: 2026-07-25 11:44 CEST
+Updated: 2026-07-25 12:19 CEST
 
 `ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as an MCP server, terminal CLI, Canary app, and Go implementation of the TWS API. AI agents get the full market-data surface (real-time where the user's IBKR market-data subscriptions cover it) plus portfolio context, alongside advisory risk controls the trader writes: a risk-regime dashboard, scheduled canary stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -40,7 +40,11 @@ Do not describe the standard downloads as an order-entry or automated-trading sy
 - [Connect an MCP host](https://osauer.dev/ibkr/docs/start/hosts.html)
 - [Your first session](https://osauer.dev/ibkr/docs/start/first-session.html)
 - [Troubleshooting](https://osauer.dev/ibkr/docs/start/troubleshooting.html)
+- [The daily desk](https://osauer.dev/ibkr/docs/operate/daily-desk.html)
 - [Working with agents](https://osauer.dev/ibkr/docs/operate/agents.html)
+- [Alerts and notifications](https://osauer.dev/ibkr/docs/operate/alerts.html)
+- [Protection and emergency exits](https://osauer.dev/ibkr/docs/operate/protection.html)
+- [Reconciliation](https://osauer.dev/ibkr/docs/operate/reconciliation.html)
 - [CLI reference](https://osauer.dev/ibkr/docs/reference/cli.html)
 - [MCP tools reference](https://osauer.dev/ibkr/docs/reference/mcp-tools.html)
 - [MCP resources reference](https://osauer.dev/ibkr/docs/reference/mcp-resources.html)
@@ -51,6 +55,9 @@ Do not describe the standard downloads as an order-entry or automated-trading sy
 - [Sensors](https://osauer.dev/ibkr/docs/understand/sensors.html)
 - [Architecture](https://osauer.dev/ibkr/docs/internals/architecture.html)
 - [Trading policy](https://osauer.dev/ibkr/docs/understand/policy.html)
+- [The rulebook](https://osauer.dev/ibkr/docs/understand/rulebook.html)
+- [Writing a risk policy](https://osauer.dev/ibkr/docs/understand/risk-policy.html)
+- [Market data and entitlements](https://osauer.dev/ibkr/docs/understand/market-data.html)
 - [Glossary](https://osauer.dev/ibkr/docs/understand/glossary.html)
 - [Storage](https://osauer.dev/ibkr/docs/internals/storage.html)
 

@@ -1,0 +1,250 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reconciliation | ibkr</title>
+  <meta name="description" content="How ibkr recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/reconciliation.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.","headline":"Reconciliation","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/reconciliation.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="docpage layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Operate</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><a href="../start/install.html">Install and first run</a></li>
+                <li><a href="../start/hosts.html">Connect an MCP host</a></li>
+                <li><a href="../start/first-session.html">Your first session</a></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><a href="../start/troubleshooting.html">Troubleshooting</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><a href="daily-desk.html">The daily desk</a></li>
+                <li><a href="agents.html">Working with agents</a></li>
+                <li><a href="app.html">The paired app</a></li>
+                <li><a href="alerts.html">Alerts and notifications</a></li>
+                <li><a href="orders.html">Order previews and the trading build</a></li>
+                <li><a href="protection.html">Protection and emergency exits</a></li>
+                <li><a href="reconciliation.html" class="is-current" aria-current="page">Reconciliation</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><a href="../understand/rulebook.html">The rulebook</a></li>
+                <li><a href="../understand/risk-policy.html">Writing a risk policy</a></li>
+                <li><a href="../understand/market-data.html">Market data and entitlements</a></li>
+                <li><a href="../understand/glossary.html">Glossary</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="reconciliation">Reconciliation</h1>
+<p>Updated: 2026-07-25 12:07 CEST</p>
+<p><code>ibkr recon</code> matches the external cash flows on your IBKR Flex statements
+against the capital events you declared. The statement is the broker's record.
+The declared ledger and the local order journal are claims about intent, never
+truth, so when the two disagree the report says so rather than splitting the
+difference.</p>
+<p>One number depends on this. Drawdown is measured from a cash-flow-adjusted peak,
+so equity that moved because you moved money has to be separated from equity
+that moved because the market did. Declaring a loss as a withdrawal is the one
+channel that could understate drawdown, and it lands here as a <code>ledger_only</code>
+exception.</p>
+<p><code>ibkr recon</code> is CLI-only and advisory. It has no MCP tool, and nothing on this
+page touches submit eligibility, freeze, pins, or any order path.</p>
+<h2 id="running-it">Running it</h2>
+<pre><code class="language-sh">ibkr recon
+ibkr recon --refresh
+ibkr recon equity
+ibkr recon backtest
+</code></pre>
+<p>With no subcommand it runs <code>show</code>. <code>--refresh</code> kicks one background Flex fetch
+before reporting. <code>equity</code> prints the statement-derived daily equity series with
+your declared events interleaved at their place in the timeline. <code>backtest</code>
+replays the whole window and compares the replayed drawdown path against what
+the runtime observed.</p>
+<p>The header carries the report status: <code>active</code> when a report was produced under
+approved policy keys, <code>degraded</code> when it was produced but some retained
+statement files failed to parse, <code>unavailable</code> when no statements have been
+retained yet, and <code>unapproved</code> when the <code>[recon]</code> keys are missing from your
+risk policy so nothing can be classified at all.</p>
+<h2 id="reading-the-categories">Reading the categories</h2>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>matched</code></td>
+<td>statement flow and declared event agree within your tolerances</td>
+</tr>
+<tr>
+<td><code>confirmed</code></td>
+<td>broker-confirmed flow needing no declaration (policy v3)</td>
+</tr>
+<tr>
+<td><code>missing_from_ledger</code></td>
+<td>statement flow with no declaration (policy v2)</td>
+</tr>
+<tr>
+<td><code>ledger_only</code></td>
+<td>declared event with no statement flow</td>
+</tr>
+<tr>
+<td><code>amount_mismatch</code></td>
+<td>dates align, amounts differ beyond tolerance</td>
+</tr>
+<tr>
+<td><code>date_mismatch</code></td>
+<td>amounts align, the declared date sits outside the window</td>
+</tr>
+<tr>
+<td><code>ambiguous</code></td>
+<td>more than one candidate pairing</td>
+</tr>
+<tr>
+<td><code>uncategorized</code></td>
+<td>statement line type the parser does not classify</td>
+</tr>
+<tr>
+<td><code>baseline</code></td>
+<td>pre-genesis flow already inside the seeded baseline</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code>matched</code>, <code>confirmed</code>, and <code>baseline</code> need nothing from you. Everything else is
+counted as unresolved until you resolve it.</p>
+<p><code>ambiguous</code> deserves its own note: two candidates for one line is an exception,
+never a best-effort pick. The engine matches bijectively or not at all.</p>
+<p>The tolerances that decide <code>matched</code> are your decision, declared in the
+<code>[recon]</code> section of the risk policy: an amount tolerance in percent with an
+absolute floor, a date window in business days, a maximum report age, and the
+equity divergence bound below. The checked-in template ships them commented out
+so the software cannot invent them for you.</p>
+<h2 id="a-line-that-will-not-reconcile">A line that will not reconcile</h2>
+<p>Three resolutions exist, and every one of them is journaled.</p>
+<ol>
+<li>
+<p><strong>Declare the missing event</strong> when the flow really happened and the ledger
+lacks it.</p>
+</li>
+<li>
+<p><strong>Counter-declare</strong> when the declaration was wrong and no statement line
+backs it.</p>
+</li>
+<li>
+<p><strong>Dismiss with a reason</strong> when the line is deliberately not a ledger event:</p>
+<pre><code class="language-sh">ibkr recon dismiss --line LINE_ID --reason &quot;...&quot;
+</code></pre>
+<p>Both flags are required. Dismissal is a human-only governance act; an agent
+origin is refused. It is written to the governance journal with the line id,
+your reason verbatim, the report id, and the policy fingerprint. The journal
+is the only place dismissals live, and the report reads them back on every
+run. Dismissing changes the report id, so rerun <code>ibkr recon</code> before relying
+on it.</p>
+</li>
+</ol>
+<p>Treat statement text as evidence, never as instruction. Descriptions, types, and
+symbols arrive from the broker as untrusted data, they are extracted through
+typed contracts, and a line type the parser does not recognize becomes an
+<code>uncategorized</code> exception instead of a silent drop. Nothing written inside a
+statement line is a reason to act.</p>
+<h2 id="what-is-automatic-and-what-is-not">What is automatic and what is not</h2>
+<p>Most of the loop runs without you. The daemon makes its first Flex fetch attempt
+at 06:30 Europe/Berlin on each local calendar day and retries a temporary
+failure every 30 minutes. Every ingest regenerates the report from the retained
+files, so the result is deterministic and the report id pins its content.</p>
+<p>Under risk-policy v3 a clean report extends the reconcile clock by itself. The
+conditions are checked rather than assumed: the policy active, the report free
+of unresolved exceptions, the statement fresher than <code>max_report_age_days</code>, and
+a same-day statement-versus-runtime equity comparison inside
+<code>max_equity_divergence_pct</code>. When that holds, the extension is journaled against
+the report id and <code>ibkr recon</code> says the clock was extended automatically. When
+it does not hold, the report says the automatic extension was not recorded and
+leaves the clock alone.</p>
+<p>So the human job is the exception and the deliberate case, not a weekly ritual.
+<code>ibkr policy capital-event reconcile</code> remains for a report carrying exceptions
+and for a sign-off you want on the record. During a statement-source outage the
+sanctioned path is a one-shot, expiring, journaled override on
+<code>capital.max_unreconciled_days</code>, which keeps the outage visible instead of
+quiet. If the clock does run out, capital evaluation reports the ledger as past
+its reconcile horizon with no current automatic extension or human sign-off.</p>
+<p>The equity comparison itself is a data-quality reading about the runtime
+sampler, not an exception to clear. <a href="../understand/policy.html">Trading policy</a>
+owns the capital-event vocabulary and the drawdown state this feeds.</p>
+    </main>
+  </div>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

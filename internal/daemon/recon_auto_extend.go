@@ -12,7 +12,10 @@ import (
 // evaluateRiskPolicyV3Reconciliation is the only daemon mutation path from
 // retained statement evidence. It first installs a fully healthy
 // statement-authoritative capital snapshot, then appends at most one automatic
-// reconcile event for the pinned report. RPC reads never call it.
+// reconcile event for the pinned report. Three paths reach it: daemon startup,
+// a successful Flex ingest, and the account-summary read on the day's first
+// observation, where the broker report can land before today's runtime equity.
+// The report-id gate keeps that third path idempotent.
 func (s *Server) evaluateRiskPolicyV3Reconciliation() (extended bool) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

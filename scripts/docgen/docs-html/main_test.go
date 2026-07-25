@@ -19,7 +19,7 @@ func TestManifestCoversTrackedTwins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateManifest(tracked); err != nil {
+	if err := validateManifest(tracked, true); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := len(pages), 32; got != want {

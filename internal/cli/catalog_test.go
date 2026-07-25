@@ -90,6 +90,7 @@ func TestSubcommandGuardsMatchWhatTheyDo(t *testing.T) {
 	want := map[string]map[string]GuardClass{
 		"watch":    {"add": GuardLocal, "remove": GuardLocal, "clear": GuardLocal, "list": GuardReadOnly},
 		"settings": {"show": GuardReadOnly, "set": GuardConfirm},
+		"recon":    {"show": GuardReadOnly, "backtest": GuardReadOnly, "equity": GuardReadOnly, "dismiss": GuardConfirm},
 	}
 	for _, spec := range Catalog() {
 		expected, checked := want[spec.Name]

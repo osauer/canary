@@ -169,12 +169,12 @@ var pages = []pageSpec{
 
 	// ---- Operate -----------------------------------------------------------
 	{
-		Section:  "operate",
-		Page:     "docs/docs/operate/daily-desk.html",
-		NavTitle: "The daily desk",
-		Summary:  "A working routine from the morning brief through regime, canary, and rules to the end-of-day read.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/operate-daily-desk.md",
+		Source:      "docs/docs/operate/daily-desk.md",
+		Section:     "operate",
+		NavTitle:    "The daily desk",
+		Summary:     "A working routine from the morning brief through regime, canary, and rules to the end-of-day read.",
+		Description: "The recurring ibkr trading-day loop in time order: which command to run before the open, how to read the brief's row statuses, what to leave watching during the session, and which checks the daemon already absorbs.",
+		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/operate/agents.md",
@@ -194,12 +194,12 @@ var pages = []pageSpec{
 		Status:      statusPublished,
 	},
 	{
-		Section:  "operate",
-		Page:     "docs/docs/operate/alerts.html",
-		NavTitle: "Alerts and notifications",
-		Summary:  "What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/operate-alerts.md",
+		Source:      "docs/docs/operate/alerts.md",
+		Section:     "operate",
+		NavTitle:    "Alerts and notifications",
+		Summary:     "What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.",
+		Description: "The nine daemon producers that can raise an ibkr alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.",
+		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/operate/orders.md",
@@ -210,20 +210,20 @@ var pages = []pageSpec{
 		Status:      statusPublished,
 	},
 	{
-		Section:  "operate",
-		Page:     "docs/docs/operate/protection.html",
-		NavTitle: "Protection and emergency exits",
-		Summary:  "Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/operate-protection.md",
+		Source:      "docs/docs/operate/protection.md",
+		Section:     "operate",
+		NavTitle:    "Protection and emergency exits",
+		Summary:     "Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.",
+		Description: "How ibkr generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.",
+		Status:      statusPublished,
 	},
 	{
-		Section:  "operate",
-		Page:     "docs/docs/operate/reconciliation.html",
-		NavTitle: "Reconciliation",
-		Summary:  "Matching broker statement flows against the declared capital ledger, and handling the lines that will not match.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/operate-reconciliation.md",
+		Source:      "docs/docs/operate/reconciliation.md",
+		Section:     "operate",
+		NavTitle:    "Reconciliation",
+		Summary:     "Matching broker statement flows against the declared capital ledger, and handling the lines that will not match.",
+		Description: "How ibkr recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.",
+		Status:      statusPublished,
 	},
 
 	// ---- Understand --------------------------------------------------------
@@ -260,28 +260,30 @@ var pages = []pageSpec{
 		Legacy:      []string{"docs/policies.html"},
 	},
 	{
-		Section:  "understand",
-		Page:     "docs/docs/understand/rulebook.html",
-		NavTitle: "The rulebook",
-		Summary:  "The fourteen advisory rules, what each one is protecting against, and how a breach is reported.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/understand-rulebook.md",
+		Source:      "docs/docs/understand/rulebook.md",
+		Section:     "understand",
+		NavTitle:    "The rulebook",
+		Summary:     "The fourteen advisory rules, what each one is protecting against, and how a breach is reported.",
+		Description: "What each of the fourteen advisory rulebook checks protects against, why a rule that cannot get clean data never passes, and why a clean run is not permission to trade.",
+		Layout:      "architecture",
+		Status:      statusPublished,
 	},
 	{
-		Section:  "understand",
-		Page:     "docs/docs/understand/risk-policy.html",
-		NavTitle: "Writing a risk policy",
-		Summary:  "Turning a personal risk mandate into the policy file: limits, drawdown ladder, overrides, and review.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/understand-risk-policy.md",
+		Source:      "docs/docs/understand/risk-policy.md",
+		Section:     "understand",
+		NavTitle:    "Writing a risk policy",
+		Summary:     "Turning a personal risk mandate into the policy file: limits, drawdown ladder, overrides, and review.",
+		Description: "How to write the ibkr personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.",
+		Status:      statusPublished,
 	},
 	{
-		Section:  "understand",
-		Page:     "docs/docs/understand/market-data.html",
-		NavTitle: "Market data and entitlements",
-		Summary:  "Which subscriptions produce real-time data, what delayed and frozen mean, and how freshness is reported.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/understand-market-data.md",
+		Source:      "docs/docs/understand/market-data.md",
+		Section:     "understand",
+		NavTitle:    "Market data and entitlements",
+		Summary:     "Which subscriptions produce real-time data, what delayed and frozen mean, and how freshness is reported.",
+		Description: "How market data reaches ibkr through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.",
+		Layout:      "architecture",
+		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/understand/glossary.md",
@@ -973,7 +975,13 @@ func trackedFiles(root string) (map[string]bool, error) {
 	return tracked, nil
 }
 
-func validateManifest(tracked map[string]bool) error {
+// validateManifest checks the manifest against the repository. requireOutputs
+// is false when the generator is about to write the files: a brand-new page
+// cannot have a tracked HTML twin before anything has generated it, and three
+// authors in a row worked around that by rendering into a scratch git index.
+// The -check gate still demands both, because that is where an untracked
+// output would mean a page that never reached the site.
+func validateManifest(tracked map[string]bool, requireOutputs bool) error {
 	known := map[string]bool{}
 	for _, section := range sections {
 		known[section.Slug] = true
@@ -1015,7 +1023,7 @@ func validateManifest(tracked map[string]bool) error {
 		if !tracked[source] {
 			return fmt.Errorf("manifest source is not tracked: %s", source)
 		}
-		if !tracked[output] {
+		if requireOutputs && !tracked[output] {
 			return fmt.Errorf("manifest output is not tracked: %s", output)
 		}
 		if page.Description == "" {
@@ -1030,7 +1038,7 @@ func validateManifest(tracked map[string]bool) error {
 			if !strings.HasPrefix(legacy, "docs/") {
 				return fmt.Errorf("legacy redirect %s is outside the published site tree", legacy)
 			}
-			if !tracked[legacy] {
+			if requireOutputs && !tracked[legacy] {
 				return fmt.Errorf("legacy redirect is not tracked: %s", legacy)
 			}
 		}
@@ -1118,7 +1126,7 @@ func run(root string, check bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := validateManifest(tracked); err != nil {
+	if err := validateManifest(tracked, check); err != nil {
 		return 0, err
 	}
 	renderer := newSiteRenderer(root, tracked)
