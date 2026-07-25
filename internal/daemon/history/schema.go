@@ -7,11 +7,12 @@ import (
 )
 
 // schemaVersion is the PRAGMA user_version this build writes and accepts.
-// 0 means "fresh file, apply DDL"; versions 1 and 2 migrate in place via
-// deltas (no evidence-row rewrites); anything above schemaVersion means
-// the file was written by a newer build and is deleted and recreated (the
-// index is derived, so downgrade recovery is rebuild).
-const schemaVersion = 3
+// 0 means "fresh file, apply DDL"; versions 1 through 3 migrate in place
+// via deltas (evidence rows are renamed with their table, never rewritten
+// row by row); anything above schemaVersion means the file was written by
+// a newer build and is deleted and recreated (the index is derived, so
+// downgrade recovery is rebuild).
+const schemaVersion = 4
 
 // baseDDL creates the bookkeeping tables. None of them are evidence: their
 // rows are updated in place (ingested-byte offsets, rotation state,
@@ -200,10 +201,10 @@ func proposalOutcomesDDL() []string {
 	return append(stmts, appendOnlyTriggers("proposal_outcomes")...)
 }
 
-// canaryDDL mirrors canary-decisions.jsonl (portfolio-canary evidence).
-func canaryDDL() []string {
+// stressDDL mirrors canary-decisions.jsonl (portfolio-stress evidence).
+func stressDDL() []string {
 	stmts := []string{
-		`CREATE TABLE canary_transitions (
+		`CREATE TABLE stress_transitions (
   id INTEGER PRIMARY KEY, src_offset INTEGER NOT NULL UNIQUE,
   at TEXT NOT NULL, at_unix_ms INTEGER NOT NULL,
   session_key TEXT, fingerprint TEXT, account TEXT, account_mode TEXT,
@@ -212,10 +213,10 @@ func canaryDDL() []string {
   input_health TEXT, summary TEXT,
   raw_json TEXT NOT NULL
 )`,
-		`CREATE INDEX canary_transitions_at  ON canary_transitions(at_unix_ms)`,
-		`CREATE INDEX canary_transitions_sev ON canary_transitions(severity, at_unix_ms)`,
+		`CREATE INDEX stress_transitions_at  ON stress_transitions(at_unix_ms)`,
+		`CREATE INDEX stress_transitions_sev ON stress_transitions(severity, at_unix_ms)`,
 	}
-	return append(stmts, appendOnlyTriggers("canary_transitions")...)
+	return append(stmts, appendOnlyTriggers("stress_transitions")...)
 }
 
 // ordersDDL mirrors order-journal.jsonl. Deliberate deviation from the
@@ -249,7 +250,7 @@ func evidenceV2DDL() []string {
 	stmts = append(stmts, capitalDDL()...)
 	stmts = append(stmts, riskPolicyDDL()...)
 	stmts = append(stmts, proposalOutcomesDDL()...)
-	stmts = append(stmts, canaryDDL()...)
+	stmts = append(stmts, stressDDL()...)
 	stmts = append(stmts, ordersDDL()...)
 	return stmts
 }
@@ -264,6 +265,34 @@ func appendOnlyTriggers(table string) []string {
 		fmt.Sprintf(`CREATE TRIGGER %s_no_delete BEFORE DELETE ON %s
   BEGIN SELECT RAISE(ABORT, '%s is append-only'); END`, table, table, table),
 	}
+}
+
+// stressRenameV4DDL is the schema-v4 delta: the sensor's persisted names
+// move from canary to stress without touching a single evidence row.
+// ALTER TABLE ... RENAME TO carries the rows and SQLite rewrites the
+// trigger bodies that reference the table; the derived index and trigger
+// NAMES do not follow a rename, so they are dropped and recreated (both
+// are derived from the table, so nothing is lost). The bookkeeping source
+// value is rewritten in place, which keeps the ingest watermark, the
+// archive inventory, and the rotation audit log attached to the source
+// under its new name instead of stranding them and re-ingesting from
+// offset 0.
+func stressRenameV4DDL() []string {
+	stmts := []string{
+		`ALTER TABLE canary_transitions RENAME TO stress_transitions`,
+		`DROP INDEX IF EXISTS canary_transitions_at`,
+		`DROP INDEX IF EXISTS canary_transitions_sev`,
+		`DROP TRIGGER IF EXISTS canary_transitions_no_update`,
+		`DROP TRIGGER IF EXISTS canary_transitions_no_delete`,
+		`CREATE INDEX stress_transitions_at  ON stress_transitions(at_unix_ms)`,
+		`CREATE INDEX stress_transitions_sev ON stress_transitions(severity, at_unix_ms)`,
+	}
+	stmts = append(stmts, appendOnlyTriggers("stress_transitions")...)
+	return append(stmts,
+		`UPDATE ingest_sources SET source = 'stress' WHERE source = 'canary'`,
+		`UPDATE archive_files  SET source = 'stress' WHERE source = 'canary'`,
+		`UPDATE rotation_log   SET source = 'stress' WHERE source = 'canary'`,
+	)
 }
 
 // openAndMigrate pre-creates the file 0600 (SQLite itself would create
@@ -298,11 +327,14 @@ func openAndMigrate(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// migrate brings the file to schemaVersion. user_version 0 applies the
-// current DDL; user_version 1 applies the schema-v2 delta in one transaction
-// (ALTER ingest_sources ADD base, create the new tables), and user_version 2
-// adds statement file fingerprints. Existing evidence rows are untouched.
-// Anything else is returned for delete-and-recreate recovery of last resort.
+// migrate brings the file to schemaVersion in one transaction. Each case is
+// the whole distance from that version to current, not one link in a chain:
+// user_version 0 applies the current DDL; 1 applies the schema-v2 delta
+// (ALTER ingest_sources ADD base, create the new tables — already in their
+// current shape, so no later delta applies); 2 adds statement file
+// fingerprints and renames the canary sensor's tables to stress; 3 applies
+// that rename alone. Existing evidence rows are untouched. Anything else is
+// returned for delete-and-recreate recovery of last resort.
 func migrate(db *sql.DB) error {
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -326,6 +358,9 @@ func migrate(db *sql.DB) error {
 		delta = append(delta, evidenceV2DDL()...)
 	case version == 2:
 		delta = append(delta, `ALTER TABLE statement_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''`)
+		delta = append(delta, stressRenameV4DDL()...)
+	case version == 3:
+		delta = append(delta, stressRenameV4DDL()...)
 	default:
 		return fmt.Errorf("unexpected user_version %d", version)
 	}

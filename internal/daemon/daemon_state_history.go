@@ -83,12 +83,12 @@ func (s *Server) sqliteRulesHistory(ctx context.Context, since, until time.Time,
 	return entries, total, nil
 }
 
-func (s *Server) sqliteCanaryHistory(ctx context.Context, since, until time.Time, severity, action string, limit int) ([]rpc.CanaryHistoryEntry, int, error) {
+func (s *Server) sqliteStressHistory(ctx context.Context, since, until time.Time, severity, action string, limit int) ([]rpc.StressHistoryEntry, int, error) {
 	events, err := s.sqliteHistoryEvents(ctx, coreEventCanaryDecision, since, until)
 	if err != nil {
 		return nil, 0, err
 	}
-	entries := make([]rpc.CanaryHistoryEntry, 0, len(events))
+	entries := make([]rpc.StressHistoryEntry, 0, len(events))
 	for _, event := range events {
 		var line canaryDecisionLine
 		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
@@ -100,7 +100,7 @@ func (s *Server) sqliteCanaryHistory(ctx context.Context, since, until time.Time
 		if action != "" && line.Action != action {
 			continue
 		}
-		entries = append(entries, rpc.CanaryHistoryEntry{
+		entries = append(entries, rpc.StressHistoryEntry{
 			At: line.TS, SessionKey: line.SessionKey, Fingerprint: line.Fingerprint,
 			Account: line.Account, AccountMode: line.AccountMode, Action: line.Action,
 			Severity: string(line.Severity), Direction: string(line.Direction),

@@ -36,7 +36,10 @@ type Options struct {
 	// RulesJournalPath is rules-decisions.jsonl. Same missing-file
 	// semantics as the regime journal.
 	RulesJournalPath string
-	// CanaryJournalPath is canary-decisions.jsonl.
+	// CanaryJournalPath is canary-decisions.jsonl, the on-disk journal
+	// feeding the "stress" ingest source. The file keeps its name: renaming
+	// retained evidence and its rotated archives is not part of the sensor
+	// rename.
 	CanaryJournalPath string
 	// CapitalJournalPath is capital-events.jsonl (never rotated).
 	CapitalJournalPath string
@@ -132,6 +135,10 @@ func Open(opts Options) (*Store, error) {
 		if err == nil {
 			s := &Store{db: db, opts: opts, kick: make(chan struct{}, 1), watermarks: map[string]int64{}}
 			s.seedOrdersParseBad()
+			// The schema migration renames the stress source inside the DB;
+			// its pending rotation intent lives on disk and is carried over
+			// here, before any caller can recover or start a rotation.
+			s.adoptLegacyCanaryManifest()
 			return s, nil
 		}
 		lastErr = err

@@ -11,13 +11,13 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// phase2FakeConn answers canary.history / recon.equity with canned
+// phase2FakeConn answers stress.history / recon.equity with canned
 // results and records the decoded params (historyFakeConn pattern).
 type phase2FakeConn struct {
 	method       string
-	canaryParams rpc.CanaryHistoryParams
+	stressParams rpc.StressHistoryParams
 	equityParams rpc.ReconEquityParams
-	canary       rpc.CanaryHistoryResult
+	stress       rpc.StressHistoryResult
 	equity       rpc.ReconEquityResult
 }
 
@@ -26,9 +26,9 @@ func (c *phase2FakeConn) Call(_ context.Context, method string, params, out any)
 	raw, _ := json.Marshal(params)
 	var result any
 	switch method {
-	case rpc.MethodCanaryHistory:
-		_ = json.Unmarshal(raw, &c.canaryParams)
-		result = c.canary
+	case rpc.MethodStressHistory:
+		_ = json.Unmarshal(raw, &c.stressParams)
+		result = c.stress
 	case rpc.MethodReconEquity:
 		_ = json.Unmarshal(raw, &c.equityParams)
 		result = c.equity
@@ -43,13 +43,13 @@ func (*phase2FakeConn) Stream(context.Context, string, any, func(json.RawMessage
 	return nil
 }
 
-func canaryHistoryFixture() rpc.CanaryHistoryResult {
+func stressHistoryFixture() rpc.StressHistoryResult {
 	relevant := true
-	return rpc.CanaryHistoryResult{
+	return rpc.StressHistoryResult{
 		AsOf:  time.Date(2026, 7, 20, 14, 30, 0, 0, time.UTC),
 		Since: time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
 		Until: time.Date(2026, 7, 20, 14, 30, 0, 0, time.UTC),
-		Entries: []rpc.CanaryHistoryEntry{
+		Entries: []rpc.StressHistoryEntry{
 			{
 				At: time.Date(2026, 7, 20, 13, 5, 0, 0, time.UTC), Severity: "act", Action: "defend",
 				MarketStage: "confirmed_stress", Summary: "stress confirmed against held risk",
@@ -70,7 +70,7 @@ func canaryHistoryFixture() rpc.CanaryHistoryResult {
 
 func TestRunStressHistoryForwardsParamsAndRendersTable(t *testing.T) {
 	t.Parallel()
-	conn := &phase2FakeConn{canary: canaryHistoryFixture()}
+	conn := &phase2FakeConn{stress: stressHistoryFixture()}
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn}
 	code := Run(context.Background(), env, "stress", []string{
@@ -79,10 +79,10 @@ func TestRunStressHistoryForwardsParamsAndRendersTable(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
-	if conn.method != rpc.MethodCanaryHistory {
-		t.Fatalf("method = %q, want %q", conn.method, rpc.MethodCanaryHistory)
+	if conn.method != rpc.MethodStressHistory {
+		t.Fatalf("method = %q, want %q", conn.method, rpc.MethodStressHistory)
 	}
-	p := conn.canaryParams
+	p := conn.stressParams
 	if p.Since != "2026-07-14" || p.Until != "2026-07-20" || p.Severity != "act" || p.Action != "defend" || p.Limit != 2 {
 		t.Fatalf("params = %+v, want flags forwarded", p)
 	}
@@ -107,13 +107,13 @@ func TestRunStressHistoryForwardsParamsAndRendersTable(t *testing.T) {
 
 func TestRunStressHistoryJSONPassThrough(t *testing.T) {
 	t.Parallel()
-	conn := &phase2FakeConn{canary: canaryHistoryFixture()}
+	conn := &phase2FakeConn{stress: stressHistoryFixture()}
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn}
 	if code := Run(context.Background(), env, "stress", []string{"history", "--json"}); code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
-	var res rpc.CanaryHistoryResult
+	var res rpc.StressHistoryResult
 	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
 		t.Fatalf("stdout is not the result envelope: %v\n%s", err, stdout.String())
 	}

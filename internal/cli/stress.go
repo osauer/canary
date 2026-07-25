@@ -119,7 +119,7 @@ func runStress(ctx context.Context, env *Env, args []string) int {
 }
 
 // runStressHistory renders the daemon's derived stress-decision index
-// (canary.history). Read-only: rows are journal evidence; the daemon owns
+// (stress.history). Read-only: rows are journal evidence; the daemon owns
 // filtering, ordering, and index-health disclosure.
 func runStressHistory(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "stress")
@@ -139,15 +139,15 @@ func runStressHistory(ctx context.Context, env *Env, args []string) int {
 	if len(rest) != 0 {
 		return fail(env, "stress history: usage is `ibkr stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]`")
 	}
-	params := rpc.CanaryHistoryParams{
+	params := rpc.StressHistoryParams{
 		Since:    strings.TrimSpace(*since),
 		Until:    strings.TrimSpace(*until),
 		Severity: strings.TrimSpace(*severity),
 		Action:   strings.TrimSpace(*action),
 		Limit:    *limit,
 	}
-	var res rpc.CanaryHistoryResult
-	if err := env.Conn.Call(ctx, rpc.MethodCanaryHistory, params, &res); err != nil {
+	var res rpc.StressHistoryResult
+	if err := env.Conn.Call(ctx, rpc.MethodStressHistory, params, &res); err != nil {
 		return fail(env, "stress history: %v", err)
 	}
 	if *jsonOut {
@@ -160,7 +160,7 @@ func runStressHistory(ctx context.Context, env *Env, args []string) int {
 // renderStressHistoryText prints the newest-first decision table plus the
 // index-freshness footer. Summaries are journal free text — truncated to
 // the terminal, never interpreted.
-func renderStressHistoryText(env *Env, out io.Writer, res *rpc.CanaryHistoryResult) {
+func renderStressHistoryText(env *Env, out io.Writer, res *rpc.StressHistoryResult) {
 	width := outputColumns(out)
 	if width < 60 {
 		width = 120

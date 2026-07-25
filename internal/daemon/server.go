@@ -2648,8 +2648,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleRegimeHistory(req) })
 	case rpc.MethodRulesHistory:
 		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(req) })
-	case rpc.MethodCanaryHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleCanaryHistory(req) })
+	case rpc.MethodStressHistory:
+		s.unary(req, enc, func() (any, error) { return s.handleStressHistory(req) })
 	case rpc.MethodReconEquity:
 		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(req) })
 	case rpc.MethodMarketEventsSnapshot:

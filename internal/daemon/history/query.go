@@ -33,9 +33,9 @@ type RulesQuery struct {
 	Limit int
 }
 
-// CanaryQuery filters CanaryHistory; Severity and Action filter on the
+// StressQuery filters StressHistory; Severity and Action filter on the
 // journal's exact words. Same boundary semantics as RegimeQuery.
-type CanaryQuery struct {
+type StressQuery struct {
 	Since    time.Time
 	Until    time.Time
 	Severity string
@@ -158,10 +158,10 @@ FROM rule_transitions`+where+" ORDER BY at_unix_ms DESC, id DESC LIMIT ?", appen
 	return entries, total, tx.Commit()
 }
 
-// CanaryHistory returns indexed canary decisions in [Since, Until),
+// StressHistory returns indexed stress decisions in [Since, Until),
 // newest first, plus the total match count before the limit cut. Summary
 // text is journal evidence for display, never parsed into authority.
-func (s *Store) CanaryHistory(q CanaryQuery) ([]rpc.CanaryHistoryEntry, int, error) {
+func (s *Store) StressHistory(q StressQuery) ([]rpc.StressHistoryEntry, int, error) {
 	where := " WHERE at_unix_ms >= ? AND at_unix_ms < ?"
 	args := []any{q.Since.UnixMilli(), q.Until.UnixMilli()}
 	if q.Severity != "" {
@@ -178,17 +178,17 @@ func (s *Store) CanaryHistory(q CanaryQuery) ([]rpc.CanaryHistoryEntry, int, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	var total int
-	if err := tx.QueryRow("SELECT COUNT(*) FROM canary_transitions"+where, args...).Scan(&total); err != nil {
+	if err := tx.QueryRow("SELECT COUNT(*) FROM stress_transitions"+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := tx.Query(`SELECT at, at_unix_ms, session_key, fingerprint, account, account_mode, action, severity, direction,
  market_stage, portfolio_alert_relevant, input_health, summary
-FROM canary_transitions`+where+" ORDER BY at_unix_ms DESC, id DESC LIMIT ?", append(args, q.Limit)...)
+FROM stress_transitions`+where+" ORDER BY at_unix_ms DESC, id DESC LIMIT ?", append(args, q.Limit)...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-	var entries []rpc.CanaryHistoryEntry
+	var entries []rpc.StressHistoryEntry
 	for rows.Next() {
 		var at sql.NullString
 		var atMS int64
@@ -198,7 +198,7 @@ FROM canary_transitions`+where+" ORDER BY at_unix_ms DESC, id DESC LIMIT ?", app
 			&stage, &alertRelevant, &inputHealth, &summary); err != nil {
 			return nil, 0, err
 		}
-		entry := rpc.CanaryHistoryEntry{
+		entry := rpc.StressHistoryEntry{
 			At:          parseJournalTime(at.String, atMS),
 			SessionKey:  sessionKey.String,
 			Fingerprint: fingerprint.String,
@@ -466,7 +466,7 @@ func (s *Store) Health(source string) (rpc.HistoryIndexHealth, error) {
 		journalPath = s.opts.RegimeJournalPath
 	case sourceRules:
 		journalPath = s.opts.RulesJournalPath
-	case sourceCanary:
+	case sourceStress:
 		journalPath = s.opts.CanaryJournalPath
 	case sourceCapital:
 		journalPath = s.opts.CapitalJournalPath

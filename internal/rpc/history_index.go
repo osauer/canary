@@ -113,14 +113,14 @@ type RulesHistoryResult struct {
 	Index      HistoryIndexHealth    `json:"index"`
 }
 
-// MethodCanaryHistory serves the post-cutover canary-decision timeline from
+// MethodStressHistory serves the post-cutover stress-decision timeline from
 // daemon.db. Read-only event evidence — nothing here touches submit eligibility
 // or any broker-write path.
-const MethodCanaryHistory = "canary.history"
+const MethodStressHistory = "stress.history"
 
-// CanaryHistoryParams selects a window of persisted canary decisions;
+// StressHistoryParams selects a window of persisted stress decisions;
 // boundary and limit semantics match RegimeHistoryParams.
-type CanaryHistoryParams struct {
+type StressHistoryParams struct {
 	Since string `json:"since,omitempty"`
 	Until string `json:"until,omitempty"`
 	// Severity filters on the exact decision severity word (for example
@@ -132,9 +132,9 @@ type CanaryHistoryParams struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// CanaryHistoryEntry is one persisted canary decision. Summary is event free
+// StressHistoryEntry is one persisted stress decision. Summary is event free
 // text for display, never parsed into authority.
-type CanaryHistoryEntry struct {
+type StressHistoryEntry struct {
 	At          time.Time `json:"at"`
 	SessionKey  string    `json:"session_key,omitempty"`
 	Fingerprint string    `json:"fingerprint,omitempty"`
@@ -151,13 +151,13 @@ type CanaryHistoryEntry struct {
 	Summary                string `json:"summary,omitempty"`
 }
 
-// CanaryHistoryResult is the canary.history envelope — the phase-1 history
-// envelope with canary entries.
-type CanaryHistoryResult struct {
+// StressHistoryResult is the stress.history envelope — the phase-1 history
+// envelope with stress entries.
+type StressHistoryResult struct {
 	AsOf       time.Time            `json:"as_of"`
 	Since      time.Time            `json:"since"`
 	Until      time.Time            `json:"until"`
-	Entries    []CanaryHistoryEntry `json:"entries"`
+	Entries    []StressHistoryEntry `json:"entries"`
 	Count      int                  `json:"count"`
 	TotalCount int                  `json:"total_count"`
 	Limit      int                  `json:"limit"`

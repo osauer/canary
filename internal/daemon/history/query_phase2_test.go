@@ -6,19 +6,19 @@ import (
 	"time"
 )
 
-func TestCanaryHistoryQuerySemantics(t *testing.T) {
+func TestStressHistoryQuerySemantics(t *testing.T) {
 	t.Parallel()
 	opts := testOptions(t)
 	writeJournal(t, opts.CanaryJournalPath, readTestdata(t, "canary-decisions.jsonl"))
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 
-	window := CanaryQuery{
+	window := StressQuery{
 		Since: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Until: time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC),
 		Limit: 50,
 	}
-	entries, total, err := s.CanaryHistory(window)
+	entries, total, err := s.StressHistory(window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCanaryHistoryQuerySemantics(t *testing.T) {
 	}
 
 	window.Severity = "act"
-	entries, total, err = s.CanaryHistory(window)
+	entries, total, err = s.StressHistory(window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestCanaryHistoryQuerySemantics(t *testing.T) {
 	}
 	window.Severity = ""
 	window.Action = "watch"
-	entries, total, err = s.CanaryHistory(window)
+	entries, total, err = s.StressHistory(window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestCanaryHistoryQuerySemantics(t *testing.T) {
 	// Limit cut keeps total honest.
 	window.Action = ""
 	window.Limit = 1
-	entries, total, err = s.CanaryHistory(window)
+	entries, total, err = s.StressHistory(window)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestHealthPhase2Sources(t *testing.T) {
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 
-	for _, source := range []string{"regime", "rules", "canary", "capital", "risk_policy", "proposal_outcomes", "orders"} {
+	for _, source := range []string{"regime", "rules", "stress", "capital", "risk_policy", "proposal_outcomes", "orders"} {
 		if _, err := s.Health(source); err != nil {
 			t.Errorf("Health(%s): %v", source, err)
 		}

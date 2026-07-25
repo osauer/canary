@@ -39,15 +39,15 @@ func testCanaryResult(key string) *rpc.StressResult {
 
 // TestHistoryIndexCanaryRoundTrip is the canary writer→parser drift
 // guard: a decision journaled by the REAL canaryDecisionJournal must come
-// back from canary.history with the same fields.
+// back from stress.history with the same fields.
 func TestHistoryIndexCanaryRoundTrip(t *testing.T) {
 	s := newHistoryIndexServer(t)
 	now := time.Now()
 	s.journalCanaryDecision(testCanaryResult("sha256:canary-roundtrip"))
 
-	var got rpc.CanaryHistoryResult
+	var got rpc.StressHistoryResult
 	waitForHistory(t, func() (bool, error) {
-		out, err := s.handleCanaryHistory(&rpc.Request{})
+		out, err := s.handleStressHistory(&rpc.Request{})
 		if err != nil {
 			return false, err
 		}

@@ -21,7 +21,7 @@ import (
 )
 
 // Legacy rotation engine. Only the three
-// decision journals (regime/rules/canary) are rotatable. Rotation
+// decision journals (regime/rules/stress) are rotatable. Rotation
 // compresses a fully-ingested byte prefix of the live journal into
 // immutable per-month gzip archives under rotated/ and rewrites the live
 // file to its tail — it relocates evidence, it NEVER deletes it. The
@@ -41,7 +41,7 @@ var errArchiveBoundaryConflict = errors.New("archive boundary conflict")
 // that excludes its writer while the live file is swapped. The history
 // package stays daemon-import-free: the daemon hands the lockers in.
 type RotationSource struct {
-	// Name is the ingest source name ("regime", "rules", "canary").
+	// Name is the ingest source name ("regime", "rules", "stress").
 	Name string
 	// Locker serializes the journal's open-write-close append path.
 	Locker sync.Locker
@@ -1379,6 +1379,66 @@ func validateRotationArchives(def sourceDef, cut int64, archives []rotationArchi
 		return fmt.Errorf("archive raw bytes total %d, want cut %d", total, cut)
 	}
 	return nil
+}
+
+// legacyCanaryManifestSource is the pre-rename name of the stress ingest
+// source. It survives in exactly one place a schema migration cannot
+// reach: a .rotation-intent-<source>.json a pre-rename build left pending
+// on disk. Adopting that file is not optional housekeeping — the cutover
+// path treats an unresolvable rotation intent as a hard startup failure,
+// so an unadopted one would refuse to open the authority store.
+const legacyCanaryManifestSource = "canary"
+
+// adoptLegacyCanaryManifest carries a pending canary-named rotation intent
+// over to the current source name, rewriting the source field inside it.
+// The current-name file is written and fsynced before the legacy one is
+// removed, so a crash mid-adoption leaves both: the next pass recognizes
+// its own earlier copy by the cut it describes and finishes the removal.
+// Two intents describing different cuts cannot arise from the protocol, so
+// that case is left alone and disclosed rather than resolved by guess —
+// the legacy file's archives may be the only copy of a journal prefix.
+func (s *Store) adoptLegacyCanaryManifest() {
+	if s.opts.RotatedDir == "" {
+		return
+	}
+	legacyPath := s.rotationManifestPath(legacyCanaryManifestSource)
+	raw, err := os.ReadFile(legacyPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			s.warnf("history: legacy rotation intent %s is unreadable: %v; leaving it in place", filepath.Base(legacyPath), err)
+		}
+		return
+	}
+	var m rotationManifest
+	if err := json.Unmarshal(raw, &m); err != nil || m.Source != legacyCanaryManifestSource {
+		s.warnf("history: legacy rotation intent %s is not a %s intent (%v); leaving it in place",
+			filepath.Base(legacyPath), legacyCanaryManifestSource, err)
+		return
+	}
+	m.Source = sourceStress
+	if _, err := os.Lstat(s.rotationManifestPath(sourceStress)); err == nil {
+		adopted, rerr := s.readRotationManifest(s.rotationManifestPath(sourceStress))
+		if rerr != nil || !sameRotationCut(adopted, m) {
+			s.warnf("history: rotation intents exist under both the %s and %s names and do not describe the same cut (%v); leaving %s in place",
+				legacyCanaryManifestSource, sourceStress, rerr, filepath.Base(legacyPath))
+			return
+		}
+	} else if err := s.writeRotationManifest(m); err != nil {
+		s.warnf("history: cannot adopt legacy rotation intent %s: %v; leaving it in place", filepath.Base(legacyPath), err)
+		return
+	}
+	if err := s.removeRotationManifest(legacyCanaryManifestSource); err != nil {
+		s.warnf("history: cannot remove adopted legacy rotation intent %s: %v", filepath.Base(legacyPath), err)
+		return
+	}
+	s.infof("history: adopted legacy rotation intent %s as %s", filepath.Base(legacyPath), filepath.Base(s.rotationManifestPath(sourceStress)))
+}
+
+// sameRotationCut reports whether two manifests describe the same cut of
+// the same journal bytes — the identity an adoption preserves.
+func sameRotationCut(a, b rotationManifest) bool {
+	return a.CutBytes == b.CutBytes && a.LiveSize == b.LiveSize && a.BaseBefore == b.BaseBefore &&
+		a.PreSHA256 == b.PreSHA256 && a.PostSHA256 == b.PostSHA256
 }
 
 func (s *Store) removeRotationManifest(source string) error {

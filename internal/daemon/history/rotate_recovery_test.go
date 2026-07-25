@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -58,6 +59,120 @@ func TestRotationRecoverySurvivesDatabaseDeletion(t *testing.T) {
 				t.Fatalf("rebuilt rows = %d, want %d", len(rows), strings.Count(original, "\n"))
 			}
 		})
+	}
+}
+
+// TestAdoptLegacyCanaryRotationManifest pins the on-disk half of the
+// stress rename: an intent a pre-rename build left pending is carried to
+// the current name at Open, so recovery still resolves it. Left unadopted
+// it would be unresolvable, and the cutover path fails startup on exactly
+// that. The fixture is a REAL pending manifest produced by a crashed
+// rotation, then renamed back to the pre-rename shape.
+func TestAdoptLegacyCanaryRotationManifest(t *testing.T) {
+	t.Parallel()
+	opts := testOptions(t)
+	original := buildMonthlyJournal(t, opts.CanaryJournalPath, []string{"2026-04", "2026-05", "2026-06"}, 3)
+	s := openTestStore(t, opts)
+	s.ingestAll(context.Background())
+	s.rotateFailpoint = func(stage string) error {
+		if stage == "renamed" {
+			return errors.New("injected crash")
+		}
+		return nil
+	}
+	s.RotateAll(context.Background(), stressRotationSource(), 2, rotationNow)
+	pending, err := s.readRotationManifest(s.rotationManifestPath(sourceStress))
+	if err != nil {
+		t.Fatalf("no durable rotation manifest to age back: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Age the artifact back to what a pre-rename build wrote.
+	legacyPath := s.rotationManifestPath(legacyCanaryManifestSource)
+	legacy := pending
+	legacy.Source = legacyCanaryManifestSource
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(s.rotationManifestPath(sourceStress)); err != nil {
+		t.Fatal(err)
+	}
+
+	s2 := openTestStore(t, opts)
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy rotation intent survived adoption: %v", err)
+	}
+	adopted, err := s2.readRotationManifest(s2.rotationManifestPath(sourceStress))
+	if err != nil {
+		t.Fatalf("adopted rotation intent unreadable: %v", err)
+	}
+	if adopted.Source != sourceStress || !sameRotationCut(adopted, pending) {
+		t.Fatalf("adopted intent = %+v, want the same cut under source %q", adopted, sourceStress)
+	}
+
+	// The adopted intent is recoverable, and the evidence stream is intact.
+	s2.RecoverRotations(stressRotationSource())
+	if _, err := os.Stat(s2.rotationManifestPath(sourceStress)); !os.IsNotExist(err) {
+		t.Fatalf("adopted intent survived successful recovery: %v", err)
+	}
+	if got := reconstructStream(t, opts, opts.CanaryJournalPath); got != original {
+		t.Fatal("stream differs after adopting and recovering the legacy intent")
+	}
+}
+
+// TestAdoptLegacyCanaryRotationManifestKeepsConflictingIntent pins the
+// fail-closed branch: two intents describing different cuts are never
+// resolved by guess, because the legacy file's archives may be the only
+// copy of a journal prefix.
+func TestAdoptLegacyCanaryRotationManifestKeepsConflictingIntent(t *testing.T) {
+	t.Parallel()
+	opts := testOptions(t)
+	buildMonthlyJournal(t, opts.CanaryJournalPath, []string{"2026-04", "2026-05", "2026-06"}, 3)
+	s := openTestStore(t, opts)
+	s.ingestAll(context.Background())
+	s.rotateFailpoint = func(stage string) error {
+		if stage == "renamed" {
+			return errors.New("injected crash")
+		}
+		return nil
+	}
+	s.RotateAll(context.Background(), stressRotationSource(), 2, rotationNow)
+	pending, err := s.readRotationManifest(s.rotationManifestPath(sourceStress))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := pending
+	legacy.Source = legacyCanaryManifestSource
+	legacy.CutBytes-- // a different cut than the current-name intent
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := s.rotationManifestPath(legacyCanaryManifestSource)
+	if err := os.WriteFile(legacyPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s2 := openTestStore(t, opts)
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("conflicting legacy intent was removed: %v", err)
+	}
+	kept, err := s2.readRotationManifest(s2.rotationManifestPath(sourceStress))
+	if err != nil {
+		t.Fatalf("current-name intent disturbed: %v", err)
+	}
+	if !sameRotationCut(kept, pending) {
+		t.Fatalf("current-name intent overwritten: %+v", kept)
 	}
 }
 
@@ -299,4 +414,10 @@ func TestRotationManifestRejectsUnsafeArchives(t *testing.T) {
 	if err := validateRotationArchives(def, 11, []rotationArchive{valid}); err == nil {
 		t.Fatal("archive raw-byte total differing from cut was accepted")
 	}
+}
+
+// stressRotationSource binds the stress journal to a standalone lock, the
+// rotation-test counterpart of regimeRotationSource.
+func stressRotationSource() []RotationSource {
+	return []RotationSource{{Name: sourceStress, Locker: &sync.Mutex{}}}
 }

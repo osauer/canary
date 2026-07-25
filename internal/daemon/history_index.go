@@ -148,7 +148,7 @@ func (s *Server) historyRotationSources() []history.RotationSource {
 	}
 	sources = append(sources, history.RotationSource{Name: "rules", Locker: &s.rulesJournalMu})
 	if s.canaryDecisions != nil {
-		sources = append(sources, history.RotationSource{Name: "canary", Locker: &s.canaryDecisions.mu})
+		sources = append(sources, history.RotationSource{Name: "stress", Locker: &s.canaryDecisions.mu})
 	}
 	return sources
 }
@@ -379,8 +379,8 @@ func historyIndexLimitBounded(limit, def, maxLimit int) (int, error) {
 	return limit, nil
 }
 
-func (s *Server) handleCanaryHistory(req *rpc.Request) (*rpc.CanaryHistoryResult, error) {
-	var p rpc.CanaryHistoryParams
+func (s *Server) handleStressHistory(req *rpc.Request) (*rpc.StressHistoryResult, error) {
+	var p rpc.StressHistoryParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
 	}
@@ -394,14 +394,14 @@ func (s *Server) handleCanaryHistory(req *rpc.Request) (*rpc.CanaryHistoryResult
 		return nil, err
 	}
 	var (
-		entries []rpc.CanaryHistoryEntry
+		entries []rpc.StressHistoryEntry
 		total   int
 		health  rpc.HistoryIndexHealth
 	)
 	if s.coreStore != nil {
-		entries, total, err = s.sqliteCanaryHistory(context.Background(), since, until, strings.TrimSpace(p.Severity), strings.TrimSpace(p.Action), limit)
+		entries, total, err = s.sqliteStressHistory(context.Background(), since, until, strings.TrimSpace(p.Severity), strings.TrimSpace(p.Action), limit)
 		if err != nil {
-			s.logger.Warnf("daemon authority: canary history query failed: %v", err)
+			s.logger.Warnf("daemon authority: stress history query failed: %v", err)
 			return nil, errHistoryIndexUnavailable
 		}
 	} else {
@@ -409,21 +409,21 @@ func (s *Server) handleCanaryHistory(req *rpc.Request) (*rpc.CanaryHistoryResult
 		if store == nil {
 			return nil, errHistoryIndexUnavailable
 		}
-		entries, total, err = store.CanaryHistory(history.CanaryQuery{
+		entries, total, err = store.StressHistory(history.StressQuery{
 			Since: since, Until: until, Severity: strings.TrimSpace(p.Severity), Action: strings.TrimSpace(p.Action), Limit: limit,
 		})
 		if err != nil {
 			return nil, errHistoryIndexUnavailable
 		}
-		health, err = store.Health("canary")
+		health, err = store.Health("stress")
 		if err != nil {
 			return nil, errHistoryIndexUnavailable
 		}
 	}
 	if entries == nil {
-		entries = []rpc.CanaryHistoryEntry{} // JSON [] like orders.history, never null
+		entries = []rpc.StressHistoryEntry{} // JSON [] like orders.history, never null
 	}
-	return &rpc.CanaryHistoryResult{
+	return &rpc.StressHistoryResult{
 		AsOf:       now,
 		Since:      since,
 		Until:      until,

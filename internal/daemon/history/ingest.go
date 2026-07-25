@@ -21,7 +21,7 @@ const (
 	// Source names key ingest_sources rows, Health lookups, and rotation.
 	sourceRegime           = "regime"
 	sourceRules            = "rules"
-	sourceCanary           = "canary"
+	sourceStress           = "stress"
 	sourceCapital          = "capital"
 	sourceRiskPolicy       = "risk_policy"
 	sourceProposalOutcomes = "proposal_outcomes"
@@ -57,7 +57,7 @@ type sourceDef struct {
 	// maintenance loop may rotate its fully-ingested prefix.
 	rotatable bool
 	// tsField is the journal timestamp key the rotation cut parses ("ts"
-	// for regime/canary, "at" for rules). Empty for non-rotatable sources.
+	// for regime/stress, "at" for rules). Empty for non-rotatable sources.
 	tsField string
 }
 
@@ -82,11 +82,11 @@ func (s *Store) sources() []sourceDef {
 			tsField:    "at",
 		},
 		{
-			name:       sourceCanary,
+			name:       sourceStress,
 			path:       s.opts.CanaryJournalPath,
-			dropTables: []string{"canary_transitions"},
-			createDDL:  canaryDDL,
-			insertLine: insertCanaryLine,
+			dropTables: []string{"stress_transitions"},
+			createDDL:  stressDDL,
+			insertLine: insertStressLine,
 			rotatable:  true,
 			tsField:    "ts",
 		},
@@ -563,10 +563,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	return err
 }
 
-// canaryLine is the minimal decode of one canary-decisions.jsonl line
+// stressLine is the minimal decode of one canary-decisions.jsonl line
 // (writer: internal/daemon/canary_decisions.go; drift pinned by daemon
 // round-trip tests).
-type canaryLine struct {
+type stressLine struct {
 	TS                     string `json:"ts"`
 	SessionKey             string `json:"session_key"`
 	Fingerprint            string `json:"fingerprint"`
@@ -585,8 +585,8 @@ type canaryLine struct {
 	} `json:"market"`
 }
 
-func insertCanaryLine(tx *sql.Tx, srcOffset int64, line []byte, replay bool) error {
-	var l canaryLine
+func insertStressLine(tx *sql.Tx, srcOffset int64, line []byte, replay bool) error {
+	var l stressLine
 	if err := json.Unmarshal(line, &l); err != nil {
 		return &lineParseError{err: err}
 	}
@@ -594,7 +594,7 @@ func insertCanaryLine(tx *sql.Tx, srcOffset int64, line []byte, replay bool) err
 	if err != nil {
 		return &lineParseError{err: fmt.Errorf("ts %q: %w", l.TS, err)}
 	}
-	_, err = tx.Exec(insertVerb(replay)+` INTO canary_transitions
+	_, err = tx.Exec(insertVerb(replay)+` INTO stress_transitions
 (src_offset, at, at_unix_ms, session_key, fingerprint, account, account_mode, action, severity, direction, market_stage,
  portfolio_alert_relevant, input_health, summary, raw_json)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

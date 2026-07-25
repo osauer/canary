@@ -133,7 +133,7 @@ FROM proposal_outcomes WHERE src_offset = 0`).Scan(&state, &key, &symbol, &finge
 	}
 }
 
-func TestGoldenIngestCanary(t *testing.T) {
+func TestGoldenIngestStress(t *testing.T) {
 	t.Parallel()
 	opts := testOptions(t)
 	golden := readTestdata(t, "canary-decisions.jsonl")
@@ -141,14 +141,14 @@ func TestGoldenIngestCanary(t *testing.T) {
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 
-	if got := countRows(t, s, "canary_transitions"); got != 3 {
-		t.Fatalf("canary_transitions rows = %d, want 3", got)
+	if got := countRows(t, s, "stress_transitions"); got != 3 {
+		t.Fatalf("stress_transitions rows = %d, want 3", got)
 	}
 	lines := strings.Split(strings.TrimSuffix(golden, "\n"), "\n")
 	var at, sessionKey, fingerprint, account, mode, action, severity, direction, stage, health, summary, raw string
 	var alertRelevant *bool
 	err := s.db.QueryRow(`SELECT at, session_key, fingerprint, account, account_mode, action, severity, direction, market_stage,
- portfolio_alert_relevant, input_health, summary, raw_json FROM canary_transitions WHERE src_offset = 0`).
+ portfolio_alert_relevant, input_health, summary, raw_json FROM stress_transitions WHERE src_offset = 0`).
 		Scan(&at, &sessionKey, &fingerprint, &account, &mode, &action, &severity, &direction, &stage, &alertRelevant, &health, &summary, &raw)
 	if err != nil {
 		t.Fatal(err)
@@ -170,14 +170,14 @@ func TestGoldenIngestCanary(t *testing.T) {
 	}
 	// Unstamped line → NULL.
 	var minimalRelevant *bool
-	if err := s.db.QueryRow(`SELECT portfolio_alert_relevant FROM canary_transitions WHERE fingerprint = 'sha256:calm'`).Scan(&minimalRelevant); err != nil {
+	if err := s.db.QueryRow(`SELECT portfolio_alert_relevant FROM stress_transitions WHERE fingerprint = 'sha256:calm'`).Scan(&minimalRelevant); err != nil {
 		t.Fatal(err)
 	}
 	if minimalRelevant != nil {
 		t.Errorf("unstamped portfolio_alert_relevant = %v, want NULL", minimalRelevant)
 	}
 	var falseRelevant *bool
-	if err := s.db.QueryRow(`SELECT portfolio_alert_relevant FROM canary_transitions WHERE fingerprint = 'sha256:defend'`).Scan(&falseRelevant); err != nil {
+	if err := s.db.QueryRow(`SELECT portfolio_alert_relevant FROM stress_transitions WHERE fingerprint = 'sha256:defend'`).Scan(&falseRelevant); err != nil {
 		t.Fatal(err)
 	}
 	if falseRelevant == nil || *falseRelevant {
