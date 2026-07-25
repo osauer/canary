@@ -187,6 +187,42 @@ func VerifyBackup(ctx context.Context, path string, minimum AuthorityHead) (Back
 	return verifyBackupWithPlan(ctx, path, minimum, len(plan), plan)
 }
 
+// VerifySealedBackup verifies a backup that was sealed at whatever schema
+// version was current when it was written. A sealed artifact is frozen, so
+// requiring it to match today's version makes every future migration fail
+// startup once a sealed backup exists. Genuineness is proved instead by its
+// migration ledger being a valid, checksum-matching prefix of the current
+// plan, which validateSchemaLedgerWithPlan already checks.
+func VerifySealedBackup(ctx context.Context, path string, minimum AuthorityHead) (BackupInfo, error) {
+	plan := currentMigrationPlan()
+	version, err := sealedBackupSchemaVersion(ctx, path)
+	if err != nil {
+		return BackupInfo{}, err
+	}
+	if version < 1 || version > len(plan) {
+		return BackupInfo{}, fmt.Errorf("sealed backup schema version %d is outside the known migration plan", version)
+	}
+	return verifyBackupWithPlan(ctx, path, minimum, version, plan)
+}
+
+func sealedBackupSchemaVersion(ctx context.Context, path string) (int, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return 0, err
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(abs, defaultBusyTimeout, true))
+	if err != nil {
+		return 0, fmt.Errorf("open sealed backup for verification: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	var version int
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return 0, fmt.Errorf("read sealed backup schema version: %w", err)
+	}
+	return version, nil
+}
+
 func verifyBackupWithPlan(ctx context.Context, path string, minimum AuthorityHead, expectedVersion int, plan []migration) (BackupInfo, error) {
 	path, err := filepath.Abs(path)
 	if err != nil {

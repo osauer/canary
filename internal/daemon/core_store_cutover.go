@@ -496,7 +496,11 @@ func ensureCutoverBackup(ctx context.Context, store *corestore.Store, path strin
 	} else if err != nil {
 		return fmt.Errorf("inspect final cutover backup: %w", err)
 	}
-	if _, err := corestore.VerifyBackup(ctx, path, minimum); err != nil {
+	// The cutover backup is sealed at the version that was current when the
+	// cutover ran, so it is verified against its own version rather than
+	// today's. Demanding equality with the current version would turn every
+	// later migration into a permanent startup failure.
+	if _, err := corestore.VerifySealedBackup(ctx, path, minimum); err != nil {
 		return fmt.Errorf("verify final cutover backup: %w", err)
 	}
 	return nil
