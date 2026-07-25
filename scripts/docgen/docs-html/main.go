@@ -289,12 +289,12 @@ var pages = []pageSpec{
 
 	// ---- Reference ---------------------------------------------------------
 	{
-		Section:  "reference",
-		Page:     "docs/docs/reference/cli.html",
-		NavTitle: "CLI reference",
-		Summary:  "Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.",
-		Status:   statusPlanned,
-		Draft:    "internal-docs/drafts/reference-cli.md",
+		Source:      "docs/docs/reference/cli.md",
+		Section:     "reference",
+		NavTitle:    "CLI reference",
+		Summary:     "Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.",
+		Description: "Generated reference for every ibkr subcommand, with its usage line, flags, subcommands, guard class, and MCP counterpart.",
+		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/reference/mcp-tools.md",

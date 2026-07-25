@@ -435,13 +435,16 @@ modernize: ## Apply go fix + modernize rewrites in place
 # Regenerate the docs/reference/*.md pages from their generators. The
 # generators live under scripts/docgen/; each emits one markdown file
 # from the canonical source (Go struct tags + `// docgen:env` comments
-# for config-ref; the internal/mcp.Tools registry for mcp-tools). Run
-# this after editing internal/config/config.go, internal/mcp/tools.go,
-# or adding/changing a // docgen:env comment, and commit the diff
-# alongside the source change. `make docs-check` enforces no drift.
+# for config-ref; the internal/mcp.Tools registry for mcp-tools; the
+# internal/cli command registry for cli-ref). Run this after editing
+# internal/config/config.go, internal/mcp/tools.go, internal/cli/cli.go,
+# internal/cli/catalog.go, or adding/changing a // docgen:env comment, and
+# commit the diff alongside the source change. `make docs-check` enforces
+# no drift.
 docs-regen: ## Regenerate docs/reference/*.md and their public HTML derivatives
 	go run ./scripts/docgen/config-ref
 	go run ./scripts/docgen/mcp-tools
+	go run ./scripts/docgen/cli-ref
 	go run ./scripts/check-mcp-server-card -write
 	cp docs/mcp-server.json docs/.well-known/mcp/server.json
 	go run ./scripts/docgen/docs-html
@@ -452,7 +455,7 @@ docs-regen: ## Regenerate docs/reference/*.md and their public HTML derivatives
 # be skipped. Uses POSIX tempfiles (not bash process substitution) so
 # the recipe runs under /bin/sh on every host.
 docs-check: ## Verify checked-in docs/reference/*.md match what the generators emit
-	@go test ./scripts/docgen/config-ref
+	@go test ./scripts/docgen/config-ref ./scripts/docgen/cli-ref
 	@go run ./scripts/check-mcp-server-card
 	@cmp -s docs/mcp-server.json docs/.well-known/mcp/server.json || { \
 		echo "docs-check: docs/.well-known/mcp/server.json differs from canonical docs/mcp-server.json" >&2; \
@@ -461,10 +464,11 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 	}
 	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	fail=0; \
-	for gen in config-ref mcp-tools; do \
+	for gen in config-ref mcp-tools cli-ref; do \
 		case $$gen in \
 			config-ref) ref=docs/docs/reference/config.md ;; \
 			mcp-tools) ref=docs/docs/reference/mcp-tools.md ;; \
+			cli-ref) ref=docs/docs/reference/cli.md ;; \
 		esac; \
 		go run ./scripts/docgen/$$gen -o "$$tmp/$$gen.md" || exit 1; \
 		if ! diff -u "$$ref" "$$tmp/$$gen.md" > /dev/null 2>&1; then \
