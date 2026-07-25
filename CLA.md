@@ -129,6 +129,25 @@ request with exactly:
 I have read the CLA Document and I hereby sign the CLA
 ```
 
-Your GitHub username and the time of signing are recorded publicly in the
-`cla-signatures` branch of this repository. No other personal data is
-collected. You sign once; later pull requests are recognized automatically.
+## What is recorded
+
+Signing is a public act: your comment appears on a public pull request in a
+public repository. The record kept alongside it is an index of that same
+public event.
+
+Stored on the `cla-signatures` branch of this repository, and readable by
+anyone: your GitHub username, your numeric GitHub user ID, the number of the
+pull request you signed on, the identifier and text of your signing comment,
+and the time you signed. No email address, real name, or IP address is
+collected.
+
+After a signed pull request is merged, its conversation is locked so that a
+signature comment cannot be edited or deleted afterwards.
+
+You sign once. Later pull requests are recognized automatically.
+
+The Maintainer is the controller for this data. It is processed to administer
+this agreement, on the basis of Article 6(1)(b) GDPR. Because the record
+exists to establish and defend legal claims about the licenses you granted,
+Article 17(3)(e) GDPR applies and erasure requests will normally be declined
+for as long as the contribution remains in the project.

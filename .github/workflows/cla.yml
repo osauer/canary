@@ -46,3 +46,8 @@ jobs:
             and sign it by posting a comment on this pull request with exactly:
           custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
           custom-allsigned-prcomment: CLA signed. Thanks.
+          # Locks the conversation once a signed pull request is merged, so a
+          # signature comment cannot be edited or deleted later. This is the
+          # action's default; it is set explicitly because the comment is the
+          # evidence that consent was given.
+          lock-pullrequest-aftermerge: true
