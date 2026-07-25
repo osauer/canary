@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.5.0 — 2026-07-25 21:47 CEST
+
+### Changed
+
+- **The portfolio canary is now the portfolio stress read.** The product is still called Canary; the sensor inside it was sharing that name, which made "the canary says watch" ambiguous the moment the app and the measurement were discussed in the same sentence. Every surface a person or an agent touches moves: `ibkr canary` becomes `ibkr stress`, `ibkr canary history` becomes `ibkr stress history`, `ibkr backtest canary` becomes `ibkr backtest stress`, and the MCP tool `ibkr_canary` becomes `ibkr_stress`. The app, the wordmark, the paired PWA, and the SPA's element ids and CSS classes keep the Canary name.
+- **Two things you must edit yourself.** In `~/.config/ibkr/policies/risk-policy.toml`, rename the `[inventory.canary]` section to `[inventory.stress]` and increment `policy_version`. The manager rejects unknown keys, so a policy file left on the old name does not load at all, and it reports drift rather than adopting an edited file at an unchanged version. Nothing else in the file changes, and none of your capital numbers move. Separately, if you use the Codex integration, its rules allowlist changed and the hooks need inspecting and re-trusting in a new session before `ibkr stress` is permitted there.
+- **Everything else migrates on first start.** The history database renames its transitions table and rewrites its persisted source name at schema 4. The authority database renames the same table and relabels `canary_decision` events at schema 2, taking a verified backup first. Stored platform settings, the alert registry, and the app's delivery ledger each carry a document version that folds the old shape forward on read, so a journal you had switched off stays off and no open alert is re-observed. The fingerprint labels `canary-fp-v1`, `canary-fp-v2`, `canary-established-alert-v1`, and `canary-policy-fp-v1` become their `stress-` equivalents, and `canary_portfolio_stress` becomes `portfolio_stress`.
+- **Alert episodes re-key once.** The stress fingerprint hashes row titles, and the headline row was renamed, so open episodes reopen as fresh occurrences at the upgrade boundary and history rows do not join across it. This happens once. It is accepted deliberately rather than avoided, so the release carries a single discontinuity instead of spreading several across future versions.
+- **Three names are deliberately unchanged**, each because renaming them would cost something real. The decision journal on disk stays `canary-decisions.jsonl`: rotation derives its archive prefix from that basename, so renaming it would hide every existing rotated archive and turn a rotation left pending by a crash into a refusal to start. The alert `source` value and the episode identity `portfolio_canary` are both hashed into episode keys, and their identity inputs are not recoverable from any stored document, so renaming them would abandon every open episode and page you again for alerts you already hold.
+
+### Fixed
+
+- **The paired app's Alerts tab could not display anything.** The app pinned the alert ledger version one release behind the daemon, so every live payload failed validation and the inbox was closed against real data.
+- The published brief screenshot had been rendering an empty stress row, the command catalog offered a `backtest` subcommand the CLI rejected, and the shipped example prompt called a tool that no longer exists.
+- The documented stress-check statuses were wrong on the landing page: it listed watch, warn, and critical, which the sensor does not return. Storage documentation claimed one production migration when there are three, and the app page described push notifications as canary-specific when the delivery gate has been severity-based across nine producers since v2.3.0.
+
+### Security
+
+- Migrations may now carry an explicit, audited approval to run a destructive statement, which the sensor rename needed in order to rebuild append-only triggers around a table rename. The guard itself is unchanged and still refuses every destructive statement by default; an approval must name each statement and state a reason, and is rejected if it names a statement the migration does not run or one that is not destructive. Every shipped migration's checksum is now pinned by a test, so editing a released migration in place fails loudly instead of leaving existing databases unopenable.
+
 ## v2.4.0 — 2026-07-25 08:11 CEST
 
 ### What's new
