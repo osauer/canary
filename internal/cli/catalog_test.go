@@ -80,3 +80,30 @@ func TestOrderCatalogFlagsMatchHandlers(t *testing.T) {
 		t.Fatal("order catalog missing --trigger-method")
 	}
 }
+
+// The subcommands() helper stamps every name read-only, which is wrong for any
+// subcommand that writes. These two were wrong in exactly that way, and the
+// generated CLI reference now publishes the guard, so the mistake would be
+// visible to readers.
+func TestSubcommandGuardsMatchWhatTheyDo(t *testing.T) {
+	t.Parallel()
+	want := map[string]map[string]GuardClass{
+		"watch":    {"add": GuardLocal, "remove": GuardLocal, "clear": GuardLocal, "list": GuardReadOnly},
+		"settings": {"show": GuardReadOnly, "set": GuardConfirm},
+	}
+	for _, spec := range Catalog() {
+		expected, checked := want[spec.Name]
+		if !checked {
+			continue
+		}
+		got := map[string]GuardClass{}
+		for _, sub := range spec.Subcommands {
+			got[sub.Name] = sub.Guard
+		}
+		for name, guard := range expected {
+			if got[name] != guard {
+				t.Errorf("%s %s guard=%q, want %q", spec.Name, name, got[name], guard)
+			}
+		}
+	}
+}

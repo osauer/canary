@@ -196,7 +196,7 @@
 <tr>
 <td><a href="#ibkr-settings"><code>ibkr settings</code></a></td>
 <td>Runtime platform preferences and observed read-only state</td>
-<td><code>read-only</code></td>
+<td><code>confirm</code></td>
 <td>yes</td>
 </tr>
 <tr>
@@ -447,7 +447,35 @@ ibkr watch --watch --rate 1s
 ibkr watch SYM[,SYM…] --add|--remove
 ibkr watch --clear
 </code></pre>
-<p>Subcommands: <code>add</code>, <code>remove</code>, <code>list</code>, <code>clear</code>.</p>
+<p><strong>Subcommands</strong></p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Subcommand</th>
+<th>Guard</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>add</code></td>
+<td><code>local</code></td>
+</tr>
+<tr>
+<td><code>remove</code></td>
+<td><code>local</code></td>
+</tr>
+<tr>
+<td><code>list</code></td>
+<td><code>read-only</code></td>
+</tr>
+<tr>
+<td><code>clear</code></td>
+<td><code>local</code></td>
+</tr>
+</tbody>
+</table>
+</div>
 <p><strong>Flags</strong></p>
 <div class="tblwrap">
 <table>
@@ -1945,11 +1973,50 @@ ibkr trading paper-smoke [--timeout 30s] [--json]
 <h2 id="ibkr-settings"><code>ibkr settings</code></h2>
 <p>Runtime platform preferences and observed read-only state.</p>
 <p><code>show</code> reads. <code>set</code> writes a runtime preference, and the write path has its own gate: <code>trading.freeze</code> and the trading-limit keys are accepted only from an interactive human terminal, and agent and paired-device origins are rejected. The keys are listed in the <a href="config.html">configuration reference</a>.</p>
-<p>Guard <code>read-only</code>. Also available as an MCP tool.</p>
+<p>Guard <code>read-only</code>, with <code>confirm</code> subcommands. Also available as an MCP tool.</p>
 <pre><code class="language-text">ibkr settings show [--json]
 ibkr settings set &lt;supported-key&gt;=true|false|null|number
 </code></pre>
-<p><em>The catalog records no flags. Run <code>ibkr settings --help</code> for what the command parses.</em></p>
+<p><strong>Subcommands</strong></p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Subcommand</th>
+<th>Guard</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>show</code></td>
+<td><code>read-only</code></td>
+</tr>
+<tr>
+<td><code>set</code></td>
+<td><code>confirm</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Flags</strong></p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Takes a value</th>
+<th>Allowed values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>no</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+</div>
 <h2 id="ibkr-orders"><code>ibkr orders</code></h2>
 <p>Read current-context local order lifecycle state without transmitting orders.</p>
 <p>Guard <code>read-only</code>. Also available as an MCP tool.</p>

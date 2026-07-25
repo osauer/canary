@@ -39,7 +39,7 @@ The guard column says what a command does: `read-only` reads and prints, `local`
 | [`ibkr scan`](#ibkr-scan) | Run a scanner preset or an ad-hoc scan; dump the gateway catalog with `scan params` | `read-only` | yes |
 | [`ibkr size`](#ibkr-size) | Fixed-fractional position sizing pegged to live NLV | `read-only` | yes |
 | [`ibkr trading`](#ibkr-trading) | Local trading gate status and configuration | `confirm` | yes |
-| [`ibkr settings`](#ibkr-settings) | Runtime platform preferences and observed read-only state | `read-only` | yes |
+| [`ibkr settings`](#ibkr-settings) | Runtime platform preferences and observed read-only state | `confirm` | yes |
 | [`ibkr orders`](#ibkr-orders) | Read current-context local order lifecycle state without transmitting orders | `read-only` | yes |
 | [`ibkr order`](#ibkr-order) | Preview, place, modify, cancel, or inspect gated orders | `confirm` | yes |
 | [`ibkr app`](#ibkr-app) | Run the paired mobile PWA application layer | `local` | CLI only |
@@ -146,7 +146,14 @@ ibkr watch SYM[,SYM…] --add|--remove
 ibkr watch --clear
 ```
 
-Subcommands: `add`, `remove`, `list`, `clear`.
+**Subcommands**
+
+| Subcommand | Guard |
+|------------|-------|
+| `add` | `local` |
+| `remove` | `local` |
+| `list` | `read-only` |
+| `clear` | `local` |
 
 **Flags**
 
@@ -737,14 +744,25 @@ Runtime platform preferences and observed read-only state.
 
 `show` reads. `set` writes a runtime preference, and the write path has its own gate: `trading.freeze` and the trading-limit keys are accepted only from an interactive human terminal, and agent and paired-device origins are rejected. The keys are listed in the [configuration reference](config.md).
 
-Guard `read-only`. Also available as an MCP tool.
+Guard `read-only`, with `confirm` subcommands. Also available as an MCP tool.
 
 ```text
 ibkr settings show [--json]
 ibkr settings set <supported-key>=true|false|null|number
 ```
 
-*The catalog records no flags. Run `ibkr settings --help` for what the command parses.*
+**Subcommands**
+
+| Subcommand | Guard |
+|------------|-------|
+| `show` | `read-only` |
+| `set` | `confirm` |
+
+**Flags**
+
+| Flag | Takes a value | Allowed values |
+|------|---------------|----------------|
+| `--json` | no | - |
 
 ## `ibkr orders`
 

@@ -50,6 +50,11 @@ func commandNeedsConfirm(spec cli.CommandSpec, args []string) bool {
 		}
 	case "purge":
 		return purgeNeedsConfirm(args)
+	case "settings":
+		// `set` writes a runtime preference, and trading.freeze plus the
+		// trading-limit keys are accepted precisely because the TUI is an
+		// interactive human terminal. That makes the prompt worth having.
+		return len(args) > 0 && args[0] == "set"
 	case "restart":
 		return true
 	case "update":
