@@ -13,8 +13,8 @@ import (
 
 var rateLimiterLogger = logging.Component("IBKR RateLimiter")
 
-// RateLimiter manages rate limiting for IBKR API requests
-// Based on IBKR limits documented in docs/IBKR_limits.md
+// RateLimiter manages rate limiting for IBKR API requests. The IBKR limits it
+// enforces are recorded on the individual buckets and semaphores below.
 type RateLimiter struct {
 	// Token buckets for different rate limits
 	messageRate    *TokenBucket // General messages: 40/sec (safe from 50/sec max)

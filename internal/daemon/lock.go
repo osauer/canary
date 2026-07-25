@@ -24,7 +24,7 @@ type instanceLock struct {
 }
 
 // acquireInstanceLock takes a non-blocking exclusive flock on
-// <socketDir>/ibkrd.lock and writes the current PID. Returns
+// <socketDir>/ibkr.lock and writes the current PID. Returns
 // ErrAlreadyRunning if the lock is contended.
 func acquireInstanceLock(socketPath string) (*instanceLock, error) {
 	path := dial.LockPath(socketPath)
