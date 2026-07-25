@@ -15,6 +15,11 @@ const (
 	gammaClosedSessionCacheMaxAge = 24 * time.Hour
 	gammaMinPricedLegs            = 100
 	gammaMinGEXLegs               = 25
+	// Fan-out completeness bar. Healthy runs land 86-92% of requested legs;
+	// a timed-out 0DTE slice has landed as little as 34.6% and still cleared
+	// every absolute floor, because the other ratios divide by survivors.
+	// Below this bar the level is context only — never a confident number.
+	gammaContextFanoutPct = 70.0
 	gammaMinSPXOIObservedPct      = 95.0
 	gammaMinSPYOIObservedPct      = 50.0
 	gammaMinDefaultOIObservedPct  = 75.0
@@ -249,6 +254,13 @@ func gammaQualitySingleGates(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed
 			fmt.Sprintf("%d priced legs; need at least %d", cov.PricedLegs, gammaMinPricedLegs))
 	} else {
 		gammaQualityAddGate(q, "priced_leg_coverage", rpc.GammaQualityGatePass, "priced leg coverage sufficient")
+	}
+	if cov.RequestedLegs > 0 && cov.FanoutCompletePct < gammaContextFanoutPct {
+		gammaQualityAddGate(q, "fanout_coverage", rpc.GammaQualityGateContext,
+			fmt.Sprintf("%.1f%% of requested legs priced (%d/%d); need %.0f%% to rank a level",
+				cov.FanoutCompletePct, cov.PricedLegs, cov.RequestedLegs, gammaContextFanoutPct))
+	} else if cov.RequestedLegs > 0 {
+		gammaQualityAddGate(q, "fanout_coverage", rpc.GammaQualityGatePass, "option chain fan-out sufficiently complete")
 	}
 	if cov.GEXLegs < gammaMinGEXLegs {
 		gammaQualityAddGate(q, "gex_leg_coverage", rpc.GammaQualityGateBlock,
@@ -515,6 +527,13 @@ func gammaQualityCoverageNumbers(c *rpc.GammaZeroComputed, priced, oiObserved, o
 	}
 	out.OIObservedPct = percent(float64(oiObserved), float64(priced))
 	out.OIPositivePct = percent(float64(oiPositive), float64(priced))
+	// Every other ratio here divides by legs that survived the fan-out, so a
+	// chain that mostly timed out still scores clean. Requested legs is the
+	// only denominator that can see the legs that never landed.
+	for _, d := range c.CollectionDiagnostics {
+		out.RequestedLegs += d.RequestedLegs
+	}
+	out.FanoutCompletePct = percent(float64(priced), float64(out.RequestedLegs))
 	rs := gammaSkewRSquaredValues(c)
 	if len(rs) > 0 {
 		out.SkewFitExpiries = len(rs)

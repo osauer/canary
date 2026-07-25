@@ -124,6 +124,29 @@ func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed
 	return out
 }
 
+// gammaInputAsOf returns the oldest spot observation the model was built on.
+// SPY and SPX compute serially, so the result is published minutes after its
+// inputs were sampled; ageing the freshness badge from completion time hides
+// that gap and understates how stale the published level really is.
+func gammaInputAsOf(c *rpc.GammaZeroComputed) time.Time {
+	if c == nil {
+		return time.Time{}
+	}
+	oldest := c.SpotAt
+	for _, idx := range c.PerIndex {
+		if idx == nil || idx.SpotAt.IsZero() {
+			continue
+		}
+		if oldest.IsZero() || idx.SpotAt.Before(oldest) {
+			oldest = idx.SpotAt
+		}
+	}
+	if oldest.IsZero() {
+		return c.AsOf
+	}
+	return oldest
+}
+
 func combinedGammaAsOf(spyAsOf, spxAsOf time.Time) time.Time {
 	if spyAsOf.IsZero() {
 		return spxAsOf

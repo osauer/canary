@@ -180,8 +180,22 @@
               <button class="signal-half__toggle" id="canaryRulesToggle" type="button" aria-expanded="false" aria-controls="canaryRulesDetailPanel">Show rules</button>
             </div>
             <div class="canary-rules__brief" id="canaryRulesBrief"></div>
-            <p class="canary-rules__note" id="canaryRulesNote" hidden></p>
+            <button class="canary-rules__notes-trigger" id="canaryRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+                <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+                <circle cx="8" cy="4.7" r="0.95" fill="currentColor"></circle>
+                <path d="M8 7.2v4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+              </svg>
+              <span id="canaryRulesNotesLabel">Data notes</span>
+            </button>
           </div>
+          <dialog class="app-dialog" id="canaryRulesNotesDialog" aria-labelledby="canaryRulesNotesTitle">
+            <div class="app-dialog__head">
+              <b id="canaryRulesNotesTitle">Data notes</b>
+              <button class="app-dialog__close" id="canaryRulesNotesClose" type="button">Close</button>
+            </div>
+            <div class="app-dialog__body" id="canaryRulesNotesList"></div>
+          </dialog>
           <div class="detail-panel detail-panel--dark canary-rules-detail" id="canaryRulesDetailPanel" hidden>
             <div class="detail-grid" id="canaryRulesGrid"></div>
           </div>
@@ -244,6 +258,7 @@
               <b id="protectionActions">--</b>
             </div>
           </div>
+          <p class="protection-data-note" id="protectionDataNote" hidden></p>
           <div class="protection-exposure-note" id="protectionExposure" hidden></div>
           <div class="market-flag-rail" id="protectionFlagRail" hidden></div>
           <section class="protection-derisk" id="protectionDerisk" hidden>

@@ -1333,7 +1333,7 @@ func fetchRegimeGamma(ctx context.Context, s *Server) rpc.RegimeGammaZero {
 			if r := envelope.Result; r.DerivedIVLegs > 0 && r.DerivedIVLegs == r.PricedLegCount {
 				source = r.Method + " · BS-IV from option quote/close fallback"
 			}
-			out.ZeroGammaQuality = modelledQuality(envelope.Result.AsOf, source)
+			out.ZeroGammaQuality = modelledQuality(gammaInputAsOf(envelope.Result), source)
 			out.GammaTotalAbsQuality = derivedQuality(envelope.Result.AsOf, "BS-sweep |Γ|·OI·spot²")
 			if envelope.Result.Scope != rpc.GammaZeroScopeCombined {
 				out.HorizonAgreement = classifyHorizonAgreement(envelope.Result)

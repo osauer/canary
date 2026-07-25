@@ -1583,6 +1583,8 @@ func alertShadowProtectionSummaryValid(summary rpc.ProtectionCoverageSummary) bo
 			}
 		case rpc.ProtectionCoverageStateUnknown:
 			counts.Unknown++
+		case rpc.ProtectionCoverageStateNotProtectable:
+			counts.NotProtectable++
 		default:
 			return false
 		}

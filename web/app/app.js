@@ -202,6 +202,16 @@ $("canaryRulesToggle").addEventListener("click", () => {
   state.rulesDetailOpen = !state.rulesDetailOpen;
   renderRulesCard(state.snapshot?.rules);
 });
+$("canaryRulesNotesToggle").addEventListener("click", () => {
+  $("canaryRulesNotesDialog").showModal();
+});
+$("canaryRulesNotesClose").addEventListener("click", () => {
+  $("canaryRulesNotesDialog").close();
+});
+$("canaryRulesNotesDialog").addEventListener("click", (event) => {
+  // A modal dialog's own box is the backdrop hit target; children stop here.
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
 $("protectionToggle").addEventListener("click", () => {
   setProtectionExpansion(!state.protectionOpen);
 });

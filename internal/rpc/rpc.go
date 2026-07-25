@@ -949,6 +949,8 @@ type GammaSignalQuality struct {
 // gates. Ratios are percentages in human units (95.0 means 95%).
 type GammaQualityCoverage struct {
 	PricedLegs           int     `json:"priced_legs"`
+	RequestedLegs        int     `json:"requested_legs,omitempty"`
+	FanoutCompletePct    float64 `json:"fanout_complete_pct,omitempty"`
 	ModelTickLegs        int     `json:"model_tick_legs,omitempty"`
 	DerivedLiveMidLegs   int     `json:"derived_live_mid_legs,omitempty"`
 	DerivedPrevCloseLegs int     `json:"derived_prev_close_legs,omitempty"`
@@ -2260,6 +2262,13 @@ type PositionView struct {
 	Stale          bool          `json:"stale,omitempty"`
 	StaleReason    string        `json:"stale_reason,omitempty"`
 	WarningDetails []DataWarning `json:"warning_details,omitempty"`
+	// QuoteExpectation classifies whether market data should exist for this
+	// contract at all. QuoteExpectationNone means a missing quote, mark, or
+	// market-event flag is the expected and correct state, so consumers must
+	// not render it as a data-quality defect or as exposure of unknown size.
+	// The position stays account truth either way.
+	QuoteExpectation       string `json:"quote_expectation,omitempty"`
+	QuoteExpectationReason string `json:"quote_expectation_reason,omitempty"`
 	// SessionContext explains the trading-calendar state behind PriceAt.
 	// Populated when the quote context needs interpretation (closed,
 	// pre-market, frozen/stale/missing), matching Quote.SessionContext.

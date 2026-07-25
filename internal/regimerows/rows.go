@@ -123,14 +123,18 @@ func qualityTag(now time.Time, qs ...*rpc.Quality) string {
 	type tagSpec struct {
 		label     string
 		threshold time.Duration
-		ageFmt    string // %d unit
-		ageUnit   func(time.Duration) int
+		ageText   func(time.Duration) string
 	}
+	seconds := func(d time.Duration) string { return fmt.Sprintf("%ds", int(d.Seconds())) }
 	specs := map[int]tagSpec{
-		4: {"· est", 5 * time.Second, "%s %ds", func(d time.Duration) int { return int(d.Seconds()) }},
-		5: {"· modelled", 5 * time.Minute, "%s %dm old", func(d time.Duration) int { return int(d.Minutes()) }},
-		3: {"· frozen", 5 * time.Second, "%s %ds", func(d time.Duration) int { return int(d.Seconds()) }},
-		2: {"· official", 36 * time.Hour, "%s %dd old", func(d time.Duration) int { return int(d.Hours() / 24) }},
+		4: {"· est", 5 * time.Second, seconds},
+		// The threshold sits above the gamma compute's own wall clock (SPY and
+		// SPX run serially, ~14 min) because the model ages from its input
+		// spot — at 5 min the badge fired on every result at birth and stopped
+		// carrying meaning.
+		5: {"· modelled", 20 * time.Minute, modelledAgeText},
+		3: {"· frozen", 5 * time.Second, seconds},
+		2: {"· official", 36 * time.Hour, func(d time.Duration) string { return fmt.Sprintf("%dd old", int(d.Hours()/24)) }},
 	}
 	s, ok := specs[worstRank]
 	if !ok {
@@ -138,10 +142,20 @@ func qualityTag(now time.Time, qs ...*rpc.Quality) string {
 	}
 	if !worstAt.IsZero() {
 		if age := now.Sub(worstAt); age > s.threshold {
-			return fmt.Sprintf(s.ageFmt, s.label, s.ageUnit(age))
+			return s.label + " " + s.ageText(age)
 		}
 	}
 	return s.label
+}
+
+// modelledAgeText spells out "min" because this table's other units are
+// seconds and days, so a bare "m" beside "1d old" reads as months. It rolls to
+// hours for an overnight model: "525 min old" is arithmetic, not a reading.
+func modelledAgeText(d time.Duration) string {
+	if m := int(d.Minutes()); m < 120 {
+		return fmt.Sprintf("%d min old", m)
+	}
+	return fmt.Sprintf("%dh old", int(d.Hours()))
 }
 
 // glyph picks the row badge from the row's band and status. Ranked rows

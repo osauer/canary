@@ -203,6 +203,55 @@ func TestGammaQualitySPYLivePartialOIStillRankable(t *testing.T) {
 	}
 }
 
+// TestGammaQualityPartialFanoutIsContextOnly pins the fan-out completeness
+// gate against the failure it was written for: on 2026-07-24 an SPX slice
+// landed 332 of 960 requested legs and still published a confident
+// zero-gamma level, because every other gate is either an absolute floor or
+// a ratio whose denominator is the legs that survived.
+func TestGammaQualityPartialFanoutIsContextOnly(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)
+	spx := rankableGammaFixture(rpc.GammaZeroScopeSPX, now.Add(-5*time.Minute))
+	// The fixture prices 200 legs and clears every other gate; 578 requested
+	// puts it at the incident's 34.6% completeness without disturbing the
+	// OI/IV ratios, which divide by priced legs.
+	spx.CollectionDiagnostics = []rpc.GammaCollectionDiagnostic{
+		{Underlying: "SPX", RequestedLegs: 578},
+	}
+
+	annotateGammaQuality(spx, now)
+
+	if got := spx.Quality.Coverage.RequestedLegs; got != 578 {
+		t.Fatalf("requested legs = %d, want 578 summed from collection diagnostics", got)
+	}
+	if got := spx.Quality.Coverage.FanoutCompletePct; got >= gammaContextFanoutPct {
+		t.Fatalf("fanout complete = %.1f%%, want below the %.0f%% bar", got, gammaContextFanoutPct)
+	}
+	if got := spx.Quality.Rankability; got != rpc.GammaRankabilityContextOnly {
+		t.Fatalf("rankability = %q, want context_only for a 34.6%% chain: %+v", got, spx.Quality)
+	}
+}
+
+// TestGammaQualityCompleteFanoutStaysRankable guards the other direction: the
+// gate must not demote healthy chains, which land 86-99% of requested legs.
+func TestGammaQualityCompleteFanoutStaysRankable(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)
+	spx := rankableGammaFixture(rpc.GammaZeroScopeSPX, now.Add(-5*time.Minute))
+	spx.CollectionDiagnostics = []rpc.GammaCollectionDiagnostic{
+		{Underlying: "SPX", RequestedLegs: 218},
+	}
+
+	annotateGammaQuality(spx, now)
+
+	if got := spx.Quality.Coverage.FanoutCompletePct; got < gammaContextFanoutPct {
+		t.Fatalf("fanout complete = %.1f%%, want at or above the %.0f%% bar", got, gammaContextFanoutPct)
+	}
+	if got := spx.Quality.Rankability; got != rpc.GammaRankabilityRankable {
+		t.Fatalf("rankability = %q, want rankable for a 91.7%% chain: %+v", got, spx.Quality)
+	}
+}
+
 func TestGammaQualitySPXStillRequiresHighOIObservedCoverage(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)

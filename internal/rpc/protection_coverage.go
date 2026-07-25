@@ -3,7 +3,8 @@ package rpc
 import "time"
 
 // Protection-coverage states distinguish reconciled coverage from partial,
-// absent, orphaned, uncertain, and reconciliation-required observations.
+// absent, orphaned, uncertain, reconciliation-required, and unprotectable
+// observations.
 const (
 	ProtectionCoverageStateCovered           = "covered"
 	ProtectionCoverageStatePartial           = "partial"
@@ -11,6 +12,11 @@ const (
 	ProtectionCoverageStateOrphanedOrder     = "orphaned_order"
 	ProtectionCoverageStateReconcileRequired = "reconcile_required"
 	ProtectionCoverageStateUnknown           = "unknown"
+	// ProtectionCoverageStateNotProtectable marks a defunct or unquoted
+	// holding: it has no mark to stop out against, so the proposal engine
+	// already declines to propose for it. Counting such a row as unprotected
+	// raises an alarm the protection panel cannot answer.
+	ProtectionCoverageStateNotProtectable = "not_protectable"
 )
 
 // ProtectionCoverageSummary is the read-only coverage ledger for stock/ETF
@@ -39,6 +45,7 @@ type ProtectionCoverageCounts struct {
 	OrphanedOrder     int `json:"orphaned_order,omitempty"`
 	ReconcileRequired int `json:"reconcile_required,omitempty"`
 	Unknown           int `json:"unknown,omitempty"`
+	NotProtectable    int `json:"not_protectable,omitempty"`
 }
 
 // ProtectionCoverageRow reports reconciled coverage for one held underlying.

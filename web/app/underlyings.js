@@ -367,6 +367,9 @@ function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
       dailyPnlCurrency: pnl.currency,
       quote,
       quoteError: quoteState.error,
+      // Mirrors rpc.ExpectsMarketDataGroup: an option leg still needs a quote
+      // even when its underlying stock is defunct.
+      expectsQuote: optionCount > 0 || !group.stock || group.stock.quote_expectation !== "none",
       held: true,
       virtual: false,
       purged: false,
@@ -566,7 +569,7 @@ function quoteErrorBySymbol(errors, symbol) {
 }
 
 function underlyingQuoteSummary(rows) {
-  const quoteRows = rows.filter((row) => row.held || row.quote);
+  const quoteRows = rows.filter((row) => (row.held || row.quote) && row.expectsQuote !== false);
   const interrupted = quoteRows.filter((row) => row.quoteError).map((row) => row.symbol);
   if (interrupted.length > 0) {
     return `Quote feed interrupted for ${humanList(interrupted, 3)}; showing frozen values`;

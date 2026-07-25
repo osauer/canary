@@ -866,9 +866,15 @@ func liveMarketEventSymbols(positions *rpc.PositionsResult) []string {
 		out = append(out, sym)
 	}
 	for _, stock := range positions.Stocks {
+		if !rpc.ExpectsMarketData(stock) {
+			continue
+		}
 		add(stock.Symbol)
 	}
 	for _, group := range positions.ByUnderlying {
+		if !rpc.ExpectsMarketDataGroup(group) {
+			continue
+		}
 		add(group.Underlying)
 		if group.Stock != nil {
 			add(group.Stock.Symbol)
@@ -997,6 +1003,9 @@ func marketQuoteContractsFor(positions *rpc.PositionsResult, existing *MarketQuo
 	for _, group := range positions.ByUnderlying {
 		if added >= maxUnderlyingQuoteContracts {
 			break
+		}
+		if !rpc.ExpectsMarketDataGroup(group) {
+			continue
 		}
 		item, ok := underlyingQuoteContract(group)
 		if !ok {

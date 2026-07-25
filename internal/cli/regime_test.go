@@ -1296,10 +1296,12 @@ func TestRegimeRow_GammaUsesGammaZeroLabel(t *testing.T) {
 	}
 }
 
-// TestQualityTag_ModelledSuppressesShortAge pins the new modelled-age
-// behaviour: a model output 37 s old reads as fresh, not stale. The
-// "· modelled" tag stays unannotated until the model age crosses 5 min,
-// at which point the tag adopts a stale-model warning form.
+// TestQualityTag_ModelledSuppressesShortAge pins the modelled-age behaviour:
+// a model output 37 s old reads as fresh, not stale. The "· modelled" tag
+// stays unannotated until the model age crosses 20 min, at which point the
+// tag adopts a stale-model warning form. The bar sits above the gamma
+// compute's own wall clock because the age is measured from the input spot,
+// so a lower bar would annotate every result the moment it was published.
 func TestQualityTag_ModelledSuppressesShortAge(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 17, 13, 12, 0, 0, time.UTC)
@@ -1311,8 +1313,12 @@ func TestQualityTag_ModelledSuppressesShortAge(t *testing.T) {
 		{"1s", 1 * time.Second, "· modelled"},
 		{"37s", 37 * time.Second, "· modelled"},
 		{"4m_59s", 4*time.Minute + 59*time.Second, "· modelled"},
-		{"6m", 6 * time.Minute, "· modelled 6m old"},
-		{"45m", 45 * time.Minute, "· modelled 45m old"},
+		{"6m", 6 * time.Minute, "· modelled"},
+		{"19m_59s", 19*time.Minute + 59*time.Second, "· modelled"},
+		{"21m", 21 * time.Minute, "· modelled 21 min old"},
+		{"45m", 45 * time.Minute, "· modelled 45 min old"},
+		{"119m", 119 * time.Minute, "· modelled 119 min old"},
+		{"overnight", 8*time.Hour + 45*time.Minute, "· modelled 8h old"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

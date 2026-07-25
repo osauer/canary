@@ -868,6 +868,11 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 	}
 	if rules != nil {
 		for _, e := range rules.Earnings {
+			// A terminal non-reporting issuer has no earnings to await; the
+			// applicability summary below already discloses it as excluded.
+			if e.Status == rpc.EarningsStatusTerminalNonReporting {
+				continue
+			}
 			if strings.TrimSpace(e.Symbol) != "" {
 				sets["earnings"][strings.ToUpper(e.Symbol)] = struct{}{}
 			}

@@ -155,6 +155,18 @@ function protectionCoverageNoStopSummary(coverage = {}) {
   };
 }
 
+// A defunct holding is excluded from no-stop exposure because nothing can stop
+// it out. Silently dropping it would be the mirror of the "€0" false comfort
+// the exposure metric already guards against, so it stays as visible text.
+function protectionNotProtectableText(coverage) {
+  const rows = (coverage?.by_underlying || []).filter((row) => row.state === "not_protectable");
+  if (rows.length === 0) return "";
+  const names = rows.map((row) => row.underlying).filter(Boolean).slice(0, 3).join(", ");
+  const subject = rows.length === 1 ? "defunct holding has" : "defunct holdings have";
+  const named = names ? ` (${names})` : "";
+  return `${rows.length} ${subject} no mark to protect${named} — excluded from no-stop exposure; reconcile with broker records.`;
+}
+
 function protectionCoverageStaleText(coverage = {}) {
   const counts = protectionCoverageCounts(coverage);
   const parts = [];
@@ -433,4 +445,4 @@ function protectionCoverageDetailBody(coverage = {}, baseCurrency = "") {
   return parts.join(" ");
 }
 
-export { applyProtectionSnapshot, canaryProtectionCoverageFor, currentProtectionCoverage, protectionBlockerIsExistingOrder, protectionCoverageBaseCurrency, protectionCoverageCounts, protectionCoverageDetailBody, protectionCoverageDetailFact, protectionCoverageDisplayRows, protectionCoverageFromPositions, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestRows, protectionCoverageLargestText, protectionCoverageLedger, protectionCoverageNoStopSummary, protectionCoverageNotionalText, protectionCoverageOrderText, protectionCoverageQuantityText, protectionCoverageRowClass, protectionCoverageRowPriority, protectionCoverageRowState, protectionCoverageStaleOrderText, protectionCoverageStaleText, protectionCoverageTone, protectionCoveredByExistingOrder, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionProposalNotional, protectionVisibleRows };
+export { applyProtectionSnapshot, canaryProtectionCoverageFor, currentProtectionCoverage, protectionBlockerIsExistingOrder, protectionCoverageBaseCurrency, protectionCoverageCounts, protectionCoverageDetailBody, protectionCoverageDetailFact, protectionCoverageDisplayRows, protectionCoverageFromPositions, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestRows, protectionCoverageLargestText, protectionCoverageLedger, protectionCoverageNoStopSummary, protectionCoverageNotionalText, protectionCoverageOrderText, protectionCoverageQuantityText, protectionCoverageRowClass, protectionCoverageRowPriority, protectionCoverageRowState, protectionCoverageStaleOrderText, protectionCoverageStaleText, protectionCoverageTone, protectionCoveredByExistingOrder, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionProposalNotional, protectionVisibleRows };

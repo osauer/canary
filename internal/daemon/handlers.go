@@ -1118,7 +1118,14 @@ func flagOptionMarkOutsideBidAsk(options []rpc.PositionView) {
 func flagZeroValueStockPositions(stocks []rpc.PositionView) {
 	for i := range stocks {
 		p := &stocks[i]
-		if !stockPositionLooksInactive(*p) || positionWarningHasCode(p.WarningDetails, "zero_value_stock_position") {
+		if !stockPositionLooksInactive(*p) {
+			continue
+		}
+		// Stamped before the warning-dedupe check: the expectation is a
+		// property of the contract, not of whether we already warned.
+		p.QuoteExpectation = rpc.QuoteExpectationNone
+		p.QuoteExpectationReason = rpc.QuoteExpectationReasonZeroValue
+		if positionWarningHasCode(p.WarningDetails, "zero_value_stock_position") {
 			continue
 		}
 		p.Stale = true

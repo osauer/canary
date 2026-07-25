@@ -43,7 +43,6 @@ function renderRulesCard(rules) {
     pill.title = r.evidence || "";
     brief.appendChild(pill);
   }
-  const note = $("canaryRulesNote");
   const noteParts = [];
   const eventNote = unknownEventRuleNote(rules);
   if (eventNote) noteParts.push(eventNote);
@@ -57,9 +56,7 @@ function renderRulesCard(rules) {
   if (rules.status === "degraded" && degraded.length) {
     noteParts.push(`Inputs degraded (${degraded.map((h) => `${h.source}: ${h.status}`).join(", ")}) — unknown rows are not passes.`);
   }
-  note.hidden = noteParts.length === 0;
-  note.textContent = noteParts.join(" ");
-  note.classList.toggle("canary-rules__note--attention", Boolean(eventNote));
+  renderRulesNotes(noteParts, Boolean(eventNote));
 
   const button = $("canaryRulesToggle");
   button.setAttribute("aria-expanded", state.rulesDetailOpen ? "true" : "false");
@@ -68,6 +65,29 @@ function renderRulesCard(rules) {
   if (state.rulesDetailOpen) {
     renderRulesGrid(rules, order);
   }
+}
+
+// The note builders return five independent degradation notices; joining them
+// into one paragraph is what made them unreadable. Each keeps its own block,
+// behind an info affordance so the rule tiles stay at the top of the card.
+function renderRulesNotes(parts, attention) {
+  const trigger = $("canaryRulesNotesToggle");
+  const list = $("canaryRulesNotesList");
+  const dialog = $("canaryRulesNotesDialog");
+  if (!trigger || !list || !dialog) return;
+  trigger.hidden = parts.length === 0;
+  if (parts.length === 0) {
+    if (dialog.open) dialog.close();
+    list.replaceChildren();
+    return;
+  }
+  $("canaryRulesNotesLabel").textContent = `Data notes · ${parts.length}`;
+  trigger.classList.toggle("canary-rules__notes-trigger--attention", attention);
+  list.replaceChildren(...parts.map((part) => {
+    const p = document.createElement("p");
+    p.textContent = part;
+    return p;
+  }));
 }
 
 function renderRulesGrid(rules, order) {

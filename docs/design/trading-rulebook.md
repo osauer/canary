@@ -559,7 +559,7 @@ web/app/*                         rules card + drill-in
 
 | UI concept | Label | Source | Snapshot path | Fixture/test | Stale/error | QA gate |
 |---|---|---|---|---|---|---|
-| Rules card | "Rules" | live snapshot sibling section | `snapshot.rules` | browser_script_ids_test + app-browser-smoke | worst 2–3 breaches as tone pills; `unknown` neutral; InputHealth degradation shows as card-level note; card hidden when disabled | `make app-check` + `make app-refresh-smoke` |
+| Rules card | "Rules" | live snapshot sibling section | `snapshot.rules` | browser_script_ids_test + app-browser-smoke | worst 2–3 breaches as tone pills; `unknown` neutral; InputHealth degradation reachable behind the "Data notes" info affordance; card hidden when disabled | `make app-check` + `make app-refresh-smoke` |
 
 Card: `#canaryRulesCard` beside the canary hero (worst 2–3 breaches as
 severity pills, ranked hardest-first) + `#canaryRulesToggle` expanding
@@ -567,6 +567,13 @@ severity pills, ranked hardest-first) + `#canaryRulesToggle` expanding
 `risk|warn|ok|neutral`; `info` and `unknown` render neutral). Each breach
 card shows observed vs threshold. Money strings arrive daemon-rendered with
 real currency (the compat test bans a `"USD"` literal in app.js). Read-only.
+
+The earnings/applicability/entitlement/InputHealth notices are five
+independent strings. Concatenating them into one paragraph made them
+unreadable, so they render one block each inside `#canaryRulesNotesDialog`,
+opened by `#canaryRulesNotesToggle` ("Data notes · N", attention tone while an
+unknown-rule note is present). The trigger stays visible whenever any notice
+exists — degradation is collapsed, never suppressed.
 
 ## Safety invariants (unchanged)
 

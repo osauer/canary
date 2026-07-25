@@ -2,7 +2,7 @@ import { renderAll } from "./app.js";
 import { quoteBySymbol } from "./canary.js";
 import { marketEventFlagVisible, marketEventHealthItems, marketEventIDLabel, marketEventTone, marketFlagRow, protectionEffectiveBlockers, protectionEffectiveMarketFlags, renderMarketFlagRail } from "./market-events.js";
 import { refreshOpenOrders } from "./orders.js";
-import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionVisibleRows } from "./protection-coverage.js";
+import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
 import { $, blockerText, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
 import { currentMarketCalendar, marketSessionLabel } from "./shell.js";
 import { state } from "./state.js";
@@ -33,6 +33,12 @@ function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = st
   noStopEl.textContent = noStop.text;
   noStopEl.title = noStop.title;
   setMetricTone(noStopEl, noStop.risk ? "alert" : "neutral");
+  // Sits above the proposals fold: it explains a row deliberately left out of
+  // the metric, so it must be readable without expanding anything.
+  const defunctEl = $("protectionDataNote");
+  const defunctNote = protectionNotProtectableText(currentProtectionCoverage());
+  defunctEl.textContent = defunctNote;
+  defunctEl.hidden = !defunctNote;
   $("protectionActions").textContent = String(counts.actionable ?? rows.length ?? 0);
   renderProtectionExposure();
   renderMarketFlagRail("protectionFlagRail", protectionHeroMarketFlags(rows, marketEvents));

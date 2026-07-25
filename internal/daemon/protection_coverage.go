@@ -125,6 +125,15 @@ func buildProtectionCoverage(pos *rpc.PositionsResult, orders []rpc.OrderView, o
 			coverageRow.State = rpc.ProtectionCoverageStateReconcileRequired
 			coverageRow.Message = "open protective order no longer reconciles with the current position"
 			out.Counts.ReconcileRequired++
+		// The proposal engine already declines to propose for a defunct row,
+		// so counting it as unprotected would raise an alarm no proposal can
+		// answer — and its zero notional would suppress the euro figure for
+		// the whole book.
+		case !rpc.ExpectsMarketData(row):
+			coverageRow.State = rpc.ProtectionCoverageStateNotProtectable
+			coverageRow.WarningCodes = appendCoverageCode(coverageRow.WarningCodes, "zero_value_stock_position")
+			coverageRow.Message = "defunct or unquoted holding; no mark to protect — reconcile with broker records"
+			out.Counts.NotProtectable++
 		case coverageRow.ProtectedQuantity <= protectionCoverageQuantityEpsilon:
 			coverageRow.State = rpc.ProtectionCoverageStateUnprotected
 			out.Counts.Unprotected++
