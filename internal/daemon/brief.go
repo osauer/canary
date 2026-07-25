@@ -1466,7 +1466,7 @@ func policyPinsReadable(inventory []rpc.PolicyPinStatus, requireMatch bool) bool
 	if len(inventory) != 3 {
 		return false
 	}
-	want := map[string]bool{"rulebook": false, "protection": false, "canary": false}
+	want := map[string]bool{"rulebook": false, "protection": false, "stress": false}
 	for _, pin := range inventory {
 		statusReadable := pin.Status == "match" || (!requireMatch && pin.Status == "drift")
 		if _, known := want[pin.Policy]; !known || want[pin.Policy] || !statusReadable || pin.PinnedID == "" || pin.PinnedVersion == "" || pin.LiveID == "" || pin.LiveVersion == "" {

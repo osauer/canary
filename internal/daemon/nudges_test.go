@@ -41,7 +41,7 @@ version = "2"
 id = "protection-mvp"
 version = "1"
 
-[inventory.canary]
+[inventory.stress]
 id = "active-v1"
 version = "risk-policy-v1"
 `
@@ -58,7 +58,7 @@ version = "2"
 id = "protection-mvp"
 version = "1"
 
-[inventory.canary]
+[inventory.stress]
 id = "active-v1"
 version = "risk-policy-v1"
 `

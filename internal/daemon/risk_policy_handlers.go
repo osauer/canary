@@ -75,10 +75,10 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 // authoritative for their own thresholds.
 func (s *Server) riskPolicyInventory(c *risk.Constitution) []rpc.PolicyPinStatus {
 	rb := risk.DefaultRulebookPolicy()
-	canary := risk.DefaultPolicy()
+	stress := risk.DefaultPolicy()
 	rows := []rpc.PolicyPinStatus{
 		pinStatus("rulebook", pinOf(c, func(cc *risk.Constitution) *risk.ConstitutionPolicyPin { return cc.Inventory.Rulebook }), rb.ID, strconv.Itoa(rb.Version)),
-		pinStatus("canary", pinOf(c, func(cc *risk.Constitution) *risk.ConstitutionPolicyPin { return cc.Inventory.Canary }), canary.PolicyProfile(), canary.PolicyVersion()),
+		pinStatus("stress", pinOf(c, func(cc *risk.Constitution) *risk.ConstitutionPolicyPin { return cc.Inventory.Stress }), stress.PolicyProfile(), stress.PolicyVersion()),
 	}
 	if s.protectionPolicies != nil {
 		st := s.protectionPolicies.Status()

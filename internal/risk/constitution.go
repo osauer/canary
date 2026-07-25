@@ -149,12 +149,12 @@ type ConstitutionArtefact struct {
 type ConstitutionInventory struct {
 	Rulebook   *ConstitutionPolicyPin `toml:"rulebook" json:"rulebook,omitempty"`
 	Protection *ConstitutionPolicyPin `toml:"protection" json:"protection,omitempty"`
-	Canary     *ConstitutionPolicyPin `toml:"canary" json:"canary,omitempty"`
+	Stress     *ConstitutionPolicyPin `toml:"stress" json:"stress,omitempty"`
 }
 
 // ConstitutionPolicyPin identifies one sibling policy version. Version is a
 // string so integer-versioned (rulebook, protection) and string-versioned
-// (canary) policies pin uniformly.
+// (stress) policies pin uniformly.
 type ConstitutionPolicyPin struct {
 	ID      string `toml:"id" json:"id"`
 	Version string `toml:"version" json:"version"`
@@ -279,7 +279,7 @@ func (c Constitution) Validate() error {
 	}{
 		{"inventory.rulebook", c.Inventory.Rulebook},
 		{"inventory.protection", c.Inventory.Protection},
-		{"inventory.canary", c.Inventory.Canary},
+		{"inventory.stress", c.Inventory.Stress},
 	} {
 		if p.pin != nil && (strings.TrimSpace(p.pin.ID) == "" || strings.TrimSpace(p.pin.Version) == "") {
 			return fmt.Errorf("%s pin needs both id and version", p.key)

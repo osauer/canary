@@ -128,7 +128,7 @@ func TestNudgeCandidateIdentitiesAndResolution(t *testing.T) {
 
 	mismatches := []NudgePinMismatch{
 		{Policy: "rulebook", PinnedID: "a", PinnedVersion: "1", LiveID: "b", LiveVersion: "2"},
-		{Policy: "canary", PinnedID: "c", PinnedVersion: "1", LiveID: "d", LiveVersion: "2"},
+		{Policy: "stress", PinnedID: "c", PinnedVersion: "1", LiveID: "d", LiveVersion: "2"},
 	}
 	driftA := EvaluatePolicyDrift(mismatches, now)
 	driftB := EvaluatePolicyDrift([]NudgePinMismatch{mismatches[1], mismatches[0]}, now)

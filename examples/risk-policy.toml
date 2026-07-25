@@ -81,6 +81,6 @@ version = "2"
 [inventory.protection]
 id = "protection-mvp"
 version = "3"
-[inventory.canary]
+[inventory.stress]
 id = "active-v1"
 version = "risk-policy-v1"

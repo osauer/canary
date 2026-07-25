@@ -171,7 +171,7 @@ type CapitalStateReport struct {
 // PolicyPinStatus compares one constitution inventory pin with the live
 // sibling policy identity.
 type PolicyPinStatus struct {
-	Policy        string `json:"policy"` // rulebook | protection | canary
+	Policy        string `json:"policy"` // rulebook | protection | stress
 	PinnedID      string `json:"pinned_id,omitempty"`
 	PinnedVersion string `json:"pinned_version,omitempty"`
 	LiveID        string `json:"live_id,omitempty"`

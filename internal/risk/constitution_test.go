@@ -326,6 +326,7 @@ func TestConstitutionFingerprintCoversEveryField(t *testing.T) {
 		"cadence.morning.class":              func(c *Constitution) { c.Cadence.Morning.Class = "" },
 		"inventory.rulebook":                 func(c *Constitution) { c.Inventory.Rulebook.Version = "3" },
 		"inventory.protection added":         func(c *Constitution) { c.Inventory.Protection = &ConstitutionPolicyPin{ID: "p", Version: "1"} },
+		"inventory.stress added":             func(c *Constitution) { c.Inventory.Stress = &ConstitutionPolicyPin{ID: "s", Version: "1"} },
 	}
 	for name, mutate := range mutations {
 		c := approvedConstitution()

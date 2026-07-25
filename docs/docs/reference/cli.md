@@ -614,7 +614,7 @@ ibkr backtest capture-opportunity [--preset top-movers
 ibkr backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]
 ```
 
-Subcommands: `canary`, `regime`, `opportunity`, `research-opportunity`, `build-regime`, `build-opportunity`, `build-opportunity-pit`, `score-opportunity`, `capture-opportunity`, `export-opportunity-bars`.
+Subcommands: `stress`, `regime`, `opportunity`, `research-opportunity`, `build-regime`, `build-opportunity`, `build-opportunity-pit`, `score-opportunity`, `capture-opportunity`, `export-opportunity-bars`.
 
 **Flags**
 

@@ -50,7 +50,7 @@ on each revision.
 | `[override]` | `max_duration_hours` | The longest a one-shot exception may live |
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
-| `[inventory]` | `rulebook`, `protection`, `canary` pins | The sibling policy versions this constitution was approved against, identity only |
+| `[inventory]` | `rulebook`, `protection`, `stress` pins | The sibling policy versions this constitution was approved against, identity only |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
 sit in `(0, 100]`, `warn_consumed_pct` must be below `block_consumed_pct`,
