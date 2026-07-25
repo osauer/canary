@@ -57,7 +57,7 @@ func TestOpenCreatesPrivateAuthoritativeSchema(t *testing.T) {
 	if err := s.db.QueryRow(`PRAGMA journal_mode`).Scan(&journal); err != nil || journal != "wal" {
 		t.Fatalf("journal=%q err=%v", journal, err)
 	}
-	expected := []string{"store_meta", "schema_migrations", "legacy_imports", "state_documents", "event_log", "regime_decisions", "regime_indicators", "rule_transitions", "canary_transitions", "capital_events", "risk_policy_events", "proposal_outcomes", "order_events", "consumed_preview_tokens", "order_id_floors", "statement_files", "statement_file_versions", "statement_equity_days", "statement_equity_day_versions", "observations"}
+	expected := []string{"store_meta", "schema_migrations", "legacy_imports", "state_documents", "event_log", "regime_decisions", "regime_indicators", "rule_transitions", "stress_transitions", "capital_events", "risk_policy_events", "proposal_outcomes", "order_events", "consumed_preview_tokens", "order_id_floors", "statement_files", "statement_file_versions", "statement_equity_days", "statement_equity_day_versions", "observations"}
 	for _, table := range expected {
 		var n int
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&n); err != nil || n != 1 {
@@ -84,7 +84,7 @@ func TestOpenCreatesPrivateAuthoritativeSchema(t *testing.T) {
 	}
 	defer reopened.Close()
 	var migrationsCount int
-	if err := reopened.db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&migrationsCount); err != nil || migrationsCount != 1 {
+	if err := reopened.db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&migrationsCount); err != nil || migrationsCount != len(migrations) {
 		t.Fatalf("migration rows=%d err=%v", migrationsCount, err)
 	}
 }
@@ -230,12 +230,12 @@ func TestMigrationChecksumDriftAndFailureRefuse(t *testing.T) {
 		db := rawDB(t, path)
 		defer db.Close()
 		plan := append([]migration(nil), migrations...)
-		plan = append(plan, migration{version: 2, name: "failing", statements: []string{`CREATE TABLE migration_probe(id INTEGER) STRICT`, `this is not sql`}})
+		plan = append(plan, migration{version: len(plan) + 1, name: "failing", statements: []string{`CREATE TABLE migration_probe(id INTEGER) STRICT`, `this is not sql`}})
 		if err := migrate(t.Context(), db, plan, time.Now().UTC()); err == nil {
 			t.Fatal("failing migration succeeded")
 		}
 		var version int
-		if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 1 {
+		if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != len(migrations) {
 			t.Fatalf("version=%d err=%v", version, err)
 		}
 		var probe int

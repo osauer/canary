@@ -90,7 +90,7 @@ func TestDaemonStateCutoverAndCoreBinding(t *testing.T) {
 		t.Fatalf("bound capital state = %+v flows=%v report=%q", s.riskCapital.state, s.riskCapital.cumFlowsBase, s.riskCapital.lastReconcileReportID)
 	}
 	s.riskCapital.mu.Unlock()
-	for _, kind := range []string{coreEventRegimeDecision, coreEventRuleTransition, coreEventCanaryDecision, coreEventProposalOutcome} {
+	for _, kind := range []string{coreEventRegimeDecision, coreEventRuleTransition, coreEventStressDecision, coreEventProposalOutcome} {
 		events, err := loadAllCoreEvents(context.Background(), core, kind)
 		if err != nil || len(events) != 0 {
 			t.Fatalf("fresh decision stream %s = %d, err=%v", kind, len(events), err)

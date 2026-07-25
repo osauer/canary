@@ -19,6 +19,23 @@ type migration struct {
 	version    int
 	name       string
 	statements []string
+	// destructive, when set, is the operator-approved exception that lets this
+	// one migration run the destructive statements it names. Nil for every
+	// migration that needs no exception, which is the normal case.
+	destructive *destructiveApproval
+}
+
+// destructiveApproval is a narrow, audited exception to the destructive
+// statement guard in validateMigrationStatements. It names the exact
+// statements one migration may run and records, in prose a human wrote, what
+// the exception costs and why it was accepted. The exception never generalizes:
+// a destructive statement the approval does not name is still rejected, and an
+// approval that names a statement the migration does not run, or a statement
+// that is not destructive at all, is itself a plan error — so an approval
+// cannot quietly outlive the migration it was written for.
+type destructiveApproval struct {
+	reason     string
+	statements []string
 }
 
 type schemaObject struct {
@@ -28,6 +45,9 @@ type schemaObject struct {
 	sql      string
 }
 
+// migrations is the ordered migration plan and len(migrations) is the current
+// schema version. It is completed in init(): migration 1's append-only trigger
+// statements are generated, and every migration after it is appended there.
 var migrations = []migration{{
 	version: 1,
 	name:    "authoritative_foundation",
@@ -272,7 +292,13 @@ var migrations = []migration{{
 	},
 }}
 
-var appendOnlyTables = []string{
+// migrationV1AppendOnlyTables is the append-only set exactly as migration 1
+// created it. init() derives v1's trigger statements from this list and
+// migrationChecksum hashes them, so every name here is frozen: editing one
+// rewrites v1's checksum and every existing authority database would refuse to
+// open with "migration checksum drift at version 1". Later renames belong in a
+// later migration; appendOnlyTables carries the current names.
+var migrationV1AppendOnlyTables = []string{
 	"schema_migrations", "broker_scopes", "event_log", "observations",
 	"consumed_preview_tokens", "regime_decisions", "regime_indicators",
 	"rule_transitions", "canary_transitions", "capital_events",
@@ -280,11 +306,80 @@ var appendOnlyTables = []string{
 	"statement_file_versions", "statement_equity_day_versions",
 }
 
+// appendOnlyTables is the append-only set after the whole migration plan has
+// been applied: v1's tables with migration 2's canary→stress rename.
+var appendOnlyTables = []string{
+	"schema_migrations", "broker_scopes", "event_log", "observations",
+	"consumed_preview_tokens", "regime_decisions", "regime_indicators",
+	"rule_transitions", "stress_transitions", "capital_events",
+	"risk_policy_events", "proposal_outcomes", "order_events",
+	"statement_file_versions", "statement_equity_day_versions",
+}
+
+func appendOnlyUpdateTrigger(table string) string {
+	return fmt.Sprintf(`CREATE TRIGGER %s_no_update BEFORE UPDATE ON %s BEGIN SELECT RAISE(ABORT, '%s is append-only'); END`, table, table, table)
+}
+
+func appendOnlyDeleteTrigger(table string) string {
+	return fmt.Sprintf(`CREATE TRIGGER %s_no_delete BEFORE DELETE ON %s BEGIN SELECT RAISE(ABORT, '%s is append-only'); END`, table, table, table)
+}
+
+// stressRenameMigration is migration 2: the portfolio-stress sensor's
+// persisted names move from canary to stress, matching the same rename in the
+// derived history index. The table and its rows are carried by ALTER TABLE
+// RENAME rather than copied, so no evidence row is ever rewritten; only the
+// event_log label column is rewritten, in place, for the exact event type
+// being renamed.
+//
+// SQLite re-quotes a renamed table in sqlite_schema, so the stored DDL reads
+// CREATE TABLE "stress_transitions". Both the on-disk database and the
+// canonical manifest replay this same plan, so the two agree.
+func stressRenameMigration() migration {
+	return migration{
+		version: 2,
+		name:    "stress_sensor_rename",
+		statements: []string{
+			// Unarm the append-only pair, carry the table and every row to the
+			// new name, then re-arm under the new names. Dropping first avoids
+			// depending on how SQLite rewrites trigger bodies across a rename.
+			`DROP TRIGGER canary_transitions_no_update`,
+			`DROP TRIGGER canary_transitions_no_delete`,
+			`ALTER TABLE canary_transitions RENAME TO stress_transitions`,
+			appendOnlyUpdateTrigger("stress_transitions"),
+			appendOnlyDeleteTrigger("stress_transitions"),
+			// Relabel the persisted event type. event_log's UPDATE guard has to
+			// come off for the single UPDATE below and goes straight back on;
+			// its DELETE guard is never touched.
+			`DROP TRIGGER event_log_no_update`,
+			`UPDATE event_log SET event_type = 'stress_decision' WHERE event_type = 'canary_decision'`,
+			appendOnlyUpdateTrigger("event_log"),
+		},
+		destructive: &destructiveApproval{
+			reason: "Renaming the portfolio-stress sensor requires three DROP TRIGGER statements. " +
+				"Two unarm the canary_transitions append-only pair so the table can be renamed and " +
+				"re-armed under its new name; the rows are carried by the rename and never rewritten. " +
+				"The third suspends event_log's append-only property for exactly one statement, the " +
+				"UPDATE that relabels event_type from canary_decision to stress_decision. That " +
+				"temporarily makes an audit log writable, which is why it is approved explicitly and " +
+				"held as narrow as possible: only the event_type column changes, only on rows whose " +
+				"event_type is exactly canary_decision, no payload or digest is touched, the recorded " +
+				"decisions are unchanged, event_log's DELETE guard stays armed throughout, and all " +
+				"three triggers are recreated before the migration transaction commits. Any failure " +
+				"rolls the whole transaction back to the fully armed pre-migration schema.",
+			statements: []string{
+				`DROP TRIGGER canary_transitions_no_update`,
+				`DROP TRIGGER canary_transitions_no_delete`,
+				`DROP TRIGGER event_log_no_update`,
+			},
+		},
+	}
+}
+
 func init() {
-	for _, table := range appendOnlyTables {
+	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
-			fmt.Sprintf(`CREATE TRIGGER %s_no_update BEFORE UPDATE ON %s BEGIN SELECT RAISE(ABORT, '%s is append-only'); END`, table, table, table),
-			fmt.Sprintf(`CREATE TRIGGER %s_no_delete BEFORE DELETE ON %s BEGIN SELECT RAISE(ABORT, '%s is append-only'); END`, table, table, table),
+			appendOnlyUpdateTrigger(table),
+			appendOnlyDeleteTrigger(table),
 		)
 	}
 	migrations[0].statements = append(migrations[0].statements,
@@ -297,8 +392,16 @@ BEGIN SELECT RAISE(ABORT, 'authority head cannot decrease'); END`,
 		`CREATE TRIGGER order_id_floors_no_decrease BEFORE UPDATE OF floor ON order_id_floors
 WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decrease'); END`,
 	)
+	// v1's trigger statements are generated, so the plan is completed here
+	// rather than in the composite literal above.
+	migrations = append(migrations, stressRenameMigration())
 }
 
+// migrationChecksum is the ledger identity of an applied migration: version,
+// name, and every statement in order. A destructive approval is deliberately
+// not hashed — it constrains what the plan may contain, it is not part of what
+// the database had applied to it — so its prose can be clarified later without
+// making every existing authority database fail to open.
 func migrationChecksum(m migration) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%d\x00%s\x00", m.version, m.name)
@@ -318,6 +421,11 @@ func cloneMigrationPlan(plan []migration) []migration {
 	for i, m := range plan {
 		cloned[i] = m
 		cloned[i].statements = append([]string(nil), m.statements...)
+		if m.destructive != nil {
+			approval := *m.destructive
+			approval.statements = append([]string(nil), m.destructive.statements...)
+			cloned[i].destructive = &approval
+		}
 	}
 	return cloned
 }
@@ -338,13 +446,59 @@ func validateMigrationPlan(plan []migration) error {
 }
 
 func validateMigrationStatements(m migration) error {
+	approved, err := approvedDestructiveStatements(m)
+	if err != nil {
+		return err
+	}
 	for _, stmt := range m.statements {
-		upper := strings.ToUpper(strings.TrimSpace(stmt))
-		if strings.HasPrefix(upper, "DROP ") || strings.HasPrefix(upper, "DELETE ") || strings.HasPrefix(upper, "REPLACE ") || strings.HasPrefix(upper, "VACUUM") || strings.Contains(upper, " DROP COLUMN ") {
+		if !isDestructiveStatement(stmt) {
+			continue
+		}
+		if _, ok := approved[stmt]; !ok {
 			return fmt.Errorf("migration %d contains destructive statement", m.version)
 		}
 	}
 	return nil
+}
+
+func isDestructiveStatement(stmt string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(stmt))
+	return strings.HasPrefix(upper, "DROP ") || strings.HasPrefix(upper, "DELETE ") ||
+		strings.HasPrefix(upper, "REPLACE ") || strings.HasPrefix(upper, "VACUUM") ||
+		strings.Contains(upper, " DROP COLUMN ")
+}
+
+// approvedDestructiveStatements returns the exact statements this migration's
+// approval exempts from the destructive-statement guard. An approval must
+// carry a reason, must name at least one statement, and may only name
+// statements that this migration actually runs and that are actually
+// destructive — so the exception stays tied to the work it was written for and
+// cannot silently widen into a blanket waiver.
+func approvedDestructiveStatements(m migration) (map[string]struct{}, error) {
+	if m.destructive == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(m.destructive.reason) == "" {
+		return nil, fmt.Errorf("migration %d approves destructive statements without a reason", m.version)
+	}
+	if len(m.destructive.statements) == 0 {
+		return nil, fmt.Errorf("migration %d approves no destructive statements", m.version)
+	}
+	present := make(map[string]struct{}, len(m.statements))
+	for _, stmt := range m.statements {
+		present[stmt] = struct{}{}
+	}
+	approved := make(map[string]struct{}, len(m.destructive.statements))
+	for _, stmt := range m.destructive.statements {
+		if !isDestructiveStatement(stmt) {
+			return nil, fmt.Errorf("migration %d approves a statement that is not destructive: %q", m.version, stmt)
+		}
+		if _, ok := present[stmt]; !ok {
+			return nil, fmt.Errorf("migration %d approves a statement it does not run: %q", m.version, stmt)
+		}
+		approved[stmt] = struct{}{}
+	}
+	return approved, nil
 }
 
 // validateSchemaObjects compares every application-owned table, index, and

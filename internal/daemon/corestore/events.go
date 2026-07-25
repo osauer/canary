@@ -190,9 +190,9 @@ func insertProjection(ctx context.Context, tx *sql.Tx, seq int64, input EventInp
 		v := p.RuleTransition
 		_, err := tx.ExecContext(ctx, `INSERT INTO rule_transitions(event_seq,scope_key,rule_id,status,previous_status,policy_id,policy_version,policy_fingerprint) VALUES(?,?,?,?,?,?,?,?)`, seq, input.ScopeKey, v.RuleID, v.Status, nullableString(v.PreviousStatus), nullableString(v.PolicyID), v.PolicyVersion, nullableString(v.PolicyFingerprint))
 		return err
-	case p.CanaryTransition != nil:
-		v := p.CanaryTransition
-		_, err := tx.ExecContext(ctx, `INSERT INTO canary_transitions(event_seq,scope_key,action,severity,direction,market_stage,input_health,portfolio_alert_relevant) VALUES(?,?,?,?,?,?,?,?)`, seq, input.ScopeKey, v.Action, nullableString(v.Severity), nullableString(v.Direction), nullableString(v.MarketStage), nullableString(v.InputHealth), nullableBool(v.PortfolioAlertRelevant))
+	case p.StressTransition != nil:
+		v := p.StressTransition
+		_, err := tx.ExecContext(ctx, `INSERT INTO stress_transitions(event_seq,scope_key,action,severity,direction,market_stage,input_health,portfolio_alert_relevant) VALUES(?,?,?,?,?,?,?,?)`, seq, input.ScopeKey, v.Action, nullableString(v.Severity), nullableString(v.Direction), nullableString(v.MarketStage), nullableString(v.InputHealth), nullableBool(v.PortfolioAlertRelevant))
 		return err
 	case p.CapitalEvent != nil:
 		v := p.CapitalEvent
@@ -227,7 +227,7 @@ func validateEventInput(input EventInput) error {
 	}
 	count := 0
 	p := input.Projection
-	for _, set := range []bool{p.RegimeDecision != nil, p.RuleTransition != nil, p.CanaryTransition != nil, p.CapitalEvent != nil, p.RiskPolicyEvent != nil, p.ProposalOutcome != nil} {
+	for _, set := range []bool{p.RegimeDecision != nil, p.RuleTransition != nil, p.StressTransition != nil, p.CapitalEvent != nil, p.RiskPolicyEvent != nil, p.ProposalOutcome != nil} {
 		if set {
 			count++
 		}
@@ -258,8 +258,8 @@ func validateProjection(p EventProjection) error {
 		}
 		return validateKey("rule status", p.RuleTransition.Status, 128)
 	}
-	if p.CanaryTransition != nil {
-		return validateKey("canary action", p.CanaryTransition.Action, 128)
+	if p.StressTransition != nil {
+		return validateKey("stress action", p.StressTransition.Action, 128)
 	}
 	if p.CapitalEvent != nil {
 		return validateKey("capital event kind", p.CapitalEvent.Kind, 128)

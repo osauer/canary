@@ -22,7 +22,7 @@ const (
 	coreEventCapital          = "capital_event"
 	coreEventRiskPolicy       = "risk_policy_event"
 	coreEventRegimeDecision   = "regime_decision"
-	coreEventCanaryDecision   = "canary_decision"
+	coreEventStressDecision   = "stress_decision"
 	coreEventRuleTransition   = "rule_transition"
 	coreEventProposalOutcome  = "proposal_outcome"
 	coreEventPlatformSettings = "platform_settings_update"
@@ -141,7 +141,7 @@ func (s *Server) bindDecisionStores(ctx context.Context, core *corestore.Store) 
 	}
 	// Force an early read of each fresh-epoch decision stream so corrupt
 	// payloads fail startup rather than appearing as a partial history later.
-	for _, kind := range []string{coreEventRegimeDecision, coreEventRuleTransition, coreEventCanaryDecision} {
+	for _, kind := range []string{coreEventRegimeDecision, coreEventRuleTransition, coreEventStressDecision} {
 		if _, err := loadAllCoreEvents(ctx, core, kind); err != nil {
 			return fmt.Errorf("load %s events from SQLite: %w", kind, err)
 		}

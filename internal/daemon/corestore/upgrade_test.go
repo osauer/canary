@@ -51,7 +51,8 @@ func TestPrepareUpgradeBuildsIndependentAtomicCandidate(t *testing.T) {
 	}
 	sourceEntriesBefore := directoryNames(t, dir)
 
-	plan := syntheticV2Plan()
+	plan := syntheticNextPlan()
+	current := len(plan) - 1
 	inspection1, err := inspectWithPlan(ctx, InspectOptions{Path: sourcePath, MinimumHead: &sourceHead}, plan)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +61,7 @@ func TestPrepareUpgradeBuildsIndependentAtomicCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(inspection1, inspection2) || inspection1.Status != InspectionUpgradeRequired || inspection1.SchemaVersion != 1 || inspection1.TargetVersion != 2 {
+	if !reflect.DeepEqual(inspection1, inspection2) || inspection1.Status != InspectionUpgradeRequired || inspection1.SchemaVersion != current || inspection1.TargetVersion != current+1 {
 		t.Fatalf("idempotent inspection mismatch: first=%+v second=%+v", inspection1, inspection2)
 	}
 
@@ -70,15 +71,15 @@ func TestPrepareUpgradeBuildsIndependentAtomicCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Source.Head != sourceHead || result.Source.SchemaVersion != 1 || result.Source.Status != InspectionUpgradeRequired {
+	if result.Source.Head != sourceHead || result.Source.SchemaVersion != current || result.Source.Status != InspectionUpgradeRequired {
 		t.Fatalf("source inspection=%+v", result.Source)
 	}
-	if result.Backup.Head != sourceHead || result.Backup.SchemaVersion != 1 || !result.Backup.Integrity.OK() {
+	if result.Backup.Head != sourceHead || result.Backup.SchemaVersion != current || !result.Backup.Integrity.OK() {
 		t.Fatalf("backup=%+v", result.Backup)
 	}
 	wantCandidateHead := sourceHead
 	wantCandidateHead.HeadGeneration++
-	if result.Candidate.Head != wantCandidateHead || result.Candidate.SchemaVersion != 2 || result.Candidate.Status != InspectionCurrent || !result.Candidate.Integrity.OK() {
+	if result.Candidate.Head != wantCandidateHead || result.Candidate.SchemaVersion != current+1 || result.Candidate.Status != InspectionCurrent || !result.Candidate.Integrity.OK() {
 		t.Fatalf("candidate=%+v want head=%+v", result.Candidate, wantCandidateHead)
 	}
 	if result.Candidate.Head.AuthorityEpoch != sourceHead.AuthorityEpoch ||
@@ -94,11 +95,11 @@ func TestPrepareUpgradeBuildsIndependentAtomicCandidate(t *testing.T) {
 	if !bytes.Equal(sourceBytesBefore, sourceBytesAfter) {
 		t.Fatal("PrepareUpgrade changed source main-file bytes")
 	}
-	if got, err := inspectWithPlan(ctx, InspectOptions{Path: sourcePath, MinimumHead: &sourceHead}, plan); err != nil || got.Head != sourceHead || got.SchemaVersion != 1 {
+	if got, err := inspectWithPlan(ctx, InspectOptions{Path: sourcePath, MinimumHead: &sourceHead}, plan); err != nil || got.Head != sourceHead || got.SchemaVersion != current {
 		t.Fatalf("source changed after prepare: inspection=%+v err=%v", got, err)
 	}
 
-	backup, err := verifyBackupWithPlan(ctx, backupPath, sourceHead, 1, plan)
+	backup, err := verifyBackupWithPlan(ctx, backupPath, sourceHead, current, plan)
 	if err != nil || backup.Head != sourceHead {
 		t.Fatalf("verify old backup=%+v err=%v", backup, err)
 	}
@@ -145,7 +146,7 @@ func TestPrepareUpgradeReusesExactBackupAndReplacesOnlyExplicitCandidate(t *test
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	plan := syntheticV2Plan()
+	plan := syntheticNextPlan()
 	opts := UpgradeOptions{SourcePath: sourcePath, BackupPath: backupPath, CandidatePath: candidatePath, MinimumHead: &head}
 	first, err := prepareUpgradeWithPlan(ctx, opts, plan)
 	if err != nil {
@@ -179,7 +180,7 @@ func TestPrepareUpgradeReusesExactBackupAndReplacesOnlyExplicitCandidate(t *test
 func TestSyntheticUpgradeMatchesFreshTargetSchema(t *testing.T) {
 	ctx := t.Context()
 	dir := privateTempDir(t)
-	plan := syntheticV2Plan()
+	plan := syntheticNextPlan()
 	sourcePath := filepath.Join(dir, "source.db")
 	backupPath := filepath.Join(dir, "backup.db")
 	candidatePath := filepath.Join(dir, "candidate.db")
@@ -208,7 +209,7 @@ func TestSyntheticUpgradeMatchesFreshTargetSchema(t *testing.T) {
 	}
 	for _, path := range []string{candidatePath, freshPath} {
 		got, err := inspectWithPlan(ctx, InspectOptions{Path: path}, plan)
-		if err != nil || got.SchemaVersion != 2 || got.Status != InspectionCurrent {
+		if err != nil || got.SchemaVersion != len(plan) || got.Status != InspectionCurrent {
 			t.Fatalf("target inspection path=%s got=%+v err=%v", path, got, err)
 		}
 	}
@@ -217,8 +218,8 @@ func TestSyntheticUpgradeMatchesFreshTargetSchema(t *testing.T) {
 	if !reflect.DeepEqual(candidateManifest, freshManifest) {
 		t.Fatalf("migrated and fresh target manifests differ\nmigrated=%+v\nfresh=%+v", candidateManifest, freshManifest)
 	}
-	verifiedBackup, err := verifyBackupWithPlan(ctx, backupPath, head, 1, plan)
-	if err != nil || verifiedBackup.SchemaVersion != 1 {
+	verifiedBackup, err := verifyBackupWithPlan(ctx, backupPath, head, len(plan)-1, plan)
+	if err != nil || verifiedBackup.SchemaVersion != len(plan)-1 {
 		t.Fatalf("backup version changed: backup=%+v err=%v", verifiedBackup, err)
 	}
 }
@@ -238,9 +239,10 @@ func TestAllPendingMigrationsRollBackTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := currentMigrationPlan()
+	current := len(plan)
 	plan = append(plan,
-		migration{version: 2, name: "first_pending", statements: []string{`CREATE TABLE first_pending(id INTEGER PRIMARY KEY) STRICT`}},
-		migration{version: 3, name: "later_failure", statements: []string{`CREATE TABLE second_pending(id INTEGER PRIMARY KEY) STRICT`, `this is not valid sql`}},
+		migration{version: current + 1, name: "first_pending", statements: []string{`CREATE TABLE first_pending(id INTEGER PRIMARY KEY) STRICT`}},
+		migration{version: current + 2, name: "later_failure", statements: []string{`CREATE TABLE second_pending(id INTEGER PRIMARY KEY) STRICT`, `this is not valid sql`}},
 	)
 	db := rawDB(t, path)
 	if _, _, err := migratePendingAtomically(ctx, db, plan, time.Now().UTC()); err == nil {
@@ -263,7 +265,7 @@ func TestAllPendingMigrationsRollBackTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 || ledgerRows != 1 || firstTable != 0 || secondTable != 0 || afterHead != head {
+	if version != current || ledgerRows != current || firstTable != 0 || secondTable != 0 || afterHead != head {
 		t.Fatalf("partial upgrade survived: version=%d ledger=%d first=%d second=%d before=%+v after=%+v", version, ledgerRows, firstTable, secondTable, head, afterHead)
 	}
 	if err := db.Close(); err != nil {
@@ -285,7 +287,7 @@ func TestInspectionAndOpenRefuseFutureTamperAndWrongHeadWithoutWrites(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = openWithPlan(t.Context(), Options{Path: path}, syntheticV2Plan())
+		_, err = openWithPlan(t.Context(), Options{Path: path}, syntheticNextPlan())
 		if !errors.Is(err, ErrUpgradeRequired) {
 			t.Fatalf("older open error=%v, want ErrUpgradeRequired", err)
 		}
@@ -315,7 +317,7 @@ func TestInspectionAndOpenRefuseFutureTamperAndWrongHeadWithoutWrites(t *testing
 		if err := db.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := inspectWithPlan(t.Context(), InspectOptions{Path: path}, syntheticV2Plan()); err == nil || !strings.Contains(err.Error(), "future schema version") {
+		if _, err := inspectWithPlan(t.Context(), InspectOptions{Path: path}, syntheticNextPlan()); err == nil || !strings.Contains(err.Error(), "future schema version") {
 			t.Fatalf("future inspection error=%v", err)
 		}
 	})
@@ -339,7 +341,7 @@ func TestInspectionAndOpenRefuseFutureTamperAndWrongHeadWithoutWrites(t *testing
 		if err := db.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := inspectWithPlan(t.Context(), InspectOptions{Path: path}, syntheticV2Plan()); err == nil || !strings.Contains(err.Error(), "checksum drift") {
+		if _, err := inspectWithPlan(t.Context(), InspectOptions{Path: path}, syntheticNextPlan()); err == nil || !strings.Contains(err.Error(), "checksum drift") {
 			t.Fatalf("tampered inspection error=%v", err)
 		}
 	})
@@ -358,7 +360,7 @@ func TestInspectionAndOpenRefuseFutureTamperAndWrongHeadWithoutWrites(t *testing
 			t.Fatal(err)
 		}
 		head.HeadGeneration++
-		if _, err := inspectWithPlan(t.Context(), InspectOptions{Path: path, MinimumHead: &head}, syntheticV2Plan()); !errors.Is(err, ErrRollback) {
+		if _, err := inspectWithPlan(t.Context(), InspectOptions{Path: path, MinimumHead: &head}, syntheticNextPlan()); !errors.Is(err, ErrRollback) {
 			t.Fatalf("wrong-head inspection error=%v", err)
 		}
 	})
@@ -385,11 +387,11 @@ func TestQuiesceForReplacementRecoversCommittedWALAndRejectsUnsafeSidecars(t *te
 		if err := store.Close(); err != nil {
 			t.Fatal(err)
 		}
-		inspection, err := QuiesceForReplacement(t.Context(), QuiesceOptions{Path: crashPath, ExpectedSchemaVersion: 1, ExpectedHead: head})
+		inspection, err := QuiesceForReplacement(t.Context(), QuiesceOptions{Path: crashPath, ExpectedSchemaVersion: len(migrations), ExpectedHead: head})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if inspection.Head != head || inspection.SchemaVersion != 1 {
+		if inspection.Head != head || inspection.SchemaVersion != len(migrations) {
 			t.Fatalf("quiesced inspection=%+v", inspection)
 		}
 		assertNoSQLiteSidecars(t, crashPath)
@@ -448,10 +450,13 @@ func TestReplaceCandidateRejectsUnsafeResidualSidecar(t *testing.T) {
 	}
 }
 
-func syntheticV2Plan() []migration {
+// syntheticNextPlan appends one probe migration on top of the shipped plan,
+// so upgrade tests exercise a real pending upgrade without pinning themselves
+// to whatever the current version happens to be.
+func syntheticNextPlan() []migration {
 	plan := currentMigrationPlan()
 	return append(plan, migration{
-		version: 2,
+		version: len(plan) + 1,
 		name:    "synthetic_upgrade_probe",
 		statements: []string{
 			`CREATE TABLE upgrade_probe(id INTEGER PRIMARY KEY, value TEXT NOT NULL) STRICT`,

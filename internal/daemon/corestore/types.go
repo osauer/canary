@@ -503,7 +503,7 @@ type EventQuery struct {
 type EventProjection struct {
 	RegimeDecision   *RegimeDecisionProjection
 	RuleTransition   *RuleTransitionProjection
-	CanaryTransition *CanaryTransitionProjection
+	StressTransition *StressTransitionProjection
 	CapitalEvent     *CapitalEventProjection
 	RiskPolicyEvent  *RiskPolicyEventProjection
 	ProposalOutcome  *ProposalOutcomeProjection
@@ -544,9 +544,9 @@ type RuleTransitionProjection struct {
 	PolicyVersion                                               *int64
 }
 
-// CanaryTransitionProjection is the typed searchable projection of a Canary
-// transition event.
-type CanaryTransitionProjection struct {
+// StressTransitionProjection is the typed searchable projection of a
+// portfolio-stress transition event.
+type StressTransitionProjection struct {
 	Action, Severity, Direction, MarketStage, InputHealth string
 	PortfolioAlertRelevant                                *bool
 }

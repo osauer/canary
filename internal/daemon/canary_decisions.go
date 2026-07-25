@@ -181,15 +181,15 @@ func (j *canaryDecisionJournal) append(now time.Time, account, accountMode strin
 		return err
 	}
 	if j.core != nil {
-		key, err := coreStoreEventKey(context.Background(), j.core, coreEventCanaryDecision, now, b, 0)
+		key, err := coreStoreEventKey(context.Background(), j.core, coreEventStressDecision, now, b, 0)
 		if err != nil {
 			return err
 		}
 		_, err = j.core.AppendEvents(context.Background(), []corestore.EventInput{{
-			ScopeKey: daemonStateScope, EventKey: key, Type: coreEventCanaryDecision,
+			ScopeKey: daemonStateScope, EventKey: key, Type: coreEventStressDecision,
 			Action: coreEventActionRecord, Origin: coreEventOriginDaemon,
 			OccurredAt: now, PayloadJSON: b,
-			Projection: corestore.EventProjection{CanaryTransition: &corestore.CanaryTransitionProjection{
+			Projection: corestore.EventProjection{StressTransition: &corestore.StressTransitionProjection{
 				Action: line.Action, Severity: string(line.Severity), Direction: string(line.Direction),
 				MarketStage: line.Market.RegimePosture.Stage, InputHealth: line.InputHealth,
 				PortfolioAlertRelevant: line.PortfolioAlertRelevant,

@@ -84,7 +84,7 @@ func (s *Server) sqliteRulesHistory(ctx context.Context, since, until time.Time,
 }
 
 func (s *Server) sqliteStressHistory(ctx context.Context, since, until time.Time, severity, action string, limit int) ([]rpc.StressHistoryEntry, int, error) {
-	events, err := s.sqliteHistoryEvents(ctx, coreEventCanaryDecision, since, until)
+	events, err := s.sqliteHistoryEvents(ctx, coreEventStressDecision, since, until)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -92,7 +92,7 @@ func (s *Server) sqliteStressHistory(ctx context.Context, since, until time.Time
 	for _, event := range events {
 		var line canaryDecisionLine
 		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
-			return nil, 0, fmt.Errorf("decode canary decision event %d: %w", event.EventSeq, err)
+			return nil, 0, fmt.Errorf("decode stress decision event %d: %w", event.EventSeq, err)
 		}
 		if severity != "" && string(line.Severity) != severity {
 			continue
