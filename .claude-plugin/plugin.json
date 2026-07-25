@@ -1,7 +1,7 @@
 {
   "name": "ibkr",
   "version": "2.3.1",
-  "description": "Interactive Brokers (IBKR) integration for Claude Code and MCP clients: agentic portfolio analysis, trading research, account/positions, snapshot + streaming quotes, official calendars, option chains, daily history, market scans, sizing, broad-market stress lifecycle, portfolio-aware canary stress lifecycle, and preview-only stock/ETF order drafts via the local ibkr CLI. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy.",
+  "description": "Interactive Brokers (IBKR) integration for Claude Code and MCP clients: agentic portfolio analysis, trading research, account/positions, snapshot + streaming quotes, official calendars, option chains, daily history, market scans, sizing, broad-market stress lifecycle, portfolio-aware stress lifecycle, and preview-only stock/ETF order drafts via the local ibkr CLI. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy.",
   "author": {
     "name": "osauer",
     "url": "https://github.com/osauer"

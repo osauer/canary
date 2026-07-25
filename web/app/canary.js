@@ -138,7 +138,7 @@ function renderCanaryDetail(canary, snap = state.snapshot || {}) {
 
 function canaryDriverRows(canary) {
   const rows = Array.isArray(canary.rows) ? canary.rows : [];
-  const detailRows = rows.filter((row) => cleanDetail(row.title).toLowerCase() !== "portfolio canary");
+  const detailRows = rows.filter((row) => cleanDetail(row.title).toLowerCase() !== "portfolio stress");
   const active = detailRows
     .filter(canaryRowNeedsAttention)
     .map((row, index) => ({ row, index }))

@@ -1661,7 +1661,10 @@ func TestComputeStressEstablishedAlertProjectionPreservesActAcrossAuthorityHealt
 	if !fresh.EstablishedAlertProjection.OccurrenceEligible || !fresh.EstablishedAlertProjection.ActOnlyEligible {
 		t.Fatalf("fresh established eligibility=%+v, want occurrence and act-only eligible", fresh.EstablishedAlertProjection)
 	}
-	if got, want := fresh.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:6a6e879570bc1a4d98c9cf45deca585c45c64ec3d46b4a99843a31282b1ee45c"; got != want {
+	// The alert fingerprint hashes rows[].title, so these goldens rotated once
+	// when the overall row title became "Portfolio stress". They still guard the
+	// ad5b77b behaviour; only the recorded keys moved.
+	if got, want := fresh.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:577b5acb13ea1432f8c509f4c02e991a7e81f740adc46c519dd2eb7c87150f82"; got != want {
 		t.Fatalf("established act fingerprint=%s, want ad5b77b golden %s", got, want)
 	}
 
@@ -1725,7 +1728,7 @@ func TestComputeStressEstablishedAlertProjectionIgnoresNewMarketEventRequirement
 	if baseline.EstablishedAlertProjection == nil {
 		t.Fatal("baseline missing established alert projection")
 	}
-	if got, want := baseline.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:4c84336687746ce418ce19bda97c1209e3c3731fdd85ab06820288be5a1b6c42"; got != want {
+	if got, want := baseline.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:9510b07cac718743f0fc1f9bf4017fe9af33e16d05c65fdf0a881a22a0652812"; got != want {
 		t.Fatalf("established MarketEvents fingerprint=%s, want ad5b77b golden %s", got, want)
 	}
 
@@ -1838,11 +1841,11 @@ func TestComputeStressEstablishedAlertProjectionKeepsAccountAndPositionsConfirmI
 	}{
 		{
 			name: "stale_account", account: staleAccount, positions: freshStressPositions(),
-			wantKey: "sha256:183f4f116827746d7b1f8823112b5b3f8a3d4b3d3f73f6231677dcbdca196ecb",
+			wantKey: "sha256:c61d61c2e46b87e7031fa06eb3fef5acf053bfcb415c22fe990f1061e273cf08",
 		},
 		{
 			name: "missing_positions", account: freshAccount,
-			wantKey: "sha256:98e6947dafd31135972ef90ea9767575cecfdba3c37ed619de453da7f1a4dde7",
+			wantKey: "sha256:a8fd5e1779b19b0c7f660c2a4b9f317f8580ea23ae59d93da04831f104098e62",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

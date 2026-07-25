@@ -52,7 +52,7 @@ func main() {
 		"size":           func() { cli.PreviewRenderSize(env, fixtureSize()) },
 		"status":         func() { cli.PreviewRenderStatus(env, fixtureStatus()) },
 		"regime":         func() { cli.PreviewRenderRegime(env, fixtureRegime()) },
-		"canary":         func() { cli.PreviewRenderCanary(env, fixtureCanary()) },
+		"canary":         func() { cli.PreviewRenderStress(env, fixtureCanary()) },
 	}
 	order := []string{"status", "account", "positions", "positions-flat", "chain", "chain-strikes", "quote", "history", "scan", "size", "regime", "canary"}
 

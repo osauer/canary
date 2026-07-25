@@ -144,6 +144,6 @@ func printMCPUsage(w io.Writer) {
 	fmt.Fprintln(w, "resources/read returns one snapshot; resources/subscribe")
 	fmt.Fprintln(w, "streams quote updates until unsubscribe or client shutdown.")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "The monitor profile exposes only ibkr_canary and ibkr_status for low-token")
+	fmt.Fprintln(w, "The monitor profile exposes only ibkr_stress and ibkr_status for low-token")
 	fmt.Fprintln(w, "scheduled checks.")
 }

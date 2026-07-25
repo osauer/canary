@@ -198,8 +198,8 @@
 <td>yes</td>
 </tr>
 <tr>
-<td><a href="#ibkr-canary"><code>ibkr canary</code></a></td>
-<td>Stateless market-regime × portfolio-shape canary with action, evidence, and source health</td>
+<td><a href="#ibkr-stress"><code>ibkr stress</code></a></td>
+<td>Stateless market-regime × portfolio-shape stress read with action, evidence, and source health</td>
 <td><code>read-only</code></td>
 <td>yes</td>
 </tr>
@@ -995,11 +995,11 @@ ibkr regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [-
 </tbody>
 </table>
 </div>
-<h2 id="ibkr-canary"><code>ibkr canary</code></h2>
-<p>Stateless market-regime × portfolio-shape canary with action, evidence, and source health.</p>
+<h2 id="ibkr-stress"><code>ibkr stress</code></h2>
+<p>Stateless market-regime × portfolio-shape stress read with action, evidence, and source health.</p>
 <p>Guard <code>read-only</code>. Also available as an MCP tool.</p>
-<pre><code class="language-text">ibkr canary [--details] [--view full|alert] [--json]
-ibkr canary history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]
+<pre><code class="language-text">ibkr stress [--details] [--view full|alert] [--json]
+ibkr stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]
 </code></pre>
 <p>Subcommands: <code>history</code>.</p>
 <p><strong>Flags</strong></p>

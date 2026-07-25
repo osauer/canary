@@ -68,12 +68,12 @@ func canaryHistoryFixture() rpc.CanaryHistoryResult {
 	}
 }
 
-func TestRunCanaryHistoryForwardsParamsAndRendersTable(t *testing.T) {
+func TestRunStressHistoryForwardsParamsAndRendersTable(t *testing.T) {
 	t.Parallel()
 	conn := &phase2FakeConn{canary: canaryHistoryFixture()}
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn}
-	code := Run(context.Background(), env, "canary", []string{
+	code := Run(context.Background(), env, "stress", []string{
 		"history", "--since", "2026-07-14", "--until", "2026-07-20", "--severity", "act", "--action", "defend", "--limit", "2",
 	})
 	if code != 0 {
@@ -88,7 +88,7 @@ func TestRunCanaryHistoryForwardsParamsAndRendersTable(t *testing.T) {
 	}
 	out := stdout.String()
 	for _, want := range []string{
-		"Canary history  2026-07-14 → 2026-07-20 UTC  2 of 44 rows (truncated; raise --limit)",
+		"Stress history  2026-07-14 → 2026-07-20 UTC  2 of 44 rows (truncated; raise --limit)",
 		"AT (UTC)",
 		"SEV",
 		"ACTION",
@@ -105,12 +105,12 @@ func TestRunCanaryHistoryForwardsParamsAndRendersTable(t *testing.T) {
 	}
 }
 
-func TestRunCanaryHistoryJSONPassThrough(t *testing.T) {
+func TestRunStressHistoryJSONPassThrough(t *testing.T) {
 	t.Parallel()
 	conn := &phase2FakeConn{canary: canaryHistoryFixture()}
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn}
-	if code := Run(context.Background(), env, "canary", []string{"history", "--json"}); code != 0 {
+	if code := Run(context.Background(), env, "stress", []string{"history", "--json"}); code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
 	var res rpc.CanaryHistoryResult
@@ -125,14 +125,14 @@ func TestRunCanaryHistoryJSONPassThrough(t *testing.T) {
 	}
 }
 
-func TestRunCanaryHistoryRejectsTrailingArgs(t *testing.T) {
+func TestRunStressHistoryRejectsTrailingArgs(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr}
-	if code := runCanaryHistory(context.Background(), env, []string{"history", "extra"}); code != 1 {
+	if code := runStressHistory(context.Background(), env, []string{"history", "extra"}); code != 1 {
 		t.Fatalf("exit=%d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "ibkr canary history") {
+	if !strings.Contains(stderr.String(), "ibkr stress history") {
 		t.Fatalf("stderr missing usage: %s", stderr.String())
 	}
 }
@@ -249,21 +249,21 @@ func TestPhase2CatalogGuards(t *testing.T) {
 	for _, spec := range Catalog() {
 		specs[spec.Name] = spec
 	}
-	canarySpec, ok := specs["canary"]
+	stressSpec, ok := specs["stress"]
 	if !ok {
-		t.Fatal("canary catalog row missing")
+		t.Fatal("stress catalog row missing")
 	}
 	foundHistory := false
-	for _, sub := range canarySpec.Subcommands {
+	for _, sub := range stressSpec.Subcommands {
 		if sub.Name == "history" {
 			foundHistory = true
 			if sub.Guard != GuardReadOnly {
-				t.Fatalf("canary history guard = %v, want GuardReadOnly", sub.Guard)
+				t.Fatalf("stress history guard = %v, want GuardReadOnly", sub.Guard)
 			}
 		}
 	}
 	if !foundHistory {
-		t.Fatalf("canary catalog subcommands = %+v, want history present", canarySpec.Subcommands)
+		t.Fatalf("stress catalog subcommands = %+v, want history present", stressSpec.Subcommands)
 	}
 	reconSpec, ok := specs["recon"]
 	if !ok {

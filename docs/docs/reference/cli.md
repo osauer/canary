@@ -27,7 +27,7 @@ The guard column says what a command does: `read-only` reads and prints, `local`
 | [`ibkr breadth`](#ibkr-breadth) | S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold) | `read-only` | yes |
 | [`ibkr gamma`](#ibkr-gamma) | SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due) | `read-only` | yes |
 | [`ibkr regime`](#ibkr-regime) | Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth | `read-only` | yes |
-| [`ibkr canary`](#ibkr-canary) | Stateless market-regime × portfolio-shape canary with action, evidence, and source health | `read-only` | yes |
+| [`ibkr stress`](#ibkr-stress) | Stateless market-regime × portfolio-shape stress read with action, evidence, and source health | `read-only` | yes |
 | [`ibkr brief`](#ibkr-brief) | Typed morning/EOD operator brief with disclosed source degradation | `read-only` | CLI only |
 | [`ibkr rules`](#ibkr-rules) | Advisory 14-rule daily trading checklist, hardest breach first | `read-only` | yes |
 | [`ibkr policy`](#ibkr-policy) | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
@@ -338,15 +338,15 @@ Subcommands: `history`.
 | `--limit` | yes | - |
 | `--json` | no | - |
 
-## `ibkr canary`
+## `ibkr stress`
 
-Stateless market-regime × portfolio-shape canary with action, evidence, and source health.
+Stateless market-regime × portfolio-shape stress read with action, evidence, and source health.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-ibkr canary [--details] [--view full|alert] [--json]
-ibkr canary history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]
+ibkr stress [--details] [--view full|alert] [--json]
+ibkr stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]
 ```
 
 Subcommands: `history`.

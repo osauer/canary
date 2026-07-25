@@ -182,7 +182,7 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	if strings.EqualFold(severity, ready.Stress.Action) {
 		severity = ""
 	}
-	briefLine(env, "canary", ready.Stress.BriefRowState,
+	briefLine(env, "stress", ready.Stress.BriefRowState,
 		briefJoin(ready.Stress.Action, severity, ready.Stress.Summary))
 	briefLine(env, "session", ready.Session.BriefRowState, briefJoin(ready.Session.Market, ready.Session.State))
 	for _, event := range ready.MarketEvents {

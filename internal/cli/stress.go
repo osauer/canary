@@ -12,39 +12,39 @@ import (
 	"github.com/osauer/ibkr/v2/internal/stress"
 )
 
-// StressInput is the typed input consumed by the shared canary evaluator.
+// StressInput is the typed input consumed by the shared stress evaluator.
 type StressInput = rpc.StressInput
 
-// StressResult is the complete typed output of a canary evaluation.
+// StressResult is the complete typed output of a stress evaluation.
 type StressResult = rpc.StressResult
 
-// StressRow is one evidence row in a canary result.
+// StressRow is one evidence row in a stress result.
 type StressRow = rpc.StressRow
 
-// StressMarketIndicator is one normalized market input in a canary summary.
+// StressMarketIndicator is one normalized market input in a stress summary.
 type StressMarketIndicator = rpc.StressMarketIndicator
 
-// StressMarketSummary is the market-side evidence summarized for the canary.
+// StressMarketSummary is the market-side evidence summarized for the stress read.
 type StressMarketSummary = rpc.StressMarketSummary
 
 const (
-	canaryActionWatch         = stress.ActionWatch
-	canaryActionDefend        = stress.ActionDefend
-	canaryActionRebalance     = stress.ActionRebalance
-	canaryActionDeploy        = stress.ActionDeploy
-	canaryActionConfirmInputs = stress.ActionConfirmInputs
-	canaryInputOK             = stress.InputOK
-	canaryInputDegraded       = stress.InputDegraded
-	canaryPortfolioFitLow     = stress.PortfolioFitLow
-	canaryPortfolioFitUnknown = stress.PortfolioFitUnknown
+	stressActionWatch         = stress.ActionWatch
+	stressActionDefend        = stress.ActionDefend
+	stressActionRebalance     = stress.ActionRebalance
+	stressActionDeploy        = stress.ActionDeploy
+	stressActionConfirmInputs = stress.ActionConfirmInputs
+	stressInputOK             = stress.InputOK
+	stressInputDegraded       = stress.InputDegraded
+	stressPortfolioFitLow     = stress.PortfolioFitLow
+	stressPortfolioFitUnknown = stress.PortfolioFitUnknown
 )
 
-// ComputeStress evaluates in through the shared pure canary engine.
+// ComputeStress evaluates in through the shared pure stress engine.
 func ComputeStress(in StressInput) StressResult {
 	return stress.ComputeStress(in)
 }
 
-func summarizeCanaryMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
+func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
 	return stress.SummarizeMarket(r, now)
 }
 
@@ -52,19 +52,19 @@ func severityRankAtLeast(got, want risk.SignalSeverity) bool {
 	return stress.SeverityAtLeast(got, want)
 }
 
-func canaryGammaDegraded(g rpc.RegimeGammaZero) bool {
+func stressGammaDegraded(g rpc.RegimeGammaZero) bool {
 	return stress.GammaDegraded(g)
 }
 
-func canaryMarketEvidence(m StressMarketSummary) string {
+func stressMarketEvidence(m StressMarketSummary) string {
 	return stress.MarketEvidence(m)
 }
 
-func canaryPortfolioEvidence(p rpc.StressPortfolioSummary) string {
+func stressPortfolioEvidence(p rpc.StressPortfolioSummary) string {
 	return stress.PortfolioEvidence(p)
 }
 
-func canaryAmbiguityEvidence(m StressMarketSummary) string {
+func stressAmbiguityEvidence(m StressMarketSummary) string {
 	return stress.AmbiguityEvidence(m)
 }
 
@@ -76,13 +76,13 @@ func appendUniqueString(values []string, value string) []string {
 	return stress.AppendUniqueString(values, value)
 }
 
-func runCanary(ctx context.Context, env *Env, args []string) int {
+func runStress(ctx context.Context, env *Env, args []string) int {
 	if slicesContains(args, "history") {
-		return runCanaryHistory(ctx, env, args)
+		return runStressHistory(ctx, env, args)
 	}
-	fs := flagSet(env, "canary")
+	fs := flagSet(env, "stress")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON for scheduling")
-	details := fs.Bool("details", false, "show full canary evidence rows")
+	details := fs.Bool("details", false, "show full stress evidence rows")
 	view := fs.String("view", rpc.ViewFull, "JSON response view: full | alert")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -91,23 +91,23 @@ func runCanary(ctx context.Context, env *Env, args []string) int {
 		return failUnexpectedArgs(env, fs)
 	}
 	if *view != rpc.ViewFull && *view != rpc.ViewAlert {
-		return fail(env, "canary: --view must be %q or %q (got %q)", rpc.ViewFull, rpc.ViewAlert, *view)
+		return fail(env, "stress: --view must be %q or %q (got %q)", rpc.ViewFull, rpc.ViewAlert, *view)
 	}
 	if *view != rpc.ViewFull && !*jsonOut {
-		return fail(env, "canary: --view requires --json")
+		return fail(env, "stress: --view requires --json")
 	}
 	if !*jsonOut && isTerminal(env.Stdout) {
-		stop := startCanarySpinner(env)
+		stop := startStressSpinner(env)
 		res, err := stress.FetchStress(ctx, env.Conn)
 		stop()
 		if err != nil {
-			return fail(env, "canary: %v", err)
+			return fail(env, "stress: %v", err)
 		}
-		return renderCanaryTextDetails(env, env.Stdout, &res, *details)
+		return renderStressTextDetails(env, env.Stdout, &res, *details)
 	}
 	res, positions, err := stress.FetchStressSnapshot(ctx, env.Conn)
 	if err != nil {
-		return fail(env, "canary: %v", err)
+		return fail(env, "stress: %v", err)
 	}
 	if *jsonOut {
 		if *view == rpc.ViewAlert {
@@ -115,14 +115,14 @@ func runCanary(ctx context.Context, env *Env, args []string) int {
 		}
 		return printJSON(env, res)
 	}
-	return renderCanaryTextDetails(env, env.Stdout, &res, *details)
+	return renderStressTextDetails(env, env.Stdout, &res, *details)
 }
 
-// runCanaryHistory renders the daemon's derived canary-decision index
+// runStressHistory renders the daemon's derived stress-decision index
 // (canary.history). Read-only: rows are journal evidence; the daemon owns
 // filtering, ordering, and index-health disclosure.
-func runCanaryHistory(ctx context.Context, env *Env, args []string) int {
-	fs := flagSet(env, "canary")
+func runStressHistory(ctx context.Context, env *Env, args []string) int {
+	fs := flagSet(env, "stress")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	since := fs.String("since", "", "inclusive lower boundary: YYYY-MM-DD UTC day or RFC3339 timestamp")
 	until := fs.String("until", "", "upper boundary: YYYY-MM-DD UTC day (whole day included) or RFC3339 timestamp")
@@ -137,7 +137,7 @@ func runCanaryHistory(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 0 {
-		return fail(env, "canary history: usage is `ibkr canary history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]`")
+		return fail(env, "stress history: usage is `ibkr stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]`")
 	}
 	params := rpc.CanaryHistoryParams{
 		Since:    strings.TrimSpace(*since),
@@ -148,31 +148,31 @@ func runCanaryHistory(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.CanaryHistoryResult
 	if err := env.Conn.Call(ctx, rpc.MethodCanaryHistory, params, &res); err != nil {
-		return fail(env, "canary history: %v", err)
+		return fail(env, "stress history: %v", err)
 	}
 	if *jsonOut {
 		return printJSON(env, res)
 	}
-	renderCanaryHistoryText(env, env.Stdout, &res)
+	renderStressHistoryText(env, env.Stdout, &res)
 	return 0
 }
 
-// renderCanaryHistoryText prints the newest-first decision table plus the
+// renderStressHistoryText prints the newest-first decision table plus the
 // index-freshness footer. Summaries are journal free text — truncated to
 // the terminal, never interpreted.
-func renderCanaryHistoryText(env *Env, out io.Writer, res *rpc.CanaryHistoryResult) {
+func renderStressHistoryText(env *Env, out io.Writer, res *rpc.CanaryHistoryResult) {
 	width := outputColumns(out)
 	if width < 60 {
 		width = 120
 	}
-	header := fmt.Sprintf("Canary history  %s → %s UTC  %d of %d rows",
+	header := fmt.Sprintf("Stress history  %s → %s UTC  %d of %d rows",
 		res.Since.UTC().Format("2006-01-02"), res.Until.UTC().Format("2006-01-02"), res.Count, res.TotalCount)
 	if res.Truncated {
 		header += " (truncated; raise --limit)"
 	}
 	fmt.Fprintln(out, header)
 	if len(res.Entries) == 0 {
-		fmt.Fprintln(out, "  no indexed canary decisions in this window")
+		fmt.Fprintln(out, "  no indexed stress decisions in this window")
 	} else {
 		actionW, stageW := 6, 5
 		for _, e := range res.Entries {
@@ -194,7 +194,7 @@ func renderCanaryHistoryText(env *Env, out io.Writer, res *rpc.CanaryHistoryResu
 	renderHistoryIndexFooter(env, out, res.Index)
 }
 
-func startCanarySpinner(env *Env) func() {
+func startStressSpinner(env *Env) func() {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -210,7 +210,7 @@ func startCanarySpinner(env *Env) func() {
 				return
 			case <-ticker.C:
 				fmt.Fprintf(env.Stdout, "\r\x1b[K%s %s",
-					env.dim("Populating canary: account, positions, regime, gamma, breadth"), frames[i])
+					env.dim("Populating stress read: account, positions, regime, gamma, breadth"), frames[i])
 				i = (i + 1) % len(frames)
 			}
 		}
@@ -221,175 +221,175 @@ func startCanarySpinner(env *Env) func() {
 	}
 }
 
-func renderCanaryText(env *Env, out io.Writer, r *StressResult) int {
-	return renderCanaryTextDetails(env, out, r, false)
+func renderStressText(env *Env, out io.Writer, r *StressResult) int {
+	return renderStressTextDetails(env, out, r, false)
 }
 
-func renderCanaryTextDetails(env *Env, out io.Writer, r *StressResult, details bool) int {
+func renderStressTextDetails(env *Env, out io.Writer, r *StressResult, details bool) int {
 	width := outputColumns(out)
 	if width == 0 {
 		width = 120
 	}
-	return renderCanaryTextWidthDetails(env, out, r, width, details)
+	return renderStressTextWidthDetails(env, out, r, width, details)
 }
 
-func renderCanaryTextWidth(env *Env, out io.Writer, r *StressResult, width int) int {
-	return renderCanaryTextWidthDetails(env, out, r, width, false)
+func renderStressTextWidth(env *Env, out io.Writer, r *StressResult, width int) int {
+	return renderStressTextWidthDetails(env, out, r, width, false)
 }
 
-func renderCanaryTextWidthDetails(env *Env, out io.Writer, r *StressResult, width int, details bool) int {
+func renderStressTextWidthDetails(env *Env, out io.Writer, r *StressResult, width int, details bool) int {
 	if width < 40 {
 		width = 80
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "Portfolio Canary  ·  %s\n", r.AsOf.Format("2006-01-02 15:04 MST"))
+	fmt.Fprintf(out, "Portfolio Stress  ·  %s\n", r.AsOf.Format("2006-01-02 15:04 MST"))
 	fmt.Fprintln(out)
-	renderCanaryKV(out, "Action", canaryHeadlineText(r), width, func(string) string {
-		return canaryHeadlineLabel(env, r)
+	renderStressKV(out, "Action", stressHeadlineText(r), width, func(string) string {
+		return stressHeadlineLabel(env, r)
 	})
-	renderCanaryKV(out, "Guidance", r.Summary, width, env.bold)
+	renderStressKV(out, "Guidance", r.Summary, width, env.bold)
 	if len(r.PrimaryDrivers) > 0 {
-		renderCanaryKV(out, "Drivers", strings.Join(signalDisplayStrings(r.PrimaryDrivers), ", "), width, nil)
+		renderStressKV(out, "Drivers", strings.Join(signalDisplayStrings(r.PrimaryDrivers), ", "), width, nil)
 	}
-	renderCanaryKV(out, "Next step", canaryPlannerStepText(r.PlannerModeHint, r.PlannerReadiness), width, func(s string) string {
-		return canaryPlannerStepLabel(env, r.PlannerModeHint, r.PlannerReadiness)
+	renderStressKV(out, "Next step", stressPlannerStepText(r.PlannerModeHint, r.PlannerReadiness), width, func(s string) string {
+		return stressPlannerStepLabel(env, r.PlannerModeHint, r.PlannerReadiness)
 	})
 	fmt.Fprintln(out)
 
 	fmt.Fprintln(out, "  Why this fired")
-	renderCanarySectionRow(out, "Market weather", canaryMarketReadText(r), width, nil)
-	renderCanarySectionRow(out, "Portfolio shape", canaryPortfolioFitText(r), width, nil)
-	renderCanarySectionRow(out, "Combined read", canaryCombinedReadText(r), width, nil)
-	renderCanaryMarketIndicators(env, out, r.MarketIndicators, width)
+	renderStressSectionRow(out, "Market weather", stressMarketReadText(r), width, nil)
+	renderStressSectionRow(out, "Portfolio shape", stressPortfolioFitText(r), width, nil)
+	renderStressSectionRow(out, "Combined read", stressCombinedReadText(r), width, nil)
+	renderStressMarketIndicators(env, out, r.MarketIndicators, width)
 
-	renderCanaryWarnings(env, out, r.Warnings, width)
+	renderStressWarnings(env, out, r.Warnings, width)
 
 	if details {
 		fmt.Fprintln(out)
-		renderCanaryRowsStacked(env, out, r.Rows, width)
+		renderStressRowsStacked(env, out, r.Rows, width)
 	}
 	if r.Fingerprint.Key != "" {
 		fmt.Fprintln(out)
-		renderCanaryKV(out, "Alert ID", r.Fingerprint.Version+" "+r.Fingerprint.Key, width, env.dim)
+		renderStressKV(out, "Alert ID", r.Fingerprint.Version+" "+r.Fingerprint.Key, width, env.dim)
 	}
 	return 0
 }
 
-func canaryHeadlineText(r *StressResult) string {
-	return strings.ToUpper(canaryActionDisplay(r.Action)) + " · " + canaryHeadlineReason(r)
+func stressHeadlineText(r *StressResult) string {
+	return strings.ToUpper(stressActionDisplay(r.Action)) + " · " + stressHeadlineReason(r)
 }
 
-func canaryHeadlineLabel(env *Env, r *StressResult) string {
-	text := canaryHeadlineText(r)
+func stressHeadlineLabel(env *Env, r *StressResult) string {
+	text := stressHeadlineText(r)
 	switch r.Action {
-	case canaryActionDefend:
+	case stressActionDefend:
 		return env.bold(env.red(text))
-	case canaryActionWatch, canaryActionRebalance, canaryActionConfirmInputs:
+	case stressActionWatch, stressActionRebalance, stressActionConfirmInputs:
 		return env.bold(env.yellow(text))
-	case canaryActionDeploy:
+	case stressActionDeploy:
 		return env.bold(env.green(text))
 	default:
 		return env.bold(text)
 	}
 }
 
-func canaryActionDisplay(action string) string {
+func stressActionDisplay(action string) string {
 	switch action {
-	case canaryActionDefend:
+	case stressActionDefend:
 		return "defend"
-	case canaryActionWatch:
+	case stressActionWatch:
 		return "watch"
-	case canaryActionRebalance:
+	case stressActionRebalance:
 		return "rebalance"
-	case canaryActionDeploy:
+	case stressActionDeploy:
 		return "deploy"
-	case canaryActionConfirmInputs:
+	case stressActionConfirmInputs:
 		return "confirm inputs"
 	default:
 		return "stand down"
 	}
 }
 
-func canaryHeadlineReason(r *StressResult) string {
+func stressHeadlineReason(r *StressResult) string {
 	switch r.Action {
-	case canaryActionDefend:
+	case stressActionDefend:
 		return "market stress confirmed against vulnerable portfolio"
-	case canaryActionWatch:
-		if r.PortfolioFit == canaryPortfolioFitLow || r.PortfolioFit == canaryPortfolioFitUnknown {
+	case stressActionWatch:
+		if r.PortfolioFit == stressPortfolioFitLow || r.PortfolioFit == stressPortfolioFitUnknown {
 			return "market pressure; portfolio fit is not a defense trigger"
 		}
 		return "market pressure with portfolio exposure"
-	case canaryActionRebalance:
+	case stressActionRebalance:
 		return "portfolio shape outside limits; market stress unconfirmed"
-	case canaryActionDeploy:
+	case stressActionDeploy:
 		return "constructive tape with clean inputs"
-	case canaryActionConfirmInputs:
-		return "input health blocks the canary"
+	case stressActionConfirmInputs:
+		return "input health blocks the stress read"
 	default:
 		return "no market-context action"
 	}
 }
 
-func canaryMarketReadText(r *StressResult) string {
-	return fmt.Sprintf("%s — %s", r.MarketConfirmation, canaryMarketEvidence(r.Market))
+func stressMarketReadText(r *StressResult) string {
+	return fmt.Sprintf("%s — %s", r.MarketConfirmation, stressMarketEvidence(r.Market))
 }
 
-func canaryPortfolioFitText(r *StressResult) string {
-	return fmt.Sprintf("%s — %s", r.PortfolioFit, canaryPortfolioEvidence(r.Portfolio))
+func stressPortfolioFitText(r *StressResult) string {
+	return fmt.Sprintf("%s — %s", r.PortfolioFit, stressPortfolioEvidence(r.Portfolio))
 }
 
-func canaryCombinedReadText(r *StressResult) string {
+func stressCombinedReadText(r *StressResult) string {
 	switch r.Action {
-	case canaryActionDefend:
-		return "market confirmation and portfolio fit agree; defensive action is justified by this canary."
-	case canaryActionWatch:
+	case stressActionDefend:
+		return "market confirmation and portfolio fit agree; defensive action is justified by this stress read."
+	case stressActionWatch:
 		return "market pressure is not strong enough for automatic defense; stage a plan and wait for confirmation."
-	case canaryActionRebalance:
+	case stressActionRebalance:
 		return "portfolio shape is high risk, but market weather is not the trigger; use portfolio-risk workflow."
-	case canaryActionDeploy:
+	case stressActionDeploy:
 		return "constructive tape is visible; size only inside the existing risk budget."
-	case canaryActionConfirmInputs:
+	case stressActionConfirmInputs:
 		return "the monitor cannot separate signal from input failure yet."
 	default:
-		return "market weather and portfolio shape do not call for a canary action."
+		return "market weather and portfolio shape do not call for a stress action."
 	}
 }
 
-type canaryInputHealthRow struct {
+type stressInputHealthRow struct {
 	label string
 	text  string
 }
 
-func canaryInputHealthRows(r *StressResult) []canaryInputHealthRow {
-	rows := []canaryInputHealthRow{{
+func stressInputHealthRows(r *StressResult) []stressInputHealthRow {
+	rows := []stressInputHealthRow{{
 		label: "Overall",
 		text:  r.InputHealth,
 	}}
 	if r.Portfolio.DailyPnLPct == nil {
-		rows = append(rows, canaryInputHealthRow{label: "Warming input", text: "account daily P&L has not produced a usable frame yet"})
+		rows = append(rows, stressInputHealthRow{label: "Warming input", text: "account daily P&L has not produced a usable frame yet"})
 	}
 	if len(r.Market.DegradedClusters) > 0 {
-		rows = append(rows, canaryInputHealthRow{label: "Degraded input", text: canaryClusterList(r.Market.DegradedClusters)})
+		rows = append(rows, stressInputHealthRow{label: "Degraded input", text: stressClusterList(r.Market.DegradedClusters)})
 	}
 	if len(r.Market.StaleClusters) > 0 {
-		rows = append(rows, canaryInputHealthRow{label: "Stale input", text: canaryClusterList(r.Market.StaleClusters)})
+		rows = append(rows, stressInputHealthRow{label: "Stale input", text: stressClusterList(r.Market.StaleClusters)})
 	}
 	if len(r.Market.PartialClusters) > 0 || len(r.Market.AmbiguousClusters) > 0 || len(r.Market.ComputingClusters) > 0 {
-		rows = append(rows, canaryInputHealthRow{label: "Incomplete input", text: canaryAmbiguityEvidence(r.Market)})
+		rows = append(rows, stressInputHealthRow{label: "Incomplete input", text: stressAmbiguityEvidence(r.Market)})
 	}
 	for _, h := range r.SourceHealth {
 		if h.Status == "" || h.Status == rpc.RegimeStatusOK {
 			continue
 		}
-		rows = append(rows, canaryInputHealthRow{label: "Source status", text: h.Source + " " + h.Status})
+		rows = append(rows, stressInputHealthRow{label: "Source status", text: h.Source + " " + h.Status})
 	}
-	if len(rows) == 1 && r.InputHealth == canaryInputOK {
+	if len(rows) == 1 && r.InputHealth == stressInputOK {
 		rows[0].text = "ok — account, positions, and regime inputs are usable"
 	}
 	return rows
 }
 
-func renderCanarySectionRow(out io.Writer, label, value string, width int, color func(string) string) {
+func renderStressSectionRow(out io.Writer, label, value string, width int, color func(string) string) {
 	const labelW = 16
 	available := max(width-4-labelW-1, 24)
 	lines := wrapVisibleText(value, available)
@@ -412,7 +412,7 @@ func humanList(value string) string {
 		if part == "" {
 			continue
 		}
-		clean = append(clean, canaryClusterDisplayName(part))
+		clean = append(clean, stressClusterDisplayName(part))
 	}
 	if len(clean) == 0 {
 		return strings.TrimSpace(value)
@@ -426,11 +426,11 @@ func humanList(value string) string {
 	return strings.Join(clean[:len(clean)-1], ", ") + ", and " + clean[len(clean)-1]
 }
 
-func canaryClusterList(clusters []string) string {
+func stressClusterList(clusters []string) string {
 	return humanList(strings.Join(clusters, ","))
 }
 
-func canaryClusterDisplayName(cluster string) string {
+func stressClusterDisplayName(cluster string) string {
 	switch strings.ToLower(strings.TrimSpace(cluster)) {
 	case "fx":
 		return "FX"
@@ -439,7 +439,7 @@ func canaryClusterDisplayName(cluster string) string {
 	}
 }
 
-func renderCanaryKV(out io.Writer, label, value string, width int, color func(string) string) {
+func renderStressKV(out io.Writer, label, value string, width int, color func(string) string) {
 	const labelW = 10
 	available := max(width-2-labelW-1, 24)
 	lines := wrapVisibleText(value, available)
@@ -455,22 +455,22 @@ func renderCanaryKV(out io.Writer, label, value string, width int, color func(st
 	}
 }
 
-func renderCanaryRowsStacked(env *Env, out io.Writer, rows []StressRow, width int) {
+func renderStressRowsStacked(env *Env, out io.Writer, rows []StressRow, width int) {
 	fmt.Fprintln(out, "  Details")
 	for _, row := range rows {
-		if row.Title == "Portfolio canary" {
+		if row.Title == "Portfolio stress" {
 			continue
 		}
-		state := canaryRiskStateLabel(env, row.Direction, row.Severity, false)
+		state := stressRiskStateLabel(env, row.Direction, row.Severity, false)
 		fmt.Fprintf(out, "  %s · %s\n", row.Title, state)
-		renderCanaryIndented(out, "guidance", row.Guidance, width, nil)
+		renderStressIndented(out, "guidance", row.Guidance, width, nil)
 		if row.Evidence != "" {
-			renderCanaryIndented(out, "evidence", row.Evidence, width, env.dim)
+			renderStressIndented(out, "evidence", row.Evidence, width, env.dim)
 		}
 	}
 }
 
-func renderCanaryMarketIndicators(env *Env, out io.Writer, indicators []StressMarketIndicator, width int) {
+func renderStressMarketIndicators(env *Env, out io.Writer, indicators []StressMarketIndicator, width int) {
 	if len(indicators) == 0 {
 		return
 	}
@@ -503,7 +503,7 @@ func renderCanaryMarketIndicators(env *Env, out io.Writer, indicators []StressMa
 			detail = "—"
 		}
 		lines := wrapVisibleText(detail, detailW)
-		status := padRightVisible(canaryIndicatorStatusLabel(env, row.Status), statusW)
+		status := padRightVisible(stressIndicatorStatusLabel(env, row.Status), statusW)
 		for i, line := range lines {
 			if i == 0 {
 				fmt.Fprintf(out, "    %s  %s  %s  %s\n",
@@ -522,7 +522,7 @@ func renderCanaryMarketIndicators(env *Env, out io.Writer, indicators []StressMa
 	}
 }
 
-func canaryIndicatorStatusLabel(env *Env, status string) string {
+func stressIndicatorStatusLabel(env *Env, status string) string {
 	switch status {
 	case "green":
 		return env.green(status)
@@ -537,7 +537,7 @@ func canaryIndicatorStatusLabel(env *Env, status string) string {
 	}
 }
 
-func renderCanaryIndented(out io.Writer, label, value string, width int, color func(string) string) {
+func renderStressIndented(out io.Writer, label, value string, width int, color func(string) string) {
 	const labelW = 9
 	available := max(width-4-labelW-1, 24)
 	for i, line := range wrapVisibleText(value, available) {
@@ -552,7 +552,7 @@ func renderCanaryIndented(out io.Writer, label, value string, width int, color f
 	}
 }
 
-func renderCanaryWarnings(env *Env, out io.Writer, warnings []string, width int) {
+func renderStressWarnings(env *Env, out io.Writer, warnings []string, width int) {
 	if len(warnings) == 0 {
 		return
 	}
@@ -562,9 +562,9 @@ func renderCanaryWarnings(env *Env, out io.Writer, warnings []string, width int)
 	}
 	checks := []inputCheck{}
 	for _, warning := range warnings {
-		label, text := canaryWarningLabel(warning)
-		text = canaryInputCheckText(label, text)
-		if !canaryInputCheckRenderable(label, text) {
+		label, text := stressWarningLabel(warning)
+		text = stressInputCheckText(label, text)
+		if !stressInputCheckRenderable(label, text) {
 			continue
 		}
 		checks = append(checks, inputCheck{label: label, text: text})
@@ -579,7 +579,7 @@ func renderCanaryWarnings(env *Env, out io.Writer, warnings []string, width int)
 		labelText := label + ":"
 		available := max(width-4-visibleLen(labelText)-1, 24)
 		lines := wrapVisibleText(text, available)
-		labelText = canaryWarningLabelColor(env, label, labelText)
+		labelText = stressWarningLabelColor(env, label, labelText)
 		for i, line := range lines {
 			if i == 0 {
 				fmt.Fprintf(out, "    %s %s\n", labelText, line)
@@ -590,7 +590,7 @@ func renderCanaryWarnings(env *Env, out io.Writer, warnings []string, width int)
 	}
 }
 
-func canaryInputCheckRenderable(label, text string) bool {
+func stressInputCheckRenderable(label, text string) bool {
 	if label != "context" {
 		return true
 	}
@@ -700,7 +700,7 @@ func splitVisibleWord(word string, width int) (string, string) {
 	return word, ""
 }
 
-func canaryWarningLabel(warning string) (string, string) {
+func stressWarningLabel(warning string) (string, string) {
 	lower := strings.ToLower(warning)
 	switch {
 	case strings.Contains(lower, "error"):
@@ -720,7 +720,7 @@ func canaryWarningLabel(warning string) (string, string) {
 	}
 }
 
-func canaryInputCheckText(label, warning string) string {
+func stressInputCheckText(label, warning string) string {
 	lower := strings.ToLower(warning)
 	switch {
 	case strings.Contains(lower, "gamma_zero") && (strings.Contains(lower, "context_only") || strings.Contains(lower, "context only")):
@@ -729,7 +729,7 @@ func canaryInputCheckText(label, warning string) string {
 		return "Funding is not usable confirmation yet. Action: ignore it for escalation and rerun `ibkr regime` after the source updates."
 	case strings.Contains(lower, "ambiguous clusters:"):
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
-		return fmt.Sprintf("%s cannot confirm the canary yet. Action: check the n/a row in Market indicators and verify with `ibkr regime` before escalating.", humanList(clusters))
+		return fmt.Sprintf("%s cannot confirm the stress read yet. Action: check the n/a row in Market indicators and verify with `ibkr regime` before escalating.", humanList(clusters))
 	case strings.Contains(lower, "partial clusters:"):
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
 		return fmt.Sprintf("%s is partially usable. Action: inspect the affected Market indicators row; rely only on fresh independent clusters for confirmation.", humanList(clusters))
@@ -737,16 +737,16 @@ func canaryInputCheckText(label, warning string) string {
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
 		return fmt.Sprintf("%s has degraded input quality. Action: inspect the source command before using it as confirmation.", humanList(clusters))
 	case strings.Contains(lower, "regime cluster") && strings.Contains(lower, "unranked"):
-		return "One or more regime clusters are unranked. Action: treat the canary as context until the n/a Market indicators rows rank."
+		return "One or more regime clusters are unranked. Action: treat the stress read as context until the n/a Market indicators rows rank."
 	case strings.Contains(lower, "stale clusters:"):
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
-		return fmt.Sprintf("Refresh %s before escalation. Action: rerun `ibkr canary`; stale rows remain context, not fresh confirmation.", humanList(clusters))
+		return fmt.Sprintf("Refresh %s before escalation. Action: rerun `ibkr stress`; stale rows remain context, not fresh confirmation.", humanList(clusters))
 	case strings.Contains(lower, "vix_term_structure") && strings.Contains(lower, "stale"):
-		return "Volatility term structure is stale. Action: rerun `ibkr regime` or `ibkr canary` before treating vol as fresh confirmation."
+		return "Volatility term structure is stale. Action: rerun `ibkr regime` or `ibkr stress` before treating vol as fresh confirmation."
 	case strings.Contains(lower, "computing"):
-		return warning + ". Action: wait for the daemon compute to finish, then rerun `ibkr canary`."
+		return warning + ". Action: wait for the daemon compute to finish, then rerun `ibkr stress`."
 	case label == "error":
-		return warning + ". Action: fix the source or daemon issue before relying on this canary."
+		return warning + ". Action: fix the source or daemon issue before relying on this stress read."
 	case label == "warning":
 		return warning + ". Action: inspect the affected row before escalating."
 	default:
@@ -754,7 +754,7 @@ func canaryInputCheckText(label, warning string) string {
 	}
 }
 
-func canaryWarningLabelColor(env *Env, label, text string) string {
+func stressWarningLabelColor(env *Env, label, text string) string {
 	switch label {
 	case "context":
 		return env.dim(text)
@@ -767,8 +767,8 @@ func canaryWarningLabelColor(env *Env, label, text string) string {
 	}
 }
 
-func canaryRiskStateLabel(env *Env, direction risk.SignalDirection, severity risk.SignalSeverity, current bool) string {
-	label := canaryRiskStateText(direction, severity)
+func stressRiskStateLabel(env *Env, direction risk.SignalDirection, severity risk.SignalSeverity, current bool) string {
+	label := stressRiskStateText(direction, severity)
 	if current {
 		label = "[" + label + "]"
 	}
@@ -786,16 +786,16 @@ func canaryRiskStateLabel(env *Env, direction risk.SignalDirection, severity ris
 	return label
 }
 
-func canaryRiskStateText(direction risk.SignalDirection, severity risk.SignalSeverity) string {
-	directionLabel := canaryDirectionLabel(direction)
-	severityLabel := canarySeverityLabel(severity)
+func stressRiskStateText(direction risk.SignalDirection, severity risk.SignalSeverity) string {
+	directionLabel := stressDirectionLabel(direction)
+	severityLabel := stressSeverityLabel(severity)
 	if directionLabel == "" {
 		return severityLabel
 	}
 	return directionLabel + " / " + severityLabel
 }
 
-func canaryDirectionLabel(direction risk.SignalDirection) string {
+func stressDirectionLabel(direction risk.SignalDirection) string {
 	switch direction {
 	case risk.DirectionDefensive:
 		return "Defensive"
@@ -812,7 +812,7 @@ func canaryDirectionLabel(direction risk.SignalDirection) string {
 	}
 }
 
-func canarySeverityLabel(severity risk.SignalSeverity) string {
+func stressSeverityLabel(severity risk.SignalSeverity) string {
 	switch severity {
 	case risk.SeverityUrgent:
 		return "Urgent"
@@ -825,8 +825,8 @@ func canarySeverityLabel(severity risk.SignalSeverity) string {
 	}
 }
 
-func canaryPlannerStepLabel(env *Env, mode risk.PlannerMode, readiness risk.PlannerReadiness) string {
-	label := canaryPlannerStepText(mode, readiness)
+func stressPlannerStepLabel(env *Env, mode risk.PlannerMode, readiness risk.PlannerReadiness) string {
+	label := stressPlannerStepText(mode, readiness)
 	if readiness == risk.PlannerReadinessBlocked {
 		return env.yellow(label)
 	}
@@ -836,7 +836,7 @@ func canaryPlannerStepLabel(env *Env, mode risk.PlannerMode, readiness risk.Plan
 	return label
 }
 
-func canaryPlannerStepText(mode risk.PlannerMode, readiness risk.PlannerReadiness) string {
+func stressPlannerStepText(mode risk.PlannerMode, readiness risk.PlannerReadiness) string {
 	switch mode {
 	case risk.PlannerModeDefend:
 		if readiness == risk.PlannerReadinessBlocked {

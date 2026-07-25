@@ -207,7 +207,7 @@ func hasHelpFlag(args []string) bool {
 }
 
 func commandBudget(cmd string) time.Duration {
-	if cmd == "scan" || cmd == "technical" || cmd == "canary" {
+	if cmd == "scan" || cmd == "technical" || cmd == "stress" {
 		return 90 * time.Second
 	}
 	return 60 * time.Second

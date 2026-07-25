@@ -9,7 +9,7 @@
     {
       "name": "ibkr",
       "source": "./claude-plugin",
-      "description": "Interactive Brokers portfolio analysis and trading research: account, positions, snapshot + streaming stock/ETF quotes, official market calendars, option chains, daily history, market scans, fixed-fractional position sizing, S&P 500 breadth, SPX-canonical dealer gamma with SPY context, a broad-market stress-lifecycle regime dashboard, portfolio-aware canary stress-lifecycle checks, and preview-only stock/ETF and single-leg option order drafts. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy. Requires the `ibkr` binary on PATH; see the project README for install and update instructions."
+      "description": "Interactive Brokers portfolio analysis and trading research: account, positions, snapshot + streaming stock/ETF quotes, official market calendars, option chains, daily history, market scans, fixed-fractional position sizing, S&P 500 breadth, SPX-canonical dealer gamma with SPY context, a broad-market stress-lifecycle regime dashboard, portfolio-aware stress-lifecycle checks, and preview-only stock/ETF and single-leg option order drafts. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy. Requires the `ibkr` binary on PATH; see the project README for install and update instructions."
     }
   ]
 }

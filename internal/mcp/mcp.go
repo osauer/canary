@@ -338,9 +338,9 @@ func (s *Server) handleInitialize(id, _ json.RawMessage) {
 
 func (s *Server) instructions() string {
 	if s.profile == ProfileMonitor {
-		return "Read-only Interactive Brokers monitor profile. Use `ibkr_canary` first for portfolio risk posture; call `ibkr_status` only for connectivity or degraded-input troubleshooting."
+		return "Read-only Interactive Brokers monitor profile. Use `ibkr_stress` first for portfolio risk posture; call `ibkr_status` only for connectivity or degraded-input troubleshooting."
 	}
-	return "Interactive Brokers tools and resources. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, technical/relative-strength screens, market scans, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio canary, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: ibkr://quote/{symbol})."
+	return "Interactive Brokers tools and resources. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, technical/relative-strength screens, market scans, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio stress read, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: ibkr://quote/{symbol})."
 }
 
 // toolDescriptor is the wire shape MCP expects in tools/list.
@@ -542,7 +542,7 @@ func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
 		return mcpScannerToolTimeout
 	case "ibkr_regime":
 		return mcpRegimeToolTimeout
-	case "ibkr_canary":
+	case "ibkr_stress":
 		return mcpScannerToolTimeout
 	default:
 		return mcpDefaultToolTimeout
@@ -584,7 +584,7 @@ func (s *Server) visibleTools() []Tool {
 	if s.profile != ProfileMonitor {
 		return Tools
 	}
-	names := []string{"ibkr_canary", "ibkr_status"}
+	names := []string{"ibkr_stress", "ibkr_status"}
 	out := make([]Tool, 0, len(names))
 	for _, name := range names {
 		if tool, ok := lookupTool(name); ok {

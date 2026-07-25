@@ -440,8 +440,8 @@ func TestMonitorProfileInitializeAndToolsList(t *testing.T) {
 	if err := json.Unmarshal(lines[0], &initResp); err != nil {
 		t.Fatalf("initialize response: %v", err)
 	}
-	if !strings.Contains(initResp.Result.Instructions, "Use `ibkr_canary` first") {
-		t.Fatalf("monitor instructions should steer first call to ibkr_canary: %q", initResp.Result.Instructions)
+	if !strings.Contains(initResp.Result.Instructions, "Use `ibkr_stress` first") {
+		t.Fatalf("monitor instructions should steer first call to ibkr_stress: %q", initResp.Result.Instructions)
 	}
 	if !strings.Contains(initResp.Result.Instructions, "call `ibkr_status` only") {
 		t.Fatalf("monitor instructions should keep ibkr_status diagnostic-only: %q", initResp.Result.Instructions)
@@ -462,7 +462,7 @@ func TestMonitorProfileInitializeAndToolsList(t *testing.T) {
 	for _, tool := range listResp.Result.Tools {
 		got = append(got, tool.Name)
 	}
-	want := []string{"ibkr_canary", "ibkr_status"}
+	want := []string{"ibkr_stress", "ibkr_status"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("monitor tools = %v, want %v", got, want)
 	}
@@ -520,7 +520,7 @@ func TestCompactViewSchemas(t *testing.T) {
 		tool string
 		want map[string]bool
 	}{
-		{tool: "ibkr_canary", want: map[string]bool{rpc.ViewFull: true, rpc.ViewAlert: true}},
+		{tool: "ibkr_stress", want: map[string]bool{rpc.ViewFull: true, rpc.ViewAlert: true}},
 		{tool: "ibkr_regime", want: map[string]bool{rpc.ViewDetail: true, rpc.ViewMonitor: true}},
 		{tool: "ibkr_positions", want: map[string]bool{rpc.ViewFull: true, rpc.ViewRisk: true}},
 	} {
@@ -895,7 +895,7 @@ func TestIbkrRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
 	}
 }
 
-func TestIbkrCanaryResponseHasSignalsAndFingerprints(t *testing.T) {
+func TestIbkrStressResponseHasSignalsAndFingerprints(t *testing.T) {
 	t.Parallel()
 	res := rpc.StressResult{
 		AsOf:        time.Date(2026, 5, 31, 8, 45, 0, 0, time.UTC),
@@ -922,7 +922,7 @@ func TestIbkrCanaryResponseHasSignalsAndFingerprints(t *testing.T) {
 		Summary:            "Freeze new risk.",
 		PrimaryDrivers:     []risk.SignalID{risk.SignalMarginCushionLow},
 		Signals:            []risk.Signal{{ID: risk.SignalMarginCushionLow, Direction: risk.DirectionDefensive, Posture: risk.PortfolioPostureThreat, Severity: risk.SeverityWatch}},
-		Rows:               []rpc.StressRow{{Title: "Portfolio canary", Direction: risk.DirectionDefensive, Severity: risk.SeverityWatch, Guidance: "Freeze new risk."}},
+		Rows:               []rpc.StressRow{{Title: "Portfolio stress", Direction: risk.DirectionDefensive, Severity: risk.SeverityWatch, Guidance: "Freeze new risk."}},
 		Portfolio:          rpc.StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
 		Market:             rpc.StressMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
 		Warnings:           []string{"stale clusters: vol"},
@@ -957,7 +957,7 @@ func TestIbkrCanaryResponseHasSignalsAndFingerprints(t *testing.T) {
 		"not_execution",
 	} {
 		if _, ok := wire[key]; !ok {
-			t.Errorf("canary JSON missing %s: %s", key, b)
+			t.Errorf("stress JSON missing %s: %s", key, b)
 		}
 	}
 	fp, ok := wire["fingerprint"].(map[string]any)

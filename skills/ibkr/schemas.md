@@ -1,6 +1,6 @@
 # `ibkr` JSON schemas
 
-Updated: 2026-06-19 12:16 CEST
+Updated: 2026-07-25 16:43 CEST
 
 This document is the authoritative description of every `--json` output the
 `ibkr` CLI emits. Field absence semantics matter:
@@ -1689,14 +1689,14 @@ Field meanings:
   `reg_sho_threshold` is regulatory context. V1 never creates buy-add or
   open-exposure recommendations.
 
-## canary
+## stress
 
-`ibkr canary --json` — live stateless portfolio canary for monitor loops. It
+`ibkr stress --json` — live stateless portfolio stress read for monitor loops. It
 combines broad-market weather from `ibkr regime` with the current portfolio
 shape, then emits action/readiness/evidence only. It never selects trades,
 sizes hedges, previews orders, or executes.
 
-**MCP params** (`ibkr_canary`): none — the tool fetches account, positions, and
+**MCP params** (`ibkr_stress`): none — the tool fetches account, positions, and
 regime itself.
 
 ```json
@@ -1743,7 +1743,7 @@ regime itself.
      "confidence": "high"}
   ],
   "rows": [
-    {"title": "Portfolio canary", "direction": "defensive", "severity": "urgent",
+    {"title": "Portfolio stress", "direction": "defensive", "severity": "urgent",
      "guidance": "Refresh or confirm degraded inputs before planning major portfolio changes.",
      "evidence": "2 red clusters; net delta 250% NLV"}
   ],
@@ -1755,7 +1755,7 @@ regime itself.
                                 "stage": "early_warning"},
              "red_clusters": 1, "red_cluster_names": ["gamma"]},
   "warnings": ["stale clusters: breadth, credit, and vol"],
-  "not_execution": "Read-only canary posture; no orders are placed by ibkr."
+  "not_execution": "Read-only stress snapshot; no orders are placed by ibkr."
 }
 ```
 
@@ -1774,7 +1774,7 @@ Field meanings:
   `severity`, `observed`, `threshold`, `target`, `confidence`, and
   `blocked_by`; do not parse `rows[].guidance` for automation.
 - `source_fingerprints` identifies the semantic account, positions, regime, and
-  market-event buckets consumed by the canary run. `fingerprint` identifies
+  market-event buckets consumed by the stress run. `fingerprint` identifies
   the whole alert posture.
 - `source_health[]` is the freshness/readiness surface for orchestration. During
   regular trading/pre-market, sources are expected to be fresh on a roughly
@@ -1790,7 +1790,7 @@ Field meanings:
   full underlying evidence.
 - `market.regime_posture` is the canonical market-regime display/policy read.
   Render its `label`/`tone`; do not derive risk-off from raw red-cluster counts.
-- `not_execution` is part of the contract. Canary does not place, preview,
+- `not_execution` is part of the contract. The stress read does not place, preview,
   submit, modify, cancel, draft, size, or select orders.
 
 ## trading-status

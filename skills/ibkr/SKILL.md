@@ -5,18 +5,18 @@ description: Query Interactive Brokers via the local `ibkr` CLI. Use when the us
   open interest), official market calendars, local watchlist, daily price history, technical/relative-strength screens, running a market scan, sizing a planned trade by
   fixed-fractional risk, checking the market's stress lifecycle (S&P 500 breadth, SPX-canonical dealer zero-gamma
   with SPY context and 0DTE / 1-7 / term horizon split, the broad-market
-  regime dashboard), checking portfolio-aware canary stress lifecycle, held-name market-event flags,
+  regime dashboard), checking the portfolio-aware stress lifecycle, held-name market-event flags,
   reading daemon protection proposals, daemon opportunities, offline opportunity research diagnostics, or runtime settings/freeze state,
   or explicitly requests an order preview/status/history read. This skill is read/preview-first by default;
   explicit current-turn broker-write requests must use the gated CLI path and report a redacted execution artifact.
 allowed-tools: Bash(ibkr account*) Bash(ibkr positions*) Bash(ibkr quote*)
   Bash(ibkr calendar*) Bash(ibkr watch --json*) Bash(ibkr watch --list*) Bash(ibkr watch --quotes*) Bash(ibkr watch --watch*) Bash(ibkr watch --timeout*) Bash(ibkr chain*) Bash(ibkr history*) Bash(ibkr scan*) Bash(ibkr size*)
   Bash(ibkr technical*) Bash(ibkr breadth*) Bash(ibkr gamma*) Bash(ibkr regime*)
-  Bash(ibkr canary*) Bash(ibkr brief*) Bash(ibkr rules*) Bash(ibkr market-events*) Bash(ibkr proposals status*) Bash(ibkr proposals list*) Bash(ibkr proposals refresh*) Bash(ibkr opportunities status*) Bash(ibkr opportunities list*) Bash(ibkr opportunities refresh*) Bash(ibkr backtest research-opportunity*) Bash(ibkr settings show*) Bash(ibkr policy show*) Bash(ibkr recon show*) Bash(ibkr trading status*) Bash(ibkr orders open*) Bash(ibkr orders history*) Bash(ibkr order status*) Bash(ibkr order preview*)
+  Bash(ibkr stress*) Bash(ibkr brief*) Bash(ibkr rules*) Bash(ibkr market-events*) Bash(ibkr proposals status*) Bash(ibkr proposals list*) Bash(ibkr proposals refresh*) Bash(ibkr opportunities status*) Bash(ibkr opportunities list*) Bash(ibkr opportunities refresh*) Bash(ibkr backtest research-opportunity*) Bash(ibkr settings show*) Bash(ibkr policy show*) Bash(ibkr recon show*) Bash(ibkr trading status*) Bash(ibkr orders open*) Bash(ibkr orders history*) Bash(ibkr order status*) Bash(ibkr order preview*)
   Bash(ibkr status*) Bash(ibkr version*)
 ---
 
-Updated: 2026-07-18 18:23 CEST
+Updated: 2026-07-25 16:43 CEST
 
 ## When to use
 
@@ -34,7 +34,7 @@ than portfolio advice.
 
 If the user asks whether *their portfolio* needs attention under the current
 account, positions, exposures, regime, margin, concentration, options, or data
-quality state, run `ibkr canary --json`. Canary answers with top-level
+quality state, run `ibkr stress --json`. The stress read answers with top-level
 `action`, `market_confirmation`, `portfolio_fit`, `input_health`,
 planner readiness, and evidence rows. It does not choose hedges, size trades,
 preview orders, or execute.
@@ -56,7 +56,7 @@ result-level input health. Statuses pass/info/watch/act/
 unknown/not_evaluated: `unknown` means an input was missing and must never be
 read as pass. Verdicts are advisory — nothing here blocks or authorizes an
 order, and the compiled model is not proof that every threshold has operator
-approval. Use `ibkr canary` for the regime × portfolio alert and `ibkr
+approval. Use `ibkr stress` for the regime × portfolio alert and `ibkr
 proposals` for executable protective candidates.
 
 If the user asks whether a held or requested stock/ETF has borrow, Reg SHO,
@@ -160,7 +160,7 @@ simulate trade execution.
 | `ibkr breadth` | S&P 500 stocks-above-50DMA reading (the S5FI metric, computed locally) | [schemas.md#breadth](schemas.md#breadth) |
 | `ibkr gamma` | SPX-canonical dealer zero-gamma estimate with SPY context when usable (heavy compute; first call per NY trading day kicks a background job) | [schemas.md#gamma](schemas.md#gamma) |
 | `ibkr regime` | Broad-market stress lifecycle: equity vol, credit, funding, FX carry, SPX gamma with SPY context, and SPX breadth in one call | [schemas.md#regime](schemas.md#regime) |
-| `ibkr canary` | Portfolio-aware action/readiness snapshot, source health, fingerprints, and planner readiness | [schemas.md#canary](schemas.md#canary) |
+| `ibkr stress` | Portfolio-aware action/readiness snapshot, source health, fingerprints, and planner readiness | [schemas.md#stress](schemas.md#stress) |
 | `ibkr brief` | Typed five-section daily operator brief; agent renders and all JSON reads never stamp | — |
 | `ibkr rules` | Advisory compiled 14-rule discipline model, current evidence, and state-transition history | — |
 | `ibkr market-events` | Held or requested stock/ETF market-event flags: borrow inventory, extreme borrow fee, Nasdaq Reg SHO, LULD, and halt context | [schemas.md#market-events](schemas.md#market-events) |
@@ -217,7 +217,7 @@ broker-data command and is not exposed as an MCP tool.
 - `ibkr regime [--explain [--diagnostics]] [--watch [--rate 5m]] [--log PATH] [--view detail|monitor] [--json]` — single-call broad-market stress-lifecycle dashboard: eight rows across equity vol (VIX/VIX3M + VVIX), credit (HYG/SPY + official HY/IG OAS), funding stress (CP/T-bill spread), USD/JPY, SPX-canonical dealer gamma with SPY context, and SPX breadth. Text leads with `summary.label`, cluster evidence, lifecycle stage/readiness, and a punch line, then the eight-row audit table with an `AS OF` column (`live`, `15m delayed`, `close D-1`, `cached 11:42`, `unavailable`). Default JSON/MCP is compact: it keeps `fingerprint`, `lifecycle`, `source_health`, `summary`, `composite` raw + cluster counts, raw measurements, per-row `band`, `band_reason`, `thresholds`, `as_of`, `streak`, `*_quality`, `data_quality`, and `warning_details`, but omits long methodology `notes` and breadth history. Use `--explain` for the full text methodology view, `--diagnostics` with `--explain` for raw source/provenance details, or `--view monitor --json` for the compact monitor payload. `warning_details` is the agent-preferred failure path with scoped `{message, impact, action}` prose. Per-indicator rows carry `streak: {band, sessions, since}` only when the current row is rankable; unavailable/computing/error rows freeze the store internally but do not expose a stale prior-band streak. Expect these failure modes on a fresh daemon: gamma may return `status: "computing"` with `eta_seconds`; breadth can do the same during the IBKR-paced cold start; official Cboe/FRED daily rows can be temporarily unavailable when those sites are unreachable. MOVE/rates-vol is absent until a verified IBKR contract or licensed official connector exists, and must not be proxied with ETFs or futures. `--watch` re-polls every 5 minutes by default. `--log PATH` appends each fetched snapshot to a JSONL file at `<path>`.
   - **MCP params**: `view` (`"detail" | "monitor"`; default `"detail"`).
   - **CLI-only flags**: `--explain` (per-row streak/quality/methodology in the text view), `--diagnostics` (raw source/provenance details, requires `--explain`), `--watch` / `--rate` (auto-poll), `--log` (append JSONL trace).
-- `ibkr canary [--details] [--view full|alert] [--json]` — portfolio-aware action/readiness snapshot for scheduled or manual risk checks. It consumes live account, positions, exposures, concentration, option-Greek coverage, margin, daily P&L, `ibkr regime`, and market-event context, then emits top-level `action`, `market_confirmation`, `portfolio_fit`, `input_health`, `direction`, `severity`, `planner_mode_hint`, `planner_readiness`, `signals[]`, `source_health[]`, `source_fingerprints`, and stable `fingerprint`. Treat `planner_readiness: "blocked"` and data-quality signals as hard gates before discussing major portfolio action. `source_fingerprints.account`, `.positions`, `.regime`, and `.market_events` are semantic-bucket hashes for monitor dedupe and orchestration provenance. `--details` expands the text evidence rows; `--view alert --json` returns the compact alert payload. This command is read-only: it does not select hedges, size trades, preview orders, or execute.
+- `ibkr stress [--details] [--view full|alert] [--json]` — portfolio-aware action/readiness snapshot for scheduled or manual risk checks. It consumes live account, positions, exposures, concentration, option-Greek coverage, margin, daily P&L, `ibkr regime`, and market-event context, then emits top-level `action`, `market_confirmation`, `portfolio_fit`, `input_health`, `direction`, `severity`, `planner_mode_hint`, `planner_readiness`, `signals[]`, `source_health[]`, `source_fingerprints`, and stable `fingerprint`. Treat `planner_readiness: "blocked"` and data-quality signals as hard gates before discussing major portfolio action. `source_fingerprints.account`, `.positions`, `.regime`, and `.market_events` are semantic-bucket hashes for monitor dedupe and orchestration provenance. `--details` expands the text evidence rows; `--view alert --json` returns the compact alert payload. This command is read-only: it does not select hedges, size trades, preview orders, or execute.
   - **MCP params**: `view` (`"full" | "alert"`; default `"full"`).
   - **CLI-only flags**: `--details`, `--json`.
 - `ibkr rules [--all] [--symbol SYM] [--json]` — current compiled advisory

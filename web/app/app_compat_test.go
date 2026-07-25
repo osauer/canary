@@ -268,7 +268,7 @@ func TestAppJSCanaryDetailUsesSourceBackedEvidenceRows(t *testing.T) {
 
 	driverRows := jsFunctionBlock(t, js, "canaryDriverRows")
 	for _, want := range []string{
-		`cleanDetail(row.title).toLowerCase() !== "portfolio canary"`,
+		`cleanDetail(row.title).toLowerCase() !== "portfolio stress"`,
 		"canaryRowNeedsAttention",
 		"canaryDriverPriority",
 		".slice(0, 5)",

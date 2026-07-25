@@ -244,7 +244,7 @@ func TestCompactStressAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 		Summary:            "Freeze new risk and stage reductions.",
 		Portfolio:          StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
 		Market:             StressMarketSummary{RegimeVerdict: "Elevated stress watch", RankedClusters: 5, YellowClusters: 3},
-		NotExecution:       "Read-only canary snapshot; no orders are placed by ibkr.",
+		NotExecution:       "Read-only stress snapshot; no orders are placed by ibkr.",
 	}
 	for i := range 12 {
 		full.Signals = append(full.Signals, risk.Signal{

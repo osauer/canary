@@ -11,9 +11,9 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-func TestComputeCanaryTreatsContextOnlyGammaAsContextNotDegraded(t *testing.T) {
+func TestComputeStressTreatsContextOnlyGammaAsContextNotDegraded(t *testing.T) {
 	t.Parallel()
-	r := healthyCanaryRegime()
+	r := healthyStressRegime()
 	r.Composite = rpc.RegimeComposite{ClusterGreenCount: 5, ClusterRankedCount: 5, ClusterUnrankedCount: 1}
 	r.GammaZero.Band = "red"
 	r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
@@ -38,7 +38,7 @@ func TestComputeCanaryTreatsContextOnlyGammaAsContextNotDegraded(t *testing.T) {
 		Impact:   "dealer gamma is displayed as context but is not ranked or used as independent stress confirmation.",
 	}}
 	res := ComputeStress(StressInput{
-		Account: baseCanaryAccount(),
+		Account: baseStressAccount(),
 		Regime:  r,
 	})
 	if got := strings.Join(res.Market.DegradedClusters, ","); got != "" {
@@ -48,7 +48,7 @@ func TestComputeCanaryTreatsContextOnlyGammaAsContextNotDegraded(t *testing.T) {
 		t.Fatalf("ambiguous clusters = %q, want none for context-only gamma", got)
 	}
 	var out bytes.Buffer
-	renderCanaryTextWidthDetails(&Env{}, &out, &res, 120, true)
+	renderStressTextWidthDetails(&Env{}, &out, &res, 120, true)
 	rendered := out.String()
 	for _, want := range []string{
 		"Market indicators",
@@ -74,7 +74,7 @@ func TestComputeCanaryTreatsContextOnlyGammaAsContextNotDegraded(t *testing.T) {
 	}
 }
 
-func TestCanaryWarningLabelsAreActionOriented(t *testing.T) {
+func TestStressWarningLabelsAreActionOriented(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		warning string
@@ -88,22 +88,22 @@ func TestCanaryWarningLabelsAreActionOriented(t *testing.T) {
 		{warning: "credit_spreads: source error", want: "error"},
 	}
 	for _, tt := range tests {
-		got, _ := canaryWarningLabel(tt.warning)
+		got, _ := stressWarningLabel(tt.warning)
 		if got != tt.want {
-			t.Fatalf("canaryWarningLabel(%q) = %q, want %q", tt.warning, got, tt.want)
+			t.Fatalf("stressWarningLabel(%q) = %q, want %q", tt.warning, got, tt.want)
 		}
 	}
 }
 
-func TestRenderCanaryTextShowsActionEvidenceAndInputHealth(t *testing.T) {
+func TestRenderStressTextShowsActionEvidenceAndInputHealth(t *testing.T) {
 	t.Parallel()
 	res := ComputeStress(StressInput{
-		Account: baseCanaryAccount(),
+		Account: baseStressAccount(),
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 		Now:     time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
 	})
 	var out bytes.Buffer
-	renderCanaryText(&Env{}, &out, &res)
+	renderStressText(&Env{}, &out, &res)
 	got := out.String()
 	for _, want := range []string{
 		"Action     WATCH",
@@ -134,16 +134,16 @@ func TestRenderCanaryTextShowsActionEvidenceAndInputHealth(t *testing.T) {
 	}
 }
 
-func TestCanaryInputHealthRowsHumanizeMarketIssues(t *testing.T) {
+func TestStressInputHealthRowsHumanizeMarketIssues(t *testing.T) {
 	t.Parallel()
 	res := StressResult{
-		InputHealth: canaryInputDegraded,
+		InputHealth: stressInputDegraded,
 		Market: StressMarketSummary{
 			DegradedClusters: []string{"gamma"},
 			StaleClusters:    []string{"credit", "fx", "vol"},
 		},
 	}
-	rows := canaryInputHealthRows(&res)
+	rows := stressInputHealthRows(&res)
 	got := fmt.Sprint(rows)
 	for _, want := range []string{
 		"Degraded input gamma",
@@ -155,26 +155,26 @@ func TestCanaryInputHealthRowsHumanizeMarketIssues(t *testing.T) {
 	}
 }
 
-func TestRenderCanaryDetailsShowsRowsWhenRequested(t *testing.T) {
+func TestRenderStressDetailsShowsRowsWhenRequested(t *testing.T) {
 	t.Parallel()
 	res := ComputeStress(StressInput{
-		Account: baseCanaryAccount(),
-		Regime:  healthyCanaryRegime(),
+		Account: baseStressAccount(),
+		Regime:  healthyStressRegime(),
 	})
 	var out bytes.Buffer
-	renderCanaryTextWidthDetails(&Env{}, &out, &res, 100, true)
+	renderStressTextWidthDetails(&Env{}, &out, &res, 100, true)
 	if !strings.Contains(out.String(), "Details") || !strings.Contains(out.String(), "Immediate margin safety") {
 		t.Fatalf("details render missing row evidence:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "Portfolio canary ·") {
-		t.Fatalf("details render should not duplicate the top-level canary row:\n%s", out.String())
+	if strings.Contains(out.String(), "Portfolio stress ·") {
+		t.Fatalf("details render should not duplicate the top-level stress row:\n%s", out.String())
 	}
 }
 
-func TestRenderCanaryTextWrapsAtCommonTerminalWidths(t *testing.T) {
+func TestRenderStressTextWrapsAtCommonTerminalWidths(t *testing.T) {
 	t.Parallel()
 	res := ComputeStress(StressInput{
-		Account: baseCanaryAccount(),
+		Account: baseStressAccount(),
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 		Now:     time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
 	})
@@ -188,7 +188,7 @@ func TestRenderCanaryTextWrapsAtCommonTerminalWidths(t *testing.T) {
 		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
 			for _, color := range []bool{false, true} {
 				var out bytes.Buffer
-				renderCanaryTextWidth(&Env{Color: color}, &out, &res, width)
+				renderStressTextWidth(&Env{Color: color}, &out, &res, width)
 				for i, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
 					if got := visibleLen(line); got > width {
 						t.Fatalf("line %d visible width = %d, want <= %d:\n%s\nfull output:\n%s", i+1, got, width, line, out.String())
@@ -199,51 +199,51 @@ func TestRenderCanaryTextWrapsAtCommonTerminalWidths(t *testing.T) {
 	}
 }
 
-func TestRenderCanaryTextHidesDetailsUnlessRequested(t *testing.T) {
+func TestRenderStressTextHidesDetailsUnlessRequested(t *testing.T) {
 	t.Parallel()
 	res := ComputeStress(StressInput{
-		Account: baseCanaryAccount(),
+		Account: baseStressAccount(),
 		Regime:  redVolCreditRegimeWithComputingSlowRows(),
 		Now:     time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
 	})
 	var normal bytes.Buffer
-	renderCanaryTextWidth(&Env{}, &normal, &res, 120)
+	renderStressTextWidth(&Env{}, &normal, &res, 120)
 	if strings.Contains(normal.String(), "  Details\n") {
-		t.Fatalf("default canary render should hide full details:\n%s", normal.String())
+		t.Fatalf("default stress render should hide full details:\n%s", normal.String())
 	}
 	if strings.Contains(normal.String(), "Title                        Risk state") {
-		t.Fatalf("default canary render should not use wide table:\n%s", normal.String())
+		t.Fatalf("default stress render should not use wide table:\n%s", normal.String())
 	}
 
 	var details bytes.Buffer
-	renderCanaryTextWidthDetails(&Env{}, &details, &res, 120, true)
+	renderStressTextWidthDetails(&Env{}, &details, &res, 120, true)
 	if !strings.Contains(details.String(), "  Details\n") {
-		t.Fatalf("details canary render should use stacked details:\n%s", details.String())
+		t.Fatalf("details stress render should use stacked details:\n%s", details.String())
 	}
 	if strings.Contains(details.String(), "Title                        Risk state") {
-		t.Fatalf("details canary render should not use wide table:\n%s", details.String())
+		t.Fatalf("details stress render should not use wide table:\n%s", details.String())
 	}
 }
 
-func TestRenderCanaryTextColorsCurrentState(t *testing.T) {
+func TestRenderStressTextColorsCurrentState(t *testing.T) {
 	t.Parallel()
 	res := StressResult{
 		AsOf:             time.Date(2026, 5, 29, 5, 55, 0, 0, time.FixedZone("CEST", 2*60*60)),
-		Action:           canaryActionWatch,
+		Action:           stressActionWatch,
 		Direction:        risk.DirectionDefensive,
 		Severity:         risk.SeverityWatch,
 		PlannerModeHint:  risk.PlannerModeStage,
 		PlannerReadiness: risk.PlannerReadinessPrestage,
 		Summary:          "Freeze new risk.",
 		Rows: []StressRow{{
-			Title:     "Portfolio canary",
+			Title:     "Portfolio stress",
 			Direction: risk.DirectionDefensive,
 			Severity:  risk.SeverityWatch,
 			Guidance:  "Freeze new risk.",
 		}},
 	}
 	var out bytes.Buffer
-	renderCanaryText(&Env{Color: true}, &out, &res)
+	renderStressText(&Env{Color: true}, &out, &res)
 	got := out.String()
 	if !strings.Contains(got, ansiBold) || !strings.Contains(got, ansiYellow) || !strings.Contains(got, "WATCH") {
 		t.Fatalf("current watch action is not bold yellow:\n%q", got)
@@ -253,7 +253,7 @@ func TestRenderCanaryTextColorsCurrentState(t *testing.T) {
 	}
 }
 
-func baseCanaryAccount() rpc.AccountResult {
+func baseStressAccount() rpc.AccountResult {
 	dailyPnL := 0.0
 	return rpc.AccountResult{
 		BaseCurrency:       "USD",
@@ -266,7 +266,7 @@ func baseCanaryAccount() rpc.AccountResult {
 	}
 }
 
-func healthyCanaryRegime() rpc.RegimeSnapshotResult {
+func healthyStressRegime() rpc.RegimeSnapshotResult {
 	return rpc.RegimeSnapshotResult{
 		Composite: rpc.RegimeComposite{ClusterGreenCount: 6, ClusterRankedCount: 6},
 		VIXTermStructure: rpc.RegimeVIXTerm{
@@ -299,7 +299,7 @@ func healthyCanaryRegime() rpc.RegimeSnapshotResult {
 			Envelope: rpc.GammaZeroSPXResult{
 				Status: rpc.GammaZeroStatusReady,
 				Result: &rpc.GammaZeroComputed{
-					Quality: rankableCanaryGammaQuality(),
+					Quality: rankableStressGammaQuality(),
 				},
 			},
 		},
@@ -310,12 +310,12 @@ func healthyCanaryRegime() rpc.RegimeSnapshotResult {
 	}
 }
 
-func rankableCanaryGammaQuality() *rpc.GammaSignalQuality {
+func rankableStressGammaQuality() *rpc.GammaSignalQuality {
 	return &rpc.GammaSignalQuality{Rankability: rpc.GammaRankabilityRankable}
 }
 
 func redVolCreditRegimeWithComputingSlowRows() rpc.RegimeSnapshotResult {
-	r := healthyCanaryRegime()
+	r := healthyStressRegime()
 	r.Composite = rpc.RegimeComposite{ClusterRedCount: 2, ClusterEligibleRedCount: 2, ClusterGreenCount: 2, ClusterRankedCount: 4, ClusterUnrankedCount: 2}
 	r.VIXTermStructure.Band = "red"
 	r.VIXTermStructure.Eligibility = &rpc.RegimeEligibility{Eligible: true}

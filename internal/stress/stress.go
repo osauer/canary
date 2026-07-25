@@ -97,7 +97,7 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 		Portfolio:          summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now),
 		Market:             summarizeStressMarket(in.Regime, now),
 		MarketIndicators:   stressMarketIndicators(in.Regime, now),
-		NotExecution:       "Read-only canary snapshot; no orders are placed by ibkr.",
+		NotExecution:       "Read-only stress snapshot; no orders are placed by ibkr.",
 	}
 	rows := []StressRow{
 		stressMarginRow(res.Portfolio),
@@ -1114,7 +1114,7 @@ func stressConcentrationRow(p StressPortfolioSummary, m StressMarketSummary) Str
 	if pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct {
 		return stressRow("Largest concentration", risk.DirectionRebalance, risk.SeverityWatch, "Concentration is above risk limits; rebalance this position without treating it as confirmed market stress.", evidence)
 	}
-	return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration trim required by the canary.", evidence)
+	return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration trim required by the stress policy.", evidence)
 }
 
 func stressProtectionCoverageRow(p StressPortfolioSummary) StressRow {
@@ -1215,11 +1215,11 @@ func stressDataQualityRow(m StressMarketSummary, r rpc.RegimeSnapshotResult) Str
 	if r.GammaZero.Status == rpc.RegimeStatusComputing || r.Breadth.Status == rpc.RegimeStatusComputing {
 		return stressRow("Data quality gate", risk.DirectionDataQuality, risk.SeverityWatch, "Do not escalate on gamma/breadth while their data is still computing.", stressMarketEvidence(m))
 	}
-	return stressRow("Data quality gate", "", risk.SeverityObserve, "Market data coverage is sufficient for the canary policy.", stressMarketEvidence(m))
+	return stressRow("Data quality gate", "", risk.SeverityObserve, "Market data coverage is sufficient for the stress policy.", stressMarketEvidence(m))
 }
 
 func stressOverallRow(direction risk.SignalDirection, severity risk.SignalSeverity, summary string, m StressMarketSummary, p StressPortfolioSummary) StressRow {
-	return stressRow("Portfolio canary", direction, severity, summary, fmt.Sprintf("%s; %s", stressMarketEvidence(m), stressPortfolioEvidence(p)))
+	return stressRow("Portfolio stress", direction, severity, summary, fmt.Sprintf("%s; %s", stressMarketEvidence(m), stressPortfolioEvidence(p)))
 }
 
 const (
@@ -1555,9 +1555,9 @@ func stressDecisionSummary(r StressResult) string {
 	case stressActionDeploy:
 		return "Constructive pressure is present and input health is clean; deploy only inside risk budget."
 	case stressActionConfirmInputs:
-		return "Confirm input health before treating the canary as a market-context signal."
+		return "Confirm input health before treating this stress read as a market-context signal."
 	default:
-		return "No market-context canary action."
+		return "No market-context stress action."
 	}
 }
 

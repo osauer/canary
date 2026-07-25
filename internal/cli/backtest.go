@@ -1334,16 +1334,16 @@ func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestR
 
 func canaryBacktestStage(canary StressResult) string {
 	switch canary.Action {
-	case canaryActionConfirmInputs:
+	case stressActionConfirmInputs:
 		return rpc.LifecycleDataQuality
-	case canaryActionDefend:
+	case stressActionDefend:
 		if canary.Severity == risk.SeverityUrgent {
 			return rpc.LifecyclePanic
 		}
 		return rpc.LifecycleConfirmedStress
-	case canaryActionWatch, canaryActionRebalance:
+	case stressActionWatch, stressActionRebalance:
 		return rpc.LifecycleEarlyWarning
-	case canaryActionDeploy:
+	case stressActionDeploy:
 		return rpc.LifecycleOpportunity
 	default:
 		return rpc.LifecycleQuiet
@@ -1352,7 +1352,7 @@ func canaryBacktestStage(canary StressResult) string {
 
 func runRegimeBacktestObservation(obs RegimeBacktestObservation) RegimeBacktestRowResult {
 	regime, asOf := regimeBacktestInput(obs)
-	market := summarizeCanaryMarket(regime, asOf)
+	market := summarizeStressMarket(regime, asOf)
 	stressWatch := regimeBacktestStressWatch(regime)
 	stressSignal := regimeBacktestStressSignal(regime)
 	dataQuality := regimeBacktestDataQualityWatch(regime)
@@ -2340,7 +2340,7 @@ func regimeBacktestDataQualityWatch(r rpc.RegimeSnapshotResult) bool {
 			return true
 		}
 	}
-	return canaryGammaDegraded(r.GammaZero) || len(r.WarningDetails) > 0
+	return stressGammaDegraded(r.GammaZero) || len(r.WarningDetails) > 0
 }
 
 func backfillBacktestRegimeComposite(r *rpc.RegimeSnapshotResult) {
