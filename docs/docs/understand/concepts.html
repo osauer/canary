@@ -72,7 +72,7 @@
 <li>Gamma and breadth are heavy computes. Gamma may return <code>status: &quot;computing&quot;</code> with an ETA when no serveable result exists; during options RTH, a served result refreshes in the background after 15 minutes. On a fresh daemon, breadth returns <code>state: &quot;computing&quot;</code> while the constituent fan-out runs (~60 min cold).</li>
 <li>Live IBKR rows may carry a <code>fields_missing</code> array for optional sub-fields that didn't land within the fetch budget. The primary measurement still landed; treat <code>fields_missing</code> as a render hint, not an error.</li>
 </ul>
-<p>The full methodology spec is at <a href="../internals/regime-dashboard.html"><code>docs/specs/risk-regime-dashboard.md</code></a>. Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.</p>
+<p>The full methodology spec is at <a href="../internals/regime-dashboard.html">the regime dashboard contract</a>. Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.</p>
 <hr>
 <h2 id="canary"><span class="secno" aria-hidden="true">03</span>Canary</h2>
 <p>The portfolio canary is narrower than regime: it asks whether today's market weather matters for the portfolio currently held in the account. It consumes account, positions, and regime snapshots, then emits <code>action</code>, <code>market_confirmation</code>, <code>portfolio_fit</code>, <code>input_health</code>, planner readiness, source health, and a semantic alert fingerprint for monitor dedupe.</p>
@@ -132,7 +132,7 @@ alone a no-vote when SPX has healthy 1-7DTE and term coverage.
 After the expiring SPXW series closes, the 0DTE bucket can be absent while the
 broader SPX surface remains usable.</p>
 <p>Compute timing: the first eligible call without a serveable result kicks a multi-minute background job. During options RTH, later calls keep serving the last-good result and trigger one background refresh after 15 minutes; a successful replacement is promoted atomically. Closed-session automatic refresh is suppressed, and the latest completed-session result remains Regime <code>not_due</code> context until the next options open. The cache persists across daemon restarts.</p>
-<p>Full methodology at <a href="../internals/regime-dashboard.html"><code>docs/specs/risk-regime-dashboard.md</code></a>. Cache persistence details are in <a href="../internals/gamma-cache.html"><code>internal-docs/design/gamma-zero-cache-persistence.md</code></a>.</p>
+<p>Full methodology at <a href="../internals/regime-dashboard.html">the regime dashboard contract</a>. Cache persistence details are in <a href="../internals/gamma-cache.html">the gamma cache design</a>.</p>
 <hr>
 <h2 id="breadth"><span class="secno" aria-hidden="true">07</span>Breadth</h2>
 <p>S&amp;P 500 breadth tells you whether a rally is broad or narrow, which the index level alone can't. Two readings carry the load:</p>

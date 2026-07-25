@@ -479,7 +479,7 @@ func fixtureRegime() *rpc.RegimeSnapshotResult {
 	officialDate := "2026-06-03"
 	r := &rpc.RegimeSnapshotResult{
 		AsOf:    now,
-		SpecDoc: "docs/docs/internals/regime-dashboard.md",
+		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
 		Summary: rpc.RegimeSummary{
 			Label:             "Stress signal present",
 			Evidence:          "3 green clusters / 1 yellow cluster / 1 red cluster / 1 waiting",

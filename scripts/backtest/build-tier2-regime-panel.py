@@ -32,9 +32,9 @@ PROXY_PAIRS = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=Path("internal/cli/testdata/regime_pit_panel_tier1.jsonl"))
-    parser.add_argument("--output", type=Path, default=Path("internal/cli/testdata/regime_pit_panel_tier2.jsonl"))
-    parser.add_argument("--sources-output", type=Path, default=Path("internal/cli/testdata/backtest_sources_tier2.jsonl"))
+    parser.add_argument("--input", type=Path, default=Path("build/backtest/regime_pit_panel_tier1.jsonl"))
+    parser.add_argument("--output", type=Path, default=Path("build/backtest/regime_pit_panel_tier2.jsonl"))
+    parser.add_argument("--sources-output", type=Path, default=Path("build/backtest/backtest_sources_tier2.jsonl"))
     parser.add_argument("--raw-dir", type=Path, default=RAW_DEFAULT)
     parser.add_argument("--start", default="2016-01-01")
     parser.add_argument("--end", default="2026-05-31")

@@ -30,7 +30,7 @@
 <strong>Created:</strong> 2026-05-22 07:30 CEST
 <strong>Last update:</strong> 2026-07-20
 <strong>Owner:</strong> osauer
-<strong>Related:</strong> <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_cache.go">internal/daemon/gamma_zero_cache.go</a>, <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_store.go">internal/daemon/gamma_zero_store.go</a>, <a href="../understand/concepts.html#gamma">docs/concepts.md</a></p>
+<strong>Related:</strong> <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_cache.go">internal/daemon/gamma_zero_cache.go</a>, <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_store.go">internal/daemon/gamma_zero_store.go</a>, <a href="../understand/concepts.html#gamma">Concepts</a></p>
 <h2 id="why-this-exists">Why this exists</h2>
 <p>The gamma-zero compute is intentionally heavy: it fans out across SPY and SPX option chains, filters out post-settlement 0DTE expiries, fits sticky-moneyness skew curves, and produces per-index plus combined regime diagnostics. After the slot-anchored expiry picker landed, a cold combined run could cross the five-minute mark. Restarting the daemon during a trading day should not force every dashboard or CLI caller through that full compute again.</p>
 <p>The result's natural TTL is one New York trading session, so the cache can persist safely as long as stale sessions, stale methodology, and wrong-scope data are rejected on load.</p>

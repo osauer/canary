@@ -826,7 +826,7 @@ func TestIbkrRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
 			Code: "gamma_zero_computing", Scope: "gamma_zero", Severity: "warning",
 			Message: "dealer gamma is still computing", Impact: "gamma is unranked", Action: "retry later",
 		}},
-		SpecDoc: "docs/docs/internals/regime-dashboard.md",
+		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
 	}
 	b, err := json.Marshal(res)
 	if err != nil {

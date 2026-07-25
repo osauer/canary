@@ -76,7 +76,7 @@ classified market state, source-health buckets, row titles/states, and
 <code>source_fingerprints.market_events</code>. V2 includes typed source failure
 code/stage. The separate <code>established_alert_projection</code> intentionally retains
 its frozen <code>canary-fp-v1</code> compatibility identity for delivery continuity.</p>
-<p><a href="https://github.com/osauer/ibkr/blob/main/docs/design/trading-rulebook.md"><code>rules.snapshot</code></a> emits <code>rulebook-fp-v3</code> — a
+<p><a href="../../design/trading-rulebook.md"><code>rules.snapshot</code></a> emits <code>rulebook-fp-v3</code> — a
 policy-identity fingerprint, not a classified-state hash: the key is a SHA-256
 of a JSON projection of the active Rulebook model (rule set, thresholds,
 regime-conditional sets), so it changes when the model changes, not when

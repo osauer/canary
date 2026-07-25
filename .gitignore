@@ -46,3 +46,8 @@ cloudflare/remote-relay/.dev.vars
 /HANDOFF.md
 /reports/
 tmp/
+
+# Backtest evidence is captured on demand, never checked in: a corpus stored
+# beside the unit-test fixtures stops being regenerated and becomes a record of
+# whatever the engine believed on the day it was captured.
+build/backtest/

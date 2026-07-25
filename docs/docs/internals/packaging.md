@@ -174,7 +174,7 @@ Submission pack:
 - Requirements: IB Gateway 10.37+ or TWS running locally; IBKR Pro account with TWS API access; macOS or Linux binary for the bundled path.
 - Current boundary: current public CLI and MCP releases expose analysis, sizing, and preview-only stock/ETF order drafts, but no order placement, modification, cancellation, or broker-transmission interface.
 - Target users: semi-professional retail traders using IBKR as capital-markets infrastructure who want agent-assisted review and research on broker-native data.
-- Links: <https://github.com/osauer/ibkr>, <https://github.com/osauer/ibkr/blob/main/docs/reference/mcp-tools.md>, <https://github.com/osauer/ibkr/blob/main/docs/guides/agentic-use.md>, <https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb>.
+- Links: <https://github.com/osauer/ibkr>, <https://osauer.dev/ibkr/docs/reference/mcp-tools.html>, <https://osauer.dev/ibkr/docs/operate/agents.html>, <https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb>.
 
 Publish sequence:
 

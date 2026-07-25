@@ -391,7 +391,7 @@ candidate, validates the candidate, records recovery state, and atomically
 publishes the result. A future schema refuses downgrade, and ambiguous recovery
 state stops startup.</p>
 <p>The full crash-boundary protocol lives in the
-<a href="https://github.com/osauer/ibkr/blob/main/docs/design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Schema
+<a href="../../design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Schema
 version 1 remains the only production migration, so the general coordinator
 has yet to carry a released schema transition.</p>
 <h3 id="backup-and-restore">Backup and restore</h3>
@@ -535,9 +535,9 @@ or a change stream from each authoritative daemon.</p>
 <li><a href="architecture.html">Architecture</a>: process, broker, RPC, and state ownership.</li>
 <li><a href="../understand/sensors.html">Sensors</a>: measurement authority, source cadence, last-good
 behavior, and safe operator checks.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/docs/design/daemon-sqlite-authority.md">SQLite Implementation Contract</a>: cutover,
+<li><a href="../../design/daemon-sqlite-authority.md">SQLite Implementation Contract</a>: cutover,
 durability, upgrade, and recovery mechanics.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/docs/design/platform-settings.md">Platform Settings</a>: the typed daemon document for
+<li><a href="../../design/platform-settings.md">Platform Settings</a>: the typed daemon document for
 live preferences.</li>
 <li><code>internal/daemon/corestore/schema.go</code>: canonical tables, indexes, constraints,
 triggers, and migration ledger.</li>

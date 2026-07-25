@@ -4,7 +4,7 @@
 **Created:** 2026-05-22 07:30 CEST
 **Last update:** 2026-07-20
 **Owner:** osauer
-**Related:** [internal/daemon/gamma_zero_cache.go](../../../internal/daemon/gamma_zero_cache.go), [internal/daemon/gamma_zero_store.go](../../../internal/daemon/gamma_zero_store.go), [docs/concepts.md](../understand/concepts.md#gamma)
+**Related:** [internal/daemon/gamma_zero_cache.go](../../../internal/daemon/gamma_zero_cache.go), [internal/daemon/gamma_zero_store.go](../../../internal/daemon/gamma_zero_store.go), [Concepts](../understand/concepts.md#gamma)
 
 ## Why this exists
 

@@ -14,8 +14,8 @@ BAND_RANK = {"": 0, "green": 1, "yellow": 2, "red": 3}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pit", type=Path, default=Path("internal/cli/testdata/regime_pit_panel_tier1.jsonl"))
-    parser.add_argument("--compact", type=Path, default=Path("internal/cli/testdata/regime_backtest_tier1.jsonl"))
+    parser.add_argument("--pit", type=Path, default=Path("build/backtest/regime_pit_panel_tier1.jsonl"))
+    parser.add_argument("--compact", type=Path, default=Path("build/backtest/regime_backtest_tier1.jsonl"))
     return parser.parse_args()
 
 

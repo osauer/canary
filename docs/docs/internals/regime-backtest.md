@@ -27,13 +27,14 @@ All backtest artifacts live in one of these places:
 
 | Path | Purpose |
 | --- | --- |
-| `docs/specs/regime-backtest-plan.md` | This runbook: sequencing, gates, stop rules, and current backlog. |
-| `docs/specs/risk-regime-dashboard.md` | Product contract for live `ibkr regime`; not a tuning backlog. |
+| `docs/docs/internals/regime-backtest.md` | This runbook: sequencing, gates, stop rules, and current backlog. |
+| `docs/docs/internals/regime-dashboard.md` | Product contract for live `ibkr regime`; not a tuning backlog. |
 | `scripts/backtest/` | Reproducible data-build and comparison scripts only. |
-| `internal/cli/testdata/backtest_sources*.jsonl` | Source ledgers: URLs, checksums, gaps, and retrieval status. |
-| `internal/cli/testdata/regime_pit_panel*.jsonl` | Point-in-time market rows consumed by `build-regime`. |
-| `internal/cli/testdata/regime_backtest*.jsonl` | Compact regime replay rows consumed by `backtest regime`. |
-| `internal/cli/testdata/canary_backtest*.jsonl` | Canary replay rows with account and position overlays. |
+| `build/backtest/backtest_sources*.jsonl` | Source ledgers: URLs, checksums, gaps, and retrieval status. Built, not checked in. |
+| `internal/cli/testdata/regime_pit_panel_sample.jsonl` | Tiny point-in-time sample consumed by `build-regime`. Checked in; a unit test reads it. |
+| `internal/cli/testdata/regime_backtest_sample.jsonl` | Tiny compact replay sample consumed by `backtest regime`. Checked in. |
+| `internal/cli/testdata/canary_backtest_sample.jsonl` | Tiny canary replay sample with account and position overlays. Checked in. |
+| `build/backtest/*.jsonl` | Captured evidence corpora. Built on demand, git-ignored, never checked in. |
 
 Do not hand-edit generated compact regime rows when the point-in-time panel is
 the source of truth. Rebuild them.
@@ -47,14 +48,23 @@ ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
 ibkr backtest canary --input internal/cli/testdata/canary_backtest_sample.jsonl
 ```
 
-Curated sourced fixtures:
+The checked-in sourced corpora were deleted in July 2026. They recorded
+verdicts produced by regime code that has since been corrected several times,
+so they measured the old bugs rather than the current engine. Capture a fresh
+tuning and holdout split before tuning anything:
 
 ```bash
-ibkr backtest regime --input internal/cli/testdata/regime_backtest_sourced_tuning.jsonl
-ibkr backtest canary --input internal/cli/testdata/canary_backtest_sourced_tuning.jsonl
-ibkr backtest regime --input internal/cli/testdata/regime_backtest_sourced_holdout.jsonl
-ibkr backtest canary --input internal/cli/testdata/canary_backtest_sourced_holdout.jsonl
+ibkr backtest capture-opportunity --preset top-movers --include-regime --split tuning \
+  --append /tmp/regime_tuning.jsonl
+ibkr backtest capture-opportunity --preset top-movers --include-regime --split holdout \
+  --holdout-plan <plan-id> --append /tmp/regime_holdout.jsonl
+ibkr backtest regime --input /tmp/regime_tuning.jsonl
+ibkr backtest canary --input /tmp/regime_tuning.jsonl
 ```
+
+Keep captures outside the repository. A corpus checked in beside the unit-test
+fixtures reads as a fixture, stops being regenerated, and quietly becomes a
+record of whatever the engine believed on the day it was captured.
 
 Point-in-time regime builder:
 
@@ -67,13 +77,14 @@ ibkr backtest regime --input /tmp/regime_backtest_rows.jsonl
 That is two passes only when starting from raw point-in-time market rows. If the
 input is already compact regime JSONL, run `ibkr backtest regime` directly.
 
-Tier 1 expanded panel:
+Tier 1 expanded panel. The panel itself is no longer checked in; build it, then
+work from the build output:
 
 ```bash
-python3 scripts/backtest/build-tier1-regime-panel.py --no-fetch
-ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_tier1.jsonl \
-  > internal/cli/testdata/regime_backtest_tier1.jsonl
-ibkr backtest regime --input internal/cli/testdata/regime_backtest_tier1.jsonl
+python3 scripts/backtest/build-tier1-regime-panel.py
+ibkr backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl \
+  > build/backtest/regime_backtest_tier1.jsonl
+ibkr backtest regime --input build/backtest/regime_backtest_tier1.jsonl
 python3 scripts/backtest/compare-tier1-vol-rules.py
 ```
 
@@ -88,8 +99,8 @@ Tier 1: expanded volatility/calm/event panel.
 
 - Sources: Cboe VIX/VIX3M/VVIX, Nasdaq ETF OHLC, FRED funding/FX/credit where
   available.
-- Current artifact: `regime_pit_panel_tier1.jsonl`.
-- Source ledger: `backtest_sources_tier1.jsonl`.
+- Current artifact: `build/backtest/regime_pit_panel_tier1.jsonl`, rebuilt on demand.
+- Source ledger: `build/backtest/backtest_sources_tier1.jsonl`, rebuilt on demand.
 - Primary label: 5-session market stress.
 - Secondary feature: 20-session drawdown for early-warning analysis.
 - Known gap: gamma and breadth are explicitly unavailable.

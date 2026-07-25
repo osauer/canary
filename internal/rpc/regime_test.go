@@ -57,7 +57,7 @@ func TestCompactRegimeSnapshotKeepsAgentSurfaceAndDropsMethodology(t *testing.T)
 			Code: "usd_jpy_unavailable", Scope: "usd_jpy", Severity: "warning",
 			Message: "no FX tick", Impact: "FX is unranked", Action: "check entitlement",
 		}},
-		SpecDoc: "docs/docs/internals/regime-dashboard.md",
+		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
 	}
 
 	CompactRegimeSnapshot(r)

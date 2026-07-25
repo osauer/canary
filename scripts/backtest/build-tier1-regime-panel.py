@@ -9,7 +9,7 @@ Tier 1 is intentionally narrow:
   point-in-time source is provided later
 
 The generated rows are point-in-time inputs for:
-    ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_tier1.jsonl
+    ibkr backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl
 """
 
 from __future__ import annotations
@@ -119,8 +119,8 @@ RAW_DEFAULT = Path("/private/tmp/ibkr-backtest-data/raw")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-dir", type=Path, default=RAW_DEFAULT)
-    parser.add_argument("--output", type=Path, default=Path("internal/cli/testdata/regime_pit_panel_tier1.jsonl"))
-    parser.add_argument("--sources-output", type=Path, default=Path("internal/cli/testdata/backtest_sources_tier1.jsonl"))
+    parser.add_argument("--output", type=Path, default=Path("build/backtest/regime_pit_panel_tier1.jsonl"))
+    parser.add_argument("--sources-output", type=Path, default=Path("build/backtest/backtest_sources_tier1.jsonl"))
     parser.add_argument("--start", default="2016-01-01")
     parser.add_argument("--end", default="2026-05-31")
     parser.add_argument("--no-fetch", action="store_true", help="Use existing raw files only.")

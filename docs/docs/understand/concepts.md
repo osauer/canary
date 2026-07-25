@@ -46,7 +46,7 @@ Two failure modes worth flagging on the wire:
 - Gamma and breadth are heavy computes. Gamma may return `status: "computing"` with an ETA when no serveable result exists; during options RTH, a served result refreshes in the background after 15 minutes. On a fresh daemon, breadth returns `state: "computing"` while the constituent fan-out runs (~60 min cold).
 - Live IBKR rows may carry a `fields_missing` array for optional sub-fields that didn't land within the fetch budget. The primary measurement still landed; treat `fields_missing` as a render hint, not an error.
 
-The full methodology spec is at [`docs/specs/risk-regime-dashboard.md`](../internals/regime-dashboard.md). Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.
+The full methodology spec is at [the regime dashboard contract](../internals/regime-dashboard.md). Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.
 
 ---
 
@@ -126,7 +126,7 @@ broader SPX surface remains usable.
 
 Compute timing: the first eligible call without a serveable result kicks a multi-minute background job. During options RTH, later calls keep serving the last-good result and trigger one background refresh after 15 minutes; a successful replacement is promoted atomically. Closed-session automatic refresh is suppressed, and the latest completed-session result remains Regime `not_due` context until the next options open. The cache persists across daemon restarts.
 
-Full methodology at [`docs/specs/risk-regime-dashboard.md`](../internals/regime-dashboard.md). Cache persistence details are in [`internal-docs/design/gamma-zero-cache-persistence.md`](../internals/gamma-cache.md).
+Full methodology at [the regime dashboard contract](../internals/regime-dashboard.md). Cache persistence details are in [the gamma cache design](../internals/gamma-cache.md).
 
 ---
 

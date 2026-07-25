@@ -131,7 +131,7 @@ connectors, the external-source clients, refreshable views, schedulers,
 post-trade reconciliation.</li>
 <li><code>internal/risk</code> is the pure evaluation library behind advisory verdicts:
 thresholds and fingerprints, canary signal types, option math, the daily
-<a href="https://github.com/osauer/ibkr/blob/main/docs/design/trading-rulebook.md">trading rulebook</a>, and risk-constitution
+<a href="../../design/trading-rulebook.md">trading rulebook</a>, and risk-constitution
 evaluation. It does no I/O and owns no broker state.</li>
 <li><code>internal/rpc</code> defines the typed method names and request/response structs
 that daemon, CLI, app, and MCP adapters share. Add fields here first; teach
@@ -469,7 +469,7 @@ the daemon's closed presentation code to fixed app-owned copy, and records
 acceptance, retry, rejection, or uncertain interruption. Scope changes create
 only bounded generic previous context; they are not recovery, clear, unread,
 or delivery events. See
-<a href="https://github.com/osauer/ibkr/blob/main/docs/design/alert-regime-production.md">Alerts and Regime production contract</a>.</p>
+<a href="../../design/alert-regime-production.md">Alerts and Regime production contract</a>.</p>
 <h2 id="deployment-scopes-and-multiple-instances"><span class="secno" aria-hidden="true">07</span>Deployment Scopes and Multiple Instances</h2>
 <p>The default topology is one daemon shared by the CLI, all local MCP adapter
 processes, and the app, through the canonical Unix socket. A flock-backed
@@ -534,7 +534,7 @@ state; only an exact identical-wire 15-second retry boundary survives so a
 bounce cannot duplicate the same broker request immediately.</p>
 <p>For operator and builder reference, use <a href="../understand/sensors.html">Sensors</a> for measurement,
 freshness, last-good, and dependency semantics; the
-<a href="https://github.com/osauer/ibkr/blob/main/docs/design/trading-rulebook.md">Trading Rulebook</a> for the compiled discipline
+<a href="../../design/trading-rulebook.md">Trading Rulebook</a> for the compiled discipline
 model and its evidence contract; <a href="../understand/policy.html">Trading Policy</a> for the human
 decision and system-control model; and <a href="storage.html">Storage</a> for state,
 evidence, SQLite relationships, query boundaries, durability, and recovery.

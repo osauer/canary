@@ -1542,7 +1542,7 @@ all eight indicator rows.
     "cluster_unranked_count": 1
   },
   "warning_details": [],
-  "spec_doc": "docs/docs/internals/regime-dashboard.md"
+  "spec_doc": "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html"
 }
 ```
 

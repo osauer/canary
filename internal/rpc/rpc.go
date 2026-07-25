@@ -1949,7 +1949,9 @@ type RegimeSnapshotResult struct {
 	SourceHealth []SourceHealth `json:"source_health,omitempty"`
 	// SpecDoc points consumers (especially LLM-driven ones) at the
 	// canonical methodology + threshold reference so they don't
-	// hallucinate band edges. Same path on every response.
+	// hallucinate band edges. It is the published URL rather than a
+	// repository path: a remote MCP client can fetch the former and
+	// cannot open the latter. Same value on every response.
 	SpecDoc string `json:"spec_doc"`
 }
 

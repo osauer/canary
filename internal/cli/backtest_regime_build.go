@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	regimeBuilderSpecDoc = "docs/docs/internals/regime-dashboard.md"
+	regimeBuilderSpecDoc = "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html"
 	regimeBuilderSource  = "point-in-time panel"
 )
 
