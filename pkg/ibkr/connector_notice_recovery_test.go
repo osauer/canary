@@ -21,7 +21,7 @@ import (
 // immediately — the caller previously burned its full timeout and then
 // wire-cancelled a query the server had already killed. Error 200 must
 // propagate (a caller that waits on data that will never come burns a
-// full timeout; see .claude_memory.md).
+// full timeout).
 func TestSystemNoticeFailsPendingHistorical(t *testing.T) {
 	c := readyBrokerEvidenceTestConnector(t)
 
