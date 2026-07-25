@@ -34,7 +34,7 @@ import (
 //     already exists, the cache keeps serving it and promotes the forced run
 //     only on success; otherwise force supersedes the in-flight/error state.
 //
-// Methodology lives in docs/specs/risk-regime-dashboard.md. The result
+// Methodology lives in docs/docs/internals/regime-dashboard.md. The result
 // envelope's Method field is "bs-gamma-profile-v3-stickymoneyness-0dte-split";
 // renderers can deep-link to the disclosure.
 func (s *Server) handleGammaZeroSPX(ctx context.Context, req *rpc.Request) (*rpc.GammaZeroSPXResult, error) {

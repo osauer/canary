@@ -361,7 +361,7 @@ func runRegimeFanoutOutcome(
 	contentionMsg func() string,
 ) regimeFanoutOutcome {
 	res := &rpc.RegimeSnapshotResult{
-		SpecDoc: "docs/specs/risk-regime-dashboard.md",
+		SpecDoc: "docs/docs/internals/regime-dashboard.md",
 	}
 
 	type regimeRow struct {

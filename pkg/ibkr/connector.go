@@ -147,7 +147,7 @@ type Connector struct {
 	// next marketDataAbsenceRetry window skips the futile resubscribe
 	// instead of re-burning a request + poll budget per caller cycle.
 	// In-memory only — broker entitlements must never persist (see
-	// docs/architecture.md) — and the daemon rebuilds the Connector on
+	// docs/docs/internals/architecture.md) — and the daemon rebuilds the Connector on
 	// every reconnect, which is the "cleared on reconnect" path.
 	// absenceNow is a test seam, nil meaning time.Now (same pattern as
 	// contractTimingHook).
@@ -770,7 +770,7 @@ func (c *Connector) clearInactiveCandidate(symbol string) {
 // hiccup, contract-cache race) — observed 2026-06-11 on the currency-ledger
 // FX repair path, where one transient 200 suppressed an IDEALPRO route for
 // the connector's lifetime. Inactive means delisted/unknown contract
-// (docs/architecture.md), and steady pollers re-request every cycle, so a
+// (docs/docs/internals/architecture.md), and steady pollers re-request every cycle, so a
 // genuinely dead name confirms within a couple of poll intervals.
 const (
 	inactiveConfirmations   = 2

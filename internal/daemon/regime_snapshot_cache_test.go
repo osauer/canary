@@ -140,7 +140,7 @@ func regimeSnapshotCacheFixture(at time.Time, label string) *rpc.RegimeSnapshotR
 		WarningDetails: []rpc.RegimeWarning{
 			{Code: "fixture", Scope: "test", Severity: "info", Message: "fixture warning"},
 		},
-		SpecDoc: "docs/specs/risk-regime-dashboard.md",
+		SpecDoc: "docs/docs/internals/regime-dashboard.md",
 	}
 	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
 	return snapshot

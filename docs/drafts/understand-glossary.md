@@ -18,9 +18,9 @@ page where the term does real work. No entry longer than three sentences.
 
 **Draw from**
 
-The glossaries already sitting at the end of `docs/policies.md` and
-`docs/database.md`, plus the definitions scattered through `docs/concepts.md`
-and `docs/sensors.md`. Consolidating them here means those pages can drop
+The glossaries already sitting at the end of `docs/docs/understand/policy.md` and
+`docs/docs/internals/storage.md`, plus the definitions scattered through `docs/docs/understand/concepts.md`
+and `docs/docs/understand/sensors.md`. Consolidating them here means those pages can drop
 their local glossaries and link instead.
 
 **Boundaries to keep**

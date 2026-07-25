@@ -764,7 +764,7 @@ const (
 
 // GammaZeroSPXParams is the input for MethodGammaZeroSPX. All fields are
 // optional; defaults match the v1 calibration window documented in
-// docs/specs/risk-regime-dashboard.md.
+// docs/docs/internals/regime-dashboard.md.
 type GammaZeroSPXParams struct {
 	// WaitMs is the maximum time the daemon blocks on an in-flight or
 	// just-kicked-off compute before returning the current state. 0
@@ -1073,7 +1073,7 @@ type SkewFitInfo struct {
 // the SPX index level but can invert near autocallable barriers and
 // when covered-call ETF flow dominates. Treat ZeroGamma as a regime
 // hint, not a precise level; consult TopStrikes (sign-agnostic) for
-// the more robust positioning view. See docs/specs/risk-regime-dashboard.md
+// the more robust positioning view. See docs/docs/internals/regime-dashboard.md
 // for the full methodology disclosure.
 //
 // Combined-scope semantics:
@@ -1292,7 +1292,7 @@ type GammaZeroComputed struct {
 	// "perfiliev" is dropped from the token because Perfiliev's
 	// published method used sticky-IV; the sticky-moneyness refinement
 	// is citable to Derman / Daglish-Hull-Suo (see MethodologyCitations).
-	// Full disclosure lives in docs/specs/risk-regime-dashboard.md so
+	// Full disclosure lives in docs/docs/internals/regime-dashboard.md so
 	// renderers can deep-link.
 	Method string `json:"method"`
 	// AsOf is the daemon's wall-clock when the compute finished.

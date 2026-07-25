@@ -21,8 +21,8 @@ which IBKR subscriptions are worth paying for.
 
 **Draw from**
 
-- `docs/concepts.md`, "Market Calendars".
-- `docs/sensors.md` for freshness and last-good semantics.
+- `docs/docs/understand/concepts.md`, "Market Calendars".
+- `docs/docs/understand/sensors.md` for freshness and last-good semantics.
 - The `session_context` field in the quote path.
 
 **Boundaries to keep**

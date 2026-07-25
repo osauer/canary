@@ -22,11 +22,11 @@ commands that prove it is in force.
 
 **Draw from**
 
-- `docs/policies.md`, which covers who decides. This page covers how to write
+- `docs/docs/understand/policy.md`, which covers who decides. This page covers how to write
   it, and should link rather than repeat.
 - `docs/design/risk-policy.md`.
 - `examples/risk-policy.toml`.
-- `docs/reference/config.md` for the authoritative field list.
+- `docs/docs/reference/config.md` for the authoritative field list.
 
 **Boundaries to keep**
 

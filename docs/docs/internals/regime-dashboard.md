@@ -388,6 +388,6 @@ and a version-label bump documented here. Disable collection via
 ## Backtesting
 
 The active backtest sequence, tuning gates, and source-data backlog live in
-[Regime and Canary Backtest Runbook](regime-backtest-plan.md). Keep this file
+[Regime and Canary Backtest Runbook](regime-backtest.md). Keep this file
 as the product contract for `ibkr regime`; do not use it as a second tuning
 backlog.

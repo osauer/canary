@@ -22,7 +22,7 @@ command and the output, each one explaining what to look at and what to ignore.
 **Draw from**
 
 - `cmd/_preview` fixtures, which already render the four terminal screenshots.
-- `docs/guides/agentic-use.md` for the agent half.
+- `docs/docs/operate/agents.md` for the agent half.
 
 **Boundaries to keep**
 

@@ -17,11 +17,11 @@ the decision concepts, but it needs an additional identity and approval layer.
 
 ## How Policy Informs a Trading Decision
 
-[![How a risk boundary and current evidence inform advice while the human retains the trading decision](diagrams/policy-lifecycle.svg)](diagrams/policy-lifecycle.svg)
+[![How a risk boundary and current evidence inform advice while the human retains the trading decision](../../diagrams/policy-lifecycle.svg)](../../diagrams/policy-lifecycle.svg)
 
-[PNG fallback](diagrams/policy-lifecycle.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/policy-lifecycle.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 The human chooses the boundary before the market creates pressure. The daemon
 combines that policy with current evidence and returns a structured advisory or
@@ -53,11 +53,11 @@ decision boundary.
 
 ## Where Controls Live and Who Changes Them
 
-[![Who controls policy, settings, analytical models, and the broker safety path](diagrams/policy-authority.svg)](diagrams/policy-authority.svg)
+[![Who controls policy, settings, analytical models, and the broker safety path](../../diagrams/policy-authority.svg)](../../diagrams/policy-authority.svg)
 
-[PNG fallback](diagrams/policy-authority.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/policy-authority.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 Policy, settings, analytical models, and broker safety controls are different
 sources of control. Current evidence is an input, not another policy. The
@@ -114,7 +114,7 @@ archived policy content.
 ### Personal risk policy
 
 The personal risk policy has no embedded default and no path override. Start
-from [the checked-in template](../examples/risk-policy.toml); material numerical
+from [the checked-in template](../../../examples/risk-policy.toml); material numerical
 choices are intentionally commented out so software cannot invent them.
 
 Its main sections cover capital and the protected floor, drawdown response,
@@ -148,7 +148,7 @@ ibkr policy default opportunity > ~/.config/ibkr/policies/opportunity-policy.tom
 ```
 
 The default paths and every editable key are in the
-[configuration reference](reference/config.md). A proposal or opportunity
+[configuration reference](../reference/config.md). A proposal or opportunity
 remains evidence for a human decision. `authority.auto_submit` must remain
 false.
 
@@ -166,7 +166,7 @@ ibkr settings set <key>=null
 `null` removes an override and exposes the underlying config or build default.
 Every typed setting reports its source and whether it is writable. No setting
 can bypass the non-overridable broker controls. See
-[Platform Settings](design/platform-settings.md) for the ownership contract.
+[Platform Settings](../../design/platform-settings.md) for the ownership contract.
 
 ## Read Status and Commissioning Correctly
 
@@ -238,15 +238,15 @@ to the human.
 
 Detailed references:
 
-- [Configuration Reference](reference/config.md): every configuration,
+- [Configuration Reference](../reference/config.md): every configuration,
   advisory-policy, runtime-setting, and environment key.
-- [Risk Constitution Design](design/risk-policy.md): capital,
+- [Risk Constitution Design](../../design/risk-policy.md): capital,
   reconciliation, safety invariants, and implementation history.
-- [Trading Rulebook](design/trading-rulebook.md): compiled discipline checks.
-- [Trading Harness Development](guides/trading-harness-development.md): how to
+- [Trading Rulebook](../../design/trading-rulebook.md): compiled discipline checks.
+- [Trading Harness Development](../../guides/trading-harness-development.md): how to
   design, shadow, promote, and reconcile a new control.
-- [Architecture](architecture.md): daemon, RPC, adapter, and broker ownership.
+- [Architecture](../internals/architecture.md): daemon, RPC, adapter, and broker ownership.
 - [Sensors](sensors.md): what current evidence means, when it expires, and how
   dependent decisions fail closed.
-- [Storage](database.md): how applied policy state and local events are stored
+- [Storage](../internals/storage.md): how applied policy state and local events are stored
   without making SQLite the policy-authoring surface.

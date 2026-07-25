@@ -23,7 +23,7 @@ it matches what someone would search for.
 
 - `README.md`, "Troubleshooting".
 - The gateway-unavailable hint text in `internal/cli/cli.go`.
-- `docs/architecture.md`, "Observability".
+- `docs/docs/internals/architecture.md`, "Observability".
 
 **Boundaries to keep**
 

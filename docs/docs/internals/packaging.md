@@ -49,7 +49,7 @@ Before submitting to OpenAI, add or decide:
 
 - a ChatGPT app or connector packaging plan using OpenAI's current Apps SDK documentation
 - how a local-only IB Gateway dependency will be reached from ChatGPT, for example a supported secure tunnel or a clear "local/developer mode only" installation story
-- a privacy policy URL pointing at [PRIVACY.md](../../PRIVACY.md)
+- a privacy policy URL pointing at [PRIVACY.md](../../../PRIVACY.md)
 - a safety statement that no order placement, cancellation, or modification exists
 - setup text covering IB Gateway/TWS prerequisites and the local binary install
 - screenshots or a short demo focused on the regime lifecycle, stateless canary, and portfolio workflows
@@ -59,12 +59,12 @@ OpenAI's Apps SDK help says app submissions are open, apps are built on MCP, and
 ## Documentation That Must Stay In Sync
 
 - README: first-run install, update path, core feature list, MCP setup, safety.
-- [Agentic use](./agentic-use.md): natural-language workflows and limits.
+- [Agentic use](../operate/agents.md): natural-language workflows and limits.
 - [MCP tools reference](../reference/mcp-tools.md): generated from `internal/mcp/tools.go`.
 - [MCP resources reference](../reference/mcp-resources.md): quote resource read/subscribe behavior.
 - [Configuration reference](../reference/config.md): generated from config structs and `docgen:env` comments.
-- [Privacy](../../PRIVACY.md): data locality, local files, and third-party host caveat.
-- [Security](../../SECURITY.md): read-only threat model, release integrity, diagnostic data sensitivity.
+- [Privacy](../../../PRIVACY.md): data locality, local files, and third-party host caveat.
+- [Security](../../../SECURITY.md): read-only threat model, release integrity, diagnostic data sensitivity.
 
 ## Pre-Promotion Smoke List
 
@@ -143,7 +143,7 @@ Submission materials:
 - Server name: `ibkr`.
 - Tagline: "Agentic Interactive Brokers portfolio analysis and trading research for Claude Desktop."
 - Description: emphasize local-only operation, IB Gateway/TWS prerequisite, IBKR Pro requirement, portfolio review, options diagnostics, market-regime context, current no-order-entry boundary, and account-sensitive outputs.
-- Documentation: README install section, [agentic use](./agentic-use.md), [configuration reference](../reference/config.md), and [privacy policy](../../PRIVACY.md).
+- Documentation: README install section, [agentic use](../operate/agents.md), [configuration reference](../reference/config.md), and [privacy policy](../../../PRIVACY.md).
 - Support: GitHub issues; security through GitHub Private Vulnerability Reporting.
 - Capabilities: account, positions, quotes, watchlists, calendars, option chains, history, technical screens, scanners, portfolio review workflows, sizing math, S&P 500 breadth, dealer gamma, broad-market regime lifecycle, stateless portfolio canary; no built-in prompts; quote resource read/subscribe.
 

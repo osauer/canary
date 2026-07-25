@@ -22,7 +22,7 @@ on the decision it supports. Short. This is the page a reader keeps open.
 **Draw from**
 
 - `internal/cli/brief.go` for what the brief actually assembles.
-- `docs/sensors.md` for freshness semantics, linked rather than repeated.
+- `docs/docs/understand/sensors.md` for freshness semantics, linked rather than repeated.
 - `docs/design/operator-ergonomics.md` for the ergonomics rationale.
 
 **Boundaries to keep**

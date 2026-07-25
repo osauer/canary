@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-06-11 08:17 CEST
 
-These are the non-tool resources `ibkr mcp` exposes to MCP clients. Tools are documented separately in [MCP tools reference](./mcp-tools.md).
+These are the non-tool resources `ibkr mcp` exposes to MCP clients. Tools are documented separately in [MCP tools reference](mcp-tools.md).
 
 ## `ibkr://quote/{symbol}`
 

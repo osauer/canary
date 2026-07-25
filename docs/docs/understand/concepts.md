@@ -2,7 +2,7 @@
 
 Updated: 2026-07-19 19:40 CEST
 
-What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. Start with [Sensors](./sensors.md) for authority, freshness, last-good behavior, and safe checks. Methodology rationale lives in the [regime dashboard contract](./specs/risk-regime-dashboard.md); this page is the user's mental model.
+What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. Start with [Sensors](sensors.md) for authority, freshness, last-good behavior, and safe checks. Methodology rationale lives in the [regime dashboard contract](../internals/regime-dashboard.md); this page is the user's mental model.
 
 ---
 
@@ -46,7 +46,7 @@ Two failure modes worth flagging on the wire:
 - Gamma and breadth are heavy computes. Gamma may return `status: "computing"` with an ETA when no serveable result exists; during options RTH, a served result refreshes in the background after 15 minutes. On a fresh daemon, breadth returns `state: "computing"` while the constituent fan-out runs (~60 min cold).
 - Live IBKR rows may carry a `fields_missing` array for optional sub-fields that didn't land within the fetch budget. The primary measurement still landed; treat `fields_missing` as a render hint, not an error.
 
-The full methodology spec is at [`docs/specs/risk-regime-dashboard.md`](./specs/risk-regime-dashboard.md). Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.
+The full methodology spec is at [`docs/specs/risk-regime-dashboard.md`](../internals/regime-dashboard.md). Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.
 
 ---
 
@@ -126,7 +126,7 @@ broader SPX surface remains usable.
 
 Compute timing: the first eligible call without a serveable result kicks a multi-minute background job. During options RTH, later calls keep serving the last-good result and trigger one background refresh after 15 minutes; a successful replacement is promoted atomically. Closed-session automatic refresh is suppressed, and the latest completed-session result remains Regime `not_due` context until the next options open. The cache persists across daemon restarts.
 
-Full methodology at [`docs/specs/risk-regime-dashboard.md`](./specs/risk-regime-dashboard.md). Cache persistence details are in [`docs/design/gamma-zero-cache-persistence.md`](./design/gamma-zero-cache-persistence.md).
+Full methodology at [`docs/specs/risk-regime-dashboard.md`](../internals/regime-dashboard.md). Cache persistence details are in [`docs/design/gamma-zero-cache-persistence.md`](../internals/gamma-cache.md).
 
 ---
 
@@ -143,6 +143,6 @@ IBKR doesn't redistribute S&P DJI's official breadth indices on retail subscript
 
 **Cold-start budget**: the first request against a fresh daemon takes ~60 minutes; IBKR's historical-data pacing caps the constituent fan-out at ~6 names/min sustained. The response carries `state: "computing"` until done; after cold-start, the cache persists across daemon restarts and every subsequent call is instant.
 
-The constituent list itself is also refreshed at runtime; see [Updating](./guides/updating.md#updating-the-sp-500-list--automatic) for the cadence and pinning options. Threshold derivation is left to the consumer; suggestions are in the spec.
+The constituent list itself is also refreshed at runtime; see [Updating](../start/updating.md#updating-the-sp-500-list--automatic) for the cadence and pinning options. Threshold derivation is left to the consumer; suggestions are in the spec.
 
 S&P 500 only today: NDX, RUT, sector-specific, and single-stock breadth are not supported.

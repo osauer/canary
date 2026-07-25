@@ -18,7 +18,7 @@ Status: planned. This file is the brief for the page, not the page itself.
 **Draw from**
 
 - `README.md`, "Pick your path".
-- `docs/reference/mcp-tools.md` and `docs/reference/mcp-resources.md`.
+- `docs/docs/reference/mcp-tools.md` and `docs/docs/reference/mcp-resources.md`.
 - `ibkr setup claude-desktop` behaviour in `cmd/ibkr/setup.go`.
 
 **Boundaries to keep**

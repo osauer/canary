@@ -15,11 +15,11 @@ without daemon RPC.
 
 ## System Overview
 
-[![ibkr canary runtime architecture](diagrams/system-architecture.svg)](diagrams/system-architecture.svg)
+[![ibkr canary runtime architecture](../../diagrams/system-architecture.svg)](../../diagrams/system-architecture.svg)
 
-[PNG fallback](diagrams/system-architecture.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/system-architecture.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 The numbered columns are layers of one system, not six separate services:
 consumers, surface adapters, the shared typed contract, daemon authority and
@@ -61,7 +61,7 @@ refreshable in-memory views do not.
   post-trade reconciliation.
 - `internal/risk` is the pure evaluation library behind advisory verdicts:
   thresholds and fingerprints, canary signal types, option math, the daily
-  [trading rulebook](design/trading-rulebook.md), and risk-constitution
+  [trading rulebook](../../design/trading-rulebook.md), and risk-constitution
   evaluation. It does no I/O and owns no broker state.
 - `internal/rpc` defines the typed method names and request/response structs
   that daemon, CLI, app, and MCP adapters share. Add fields here first; teach
@@ -84,7 +84,7 @@ refreshable in-memory views do not.
   Global account, market, and sync state stays outside individual tab
   content.
 
-The desk-facing [Trading Policy](policies.md) reference explains who decides
+The desk-facing [Trading Policy](../understand/policy.md) reference explains who decides
 each control, what is advisory today, how runtime-local version checks behave,
 and which broker-write gates no policy may weaken.
 
@@ -149,18 +149,18 @@ and exclude issuer/symbol text, CIK, source URLs, and evidence prose.
 
 ## Data and Persistence
 
-[![ibkr canary state ownership and lifecycle](diagrams/data-and-persistence.svg)](diagrams/data-and-persistence.svg)
+[![ibkr canary state ownership and lifecycle](../../diagrams/data-and-persistence.svg)](../../diagrams/data-and-persistence.svg)
 
-[PNG fallback](diagrams/data-and-persistence.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/data-and-persistence.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 Configuration is operator-owned, and daemon state and app state are separate
 authorities. `daemon.db` is the daemon's sole live authority for mutable state,
 append-only events, orders, and retained market observations. Retained Flex XML
 remains original broker evidence; the daemon transactionally refreshes its
 typed statement inventory and equity projection in `daemon.db` from the
-complete XML set. See [Storage](database.md) for why the daemon uses SQLite,
+complete XML set. See [Storage](storage.md) for why the daemon uses SQLite,
 the physical data relationships, truth boundaries, supported query paths, and
 current recovery limits.
 
@@ -274,7 +274,7 @@ the daemon's closed presentation code to fixed app-owned copy, and records
 acceptance, retry, rejection, or uncertain interruption. Scope changes create
 only bounded generic previous context; they are not recovery, clear, unread,
 or delivery events. See
-[Alerts and Regime production contract](design/alert-regime-production.md).
+[Alerts and Regime production contract](../../design/alert-regime-production.md).
 
 ## Deployment Scopes and Multiple Instances
 
@@ -349,11 +349,11 @@ before persistence. Restart discards runtime entitlement, failure, and backoff
 state; only an exact identical-wire 15-second retry boundary survives so a
 bounce cannot duplicate the same broker request immediately.
 
-For operator and builder reference, use [Sensors](sensors.md) for measurement,
+For operator and builder reference, use [Sensors](../understand/sensors.md) for measurement,
 freshness, last-good, and dependency semantics; the
-[Trading Rulebook](design/trading-rulebook.md) for the compiled discipline
-model and its evidence contract; [Trading Policy](policies.md) for the human
-decision and system-control model; and [Storage](database.md) for state,
+[Trading Rulebook](../../design/trading-rulebook.md) for the compiled discipline
+model and its evidence contract; [Trading Policy](../understand/policy.md) for the human
+decision and system-control model; and [Storage](storage.md) for state,
 evidence, SQLite relationships, query boundaries, durability, and recovery.
 The public pages are generated to HTML from their Markdown sources by the same
 deterministic chain as this page.

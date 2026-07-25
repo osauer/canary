@@ -77,7 +77,7 @@ Releases that publish an MCP Bundle include both `ibkr-vX.Y.Z.mcpb` and the stab
 
 The MCPB container itself is not yet code-signed. Treat MCPB release integrity as signed-checksum and registry-hash based unless `mcpb verify ibkr-vX.Y.Z.mcpb` succeeds for a future release.
 
-`ibkr update` **refuses** any release missing the signature, and any release whose signature does not verify against the embedded key. There is no `--insecure` flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in [SECURITY.md → Release integrity](../../SECURITY.md#release-integrity-v100).
+`ibkr update` **refuses** any release missing the signature, and any release whose signature does not verify against the embedded key. There is no `--insecure` flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in [SECURITY.md → Release integrity](../../../SECURITY.md#release-integrity-v100).
 
 ### Headless / scripted use
 

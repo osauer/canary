@@ -19,11 +19,11 @@ tables, read and write paths, recovery mechanics, and current limits.
 
 ## Storage Layer in One View
 
-[![What the daemon storage layer owns and what remains outside it](diagrams/storage-overview.svg)](diagrams/storage-overview.svg)
+[![What the daemon storage layer owns and what remains outside it](../../diagrams/storage-overview.svg)](../../diagrams/storage-overview.svg)
 
-[PNG fallback](diagrams/storage-overview.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/storage-overview.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 Inputs with their own owners enter from the left. The daemon validates them,
 combines them with live observations, and commits the resulting state and
@@ -112,10 +112,10 @@ indexed read path or leave the schema when compatibility permits.
 
 ## Physical Data Model
 
-[![Physical entity relationships in daemon.db schema version 1](diagrams/sqlite-data-model.svg)](diagrams/sqlite-data-model.svg)
+[![Physical entity relationships in daemon.db schema version 1](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
 
-[PNG fallback](diagrams/sqlite-data-model.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
+[PNG fallback](../../diagrams/sqlite-data-model.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
 [Canonical DDL](https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go)
 
 The diagram shows schema version 1. Solid lines are declared SQLite foreign
@@ -226,7 +226,7 @@ publishes the result. A future schema refuses downgrade, and ambiguous recovery
 state stops startup.
 
 The full crash-boundary protocol lives in the
-[SQLite implementation contract](design/daemon-sqlite-authority.md). Schema
+[SQLite implementation contract](../../design/daemon-sqlite-authority.md). Schema
 version 1 remains the only production migration, so the general coordinator
 has yet to carry a released schema transition.
 
@@ -285,15 +285,15 @@ or a change stream from each authoritative daemon.
 ## Reference Map
 
 - [Architecture](architecture.md): process, broker, RPC, and state ownership.
-- [Sensors](sensors.md): measurement authority, source cadence, last-good
+- [Sensors](../understand/sensors.md): measurement authority, source cadence, last-good
   behavior, and safe operator checks.
-- [SQLite Implementation Contract](design/daemon-sqlite-authority.md): cutover,
+- [SQLite Implementation Contract](../../design/daemon-sqlite-authority.md): cutover,
   durability, upgrade, and recovery mechanics.
-- [Platform Settings](design/platform-settings.md): the typed daemon document for
+- [Platform Settings](../../design/platform-settings.md): the typed daemon document for
   live preferences.
 - `internal/daemon/corestore/schema.go`: canonical tables, indexes, constraints,
   triggers, and migration ledger.
 - `internal/daemon/corestore`: typed transactions, events, observations,
   statements, backup, validation, and upgrade code.
-- [Trading Policy](policies.md): human-authored limits and the applied state and
+- [Trading Policy](../understand/policy.md): human-authored limits and the applied state and
   events retained by the daemon.

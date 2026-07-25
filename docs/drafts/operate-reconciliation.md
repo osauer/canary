@@ -20,7 +20,7 @@ broker actually did, and wants the mismatch surfaced rather than smoothed over.
 
 - `docs/design/post-trade-truth.md`.
 - `internal/cli/recon.go`.
-- `docs/policies.md` for the capital-event vocabulary.
+- `docs/docs/understand/policy.md` for the capital-event vocabulary.
 
 **Boundaries to keep**
 

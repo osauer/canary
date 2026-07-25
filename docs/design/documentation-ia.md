@@ -37,12 +37,12 @@ the site. The three that had genuine public value moved into Under the hood.
 
 ## Decisions worth recording
 
-**Source layout and public URL are decoupled.** The manifest in
-`scripts/docgen/docs-html/main.go` names both. `docs/database.md` publishes to
-`/ibkr/docs/internals/storage.html`. This lets the repository keep a layout
-that suits maintainers while the site keeps one that suits readers, and it
-means a future reorganisation is a manifest edit rather than a file move that
-breaks every cross-reference in the repository.
+**Markdown sits beside the HTML it produces.** `docs/docs/internals/storage.md`
+publishes to `/ibkr/docs/internals/storage.html`, and the generator derives the
+second from the first. There is no mapping table to keep honest, a link that is
+correct in the source is already correct on the site, and the Markdown reads
+correctly on GitHub too. The manifest adds only what the file system cannot
+say: section, index copy, and retired URLs.
 
 **The site root is `docs/`, so `/ibkr/docs/` lands at `docs/docs/` on disk.**
 Mildly surprising in a diff, and worth it: a "Documentation" navigation entry
@@ -104,24 +104,25 @@ Fourteen pages, in the order they should be written. Each one has a brief in
 11. `operate/alerts`
 12. `operate/reconciliation`
 13. `understand/glossary` — once it exists, the local glossaries at the end of
-    `policies.md` and `database.md` can link to it instead.
+    `understand/policy.md` and `internals/storage.md` can link to it instead.
 14. `reference/releases`
 
 ## Page-level work, separate from structure
 
 Three pages are long enough to be worth splitting, and none of it is urgent.
-`sensors.md` runs 3,400 words across five sensor families and would read better
-as one page per family under Understand. `architecture.md` runs 3,600 words but
-is a reference-style read with a section index, so it can stay whole.
-`concepts.md` overlaps `sensors.md` in several places; once the glossary and the
-market-data pages exist, some of that overlap should collapse.
+`understand/sensors.md` runs 3,400 words across five sensor families and would
+read better as one page per family. `internals/architecture.md` runs 3,600 words
+but is a reference-style read with a section index, so it can stay whole.
+`understand/concepts.md` overlaps `sensors.md` in several places; once the
+glossary and market-data pages exist, some of that overlap should collapse.
 
 ## Adding a page
 
-1. Write the Markdown under `docs/`, in the directory that matches its subject.
+1. Write the Markdown at `docs/docs/<section>/<page>.md`. That path is the URL.
 2. Add or update the manifest entry in `scripts/docgen/docs-html/main.go`:
-   `Source`, `Output`, `Section`, `NavTitle`, `Summary`, `Description`, and
-   `Layout: "architecture"` if it is long enough to want a section index.
+   `Source`, `Section`, `NavTitle`, `Summary`, `Description`, and
+   `Layout: "architecture"` if it is long enough to want a section index. The
+   output path is derived from `Source`.
 3. `make docs-html-regen`.
 4. Add the URL to `docs/sitemap.xml` with an honest `lastmod`. The test will
    tell you if you forget.

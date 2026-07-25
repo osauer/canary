@@ -19,16 +19,16 @@ const (
 	// a timed-out 0DTE slice has landed as little as 34.6% and still cleared
 	// every absolute floor, because the other ratios divide by survivors.
 	// Below this bar the level is context only — never a confident number.
-	gammaContextFanoutPct = 70.0
-	gammaMinSPXOIObservedPct      = 95.0
-	gammaMinSPYOIObservedPct      = 50.0
-	gammaMinDefaultOIObservedPct  = 75.0
-	gammaMinOIPositivePct         = 5.0
-	gammaBlockOIPositivePct       = 1.0
-	gammaContextDerivedIVPct      = 40.0
-	gammaBlockDerivedIVPct        = 80.0
-	gammaContextConcentrationPct  = 50.0
-	gammaBlockConcentrationPct    = 90.0
+	gammaContextFanoutPct        = 70.0
+	gammaMinSPXOIObservedPct     = 95.0
+	gammaMinSPYOIObservedPct     = 50.0
+	gammaMinDefaultOIObservedPct = 75.0
+	gammaMinOIPositivePct        = 5.0
+	gammaBlockOIPositivePct      = 1.0
+	gammaContextDerivedIVPct     = 40.0
+	gammaBlockDerivedIVPct       = 80.0
+	gammaContextConcentrationPct = 50.0
+	gammaBlockConcentrationPct   = 90.0
 	// Skew-fit R² bars. Below the preferred bar the gate still passes
 	// with a disclosing reason — median R² is amplitude-relative and
 	// tracks intraday smile noise (2026-06-11: 0.60-0.68 all morning,

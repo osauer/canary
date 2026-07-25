@@ -1378,7 +1378,7 @@ equivalent leg (S² scaling). Combined `gamma_total_abs` sums the books,
 but zero-gamma levels stay per-index.
 
 **Treat the number as a regime hint, not a precise level.** Full
-methodology lives in `docs/specs/risk-regime-dashboard.md`.
+methodology lives in `docs/docs/internals/regime-dashboard.md`.
 
 ## regime
 
@@ -1542,7 +1542,7 @@ all eight indicator rows.
     "cluster_unranked_count": 1
   },
   "warning_details": [],
-  "spec_doc": "docs/specs/risk-regime-dashboard.md"
+  "spec_doc": "docs/docs/internals/regime-dashboard.md"
 }
 ```
 

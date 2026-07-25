@@ -2421,7 +2421,7 @@ func backfillBacktestRegimeSourceContract(r *rpc.RegimeSnapshotResult) {
 // sessions=1 — streak-gated indicators confirm only through their fast-path
 // depths (the crash-day escape hatch). Sequence-aware streak replay over
 // chronological panels is follow-up work on the decisions journal
-// (docs/specs/regime-backtest-plan.md).
+// (docs/docs/internals/regime-backtest.md).
 func backfillBacktestRegimeEligibility(r *rpc.RegimeSnapshotResult) {
 	set := func(meta *rpc.RegimeIndicatorMeta, indicator, status string, depth *float64) {
 		if meta.Band != "red" {

@@ -62,7 +62,7 @@ const (
 	streakObservationKind = "regime_streaks.snapshot.v1"
 	streakAuthorityScope  = "market/regime/streaks"
 	streakSource          = "daemon.regime_classifier"
-	streakStoreNotes      = "Per-indicator consecutive-sessions-in-band tally. The daemon classifies bands using the spec's default thresholds (see docs/specs/risk-regime-dashboard.md) — slightly violating the wire-shape posture that derived bands belong in the renderer, accepted because streak persistence requires a stable daemon-side classification. Breadth bands are simplified to value-only (<40=red, 40-55=yellow, >55=green) for streak purposes; the renderer can still apply the spec's 'SPX near highs' modifier for display colour."
+	streakStoreNotes      = "Per-indicator consecutive-sessions-in-band tally. The daemon classifies bands using the spec's default thresholds (see docs/docs/internals/regime-dashboard.md) — slightly violating the wire-shape posture that derived bands belong in the renderer, accepted because streak persistence requires a stable daemon-side classification. Breadth bands are simplified to value-only (<40=red, 40-55=yellow, >55=green) for streak purposes; the renderer can still apply the spec's 'SPX near highs' modifier for display colour."
 )
 
 // StreakStore persists the streak counters across daemon restarts.
@@ -471,7 +471,7 @@ const (
 )
 
 // classifyVIXTermBand maps a VIX/VIX3M ratio to its band per the spec's
-// default thresholds (docs/specs/risk-regime-dashboard.md §1). Empty
+// default thresholds (docs/docs/internals/regime-dashboard.md §1). Empty
 // string when the ratio is nil — caller passes that case through as
 // "freeze the counter".
 func classifyVIXTermBand(ratio *float64) string {

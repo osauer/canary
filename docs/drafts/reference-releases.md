@@ -21,7 +21,7 @@ which version they are on and whether it still gets fixes.
 - `SECURITY.md` and `CHANGELOG.md`.
 - `scripts/build-release-artifacts.sh` and `scripts/release-verify.sh` for what
   is actually produced and checked.
-- `docs/guides/updating.md`, which covers the update mechanics. This page covers
+- `docs/docs/start/updating.md`, which covers the update mechanics. This page covers
   trust and lifecycle instead, and links there.
 
 **Boundaries to keep**

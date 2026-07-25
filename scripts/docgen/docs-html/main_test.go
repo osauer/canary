@@ -61,7 +61,7 @@ func TestSitemapMatchesPublishedPages(t *testing.T) {
 		if page.planned() {
 			continue
 		}
-		want = append(want, publicBaseURL+strings.TrimPrefix(filepath.ToSlash(page.Output), "docs/"))
+		want = append(want, publicBaseURL+strings.TrimPrefix(filepath.ToSlash(page.output()), "docs/"))
 		for _, legacy := range page.Legacy {
 			forbidden = append(forbidden, publicBaseURL+strings.TrimPrefix(filepath.ToSlash(legacy), "docs/"))
 		}
@@ -78,25 +78,25 @@ func TestSitemapMatchesPublishedPages(t *testing.T) {
 	}
 }
 
-// Source layout and public URL are decoupled, so a relative link in Markdown is
-// resolved against the source directory and then re-expressed relative to the
-// output directory. Assets stay where they are while pages move, which is the
-// case most likely to break silently.
+// Markdown sits beside the HTML it produces, so a correct source link is
+// already a correct site link. Only the extension swap for another generated
+// page is real work; assets under docs/ pass through untouched and anything
+// else tracked in the repository becomes a GitHub blob link.
 func TestRewriteDestination(t *testing.T) {
 	renderer := newSiteRenderer(repoRoot(t), map[string]bool{
-		"SECURITY.md":                  true,
-		"docs/reference/config.md":     true,
-		"docs/guides/updating.md":      true,
-		"docs/diagrams/example.svg":    true,
-		"docs/design/internal-only.md": true,
+		"SECURITY.md":                   true,
+		"docs/docs/reference/config.md": true,
+		"docs/docs/start/updating.md":   true,
+		"docs/diagrams/example.svg":     true,
+		"docs/design/internal-only.md":  true,
 	})
-	page := pageSpec{Source: "docs/guides/updating.md", Output: "docs/docs/start/updating.html"}
+	page := pageSpec{Source: "docs/docs/start/updating.md"}
 	cases := map[string]string{
 		"../reference/config.md?view=full#limits": "../reference/config.html?view=full#limits",
-		"../../SECURITY.md#release-integrity":     "https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity",
-		"../design/internal-only.md#details":      "https://github.com/osauer/ibkr/blob/main/docs/design/internal-only.md#details",
-		"../diagrams/example.svg":                 "../../diagrams/example.svg",
-		"../../LOCAL.md":                          "../../LOCAL.md",
+		"../../../SECURITY.md#release-integrity":  "https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity",
+		"../../design/internal-only.md#details":   "https://github.com/osauer/ibkr/blob/main/docs/design/internal-only.md#details",
+		"../../diagrams/example.svg":              "../../diagrams/example.svg",
+		"../../../LOCAL.md":                       "../../../LOCAL.md",
 		"#reference":                              "#reference",
 		"https://example.com/a.md#x":              "https://example.com/a.md#x",
 	}
@@ -117,7 +117,7 @@ func TestRenderIsDeterministicAndGeneratorOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	renderer := newSiteRenderer(root, tracked)
-	page := pageForSource(t, "docs/concepts.md")
+	page := pageForSource(t, "docs/docs/understand/concepts.md")
 	first, err := renderer.render(page)
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestConfigRuntimeSettingsRowsMatchRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := newSiteRenderer(root, tracked).render(pageForSource(t, "docs/reference/config.md"))
+	rendered, err := newSiteRenderer(root, tracked).render(pageForSource(t, "docs/docs/reference/config.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

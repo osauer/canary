@@ -27,7 +27,7 @@ func runPolicyDefault(_ context.Context, env *Env, args []string) int {
 	fmt.Fprintf(env.Stdout, "# Embedded default %s policy (what the daemon runs when no file exists).\n", name)
 	fmt.Fprintf(env.Stdout, "# To customize: save to ~/.config/ibkr/policies/%s-policy.toml, edit, and\n", name)
 	fmt.Fprintln(env.Stdout, "# bump policy_version on every edit — an edited file at an unchanged")
-	fmt.Fprintln(env.Stdout, "# version reports drift and is not adopted. Key reference: docs/reference/config.md.")
+	fmt.Fprintln(env.Stdout, "# version reports drift and is not adopted. Key reference: docs/docs/reference/config.md.")
 	env.Stdout.Write(raw)
 	return 0
 }

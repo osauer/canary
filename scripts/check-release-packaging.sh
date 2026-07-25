@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 ./scripts/build-release-target_test.sh
 ./scripts/release-paper-smoke_test.sh
 
-for path in SECURITY.md docs/guides/trading-preview.md; do
+for path in SECURITY.md docs/docs/operate/orders.md; do
 	grep -Fq "blob/__VERSION__/$path" .github/release-notes-template.md || {
 		echo "check-release-packaging: release notes do not pin $path to the release tag" >&2
 		exit 1

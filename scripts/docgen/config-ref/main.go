@@ -1,4 +1,4 @@
-// Command config-ref emits docs/reference/config.md from two kinds of
+// Command config-ref emits docs/docs/reference/config.md from two kinds of
 // sources:
 //
 //   - Struct tables (structSources): AST-parse a Go file's root struct
@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	defaultOutput = "docs/reference/config.md"
+	defaultOutput = "docs/docs/reference/config.md"
 	envPrefix     = "// docgen:env "
 )
 

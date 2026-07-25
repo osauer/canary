@@ -484,7 +484,7 @@ func TestSPXMembersAutoRefreshFromEnv(t *testing.T) {
 
 // TestLoad_ShippedTemplatesLoad gates template drift: every example config
 // template in examples/ must pass the strict loader, because the documented
-// activation path (docs/guides/trading-preview.md) is "rename it to
+// activation path (docs/docs/operate/orders.md) is "rename it to
 // config.toml" — a template with an unknown key kills the daemon and every
 // CLI command on first use.
 func TestLoad_ShippedTemplatesLoad(t *testing.T) {

@@ -21,7 +21,7 @@ dist_dir="${4:?dist dir required}"
 os="${target%-*}"
 arch="${target#*-}"
 
-for source_path in LICENSE README.md SECURITY.md docs/guides/trading-preview.md; do
+for source_path in LICENSE README.md SECURITY.md docs/docs/operate/orders.md; do
 	if [ ! -f "$source_path" ]; then
 		echo "release source is missing required file: $source_path" >&2
 		exit 1
@@ -53,8 +53,8 @@ in. Start with the bundled [README safety section](README.md#safety), then
 read the release-pinned security and trading-preview documents below before
 enabling trading.
 WARN
-		printf '\n- [Security policy](https://github.com/osauer/ibkr/blob/%s/SECURITY.md)\n- [Trading preview and execution guide](https://github.com/osauer/ibkr/blob/%s/docs/guides/trading-preview.md)\n' "$version" "$version" >> "$stage/TRADING-WARNING.md"
-		for required in "README.md#safety" "blob/$version/SECURITY.md" "blob/$version/docs/guides/trading-preview.md"; do
+		printf '\n- [Security policy](https://github.com/osauer/ibkr/blob/%s/SECURITY.md)\n- [Trading preview and execution guide](https://github.com/osauer/ibkr/blob/%s/docs/docs/operate/orders.md)\n' "$version" "$version" >> "$stage/TRADING-WARNING.md"
+		for required in "README.md#safety" "blob/$version/SECURITY.md" "blob/$version/docs/docs/operate/orders.md"; do
 			if ! grep -F "$required" "$stage/TRADING-WARNING.md" >/dev/null; then
 				echo "trading warning missing release-safe reference: $required" >&2
 				exit 1

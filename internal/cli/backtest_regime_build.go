@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	regimeBuilderSpecDoc = "docs/specs/risk-regime-dashboard.md"
+	regimeBuilderSpecDoc = "docs/docs/internals/regime-dashboard.md"
 	regimeBuilderSource  = "point-in-time panel"
 )
 

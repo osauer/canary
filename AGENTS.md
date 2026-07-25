@@ -2,7 +2,7 @@
 
 ## Start with authority
 
-Read `docs/architecture.md` in a fresh session. Read
+Read `docs/docs/internals/architecture.md` in a fresh session. Read
 `docs/design/platform-settings.md` before changing settings, config, or state.
 For broader risk-harness work, use
 `docs/guides/trading-harness-development.md`.

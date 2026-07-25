@@ -11,4 +11,4 @@ Adding or changing an entry in `internal/mcp/tools.go`: every `Description` stri
 - **Tells the model when NOT to invoke** — name the overlapping tool a confused LLM might pick instead (e.g. `ibkr_quote` calls out "NOT for options — use `ibkr_chain`").
 - **Parameter descriptions explain semantics, not just type** — case-sensitivity, defaults, what good values look like.
 
-After changes run `make docs-regen` to update `docs/reference/mcp-tools.md`; `make check` enforces no drift via `docs-check`.
+After changes run `make docs-regen` to update `docs/docs/reference/mcp-tools.md`; `make check` enforces no drift via `docs-check`.

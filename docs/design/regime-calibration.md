@@ -4,7 +4,7 @@
 **Created:** 2026-06-12 13:09 CEST
 **Last update:** 2026-07-21
 **Owner:** osauer
-**Related:** `docs/specs/risk-regime-dashboard.md`, `docs/specs/regime-backtest-plan.md`,
+**Related:** `docs/docs/internals/regime-dashboard.md`, `docs/docs/internals/regime-backtest.md`,
 `internal/rpc/lifecycle.go`, `internal/daemon/regime*.go`, `internal/cli/canary.go`,
 `internal/cli/backtest.go`, `docs/design/platform-settings.md`,
 `docs/templates/daemon-cli-trading-contract.md`, `docs/templates/spa-authority-matrix.md`
@@ -496,7 +496,7 @@ Fingerprints feed alert dedupe, so new fields need an explicit stance:
   calibration corpora, deduped by semantic fingerprint with an hourly
   heartbeat.
 - `ibkr regime --log <path>`: manual, opt-in JSONL of full snapshots.
-- `docs/specs/regime-backtest-plan.md`: PIT-panel methodology, with gamma and
+- `docs/docs/internals/regime-backtest.md`: PIT-panel methodology, with gamma and
   breadth explicitly *unavailable* in its historical tiers.
 
 The 2026-06-12 incident still cannot be reconstructed completely from data
@@ -628,10 +628,10 @@ red rows. Then `make docs-regen`; `make check` enforces no drift.
 
 ### Spec prose, notes, and doc gates
 
-- `docs/specs/risk-regime-dashboard.md`: new "Confirmation eligibility and
+- `docs/docs/internals/regime-dashboard.md`: new "Confirmation eligibility and
   severity governance" section; per-indicator tables gain
   depth/streak/freshness columns; promotion criteria section.
-- `docs/specs/regime-backtest-plan.md`: decision-event corpus becomes the
+- `docs/docs/internals/regime-backtest.md`: decision-event corpus becomes the
   forward-collection corpus; promotion criteria cross-referenced.
 - Both specs have generated `.html` derivatives → run
   `make docs-html-regen` after editing their Markdown sources.

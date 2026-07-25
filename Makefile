@@ -463,8 +463,8 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 	fail=0; \
 	for gen in config-ref mcp-tools; do \
 		case $$gen in \
-			config-ref) ref=docs/reference/config.md ;; \
-			mcp-tools) ref=docs/reference/mcp-tools.md ;; \
+			config-ref) ref=docs/docs/reference/config.md ;; \
+			mcp-tools) ref=docs/docs/reference/mcp-tools.md ;; \
 		esac; \
 		go run ./scripts/docgen/$$gen -o "$$tmp/$$gen.md" || exit 1; \
 		if ! diff -u "$$ref" "$$tmp/$$gen.md" > /dev/null 2>&1; then \

@@ -20,11 +20,11 @@ This page explains five related sensor families:
 
 ## From Measurement to Downstream Use
 
-[![How observed sources become daemon-owned sensors, dependent decisions, and downstream alerts](diagrams/sensor-authority-pipeline.svg)](diagrams/sensor-authority-pipeline.svg)
+[![How observed sources become daemon-owned sensors, dependent decisions, and downstream alerts](../../diagrams/sensor-authority-pipeline.svg)](../../diagrams/sensor-authority-pipeline.svg)
 
-[PNG fallback](diagrams/sensor-authority-pipeline.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/sensor-authority-pipeline.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 Sources enter through one daemon-owned path. Gamma is an input to Regime;
 Regime and market events are inputs to Canary and Rulebook. Alerts may consume
@@ -38,11 +38,11 @@ Regime stage rather than rebuilding one from market rows.
 
 ## Read the State Before the Number
 
-[![Freshness timeline from proactive refresh through expiry, not-due carry, and a fail-closed gap](diagrams/sensor-freshness-timeline.svg)](diagrams/sensor-freshness-timeline.svg)
+[![Freshness timeline from proactive refresh through expiry, not-due carry, and a fail-closed gap](../../diagrams/sensor-freshness-timeline.svg)](../../diagrams/sensor-freshness-timeline.svg)
 
-[PNG fallback](diagrams/sensor-freshness-timeline.png) ·
-[SVG source generator](diagrams/render-architecture.mjs) ·
-[Tabler Icons license](diagrams/ICON-LICENSE.txt)
+[PNG fallback](../../diagrams/sensor-freshness-timeline.png) ·
+[SVG source generator](../../diagrams/render-architecture.mjs) ·
+[Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 Freshness is part of the measurement. The daemon refreshes before a result's
 hard expiry where the source permits it. A successful refresh atomically
@@ -300,7 +300,7 @@ inputs are account and positions evidence, per-name earnings evidence, the
 classified Regime stage, and current SPY tape where a rule needs it. The pure
 evaluator returns all 14 rows in stable order plus a hardest-first ranking,
 breach counts, offenders, observed values, thresholds, and evidence.
-The detailed [Trading Rulebook](design/trading-rulebook.md) is the semantic
+The detailed [Trading Rulebook](../../design/trading-rulebook.md) is the semantic
 authority; compiled v2 is an advisory model, not proof that every threshold has
 operator approval.
 
@@ -401,15 +401,15 @@ an order.
 
 ## Reference Map
 
-- [Architecture](architecture.md): process, source, RPC, and runtime ownership.
-- [Trading Policy](policies.md): who chooses limits and what remains advisory.
-- [Trading Rulebook](design/trading-rulebook.md): canonical rule, input-health,
+- [Architecture](../internals/architecture.md): process, source, RPC, and runtime ownership.
+- [Trading Policy](policy.md): who chooses limits and what remains advisory.
+- [Trading Rulebook](../../design/trading-rulebook.md): canonical rule, input-health,
   preview, alert, and authority semantics.
-- [Storage](database.md): last-good documents, observations, evidence, and
+- [Storage](../internals/storage.md): last-good documents, observations, evidence, and
   recovery boundaries.
 - [Concepts](concepts.md): deeper interpretation of calendars, Gamma, Regime,
   Canary, market events, and breadth.
-- [Regime and Canary Backtest Plan](specs/regime-backtest-plan.md): evidence
+- [Regime and Canary Backtest Plan](../internals/regime-backtest.md): evidence
   required to replace pending heuristics with calibrated policy.
-- [Risk-Regime Dashboard Specification](specs/risk-regime-dashboard.md): row
+- [Risk-Regime Dashboard Specification](../internals/regime-dashboard.md): row
   methodology and model detail.

@@ -738,7 +738,7 @@ func (s *Server) installEarningsTerminalStore() {
 // When the store is attached, any persisted result from today's NY
 // session is loaded and installed as `current`, so the first caller
 // after restart skips the compute. See
-// docs/design/gamma-zero-cache-persistence.md for the cost/benefit
+// docs/docs/internals/gamma-cache.md for the cost/benefit
 // rationale (cold combined runs can cross the 5-min threshold).
 func (s *Server) installGammaZeroCache() {
 	dir, err := gammaZeroStoreDefaultDir()

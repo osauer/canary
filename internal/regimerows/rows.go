@@ -8,7 +8,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// Spec thresholds, baked from docs/specs/risk-regime-dashboard.md. The
+// Spec thresholds, baked from docs/docs/internals/regime-dashboard.md. The
 // daemon stays threshold-free (the spec calls these user-tunable) — the
 // renderer is the right home for defaults. When a real user asks for
 // tuning, lift these to env vars or a config file; until then, YAGNI.

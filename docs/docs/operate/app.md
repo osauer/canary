@@ -205,4 +205,4 @@ The Go test gate also includes static compatibility tests for browser globals in
 under `go test ./...`.
 
 For the full SPA development and debugging playbook, including P/L semantics and
-Browser plugin caveats, see [Canary SPA Development](canary-spa-dev.md).
+Browser plugin caveats, see [Canary SPA Development](../../guides/canary-spa-dev.md).

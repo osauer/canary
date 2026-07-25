@@ -1183,10 +1183,10 @@ func TestRulebookDesignDocDiscoverable(t *testing.T) {
 	t.Parallel()
 
 	for path, link := range map[string]string{
-		"../../README.md":            "(docs/design/trading-rulebook.md)",
-		"../../docs/architecture.md": "(design/trading-rulebook.md)",
-		"../../docs/index.html":      `href="sensors.html#rulebook"`,
-		"../../docs/sensors.md":      "(design/trading-rulebook.md)",
+		"../../README.md": "(docs/design/trading-rulebook.md)",
+		"../../docs/docs/internals/architecture.md": "(../../design/trading-rulebook.md)",
+		"../../docs/index.html":                     `href="docs/understand/sensors.html#rulebook"`,
+		"../../docs/docs/understand/sensors.md":     "(../../design/trading-rulebook.md)",
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil {

@@ -6,7 +6,7 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/ibkr/v2.svg)](https://pkg.go.dev/github.com/osauer/ibkr/v2)
 [![license](https://img.shields.io/github/license/osauer/ibkr)](LICENSE)
 
-**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/reference/mcp-tools.md) · [MCP resources](docs/reference/mcp-resources.md) · [Configuration](docs/reference/config.md) · [Sensors](docs/sensors.md) · [Rulebook](docs/design/trading-rulebook.md) · [Trading policy](docs/policies.md) · [Storage](docs/database.md) · [Architecture](docs/architecture.md) · [Platform settings](docs/design/platform-settings.md) · [Agentic use](docs/guides/agentic-use.md) · [Mobile app](web/app/README.md)
+**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [MCP resources](docs/docs/reference/mcp-resources.md) · [Configuration](docs/docs/reference/config.md) · [Sensors](docs/docs/understand/sensors.md) · [Rulebook](docs/design/trading-rulebook.md) · [Trading policy](docs/docs/understand/policy.md) · [Storage](docs/docs/internals/storage.md) · [Architecture](docs/docs/internals/architecture.md) · [Platform settings](docs/design/platform-settings.md) · [Agentic use](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
 
 **Agentic portfolio analysis and trading-research workflows for IBKR MCP, TWS, and IB Gateway.**
 
@@ -96,7 +96,7 @@ For v1.0.0+ releases, the installer, `ibkr update`, and the MCPB release asset a
 
 Every data command supports `--json`. `ibkr restart --json` is also useful for scripts: it reports whether a daemon was already running, old/new PIDs, whether `--force` was used, the post-start `status.health` snapshot, and any app process it refreshed. Lifecycle commands such as `setup`, `update`, `restart`, `mcp`, and `daemon` are for local operation and transport setup.
 
-For schemas and edge cases, see the [agent skill schema notes](skills/ibkr/schemas.md), [MCP tools reference](docs/reference/mcp-tools.md), [MCP resources reference](docs/reference/mcp-resources.md), [configuration reference](docs/reference/config.md), and [concept docs](docs/concepts.md).
+For schemas and edge cases, see the [agent skill schema notes](skills/ibkr/schemas.md), [MCP tools reference](docs/docs/reference/mcp-tools.md), [MCP resources reference](docs/docs/reference/mcp-resources.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
 
 For ready-to-run prompts, see [examples/ibkr_portfolio_analysis_prompt.md](examples/ibkr_portfolio_analysis_prompt.md) for portfolio review and [examples/ibkr_portfolio_canary_prompt.md](examples/ibkr_portfolio_canary_prompt.md) for scheduled stress checks.
 
@@ -110,7 +110,7 @@ The server also exposes quotes for stocks and ETFs as an MCP resource:
 
 - `ibkr://quote/{symbol}`
 
-`resources/read` returns one snapshot for that URI; `resources/subscribe` delivers coalesced ticks via `notifications/resources/updated` until you `resources/unsubscribe` or close the stdio. The resource shape is documented in [docs/reference/mcp-resources.md](docs/reference/mcp-resources.md).
+`resources/read` returns one snapshot for that URI; `resources/subscribe` delivers coalesced ticks via `notifications/resources/updated` until you `resources/unsubscribe` or close the stdio. The resource shape is documented in [docs/docs/reference/mcp-resources.md](docs/docs/reference/mcp-resources.md).
 
 For Claude Desktop, the recommended install path is the `.mcpb` asset from the latest release. For other clients, paste this into the client's MCP config (path varies):
 
@@ -229,7 +229,7 @@ Use `ibkr restart` after upgrading, changing daemon-loaded config, or when you w
 
 This means your shell, Claude Desktop, Claude Code, Cursor, and other MCP clients can share one IBKR connection and one client ID. Tool calls stay fast because the gateway session is already open.
 
-`pkg/ibkr` is a clean-room Go implementation of the TWS protocol. Unrestricted order methods are disabled in default builds; the separate trading build and the narrow all-build paper-order wrappers have distinct gates described in [docs/reference/protocol.md](docs/reference/protocol.md). Public package documentation lives in [pkg/ibkr/doc.go](pkg/ibkr/doc.go).
+`pkg/ibkr` is a clean-room Go implementation of the TWS protocol. Unrestricted order methods are disabled in default builds; the separate trading build and the narrow all-build paper-order wrappers have distinct gates described in [docs/docs/internals/protocol.md](docs/docs/internals/protocol.md). Public package documentation lives in [pkg/ibkr/doc.go](pkg/ibkr/doc.go).
 
 ## Configure
 
@@ -242,26 +242,26 @@ For normal read-only use, no config file is required. The daemon TCP-probes `400
 port = 7496
 ```
 
-Every section and key — `[gateway]`, `[daemon]`, `[trading]`, `[rulebook]`, `[auto_trade]`, `[opportunities]`, `[spx]`, `[scans.<name>]` — is enumerated with types, defaults, and semantics in the generated [configuration reference](docs/reference/config.md), alongside every `IBKR_*` environment variable. `ibkr status` shows what the daemon ended up using and where each value came from (`pinned` or `discovered`).
+Every section and key — `[gateway]`, `[daemon]`, `[trading]`, `[rulebook]`, `[auto_trade]`, `[opportunities]`, `[spx]`, `[scans.<name>]` — is enumerated with types, defaults, and semantics in the generated [configuration reference](docs/docs/reference/config.md), alongside every `IBKR_*` environment variable. `ibkr status` shows what the daemon ended up using and where each value came from (`pinned` or `discovered`).
 
-**Runtime platform preferences** are daemon-owned, live in `$XDG_STATE_HOME/ibkr/daemon.db`, and change without a restart. Feature toggles and rulebook earnings overrides are available through `ibkr settings set`, the SPA Settings tab, or `PATCH /api/settings`; the `trading.freeze` brake and experimental trading-limit overrides require `ibkr settings set` from an interactive human terminal. The writable keys are listed in the [configuration reference](docs/reference/config.md); ownership and semantics live in the [platform-settings design](docs/design/platform-settings.md).
+**Runtime platform preferences** are daemon-owned, live in `$XDG_STATE_HOME/ibkr/daemon.db`, and change without a restart. Feature toggles and rulebook earnings overrides are available through `ibkr settings set`, the SPA Settings tab, or `PATCH /api/settings`; the `trading.freeze` brake and experimental trading-limit overrides require `ibkr settings set` from an interactive human terminal. The writable keys are listed in the [configuration reference](docs/docs/reference/config.md); ownership and semantics live in the [platform-settings design](docs/design/platform-settings.md).
 
-**Trading policies** turn the desk's risk decisions into repeatable checks. The personal risk constitution at `~/.config/ibkr/policies/risk-policy.toml` has no embedded default: missing material decisions remain `unapproved`. Protection proposals (`protection-policy.toml`) and option-exercise opportunities (`opportunity-policy.toml`) do have conservative embedded defaults, printable with `ibkr policy default <protection|opportunity>`. The [trading-policy reference](docs/policies.md) explains who decides, what is advisory today, how controls change, and why local policy records are not broker execution evidence; every editable engine key remains enumerated in the generated [configuration reference](docs/reference/config.md).
+**Trading policies** turn the desk's risk decisions into repeatable checks. The personal risk constitution at `~/.config/ibkr/policies/risk-policy.toml` has no embedded default: missing material decisions remain `unapproved`. Protection proposals (`protection-policy.toml`) and option-exercise opportunities (`opportunity-policy.toml`) do have conservative embedded defaults, printable with `ibkr policy default <protection|opportunity>`. The [trading-policy reference](docs/docs/understand/policy.md) explains who decides, what is advisory today, how controls change, and why local policy records are not broker execution evidence; every editable engine key remains enumerated in the generated [configuration reference](docs/docs/reference/config.md).
 
 **Trading config is opt-in and experimental.** Stable `ibkr` releases are read-only. Trading builds, when built or published separately, are experimental and provided as-is for explicit operator testing. Keep trading config inactive as `~/.config/ibkr/config.toml.trading`; it has no effect with that suffix. To activate it, a human or explicitly instructed local agent removes the `.trading` suffix so the file becomes `~/.config/ibkr/config.toml`, verifies the pinned account and endpoint, then runs `ibkr restart`. The example template lives at [examples/config.toml.trading](examples/config.toml.trading).
 
 References:
 
-- [Configuration reference](docs/reference/config.md) for TOML sections and `IBKR_*` environment variables.
-- [Trading policy](docs/policies.md) for who decides risk boundaries, how ibkr evaluates them, what is advisory today, and which actions still require a human.
+- [Configuration reference](docs/docs/reference/config.md) for TOML sections and `IBKR_*` environment variables.
+- [Trading policy](docs/docs/understand/policy.md) for who decides risk boundaries, how ibkr evaluates them, what is advisory today, and which actions still require a human.
 - [Trading Rulebook](docs/design/trading-rulebook.md) for the compiled advisory
   discipline model, its evidence contract, ownership, freshness, and limits.
-- [Storage](docs/database.md) for how the daemon preserves state and evidence with SQLite, including data relationships, query boundaries, durability, recovery, and current limits.
-- [Sensors](docs/sensors.md) for Gamma, Regime, Canary, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.
-- [Experimental trading config](docs/guides/trading-preview.md) for the inactive `config.toml.trading` pattern and release-channel expectations.
-- [Concepts](docs/concepts.md) for breadth, gamma, and regime interpretation.
-- [Agentic use](docs/guides/agentic-use.md) for Claude and MCP workflows.
-- [Marketplace readiness](docs/guides/marketplace-readiness.md) for packaging notes.
+- [Storage](docs/docs/internals/storage.md) for how the daemon preserves state and evidence with SQLite, including data relationships, query boundaries, durability, recovery, and current limits.
+- [Sensors](docs/docs/understand/sensors.md) for Gamma, Regime, Canary, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.
+- [Experimental trading config](docs/docs/operate/orders.md) for the inactive `config.toml.trading` pattern and release-channel expectations.
+- [Concepts](docs/docs/understand/concepts.md) for breadth, gamma, and regime interpretation.
+- [Agentic use](docs/docs/operate/agents.md) for Claude and MCP workflows.
+- [Marketplace readiness](docs/docs/internals/packaging.md) for packaging notes.
 - [Privacy](PRIVACY.md) for data locality and local files.
 
 ### Adding scanners
@@ -316,7 +316,7 @@ Stable releases keep broker-write RPC handlers unavailable. Preview-only CLI, JS
 - **Inspect the installer first**: `curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh -o install.sh && less install.sh && sh install.sh`.
 - **Manual download**: pick a tarball from the latest [release](https://github.com/osauer/ibkr/releases/latest). Each contains `ibkr` plus `LICENSE` and `README.md`. Verify `SHA256SUMS.asc` against the release-signing key, then verify the tarball against `SHA256SUMS`; see [SECURITY.md](SECURITY.md#release-integrity-v100).
 - **Local build**: `git clone … && make install`.
-- **Self-update**: `ibkr update` fetches the next stable release, verifies the PGP signature on `SHA256SUMS`, SHA-verifies the tarball, and atomically replaces `~/.local/bin/ibkr` (prior binary stashed as `.bak` for one-step rollback). See [docs/guides/updating.md](docs/guides/updating.md) for headless flag matrix, daemon-restart semantics, `ibkr restart`, and how the runtime S&P-500 constituent refresh works.
+- **Self-update**: `ibkr update` fetches the next stable release, verifies the PGP signature on `SHA256SUMS`, SHA-verifies the tarball, and atomically replaces `~/.local/bin/ibkr` (prior binary stashed as `.bak` for one-step rollback). See [docs/docs/start/updating.md](docs/docs/start/updating.md) for headless flag matrix, daemon-restart semantics, `ibkr restart`, and how the runtime S&P-500 constituent refresh works.
 
 Windows is not supported — the daemon uses Unix-only primitives (setsid, flock, AF_UNIX sockets). WSL works.
 

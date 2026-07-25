@@ -1,4 +1,4 @@
-// Command mcp-tools emits docs/reference/mcp-tools.md from the
+// Command mcp-tools emits docs/docs/reference/mcp-tools.md from the
 // canonical tool registry at internal/mcp.Tools. Source of truth is
 // the Go code; this script is the bridge that surfaces it as a
 // human-readable reference.
@@ -20,7 +20,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/mcp"
 )
 
-const defaultOutput = "docs/reference/mcp-tools.md"
+const defaultOutput = "docs/docs/reference/mcp-tools.md"
 
 // schema is the shape of mcp.Tool.JSONSchema we care about. The
 // full JSON Schema spec has more, but tools currently use just the

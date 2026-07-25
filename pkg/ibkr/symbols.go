@@ -149,7 +149,7 @@ func classifySymbol(symbol string) (string, string, string, string) {
 	// redistribute. The breadth.spx endpoint therefore needs either a
 	// constituent-fan-out fallback (compute from 500 daily bars) or
 	// the dashboard treats Indicator 5 as manual-entry. See
-	// docs/specs/risk-regime-dashboard.md for the disposition.
+	// docs/docs/internals/regime-dashboard.md for the disposition.
 
 	// Common ETFs
 	case "SPY", "QQQ", "IWM", "DIA", "GLD", "TLT", "HYG",
