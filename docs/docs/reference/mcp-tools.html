@@ -34,11 +34,11 @@
             <details class="sidenav-group">
               <summary class="sidenav-heading">Start</summary>
               <ul>
-                <li><span class="sidenav-planned">Install and first run</span></li>
-                <li><span class="sidenav-planned">Connect an MCP host</span></li>
-                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/install.html">Install and first run</a></li>
+                <li><a href="../start/hosts.html">Connect an MCP host</a></li>
+                <li><a href="../start/first-session.html">Your first session</a></li>
                 <li><a href="../start/updating.html">Updating</a></li>
-                <li><span class="sidenav-planned">Troubleshooting</span></li>
+                <li><a href="../start/troubleshooting.html">Troubleshooting</a></li>
               </ul>
             </details>
           </li>
@@ -66,7 +66,7 @@
                 <li><span class="sidenav-planned">The rulebook</span></li>
                 <li><span class="sidenav-planned">Writing a risk policy</span></li>
                 <li><span class="sidenav-planned">Market data and entitlements</span></li>
-                <li><span class="sidenav-planned">Glossary</span></li>
+                <li><a href="../understand/glossary.html">Glossary</a></li>
               </ul>
             </details>
           </li>
@@ -78,7 +78,7 @@
                 <li><a href="mcp-tools.html" class="is-current" aria-current="page">MCP tools</a></li>
                 <li><a href="mcp-resources.html">MCP resources</a></li>
                 <li><a href="config.html">Configuration</a></li>
-                <li><span class="sidenav-planned">Releases and support</span></li>
+                <li><a href="releases.html">Releases and support</a></li>
               </ul>
             </details>
           </li>
@@ -98,7 +98,6 @@
             </details>
           </li>
         </ul>
-        <p class="sidenav-note">Dimmed entries are not written yet.</p>
       </nav>
     </details>
     <main class="doc">
@@ -805,7 +804,7 @@
 </table>
 </div>
 <h2 id="ibkr-breadth"><code>ibkr_breadth</code></h2>
-<p>S&amp;P 500 market-breadth readings for the risk-regime dashboard. Use for questions about the <em>market's internals</em> — &quot;how many S&amp;P names are above their 50-DMA?&quot;, &quot;is this a narrow rally?&quot;, &quot;what's the new-high/new-low spread?&quot;. S&amp;P 500 constituents only — NDX, RUT, sector-specific, or single-stock breadth are NOT supported. Returns three readings every call: <code>pct_above_50dma</code> (the percentage of S&amp;P 500 constituents trading above their 50-day SMA — the tactical signal), <code>pct_above_200dma</code> (the slower companion that catches cyclical tops cleanly), and <code>new_highs_today</code>/<code>new_lows_today</code> (constituent counts of names making fresh 52-week highs/lows), plus the derived <code>net_new_highs_pct</code>. The classic narrow-rally pattern — SPX near highs with <code>net_new_highs_pct</code> near zero or negative — fires when a few mega-caps carry the index while the median name is rolling over. IBKR does not redistribute S&amp;P DJI's S5FI or the equivalent breadth indices on retail subscriptions, so the daemon computes all three locally from the 500 constituent daily closes pulled via IBKR's historical-bar feed (method: <code>constituent-fanout-50/200dma+nh-v2</code>). A once-daily refresh post-close (16:35 ET) slides each name's 200-bar window forward and updates a 252-bar rolling max/min; readers see a cached snapshot. <strong>Cold start (no cache yet) takes ~60 min</strong> — IBKR's historical-data pacing limit caps the fan-out at ~6 names/min sustained, so the response carries <code>state: &quot;computing&quot;</code> until the cache is built. Pulling 200 bars per constituent instead of 50 doesn't cost more requests; the pacing limit is per-request, not per-bar, so the cold-start budget is unchanged. After cold-start the cache persists across daemon restarts and every subsequent call is instant. Threshold derivation (green/yellow/red) is intentionally left to the consumer; the spec calls those bands user-tunable. Suggested bands: 50-DMA — <code>&gt;55</code> green / <code>40-55</code> yellow / <code>&lt;40</code> with SPX at highs red. 200-DMA — <code>&gt;60</code> green / <code>40-60</code> yellow / <code>&lt;40</code> red (calibrated to the post-Mag-7 era; StockCharts' 70/30 default fires red far too often).</p>
+<p>S&amp;P 500 market-breadth readings for the risk-regime dashboard. Use for questions about the <em>market's internals</em> — &quot;how many S&amp;P names are above their 50-DMA?&quot;, &quot;is this a narrow rally?&quot;, &quot;what's the new-high/new-low spread?&quot;. S&amp;P 500 constituents only — NDX, RUT, sector-specific, or single-stock breadth are NOT supported. Returns three readings every call: <code>pct_above_50dma</code> (the percentage of S&amp;P 500 constituents trading above their 50-day SMA — the tactical signal), <code>pct_above_200dma</code> (the slower companion that catches cyclical tops cleanly), and <code>new_highs_today</code>/<code>new_lows_today</code> (constituent counts of names making fresh 52-week highs/lows), plus the derived <code>net_new_highs_pct</code>. The classic narrow-rally pattern — SPX near highs with <code>net_new_highs_pct</code> near zero or negative — fires when a few mega-caps carry the index while the median name is rolling over. IBKR does not redistribute S&amp;P DJI's S5FI or the equivalent breadth indices on retail subscriptions, so the daemon computes all three locally from the 500 constituent daily closes pulled via IBKR's historical-bar feed (method: <code>constituent-fanout-50/200dma+nh-v2</code>). A once-daily refresh post-close (16:35 ET) slides each name's 200-bar window forward and updates a 252-bar rolling max/min; readers see a cached snapshot. <strong>Cold start (no cache yet) takes ~74 min</strong> — IBKR's historical-data pacing limit caps the fan-out at ~6 names/min sustained, so the response carries <code>state: &quot;computing&quot;</code> until the cache is built. Pulling 200 bars per constituent instead of 50 doesn't cost more requests; the pacing limit is per-request, not per-bar, so the cold-start budget is unchanged. After cold-start the cache persists across daemon restarts and every subsequent call is instant. Threshold derivation (green/yellow/red) is intentionally left to the consumer; the spec calls those bands user-tunable. Suggested bands: 50-DMA — <code>&gt;55</code> green / <code>40-55</code> yellow / <code>&lt;40</code> with SPX at highs red. 200-DMA — <code>&gt;60</code> green / <code>40-60</code> yellow / <code>&lt;40</code> red (calibrated to the post-Mag-7 era; StockCharts' 70/30 default fires red far too often).</p>
 <p><strong>Parameters:</strong></p>
 <div class="tblwrap">
 <table>

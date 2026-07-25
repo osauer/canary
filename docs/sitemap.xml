@@ -13,10 +13,34 @@
     <priority>0.9</priority>
   </url>
   <url>
+    <loc>https://osauer.dev/ibkr/docs/start/install.html</loc>
+    <lastmod>2026-07-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://osauer.dev/ibkr/docs/start/hosts.html</loc>
+    <lastmod>2026-07-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://osauer.dev/ibkr/docs/start/first-session.html</loc>
+    <lastmod>2026-07-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://osauer.dev/ibkr/docs/start/updating.html</loc>
     <lastmod>2026-07-25</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://osauer.dev/ibkr/docs/start/troubleshooting.html</loc>
+    <lastmod>2026-07-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/ibkr/docs/operate/agents.html</loc>
@@ -55,6 +79,12 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://osauer.dev/ibkr/docs/understand/glossary.html</loc>
+    <lastmod>2026-07-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://osauer.dev/ibkr/docs/reference/cli.html</loc>
     <lastmod>2026-07-25</lastmod>
     <changefreq>weekly</changefreq>
@@ -74,6 +104,12 @@
   </url>
   <url>
     <loc>https://osauer.dev/ibkr/docs/reference/config.html</loc>
+    <lastmod>2026-07-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://osauer.dev/ibkr/docs/reference/releases.html</loc>
     <lastmod>2026-07-25</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>

@@ -65,8 +65,8 @@ User-facing proposal copy should render any reducing short `BUY` as `Buy to cove
 
 ## Release channel
 
-Stable release artifacts remain read-only. A professional trading preview should be published as a separate experimental channel with distinct asset names, clear as-is language, its own smoke tests, and no automatic path through `ibkr update`.
+Every release publishes both builds side by side. The standard artifact keeps the plain `ibkr-vX.Y.Z-<os>-<arch>.tar.gz` name and is read-only; the broker-write build is named `ibkr-trading-...` and carries a `TRADING-WARNING.md`.
 
-Do not attach experimental trading tarballs to the stable release namespace until the updater matches stable assets exactly. The stable updater currently expects the normal `ibkr-vX.Y.Z-<os>-<arch>.tar.gz` shape.
+`ibkr update` and `install.sh` match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.
 
-MCP order writes should stay out of the preview channel unless they have their own explicit review, nonce, audit, and human-confirmation model. CLI/operator testing comes first.
+MCP order writes stay out of both builds. There are no order-entry tools on the MCP surface, and adding any would need its own review, nonce, audit, and human-confirmation model first.

@@ -24,7 +24,7 @@ The guard column says what a command does: `read-only` reads and prints, `local`
 | [`ibkr history`](#ibkr-history) | Daily OHLCV bars for a symbol | `read-only` | yes |
 | [`ibkr technical`](#ibkr-technical) | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`ibkr market-events`](#ibkr-market-events) | Held-symbol market-event flags: borrow inventory, Reg SHO, LULD, and halts | `read-only` | yes |
-| [`ibkr breadth`](#ibkr-breadth) | S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~60 min cold) | `read-only` | yes |
+| [`ibkr breadth`](#ibkr-breadth) | S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold) | `read-only` | yes |
 | [`ibkr gamma`](#ibkr-gamma) | SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due) | `read-only` | yes |
 | [`ibkr regime`](#ibkr-regime) | Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth | `read-only` | yes |
 | [`ibkr canary`](#ibkr-canary) | Stateless market-regime × portfolio-shape canary with action, evidence, and source health | `read-only` | yes |
@@ -272,7 +272,7 @@ ibkr market-events [SYM[,SYM...]] [--symbol SYM] [--json]
 
 ## `ibkr breadth`
 
-S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~60 min cold).
+S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold).
 
 Guard `read-only`. Also available as an MCP tool.
 

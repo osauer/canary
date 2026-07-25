@@ -335,7 +335,7 @@ func (e *Engine) MarkPendingBootstrap() {
 // which names need new bars, fetch them in parallel, slide each
 // window forward, recompute S5FI, persist.
 //
-// Cold start is ~60 min wall-clock: IBKR's historical-data pacing
+// Cold start is ~74 min wall-clock: IBKR's historical-data pacing
 // limit caps each gateway connection at 60 requests per 10-minute
 // sliding window, so 503 constituents land at ~6 names/min sustained
 // after the initial 60-name burst. Adding workers above the default

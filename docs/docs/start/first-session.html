@@ -1,0 +1,209 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your first session | ibkr</title>
+  <meta name="description" content="A seven-command walkthrough of a first ibkr session: gateway health, account, positions, quote freshness, the daily brief, market context, and the same reads through an agent.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/start/first-session.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"A seven-command walkthrough of a first ibkr session: gateway health, account, positions, quote freshness, the daily brief, market context, and the same reads through an agent.","headline":"Your first session","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/start/first-session.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="docpage layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Start</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><a href="install.html">Install and first run</a></li>
+                <li><a href="hosts.html">Connect an MCP host</a></li>
+                <li><a href="first-session.html" class="is-current" aria-current="page">Your first session</a></li>
+                <li><a href="updating.html">Updating</a></li>
+                <li><a href="troubleshooting.html">Troubleshooting</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><a href="../understand/glossary.html">Glossary</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="your-first-session">Your first session</h1>
+<p>Updated: 2026-07-25 11:33 CEST</p>
+<p>Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; <a href="install.html">Install and first run</a> covers getting there.</p>
+<p>The terminal output below comes from the repository's fixture renderer (<code>go run cmd/_preview/main.go</code>), which draws the real CLI screens from synthetic data on the placeholder account <code>DU0000000</code>. Your figures will differ. The shape of each screen will not.</p>
+<h2 id="1-prove-the-gateway-is-reachable">1. Prove the gateway is reachable</h2>
+<pre><code class="language-sh">ibkr status
+</code></pre>
+<pre><code>IBKR Gateway  READY
+
+Session        DU0000000 via 127.0.0.1:4001 (tls=false, discovered), client 17
+Market data    Live
+Daemon         v1.0.0, up 30m42s
+TWS            API server 178
+SPX members    cache:2026-05-22, 503 names
+</code></pre>
+<p>The word beside <code>IBKR Gateway</code> is a verdict, and there are four: <code>READY</code>, <code>STARTING</code> (the API handshake is still in flight), <code>ATTENTION</code> (connected, but something below wants a look), and <code>OFFLINE</code>.</p>
+<p>Read the <code>Session</code> row next. The port names which IBKR app you actually reached: 4001 is IB Gateway live, 4002 Gateway paper, 7496 TWS live, 7497 TWS paper. <code>discovered</code> means a TCP probe found it, <code>pinned</code> means your config chose it. On a machine running both Gateway and TWS this row is the difference between paper and live money.</p>
+<p>Skip <code>SPX members</code> on a first run. It reports the constituent list behind the breadth indicator and says nothing about your connection.</p>
+<p><code>ibkr status</code> exits 1 when the gateway is not connected, so it works as a guard in a script. Anything other than <code>READY</code> is covered in <a href="troubleshooting.html">Troubleshooting</a>.</p>
+<h2 id="2-read-the-account">2. Read the account</h2>
+<pre><code class="language-sh">ibkr account
+</code></pre>
+<p>You get net liquidation and daily P&amp;L on top, then balances, session P&amp;L, margin, look-ahead margin, and the total P&amp;L that IBKR's <code>reqPnL</code> stream reports. A multi-currency account gets a currency-exposure table underneath with the FX rate used for each leg.</p>
+<p>One figure carries into everything else: net liquidation. <code>ibkr size</code> reads it from this same account snapshot and expresses risk as a percentage of it, so an NLV that looks wrong makes every later sizing wrong in the same direction.</p>
+<p>Leave the look-ahead margin block alone for now. It answers what happens at the next margin cycle, which matters when you are near a limit and not before.</p>
+<h2 id="3-read-the-book-as-risk">3. Read the book as risk</h2>
+<pre><code class="language-sh">ibkr positions --by underlying
+</code></pre>
+<p><code>--by underlying</code> puts each stock together with the options written on it, so a covered call sits under its shares instead of in a separate table. The block under the groups is the part worth your time:</p>
+<pre><code>Summary
+  Effective delta               +1,847.0  share-equivalents
+  Dollar delta                326,584.50  USD
+  Daily theta                     -42.18  USD / day
+  Gamma                         +12.4000
+  Vega                         +1,205.00  / 1 vol pt
+  Greeks coverage                  5 / 5  legs  ✓
+  FX sensitivity                 -854.32  EUR per +1% FX
+</code></pre>
+<p>Effective delta is signed share-equivalent exposure: a stock contributes its quantity, an option contributes delta times contracts times multiplier. Daily theta is the P&amp;L that time decay produces over a day if nothing else moves.</p>
+<p>Check <code>Greeks coverage</code> before you trust the Greek rollups above it. It counts the option legs whose Greeks arrived over the total, and anything short of full coverage means those sums were computed from part of the book.</p>
+<h2 id="4-quote-a-symbol">4. Quote a symbol</h2>
+<pre><code class="language-sh">ibkr quote SPY
+</code></pre>
+<p>The fixture renders three symbols at once so the freshness cases sit side by side:</p>
+<pre><code>  SYMBOL            BID  BID_SZ         ASK  ASK_SZ       PRICE  PREV CLOSE       CHG      CHG%  VOLUME      ADV$20       IV  DATA
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  AAPL           207.82  240         207.88  510         207.85      206.40     +1.45    +0.70%  38M              —    24.7%  live
+  NVDA                —  —                —  —           128.54           —         —         —  —                —        —  live
+  SPY            461.04  —           461.20  —           461.12      463.50     -2.38    -0.51%  8.1M             —        —  delayed
+</code></pre>
+<p>The <code>DATA</code> column is the one to read. Market data is real-time wherever your IBKR market-data subscriptions cover it and delayed where they don't, and this column tells you which one you got for that symbol. <code>delayed</code> is normal for an unsubscribed name and means the prices are 15 to 20 minutes old. Out of hours you will see <code>frozen</code> or <code>delayed-frozen</code> instead, which is the last recorded quote with no further updates coming.</p>
+<p>A dash in the NVDA row marks a field that never arrived. The daemon leaves an absent tick absent rather than substituting a zero for it.</p>
+<h2 id="5-let-one-command-assemble-the-rest">5. Let one command assemble the rest</h2>
+<pre><code class="language-sh">ibkr brief
+</code></pre>
+<p><code>ibkr brief</code> is the assembled read. <code>Review</code> covers the last completed session: session P&amp;L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. <code>Ready</code> covers today: regime stage, breadth, dealer gamma, canary action, session state, market-event counts, and capital tier.</p>
+<p>Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. <code>ibkr brief --json</code> renders without stamping, and an agent-origin invocation prints <code>agent-origin render — not stamped</code>. There is no MCP tool for <code>brief</code>; it is a CLI surface.</p>
+<h2 id="6-read-the-market-context">6. Read the market context</h2>
+<pre><code class="language-sh">ibkr regime
+ibkr canary
+</code></pre>
+<p><code>ibkr regime</code> returns the eight-row stress dashboard plus a lifecycle stage. <code>ibkr canary</code> asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.</p>
+<p>Two of the regime rows are heavy computes and will not be ready on a cold daemon. Gamma reports <code>status: &quot;computing&quot;</code> with an ETA and progress, and the first-ever breadth build is paced by IBKR's historical-data limits into about 74 minutes of wall clock. Neither is broken; both fill in.</p>
+<p>What the output means is owned elsewhere, and those pages go deeper than this one should. <a href="../understand/concepts.html#regime">Concepts → Regime</a> and <a href="../understand/concepts.html#canary">Concepts → Canary</a> give the mental model. <a href="../understand/sensors.html">Sensors</a> covers authority, freshness, and the safe check for each one.</p>
+<h2 id="7-ask-the-same-questions-through-an-agent">7. Ask the same questions through an agent</h2>
+<p>With an MCP host wired up, the same reads happen as tool calls. Ask the question rather than naming the tool:</p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Ask</th>
+<th>Tool the host calls</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>&quot;How does my account look right now?&quot;</td>
+<td><code>ibkr_account</code>, then <code>ibkr_positions</code></td>
+</tr>
+<tr>
+<td>&quot;Is SPY quoting live or delayed?&quot;</td>
+<td><code>ibkr_quote</code></td>
+</tr>
+<tr>
+<td>&quot;How does the market regime look?&quot;</td>
+<td><code>ibkr_regime</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The answers are the same data with the interpretation written out, which is most of the value on the regime and canary surfaces. <a href="../operate/agents.html">Working with agents</a> has the setup commands and a longer list of worked examples.</p>
+<p>Two boundaries are worth knowing before you start asking. The bundled MCP surface has no order-entry tools, so no host can place, modify, or cancel an order through it. And several CLI surfaces have no MCP tool at all, <code>brief</code> among them, along with the advisory <code>ibkr policy</code> and <code>ibkr recon</code>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="../operate/orders.html">Order previews and the trading build</a> for what a preview does, and what the read-only default means.</li>
+<li><a href="troubleshooting.html">Troubleshooting</a> when a command stops answering.</li>
+<li><a href="updating.html">Updating</a> for the binary, the Desktop bundle, and the S&amp;P 500 list.</li>
+</ul>
+    </main>
+  </div>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

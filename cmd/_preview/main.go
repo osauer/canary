@@ -369,7 +369,7 @@ func fixtureStatus() *rpc.HealthResult {
 		GatewayTLS:    false,
 		NegotiatedTLS: false,
 		PortOrigin:    "discovered",
-		ClientID:      17,
+		ClientID:      15,
 		Connected:     true,
 		ServerVersion: 178,
 		Members: rpc.MembersHealth{

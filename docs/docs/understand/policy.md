@@ -207,12 +207,10 @@ to the human.
 
 ## Policy terms and references
 
-- **Advisory:** guidance that does not block or submit an order.
-- **Shadow:** evaluation and recording without enforcing the result.
-- **Submit authority:** an explicit human decision for one transaction; a
-  policy result, proposal, preview, or token is not that authority.
-- **Unapproved:** a material human choice has not been made; it is not zero,
-  safe, or default.
+The [Glossary](glossary.md) defines the vocabulary this page shares with the
+rest of the handbook: advisory, shadow, unapproved, submit authority, content
+fingerprint, freshness and finality, and the local decision record against
+broker execution evidence.
 
 Detailed references:
 

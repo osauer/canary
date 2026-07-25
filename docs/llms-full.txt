@@ -1,6 +1,6 @@
 # ibkr canary full context
 
-Updated: 2026-07-25 10:34 CEST
+Updated: 2026-07-25 11:44 CEST
 
 `ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as a Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and Canary app. AI agents get the full market-data surface plus portfolio context; the risk side stays advisory and operator-controlled: a risk-regime dashboard, scheduled canary stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -76,16 +76,22 @@ Claude Code plugin path:
 
 - Documentation handbook: https://osauer.dev/ibkr/docs/
 - Working with agents: https://osauer.dev/ibkr/docs/operate/agents.html
+- Install and first run: https://osauer.dev/ibkr/docs/start/install.html
+- Connect an MCP host: https://osauer.dev/ibkr/docs/start/hosts.html
+- Your first session: https://osauer.dev/ibkr/docs/start/first-session.html
 - Updating guide: https://osauer.dev/ibkr/docs/start/updating.html
+- Troubleshooting: https://osauer.dev/ibkr/docs/start/troubleshooting.html
 - CLI reference: https://osauer.dev/ibkr/docs/reference/cli.html
 - MCP tools reference: https://osauer.dev/ibkr/docs/reference/mcp-tools.html
 - MCP resources reference: https://osauer.dev/ibkr/docs/reference/mcp-resources.html
 - Configuration reference: https://osauer.dev/ibkr/docs/reference/config.html
+- Releases and support: https://osauer.dev/ibkr/docs/reference/releases.html
 - TWS wire protocol: https://osauer.dev/ibkr/docs/internals/protocol.html
 - Concepts: https://osauer.dev/ibkr/docs/understand/concepts.html
 - Sensors: https://osauer.dev/ibkr/docs/understand/sensors.html
 - Architecture: https://osauer.dev/ibkr/docs/internals/architecture.html
 - Trading policy: https://osauer.dev/ibkr/docs/understand/policy.html
+- Glossary: https://osauer.dev/ibkr/docs/understand/glossary.html
 - Storage: https://osauer.dev/ibkr/docs/internals/storage.html
 - Canary remote app beta: https://osauer.dev/ibkr/canary-remote/
 - XML sitemap: https://osauer.dev/ibkr/sitemap.xml

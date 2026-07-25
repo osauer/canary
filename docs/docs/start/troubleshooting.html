@@ -1,0 +1,233 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Troubleshooting | ibkr</title>
+  <meta name="description" content="Symptom-first fixes for ibkr: gateway discovery and handshake errors, a daemon that will not start, delayed or frozen quotes, breadth and gamma states, MCP host wiring, and where the logs live.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/start/troubleshooting.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Symptom-first fixes for ibkr: gateway discovery and handshake errors, a daemon that will not start, delayed or frozen quotes, breadth and gamma states, MCP host wiring, and where the logs live.","headline":"Troubleshooting","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/start/troubleshooting.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="docpage layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Start</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><a href="install.html">Install and first run</a></li>
+                <li><a href="hosts.html">Connect an MCP host</a></li>
+                <li><a href="first-session.html">Your first session</a></li>
+                <li><a href="updating.html">Updating</a></li>
+                <li><a href="troubleshooting.html" class="is-current" aria-current="page">Troubleshooting</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="../understand/concepts.html">Concepts</a></li>
+                <li><a href="../understand/sensors.html">Sensors</a></li>
+                <li><a href="../understand/policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><a href="../understand/glossary.html">Glossary</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="troubleshooting">Troubleshooting</h1>
+<p>Updated: 2026-07-25 11:33 CEST</p>
+<p>Symptom, cause, fix. Start with <code>ibkr status</code>: it prints one of four verdicts (<code>READY</code>, <code>STARTING</code>, <code>ATTENTION</code>, <code>OFFLINE</code>), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected.</p>
+<h2 id="every-command-prints-a-hint-pointing-at-ibkr-status">Every command prints a hint pointing at <code>ibkr status</code></h2>
+<p>A command failed and the CLI appended this:</p>
+<pre><code>  hint: run `ibkr status` to see whether the daemon is still
+        connecting (retry in a few seconds) or the gateway is
+        down (start IB Gateway; check ~/.local/state/ibkr/ibkr-daemon.log).
+</code></pre>
+<p>The CLI adds those three lines whenever the daemon's error contains <code>gateway_unavailable</code>. It means the daemon is up and answering, and the broker connection behind it is not.</p>
+<p><code>ibkr status</code> separates the two cases. <code>STARTING</code> means the daemon has not published a connect error yet, so the handshake is still in flight; wait a few seconds and re-run. <code>OFFLINE</code> means it gave up and published a reason, which is printed in the status output.</p>
+<h2 id="no-ibkr-listener-found-on-127001-ports-4001-4002-7496-7497"><code>no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]</code></h2>
+<p>Nothing answered a TCP probe on any of the four standard ports (4001 Gateway live, 4002 Gateway paper, 7496 TWS live, 7497 TWS paper) within the 200 ms per-port budget. The rest of the message tells you which case you are in.</p>
+<p>If an IBKR app is running, the error names it and its PID, then lists the three causes it cannot tell apart from outside the process: <code>'Enable ActiveX and Socket Clients'</code> unchecked under Global Configuration → API → Settings, a login that has not finished (2FA or a day-end dialog), or a non-default Socket port. Pin the port in <code>~/.config/ibkr/config.toml</code> under <code>[gateway]</code> for the third case.</p>
+<p>If no app is running, the message says so and ends with <code>start one and ibkr will reconnect automatically</code>. It will.</p>
+<p>Discovery only probes the host in your config, which defaults to <code>127.0.0.1</code>. A gateway on another machine needs <code>host</code> set explicitly; it will never be found by probing.</p>
+<h2 id="not-responding-to-tws-handshake-within-12s"><code>not responding to TWS handshake within 12s</code></h2>
+<p>The full text is <code>gateway HOST:PORT not responding to TWS handshake within 12s; check IB Gateway is running and 'Enable ActiveX and Socket Clients' is on</code>. TCP connected and the API handshake got no reply, which almost always means the API socket is disabled rather than absent.</p>
+<p><code>ibkr status</code> prints the same checklist while a handshake is in flight:</p>
+<pre><code>    Configure → Settings → API → Settings → 'Enable ActiveX and Socket Clients'
+    Trusted IPs include 127.0.0.1 (or empty)
+    Login fully completed (not paused at 2FA)
+</code></pre>
+<p>A related message, <code>none of N discovered endpoint(s) completed TWS handshake (tried ...)</code>, means several apps accepted TCP and none completed the handshake. It lists every endpoint tried, which is usually a stale Gateway window alongside a freshly logged-in TWS. Quit the one you do not want.</p>
+<h2 id="daemon-socket-did-not-appear-within-5s"><code>daemon socket did not appear within 5s</code></h2>
+<p>The CLI autospawns <code>ibkr daemon</code> when the socket is missing and gives it a 5 second budget to reach its accept loop. This message means it did not, so the daemon crashed or wedged during startup.</p>
+<p>The error carries what the CLI could find out. When a lock holder is alive it adds <code>daemon PID N holds PATH but never opened the socket</code> and <code>if it's stuck, run: kill N</code>. When the last daemon log line is readable it appends <code>last daemon log: ...</code>. Read the full log at <code>~/.local/state/ibkr/ibkr-daemon.log</code> before killing anything.</p>
+<h2 id="a-second-daemon-will-not-start">A second daemon will not start</h2>
+<p>It is not supposed to. The daemon takes a non-blocking exclusive <code>flock</code> on <code>ibkr.lock</code> beside the socket before it touches the gateway. A second one finds the lock contended, logs <code>Another daemon is already running for socket PATH; exiting cleanly</code>, and exits 0.</p>
+<p>A socket file left behind by a crashed daemon is not a problem either. The new daemon dial-probes it: no answer means stale, and it is removed automatically. A live answer while the lock is held is the impossible case, and it fails loudly with <code>socket PATH already serving despite holding lock; refusing to evict</code>.</p>
+<p>To replace a running daemon deliberately, use <code>ibkr restart</code>. It stops the old process, starts a new one from the current binary, and reports gateway health.</p>
+<h2 id="cli-version-x-does-not-match-daemon-version-y"><code>CLI version X does not match daemon version Y</code></h2>
+<p>The full warning:</p>
+<pre><code>ibkr: warning: CLI version X does not match daemon version Y — run `ibkr restart` to pick up the new binary.
+</code></pre>
+<p>You installed a new binary and the old daemon is still resident. Run <code>ibkr restart</code>.</p>
+<p>The check is skipped for <code>ibkr status</code>, and it stays quiet when either side stamps <code>dev</code>, so a working tree does not warn against itself every run.</p>
+<h2 id="quotes-say-delayed-frozen-or-delayed-frozen">Quotes say <code>delayed</code>, <code>frozen</code>, or <code>delayed-frozen</code></h2>
+<p>Usually correct behavior, not a fault. Market data is real-time wherever your IBKR market-data subscriptions cover it and delayed where they don't.</p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th><code>DATA</code> value</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>live</code></td>
+<td>Real-time ticks; your subscription covers the symbol</td>
+</tr>
+<tr>
+<td><code>delayed</code></td>
+<td><code>15-20 min delayed quotes (entitlement-limited)</code></td>
+</tr>
+<tr>
+<td><code>frozen</code></td>
+<td><code>markets closed; only the last-recorded quote is available</code></td>
+</tr>
+<tr>
+<td><code>delayed-frozen</code></td>
+<td><code>markets closed; showing yesterday's close</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The daemon asks the gateway for market-data type 2 (frozen-aware) on every connect, deliberately: type 1 (pure live) can leave snapshot requests hanging when the market is closed, while type 2 returns the last-known price instead. If you expected <code>live</code> on a symbol and got <code>delayed</code>, the fix is a market-data subscription in IBKR's account management, not a change here.</p>
+<p><code>ibkr quote SYM --watch</code> exits by itself on frozen data:</p>
+<pre><code>  stream ended — frozen data is snapshot-only. Use `ibkr quote SYM` for one-shots.
+</code></pre>
+<p>The gateway sends one snapshot in frozen mode and never streams, so there is nothing to wait for.</p>
+<h2 id="a-held-name-stopped-updating-after-an-overnight-gateway-reset">A held name stopped updating after an overnight gateway reset</h2>
+<p>IBKR's nightly reset can make the gateway answer &quot;no security definition&quot; for everything for a while, and names asked for during that window get marked inactive. The mark is a cache rather than a verdict: it lives in memory only, expires after 12 hours, and is rebuilt from scratch on every reconnect.</p>
+<p>So the fix is a reconnect. <code>ibkr restart</code> gets you one immediately instead of waiting out the TTL. A separate 30 minute retry window covers entitlement rejections, which are a different failure with the same symptom.</p>
+<h2 id="breadth-shows-00--or-stays-computing">Breadth shows <code>0.0 %</code>, or stays <code>computing</code></h2>
+<p><code>ibkr breadth</code> renders the snapshot fields without checking the state first, so a cold or still-computing engine prints <code>0.0 %</code> for both moving-average rows rather than saying it has no data yet. That is an unset field, not a market reading.</p>
+<p>Use <code>ibkr breadth --json</code> and check <code>state</code>, which is one of <code>cold</code>, <code>computing</code>, <code>ready</code>, or <code>degraded</code>. <code>ibkr status</code> also carries a breadth subsystem row that reports <code>S&amp;P 500 breadth refresh is running or waiting to retry</code> while a refresh is live.</p>
+<p>Computing for a long time is expected on a fresh daemon. IBKR's historical-data pacing caps the 503-name fan-out at about 6 names a minute, so the first build takes about 74 minutes. A pass that lands below 80% constituent coverage publishes nothing and retries every 12 minutes, up to 15 times, which can stretch the wait considerably. After that the state falls back to <code>cold</code> and the normal once-daily refresh takes over, 35 minutes after the official session close.</p>
+<h2 id="gamma-says-no-data-yet-cold-cache-or-computing">Gamma says <code>no data yet (cold cache)</code> or <code>computing</code></h2>
+<p>Both are states rather than failures, and both exit 0. Only the <code>error</code> status exits 1.</p>
+<p>Cold means no usable result exists and nothing is computing. The daemon prewarms gamma after gateway startup and refreshes behind the served value after a 15-minute soft TTL during regular US option hours. Outside those hours automatic refresh is not due at all, so an off-hours cold cache stays cold on purpose rather than running a heavy option-chain fan against a closed market. <code>ibkr gamma --force</code> starts one anyway, which is mostly a troubleshooting move.</p>
+<p>Computing prints the start time, an ETA, and a progress percentage. Re-running <code>ibkr gamma</code> blocks on the result again; <code>ibkr gamma --no-wait</code> returns the current status immediately instead.</p>
+<h2 id="claude-desktop-does-not-list-the-tools">Claude Desktop does not list the tools</h2>
+<p>Quit Claude Desktop completely and reopen it. A closed window is not a quit, and the MCP server is only respawned on a real relaunch. This is also the step people miss after reinstalling the bundle.</p>
+<p><code>ibkr setup claude-desktop</code> writes an <code>mcpServers.ibkr</code> entry pointing at the resolved absolute path of the running binary, into <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS or <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows. It backs up any existing config first. It refuses to write over a file that is not valid JSON, and prints the path so you can fix or delete it. <a href="hosts.html">Connect an MCP host</a> covers the wiring for each host in full.</p>
+<p>If the tools still do not appear, read Claude Desktop's own log at <code>~/Library/Logs/Claude/mcp-server-ibkr.log</code>.</p>
+<p>An MCPB install is different: it carries its own embedded binary, and <code>ibkr update</code> does not touch it. <a href="updating.html">Updating</a> covers reinstalling the bundle.</p>
+<h2 id="where-the-logs-and-local-files-are">Where the logs and local files are</h2>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.local/state/ibkr/ibkr-daemon.log</code></td>
+<td>Daemon diagnostics: discovery, handshakes, reconnects, subsystem errors. Override with <code>IBKR_LOG</code></td>
+</tr>
+<tr>
+<td><code>~/Library/Logs/Claude/mcp-server-ibkr.log</code></td>
+<td>Claude Desktop's view of the MCP server it launched</td>
+</tr>
+<tr>
+<td><code>$XDG_RUNTIME_DIR/ibkr/ibkr.sock</code>, else <code>~/.cache/ibkr/ibkr.sock</code></td>
+<td>Daemon IPC socket. Override with <code>IBKR_SOCKET</code></td>
+</tr>
+<tr>
+<td><code>ibkr.lock</code>, beside the socket</td>
+<td>Single-instance lock, holding the daemon's PID</td>
+</tr>
+<tr>
+<td><code>~/.config/ibkr/config.toml</code></td>
+<td>Optional persistent config, including the <code>[gateway]</code> pins</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The daemon log is a diagnostic stream, not an audit trail. It is rolled aside to <code>.1</code> at boot once it passes 64 MiB, and one generation is kept. Captured frames and logs can carry account-sensitive data; read <a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">SECURITY.md</a> before sharing one.</p>
+    </main>
+  </div>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

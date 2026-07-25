@@ -1,0 +1,284 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glossary | ibkr</title>
+  <meta name="description" content="Alphabetical definitions of the broker, risk, options, market-state, and system terms the ibkr handbook uses, each linked to the page that owns it.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/glossary.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Alphabetical definitions of the broker, risk, options, market-state, and system terms the ibkr handbook uses, each linked to the page that owns it.","headline":"Glossary","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/glossary.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="docpage layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <div class="wrap shell">
+    <details class="sidenav">
+      <summary class="sidenav-summary">Documentation<span class="sidenav-here">Understand</span></summary>
+      <nav class="sidenav-tree" aria-label="Documentation">
+        <a class="sidenav-overview" href="../../docs/">Overview</a>
+        <ul class="sidenav-sections">
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Start</summary>
+              <ul>
+                <li><a href="../start/install.html">Install and first run</a></li>
+                <li><a href="../start/hosts.html">Connect an MCP host</a></li>
+                <li><a href="../start/first-session.html">Your first session</a></li>
+                <li><a href="../start/updating.html">Updating</a></li>
+                <li><a href="../start/troubleshooting.html">Troubleshooting</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Operate</summary>
+              <ul>
+                <li><span class="sidenav-planned">The daily desk</span></li>
+                <li><a href="../operate/agents.html">Working with agents</a></li>
+                <li><a href="../operate/app.html">The paired app</a></li>
+                <li><span class="sidenav-planned">Alerts and notifications</span></li>
+                <li><a href="../operate/orders.html">Order previews and the trading build</a></li>
+                <li><span class="sidenav-planned">Protection and emergency exits</span></li>
+                <li><span class="sidenav-planned">Reconciliation</span></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section is-here">
+            <details class="sidenav-group" open>
+              <summary class="sidenav-heading">Understand</summary>
+              <ul>
+                <li><a href="concepts.html">Concepts</a></li>
+                <li><a href="sensors.html">Sensors</a></li>
+                <li><a href="policy.html">Trading policy</a></li>
+                <li><span class="sidenav-planned">The rulebook</span></li>
+                <li><span class="sidenav-planned">Writing a risk policy</span></li>
+                <li><span class="sidenav-planned">Market data and entitlements</span></li>
+                <li><a href="glossary.html" class="is-current" aria-current="page">Glossary</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Reference</summary>
+              <ul>
+                <li><a href="../reference/cli.html">CLI</a></li>
+                <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
+                <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
+                <li><a href="../reference/config.html">Configuration</a></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
+              </ul>
+            </details>
+          </li>
+          <li class="sidenav-section">
+            <details class="sidenav-group">
+              <summary class="sidenav-heading">Under the hood</summary>
+              <ul>
+                <li><a href="../internals/architecture.html">Architecture</a></li>
+                <li><a href="../internals/storage.html">Storage</a></li>
+                <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
+                <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
+                <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
+                <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+        <p class="sidenav-note">Dimmed entries are not written yet.</p>
+      </nav>
+    </details>
+    <main class="doc">
+<h1 id="glossary">Glossary</h1>
+<p>Terms the rest of the handbook assumes you know. Each entry gives the meaning
+this system uses and links to the page where the term does real work; where the
+wider industry uses a word differently, the entry says so.</p>
+<ul>
+<li><strong>Advisory:</strong> guidance that records and explains without blocking or
+submitting an order. The personal risk policy, the Rulebook's 14 discipline
+checks, and protection proposals are all advisory today. See
+<a href="policy.html">Trading policy</a>.</li>
+<li><strong>Agent origin:</strong> the classification an adapter stamps on a broker-write
+request. Any agent marker in the environment, or a non-TTY stdin, classifies
+the process as agent, and no environment variable can claim a human origin.
+Origin is recorded for audit and origin-specific policy; it grants no
+authority by itself. See <code>IBKR_AGENT_CONTEXT</code> in the
+<a href="../reference/config.html">configuration reference</a>.</li>
+<li><strong>Borrow stress:</strong> the two short-borrow flags on a stock.
+<code>borrow_inventory_tight</code> fires at 10,000 shortable shares or fewer and reads
+scarce at 1,000 or fewer; <code>borrow_fee_extreme</code> fires at an annualized fee of
+50% or more. Both are reduce-only context for an existing short, never a
+reason to open or add exposure. See
+<a href="concepts.html#market-events">Concepts</a>.</li>
+<li><strong>Breadth:</strong> the share of S&amp;P 500 constituents trading above their 50- and
+200-day moving averages, plus 52-week new highs and new lows. The daemon
+computes all three locally from constituent closes, because IBKR does not
+redistribute S&amp;P DJI's official breadth indices on retail subscriptions. See
+<a href="concepts.html#breadth">Concepts</a>.</li>
+<li><strong>Broker execution evidence:</strong> the broker's confirmations and statements,
+describing what was actually executed. It is a separate source from the local
+decision record. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Buying power:</strong> the gateway's figure for how much you could buy. It is
+never the risk budget here; sizing and the drawdown ladder key off declared
+risk capital instead. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Capital event:</strong> an operator-declared deposit, withdrawal, or reconcile
+fact journaled against the risk policy. Adjusted equity subtracts cumulative
+declared flows, so a deposit does not create a fake peak and a withdrawal
+does not create a fake drawdown. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Content fingerprint:</strong> an ID derived from normalized policy fields. It
+deliberately ignores comments and formatting, and it must accompany retained
+content when historical reconstruction matters. See
+<a href="policy.html">Trading policy</a>.</li>
+<li><strong>Current state:</strong> the latest accepted version of a fact, used by the running
+product. See <a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Daemon:</strong> the long-running <code>ibkr daemon</code> process. It owns the broker
+connections, <code>daemon.db</code>, the schedulers, and policy execution; CLI, MCP,
+app, and web surfaces are adapters that read typed results from it. See
+<a href="../internals/architecture.html">Architecture</a>.</li>
+<li><strong>Drawdown ladder:</strong> two tiers in the personal risk policy, warn and block,
+each a percent of declared risk capital consumed from the cash-flow-adjusted
+equity peak. Warn is advisory and self-clearing; block latches until a
+journaled human reset. Schema version 1 rejects hard enforcement outright.
+See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Effective risk capital:</strong> the lesser of declared risk capital and equity
+above the protected floor. Deposits and profits never raise it; only a policy
+revision does. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Event:</strong> an immutable local record of something the software observed,
+decided, or attempted. Events are append-only and are never rewritten to fit
+a new shape. See <a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Finality:</strong> whether a value's source can still revise it. A figure can be
+current and not final, which is why restated broker statements get their own
+immutable versions. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Fixed-fractional sizing:</strong> risking a fixed percent of NLV on each trade.
+<code>ibkr size</code> computes shares as <code>NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|</code>,
+rounded down to the lot, and returns zero shares with status <code>tight_risk</code>
+when the budget will not cover one lot. See the
+<a href="../reference/cli.html#ibkr-size">CLI reference</a>.</li>
+<li><strong>Freeze:</strong> <code>trading.freeze</code>, the runtime brake. Setting it true blocks every
+new broker write while cancels stay allowed. It is human-only: <code>ibkr settings set</code> from an interactive terminal, with missing, agent, and paired-device
+origins rejected. See the
+<a href="../reference/config.html">configuration reference</a>.</li>
+<li><strong>Freshness:</strong> whether evidence is recent enough for the decision at hand.
+Sensors report it as an explicit state instead of leaving you to compare
+timestamps, and a failed refresh never restamps an old value. See
+<a href="sensors.html#read-the-state-before-the-number">Sensors</a>.</li>
+<li><strong>Greeks:</strong> delta, gamma, theta, and vega, the standard option sensitivities.
+<code>ibkr</code> reports them per option leg when the daemon captured a valid
+model-computation tick, and discloses partial coverage as <code>greeks_coverage</code>
+over <code>greeks_total</code>. A Greek the gateway did not deliver is null, never
+zero-substituted. See <a href="../operate/agents.html">Working with agents</a>.</li>
+<li><strong>Implied move:</strong> the 1-sigma expected dollar move by expiration,
+<code>spot × IV × √(DTE/365)</code>. Standard desk math, computed per expiry on the
+chain surface. See the <a href="../reference/cli.html#ibkr-chain">CLI reference</a>.</li>
+<li><strong>Journal:</strong> the append-only local record of what <code>ibkr</code> attempted. Order
+journal rows bind each lifecycle event to the exact broker route, and policy,
+capital, and governance actions journal their own events. See
+<a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Last-good:</strong> the most recent complete result a sensor published. A failed
+refresh leaves last-good visible with explicit health rather than blanking
+it, changing its timestamp, or turning absence into zero. See
+<a href="sensors.html#read-the-state-before-the-number">Sensors</a>.</li>
+<li><strong>Local decision record:</strong> what <code>ibkr</code> observed, evaluated, or attempted. It
+explains context; it is not evidence of what the broker executed. See
+<a href="policy.html">Trading policy</a>.</li>
+<li><strong>LULD:</strong> limit up-limit down, the US volatility pause on a single name. An
+active <code>luld_pause</code> blocks protection preview and submit; a recent one is a
+warning tag that needs fresh quote context before acting. See
+<a href="concepts.html#market-events">Concepts</a>.</li>
+<li><strong>Managed account:</strong> the account list the gateway advertises after handshake.
+With <code>[gateway].account</code> empty the daemon auto-detects from that list, which
+is fine for a single-account login and needs an explicit pin when the login
+carries several. See
+<a href="../operate/orders.html#read-only-default">Order previews and the trading build</a>.</li>
+<li><strong>NLV:</strong> net liquidation value, the account's liquidating value in base
+currency as the gateway reports it. Exposure percentages, position sizing,
+and the risk policy's equity reading all key off it. See
+<a href="../operate/agents.html">Working with agents</a>.</li>
+<li><strong>Observation:</strong> a retained measurement from a named source, kept separately
+from any conclusion drawn from it. Imported historical observations are
+stamped <code>decision_eligible=false</code>, so research data can never seed a current
+verdict. See <a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Open interest:</strong> the number of option contracts outstanding at a strike.
+Missing OI is unknown, never zero: a priced leg without observed OI can
+support the IV and skew fit but contributes no open-interest-weighted
+exposure. See <a href="sensors.html#gamma">Sensors</a>.</li>
+<li><strong>Paper and live:</strong> how the daemon classifies the connected session. Port
+4002 or 7497, or an account starting <code>DU</code>, reads as paper; 4001 or 7496, or a
+non-<code>DU</code> account, reads as live; anything else is unknown. The pinned account
+must match what the connected session advertises, and that check runs in
+paper mode too. See
+<a href="../operate/orders.html#required-pins">Order previews and the trading build</a>.</li>
+<li><strong>Preview token:</strong> a daemon-signed artifact minted by an order preview.
+Placing, modifying, and cancelling an order each require a submit-eligible
+token; minting one is not eligibility, and the preview itself submits nothing
+to the broker. See
+<a href="../operate/orders.html#required-pins">Order previews and the trading build</a>.</li>
+<li><strong>R-multiple:</strong> the reward-to-risk ratio, <code>|target − entry| ÷ |entry − stop|</code>.
+<code>ibkr size</code> returns it alongside the breakeven win rate, <code>1 ÷ (1 + R)</code>. See
+the <a href="../reference/cli.html#ibkr-size">CLI reference</a>.</li>
+<li><strong>Reg SHO:</strong> the SEC short-sale rule whose threshold-securities list <code>ibkr</code>
+reads. Coverage is Nasdaq's file only, so a symbol's absence is not proof it
+is off every listing exchange's list. See
+<a href="concepts.html#market-events">Concepts</a>.</li>
+<li><strong>Regime stage:</strong> the broad-market lifecycle label on the regime dashboard:
+<code>quiet</code>, <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>,
+<code>opportunity</code>, or <code>data_quality</code>. That last stage is not a mild stress
+reading; it means required evidence is missing, broken, contradictory, or
+overdue. See <a href="concepts.html#regime">Concepts</a>.</li>
+<li><strong>Semantic fingerprint:</strong> a stable sha256 over classified state, not over
+prices, timestamps, or rendered prose. Monitors use it to suppress duplicate
+alerts when nothing meaningful has changed. See <a href="sensors.html">Sensors</a>.</li>
+<li><strong>Sensor:</strong> a daemon-owned measurement carrying an <code>as_of</code> time, source
+health, freshness, and a semantic fingerprint. Sensors do not decide trading
+policy, authorize an order, or prove that an alert reached a device. See
+<a href="sensors.html">Sensors</a>.</li>
+<li><strong>Shadow:</strong> evaluation and recording without enforcing the result. See
+<a href="policy.html">Trading policy</a>.</li>
+<li><strong>Source of record:</strong> the location the software is allowed to treat as
+current for one kind of fact. Human-authored policy files, retained broker
+statements, and <code>daemon.db</code> each hold their own. See
+<a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Storage layer:</strong> the code and operating rules that preserve state,
+evidence, and recovery continuity. SQLite supplies the engine; the
+surrounding code defines what may be stored and who may write it. See
+<a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Submit authority:</strong> an explicit human decision for one transaction. A
+policy result, proposal, alert, preview, or token is evidence, never that
+authority. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Theta hygiene:</strong> the protection-proposal bucket that flags near-dated
+options to close or reduce. Extrinsic value as a share of mark is its
+materiality gate, so an intrinsic-dominated option is suppressed: theta
+erodes only extrinsic value. See the
+<a href="../reference/config.html">configuration reference</a>.</li>
+<li><strong>Transaction:</strong> on the storage pages, a group of database changes that all
+commit or all fail together. The trading pages use the word in its ordinary
+market sense instead, as in submit authority for one transaction. See
+<a href="../internals/storage.html">Storage</a>.</li>
+<li><strong>Unapproved:</strong> a material human choice has not been made. It is not zero,
+safe, or a default. See <a href="policy.html">Trading policy</a>.</li>
+<li><strong>Zero gamma:</strong> the spot price at which the aggregate options-dealer book
+switches from amplifying moves to damping them. It is a regime hint rather
+than a precise level, and SPX is the canonical book with SPY as corroboration.
+See <a href="concepts.html#gamma">Concepts</a>.</li>
+</ul>
+    </main>
+  </div>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

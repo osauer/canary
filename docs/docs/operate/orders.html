@@ -34,11 +34,11 @@
             <details class="sidenav-group">
               <summary class="sidenav-heading">Start</summary>
               <ul>
-                <li><span class="sidenav-planned">Install and first run</span></li>
-                <li><span class="sidenav-planned">Connect an MCP host</span></li>
-                <li><span class="sidenav-planned">Your first session</span></li>
+                <li><a href="../start/install.html">Install and first run</a></li>
+                <li><a href="../start/hosts.html">Connect an MCP host</a></li>
+                <li><a href="../start/first-session.html">Your first session</a></li>
                 <li><a href="../start/updating.html">Updating</a></li>
-                <li><span class="sidenav-planned">Troubleshooting</span></li>
+                <li><a href="../start/troubleshooting.html">Troubleshooting</a></li>
               </ul>
             </details>
           </li>
@@ -66,7 +66,7 @@
                 <li><span class="sidenav-planned">The rulebook</span></li>
                 <li><span class="sidenav-planned">Writing a risk policy</span></li>
                 <li><span class="sidenav-planned">Market data and entitlements</span></li>
-                <li><span class="sidenav-planned">Glossary</span></li>
+                <li><a href="../understand/glossary.html">Glossary</a></li>
               </ul>
             </details>
           </li>
@@ -78,7 +78,7 @@
                 <li><a href="../reference/mcp-tools.html">MCP tools</a></li>
                 <li><a href="../reference/mcp-resources.html">MCP resources</a></li>
                 <li><a href="../reference/config.html">Configuration</a></li>
-                <li><span class="sidenav-planned">Releases and support</span></li>
+                <li><a href="../reference/releases.html">Releases and support</a></li>
               </ul>
             </details>
           </li>
@@ -140,9 +140,9 @@ ibkr trading status
 <p>Borrow flags are modifier-only. <code>borrow_inventory_tight</code> and <code>borrow_fee_extreme</code> can strengthen context for a proposal that buys to cover an existing short, but they must not create standalone long sells or buy-add proposals. <code>reg_sho_threshold</code> is regulatory context unless paired with an existing reduce/cover proposal.</p>
 <p>User-facing proposal copy should render any reducing short <code>BUY</code> as <code>Buy to cover</code>. Market-event squeeze-like context remains observational in Underlyings; the separate Opportunities panel is limited to daemon-calculated option-exercise opportunities and does not create buy-add or buy-to-open recommendations.</p>
 <h2 id="release-channel">Release channel</h2>
-<p>Stable release artifacts remain read-only. A professional trading preview should be published as a separate experimental channel with distinct asset names, clear as-is language, its own smoke tests, and no automatic path through <code>ibkr update</code>.</p>
-<p>Do not attach experimental trading tarballs to the stable release namespace until the updater matches stable assets exactly. The stable updater currently expects the normal <code>ibkr-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> shape.</p>
-<p>MCP order writes should stay out of the preview channel unless they have their own explicit review, nonce, audit, and human-confirmation model. CLI/operator testing comes first.</p>
+<p>Every release publishes both builds side by side. The standard artifact keeps the plain <code>ibkr-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> name and is read-only; the broker-write build is named <code>ibkr-trading-...</code> and carries a <code>TRADING-WARNING.md</code>.</p>
+<p><code>ibkr update</code> and <code>install.sh</code> match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.</p>
+<p>MCP order writes stay out of both builds. There are no order-entry tools on the MCP surface, and adding any would need its own review, nonce, audit, and human-confirmation model first.</p>
     </main>
   </div>
   <footer>

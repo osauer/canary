@@ -191,7 +191,7 @@ func init() {
 		{"history", "Daily OHLCV bars for a symbol", "ibkr history SYM [--days 90] [--json]", runHistory},
 		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "ibkr technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
 		{"market-events", "Held-symbol market-event flags: borrow inventory, Reg SHO, LULD, and halts", "ibkr market-events [SYM[,SYM...]] [--symbol SYM] [--json]", runMarketEvents},
-		{"breadth", "S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~60 min cold)", "ibkr breadth [--days 30] [--json]", runBreadth},
+		{"breadth", "S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold)", "ibkr breadth [--days 30] [--json]", runBreadth},
 		{"gamma", "SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due)", "ibkr gamma [--no-wait] [--force] [--only spy|spx] [--explain] [--diagnostics] [--json]", runGamma},
 		{"regime", "Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth", "ibkr regime [--explain [--diagnostics]] [--watch --rate 5m] [--log PATH] [--json] | ibkr regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--stage STAGE] [--limit N] [--json]", runRegime},
 		{"canary", "Stateless market-regime × portfolio-shape canary with action, evidence, and source health", "ibkr canary [--details] [--view full|alert] [--json] | ibkr canary history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]", runCanary},

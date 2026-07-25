@@ -34,6 +34,23 @@ func renderBreadthText(env *Env, r *rpc.BreadthSPXResult) int {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "S&P 500 Breadth%s\n", env.suffixBadge(r.DataType))
 	fmt.Fprintln(out)
+
+	// A zero reading only means something once State is ready: every other
+	// state carries 0 as the "no data yet" sentinel. Printing it anyway read
+	// as "0% of the index is above its 50-day average", which is an extreme
+	// market signal rather than an empty cache.
+	if r.State != "" && r.State != rpc.BreadthStateReady && r.State != rpc.BreadthStateDegraded {
+		fmt.Fprintf(out, "  No reading yet (%s)\n", r.State)
+		if p := r.Refresh; p != nil && p.Total > 0 {
+			fmt.Fprintf(out, "  Progress       %d / %d constituents\n", p.Processed, p.Total)
+		}
+		if p := r.Refresh; p != nil && p.LastFailure != "" {
+			fmt.Fprintf(out, "  Last failure   %s\n", p.LastFailure)
+		}
+		fmt.Fprintln(out)
+		return 0
+	}
+
 	fmt.Fprintf(out, "  Above 50-DMA   %.1f %%\n", r.PctAbove50DMA)
 	fmt.Fprintf(out, "  Above 200-DMA  %.1f %%\n", r.PctAbove200DMA)
 	// New-highs/lows on the sub-line: raw counts plus the net

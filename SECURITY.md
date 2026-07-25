@@ -24,7 +24,7 @@ This is a personal open-source project, not a funded program — responses are b
 
 ## Supported versions
 
-For the v1 stable line, only the latest minor release receives security fixes. Older v1 minors may receive a best-effort backport for a critical issue when the patch is low-risk; otherwise users should upgrade to the latest release.
+Only the latest minor release of the current stable line receives security fixes. An older minor may receive a best-effort backport for a critical issue when the patch is low-risk; otherwise upgrade to the latest release.
 
 ## Scope
 
