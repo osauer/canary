@@ -397,7 +397,7 @@ var pages = []pageSpec{
 		Summary:     "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
 		Description: "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
 		Status:      statusPublished,
-		Legacy:      []string{"internal-docs/design/gamma-zero-cache-persistence.html"},
+		Legacy:      []string{"docs/design/gamma-zero-cache-persistence.html"},
 	},
 	{
 		Source:      "docs/docs/internals/packaging.md",
@@ -907,6 +907,9 @@ func validateManifest(tracked map[string]bool) error {
 				return fmt.Errorf("duplicate legacy path %s", legacy)
 			}
 			declaredOutput[legacy] = true
+			if !strings.HasPrefix(legacy, "docs/") {
+				return fmt.Errorf("legacy redirect %s is outside the published site tree", legacy)
+			}
 			if !tracked[legacy] {
 				return fmt.Errorf("legacy redirect is not tracked: %s", legacy)
 			}
