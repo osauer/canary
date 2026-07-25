@@ -1,4 +1,4 @@
-# Gamma zero-cache persistence
+# Gamma cache persistence
 
 **Status:** Implemented and live since v1.0.0; migrated to the `daemon.db` authority on 2026-07-20.
 **Created:** 2026-05-22 07:30 CEST

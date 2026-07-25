@@ -1,4 +1,4 @@
-# TWS protocol coverage
+# TWS wire protocol
 
 Updated: 2026-07-25 09:45 CEST
 

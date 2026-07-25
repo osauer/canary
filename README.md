@@ -6,7 +6,7 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/ibkr/v2.svg)](https://pkg.go.dev/github.com/osauer/ibkr/v2)
 [![license](https://img.shields.io/github/license/osauer/ibkr)](LICENSE)
 
-**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [MCP resources](docs/docs/reference/mcp-resources.md) · [Configuration](docs/docs/reference/config.md) · [Sensors](docs/docs/understand/sensors.md) · [Rulebook](internal-docs/design/trading-rulebook.md) · [Trading policy](docs/docs/understand/policy.md) · [Storage](docs/docs/internals/storage.md) · [Architecture](docs/docs/internals/architecture.md) · [Platform settings](internal-docs/design/platform-settings.md) · [Agentic use](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
+**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [MCP resources](docs/docs/reference/mcp-resources.md) · [Configuration](docs/docs/reference/config.md) · [Sensors](docs/docs/understand/sensors.md) · [Rulebook](internal-docs/design/trading-rulebook.md) · [Trading policy](docs/docs/understand/policy.md) · [Storage](docs/docs/internals/storage.md) · [Architecture](docs/docs/internals/architecture.md) · [Platform settings](internal-docs/design/platform-settings.md) · [Working with agents](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
 
 **Agentic portfolio analysis and trading-research workflows for IBKR MCP, TWS, and IB Gateway.**
 
@@ -260,7 +260,7 @@ References:
 - [Sensors](docs/docs/understand/sensors.md) for Gamma, Regime, Canary, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.
 - [Experimental trading config](docs/docs/operate/orders.md) for the inactive `config.toml.trading` pattern and release-channel expectations.
 - [Concepts](docs/docs/understand/concepts.md) for breadth, gamma, and regime interpretation.
-- [Agentic use](docs/docs/operate/agents.md) for Claude and MCP workflows.
+- [Working with agents](docs/docs/operate/agents.md) for Claude and MCP workflows.
 - [Packaging and distribution](docs/docs/internals/packaging.md) for packaging notes.
 - [Privacy](PRIVACY.md) for data locality and local files.
 

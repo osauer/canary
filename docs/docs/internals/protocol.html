@@ -4,12 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TWS protocol coverage | ibkr</title>
+  <title>TWS wire protocol | ibkr</title>
   <meta name="description" content="Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/protocol.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.","headline":"TWS protocol coverage","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/protocol.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.","headline":"TWS wire protocol","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/protocol.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
@@ -90,9 +90,9 @@
                 <li><a href="storage.html">Storage</a></li>
                 <li><a href="protocol.html" class="is-current" aria-current="page">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="regime-backtest.html">Regime and canary backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
-                <li><a href="gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="packaging.html">Packaging and distribution</a></li>
               </ul>
             </details>
@@ -101,7 +101,7 @@
       </nav>
     </details>
     <main class="doc">
-<h1 id="tws-protocol-coverage">TWS protocol coverage</h1>
+<h1 id="tws-wire-protocol">TWS wire protocol</h1>
 <p>Updated: 2026-07-25 09:45 CEST</p>
 <p><code>pkg/ibkr</code> is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and

@@ -4,12 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentic use | ibkr</title>
+  <title>Working with agents | ibkr</title>
   <meta name="description" content="Practical agentic workflows, limits, and examples for using ibkr through an MCP host.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/agents.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Practical agentic workflows, limits, and examples for using ibkr through an MCP host.","headline":"Agentic use","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/agents.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Practical agentic workflows, limits, and examples for using ibkr through an MCP host.","headline":"Working with agents","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/agents.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
@@ -90,9 +90,9 @@
                 <li><a href="../internals/storage.html">Storage</a></li>
                 <li><a href="../internals/protocol.html">TWS wire protocol</a></li>
                 <li><a href="../internals/regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="../internals/regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="../internals/regime-backtest.html">Regime and canary backtest runbook</a></li>
                 <li><a href="../internals/opportunity-research.html">Opportunity research harness</a></li>
-                <li><a href="../internals/gamma-cache.html">Gamma cache design</a></li>
+                <li><a href="../internals/gamma-cache.html">Gamma cache persistence</a></li>
                 <li><a href="../internals/packaging.html">Packaging and distribution</a></li>
               </ul>
             </details>
@@ -102,7 +102,7 @@
       </nav>
     </details>
     <main class="doc">
-<h1 id="agentic-use">Agentic use</h1>
+<h1 id="working-with-agents">Working with agents</h1>
 <p>Updated: 2026-07-25 09:40 CEST</p>
 <p><code>ibkr mcp</code> makes read/status CLI operations and preview-only stock/ETF order drafts available to MCP clients: Claude Code, Claude Desktop, or any other host that speaks the protocol. The same daemon serves the CLI and MCP, and the MCP layer is a thin adapter over the existing RPCs. Official market calendars and stock/ETF quotes are also available; quote resources can be read once or subscribed to for streaming updates.</p>
 <p>For exact tool parameters and JSON envelopes, see the auto-generated <a href="../reference/mcp-tools.html">MCP tools reference</a>. For protocol mechanics, see the upstream <a href="https://modelcontextprotocol.io/">Model Context Protocol spec</a>.</p>

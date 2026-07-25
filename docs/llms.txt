@@ -1,6 +1,6 @@
 # ibkr canary
 
-Updated: 2026-07-25 08:28 CEST
+Updated: 2026-07-25 10:34 CEST
 
 `ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as an MCP server, terminal CLI, Canary app, and Go implementation of the TWS API. AI agents get the full market-data surface (real-time where the user's IBKR market-data subscriptions cover it) plus portfolio context, alongside advisory risk controls the trader writes: a risk-regime dashboard, scheduled canary stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -36,12 +36,12 @@ Do not describe the standard downloads as an order-entry or automated-trading sy
 - [GitHub repository](https://github.com/osauer/ibkr)
 - [Install instructions](https://github.com/osauer/ibkr#install)
 - [Claude Desktop MCPB download](https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb)
-- [Agentic use guide](https://osauer.dev/ibkr/docs/operate/agents.html)
+- [Working with agents](https://osauer.dev/ibkr/docs/operate/agents.html)
 - [CLI reference](https://osauer.dev/ibkr/docs/reference/cli.html)
 - [MCP tools reference](https://osauer.dev/ibkr/docs/reference/mcp-tools.html)
 - [MCP resources reference](https://osauer.dev/ibkr/docs/reference/mcp-resources.html)
 - [Configuration reference](https://osauer.dev/ibkr/docs/reference/config.html)
-- [TWS protocol coverage](https://osauer.dev/ibkr/docs/internals/protocol.html)
+- [TWS wire protocol](https://osauer.dev/ibkr/docs/internals/protocol.html)
 - [Concepts](https://osauer.dev/ibkr/docs/understand/concepts.html)
 - [Sensors](https://osauer.dev/ibkr/docs/understand/sensors.html)
 - [Architecture](https://osauer.dev/ibkr/docs/internals/architecture.html)

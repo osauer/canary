@@ -91,7 +91,12 @@ type pageSpec struct {
 	// will publish once written; published pages derive it from Source.
 	Draft string
 	Page  string
-	// Section keys into sections; NavTitle and Summary drive the handbook index.
+	// Section keys into sections; NavTitle and Summary drive the handbook index
+	// and the navigation tree. NavTitle normally equals the page's H1. The
+	// Reference section is the deliberate exception: its nav labels drop the
+	// word "reference" because the section heading right above them already
+	// says it, while each H1 keeps it because a page title has to stand alone
+	// in a browser tab and a search result.
 	Section  string
 	NavTitle string
 	Summary  string
@@ -376,7 +381,7 @@ var pages = []pageSpec{
 	{
 		Source:      "docs/docs/internals/regime-backtest.md",
 		Section:     "internals",
-		NavTitle:    "Regime backtest runbook",
+		NavTitle:    "Regime and canary backtest runbook",
 		Summary:     "How the regime and canary lifecycle is proven and tuned against point-in-time evidence.",
 		Description: "Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.",
 		Status:      statusPublished,
@@ -393,7 +398,7 @@ var pages = []pageSpec{
 	{
 		Source:      "docs/docs/internals/gamma-cache.md",
 		Section:     "internals",
-		NavTitle:    "Gamma cache design",
+		NavTitle:    "Gamma cache persistence",
 		Summary:     "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
 		Description: "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
 		Status:      statusPublished,

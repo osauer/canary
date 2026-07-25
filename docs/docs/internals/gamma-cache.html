@@ -4,12 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gamma zero-cache persistence | ibkr</title>
+  <title>Gamma cache persistence | ibkr</title>
   <meta name="description" content="Design and invalidation semantics for the daemon&#39;s persistent dealer zero-gamma cache.">
   <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/gamma-cache.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.","headline":"Gamma zero-cache persistence","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/gamma-cache.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.","headline":"Gamma cache persistence","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/gamma-cache.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
@@ -90,9 +90,9 @@
                 <li><a href="storage.html">Storage</a></li>
                 <li><a href="protocol.html">TWS wire protocol</a></li>
                 <li><a href="regime-dashboard.html">Regime dashboard contract</a></li>
-                <li><a href="regime-backtest.html">Regime backtest runbook</a></li>
+                <li><a href="regime-backtest.html">Regime and canary backtest runbook</a></li>
                 <li><a href="opportunity-research.html">Opportunity research harness</a></li>
-                <li><a href="gamma-cache.html" class="is-current" aria-current="page">Gamma cache design</a></li>
+                <li><a href="gamma-cache.html" class="is-current" aria-current="page">Gamma cache persistence</a></li>
                 <li><a href="packaging.html">Packaging and distribution</a></li>
               </ul>
             </details>
@@ -101,7 +101,7 @@
       </nav>
     </details>
     <main class="doc">
-<h1 id="gamma-zero-cache-persistence">Gamma zero-cache persistence</h1>
+<h1 id="gamma-cache-persistence">Gamma cache persistence</h1>
 <p><strong>Status:</strong> Implemented and live since v1.0.0; migrated to the <code>daemon.db</code> authority on 2026-07-20.
 <strong>Created:</strong> 2026-05-22 07:30 CEST
 <strong>Last update:</strong> 2026-07-20
