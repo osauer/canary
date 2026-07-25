@@ -876,7 +876,6 @@ func TestBucketRegimeStage(t *testing.T) {
 		rpc.LifecycleStabilization:   risk.RegimeBucketEarlyWarning,
 		rpc.LifecycleConfirmedStress: risk.RegimeBucketConfirmed,
 		rpc.LifecyclePanic:           risk.RegimeBucketConfirmed,
-		rpc.LifecycleForcedDefense:   risk.RegimeBucketConfirmed,
 		rpc.LifecycleDataQuality:     "", // hold the previous latch
 		"":                           "",
 		"some_future_stage":          risk.RegimeBucketEarlyWarning, // middle, never silently calm

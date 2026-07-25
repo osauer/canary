@@ -362,7 +362,7 @@ func RegimeHeadline(c RegimeComposite, stage string) string {
 
 func stageConfirmsStress(stage string) bool {
 	switch strings.ToLower(strings.TrimSpace(stage)) {
-	case LifecycleConfirmedStress, LifecyclePanic, LifecycleForcedDefense:
+	case LifecycleConfirmedStress, LifecyclePanic:
 		return true
 	default:
 		return false

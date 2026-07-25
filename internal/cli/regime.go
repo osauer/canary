@@ -1222,7 +1222,7 @@ func regimeDataQualityContext(items []rpc.DataQualityHealth) string {
 
 func regimeLifecycleStageConfirmsStress(stage string) bool {
 	switch strings.ToLower(strings.TrimSpace(stage)) {
-	case rpc.LifecycleConfirmedStress, rpc.LifecyclePanic, rpc.LifecycleForcedDefense:
+	case rpc.LifecycleConfirmedStress, rpc.LifecyclePanic:
 		return true
 	default:
 		return false

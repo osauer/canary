@@ -12,7 +12,6 @@ const (
 	LifecycleEarlyWarning    = "early_warning"
 	LifecycleConfirmedStress = "confirmed_stress"
 	LifecyclePanic           = "panic"
-	LifecycleForcedDefense   = "forced_defense"
 	LifecycleStabilization   = "stabilization"
 	LifecycleOpportunity     = "opportunity"
 	LifecycleDataQuality     = "data_quality"
@@ -598,7 +597,7 @@ func regimePostureTone(c RegimeComposite, lifecycle LifecycleState) string {
 	switch lifecycle.Stage {
 	case LifecycleDataQuality:
 		return RegimeToneDataQuality
-	case LifecycleConfirmedStress, LifecycleForcedDefense:
+	case LifecycleConfirmedStress:
 		if severityRank(lifecycle.Severity) <= severityRank("watch") {
 			return RegimeToneWatch
 		}

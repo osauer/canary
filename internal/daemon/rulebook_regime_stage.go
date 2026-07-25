@@ -261,7 +261,7 @@ func bucketRegimeStage(stage string) string {
 		return risk.RegimeBucketCalm
 	case rpc.LifecycleEarlyWarning, rpc.LifecycleStabilization:
 		return risk.RegimeBucketEarlyWarning
-	case rpc.LifecycleConfirmedStress, rpc.LifecyclePanic, rpc.LifecycleForcedDefense:
+	case rpc.LifecycleConfirmedStress, rpc.LifecyclePanic:
 		return risk.RegimeBucketConfirmed
 	case "", rpc.LifecycleDataQuality:
 		return ""

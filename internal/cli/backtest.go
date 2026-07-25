@@ -95,7 +95,6 @@ type CanaryBacktestRowResult struct {
 	EarlyWarning       bool                  `json:"early_warning"`
 	ConfirmedStress    bool                  `json:"confirmed_stress"`
 	Panic              bool                  `json:"panic"`
-	ForcedDefense      bool                  `json:"forced_defense"`
 	Stabilization      bool                  `json:"stabilization"`
 	Opportunity        bool                  `json:"opportunity"`
 	RegimeOnlyWatch    bool                  `json:"regime_only_watch"`
@@ -275,10 +274,10 @@ type BacktestLifecycleMetrics struct {
 	ConfirmedStressMiss                 int      `json:"confirmed_stress_miss"`
 	ConfirmedStressPrecision            *float64 `json:"confirmed_stress_precision,omitempty"`
 	ConfirmedStressRecall               *float64 `json:"confirmed_stress_recall,omitempty"`
-	PanicOrForcedDefense                int      `json:"panic_or_forced_defense"`
-	PanicOrForcedDefenseTruePositive    int      `json:"panic_or_forced_defense_true_positive"`
-	PanicOrForcedDefenseMiss            int      `json:"panic_or_forced_defense_miss"`
-	PanicOrForcedDefenseRecall          *float64 `json:"panic_or_forced_defense_recall,omitempty"`
+	PanicCount                          int      `json:"panic_count"`
+	PanicTruePositive                   int      `json:"panic_true_positive"`
+	PanicMiss                           int      `json:"panic_miss"`
+	PanicRecall                         *float64 `json:"panic_recall,omitempty"`
 	Stabilization                       int      `json:"stabilization"`
 	Opportunity                         int      `json:"opportunity"`
 	StabilizationOpportunityFalseStarts int      `json:"stabilization_opportunity_false_starts"`
@@ -303,8 +302,8 @@ type BacktestEventMetrics struct {
 	ConfirmedStressMiss          int      `json:"confirmed_stress_miss_events"`
 	ConfirmedStressPrecision     *float64 `json:"confirmed_stress_precision,omitempty"`
 	ConfirmedStressRecall        *float64 `json:"confirmed_stress_recall,omitempty"`
-	PanicOrForcedDefenseEvents   int      `json:"panic_or_forced_defense_events"`
-	PanicOrForcedDefenseRecall   *float64 `json:"panic_or_forced_defense_recall,omitempty"`
+	PanicEvents                  int      `json:"panic_events"`
+	PanicRecall                  *float64 `json:"panic_recall,omitempty"`
 }
 
 // CanaryBacktestRegimeLift compares canary watch recall with the regime-only
@@ -1325,7 +1324,6 @@ func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestR
 		EarlyWarning:       stage == rpc.LifecycleEarlyWarning,
 		ConfirmedStress:    stage == rpc.LifecycleConfirmedStress,
 		Panic:              stage == rpc.LifecyclePanic,
-		ForcedDefense:      stage == rpc.LifecycleForcedDefense,
 		Stabilization:      stage == rpc.LifecycleStabilization,
 		Opportunity:        stage == rpc.LifecycleOpportunity,
 		RegimeOnlyWatch:    regimeWatch,
@@ -2914,7 +2912,7 @@ func regimeBacktestLifecycleMetrics(rows []RegimeBacktestRowResult) BacktestLife
 			daysToStress:       row.DaysToStress,
 			earlyWarning:       row.EarlyWarning,
 			confirmedStress:    row.ConfirmedStress || row.Panic,
-			panicForcedDefense: row.Panic,
+			isPanic:            row.Panic,
 			stabilization:      row.Stabilization,
 			opportunity:        row.Opportunity,
 			dataQualityBlocked: row.LifecycleStage == rpc.LifecycleDataQuality,
@@ -2934,8 +2932,8 @@ func canaryBacktestLifecycleMetrics(rows []CanaryBacktestRowResult) BacktestLife
 			targetScope:        row.TargetScope,
 			daysToStress:       row.DaysToStress,
 			earlyWarning:       row.EarlyWarning,
-			confirmedStress:    row.ConfirmedStress || row.Panic || row.ForcedDefense,
-			panicForcedDefense: row.Panic || row.ForcedDefense,
+			confirmedStress:    row.ConfirmedStress || row.Panic,
+			isPanic:            row.Panic,
 			stabilization:      row.Stabilization,
 			opportunity:        row.Opportunity,
 			dataQualityBlocked: row.Blocked || row.LifecycleStage == rpc.LifecycleDataQuality,
@@ -2953,7 +2951,7 @@ type lifecycleMetricInput struct {
 	daysToStress       *int
 	earlyWarning       bool
 	confirmedStress    bool
-	panicForcedDefense bool
+	isPanic            bool
 	stabilization      bool
 	opportunity        bool
 	dataQualityBlocked bool
@@ -2987,8 +2985,8 @@ func (a *lifecycleMetricAccumulator) add(row lifecycleMetricInput) {
 	if row.confirmedStress {
 		a.metrics.ConfirmedStress++
 	}
-	if row.panicForcedDefense {
-		a.metrics.PanicOrForcedDefense++
+	if row.isPanic {
+		a.metrics.PanicCount++
 	}
 	if row.stabilization {
 		a.metrics.Stabilization++
@@ -3020,10 +3018,10 @@ func (a *lifecycleMetricAccumulator) add(row lifecycleMetricInput) {
 		a.metrics.ConfirmedStressFalsePositive++
 	}
 	switch {
-	case majorStress && row.panicForcedDefense:
-		a.metrics.PanicOrForcedDefenseTruePositive++
+	case majorStress && row.isPanic:
+		a.metrics.PanicTruePositive++
 	case majorStress:
-		a.metrics.PanicOrForcedDefenseMiss++
+		a.metrics.PanicMiss++
 	}
 	if row.targetStress && (row.stabilization || row.opportunity) {
 		a.metrics.StabilizationOpportunityFalseStarts++
@@ -3037,7 +3035,7 @@ func (a *lifecycleMetricAccumulator) result() BacktestLifecycleMetrics {
 	m.EarlyWarningMedianLeadDays = medianIntPtr(a.earlyLeadDays)
 	m.ConfirmedStressPrecision = ratioPtr(m.ConfirmedStressTruePositive, m.ConfirmedStressTruePositive+m.ConfirmedStressFalsePositive)
 	m.ConfirmedStressRecall = ratioPtr(m.ConfirmedStressTruePositive, m.TargetStress)
-	m.PanicOrForcedDefenseRecall = ratioPtr(m.PanicOrForcedDefenseTruePositive, m.MajorStress)
+	m.PanicRecall = ratioPtr(m.PanicTruePositive, m.MajorStress)
 	return m
 }
 
@@ -3063,26 +3061,26 @@ func canaryBacktestEventMetrics(rows []CanaryBacktestRowResult) BacktestEventMet
 		if events[key] == nil {
 			events[key] = &eventMetricAccumulator{}
 		}
-		watch := row.EarlyWarning || row.ConfirmedStress || row.Panic || row.ForcedDefense || row.DefensiveWatch || row.RebalanceWatch
-		confirmed := row.ConfirmedStress || row.Panic || row.ForcedDefense
-		events[key].add(row.TargetStress, watch, confirmed, row.Panic || row.ForcedDefense, majorStressTarget(row.TargetKind, row.MaxSPYDrawdownPct, row.VIXShockPct))
+		watch := row.EarlyWarning || row.ConfirmedStress || row.Panic || row.DefensiveWatch || row.RebalanceWatch
+		confirmed := row.ConfirmedStress || row.Panic
+		events[key].add(row.TargetStress, watch, confirmed, row.Panic, majorStressTarget(row.TargetKind, row.MaxSPYDrawdownPct, row.VIXShockPct))
 	}
 	return eventMetricsResult(events)
 }
 
 type eventMetricAccumulator struct {
-	targetStress       bool
-	watch              bool
-	confirmedStress    bool
-	panicForcedDefense bool
-	majorStress        bool
+	targetStress    bool
+	watch           bool
+	confirmedStress bool
+	isPanic         bool
+	majorStress     bool
 }
 
-func (e *eventMetricAccumulator) add(targetStress, watch, confirmedStress, panicForcedDefense, majorStress bool) {
+func (e *eventMetricAccumulator) add(targetStress, watch, confirmedStress, isPanic, majorStress bool) {
 	e.targetStress = e.targetStress || targetStress
 	e.watch = e.watch || watch
 	e.confirmedStress = e.confirmedStress || confirmedStress
-	e.panicForcedDefense = e.panicForcedDefense || panicForcedDefense
+	e.isPanic = e.isPanic || isPanic
 	e.majorStress = e.majorStress || majorStress
 }
 
@@ -3101,8 +3099,8 @@ func eventMetricsResult(events map[string]*eventMetricAccumulator) BacktestEvent
 		if e.confirmedStress {
 			m.ConfirmedStressEvents++
 		}
-		if e.panicForcedDefense {
-			m.PanicOrForcedDefenseEvents++
+		if e.isPanic {
+			m.PanicEvents++
 		}
 		switch {
 		case e.targetStress && e.watch:
@@ -3132,11 +3130,11 @@ func eventMetricsResult(events map[string]*eventMetricAccumulator) BacktestEvent
 			continue
 		}
 		majorEvents++
-		if e.panicForcedDefense {
+		if e.isPanic {
 			panicTP++
 		}
 	}
-	m.PanicOrForcedDefenseRecall = ratioPtr(panicTP, majorEvents)
+	m.PanicRecall = ratioPtr(panicTP, majorEvents)
 	return m
 }
 
@@ -4116,7 +4114,7 @@ func renderCanaryBacktestText(env *Env, out io.Writer, r *CanaryBacktestResult) 
 		"Lifecycle",
 		formatBacktestRate(r.Lifecycle.ConfirmedStressPrecision),
 		formatBacktestRate(r.Lifecycle.ConfirmedStressRecall),
-		formatBacktestRate(r.Lifecycle.PanicOrForcedDefenseRecall),
+		formatBacktestRate(r.Lifecycle.PanicRecall),
 		r.Lifecycle.StabilizationOpportunityFalseStarts,
 	)
 	fmt.Fprintf(out, "  %-12s watch precision %s · recall %s · confirmed precision %s · recall %s\n",
@@ -4224,7 +4222,7 @@ func renderRegimeBacktestText(env *Env, out io.Writer, r *RegimeBacktestResult) 
 	)
 	fmt.Fprintf(out, "  %-12s panic recall %s · stabilization/opportunity false starts %d\n",
 		"Lifecycle",
-		formatBacktestRate(r.Lifecycle.PanicOrForcedDefenseRecall),
+		formatBacktestRate(r.Lifecycle.PanicRecall),
 		r.Lifecycle.StabilizationOpportunityFalseStarts,
 	)
 	fmt.Fprintf(out, "  %-12s watch precision %s · recall %s · confirmed precision %s · recall %s\n",

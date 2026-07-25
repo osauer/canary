@@ -279,7 +279,7 @@ approval):
 - **Regime conditionality (rules 3/4/12).** The daemon latches the regime
   lifecycle stage on every regime snapshot, buckets it (quiet/opportunity →
   calm; early_warning/stabilization → early_warning; confirmed_stress/
-  panic/forced_defense → confirmed; data_quality holds the previous latch;
+  panic → confirmed; data_quality holds the previous latch;
   unrecognized future stages take the MIDDLE bucket, never silently calm)
   and persists it as a versioned daemon.db state document so a restart
   mid-stress cannot reset thresholds to calm. Stage older than
