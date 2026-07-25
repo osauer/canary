@@ -1,6 +1,13 @@
-// Command docs-html renders the public HTML twins from their Markdown sources.
-// Markdown is the only prose authority; the checked-in HTML exists because the
-// current GitHub Pages setup publishes docs/ as static files.
+// Command docs-html renders the public documentation site from its Markdown
+// sources. Markdown is the only prose authority; the checked-in HTML exists
+// because the current GitHub Pages setup publishes docs/ as static files.
+//
+// The manifest below owns three things at once: which Markdown file backs each
+// public page, where that page lives on the site, and how the handbook index at
+// /ibkr/docs/ is organised. Adding a page is one manifest entry plus a source
+// file. Source layout in the repository is deliberately decoupled from the
+// public URL, so docs/ can stay organised for maintainers while the site stays
+// organised for readers.
 package main
 
 import (
@@ -24,88 +31,404 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-const publicBaseURL = "https://osauer.dev/ibkr/"
+const (
+	publicBaseURL = "https://osauer.dev/ibkr/"
+	// hubOutput is the handbook index. The site root is docs/, so the public
+	// /ibkr/docs/ prefix lands at docs/docs/ on disk.
+	hubOutput = "docs/docs/index.html"
+	hubHref   = "docs/"
+)
+
+// pageStatus separates pages that render from pages that are only announced on
+// the handbook index. A planned page has no HTML output and never reaches the
+// sitemap, so nothing thin is ever indexed.
+type pageStatus string
+
+const (
+	statusPublished pageStatus = "published"
+	statusPlanned   pageStatus = "planned"
+)
+
+type sectionSpec struct {
+	Slug  string
+	Title string
+	Blurb string
+}
+
+// sections run from "get it running" to "how it is built". Order is the
+// reading order on the handbook index.
+var sections = []sectionSpec{
+	{
+		Slug:  "start",
+		Title: "Start",
+		Blurb: "Install ibkr, point it at a gateway and an MCP host, and confirm the desk is live.",
+	},
+	{
+		Slug:  "operate",
+		Title: "Operate",
+		Blurb: "The daily loop: briefs, agent sessions, the paired app, order previews, protection, and reconciliation.",
+	},
+	{
+		Slug:  "understand",
+		Title: "Understand",
+		Blurb: "What the numbers measure, when they can be trusted, and who sets the limits they are measured against.",
+	},
+	{
+		Slug:  "reference",
+		Title: "Reference",
+		Blurb: "Command, tool, and configuration lookups. Most of this is generated from the code it documents.",
+	},
+	{
+		Slug:  "internals",
+		Title: "Under the hood",
+		Blurb: "For readers who want the design: processes, typed contracts, storage, the wire protocol, and packaging.",
+	},
+}
 
 type pageSpec struct {
-	Source      string
+	// Source is the Markdown authority. Empty for planned pages.
+	Source string
+	// Draft points at the repository stub that holds the scope of a planned
+	// page. It is never rendered and never served.
+	Draft string
+	// Output is the public HTML path, relative to the repository root.
+	Output string
+	// Section keys into sections; NavTitle and Summary drive the handbook index.
+	Section  string
+	NavTitle string
+	Summary  string
+	// Description is the meta description of the rendered page.
 	Description string
 	Layout      string
+	// SocialImage is site-root relative.
 	SocialImage string
+	Status      pageStatus
+	// Legacy lists paths that used to serve this page. Each one is rendered as
+	// a redirect stub so old links and search results keep working.
+	Legacy []string
 }
 
-func (p pageSpec) output() string {
-	return strings.TrimSuffix(p.Source, ".md") + ".html"
-}
+func (p pageSpec) planned() bool { return p.Status == statusPlanned }
 
 var pages = []pageSpec{
+	// ---- Start -------------------------------------------------------------
 	{
-		Source:      "docs/architecture.md",
-		Description: "System architecture, protocols, external data flows, process boundaries, and local persistence for ibkr Canary.",
-		Layout:      "architecture",
-		SocialImage: "diagrams/system-architecture.png",
+		Section:  "start",
+		Output:   "docs/docs/start/install.html",
+		NavTitle: "Install and first run",
+		Summary:  "Prerequisites, the four install paths, and the first commands that prove the gateway is reachable.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/start-install.md",
 	},
 	{
-		Source:      "docs/policies.md",
-		Description: "Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.",
-		Layout:      "architecture",
-		SocialImage: "diagrams/policy-lifecycle.png",
+		Section:  "start",
+		Output:   "docs/docs/start/hosts.html",
+		NavTitle: "Connect an MCP host",
+		Summary:  "Wiring Claude Desktop, Claude Code, Cursor, and Zed to the local server, and checking the connection.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/start-hosts.md",
 	},
 	{
-		Source:      "docs/database.md",
-		Description: "How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.",
-		Layout:      "architecture",
-		SocialImage: "diagrams/storage-overview.png",
-	},
-	{
-		Source:      "docs/sensors.md",
-		Description: "How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.",
-		Layout:      "architecture",
-		SocialImage: "diagrams/sensor-authority-pipeline.png",
-	},
-	{
-		Source:      "docs/concepts.md",
-		Description: "What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.",
-	},
-	{
-		Source:      "docs/design/gamma-zero-cache-persistence.md",
-		Description: "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
-	},
-	{
-		Source:      "docs/guides/agentic-use.md",
-		Description: "Practical agentic workflows, limits, and examples for using ibkr through an MCP host.",
-	},
-	{
-		Source:      "docs/guides/marketplace-readiness.md",
-		Description: "Maintainer checklist for packaging, trust, documentation, and release readiness in AI tool marketplaces.",
+		Section:  "start",
+		Output:   "docs/docs/start/first-session.html",
+		NavTitle: "Your first session",
+		Summary:  "A guided half hour: read the account, quote a symbol, run a brief, and interpret what comes back.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/start-first-session.md",
 	},
 	{
 		Source:      "docs/guides/updating.md",
+		Section:     "start",
+		Output:      "docs/docs/start/updating.html",
+		NavTitle:    "Updating",
+		Summary:     "Update the binary, the Desktop extension, S&P 500 membership, calendars, and local process state.",
 		Description: "How to update the ibkr binary, Desktop extension, S&P 500 membership, calendars, and local process state.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/guides/updating.html"},
 	},
 	{
-		Source:      "docs/reference/config.md",
-		Description: "Generated reference for ibkr TOML configuration, policy files, runtime platform settings, and environment variables.",
+		Section:  "start",
+		Output:   "docs/docs/start/troubleshooting.html",
+		NavTitle: "Troubleshooting",
+		Summary:  "Gateway not reachable, stale quotes, a daemon that will not start, and the logs that answer each one.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/start-troubleshooting.md",
+	},
+
+	// ---- Operate -----------------------------------------------------------
+	{
+		Section:  "operate",
+		Output:   "docs/docs/operate/daily-desk.html",
+		NavTitle: "The daily desk",
+		Summary:  "A working routine from the morning brief through regime, canary, and rules to the end-of-day read.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/operate-daily-desk.md",
 	},
 	{
-		Source:      "docs/reference/mcp-resources.md",
-		Description: "Reference for the non-tool resources exposed by ibkr mcp, including live quote subscriptions.",
+		Source:      "docs/guides/agentic-use.md",
+		Section:     "operate",
+		Output:      "docs/docs/operate/agents.html",
+		NavTitle:    "Working with agents",
+		Summary:     "Workflows, limits, and worked examples for driving ibkr from an MCP host.",
+		Description: "Practical agentic workflows, limits, and examples for using ibkr through an MCP host.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/guides/agentic-use.html"},
+	},
+	{
+		Source:      "docs/guides/mobile-app.md",
+		Section:     "operate",
+		Output:      "docs/docs/operate/app.html",
+		NavTitle:    "The paired app",
+		Summary:     "Running ibkr app, pairing a phone, the event stream, and opt-in canary push notifications.",
+		Description: "How the ibkr app process serves the paired PWA, owns pairing, streams events, and sends opt-in canary notifications.",
+		Status:      statusPublished,
+	},
+	{
+		Section:  "operate",
+		Output:   "docs/docs/operate/alerts.html",
+		NavTitle: "Alerts and notifications",
+		Summary:  "What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/operate-alerts.md",
+	},
+	{
+		Source:      "docs/guides/trading-preview.md",
+		Section:     "operate",
+		Output:      "docs/docs/operate/orders.html",
+		NavTitle:    "Order previews and the trading build",
+		Summary:     "The read-only default, what an order preview does and does not do, and the separate opt-in trading build.",
+		Description: "The read-only default in ibkr, what the order preview surface does, and how the separate experimental trading build is configured.",
+		Status:      statusPublished,
+	},
+	{
+		Section:  "operate",
+		Output:   "docs/docs/operate/protection.html",
+		NavTitle: "Protection and emergency exits",
+		Summary:  "Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/operate-protection.md",
+	},
+	{
+		Section:  "operate",
+		Output:   "docs/docs/operate/reconciliation.html",
+		NavTitle: "Reconciliation",
+		Summary:  "Matching broker statement flows against the declared capital ledger, and handling the lines that will not match.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/operate-reconciliation.md",
+	},
+
+	// ---- Understand --------------------------------------------------------
+	{
+		Source:      "docs/concepts.md",
+		Section:     "understand",
+		Output:      "docs/docs/understand/concepts.html",
+		NavTitle:    "Concepts",
+		Summary:     "Calendars, regime, canary, market events, protective stops, gamma, and breadth in one mental model.",
+		Description: "What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.",
+		Layout:      "architecture",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/concepts.html"},
+	},
+	{
+		Source:      "docs/sensors.md",
+		Section:     "understand",
+		Output:      "docs/docs/understand/sensors.html",
+		NavTitle:    "Sensors",
+		Summary:     "How each measurement establishes authority and freshness, and how a gap fails closed instead of guessing.",
+		Description: "How ibkr Gamma, Regime, Canary, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.",
+		Layout:      "architecture",
+		SocialImage: "diagrams/sensor-authority-pipeline.png",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/sensors.html"},
+	},
+	{
+		Source:      "docs/policies.md",
+		Section:     "understand",
+		Output:      "docs/docs/understand/policy.html",
+		NavTitle:    "Trading policy",
+		Summary:     "Who decides the risk boundaries, what the daemon evaluates, and what never becomes submit authority.",
+		Description: "Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.",
+		Layout:      "architecture",
+		SocialImage: "diagrams/policy-lifecycle.png",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/policies.html"},
+	},
+	{
+		Section:  "understand",
+		Output:   "docs/docs/understand/rulebook.html",
+		NavTitle: "The rulebook",
+		Summary:  "The fourteen advisory rules, what each one is protecting against, and how a breach is reported.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/understand-rulebook.md",
+	},
+	{
+		Section:  "understand",
+		Output:   "docs/docs/understand/risk-policy.html",
+		NavTitle: "Writing a risk policy",
+		Summary:  "Turning a personal risk mandate into the policy file: limits, drawdown ladder, overrides, and review.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/understand-risk-policy.md",
+	},
+	{
+		Section:  "understand",
+		Output:   "docs/docs/understand/market-data.html",
+		NavTitle: "Market data and entitlements",
+		Summary:  "Which subscriptions produce real-time data, what delayed and frozen mean, and how freshness is reported.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/understand-market-data.md",
+	},
+	{
+		Section:  "understand",
+		Output:   "docs/docs/understand/glossary.html",
+		NavTitle: "Glossary",
+		Summary:  "One place for the terms the other pages assume: NLV, R-multiple, zero gamma, last-good, fingerprint.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/understand-glossary.md",
+	},
+
+	// ---- Reference ---------------------------------------------------------
+	{
+		Section:  "reference",
+		Output:   "docs/docs/reference/cli.html",
+		NavTitle: "CLI reference",
+		Summary:  "Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/reference-cli.md",
 	},
 	{
 		Source:      "docs/reference/mcp-tools.md",
+		Section:     "reference",
+		Output:      "docs/docs/reference/mcp-tools.html",
+		NavTitle:    "MCP tools",
+		Summary:     "Every tool exposed by ibkr mcp, with parameters and invocation guidance. Generated from the registry.",
 		Description: "Generated reference for every tool exposed by ibkr mcp, including parameters and invocation guidance.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/reference/mcp-tools.html"},
+	},
+	{
+		Source:      "docs/reference/mcp-resources.md",
+		Section:     "reference",
+		Output:      "docs/docs/reference/mcp-resources.html",
+		NavTitle:    "MCP resources",
+		Summary:     "The non-tool resources, including the live quote subscription URI template.",
+		Description: "Reference for the non-tool resources exposed by ibkr mcp, including live quote subscriptions.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/reference/mcp-resources.html"},
+	},
+	{
+		Source:      "docs/reference/config.md",
+		Section:     "reference",
+		Output:      "docs/docs/reference/config.html",
+		NavTitle:    "Configuration",
+		Summary:     "TOML configuration, policy files, runtime platform settings, and environment variables.",
+		Description: "Generated reference for ibkr TOML configuration, policy files, runtime platform settings, and environment variables.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/reference/config.html"},
+	},
+	{
+		Section:  "reference",
+		Output:   "docs/docs/reference/releases.html",
+		NavTitle: "Releases and support",
+		Summary:  "Version scheme, what a release contains, how signatures are verified, and which versions are supported.",
+		Status:   statusPlanned,
+		Draft:    "docs/drafts/reference-releases.md",
+	},
+
+	// ---- Under the hood ----------------------------------------------------
+	{
+		Source:      "docs/architecture.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/architecture.html",
+		NavTitle:    "Architecture",
+		Summary:     "Runtime processes, typed contracts, external data flows, state ownership, and deployment boundaries.",
+		Description: "System architecture, protocols, external data flows, process boundaries, and local persistence for ibkr Canary.",
+		Layout:      "architecture",
+		SocialImage: "diagrams/system-architecture.png",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/architecture.html"},
+	},
+	{
+		Source:      "docs/database.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/storage.html",
+		NavTitle:    "Storage",
+		Summary:     "Why the daemon uses SQLite, how the data model follows from its job, and how state survives a restart.",
+		Description: "How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.",
+		Layout:      "architecture",
+		SocialImage: "diagrams/storage-overview.png",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/database.html"},
 	},
 	{
 		Source:      "docs/reference/protocol.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/protocol.html",
+		NavTitle:    "TWS wire protocol",
+		Summary:     "Coverage and semantic fingerprints for the clean-room Go implementation of the TWS protocol.",
 		Description: "Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.",
-	},
-	{
-		Source:      "docs/specs/regime-backtest-plan.md",
-		Description: "Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/reference/protocol.html"},
 	},
 	{
 		Source:      "docs/specs/risk-regime-dashboard.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/regime-dashboard.html",
+		NavTitle:    "Regime dashboard contract",
+		Summary:     "Source quality, cluster logic, lifecycle decisions, and the backtest that has to pass before a change ships.",
 		Description: "Contract for the broad-market regime dashboard, source quality, cluster logic, lifecycle decisions, and backtesting.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/specs/risk-regime-dashboard.html"},
 	},
+	{
+		Source:      "docs/specs/regime-backtest-plan.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/regime-backtest.html",
+		NavTitle:    "Regime backtest runbook",
+		Summary:     "How the regime and canary lifecycle is proven and tuned against point-in-time evidence.",
+		Description: "Runbook for proving and tuning the ibkr regime and Canary lifecycle against point-in-time evidence.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/specs/regime-backtest-plan.html"},
+	},
+	{
+		Source:      "docs/guides/opportunity-research-harness.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/opportunity-research.html",
+		NavTitle:    "Opportunity research harness",
+		Summary:     "The diagnostic harness for testing candidate strategies against point-in-time evidence before trusting them.",
+		Description: "The diagnostic harness that captures point-in-time evidence, scores later outcomes, and reports whether a candidate strategy is still too weak to trust.",
+		Status:      statusPublished,
+	},
+	{
+		Source:      "docs/design/gamma-zero-cache-persistence.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/gamma-cache.html",
+		NavTitle:    "Gamma cache design",
+		Summary:     "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
+		Description: "Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/design/gamma-zero-cache-persistence.html"},
+	},
+	{
+		Source:      "docs/guides/marketplace-readiness.md",
+		Section:     "internals",
+		Output:      "docs/docs/internals/packaging.html",
+		NavTitle:    "Packaging and distribution",
+		Summary:     "The maintainer checklist behind packaging, signing, trust metadata, and marketplace readiness.",
+		Description: "Maintainer checklist for packaging, trust, documentation, and release readiness in AI tool marketplaces.",
+		Status:      statusPublished,
+		Legacy:      []string{"docs/guides/marketplace-readiness.html"},
+	},
+}
+
+// navItems is the one definition of the site navigation. The generated pages
+// render it directly; a test asserts the hand-written landing page carries the
+// same items in the same order, so the two navigations cannot drift.
+var navItems = []struct{ Label, Href string }{
+	{"Documentation", hubHref},
+	{"MCP tools", "docs/reference/mcp-tools.html"},
+	{"Remote app beta", "canary-remote/"},
+	{"Feedback", "feedback/"},
+	{"GitHub", "https://github.com/osauer/ibkr"},
 }
 
 type headingInfo struct {
@@ -121,6 +444,7 @@ type templateData struct {
 	RootPrefix      string
 	Layout          string
 	GeneratorNotice template.HTML
+	Nav             template.HTML
 	Body            template.HTML
 	JSONLD          template.JS
 	SocialHead      template.HTML
@@ -144,20 +468,32 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
     <a class="brand" href="{{.RootPrefix}}index.html" aria-label="ibkr canary home"><img src="{{.RootPrefix}}social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
-    <nav class="nav-links" aria-label="Site">
-      <a href="{{.RootPrefix}}index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
-      <a href="{{.RootPrefix}}sensors.html">Sensors</a>
-      <a href="{{.RootPrefix}}reference/mcp-tools.html">MCP tools</a>
-      <a href="{{.RootPrefix}}guides/agentic-use.html">Agent guide</a>
-    </nav>
-  </header>
+{{.Nav}}  </header>
   <main class="wrap doc">
 {{.Body}}  </main>
   <footer>
-    <div class="wrap"><a href="{{.RootPrefix}}index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap"><a href="{{.RootPrefix}}index.html">ibkr</a><a href="{{.RootPrefix}}docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
     <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
+</body>
+</html>
+`))
+
+// The notice is passed as data rather than written inline: html/template
+// strips comments that appear in the template text itself.
+var redirectTemplate = template.Must(template.New("redirect").Parse(`<!doctype html>
+{{.Notice}}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta http-equiv="refresh" content="0; url={{.Target}}">
+  <link rel="canonical" href="{{.Canonical}}">
+  <title>{{.Title}} | ibkr</title>
+</head>
+<body>
+  <p>This page has moved to <a href="{{.Target}}">{{.Title}}</a>.</p>
 </body>
 </html>
 `))
@@ -172,7 +508,10 @@ type siteRenderer struct {
 func newSiteRenderer(root string, tracked map[string]bool) *siteRenderer {
 	generated := make(map[string]string, len(pages))
 	for _, page := range pages {
-		generated[filepath.ToSlash(page.Source)] = filepath.ToSlash(page.output())
+		if page.planned() {
+			continue
+		}
+		generated[filepath.ToSlash(page.Source)] = filepath.ToSlash(page.Output)
 	}
 	return &siteRenderer{
 		root:      root,
@@ -185,6 +524,21 @@ func newSiteRenderer(root string, tracked map[string]bool) *siteRenderer {
 	}
 }
 
+// navHTML renders the shared navigation for a page at the given root prefix.
+func navHTML(rootPrefix string) string {
+	var out strings.Builder
+	out.WriteString("    <nav class=\"nav-links\" aria-label=\"Site\">\n")
+	for _, item := range navItems {
+		href := item.Href
+		if !strings.Contains(href, "://") {
+			href = rootPrefix + href
+		}
+		fmt.Fprintf(&out, "      <a href=\"%s\">%s</a>\n", template.HTMLEscapeString(href), template.HTMLEscapeString(item.Label))
+	}
+	out.WriteString("    </nav>\n")
+	return out.String()
+}
+
 func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	sourcePath := filepath.Join(r.root, filepath.FromSlash(page.Source))
 	source, err := os.ReadFile(sourcePath)
@@ -193,7 +547,7 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	}
 
 	doc := r.markdown.Parser().Parse(text.NewReader(source))
-	headings, err := r.transform(doc, source, page.Source)
+	headings, err := r.transform(doc, source, page)
 	if err != nil {
 		return nil, err
 	}
@@ -215,9 +569,8 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 		bodyHTML = decorateArchitecture(bodyHTML, headings)
 	}
 
-	output := filepath.ToSlash(page.output())
-	webPath := strings.TrimPrefix(output, "docs/")
-	canonical := publicBaseURL + webPath
+	output := filepath.ToSlash(page.Output)
+	canonical := publicBaseURL + strings.TrimPrefix(output, "docs/")
 	rootPrefix := relativeRootPrefix(output)
 
 	jsonLD, err := json.Marshal(map[string]any{
@@ -251,15 +604,15 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 		Canonical:       canonical,
 		RootPrefix:      rootPrefix,
 		Layout:          layout,
-		GeneratorNotice: template.HTML("<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->"),
+		GeneratorNotice: generatorNotice,
+		Nav:             template.HTML(navHTML(rootPrefix)),
 		Body:            template.HTML(bodyHTML), // Goldmark escapes source HTML by default.
 		JSONLD:          template.JS(jsonLD),     // json.Marshal produces valid script data.
 	}
 	if page.SocialImage != "" {
-		imageURL := publicBaseURL + strings.TrimPrefix(filepath.ToSlash(filepath.Join(filepath.Dir(webPath), page.SocialImage)), "./")
 		data.SocialHead = template.HTML(fmt.Sprintf(
 			"<meta property=\"og:type\" content=\"article\">\n  <meta property=\"og:title\" content=\"%s | ibkr\">\n  <meta property=\"og:description\" content=\"%s\">\n  <meta property=\"og:image\" content=\"%s\">\n  <meta name=\"twitter:card\" content=\"summary_large_image\">",
-			template.HTMLEscapeString(data.Title), template.HTMLEscapeString(data.Description), template.HTMLEscapeString(imageURL),
+			template.HTMLEscapeString(data.Title), template.HTMLEscapeString(data.Description), template.HTMLEscapeString(publicBaseURL+page.SocialImage),
 		))
 	}
 
@@ -270,7 +623,110 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (r *siteRenderer) transform(doc ast.Node, source []byte, sourcePath string) ([]headingInfo, error) {
+const generatorNotice = template.HTML("<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->")
+
+const hubDescription = "The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath."
+
+// renderHub builds the handbook index from the manifest. Planned pages appear
+// with their scope but without a link, so a reader can see the whole shape
+// while only finished pages are reachable and indexable.
+func (r *siteRenderer) renderHub() ([]byte, error) {
+	rootPrefix := relativeRootPrefix(hubOutput)
+	hubDir := filepath.Dir(filepath.ToSlash(hubOutput))
+
+	var body strings.Builder
+	body.WriteString("<h1>Documentation</h1>\n")
+	body.WriteString("<p class=\"hub-lead\">Everything written down about running an agentic trading desk on your own Interactive Brokers account. Start at the top if ibkr is new to you; the sections below get progressively closer to the code.</p>\n")
+
+	body.WriteString("<nav class=\"hub-toc\" aria-label=\"Sections\">\n")
+	for _, section := range sections {
+		fmt.Fprintf(&body, "<a href=\"#%s\">%s</a>\n", section.Slug, template.HTMLEscapeString(section.Title))
+	}
+	body.WriteString("</nav>\n")
+
+	for _, section := range sections {
+		fmt.Fprintf(&body, "<section class=\"hub-section\" id=\"%s\">\n", section.Slug)
+		fmt.Fprintf(&body, "<h2>%s</h2>\n", template.HTMLEscapeString(section.Title))
+		fmt.Fprintf(&body, "<p class=\"hub-blurb\">%s</p>\n", template.HTMLEscapeString(section.Blurb))
+		body.WriteString("<ul class=\"hub-list\">\n")
+		for _, page := range pages {
+			if page.Section != section.Slug {
+				continue
+			}
+			title := template.HTMLEscapeString(page.NavTitle)
+			summary := template.HTMLEscapeString(page.Summary)
+			if page.planned() {
+				fmt.Fprintf(&body, "<li class=\"hub-item is-planned\"><span class=\"hub-title\">%s</span><span class=\"hub-summary\">%s</span><span class=\"hub-flag\">Not written yet</span></li>\n", title, summary)
+				continue
+			}
+			href, err := filepath.Rel(hubDir, filepath.ToSlash(page.Output))
+			if err != nil {
+				return nil, err
+			}
+			fmt.Fprintf(&body, "<li class=\"hub-item\"><a href=\"%s\"><span class=\"hub-title\">%s</span><span class=\"hub-summary\">%s</span></a></li>\n",
+				template.HTMLEscapeString(filepath.ToSlash(href)), title, summary)
+		}
+		body.WriteString("</ul>\n</section>\n")
+	}
+
+	canonical := publicBaseURL + hubHref
+	jsonLD, err := json.Marshal(map[string]any{
+		"@context":    "https://schema.org",
+		"@type":       "CollectionPage",
+		"name":        "ibkr documentation",
+		"description": hubDescription,
+		"url":         canonical,
+		"isPartOf": map[string]string{
+			"@type": "SoftwareApplication",
+			"name":  "ibkr",
+			"url":   publicBaseURL,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var out bytes.Buffer
+	err = documentTemplate.Execute(&out, templateData{
+		Title:           "Documentation",
+		Description:     hubDescription,
+		Canonical:       canonical,
+		RootPrefix:      rootPrefix,
+		Layout:          "hub",
+		GeneratorNotice: generatorNotice,
+		Nav:             template.HTML(navHTML(rootPrefix)),
+		Body:            template.HTML(body.String()),
+		JSONLD:          template.JS(jsonLD),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// renderRedirect builds the stub that keeps a retired URL working.
+func renderRedirect(from string, page pageSpec) ([]byte, error) {
+	target, err := filepath.Rel(filepath.Dir(filepath.ToSlash(from)), filepath.ToSlash(page.Output))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	err = redirectTemplate.Execute(&out, struct {
+		Target, Canonical, Title string
+		Notice                   template.HTML
+	}{
+		Target:    filepath.ToSlash(target),
+		Canonical: publicBaseURL + strings.TrimPrefix(filepath.ToSlash(page.Output), "docs/"),
+		Title:     page.NavTitle,
+		Notice:    generatorNotice,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func (r *siteRenderer) transform(doc ast.Node, source []byte, page pageSpec) ([]headingInfo, error) {
 	var headings []headingInfo
 	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -280,17 +736,17 @@ func (r *siteRenderer) transform(doc ast.Node, source []byte, sourcePath string)
 		case *ast.Heading:
 			idValue, ok := n.AttributeString("id")
 			if !ok {
-				return ast.WalkStop, fmt.Errorf("heading in %s has no generated id", sourcePath)
+				return ast.WalkStop, fmt.Errorf("heading in %s has no generated id", page.Source)
 			}
 			id, ok := idValue.([]byte)
 			if !ok {
-				return ast.WalkStop, fmt.Errorf("heading id in %s has unexpected type %T", sourcePath, idValue)
+				return ast.WalkStop, fmt.Errorf("heading id in %s has unexpected type %T", page.Source, idValue)
 			}
 			headings = append(headings, headingInfo{Level: n.Level, ID: string(id), Text: headingText(n, source)})
 		case *ast.Link:
-			n.Destination = r.rewriteDestination(sourcePath, n.Destination)
+			n.Destination = r.rewriteDestination(page, n.Destination)
 		case *ast.Image:
-			n.Destination = r.rewriteDestination(sourcePath, n.Destination)
+			n.Destination = r.rewriteDestination(page, n.Destination)
 		}
 		return ast.WalkContinue, nil
 	})
@@ -299,7 +755,7 @@ func (r *siteRenderer) transform(doc ast.Node, source []byte, sourcePath string)
 
 func headingText(heading *ast.Heading, source []byte) string {
 	var out strings.Builder
-	for i := 0; i < heading.Lines().Len(); i++ {
+	for i := range heading.Lines().Len() {
 		if out.Len() > 0 {
 			out.WriteByte(' ')
 		}
@@ -309,33 +765,34 @@ func headingText(heading *ast.Heading, source []byte) string {
 	return strings.TrimSpace(out.String())
 }
 
-func (r *siteRenderer) rewriteDestination(sourcePath string, destination []byte) []byte {
+// rewriteDestination maps a relative Markdown link onto the published site.
+// Links to another generated page become site-relative paths from this page's
+// output directory; links to a tracked asset under docs/ are recomputed the
+// same way because the asset stays where it is while the page moves; anything
+// else that is tracked in the repository becomes a GitHub blob link.
+func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []byte {
 	raw := string(destination)
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Path == "" || strings.HasPrefix(raw, "#") {
 		return destination
 	}
 
-	resolved := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(sourcePath), filepath.FromSlash(parsed.Path))))
+	outputDir := filepath.Dir(filepath.ToSlash(page.Output))
+	resolved := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(page.Source), filepath.FromSlash(parsed.Path))))
+
 	if output, ok := r.generated[resolved]; ok {
-		rel, err := filepath.Rel(filepath.Dir(strings.TrimSuffix(sourcePath, ".md")+".html"), output)
-		if err == nil {
+		if rel, err := filepath.Rel(outputDir, output); err == nil {
 			parsed.Path = filepath.ToSlash(rel)
 			return []byte(parsed.String())
 		}
 	}
-
-	if !strings.HasPrefix(resolved, "docs/") && r.tracked[resolved] {
-		github := &url.URL{
-			Scheme:   "https",
-			Host:     "github.com",
-			Path:     "/osauer/ibkr/blob/main/" + resolved,
-			RawQuery: parsed.RawQuery,
-			Fragment: parsed.Fragment,
+	if strings.HasPrefix(resolved, "docs/") && !strings.HasSuffix(resolved, ".md") && r.tracked[resolved] {
+		if rel, err := filepath.Rel(outputDir, resolved); err == nil {
+			parsed.Path = filepath.ToSlash(rel)
+			return []byte(parsed.String())
 		}
-		return []byte(github.String())
 	}
-	if strings.HasPrefix(resolved, "docs/") && strings.HasSuffix(resolved, ".md") && r.tracked[resolved] {
+	if r.tracked[resolved] {
 		github := &url.URL{
 			Scheme:   "https",
 			Host:     "github.com",
@@ -409,19 +866,62 @@ func trackedFiles(root string) (map[string]bool, error) {
 }
 
 func validateManifest(tracked map[string]bool) error {
-	declared := map[string]bool{}
+	known := map[string]bool{}
+	for _, section := range sections {
+		known[section.Slug] = true
+	}
+
+	declaredSource := map[string]bool{}
+	declaredOutput := map[string]bool{hubOutput: true}
 	for _, page := range pages {
+		if !known[page.Section] {
+			return fmt.Errorf("page %s has unknown section %q", page.Output, page.Section)
+		}
+		if page.NavTitle == "" || page.Summary == "" {
+			return fmt.Errorf("page %s needs a NavTitle and a Summary for the handbook index", page.Output)
+		}
+		output := filepath.ToSlash(page.Output)
+		if declaredOutput[output] {
+			return fmt.Errorf("duplicate manifest output %s", output)
+		}
+		declaredOutput[output] = true
+
+		if page.planned() {
+			if page.Source != "" {
+				return fmt.Errorf("planned page %s must not declare a Source", output)
+			}
+			if !tracked[filepath.ToSlash(page.Draft)] {
+				return fmt.Errorf("planned page %s has no tracked draft at %s", output, page.Draft)
+			}
+			if tracked[output] {
+				return fmt.Errorf("planned page %s must not have a published file at %s", output, output)
+			}
+			continue
+		}
+
 		source := filepath.ToSlash(page.Source)
-		output := filepath.ToSlash(page.output())
-		if declared[source] {
+		if declaredSource[source] {
 			return fmt.Errorf("duplicate manifest source %s", source)
 		}
-		declared[source] = true
+		declaredSource[source] = true
 		if !tracked[source] {
 			return fmt.Errorf("manifest source is not tracked: %s", source)
 		}
 		if !tracked[output] {
 			return fmt.Errorf("manifest output is not tracked: %s", output)
+		}
+		if page.Description == "" {
+			return fmt.Errorf("published page %s needs a Description", output)
+		}
+		for _, legacy := range page.Legacy {
+			legacy = filepath.ToSlash(legacy)
+			if declaredOutput[legacy] {
+				return fmt.Errorf("duplicate legacy path %s", legacy)
+			}
+			declaredOutput[legacy] = true
+			if !tracked[legacy] {
+				return fmt.Errorf("legacy redirect is not tracked: %s", legacy)
+			}
 		}
 	}
 
@@ -430,7 +930,7 @@ func validateManifest(tracked map[string]bool) error {
 		if !strings.HasPrefix(path, "docs/") || !strings.HasSuffix(path, ".md") {
 			continue
 		}
-		if tracked[strings.TrimSuffix(path, ".md")+".html"] && !declared[path] {
+		if tracked[strings.TrimSuffix(path, ".md")+".html"] && !declaredSource[path] {
 			undeclared = append(undeclared, path)
 		}
 	}
@@ -443,6 +943,9 @@ func validateManifest(tracked map[string]bool) error {
 
 func writeAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
@@ -463,40 +966,72 @@ func writeAtomic(path string, data []byte) error {
 	return os.Rename(tmpPath, path)
 }
 
-func run(root string, check bool) error {
+// artifact pairs a repository-relative output path with its rendered bytes.
+type artifact struct {
+	path string
+	data []byte
+}
+
+func (r *siteRenderer) artifacts() ([]artifact, error) {
+	out := make([]artifact, 0, len(pages)+8)
+	for _, page := range pages {
+		if page.planned() {
+			continue
+		}
+		data, err := r.render(page)
+		if err != nil {
+			return nil, fmt.Errorf("render %s: %w", page.Source, err)
+		}
+		out = append(out, artifact{filepath.ToSlash(page.Output), data})
+		for _, legacy := range page.Legacy {
+			stub, err := renderRedirect(legacy, page)
+			if err != nil {
+				return nil, fmt.Errorf("redirect %s: %w", legacy, err)
+			}
+			out = append(out, artifact{filepath.ToSlash(legacy), stub})
+		}
+	}
+	hub, err := r.renderHub()
+	if err != nil {
+		return nil, fmt.Errorf("render hub: %w", err)
+	}
+	return append(out, artifact{hubOutput, hub}), nil
+}
+
+func run(root string, check bool) (int, error) {
 	tracked, err := trackedFiles(root)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := validateManifest(tracked); err != nil {
-		return err
+		return 0, err
 	}
 	renderer := newSiteRenderer(root, tracked)
+	items, err := renderer.artifacts()
+	if err != nil {
+		return 0, err
+	}
 	var stale []string
-	for _, page := range pages {
-		want, err := renderer.render(page)
-		if err != nil {
-			return fmt.Errorf("render %s: %w", page.Source, err)
-		}
-		output := filepath.Join(root, filepath.FromSlash(page.output()))
+	for _, item := range items {
+		target := filepath.Join(root, filepath.FromSlash(item.path))
 		if check {
-			got, err := os.ReadFile(output)
+			got, err := os.ReadFile(target)
 			if err != nil {
-				return err
+				return 0, err
 			}
-			if !bytes.Equal(got, want) {
-				stale = append(stale, page.output())
+			if !bytes.Equal(got, item.data) {
+				stale = append(stale, item.path)
 			}
 			continue
 		}
-		if err := writeAtomic(output, want); err != nil {
-			return fmt.Errorf("write %s: %w", page.output(), err)
+		if err := writeAtomic(target, item.data); err != nil {
+			return 0, fmt.Errorf("write %s: %w", item.path, err)
 		}
 	}
 	if len(stale) > 0 {
-		return fmt.Errorf("generated HTML is stale: %s; run make docs-html-regen", strings.Join(stale, ", "))
+		return 0, fmt.Errorf("generated HTML is stale: %s; run make docs-html-regen", strings.Join(stale, ", "))
 	}
-	return nil
+	return len(items), nil
 }
 
 func main() {
@@ -507,13 +1042,14 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if err := run(absRoot, *check); err != nil {
+	count, err := run(absRoot, *check)
+	if err != nil {
 		fatal(err)
 	}
 	if *check {
-		fmt.Printf("docs-html-check: %d generated page(s) match Markdown sources\n", len(pages))
+		fmt.Printf("docs-html-check: %d generated file(s) match Markdown sources\n", count)
 	} else {
-		fmt.Printf("docs-html-regen: generated %d page(s)\n", len(pages))
+		fmt.Printf("docs-html-regen: generated %d file(s)\n", count)
 	}
 }
 

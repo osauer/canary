@@ -157,7 +157,56 @@ footer .fineprint { margin-top: 10px; font-size: 13px; opacity: .8; }
 .layout-architecture .secno { margin-right: 12px; color: var(--green); font-size: .62em; font-weight: 800; letter-spacing: .08em; vertical-align: .18em; }
 .layout-architecture .doc p:has(> a > img) { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 .layout-architecture .doc p > a > img { display: block; width: 100%; min-width: 960px; }
+/* The handbook index. Sections are scannable lists rather than cards so a
+   reader can take in five sections and thirty entries without scrolling past
+   decorative boxes. Planned entries carry no link on purpose. */
+.layout-hub .hub-lead { max-width: 720px; font-size: 19px; line-height: 1.55; }
+.layout-hub .hub-toc { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0 8px; }
+.layout-hub .hub-toc a {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-strong);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.layout-hub .hub-toc a:hover { border-color: var(--green); color: var(--green-dark); }
+.layout-hub .hub-section h2 { margin-bottom: 6px; }
+.layout-hub .hub-blurb { max-width: 720px; margin: 0 0 18px; color: var(--muted); }
+.layout-hub .hub-list { margin: 0; padding: 0; list-style: none; }
+.layout-hub .hub-item { margin: 0; border-top: 1px solid var(--line); }
+.layout-hub .hub-item:last-child { border-bottom: 1px solid var(--line); }
+.layout-hub .hub-item > a,
+.layout-hub .hub-item.is-planned {
+  display: grid;
+  grid-template-columns: minmax(210px, 300px) 1fr auto;
+  align-items: baseline;
+  gap: 8px 22px;
+  padding: 14px 4px;
+  text-decoration: none;
+}
+.layout-hub .hub-item > a:hover { background: var(--paper-strong); }
+.layout-hub .hub-title { color: var(--ink); font-size: 17px; font-weight: 700; }
+.layout-hub .hub-item > a:hover .hub-title { color: var(--green-dark); }
+.layout-hub .hub-summary { color: var(--muted); font-size: 15.5px; line-height: 1.5; }
+.layout-hub .hub-item.is-planned .hub-title,
+.layout-hub .hub-item.is-planned .hub-summary { color: #7b869a; }
+.layout-hub .hub-flag {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 @media (max-width: 760px) {
   .layout-architecture .toc ul { grid-template-columns: repeat(2, 1fr); }
+  .layout-hub .hub-item > a,
+  .layout-hub .hub-item.is-planned { grid-template-columns: 1fr; gap: 4px; }
+  .layout-hub .hub-flag { justify-self: start; }
 }

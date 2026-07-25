@@ -2,7 +2,7 @@
 
 Updated: 2026-07-19 19:40 CEST
 
-What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. Start with [Sensors](./sensors.md) for authority, freshness, last-good behavior, and safe checks. Methodology rationale lives in [`docs/specs/`](./specs/); this page is the user's mental model.
+What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. Start with [Sensors](./sensors.md) for authority, freshness, last-good behavior, and safe checks. Methodology rationale lives in the [regime dashboard contract](./specs/risk-regime-dashboard.md); this page is the user's mental model.
 
 ---
 

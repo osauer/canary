@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Experimental trading config | ibkr</title>
+  <meta name="description" content="The read-only default in ibkr, what the order preview surface does, and how the separate experimental trading build is configured.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/orders.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The read-only default in ibkr, what the order preview surface does, and how the separate experimental trading build is configured.","headline":"Experimental trading config","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/orders.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <main class="wrap doc">
+<h1 id="experimental-trading-config">Experimental trading config</h1>
+<p>Updated: 2026-06-13 10:15 CEST</p>
+<p>Stable <code>ibkr</code> is read-only. It can read account and market data, compute risk context, size positions, and preview stock/ETF LMT order drafts without broker submission. It does not place, modify, cancel, or transmit broker orders.</p>
+<p>Trading builds are a separate experimental path. They are provided as-is for explicit operator testing, not as the default product and not as an unattended automation surface.</p>
+<h2 id="read-only-default">Read-Only Default</h2>
+<p>For read-only use, use no config file. With no <code>config.toml</code>, the daemon probes the standard local TWS and IB Gateway ports, auto-detects the account from <code>managedAccounts</code>, and uses client ID <code>15</code>.</p>
+<p>Only create <code>~/.config/ibkr/config.toml</code> when you want active local overrides. Any value in that file is binding. Anything omitted stays auto-detected.</p>
+<h2 id="inactive-trading-config">Inactive Trading Config</h2>
+<p>Keep trading configuration inactive as:</p>
+<pre><code class="language-text">~/.config/ibkr/config.toml.trading
+</code></pre>
+<p>That file is documentation and staging only. The daemon does not load it.</p>
+<p>To activate it, remove the <code>.trading</code> suffix:</p>
+<pre><code class="language-sh">mv ~/.config/ibkr/config.toml.trading ~/.config/ibkr/config.toml
+ibkr restart
+ibkr trading status
+</code></pre>
+<p>Before doing that, verify the pinned account, endpoint, and client ID. Trading config must not rely on account auto-detection.</p>
+<h2 id="required-pins">Required Pins</h2>
+<p>When trading is enabled, the daemon expects these values to be pinned:</p>
+<ul>
+<li><code>[gateway].port</code></li>
+<li><code>[gateway].account</code></li>
+<li><code>[gateway].client_id</code></li>
+<li><code>[trading].mode = &quot;paper&quot;</code> or <code>&quot;live&quot;</code>; absent or <code>&quot;disabled&quot;</code> means no order entry</li>
+</ul>
+<p>Every broker write requires a submit-eligible preview token; this is invariant, not a config switch.</p>
+<p>Paper mode should use a paper endpoint or account, such as TWS paper on <code>7497</code> or a <code>DU...</code> account.</p>
+<p>Live mode requires a live-looking endpoint and account — port <code>4001</code>/<code>7496</code> and a non-<code>DU</code> account — and the pinned account must match what the connected TWS session advertises. That is the whole config gate: the former <code>allow_live</code> / <code>live_ack_account</code> / <code>live_ack_endpoint</code> keys were removed 2026-06-11 (they restated the gateway pins from the same file) and now fail config load with a targeted error if left in place. Pin the account and endpoint deliberately for the session in front of you. Paper-smoke evidence is reported in trading status as context but does not gate live mode: the smoke is enforced in the release pipeline instead (<code>make release</code> runs it at version bump and aborts on failure).</p>
+<h2 id="protection-market-flags">Protection Market Flags</h2>
+<p>Protection proposals consume daemon market-event flags as context and safety gates. The proposal snapshot carries <code>source_fingerprints.market_events</code>, a top-level <code>market_events</code> snapshot, proposal <code>market_flags</code>, and <code>counts.market_flags</code> so UI and agents can tell when active flag changes require proposal revalidation.</p>
+<p>Active <code>halt_regulatory_or_news</code> and active <code>luld_pause</code> are hard blockers for preview/submit. Recent halt/LULD flags remain visible as warning tags and should be paired with fresh quote context before acting.</p>
+<p>Borrow flags are modifier-only. <code>borrow_inventory_tight</code> and <code>borrow_fee_extreme</code> can strengthen context for a proposal that buys to cover an existing short, but they must not create standalone long sells or buy-add proposals. <code>reg_sho_threshold</code> is regulatory context unless paired with an existing reduce/cover proposal.</p>
+<p>User-facing proposal copy should render any reducing short <code>BUY</code> as <code>Buy to cover</code>. Market-event squeeze-like context remains observational in Underlyings; the separate Opportunities panel is limited to daemon-calculated option-exercise opportunities and does not create buy-add or buy-to-open recommendations.</p>
+<h2 id="release-channel">Release Channel</h2>
+<p>Stable release artifacts remain read-only. A professional trading preview should be published as a separate experimental channel with distinct asset names, clear as-is language, its own smoke tests, and no automatic path through <code>ibkr update</code>.</p>
+<p>Do not attach experimental trading tarballs to the stable release namespace until the updater matches stable assets exactly. The stable updater currently expects the normal <code>ibkr-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> shape.</p>
+<p>MCP order writes should stay out of the preview channel unless they have their own explicit review, nonce, audit, and human-confirmation model. CLI/operator testing comes first.</p>
+  </main>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

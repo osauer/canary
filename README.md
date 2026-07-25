@@ -6,7 +6,7 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/ibkr/v2.svg)](https://pkg.go.dev/github.com/osauer/ibkr/v2)
 [![license](https://img.shields.io/github/license/osauer/ibkr)](LICENSE)
 
-[MCP tools](docs/reference/mcp-tools.md) · [MCP resources](docs/reference/mcp-resources.md) · [Configuration](docs/reference/config.md) · [Sensors](docs/sensors.md) · [Rulebook](docs/design/trading-rulebook.md) · [Trading policy](docs/policies.md) · [Storage](docs/database.md) · [Architecture](docs/architecture.md) · [Platform settings](docs/design/platform-settings.md) · [Agentic use](docs/guides/agentic-use.md) · [Mobile app](web/app/README.md)
+**[Documentation](https://osauer.dev/ibkr/docs/)** · [MCP tools](docs/reference/mcp-tools.md) · [MCP resources](docs/reference/mcp-resources.md) · [Configuration](docs/reference/config.md) · [Sensors](docs/sensors.md) · [Rulebook](docs/design/trading-rulebook.md) · [Trading policy](docs/policies.md) · [Storage](docs/database.md) · [Architecture](docs/architecture.md) · [Platform settings](docs/design/platform-settings.md) · [Agentic use](docs/guides/agentic-use.md) · [Mobile app](web/app/README.md)
 
 **Agentic portfolio analysis and trading-research workflows for IBKR MCP, TWS, and IB Gateway.**
 

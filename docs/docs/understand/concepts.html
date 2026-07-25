@@ -1,0 +1,154 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Concepts | ibkr</title>
+  <meta name="description" content="What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/concepts.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.","headline":"Concepts","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/concepts.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="layout-architecture">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <main class="wrap doc">
+<h1 id="concepts">Concepts</h1>
+<p>Updated: 2026-07-19 19:40 CEST</p>
+<p>What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. Start with <a href="sensors.html">Sensors</a> for authority, freshness, last-good behavior, and safe checks. Methodology rationale lives in the <a href="../internals/regime-dashboard.html">regime dashboard contract</a>; this page is the user's mental model.</p>
+<hr>
+<nav class="toc" aria-label="On this page">
+<span class="toc-label">On this page</span>
+<ul>
+<li><a href="#market-calendars"><span class="n">01</span>Market Calendars</a></li>
+<li><a href="#regime"><span class="n">02</span>Regime</a></li>
+<li><a href="#canary"><span class="n">03</span>Canary</a></li>
+<li><a href="#market-events"><span class="n">04</span>Market Events</a></li>
+<li><a href="#protective-stops"><span class="n">05</span>Protective stops</a></li>
+<li><a href="#gamma"><span class="n">06</span>Gamma</a></li>
+<li><a href="#breadth"><span class="n">07</span>Breadth</a></li>
+</ul>
+</nav>
+<h2 id="market-calendars"><span class="secno" aria-hidden="true">01</span>Market Calendars</h2>
+<p>Market calendars answer a simple but risk-relevant question: <em>is this market supposed to be trading right now, and if not, when does the official session resume?</em></p>
+<p>The first release is deliberately narrow and official-source only:</p>
+<ul>
+<li><strong>US equities</strong> (<code>us</code> / <code>us-equity</code>): regular NYSE/Nasdaq-style cash-equity sessions, holidays, and early closes.</li>
+<li><strong>US listed options</strong> (<code>us-options</code>): regular listed-options sessions. This is a separate calendar because options have their own close window and holiday schedule surface. Per-class global hours, SPX/VIX extended sessions, curb trading, and exercise/settlement nuance are not modeled in v1.</li>
+<li><strong>German Xetra equities</strong> (<code>de</code> / <code>de-xetra</code>): Deutsche Boerse Xetra cash-equity sessions and non-trading days. Frankfurt floor trading and Eurex derivatives are not modeled in v1.</li>
+</ul>
+<p>Other markets and asset classes are therefore only partly supported today. Futures, FX, crypto, bonds, Eurex, and exchange-specific derivatives calendars should be treated as out of scope unless a result explicitly names a supported market.</p>
+<p>Calendars are embedded official schedules, not IBKR overlays. The official exchange calendar is binding for this feature; IBKR quote state still matters for entitlement, routing, and farm-health issues, but it is not used to redefine whether the exchange is open. This keeps cold starts instant and avoids a runtime dependency on remote calendar files. The tradeoff is explicit coverage: the response includes <code>coverage_start</code> / <code>coverage_end</code>, <code>days</code> is capped at 400 calendar days, and dates outside embedded coverage return <code>state: &quot;unknown&quot;</code> rather than guessing from weekdays.</p>
+<p><code>ibkr quote</code> adds a <code>session_context</code> block only when it helps explain stale/frozen/missing data. During an ordinary live regular session with prices present, quote output stays quiet.</p>
+<hr>
+<h2 id="regime"><span class="secno" aria-hidden="true">02</span>Regime</h2>
+<p>The eight-row risk-regime dashboard summarizes <em>the market's current posture</em> in one snapshot. It emits a broad-market lifecycle stage (<code>quiet</code>, <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>, <code>opportunity</code>, or <code>data_quality</code>) plus source health and semantic fingerprints for monitors. Each row measures a different stress channel; together they distinguish &quot;ordinary chop&quot; from &quot;regime shift in progress.&quot;</p>
+<p>The rows:</p>
+<ol>
+<li><strong>VIX term structure</strong> (VIX vs VIX3M). Backwardation (short-dated vol pricing above 3-month vol) is the stress fingerprint. The deeper and more sustained the inversion, the bigger the dislocation.</li>
+<li><strong>VVIX vol-of-vol</strong>. Cboe's VIX-of-VIX reading catches convexity demand inside the equity-vol cluster.</li>
+<li><strong>HYG vs SPY divergence</strong>. High-yield credit (HYG) leads equity selloffs on the way down; a HYG breakdown while SPY is still near highs is the classic late-cycle warning.</li>
+<li><strong>HY/IG OAS</strong>. Official ICE BofA cash-credit spreads via FRED are slower than HYG but harder to dismiss as ETF noise.</li>
+<li><strong>Funding spread</strong>. 90-day AA financial commercial paper minus 3-month T-bill flags slow funding/liquidity pressure.</li>
+<li><strong>USD/JPY weekly move</strong>. JPY funding-pair unwinds are a recurring stress amplifier (Aug 2024, Dec 2018, Jan 2016). A &gt;3% week is a Tier-1 signal.</li>
+<li><strong>Dealer zero-gamma</strong> (SPX canonical, SPY corroboration). Whether the dealer book stabilizes or amplifies day-over-day moves. See the <a href="#gamma">Gamma</a> section.</li>
+<li><strong>S&amp;P 500 breadth</strong>. Whether the index's strength is broad or carried by a handful of mega-caps. See the <a href="#breadth">Breadth</a> section.</li>
+</ol>
+<p>Each row carries raw measurements, status/as-of metadata, green / yellow / red banding, and a <code>streak</code> field counting consecutive sessions in the current band; a Day-1 stress event reads differently from a Day-5 one. The lifecycle layer keeps weak or unconfirmed red evidence visible while preventing a single noisy proxy from dominating the broad-market trigger.</p>
+<p>Two failure modes worth flagging on the wire:</p>
+<ul>
+<li>Gamma and breadth are heavy computes. Gamma may return <code>status: &quot;computing&quot;</code> with an ETA when no serveable result exists; during options RTH, a served result refreshes in the background after 15 minutes. On a fresh daemon, breadth returns <code>state: &quot;computing&quot;</code> while the constituent fan-out runs (~60 min cold).</li>
+<li>Live IBKR rows may carry a <code>fields_missing</code> array for optional sub-fields that didn't land within the fetch budget. The primary measurement still landed; treat <code>fields_missing</code> as a render hint, not an error.</li>
+</ul>
+<p>The full methodology spec is at <a href="../internals/regime-dashboard.html"><code>docs/specs/risk-regime-dashboard.md</code></a>. Use it when calibrating your own threshold bands; the spec's suggestions are starting points, not gospel.</p>
+<hr>
+<h2 id="canary"><span class="secno" aria-hidden="true">03</span>Canary</h2>
+<p>The portfolio canary is narrower than regime: it asks whether today's market weather matters for the portfolio currently held in the account. It consumes account, positions, and regime snapshots, then emits <code>action</code>, <code>market_confirmation</code>, <code>portfolio_fit</code>, <code>input_health</code>, planner readiness, source health, and a semantic alert fingerprint for monitor dedupe.</p>
+<p>The high-precision rule is intentional: broad-market stress must be confirmed by market evidence, not by the user's own losses or margin pressure. Account-only facts and portfolio-only facts can appear as evidence, but <code>defend</code> requires confirmed market pressure, vulnerable portfolio fit, and usable input health. Portfolio-only pressure normally becomes <code>rebalance</code> or <code>watch</code>.</p>
+<p><code>portfolio.held_stress[]</code> is the positions-only single-name stress surface. It is bounded to material held underlyings and appears only when an existing position shows one of these conditions:</p>
+<ul>
+<li>held-name daily P&amp;L shock as a percent of NLV</li>
+<li>near-expiry held-option delta concentration</li>
+<li>held-name stock quote or option bid/ask degradation</li>
+</ul>
+<p>Canary does not call option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It consumes the daemon's market-event context for held-name tags and alert fingerprints, but those flags remain context/safety gates rather than standalone execution advice. For deeper diagnosis, use <code>ibkr_positions</code>, <code>ibkr_regime</code>, <code>ibkr_market_events</code>, or <code>ibkr_account</code>; canary is the alert boundary, not the investigation.</p>
+<hr>
+<h2 id="market-events"><span class="secno" aria-hidden="true">04</span>Market Events</h2>
+<p>Market events answer a single-name context question: <em>does this held or requested stock/ETF have borrow, threshold-list, LULD, or halt evidence that should affect risk review or protection proposals?</em></p>
+<p>V1 flags are reduce-only context and gates. They can annotate, prioritize, or block an existing protection proposal, but they never create buy-to-open, buy-add, or squeeze-style opportunity recommendations. The separate Opportunities surface is daemon-calculated from positions and executable market data; its MVP bucket is option exercise only. When a <code>BUY</code> proposal reduces an existing short, the user-facing copy is <code>Buy to cover</code>.</p>
+<p>The five V1 flags are:</p>
+<ul>
+<li><code>borrow_inventory_tight</code>: IBKR shortable-share inventory crossed the V1 tight/scarce thresholds. This strengthens buy-to-cover context for existing shorts and is observational for long holdings.</li>
+<li><code>borrow_fee_extreme</code>: the current global IBKR short-stock availability file reports an annualized fee rate of at least 50%. This is emitted only from current, policy-eligible FTP evidence, never inferred from low inventory or emitted/cleared from stale data. If a due FTP refresh is unusable, the daemon can inspect exact currently held short-stock contracts through TWS historical <code>FEE_RATE</code>; those rows are explicitly portfolio-only, nullable, scale-unverified, and policy-ineligible until a controlled broker fixture commissions the numeric scale.</li>
+<li><code>reg_sho_threshold</code>: the symbol appears on the Nasdaq Reg SHO threshold list. V1 names the source scope explicitly; non-Nasdaq listing-exchange threshold feeds are outside coverage, so absence is not universal non-threshold proof.</li>
+<li><code>luld_pause</code>: a Nasdaq trade-halt reason indicates an active or recent LULD pause. Active LULD blocks proposal preview/submit; recent LULD is a warning requiring fresh quote context.</li>
+<li><code>halt_regulatory_or_news</code>: a regulatory/news halt is active or recent. Active halts are hard blockers; recent halts are warning tags.</li>
+</ul>
+<p>Unknown and null mean unavailable, not false or zero. Source health reports whether each feed is <code>ok</code>, <code>partial</code>, <code>stale</code>, <code>unknown</code>, or <code>degraded</code>; stale/unknown source health must stay visible because it changes how much confidence absence of a flag deserves. <code>borrow_fee_coverage[]</code> additionally distinguishes global FTP coverage from exact-contract, held-short-only TWS context and names entitlement/scale/policy eligibility directly.</p>
+<p>Rule 201 / short-sale restriction is not a V1 protection driver. If added later, it should be context-only unless the order path is directly short-sale relevant.</p>
+<p><code>ibkr market-events --symbol GME --json</code> evaluates explicit symbols. Omitting symbols evaluates held stock/ETF underlyings, which requires a usable positions snapshot from the daemon/gateway.</p>
+<hr>
+<h2 id="protective-stops"><span class="secno" aria-hidden="true">05</span>Protective stops</h2>
+<p>A protective stop is only protective while it matches the position. Sell part of the position somewhere else, in TWS for instance, and the stop keeps its old size. If it then triggers, it closes what is left and opens the remainder in the opposite direction. The daemon treats that state as critical: the paired app shows the row in red with the consequence spelled out, one push notification goes to the phone, and the row offers a single fix that reduces the stop to the quantity still held. The fix runs through the normal preview and confirm flow. The daemon re-reads the live position at both steps and refuses when position evidence is missing or has moved. Nothing is adjusted automatically.</p>
+<p>The order journal underneath heals itself. After every reconnect, and every 30 minutes, the daemon asks the broker for its actual open-order list; journaled orders the broker no longer reports are closed locally as <code>closed_reconciled</code>. A cancel or fill that happened while the daemon was offline can no longer leave a stale &quot;open&quot; row behind.</p>
+<hr>
+<h2 id="gamma"><span class="secno" aria-hidden="true">06</span>Gamma</h2>
+<p>Dealer zero-gamma is the spot price at which the aggregate options-dealer book switches from amplifying market moves (short-gamma, below zero) to stabilizing them (long-gamma, above zero). It's a regime hint, not a precision level, but the qualitative state matters for short-horizon risk.</p>
+<p><code>ibkr_gamma</code> and the regime row's indicator 4 both compute from IBKR's option chains using the Perfiliev convention (dealers long calls, short puts), summed across the 6 nearest non-0DTE-post-settlement expirations at ±10% strike width. Two key methodology choices:</p>
+<ol>
+<li>
+<p><strong>Sticky-moneyness skew</strong> (<code>bs-gamma-profile-v3-stickymoneyness-0dte-split</code>). The spot sweep reprices each leg's IV at the scenario-spot's <em>moneyness</em> via a per-expiry quadratic skew curve fitted at snapshot time: sticky-moneyness rather than sticky-IV. Without this, the put-side skew biases zero-gamma estimates upward by 5–10%.</p>
+</li>
+<li>
+<p><strong>SPX/SPXW is the production signal; SPY is corroboration</strong>. SPX index options are the canonical dealer-gamma book for the S&amp;P 500 regime signal. SPY (continuous ETF, retail flow) is useful context when its option surface is fresh and high quality, but missing or throttled SPY does not downgrade an otherwise fresh, rankable SPX result. When both books are usable, the diagnostic is <strong>disagreement</strong>: one book stabilizing while the other amplifies. The classifier reports <code>&quot;agree:long-gamma&quot;</code>, <code>&quot;agree:short-gamma&quot;</code>, <code>&quot;agree:transition-gamma&quot;</code>, or <code>&quot;disagree&quot;</code> directly so consumers don't have to derive it. A crossing is long/transition/short based on spot's distance from the identified γ-zero, not merely the existence of a crossing.</p>
+</li>
+</ol>
+<p>Two complementary outputs on every result:</p>
+<ul>
+<li><strong>Signed zero-gamma</strong>: the price level itself, plus a <code>gamma_sign</code> (&quot;positive&quot;/&quot;negative&quot;) describing the dealer book's posture at current spot. The Perfiliev sign convention assumes the standard &quot;dealers long calls, short puts&quot; book; in regimes dominated by covered-call ETF flow or autocall hedging the sign can invert. When those flows dominate, trust the sign less and lean on the magnitude view below.</li>
+<li><strong>Sign-agnostic magnitude</strong>: <code>gamma_total_abs</code> (sum of |Γ|·OI in notional terms) and <code>top_strikes</code> (the largest concentrations regardless of sign). Sign-convention agnostic, so it stays useful when the signed reading is suspect.</li>
+</ul>
+<p>Every ready gamma result also carries <code>quality.rankability</code>:</p>
+<ul>
+<li><code>rankable</code>: fresh and covered enough for <code>regime</code> / <code>canary</code> to count the gamma band as market evidence. A rankable SPX result is stable production signal even when SPY is unavailable and disclosed as context.</li>
+<li><code>context_only</code>: useful structure context, but not independent confirmation.</li>
+<li><code>blocked</code> / <code>unavailable</code>: do not rank gamma or confirm stress from it.</li>
+</ul>
+<p>The quality object records session key, age, coverage, OI observed/positive ratios, horizon coverage, derived-IV share, skew fit quality, strike concentration, and explicit blockers/context notes. Missing OI is unknown, never zero. Priced legs without observed OI may help IV/skew fitting, but they do not contribute OI-weighted GEX.</p>
+<p>Missing 0DTE remains visible in horizon coverage and warnings, but it is not
+alone a no-vote when SPX has healthy 1-7DTE and term coverage.
+After the expiring SPXW series closes, the 0DTE bucket can be absent while the
+broader SPX surface remains usable.</p>
+<p>Compute timing: the first eligible call without a serveable result kicks a multi-minute background job. During options RTH, later calls keep serving the last-good result and trigger one background refresh after 15 minutes; a successful replacement is promoted atomically. Closed-session automatic refresh is suppressed, and the latest completed-session result remains Regime <code>not_due</code> context until the next options open. The cache persists across daemon restarts.</p>
+<p>Full methodology at <a href="../internals/regime-dashboard.html"><code>docs/specs/risk-regime-dashboard.md</code></a>. Cache persistence details are in <a href="../internals/gamma-cache.html"><code>docs/design/gamma-zero-cache-persistence.md</code></a>.</p>
+<hr>
+<h2 id="breadth"><span class="secno" aria-hidden="true">07</span>Breadth</h2>
+<p>S&amp;P 500 breadth tells you whether a rally is broad or narrow, which the index level alone can't. Two readings carry the load:</p>
+<ul>
+<li><strong>% above 50-DMA</strong>: the tactical signal. &gt;55 historically marks healthy uptrends; &lt;40 with SPX at highs is the classic narrow-rally warning sign.</li>
+<li><strong>% above 200-DMA</strong>: the cyclical companion. Tops cleanly when the median name rolls over, even when the index is still being held up by mega-caps.</li>
+</ul>
+<p>The daemon also reports 52-week new-highs / new-lows counts and the derived <code>net_new_highs_pct</code>. The &quot;SPX near highs with net_new_highs_pct near zero or negative&quot; pattern is the most reliable narrow-rally fingerprint.</p>
+<p>IBKR doesn't redistribute S&amp;P DJI's official breadth indices on retail subscriptions, so the daemon computes all three locally from the 500 constituent daily closes pulled via IBKR's historical-bar feed (methodology token: <code>constituent-fanout-50/200dma+nh-v2</code>). A once-daily post-close refresh (16:35 ET) slides each name's window forward.</p>
+<p><strong>Cold-start budget</strong>: the first request against a fresh daemon takes ~60 minutes; IBKR's historical-data pacing caps the constituent fan-out at ~6 names/min sustained. The response carries <code>state: &quot;computing&quot;</code> until done; after cold-start, the cache persists across daemon restarts and every subsequent call is instant.</p>
+<p>The constituent list itself is also refreshed at runtime; see <a href="../start/updating.html#updating-the-sp-500-list--automatic">Updating</a> for the cadence and pinning options. Threshold derivation is left to the consumer; suggestions are in the spec.</p>
+<p>S&amp;P 500 only today: NDX, RUT, sector-specific, and single-stock breadth are not supported.</p>
+  </main>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

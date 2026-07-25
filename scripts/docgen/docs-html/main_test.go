@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"html"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -20,11 +22,66 @@ func TestManifestCoversTrackedTwins(t *testing.T) {
 	if err := validateManifest(tracked); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(pages), 15; got != want {
+	if got, want := len(pages), 32; got != want {
 		t.Fatalf("manifest has %d pages, want %d", got, want)
 	}
 }
 
+// The landing page is hand-written with its own inline CSS, so the only thing
+// stopping its navigation from drifting away from the generated pages is this
+// test. It checks the shared items appear in order; the landing may add its
+// own entries around them, such as the Install anchor.
+func TestLandingPageCarriesSharedNav(t *testing.T) {
+	landing, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := string(landing)
+	for _, item := range navItems {
+		want := fmt.Sprintf("<a href=%q>%s</a>", item.Href, item.Label)
+		index := strings.Index(rest, want)
+		if index < 0 {
+			t.Fatalf("docs/index.html is missing the shared nav entry %s, or has it out of order", want)
+		}
+		rest = rest[index+len(want):]
+	}
+}
+
+// Every published page has to be in the sitemap and every retired URL has to be
+// out of it. Without this the sitemap silently rots each time a page moves.
+func TestSitemapMatchesPublishedPages(t *testing.T) {
+	sitemap, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "sitemap.xml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(sitemap)
+	want := []string{publicBaseURL + hubHref}
+	var forbidden []string
+	for _, page := range pages {
+		if page.planned() {
+			continue
+		}
+		want = append(want, publicBaseURL+strings.TrimPrefix(filepath.ToSlash(page.Output), "docs/"))
+		for _, legacy := range page.Legacy {
+			forbidden = append(forbidden, publicBaseURL+strings.TrimPrefix(filepath.ToSlash(legacy), "docs/"))
+		}
+	}
+	for _, loc := range want {
+		if !strings.Contains(body, "<loc>"+loc+"</loc>") {
+			t.Errorf("docs/sitemap.xml is missing %s", loc)
+		}
+	}
+	for _, loc := range forbidden {
+		if strings.Contains(body, "<loc>"+loc+"</loc>") {
+			t.Errorf("docs/sitemap.xml still lists the retired URL %s", loc)
+		}
+	}
+}
+
+// Source layout and public URL are decoupled, so a relative link in Markdown is
+// resolved against the source directory and then re-expressed relative to the
+// output directory. Assets stay where they are while pages move, which is the
+// case most likely to break silently.
 func TestRewriteDestination(t *testing.T) {
 	renderer := newSiteRenderer(repoRoot(t), map[string]bool{
 		"SECURITY.md":                  true,
@@ -33,18 +90,19 @@ func TestRewriteDestination(t *testing.T) {
 		"docs/diagrams/example.svg":    true,
 		"docs/design/internal-only.md": true,
 	})
+	page := pageSpec{Source: "docs/guides/updating.md", Output: "docs/docs/start/updating.html"}
 	cases := map[string]string{
 		"../reference/config.md?view=full#limits": "../reference/config.html?view=full#limits",
 		"../../SECURITY.md#release-integrity":     "https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity",
 		"../design/internal-only.md#details":      "https://github.com/osauer/ibkr/blob/main/docs/design/internal-only.md#details",
-		"../diagrams/example.svg":                 "../diagrams/example.svg",
+		"../diagrams/example.svg":                 "../../diagrams/example.svg",
 		"../../LOCAL.md":                          "../../LOCAL.md",
 		"#reference":                              "#reference",
 		"https://example.com/a.md#x":              "https://example.com/a.md#x",
 	}
 	for input, want := range cases {
 		t.Run(input, func(t *testing.T) {
-			got := string(renderer.rewriteDestination("docs/guides/updating.md", []byte(input)))
+			got := string(renderer.rewriteDestination(page, []byte(input)))
 			if got != want {
 				t.Fatalf("rewriteDestination(%q) = %q, want %q", input, got, want)
 			}

@@ -655,11 +655,11 @@
     <a class="brand" href="https://osauer.dev/ibkr/" aria-label="ibkr canary home"><img src="social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
     <nav class="nav-links" aria-label="Page">
       <a href="#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
-      <a href="reference/mcp-tools.html">MCP tools</a>
+      <a href="docs/">Documentation</a>
+      <a href="docs/reference/mcp-tools.html">MCP tools</a>
       <a href="canary-remote/">Remote app beta</a>
       <a href="feedback/">Feedback</a>
-      <a href="guides/agentic-use.html">Agent guide</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
     </nav>
   </header>
 
@@ -675,7 +675,7 @@
           <a class="button primary" href="claude-desktop-interactive-brokers/">Claude Desktop Install</a>
           <a class="button" href="#install">Install other clients</a>
           <a class="button" href="https://github.com/osauer/ibkr">View on GitHub</a>
-          <a class="button" href="reference/mcp-tools.html">Read MCP tools</a>
+          <a class="button" href="docs/reference/mcp-tools.html">Read MCP tools</a>
         </div>
         <p class="install-note">For Claude Desktop, use the MCPB install page, restart Claude, and keep IB Gateway or TWS running locally. The shell and Claude Code paths are there when you want one shared binary.</p>
         <p class="disclaimer">ibkr is analysis software, not financial advice. Nothing it shows or says is a recommendation to buy or sell any security.</p>
@@ -759,12 +759,12 @@ ibkr setup claude-desktop
         </article>
         <article class="feature">
           <small>Discipline</small>
-          <h3><a href="sensors.html#rulebook">A 14-rule trading rulebook</a></h3>
+          <h3><a href="docs/understand/sensors.html#rulebook">A 14-rule trading rulebook</a></h3>
           <p>A daily checklist over the live book: concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity. Missing data degrades to unknown, never to a false pass. Advisory throughout.</p>
         </article>
         <article class="feature">
           <small>Risk policy</small>
-          <h3><a href="policies.html">A risk policy you write yourself</a></h3>
+          <h3><a href="docs/understand/policy.html">A risk policy you write yourself</a></h3>
           <p><code>ibkr policy</code> reads a file you author: protected equity floor, declared risk capital, drawdown ladder. There are no default numbers in code, and nothing it reports ever blocks an order. Terminal only.</p>
         </article>
         <article class="feature">
@@ -893,28 +893,28 @@ ibkr setup claude-desktop
 
     <section class="wrap" aria-labelledby="desk-references-title">
       <div class="section-head">
-        <h2 id="desk-references-title">Desk references.</h2>
-        <p>Four visual, code-grounded references explain the platform boundary, sensor evidence, human trading decisions, and the durable data beneath operator workflows and analytics.</p>
+        <h2 id="desk-references-title">Documentation.</h2>
+        <p>The <a href="docs/">handbook</a> runs from installing ibkr through the daily desk routine, how to read each measurement, the generated command and tool references, and the system design underneath. Four pages carry most of the weight.</p>
       </div>
       <div class="feature-grid">
         <article class="feature">
           <small>System</small>
-          <h3><a href="architecture.html">Architecture</a></h3>
+          <h3><a href="docs/internals/architecture.html">Architecture</a></h3>
           <p>Runtime processes, typed contracts, broker and external-data flows, state ownership, and deployment boundaries.</p>
         </article>
         <article class="feature">
           <small>Human decisions</small>
-          <h3><a href="policies.html">Trading policy</a></h3>
+          <h3><a href="docs/understand/policy.html">Trading policy</a></h3>
           <p>Who decides risk boundaries, what ibkr evaluates today, how controls change, and what never becomes submit authority.</p>
         </article>
         <article class="feature">
           <small>State and evidence</small>
-          <h3><a href="database.html">Storage</a></h3>
+          <h3><a href="docs/internals/storage.html">Storage</a></h3>
           <p>Why the daemon uses SQLite, how the data model follows from its job, how changes become durable, and where the design must evolve.</p>
         </article>
         <article class="feature">
           <small>Measurements</small>
-          <h3><a href="sensors.html">Sensors</a></h3>
+          <h3><a href="docs/understand/sensors.html">Sensors</a></h3>
           <p>What Gamma, Regime, Canary, Rulebook, and market events measure, when their evidence is fresh, and how gaps fail closed.</p>
         </article>
       </div>
@@ -997,10 +997,10 @@ ibkr setup claude-desktop
       <p><strong>Independent third-party project.</strong> "Interactive Brokers", "IBKR", "TWS", and "IB Gateway" are trademarks or registered trademarks of Interactive Brokers Group, Inc. or its affiliates. This project is not built, endorsed, sponsored, or supported by Interactive Brokers Group, Inc. or its affiliates. <strong>Not financial advice.</strong> ibkr is analysis software; nothing on this site or in its output is a recommendation to buy or sell any security. Trading decisions are yours.</p>
       <div class="footer-links">
         <a href="https://www.linkedin.com/in/osauer/">Oliver Sauer</a>
-        <a href="architecture.html">Architecture</a>
-        <a href="policies.html">Trading policy</a>
-        <a href="database.html">Storage</a>
-        <a href="sensors.html">Sensors</a>
+        <a href="docs/">Documentation</a>
+        <a href="docs/internals/architecture.html">Architecture</a>
+        <a href="docs/understand/policy.html">Trading policy</a>
+        <a href="docs/understand/sensors.html">Sensors</a>
         <a href="https://github.com/osauer/ibkr">GitHub</a>
         <a href="feedback/">Feedback</a>
         <a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a>

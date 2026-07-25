@@ -44,8 +44,8 @@
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
       <a href="https://github.com/osauer/ibkr">GitHub</a>
-      <a href="../reference/mcp-tools.html">MCP tools</a>
-      <a href="../guides/agentic-use.html">Agent guide</a>
+      <a href="../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
   </header>
   <main class="wrap doc">
@@ -89,7 +89,7 @@ ibkr setup claude-desktop</code></pre>
 <li>Market scanners, fixed-fractional position sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, broad-market regime lifecycle, and the <code>ibkr_canary</code> portfolio-aware stress-lifecycle tool.</li>
 <li>Streaming stock and ETF quote resources through <code>ibkr://quote/{symbol}</code>.</li>
 </ul>
-<p>The full schema is in the <a href="../reference/mcp-tools.html">MCP tools reference</a> and <a href="../reference/mcp-resources.html">MCP resources reference</a>.</p>
+<p>The full schema is in the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> and <a href="../docs/reference/mcp-resources.html">MCP resources reference</a>.</p>
 <p>For a scheduled stress-monitoring workflow that returns lifecycle stage, readiness, confidence, source health, fingerprints, row table, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_canary_prompt.md">examples/ibkr_portfolio_canary_prompt.md</a>. It is intentionally narrow: it gives the decision surface and leaves notifications or escalation policy to your host workflow.</p>
 <h2 id="current-execution-boundary">Current execution boundary</h2>
 <p>The current bundled CLI and MCP server expose analysis and sizing tools. They do not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If a host asks to buy or sell securities through this MCP server, the correct answer is that the current public server has no order-entry interface.</p>

@@ -1,0 +1,190 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marketplace readiness | ibkr</title>
+  <meta name="description" content="Maintainer checklist for packaging, trust, documentation, and release readiness in AI tool marketplaces.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/packaging.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Maintainer checklist for packaging, trust, documentation, and release readiness in AI tool marketplaces.","headline":"Marketplace readiness","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/packaging.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <main class="wrap doc">
+<h1 id="marketplace-readiness">Marketplace readiness</h1>
+<p>Last reviewed: 2026-07-18 21:37 CEST</p>
+<p>This page is the maintainer checklist for presenting <code>ibkr</code> in AI tool marketplaces and app directories. It is intentionally about packaging, trust, and user expectations; feature details live in the README and reference docs.</p>
+<h2 id="positioning">Positioning</h2>
+<p><code>ibkr</code> is a local platform for running an agentic trading desk on Interactive Brokers, aimed at individual traders who already run IB Gateway or TWS: agents get the full market-data surface (real-time per the user's IBKR market-data subscriptions) and portfolio context, while regime, canary, and rulebook checks stay advisory and risk policy plus statement reconciliation stay operator-owned in the terminal. The clearest marketplace description is:</p>
+<blockquote>
+<p>An agentic trading desk for Interactive Brokers: account, positions, real-time and streaming quotes (per your IBKR market-data subscriptions), official market calendars, option chains, history, technical/relative-strength screens, scans, fixed-fractional sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, a broad-market stress-lifecycle regime dashboard, a 14-rule advisory trading rulebook, and a stateless portfolio canary through a local CLI/MCP server connected to IB Gateway or TWS.</p>
+</blockquote>
+<p>Always include these qualifiers:</p>
+<ul>
+<li>Requires IB Gateway or TWS running locally.</li>
+<li>Requires an IBKR Pro account; IBKR Lite does not include TWS API access.</li>
+<li>The plugin/skill does not ship the binary; users install <code>ibkr</code> separately.</li>
+<li>The Claude Code marketplace source is <code>claude-plugin/</code>, which bundles the
+canonical skill, hooks, and plugin-local <code>.mcp.json</code> for <code>ibkr mcp</code>.</li>
+<li>Current bundled CLI and MCP releases expose analysis, sizing, and preview-only stock/ETF order drafts, but no place/modify/cancel broker-write interface.</li>
+<li>Trading builds, if published, are experimental, as-is, and separate from the stable read-only release channel. Do not promote them through MCP marketplaces until the execution, approval, and safety metadata are reviewed for that channel.</li>
+<li>Data returned by MCP tools can include account-sensitive balances, positions, and P&amp;L.</li>
+</ul>
+<h2 id="anthropic--claude-code">Anthropic / Claude Code</h2>
+<p>Current package:</p>
+<ul>
+<li><code>.claude-plugin/plugin.json</code> describes the plugin.</li>
+<li><code>claude-plugin/.mcp.json</code> declares the Claude Code plugin MCP server.</li>
+<li><code>.claude-plugin/marketplace.json</code> exposes the self-hosted marketplace.</li>
+<li><code>skills/ibkr/SKILL.md</code> teaches Claude the current analysis, sizing, and preview-only workflow.</li>
+<li><code>hooks/hooks.json</code> allows preview/status order reads, blocks broker-write Bash calls, and starts the install/version warning hook.</li>
+<li><code>settings/ibkr.settings.json</code> is the optional global allow/deny template.</li>
+</ul>
+<p>Pre-submit checks:</p>
+<pre><code class="language-sh">claude plugin validate .
+make check
+</code></pre>
+<p>Anthropic's plugin submission guidance says plugins can bundle skills, MCP connectors, hooks, commands, and agents, and recommends clear setup guidance for MCP configuration. It also asks submitters to run plugin validation before submission. The public submission path is documented at <a href="https://claude.com/docs/plugins/submit">https://claude.com/docs/plugins/submit</a>.</p>
+<h2 id="openai--chatgpt-apps">OpenAI / ChatGPT Apps</h2>
+<p>OpenAI's Apps SDK is MCP-based, but ChatGPT app distribution is not the same artifact as a Claude Code plugin. Treat this repo's current Claude plugin as reusable product content, not as an OpenAI-ready package.</p>
+<p>Before submitting to OpenAI, add or decide:</p>
+<ul>
+<li>a ChatGPT app or connector packaging plan using OpenAI's current Apps SDK documentation</li>
+<li>how a local-only IB Gateway dependency will be reached from ChatGPT, for example a supported secure tunnel or a clear &quot;local/developer mode only&quot; installation story</li>
+<li>a privacy policy URL pointing at <a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">PRIVACY.md</a></li>
+<li>a safety statement that no order placement, cancellation, or modification exists</li>
+<li>setup text covering IB Gateway/TWS prerequisites and the local binary install</li>
+<li>screenshots or a short demo focused on the regime lifecycle, stateless canary, and portfolio workflows</li>
+</ul>
+<p>OpenAI's Apps SDK help says app submissions are open, apps are built on MCP, and developers should prepare for safety, privacy, and functionality review, including a clear privacy policy. The current help article is at <a href="https://help.openai.com/en/articles/12515353-build-with-the-apps-sdk">https://help.openai.com/en/articles/12515353-build-with-the-apps-sdk</a>.</p>
+<h2 id="documentation-that-must-stay-in-sync">Documentation That Must Stay In Sync</h2>
+<ul>
+<li>README: first-run install, update path, core feature list, MCP setup, safety.</li>
+<li><a href="../operate/agents.html">Agentic use</a>: natural-language workflows and limits.</li>
+<li><a href="../reference/mcp-tools.html">MCP tools reference</a>: generated from <code>internal/mcp/tools.go</code>.</li>
+<li><a href="../reference/mcp-resources.html">MCP resources reference</a>: quote resource read/subscribe behavior.</li>
+<li><a href="../reference/config.html">Configuration reference</a>: generated from config structs and <code>docgen:env</code> comments.</li>
+<li><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a>: data locality, local files, and third-party host caveat.</li>
+<li><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a>: read-only threat model, release integrity, diagnostic data sensitivity.</li>
+</ul>
+<h2 id="pre-promotion-smoke-list">Pre-Promotion Smoke List</h2>
+<p>Run these before marketplace announcements:</p>
+<pre><code class="language-sh">ibkr --help
+ibkr mcp --help
+ibkr setup --help
+ibkr update --help
+ibkr restart --help
+ibkr calendar --help
+ibkr regime --help
+make docs-regen
+make check
+</code></pre>
+<p>With a gateway available, also run:</p>
+<pre><code class="language-sh">ibkr status
+ibkr account --json
+ibkr positions --json
+ibkr quote SPY --json
+ibkr regime --json
+</code></pre>
+<p>For a Claude Code release, reinstall from the marketplace path and confirm the SessionStart hook is quiet when binary and plugin major.minor match.</p>
+<h2 id="experimental-trading-preview">Experimental Trading Preview</h2>
+<p>The stable marketplace story stays read-only. A trading-capable build should be treated as a separate preview channel, not as a hidden variant of the normal binary.</p>
+<p>Minimum product rules before publishing a trading preview:</p>
+<ul>
+<li>Name the channel and assets distinctly, for example <code>ibkr-trading-preview</code>, so users do not confuse it with stable <code>ibkr</code>.</li>
+<li>Mark the build experimental and provided as-is in README, release notes, download pages, and any CLI status surface that can report the channel.</li>
+<li>Keep trading config inactive as <code>config.toml.trading</code>. Activation requires removing the <code>.trading</code> suffix, verifying pinned account and endpoint fields, and restarting the daemon.</li>
+<li>Publish paper-trading capability before live trading. Live trading needs its own approval, paper-smoke, audit, and rollback story.</li>
+<li>Keep MCP broker writes out of the preview until there is a separate human-confirmation and nonce model for MCP.</li>
+<li>Tighten updater asset matching before attaching experimental tarballs to any release that stable <code>ibkr update</code> can see.</li>
+<li>Run a trading-tag test and smoke matrix separate from the stable read-only release smoke.</li>
+</ul>
+<h2 id="anthropic--claude-desktop-mcpb">Anthropic / Claude Desktop MCPB</h2>
+<p>Anthropic's public distribution surface for <code>.mcpb</code> files is the Claude Connectors Directory, not the open MCP Registry. The open registry at <code>registry.modelcontextprotocol.io</code> is useful metadata distribution, but Anthropic's docs say registry publication does not surface a connector in Claude products; directory submission is a separate review process.</p>
+<p>Current package:</p>
+<ul>
+<li>GitHub release asset: <code>ibkr-vX.Y.Z.mcpb</code>, plus stable <code>ibkr.mcpb</code>.</li>
+<li>MCP Registry metadata: generated to <code>dist/server.json</code> with <code>registryType: &quot;mcpb&quot;</code> and <code>fileSha256</code>.</li>
+<li>Release integrity: both MCPB assets are listed in signed <code>SHA256SUMS</code>; the bundle itself is not code-signed unless <code>mcpb verify dist/ibkr-vX.Y.Z.mcpb</code> succeeds.</li>
+</ul>
+<p>Local gates before submitting:</p>
+<pre><code class="language-sh">npx -y @anthropic-ai/mcpb@2.1.2 validate dist/mcpb/ibkr/manifest.json
+npx -y @anthropic-ai/mcpb@2.1.2 info dist/ibkr-vX.Y.Z.mcpb
+npx -y @anthropic-ai/mcpb@2.1.2 verify dist/ibkr-vX.Y.Z.mcpb
+bin/mcp-publisher validate dist/server.json
+make check
+make smoke
+</code></pre>
+<p>Submission blockers to clear:</p>
+<ul>
+<li>Tool annotations: every MCP tool must expose a human-readable <code>title</code> and <code>readOnlyHint: true</code> in <code>tools/list</code>. This is required by Anthropic's review checklist and should be verified from the built binary, not just source.</li>
+<li>Claude Desktop custom-install smoke: install the <code>.mcpb</code> through Settings -&gt; Extensions -&gt; Advanced settings -&gt; Install Extension, restart Claude Desktop, then call every tool at least once with valid parameters against a paper or live IB Gateway.</li>
+<li>Reviewer test path: Anthropic asks for test credentials and setup instructions. For <code>ibkr</code>, this means either a reviewer-ready IBKR paper setup with TWS API access or a documented reviewer path that Anthropic accepts for local finance tools.</li>
+<li>Branding: provide a store-ready logo/icon and a concise detail-card description. The MCPB manifest should include an <code>icon</code> before broad promotion.</li>
+<li>Platform claim: Claude Desktop's documented primary platforms are macOS and Windows. If native Windows support remains absent, describe the MCPB as macOS-only for Claude Desktop review, and keep Linux as a generic MCPB/client capability only if the target directory accepts it.</li>
+<li>Signing posture: unsigned MCPBs are installable in permissive Claude Desktop configurations, but enterprise admins can require signatures. A trusted code-signing certificate or compatible signing API is needed before advertising the bundle as signed.</li>
+</ul>
+<p>Submission materials:</p>
+<ul>
+<li>Server name: <code>ibkr</code>.</li>
+<li>Tagline: &quot;Agentic Interactive Brokers portfolio analysis and trading research for Claude Desktop.&quot;</li>
+<li>Description: emphasize local-only operation, IB Gateway/TWS prerequisite, IBKR Pro requirement, portfolio review, options diagnostics, market-regime context, current no-order-entry boundary, and account-sensitive outputs.</li>
+<li>Documentation: README install section, <a href="../operate/agents.html">agentic use</a>, <a href="../reference/config.html">configuration reference</a>, and <a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">privacy policy</a>.</li>
+<li>Support: GitHub issues; security through GitHub Private Vulnerability Reporting.</li>
+<li>Capabilities: account, positions, quotes, watchlists, calendars, option chains, history, technical screens, scanners, portfolio review workflows, sizing math, S&amp;P 500 breadth, dealer gamma, broad-market regime lifecycle, stateless portfolio canary; no built-in prompts; quote resource read/subscribe.</li>
+</ul>
+<h2 id="external-mcp-directories">External MCP directories</h2>
+<p>Some directory surfaces are crawler-driven and some still require a maintainer account or manual form. Keep the repo metadata current first, then use the submission pack below for account-gated channels.</p>
+<p>Prepared assets:</p>
+<ul>
+<li><code>server.json</code> for the official MCP Registry release path.</li>
+<li><code>.claude-plugin/plugin.json</code> for Claude Code plugin metadata.</li>
+<li><code>glama.json</code> to identify the authorized Glama maintainer.</li>
+<li>GitHub README, docs, privacy policy, and releases as the product-owned public surfaces.</li>
+</ul>
+<p>Directory notes:</p>
+<ul>
+<li>PulseMCP: prioritize official MCP Registry publication and repo metadata.</li>
+<li>Glama: keep <code>glama.json</code> present, then claim or refresh the GitHub-backed server entry from a maintainer account.</li>
+<li>Smithery: hosted URL publishing is built around remote transports; for this local stdio project, use the official registry metadata and manual listing text unless a hosted bridge is added.</li>
+<li>MCP.so, MCPMarket, MCPpedia, and similar directories: use the submission pack below; most need a maintainer login, GitHub URL, public docs URL, and concise safety language.</li>
+</ul>
+<p>Submission pack:</p>
+<ul>
+<li>Name: <code>ibkr</code>.</li>
+<li>Title: <code>IBKR MCP Server</code>.</li>
+<li>Tagline: &quot;Agentic Interactive Brokers portfolio analysis and trading research through local TWS or IB Gateway.&quot;</li>
+<li>Short description: &quot;Connect Claude Desktop, Claude Code, Cursor, Zed, or another MCP host to a local Interactive Brokers session for portfolio review, exposure analysis, options diagnostics, quotes, scanners, sizing, breadth, dealer gamma, broad-market regime lifecycle, and a stateless portfolio canary.&quot;</li>
+<li>Requirements: IB Gateway 10.37+ or TWS running locally; IBKR Pro account with TWS API access; macOS or Linux binary for the bundled path.</li>
+<li>Current boundary: current public CLI and MCP releases expose analysis, sizing, and preview-only stock/ETF order drafts, but no order placement, modification, cancellation, or broker-transmission interface.</li>
+<li>Target users: semi-professional retail traders using IBKR as capital-markets infrastructure who want agent-assisted review and research on broker-native data.</li>
+<li>Links: <a href="https://github.com/osauer/ibkr">https://github.com/osauer/ibkr</a>, <a href="https://github.com/osauer/ibkr/blob/main/docs/reference/mcp-tools.md">https://github.com/osauer/ibkr/blob/main/docs/reference/mcp-tools.md</a>, <a href="https://github.com/osauer/ibkr/blob/main/docs/guides/agentic-use.md">https://github.com/osauer/ibkr/blob/main/docs/guides/agentic-use.md</a>, <a href="https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb">https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb</a>.</li>
+</ul>
+<p>Publish sequence:</p>
+<ol>
+<li>Release any MCPB-readiness changes through <code>make release RELEASE_VERSION=vX.Y.Z</code>; do not tag or create releases manually.</li>
+<li>After the GitHub Release is published, the <code>registry-publish</code> Actions workflow publishes the open MCP Registry metadata via OIDC. <code>make release</code> polls the public registry for the exact released version for about four minutes and normally completes without local login. If OIDC does not deliver in that window, it falls back to the existing <code>make registry-publish RELEASE_VERSION=vX.Y.Z MCP_PUBLISHER=bin/mcp-publisher</code> device-code flow. Run <code>make registry-publish</code> directly only as a manual heal; be at a browser only if the fallback is needed.</li>
+<li>Submit to Anthropic's Desktop extension submission form from the Claude docs, attaching the public GitHub release asset URL and the submission materials above.</li>
+<li>Wait for Anthropic review. Directory approval, listing slug, and in-product availability are controlled by Anthropic; a successful MCP Registry publish is not a Claude Directory publish.</li>
+</ol>
+  </main>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

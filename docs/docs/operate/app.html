@@ -1,0 +1,183 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mobile App | ibkr</title>
+  <meta name="description" content="How the ibkr app process serves the paired PWA, owns pairing, streams events, and sends opt-in canary notifications.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/app.html">
+  <link rel="icon" type="image/png" href="../../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the ibkr app process serves the paired PWA, owns pairing, streams events, and sends opt-in canary notifications.","headline":"Mobile App","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/app.html"}</script>
+  <link rel="stylesheet" href="../../shared.css">
+</head>
+<body class="layout-standard">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../../docs/">Documentation</a>
+      <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../../canary-remote/">Remote app beta</a>
+      <a href="../../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <main class="wrap doc">
+<h1 id="mobile-app">Mobile App</h1>
+<p>Updated: 2026-07-21 01:15 CEST</p>
+<p>The mobile app layer is served by <code>ibkr app</code>. It is a HyperServe process that
+serves the PWA, owns pairing, streams <code>/api/events</code>, and sends opt-in canary
+push notifications.</p>
+<h2 id="local-run">Local Run</h2>
+<pre><code class="language-sh">ibkr app
+</code></pre>
+<p>In another shell:</p>
+<pre><code class="language-sh">ibkr app pair
+</code></pre>
+<p>Scan the QR code or open the printed pairing URL. The URL contains a short-lived
+pairing id plus nonce, not a durable secret. After the first successful pair,
+the browser keeps a device credential and the app stores a matching device grant
+under the app state directory. Restarting <code>ibkr app</code> clears only the in-memory
+session cookie; the paired device should silently mint a fresh session from that
+device grant.</p>
+<p>The default app bind is LAN-capable (<code>0.0.0.0:8765</code>), so the same app process
+can serve a local browser preview at <code>http://127.0.0.1:8765</code> and a phone at the
+Mac's LAN URL. For a local preview, override only the pairing URL:</p>
+<pre><code class="language-sh">ibkr app pair --public-url http://127.0.0.1:8765 --json
+</code></pre>
+<p>Use plain <code>ibkr app pair</code> for the phone so the running app host's configured
+public URL is used. Do not run the shared app host with <code>--addr 127.0.0.1:8765</code>
+when a phone needs to pair too.</p>
+<h2 id="remote-relay">Remote Relay</h2>
+<p>Remote mode keeps the normal app host local, then opens an outbound connector to
+<code>https://remote.osauer.dev</code>:</p>
+<pre><code class="language-sh">ibkr app --remote
+</code></pre>
+<p>In another shell:</p>
+<pre><code class="language-sh">ibkr app pair
+</code></pre>
+<p>The printed pairing URL uses the relay origin and includes a <code>remote=</code> route id.
+The route id and connector token are persisted locally and resumed across app
+restarts, new builds, and relay-side route expiry: a token-matched resume
+revives the route at the relay, so the route id (and with it every paired
+phone) survives arbitrary Mac downtime as long as the app state directory
+keeps <code>state.json</code>. Registration happens inside the connector loop with
+backoff, so a relay or DNS outage at startup degrades the relay instead of
+killing <code>ibkr app --remote</code>. A new route id is minted only when the relay
+definitively rejects the held credentials, and the app logs that paired
+devices must re-pair.</p>
+<p>Phone-side addressing is double-tracked: the relay sets the
+<code>ibkr_remote_route</code> cookie with a 400-day Max-Age and refreshes it on every
+visit, and the SPA mirrors the route id in <code>localStorage</code>. A navigation that
+arrives without the cookie gets a recovery page that rebuilds it from the
+mirror; a navigation while the Mac connector is down gets an auto-retrying
+wait page instead of raw JSON. The paired device credential itself re-mints
+sessions silently after every app restart, retries transient failures at
+page load, and only shows the &quot;scan a fresh QR code&quot; instruction when the
+app definitively rejected the device.</p>
+<p>Session continuity does not depend on script-visible storage: pairing also
+sets a long-lived HttpOnly <code>ibkr_app_device</code> cookie whose hash is stored on
+the device grant, and the app mints fresh sessions from it. This is what
+keeps an iOS Home Screen install alive; its container inherits Safari's
+cookies but not Safari's localStorage/IndexedDB, so a key-based re-login can
+never run there. Key/secret logins re-provision the cookie, and grants keep
+a capped list of valid cookie hashes so Safari and the installed app (twin
+copies of the same cookie jar) never invalidate each other. Pair in Safari
+first, then Add to Home Screen, so the install snapshot carries the cookie.
+Every auth outcome is logged as <code>ibkr app auth:</code> lines in
+<code>~/Library/Logs/ibkr/app.err.log</code>.</p>
+<p>For an unsupervised app host, an app-only restart can switch remote mode on:</p>
+<pre><code class="language-sh">ibkr restart --app --remote
+</code></pre>
+<p>Do not pass that override to a loaded LaunchAgent: supervised restart rejects
+runtime flag overrides because the loaded plist is authoritative. Install a
+new supervised host in remote mode with:</p>
+<pre><code class="language-sh">ibkr setup app --remote
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.osauer.ibkr-app.plist
+</code></pre>
+<p>To change an already-loaded LaunchAgent, run <code>ibkr setup app --remote</code>, unload
+the existing <code>gui/$(id -u)/com.osauer.ibkr-app</code> job, and bootstrap the rewritten
+plist again. Ordinary later restarts use <code>ibkr restart --app</code> with no <code>--remote</code>
+override; launchd preserves the plist configuration.</p>
+<p>Remote mode needs the Mac, TWS/Gateway, <code>ibkr app --remote</code>, and the Cloudflare
+Worker route to stay up. The app exposes relay connection state in
+<code>/api/bootstrap</code> under <code>relay</code>.</p>
+<h2 id="restart">Restart</h2>
+<pre><code class="language-sh">ibkr restart
+</code></pre>
+<p>On the default daemon socket, this restarts a running app first and only then
+restarts the shared daemon. When the
+<code>com.osauer.ibkr-app</code> LaunchAgent is loaded, the app is restarted through
+<code>launchctl kickstart -k</code>: any unsupervised (orphaned) app process is stopped
+first so launchd can own the app again, and app flag overrides are rejected
+with a pointer to rewrite and reload <code>ibkr setup app</code> because the plist
+arguments win. The loaded job's executable must resolve to the current
+installed <code>ibkr</code> binary. launchd may throttle the respawn for about ten
+seconds; the command waits for a stable supervised PID. Without a loaded LaunchAgent, the unsupervised behavior
+applies: SIGTERM the running app, preserve its flags such as <code>--addr</code>,
+<code>--public-url</code>, <code>--remote</code>, and <code>--state-dir</code>, and start a detached
+replacement. If no app is running, plain <code>ibkr restart</code> leaves the app
+stopped.</p>
+<p>The ordered app and daemon stages are intentionally non-atomic. If the app
+cannot be restarted and verified, the daemon is not touched. If the later
+daemon restart fails, the successful app restart is not rolled back; correct
+the reported daemon failure and rerun <code>ibkr restart</code>.</p>
+<p>Use <code>ibkr restart --app</code> for app-only restart/start workflows, including cases
+where no app is running yet.</p>
+<p><code>ibkr app restart</code> is an alias for <code>ibkr restart --app</code> for the app-focused
+workflow.</p>
+<p>To switch an old local-only app host back to the shared local-preview plus
+phone mode:</p>
+<pre><code class="language-sh">ibkr restart --app --addr 0.0.0.0:8765
+</code></pre>
+<p>When <code>--addr</code> is overridden without <code>--public-url</code>, restart clears any preserved
+app <code>--public-url</code> flag so the app can derive the Mac's LAN URL again.</p>
+<p>For SPA development, use the refresh target so embedded assets and the running
+app host stay in sync:</p>
+<pre><code class="language-sh">make app-refresh
+</code></pre>
+<h2 id="browser-smoke">Browser Smoke</h2>
+<p>To avoid QR-driven manual testing for every frontend issue, run a browser smoke
+against an already-running app:</p>
+<pre><code class="language-sh">make app-smoke
+</code></pre>
+<p>Override the target when the app is on a different address:</p>
+<pre><code class="language-sh">make app-smoke APP_SMOKE_URL=http://127.0.0.1:18765
+</code></pre>
+<p>To test app restart recovery without touching the default app state:</p>
+<pre><code class="language-sh">make app-lifecycle-smoke
+</code></pre>
+<p>The smoke script:</p>
+<ul>
+<li>creates a pairing session through <code>/api/pairing/sessions</code>;</li>
+<li>opens the pairing URL in Playwright;</li>
+<li>optionally removes <code>globalThis.Notification</code> before page load;</li>
+<li>requires a real <code>/api/events</code> SSE snapshot;</li>
+<li>waits for the dashboard;</li>
+<li>clicks the <code>Snapshot</code> debug tool;</li>
+<li>fails on browser page errors or console errors.</li>
+</ul>
+<p>The lifecycle smoke starts an isolated app on <code>127.0.0.1:18765</code>, pairs without
+QR, disables WebCrypto to exercise the local HTTP fallback credential, runs
+<code>ibkr restart --app</code>, and verifies that the same browser context reauthenticates
+and returns to <code>Live</code> with an SSE subscriber. A stale or consumed pairing URL is
+also recoverable after pairing: the SPA strips the one-time pairing query and
+falls through to the saved device credential before asking for a new QR code.</p>
+<p>The script first tries the local Node <code>playwright</code> package, then the Codex
+bundled runtime when available. If Playwright's managed Chromium browser is not
+installed, it falls back to installed Chrome. Outside Codex, install Playwright
+for the local Node environment before running the smoke.</p>
+<p>The Go test gate also includes static compatibility tests for browser globals in
+<code>web/app/app_compat_test.go</code>, so direct unguarded <code>Notification</code> references fail
+under <code>go test ./...</code>.</p>
+<p>For the full SPA development and debugging playbook, including P/L semantics and
+Browser plugin caveats, see <a href="https://github.com/osauer/ibkr/blob/main/docs/guides/canary-spa-dev.md">Canary SPA Development</a>.</p>
+  </main>
+  <footer>
+    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

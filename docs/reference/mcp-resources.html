@@ -4,43 +4,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MCP resources reference | ibkr</title>
-  <meta name="description" content="Reference for the non-tool resources exposed by ibkr mcp, including live quote subscriptions.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/reference/mcp-resources.html">
-  <link rel="icon" type="image/png" href="../social/canary-icon.png">
-
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Reference for the non-tool resources exposed by ibkr mcp, including live quote subscriptions.","headline":"MCP resources reference","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/reference/mcp-resources.html"}</script>
-  <link rel="stylesheet" href="../shared.css">
+  <meta name="robots" content="noindex">
+  <meta http-equiv="refresh" content="0; url=../docs/reference/mcp-resources.html">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/reference/mcp-resources.html">
+  <title>MCP resources | ibkr</title>
 </head>
-<body class="layout-standard">
-  <div class="topline"></div>
-  <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html" aria-label="ibkr canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
-    <nav class="nav-links" aria-label="Site">
-      <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
-      <a href="../sensors.html">Sensors</a>
-      <a href="../reference/mcp-tools.html">MCP tools</a>
-      <a href="../guides/agentic-use.html">Agent guide</a>
-    </nav>
-  </header>
-  <main class="wrap doc">
-<h1 id="mcp-resources-reference">MCP resources reference</h1>
-<p>Last reviewed: 2026-06-11 08:17 CEST</p>
-<p>These are the non-tool resources <code>ibkr mcp</code> exposes to MCP clients. Tools are documented separately in <a href="mcp-tools.html">MCP tools reference</a>.</p>
-<h2 id="ibkrquotesymbol"><code>ibkr://quote/{symbol}</code></h2>
-<p>Live stock / ETF quote resource.</p>
-<p>Use this when an MCP client wants to keep watching one equity or ETF quote without repeatedly calling <code>ibkr_quote</code>. The template is discovered through <code>resources/templates/list</code>.</p>
-<p>Example URI:</p>
-<pre><code class="language-text">ibkr://quote/AAPL
-</code></pre>
-<p><code>resources/read</code> returns a one-off quote snapshot with the same JSON shape as <code>ibkr quote AAPL --json</code>, including the enriched headline <code>price</code>, <code>price_source</code>, previous close, change, ranges, volume/average volume, 20-day average volume/dollar volume, <code>price_as_of</code>, stale flags, and optional <code>session_context</code>.</p>
-<p><code>resources/subscribe</code> returns <code>{}</code> and then streams coalesced tick frames through <code>notifications/resources/updated</code> until the client calls <code>resources/unsubscribe</code> or closes the MCP session. Notification payloads embed a JSON frame in <code>params.contents[].text</code>; the frame shape matches <code>ibkr quote AAPL --watch --json</code>.</p>
-<p>Only stock and ETF symbols are supported. Option contract streaming is not exposed as an MCP resource today; use <code>ibkr_chain</code> or CLI option quotes for option snapshots.</p>
-  </main>
-  <footer>
-    <div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
-  </footer>
+<body>
+  <p>This page has moved to <a href="../docs/reference/mcp-resources.html">MCP resources</a>.</p>
 </body>
 </html>

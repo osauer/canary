@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentation | ibkr</title>
+  <meta name="description" content="The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.">
+  <link rel="canonical" href="https://osauer.dev/ibkr/docs/">
+  <link rel="icon" type="image/png" href="../social/canary-icon.png">
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","description":"The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"name":"ibkr documentation","url":"https://osauer.dev/ibkr/docs/"}</script>
+  <link rel="stylesheet" href="../shared.css">
+</head>
+<body class="layout-hub">
+  <div class="topline"></div>
+  <header class="wrap nav" aria-label="Primary">
+    <a class="brand" href="../index.html" aria-label="ibkr canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <nav class="nav-links" aria-label="Site">
+      <a href="../docs/">Documentation</a>
+      <a href="../docs/reference/mcp-tools.html">MCP tools</a>
+      <a href="../canary-remote/">Remote app beta</a>
+      <a href="../feedback/">Feedback</a>
+      <a href="https://github.com/osauer/ibkr">GitHub</a>
+    </nav>
+  </header>
+  <main class="wrap doc">
+<h1>Documentation</h1>
+<p class="hub-lead">Everything written down about running an agentic trading desk on your own Interactive Brokers account. Start at the top if ibkr is new to you; the sections below get progressively closer to the code.</p>
+<nav class="hub-toc" aria-label="Sections">
+<a href="#start">Start</a>
+<a href="#operate">Operate</a>
+<a href="#understand">Understand</a>
+<a href="#reference">Reference</a>
+<a href="#internals">Under the hood</a>
+</nav>
+<section class="hub-section" id="start">
+<h2>Start</h2>
+<p class="hub-blurb">Install ibkr, point it at a gateway and an MCP host, and confirm the desk is live.</p>
+<ul class="hub-list">
+<li class="hub-item is-planned"><span class="hub-title">Install and first run</span><span class="hub-summary">Prerequisites, the four install paths, and the first commands that prove the gateway is reachable.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item is-planned"><span class="hub-title">Connect an MCP host</span><span class="hub-summary">Wiring Claude Desktop, Claude Code, Cursor, and Zed to the local server, and checking the connection.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item is-planned"><span class="hub-title">Your first session</span><span class="hub-summary">A guided half hour: read the account, quote a symbol, run a brief, and interpret what comes back.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item"><a href="start/updating.html"><span class="hub-title">Updating</span><span class="hub-summary">Update the binary, the Desktop extension, S&amp;P 500 membership, calendars, and local process state.</span></a></li>
+<li class="hub-item is-planned"><span class="hub-title">Troubleshooting</span><span class="hub-summary">Gateway not reachable, stale quotes, a daemon that will not start, and the logs that answer each one.</span><span class="hub-flag">Not written yet</span></li>
+</ul>
+</section>
+<section class="hub-section" id="operate">
+<h2>Operate</h2>
+<p class="hub-blurb">The daily loop: briefs, agent sessions, the paired app, order previews, protection, and reconciliation.</p>
+<ul class="hub-list">
+<li class="hub-item is-planned"><span class="hub-title">The daily desk</span><span class="hub-summary">A working routine from the morning brief through regime, canary, and rules to the end-of-day read.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item"><a href="operate/agents.html"><span class="hub-title">Working with agents</span><span class="hub-summary">Workflows, limits, and worked examples for driving ibkr from an MCP host.</span></a></li>
+<li class="hub-item"><a href="operate/app.html"><span class="hub-title">The paired app</span><span class="hub-summary">Running ibkr app, pairing a phone, the event stream, and opt-in canary push notifications.</span></a></li>
+<li class="hub-item is-planned"><span class="hub-title">Alerts and notifications</span><span class="hub-summary">What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item"><a href="operate/orders.html"><span class="hub-title">Order previews and the trading build</span><span class="hub-summary">The read-only default, what an order preview does and does not do, and the separate opt-in trading build.</span></a></li>
+<li class="hub-item is-planned"><span class="hub-title">Protection and emergency exits</span><span class="hub-summary">Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item is-planned"><span class="hub-title">Reconciliation</span><span class="hub-summary">Matching broker statement flows against the declared capital ledger, and handling the lines that will not match.</span><span class="hub-flag">Not written yet</span></li>
+</ul>
+</section>
+<section class="hub-section" id="understand">
+<h2>Understand</h2>
+<p class="hub-blurb">What the numbers measure, when they can be trusted, and who sets the limits they are measured against.</p>
+<ul class="hub-list">
+<li class="hub-item"><a href="understand/concepts.html"><span class="hub-title">Concepts</span><span class="hub-summary">Calendars, regime, canary, market events, protective stops, gamma, and breadth in one mental model.</span></a></li>
+<li class="hub-item"><a href="understand/sensors.html"><span class="hub-title">Sensors</span><span class="hub-summary">How each measurement establishes authority and freshness, and how a gap fails closed instead of guessing.</span></a></li>
+<li class="hub-item"><a href="understand/policy.html"><span class="hub-title">Trading policy</span><span class="hub-summary">Who decides the risk boundaries, what the daemon evaluates, and what never becomes submit authority.</span></a></li>
+<li class="hub-item is-planned"><span class="hub-title">The rulebook</span><span class="hub-summary">The fourteen advisory rules, what each one is protecting against, and how a breach is reported.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item is-planned"><span class="hub-title">Writing a risk policy</span><span class="hub-summary">Turning a personal risk mandate into the policy file: limits, drawdown ladder, overrides, and review.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item is-planned"><span class="hub-title">Market data and entitlements</span><span class="hub-summary">Which subscriptions produce real-time data, what delayed and frozen mean, and how freshness is reported.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item is-planned"><span class="hub-title">Glossary</span><span class="hub-summary">One place for the terms the other pages assume: NLV, R-multiple, zero gamma, last-good, fingerprint.</span><span class="hub-flag">Not written yet</span></li>
+</ul>
+</section>
+<section class="hub-section" id="reference">
+<h2>Reference</h2>
+<p class="hub-blurb">Command, tool, and configuration lookups. Most of this is generated from the code it documents.</p>
+<ul class="hub-list">
+<li class="hub-item is-planned"><span class="hub-title">CLI reference</span><span class="hub-summary">Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.</span><span class="hub-flag">Not written yet</span></li>
+<li class="hub-item"><a href="reference/mcp-tools.html"><span class="hub-title">MCP tools</span><span class="hub-summary">Every tool exposed by ibkr mcp, with parameters and invocation guidance. Generated from the registry.</span></a></li>
+<li class="hub-item"><a href="reference/mcp-resources.html"><span class="hub-title">MCP resources</span><span class="hub-summary">The non-tool resources, including the live quote subscription URI template.</span></a></li>
+<li class="hub-item"><a href="reference/config.html"><span class="hub-title">Configuration</span><span class="hub-summary">TOML configuration, policy files, runtime platform settings, and environment variables.</span></a></li>
+<li class="hub-item is-planned"><span class="hub-title">Releases and support</span><span class="hub-summary">Version scheme, what a release contains, how signatures are verified, and which versions are supported.</span><span class="hub-flag">Not written yet</span></li>
+</ul>
+</section>
+<section class="hub-section" id="internals">
+<h2>Under the hood</h2>
+<p class="hub-blurb">For readers who want the design: processes, typed contracts, storage, the wire protocol, and packaging.</p>
+<ul class="hub-list">
+<li class="hub-item"><a href="internals/architecture.html"><span class="hub-title">Architecture</span><span class="hub-summary">Runtime processes, typed contracts, external data flows, state ownership, and deployment boundaries.</span></a></li>
+<li class="hub-item"><a href="internals/storage.html"><span class="hub-title">Storage</span><span class="hub-summary">Why the daemon uses SQLite, how the data model follows from its job, and how state survives a restart.</span></a></li>
+<li class="hub-item"><a href="internals/protocol.html"><span class="hub-title">TWS wire protocol</span><span class="hub-summary">Coverage and semantic fingerprints for the clean-room Go implementation of the TWS protocol.</span></a></li>
+<li class="hub-item"><a href="internals/regime-dashboard.html"><span class="hub-title">Regime dashboard contract</span><span class="hub-summary">Source quality, cluster logic, lifecycle decisions, and the backtest that has to pass before a change ships.</span></a></li>
+<li class="hub-item"><a href="internals/regime-backtest.html"><span class="hub-title">Regime backtest runbook</span><span class="hub-summary">How the regime and canary lifecycle is proven and tuned against point-in-time evidence.</span></a></li>
+<li class="hub-item"><a href="internals/opportunity-research.html"><span class="hub-title">Opportunity research harness</span><span class="hub-summary">The diagnostic harness for testing candidate strategies against point-in-time evidence before trusting them.</span></a></li>
+<li class="hub-item"><a href="internals/gamma-cache.html"><span class="hub-title">Gamma cache design</span><span class="hub-summary">Design and invalidation semantics for the daemon&#39;s persistent dealer zero-gamma cache.</span></a></li>
+<li class="hub-item"><a href="internals/packaging.html"><span class="hub-title">Packaging and distribution</span><span class="hub-summary">The maintainer checklist behind packaging, signing, trust metadata, and marketplace readiness.</span></a></li>
+</ul>
+</section>
+  </main>
+  <footer>
+    <div class="wrap"><a href="../index.html">ibkr</a><a href="../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+  </footer>
+</body>
+</html>

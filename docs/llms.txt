@@ -1,6 +1,6 @@
 # ibkr canary
 
-Updated: 2026-07-23 12:30 CEST
+Updated: 2026-07-24 21:46 CEST
 
 `ibkr canary` is a local platform for running an agentic trading desk on Interactive Brokers (IBKR), aimed at individual traders. It ships as an MCP server, terminal CLI, Canary app, and Go implementation of the TWS API. AI agents get the full market-data surface (real-time where the user's IBKR market-data subscriptions cover it) plus portfolio context, alongside advisory risk controls the trader writes: a risk-regime dashboard, scheduled canary stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -23,6 +23,7 @@ Do not describe the standard downloads as an order-entry or automated-trading sy
 
 - [Landing page](https://osauer.dev/ibkr/)
 - [Full LLM context](https://osauer.dev/ibkr/llms-full.txt)
+- [Documentation handbook](https://osauer.dev/ibkr/docs/)
 - [IBKR MCP server](https://osauer.dev/ibkr/ibkr-mcp/)
 - [IBKR MCP TWS setup](https://osauer.dev/ibkr/ibkr-mcp-tws/)
 - [Interactive Brokers MCP server page](https://osauer.dev/ibkr/interactive-brokers-mcp-server/)
@@ -35,16 +36,16 @@ Do not describe the standard downloads as an order-entry or automated-trading sy
 - [GitHub repository](https://github.com/osauer/ibkr)
 - [Install instructions](https://github.com/osauer/ibkr#install)
 - [Claude Desktop MCPB download](https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb)
-- [Agentic use guide](https://osauer.dev/ibkr/guides/agentic-use.html)
-- [MCP tools reference](https://osauer.dev/ibkr/reference/mcp-tools.html)
-- [MCP resources reference](https://osauer.dev/ibkr/reference/mcp-resources.html)
-- [Configuration reference](https://osauer.dev/ibkr/reference/config.html)
-- [TWS protocol coverage](https://osauer.dev/ibkr/reference/protocol.html)
-- [Concepts](https://osauer.dev/ibkr/concepts.html)
-- [Sensors](https://osauer.dev/ibkr/sensors.html)
-- [Architecture](https://osauer.dev/ibkr/architecture.html)
-- [Trading policy](https://osauer.dev/ibkr/policies.html)
-- [Storage](https://osauer.dev/ibkr/database.html)
+- [Agentic use guide](https://osauer.dev/ibkr/docs/operate/agents.html)
+- [MCP tools reference](https://osauer.dev/ibkr/docs/reference/mcp-tools.html)
+- [MCP resources reference](https://osauer.dev/ibkr/docs/reference/mcp-resources.html)
+- [Configuration reference](https://osauer.dev/ibkr/docs/reference/config.html)
+- [TWS protocol coverage](https://osauer.dev/ibkr/docs/internals/protocol.html)
+- [Concepts](https://osauer.dev/ibkr/docs/understand/concepts.html)
+- [Sensors](https://osauer.dev/ibkr/docs/understand/sensors.html)
+- [Architecture](https://osauer.dev/ibkr/docs/internals/architecture.html)
+- [Trading policy](https://osauer.dev/ibkr/docs/understand/policy.html)
+- [Storage](https://osauer.dev/ibkr/docs/internals/storage.html)
 
 ## Primary Search Phrases
 

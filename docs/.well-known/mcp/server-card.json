@@ -838,8 +838,8 @@
   "links": {
     "portfolioReview": "https://osauer.dev/ibkr/portfolio-review-with-claude-ibkr/",
     "portfolioAnalysis": "https://osauer.dev/ibkr/analyze-interactive-brokers-portfolio-with-ai/",
-    "mcpTools": "https://osauer.dev/ibkr/reference/mcp-tools.html",
-    "mcpResources": "https://osauer.dev/ibkr/reference/mcp-resources.html",
+    "mcpTools": "https://osauer.dev/ibkr/docs/reference/mcp-tools.html",
+    "mcpResources": "https://osauer.dev/ibkr/docs/reference/mcp-resources.html",
     "privacy": "https://github.com/osauer/ibkr/blob/main/PRIVACY.md",
     "security": "https://github.com/osauer/ibkr/blob/main/SECURITY.md",
     "downloadMCPB": "https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb"
