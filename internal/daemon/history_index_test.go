@@ -39,7 +39,7 @@ func newHistoryIndexServerLogged(t *testing.T, level string) (*Server, *syncWrit
 	} else {
 		t.Fatalf("resolve regime journal path: %v", err)
 	}
-	s.installCanaryDecisionJournal()
+	s.installStressDecisionJournal()
 	s.installOrderJournalStore()
 	s.installProposalOutcomeStore()
 	s.installRiskCapitalStore()

@@ -51,7 +51,7 @@ func TestAlertShadowHandlersAreScopedColdRedactedAndDeliveryInactive(t *testing.
 		t.Fatal(err)
 	}
 	relevant := true
-	result := alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "handler-a")
+	result := alertShadowTestStress(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "handler-a")
 	if _, err := server.alertShadow.ObserveStress(t.Context(), scopeA, result); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestAlertShadowHandlersAreScopedColdRedactedAndDeliveryInactive(t *testing.
 	}
 
 	server.cfg.Gateway.Account = "DU-HANDLER-A"
-	server.now = func() time.Time { return base.Add(alertShadowCanarySilenceHorizon + time.Nanosecond) }
+	server.now = func() time.Time { return base.Add(alertShadowStressSilenceHorizon + time.Nanosecond) }
 	server.alertShadow.now = server.now
 	stale, err := server.handleAlertCandidates(t.Context(), &rpc.Request{})
 	if err != nil {

@@ -202,7 +202,7 @@ func decodeAlertDeliveryV2(raw []byte) (*alertDeliveryData, error) {
 		Attempts:                 append([]alertDeliveryAttempt(nil), legacy.Attempts...), Receipts: append([]alertDeliveryReceipt(nil), legacy.Receipts...),
 		RetiredTargets: make(map[string]time.Time, len(legacy.RetiredTargets)), Baselines: make(map[string]alertDeliveryBaseline),
 		Health: legacy.Health, AttentionHighWaterSeq: legacy.AttentionHighWaterSeq,
-		AttentionReadThroughSeq: legacy.AttentionReadThroughSeq, migratedV2: true,
+		AttentionReadThroughSeq: legacy.AttentionReadThroughSeq, migratedLegacy: true,
 	}
 	maps.Copy(current.RetiredTargets, legacy.RetiredTargets)
 	for _, occurrence := range legacy.Occurrences {

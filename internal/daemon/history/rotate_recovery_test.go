@@ -71,7 +71,7 @@ func TestRotationRecoverySurvivesDatabaseDeletion(t *testing.T) {
 func TestAdoptLegacyCanaryRotationManifest(t *testing.T) {
 	t.Parallel()
 	opts := testOptions(t)
-	original := buildMonthlyJournal(t, opts.CanaryJournalPath, []string{"2026-04", "2026-05", "2026-06"}, 3)
+	original := buildMonthlyJournal(t, opts.StressJournalPath, []string{"2026-04", "2026-05", "2026-06"}, 3)
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 	s.rotateFailpoint = func(stage string) error {
@@ -121,7 +121,7 @@ func TestAdoptLegacyCanaryRotationManifest(t *testing.T) {
 	if _, err := os.Stat(s2.rotationManifestPath(sourceStress)); !os.IsNotExist(err) {
 		t.Fatalf("adopted intent survived successful recovery: %v", err)
 	}
-	if got := reconstructStream(t, opts, opts.CanaryJournalPath); got != original {
+	if got := reconstructStream(t, opts, opts.StressJournalPath); got != original {
 		t.Fatal("stream differs after adopting and recovering the legacy intent")
 	}
 }
@@ -133,7 +133,7 @@ func TestAdoptLegacyCanaryRotationManifest(t *testing.T) {
 func TestAdoptLegacyCanaryRotationManifestKeepsConflictingIntent(t *testing.T) {
 	t.Parallel()
 	opts := testOptions(t)
-	buildMonthlyJournal(t, opts.CanaryJournalPath, []string{"2026-04", "2026-05", "2026-06"}, 3)
+	buildMonthlyJournal(t, opts.StressJournalPath, []string{"2026-04", "2026-05", "2026-06"}, 3)
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 	s.rotateFailpoint = func(stage string) error {

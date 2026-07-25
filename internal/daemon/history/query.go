@@ -467,7 +467,7 @@ func (s *Store) Health(source string) (rpc.HistoryIndexHealth, error) {
 	case sourceRules:
 		journalPath = s.opts.RulesJournalPath
 	case sourceStress:
-		journalPath = s.opts.CanaryJournalPath
+		journalPath = s.opts.StressJournalPath
 	case sourceCapital:
 		journalPath = s.opts.CapitalJournalPath
 	case sourceRiskPolicy:

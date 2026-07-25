@@ -41,28 +41,28 @@ func (s *Server) handleGammaPublication(scope string) {
 	}
 }
 
-// canaryEvaluationWakeChannel returns the daemon-lifetime, capacity-one wake
+// stressEvaluationWakeChannel returns the daemon-lifetime, capacity-one wake
 // channel. A buffered wake survives startup ordering and naturally coalesces
 // repeated signals while Canary is already evaluating.
-func (s *Server) canaryEvaluationWakeChannel() <-chan struct{} {
-	return s.canaryEvaluationWakeSender()
+func (s *Server) stressEvaluationWakeChannel() <-chan struct{} {
+	return s.stressEvaluationWakeSender()
 }
 
-func (s *Server) canaryEvaluationWakeSender() chan struct{} {
+func (s *Server) stressEvaluationWakeSender() chan struct{} {
 	if s == nil {
 		return nil
 	}
 	s.regimeConsumerWakeMu.Lock()
-	if s.canaryEvaluationWake == nil {
-		s.canaryEvaluationWake = make(chan struct{}, 1)
+	if s.stressEvaluationWake == nil {
+		s.stressEvaluationWake = make(chan struct{}, 1)
 	}
-	wake := s.canaryEvaluationWake
+	wake := s.stressEvaluationWake
 	s.regimeConsumerWakeMu.Unlock()
 	return wake
 }
 
-func (s *Server) wakeCanaryEvaluation() {
-	wake := s.canaryEvaluationWakeSender()
+func (s *Server) wakeStressEvaluation() {
+	wake := s.stressEvaluationWakeSender()
 	if wake == nil {
 		return
 	}
@@ -109,7 +109,7 @@ func (s *Server) publishRulesRegimeStageState(state rulesRegimeStageState, publi
 	case rulebookWake <- struct{}{}:
 	default:
 	}
-	s.wakeCanaryEvaluation()
+	s.wakeStressEvaluation()
 }
 
 // claimRegimeConsumerPublication admits each monotonic publication revision at

@@ -207,7 +207,7 @@ func TestSuccessfulGammaPublicationRefreshesRegimeAndWakesConsumers(t *testing.T
 	cache := newRegimeSnapshotTestCache(t, store, daemonContext, clock)
 	server := &Server{regimeSnapshots: cache, zeroGamma: newGammaZeroCache()}
 	server.zeroGamma.setPublicationCallback(server.handleGammaPublication)
-	canaryWake := server.canaryEvaluationWakeChannel()
+	stressWake := server.stressEvaluationWakeChannel()
 	rulebookWake := server.rulebookRefreshWakeChannel()
 	afterPublish := func(_ context.Context, publication regimeSnapshotPublication) error {
 		server.publishRulesRegimeStageState(regimeDependencyTestStage(publication), publication)
@@ -218,7 +218,7 @@ func TestSuccessfulGammaPublicationRefreshesRegimeAndWakesConsumers(t *testing.T
 	}); err != nil {
 		t.Fatal(err)
 	}
-	assertRegimeDependencyWake(t, "initial Canary", canaryWake)
+	assertRegimeDependencyWake(t, "initial Canary", stressWake)
 	assertRegimeDependencyWake(t, "initial Rulebook", rulebookWake)
 
 	loopContext, cancelLoop := context.WithCancel(context.Background())
@@ -266,7 +266,7 @@ func TestSuccessfulGammaPublicationRefreshesRegimeAndWakesConsumers(t *testing.T
 	if refreshCalls.Load() != 0 || stable.Revision != 1 || stable.Snapshot.Summary.Label != "gamma unavailable" {
 		t.Fatalf("failed Gamma changed Regime authority: calls=%d view=%+v", refreshCalls.Load(), stable)
 	}
-	assertNoRegimeDependencyWake(t, "failed Gamma Canary", canaryWake)
+	assertNoRegimeDependencyWake(t, "failed Gamma Canary", stressWake)
 	assertNoRegimeDependencyWake(t, "failed Gamma Rulebook", rulebookWake)
 
 	recoveredGamma := helperGammaResult(clock.Now())
@@ -282,7 +282,7 @@ func TestSuccessfulGammaPublicationRefreshesRegimeAndWakesConsumers(t *testing.T
 	if refreshCalls.Load() != 1 || recovered.Health.Status != rpc.RegimeAuthorityFresh {
 		t.Fatalf("Gamma recovery refresh calls=%d view=%+v", refreshCalls.Load(), recovered)
 	}
-	assertRegimeDependencyWake(t, "recovered Gamma Canary", canaryWake)
+	assertRegimeDependencyWake(t, "recovered Gamma Canary", stressWake)
 	assertRegimeDependencyWake(t, "recovered Gamma Rulebook", rulebookWake)
 
 	cancelLoop()

@@ -1661,10 +1661,12 @@ func TestComputeStressEstablishedAlertProjectionPreservesActAcrossAuthorityHealt
 	if !fresh.EstablishedAlertProjection.OccurrenceEligible || !fresh.EstablishedAlertProjection.ActOnlyEligible {
 		t.Fatalf("fresh established eligibility=%+v, want occurrence and act-only eligible", fresh.EstablishedAlertProjection)
 	}
-	// The alert fingerprint hashes rows[].title, so these goldens rotated once
-	// when the overall row title became "Portfolio stress". They still guard the
-	// ad5b77b behaviour; only the recorded keys moved.
-	if got, want := fresh.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:577b5acb13ea1432f8c509f4c02e991a7e81f740adc46c519dd2eb7c87150f82"; got != want {
+	// The alert fingerprint hashes both rows[].title and the fingerprint version
+	// label, so these goldens rotated twice in this release: once when the overall
+	// row title became "Portfolio stress", and once when the version label moved
+	// from canary-fp-v2 to stress-fp-v2. They still guard the ad5b77b behaviour;
+	// only the recorded keys moved.
+	if got, want := fresh.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:44615a05f4628104937e0a56a27d5dbf80595300dbbafda812c3b98f1c52892a"; got != want {
 		t.Fatalf("established act fingerprint=%s, want ad5b77b golden %s", got, want)
 	}
 
@@ -1728,7 +1730,7 @@ func TestComputeStressEstablishedAlertProjectionIgnoresNewMarketEventRequirement
 	if baseline.EstablishedAlertProjection == nil {
 		t.Fatal("baseline missing established alert projection")
 	}
-	if got, want := baseline.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:9510b07cac718743f0fc1f9bf4017fe9af33e16d05c65fdf0a881a22a0652812"; got != want {
+	if got, want := baseline.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:328580a1c37c3a8ff9ef2b51036bd8e24ef6403e4edd455ccfaa0763cb1f15d9"; got != want {
 		t.Fatalf("established MarketEvents fingerprint=%s, want ad5b77b golden %s", got, want)
 	}
 
@@ -1841,11 +1843,11 @@ func TestComputeStressEstablishedAlertProjectionKeepsAccountAndPositionsConfirmI
 	}{
 		{
 			name: "stale_account", account: staleAccount, positions: freshStressPositions(),
-			wantKey: "sha256:c61d61c2e46b87e7031fa06eb3fef5acf053bfcb415c22fe990f1061e273cf08",
+			wantKey: "sha256:b77376f2842bce563743d014a12e004ab8e96206c18f14baf003d70532953c4b",
 		},
 		{
 			name: "missing_positions", account: freshAccount,
-			wantKey: "sha256:a8fd5e1779b19b0c7f660c2a4b9f317f8580ea23ae59d93da04831f104098e62",
+			wantKey: "sha256:a20d08013801c16ff20f942750fd1709ea8a440c09985fd67f6f4b49418ab9f6",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

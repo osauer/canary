@@ -101,7 +101,7 @@ type AlertPresentationCode string
 // version-2 registry is upgraded; the next producer observation replaces them
 // with the precise code without opening a new occurrence.
 const (
-	AlertPresentationPortfolioStress                  AlertPresentationCode = "canary_portfolio_stress"
+	AlertPresentationPortfolioStress                  AlertPresentationCode = "portfolio_stress"
 	AlertPresentationRegimeMarketStress               AlertPresentationCode = "regime_market_stress"
 	AlertPresentationRulebookSingleNameExposure       AlertPresentationCode = "rulebook_single_name_exposure"
 	AlertPresentationRulebookOptionLinePremium        AlertPresentationCode = "rulebook_option_line_premium"

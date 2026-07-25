@@ -49,9 +49,9 @@ func TestOpenCoreStoreRecoversLegacyDecisionRotationBeforeImport(t *testing.T) {
 			}
 			if tt.family == "canary" {
 				query = corestore.ObservationQuery{
-					ScopeKey: legacyCanaryMeasurementScope,
-					Source:   legacyCanaryMeasurementSource,
-					Kind:     legacyCanaryMeasurementKind,
+					ScopeKey: legacyStressMeasurementScope,
+					Source:   legacyStressMeasurementSource,
+					Kind:     legacyStressMeasurementKind,
 				}
 			}
 			observations, err := s.coreStore.ListObservations(t.Context(), query)
@@ -347,7 +347,7 @@ func TestImportLegacyDecisionMeasurementsRedactsDecisionAndAccountData(t *testin
 	vix := 21.4
 	accountFingerprint := &rpc.Fingerprint{Version: "1", Key: "account-fingerprint-must-not-import"}
 	regimeFingerprint := &rpc.Fingerprint{Version: "1", Key: "regime-source-ok"}
-	canaryLine := canaryDecisionLine{
+	stressLine := stressDecisionLine{
 		V: 1, TS: now, SessionKey: "2026-06-02", Fingerprint: "canary-decision-must-not-import",
 		Account: "SECRET-ACCOUNT", AccountMode: "live", Action: "defend", Summary: "decision summary",
 		Market: rpc.StressMarketSummary{
@@ -363,18 +363,18 @@ func TestImportLegacyDecisionMeasurementsRedactsDecisionAndAccountData(t *testin
 		},
 	}
 	regimePath, _ := regimeDecisionsDefaultPath()
-	canaryPath, _ := canaryDecisionsDefaultPath()
+	stressJournalPath, _ := stressDecisionsDefaultPath()
 	writeLegacyJSONLines(t, regimePath, regimeLine)
-	writeLegacyJSONLines(t, canaryPath, canaryLine)
+	writeLegacyJSONLines(t, stressJournalPath, stressLine)
 	rotatedDir := filepath.Join(filepath.Dir(regimePath), "rotated")
 	olderRegime := regimeLine
 	olderRegime.TS = now.AddDate(0, -1, 0)
 	olderRegime.SessionKey = "2026-05-02"
-	olderCanary := canaryLine
-	olderCanary.TS = olderRegime.TS
-	olderCanary.SessionKey = olderRegime.SessionKey
+	olderStress := stressLine
+	olderStress.TS = olderRegime.TS
+	olderStress.SessionKey = olderRegime.SessionKey
 	writeLegacyGzipJSONLines(t, filepath.Join(rotatedDir, "regime-decisions-2026-05.jsonl.gz"), olderRegime)
-	writeLegacyGzipJSONLines(t, filepath.Join(rotatedDir, "canary-decisions-2026-05.jsonl.gz"), olderCanary)
+	writeLegacyGzipJSONLines(t, filepath.Join(rotatedDir, "canary-decisions-2026-05.jsonl.gz"), olderStress)
 
 	authority := openMarketTestCoreStore(t)
 	manifest, err := importLegacyMarketObservations(context.Background(), authority)
@@ -390,11 +390,11 @@ func TestImportLegacyDecisionMeasurementsRedactsDecisionAndAccountData(t *testin
 	if err != nil || len(regimeObservations) != 2 {
 		t.Fatalf("regime observations=%d err=%v", len(regimeObservations), err)
 	}
-	canaryObservations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
-		ScopeKey: legacyCanaryMeasurementScope, Source: legacyCanaryMeasurementSource, Kind: legacyCanaryMeasurementKind,
+	stressObservations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
+		ScopeKey: legacyStressMeasurementScope, Source: legacyStressMeasurementSource, Kind: legacyStressMeasurementKind,
 	})
-	if err != nil || len(canaryObservations) != 2 {
-		t.Fatalf("canary observations=%d err=%v", len(canaryObservations), err)
+	if err != nil || len(stressObservations) != 2 {
+		t.Fatalf("canary observations=%d err=%v", len(stressObservations), err)
 	}
 	for _, observation := range regimeObservations {
 		if observation.DecisionEligible {
@@ -411,7 +411,7 @@ func TestImportLegacyDecisionMeasurementsRedactsDecisionAndAccountData(t *testin
 		}
 		assertLegacyObservationMetadata(t, observation.MetadataJSON)
 	}
-	for _, observation := range canaryObservations {
+	for _, observation := range stressObservations {
 		if observation.DecisionEligible {
 			t.Fatal("legacy canary measurement is decision-eligible")
 		}
@@ -558,7 +558,7 @@ func seedLegacyDecisionRotationCrash(t *testing.T, family, crashStage string) ([
 	}
 	livePath := regimePath
 	if family == "canary" {
-		livePath, err = canaryDecisionsDefaultPath()
+		livePath, err = stressDecisionsDefaultPath()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -586,7 +586,7 @@ func seedLegacyDecisionRotationCrash(t *testing.T, family, crashStage string) ([
 				},
 			}
 		case "canary":
-			value = canaryDecisionLine{
+			value = stressDecisionLine{
 				V: 1, TS: at, SessionKey: sessions[i], Fingerprint: "decision-only",
 				Market: rpc.StressMarketSummary{RedClusters: i + 1},
 			}

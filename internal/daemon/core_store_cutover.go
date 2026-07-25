@@ -508,7 +508,10 @@ func (s *Server) addSkippedLegacySources(manifest *coreCutoverManifest) error {
 	}{
 		{"regime_decisions", "discarded_decision_history", "regime-decisions.jsonl"},
 		{"rules_decisions", "discarded_decision_history", "rules-decisions.jsonl"},
-		{"canary_decisions", "discarded_decision_history", "canary-decisions.jsonl"},
+		// The manifest kind and the file name both stay pre-rename: this entry
+		// names retained evidence the cutover seals under the name it was
+		// written with. legacyStressDecisionsFile is the single definition.
+		{"canary_decisions", "discarded_decision_history", legacyStressDecisionsFile},
 		{"proposal_current", "discarded_decision_state", "trade-proposals-current.json"},
 		{"proposal_events", "discarded_decision_history", "trade-proposals.jsonl"},
 		{"proposal_outcomes", "discarded_decision_history", "trade-proposal-outcomes.jsonl"},

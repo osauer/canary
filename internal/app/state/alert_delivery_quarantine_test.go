@@ -402,3 +402,116 @@ func assertMainStateAlertDeliveryRaw(t *testing.T, dir string, want json.RawMess
 		t.Fatalf("main state normalized quarantined raw value\ngot:  %q\nwant: %q", topLevel["alert_delivery"], want)
 	}
 }
+
+// TestOpenUpgradesAlertDeliveryV3StressPresentationCode proves an operator's
+// stored v3 ledger survives the portfolio-stress presentation-code rename: it
+// is upgraded in place rather than quarantined, and every occurrence keeps its
+// display identity, attention sequence, and lifecycle state.
+func TestOpenUpgradesAlertDeliveryV3StressPresentationCode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
+	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "v3-upgrade", "open", at)
+	if _, err := seed.ObserveAlertSnapshot(testAlertSnapshot(at,
+		[]rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source},
+		rpc.AlertCoverageCurrent, candidate)); err != nil {
+		t.Fatal(err)
+	}
+	before := seed.AlertDelivery(at)
+	if len(before.Occurrences) != 1 {
+		t.Fatalf("fixture occurrences=%d want 1", len(before.Occurrences))
+	}
+	wantOccurrence := before.Occurrences[0]
+
+	// Rewrite the persisted ledger into the exact pre-rename v3 shape.
+	raw, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatal(err)
+	}
+	var ledger map[string]json.RawMessage
+	if err := json.Unmarshal(top["alert_delivery"], &ledger); err != nil {
+		t.Fatal(err)
+	}
+	ledger["version"] = json.RawMessage(`"` + legacyAlertDeliveryVersionV3 + `"`)
+	legacyCode := json.RawMessage(`"` + string(legacyStressPresentationCode) + `"`)
+	var snapshot map[string]json.RawMessage
+	if err := json.Unmarshal(ledger["snapshot"], &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var candidates []map[string]json.RawMessage
+	if err := json.Unmarshal(snapshot["candidates"], &candidates); err != nil {
+		t.Fatal(err)
+	}
+	for i := range candidates {
+		candidates[i]["presentation_code"] = legacyCode
+	}
+	if snapshot["candidates"], err = json.Marshal(candidates); err != nil {
+		t.Fatal(err)
+	}
+	if ledger["snapshot"], err = json.Marshal(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var occurrences []map[string]json.RawMessage
+	if err := json.Unmarshal(ledger["occurrences"], &occurrences); err != nil {
+		t.Fatal(err)
+	}
+	for i := range occurrences {
+		occurrences[i]["presentation_code"] = legacyCode
+	}
+	if ledger["occurrences"], err = json.Marshal(occurrences); err != nil {
+		t.Fatal(err)
+	}
+	if top["alert_delivery"], err = json.Marshal(ledger); err != nil {
+		t.Fatal(err)
+	}
+	legacyRaw, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(legacyRaw, []byte(legacyStressPresentationCode)) {
+		t.Fatal("v3 fixture does not carry the pre-rename presentation code")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), legacyRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open a stored v3 alert-delivery ledger: %v", err)
+	}
+	if store.alertDeliveryQuarantinedLocked() {
+		t.Fatal("a stored v3 ledger was quarantined instead of upgraded")
+	}
+	after := store.AlertDelivery(at)
+	if len(after.Occurrences) != 1 {
+		t.Fatalf("upgraded occurrences=%d want 1", len(after.Occurrences))
+	}
+	got := after.Occurrences[0]
+	if got.DisplayID != wantOccurrence.DisplayID || got.AttentionSeq != wantOccurrence.AttentionSeq ||
+		got.State != wantOccurrence.State || got.FirstSeenAt != wantOccurrence.FirstSeenAt {
+		t.Fatalf("delivery history changed across the upgrade:\nbefore=%+v\nafter =%+v", wantOccurrence, got)
+	}
+	if got.PresentationCode != rpc.AlertPresentationPortfolioStress {
+		t.Fatalf("presentation code=%q want %q", got.PresentationCode, rpc.AlertPresentationPortfolioStress)
+	}
+
+	// The upgrade is written back once, so the next open is a plain load.
+	upgraded, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(upgraded, []byte(legacyStressPresentationCode)) {
+		t.Fatal("upgraded ledger still carries the pre-rename presentation code")
+	}
+	if !bytes.Contains(upgraded, []byte(`"`+AlertDeliveryVersion+`"`)) {
+		t.Fatalf("upgraded ledger was not restamped to %s", AlertDeliveryVersion)
+	}
+}

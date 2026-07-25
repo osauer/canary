@@ -38,7 +38,7 @@ const (
 )
 
 // RiskConstitutionFingerprintVersion labels the constitution fingerprint.
-// Distinct from the canary threshold policy's CanaryPolicyFingerprintVersion
+// Distinct from the stress threshold policy's StressPolicyFingerprintVersion
 // so the two identities can never be conflated in journals.
 // RiskConstitutionFingerprintVersion identifies a semantic fingerprint projection.
 const RiskConstitutionFingerprintVersion = "risk-constitution-fp-v1"

@@ -129,13 +129,13 @@ func (s *Server) handleAlertStatus(ctx context.Context, req *rpc.Request) (*rpc.
 	return result, nil
 }
 
-func (s *Server) observeCanaryAlertShadow(result *rpc.StressResult, brokerScope brokerStateScope) {
+func (s *Server) observeStressAlertShadow(result *rpc.StressResult, brokerScope brokerStateScope) {
 	if s == nil || s.alertShadow == nil || result == nil {
 		return
 	}
 	scope, err := newAlertShadowBrokerScope(brokerScope)
 	if err != nil {
-		s.warnf("alert producer: Canary observation skipped: %v", err)
+		s.warnf("alert producer: Stress observation skipped: %v", err)
 		return
 	}
 	ctx := context.Background()
@@ -145,7 +145,7 @@ func (s *Server) observeCanaryAlertShadow(result *rpc.StressResult, brokerScope 
 	}
 	s.mu.Unlock()
 	if _, err := s.alertShadow.ObserveStress(ctx, scope, *result); err != nil {
-		s.warnf("alert producer: Canary observation failed: %v", err)
+		s.warnf("alert producer: Stress observation failed: %v", err)
 	}
 }
 

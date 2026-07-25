@@ -55,7 +55,7 @@ type legacyMarketImportPlan struct {
 
 // recoverLegacyDecisionRotations reuses the retired history index's verified
 // file-side rotation contract before SQLite cutover reads legacy regime and
-// Canary measurements. Callers must hold the daemon persistence lock and must
+// stress measurements. Callers must hold the daemon persistence lock and must
 // run this before any rotated/live source scan. The legacy history database is
 // opened only when it already exists or filesystem recovery evidence exists,
 // so a normal empty cutover does not recreate discarded derived state.
@@ -75,9 +75,9 @@ func (s *Server) recoverLegacyDecisionRotations(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("resolve legacy rules journal: %w", err)
 	}
-	canaryPath, err := canaryDecisionsDefaultPath()
+	stressJournalPath, err := stressDecisionsDefaultPath()
 	if err != nil {
-		return fmt.Errorf("resolve legacy canary journal: %w", err)
+		return fmt.Errorf("resolve legacy stress journal: %w", err)
 	}
 	rotatedDir := filepath.Join(filepath.Dir(regimePath), "rotated")
 
@@ -92,7 +92,7 @@ func (s *Server) recoverLegacyDecisionRotations(ctx context.Context) error {
 		DBPath:            dbPath,
 		RegimeJournalPath: regimePath,
 		RulesJournalPath:  rulesPath,
-		CanaryJournalPath: canaryPath,
+		StressJournalPath: stressJournalPath,
 		RotatedDir:        rotatedDir,
 		Logf:              s.warnf,
 		Infof:             s.infof,
@@ -182,9 +182,19 @@ const (
 	legacyRegimeMeasurementScope  = "market/legacy/regime-measurements"
 	legacyRegimeMeasurementSource = "legacy.regime_decision_journal"
 	legacyRegimeMeasurementKind   = "regime_measurement.v1"
-	legacyCanaryMeasurementScope  = "market/legacy/canary-measurements"
-	legacyCanaryMeasurementSource = "legacy.canary_decision_journal"
-	legacyCanaryMeasurementKind   = "canary_market_measurement.v1"
+	legacyStressMeasurementScope  = "market/legacy/stress-measurements"
+	legacyStressMeasurementSource = "legacy.stress_decision_journal"
+	legacyStressMeasurementKind   = "stress_market_measurement.v1"
+
+	// legacyRegimeJournalFamily and legacyStressJournalFamily select one
+	// decision-journal evidence family. The value is not a sensor name: it is
+	// pattern-matched against on-disk evidence — rotated/<family>-decisions-
+	// *.jsonl.gz and <family>-decisions.jsonl — and it labels the cutover
+	// manifest artifact kinds for those same files. The stress family stays
+	// "canary" because the files it names were written under that name and
+	// are sealed, not rewritten; see legacyStressDecisionsFile.
+	legacyRegimeJournalFamily = "regime"
+	legacyStressJournalFamily = "canary"
 )
 
 type legacyRegimeMeasurementV1 struct {
@@ -196,10 +206,10 @@ type legacyRegimeMeasurementV1 struct {
 	DataQuality []rpc.DataQualityHealth            `json:"data_quality,omitempty"`
 }
 
-// legacyCanaryMarketMeasurement deliberately omits RegimeVerdict and
+// legacyStressMarketMeasurement deliberately omits RegimeVerdict and
 // RegimePosture: both are decision outputs embedded in StressMarketSummary,
 // not market measurements suitable for a clean-slate epoch.
-type legacyCanaryMarketMeasurement struct {
+type legacyStressMarketMeasurement struct {
 	RedClusters                int        `json:"red_clusters"`
 	EligibleRedClusters        int        `json:"eligible_red_clusters"`
 	EligibleRedClusterNames    []string   `json:"eligible_red_cluster_names,omitempty"`
@@ -223,23 +233,23 @@ type legacyCanaryMarketMeasurement struct {
 	TapeNextOpen               *time.Time `json:"tape_next_open,omitempty"`
 }
 
-type legacyCanarySourceAsOf struct {
+type legacyStressSourceAsOf struct {
 	Regime       time.Time `json:"regime,omitzero"`
 	MarketEvents time.Time `json:"market_events,omitzero"`
 }
 
-type legacyCanarySourceFingerprints struct {
+type legacyStressSourceFingerprints struct {
 	Regime       *rpc.Fingerprint `json:"regime,omitempty"`
 	MarketEvents *rpc.Fingerprint `json:"market_events,omitempty"`
 }
 
-type legacyCanaryMeasurementV1 struct {
+type legacyStressMeasurementV1 struct {
 	V                  int                            `json:"v"`
 	TS                 time.Time                      `json:"ts"`
 	SessionKey         string                         `json:"session_key"`
-	Market             legacyCanaryMarketMeasurement  `json:"market"`
-	SourceAsOf         legacyCanarySourceAsOf         `json:"source_as_of,omitzero"`
-	SourceFingerprints legacyCanarySourceFingerprints `json:"source_fingerprints,omitzero"`
+	Market             legacyStressMarketMeasurement  `json:"market"`
+	SourceAsOf         legacyStressSourceAsOf         `json:"source_as_of,omitzero"`
+	SourceFingerprints legacyStressSourceFingerprints `json:"source_fingerprints,omitzero"`
 }
 
 // importLegacyMarketObservations is the single cutover entry point for
@@ -308,9 +318,9 @@ func preflightLegacyMarketObservations(manifest *legacyMarketImportManifest) ([]
 	if err != nil {
 		return nil, fmt.Errorf("resolve legacy regime journal path: %w", err)
 	}
-	canaryJournalPath, err := canaryDecisionsDefaultPath()
+	stressJournalPath, err := stressDecisionsDefaultPath()
 	if err != nil {
-		return nil, fmt.Errorf("resolve legacy canary journal path: %w", err)
+		return nil, fmt.Errorf("resolve legacy stress journal path: %w", err)
 	}
 	rotatedDir := filepath.Join(filepath.Dir(regimeJournalPath), "rotated")
 
@@ -388,7 +398,7 @@ func preflightLegacyMarketObservations(manifest *legacyMarketImportManifest) ([]
 	} else if ok {
 		plans = append(plans, plan)
 	}
-	for _, family := range []string{"regime", "canary"} {
+	for _, family := range []string{legacyRegimeJournalFamily, legacyStressJournalFamily} {
 		archivePaths, err := legacyGlob(manifest, family+"_measurement_archive", filepath.Join(rotatedDir, family+"-decisions-*.jsonl.gz"))
 		if err != nil {
 			return nil, err
@@ -404,7 +414,7 @@ func preflightLegacyMarketObservations(manifest *legacyMarketImportManifest) ([]
 	for _, live := range []struct {
 		family string
 		path   string
-	}{{"regime", regimeJournalPath}, {"canary", canaryJournalPath}} {
+	}{{legacyRegimeJournalFamily, regimeJournalPath}, {legacyStressJournalFamily, stressJournalPath}} {
 		plan, ok, err := preflightOptionalLegacyDecisionMeasurements(manifest, live.path, live.family, false)
 		if err != nil {
 			return nil, err
@@ -702,7 +712,7 @@ func preflightOptionalLegacyDecisionMeasurements(manifest *legacyMarketImportMan
 			"compressed_archive": compressed,
 		}
 		switch family {
-		case "regime":
+		case legacyRegimeJournalFamily:
 			var line regimeDecisionLine
 			if err := decodeStrictLegacyJSON(rawLine, &line); err != nil || line.V != 1 || line.TS.IsZero() || line.SessionKey == "" || line.Indicators == nil {
 				return legacyMarketImportPlan{}, false, invalidLegacyArtifact(manifest, index, fmt.Errorf("invalid regime measurement line %d: decode=%v version=%d", lineIndex+1, err, line.V))
@@ -723,19 +733,19 @@ func preflightOptionalLegacyDecisionMeasurements(manifest *legacyMarketImportMan
 				ContentType: "application/json", Payload: payload,
 				MetadataJSON: legacyMarketMetadata(manifest.Artifacts[index], extra), DecisionEligible: false,
 			})
-		case "canary":
-			var line canaryDecisionLine
+		case legacyStressJournalFamily:
+			var line stressDecisionLine
 			if err := decodeStrictLegacyJSON(rawLine, &line); err != nil || line.V != 1 || line.TS.IsZero() || line.SessionKey == "" {
-				return legacyMarketImportPlan{}, false, invalidLegacyArtifact(manifest, index, fmt.Errorf("invalid canary measurement line %d: decode=%v version=%d", lineIndex+1, err, line.V))
+				return legacyMarketImportPlan{}, false, invalidLegacyArtifact(manifest, index, fmt.Errorf("invalid stress measurement line %d: decode=%v version=%d", lineIndex+1, err, line.V))
 			}
-			payload, err := json.Marshal(projectLegacyCanaryMeasurement(line))
+			payload, err := json.Marshal(projectLegacyStressMeasurement(line))
 			if err != nil {
-				return legacyMarketImportPlan{}, false, invalidLegacyArtifact(manifest, index, fmt.Errorf("encode canary measurement line %d: %w", lineIndex+1, err))
+				return legacyMarketImportPlan{}, false, invalidLegacyArtifact(manifest, index, fmt.Errorf("encode stress measurement line %d: %w", lineIndex+1, err))
 			}
 			extra["session_key"] = line.SessionKey
 			inputs = append(inputs, corestore.ObservationInput{
-				ScopeKey: legacyCanaryMeasurementScope, Source: legacyCanaryMeasurementSource,
-				Kind: legacyCanaryMeasurementKind, ObservedAt: line.TS,
+				ScopeKey: legacyStressMeasurementScope, Source: legacyStressMeasurementSource,
+				Kind: legacyStressMeasurementKind, ObservedAt: line.TS,
 				ContentType: "application/json", Payload: payload,
 				MetadataJSON: legacyMarketMetadata(manifest.Artifacts[index], extra), DecisionEligible: false,
 			})
@@ -775,11 +785,11 @@ func decodeStrictLegacyJSON(raw []byte, value any) error {
 	return nil
 }
 
-func projectLegacyCanaryMeasurement(line canaryDecisionLine) legacyCanaryMeasurementV1 {
+func projectLegacyStressMeasurement(line stressDecisionLine) legacyStressMeasurementV1 {
 	market := line.Market
-	return legacyCanaryMeasurementV1{
+	return legacyStressMeasurementV1{
 		V: 1, TS: line.TS, SessionKey: line.SessionKey,
-		Market: legacyCanaryMarketMeasurement{
+		Market: legacyStressMarketMeasurement{
 			RedClusters: market.RedClusters, EligibleRedClusters: market.EligibleRedClusters,
 			EligibleRedClusterNames: market.EligibleRedClusterNames,
 			YellowClusters:          market.YellowClusters, RankedClusters: market.RankedClusters,
@@ -793,10 +803,10 @@ func projectLegacyCanaryMeasurement(line canaryDecisionLine) legacyCanaryMeasure
 			TapeSessionState: market.TapeSessionState, TapeSessionReason: market.TapeSessionReason,
 			TapeNextOpen: market.TapeNextOpen,
 		},
-		SourceAsOf: legacyCanarySourceAsOf{
+		SourceAsOf: legacyStressSourceAsOf{
 			Regime: line.SourceAsOf.Regime, MarketEvents: line.SourceAsOf.MarketEvents,
 		},
-		SourceFingerprints: legacyCanarySourceFingerprints{
+		SourceFingerprints: legacyStressSourceFingerprints{
 			Regime: line.SourceFingerprints.Regime, MarketEvents: line.SourceFingerprints.MarketEvents,
 		},
 	}

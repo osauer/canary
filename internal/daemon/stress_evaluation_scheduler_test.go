@@ -10,7 +10,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-func TestCanaryEvaluationStartsImmediatelyWhenJournalDisabled(t *testing.T) {
+func TestStressEvaluationStartsImmediatelyWhenJournalDisabled(t *testing.T) {
 	disabled := false
 	server := &Server{
 		platformSettings: &platformSettingsStore{data: platformSettingsData{
@@ -19,16 +19,16 @@ func TestCanaryEvaluationStartsImmediatelyWhenJournalDisabled(t *testing.T) {
 				Enabled: &disabled,
 			}},
 		}},
-		canaryDecisions: &canaryDecisionJournal{path: filepath.Join(t.TempDir(), "canary-decisions.jsonl")},
+		stressDecisions: &stressDecisionJournal{path: filepath.Join(t.TempDir(), "canary-decisions.jsonl")},
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	evaluations := 0
 	go func() {
 		defer close(done)
-		runCanaryEvaluationLoopWith(ctx, nil, time.Hour, time.Hour, func(context.Context) bool {
+		runStressEvaluationLoopWith(ctx, nil, time.Hour, time.Hour, func(context.Context) bool {
 			evaluations++
-			server.journalCanaryDecision(testCanaryResult("sha256:daemon-only"))
+			server.journalStressDecision(testStressResult("sha256:daemon-only"))
 			cancel()
 			return true
 		})
@@ -41,12 +41,12 @@ func TestCanaryEvaluationStartsImmediatelyWhenJournalDisabled(t *testing.T) {
 	if evaluations != 1 {
 		t.Fatalf("Canary evaluations = %d, want one immediate evaluation", evaluations)
 	}
-	if _, err := os.Stat(server.canaryDecisions.path); !os.IsNotExist(err) {
+	if _, err := os.Stat(server.stressDecisions.path); !os.IsNotExist(err) {
 		t.Fatalf("disabled journal retained the daemon-only evaluation: %v", err)
 	}
 }
 
-func TestCanaryEvaluationCoalescesWakesDuringEvaluation(t *testing.T) {
+func TestStressEvaluationCoalescesWakesDuringEvaluation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	wake := make(chan struct{}, 1)
@@ -56,7 +56,7 @@ func TestCanaryEvaluationCoalescesWakesDuringEvaluation(t *testing.T) {
 	evaluations := 0
 	go func() {
 		defer close(done)
-		runCanaryEvaluationLoopWith(ctx, wake, time.Hour, time.Hour, func(context.Context) bool {
+		runStressEvaluationLoopWith(ctx, wake, time.Hour, time.Hour, func(context.Context) bool {
 			evaluations++
 			if evaluations == 1 {
 				close(firstStarted)
@@ -94,7 +94,7 @@ func TestRegimePublicationInvalidatesRulebookAndWakesConsumersOnce(t *testing.T)
 	prior := &rpc.RulesResult{Status: "ok"}
 	server.lastRules = prior
 	server.lastRulesAt = time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-	canaryWake := server.canaryEvaluationWakeChannel()
+	stressWake := server.stressEvaluationWakeChannel()
 	rulebookWake := server.rulebookRefreshWakeChannel()
 
 	first := regimeDependencyTestPublication(1)
@@ -102,16 +102,16 @@ func TestRegimePublicationInvalidatesRulebookAndWakesConsumersOnce(t *testing.T)
 	if server.lastRules != prior || !server.lastRulesAt.IsZero() {
 		t.Fatalf("Regime publication did not invalidate only Rulebook cache freshness: last=%p at=%s", server.lastRules, server.lastRulesAt)
 	}
-	assertRegimeDependencyWake(t, "Canary", canaryWake)
+	assertRegimeDependencyWake(t, "Canary", stressWake)
 	assertRegimeDependencyWake(t, "Rulebook", rulebookWake)
 
 	server.publishRulesRegimeStageState(regimeDependencyTestStage(first), first)
-	assertNoRegimeDependencyWake(t, "duplicate Canary", canaryWake)
+	assertNoRegimeDependencyWake(t, "duplicate Canary", stressWake)
 	assertNoRegimeDependencyWake(t, "duplicate Rulebook", rulebookWake)
 
 	second := regimeDependencyTestPublication(2)
 	server.publishRulesRegimeStageState(regimeDependencyTestStage(second), second)
-	assertRegimeDependencyWake(t, "next Canary", canaryWake)
+	assertRegimeDependencyWake(t, "next Canary", stressWake)
 	assertRegimeDependencyWake(t, "next Rulebook", rulebookWake)
 	stage := server.rulesRegimeStageSnapshot()
 	if !exactRegimeSnapshotPublication(stage.publication, second) {

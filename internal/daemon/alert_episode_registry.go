@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	alertEpisodeRegistryDocumentVersion = 3
+	alertEpisodeRegistryDocumentVersion = 4
 	alertEpisodeRegistryStateKind       = "alert_episode_registry"
 	alertEpisodeDecisionEventType       = "alert_episode_decision"
 	alertEpisodeDecisionEventAction     = "evaluate"
@@ -141,10 +141,39 @@ type alertEpisodeRegistryScopeDocumentV2 struct {
 	AsOf           time.Time                         `json:"as_of"`
 	Coverage       rpc.AlertCoverage                 `json:"coverage"`
 	SourceStates   []alertEpisodeRegistrySourceState `json:"source_states"`
-	Cursors        alertShadowDurableCursors         `json:"input_cursors"`
+	Cursors        alertShadowDurableCursorsV3       `json:"input_cursors"`
 	Metrics        alertShadowDurableMetrics         `json:"commissioning_metrics"`
 	Episodes       []alertEpisodeRegistryRecordV2    `json:"episodes"`
 }
+
+// alertEpisodeRegistryDocumentV3 is the document shape immediately before the
+// portfolio-stress rename. It differs from the current shape in exactly two
+// persisted values — the "canary" input-cursor key and the
+// canary_portfolio_stress presentation code — so the record layout is shared
+// and only the values are rewritten on upgrade.
+type alertEpisodeRegistryDocumentV3 struct {
+	Version                int                                   `json:"version"`
+	UpdatedAt              time.Time                             `json:"updated_at"`
+	NextOccurrenceSequence uint64                                `json:"next_occurrence_sequence"`
+	Scopes                 []alertEpisodeRegistryScopeDocumentV3 `json:"scopes"`
+	LegacyUnscoped         *alertEpisodeLegacyUnscoped           `json:"legacy_unscoped,omitempty"`
+}
+
+type alertEpisodeRegistryScopeDocumentV3 struct {
+	AuthorityScope string                            `json:"authority_scope"`
+	AsOf           time.Time                         `json:"as_of"`
+	Coverage       rpc.AlertCoverage                 `json:"coverage"`
+	SourceStates   []alertEpisodeRegistrySourceState `json:"source_states"`
+	Cursors        alertShadowDurableCursorsV3       `json:"input_cursors"`
+	Metrics        alertShadowDurableMetrics         `json:"commissioning_metrics"`
+	Episodes       []alertEpisodeRegistryRecord      `json:"episodes"`
+}
+
+// legacyStressPresentationCode is the pre-rename presentation code carried by
+// stored v3 episodes. validAlertPresentationCode no longer accepts it, so an
+// unupgraded document would fail validation and take the whole registry — every
+// open episode and occurrence sequence with it — out of service.
+const legacyStressPresentationCode rpc.AlertPresentationCode = "canary_portfolio_stress"
 
 type alertEpisodeRegistryRecordV2 struct {
 	AuthorityScope             string                  `json:"authority_scope"`
@@ -197,6 +226,22 @@ type alertEpisodeRegistrySourceState struct {
 }
 
 type alertShadowDurableCursors struct {
+	Stress         alertShadowInputCursor `json:"stress"`
+	Nudges         alertShadowInputCursor `json:"nudges"`
+	Regime         alertShadowInputCursor `json:"regime,omitzero"`
+	Rulebook       alertShadowInputCursor `json:"rulebook,omitzero"`
+	Protection     alertShadowInputCursor `json:"protection,omitzero"`
+	OrderIntegrity alertShadowInputCursor `json:"order_integrity,omitzero"`
+	DataHealth     alertShadowInputCursor `json:"data_health,omitzero"`
+}
+
+// alertShadowDurableCursorsV3 is the pre-rename cursor block: the
+// portfolio-stress producer cursor was stored under the key "canary". Document
+// versions 2 and 3 both carry it, so both legacy decode paths use this shape
+// and hand it to upgradeAlertShadowDurableCursors. Decoding is strict
+// (DisallowUnknownFields), so a v3 document would be rejected outright by the
+// current shape — the version bump is what routes it here instead.
+type alertShadowDurableCursorsV3 struct {
 	Canary         alertShadowInputCursor `json:"canary"`
 	Nudges         alertShadowInputCursor `json:"nudges"`
 	Regime         alertShadowInputCursor `json:"regime,omitzero"`
@@ -204,6 +249,16 @@ type alertShadowDurableCursors struct {
 	Protection     alertShadowInputCursor `json:"protection,omitzero"`
 	OrderIntegrity alertShadowInputCursor `json:"order_integrity,omitzero"`
 	DataHealth     alertShadowInputCursor `json:"data_health,omitzero"`
+}
+
+// upgradeAlertShadowDurableCursors carries every stored cursor across the key
+// rename. The portfolio-stress cursor keeps its exact as_of and fingerprint, so
+// an upgraded registry does not re-observe an input it has already consumed.
+func upgradeAlertShadowDurableCursors(old alertShadowDurableCursorsV3) alertShadowDurableCursors {
+	return alertShadowDurableCursors{
+		Stress: old.Canary, Nudges: old.Nudges, Regime: old.Regime, Rulebook: old.Rulebook,
+		Protection: old.Protection, OrderIntegrity: old.OrderIntegrity, DataHealth: old.DataHealth,
+	}
 }
 
 type alertShadowDurableMetrics struct {
@@ -617,6 +672,9 @@ func (r *alertEpisodeRegistry) reload(ctx context.Context) error {
 	if version.Version == 2 {
 		return r.migrateV2(ctx, doc)
 	}
+	if version.Version == 3 {
+		return r.migrateV3(ctx, doc)
+	}
 	decoded, err := decodeAlertEpisodeRegistryDocument(doc.JSON)
 	if err != nil {
 		return fmt.Errorf("load alert episode registry revision %d: %w", doc.Revision, err)
@@ -626,6 +684,56 @@ func (r *alertEpisodeRegistry) reload(ctx context.Context) error {
 	}
 	r.revision = doc.Revision
 	r.document = decoded
+	return nil
+}
+
+// migrateV3 carries a stored pre-rename registry across the portfolio-stress
+// rename. Nothing is discarded and nothing is re-derived: every episode keeps
+// its episode key, occurrence key, state, severity, timestamps, and
+// fingerprints, the occurrence sequence is preserved so no in-flight occurrence
+// can be minted twice, and the producer cursor keeps its as_of/fingerprint so
+// the next evaluation does not re-observe an already-consumed input. Only the
+// two renamed values change: the "canary" cursor key becomes "stress" and the
+// canary_portfolio_stress presentation code becomes portfolio_stress.
+func (r *alertEpisodeRegistry) migrateV3(ctx context.Context, stored corestore.StateDocument) error {
+	legacy, err := decodeAlertEpisodeRegistryDocumentV3(stored.JSON)
+	if err != nil {
+		return fmt.Errorf("load alert episode registry revision %d legacy v3: %w", stored.Revision, err)
+	}
+	next := alertEpisodeRegistryDocument{
+		Version: alertEpisodeRegistryDocumentVersion, UpdatedAt: legacy.UpdatedAt,
+		NextOccurrenceSequence: legacy.NextOccurrenceSequence,
+		Scopes:                 make([]alertEpisodeRegistryScopeDocument, 0, len(legacy.Scopes)),
+		LegacyUnscoped:         legacy.LegacyUnscoped,
+	}
+	for _, oldScope := range legacy.Scopes {
+		scope := alertEpisodeRegistryScopeDocument{
+			AuthorityScope: oldScope.AuthorityScope, AsOf: oldScope.AsOf, Coverage: oldScope.Coverage,
+			SourceStates: oldScope.SourceStates, Cursors: upgradeAlertShadowDurableCursors(oldScope.Cursors),
+			Metrics: oldScope.Metrics, Episodes: oldScope.Episodes,
+		}
+		for i := range scope.Episodes {
+			if scope.Episodes[i].PresentationCode == legacyStressPresentationCode {
+				scope.Episodes[i].PresentationCode = rpc.AlertPresentationPortfolioStress
+			}
+		}
+		next.Scopes = append(next.Scopes, scope)
+	}
+	if err := validateAlertEpisodeRegistryDocument(next, r.inactiveLimit); err != nil {
+		return fmt.Errorf("migrate alert episode registry v3: %w", err)
+	}
+	raw, err := json.Marshal(next)
+	if err != nil {
+		return fmt.Errorf("encode migrated alert episode registry v3: %w", err)
+	}
+	saved, err := r.core.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
+		ScopeKey: daemonStateScope, Kind: alertEpisodeRegistryStateKind,
+		ExpectedRevision: stored.Revision, JSON: raw,
+	})
+	if err != nil {
+		return fmt.Errorf("persist migrated alert episode registry v3: %w", err)
+	}
+	r.revision, r.document = saved.Revision, next
 	return nil
 }
 
@@ -643,7 +751,8 @@ func (r *alertEpisodeRegistry) migrateV2(ctx context.Context, stored corestore.S
 	for _, oldScope := range legacy.Scopes {
 		scope := alertEpisodeRegistryScopeDocument{
 			AuthorityScope: oldScope.AuthorityScope, AsOf: oldScope.AsOf, Coverage: oldScope.Coverage,
-			SourceStates: oldScope.SourceStates, Cursors: oldScope.Cursors, Metrics: oldScope.Metrics,
+			SourceStates: oldScope.SourceStates, Cursors: upgradeAlertShadowDurableCursors(oldScope.Cursors),
+			Metrics:  oldScope.Metrics,
 			Episodes: make([]alertEpisodeRegistryRecord, 0, len(oldScope.Episodes)),
 		}
 		for i, old := range oldScope.Episodes {
@@ -1271,7 +1380,7 @@ func validateAlertEpisodeEvaluation(evaluation alertEpisodeEvaluation) error {
 		}
 	}
 	if evaluation.CursorKind != "" {
-		if evaluation.CursorKind != alertShadowCursorCanary && evaluation.CursorKind != alertShadowCursorNudges &&
+		if evaluation.CursorKind != alertShadowCursorStress && evaluation.CursorKind != alertShadowCursorNudges &&
 			evaluation.CursorKind != alertShadowCursorRegime && evaluation.CursorKind != alertShadowCursorRulebook &&
 			evaluation.CursorKind != alertShadowCursorProtection && evaluation.CursorKind != alertShadowCursorOrderIntegrity &&
 			evaluation.CursorKind != alertShadowCursorDataHealth {
@@ -1414,8 +1523,8 @@ func validateAlertEpisodeRegistryDocument(document alertEpisodeRegistryDocument,
 				return fmt.Errorf("invalid alert episode registry source state: %w", err)
 			}
 		}
-		if err := validateAlertShadowInputCursorOptional(scopeDocument.Cursors.Canary); err != nil {
-			return fmt.Errorf("invalid alert episode registry Canary cursor: %w", err)
+		if err := validateAlertShadowInputCursorOptional(scopeDocument.Cursors.Stress); err != nil {
+			return fmt.Errorf("invalid alert episode registry Stress cursor: %w", err)
 		}
 		if err := validateAlertShadowInputCursorOptional(scopeDocument.Cursors.Nudges); err != nil {
 			return fmt.Errorf("invalid alert episode registry Nudge cursor: %w", err)
@@ -1540,6 +1649,25 @@ func decodeAlertEpisodeRegistryDocumentV2(raw []byte) (alertEpisodeRegistryDocum
 	}
 	if document.Version != 2 {
 		return alertEpisodeRegistryDocumentV2{}, errors.New("invalid legacy alert episode registry v2 version")
+	}
+	return document, nil
+}
+
+func decodeAlertEpisodeRegistryDocumentV3(raw []byte) (alertEpisodeRegistryDocumentV3, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var document alertEpisodeRegistryDocumentV3
+	if err := decoder.Decode(&document); err != nil {
+		return alertEpisodeRegistryDocumentV3{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return alertEpisodeRegistryDocumentV3{}, errors.New("legacy alert episode registry v3 contains trailing JSON")
+		}
+		return alertEpisodeRegistryDocumentV3{}, err
+	}
+	if document.Version != 3 {
+		return alertEpisodeRegistryDocumentV3{}, errors.New("invalid legacy alert episode registry v3 version")
 	}
 	return document, nil
 }
@@ -1896,8 +2024,8 @@ func applyAlertShadowEvaluationMetrics(scopeDocument *alertEpisodeRegistryScopeD
 
 func applyAlertShadowCursor(scopeDocument *alertEpisodeRegistryScopeDocument, kind string, cursor alertShadowInputCursor) {
 	switch kind {
-	case alertShadowCursorCanary:
-		scopeDocument.Cursors.Canary = cursor
+	case alertShadowCursorStress:
+		scopeDocument.Cursors.Stress = cursor
 	case alertShadowCursorNudges:
 		scopeDocument.Cursors.Nudges = cursor
 	case alertShadowCursorRegime:

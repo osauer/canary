@@ -93,7 +93,7 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 		Policy:             stressPolicy.PolicyProfile(),
 		PolicyProfile:      stressPolicy.PolicyProfile(),
 		PolicyVersion:      stressPolicy.PolicyVersion(),
-		PolicyFingerprint:  rpc.Fingerprint{Version: risk.CanaryPolicyFingerprintVersion, Key: stressPolicy.FingerprintKey()},
+		PolicyFingerprint:  rpc.Fingerprint{Version: risk.StressPolicyFingerprintVersion, Key: stressPolicy.FingerprintKey()},
 		Portfolio:          summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now),
 		Market:             summarizeStressMarket(in.Regime, now),
 		MarketIndicators:   stressMarketIndicators(in.Regime, now),

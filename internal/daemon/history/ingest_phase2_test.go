@@ -137,7 +137,7 @@ func TestGoldenIngestStress(t *testing.T) {
 	t.Parallel()
 	opts := testOptions(t)
 	golden := readTestdata(t, "canary-decisions.jsonl")
-	writeJournal(t, opts.CanaryJournalPath, golden)
+	writeJournal(t, opts.StressJournalPath, golden)
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 

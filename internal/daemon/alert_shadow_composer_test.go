@@ -11,7 +11,7 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-func TestAlertShadowComposerCanaryNormalStressRecoveryReopenAndMetrics(t *testing.T) {
+func TestAlertShadowComposerStressNormalRecoveryReopenAndMetrics(t *testing.T) {
 	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
 	defer store.Close()
 	registry, err := newAlertEpisodeRegistry(t.Context(), store)
@@ -25,7 +25,7 @@ func TestAlertShadowComposerCanaryNormalStressRecoveryReopenAndMetrics(t *testin
 	composer.now = func() time.Time { return now }
 	relevant := true
 
-	nearMiss := alertShadowTestCanary(base, risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "near-miss")
+	nearMiss := alertShadowTestStress(base, risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "near-miss")
 	normal, err := composer.ObserveStress(t.Context(), scope, nearMiss)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestAlertShadowComposerCanaryNormalStressRecoveryReopenAndMetrics(t *testin
 	assertAlertShadowCoverage(t, normal.Coverage, []rpc.AlertSource{rpc.AlertSourceStress})
 
 	now = base.Add(time.Minute + 2*time.Second)
-	stress := alertShadowTestCanary(base.Add(time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "stress")
+	stress := alertShadowTestStress(base.Add(time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "stress")
 	opened, err := composer.ObserveStress(t.Context(), scope, stress)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestAlertShadowComposerCanaryNormalStressRecoveryReopenAndMetrics(t *testin
 	}
 
 	now = base.Add(2*time.Minute + 2*time.Second)
-	repeatedStress := alertShadowTestCanary(base.Add(2*time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "stress")
+	repeatedStress := alertShadowTestStress(base.Add(2*time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "stress")
 	repeated, err := composer.ObserveStress(t.Context(), scope, repeatedStress)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestAlertShadowComposerCanaryNormalStressRecoveryReopenAndMetrics(t *testin
 	}
 
 	now = base.Add(3*time.Minute + 2*time.Second)
-	recovery := alertShadowTestCanary(base.Add(3*time.Minute), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "recovery")
+	recovery := alertShadowTestStress(base.Add(3*time.Minute), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "recovery")
 	recovered, err := composer.ObserveStress(t.Context(), scope, recovery)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestAlertShadowComposerCanaryNormalStressRecoveryReopenAndMetrics(t *testin
 	}
 
 	now = base.Add(4*time.Minute + 2*time.Second)
-	reopenInput := alertShadowTestCanary(base.Add(4*time.Minute), risk.SeverityAct, "defend", &relevant, rpc.SourceStatusOK, "reopen")
+	reopenInput := alertShadowTestStress(base.Add(4*time.Minute), risk.SeverityAct, "defend", &relevant, rpc.SourceStatusOK, "reopen")
 	reopened, err := composer.ObserveStress(t.Context(), scope, reopenInput)
 	if err != nil {
 		t.Fatal(err)
@@ -1031,7 +1031,7 @@ func TestAlertShadowComposerRetriesFailedApplyExpiresCrossSourceCoverageAndIsola
 	composer.now = func() time.Time { return now }
 	scope := alertShadowTestBrokerScope(t)
 	relevant := true
-	stress := alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "retry-open")
+	stress := alertShadowTestStress(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "retry-open")
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -1088,7 +1088,7 @@ func TestAlertShadowComposerRetriesFailedApplyExpiresCrossSourceCoverageAndIsola
 		t.Fatal(err)
 	}
 	now = base.Add(2 * time.Minute)
-	otherStress := alertShadowTestCanary(base, risk.SeverityAct, "defend", &relevant, rpc.SourceStatusOK, "other-scope")
+	otherStress := alertShadowTestStress(base, risk.SeverityAct, "defend", &relevant, rpc.SourceStatusOK, "other-scope")
 	isolated, err := composer.ObserveStress(t.Context(), otherScope, otherStress)
 	if err != nil {
 		t.Fatal(err)
@@ -1108,13 +1108,13 @@ func TestAlertShadowComposerRetriesFailedApplyExpiresCrossSourceCoverageAndIsola
 		t.Fatalf("registry persisted raw broker scope: %s", document.JSON)
 	}
 
-	future := alertShadowTestCanary(now.Add(time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "future")
+	future := alertShadowTestStress(now.Add(time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "future")
 	if _, err := composer.ObserveStress(t.Context(), otherScope, future); err == nil || !strings.Contains(err.Error(), "future") {
 		t.Fatalf("future producer time error=%v", err)
 	}
 }
 
-func TestAlertShadowComposerCanaryOutageAndUnstampedNegativeNeverRecover(t *testing.T) {
+func TestAlertShadowComposerStressOutageAndUnstampedNegativeNeverRecover(t *testing.T) {
 	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
 	defer store.Close()
 	registry, err := newAlertEpisodeRegistry(t.Context(), store)
@@ -1128,7 +1128,7 @@ func TestAlertShadowComposerCanaryOutageAndUnstampedNegativeNeverRecover(t *test
 	composer.now = func() time.Time { return now }
 	relevant := true
 
-	stress := alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "outage-open")
+	stress := alertShadowTestStress(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "outage-open")
 	opened, err := composer.ObserveStress(t.Context(), scope, stress)
 	if err != nil {
 		t.Fatal(err)
@@ -1136,7 +1136,7 @@ func TestAlertShadowComposerCanaryOutageAndUnstampedNegativeNeverRecover(t *test
 	openingOccurrence := opened.Candidates[0].OccurrenceKey
 
 	now = base.Add(time.Minute)
-	staleNegative := alertShadowTestCanary(now, risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusStale, "stale-negative")
+	staleNegative := alertShadowTestStress(now, risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusStale, "stale-negative")
 	held, err := composer.ObserveStress(t.Context(), scope, staleNegative)
 	if err != nil {
 		t.Fatal(err)
@@ -1149,7 +1149,7 @@ func TestAlertShadowComposerCanaryOutageAndUnstampedNegativeNeverRecover(t *test
 	}
 
 	now = base.Add(2 * time.Minute)
-	unstamped := alertShadowTestCanary(now, risk.SeverityObserve, "observe", nil, rpc.SourceStatusOK, "unstamped-negative")
+	unstamped := alertShadowTestStress(now, risk.SeverityObserve, "observe", nil, rpc.SourceStatusOK, "unstamped-negative")
 	held, err = composer.ObserveStress(t.Context(), scope, unstamped)
 	if err != nil {
 		t.Fatal(err)
@@ -1158,7 +1158,7 @@ func TestAlertShadowComposerCanaryOutageAndUnstampedNegativeNeverRecover(t *test
 		t.Fatalf("unstamped negative recovered episode: %+v", held.Candidates)
 	}
 
-	older := alertShadowTestCanary(base.Add(90*time.Second), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "older")
+	older := alertShadowTestStress(base.Add(90*time.Second), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "older")
 	if _, err := composer.ObserveStress(t.Context(), scope, older); err != nil {
 		t.Fatal(err)
 	}
@@ -1357,14 +1357,14 @@ func TestAlertShadowCurrentNegativeRecoversAcrossPolicyChangeExceptProtection(t 
 	t.Run("Canary", func(t *testing.T) {
 		now := base.Add(time.Second)
 		composer, scope := newComposer(t, &now)
-		active := alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "policy-a-active")
-		active.PolicyFingerprint.Key = alertShadowTestFingerprint("canary-policy-a")
+		active := alertShadowTestStress(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "policy-a-active")
+		active.PolicyFingerprint.Key = alertShadowTestFingerprint("stress-policy-a")
 		if _, err := composer.ObserveStress(t.Context(), scope, active); err != nil {
 			t.Fatal(err)
 		}
 		now = base.Add(time.Minute + time.Second)
-		clear := alertShadowTestCanary(base.Add(time.Minute), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "policy-b-clear")
-		clear.PolicyFingerprint.Key = alertShadowTestFingerprint("canary-policy-b")
+		clear := alertShadowTestStress(base.Add(time.Minute), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "policy-b-clear")
+		clear.PolicyFingerprint.Key = alertShadowTestFingerprint("stress-policy-b")
 		snapshot, err := composer.ObserveStress(t.Context(), scope, clear)
 		if err != nil {
 			t.Fatal(err)
@@ -1482,7 +1482,7 @@ func TestAlertShadowComposerRestartFacingEmptyAndConcurrentReplay(t *testing.T) 
 	relevant := true
 	scope := alertShadowTestBrokerScope(t)
 	composer.now = func() time.Time { return base }
-	if _, err := composer.ObserveStress(t.Context(), scope, alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")); err != nil {
+	if _, err := composer.ObserveStress(t.Context(), scope, alertShadowTestStress(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1498,12 +1498,12 @@ func TestAlertShadowComposerRestartFacingEmptyAndConcurrentReplay(t *testing.T) 
 		t.Fatalf("restart reconstructed Canary coverage: %+v", got)
 	}
 	restartStatus := restarted.Status(scope)
-	restartCanary := alertShadowTestSourceStatus(t, restartStatus, rpc.AlertSourceStress)
-	if restartStatus.Evaluations != 1 || restartCanary.Measurements.Evaluations != 1 || restartCanary.Measurements.EpisodesOpened != 1 || restartCanary.Measurements.TimeToObserveSamples != 1 {
+	restartStress := alertShadowTestSourceStatus(t, restartStatus, rpc.AlertSourceStress)
+	if restartStatus.Evaluations != 1 || restartStress.Measurements.Evaluations != 1 || restartStress.Measurements.EpisodesOpened != 1 || restartStress.Measurements.TimeToObserveSamples != 1 {
 		t.Fatalf("restart lost durable commissioning metrics: %+v", restartStatus)
 	}
 
-	staleReplay := alertShadowTestCanary(base.Add(-time.Second), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")
+	staleReplay := alertShadowTestStress(base.Add(-time.Second), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")
 	staleProjection, err := restarted.ObserveStress(t.Context(), scope, staleReplay)
 	if err != nil || staleProjection.Coverage.State != rpc.AlertCoverageUnavailable || staleProjection.Coverage.Freshness != rpc.AlertCoverageUnknown ||
 		len(staleProjection.Coverage.CoveredSources) != 0 || len(staleProjection.Candidates) != 1 || staleProjection.Candidates[0].EvidenceHealth != rpc.AlertEvidenceUnavailable {
@@ -1512,7 +1512,7 @@ func TestAlertShadowComposerRestartFacingEmptyAndConcurrentReplay(t *testing.T) 
 	if got := alertShadowTestSourceStatus(t, restarted.Status(scope), rpc.AlertSourceStress); got.Status != alertShadowStatusNotObserved || got.Covered {
 		t.Fatalf("stale restart replay changed process coverage: %+v", got)
 	}
-	exactReplay := alertShadowTestCanary(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")
+	exactReplay := alertShadowTestStress(base, risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")
 	reobserved, err := restarted.ObserveStress(t.Context(), scope, exactReplay)
 	if err != nil || reobserved.Coverage.State != rpc.AlertCoveragePartial || reobserved.Coverage.Freshness != rpc.AlertCoverageCurrent ||
 		len(reobserved.Coverage.CoveredSources) != 1 || reobserved.Coverage.CoveredSources[0] != rpc.AlertSourceStress {
@@ -1520,7 +1520,7 @@ func TestAlertShadowComposerRestartFacingEmptyAndConcurrentReplay(t *testing.T) 
 	}
 
 	restarted.now = func() time.Time { return base.Add(time.Minute + time.Second) }
-	replay := alertShadowTestCanary(base.Add(time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")
+	replay := alertShadowTestStress(base.Add(time.Minute), risk.SeverityWatch, "monitor", &relevant, rpc.SourceStatusOK, "restart-open")
 	const workers = 16
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
@@ -1547,7 +1547,7 @@ func TestAlertShadowComposerRestartFacingEmptyAndConcurrentReplay(t *testing.T) 
 	}
 }
 
-func alertShadowTestCanary(at time.Time, severity risk.SignalSeverity, action string, relevant *bool, sourceStatus, seed string) rpc.StressResult {
+func alertShadowTestStress(at time.Time, severity risk.SignalSeverity, action string, relevant *bool, sourceStatus, seed string) rpc.StressResult {
 	source := func(name string) rpc.SourceHealth {
 		fingerprint := rpc.Fingerprint{Version: name + "-fp-v1", Key: alertShadowTestFingerprint(seed + "-" + name)}
 		return rpc.SourceHealth{
@@ -1557,7 +1557,7 @@ func alertShadowTestCanary(at time.Time, severity risk.SignalSeverity, action st
 	}
 	return rpc.StressResult{
 		AsOf: at, Fingerprint: rpc.Fingerprint{Version: rpc.StressFingerprintVersion, Key: alertShadowTestFingerprint(seed)},
-		PolicyFingerprint: rpc.Fingerprint{Version: "canary-policy-fp-v1", Key: alertShadowTestFingerprint("canary-policy")},
+		PolicyFingerprint: rpc.Fingerprint{Version: "stress-policy-fp-v1", Key: alertShadowTestFingerprint("stress-policy")},
 		Action:            action, Severity: severity, PortfolioAlertRelevant: relevant, InputHealth: "ok",
 		SourceHealth: []rpc.SourceHealth{source("account"), source("positions"), source("regime")},
 	}

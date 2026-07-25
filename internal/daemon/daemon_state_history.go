@@ -90,7 +90,7 @@ func (s *Server) sqliteStressHistory(ctx context.Context, since, until time.Time
 	}
 	entries := make([]rpc.StressHistoryEntry, 0, len(events))
 	for _, event := range events {
-		var line canaryDecisionLine
+		var line stressDecisionLine
 		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
 			return nil, 0, fmt.Errorf("decode stress decision event %d: %w", event.EventSeq, err)
 		}

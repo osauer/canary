@@ -13,11 +13,11 @@ import (
 	"github.com/osauer/ibkr/v2/internal/stress"
 )
 
-// canaryDecisionJournal appends one typed SQLite event per decision-relevant
-// portfolio-canary snapshot. It mirrors regimeDecisionJournal's fingerprint
+// stressDecisionJournal appends one typed SQLite event per decision-relevant
+// portfolio-stress snapshot. It mirrors regimeDecisionJournal's fingerprint
 // dedupe and hourly heartbeat. The path branch and writer lock remain only for
 // legacy unit/import oracles.
-type canaryDecisionJournal struct {
+type stressDecisionJournal struct {
 	path string // legacy unit/import helper only
 	core *corestore.Store
 
@@ -26,37 +26,55 @@ type canaryDecisionJournal struct {
 	lastWrite       time.Time
 }
 
-func canaryDecisionsDefaultPath() (string, error) {
-	return defaultTradingStatePath("canary-decisions.jsonl")
+// legacyStressDecisionsFile is the pre-rename on-disk name of the portfolio-
+// stress decision journal. It is deliberately NOT renamed to stress-decisions.
+// The daemon has not appended to this file since the SQLite authority cutover
+// (append() takes the corestore branch whenever core is bound, which production
+// Start always does). What remains on an operator's disk is frozen legacy
+// evidence that the cutover importer reads once and then seals under this exact
+// basename into legacy-sealed/<cutover-id>/.
+//
+// Renaming it is not merely low-value, it is unsafe: rotation derives its
+// archive prefix from this basename (journalArchiveBase), so a renamed live
+// file makes every rotated canary-decisions-*.jsonl.gz archive invisible to
+// existingArchiveNames and backfillArchives, and makes validateRotationArchives
+// reject any rotation intent a crash left pending. recoverLegacyDecisionRotations
+// treats an unresolvable intent as a hard startup failure, so the rename would
+// brick startup for exactly the operator who crashed mid-rotation. The name is
+// an evidence identifier, not a sensor name.
+const legacyStressDecisionsFile = "canary-decisions.jsonl"
+
+func stressDecisionsDefaultPath() (string, error) {
+	return defaultTradingStatePath(legacyStressDecisionsFile)
 }
 
 const (
-	canaryDecisionHeartbeat = time.Hour
-	// canaryEvaluationEvery is the daemon-owned decision cadence. It matches
+	stressDecisionHeartbeat = time.Hour
+	// stressEvaluationEvery is the daemon-owned decision cadence. It matches
 	// the established app refresh without depending on an app process being
 	// present. Journaling is a retention choice and cannot stop evaluation.
-	canaryEvaluationEvery = time.Minute
+	stressEvaluationEvery = time.Minute
 	// A cold daemon starts the loop before the gateway handshake. Retry the
 	// cheap prerequisite check promptly; once an evaluation is attempted, the
 	// normal minute cadence resumes even if some inputs are degraded.
-	canaryEvaluationRetryEvery = 5 * time.Second
-	// canaryJournalEvery remains the five-minute Regime authority window used
-	// by regimeSnapshotFreshFor. Canary evaluation no longer runs on it.
-	canaryJournalEvery = 5 * time.Minute
+	stressEvaluationRetryEvery = 5 * time.Second
+	// stressJournalEvery remains the five-minute Regime authority window used
+	// by regimeSnapshotFreshFor. Stress evaluation no longer runs on it.
+	stressJournalEvery = 5 * time.Minute
 )
 
-// canaryDecisionPolicy is the journal line's policy identity block.
-type canaryDecisionPolicy struct {
+// stressDecisionPolicy is the journal line's policy identity block.
+type stressDecisionPolicy struct {
 	Policy      string          `json:"policy,omitempty"`
 	Profile     string          `json:"profile,omitempty"`
 	Version     string          `json:"version,omitempty"`
 	Fingerprint rpc.Fingerprint `json:"fingerprint,omitzero"`
 }
 
-// canaryDecisionLine is the v1 journal record: the canary's decision
+// stressDecisionLine is the v1 journal record: the stress sensor's decision
 // output, its market/portfolio evidence, and the classified upstream
 // fingerprints — enough to replay an alert decision offline.
-type canaryDecisionLine struct {
+type stressDecisionLine struct {
 	V                      int                          `json:"v"`
 	TS                     time.Time                    `json:"ts"`
 	SessionKey             string                       `json:"session_key"`
@@ -74,7 +92,7 @@ type canaryDecisionLine struct {
 	PlannerReadiness       risk.PlannerReadiness        `json:"planner_readiness,omitempty"`
 	Summary                string                       `json:"summary"`
 	PrimaryDrivers         []risk.SignalID              `json:"primary_drivers,omitempty"`
-	Policy                 canaryDecisionPolicy         `json:"policy,omitzero"`
+	Policy                 stressDecisionPolicy         `json:"policy,omitzero"`
 	Market                 rpc.StressMarketSummary      `json:"market"`
 	HeldStress             []rpc.HeldStress             `json:"held_stress,omitempty"`
 	Rows                   []rpc.StressRow              `json:"rows,omitempty"`
@@ -83,21 +101,21 @@ type canaryDecisionLine struct {
 	Warnings               []string                     `json:"warnings,omitempty"`
 }
 
-func (s *Server) installCanaryDecisionJournal() {
-	path, err := canaryDecisionsDefaultPath()
+func (s *Server) installStressDecisionJournal() {
+	path, err := stressDecisionsDefaultPath()
 	if err != nil {
-		s.logger.Warnf("canary decisions: resolve state path: %v (journal disabled)", err)
+		s.logger.Warnf("stress decisions: resolve state path: %v (journal disabled)", err)
 		return
 	}
-	s.canaryDecisions = &canaryDecisionJournal{path: path}
+	s.stressDecisions = &stressDecisionJournal{path: path}
 }
 
-// journalCanaryDecision appends the canary snapshot when its semantic
+// journalStressDecision appends the stress snapshot when its semantic
 // fingerprint changed or the heartbeat interval elapsed. Failures degrade
 // to warnings — journaling must never fail a snapshot or brief. Disabled
 // via `ibkr settings set stress.journal.enabled=false`. Always ends with
 // the data-free history-index kick.
-func (s *Server) journalCanaryDecision(res *rpc.StressResult) {
+func (s *Server) journalStressDecision(res *rpc.StressResult) {
 	if s == nil || res == nil {
 		return
 	}
@@ -106,13 +124,13 @@ func (s *Server) journalCanaryDecision(res *rpc.StressResult) {
 	// Raw scope parts remain inside their owning adapters; the alert registry
 	// persists only the opaque episode key derived from them.
 	scope := s.currentBrokerStateScope()
-	s.observeCanaryAlertShadow(res, scope)
-	if s.canaryDecisions == nil {
+	s.observeStressAlertShadow(res, scope)
+	if s.stressDecisions == nil {
 		return
 	}
-	if s.canaryJournalEnabled() {
-		if err := s.canaryDecisions.append(time.Now(), scope.Account, scope.Mode, res); err != nil {
-			s.logger.Warnf("canary: decisions journal append failed: %v", err)
+	if s.stressJournalEnabled() {
+		if err := s.stressDecisions.append(time.Now(), scope.Account, scope.Mode, res); err != nil {
+			s.logger.Warnf("stress: decisions journal append failed: %v", err)
 		}
 	}
 	// Wake the history-index ingester unconditionally (not gated on the
@@ -120,7 +138,7 @@ func (s *Server) journalCanaryDecision(res *rpc.StressResult) {
 	s.kickHistoryIndex()
 }
 
-func (s *Server) canaryJournalEnabled() bool {
+func (s *Server) stressJournalEnabled() bool {
 	if s.platformSettings == nil {
 		return true
 	}
@@ -131,21 +149,21 @@ func (s *Server) canaryJournalEnabled() bool {
 	return *data.Stress.Journal.Enabled
 }
 
-// append journals one deduped canary decision. The mutex is held across
+// append journals one deduped stress decision. The mutex is held across
 // marshal, directory ensure, open, write, and close — the writer-quiescence
 // contract rotation relies on (a live-file rename is invisible to an
 // open-per-append writer only while no append is in flight).
-func (j *canaryDecisionJournal) append(now time.Time, account, accountMode string, res *rpc.StressResult) error {
+func (j *stressDecisionJournal) append(now time.Time, account, accountMode string, res *rpc.StressResult) error {
 	if j == nil || res == nil {
 		return nil
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	fp := res.Fingerprint.Key
-	if fp != "" && fp == j.lastFingerprint && now.Sub(j.lastWrite) < canaryDecisionHeartbeat {
+	if fp != "" && fp == j.lastFingerprint && now.Sub(j.lastWrite) < stressDecisionHeartbeat {
 		return nil
 	}
-	line := canaryDecisionLine{
+	line := stressDecisionLine{
 		V:                      1,
 		TS:                     now,
 		SessionKey:             nyTradingSessionKey(nyTime(now)),
@@ -163,7 +181,7 @@ func (j *canaryDecisionJournal) append(now time.Time, account, accountMode strin
 		PlannerReadiness:       res.PlannerReadiness,
 		Summary:                res.Summary,
 		PrimaryDrivers:         res.PrimaryDrivers,
-		Policy: canaryDecisionPolicy{
+		Policy: stressDecisionPolicy{
 			Policy:      res.Policy,
 			Profile:     res.PolicyProfile,
 			Version:     res.PolicyVersion,
@@ -217,37 +235,37 @@ func (j *canaryDecisionJournal) append(now time.Time, account, accountMode strin
 	return f.Close()
 }
 
-// startCanaryEvaluationLoop starts the daemon-owned Canary evaluator. The
+// startStressEvaluationLoop starts the daemon-owned Stress evaluator. The
 // immediate first attempt removes the former five-minute startup blind spot;
 // gateway connection and each new Regime publication also wake the loop.
-func (s *Server) startCanaryEvaluationLoop(ctx context.Context) {
+func (s *Server) startStressEvaluationLoop(ctx context.Context) {
 	if s == nil || ctx == nil {
 		return
 	}
-	s.canaryEvaluationLoopWG.Go(func() {
-		s.runCanaryEvaluationLoop(ctx)
+	s.stressEvaluationLoopWG.Go(func() {
+		s.runStressEvaluationLoop(ctx)
 	})
 }
 
-func (s *Server) runCanaryEvaluationLoop(ctx context.Context) {
+func (s *Server) runStressEvaluationLoop(ctx context.Context) {
 	if s == nil || ctx == nil {
 		return
 	}
-	runCanaryEvaluationLoopWith(
+	runStressEvaluationLoopWith(
 		ctx,
-		s.canaryEvaluationWakeChannel(),
-		canaryEvaluationEvery,
-		canaryEvaluationRetryEvery,
-		s.canaryEvaluationTick,
+		s.stressEvaluationWakeChannel(),
+		stressEvaluationEvery,
+		stressEvaluationRetryEvery,
+		s.stressEvaluationTick,
 	)
 }
 
-type canaryEvaluation func(context.Context) bool
+type stressEvaluation func(context.Context) bool
 
-// canaryEvaluationSourceReader keeps the production tick on the same typed
-// daemon RPC builders used by request-driven Canary recomputation. Tests swap
+// stressEvaluationSourceReader keeps the production tick on the same typed
+// daemon RPC builders used by request-driven Stress recomputation. Tests swap
 // this one narrow seam to exercise the real tick without a broker socket.
-type canaryEvaluationSourceReader interface {
+type stressEvaluationSourceReader interface {
 	ready() bool
 	account(context.Context) (*rpc.AccountResult, error)
 	positions(context.Context) (*rpc.PositionsResult, error)
@@ -256,38 +274,38 @@ type canaryEvaluationSourceReader interface {
 	now() time.Time
 }
 
-type daemonCanaryEvaluationSourceReader struct {
+type daemonStressEvaluationSourceReader struct {
 	server *Server
 }
 
-func (r daemonCanaryEvaluationSourceReader) ready() bool {
+func (r daemonStressEvaluationSourceReader) ready() bool {
 	return r.server != nil && r.server.gatewayConnector() != nil
 }
 
-func (r daemonCanaryEvaluationSourceReader) account(ctx context.Context) (*rpc.AccountResult, error) {
+func (r daemonStressEvaluationSourceReader) account(ctx context.Context) (*rpc.AccountResult, error) {
 	return r.server.buildAccountSummary(ctx, false)
 }
 
-func (r daemonCanaryEvaluationSourceReader) positions(ctx context.Context) (*rpc.PositionsResult, error) {
+func (r daemonStressEvaluationSourceReader) positions(ctx context.Context) (*rpc.PositionsResult, error) {
 	return r.server.handlePositionsList(ctx, &rpc.Request{})
 }
 
-func (r daemonCanaryEvaluationSourceReader) regime(ctx context.Context) (*rpc.RegimeSnapshotResult, error) {
+func (r daemonStressEvaluationSourceReader) regime(ctx context.Context) (*rpc.RegimeSnapshotResult, error) {
 	return r.server.briefRegimeSnapshotContext(ctx)
 }
 
-func (r daemonCanaryEvaluationSourceReader) marketEvents(ctx context.Context, symbols []string) (*rpc.MarketEventsResult, error) {
+func (r daemonStressEvaluationSourceReader) marketEvents(ctx context.Context, symbols []string) (*rpc.MarketEventsResult, error) {
 	return r.server.handleMarketEventsSnapshot(ctx, &rpc.Request{Params: briefJSON(rpc.MarketEventsParams{Symbols: symbols})})
 }
 
-func (r daemonCanaryEvaluationSourceReader) now() time.Time {
+func (r daemonStressEvaluationSourceReader) now() time.Time {
 	return r.server.briefNow()
 }
 
-// runCanaryEvaluationLoopWith keeps the scheduler deterministic in tests. A
+// runStressEvaluationLoopWith keeps the scheduler deterministic in tests. A
 // capacity-one wake channel coalesces repeated publications while an
 // evaluation is in flight; the evaluation always reads the newest authority.
-func runCanaryEvaluationLoopWith(ctx context.Context, wake <-chan struct{}, every, retry time.Duration, evaluate canaryEvaluation) {
+func runStressEvaluationLoopWith(ctx context.Context, wake <-chan struct{}, every, retry time.Duration, evaluate stressEvaluation) {
 	if ctx == nil || evaluate == nil || every <= 0 || retry <= 0 {
 		return
 	}
@@ -314,16 +332,16 @@ func runCanaryEvaluationLoopWith(ctx context.Context, wake <-chan struct{}, ever
 	}
 }
 
-// canaryEvaluationTick composes and publishes one Canary decision exactly as
+// stressEvaluationTick composes and publishes one Stress decision exactly as
 // composeBrief does. The journal setting is intentionally absent: it controls
-// only the optional retained event inside journalCanaryDecision.
-func (s *Server) canaryEvaluationTick(ctx context.Context) bool {
+// only the optional retained event inside journalStressDecision.
+func (s *Server) stressEvaluationTick(ctx context.Context) bool {
 	if s == nil || ctx == nil || ctx.Err() != nil {
 		return false
 	}
-	var reader canaryEvaluationSourceReader = daemonCanaryEvaluationSourceReader{server: s}
-	if s.canaryEvaluationSourceReaderForTest != nil {
-		reader = s.canaryEvaluationSourceReaderForTest
+	var reader stressEvaluationSourceReader = daemonStressEvaluationSourceReader{server: s}
+	if s.stressEvaluationSourceReaderForTest != nil {
+		reader = s.stressEvaluationSourceReaderForTest
 	}
 	if !reader.ready() {
 		return false
@@ -351,12 +369,12 @@ func (s *Server) canaryEvaluationTick(ctx context.Context) bool {
 		in.MarketEvents = *events
 	}
 	can := stress.ComputeStress(in)
-	s.journalCanaryDecision(&can)
+	s.journalStressDecision(&can)
 	return true
 }
 
-// canaryJournalTick remains as a narrow compatibility seam for legacy tests.
+// stressJournalTick remains as a narrow compatibility seam for legacy tests.
 // It now performs an evaluation; the journal setting controls retention only.
-func (s *Server) canaryJournalTick(ctx context.Context) {
-	s.canaryEvaluationTick(ctx)
+func (s *Server) stressJournalTick(ctx context.Context) {
+	s.stressEvaluationTick(ctx)
 }

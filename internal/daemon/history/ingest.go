@@ -83,7 +83,7 @@ func (s *Store) sources() []sourceDef {
 		},
 		{
 			name:       sourceStress,
-			path:       s.opts.CanaryJournalPath,
+			path:       s.opts.StressJournalPath,
 			dropTables: []string{"stress_transitions"},
 			createDDL:  stressDDL,
 			insertLine: insertStressLine,

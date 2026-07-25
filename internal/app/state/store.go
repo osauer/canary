@@ -472,10 +472,10 @@ func Open(dir string) (*Store, error) {
 	if s.alertDeliveryQuarantinedLocked() {
 		return s, nil
 	}
-	if s.data.AlertDelivery != nil && s.data.AlertDelivery.migratedV2 {
-		s.data.AlertDelivery.migratedV2 = false
+	if s.data.AlertDelivery != nil && s.data.AlertDelivery.migratedLegacy {
+		s.data.AlertDelivery.migratedLegacy = false
 		if err := s.save(); err != nil {
-			return nil, fmt.Errorf("persist alert delivery v3 migration: %w", err)
+			return nil, fmt.Errorf("persist alert delivery ledger upgrade: %w", err)
 		}
 	}
 	if err := s.RecoverAlertDeliveries(time.Now().UTC()); err != nil {

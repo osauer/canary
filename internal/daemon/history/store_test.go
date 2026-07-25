@@ -18,7 +18,7 @@ func testOptions(t *testing.T) Options {
 		DBPath:                filepath.Join(dir, "history.db"),
 		RegimeJournalPath:     filepath.Join(dir, "regime-decisions.jsonl"),
 		RulesJournalPath:      filepath.Join(dir, "rules-decisions.jsonl"),
-		CanaryJournalPath:     filepath.Join(dir, "canary-decisions.jsonl"),
+		StressJournalPath:     filepath.Join(dir, "canary-decisions.jsonl"),
 		CapitalJournalPath:    filepath.Join(dir, "capital-events.jsonl"),
 		RiskPolicyJournalPath: filepath.Join(dir, "risk-policy-journal.jsonl"),
 		ProposalOutcomesPath:  filepath.Join(dir, "trade-proposal-outcomes.jsonl"),

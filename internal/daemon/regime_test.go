@@ -123,7 +123,7 @@ func (f *fakeDeps) build() *regimeDeps {
 // (2026-07-15 14:00 ET). Without a pinned clock the closed-date
 // day-change pin and the off-hours banding branch key on the real
 // calendar and the suite behaves differently on weekends — the same
-// flake class the canary suite pinned with canaryTestNow.
+// flake class the canary suite pinned with stressTestNow.
 var regimeTestNow = time.Date(2026, 7, 15, 18, 0, 0, 0, time.UTC)
 
 // regimeTestClosedSunday is an official non-trading date (Sunday

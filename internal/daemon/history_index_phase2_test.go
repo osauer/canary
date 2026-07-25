@@ -15,9 +15,9 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-// testCanaryResult is a fully-populated canary snapshot for round-trip
+// testStressResult is a fully-populated canary snapshot for round-trip
 // drift guards.
-func testCanaryResult(key string) *rpc.StressResult {
+func testStressResult(key string) *rpc.StressResult {
 	relevant := true
 	return &rpc.StressResult{
 		AsOf:                   time.Now(),
@@ -37,13 +37,13 @@ func testCanaryResult(key string) *rpc.StressResult {
 	}
 }
 
-// TestHistoryIndexCanaryRoundTrip is the canary writer→parser drift
-// guard: a decision journaled by the REAL canaryDecisionJournal must come
+// TestHistoryIndexStressRoundTrip is the canary writer→parser drift
+// guard: a decision journaled by the REAL stressDecisionJournal must come
 // back from stress.history with the same fields.
-func TestHistoryIndexCanaryRoundTrip(t *testing.T) {
+func TestHistoryIndexStressRoundTrip(t *testing.T) {
 	s := newHistoryIndexServer(t)
 	now := time.Now()
-	s.journalCanaryDecision(testCanaryResult("sha256:canary-roundtrip"))
+	s.journalStressDecision(testStressResult("sha256:canary-roundtrip"))
 
 	var got rpc.StressHistoryResult
 	waitForHistory(t, func() (bool, error) {
@@ -72,12 +72,12 @@ func TestHistoryIndexCanaryRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCanaryJournalDedupeHeartbeatAndGate pins the journal's dedupe,
+// TestStressJournalDedupeHeartbeatAndGate pins the journal's dedupe,
 // heartbeat, and runtime-disable semantics.
-func TestCanaryJournalDedupeHeartbeatAndGate(t *testing.T) {
+func TestStressJournalDedupeHeartbeatAndGate(t *testing.T) {
 	s := newHistoryIndexServer(t)
-	j := s.canaryDecisions
-	res := testCanaryResult("sha256:dedupe")
+	j := s.stressDecisions
+	res := testStressResult("sha256:dedupe")
 
 	base := time.Now()
 	if err := j.append(base, "", "", res); err != nil {
@@ -86,10 +86,10 @@ func TestCanaryJournalDedupeHeartbeatAndGate(t *testing.T) {
 	if err := j.append(base.Add(time.Minute), "", "", res); err != nil {
 		t.Fatal(err) // same fingerprint inside the heartbeat: deduped
 	}
-	if err := j.append(base.Add(canaryDecisionHeartbeat+time.Second), "", "", res); err != nil {
+	if err := j.append(base.Add(stressDecisionHeartbeat+time.Second), "", "", res); err != nil {
 		t.Fatal(err) // heartbeat: journaled again
 	}
-	if err := j.append(base.Add(canaryDecisionHeartbeat+2*time.Second), "", "", testCanaryResult("sha256:changed")); err != nil {
+	if err := j.append(base.Add(stressDecisionHeartbeat+2*time.Second), "", "", testStressResult("sha256:changed")); err != nil {
 		t.Fatal(err) // fingerprint change: journaled
 	}
 	data, err := os.ReadFile(j.path)
@@ -107,7 +107,7 @@ func TestCanaryJournalDedupeHeartbeatAndGate(t *testing.T) {
 		}
 	}
 
-	// Runtime disable: journalCanaryDecision must not append. Mutate the
+	// Runtime disable: journalStressDecision must not append. Mutate the
 	// installed store through its own lock (the maintenance loop reads it).
 	if err := s.platformSettings.update(func(next *platformSettingsData) error {
 		disabled := false
@@ -116,7 +116,7 @@ func TestCanaryJournalDedupeHeartbeatAndGate(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s.journalCanaryDecision(testCanaryResult("sha256:while-disabled"))
+	s.journalStressDecision(testStressResult("sha256:while-disabled"))
 	after, err := os.ReadFile(j.path)
 	if err != nil {
 		t.Fatal(err)
@@ -126,31 +126,31 @@ func TestCanaryJournalDedupeHeartbeatAndGate(t *testing.T) {
 	}
 }
 
-// TestCanaryJournalLoopSkipsWhenDisconnected pins the cadence-loop gate:
+// TestStressJournalLoopSkipsWhenDisconnected pins the cadence-loop gate:
 // no gateway connector → no broker round-trips, no journal write.
-func TestCanaryJournalLoopSkipsWhenDisconnected(t *testing.T) {
+func TestStressJournalLoopSkipsWhenDisconnected(t *testing.T) {
 	s := newHistoryIndexServer(t)
-	s.canaryJournalTick(context.Background())
-	if _, err := os.Stat(s.canaryDecisions.path); !os.IsNotExist(err) {
+	s.stressJournalTick(context.Background())
+	if _, err := os.Stat(s.stressDecisions.path); !os.IsNotExist(err) {
 		t.Fatalf("disconnected tick touched the journal (stat err %v)", err)
 	}
 }
 
-// TestComposeBriefJournalsCanaryDecision proves the brief hook: rendering
+// TestComposeBriefJournalsStressDecision proves the brief hook: rendering
 // a brief journals the canary it computed.
-func TestComposeBriefJournalsCanaryDecision(t *testing.T) {
+func TestComposeBriefJournalsStressDecision(t *testing.T) {
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
-	s.installCanaryDecisionJournal()
-	if s.canaryDecisions == nil {
+	s.installStressDecisionJournal()
+	if s.stressDecisions == nil {
 		t.Fatal("canary journal not installed")
 	}
 	_, _ = s.composeBrief(context.Background())
-	data, err := os.ReadFile(s.canaryDecisions.path)
+	data, err := os.ReadFile(s.stressDecisions.path)
 	if err != nil {
 		t.Fatalf("brief did not journal a canary decision: %v", err)
 	}
-	var line canaryDecisionLine
+	var line stressDecisionLine
 	if err := json.Unmarshal([]byte(strings.SplitN(string(data), "\n", 2)[0]), &line); err != nil {
 		t.Fatalf("journaled line does not decode: %v", err)
 	}

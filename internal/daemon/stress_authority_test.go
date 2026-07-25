@@ -14,7 +14,7 @@ import (
 	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
 )
 
-type canaryAuthorityTestReader struct {
+type stressAuthorityTestReader struct {
 	at            time.Time
 	accountResult *rpc.AccountResult
 	positionsBook *rpc.PositionsResult
@@ -23,28 +23,28 @@ type canaryAuthorityTestReader struct {
 	eventSymbols  []string
 }
 
-func (r *canaryAuthorityTestReader) ready() bool { return true }
+func (r *stressAuthorityTestReader) ready() bool { return true }
 
-func (r *canaryAuthorityTestReader) account(context.Context) (*rpc.AccountResult, error) {
+func (r *stressAuthorityTestReader) account(context.Context) (*rpc.AccountResult, error) {
 	return r.accountResult, nil
 }
 
-func (r *canaryAuthorityTestReader) positions(context.Context) (*rpc.PositionsResult, error) {
+func (r *stressAuthorityTestReader) positions(context.Context) (*rpc.PositionsResult, error) {
 	return r.positionsBook, nil
 }
 
-func (r *canaryAuthorityTestReader) regime(context.Context) (*rpc.RegimeSnapshotResult, error) {
+func (r *stressAuthorityTestReader) regime(context.Context) (*rpc.RegimeSnapshotResult, error) {
 	return r.regimeResult, nil
 }
 
-func (r *canaryAuthorityTestReader) marketEvents(_ context.Context, symbols []string) (*rpc.MarketEventsResult, error) {
+func (r *stressAuthorityTestReader) marketEvents(_ context.Context, symbols []string) (*rpc.MarketEventsResult, error) {
 	r.eventSymbols = slices.Clone(symbols)
 	return r.eventsResult, nil
 }
 
-func (r *canaryAuthorityTestReader) now() time.Time { return r.at }
+func (r *stressAuthorityTestReader) now() time.Time { return r.at }
 
-func TestCanaryDecisionDTOAuthorityTimestamps(t *testing.T) {
+func TestStressDecisionDTOAuthorityTimestamps(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
 	accountAsOf := now.Add(-time.Second)
@@ -90,9 +90,9 @@ func TestCanaryDecisionDTOAuthorityTimestamps(t *testing.T) {
 	}
 }
 
-func TestCanaryEvaluationTickRejectsRestampedCachedAccountFallback(t *testing.T) {
+func TestStressEvaluationTickRejectsRestampedCachedAccountFallback(t *testing.T) {
 	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
-	account := canaryAuthorityTestAccount(now)
+	account := stressAuthorityTestAccount(now)
 	// Preserve the fallback's known exposure as context. Its ratio would be
 	// actionable if fresh, so the authority loss must turn fit unknown rather
 	// than interpreting the current positions DTO as a clean empty book.
@@ -104,18 +104,18 @@ func TestCanaryEvaluationTickRejectsRestampedCachedAccountFallback(t *testing.T)
 		AsOf:       now,
 	}, now)
 	positions := &rpc.PositionsResult{
-		AsOf:      positionsResultAuthorityAsOf(canaryAuthorityTestScope(), canaryAuthorityCurrentPortfolioHealth(now), now),
+		AsOf:      positionsResultAuthorityAsOf(stressAuthorityTestScope(), stressAuthorityCurrentPortfolioHealth(now), now),
 		Stocks:    []rpc.PositionView{},
 		Options:   []rpc.PositionView{},
 		Portfolio: &rpc.PositionsPortfolio{},
 	}
-	reader := &canaryAuthorityTestReader{
+	reader := &stressAuthorityTestReader{
 		at: now, accountResult: account, positionsBook: positions,
-		regimeResult: canaryAuthorityHealthyRegime(now),
-		eventsResult: canaryAuthorityHealthyMarketEvents(now),
+		regimeResult: stressAuthorityHealthyRegime(now),
+		eventsResult: stressAuthorityHealthyMarketEvents(now),
 	}
 
-	line := runCanaryAuthorityTick(t, reader)
+	line := runStressAuthorityTick(t, reader)
 	if !line.SourceAsOf.Account.IsZero() {
 		t.Fatalf("cached account fallback source_as_of = %s, want unavailable", line.SourceAsOf.Account)
 	}
@@ -127,7 +127,7 @@ func TestCanaryEvaluationTickRejectsRestampedCachedAccountFallback(t *testing.T)
 	}
 }
 
-func TestCanaryEvaluationTickRejectsUnprimedAndStaleKnownPortfolio(t *testing.T) {
+func TestStressEvaluationTickRejectsUnprimedAndStaleKnownPortfolio(t *testing.T) {
 	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name   string
@@ -138,15 +138,15 @@ func TestCanaryEvaluationTickRejectsUnprimedAndStaleKnownPortfolio(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			positions := canaryAuthorityKnownPortfolio(now)
-			positions.AsOf = positionsResultAuthorityAsOf(canaryAuthorityTestScope(), test.health, now)
-			reader := &canaryAuthorityTestReader{
-				at: now, accountResult: canaryAuthorityTestAccount(now), positionsBook: positions,
-				regimeResult: canaryAuthorityHealthyRegime(now),
-				eventsResult: canaryAuthorityHealthyMarketEvents(now, "EARN"),
+			positions := stressAuthorityKnownPortfolio(now)
+			positions.AsOf = positionsResultAuthorityAsOf(stressAuthorityTestScope(), test.health, now)
+			reader := &stressAuthorityTestReader{
+				at: now, accountResult: stressAuthorityTestAccount(now), positionsBook: positions,
+				regimeResult: stressAuthorityHealthyRegime(now),
+				eventsResult: stressAuthorityHealthyMarketEvents(now, "EARN"),
 			}
 
-			line := runCanaryAuthorityTick(t, reader)
+			line := runStressAuthorityTick(t, reader)
 			if !line.SourceAsOf.Positions.IsZero() {
 				t.Fatalf("%s positions source_as_of = %s, want unavailable", test.name, line.SourceAsOf.Positions)
 			}
@@ -163,26 +163,26 @@ func TestCanaryEvaluationTickRejectsUnprimedAndStaleKnownPortfolio(t *testing.T)
 	}
 }
 
-func TestCanaryEvaluationTickPreservesCurrentAuthority(t *testing.T) {
+func TestStressEvaluationTickPreservesCurrentAuthority(t *testing.T) {
 	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
-	account := canaryAuthorityTestAccount(now)
+	account := stressAuthorityTestAccount(now)
 	account.AsOf = accountResultAuthorityAsOf(accountSummaryAuthority{
 		Provenance: ibkrlib.AccountSummaryProvenanceRequest,
 		AsOf:       now.Add(-time.Second),
 	}, now)
 	positions := &rpc.PositionsResult{
-		AsOf:      positionsResultAuthorityAsOf(canaryAuthorityTestScope(), canaryAuthorityCurrentPortfolioHealth(now), now),
+		AsOf:      positionsResultAuthorityAsOf(stressAuthorityTestScope(), stressAuthorityCurrentPortfolioHealth(now), now),
 		Stocks:    []rpc.PositionView{},
 		Options:   []rpc.PositionView{},
 		Portfolio: &rpc.PositionsPortfolio{},
 	}
-	reader := &canaryAuthorityTestReader{
+	reader := &stressAuthorityTestReader{
 		at: now, accountResult: account, positionsBook: positions,
-		regimeResult: canaryAuthorityHealthyRegime(now),
-		eventsResult: canaryAuthorityHealthyMarketEvents(now),
+		regimeResult: stressAuthorityHealthyRegime(now),
+		eventsResult: stressAuthorityHealthyMarketEvents(now),
 	}
 
-	line := runCanaryAuthorityTick(t, reader)
+	line := runStressAuthorityTick(t, reader)
 	if !line.SourceAsOf.Account.Equal(now.Add(-time.Second)) || !line.SourceAsOf.Positions.Equal(now.Add(-time.Minute)) {
 		t.Fatalf("current source times = %+v, want request and portfolio receipts", line.SourceAsOf)
 	}
@@ -191,36 +191,36 @@ func TestCanaryEvaluationTickPreservesCurrentAuthority(t *testing.T) {
 	}
 }
 
-func runCanaryAuthorityTick(t *testing.T, reader *canaryAuthorityTestReader) canaryDecisionLine {
+func runStressAuthorityTick(t *testing.T, reader *stressAuthorityTestReader) stressDecisionLine {
 	t.Helper()
 	server := &Server{
 		logger:                              NewLogger(&bytes.Buffer{}, "error"),
-		canaryDecisions:                     &canaryDecisionJournal{path: filepath.Join(t.TempDir(), "canary-decisions.jsonl")},
-		canaryEvaluationSourceReaderForTest: reader,
+		stressDecisions:                     &stressDecisionJournal{path: filepath.Join(t.TempDir(), "canary-decisions.jsonl")},
+		stressEvaluationSourceReaderForTest: reader,
 	}
-	if !server.canaryEvaluationTick(t.Context()) {
+	if !server.stressEvaluationTick(t.Context()) {
 		t.Fatal("canary evaluation tick did not publish")
 	}
-	raw, err := os.ReadFile(server.canaryDecisions.path)
+	raw, err := os.ReadFile(server.stressDecisions.path)
 	if err != nil {
 		t.Fatalf("read canary decision: %v", err)
 	}
-	var line canaryDecisionLine
+	var line stressDecisionLine
 	if err := json.Unmarshal(bytes.TrimSpace(raw), &line); err != nil {
 		t.Fatalf("decode canary decision: %v", err)
 	}
 	return line
 }
 
-func canaryAuthorityTestScope() brokerStateScope {
+func stressAuthorityTestScope() brokerStateScope {
 	return brokerStateScope{Account: "DU123", Mode: rpc.AccountModePaper}
 }
 
-func canaryAuthorityCurrentPortfolioHealth(now time.Time) ibkrlib.PortfolioStreamHealth {
+func stressAuthorityCurrentPortfolioHealth(now time.Time) ibkrlib.PortfolioStreamHealth {
 	return ibkrlib.PortfolioStreamHealth{Account: "DU123", InitialCompletedAt: now.Add(-time.Minute)}
 }
 
-func canaryAuthorityTestAccount(now time.Time) *rpc.AccountResult {
+func stressAuthorityTestAccount(now time.Time) *rpc.AccountResult {
 	dailyPnL := 0.0
 	return &rpc.AccountResult{
 		AccountID: "DU123", BaseCurrency: "USD", NetLiquidation: 100_000,
@@ -228,7 +228,7 @@ func canaryAuthorityTestAccount(now time.Time) *rpc.AccountResult {
 	}
 }
 
-func canaryAuthorityKnownPortfolio(now time.Time) *rpc.PositionsResult {
+func stressAuthorityKnownPortfolio(now time.Time) *rpc.PositionsResult {
 	marketPct := 40.0
 	stock := rpc.PositionView{Symbol: "EARN", SecType: rpc.SecTypeStock, Quantity: 200}
 	return &rpc.PositionsResult{
@@ -240,7 +240,7 @@ func canaryAuthorityKnownPortfolio(now time.Time) *rpc.PositionsResult {
 	}
 }
 
-func canaryAuthorityHealthyRegime(now time.Time) *rpc.RegimeSnapshotResult {
+func stressAuthorityHealthyRegime(now time.Time) *rpc.RegimeSnapshotResult {
 	green := rpc.RegimeIndicatorMeta{Band: "green"}
 	return &rpc.RegimeSnapshotResult{
 		AsOf:             now,
@@ -261,7 +261,7 @@ func canaryAuthorityHealthyRegime(now time.Time) *rpc.RegimeSnapshotResult {
 	}
 }
 
-func canaryAuthorityHealthyMarketEvents(now time.Time, symbols ...string) *rpc.MarketEventsResult {
+func stressAuthorityHealthyMarketEvents(now time.Time, symbols ...string) *rpc.MarketEventsResult {
 	return &rpc.MarketEventsResult{
 		Kind: rpc.MarketEventsKind, SchemaVersion: rpc.MarketEventsSchemaVersion,
 		AsOf: now, Symbols: slices.Clone(symbols), BySymbol: map[string][]rpc.MarketEventFlag{},

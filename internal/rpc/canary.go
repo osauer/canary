@@ -79,17 +79,17 @@ type StressResult struct {
 }
 
 // EstablishedAlertProjectionSchemaVersion identifies the strict compatibility
-// projection schema consumed by the established Canary monitor.
-const EstablishedAlertProjectionSchemaVersion = "canary-established-alert-v1"
+// projection schema consumed by the established Stress monitor.
+const EstablishedAlertProjectionSchemaVersion = "stress-established-alert-v1"
 
 // EstablishedStressFingerprintVersion identifies the frozen fingerprint
 // version carried by EstablishedAlertProjection. It remains v1 even when the
-// current Canary result advances its semantic projection.
-const EstablishedStressFingerprintVersion = "canary-fp-v1"
+// current Stress result advances its semantic projection.
+const EstablishedStressFingerprintVersion = "stress-fp-v1"
 
 // EstablishedAlertProjection atomically carries every producer-owned field
-// the pre-shadow Canary monitor used for occurrence identity and delivery-mode
-// eligibility. CanonicalFingerprint remains the established canary-fp-v1
+// the pre-shadow Stress monitor used for occurrence identity and delivery-mode
+// eligibility. CanonicalFingerprint remains the established stress-fp-v1
 // identity; it is not a new alert authority or a transport authorization.
 type EstablishedAlertProjection struct {
 	SchemaVersion        string              `json:"schema_version"`

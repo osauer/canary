@@ -11,7 +11,7 @@ const (
 	// evidence cadence. This is cache scheduling, not a market threshold: row
 	// cadence and confirmation eligibility remain owned by the typed Regime
 	// policy already carried in each snapshot.
-	regimeSnapshotFreshFor       = canaryJournalEvery
+	regimeSnapshotFreshFor       = stressJournalEvery
 	regimeSnapshotRefreshTimeout = 45 * time.Second
 	// Start a normal refresh one full timeout before the hard freshness
 	// ceiling, with a small scheduler cushion. The hard five-minute limit is
@@ -66,7 +66,7 @@ func (s *Server) stopServerContextAndWait() {
 	s.regimeRefreshLoopWG.Wait()
 	s.rulebookRefreshLoopWG.Wait()
 	s.alertShadowLoopWG.Wait()
-	s.canaryEvaluationLoopWG.Wait()
+	s.stressEvaluationLoopWG.Wait()
 	s.stopDataHealthAlertShadowWorker()
 	if cache != nil {
 		cache.wait()

@@ -333,17 +333,17 @@ func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregateParti
 	}
 
 	partialAt := base.Add(time.Minute)
-	canaryNegative := canary
-	canaryNegative.Active = false
-	canaryNegative.ObservedAt = partialAt
-	canaryNegative.EvidenceAsOf = partialAt
-	canaryNegative.EvidenceFingerprint = alertRegistryFingerprint("per-source-canary-negative")
-	canaryNegative.ProducerDecisionReason = "classified_clear"
+	stressNegative := canary
+	stressNegative.Active = false
+	stressNegative.ObservedAt = partialAt
+	stressNegative.EvidenceAsOf = partialAt
+	stressNegative.EvidenceFingerprint = alertRegistryFingerprint("per-source-canary-negative")
+	stressNegative.ProducerDecisionReason = "classified_clear"
 	partial := rpc.AlertCoverage{
 		State: rpc.AlertCoveragePartial, Freshness: rpc.AlertCoverageCurrent, AsOf: partialAt,
 		ExpectedSources: expected, CoveredSources: []rpc.AlertSource{rpc.AlertSourceStress},
 	}
-	recovered, err := registry.Apply(t.Context(), alertRegistryEvaluation(partialAt, partial, canaryNegative))
+	recovered, err := registry.Apply(t.Context(), alertRegistryEvaluation(partialAt, partial, stressNegative))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,12 +371,12 @@ func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregateParti
 	}
 
 	mixedAt := base.Add(3 * time.Minute)
-	canaryNegative = canary
-	canaryNegative.Active = false
-	canaryNegative.ObservedAt = mixedAt
-	canaryNegative.EvidenceAsOf = mixedAt
-	canaryNegative.EvidenceFingerprint = alertRegistryFingerprint("per-source-canary-negative-2")
-	canaryNegative.ProducerDecisionReason = "classified_clear"
+	stressNegative = canary
+	stressNegative.Active = false
+	stressNegative.ObservedAt = mixedAt
+	stressNegative.EvidenceAsOf = mixedAt
+	stressNegative.EvidenceFingerprint = alertRegistryFingerprint("per-source-canary-negative-2")
+	stressNegative.ProducerDecisionReason = "classified_clear"
 	regimeNegative := regime
 	regimeNegative.Active = false
 	regimeNegative.ObservedAt = mixedAt
@@ -385,7 +385,7 @@ func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregateParti
 	regimeNegative.EvidenceHealth = rpc.AlertEvidencePartial
 	regimeNegative.ProducerDecisionReason = "classified_clear"
 	partial.AsOf = mixedAt
-	mixed, err := registry.Apply(t.Context(), alertRegistryEvaluation(mixedAt, partial, canaryNegative, regimeNegative))
+	mixed, err := registry.Apply(t.Context(), alertRegistryEvaluation(mixedAt, partial, stressNegative, regimeNegative))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +576,12 @@ func TestAlertEpisodeRegistryMigratesV2WithoutLosingOccurrenceIdentity(t *testin
 	}
 	legacy["version"] = float64(2)
 	for _, scope := range legacy["scopes"].([]any) {
-		for _, episode := range scope.(map[string]any)["episodes"].([]any) {
+		scopeDocument := scope.(map[string]any)
+		// v2 stored the portfolio-stress producer cursor under "canary".
+		cursors := scopeDocument["input_cursors"].(map[string]any)
+		cursors["canary"] = cursors["stress"]
+		delete(cursors, "stress")
+		for _, episode := range scopeDocument["episodes"].([]any) {
 			record := episode.(map[string]any)
 			delete(record, "presentation_code")
 			record["delivery_preference"] = "unapproved"
@@ -607,6 +612,125 @@ func TestAlertEpisodeRegistryMigratesV2WithoutLosingOccurrenceIdentity(t *testin
 	persisted, ok, err := store.GetStateDocument(t.Context(), daemonStateScope, alertEpisodeRegistryStateKind)
 	if err != nil || !ok || strings.Contains(string(persisted.JSON), "delivery_preference") {
 		t.Fatalf("v2 delivery axis survived migration: ok=%v err=%v json=%s", ok, err, persisted.JSON)
+	}
+}
+
+// TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState proves the
+// document upgrade carries an operator's already-stored registry across the two
+// renamed persisted values. The stored document is downgraded to a genuine v3
+// (the "canary" input-cursor key and the canary_portfolio_stress presentation
+// code), written back, and reloaded through the ordinary constructor.
+func TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState(t *testing.T) {
+	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
+	defer store.Close()
+	registry, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 7, 24, 15, 30, 0, 0, time.UTC)
+	evaluation := alertRegistryEvaluation(at, alertRegistryCompleteCoverage(at),
+		alertRegistryObservation(t, "v3-stress-rename", at, true))
+	evaluation.CursorKind = alertShadowCursorStress
+	evaluation.Cursor = alertShadowInputCursor{AsOf: at, Fingerprint: alertRegistryFingerprint("stress-input")}
+	snapshot, err := registry.Apply(t.Context(), evaluation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Candidates) != 1 {
+		t.Fatalf("fixture candidates=%d want 1", len(snapshot.Candidates))
+	}
+	wantOccurrence := snapshot.Candidates[0].OccurrenceKey
+	wantEpisode := snapshot.Candidates[0].EpisodeKey
+	wantSequence := registry.document.NextOccurrenceSequence
+	wantCursor := registry.document.Scopes[0].Cursors.Stress
+
+	// Rewrite the persisted document into the exact pre-rename v3 shape.
+	raw, err := json.Marshal(registry.document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy map[string]any
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy["version"] = float64(3)
+	for _, scope := range legacy["scopes"].([]any) {
+		scopeDocument := scope.(map[string]any)
+		cursors := scopeDocument["input_cursors"].(map[string]any)
+		cursors["canary"] = cursors["stress"]
+		delete(cursors, "stress")
+		for _, episode := range scopeDocument["episodes"].([]any) {
+			episode.(map[string]any)["presentation_code"] = string(legacyStressPresentationCode)
+		}
+	}
+	legacyRaw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(legacyRaw), `"canary"`) || !strings.Contains(string(legacyRaw), "canary_portfolio_stress") {
+		t.Fatalf("v3 fixture does not carry the pre-rename values: %s", legacyRaw)
+	}
+	if _, err := store.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{
+		ScopeKey: daemonStateScope, Kind: alertEpisodeRegistryStateKind,
+		ExpectedRevision: registry.revision, JSON: legacyRaw,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatalf("reload a stored v3 registry: %v", err)
+	}
+	if migrated.document.Version != alertEpisodeRegistryDocumentVersion {
+		t.Fatalf("migrated document version=%d want %d", migrated.document.Version, alertEpisodeRegistryDocumentVersion)
+	}
+	if migrated.document.NextOccurrenceSequence != wantSequence {
+		t.Fatalf("occurrence sequence moved across the upgrade: got %d want %d",
+			migrated.document.NextOccurrenceSequence, wantSequence)
+	}
+	if got := migrated.document.Scopes[0].Cursors.Stress; got != wantCursor {
+		t.Fatalf("producer cursor changed across the upgrade: got %+v want %+v", got, wantCursor)
+	}
+	got, ok, err := migrated.Snapshot(alertRegistryAuthority(), at)
+	if err != nil || !ok || len(got.Candidates) != 1 {
+		t.Fatalf("migrated snapshot=%+v ok=%v err=%v", got, ok, err)
+	}
+	candidate := got.Candidates[0]
+	if candidate.EpisodeKey != wantEpisode || candidate.OccurrenceKey != wantOccurrence {
+		t.Fatalf("v3 lifecycle identity changed: %+v", candidate)
+	}
+	if candidate.PresentationCode != rpc.AlertPresentationPortfolioStress {
+		t.Fatalf("presentation code=%q want %q", candidate.PresentationCode, rpc.AlertPresentationPortfolioStress)
+	}
+	if err := rpc.ValidateAlertCandidateSnapshot(got); err != nil {
+		t.Fatalf("upgraded snapshot does not validate: %v", err)
+	}
+
+	// The stored document now carries only the renamed values, and reloading it
+	// again is a plain load rather than another upgrade.
+	persisted, ok, err := store.GetStateDocument(t.Context(), daemonStateScope, alertEpisodeRegistryStateKind)
+	if err != nil || !ok {
+		t.Fatalf("read upgraded document: ok=%v err=%v", ok, err)
+	}
+	// Both renamed values are gone from the stored document. rpc.AlertSource
+	// still serializes as "canary" — that value is not part of this rename and
+	// is deliberately left in place — so the assertion names the two values the
+	// upgrade owns rather than banning the substring.
+	if strings.Contains(string(persisted.JSON), "canary_portfolio_stress") {
+		t.Fatalf("upgraded document still carries the pre-rename presentation code: %s", persisted.JSON)
+	}
+	if strings.Contains(string(persisted.JSON), `"canary":{`) {
+		t.Fatalf("upgraded document still carries the pre-rename cursor key: %s", persisted.JSON)
+	}
+	if !strings.Contains(string(persisted.JSON), `"input_cursors":{"stress":{`) {
+		t.Fatalf("upgraded document lost the renamed cursor key: %s", persisted.JSON)
+	}
+	reloaded, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatalf("reload an already-upgraded registry: %v", err)
+	}
+	if reloaded.revision != persisted.Revision {
+		t.Fatalf("reloading an upgraded registry rewrote it: revision %d want %d", reloaded.revision, persisted.Revision)
 	}
 }
 

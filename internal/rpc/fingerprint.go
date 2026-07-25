@@ -23,7 +23,7 @@ const (
 	// PositionsFingerprintVersion identifies a semantic fingerprint projection.
 	PositionsFingerprintVersion = "positions-fp-v1"
 	// StressFingerprintVersion identifies a semantic fingerprint projection.
-	StressFingerprintVersion = "canary-fp-v2"
+	StressFingerprintVersion = "stress-fp-v2"
 )
 
 // BuildMarketEventsFingerprint returns the semantic identity of current

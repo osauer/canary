@@ -339,10 +339,10 @@ type Server struct {
 	// snapshot.
 	regimeDecisions *regimeDecisionJournal
 
-	// canaryDecisions is the daemon.db-backed portfolio-canary evidence corpus
+	// stressDecisions is the daemon.db-backed portfolio-stress evidence corpus
 	// written by the brief hook and the five-minute cadence loop. Its path-backed
 	// form has the same legacy import/test-only contract as regimeDecisions.
-	canaryDecisions *canaryDecisionJournal
+	stressDecisions *stressDecisionJournal
 
 	// rulesJournalMu serializes the legacy file-backed rule-transition seam;
 	// daemon.db writes bypass it and commit transactionally in coreStore.
@@ -554,11 +554,11 @@ type Server struct {
 	// Canary evaluation is daemon-owned and independent of app presence and
 	// decision-journal retention. Regime publications and reconnects share the
 	// buffered wake; the loop drains during daemon shutdown.
-	canaryEvaluationWake   chan struct{}
-	canaryEvaluationLoopWG sync.WaitGroup
-	// canaryEvaluationSourceReaderForTest exercises the real evaluator against
+	stressEvaluationWake   chan struct{}
+	stressEvaluationLoopWG sync.WaitGroup
+	// stressEvaluationSourceReaderForTest exercises the real evaluator against
 	// typed source receipts without constructing a broker wire session.
-	canaryEvaluationSourceReaderForTest canaryEvaluationSourceReader
+	stressEvaluationSourceReaderForTest stressEvaluationSourceReader
 	rulebookRefreshLoopWG               sync.WaitGroup
 	regimeConsumerWakeMu                sync.Mutex
 	regimeConsumerRevision              int64
@@ -665,7 +665,7 @@ func New(opts Options) *Server {
 	s.installMembersRefresher()
 	s.installContractStore()
 	s.installStreakStore()
-	s.installCanaryDecisionJournal()
+	s.installStressDecisionJournal()
 	s.installOrderJournalStore()
 	s.installPurgeLedgerStore()
 	s.installProposalOutcomeStore()
@@ -1390,7 +1390,7 @@ func (s *Server) Start(ctx context.Context) error {
 		go s.riskPolicies.Run(serverCtx, s.logger.Infof)
 	}
 	go s.runFlexFetchLoop(serverCtx)
-	s.startCanaryEvaluationLoop(serverCtx)
+	s.startStressEvaluationLoop(serverCtx)
 	if s.tradeProposals != nil {
 		s.proposalsStarted.Do(func() {
 			go s.tradeProposals.Run(serverCtx)
@@ -2024,7 +2024,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// depends on an app process. Wake it now that account and portfolio streams
 	// have been requested; a later Regime publication supplies another
 	// coalesced wake after market authority advances.
-	s.wakeCanaryEvaluation()
+	s.wakeStressEvaluation()
 }
 
 // prewarmZeroGamma kicks the first dealer zero-gamma compute of a

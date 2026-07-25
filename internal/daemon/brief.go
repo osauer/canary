@@ -520,9 +520,9 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 
 	market, can := composeBriefMarket(now, acct, pos, regime, breadth, gamma, marketEvents,
 		acctErr, posErr, regimeErr, breadthErr, marketEventsErr, sessionOpen)
-	// Brief-hook canary evidence: the same computed result the brief row
+	// Brief-hook stress evidence: the same computed result the brief row
 	// rendered, journaled with dedupe (internal-docs/design/history-index.md).
-	s.journalCanaryDecision(&can)
+	s.journalStressDecision(&can)
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
 	portfolio := s.composeBriefPortfolio(acct, pos, acctErr, posErr, sessionOpen)
 	riskLimits := composeBriefRisk(policy, now)
@@ -723,8 +723,8 @@ func (s *Server) briefProposals(_ time.Time) rpc.BriefProposalsRow {
 	}
 }
 
-// composeBriefMarket stays pure: it also returns the computed canary
-// result so composeBrief (the method) can journal it as canary evidence
+// composeBriefMarket stays pure: it also returns the computed stress
+// result so composeBrief (the method) can journal it as stress evidence
 // without this function taking on daemon state.
 func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.PositionsResult,
 	regime *rpc.RegimeSnapshotResult, breadth *rpc.BreadthSPXResult, gamma *rpc.GammaZeroSPXResult,
@@ -771,26 +771,26 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 		out.Breadth.AsOf, out.Breadth.DataType = breadth.AsOf, breadth.DataType
 	}
 	out.Gamma = composeBriefGamma(gamma, sessionOpen, now)
-	canaryInput := rpc.StressInput{Now: now}
+	stressInput := rpc.StressInput{Now: now}
 	if acct != nil {
-		canaryInput.Account = *acct
+		stressInput.Account = *acct
 	}
 	if pos != nil {
-		canaryInput.Positions = *pos
+		stressInput.Positions = *pos
 	}
 	if regime != nil {
-		canaryInput.Regime = *regime
+		stressInput.Regime = *regime
 	}
 	if events != nil {
-		canaryInput.MarketEvents = *events
+		stressInput.MarketEvents = *events
 	}
-	can := stress.ComputeStress(canaryInput)
+	can := stress.ComputeStress(stressInput)
 	out.Stress = rpc.BriefStressRow{
-		BriefRowState: briefOK("pure canary composition over daemon snapshots"),
+		BriefRowState: briefOK("pure stress composition over daemon snapshots"),
 		Action:        can.Action, Severity: string(can.Severity), Summary: can.Summary,
 	}
 	if acctErr != nil || posErr != nil || regimeErr != nil || eventsErr != nil || can.InputHealth != "ok" {
-		out.Stress.BriefRowState = briefDegraded("canary inputs are partial; unavailable sources remain explicit")
+		out.Stress.BriefRowState = briefDegraded("stress inputs are partial; unavailable sources remain explicit")
 	}
 	out.BriefRowState = briefSectionState("market", out.Regime.BriefRowState, out.Breadth.BriefRowState, out.Gamma.BriefRowState, out.Stress.BriefRowState)
 	return out, can

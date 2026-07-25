@@ -120,7 +120,7 @@ func TestRenderStressTextShowsActionEvidenceAndInputHealth(t *testing.T) {
 		"Input checks",
 		"computing",
 		"breadth and gamma",
-		"Alert ID   canary-fp-v2 sha256:",
+		"Alert ID   stress-fp-v2 sha256:",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("render missing %q:\n%s", want, got)

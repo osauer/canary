@@ -9,7 +9,7 @@ import (
 func TestStressHistoryQuerySemantics(t *testing.T) {
 	t.Parallel()
 	opts := testOptions(t)
-	writeJournal(t, opts.CanaryJournalPath, readTestdata(t, "canary-decisions.jsonl"))
+	writeJournal(t, opts.StressJournalPath, readTestdata(t, "canary-decisions.jsonl"))
 	s := openTestStore(t, opts)
 	s.ingestAll(context.Background())
 

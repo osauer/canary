@@ -121,14 +121,14 @@ func (s *Server) bindDecisionStores(ctx context.Context, core *corestore.Store) 
 	if s.regimeDecisions == nil {
 		s.regimeDecisions = &regimeDecisionJournal{}
 	}
-	if s.canaryDecisions == nil {
-		s.canaryDecisions = &canaryDecisionJournal{}
+	if s.stressDecisions == nil {
+		s.stressDecisions = &stressDecisionJournal{}
 	}
 	if s.proposalOutcomes == nil {
 		s.proposalOutcomes = &proposalOutcomeStore{}
 	}
 	s.regimeDecisions.core = core
-	s.canaryDecisions.core = core
+	s.stressDecisions.core = core
 	s.proposalOutcomes.core = core
 	s.proposalOutcomes.mu.Lock()
 	keys, err := s.proposalOutcomes.loadOutcomeKeysLocked()

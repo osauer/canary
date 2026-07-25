@@ -36,11 +36,14 @@ type Options struct {
 	// RulesJournalPath is rules-decisions.jsonl. Same missing-file
 	// semantics as the regime journal.
 	RulesJournalPath string
-	// CanaryJournalPath is canary-decisions.jsonl, the on-disk journal
-	// feeding the "stress" ingest source. The file keeps its name: renaming
-	// retained evidence and its rotated archives is not part of the sensor
-	// rename.
-	CanaryJournalPath string
+	// StressJournalPath is the on-disk journal feeding the "stress" ingest
+	// source. Its basename stays canary-decisions.jsonl: rotation derives the
+	// archive prefix from it (journalArchiveBase), so renaming the live file
+	// would orphan every rotated canary-decisions-*.jsonl.gz archive and make
+	// validateRotationArchives reject any rotation intent a crash left pending.
+	// Retained evidence keeps the name it was written under; only the Go
+	// identifier follows the sensor rename.
+	StressJournalPath string
 	// CapitalJournalPath is capital-events.jsonl (never rotated).
 	CapitalJournalPath string
 	// RiskPolicyJournalPath is risk-policy-journal.jsonl (never rotated).

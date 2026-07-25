@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 )
 
-// CanaryPolicyFingerprintVersion labels fingerprints of the canary threshold
+// StressPolicyFingerprintVersion labels fingerprints of the stress threshold
 // policy and keeps that identity domain separate from the constitution.
-const CanaryPolicyFingerprintVersion = "canary-policy-fp-v1"
+const StressPolicyFingerprintVersion = "stress-policy-fp-v1"
 
-// Policy holds the shared canary thresholds used by live monitors and
+// Policy holds the shared stress thresholds used by live monitors and
 // protection proposal policy.
 type Policy struct {
 	Name    string `json:"name"`
@@ -80,7 +80,7 @@ type ReducePolicy struct {
 	AllowMarketOrders       bool    `json:"allow_market_orders"`
 }
 
-// DefaultPolicy returns the complete compiled canary policy.
+// DefaultPolicy returns the complete compiled stress policy.
 func DefaultPolicy() Policy {
 	return Policy{
 		Name:    "active-v1",

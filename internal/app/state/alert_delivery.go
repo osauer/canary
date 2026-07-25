@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,7 +21,8 @@ import (
 // attempt transitions, aggregate health, occurrence endings, and completion
 // dispositions. They do not grant transport eligibility.
 const (
-	AlertDeliveryVersion         = "alert-delivery-v3"
+	AlertDeliveryVersion         = "alert-delivery-v4"
+	legacyAlertDeliveryVersionV3 = "alert-delivery-v3"
 	legacyAlertDeliveryVersionV2 = "alert-delivery-v2"
 	legacyAlertDeliveryVersionV1 = "alert-delivery-v1"
 
@@ -124,9 +126,92 @@ type alertDeliveryData struct {
 	// pre-scope v1 ledger. It is archived byte-for-byte and never serialized as
 	// a live v2 authority.
 	legacyUnscopedRaw json.RawMessage `json:"-"`
-	// migratedV2 requests one atomic rewrite after exact v2 validation. It is
+	// migratedLegacy requests one atomic rewrite after exact v2 validation. It is
 	// never serialized into the active ledger.
-	migratedV2 bool `json:"-"`
+	migratedLegacy bool `json:"-"`
+}
+
+// legacyStressPresentationCode is the presentation code an alert-delivery v3
+// ledger stored for portfolio-stress candidates. It is no longer an accepted
+// code, so every place the ledger retained it has to be relabelled on load.
+const legacyStressPresentationCode rpc.AlertPresentationCode = "canary_portfolio_stress"
+
+// relabelAlertDeliveryV3PresentationCodes rewrites the renamed presentation
+// code everywhere a v3 ledger persisted one and restamps the version, touching
+// nothing else. It works on raw JSON rather than decoded values because the
+// candidate decoder validates presentation codes as it reads them. A value that
+// is not exactly the pre-rename code is left alone, so a corrupt or unexpected
+// ledger still reaches the ordinary fail-closed quarantine path.
+func relabelAlertDeliveryV3PresentationCodes(raw []byte) ([]byte, error) {
+	var ledger map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &ledger); err != nil {
+		return nil, err
+	}
+	relabelList := func(key string) error {
+		encoded, ok := ledger[key]
+		if !ok {
+			return nil
+		}
+		relabelled, err := relabelPresentationCodeList(encoded)
+		if err != nil {
+			return err
+		}
+		ledger[key] = relabelled
+		return nil
+	}
+	if encoded, ok := ledger["snapshot"]; ok {
+		var snapshot map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &snapshot); err != nil {
+			return nil, err
+		}
+		if candidates, ok := snapshot["candidates"]; ok {
+			relabelled, err := relabelPresentationCodeList(candidates)
+			if err != nil {
+				return nil, err
+			}
+			snapshot["candidates"] = relabelled
+		}
+		reencoded, err := json.Marshal(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		ledger["snapshot"] = reencoded
+	}
+	for _, key := range []string{"occurrences", "previous_contexts"} {
+		if err := relabelList(key); err != nil {
+			return nil, err
+		}
+	}
+	version, err := json.Marshal(AlertDeliveryVersion)
+	if err != nil {
+		return nil, err
+	}
+	ledger["version"] = version
+	return json.Marshal(ledger)
+}
+
+func relabelPresentationCodeList(encoded json.RawMessage) (json.RawMessage, error) {
+	if len(encoded) == 0 || string(encoded) == "null" {
+		return encoded, nil
+	}
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &rows); err != nil {
+		return nil, err
+	}
+	current, err := json.Marshal(rpc.AlertPresentationPortfolioStress)
+	if err != nil {
+		return nil, err
+	}
+	legacy, err := json.Marshal(legacyStressPresentationCode)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if code, ok := row["presentation_code"]; ok && bytes.Equal(code, legacy) {
+			row["presentation_code"] = current
+		}
+	}
+	return json.Marshal(rows)
 }
 
 // alertDeliveryBaseline records the first complete/current producer snapshot
@@ -155,6 +240,29 @@ func (data *alertDeliveryData) UnmarshalJSON(raw []byte) error {
 			return err
 		}
 		*data = *migrated
+		return nil
+	}
+	if header.Version == legacyAlertDeliveryVersionV3 {
+		// v3 and v4 have the same shape; only the portfolio-stress presentation
+		// code moved. The relabel has to happen on the raw JSON because
+		// AlertCandidate.UnmarshalJSON validates the code as it decodes, so a
+		// stored v3 ledger cannot be decoded first and fixed afterwards. Every
+		// other byte is left alone, which keeps the operator's occurrences,
+		// attempts, receipts, attention sequences, and baselines: without this
+		// the ledger would fail to decode and be quarantined wholesale.
+		relabelled, err := relabelAlertDeliveryV3PresentationCodes(raw)
+		if err != nil {
+			return err
+		}
+		type wire alertDeliveryData
+		var decoded wire
+		if err := json.Unmarshal(relabelled, &decoded); err != nil {
+			return err
+		}
+		upgraded := alertDeliveryData(decoded)
+		upgraded.Version = AlertDeliveryVersion
+		upgraded.migratedLegacy = true
+		*data = upgraded
 		return nil
 	}
 	if header.Version != legacyAlertDeliveryVersionV1 {

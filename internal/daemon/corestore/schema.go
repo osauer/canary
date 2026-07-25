@@ -375,6 +375,51 @@ func stressRenameMigration() migration {
 	}
 }
 
+// legacyStressMeasurementRename is migration 3: the observations the SQLite
+// cutover imported from the pre-rename portfolio-stress decision journal are
+// relabelled from canary to stress. The daemon identifies those rows by the
+// exact (scope_key, source, kind) triple its importer wrote, so the UPDATE is
+// predicated on all three and can touch nothing else — no payload, no digest,
+// no observed_at, and no row from any other importer.
+//
+// Renaming rather than re-importing is the point: the journal files these rows
+// came from are sealed into legacy-sealed/<cutover-id>/ and the derived
+// history.db is discarded at cutover, so these observations are the only
+// remaining queryable copy. Leaving them under the old labels would orphan them
+// from every stress-named reader.
+func legacyStressMeasurementRename() migration {
+	const relabel = `UPDATE observations
+   SET scope_key = 'market/legacy/stress-measurements',
+       source    = 'legacy.stress_decision_journal',
+       kind      = 'stress_market_measurement.v1'
+ WHERE scope_key = 'market/legacy/canary-measurements'
+   AND source    = 'legacy.canary_decision_journal'
+   AND kind      = 'canary_market_measurement.v1'`
+	return migration{
+		version: 3,
+		name:    "legacy_stress_measurement_rename",
+		statements: []string{
+			`DROP TRIGGER observations_no_update`,
+			relabel,
+			appendOnlyUpdateTrigger("observations"),
+		},
+		destructive: &destructiveApproval{
+			reason: "Relabelling the imported legacy portfolio-stress measurements requires one " +
+				"DROP TRIGGER: observations is append-only, and the three label columns live on " +
+				"the existing rows. The exception is held as narrow as the schema allows — a " +
+				"single UPDATE, predicated on the exact scope_key/source/kind triple the cutover " +
+				"importer wrote, changing only those three columns. Payloads, digests, timestamps, " +
+				"decision_eligible, and every row from every other source are untouched; " +
+				"observations' DELETE guard is never dropped and the UPDATE guard is recreated " +
+				"before the migration transaction commits, so a failure rolls back to the fully " +
+				"armed pre-migration schema. Re-importing instead of renaming is not available: " +
+				"the source journals are sealed at cutover and the derived history.db is discarded, " +
+				"which makes these rows the only remaining queryable copy of that evidence.",
+			statements: []string{`DROP TRIGGER observations_no_update`},
+		},
+	}
+}
+
 func init() {
 	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
@@ -394,7 +439,7 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 	)
 	// v1's trigger statements are generated, so the plan is completed here
 	// rather than in the composite literal above.
-	migrations = append(migrations, stressRenameMigration())
+	migrations = append(migrations, stressRenameMigration(), legacyStressMeasurementRename())
 }
 
 // migrationChecksum is the ledger identity of an applied migration: version,

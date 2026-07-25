@@ -68,9 +68,9 @@ func (s *Server) installHistoryIndex() {
 	if !ok {
 		return
 	}
-	canaryPath, err := canaryDecisionsDefaultPath()
+	stressJournalPath, err := stressDecisionsDefaultPath()
 	if err != nil {
-		s.logger.Warnf("history index: resolve canary journal path: %v (index disabled)", err)
+		s.logger.Warnf("history index: resolve stress journal path: %v (index disabled)", err)
 		return
 	}
 	capitalPath, ok := resolve(capitalEventsJournalFile)
@@ -104,7 +104,7 @@ func (s *Server) installHistoryIndex() {
 		DBPath:                dbPath,
 		RegimeJournalPath:     regimePath,
 		RulesJournalPath:      rulesPath,
-		CanaryJournalPath:     canaryPath,
+		StressJournalPath:     stressJournalPath,
 		CapitalJournalPath:    capitalPath,
 		RiskPolicyJournalPath: riskPolicyPath,
 		ProposalOutcomesPath:  outcomesPath,
@@ -147,8 +147,8 @@ func (s *Server) historyRotationSources() []history.RotationSource {
 		sources = append(sources, history.RotationSource{Name: "regime", Locker: &s.regimeDecisions.mu})
 	}
 	sources = append(sources, history.RotationSource{Name: "rules", Locker: &s.rulesJournalMu})
-	if s.canaryDecisions != nil {
-		sources = append(sources, history.RotationSource{Name: "stress", Locker: &s.canaryDecisions.mu})
+	if s.stressDecisions != nil {
+		sources = append(sources, history.RotationSource{Name: "stress", Locker: &s.stressDecisions.mu})
 	}
 	return sources
 }
