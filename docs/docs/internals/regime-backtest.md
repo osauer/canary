@@ -33,7 +33,7 @@ All backtest artifacts live in one of these places:
 | `build/backtest/backtest_sources*.jsonl` | Source ledgers: URLs, checksums, gaps, and retrieval status. Built, not checked in. |
 | `internal/cli/testdata/regime_pit_panel_sample.jsonl` | Tiny point-in-time sample consumed by `build-regime`. Checked in; a unit test reads it. |
 | `internal/cli/testdata/regime_backtest_sample.jsonl` | Tiny compact replay sample consumed by `backtest regime`. Checked in. |
-| `internal/cli/testdata/canary_backtest_sample.jsonl` | Tiny canary replay sample with account and position overlays. Checked in. |
+| `internal/cli/testdata/stress_backtest_sample.jsonl` | Tiny stress replay sample with account and position overlays. Checked in. |
 | `build/backtest/*.jsonl` | Captured evidence corpora. Built on demand, git-ignored, never checked in. |
 
 Do not hand-edit generated compact regime rows when the point-in-time panel is
@@ -45,7 +45,7 @@ Small smoke fixtures:
 
 ```bash
 ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
-ibkr backtest canary --input internal/cli/testdata/canary_backtest_sample.jsonl
+ibkr backtest stress --input internal/cli/testdata/stress_backtest_sample.jsonl
 ```
 
 Capture a fresh tuning and holdout split before tuning anything. The checked-in
@@ -59,7 +59,7 @@ ibkr backtest capture-opportunity --preset top-movers --include-regime --split t
 ibkr backtest capture-opportunity --preset top-movers --include-regime --split holdout \
   --holdout-plan <plan-id> --append /tmp/regime_holdout.jsonl
 ibkr backtest regime --input /tmp/regime_tuning.jsonl
-ibkr backtest canary --input /tmp/regime_tuning.jsonl
+ibkr backtest stress --input /tmp/regime_tuning.jsonl
 ```
 
 Keep captures outside the repository. A corpus checked in beside the unit-test

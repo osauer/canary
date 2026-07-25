@@ -15,10 +15,10 @@ import (
 	"github.com/osauer/ibkr/v2/internal/rpc"
 )
 
-func TestCanaryBacktestSampleProducesSignalMetrics(t *testing.T) {
+func TestStressBacktestSampleProducesSignalMetrics(t *testing.T) {
 	t.Parallel()
 	rows := readBacktestFixture(t)
-	res := runCanaryBacktest(rows, time.Date(2026, 5, 31, 9, 8, 0, 0, time.UTC))
+	res := runStressBacktest(rows, time.Date(2026, 5, 31, 9, 8, 0, 0, time.UTC))
 
 	if got, want := res.Metrics.Observations, 18; got != want {
 		t.Fatalf("observations = %d, want %d", got, want)
@@ -57,7 +57,7 @@ func TestCanaryBacktestSampleProducesSignalMetrics(t *testing.T) {
 	if res.Metrics.SignalRecall == nil || *res.Metrics.SignalRecall != 1 {
 		t.Fatalf("signal_recall = %v, want 1", res.Metrics.SignalRecall)
 	}
-	if !strings.Contains(strings.Join(res.Findings, "\n"), "Watch-level canary signals caught every labelled stress row") {
+	if !strings.Contains(strings.Join(res.Findings, "\n"), "Watch-level stress signals caught every labelled stress row") {
 		t.Fatalf("findings did not record signal-level coverage: %+v", res.Findings)
 	}
 	if !clusterHasRebalanceWatch(res, "2023-2026 AI mega-cap concentration") {
@@ -65,17 +65,17 @@ func TestCanaryBacktestSampleProducesSignalMetrics(t *testing.T) {
 	}
 }
 
-func TestRunBacktestCanaryRendersText(t *testing.T) {
+func TestRunBacktestStressRendersText(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr}
-	code := Run(context.Background(), env, "backtest", []string{"canary", "--input", backtestFixturePath(t)})
+	code := Run(context.Background(), env, "backtest", []string{"stress", "--input", backtestFixturePath(t)})
 	if code != 0 {
 		t.Fatalf("Run backtest returned %d, stderr:\n%s", code, stderr.String())
 	}
 	out := stdout.String()
 	for _, want := range []string{
-		"Canary Backtest",
+		"Stress Backtest",
 		"18 observations",
 		"precision 69%",
 		"Watch        precision 75%",
@@ -157,10 +157,10 @@ func TestRegimeBacktestSampleProducesMarketMetrics(t *testing.T) {
 	}
 }
 
-func TestCanaryBacktestPortfolioStressAcceptsRebalanceWatch(t *testing.T) {
+func TestBacktestPortfolioStressAcceptsRebalanceWatch(t *testing.T) {
 	t.Parallel()
-	acc := &canaryBacktestAccumulator{}
-	acc.add(CanaryBacktestRowResult{
+	acc := &stressBacktestAccumulator{}
+	acc.add(StressBacktestRowResult{
 		TargetStress:   true,
 		TargetScope:    "portfolio",
 		SignalWatch:    true,
@@ -173,8 +173,8 @@ func TestCanaryBacktestPortfolioStressAcceptsRebalanceWatch(t *testing.T) {
 		t.Fatalf("watch_miss = %d, want 0", got)
 	}
 
-	acc = &canaryBacktestAccumulator{}
-	acc.add(CanaryBacktestRowResult{
+	acc = &stressBacktestAccumulator{}
+	acc.add(StressBacktestRowResult{
 		TargetStress:   false,
 		RebalanceWatch: true,
 	})
@@ -3687,14 +3687,14 @@ func TestRunBacktestOpportunityRejectsUnverifiedDirectSignals(t *testing.T) {
 	}
 }
 
-func readBacktestFixture(t *testing.T) []CanaryBacktestObservation {
+func readBacktestFixture(t *testing.T) []StressBacktestObservation {
 	t.Helper()
 	f, err := os.Open(backtestFixturePath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	rows, err := readCanaryBacktestObservations(f)
+	rows, err := readStressBacktestObservations(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3930,7 +3930,7 @@ func readOpportunityPointInTimeFixture(t *testing.T) []OpportunityPointInTimeRow
 
 func backtestFixturePath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("testdata", "canary_backtest_sample.jsonl")
+	return filepath.Join("testdata", "stress_backtest_sample.jsonl")
 }
 
 func regimeBacktestFixturePath(t *testing.T) string {
@@ -4043,7 +4043,7 @@ func writeOpportunityBarsWithManifest(t *testing.T, content string, mutate func(
 	return barsPath, manifestPath
 }
 
-func clusterHasRebalanceWatch(res CanaryBacktestResult, name string) bool {
+func clusterHasRebalanceWatch(res StressBacktestResult, name string) bool {
 	for _, cluster := range res.Clusters {
 		if cluster.Name == name && cluster.Metrics.RebalanceWatch > 0 {
 			return true

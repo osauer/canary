@@ -247,7 +247,7 @@
 </tr>
 <tr>
 <td><a href="#ibkr-backtest"><code>ibkr backtest</code></a></td>
-<td>Offline canary/regime/opportunity backtest harness from JSONL snapshots</td>
+<td>Offline stress/regime/opportunity backtest harness from JSONL snapshots</td>
 <td><code>local</code></td>
 <td>CLI only</td>
 </tr>
@@ -1650,9 +1650,9 @@ ibkr purge dry-run [--json]
 </table>
 </div>
 <h2 id="ibkr-backtest"><code>ibkr backtest</code></h2>
-<p>Offline canary/regime/opportunity backtest harness from JSONL snapshots.</p>
+<p>Offline stress/regime/opportunity backtest harness from JSONL snapshots.</p>
 <p>Guard <code>local</code>. CLI only, with no MCP tool: offline research harness over local JSONL fixtures; not a live broker/MCP operation.</p>
-<pre><code class="language-text">ibkr backtest canary|regime|opportunity|build-regime|build-opportunity --input PATH [--json]
+<pre><code class="language-text">ibkr backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json]
 ibkr backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID]
 ibkr backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json]
 ibkr backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json]

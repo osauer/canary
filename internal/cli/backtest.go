@@ -19,9 +19,9 @@ import (
 	stressengine "github.com/osauer/ibkr/v2/internal/stress"
 )
 
-// CanaryBacktestObservation is one point-in-time canary input and its labelled
+// StressBacktestObservation is one point-in-time stress input and its labelled
 // forward stress target.
-type CanaryBacktestObservation struct {
+type StressBacktestObservation struct {
 	Date          string                   `json:"date,omitempty"`
 	AsOf          time.Time                `json:"as_of,omitzero"`
 	Case          string                   `json:"case,omitempty"`
@@ -29,13 +29,13 @@ type CanaryBacktestObservation struct {
 	Account       rpc.AccountResult        `json:"account"`
 	Positions     rpc.PositionsResult      `json:"positions"`
 	Regime        rpc.RegimeSnapshotResult `json:"regime"`
-	Target        CanaryBacktestTarget     `json:"target"`
+	Target        StressBacktestTarget     `json:"target"`
 	Notes         string                   `json:"notes,omitempty"`
 }
 
-// CanaryBacktestTarget records the forward-window stress label used to score a
-// canary observation.
-type CanaryBacktestTarget struct {
+// StressBacktestTarget records the forward-window stress label used to score a
+// stress observation.
+type StressBacktestTarget struct {
 	Stress            bool     `json:"stress"`
 	Kind              string   `json:"kind,omitempty"`
 	Scope             string   `json:"scope,omitempty"`
@@ -46,26 +46,26 @@ type CanaryBacktestTarget struct {
 	Notes             string   `json:"notes,omitempty"`
 }
 
-// CanaryBacktestResult contains row-level canary evaluations and aggregate
+// StressBacktestResult contains row-level stress evaluations and aggregate
 // detection, lifecycle, and regime-lift metrics for one replay.
-type CanaryBacktestResult struct {
+type StressBacktestResult struct {
 	RunAt        time.Time                      `json:"run_at"`
 	Policy       string                         `json:"policy"`
-	Observations []CanaryBacktestRowResult      `json:"observations"`
-	Metrics      CanaryBacktestMetrics          `json:"metrics"`
-	RegimeOnly   CanaryBacktestMetrics          `json:"regime_only"`
+	Observations []StressBacktestRowResult      `json:"observations"`
+	Metrics      StressBacktestMetrics          `json:"metrics"`
+	RegimeOnly   StressBacktestMetrics          `json:"regime_only"`
 	Lifecycle    BacktestLifecycleMetrics       `json:"lifecycle"`
 	Events       BacktestEventMetrics           `json:"events"`
-	Categories   []CanaryBacktestClusterMetrics `json:"categories,omitempty"`
-	RegimeLift   CanaryBacktestRegimeLift       `json:"regime_lift,omitzero"`
-	Clusters     []CanaryBacktestClusterMetrics `json:"clusters,omitempty"`
+	Categories   []StressBacktestClusterMetrics `json:"categories,omitempty"`
+	RegimeLift   StressBacktestRegimeLift       `json:"regime_lift,omitzero"`
+	Clusters     []StressBacktestClusterMetrics `json:"clusters,omitempty"`
 	Findings     []string                       `json:"findings,omitempty"`
 	NotAdvice    string                         `json:"not_advice"`
 }
 
-// CanaryBacktestRowResult records the canary decision and scoring flags for one
+// StressBacktestRowResult records the stress decision and scoring flags for one
 // labelled observation.
-type CanaryBacktestRowResult struct {
+type StressBacktestRowResult struct {
 	Date               string                `json:"date,omitempty"`
 	Case               string                `json:"case,omitempty"`
 	MarketCluster      string                `json:"market_cluster,omitempty"`
@@ -99,12 +99,12 @@ type CanaryBacktestRowResult struct {
 	Opportunity        bool                  `json:"opportunity"`
 	RegimeOnlyWatch    bool                  `json:"regime_only_watch"`
 	RegimeOnlyAct      bool                  `json:"regime_only_act"`
-	Canary             *rpc.StressResult     `json:"canary,omitempty"`
+	Stress             *rpc.StressResult     `json:"stress,omitempty"`
 }
 
-// CanaryBacktestMetrics summarizes row-level watch and defensive-action
+// StressBacktestMetrics summarizes row-level watch and defensive-action
 // classification performance.
-type CanaryBacktestMetrics struct {
+type StressBacktestMetrics struct {
 	Observations         int      `json:"observations"`
 	TargetStress         int      `json:"target_stress"`
 	NonStress            int      `json:"non_stress"`
@@ -137,11 +137,11 @@ type CanaryBacktestMetrics struct {
 	ActAvgLeadDays       *float64 `json:"act_avg_lead_days,omitempty"`
 }
 
-// CanaryBacktestClusterMetrics associates canary metrics with one named
+// StressBacktestClusterMetrics associates stress metrics with one named
 // category or market cluster.
-type CanaryBacktestClusterMetrics struct {
+type StressBacktestClusterMetrics struct {
 	Name    string                `json:"name"`
-	Metrics CanaryBacktestMetrics `json:"metrics"`
+	Metrics StressBacktestMetrics `json:"metrics"`
 }
 
 // RegimeBacktestObservation is one point-in-time regime snapshot and its
@@ -306,15 +306,15 @@ type BacktestEventMetrics struct {
 	PanicRecall                  *float64 `json:"panic_recall,omitempty"`
 }
 
-// CanaryBacktestRegimeLift compares canary watch recall with the regime-only
+// StressBacktestRegimeLift compares stress watch recall with the regime-only
 // baseline on portfolio-stress rows.
-type CanaryBacktestRegimeLift struct {
+type StressBacktestRegimeLift struct {
 	PortfolioStressRows         int      `json:"portfolio_stress_rows"`
 	RegimeOnlyWatchTruePositive int      `json:"regime_only_watch_true_positive"`
-	CanaryWatchTruePositive     int      `json:"canary_watch_true_positive"`
-	CanaryAddedTruePositive     int      `json:"canary_added_true_positive"`
+	StressWatchTruePositive     int      `json:"stress_watch_true_positive"`
+	StressAddedTruePositive     int      `json:"stress_added_true_positive"`
 	RegimeOnlyRecall            *float64 `json:"regime_only_recall,omitempty"`
-	CanaryRecall                *float64 `json:"canary_recall,omitempty"`
+	StressRecall                *float64 `json:"stress_recall,omitempty"`
 }
 
 // OpportunityBacktestObservation is one point-in-time research signal, trade
@@ -657,8 +657,8 @@ type OpportunityBacktestClusterMetrics struct {
 	Metrics OpportunityBacktestMetrics `json:"metrics"`
 }
 
-type canaryBacktestAccumulator struct {
-	metrics         CanaryBacktestMetrics
+type stressBacktestAccumulator struct {
+	metrics         StressBacktestMetrics
 	signalLeadDays  int
 	signalLeadCount int
 	watchLeadDays   int
@@ -745,8 +745,8 @@ func runBacktest(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	rest := fs.Args()
-	if len(rest) != 1 || (rest[0] != "canary" && rest[0] != "regime" && rest[0] != "opportunity" && rest[0] != "research-opportunity" && rest[0] != "build-regime" && rest[0] != "build-opportunity" && rest[0] != "build-opportunity-pit" && rest[0] != "score-opportunity" && rest[0] != "capture-opportunity" && rest[0] != "export-opportunity-bars") {
-		return fail(env, "backtest: usage: ibkr backtest canary|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | ibkr backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | ibkr backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | ibkr backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | ibkr backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | ibkr backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | ibkr backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]")
+	if len(rest) != 1 || (rest[0] != "stress" && rest[0] != "regime" && rest[0] != "opportunity" && rest[0] != "research-opportunity" && rest[0] != "build-regime" && rest[0] != "build-opportunity" && rest[0] != "build-opportunity-pit" && rest[0] != "score-opportunity" && rest[0] != "capture-opportunity" && rest[0] != "export-opportunity-bars") {
+		return fail(env, "backtest: usage: ibkr backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | ibkr backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | ibkr backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | ibkr backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | ibkr backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | ibkr backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | ibkr backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]")
 	}
 	if rest[0] == "research-opportunity" && *researchListPlans {
 		if *jsonOut {
@@ -1038,21 +1038,21 @@ func runBacktest(ctx context.Context, env *Env, args []string) int {
 		return renderOpportunityBacktestText(env, env.Stdout, &res)
 	}
 
-	observations, err := readCanaryBacktestObservations(f)
+	observations, err := readStressBacktestObservations(f)
 	if err != nil {
 		return fail(env, "backtest: %v", err)
 	}
-	res := runCanaryBacktest(observations, time.Now())
+	res := runStressBacktest(observations, time.Now())
 	if *jsonOut {
 		return printJSON(env, res)
 	}
-	return renderCanaryBacktestText(env, env.Stdout, &res)
+	return renderStressBacktestText(env, env.Stdout, &res)
 }
 
-func readCanaryBacktestObservations(r io.Reader) ([]CanaryBacktestObservation, error) {
+func readStressBacktestObservations(r io.Reader) ([]StressBacktestObservation, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	var out []CanaryBacktestObservation
+	var out []StressBacktestObservation
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
@@ -1060,7 +1060,7 @@ func readCanaryBacktestObservations(r io.Reader) ([]CanaryBacktestObservation, e
 		if line == "" {
 			continue
 		}
-		var row CanaryBacktestObservation
+		var row StressBacktestObservation
 		if err := json.Unmarshal([]byte(line), &row); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNo, err)
 		}
@@ -1142,48 +1142,48 @@ func readOpportunityBacktestObservations(r io.Reader) ([]OpportunityBacktestObse
 	return out, nil
 }
 
-func runCanaryBacktest(observations []CanaryBacktestObservation, runAt time.Time) CanaryBacktestResult {
+func runStressBacktest(observations []StressBacktestObservation, runAt time.Time) StressBacktestResult {
 	if runAt.IsZero() {
 		runAt = time.Now()
 	}
-	res := CanaryBacktestResult{
+	res := StressBacktestResult{
 		RunAt:     runAt,
 		Policy:    stressengine.PolicyName(),
 		NotAdvice: "Backtest diagnostic only; not investment advice or a trade recommendation.",
 	}
-	total := &canaryBacktestAccumulator{}
-	regimeOnly := &canaryBacktestAccumulator{}
-	byCluster := map[string]*canaryBacktestAccumulator{}
-	byCategory := map[string]*canaryBacktestAccumulator{}
+	total := &stressBacktestAccumulator{}
+	regimeOnly := &stressBacktestAccumulator{}
+	byCluster := map[string]*stressBacktestAccumulator{}
+	byCategory := map[string]*stressBacktestAccumulator{}
 	for _, obs := range observations {
-		row := runCanaryBacktestObservation(obs)
+		row := runStressBacktestObservation(obs)
 		res.Observations = append(res.Observations, row)
 		total.add(row)
-		regimeOnly.add(canaryRegimeOnlyBacktestRow(row))
+		regimeOnly.add(stressRegimeOnlyBacktestRow(row))
 		cluster := cleanBacktestCluster(row.MarketCluster)
 		if byCluster[cluster] == nil {
-			byCluster[cluster] = &canaryBacktestAccumulator{}
+			byCluster[cluster] = &stressBacktestAccumulator{}
 		}
 		byCluster[cluster].add(row)
-		for _, category := range canaryBacktestCategories(row) {
+		for _, category := range stressBacktestCategories(row) {
 			if byCategory[category] == nil {
-				byCategory[category] = &canaryBacktestAccumulator{}
+				byCategory[category] = &stressBacktestAccumulator{}
 			}
 			byCategory[category].add(row)
 		}
 	}
 	res.Metrics = total.result()
 	res.RegimeOnly = regimeOnly.result()
-	res.Lifecycle = canaryBacktestLifecycleMetrics(res.Observations)
-	res.Events = canaryBacktestEventMetrics(res.Observations)
-	res.RegimeLift = canaryBacktestRegimeLift(res.Observations)
+	res.Lifecycle = stressBacktestLifecycleMetrics(res.Observations)
+	res.Events = stressBacktestEventMetrics(res.Observations)
+	res.RegimeLift = stressBacktestRegimeLift(res.Observations)
 	names := make([]string, 0, len(byCluster))
 	for name := range byCluster {
 		names = append(names, name)
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		res.Clusters = append(res.Clusters, CanaryBacktestClusterMetrics{Name: name, Metrics: byCluster[name].result()})
+		res.Clusters = append(res.Clusters, StressBacktestClusterMetrics{Name: name, Metrics: byCluster[name].result()})
 	}
 	categoryNames := make([]string, 0, len(byCategory))
 	for name := range byCategory {
@@ -1191,9 +1191,9 @@ func runCanaryBacktest(observations []CanaryBacktestObservation, runAt time.Time
 	}
 	slices.Sort(categoryNames)
 	for _, name := range categoryNames {
-		res.Categories = append(res.Categories, CanaryBacktestClusterMetrics{Name: name, Metrics: byCategory[name].result()})
+		res.Categories = append(res.Categories, StressBacktestClusterMetrics{Name: name, Metrics: byCategory[name].result()})
 	}
-	res.Findings = canaryBacktestFindings(res)
+	res.Findings = stressBacktestFindings(res)
 	return res
 }
 
@@ -1282,19 +1282,19 @@ func runOpportunityBacktestWithSlots(observations []OpportunityBacktestObservati
 	return res
 }
 
-func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestRowResult {
-	input, asOf := canaryBacktestInput(obs)
-	canary := ComputeStress(input)
-	watch := canaryBacktestDefensiveAtLeast(canary, risk.SeverityWatch)
-	act := canaryBacktestDefensiveAtLeast(canary, risk.SeverityAct)
-	rebalance := canaryBacktestRebalanceAtLeast(canary, risk.SeverityWatch)
-	dataQuality := canary.Direction == risk.DirectionDataQuality && severityRankAtLeast(canary.Severity, risk.SeverityWatch)
-	blocked := canary.PlannerReadiness == risk.PlannerReadinessBlocked
+func runStressBacktestObservation(obs StressBacktestObservation) StressBacktestRowResult {
+	input, asOf := stressBacktestInput(obs)
+	stress := ComputeStress(input)
+	watch := stressBacktestDefensiveAtLeast(stress, risk.SeverityWatch)
+	act := stressBacktestDefensiveAtLeast(stress, risk.SeverityAct)
+	rebalance := stressBacktestRebalanceAtLeast(stress, risk.SeverityWatch)
+	dataQuality := stress.Direction == risk.DirectionDataQuality && severityRankAtLeast(stress.Severity, risk.SeverityWatch)
+	blocked := stress.PlannerReadiness == risk.PlannerReadinessBlocked
 	signalWatch := watch || rebalance
 	regimeWatch := regimeBacktestStressWatch(input.Regime)
 	regimeAct := regimeBacktestStressSignal(input.Regime)
-	stage := canaryBacktestStage(canary)
-	return CanaryBacktestRowResult{
+	stage := stressBacktestStage(stress)
+	return StressBacktestRowResult{
 		Date:               backtestDateLabel(obs.Date, asOf),
 		Case:               obs.Case,
 		MarketCluster:      cleanBacktestCluster(obs.MarketCluster),
@@ -1305,15 +1305,15 @@ func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestR
 		DaysToStress:       obs.Target.DaysToStress,
 		MaxSPYDrawdownPct:  obs.Target.MaxSPYDrawdownPct,
 		VIXShockPct:        obs.Target.VIXShockPct,
-		Direction:          canary.Direction,
-		Action:             canary.Action,
-		MarketConfirmation: canary.MarketConfirmation,
-		PortfolioFit:       canary.PortfolioFit,
-		InputHealth:        canary.InputHealth,
-		Severity:           canary.Severity,
-		PlannerMode:        canary.PlannerModeHint,
-		PlannerReadiness:   canary.PlannerReadiness,
-		PrimaryDrivers:     canary.PrimaryDrivers,
+		Direction:          stress.Direction,
+		Action:             stress.Action,
+		MarketConfirmation: stress.MarketConfirmation,
+		PortfolioFit:       stress.PortfolioFit,
+		InputHealth:        stress.InputHealth,
+		Severity:           stress.Severity,
+		PlannerMode:        stress.PlannerModeHint,
+		PlannerReadiness:   stress.PlannerReadiness,
+		PrimaryDrivers:     stress.PrimaryDrivers,
 		LifecycleStage:     stage,
 		SignalWatch:        signalWatch,
 		DefensiveWatch:     watch,
@@ -1328,16 +1328,16 @@ func runCanaryBacktestObservation(obs CanaryBacktestObservation) CanaryBacktestR
 		Opportunity:        stage == rpc.LifecycleOpportunity,
 		RegimeOnlyWatch:    regimeWatch,
 		RegimeOnlyAct:      regimeAct,
-		Canary:             &canary,
+		Stress:             &stress,
 	}
 }
 
-func canaryBacktestStage(canary StressResult) string {
-	switch canary.Action {
+func stressBacktestStage(stress StressResult) string {
+	switch stress.Action {
 	case stressActionConfirmInputs:
 		return rpc.LifecycleDataQuality
 	case stressActionDefend:
-		if canary.Severity == risk.SeverityUrgent {
+		if stress.Severity == risk.SeverityUrgent {
 			return rpc.LifecyclePanic
 		}
 		return rpc.LifecycleConfirmedStress
@@ -2135,8 +2135,8 @@ func roundOpportunityMultiple(v float64) float64 {
 	return math.Round(v*10_000) / 10_000
 }
 
-func canaryBacktestInput(obs CanaryBacktestObservation) (StressInput, time.Time) {
-	asOf := canaryBacktestAsOf(obs)
+func stressBacktestInput(obs StressBacktestObservation) (StressInput, time.Time) {
+	asOf := stressBacktestAsOf(obs)
 	acct := obs.Account
 	if acct.AsOf.IsZero() {
 		acct.AsOf = asOf
@@ -2174,7 +2174,7 @@ func regimeBacktestInput(obs RegimeBacktestObservation) (rpc.RegimeSnapshotResul
 	return regime, asOf
 }
 
-func canaryBacktestAsOf(obs CanaryBacktestObservation) time.Time {
+func stressBacktestAsOf(obs StressBacktestObservation) time.Time {
 	if !obs.AsOf.IsZero() {
 		return obs.AsOf
 	}
@@ -2270,7 +2270,7 @@ func cleanBacktestTargetScope(scope string) string {
 	return scope
 }
 
-func canaryBacktestPortfolioScope(scope string) bool {
+func stressBacktestPortfolioScope(scope string) bool {
 	switch cleanBacktestTargetScope(scope) {
 	case "portfolio", "portfolio_only", "account", "account_only", "idiosyncratic":
 		return true
@@ -2460,14 +2460,14 @@ func backfillBacktestRegimeEligibility(r *rpc.RegimeSnapshotResult) {
 // internal/rpc/regime_policy.go so offline replay uses the same semantics as
 // daemon and rendering adapters.
 
-func canaryBacktestDefensiveAtLeast(res StressResult, severity risk.SignalSeverity) bool {
+func stressBacktestDefensiveAtLeast(res StressResult, severity risk.SignalSeverity) bool {
 	if !severityRankAtLeast(res.Severity, severity) {
 		return false
 	}
 	return res.Direction == risk.DirectionDefensive || res.Direction == risk.DirectionMixed
 }
 
-func canaryBacktestRebalanceAtLeast(res StressResult, severity risk.SignalSeverity) bool {
+func stressBacktestRebalanceAtLeast(res StressResult, severity risk.SignalSeverity) bool {
 	if severityRankAtLeast(res.Severity, severity) && res.Direction == risk.DirectionRebalance {
 		return true
 	}
@@ -2484,7 +2484,7 @@ func canaryBacktestRebalanceAtLeast(res StressResult, severity risk.SignalSeveri
 	return false
 }
 
-func (a *canaryBacktestAccumulator) add(row CanaryBacktestRowResult) {
+func (a *stressBacktestAccumulator) add(row StressBacktestRowResult) {
 	a.metrics.Observations++
 	if row.TargetStress {
 		a.metrics.TargetStress++
@@ -2514,7 +2514,7 @@ func (a *canaryBacktestAccumulator) add(row CanaryBacktestRowResult) {
 	a.addAct(row)
 }
 
-func (a *canaryBacktestAccumulator) addSignal(row CanaryBacktestRowResult) {
+func (a *stressBacktestAccumulator) addSignal(row StressBacktestRowResult) {
 	switch {
 	case row.TargetStress && row.SignalWatch:
 		a.metrics.SignalTruePositive++
@@ -2529,8 +2529,8 @@ func (a *canaryBacktestAccumulator) addSignal(row CanaryBacktestRowResult) {
 	}
 }
 
-func (a *canaryBacktestAccumulator) addWatch(row CanaryBacktestRowResult) {
-	watch := canaryBacktestAcceptableWatch(row)
+func (a *stressBacktestAccumulator) addWatch(row StressBacktestRowResult) {
+	watch := stressBacktestAcceptableWatch(row)
 	switch {
 	case row.TargetStress && watch:
 		a.metrics.WatchTruePositive++
@@ -2545,14 +2545,14 @@ func (a *canaryBacktestAccumulator) addWatch(row CanaryBacktestRowResult) {
 	}
 }
 
-func canaryBacktestAcceptableWatch(row CanaryBacktestRowResult) bool {
+func stressBacktestAcceptableWatch(row StressBacktestRowResult) bool {
 	if row.DefensiveWatch {
 		return true
 	}
-	return row.TargetStress && canaryBacktestPortfolioScope(row.TargetScope) && row.RebalanceWatch
+	return row.TargetStress && stressBacktestPortfolioScope(row.TargetScope) && row.RebalanceWatch
 }
 
-func (a *canaryBacktestAccumulator) addAct(row CanaryBacktestRowResult) {
+func (a *stressBacktestAccumulator) addAct(row StressBacktestRowResult) {
 	switch {
 	case row.TargetStress && row.DefensiveAct:
 		a.metrics.ActTruePositive++
@@ -2567,7 +2567,7 @@ func (a *canaryBacktestAccumulator) addAct(row CanaryBacktestRowResult) {
 	}
 }
 
-func (a *canaryBacktestAccumulator) result() CanaryBacktestMetrics {
+func (a *stressBacktestAccumulator) result() StressBacktestMetrics {
 	m := a.metrics
 	m.SignalPrecision = ratioPtr(m.SignalTruePositive, m.SignalTruePositive+m.SignalFalsePositive)
 	m.SignalRecall = ratioPtr(m.SignalTruePositive, m.TargetStress)
@@ -2888,7 +2888,7 @@ func regimeBaselineBacktestRow(row RegimeBacktestRowResult) RegimeBacktestRowRes
 	return out
 }
 
-func canaryRegimeOnlyBacktestRow(row CanaryBacktestRowResult) CanaryBacktestRowResult {
+func stressRegimeOnlyBacktestRow(row StressBacktestRowResult) StressBacktestRowResult {
 	out := row
 	out.SignalWatch = row.RegimeOnlyWatch
 	out.DefensiveWatch = row.RegimeOnlyWatch
@@ -2923,7 +2923,7 @@ func regimeBacktestLifecycleMetrics(rows []RegimeBacktestRowResult) BacktestLife
 	return acc.result()
 }
 
-func canaryBacktestLifecycleMetrics(rows []CanaryBacktestRowResult) BacktestLifecycleMetrics {
+func stressBacktestLifecycleMetrics(rows []StressBacktestRowResult) BacktestLifecycleMetrics {
 	acc := lifecycleMetricAccumulator{}
 	for _, row := range rows {
 		acc.add(lifecycleMetricInput{
@@ -3054,7 +3054,7 @@ func regimeBacktestEventMetrics(rows []RegimeBacktestRowResult) BacktestEventMet
 	return eventMetricsResult(events)
 }
 
-func canaryBacktestEventMetrics(rows []CanaryBacktestRowResult) BacktestEventMetrics {
+func stressBacktestEventMetrics(rows []StressBacktestRowResult) BacktestEventMetrics {
 	events := map[string]*eventMetricAccumulator{}
 	for _, row := range rows {
 		key := backtestEventKey(row.MarketCluster, row.Case)
@@ -3149,14 +3149,14 @@ func backtestEventKey(cluster, fallback string) string {
 	return cluster
 }
 
-func canaryBacktestCategories(row CanaryBacktestRowResult) []string {
+func stressBacktestCategories(row StressBacktestRowResult) []string {
 	categories := []string{}
 	scope := cleanBacktestTargetScope(row.TargetScope)
 	kind := strings.ToLower(row.TargetKind + " " + row.Case + " " + row.MarketCluster)
 	if scope == "market" || strings.Contains(kind, "market") || strings.Contains(kind, "shock") || strings.Contains(kind, "selloff") || strings.Contains(kind, "crash") || strings.Contains(kind, "rates") || strings.Contains(kind, "carry") || strings.Contains(kind, "bank") {
 		categories = append(categories, "market-driven")
 	}
-	if canaryBacktestPortfolioScope(scope) {
+	if stressBacktestPortfolioScope(scope) {
 		categories = append(categories, "portfolio-driven")
 	}
 	if strings.Contains(kind, "concentration") || strings.Contains(kind, "squeeze") || hasAnySignal(row.PrimaryDrivers, risk.SignalSingleNameExposureHigh, risk.SignalSingleNameDeltaHigh, risk.SignalHeldUnderlyingPnLShock) {
@@ -3178,25 +3178,25 @@ func canaryBacktestCategories(row CanaryBacktestRowResult) []string {
 	return slices.Compact(categories)
 }
 
-func canaryBacktestRegimeLift(rows []CanaryBacktestRowResult) CanaryBacktestRegimeLift {
-	var out CanaryBacktestRegimeLift
+func stressBacktestRegimeLift(rows []StressBacktestRowResult) StressBacktestRegimeLift {
+	var out StressBacktestRegimeLift
 	for _, row := range rows {
-		if !row.TargetStress || !canaryBacktestPortfolioScope(row.TargetScope) {
+		if !row.TargetStress || !stressBacktestPortfolioScope(row.TargetScope) {
 			continue
 		}
 		out.PortfolioStressRows++
 		if row.RegimeOnlyWatch {
 			out.RegimeOnlyWatchTruePositive++
 		}
-		if canaryBacktestAcceptableWatch(row) {
-			out.CanaryWatchTruePositive++
+		if stressBacktestAcceptableWatch(row) {
+			out.StressWatchTruePositive++
 		}
-		if !row.RegimeOnlyWatch && canaryBacktestAcceptableWatch(row) {
-			out.CanaryAddedTruePositive++
+		if !row.RegimeOnlyWatch && stressBacktestAcceptableWatch(row) {
+			out.StressAddedTruePositive++
 		}
 	}
 	out.RegimeOnlyRecall = ratioPtr(out.RegimeOnlyWatchTruePositive, out.PortfolioStressRows)
-	out.CanaryRecall = ratioPtr(out.CanaryWatchTruePositive, out.PortfolioStressRows)
+	out.StressRecall = ratioPtr(out.StressWatchTruePositive, out.PortfolioStressRows)
 	return out
 }
 
@@ -3820,7 +3820,7 @@ func positiveBacktestNeed(minimum, observed int) int {
 	return minimum - observed
 }
 
-func canaryBacktestFindings(res CanaryBacktestResult) []string {
+func stressBacktestFindings(res StressBacktestResult) []string {
 	m := res.Metrics
 	if m.Observations == 0 {
 		return []string{"No observations were loaded."}
@@ -3829,12 +3829,12 @@ func canaryBacktestFindings(res CanaryBacktestResult) []string {
 	if m.TargetStress == 0 {
 		findings = append(findings, "No target stress rows were present; add labelled forward windows before reading precision or recall.")
 	} else if m.SignalMiss == 0 {
-		findings = append(findings, "Watch-level canary signals caught every labelled stress row in this panel.")
+		findings = append(findings, "Watch-level stress signals caught every labelled stress row in this panel.")
 	} else {
-		findings = append(findings, fmt.Sprintf("Watch-level canary signals missed %d labelled stress row(s).", m.SignalMiss))
+		findings = append(findings, fmt.Sprintf("Watch-level stress signals missed %d labelled stress row(s).", m.SignalMiss))
 	}
 	if m.SignalFalsePositive > 0 {
-		findings = append(findings, fmt.Sprintf("Watch-level canary signals fired on %d non-stress row(s); inspect risk-budget false positives before tightening policy.", m.SignalFalsePositive))
+		findings = append(findings, fmt.Sprintf("Watch-level stress signals fired on %d non-stress row(s); inspect risk-budget false positives before tightening policy.", m.SignalFalsePositive))
 	}
 	if m.TargetStress == 0 {
 		// Already covered above; keep the defensive-specific finding quiet when
@@ -3851,8 +3851,8 @@ func canaryBacktestFindings(res CanaryBacktestResult) []string {
 		findings = append(findings, fmt.Sprintf("Act-level alerts caught %d/%d stress rows; treat act recall as a severity filter, not the only success gate.", m.ActTruePositive, m.TargetStress))
 	}
 	if res.RegimeLift.PortfolioStressRows > 0 {
-		findings = append(findings, fmt.Sprintf("Portfolio lift: canary watch caught %d/%d portfolio stress row(s) vs %d/%d for regime-only.",
-			res.RegimeLift.CanaryWatchTruePositive, res.RegimeLift.PortfolioStressRows,
+		findings = append(findings, fmt.Sprintf("Portfolio lift: stress watch caught %d/%d portfolio stress row(s) vs %d/%d for regime-only.",
+			res.RegimeLift.StressWatchTruePositive, res.RegimeLift.PortfolioStressRows,
 			res.RegimeLift.RegimeOnlyWatchTruePositive, res.RegimeLift.PortfolioStressRows))
 	}
 	if res.Lifecycle.EarlyWarning > 0 {
@@ -4077,9 +4077,9 @@ func opportunityBacktestEvidenceNeedsWork(n OpportunityBacktestEvidenceNeeds) bo
 		n.SignalContextBlocked > 0
 }
 
-func renderCanaryBacktestText(env *Env, out io.Writer, r *CanaryBacktestResult) int {
+func renderStressBacktestText(env *Env, out io.Writer, r *StressBacktestResult) int {
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "Canary Backtest  ·  %d observations  ·  policy %s\n", r.Metrics.Observations, r.Policy)
+	fmt.Fprintf(out, "Stress Backtest  ·  %d observations  ·  policy %s\n", r.Metrics.Observations, r.Policy)
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "  %-12s %d stress / %d non-stress\n", "Targets", r.Metrics.TargetStress, r.Metrics.NonStress)
 	fmt.Fprintf(out, "  %-12s precision %s · recall %s · false alarms %s · avg lead %s\n",
@@ -4124,11 +4124,11 @@ func renderCanaryBacktestText(env *Env, out io.Writer, r *CanaryBacktestResult) 
 		formatBacktestRate(r.Events.ConfirmedStressPrecision),
 		formatBacktestRate(r.Events.ConfirmedStressRecall),
 	)
-	fmt.Fprintf(out, "  %-12s regime-only recall %s · canary recall %s · added portfolio TP %d\n",
+	fmt.Fprintf(out, "  %-12s regime-only recall %s · stress recall %s · added portfolio TP %d\n",
 		"Lift",
 		formatBacktestRate(r.RegimeLift.RegimeOnlyRecall),
-		formatBacktestRate(r.RegimeLift.CanaryRecall),
-		r.RegimeLift.CanaryAddedTruePositive,
+		formatBacktestRate(r.RegimeLift.StressRecall),
+		r.RegimeLift.StressAddedTruePositive,
 	)
 	fmt.Fprintf(out, "  %-12s %d rebalance watch row(s)\n", "Risk budget", r.Metrics.RebalanceWatch)
 	fmt.Fprintf(out, "  %-12s %d data-quality watch · %d blocked planner row(s)\n", "Quality", r.Metrics.DataQualityWatch, r.Metrics.Blocked)

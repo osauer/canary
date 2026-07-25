@@ -35,7 +35,7 @@ The guard column says what a command does: `read-only` reads and prints, `local`
 | [`ibkr proposals`](#ibkr-proposals) | Daemon-owned close/reduce-only protection proposals | `confirm` | yes |
 | [`ibkr opportunities`](#ibkr-opportunities) | Daemon-owned option exercise opportunities | `confirm` | yes |
 | [`ibkr purge`](#ibkr-purge) | Emergency fast-path close for current stock/ETF and single-leg option positions | `confirm` | CLI only |
-| [`ibkr backtest`](#ibkr-backtest) | Offline canary/regime/opportunity backtest harness from JSONL snapshots | `local` | CLI only |
+| [`ibkr backtest`](#ibkr-backtest) | Offline stress/regime/opportunity backtest harness from JSONL snapshots | `local` | CLI only |
 | [`ibkr scan`](#ibkr-scan) | Run a scanner preset or an ad-hoc scan; dump the gateway catalog with `scan params` | `read-only` | yes |
 | [`ibkr size`](#ibkr-size) | Fixed-fractional position sizing pegged to live NLV | `read-only` | yes |
 | [`ibkr trading`](#ibkr-trading) | Local trading gate status and configuration | `confirm` | yes |
@@ -599,12 +599,12 @@ ibkr purge dry-run [--json]
 
 ## `ibkr backtest`
 
-Offline canary/regime/opportunity backtest harness from JSONL snapshots.
+Offline stress/regime/opportunity backtest harness from JSONL snapshots.
 
 Guard `local`. CLI only, with no MCP tool: offline research harness over local JSONL fixtures; not a live broker/MCP operation.
 
 ```text
-ibkr backtest canary|regime|opportunity|build-regime|build-opportunity --input PATH [--json]
+ibkr backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json]
 ibkr backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID]
 ibkr backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json]
 ibkr backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json]

@@ -156,8 +156,8 @@ out-of-scope for market-regime precision and recall.</li>
 <td>Tiny compact replay sample consumed by <code>backtest regime</code>. Checked in.</td>
 </tr>
 <tr>
-<td><code>internal/cli/testdata/canary_backtest_sample.jsonl</code></td>
-<td>Tiny canary replay sample with account and position overlays. Checked in.</td>
+<td><code>internal/cli/testdata/stress_backtest_sample.jsonl</code></td>
+<td>Tiny stress replay sample with account and position overlays. Checked in.</td>
 </tr>
 <tr>
 <td><code>build/backtest/*.jsonl</code></td>
@@ -171,7 +171,7 @@ the source of truth. Rebuild them.</p>
 <h2 id="command-sequence">Command sequence</h2>
 <p>Small smoke fixtures:</p>
 <pre><code class="language-bash">ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
-ibkr backtest canary --input internal/cli/testdata/canary_backtest_sample.jsonl
+ibkr backtest stress --input internal/cli/testdata/stress_backtest_sample.jsonl
 </code></pre>
 <p>Capture a fresh tuning and holdout split before tuning anything. The checked-in
 sourced corpora were deleted in July 2026: they recorded verdicts from regime
@@ -182,7 +182,7 @@ rather than the current engine.</p>
 ibkr backtest capture-opportunity --preset top-movers --include-regime --split holdout \
   --holdout-plan &lt;plan-id&gt; --append /tmp/regime_holdout.jsonl
 ibkr backtest regime --input /tmp/regime_tuning.jsonl
-ibkr backtest canary --input /tmp/regime_tuning.jsonl
+ibkr backtest stress --input /tmp/regime_tuning.jsonl
 </code></pre>
 <p>Keep captures outside the repository. A corpus checked in beside the unit-test
 fixtures reads as a fixture and stops being regenerated.</p>
