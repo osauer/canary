@@ -1,0 +1,33 @@
+# detector	path	max_hits	reason
+old-cli-command	.claude_memory.md	3	historical pre-rename incident evidence
+old-cli-argv	.codex/rules/canary.rules	9	retired command anti-bypass patterns
+old-cli-command	.codex/rules/canary.rules	14	retired command anti-bypass examples
+old-mcp-resource	cmd/canary/mcp_test.go	1	negative MCP identity assertion
+old-product-path	cmd/canary/setup_test.go	1	negative setup migration assertion
+old-cli-command	hooks/canary-pre-tool-use_test.sh	4	retired command rejection cases
+old-module-or-repository	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
+old-site	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
+old-mcp-server	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
+old-mcp-resource	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
+old-mcp-tool	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
+old-product-path	internal/mcp/identity_contract_test.go	2	negative MCP packaging assertions
+old-product-path	internal/productidentity/identity_test.go	1	negative release artifact assertion
+old-product-path	scripts/canary-mcp_test.sh	2	negative launcher fallback assertions
+old-product-path	scripts/lib-daemon-control_test.sh	1	pre-upgrade process quiescence fixture
+old-cli-command	scripts/lib-daemon-control_test.sh	1	pre-upgrade process quiescence fixture
+old-mcp-server	scripts/registry-publish-verify-first_test.sh	2	immutable retired registry entry fixture
+old-mcp-server	.claude/skills/release/SKILL.md	1	immutable retired registry entry exclusion
+old-product-path	.claude/skills/release/SKILL.md	1	post-release absence assertion
+old-product-path	Makefile	5	pre-upgrade executable cleanup and absence assertions
+old-mcp-tool	internal/cli/backtest_test.go	2	untrusted source identifier cases
+old-cli-command	internal/cli/hook_policy_test.go	1	retired command rejection case
+old-cli-command	internal/cli/restart_launchd.go	1	pinned launchd migration explanation
+old-product-path	internal/cli/restart_test.go	2	pre-upgrade supervisor migration fixtures
+old-cli-command	internal/update/daemon.go	1	pre-upgrade daemon quiescence contract
+old-product-path	internal/update/daemon_test.go	5	pre-upgrade daemon quiescence fixtures
+old-cli-command	internal/update/daemon_test.go	1	pre-upgrade daemon quiescence fixture
+old-cli-command	pkg/ibkr/testdata/wire/scanner_data_top_movers_20rows.fields	1	historical broker wire fixture provenance
+old-product-name	scripts/check-release-site-sync_test.sh	2	negative release-site identity fixtures
+old-cli-command	scripts/lib-daemon-control.sh	1	pre-upgrade process quiescence contract
+old-cli-command	web/app/app_compat_test.go	1	negative rendered identity assertion
+old-site	web/app/app_compat_test.go	1	negative rendered site assertion

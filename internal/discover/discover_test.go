@@ -100,7 +100,7 @@ func TestResolve_NoListenersReturnsError(t *testing.T) {
 
 // TestResolve_NoListeners_HintsAppRunning guards the v0.8.1 UX: when a
 // canonical IBKR app is running but no API port responds, the discovery
-// error must name the app and PID so `ibkr status` can surface a specific
+// error must name the app and PID so `canary status` can surface a specific
 // next action ("Enable ActiveX..." / login pending / custom port) instead
 // of the generic timeout users hit pre-v0.8.1.
 func TestResolve_NoListeners_HintsAppRunning(t *testing.T) {

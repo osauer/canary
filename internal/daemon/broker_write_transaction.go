@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // brokerWriteTransactionBinding is process-local authority for one daemon
@@ -44,7 +44,7 @@ func (s *Server) currentBrokerWriteAuthorization() brokerWriteAuthorization {
 		auth.Blockers = appendTradingBlockerOnce(auth.Blockers, rpc.TradingBlocker{
 			Code:    "trading_disabled",
 			Message: "trading daemon is unavailable",
-			Action:  "Start the ibkr daemon before broker writes.",
+			Action:  "Start the canary daemon before broker writes.",
 		})
 		return auth
 	}

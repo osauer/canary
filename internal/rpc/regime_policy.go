@@ -7,7 +7,7 @@ import (
 
 // This file is the single copy of regime confirmation policy: eligibility
 // gates, cluster combination with isolated-red downgrades, and headline
-// wording. Daemon composite, lifecycle builder, CLI renderer, canary, and
+// wording. Daemon composite, lifecycle builder, CLI renderer, Stress, and
 // the backtest builder all consume these functions or their served outputs.
 
 // Indicator keys, shared with the daemon streak store and the eligibility

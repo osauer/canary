@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // The helpers in this file are the typed SQLite replacements for history.db

@@ -106,6 +106,15 @@ test("distinct display ids remain distinct and a legacy alert id is ignored", as
   ]);
 });
 
+test("push fallback identity is Canary without changing delivery semantics", async () => {
+  const worker = loadWorker();
+  await dispatch(worker.listeners.get("push"), { data: { json: () => ({}) } });
+  assert.equal(worker.notifications[0].title, "Canary");
+  assert.equal(worker.notifications[0].options.body, "Open Canary for details.");
+  assert.deepEqual(JSON.parse(JSON.stringify(worker.notifications[0].options.data)), { destination: "monitor" });
+  assert.equal("tag" in worker.notifications[0].options, false);
+});
+
 test("malformed payload and unknown destination fail closed to monitor without an invented tag", async () => {
   const worker = loadWorker();
   await dispatch(worker.listeners.get("push"), { data: { json: () => { throw new Error("malformed"); } } });

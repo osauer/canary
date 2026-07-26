@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestPolicyV3FlowAndReconcileEvidenceRendering(t *testing.T) {
@@ -29,7 +29,7 @@ func TestPolicyV3FlowAndReconcileEvidenceRendering(t *testing.T) {
 	if got := ledgerNeverVerifiedMessage(c); !strings.Contains(got, "qualifying clean report extends automatically") {
 		t.Fatalf("v3 missing evidence = %q", got)
 	}
-	if got := ledgerNeverVerifiedMessage(rpc.CapitalStateReport{}); got != "  ledger check        never verified against broker statements — run `ibkr recon`, then sign off the report it prints" {
+	if got := ledgerNeverVerifiedMessage(rpc.CapitalStateReport{}); got != "  ledger check        never verified against broker statements — run `canary recon`, then sign off the report it prints" {
 		t.Fatalf("v2 missing evidence changed = %q", got)
 	}
 }

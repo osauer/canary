@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 func TestMCPToolCallTimeoutBudgets(t *testing.T) {
@@ -23,15 +23,15 @@ func TestMCPToolCallTimeoutBudgets(t *testing.T) {
 		args json.RawMessage
 		want time.Duration
 	}{
-		{name: "ibkr_status", want: mcpFastToolTimeout},
-		{name: "ibkr_scan", args: json.RawMessage(`{}`), want: mcpFastToolTimeout},
-		{name: "ibkr_scan", args: json.RawMessage(`{"preset":"top-movers"}`), want: mcpScannerToolTimeout},
-		{name: "ibkr_watch", args: json.RawMessage(`{"include_quotes":false}`), want: mcpFastToolTimeout},
-		{name: "ibkr_watch", args: json.RawMessage(`{}`), want: mcpWatchQuoteTimeout},
-		{name: "ibkr_chain", args: json.RawMessage(`{"symbol":"AAPL","expiry":"2026-07-17"}`), want: mcpLongToolTimeout},
-		{name: "ibkr_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpScannerToolTimeout},
-		{name: "ibkr_regime", want: mcpRegimeToolTimeout},
-		{name: "ibkr_stress", want: mcpScannerToolTimeout},
+		{name: "canary_status", want: mcpFastToolTimeout},
+		{name: "canary_scan", args: json.RawMessage(`{}`), want: mcpFastToolTimeout},
+		{name: "canary_scan", args: json.RawMessage(`{"preset":"top-movers"}`), want: mcpScannerToolTimeout},
+		{name: "canary_watch", args: json.RawMessage(`{"include_quotes":false}`), want: mcpFastToolTimeout},
+		{name: "canary_watch", args: json.RawMessage(`{}`), want: mcpWatchQuoteTimeout},
+		{name: "canary_chain", args: json.RawMessage(`{"symbol":"AAPL","expiry":"2026-07-17"}`), want: mcpLongToolTimeout},
+		{name: "canary_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpScannerToolTimeout},
+		{name: "canary_regime", want: mcpRegimeToolTimeout},
+		{name: "canary_stress", want: mcpScannerToolTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name+" "+string(tc.args), func(t *testing.T) {
@@ -48,7 +48,7 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 	defer stop()
 
 	in := &bytes.Buffer{}
-	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ibkr_status","arguments":{}}}` + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"canary_status","arguments":{}}}` + "\n")
 	out := &bytes.Buffer{}
 	srv := NewServer(nil, "test")
 	srv.SetDialer(dialer)
@@ -76,14 +76,14 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 	if !resp.Result.IsError {
 		t.Fatalf("expected isError=true, got: %s", out.String())
 	}
-	if len(resp.Result.Content) != 1 || !strings.Contains(resp.Result.Content[0].Text, "ibkr_status timed out after 2s") {
+	if len(resp.Result.Content) != 1 || !strings.Contains(resp.Result.Content[0].Text, "canary_status timed out after 2s") {
 		t.Fatalf("timeout message = %+v", resp.Result.Content)
 	}
 }
 
 func silentDaemonDialer(t *testing.T) (func() (*dial.Conn, error), func()) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ibkr-mcp-")
+	dir, err := os.MkdirTemp("", "canary-mcp-")
 	if err != nil {
 		t.Fatalf("temp dir: %v", err)
 	}

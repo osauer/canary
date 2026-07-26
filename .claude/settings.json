@@ -1,12 +1,12 @@
 {
   "enabledPlugins": {
-    "ibkr@ibkr": true
+    "canary@canary": true
   },
   "extraKnownMarketplaces": {
-    "ibkr": {
+    "canary": {
       "source": {
         "source": "github",
-        "repo": "osauer/ibkr"
+        "repo": "osauer/canary"
       }
     }
   },
@@ -19,24 +19,24 @@
       "Bash(make hook-version-check)",
       "Bash(make plugin-check)",
       "Bash(go vet *)",
-      "Bash(ibkr status)",
-      "Bash(ibkr status *)",
-      "Bash(ibkr gamma)",
-      "Bash(ibkr gamma *)",
-      "Bash(ibkr regime)",
-      "Bash(ibkr regime *)",
-      "Bash(ibkr version)",
-      "Bash(ibkr trading status *)",
-      "Bash(ibkr orders *)",
-      "Bash(ibkr proposals preview *)",
-      "Bash(ibkr chain *)",
-      "Bash(ibkr quote *)",
-      "Bash(ibkr order status *)",
-      "Bash(ibkr order preview *)",
-      "Bash(ibkr positions *)",
-      "Bash(ibkr breadth *)",
-      "Bash(ibkr rules)",
-      "Bash(ibkr rules *)",
+      "Bash(canary status)",
+      "Bash(canary status *)",
+      "Bash(canary gamma)",
+      "Bash(canary gamma *)",
+      "Bash(canary regime)",
+      "Bash(canary regime *)",
+      "Bash(canary version)",
+      "Bash(canary trading status *)",
+      "Bash(canary orders *)",
+      "Bash(canary proposals preview *)",
+      "Bash(canary chain *)",
+      "Bash(canary quote *)",
+      "Bash(canary order status *)",
+      "Bash(canary order preview *)",
+      "Bash(canary positions *)",
+      "Bash(canary breadth *)",
+      "Bash(canary rules)",
+      "Bash(canary rules *)",
       "Bash(make smoke-fast)",
       "Bash(make app-check)",
       "Bash(make account-data-check)",

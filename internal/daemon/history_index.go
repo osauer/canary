@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/history"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/history"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // History-index glue: wiring for the derived evidence index

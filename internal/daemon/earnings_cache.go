@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // earningsCache serves per-symbol next-earnings dates for the trading
@@ -55,6 +55,7 @@ const (
 	// cadence. Their typed outcome and next attempt survive daemon restart.
 	earningsNonRetryableFailureRetry = 24 * time.Hour
 	earningsFetchConcurrency         = 4
+	earningsNasdaqUserAgent          = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 canary-earnings/1.0"
 	earningsAuthorityScope           = "market/events/earnings"
 	// Keep the established state kind: a newer payload under the same key makes
 	// older binaries reject the authority instead of silently reading a stale
@@ -899,7 +900,7 @@ func (c *earningsCache) fetchOne(ctx context.Context, sym string) (earningsEntry
 	// Nasdaq's CDN rejects bare Go clients; this allowlisted browser header set
 	// is the endpoint contract established by the original provider spike.
 	for k, v := range map[string]string{
-		"User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 ibkr-earnings/1.0",
+		"User-Agent":      earningsNasdaqUserAgent,
 		"Accept":          "application/json, text/plain, */*",
 		"Accept-Language": "en-US,en;q=0.9",
 		"Origin":          "https://www.nasdaq.com",

@@ -4,7 +4,7 @@ import (
 	"errors"
 	nethttp "net/http"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func (h *handler) handleProposalsSnapshot(w nethttp.ResponseWriter, r *nethttp.Request) {

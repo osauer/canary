@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runProposals(ctx context.Context, env *Env, args []string) int {
@@ -116,7 +116,7 @@ func runProposalsPreview(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 2 {
-		return fail(env, "proposals preview: usage is `ibkr proposals preview KEY REVISION`")
+		return fail(env, "proposals preview: usage is `canary proposals preview KEY REVISION`")
 	}
 	var res rpc.TradeProposalPreviewResult
 	params := rpc.TradeProposalPreviewParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds()), FastPath: *fastPath}
@@ -140,7 +140,7 @@ func runProposalsSubmit(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 2 {
-		return fail(env, "proposals submit: usage is `ibkr proposals submit KEY REVISION`")
+		return fail(env, "proposals submit: usage is `canary proposals submit KEY REVISION`")
 	}
 	var res rpc.TradeProposalSubmitResult
 	params := rpc.TradeProposalSubmitParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, FastPath: *fastPath, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
@@ -216,7 +216,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 	case 1:
 		symbol = strings.TrimSpace(fs.Arg(0))
 	default:
-		return fail(env, "proposals reduce: usage is `ibkr proposals reduce [SYMBOL] --percent N [--con-id ID] [--include-hedges] [--submit]`")
+		return fail(env, "proposals reduce: usage is `canary proposals reduce [SYMBOL] --percent N [--con-id ID] [--include-hedges] [--submit]`")
 	}
 	if *conID <= 0 && symbol == "" {
 		return fail(env, "proposals reduce: provide a SYMBOL or --con-id (or --portfolio for the whole book)")
@@ -353,7 +353,7 @@ func runProposalsIgnore(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() < 1 || fs.NArg() > 2 {
-		return fail(env, "proposals ignore: usage is `ibkr proposals ignore KEY [REVISION]`")
+		return fail(env, "proposals ignore: usage is `canary proposals ignore KEY [REVISION]`")
 	}
 	params := rpc.TradeProposalIgnoreParams{Key: fs.Arg(0), Reason: strings.TrimSpace(*reason)}
 	if fs.NArg() == 2 {
@@ -373,7 +373,7 @@ func runProposalsIgnore(ctx context.Context, env *Env, args []string) int {
 func renderProposalStatusText(env *Env, st *rpc.AutoTradeStatus) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Protection Proposals  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(nonEmpty(st.Policy.Status, "unknown")), Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Protection Proposals  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(nonEmpty(st.Policy.Status, "unknown")), Level: statusConcernNotice}))
 	statusRow(env, out, "Proposals", fmt.Sprint(st.ProposalsEnabled))
 	statusRow(env, out, "Fast path", fmt.Sprint(st.FastPathEnabled))
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d %s", st.Policy.PolicyID, st.Policy.PolicyVersion, st.Policy.Fingerprint.Key))
@@ -399,7 +399,7 @@ func printTradingBlockers(out io.Writer, indent string, blockers []rpc.TradingBl
 func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Protection Proposals  %d actionable / %d total\n", snap.Counts.Actionable, snap.Counts.Total)
+	fmt.Fprintf(out, "Canary Protection Proposals  %d actionable / %d total\n", snap.Counts.Actionable, snap.Counts.Total)
 	statusRow(env, out, "Revision", snap.Revision)
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d", snap.PolicyID, snap.PolicyVersion))
 	statusRow(env, out, "Theta/day", fmt.Sprintf("%.2f", snap.Counts.ThetaPerDay))

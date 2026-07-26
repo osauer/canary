@@ -4,8 +4,8 @@ These rules apply when editing files under `web/app`.
 
 ## Serving And Refreshing
 
-The SPA is embedded in the `ibkr` binary and served by the long-running
-`ibkr app` process. Source edits are not visible in the in-app Browser until a
+The SPA is embedded in the `canary` binary and served by the long-running
+`canary app` process. Source edits are not visible in the in-app Browser until a
 new binary is installed and the app host is restarted.
 
 For the shared local/phone host, prefer:
@@ -14,7 +14,7 @@ For the shared local/phone host, prefer:
 make app-refresh
 ```
 
-This installs the binary, restarts `ibkr app`, and prints a local pairing URL
+This installs the binary, restarts `canary app`, and prints a local pairing URL
 for `http://127.0.0.1:8765`. Keep the shared app host LAN-capable; do not start
 it loopback-only unless deliberately testing an isolated local preview.
 
@@ -23,11 +23,11 @@ it loopback-only unless deliberately testing an isolated local preview.
 The root URL is authenticated. In a fresh browser, create a local pairing URL:
 
 ```sh
-ibkr app pair --public-url http://127.0.0.1:8765 --json
+canary app pair --public-url http://127.0.0.1:8765 --json
 ```
 
 Open the returned `.url` in the in-app Browser. Successful pairing redirects to
-`http://127.0.0.1:8765/` with title `Canary · IBKR`.
+`http://127.0.0.1:8765/` with title `Canary`.
 
 Use the in-app Browser for visible local app QA. Do not use macOS `open`.
 
@@ -45,8 +45,8 @@ but its page-evaluate sandbox may not expose every browser global such as
 `fetch`. When reconciling rendered values to live data:
 
 - read visible UI state from the Browser DOM;
-- read raw live data with CLI/API commands such as `ibkr account --json` and
-  `ibkr positions --json`;
+- read raw live data with CLI/API commands such as `canary account --json` and
+  `canary positions --json`;
 - compare concepts, not only text formatting.
 
 If in-app Browser screenshots fail, a Playwright/WebKit screenshot is an

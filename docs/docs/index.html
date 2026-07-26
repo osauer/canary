@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Documentation | ibkr</title>
-  <meta name="description" content="The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/">
+  <title>Documentation | Canary</title>
+  <meta name="description" content="The Canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/">
   <link rel="icon" type="image/png" href="../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","description":"The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"name":"ibkr documentation","url":"https://osauer.dev/ibkr/docs/"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","description":"The Canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath.","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"name":"Canary documentation","url":"https://osauer.dev/canary/docs/"}</script>
   <link rel="stylesheet" href="../shared.css">
 </head>
 <body class="docpage layout-hub">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html" aria-label="ibkr canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../index.html" aria-label="Canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../docs/">Documentation</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../canary-remote/">Remote app beta</a>
       <a href="../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -102,10 +102,10 @@
     </details>
     <main class="doc">
 <h1>Documentation</h1>
-<p class="hub-lead">Everything written down about running an agentic trading desk on your own Interactive Brokers account. Start at the top if ibkr is new to you; the sections below get progressively closer to the code.</p>
+<p class="hub-lead">How to install, operate, and understand Canary against your own Interactive Brokers account. Start at the top if Canary is new to you; later sections move closer to the code.</p>
 <section class="hub-section" id="start">
 <h2>Start</h2>
-<p class="hub-blurb">Install ibkr, point it at a gateway and an MCP host, and confirm the desk is live.</p>
+<p class="hub-blurb">Install Canary, point it at a gateway and an MCP host, and confirm the desk is live.</p>
 <ul class="hub-list">
 <li class="hub-item"><a href="start/install.html"><span class="hub-title">Install and first run</span><span class="hub-summary">Prerequisites, the install paths, and the first commands that prove the gateway is reachable.</span></a></li>
 <li class="hub-item"><a href="start/hosts.html"><span class="hub-title">Connect an MCP host</span><span class="hub-summary">Wiring Claude Desktop, Claude Code, Cursor, and Zed to the local server, and checking the connection.</span></a></li>
@@ -119,8 +119,8 @@
 <p class="hub-blurb">The daily loop: briefs, agent sessions, the paired app, order previews, protection, and reconciliation.</p>
 <ul class="hub-list">
 <li class="hub-item"><a href="operate/daily-desk.html"><span class="hub-title">The daily desk</span><span class="hub-summary">A working routine from the morning brief through regime, stress, and rules to the end-of-day read.</span></a></li>
-<li class="hub-item"><a href="operate/agents.html"><span class="hub-title">Working with agents</span><span class="hub-summary">Workflows, limits, and worked examples for driving ibkr from an MCP host.</span></a></li>
-<li class="hub-item"><a href="operate/app.html"><span class="hub-title">The paired app</span><span class="hub-summary">Running ibkr app, pairing a phone, the event stream, and opt-in push notifications.</span></a></li>
+<li class="hub-item"><a href="operate/agents.html"><span class="hub-title">Working with agents</span><span class="hub-summary">Workflows, limits, and worked examples for driving Canary from an MCP host.</span></a></li>
+<li class="hub-item"><a href="operate/app.html"><span class="hub-title">The paired app</span><span class="hub-summary">Running canary app, pairing a phone, the event stream, and opt-in push notifications.</span></a></li>
 <li class="hub-item"><a href="operate/alerts.html"><span class="hub-title">Alerts and notifications</span><span class="hub-summary">What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.</span></a></li>
 <li class="hub-item"><a href="operate/orders.html"><span class="hub-title">Order previews and the trading build</span><span class="hub-summary">The read-only default, what an order preview does and does not do, and the separate opt-in trading build.</span></a></li>
 <li class="hub-item"><a href="operate/protection.html"><span class="hub-title">Protection and emergency exits</span><span class="hub-summary">Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.</span></a></li>
@@ -144,8 +144,8 @@
 <h2>Reference</h2>
 <p class="hub-blurb">Command, tool, and configuration lookups. Most of this is generated from the code it documents.</p>
 <ul class="hub-list">
-<li class="hub-item"><a href="reference/cli.html"><span class="hub-title">CLI</span><span class="hub-summary">Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.</span></a></li>
-<li class="hub-item"><a href="reference/mcp-tools.html"><span class="hub-title">MCP tools</span><span class="hub-summary">Every tool exposed by ibkr mcp, with parameters and invocation guidance. Generated from the registry.</span></a></li>
+<li class="hub-item"><a href="reference/cli.html"><span class="hub-title">CLI</span><span class="hub-summary">Every Canary subcommand with its flags and usage, generated from the command registry in the binary.</span></a></li>
+<li class="hub-item"><a href="reference/mcp-tools.html"><span class="hub-title">MCP tools</span><span class="hub-summary">Every tool exposed by canary mcp, with parameters and invocation guidance. Generated from the registry.</span></a></li>
 <li class="hub-item"><a href="reference/mcp-resources.html"><span class="hub-title">MCP resources</span><span class="hub-summary">The non-tool resources, including the live quote subscription URI template.</span></a></li>
 <li class="hub-item"><a href="reference/config.html"><span class="hub-title">Configuration</span><span class="hub-summary">TOML configuration, policy files, runtime platform settings, and environment variables.</span></a></li>
 <li class="hub-item"><a href="reference/releases.html"><span class="hub-title">Releases and support</span><span class="hub-summary">Version scheme, what a release contains, how signatures are verified, and which versions are supported.</span></a></li>
@@ -168,8 +168,8 @@
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../index.html">ibkr</a><a href="../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../index.html">Canary</a><a href="../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

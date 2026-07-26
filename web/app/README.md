@@ -1,8 +1,8 @@
-# ibkr Mobile App
+# Canary Mobile App
 
-This is the small PWA served by `ibkr app`. It is meant for the thing you want
+This is the small PWA served by `canary app`. It is meant for the thing you want
 on a phone: is the local IBKR setup alive, what does the account look like, and
-is the portfolio canary asking for attention?
+is the portfolio stress read asking for attention?
 
 The Protection panel shows proposal-bound market-event chips when halt, LULD,
 borrow, fee, or Reg SHO flags affect current protection proposals. Active halt
@@ -18,13 +18,13 @@ source/as-of detail instead of disappearing.
 Start the app host on the Mac that runs TWS or IB Gateway:
 
 ```sh
-ibkr app
+canary app
 ```
 
 Pair a phone from another terminal:
 
 ```sh
-ibkr app pair
+canary app pair
 ```
 
 Scan the QR code. The QR opens a short-lived pairing URL; it is not a permanent
@@ -36,7 +36,7 @@ mint a new session from its saved device key/secret.
 The app host keeps one push-alert setting, `alert_settings.mode` — `none`,
 `act_only`, or `watch_and_act` — changed from the PWA's Alerts tab (`PUT
 /api/alerts/settings`) and stored with the paired-device state under
-`IBKR_APP_STATE_DIR`.
+`CANARY_APP_STATE_DIR`.
 
 Useful while developing or testing:
 
@@ -44,14 +44,14 @@ Useful while developing or testing:
 make app-check
 make app-refresh
 make app-refresh-smoke APP_SMOKE_BROWSER=webkit
-ibkr restart --app --timeout 15s
-ibkr app restart --timeout 15s
+canary restart --app --timeout 15s
+canary app restart --timeout 15s
 make app-smoke APP_SMOKE_BROWSER=webkit
 make app-lifecycle-smoke APP_SMOKE_BROWSER=webkit
 ```
 
 For source edits, prefer `make app-refresh` before Browser verification because
-the SPA is embedded in the installed `ibkr` binary. The detailed development
+the SPA is embedded in the installed `canary` binary. The detailed development
 playbook lives in
 [`internal-docs/guides/canary-spa-dev.md`](../../internal-docs/guides/canary-spa-dev.md).
 
@@ -62,12 +62,12 @@ App icons are generated PNGs. The checked-in `icon-512.png` is the canonical
 web/app/generate-icons.sh
 ```
 
-If the original canary source sheet is available locally, recrop the canonical
+If the original Canary source sheet is available locally, recrop the canonical
 512px asset and regenerate all derived sizes with:
 
 ```sh
-IBKR_CANARY_ICON_SOURCE_SHEET=/path/to/source.png \
-IBKR_CANARY_ICON_CROP=y,x,height,width \
+CANARY_ICON_SOURCE_SHEET=/path/to/source.png \
+CANARY_ICON_CROP=y,x,height,width \
 web/app/generate-icons.sh
 ```
 

@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portfolio review with Claude and IBKR | ibkr</title>
-  <meta name="description" content="ibkr mcp lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The point is not to turn a...">
-  <link rel="canonical" href="https://osauer.dev/ibkr/portfolio-review-with-claude-ibkr/">
+  <title>Portfolio review with Claude and IBKR | Canary</title>
+  <meta name="description" content="Use Canary and Claude to review an Interactive Brokers portfolio from the trader's existing local IB Gateway or TWS session.">
+  <link rel="canonical" href="https://osauer.dev/canary/portfolio-review-with-claude-ibkr/">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/portfolio-review-with-claude-ibkr/">
-  <meta property="og:title" content="Portfolio review with Claude and IBKR | ibkr">
-  <meta property="og:description" content="ibkr mcp lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The point is not to turn a...">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/social-preview.png">
+  <meta property="og:url" content="https://osauer.dev/canary/portfolio-review-with-claude-ibkr/">
+  <meta property="og:title" content="Portfolio review with Claude and IBKR | Canary">
+  <meta property="og:description" content="Use Canary and Claude to review an Interactive Brokers portfolio from the trader's existing local IB Gateway or TWS session.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
@@ -25,14 +25,14 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-07-18T21:05:00+02:00",
-    "description": "ibkr mcp lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The point is not to turn a...",
+    "description": "Use Canary and Claude to review an Interactive Brokers portfolio from the trader's existing local IB Gateway or TWS session.",
     "headline": "Portfolio review with Claude and IBKR",
     "isPartOf": {
       "@type": "SoftwareApplication",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     },
-    "url": "https://osauer.dev/ibkr/portfolio-review-with-claude-ibkr/"
+    "url": "https://osauer.dev/canary/portfolio-review-with-claude-ibkr/"
   }
   </script>
   <link rel="stylesheet" href="../shared.css">
@@ -40,10 +40,10 @@
 <body>
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">ibkr</a>
+    <a class="brand" href="../index.html">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
@@ -51,9 +51,9 @@
   <main class="wrap doc">
 <h1 id="portfolio-review-with-claude-and-ibkr">Portfolio review with Claude and IBKR</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
-<p><code>ibkr mcp</code> lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The job is to give an assistant enough structured account, position, option, quote, calendar, scanner, sizing, and regime context to do the kind of review a disciplined trader would otherwise assemble by hand.</p>
-<p>A review session can also lean on the discipline surfaces: <code>ibkr_rules</code> evaluates a 14-rule daily checklist over the live book (concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity) and names its offenders. Missing data degrades to unknown rather than a false pass, so a cold daemon cannot flatter the book. In the terminal, <code>ibkr policy</code> reports drawdown against a risk policy you wrote yourself, and <code>ibkr recon</code> checks the daily broker statement against your declared ledger.</p>
-<p>This page is for searches such as &#34;portfolio review with Claude and IBKR&#34;, &#34;Claude IBKR portfolio review&#34;, &#34;Interactive Brokers portfolio review AI&#34;, and &#34;IBKR portfolio analysis prompt&#34;.</p>
+<p><code>canary mcp</code> lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The job is to give an assistant enough structured account, position, option, quote, calendar, scanner, sizing, and regime context to do the kind of review a disciplined trader would otherwise assemble by hand.</p>
+<p>A review session can also lean on the discipline surfaces: <code>canary_rules</code> evaluates a 14-rule daily checklist over the live book (concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity) and names its offenders. Missing data degrades to unknown rather than a false pass, so a cold daemon cannot flatter the book. In the terminal, <code>canary policy</code> reports drawdown against a risk policy you wrote yourself, and <code>canary recon</code> checks the daily broker statement against your declared ledger.</p>
+<p>The review stays separate from execution: collect account and market evidence, name the missing inputs, and decide which questions deserve a closer look.</p>
 <h2 id="who-this-is-for">Who this is for</h2>
 <p>Use this workflow when you already trade through IBKR and want a second screen that can read the portfolio, organize the evidence, and make the next questions explicit.</p>
 <p>It fits traders who care about:</p>
@@ -67,29 +67,29 @@
 </ul>
 <p>Today, the public bundled MCP tools are analysis and sizing tools. They do not place, modify, or cancel orders. That boundary keeps the review workflow clean: first collect the evidence, then decide what deserves attention, then handle execution through whatever approved trading path you trust.</p>
 <h2 id="what-claude-can-inspect">What Claude can inspect</h2>
-<p>A good portfolio review needs more than balances and positions. Through <code>ibkr mcp</code>, Claude can call:</p>
+<p>A good portfolio review needs more than balances and positions. Through <code>canary mcp</code>, Claude can call:</p>
 <ul>
-<li><code>ibkr_account</code> for net liquidation, buying power, cash, margin, and daily P&amp;L</li>
-<li><code>ibkr_positions</code> for holdings, option legs, Greeks, and per-underlying grouping</li>
-<li><code>ibkr_quote</code> and <code>ibkr://quote/{symbol}</code> for snapshot and streaming stock or ETF quotes</li>
-<li><code>ibkr_calendar</code> for official session, holiday, and early-close context</li>
-<li><code>ibkr_chain</code> for option expiries, IV, expected move, strikes, deltas, and open interest</li>
-<li><code>ibkr_watch</code> and <code>ibkr_scan</code> for watchlist and market-discovery context</li>
-<li><code>ibkr_breadth</code>, <code>ibkr_gamma</code>, and <code>ibkr_regime</code> for market background and broad-market lifecycle</li>
-<li><code>ibkr_stress</code> for portfolio-aware lifecycle, readiness, source-health, and stress checks</li>
-<li><code>ibkr_size</code> for fixed-fractional position sizing math</li>
+<li><code>canary_account</code> for net liquidation, buying power, cash, margin, and daily P&amp;L</li>
+<li><code>canary_positions</code> for holdings, option legs, Greeks, and per-underlying grouping</li>
+<li><code>canary_quote</code> and <code>canary://quote/{symbol}</code> for snapshot and streaming stock or ETF quotes</li>
+<li><code>canary_calendar</code> for official session, holiday, and early-close context</li>
+<li><code>canary_chain</code> for option expiries, IV, expected move, strikes, deltas, and open interest</li>
+<li><code>canary_watch</code> and <code>canary_scan</code> for watchlist and market-discovery context</li>
+<li><code>canary_breadth</code>, <code>canary_gamma</code>, and <code>canary_regime</code> for market background and broad-market lifecycle</li>
+<li><code>canary_stress</code> for portfolio-aware lifecycle, readiness, source-health, and stress checks</li>
+<li><code>canary_size</code> for fixed-fractional position sizing math</li>
 </ul>
 <p>The assistant should not treat any single tool result as a trade signal. The value is in combining the evidence, naming uncertainty, and showing which follow-up checks would change the decision.</p>
 <h2 id="use-this-prompt">Use this prompt</h2>
-<p>Start with the maintained prompt in <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_analysis_prompt.md">examples/ibkr_portfolio_analysis_prompt.md</a>. It is written for semi-professional retail traders who use IBKR as capital-markets infrastructure.</p>
+<p>Start with the maintained prompt in <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_analysis_prompt.md">examples/canary_portfolio_analysis_prompt.md</a>. It keeps evidence, data quality, and follow-up questions separate from orders.</p>
 <p>Short version to paste into Claude:</p>
-<pre><code>Review my IBKR portfolio using the ibkr MCP tools. Start with account state,
+<pre><code>Review my IBKR portfolio using the Canary MCP tools. Start with account state,
 positions grouped by underlying, options Greeks, quote freshness, and the current
 risk-regime lifecycle. Rank the risks I should inspect today, explain the evidence
 behind each one, and separate observations from possible next actions. Do not
 place or imply orders.</code></pre>
 <p>For a deeper review, use the full example prompt and let Claude decide which MCP calls are needed before it writes the answer.</p>
-<p>For a scheduled stress check that preserves lifecycle stage, planner readiness, source health, fingerprints, confidence, rows, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_stress_prompt.md">examples/ibkr_portfolio_stress_prompt.md</a>.</p>
+<p>For a scheduled stress check that preserves lifecycle stage, planner readiness, source health, fingerprints, confidence, rows, and warnings, use <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_stress_prompt.md">examples/canary_portfolio_stress_prompt.md</a>.</p>
 <h2 id="what-a-useful-answer-looks-like">What a useful answer looks like</h2>
 <p>A strong review is compact, evidence-led, and explicit about missing data. It should read like a desk note, not a stream of tool output.</p>
 <p>Sanitized sample:</p>
@@ -115,18 +115,18 @@ Next review steps
 <p>It is a structured review loop: current account state, current market context, current uncertainties, and the next checks that would make a decision better.</p>
 <h2 id="how-to-install">How to install</h2>
 <p>Claude Desktop users can install the MCP Bundle:</p>
-<pre><code>https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb</code></pre>
+<pre><code>https://github.com/osauer/canary/releases/latest/download/canary.mcpb</code></pre>
 <p>Claude Code users can install the plugin:</p>
-<pre><code>/plugin marketplace add osauer/ibkr
-/plugin install ibkr@ibkr</code></pre>
+<pre><code>/plugin marketplace add osauer/canary
+/plugin install canary@canary</code></pre>
 <p>Shell, Cursor, Continue, Zed, and generic MCP users can install the binary:</p>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh
-ibkr status</code></pre>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary status</code></pre>
 <p>Generic MCP configuration:</p>
 <pre><code>{
   &#34;mcpServers&#34;: {
-    &#34;ibkr&#34;: {
-      &#34;command&#34;: &#34;/ABSOLUTE/PATH/TO/ibkr&#34;,
+    &#34;canary&#34;: {
+      &#34;command&#34;: &#34;/ABSOLUTE/PATH/TO/canary&#34;,
       &#34;args&#34;: [&#34;mcp&#34;]
     }
   }
@@ -136,10 +136,10 @@ ibkr status</code></pre>
 <ul>
 <li><a href="../ibkr-mcp/index.html">IBKR MCP server</a> for the short setup path.</li>
 <li><a href="../claude-desktop-interactive-brokers/index.html">Claude Desktop Install</a> for the MCPB path.</li>
-<li><a href="../docs/operate/agents.html">Agentic use guide</a> for natural-language workflows.</li>
+<li><a href="../docs/operate/agents.html">Working with agents</a> for natural-language workflows.</li>
 <li><a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for exact tool schemas.</li>
 </ul>
   </main>
-  <footer><div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
 </body>
 </html>

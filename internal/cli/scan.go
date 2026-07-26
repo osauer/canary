@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// runScan dispatches the four shapes of `ibkr scan`:
+// runScan dispatches the four shapes of `canary scan`:
 //
-//	ibkr scan <preset>                      → run a named preset
-//	ibkr scan list                          → enumerate configured presets
-//	ibkr scan params [--instrument STK]     → dump gateway catalog
-//	ibkr scan --type X --exchange Y         → ad-hoc one-off scan
+//	canary scan <preset>                      → run a named preset
+//	canary scan list                          → enumerate configured presets
+//	canary scan params [--instrument STK]     → dump gateway catalog
+//	canary scan --type X --exchange Y         → ad-hoc one-off scan
 //
 // Ad-hoc is the agent-facing path: avoids having to write a preset to the
 // user's config.toml just to run a one-time scan. Preset stays as the
@@ -55,7 +55,7 @@ func runScan(ctx context.Context, env *Env, args []string) int {
 		}
 		return runScanCall(ctx, env, params, *jsonOut)
 	case len(rest) == 0 && (*adHocType != "" || *adHocExch != ""):
-		return fail(env, "scan: ad-hoc mode requires both --type and --exchange (see 'ibkr scan params' for valid values)")
+		return fail(env, "scan: ad-hoc mode requires both --type and --exchange (see 'canary scan params' for valid values)")
 	case len(rest) == 1:
 		params := rpc.ScanRunParams{
 			Preset:          rest[0],
@@ -68,7 +68,7 @@ func runScan(ctx context.Context, env *Env, args []string) int {
 		}
 		return runScanCall(ctx, env, params, *jsonOut)
 	default:
-		return fail(env, "scan: usage: ibkr scan <preset> | ibkr scan list | ibkr scan params [--instrument STK] | ibkr scan --type X --exchange Y [--instrument STK|STOCK.EU]")
+		return fail(env, "scan: usage: canary scan <preset> | canary scan list | canary scan params [--instrument STK] | canary scan --type X --exchange Y [--instrument STK|STOCK.EU]")
 	}
 }
 
@@ -141,7 +141,7 @@ func renderScanText(env *Env, r *rpc.ScanResult) int {
 	fmt.Fprintf(out, "Scan: %s (%s)  ·  %d rows  ·  as of %s\n",
 		label, r.Type, len(r.Rows), formatTimeShort(r.AsOf))
 	fmt.Fprintln(out)
-	// Columns match `ibkr quote`'s width/colour conventions: signed change
+	// Columns match `canary quote`'s width/colour conventions: signed change
 	// in green/red, em-dash for nil. The 52w range is rendered as a single
 	// "low..high" string so the eye can pick out whether the current price
 	// is near the top or bottom of the range without scanning two columns.

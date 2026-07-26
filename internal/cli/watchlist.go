@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/watchlist"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/watchlist"
 )
 
 var watchlistDefaultPath = watchlist.DefaultPath
@@ -47,7 +47,7 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "watch: --watch and --json are mutually exclusive")
 	}
 	if *quotes && env.Conn == nil {
-		return fail(env, "watch: quote view requires the ibkr daemon; use --list for the offline symbol list")
+		return fail(env, "watch: quote view requires the canary daemon; use --list for the offline symbol list")
 	}
 
 	store, err := openWatchlistStore()
@@ -67,7 +67,7 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 		return renderWatchlistResult(env, env.Stdout, snap, err, *jsonOut)
 	case *live:
 		if env.Conn == nil {
-			return fail(env, "watch: --watch requires the ibkr daemon")
+			return fail(env, "watch: --watch requires the canary daemon")
 		}
 		fetchAndRender := func(out io.Writer) int {
 			snap, err := store.Snapshot()

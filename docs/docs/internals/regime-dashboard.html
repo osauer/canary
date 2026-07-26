@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Regime dashboard contract | ibkr</title>
+  <title>Regime dashboard contract | Canary</title>
   <meta name="description" content="Contract for the broad-market regime dashboard, source quality, cluster logic, lifecycle decisions, and backtesting.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/regime-dashboard.html">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/regime-dashboard.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Contract for the broad-market regime dashboard, source quality, cluster logic, lifecycle decisions, and backtesting.","headline":"Regime dashboard contract","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/regime-dashboard.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Contract for the broad-market regime dashboard, source quality, cluster logic, lifecycle decisions, and backtesting.","headline":"Regime dashboard contract","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/regime-dashboard.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,7 +103,7 @@
     <main class="doc">
 <h1 id="regime-dashboard-contract">Regime dashboard contract</h1>
 <p>Updated: 2026-07-25 20:23 CEST</p>
-<p><code>ibkr regime</code> reports the broad-market stress lifecycle: <code>quiet</code>,
+<p><code>canary regime</code> reports the broad-market stress lifecycle: <code>quiet</code>,
 <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>, <code>opportunity</code>,
 or <code>data_quality</code>. It is an evidence-balance read, not a prediction, trading
 system, portfolio planner, or investment recommendation.</p>
@@ -713,15 +713,15 @@ and makes the <code>pending_backtest</code> thresholds calibratable; it is not a
 file or a delete-safe cache. A threshold set drops <code>pending_backtest</code> only with
 months of coverage, measured false-alarm/recall rates against labeled episodes,
 and a version-label bump documented here. Disable collection via
-<code>ibkr settings set regime.journal.enabled=false</code>.</p>
+<code>canary settings set regime.journal.enabled=false</code>.</p>
 <h2 id="backtesting">Backtesting</h2>
 <p>The active backtest sequence, tuning gates, and source-data backlog live in
 <a href="regime-backtest.html">Regime and Stress Backtest Runbook</a>.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

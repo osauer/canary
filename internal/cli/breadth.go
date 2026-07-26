@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runBreadth(ctx context.Context, env *Env, args []string) int {

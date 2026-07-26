@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // fakeDeps captures pre-canned answers for the three quote+history

@@ -4,28 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trading policy | ibkr</title>
-  <meta name="description" content="Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/policy.html">
+  <title>Trading policy | Canary</title>
+  <meta name="description" content="Who decides trading policy in Canary, what the daemon does today, how controls change, and what remains an explicit human decision.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/policy.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Trading policy | ibkr">
-  <meta property="og:description" content="Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.">
-  <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/policy-lifecycle.png">
+  <meta property="og:title" content="Trading policy | Canary">
+  <meta property="og:description" content="Who decides trading policy in Canary, what the daemon does today, how controls change, and what remains an explicit human decision.">
+  <meta property="og:image" content="https://osauer.dev/canary/diagrams/policy-lifecycle.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.","headline":"Trading policy","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/policy.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Who decides trading policy in Canary, what the daemon does today, how controls change, and what remains an explicit human decision.","headline":"Trading policy","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/policy.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -107,11 +107,11 @@
     <main class="doc">
 <h1 id="trading-policy">Trading policy</h1>
 <p>You decide how much capital may be at risk, which evidence must be current,
-and when uncertainty requires attention. Today, <code>ibkr</code>'s personal risk policy
+and when uncertainty requires attention. Today, <code>canary</code>'s personal risk policy
 observes, explains, and records those decisions; it does not block or authorize
 an order. Every submission remains a transaction-specific human decision and
 must pass separate, code-owned safety controls.</p>
-<p>A local record explains what <code>ibkr</code> observed and decided. Broker confirmations
+<p>A local record explains what <code>canary</code> observed and decided. Broker confirmations
 and statements establish what actually executed. Missing or unusable evidence
 remains unknown rather than being treated as safe.</p>
 <p>For one trader, policy is a promise made while calm and applied under pressure.
@@ -139,7 +139,7 @@ responsibilities become system-enforced governance.</p>
 <h2 id="how-policy-informs-a-trading-decision"><span class="secno" aria-hidden="true">01</span>How policy informs a trading decision</h2>
 <p><a href="../../diagrams/policy-lifecycle.svg"><img src="../../diagrams/policy-lifecycle.svg" alt="How a risk boundary and current evidence inform advice while the human retains the trading decision"></a></p>
 <p><a href="../../diagrams/policy-lifecycle.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>The human chooses the boundary before the market creates pressure. The daemon
 combines that policy with current evidence and returns a structured advisory or
@@ -151,7 +151,7 @@ order.</p>
 </blockquote>
 <h2 id="example-a-drawdown-boundary-on-stale-evidence"><span class="secno" aria-hidden="true">02</span>Example: a drawdown boundary on stale evidence</h2>
 <p>Suppose the last accepted equity reading is near a declared drawdown boundary,
-but the evidence needed to rely on the current result has become stale. <code>ibkr</code>
+but the evidence needed to rely on the current result has become stale. <code>canary</code>
 must disclose stale or unknown input rather than report a pass. In shadow mode
 it can record the condition and show what the declared response would mean; the
 personal risk policy still does not change submit eligibility.</p>
@@ -165,7 +165,7 @@ execution evidence.</p>
 <h2 id="where-controls-live-and-who-changes-them"><span class="secno" aria-hidden="true">03</span>Where controls live and who changes them</h2>
 <p><a href="../../diagrams/policy-authority.svg"><img src="../../diagrams/policy-authority.svg" alt="Who controls policy, settings, analytical models, and the broker safety path"></a></p>
 <p><a href="../../diagrams/policy-authority.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>Current evidence is an input, not another policy. The daemon owns evaluation
 and publishes one structured interpretation wherever a surface exposes that
@@ -201,7 +201,7 @@ decision.</p>
 <td>Human-operated typed settings stored by the daemon in <code>daemon.db</code></td>
 <td>The reported config or build default remains visible</td>
 <td>Controls product features and allowlisted overrides; settings are not policy files</td>
-<td><code>ibkr settings set</code>, Settings UI, or typed API; freeze and trading-limit changes remain human-only</td>
+<td><code>canary settings set</code>, Settings UI, or typed API; freeze and trading-limit changes remain human-only</td>
 </tr>
 <tr>
 <td>Analytical models</td>
@@ -242,7 +242,7 @@ in-memory accepted version. A valid same-version file changed while the daemon
 was stopped can therefore be accepted on startup. If a custom protection or
 opportunity file is absent at startup, its engine can use the embedded default.</p>
 <p>Drift detection is consequently runtime-local today. Always raise the version
-for a material edit and retain the exact applied TOML outside <code>ibkr</code>. The
+for a material edit and retain the exact applied TOML outside <code>canary</code>. The
 daemon's status tells you what it currently loaded; the human-owned TOML
 remains the policy source.</p>
 <p>A content fingerprint is a deterministic ID of the normalized policy fields.
@@ -254,7 +254,7 @@ archived policy content.</p>
 <h2 id="configure-the-available-controls"><span class="secno" aria-hidden="true">05</span>Configure the available controls</h2>
 <h3 id="personal-risk-policy">Personal risk policy</h3>
 <p>The personal risk policy has no embedded default and no path override. Start
-from <a href="https://github.com/osauer/ibkr/blob/main/examples/risk-policy.toml">the checked-in template</a>; material numerical
+from <a href="https://github.com/osauer/canary/blob/main/examples/risk-policy.toml">the checked-in template</a>; material numerical
 choices are intentionally commented out so software cannot invent them.</p>
 <p>Its main sections cover capital and the protected floor, drawdown response,
 bounded human exceptions, statement reconciliation, operating cadence, and
@@ -262,20 +262,20 @@ approved sibling model identities. Schema version 1 accepts <code>advisory</code
 <code>shadow</code>; it rejects hard drawdown enforcement. Effective risk capital is the
 lesser of declared risk capital and equity above the protected floor.</p>
 <p>Inspect the current result with:</p>
-<pre><code class="language-sh">ibkr policy show
-ibkr policy show --explain
-ibkr policy show --json
+<pre><code class="language-sh">canary policy show
+canary policy show --explain
+canary policy show --json
 </code></pre>
 <p><code>--explain</code> shows units, effective values, input health, drawdown state,
 reconciliation, active exceptions, cadence, referenced model identities, and
 the current content fingerprint. Mutating governance commands under
-<code>ibkr policy</code> are human-only actions, not agent configuration shortcuts.</p>
+<code>canary policy</code> are human-only actions, not agent configuration shortcuts.</p>
 <h3 id="protection-and-opportunity-policies">Protection and opportunity policies</h3>
 <p>These advisory engines ship with conservative embedded defaults. To customize
 one, print the exact current schema, review it, and save a higher-version file:</p>
 <pre><code class="language-sh">mkdir -p ~/.config/ibkr/policies
-ibkr policy default protection &gt; ~/.config/ibkr/policies/protection-policy.toml
-ibkr policy default opportunity &gt; ~/.config/ibkr/policies/opportunity-policy.toml
+canary policy default protection &gt; ~/.config/ibkr/policies/protection-policy.toml
+canary policy default opportunity &gt; ~/.config/ibkr/policies/opportunity-policy.toml
 </code></pre>
 <p>The default paths and every editable key are in the
 <a href="../reference/config.html">configuration reference</a>. A proposal or opportunity
@@ -283,15 +283,15 @@ remains evidence for a human decision. <code>authority.auto_submit</code> must r
 false.</p>
 <h3 id="runtime-settings">Runtime settings</h3>
 <p>Settings control live product behavior; they do not create a new policy rule:</p>
-<pre><code class="language-sh">ibkr settings show
-ibkr settings show --json
-ibkr settings set &lt;key&gt;=&lt;value&gt;
-ibkr settings set &lt;key&gt;=null
+<pre><code class="language-sh">canary settings show
+canary settings show --json
+canary settings set &lt;key&gt;=&lt;value&gt;
+canary settings set &lt;key&gt;=null
 </code></pre>
 <p><code>null</code> removes an override and exposes the underlying config or build default.
 Every typed setting reports its source and whether it is writable. No setting
 can bypass the non-overridable broker controls. See
-<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/platform-settings.md">Platform Settings</a> for the ownership contract.</p>
+<a href="https://github.com/osauer/canary/blob/main/internal-docs/design/platform-settings.md">Platform Settings</a> for the ownership contract.</p>
 <h2 id="read-status-and-commissioning-correctly"><span class="secno" aria-hidden="true">06</span>Read status and commissioning correctly</h2>
 <p>These words describe different facts:</p>
 <div class="tblwrap">
@@ -361,10 +361,10 @@ broker execution evidence.</p>
 <ul>
 <li><a href="../reference/config.html">Configuration Reference</a>: every configuration,
 advisory-policy, runtime-setting, and environment key.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/risk-policy.md">Risk Constitution Design</a>: capital,
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/risk-policy.md">Risk Constitution Design</a>: capital,
 reconciliation, safety invariants, and implementation history.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: compiled discipline checks.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/guides/trading-harness-development.md">Trading Harness Development</a>: how to
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: compiled discipline checks.</li>
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/guides/trading-harness-development.md">Trading Harness Development</a>: how to
 design, shadow, promote, and reconcile a new control.</li>
 <li><a href="../internals/architecture.html">Architecture</a>: daemon, RPC, adapter, and broker ownership.</li>
 <li><a href="sensors.html">Sensors</a>: what current evidence means, when it expires, and how
@@ -375,8 +375,8 @@ without making SQLite the policy-authoring surface.</li>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

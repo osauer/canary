@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Claude Desktop Install for Interactive Brokers | ibkr</title>
-  <meta name="description" content="Install ibkr for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/claude-desktop-interactive-brokers/">
+  <title>Claude Desktop Install for Interactive Brokers | Canary</title>
+  <meta name="description" content="Install Canary for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.">
+  <link rel="canonical" href="https://osauer.dev/canary/claude-desktop-interactive-brokers/">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/claude-desktop-interactive-brokers/">
-  <meta property="og:title" content="Claude Desktop Install for Interactive Brokers | ibkr">
-  <meta property="og:description" content="Install ibkr for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/social-preview.png">
+  <meta property="og:url" content="https://osauer.dev/canary/claude-desktop-interactive-brokers/">
+  <meta property="og:title" content="Claude Desktop Install for Interactive Brokers | Canary">
+  <meta property="og:description" content="Install Canary for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
@@ -25,14 +25,14 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-07-18T21:05:00+02:00",
-    "description": "Install ibkr for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.",
+    "description": "Install Canary for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.",
     "headline": "Claude Desktop Install for Interactive Brokers",
     "isPartOf": {
       "@type": "SoftwareApplication",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     },
-    "url": "https://osauer.dev/ibkr/claude-desktop-interactive-brokers/"
+    "url": "https://osauer.dev/canary/claude-desktop-interactive-brokers/"
   }
   </script>
   <link rel="stylesheet" href="../shared.css">
@@ -55,10 +55,10 @@
 <body>
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">ibkr</a>
+    <a class="brand" href="../index.html">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
@@ -66,14 +66,13 @@
   <main class="wrap doc">
 <h1 id="claude-desktop-install-for-interactive-brokers">Claude Desktop Install for Interactive Brokers</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
-<p>This is the Mac install path for using Claude Desktop with Interactive Brokers through <code>ibkr</code>. The MCP Bundle (<code>.mcpb</code>) packages the <code>ibkr</code> MCP server for Claude Desktop, but it does not install Interactive Brokers software or enable broker API access for you.</p>
-<p>After install, Claude gets the full market-data surface (real-time where your IBKR subscriptions cover it), a risk-regime dashboard, scheduled portfolio stress checks, and an advisory 14-rule rulebook, all through tools it picks on its own.</p>
-<p>This page is for searches such as &#34;Claude Desktop Interactive Brokers&#34;, &#34;Claude Desktop IBKR MCP&#34;, &#34;IBKR Claude Desktop MCP&#34;, and &#34;connect Claude to IBKR&#34;.</p>
-<p>If search results show Interactive Brokers&#39; IBKR Desktop trading platform, that is a different product. This page is about Claude Desktop using the local <code>ibkr mcp</code> server through IB Gateway or TWS.</p>
+<p>This is the Mac install path for using Claude Desktop with Interactive Brokers through <code>canary</code>. The MCP Bundle (<code>.mcpb</code>) packages the <code>canary</code> MCP server for Claude Desktop, but it does not install Interactive Brokers software or enable broker API access for you.</p>
+<p>After install, Claude can read the account, portfolio, and market context that your local IBKR session and subscriptions make available. It can also read Canary's regime, stress, and advisory rulebook views.</p>
+<p>If search results show Interactive Brokers&#39; IBKR Desktop trading platform, that is a different product. This page is about Claude Desktop using the local <code>canary mcp</code> server through IB Gateway or TWS.</p>
 <h2 id="what-the-download-installs">What the download installs</h2>
-<p>The MCPB installs an <code>ibkr</code> Claude Desktop extension. On Mac, the bundle carries both Apple Silicon and Intel binaries and Claude runs the bundled server locally through stdio.</p>
+<p>The MCPB installs a <code>canary</code> Claude Desktop extension. On Mac, the bundle carries both Apple Silicon and Intel binaries and Claude runs the bundled server locally through stdio.</p>
 <p>It does not install Claude Desktop, IB Gateway, TWS, an IBKR account, or market-data entitlements. Those must already be available on the Mac before Claude can read account or market context.</p>
-<p><a class="button" href="https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb">Download ibkr.mcpb</a></p>
+<p><a class="button" href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">Download canary.mcpb</a></p>
 <h2 id="mac-prerequisites">Mac prerequisites</h2>
 <ul>
 <li>Claude Desktop installed on the Mac.</li>
@@ -86,10 +85,10 @@
 <ol>
 <li>Start IB Gateway or TWS and log in to the account you want Claude to read.</li>
 <li>Confirm API socket access is enabled in the IBKR app. The default local ports are auto-discovered.</li>
-<li>Download <code>ibkr.mcpb</code> using the button above.</li>
+<li>Download <code>canary.mcpb</code> using the button above.</li>
 <li>Open the downloaded <code>.mcpb</code> file with Claude Desktop, drag it into Claude Desktop, or use Settings &gt; Extensions &gt; Advanced settings &gt; Install Extension.</li>
 <li>Review the extension details and approve the install in Claude Desktop.</li>
-<li>Fully quit Claude Desktop with Command-Q, then reopen it so Claude starts the bundled <code>ibkr</code> MCP server.</li>
+<li>Fully quit Claude Desktop with Command-Q, then reopen it so Claude starts the bundled <code>canary</code> MCP server.</li>
 </ol>
 <h2 id="first-checks">First checks</h2>
 <p>With Claude Desktop relaunched and IB Gateway or TWS still running, start a new Claude chat and ask one simple account or market question:</p>
@@ -98,7 +97,7 @@
 <div class="callout">
 <p><strong>Safety boundary:</strong> Claude can read account and market context through this server. The bundled MCP surface does not expose tools to place, modify, cancel, or transmit broker orders.</p>
 </div>
-<h2 id="what-claude-can-ask-through-ibkr">What Claude can ask through ibkr</h2>
+<h2 id="what-claude-can-ask-through-ibkr">What Claude can ask through Canary</h2>
 <ul>
 <li>&#34;What&#39;s in my IBKR account?&#34;</li>
 <li>&#34;Show my AAPL exposure, including option deltas.&#34;</li>
@@ -107,19 +106,19 @@
 <li>&#34;Are dealers supporting or amplifying today&#39;s SPY move?&#34;</li>
 <li>&#34;If I enter MSFT at 418 with a stop at 408, what is my EUR risk?&#34;</li>
 </ul>
-<p>Claude receives structured account and market data from <code>ibkr mcp</code>; it does not receive an order-entry tool.</p>
+<p>Claude receives structured account and market data from <code>canary mcp</code>; it does not receive an order-entry tool.</p>
 <h2 id="shell-managed-alternative">Shell-managed alternative</h2>
 <p>Most Claude Desktop users on Mac should use the MCPB above. Use the shell-managed path only if you specifically want one shared binary for Claude Desktop, Cursor, Continue, Zed, and terminal use:</p>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh
-ibkr setup claude-desktop</code></pre>
-<p>Restart Claude Desktop after upgrading the binary. MCP hosts cache the spawned server process until the host exits. MCPB installs carry their own embedded binary, so update the MCPB path by downloading and reinstalling the latest <code>ibkr.mcpb</code>.</p>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary setup claude-desktop</code></pre>
+<p>Restart Claude Desktop after upgrading the binary. MCP hosts cache the spawned server process until the host exits. MCPB installs carry their own embedded binary, so update the MCPB path by downloading and reinstalling the latest <code>canary.mcpb</code>.</p>
 <h2 id="references">References</h2>
 <ul>
-<li><a href="https://osauer.dev/ibkr/ibkr-mcp/">IBKR MCP server</a> for the exact local MCP server overview.</li>
-<li><a href="https://osauer.dev/ibkr/interactive-brokers-mcp-server/">Interactive Brokers MCP server</a> for the full project setup page.</li>
+<li><a href="https://osauer.dev/canary/ibkr-mcp/">IBKR MCP server</a> for the exact local MCP server overview.</li>
+<li><a href="https://osauer.dev/canary/interactive-brokers-mcp-server/">Interactive Brokers MCP server</a> for the full project setup page.</li>
 <li><a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for the tool schema Claude routes against.</li>
 </ul>
   </main>
-  <footer><div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
 </body>
 </html>

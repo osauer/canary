@@ -9,7 +9,7 @@ import (
 
 // DefaultPolicyTOML renders the embedded default for a policy name
 // ("protection" or "opportunity") as activation-ready TOML. It backs
-// `ibkr policy default <name>`: no template file ships for these policies,
+// `canary policy default <name>`: no template file ships for these policies,
 // so the printable embedded default is the single source and cannot drift
 // from the code the daemon actually runs.
 func DefaultPolicyTOML(name string) ([]byte, error) {

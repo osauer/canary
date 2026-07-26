@@ -926,7 +926,7 @@ const (
 
 // GammaSignalQuality is the trading-grade gate for the gamma payload.
 // The signed regime and sign-agnostic magnitude can be displayed whenever
-// Result is present, but downstream regime/canary consumers must only count
+// Result is present, but downstream regime/Stress consumers must only count
 // the gamma band as market evidence when Rankability == "rankable".
 type GammaSignalQuality struct {
 	Rankability       string                        `json:"rankability"`
@@ -1190,7 +1190,7 @@ type GammaZeroComputed struct {
 	CollectionDiagnostics []GammaCollectionDiagnostic `json:"collection_diagnostics,omitempty"`
 	// Quality is the explicit rankability contract for gamma as an
 	// algo-trading signal. Result can be present while Quality says
-	// "context_only" or "blocked"; regime/canary consumers must not
+	// "context_only" or "blocked"; regime/Stress consumers must not
 	// count the gamma band unless this says "rankable".
 	Quality *GammaSignalQuality `json:"quality,omitempty"`
 	// Warnings is the daemon-internal list of non-fatal condition codes:
@@ -2114,7 +2114,7 @@ type Quote struct {
 }
 
 // WatchlistResult is the daemon-backed rich watchlist surface used by
-// `ibkr watch --quotes --json` and MCP `ibkr_watch` when include_quotes is
+// `canary watch --quotes --json` and MCP `canary_watch` when include_quotes is
 // true. The persisted local watchlist remains [watchlist.Snapshot]; this
 // type is a read-only market-data view over those saved symbols.
 type WatchlistResult struct {
@@ -2794,7 +2794,7 @@ type ScanPresetSummary struct {
 
 // BackgroundTaskStatus names a daemon-internal long-running task that
 // is currently executing or waiting for a scheduled retry. Used by
-// `ibkr status` to surface activity that would otherwise be invisible
+// `canary status` to surface activity that would otherwise be invisible
 // — a fresh autospawned daemon mid-bootstrap looks identical to an
 // idle one from outside. The surface deliberately carries no required
 // state enum: presence in the HealthResult.BackgroundTasks list IS
@@ -2939,7 +2939,7 @@ type HealthResult struct {
 	// Populated unconditionally — even when the daemon falls back
 	// to the embedded list, the user needs to see WHICH list it's
 	// using so silent parser rot / disabled-refresh shows up in
-	// `ibkr status`. Zero-value Source means the daemon doesn't
+	// `canary status`. Zero-value Source means the daemon doesn't
 	// know yet (engine construction failed); the CLI hides the row
 	// in that case.
 	Members MembersHealth `json:"members"`
@@ -3786,7 +3786,7 @@ type OrdersHistoryResult struct {
 }
 
 // MembersHealth is the wire shape for the SPX-members surface
-// rendered in `ibkr status`. Distinct from BreadthSPXResult: that
+// rendered in `canary status`. Distinct from BreadthSPXResult: that
 // carries the COMPUTED breadth value; this carries metadata about
 // the constituent LIST.
 //

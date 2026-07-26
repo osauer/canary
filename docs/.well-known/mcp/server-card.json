@@ -1,11 +1,11 @@
 {
   "serverInfo": {
-    "name": "ibkr",
-    "title": "IBKR MCP Server",
+    "name": "canary",
+    "title": "Canary MCP Server",
     "version": "2.3.1",
-    "description": "Local Interactive Brokers MCP server for agentic trading desks: full market data for agents (real-time per the user's IBKR market-data subscriptions), portfolio context, and advisory risk checks through IB Gateway or TWS.",
-    "homepage": "https://osauer.dev/ibkr/",
-    "repository": "https://github.com/osauer/ibkr",
+    "description": "Canary's local MCP server for Interactive Brokers market data, portfolio context, and advisory risk checks through IB Gateway or TWS.",
+    "homepage": "https://osauer.dev/canary/",
+    "repository": "https://github.com/osauer/canary",
     "license": "MIT"
   },
   "authentication": {
@@ -15,7 +15,7 @@
   "transports": [
     {
       "type": "stdio",
-      "command": "ibkr",
+      "command": "canary",
       "args": [
         "mcp"
       ]
@@ -35,7 +35,7 @@
   ],
   "tools": [
     {
-      "name": "ibkr_status",
+      "name": "canary_status",
       "description": "Daemon, gateway, account, and subsystem health for troubleshooting data freshness or connectivity.",
       "inputSchema": {
         "type": "object",
@@ -43,7 +43,7 @@
       }
     },
     {
-      "name": "ibkr_trading_status",
+      "name": "canary_trading_status",
       "description": "Read-only local order-entry readiness: disabled, paper-ready, live-ready, or blocked, with pinned-session evidence and concrete blockers.",
       "inputSchema": {
         "type": "object",
@@ -51,7 +51,7 @@
       }
     },
     {
-      "name": "ibkr_settings",
+      "name": "canary_settings",
       "description": "Read platform settings and observed state: feature enablement, trading mode/account/build capability, safety limits, and market-data quality; cannot change settings.",
       "inputSchema": {
         "type": "object",
@@ -59,7 +59,7 @@
       }
     },
     {
-      "name": "ibkr_orders_open",
+      "name": "canary_orders_open",
       "description": "Read-only open-order lifecycle state for the connected broker account and mode; reports journal and broker-callback state only.",
       "inputSchema": {
         "type": "object",
@@ -67,8 +67,8 @@
       }
     },
     {
-      "name": "ibkr_orders_history",
-      "description": "Read bounded local order-journal history for the current broker account/mode without placing, modifying, cancelling, or transmitting any broker order. Use for recent trade-review forensics when the user asks what locally journaled order lifecycle/fill callbacks occurred over a date range. This read-only tool does not place orders; it only reports local journal evidence. Results are bounded by grouped-order limit and per-order event_limit so callback-heavy trailing stops do not flood the context; inspect events_truncated/total_events_count before treating event samples as complete. This is a local daemon journal view only, not an IBKR Activity Statement, trade confirmation, execution report, commission ledger, closed-position ledger, or broker-grade historical audit; it may miss manual orders, other-client orders, and rows outside the selected account/mode; broker activity missed while the daemon was offline no longer strands open rows (the journal reconciles against broker open-order snapshots and closes absent rows as `closed_reconciled`), though per-event history for the offline window stays unavailable locally. For currently working orders use `ibkr_orders_open`; for one order's full audit use `ibkr_order_status`. Official broker history now flows into the local reconciliation surface when Flex ingestion is configured — ask the user to run `ibkr recon` — or ask them for an IBKR Activity Statement/Flex export directly.",
+      "name": "canary_orders_history",
+      "description": "Read bounded local order-journal history for the current broker account/mode without placing, modifying, cancelling, or transmitting any broker order. Use for recent trade-review forensics when the user asks what locally journaled order lifecycle/fill callbacks occurred over a date range. This read-only tool does not place orders; it only reports local journal evidence. Results are bounded by grouped-order limit and per-order event_limit so callback-heavy trailing stops do not flood the context; inspect events_truncated/total_events_count before treating event samples as complete. This is a local daemon journal view only, not an IBKR Activity Statement, trade confirmation, execution report, commission ledger, closed-position ledger, or broker-grade historical audit; it may miss manual orders, other-client orders, and rows outside the selected account/mode; broker activity missed while the daemon was offline no longer strands open rows (the journal reconciles against broker open-order snapshots and closes absent rows as `closed_reconciled`), though per-event history for the offline window stays unavailable locally. For currently working orders use `canary_orders_open`; for one order's full audit use `canary_order_status`. Official broker history now flows into the local reconciliation surface when Flex ingestion is configured — ask the user to run `canary recon` — or ask them for an IBKR Activity Statement/Flex export directly.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -96,14 +96,14 @@
       }
     },
     {
-      "name": "ibkr_order_status",
+      "name": "canary_order_status",
       "description": "Read-only lifecycle and audit events for one locally journaled order by order ref, IBKR order ID, or permanent ID.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "description": "order identifier to inspect: local order_ref such as ibkr-20260528-093000, IBKR order ID, or permanent ID"
+            "description": "order identifier to inspect: local order_ref such as canary-20260528-093000, IBKR order ID, or permanent ID"
           }
         },
         "required": [
@@ -112,7 +112,7 @@
       }
     },
     {
-      "name": "ibkr_order_preview",
+      "name": "canary_order_preview",
       "description": "Draft a locally gated stock/ETF or single-leg option LMT, TRAIL, or TRAIL LIMIT order and mint a short-lived local preview token; cannot place, modify, cancel, or transmit a broker order.",
       "inputSchema": {
         "type": "object",
@@ -273,7 +273,7 @@
       }
     },
     {
-      "name": "ibkr_account",
+      "name": "canary_account",
       "description": "Account-level net liquidation, buying power, cash, margin, daily P\u0026L, and currency exposure.",
       "inputSchema": {
         "type": "object",
@@ -281,7 +281,7 @@
       }
     },
     {
-      "name": "ibkr_positions",
+      "name": "canary_positions",
       "description": "Open positions, option legs, Greeks, quote context, and exposure grouped by underlying.",
       "inputSchema": {
         "type": "object",
@@ -310,7 +310,7 @@
       }
     },
     {
-      "name": "ibkr_quote",
+      "name": "canary_quote",
       "description": "Snapshot stock and ETF quotes with close context, freshness, spread, liquidity, and session warnings.",
       "inputSchema": {
         "type": "object",
@@ -350,7 +350,7 @@
       }
     },
     {
-      "name": "ibkr_watch",
+      "name": "canary_watch",
       "description": "Saved local watchlist symbols with optional enriched quotes and held-position context.",
       "inputSchema": {
         "type": "object",
@@ -372,7 +372,7 @@
       }
     },
     {
-      "name": "ibkr_calendar",
+      "name": "canary_calendar",
       "description": "Official market-session calendars for supported US equity, US option, and Xetra markets.",
       "inputSchema": {
         "type": "object",
@@ -402,7 +402,7 @@
       }
     },
     {
-      "name": "ibkr_chain",
+      "name": "canary_chain",
       "description": "Option expiries, implied volatility, expected move, strike grids, deltas, open interest, and liquidity gates.",
       "inputSchema": {
         "type": "object",
@@ -471,7 +471,7 @@
       }
     },
     {
-      "name": "ibkr_history",
+      "name": "canary_history",
       "description": "Daily equity or ETF OHLCV history for lookback, range, and moving-average analysis.",
       "inputSchema": {
         "type": "object",
@@ -492,7 +492,7 @@
       }
     },
     {
-      "name": "ibkr_technical",
+      "name": "canary_technical",
       "description": "One-call trend, moving-average, relative-strength, ATR, and liquidity screen for stocks and ETFs.",
       "inputSchema": {
         "type": "object",
@@ -542,7 +542,7 @@
       }
     },
     {
-      "name": "ibkr_market_events",
+      "name": "canary_market_events",
       "description": "Observed market-event flags for held or requested symbols: borrow tightness, extreme borrow fee, Reg SHO threshold membership, LULD and regulatory halts.",
       "inputSchema": {
         "type": "object",
@@ -562,7 +562,7 @@
       }
     },
     {
-      "name": "ibkr_scan",
+      "name": "canary_scan",
       "description": "Configured or ad-hoc IBKR market scanners with enriched quote and liquidity context.",
       "inputSchema": {
         "type": "object",
@@ -601,7 +601,7 @@
           },
           "preset": {
             "type": "string",
-            "description": "preset name from `ibkr_scan` with no args (e.g. \"top-movers\"); omit for ad-hoc or list mode"
+            "description": "preset name from `canary_scan` with no args (e.g. \"top-movers\"); omit for ad-hoc or list mode"
           },
           "require_live": {
             "type": "boolean",
@@ -615,7 +615,7 @@
       }
     },
     {
-      "name": "ibkr_scan_params",
+      "name": "canary_scan_params",
       "description": "Scanner catalog discovery for gateway-supported scan codes, locations, and instruments.",
       "inputSchema": {
         "type": "object",
@@ -632,7 +632,7 @@
       }
     },
     {
-      "name": "ibkr_breadth",
+      "name": "canary_breadth",
       "description": "S\u0026P 500 breadth readings for participation, moving-average, and new-high/new-low context.",
       "inputSchema": {
         "type": "object",
@@ -652,7 +652,7 @@
       }
     },
     {
-      "name": "ibkr_gamma",
+      "name": "canary_gamma",
       "description": "SPY, SPX, or combined dealer-gamma market-structure snapshot and zero-gamma regime hint.",
       "inputSchema": {
         "type": "object",
@@ -683,7 +683,7 @@
       }
     },
     {
-      "name": "ibkr_regime",
+      "name": "canary_regime",
       "description": "Risk-regime dashboard across volatility, credit, funding, FX carry, dealer gamma, and breadth.",
       "inputSchema": {
         "type": "object",
@@ -700,7 +700,7 @@
       }
     },
     {
-      "name": "ibkr_stress",
+      "name": "canary_stress",
       "description": "Portfolio-aware stress check for scheduled review, readiness, source health, and attention states.",
       "inputSchema": {
         "type": "object",
@@ -717,8 +717,8 @@
       }
     },
     {
-      "name": "ibkr_rules",
-      "description": "Advisory 14-rule daily trading checklist evaluated daemon-side against the live book: per-name exposure cap (with disclosed lower-bound breaches under Greeks gaps), single option-line premium cap (hedge lines get their own higher tier), negative-cash sell-only mode, portfolio extrinsic (theta-rent) budget excluding classified hedge legs, expiry runway on long options, catalyst coverage vs earnings, short options spanning earnings (short calls act; short puts watch, act on assignment notional), pre-earnings size freeze, red-on-green-tape relative weakness, winner-trim into strength, green-day execution nudge, hedge-band integrity (act past twice the band top), exit discipline on long-option loss fences, and non-base-currency FX exposure (watch-only). Rules 3/4/12 thresholds are regime-conditional (calm/early_warning/confirmed sets from the latched regime lifecycle stage; a carried stage evaluates worse-of carried/calm, a never-seen stage uses calm thresholds — both disclosed in row notes). Use when the user asks \"what should I fix today?\", \"which rules am I breaking?\", \"is my book within my own risk rules?\", or wants a daily discipline review. Rows are ranked hardest-first (`ranked` indexes: act \u003e watch \u003e unknown, then base-currency impact); statuses are pass/info/watch/act/unknown/not_evaluated where `unknown` means an input was missing (positions pending, earnings unknown, Greeks gaps, FX report absent) — never treat unknown as pass; `observed_is_lower_bound` marks a breach proven from partial data (\"at least X%\"). `earnings[]` shows each name's next earnings date with source (fetched/override/unknown, with estimated and stale flags); `input_health[]` is the result-level gate (includes the regime_stage row). Advisory only: verdicts never block orders; order previews may carry matching advisory `rule_*` warnings. NOT for the market-regime × portfolio alert verdict (use `ibkr_stress`), NOT for executable protective-stop candidates (use `ibkr_proposals`), and NOT a data source for positions themselves (use `ibkr_positions`).",
+      "name": "canary_rules",
+      "description": "Advisory 14-rule daily trading checklist evaluated daemon-side against the live book: per-name exposure cap (with disclosed lower-bound breaches under Greeks gaps), single option-line premium cap (hedge lines get their own higher tier), negative-cash sell-only mode, portfolio extrinsic (theta-rent) budget excluding classified hedge legs, expiry runway on long options, catalyst coverage vs earnings, short options spanning earnings (short calls act; short puts watch, act on assignment notional), pre-earnings size freeze, red-on-green-tape relative weakness, winner-trim into strength, green-day execution nudge, hedge-band integrity (act past twice the band top), exit discipline on long-option loss fences, and non-base-currency FX exposure (watch-only). Rules 3/4/12 thresholds are regime-conditional (calm/early_warning/confirmed sets from the latched regime lifecycle stage; a carried stage evaluates worse-of carried/calm, a never-seen stage uses calm thresholds — both disclosed in row notes). Use when the user asks \"what should I fix today?\", \"which rules am I breaking?\", \"is my book within my own risk rules?\", or wants a daily discipline review. Rows are ranked hardest-first (`ranked` indexes: act \u003e watch \u003e unknown, then base-currency impact); statuses are pass/info/watch/act/unknown/not_evaluated where `unknown` means an input was missing (positions pending, earnings unknown, Greeks gaps, FX report absent) — never treat unknown as pass; `observed_is_lower_bound` marks a breach proven from partial data (\"at least X%\"). `earnings[]` shows each name's next earnings date with source (fetched/override/unknown, with estimated and stale flags); `input_health[]` is the result-level gate (includes the regime_stage row). Advisory only: verdicts never block orders; order previews may carry matching advisory `rule_*` warnings. NOT for the market-regime × portfolio alert verdict (use `canary_stress`), NOT for executable protective-stop candidates (use `canary_proposals`), and NOT a data source for positions themselves (use `canary_positions`).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -730,7 +730,7 @@
       }
     },
     {
-      "name": "ibkr_proposals",
+      "name": "canary_proposals",
       "description": "Read daemon-owned protection proposals (trailing stops, theta hygiene, risk reduction) with per-row blockers; never previews, submits, or transmits.",
       "inputSchema": {
         "type": "object",
@@ -747,8 +747,8 @@
       }
     },
     {
-      "name": "ibkr_opportunities",
-      "description": "Read daemon-owned opportunities for existing positions. Use when the user asks whether ibkr sees mechanical portfolio opportunities, especially long option exercise candidates where exercise may beat selling the option bid or reduce an illiquid risk position. Option-exercise rows include `post_exercise_risk`: before/after underlying share exposure, whether exercise opens/increases/flips/reduces/closes risk, current protection coverage state when available, and whether a protection review is needed after exercise. That context is advisory and does not authorize exercise. This tool can return the latest snapshot or request a refresh, but it is read-only: it does NOT preview exercise, submit exercise, place, modify, cancel, transmit, or expose submit-capable tokens. For holdings and current protection coverage use `ibkr_positions`; for candidate protective stops use `ibkr_proposals`; for local broker-write readiness use `ibkr_trading_status`.",
+      "name": "canary_opportunities",
+      "description": "Read daemon-owned opportunities for existing positions. Use when the user asks whether Canary sees mechanical portfolio opportunities, especially long option exercise candidates where exercise may beat selling the option bid or reduce an illiquid risk position. Option-exercise rows include `post_exercise_risk`: before/after underlying share exposure, whether exercise opens/increases/flips/reduces/closes risk, current protection coverage state when available, and whether a protection review is needed after exercise. That context is advisory and does not authorize exercise. This tool can return the latest snapshot or request a refresh, but it is read-only: it does NOT preview exercise, submit exercise, place, modify, cancel, transmit, or expose submit-capable tokens. For holdings and current protection coverage use `canary_positions`; for candidate protective stops use `canary_proposals`; for local broker-write readiness use `canary_trading_status`.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -764,7 +764,7 @@
       }
     },
     {
-      "name": "ibkr_size",
+      "name": "canary_size",
       "description": "Fixed-fractional position sizing math against live net liquidation value; never an order ticket.",
       "inputSchema": {
         "type": "object",
@@ -823,7 +823,7 @@
   ],
   "resources": [
     {
-      "uriTemplate": "ibkr://quote/{symbol}",
+      "uriTemplate": "canary://quote/{symbol}",
       "description": "Read or subscribe to coalesced stock and ETF quote updates."
     }
   ],
@@ -833,16 +833,16 @@
     "canPlaceOrders": false,
     "canModifyOrders": false,
     "canCancelOrders": false,
-    "summary": "The MCP tool surface is preview-only in every release variant: ibkr_order_preview can draft an order and mint a local preview token, but no MCP tool can place, modify, cancel, or transmit a broker order. Standard downloads are read-only builds; each release also publishes a clearly marked ibkr-trading CLI tarball for explicit opt-in order management."
+    "summary": "The MCP tool surface is preview-only in every release variant: canary_order_preview can draft an order and mint a local preview token, but no MCP tool can place, modify, cancel, or transmit a broker order. Standard downloads are read-only builds; each release also publishes a clearly marked canary-trading CLI tarball for explicit opt-in order management."
   },
   "links": {
-    "portfolioReview": "https://osauer.dev/ibkr/portfolio-review-with-claude-ibkr/",
-    "portfolioAnalysis": "https://osauer.dev/ibkr/analyze-interactive-brokers-portfolio-with-ai/",
-    "mcpTools": "https://osauer.dev/ibkr/docs/reference/mcp-tools.html",
-    "mcpResources": "https://osauer.dev/ibkr/docs/reference/mcp-resources.html",
-    "privacy": "https://github.com/osauer/ibkr/blob/main/PRIVACY.md",
-    "security": "https://github.com/osauer/ibkr/blob/main/SECURITY.md",
-    "downloadMCPB": "https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb"
+    "portfolioReview": "https://osauer.dev/canary/portfolio-review-with-claude-ibkr/",
+    "portfolioAnalysis": "https://osauer.dev/canary/analyze-interactive-brokers-portfolio-with-ai/",
+    "mcpTools": "https://osauer.dev/canary/docs/reference/mcp-tools.html",
+    "mcpResources": "https://osauer.dev/canary/docs/reference/mcp-resources.html",
+    "privacy": "https://github.com/osauer/canary/blob/main/PRIVACY.md",
+    "security": "https://github.com/osauer/canary/blob/main/SECURITY.md",
+    "downloadMCPB": "https://github.com/osauer/canary/releases/latest/download/canary.mcpb"
   },
   "keywords": [
     "IBKR MCP",
@@ -850,9 +850,9 @@
     "portfolio review with Claude and IBKR",
     "Claude IBKR portfolio review",
     "Interactive Brokers portfolio analysis AI",
-    "agentic IBKR portfolio analysis",
+    "IBKR portfolio analysis",
     "portfolio stress checks",
-    "agentic trading research",
+    "market research",
     "TWS MCP server",
     "IB Gateway MCP",
     "Claude Desktop Interactive Brokers"

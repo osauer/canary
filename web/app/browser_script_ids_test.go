@@ -13,11 +13,11 @@ import (
 // TestBrowserScriptIDsMatchSPA is the static drift gate between the
 // Playwright app scripts and the SPA DOM they assert against.
 //
-// Commit 0574bd3 (2026-06-09) removed #canaryMitigationButton and
-// #orderReviewPanel from index.html while scripts/app-browser-smoke.mjs kept
-// asserting them: the browser smoke sat red for two days, was misdiagnosed
-// as live-session flakiness, and v1.9.0 shipped anyway — the browser smokes
-// run outside the check/test/release chains. This test closes the gap with
+// Commit 0574bd3 (2026-06-09) removed the mitigation and order-review
+// controls from index.html while scripts/app-browser-smoke.mjs kept asserting
+// them: the browser smoke sat red for two days, was misdiagnosed as
+// live-session flakiness, and v1.9.0 shipped anyway — the browser smokes run
+// outside the check/test/release chains. This test closes the gap with
 // no browser and no running app: every element id a browser script
 // references must exist in index.html (or be created by the SPA modules through a
 // statically visible literal), and every id the smoke deliberately asserts
@@ -39,15 +39,15 @@ var browserScriptFiles = []string{
 // index.html or the SPA modules (else the smoke's absence assert breaks at runtime).
 // Values name the asserting function in scripts/app-browser-smoke.mjs.
 var removedSPAIDs = map[string]string{
-	"canaryWarningsToggle":      "exerciseCanaryControlsRemoved",
-	"canaryChecksToggle":        "exerciseCanaryControlsRemoved",
-	"canaryInlineDetailPanel":   "exerciseCanaryControlsRemoved",
-	"canaryMitigationButton":    "exerciseCanaryControlsRemoved",
-	"orderReviewPanel":          "exerciseCanaryControlsRemoved",
-	"quickRiskPlanButton":       "exerciseCanaryControlsRemoved",
-	"quickReviewBlockersButton": "exerciseCanaryControlsRemoved",
-	"quickHeldActionsButton":    "exerciseCanaryControlsRemoved",
-	"quickAlertsButton":         "exerciseCanaryControlsRemoved",
+	"stressWarningsToggle":      "exerciseStressControlsRemoved",
+	"stressChecksToggle":        "exerciseStressControlsRemoved",
+	"stressInlineDetailPanel":   "exerciseStressControlsRemoved",
+	"stressMitigationButton":    "exerciseStressControlsRemoved",
+	"orderReviewPanel":          "exerciseStressControlsRemoved",
+	"quickRiskPlanButton":       "exerciseStressControlsRemoved",
+	"quickReviewBlockersButton": "exerciseStressControlsRemoved",
+	"quickHeldActionsButton":    "exerciseStressControlsRemoved",
+	"quickAlertsButton":         "exerciseStressControlsRemoved",
 	"accountMenu":               "exerciseAccountPanel (account dropdown removed)",
 	"accountMenuToggle":         "exerciseAccountPanel (account dropdown removed)",
 	"marketPanel":               "exerciseMarketContext (old Market Context panel removed)",

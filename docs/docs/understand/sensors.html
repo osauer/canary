@@ -4,28 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sensors | ibkr</title>
-  <meta name="description" content="How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/sensors.html">
+  <title>Sensors | Canary</title>
+  <meta name="description" content="How Canary Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/sensors.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Sensors | ibkr">
-  <meta property="og:description" content="How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
-  <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/sensor-authority-pipeline.png">
+  <meta property="og:title" content="Sensors | Canary">
+  <meta property="og:description" content="How Canary Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.">
+  <meta property="og:image" content="https://osauer.dev/canary/diagrams/sensor-authority-pipeline.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.","headline":"Sensors","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/sensors.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How Canary Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.","headline":"Sensors","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/sensors.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -130,7 +130,7 @@ typed results without refetching sources or recreating the verdict.</p>
 <h2 id="dependencies-and-boundaries"><span class="secno" aria-hidden="true">01</span>Dependencies and boundaries</h2>
 <p><a href="../../diagrams/sensor-authority-pipeline.svg"><img src="../../diagrams/sensor-authority-pipeline.svg" alt="How observed sources become daemon-owned sensors, dependent decisions, and downstream alerts"></a></p>
 <p><a href="../../diagrams/sensor-authority-pipeline.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>Gamma feeds Regime; Regime and market events feed Stress and Rulebook. Alerts
 may consume the resulting typed state, but a sensor result is not evidence that
@@ -141,7 +141,7 @@ daemon's classified Regime stage rather than rebuilding one from market rows.</p
 <h2 id="read-the-state-before-the-number"><span class="secno" aria-hidden="true">02</span>Read the state before the number</h2>
 <p><a href="../../diagrams/sensor-freshness-timeline.svg"><img src="../../diagrams/sensor-freshness-timeline.svg" alt="Freshness timeline from proactive refresh through expiry, not-due carry, and a fail-closed gap"></a></p>
 <p><a href="../../diagrams/sensor-freshness-timeline.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>Freshness is part of the measurement. The daemon refreshes before a result's
 hard expiry where the source permits it. A successful refresh atomically
@@ -265,8 +265,8 @@ and cannot confirm, then becomes overdue at the open unless a current-session
 compute replaces it. No last-good result, a missed completed session, or a due
 refresh gap is a data-quality condition.</p>
 <h3 id="safe-check">Safe check</h3>
-<pre><code class="language-sh">ibkr gamma --json
-ibkr gamma --only spx --json
+<pre><code class="language-sh">canary gamma --json
+canary gamma --only spx --json
 </code></pre>
 <p>Read <code>status</code> first, then <code>result.quality.rankability</code>, <code>as_of</code>, session keys,
 coverage, and <code>warning_details</code>. Use <code>--force</code> only for an intentional
@@ -355,9 +355,9 @@ last-good and marks authority stale with the typed failure and retry state. A
 cold start with no valid publication is unavailable. Dependent sensors receive
 this authority health and must not present a stale publication as current.</p>
 <h3 id="safe-check-1">Safe check</h3>
-<pre><code class="language-sh">ibkr status --json
-ibkr regime --json
-ibkr regime --explain
+<pre><code class="language-sh">canary status --json
+canary regime --json
+canary regime --explain
 </code></pre>
 <p>Check Regime authority health, <code>as_of</code>, lifecycle readiness, each cluster's
 <code>source_health</code>, row freshness and eligibility, then <code>governors</code>. A green row
@@ -396,7 +396,7 @@ portfolio defense instruction without usable portfolio fit, and portfolio loss o
 margin pressure cannot manufacture market confirmation. Independently current
 evidence may stay visible, but the input gap remains the headline condition.</p>
 <h3 id="safe-check-2">Safe check</h3>
-<pre><code class="language-sh">ibkr stress --json
+<pre><code class="language-sh">canary stress --json
 </code></pre>
 <p>Read <code>input_health</code>, <code>action</code>, and <code>planner_readiness</code> before the summary. Then
 compare <code>source_as_of</code>, <code>source_health</code>, the embedded market lifecycle, and held
@@ -409,7 +409,7 @@ and positions evidence, per-name earnings evidence, the classified Regime stage,
 and current SPY tape where a rule needs it. The pure evaluator returns all 14
 rows in stable order plus a hardest-first ranking, breach counts, offenders,
 observed values, thresholds, and evidence. The detailed
-<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a> is the semantic authority;
+<a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a> is the semantic authority;
 compiled v2 is an advisory model, not proof that every threshold has operator
 approval.</p>
 <p>Row outcomes are <code>pass</code>, <code>info</code>, <code>watch</code>, <code>act</code>, <code>unknown</code>, or <code>not_evaluated</code>.
@@ -436,7 +436,7 @@ borrows a result from another account or connection generation.</p>
 remain advisory and do not change broker submit eligibility. A missing preview
 warning is not evidence that the underlying input was healthy.</p>
 <h3 id="safe-check-3">Safe check</h3>
-<pre><code class="language-sh">ibkr rules --all --json
+<pre><code class="language-sh">canary rules --all --json
 </code></pre>
 <p>Check top-level <code>status</code> and every <code>input_health</code> row before counting passes.
 Inspect <code>unknown</code> and <code>not_evaluated</code> reasons, policy identity, and the ranked
@@ -492,8 +492,8 @@ coverage. Unknown and null never mean inactive or zero. Borrow-inventory
 aggregate health can read <code>ok</code> after at least one requested symbol reports, so
 check the coverage note: other symbols may still lack a tick.</p>
 <h3 id="safe-check-4">Safe check</h3>
-<pre><code class="language-sh">ibkr market-events --json
-ibkr market-events --symbol GME --json
+<pre><code class="language-sh">canary market-events --json
+canary market-events --symbol GME --json
 </code></pre>
 <p>Read <code>source_health</code> before <code>flags</code>. For borrow fee, inspect
 <code>borrow_fee_coverage</code> for global versus portfolio-only scope, entitlement, scale
@@ -501,7 +501,7 @@ status, and <code>policy_eligible</code>.</p>
 <h2 id="operator-checklist"><span class="secno" aria-hidden="true">08</span>Operator checklist</h2>
 <p>Use read-only checks in this order:</p>
 <ol>
-<li>Run <code>ibkr status --json</code> and confirm the gateway, data farms, background
+<li>Run <code>canary status --json</code> and confirm the gateway, data farms, background
 tasks, sensor subsystems, and top-level data-quality warnings.</li>
 <li>Open the sensor's own JSON result. Check status, authority or source health,
 scope, <code>as_of</code>, freshness, and warnings before interpreting measurements.</li>
@@ -519,7 +519,7 @@ an order.</p>
 <ul>
 <li><a href="../internals/architecture.html">Architecture</a>: process, source, RPC, and runtime ownership.</li>
 <li><a href="policy.html">Trading Policy</a>: who chooses limits and what remains advisory.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: canonical rule, input-health,
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: canonical rule, input-health,
 preview, alert, and authority semantics.</li>
 <li><a href="../internals/storage.html">Storage</a>: last-good documents, observations, evidence,
 and recovery boundaries.</li>
@@ -533,8 +533,8 @@ methodology and model detail.</li>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

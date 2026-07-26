@@ -6,7 +6,7 @@ import (
 )
 
 // Lifecycle stages, timing classes, and fingerprint stability are the stable
-// vocabulary used by regime and Canary monitor projections.
+// vocabulary used by regime and Stress monitor projections.
 const (
 	LifecycleQuiet           = "quiet"
 	LifecycleEarlyWarning    = "early_warning"
@@ -44,7 +44,7 @@ const (
 )
 
 // LifecycleState is the stable monitor/orchestration surface for regime and
-// canary payloads. Stage is intentionally a small state machine, while
+// Stress payloads. Stage is intentionally a small state machine, while
 // Evidence preserves weak/unconfirmed inputs without letting them dominate the
 // trigger.
 type LifecycleState struct {
@@ -244,7 +244,7 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		Confidence:   confidence,
 		Evidence:     evidence,
 		Unconfirmed:  unconfirmed,
-		NotExecution: "Regime read only; no orders are placed by ibkr.",
+		NotExecution: "Regime read only; no orders are placed by Canary.",
 	}
 	switch {
 	case tally.ranked < RegimeVerdictFloor:
@@ -1124,7 +1124,7 @@ func tapeLifecycleEvidence(source string, observed, watch, act float64, confirma
 			ev.Severity = "observe"
 		}
 	}
-	// Closed-date demotion mirrors the canary tape row: the bucket keeps the
+	// Closed-date demotion mirrors the Stress tape row: the bucket keeps the
 	// frozen print's factual magnitude, but a print that cannot confirm is
 	// never contemporaneous act-grade evidence — it reads as a forward
 	// warning to re-check at the next open, severity observe, unconfirmed.

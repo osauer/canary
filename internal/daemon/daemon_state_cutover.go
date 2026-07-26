@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 const coreEventOriginCutover = "legacy_cutover"
@@ -99,7 +99,7 @@ func initializeFreshDaemonState(ctx context.Context, core *corestore.Store) erro
 
 // prepareDaemonStateCutover is the explicit, one-shot bridge from legacy
 // daemon-owned files into an empty daemon.db. It intentionally imports no
-// regime/rules/canary/proposal decision history. Original Flex XML and market
+// regime/rules/stress/proposal decision history. Original Flex XML and market
 // observations are handled by their dedicated importers.
 func prepareDaemonStateCutover(ctx context.Context, core *corestore.Store) (daemonStateCutoverReport, error) {
 	var report daemonStateCutoverReport

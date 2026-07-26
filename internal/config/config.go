@@ -105,7 +105,7 @@ func (g Gateway) TLSOrFalse() bool {
 
 // Daemon holds runtime knobs for the daemon process.
 type Daemon struct {
-	// IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `ibkr daemon --foreground`.
+	// IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `canary daemon --foreground`.
 	IdleTimeout duration `toml:"idle_timeout"`
 	// LogLevel is the daemon's log verbosity — one of "debug", "info" (default), "warn", or "error".
 	LogLevel string `toml:"log_level"`
@@ -380,12 +380,12 @@ func (t Trading) PaperSmokeMaxAgeDuration() time.Duration {
 //
 // Use case for pinning off: regulated traders running reproducibility
 // audits, air-gapped boxes, anyone debugging breadth drift. The
-// IBKR_SPX_MEMBERS_AUTO_REFRESH env var overrides this field at
+// CANARY_SPX_MEMBERS_AUTO_REFRESH env var overrides this field at
 // runtime: "1" force-enables, "0" force-disables, anything else
 // (including unset) defers to the TOML value. Symmetric semantics —
 // the env is a bidirectional override, not a one-way kill switch.
 type SPX struct {
-	// MembersAutoRefresh controls whether the daemon refreshes the S&P 500 constituent list from Wikipedia daily at 02:30 ET (default true; set false to pin the embedded baseline) — overridden symmetrically by the `IBKR_SPX_MEMBERS_AUTO_REFRESH` env var (`1` force-on, `0` force-off).
+	// MembersAutoRefresh controls whether the daemon refreshes the S&P 500 constituent list from Wikipedia daily at 02:30 ET (default true; set false to pin the embedded baseline) — overridden symmetrically by the `CANARY_SPX_MEMBERS_AUTO_REFRESH` env var (`1` force-on, `0` force-off).
 	//
 	// Pointer type lets the daemon distinguish an explicit `members_auto_refresh = true` from "field absent" — both enable the refresher today, but a future "user opted in" vs "default behaviour" distinction stays additive.
 	MembersAutoRefresh *bool `toml:"members_auto_refresh"`
@@ -404,7 +404,7 @@ func (s SPX) MembersAutoRefreshEnabled() bool {
 // Scan holds a single scanner preset. Timeout is per-preset and optional;
 // <=0 falls back to the daemon's default (20s).
 type Scan struct {
-	// Type is the IBKR scanner code, such as TOP_PERC_GAIN; dump your gateway's catalog with `ibkr scan params`.
+	// Type is the IBKR scanner code, such as TOP_PERC_GAIN; dump your gateway's catalog with `canary scan params`.
 	Type string `toml:"type"`
 	// Exchange is the IBKR scanner locationCode, such as STK.US.MAJOR or STK.NASDAQ.
 	Exchange string `toml:"exchange"`
@@ -470,8 +470,8 @@ func (d *Daemon) SetIdleTimeout(t time.Duration) {
 
 // DefaultPath returns the canonical config path for the current user.
 func DefaultPath() string {
-	// docgen:env IBKR_CONFIG | Override the config.toml path. Defaults to `$XDG_CONFIG_HOME/ibkr/config.toml` or `$HOME/.config/ibkr/config.toml`.
-	if v := os.Getenv("IBKR_CONFIG"); v != "" {
+	// docgen:env CANARY_CONFIG | Override the config.toml path. Defaults to `$XDG_CONFIG_HOME/ibkr/config.toml` or `$HOME/.config/ibkr/config.toml`.
+	if v := os.Getenv("CANARY_CONFIG"); v != "" {
 		return v
 	}
 	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
@@ -567,7 +567,7 @@ func (c *Config) Resolve() (*Resolved, error) {
 	}, nil
 }
 
-// SPXMembersAutoRefreshFromEnv resolves IBKR_SPX_MEMBERS_AUTO_REFRESH
+// SPXMembersAutoRefreshFromEnv resolves CANARY_SPX_MEMBERS_AUTO_REFRESH
 // as a bidirectional override of the [spx] members_auto_refresh TOML
 // field:
 //
@@ -586,8 +586,8 @@ func (c *Config) Resolve() (*Resolved, error) {
 // Lives next to the SPX type so the precedence rules don't have to be
 // re-derived at every call site.
 func SPXMembersAutoRefreshFromEnv() (enabled bool, forced bool) {
-	// docgen:env IBKR_SPX_MEMBERS_AUTO_REFRESH | Symmetric override of `[spx] members_auto_refresh`. `1` force-enables, `0` force-disables, unset / other defers to TOML.
-	switch os.Getenv("IBKR_SPX_MEMBERS_AUTO_REFRESH") {
+	// docgen:env CANARY_SPX_MEMBERS_AUTO_REFRESH | Symmetric override of `[spx] members_auto_refresh`. `1` force-enables, `0` force-disables, unset / other defers to TOML.
+	switch os.Getenv("CANARY_SPX_MEMBERS_AUTO_REFRESH") {
 	case "1":
 		return true, true
 	case "0":
@@ -599,9 +599,9 @@ func SPXMembersAutoRefreshFromEnv() (enabled bool, forced bool) {
 
 // defaultScans is the built-in preset set, used when the user has no
 // [scans.*] block in config.toml. Every Type / Exchange string here was
-// validated against an IB Gateway scanner catalog via `ibkr scan params`.
+// validated against an IB Gateway scanner catalog via `canary scan params`.
 // If a future gateway drops one of these scanCodes the
-// preset will return an error to the user; `ibkr scan params` is the
+// preset will return an error to the user; `canary scan params` is the
 // canonical recovery path.
 //
 // Selection rationale (US stock + options trader):

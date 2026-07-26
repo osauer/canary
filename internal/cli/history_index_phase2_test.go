@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // phase2FakeConn answers stress.history / recon.equity with canned
@@ -132,7 +132,7 @@ func TestRunStressHistoryRejectsTrailingArgs(t *testing.T) {
 	if code := runStressHistory(context.Background(), env, []string{"history", "extra"}); code != 1 {
 		t.Fatalf("exit=%d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "ibkr stress history") {
+	if !strings.Contains(stderr.String(), "canary stress history") {
 		t.Fatalf("stderr missing usage: %s", stderr.String())
 	}
 }
@@ -236,7 +236,7 @@ func TestRunReconEquityRejectsBadFlagAndTrailingArgs(t *testing.T) {
 	if code := runReconEquity(context.Background(), env, []string{"extra"}); code != 1 {
 		t.Fatalf("trailing arg exit=%d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "ibkr recon equity") {
+	if !strings.Contains(stderr.String(), "canary recon equity") {
 		t.Fatalf("stderr missing usage: %s", stderr.String())
 	}
 }

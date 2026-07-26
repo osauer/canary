@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/stress"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/stress"
 )
 
 // StressInput is the typed input consumed by the shared stress evaluator.
@@ -137,7 +137,7 @@ func runStressHistory(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 0 {
-		return fail(env, "stress history: usage is `ibkr stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]`")
+		return fail(env, "stress history: usage is `canary stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]`")
 	}
 	params := rpc.StressHistoryParams{
 		Since:    strings.TrimSpace(*since),
@@ -726,10 +726,10 @@ func stressInputCheckText(label, warning string) string {
 	case strings.Contains(lower, "gamma_zero") && (strings.Contains(lower, "context_only") || strings.Contains(lower, "context only")):
 		return "Gamma is after-hours/context-only. Action: no immediate fix; refresh during active option hours before using gamma as confirmation."
 	case strings.Contains(lower, "funding") && strings.Contains(lower, "unranked"):
-		return "Funding is not usable confirmation yet. Action: ignore it for escalation and rerun `ibkr regime` after the source updates."
+		return "Funding is not usable confirmation yet. Action: ignore it for escalation and rerun `canary regime` after the source updates."
 	case strings.Contains(lower, "ambiguous clusters:"):
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
-		return fmt.Sprintf("%s cannot confirm the stress read yet. Action: check the n/a row in Market indicators and verify with `ibkr regime` before escalating.", humanList(clusters))
+		return fmt.Sprintf("%s cannot confirm the stress read yet. Action: check the n/a row in Market indicators and verify with `canary regime` before escalating.", humanList(clusters))
 	case strings.Contains(lower, "partial clusters:"):
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
 		return fmt.Sprintf("%s is partially usable. Action: inspect the affected Market indicators row; rely only on fresh independent clusters for confirmation.", humanList(clusters))
@@ -740,11 +740,11 @@ func stressInputCheckText(label, warning string) string {
 		return "One or more regime clusters are unranked. Action: treat the stress read as context until the n/a Market indicators rows rank."
 	case strings.Contains(lower, "stale clusters:"):
 		clusters := strings.TrimSpace(warning[strings.LastIndex(warning, ":")+1:])
-		return fmt.Sprintf("Refresh %s before escalation. Action: rerun `ibkr stress`; stale rows remain context, not fresh confirmation.", humanList(clusters))
+		return fmt.Sprintf("Refresh %s before escalation. Action: rerun `canary stress`; stale rows remain context, not fresh confirmation.", humanList(clusters))
 	case strings.Contains(lower, "vix_term_structure") && strings.Contains(lower, "stale"):
-		return "Volatility term structure is stale. Action: rerun `ibkr regime` or `ibkr stress` before treating vol as fresh confirmation."
+		return "Volatility term structure is stale. Action: rerun `canary regime` or `canary stress` before treating vol as fresh confirmation."
 	case strings.Contains(lower, "computing"):
-		return warning + ". Action: wait for the daemon compute to finish, then rerun `ibkr stress`."
+		return warning + ". Action: wait for the daemon compute to finish, then rerun `canary stress`."
 	case label == "error":
 		return warning + ". Action: fix the source or daemon issue before relying on this stress read."
 	case label == "warning":

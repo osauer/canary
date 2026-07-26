@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/update"
+	"github.com/osauer/canary/v2/internal/update"
 )
 
 // fakeFetch returns a static Release and a nil error. The Release
@@ -22,10 +22,10 @@ func fakeFetch(tag string) fetchFunc {
 			Assets: []update.Asset{
 				{Name: "SHA256SUMS", URL: "https://example/SHA256SUMS"},
 				{Name: "SHA256SUMS.asc", URL: "https://example/SHA256SUMS.asc"},
-				{Name: "ibkr-" + tag + "-darwin-arm64.tar.gz", URL: "https://example/darwin-arm64"},
-				{Name: "ibkr-" + tag + "-darwin-amd64.tar.gz", URL: "https://example/darwin-amd64"},
-				{Name: "ibkr-" + tag + "-linux-amd64.tar.gz", URL: "https://example/linux-amd64"},
-				{Name: "ibkr-" + tag + "-linux-arm64.tar.gz", URL: "https://example/linux-arm64"},
+				{Name: "canary-" + tag + "-darwin-arm64.tar.gz", URL: "https://example/darwin-arm64"},
+				{Name: "canary-" + tag + "-darwin-amd64.tar.gz", URL: "https://example/darwin-amd64"},
+				{Name: "canary-" + tag + "-linux-amd64.tar.gz", URL: "https://example/linux-amd64"},
+				{Name: "canary-" + tag + "-linux-arm64.tar.gz", URL: "https://example/linux-arm64"},
 			},
 		}, nil
 	}
@@ -303,7 +303,7 @@ func TestRunUpdateCore_NoAssetForHost(t *testing.T) {
 			TagName: "v9.9.9",
 			Assets: []update.Asset{
 				{Name: "SHA256SUMS", URL: "https://example/SHA256SUMS"},
-				{Name: "ibkr-v9.9.9-plan9-mips.tar.gz", URL: "https://example/plan9"},
+				{Name: "canary-v9.9.9-plan9-mips.tar.gz", URL: "https://example/plan9"},
 			},
 		}, nil
 	}
@@ -331,14 +331,14 @@ func TestRunUpdateCore_InstallInProgress(t *testing.T) {
 	if exit != 1 {
 		t.Fatalf("exit = %d, want 1", exit)
 	}
-	if !strings.Contains(errBuf.String(), "another ibkr update is already running") {
-		t.Fatalf("stderr = %q, want 'another ibkr update is already running'", errBuf.String())
+	if !strings.Contains(errBuf.String(), "another Canary update is already running") {
+		t.Fatalf("stderr = %q, want 'another Canary update is already running'", errBuf.String())
 	}
 }
 
 func TestRunUpdateCore_RestartRunsAfterInstallAndPropagatesFailure(t *testing.T) {
 	installDir := t.TempDir()
-	t.Setenv("IBKR_INSTALL_DIR", installDir)
+	t.Setenv("CANARY_INSTALL_DIR", installDir)
 	opts, _, errBuf := newOpts("v0.32.0")
 	opts.restart = true
 	var events []string
@@ -359,7 +359,7 @@ func TestRunUpdateCore_RestartRunsAfterInstallAndPropagatesFailure(t *testing.T)
 	if got := strings.Join(events, ","); got != "install,stack-restart" {
 		t.Fatalf("events = %q, want install,stack-restart", got)
 	}
-	if want := filepath.Join(installDir, "ibkr"); restartedExecutable != want {
+	if want := filepath.Join(installDir, "canary"); restartedExecutable != want {
 		t.Fatalf("restart executable = %q, want installed path %q", restartedExecutable, want)
 	}
 	if !strings.Contains(errBuf.String(), "ordered but non-atomic") {
@@ -368,8 +368,8 @@ func TestRunUpdateCore_RestartRunsAfterInstallAndPropagatesFailure(t *testing.T)
 }
 
 func TestRestartInstalledStackAdapterPinsBothProcessesToInstalledExecutable(t *testing.T) {
-	t.Setenv("IBKR_SOCKET", "")
-	installedExecutable := filepath.Join(t.TempDir(), "installed", "ibkr")
+	t.Setenv("CANARY_SOCKET", "")
+	installedExecutable := filepath.Join(t.TempDir(), "installed", "canary")
 	var daemonExecutable, appExecutable string
 
 	daemonFactory := func(executable string) restartDeps {

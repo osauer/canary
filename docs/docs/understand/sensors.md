@@ -130,8 +130,8 @@ refresh gap is a data-quality condition.
 ### Safe check
 
 ```sh
-ibkr gamma --json
-ibkr gamma --only spx --json
+canary gamma --json
+canary gamma --only spx --json
 ```
 
 Read `status` first, then `result.quality.rankability`, `as_of`, session keys,
@@ -208,9 +208,9 @@ this authority health and must not present a stale publication as current.
 ### Safe check
 
 ```sh
-ibkr status --json
-ibkr regime --json
-ibkr regime --explain
+canary status --json
+canary regime --json
+canary regime --explain
 ```
 
 Check Regime authority health, `as_of`, lifecycle readiness, each cluster's
@@ -261,7 +261,7 @@ evidence may stay visible, but the input gap remains the headline condition.
 ### Safe check
 
 ```sh
-ibkr stress --json
+canary stress --json
 ```
 
 Read `input_health`, `action`, and `planner_readiness` before the summary. Then
@@ -314,7 +314,7 @@ warning is not evidence that the underlying input was healthy.
 ### Safe check
 
 ```sh
-ibkr rules --all --json
+canary rules --all --json
 ```
 
 Check top-level `status` and every `input_health` row before counting passes.
@@ -348,8 +348,8 @@ check the coverage note: other symbols may still lack a tick.
 ### Safe check
 
 ```sh
-ibkr market-events --json
-ibkr market-events --symbol GME --json
+canary market-events --json
+canary market-events --symbol GME --json
 ```
 
 Read `source_health` before `flags`. For borrow fee, inspect
@@ -360,7 +360,7 @@ status, and `policy_eligible`.
 
 Use read-only checks in this order:
 
-1. Run `ibkr status --json` and confirm the gateway, data farms, background
+1. Run `canary status --json` and confirm the gateway, data farms, background
    tasks, sensor subsystems, and top-level data-quality warnings.
 2. Open the sensor's own JSON result. Check status, authority or source health,
    scope, `as_of`, freshness, and warnings before interpreting measurements.

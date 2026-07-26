@@ -81,7 +81,7 @@ function loadAlerts({ visibility = "visible", alertsPanelHidden = false } = {}) 
     safeNotificationTest: { busy: false, state: "", error: false },
     selectedAlertID: null,
     snapshot: {
-      stress: { fingerprint: { key: "canary-current" }, portfolio_fit: "low", portfolio_alert_relevant: false, portfolio: {} },
+      stress: { fingerprint: { key: "stress-current" }, portfolio_fit: "low", portfolio_alert_relevant: false, portfolio: {} },
       sources: { nudges: { state: "current" } },
       nudges: {
         as_of: "2026-07-02T00:00:00Z",

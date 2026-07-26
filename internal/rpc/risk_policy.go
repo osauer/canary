@@ -3,7 +3,7 @@ package rpc
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // Risk-constitution contract (internal-docs/design/risk-policy.md). policy.snapshot

@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Read-only MCP server for Interactive Brokers | ibkr</title>
-  <meta name="description" content="ibkr mcp is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it...">
-  <link rel="canonical" href="https://osauer.dev/ibkr/read-only-mcp-server/">
+  <title>Read-only MCP server for Interactive Brokers | Canary</title>
+  <meta name="description" content="Canary reads Interactive Brokers account and market context but cannot place, modify, cancel, or transmit broker orders through MCP.">
+  <link rel="canonical" href="https://osauer.dev/canary/read-only-mcp-server/">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/read-only-mcp-server/">
-  <meta property="og:title" content="Read-only MCP server for Interactive Brokers | ibkr">
-  <meta property="og:description" content="ibkr mcp is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it...">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/social-preview.png">
+  <meta property="og:url" content="https://osauer.dev/canary/read-only-mcp-server/">
+  <meta property="og:title" content="Read-only MCP server for Interactive Brokers | Canary">
+  <meta property="og:description" content="Canary reads Interactive Brokers account and market context but cannot place, modify, cancel, or transmit broker orders through MCP.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
@@ -25,14 +25,14 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-07-18T21:05:00+02:00",
-    "description": "ibkr mcp is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it...",
+    "description": "Canary reads Interactive Brokers account and market context but cannot place, modify, cancel, or transmit broker orders through MCP.",
     "headline": "Read-only MCP server for Interactive Brokers",
     "isPartOf": {
       "@type": "SoftwareApplication",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     },
-    "url": "https://osauer.dev/ibkr/read-only-mcp-server/"
+    "url": "https://osauer.dev/canary/read-only-mcp-server/"
   }
   </script>
   <link rel="stylesheet" href="../shared.css">
@@ -40,10 +40,10 @@
 <body>
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">ibkr</a>
+    <a class="brand" href="../index.html">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
@@ -51,10 +51,10 @@
   <main class="wrap doc">
 <h1 id="read-only-mcp-server-for-interactive-brokers">Read-only MCP server for Interactive Brokers</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
-<p><code>ibkr mcp</code> is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it does not expose a place-order, modify-order, or cancel-order tool.</p>
-<p>The read-only boundary is what makes the rest of the platform workable. Because agents hold no order-entry tools, the desk functions around them (regime context, stress checks, the 14-rule rulebook, an operator-written risk policy, daily statement reconciliation) can run with full market data and full portfolio context without a standing question about what the agent might do with them.</p>
-<p>This page describes the standard downloads: the installer, the Claude Desktop bundle, and the plain <code>ibkr</code> tarballs. Releases also publish a separate, clearly marked <code>ibkr-trading</code> tarball for users who explicitly opt into order management; nothing on this page applies to that variant, and it is never installed by default.</p>
-<p>This page is for searches such as &#34;read-only IBKR MCP server&#34;, &#34;safe AI trading assistant Interactive Brokers&#34;, &#34;Interactive Brokers MCP no order access&#34;, and &#34;portfolio analysis MCP server&#34;.</p>
+<p><code>canary mcp</code> is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it does not expose a place-order, modify-order, or cancel-order tool.</p>
+<p>The read-only boundary is what makes the rest of the platform workable. Because agents hold no order-entry tools, regime context, stress checks, the rulebook, risk policy, and statement reconciliation can use the available portfolio and market context without gaining execution authority.</p>
+<p>This page describes the standard downloads: the installer, the Claude Desktop bundle, and the plain <code>canary</code> tarballs. Releases also publish a separate, clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management; nothing on this page applies to that variant, and it is never installed by default.</p>
+<p>This is a capability boundary, not a claim that market data is complete. Quotes, chains, and scans still depend on the connected account's entitlements, the market session, and source freshness.</p>
 <h2 id="what-read-only-means-here">What read-only means here</h2>
 <p>Allowed surfaces:</p>
 <ul>
@@ -74,17 +74,17 @@
 </ul>
 <h2 id="why-this-matters-for-agents">Why this matters for agents</h2>
 <p>Agentic workflows are useful for analysis: &#34;what do I own?&#34;, &#34;what changed today?&#34;, &#34;which positions carry option delta?&#34;, &#34;is the market regime stressed?&#34;, and &#34;how large is this hypothetical trade?&#34;. Those questions need account and market data, not order-entry authority.</p>
-<p><code>ibkr</code> keeps that boundary explicit. The MCP tool list is generated from the same source as the CLI documentation, and the public references call out that lifecycle and trading verbs stay outside the MCP surface.</p>
+<p><code>canary</code> keeps that boundary explicit. The MCP tool list is generated from the same source as the CLI documentation, and the public references call out that lifecycle and trading verbs stay outside the MCP surface.</p>
 <h2 id="install">Install</h2>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh
-ibkr status</code></pre>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary status</code></pre>
 <p>For Claude Desktop, install:</p>
-<pre><code>https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb</code></pre>
+<pre><code>https://github.com/osauer/canary/releases/latest/download/canary.mcpb</code></pre>
 <p>For a generic local MCP host:</p>
 <pre><code>{
   &#34;mcpServers&#34;: {
-    &#34;ibkr&#34;: {
-      &#34;command&#34;: &#34;/ABSOLUTE/PATH/TO/ibkr&#34;,
+    &#34;canary&#34;: {
+      &#34;command&#34;: &#34;/ABSOLUTE/PATH/TO/canary&#34;,
       &#34;args&#34;: [&#34;mcp&#34;]
     }
   }
@@ -97,14 +97,14 @@ ibkr status</code></pre>
 <li>&#34;How does today&#39;s risk regime look?&#34;</li>
 <li>&#34;For this hypothetical entry and stop, what position size risks 1%?&#34;</li>
 </ul>
-<p>If the assistant tries to trade through <code>ibkr mcp</code>, it has reached outside the tool&#39;s capability boundary.</p>
+<p>If the assistant tries to trade through <code>canary mcp</code>, it has reached outside the tool&#39;s capability boundary.</p>
 <h2 id="references">References</h2>
 <ul>
 <li><a href="../ibkr-mcp/index.html">IBKR MCP server</a> for the main server overview.</li>
-<li><a href="../docs/operate/agents.html">Agentic use guide</a> for example conversations.</li>
+<li><a href="../docs/operate/agents.html">Working with agents</a> for example conversations.</li>
 <li><a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for the read-only tool inventory.</li>
 </ul>
   </main>
-  <footer><div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
 </body>
 </html>

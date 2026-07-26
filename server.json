@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.osauer/ibkr",
-  "title": "canary ibkr MCP",
-  "description": "Local IBKR MCP server for agentic trading desks: market data, portfolio context, risk checks.",
+  "name": "io.github.osauer/canary",
+  "title": "Canary MCP",
+  "description": "Canary MCP server for Interactive Brokers market data, portfolio context, and risk checks.",
   "version": "2.3.1",
-  "websiteUrl": "https://osauer.dev/ibkr/",
+  "websiteUrl": "https://osauer.dev/canary/",
   "repository": {
-    "url": "https://github.com/osauer/ibkr",
+    "url": "https://github.com/osauer/canary",
     "source": "github",
     "id": "1234071553"
   }

@@ -115,7 +115,7 @@ func TestVerifyDetachedSignature_Roundtrip(t *testing.T) {
 	signer := newTestSigner(t)
 	useTestKey(t, signer)
 
-	msg := []byte("abc123  ibkr-v1.0.0-darwin-arm64.tar.gz\ndef456  SHA256SUMS\n")
+	msg := []byte("abc123  canary-v1.0.0-darwin-arm64.tar.gz\ndef456  SHA256SUMS\n")
 	sig := signer.SignDetachedArmored(t, msg)
 
 	if err := VerifyDetachedSignature(bytes.NewReader(msg), bytes.NewReader(sig)); err != nil {
@@ -129,10 +129,10 @@ func TestVerifyDetachedSignature_Tampered(t *testing.T) {
 	signer := newTestSigner(t)
 	useTestKey(t, signer)
 
-	msg := []byte("abc123  ibkr-v1.0.0-darwin-arm64.tar.gz\n")
+	msg := []byte("abc123  canary-v1.0.0-darwin-arm64.tar.gz\n")
 	sig := signer.SignDetachedArmored(t, msg)
 
-	tampered := []byte("BADBAD  ibkr-v1.0.0-darwin-arm64.tar.gz\n")
+	tampered := []byte("BADBAD  canary-v1.0.0-darwin-arm64.tar.gz\n")
 	err := VerifyDetachedSignature(bytes.NewReader(tampered), bytes.NewReader(sig))
 	if err == nil {
 		t.Fatalf("VerifyDetachedSignature accepted tampered payload")
@@ -149,7 +149,7 @@ func TestVerifyDetachedSignature_WrongKey(t *testing.T) {
 	rightSigner := newTestSigner(t) // generates a different key
 	useTestKey(t, rightSigner)      // embedded key is rightSigner's
 
-	msg := []byte("abc  ibkr-v1.0.0-linux-amd64.tar.gz\n")
+	msg := []byte("abc  canary-v1.0.0-linux-amd64.tar.gz\n")
 	sig := wrongSigner.SignDetachedArmored(t, msg) // signed by wrongSigner
 
 	err := VerifyDetachedSignature(bytes.NewReader(msg), bytes.NewReader(sig))
@@ -167,7 +167,7 @@ func TestVerifyDetachedSignature_GarbageSignature(t *testing.T) {
 	signer := newTestSigner(t)
 	useTestKey(t, signer)
 
-	msg := []byte("abc  ibkr-v1.0.0-linux-amd64.tar.gz\n")
+	msg := []byte("abc  canary-v1.0.0-linux-amd64.tar.gz\n")
 	garbage := []byte("this is not a PGP signature, just random bytes\n")
 
 	err := VerifyDetachedSignature(bytes.NewReader(msg), bytes.NewReader(garbage))

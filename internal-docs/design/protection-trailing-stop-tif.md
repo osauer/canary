@@ -12,9 +12,9 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
   for Xetra names) — absent exactly when the overnight gap it exists to cover
   opens up. Default stays DAY; GTC is an explicit policy decision.
 - **User-facing command/tool/API:** protection-policy TOML key
-  `[buckets.trailing_stop] tif = "DAY"|"GTC"`; `ibkr proposals …` (proposal
-  TIF + Details caveat); `ibkr order preview --tif GTC` (TRAIL/TRAIL LIMIT
-  only); MCP `ibkr_order_preview` `tif` enum.
+  `[buckets.trailing_stop] tif = "DAY"|"GTC"`; `canary proposals …` (proposal
+  TIF + Details caveat); `canary order preview --tif GTC` (TRAIL/TRAIL LIMIT
+  only); MCP `canary_order_preview` `tif` enum.
 - **Owner layer:** the policy file owns the choice; the proposal engine
   threads it; preview and the protobuf wire validator enforce the
   GTC-implies-trail rule; CLI/MCP only describe it.
@@ -27,9 +27,9 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback / unavailable |
 |---|---|---|---|---|
 | Bucket TIF | protection-policy TOML | `protectionTrailPolicy.TIF`, resolved via `effectiveTIF()` | proposal `tif` + Details line; CLI/SPA render | unset → DAY (pre-tif files unchanged, fingerprint-stable via `json:",omitempty"`) |
-| TIF on a draft | proposal generation / preview params | `rpc.TradeProposal.TIF`, `rpc.OrderDraft.TIF` | `ibkr proposals`, `ibkr orders`, SPA | empty journal/proposal TIF → DAY |
+| TIF on a draft | proposal generation / preview params | `rpc.TradeProposal.TIF`, `rpc.OrderDraft.TIF` | `canary proposals`, `canary orders`, SPA | empty journal/proposal TIF → DAY |
 | GTC-implies-trail rule | daemon preview validator + proto wire validator | `errBadRequest` / `unsupportedPlaceOrderProtoValue` | preview errors | LMT and modify paths stay DAY-only |
-| Stale GTC row closure | broker error 135 on a write | `OrderLifecycleInactive` via `brokerErrorProvesOrderGone` | `ibkr orders`, order status | without a 135 reply the row stays open (see residual risks) |
+| Stale GTC row closure | broker error 135 on a write | `OrderLifecycleInactive` via `brokerErrorProvesOrderGone` | `canary orders`, order status | without a 135 reply the row stays open (see residual risks) |
 
 ## Safety invariants
 
@@ -75,7 +75,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 
 ## Before/After artifact
 
-Before: `ibkr order preview --json --order-type TRAIL --trail-percent 8 --tif GTC sell SYM N`
+Before: `canary order preview --json --order-type TRAIL --trail-percent 8 --tif GTC sell SYM N`
 fails with "order preview supports DAY time-in-force only"; proposals carry
 `"tif": "DAY"` unconditionally.
 
@@ -91,8 +91,8 @@ previews/submits the GTC draft end-to-end.
   order-type matrix; GTC zombie heal via 135; GTC fast-path preview
   end-to-end. GTC exclusion from expiry inference was already covered.
 - `make check` (includes docs-regen drift gate), `make test`, `make smoke`.
-- Paper E2E: GTC policy file → `ibkr proposals` → preview/submit → GTC
-  trailing stop visible via `ibkr orders`.
+- Paper E2E: GTC policy file → `canary proposals` → preview/submit → GTC
+  trailing stop visible via `canary orders`.
 
 ## Rollback
 

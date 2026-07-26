@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# wire-smoke.sh — exercise the freshly-built ibkr binary against a reachable
+# wire-smoke.sh — exercise the freshly-built Canary binary against a reachable
 # IBKR Gateway/TWS session with the wire interceptor enabled, and assert per-command
 # protocol-level invariants.
 #
@@ -22,7 +22,7 @@
 #   scripts/wire-smoke.sh <bin-path> <wire-assert-path>
 #
 # Example:
-#   scripts/wire-smoke.sh bin/ibkr bin/wire-assert
+#   scripts/wire-smoke.sh bin/canary bin/wire-assert
 #
 # Environment hooks:
 #   IBKR_TEST_PORT          — gateway port to probe (default: auto-probe
@@ -30,19 +30,19 @@
 #   IBKR_TEST_PORTS         — space-separated auto-probe candidate ports when
 #                             IBKR_TEST_PORT is unset
 #   IBKR_TEST_HOST          — gateway host (default: 127.0.0.1)
-#   IBKR_SMOKE_CLIENT_ID    — primary client ID for the isolated smoke daemon
+#   CANARY_SMOKE_CLIENT_ID  — primary client ID for the isolated smoke daemon
 #                             (default: process-derived ID in the 200-799 range)
-#   IBKR_SMOKE_TIMEOUT      — per-command wall-clock timeout in seconds (default: 60)
-#   IBKR_SMOKE_STRICT       — 1 = FAIL on no-gateway instead of SKIP (release path)
-#   IBKR_SMOKE_FAST         — 1 = stop after boot + quote + account (~15s inner-loop
+#   CANARY_SMOKE_TIMEOUT    — per-command wall-clock timeout in seconds (default: 60)
+#   CANARY_SMOKE_STRICT     — 1 = FAIL on no-gateway instead of SKIP (release path)
+#   CANARY_SMOKE_FAST       — 1 = stop after boot + quote + account (~15s inner-loop
 #                             tier, `make smoke-fast`); chain/regime/gamma/SPX
 #                             stay in the full run
-#   IBKR_SMOKE_GAMMA_DERIVED — 1 = run the off-hours derived-pricing gamma
+#   CANARY_SMOKE_GAMMA_DERIVED — 1 = run the off-hours derived-pricing gamma
 #                             assertion (5 polls × up to 60s ≈ 5 min). Default
 #                             0: release-smoke.sh carries this assertion on the
 #                             release path, so the dev inner loop doesn't pay it
-#   IBKR_SMOKE_STOP_EXISTING — 1 = stop existing ibkr daemons before smoke
-#   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = `ibkr gamma --only=spx`
+#   CANARY_SMOKE_STOP_EXISTING — 1 = stop existing Canary/pre-upgrade daemons
+#   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = `canary gamma --only=spx`
 #                             must return real SPX data; banner-seen FAILS the run.
 #                             0 = banner-seen is a clean skip (CI / accounts without
 #                             CBOE OPRA). User-flagged guardrail: "no SPX data
@@ -54,8 +54,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-daemon-control.sh"
 
-BIN="${1:?usage: wire-smoke.sh <bin/ibkr> <bin/wire-assert>}"
-ASSERT="${2:?usage: wire-smoke.sh <bin/ibkr> <bin/wire-assert>}"
+BIN="${1:?usage: wire-smoke.sh <bin/canary> <bin/wire-assert>}"
+ASSERT="${2:?usage: wire-smoke.sh <bin/canary> <bin/wire-assert>}"
 
 if [[ ! -x "$BIN" ]]; then
     echo "wire-smoke: $BIN not executable" >&2
@@ -71,9 +71,9 @@ if [[ ! "$GATEWAY_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]; then
     echo "wire-smoke: invalid IBKR_TEST_HOST: $GATEWAY_HOST" >&2
     exit 2
 fi
-SMOKE_CLIENT_ID="${IBKR_SMOKE_CLIENT_ID:-$((200 + ($$ % 600)))}"
+SMOKE_CLIENT_ID="${CANARY_SMOKE_CLIENT_ID:-$((200 + ($$ % 600)))}"
 if [[ ! "$SMOKE_CLIENT_ID" =~ ^[0-9]+$ ]] || (( SMOKE_CLIENT_ID < 1 || SMOKE_CLIENT_ID > 998 )); then
-    echo "wire-smoke: invalid IBKR_SMOKE_CLIENT_ID: $SMOKE_CLIENT_ID" >&2
+    echo "wire-smoke: invalid CANARY_SMOKE_CLIENT_ID: $SMOKE_CLIENT_ID" >&2
     exit 2
 fi
 BREADTH_CLIENT_ID=$((SMOKE_CLIENT_ID + 1))
@@ -81,15 +81,15 @@ BREADTH_CLIENT_ID=$((SMOKE_CLIENT_ID + 1))
 # need contract resolution from a cold cache (observed 2026-05-18:
 # chain SPY --width 5 → 30018ms wall clock). 30s was too tight; 60s
 # gives the legitimate path room without letting a wedged daemon hang.
-PER_CMD_TIMEOUT="${IBKR_SMOKE_TIMEOUT:-60}"
+PER_CMD_TIMEOUT="${CANARY_SMOKE_TIMEOUT:-60}"
 
 # 1. Gateway-presence probe. Default posture matches test/integration:
 # a missing gateway is SKIP (exit 0), not FAIL — `make smoke` from a
 # laptop without paper-account IBKR access must still pass. The release
-# path overrides via IBKR_SMOKE_STRICT=1 to FAIL on no-gateway, so a
+# path overrides via CANARY_SMOKE_STRICT=1 to FAIL on no-gateway, so a
 # release can't silently bypass the wire gate. The probe uses bash's
 # /dev/tcp to avoid a netcat dependency.
-STRICT="${IBKR_SMOKE_STRICT:-0}"
+STRICT="${CANARY_SMOKE_STRICT:-0}"
 GATEWAY_PORT="${IBKR_TEST_PORT:-}"
 if [[ -n "$GATEWAY_PORT" ]]; then
     if [[ ! "$GATEWAY_PORT" =~ ^[0-9]+$ ]] || (( GATEWAY_PORT < 1 || GATEWAY_PORT > 65535 )); then
@@ -147,9 +147,9 @@ breadth_client_id = $BREADTH_CLIENT_ID
 tls = false
 EOF
 
-export IBKR_SOCKET="$SOCKET"
-export IBKR_LOG="$LOG"
-export IBKR_CONFIG="$CONFIG"
+export CANARY_SOCKET="$SOCKET"
+export CANARY_LOG="$LOG"
+export CANARY_CONFIG="$CONFIG"
 # Isolated trading state: marks, journals, and tokens must not touch the
 # user's canonical daemon state (nor inherit it — a false inactive mark
 # in operator state failed the v1.15.0 release smoke, 2026-07-08).
@@ -185,7 +185,7 @@ trap cleanup EXIT INT TERM
 # Normal local smoke runs use a unique client ID and leave the user's daemon
 # alone. The old stop-all behavior remains opt-in for diagnosing client-ID
 # slot retention on a specific gateway.
-if [[ "${IBKR_SMOKE_STOP_EXISTING:-0}" == "1" ]]; then
+if [[ "${CANARY_SMOKE_STOP_EXISTING:-0}" == "1" ]]; then
     stop_existing_daemons wire-smoke
 fi
 
@@ -302,7 +302,7 @@ assert_wire account-summary
 # Fast tier exits here: handshake, quote, and account-summary wire paths
 # are pinned; the chain/regime/gamma fan-out belongs to the full smoke
 # (`make smoke`) and the release gates.
-if [[ "${IBKR_SMOKE_FAST:-0}" == "1" ]]; then
+if [[ "${CANARY_SMOKE_FAST:-0}" == "1" ]]; then
     echo ""
     echo "wire-smoke: PASS (fast tier) — boot + quote + account wire flow is healthy"
     echo "wire-smoke: run the full \`make smoke\` for daemon/CLI wire-path changes"
@@ -318,7 +318,7 @@ echo "  [chain SPY 1-wide]..."
 # quirky) and strip the date.
 expiries="$("$BIN" chain SPY 2>/dev/null | awk '/^[[:space:]]+20[0-9]{2}-[0-9]{2}-[0-9]{2}/ {print $1}' | head -3 | tail -1)"
 if [[ -z "$expiries" ]]; then
-    echo "wire-smoke: FAIL: could not list SPY expiries via 'ibkr chain SPY'" >&2
+    echo "wire-smoke: FAIL: could not list SPY expiries via 'canary chain SPY'" >&2
     exit 1
 fi
 run_cli chain-iv chain SPY --expiry "$expiries" --width 1 --side both --json
@@ -365,11 +365,11 @@ assert_wire gamma-noflag
 # up to 5 times (≈4-5 min total) to give the compute room to complete
 # on a cold contract cache.
 #
-# Opt-in (IBKR_SMOKE_GAMMA_DERIVED=1): those ≈5 minutes dominated every
+# Opt-in (CANARY_SMOKE_GAMMA_DERIVED=1): those ≈5 minutes dominated every
 # off-hours `make smoke` and the assertion is release-grade, not
 # per-commit — release-smoke.sh runs its own copy of this block on the
 # release path, so the dev inner loop skips it by default.
-if [[ "${LOOSE:-0}" -eq 1 && "${IBKR_SMOKE_GAMMA_DERIVED:-0}" == "1" ]]; then
+if [[ "${LOOSE:-0}" -eq 1 && "${CANARY_SMOKE_GAMMA_DERIVED:-0}" == "1" ]]; then
     echo "  [gamma (loose: off-hours pricing assertion)]..."
     GAMMA_ENV="$SMOKE_DIR/gamma-envelope.json"
     for attempt in 1 2 3 4 5; do

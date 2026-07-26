@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>IB Gateway MCP server | ibkr</title>
-  <meta name="description" content="ibkr mcp is an IB Gateway MCP server for users who want a local, headless Interactive Brokers data bridge for AI assistants. It uses the same local socket...">
-  <link rel="canonical" href="https://osauer.dev/ibkr/ib-gateway-mcp/">
+  <title>IB Gateway MCP server | Canary</title>
+  <meta name="description" content="Run Canary beside IB Gateway to expose local Interactive Brokers account and market context to stdio MCP hosts without order-entry tools.">
+  <link rel="canonical" href="https://osauer.dev/canary/ib-gateway-mcp/">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/ib-gateway-mcp/">
-  <meta property="og:title" content="IB Gateway MCP server | ibkr">
-  <meta property="og:description" content="ibkr mcp is an IB Gateway MCP server for users who want a local, headless Interactive Brokers data bridge for AI assistants. It uses the same local socket...">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/social-preview.png">
+  <meta property="og:url" content="https://osauer.dev/canary/ib-gateway-mcp/">
+  <meta property="og:title" content="IB Gateway MCP server | Canary">
+  <meta property="og:description" content="Run Canary beside IB Gateway to expose local Interactive Brokers account and market context to stdio MCP hosts without order-entry tools.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
@@ -25,14 +25,14 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-07-18T21:05:00+02:00",
-    "description": "ibkr mcp is an IB Gateway MCP server for users who want a local, headless Interactive Brokers data bridge for AI assistants. It uses the same local socket...",
+    "description": "Run Canary beside IB Gateway to expose local Interactive Brokers account and market context to stdio MCP hosts without order-entry tools.",
     "headline": "IB Gateway MCP server",
     "isPartOf": {
       "@type": "SoftwareApplication",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     },
-    "url": "https://osauer.dev/ibkr/ib-gateway-mcp/"
+    "url": "https://osauer.dev/canary/ib-gateway-mcp/"
   }
   </script>
   <link rel="stylesheet" href="../shared.css">
@@ -40,10 +40,10 @@
 <body>
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">ibkr</a>
+    <a class="brand" href="../index.html">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
@@ -51,8 +51,8 @@
   <main class="wrap doc">
 <h1 id="ib-gateway-mcp-server">IB Gateway MCP server</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
-<p><code>ibkr mcp</code> is an IB Gateway MCP server for users who want a local, headless Interactive Brokers data bridge for AI assistants. It uses the same local socket API that IB Gateway exposes for ordinary TWS API clients, then presents the read-only data surface as MCP tools.</p>
-<p>The Gateway session feeds the same desk surfaces as TWS: full market data for agents (real-time per your IBKR subscriptions), the regime dashboard, portfolio stress checks, and the advisory rulebook, with risk policy and reconciliation available in the terminal.</p>
+<p><code>canary mcp</code> is an IB Gateway MCP server for users who want a local, headless Interactive Brokers data bridge for AI assistants. It uses the same local socket API that IB Gateway exposes for ordinary TWS API clients, then presents the read-only data surface as MCP tools.</p>
+<p>The Gateway session feeds the same typed surfaces as TWS: entitled real-time or delayed market data, the regime dashboard, portfolio stress checks, and the advisory rulebook, with risk policy and reconciliation available in the terminal.</p>
 <p>Use this setup for Claude Desktop, Claude Code, Cursor, Zed, Continue, and other MCP hosts when IB Gateway is the process you keep running for account and market-data access.</p>
 <h2 id="gateway-prerequisites">Gateway prerequisites</h2>
 <ul>
@@ -61,17 +61,17 @@
 <li>API socket access enabled in IB Gateway.</li>
 <li>The paper or live Gateway port reachable on loopback.</li>
 </ul>
-<p><code>ibkr</code> probes the standard Gateway and TWS ports by default. If your setup uses a custom port, write a local config file and pin only the fields you need.</p>
+<p><code>canary</code> probes the standard Gateway and TWS ports by default. If your setup uses a custom port, write a local config file and pin only the fields you need.</p>
 <h2 id="install">Install</h2>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh
-ibkr status</code></pre>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary status</code></pre>
 <p>Claude Desktop users can install the MCP Bundle from the latest release:</p>
-<pre><code>https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb</code></pre>
+<pre><code>https://github.com/osauer/canary/releases/latest/download/canary.mcpb</code></pre>
 <p>Other MCP hosts can launch:</p>
 <pre><code>{
   &#34;mcpServers&#34;: {
-    &#34;ibkr&#34;: {
-      &#34;command&#34;: &#34;/Users/you/.local/bin/ibkr&#34;,
+    &#34;canary&#34;: {
+      &#34;command&#34;: &#34;/Users/you/.local/bin/canary&#34;,
       &#34;args&#34;: [&#34;mcp&#34;]
     }
   }
@@ -84,10 +84,10 @@ ibkr status</code></pre>
 <li>Option chains, expiries, expected moves, deltas, and open interest.</li>
 <li>Market scanners, sizing math, S&amp;P 500 breadth, dealer gamma, broad-market regime lifecycle, and portfolio stress checks.</li>
 </ul>
-<p>See the <a href="../docs/operate/agents.html">agentic use guide</a> for example questions and <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for the exact schema.</p>
+<p>See <a href="../docs/operate/agents.html">Working with agents</a> for example questions and the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for the exact schema.</p>
 <h2 id="why-local-gateway-matters">Why local Gateway matters</h2>
-<p>Brokerage data should not need a hosted middle layer just to answer account and market questions. <code>ibkr</code> keeps the broker connection local, shares one daemon between shell and MCP clients, and does not expose order-entry tools.</p>
+<p>Brokerage data should not need a hosted middle layer just to answer account and market questions. <code>canary</code> keeps the broker connection local, shares one daemon between shell and MCP clients, and does not expose order-entry tools.</p>
   </main>
-  <footer><div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
 </body>
 </html>

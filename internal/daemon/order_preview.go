@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -1583,9 +1583,9 @@ func previewWhatIfWarnings(whatIf rpc.OrderWhatIfResult) []rpc.DataWarning {
 func previewOrderRef(now time.Time) string {
 	tokenID, err := randomTokenID()
 	if err != nil {
-		return "ibkr-" + now.UTC().Format("20060102-150405")
+		return "canary-" + now.UTC().Format("20060102-150405")
 	}
-	return "ibkr-" + now.UTC().Format("20060102-150405") + "-" + tokenID[:8]
+	return "canary-" + now.UTC().Format("20060102-150405") + "-" + tokenID[:8]
 }
 
 func replaceTargetFromView(view rpc.OrderView) orderPreviewReplaceTarget {

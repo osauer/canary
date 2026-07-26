@@ -1,15 +1,16 @@
 {
-  "name": "ibkr",
+  "name": "canary",
   "version": "2.3.1",
-  "description": "Interactive Brokers (IBKR) integration for Claude Code and MCP clients: agentic portfolio analysis, trading research, account/positions, snapshot + streaming quotes, official calendars, option chains, daily history, market scans, sizing, broad-market stress lifecycle, portfolio-aware stress lifecycle, and preview-only stock/ETF order drafts via the local ibkr CLI. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy.",
+  "description": "Canary for Claude Code and MCP clients: Interactive Brokers portfolio analysis, trading research, account/positions, market data, risk checks, and preview-only order drafts via the local canary CLI. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy.",
   "author": {
     "name": "osauer",
     "url": "https://github.com/osauer"
   },
-  "homepage": "https://github.com/osauer/ibkr",
-  "repository": "https://github.com/osauer/ibkr.git",
+  "homepage": "https://github.com/osauer/canary",
+  "repository": "https://github.com/osauer/canary.git",
   "license": "MIT",
   "keywords": [
+    "canary",
     "ibkr",
     "mcp",
     "mcp-server",

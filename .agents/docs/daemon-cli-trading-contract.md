@@ -48,16 +48,16 @@ Before changing behavior, capture the narrow command that proves the current
 contract:
 
 ```sh
-ibkr status --json
-ibkr <command that exercises the behavior> --json
+canary status --json
+canary <command that exercises the behavior> --json
 ```
 
 After implementation, capture the same or stricter artifact:
 
 ```sh
 make restart-daemon
-ibkr status --json
-ibkr <command that exercises the behavior> --json
+canary status --json
+canary <command that exercises the behavior> --json
 ```
 
 Report only a redacted artifact in the completion message: command, exit status,

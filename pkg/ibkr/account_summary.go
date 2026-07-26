@@ -14,7 +14,7 @@ import (
 // reach IBKR (gateway disconnected, connector not started). Callers serving
 // trading-critical reads (account values, fresh quotes) should refuse rather
 // than fall back to stale data.
-var ErrIBKRUnavailable = errors.New("ibkr connection unavailable")
+var ErrIBKRUnavailable = errors.New("IBKR connection unavailable")
 
 // ErrAccountSummaryScopeConflict means a one-shot account-summary request
 // observed a row outside its expected single-account scope. The only aggregate

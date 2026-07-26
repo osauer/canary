@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/cli"
 )
 
 type lineEditor struct {
@@ -145,13 +145,11 @@ func completeLine(line string, cursor int, catalog []cli.CommandSpec, dynamic []
 	prefix := string(rs[start:cursor])
 	left := strings.TrimSpace(string(rs[:cursor]))
 	tokens, _ := parseCommandLine(left)
-	if len(tokens) > 0 && tokens[0] == "ibkr" {
-		tokens = tokens[1:]
-	}
+	tokens = stripExecutablePrefix(tokens)
 	if strings.HasPrefix(left, ":") {
 		return prefixed(prefix, []string{":help", ":clear", ":quit", ":layout"})
 	}
-	if len(tokens) == 0 || (len(tokens) == 1 && !strings.Contains(left, " ")) {
+	if len(tokens) == 0 || (len(tokens) == 1 && !atTokenStart) {
 		names := make([]string, 0, len(catalog))
 		for _, spec := range catalog {
 			names = append(names, spec.Name)

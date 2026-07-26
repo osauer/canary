@@ -12,15 +12,15 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/pkg/server"
 
-	"github.com/osauer/ibkr/v2/internal/app/alerts"
-	"github.com/osauer/ibkr/v2/internal/app/auth"
-	"github.com/osauer/ibkr/v2/internal/app/daemonclient"
-	apphttp "github.com/osauer/ibkr/v2/internal/app/http"
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/app/push"
-	"github.com/osauer/ibkr/v2/internal/app/relay"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/xdgcache"
+	"github.com/osauer/canary/v2/internal/app/alerts"
+	"github.com/osauer/canary/v2/internal/app/auth"
+	"github.com/osauer/canary/v2/internal/app/daemonclient"
+	apphttp "github.com/osauer/canary/v2/internal/app/http"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/app/push"
+	"github.com/osauer/canary/v2/internal/app/relay"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/xdgcache"
 )
 
 // App is one configured Canary app-host process. New acquires exclusive
@@ -143,7 +143,7 @@ func acquireAppLock(stateDir string) (*xdgcache.Lock, error) {
 	lock, err := xdgcache.OpenLock(filepath.Join(stateDir, "app.lock"))
 	if err != nil {
 		if errors.Is(err, xdgcache.ErrLocked) {
-			return nil, errors.New("another ibkr app process is already running for this state directory")
+			return nil, errors.New("another Canary app process is already running for this state directory")
 		}
 		return nil, err
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runOpportunities(ctx context.Context, env *Env, args []string) int {
@@ -110,7 +110,7 @@ func runOpportunitiesPreview(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 2 {
-		return fail(env, "opportunities preview: usage is `ibkr opportunities preview KEY REVISION`")
+		return fail(env, "opportunities preview: usage is `canary opportunities preview KEY REVISION`")
 	}
 	var res rpc.OpportunityExercisePreviewResult
 	params := rpc.OpportunityExercisePreviewParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
@@ -133,7 +133,7 @@ func runOpportunitiesExercise(ctx context.Context, env *Env, args []string) int 
 		return parseExit(err)
 	}
 	if fs.NArg() != 2 {
-		return fail(env, "opportunities exercise: usage is `ibkr opportunities exercise KEY REVISION`")
+		return fail(env, "opportunities exercise: usage is `canary opportunities exercise KEY REVISION`")
 	}
 	var res rpc.OpportunityExerciseSubmitResult
 	params := rpc.OpportunityExerciseSubmitParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
@@ -155,7 +155,7 @@ func runOpportunitiesIgnore(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() < 1 || fs.NArg() > 2 {
-		return fail(env, "opportunities ignore: usage is `ibkr opportunities ignore KEY [REVISION]`")
+		return fail(env, "opportunities ignore: usage is `canary opportunities ignore KEY [REVISION]`")
 	}
 	params := rpc.OpportunityIgnoreParams{Key: fs.Arg(0), Reason: strings.TrimSpace(*reason)}
 	if fs.NArg() == 2 {
@@ -175,7 +175,7 @@ func runOpportunitiesIgnore(ctx context.Context, env *Env, args []string) int {
 func renderOpportunityStatusText(env *Env, st *rpc.OpportunityStatus) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Opportunities  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(nonEmpty(st.Policy.Status, "unknown")), Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Opportunities  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(nonEmpty(st.Policy.Status, "unknown")), Level: statusConcernNotice}))
 	statusRow(env, out, "Enabled", fmt.Sprint(st.Enabled))
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d %s", st.Policy.PolicyID, st.Policy.PolicyVersion, st.Policy.Fingerprint.Key))
 	statusRow(env, out, "Refresh", st.RefreshCadence)
@@ -189,7 +189,7 @@ func renderOpportunityStatusText(env *Env, st *rpc.OpportunityStatus) {
 func renderOpportunitiesText(env *Env, snap *rpc.OpportunitySnapshot) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Opportunities  %d actionable / %d total\n", snap.Counts.Actionable, snap.Counts.Total)
+	fmt.Fprintf(out, "Canary Opportunities  %d actionable / %d total\n", snap.Counts.Actionable, snap.Counts.Total)
 	statusRow(env, out, "Revision", snap.Revision)
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d", snap.PolicyID, snap.PolicyVersion))
 	if snap.Counts.ExpectedGainCurrency != "" {

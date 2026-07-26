@@ -18,7 +18,7 @@ if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; th
 fi
 
 expected_version="${release_version#v}"
-server_name="io.github.osauer/ibkr"
+server_name="io.github.osauer/canary"
 registry_url="https://registry.modelcontextprotocol.io/v0/servers?search=osauer&version=latest"
 interval_seconds=15
 wait_seconds=240

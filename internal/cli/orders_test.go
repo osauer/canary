@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestRunOrdersHistoryForwardsParamsAndRendersJSON(t *testing.T) {
@@ -98,7 +98,7 @@ func TestRunOrdersHistoryRejectsTrailingArgsBeforeDial(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("runOrdersHistory exit=%d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "ibkr orders history") {
+	if !strings.Contains(stderr.String(), "canary orders history") {
 		t.Fatalf("stderr missing usage: %s", stderr.String())
 	}
 }

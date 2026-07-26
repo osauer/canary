@@ -3,7 +3,7 @@ package ibkr
 import (
 	"log/slog"
 
-	"github.com/osauer/ibkr/v2/pkg/ibkr/internal/logging"
+	"github.com/osauer/canary/v2/pkg/ibkr/internal/logging"
 )
 
 // SetLogger installs a custom slog.Logger as the sink for all messages

@@ -79,6 +79,16 @@ test("production config carries request cancellation through the Worker-to-DO ho
   ]);
 });
 
+test("deployed relay continuity pins remain stable while package identity is Canary", () => {
+  const config = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.name, "canary-remote-relay");
+  assert.match(config, /^name = "ibkr-remote-relay"$/m);
+  assert.match(config, /^name = "RELAY_SESSION"$/m);
+  assert.match(config, /^class_name = "RelaySession"$/m);
+  assert.match(config, /^new_sqlite_classes = \["RelaySession"\]$/m);
+});
+
 test("headerMap removes hop by hop headers", () => {
   const headers = new Headers({
     Connection: "upgrade",
@@ -338,7 +348,10 @@ test("navigation without a route serves the localStorage recovery page", async (
   }), env);
   assert.equal(res.status, 200);
   assert.match(res.headers.get("Content-Type") || "", /text\/html/);
-  assert.match(await res.text(), /ibkrRemoteRoute/);
+  const body = await res.text();
+  assert.match(body, /ibkrRemoteRoute/);
+  assert.match(body, /canary app pair/);
+  assert.doesNotMatch(body, /ibkr app pair/);
 });
 
 test("API request without a route still gets JSON 400", async () => {
@@ -365,6 +378,9 @@ test("navigation to an offline route serves the auto-retry page with cookie refr
   }), env);
   assert.equal(res.status, 503);
   assert.match(res.headers.get("Content-Type") || "", /text\/html/);
-  assert.match(await res.text(), /Retrying automatically/);
+  const body = await res.text();
+  assert.match(body, /Retrying automatically/);
+  assert.match(body, /canary app --remote/);
+  assert.doesNotMatch(body, /ibkr app --remote/);
   assert.match(res.headers.get("Set-Cookie") || "", new RegExp(`ibkr_remote_route=${VALID_ROUTE}`));
 });

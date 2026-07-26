@@ -13,7 +13,7 @@ import (
 // It is deliberately distinct from ErrAlreadyRunning: two daemons using
 // different socket paths must still fail visibly when they resolve to the same
 // daemon.db.
-var ErrPersistenceInUse = errors.New("another ibkrd owns the daemon state database")
+var ErrPersistenceInUse = errors.New("another Canary daemon owns the daemon state database")
 
 // persistenceLock serializes every daemon that resolves to one authoritative
 // state database. Unlike the socket-specific instance pidfile, this lock file

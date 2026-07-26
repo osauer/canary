@@ -3,7 +3,7 @@ package daemon
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // regimeRefreshWakeChannel returns the daemon-lifetime, capacity-one wake
@@ -43,7 +43,7 @@ func (s *Server) handleGammaPublication(scope string) {
 
 // stressEvaluationWakeChannel returns the daemon-lifetime, capacity-one wake
 // channel. A buffered wake survives startup ordering and naturally coalesces
-// repeated signals while Canary is already evaluating.
+// repeated signals while Stress is already evaluating.
 func (s *Server) stressEvaluationWakeChannel() <-chan struct{} {
 	return s.stressEvaluationWakeSender()
 }

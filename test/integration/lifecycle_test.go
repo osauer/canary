@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 // Lifecycle tests exercise the CLI's daemon-management surface, including
@@ -41,15 +41,15 @@ import (
 // SIGKILL of the test binary) are covered by the reaper in TestMain.
 func lifecycleEnv(t *testing.T) (env []string, socketPath, logPath string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "ibkr-lifecycle-")
+	dir, err := os.MkdirTemp("/tmp", "canary-lifecycle-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	socketPath = filepath.Join(dir, "ibkr.sock")
 	logPath = filepath.Join(dir, "ibkr-daemon.log")
 	env = append(os.Environ(),
-		"IBKR_SOCKET="+socketPath,
-		"IBKR_LOG="+logPath,
+		"CANARY_SOCKET="+socketPath,
+		"CANARY_LOG="+logPath,
 		"XDG_STATE_HOME="+filepath.Join(dir, "state"),
 		"XDG_CACHE_HOME="+filepath.Join(dir, "cache"),
 		"XDG_CONFIG_HOME="+filepath.Join(dir, "config"),
@@ -65,12 +65,12 @@ func lifecycleEnv(t *testing.T) (env []string, socketPath, logPath string) {
 	return env, socketPath, logPath
 }
 
-// reapLeakedTestApps fails the test if any `ibkr app` process spawned from
+// reapLeakedTestApps fails the test if any `canary app` process spawned from
 // this run's test binary is still alive, and kills it. No lifecycle test
-// may legitimately spawn an app: lifecycleEnv sets IBKR_SOCKET, which makes
-// plain `ibkr restart` skip app management entirely — a surviving app means
+// may legitimately spawn an app: lifecycleEnv sets CANARY_SOCKET, which makes
+// plain `canary restart` skip app management entirely — a surviving app means
 // that scoping regressed (the bug that once SIGTERMed the developer's real
-// `ibkr app --remote` and leaked a test-binary replacement on :8765).
+// `canary app --remote` and leaked a test-binary replacement on :8765).
 // Because this runs in every parallel test's cleanup against one global
 // pattern, it stays a pure tripwire only as long as that invariant holds.
 func reapLeakedTestApps(t *testing.T) {
@@ -84,7 +84,7 @@ func reapLeakedTestApps(t *testing.T) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		t.Errorf("test binary leaked an `ibkr app` process (pid %d) — restart's app management escaped the IBKR_SOCKET scope; killing it", pid)
+		t.Errorf("test binary leaked a `canary app` process (pid %d) — restart's app management escaped the CANARY_SOCKET scope; killing it", pid)
 		killDaemonTree(pid)
 	}
 }
@@ -300,7 +300,7 @@ func TestLifecycle_RestartStartsWhenAbsent(t *testing.T) {
 	if pid := daemonPID(socketPath); pid != res.NewPID {
 		t.Fatalf("lock PID = %d, restart new_pid=%d", pid, res.NewPID)
 	}
-	// IBKR_SOCKET is set by lifecycleEnv, so restart must not have touched
+	// CANARY_SOCKET is set by lifecycleEnv, so restart must not have touched
 	// any app process — least of all the developer's real one.
 	if res.App == nil || res.App.Action != "skipped" || res.App.Reason != "socket_overridden" {
 		t.Fatalf("app result = %+v, want skipped/socket_overridden", res.App)
@@ -406,13 +406,13 @@ func TestLifecycle_StuckDaemonProducesActionableError(t *testing.T) {
 
 // TestLifecycle_CLIDoesNotHangOnDeafDaemon is the end-to-end version of
 // the deaf-socket test below: spawn a stub listener at the canonical
-// socket path, run the real `ibkr status` binary against it, and verify
+// socket path, run the real `canary status` binary against it, and verify
 // the CLI exits within the per-invocation deadline rather than hanging
 // until the user hits Ctrl+C. This is the user-facing guarantee the
-// per-call timeout in cmd/ibkr is supposed to provide.
+// per-call timeout in cmd/canary is supposed to provide.
 func TestLifecycle_CLIDoesNotHangOnDeafDaemon(t *testing.T) {
 	t.Parallel()
-	dir, err := os.MkdirTemp("/tmp", "ibkr-lifecycle-cli-deaf-")
+	dir, err := os.MkdirTemp("/tmp", "canary-lifecycle-cli-deaf-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,8 +455,8 @@ func TestLifecycle_CLIDoesNotHangOnDeafDaemon(t *testing.T) {
 	_ = os.WriteFile(lockPath, []byte("99999\n"), 0o600)
 
 	env := append(os.Environ(),
-		"IBKR_SOCKET="+socketPath,
-		"IBKR_LOG="+logPath,
+		"CANARY_SOCKET="+socketPath,
+		"CANARY_LOG="+logPath,
 	)
 	// TestMain builds the CLI with a shrunken per-call deadline; the
 	// production binary keeps the 60s default, but this end-to-end gate
@@ -488,7 +488,7 @@ func TestLifecycle_CLIDoesNotHangOnDeafDaemon(t *testing.T) {
 // test is hermetic and finishes in milliseconds.
 func TestLifecycle_NonResponsiveSocket(t *testing.T) {
 	t.Parallel()
-	dir, err := os.MkdirTemp("/tmp", "ibkr-lifecycle-deaf-")
+	dir, err := os.MkdirTemp("/tmp", "canary-lifecycle-deaf-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,8 +3,8 @@ package daemon
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // gammaClassifySession classifies the option-data surface used by dealer

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestStressBacktestSampleProducesSignalMetrics(t *testing.T) {
@@ -89,6 +89,19 @@ func TestRunBacktestStressRendersText(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr should be empty, got:\n%s", stderr.String())
+	}
+}
+
+func TestRunBacktestRejectsRetiredCanarySubcommand(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &stderr}
+	code := Run(context.Background(), env, "backtest", []string{"canary", "--input", backtestFixturePath(t)})
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("retired backtest exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "backtest: usage:") {
+		t.Fatalf("retired backtest did not fail with canonical usage: %q", stderr.String())
 	}
 }
 
@@ -4022,7 +4035,7 @@ func writeOpportunityBarsWithManifest(t *testing.T, content string, mutate func(
 		BarSize:          "1 day",
 		AdjustmentPolicy: "IBKR HMDS adjusted historical daily close",
 		CreatedAt:        time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC),
-		Command:          "ibkr backtest export-opportunity-bars --test",
+		Command:          "canary backtest export-opportunity-bars --test",
 		BarFile:          filepath.Base(barsPath),
 		BarsSHA256:       "sha256:" + checksum,
 		RowCount:         opportunityPriceBarRowCount(bars),

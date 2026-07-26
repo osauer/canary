@@ -3,7 +3,7 @@ package rpc
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // Brief constants define the daemon methods and the bounded status, kind,
@@ -84,7 +84,7 @@ type BriefRowState struct {
 	Detail string `json:"detail"`
 }
 
-// BriefMarketSection groups broad-market and Canary rows.
+// BriefMarketSection groups broad-market and Stress rows.
 type BriefMarketSection struct {
 	BriefRowState
 	Regime  BriefRegimeRow  `json:"regime"`

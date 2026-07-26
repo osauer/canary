@@ -2,8 +2,8 @@
 
 Updated: 2026-07-25 20:23 CEST
 
-This is the single umbrella for proving and tuning `ibkr regime` and
-`ibkr stress`. Keep the work here. Do not add another experiment plan, tuning
+This is the single umbrella for proving and tuning `canary regime` and
+`canary stress`. Keep the work here. Do not add another experiment plan, tuning
 plan, or backtest framework unless this runbook says to.
 
 The goal: prove that regime and stress produce useful stress detection without
@@ -28,7 +28,7 @@ All backtest artifacts live in one of these places:
 | Path | Purpose |
 | --- | --- |
 | `docs/docs/internals/regime-backtest.md` | This runbook: sequencing, gates, stop rules, and current backlog. |
-| `docs/docs/internals/regime-dashboard.md` | Product contract for live `ibkr regime`; not a tuning backlog. |
+| `docs/docs/internals/regime-dashboard.md` | Product contract for live `canary regime`; not a tuning backlog. |
 | `scripts/backtest/` | Reproducible data-build and comparison scripts only. |
 | `build/backtest/backtest_sources*.jsonl` | Source ledgers: URLs, checksums, gaps, and retrieval status. Built, not checked in. |
 | `internal/cli/testdata/regime_pit_panel_sample.jsonl` | Tiny point-in-time sample consumed by `build-regime`. Checked in; a unit test reads it. |
@@ -44,8 +44,8 @@ the source of truth. Rebuild them.
 Small smoke fixtures:
 
 ```bash
-ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
-ibkr backtest stress --input internal/cli/testdata/stress_backtest_sample.jsonl
+canary backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
+canary backtest stress --input internal/cli/testdata/stress_backtest_sample.jsonl
 ```
 
 Capture a fresh tuning and holdout split before tuning anything. The checked-in
@@ -54,12 +54,12 @@ code that has been corrected several times since, so they measured the old bugs
 rather than the current engine.
 
 ```bash
-ibkr backtest capture-opportunity --preset top-movers --include-regime --split tuning \
+canary backtest capture-opportunity --preset top-movers --include-regime --split tuning \
   --append /tmp/regime_tuning.jsonl
-ibkr backtest capture-opportunity --preset top-movers --include-regime --split holdout \
+canary backtest capture-opportunity --preset top-movers --include-regime --split holdout \
   --holdout-plan <plan-id> --append /tmp/regime_holdout.jsonl
-ibkr backtest regime --input /tmp/regime_tuning.jsonl
-ibkr backtest stress --input /tmp/regime_tuning.jsonl
+canary backtest regime --input /tmp/regime_tuning.jsonl
+canary backtest stress --input /tmp/regime_tuning.jsonl
 ```
 
 Keep captures outside the repository. A corpus checked in beside the unit-test
@@ -68,21 +68,21 @@ fixtures reads as a fixture and stops being regenerated.
 Point-in-time regime builder:
 
 ```bash
-ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
+canary backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
   > /tmp/regime_backtest_rows.jsonl
-ibkr backtest regime --input /tmp/regime_backtest_rows.jsonl
+canary backtest regime --input /tmp/regime_backtest_rows.jsonl
 ```
 
 That is two passes only when starting from raw point-in-time market rows. If the
-input is already compact regime JSONL, run `ibkr backtest regime` directly.
+input is already compact regime JSONL, run `canary backtest regime` directly.
 
 Tier 1 expanded panel. Build it, then work from the build output:
 
 ```bash
 python3 scripts/backtest/build-tier1-regime-panel.py
-ibkr backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl \
+canary backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl \
   > build/backtest/regime_backtest_tier1.jsonl
-ibkr backtest regime --input build/backtest/regime_backtest_tier1.jsonl
+canary backtest regime --input build/backtest/regime_backtest_tier1.jsonl
 python3 scripts/backtest/compare-tier1-vol-rules.py
 ```
 
@@ -123,7 +123,7 @@ classification for the current pass:
 
 | Series | Classification | Runtime decision |
 | --- | --- | --- |
-| `RSP/SPY` | Historical proxy for missing breadth/participation. | Do not promote. Live `ibkr regime` already has first-class constituent breadth. |
+| `RSP/SPY` | Historical proxy for missing breadth/participation. | Do not promote. Live `canary regime` already has first-class constituent breadth. |
 | `QQQE/QQQ` | Historical proxy for Nasdaq mega-cap concentration/participation. | Do not promote into broad regime. Keep as backtest context unless a separate concentration surface is designed. |
 | `IWM/SPY` | Context-only risk appetite/size rotation. | Do not promote; it is not S&P breadth and can fire during benign leadership shifts. |
 | `HYG/LQD`, `HYG/IEF` | Historical credit-confirmation proxies. | Do not promote now. Runtime already exposes HYG/SPY and official HY OAS; add another live credit ETF row only if HY OAS proves persistently unavailable. |
@@ -131,10 +131,10 @@ classification for the current pass:
 | `TLT/IEF`, `SHY/IEF` | Context-only rates/duration stress proxies. | Do not promote; they are not MOVE/rates vol and produced calm/rally false alarms. |
 | FRED rates/curve series | Context or source-data support. | Do not promote as new regime indicators without a separate product definition and point-in-time source gate. |
 
-No Tier 2 ETF proxy is promoted into live `ibkr regime` in this pass. The
+No Tier 2 ETF proxy is promoted into live `canary regime` in this pass. The
 production change is narrower: isolated red VVIX is treated as an
 unconfirmed equity-volatility warning unless severity or already-visible tape
-confirms it. The red row remains visible in `ibkr regime`; only the cluster vote
+confirms it. The red row remains visible in `canary regime`; only the cluster vote
 is downgraded from stress to watch.
 
 ## Current findings
@@ -287,10 +287,10 @@ After CLI or daemon changes, also install and smoke the actual binary:
 
 ```bash
 make restart-daemon
-ibkr status
-ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
+canary status
+canary backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
   > /tmp/ibkr-build-regime-smoke.jsonl
-ibkr backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
+canary backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
 ```
 
 ## Not doing

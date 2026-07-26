@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 // TestStreamingParity is the binding gate for the streaming MCP surface.
@@ -30,7 +30,7 @@ func TestStreamingParity(t *testing.T) {
 			t.Errorf("template %s: mimeType %q, want application/json", rt.URITemplate, rt.MIMEType)
 		}
 		if banned, verb := uriContainsTradingVerb(rt.URITemplate); banned {
-			t.Errorf("template %s contains banned trading verb %q — ibkr is read-only", rt.URITemplate, verb)
+			t.Errorf("template %s contains banned trading verb %q — Canary is read-only", rt.URITemplate, verb)
 		}
 	}
 	for uri, name := range wantURIs {
@@ -55,12 +55,12 @@ func TestParseQuoteURIStock(t *testing.T) {
 		wantSym string
 		wantErr bool
 	}{
-		{"happy", "ibkr://quote/AAPL", "AAPL", false},
-		{"lowercase", "ibkr://quote/aapl", "AAPL", false},
-		{"empty symbol", "ibkr://quote/", "", true},
-		{"trailing slash", "ibkr://quote/AAPL/", "", true},
-		{"option in stock template", "ibkr://quote/AAPL/240119/C/195", "", true},
-		{"unrecognised scheme", "ibkr://watch/AAPL", "", true},
+		{"happy", "canary://quote/AAPL", "AAPL", false},
+		{"lowercase", "canary://quote/aapl", "AAPL", false},
+		{"empty symbol", "canary://quote/", "", true},
+		{"trailing slash", "canary://quote/AAPL/", "", true},
+		{"option in stock template", "canary://quote/AAPL/240119/C/195", "", true},
+		{"unrecognised scheme", "canary://watch/AAPL", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,7 +151,7 @@ func TestResourcesTemplatesListReturnsCanonicalInventory(t *testing.T) {
 func TestResourcesSubscribeWithoutDialerErrors(t *testing.T) {
 	t.Parallel()
 	in := &bytes.Buffer{}
-	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"resources/subscribe","params":{"uri":"ibkr://quote/AAPL"}}` + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"resources/subscribe","params":{"uri":"canary://quote/AAPL"}}` + "\n")
 
 	out := &bytes.Buffer{}
 	srv := NewServer(nil, "test")
@@ -182,7 +182,7 @@ func TestResourcesSubscribeWithoutDialerErrors(t *testing.T) {
 func TestResourcesSubscribeRejectsBadURI(t *testing.T) {
 	t.Parallel()
 	in := &bytes.Buffer{}
-	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"resources/subscribe","params":{"uri":"ibkr://nonsense/AAPL"}}` + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"resources/subscribe","params":{"uri":"canary://nonsense/AAPL"}}` + "\n")
 
 	out := &bytes.Buffer{}
 	srv := NewServer(nil, "test")
@@ -212,7 +212,7 @@ func TestResourcesSubscribeRejectsBadURI(t *testing.T) {
 func TestResourcesUnsubscribeOnUnknownURIIsNoOp(t *testing.T) {
 	t.Parallel()
 	in := &bytes.Buffer{}
-	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"resources/unsubscribe","params":{"uri":"ibkr://quote/NEVER"}}` + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"resources/unsubscribe","params":{"uri":"canary://quote/NEVER"}}` + "\n")
 
 	out := &bytes.Buffer{}
 	srv := NewServer(nil, "test")

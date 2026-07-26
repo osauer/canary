@@ -15,12 +15,13 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/xdgcache"
+	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/xdgcache"
 )
 
 // GitHubReleasesURL is the latest-release endpoint for the public repo.
 // The endpoint excludes prereleases, so callers receive the stable channel.
-const GitHubReleasesURL = "https://api.github.com/repos/osauer/ibkr/releases/latest"
+const GitHubReleasesURL = "https://api.github.com/repos/osauer/canary/releases/latest"
 
 // httpTimeout bounds any single HTTP request (metadata or download).
 // 60s comfortably covers a ~20MB tarball over a slow connection while
@@ -54,9 +55,9 @@ func FetchLatestRelease(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	// Identify the tool to GitHub's API ops so a misbehaving release of
-	// ibkr can be traced to its source. Matches the pattern the SPX
+	// Canary can be traced to its source. Matches the pattern the SPX
 	// refresher uses against Wikipedia.
-	req.Header.Set("User-Agent", "ibkr-update")
+	req.Header.Set("User-Agent", "canary-update")
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	client := &http.Client{Timeout: httpTimeout}
@@ -69,7 +70,7 @@ func FetchLatestRelease(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("github releases API returned status %d", resp.StatusCode)
 	}
 	// Cap the body read so a misbehaving server can't OOM the CLI.
-	// The latest-release JSON for ibkr is < 50KB; 1MiB is generous.
+	// The latest-release JSON for Canary is < 50KB; 1MiB is generous.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read release metadata: %w", err)
@@ -91,12 +92,10 @@ func FetchLatestRelease(ctx context.Context) (*Release, error) {
 // for your platform" — we don't synthesise an error here to keep the
 // branching at the call site explicit.
 //
-// The release pipeline also publishes an explicit opt-in
-// "ibkr-trading-..." archive for the same host. Match the standard
-// read-only archive by its complete release-derived filename so asset
-// ordering can never broaden the installed binary's broker authority.
+// The match is exact. Trading variants and pre-rename asset names can never
+// broaden the installed binary's authority or act as an implicit fallback.
 func (r *Release) AssetForHost() (name, url string, ok bool) {
-	want := fmt.Sprintf("ibkr-%s-%s-%s.tar.gz", r.TagName, runtime.GOOS, runtime.GOARCH)
+	want := fmt.Sprintf("%s-%s-%s-%s.tar.gz", productidentity.Executable, r.TagName, runtime.GOOS, runtime.GOARCH)
 	for _, a := range r.Assets {
 		if a.Name == want {
 			return a.Name, a.URL, true
@@ -142,7 +141,7 @@ func DownloadAsset(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ibkr-update")
+	req.Header.Set("User-Agent", "canary-update")
 
 	client := &http.Client{Timeout: httpTimeout}
 	resp, err := client.Do(req)
@@ -154,7 +153,7 @@ func DownloadAsset(ctx context.Context, url, dest string) error {
 		return fmt.Errorf("download %s: status %d", url, resp.StatusCode)
 	}
 	// Bound the read so a misbehaving CDN can't fill the disk. 200MiB
-	// is well above any plausible ibkr tarball size (~20MiB current).
+	// is well above any plausible Canary tarball size (~20MiB current).
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 200<<20))
 	if err != nil {
 		return fmt.Errorf("read %s: %w", url, err)

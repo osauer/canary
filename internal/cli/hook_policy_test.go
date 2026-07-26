@@ -9,21 +9,21 @@ import (
 	"testing"
 )
 
-const hookPath = "../../hooks/ibkr-pre-tool-use.sh"
+const hookPath = "../../hooks/canary-pre-tool-use.sh"
 
-func TestIBKRPreToolHookLiveReadyAllowsBrokerWrite(t *testing.T) {
+func TestCanaryPreToolHookLiveReadyAllowsBrokerWrite(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"live","can_write":true,"blocked":false,"live_override":"ready","gateway_port":4001,"account":"U1234567","endpoint":"127.0.0.1:4001"}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr order place --preview-token TOKEN --json"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary order place --preview-token TOKEN --json"})
 	if res.code != 0 {
 		t.Fatalf("hook exit=%d stderr=%s", res.code, res.stderr)
 	}
 }
 
-func TestIBKRPreToolHookBlocksChainedReadThenWrite(t *testing.T) {
+func TestCanaryPreToolHookBlocksChainedReadThenWrite(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"live","can_write":true,"blocked":false,"live_override":"ready","gateway_port":4001,"account":"U1234567","endpoint":"127.0.0.1:4001"}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr order status abc; ibkr order place --preview-token TOKEN --json"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary order status abc; canary order place --preview-token TOKEN --json"})
 	if res.code != 2 {
 		t.Fatalf("hook exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
@@ -32,10 +32,10 @@ func TestIBKRPreToolHookBlocksChainedReadThenWrite(t *testing.T) {
 	}
 }
 
-func TestIBKRPreToolHookGatesOpportunitiesExercise(t *testing.T) {
+func TestCanaryPreToolHookGatesOpportunitiesExercise(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"paper","can_write":false,"blocked":false,"live_override":"blocked","gateway_port":4002,"account":"DU1234567","endpoint":"127.0.0.1:4002","write_blockers":[{"code":"trading_frozen"}]}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr opportunities exercise option_exercise:a sha256:rev --json"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary opportunities exercise option_exercise:a sha256:rev --json"})
 	if res.code != 2 {
 		t.Fatalf("hook exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
@@ -44,10 +44,10 @@ func TestIBKRPreToolHookGatesOpportunitiesExercise(t *testing.T) {
 	}
 }
 
-func TestIBKRPreToolHookGatesProposalReduceSubmit(t *testing.T) {
+func TestCanaryPreToolHookGatesProposalReduceSubmit(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"disabled","can_write":false,"blocked":true,"live_override":"blocked","write_blockers":[{"code":"trading_disabled"}]}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr proposals reduce BB --percent 25 --submit --json"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary proposals reduce BB --percent 25 --submit --json"})
 	if res.code != 2 {
 		t.Fatalf("hook exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
@@ -56,10 +56,10 @@ func TestIBKRPreToolHookGatesProposalReduceSubmit(t *testing.T) {
 	}
 }
 
-func TestIBKRPreToolHookBlocksComposedProposalReduceSubmit(t *testing.T) {
+func TestCanaryPreToolHookBlocksComposedProposalReduceSubmit(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"live","can_write":true,"blocked":false,"live_override":"ready","gateway_port":4001,"account":"U1234567"}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr proposals reduce BB --percent 25 --submit --json; echo done"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary proposals reduce BB --percent 25 --submit --json; echo done"})
 	if res.code != 2 {
 		t.Fatalf("hook exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
@@ -68,36 +68,36 @@ func TestIBKRPreToolHookBlocksComposedProposalReduceSubmit(t *testing.T) {
 	}
 }
 
-func TestIBKRPreToolHookDoesNotFreezeExemptFutureClose(t *testing.T) {
+func TestCanaryPreToolHookDoesNotFreezeExemptFutureClose(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"live","blocked":false,"live_override":"ready","can_write":false,"account":"U1234567","gateway_port":7496,"write_blockers":[{"code":"trading_frozen"}]}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr order close 42"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary order close 42"})
 	if res.code != 2 {
 		t.Fatalf("hook exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
 }
 
-func TestIBKRPreToolHookAllowsReadOnlyPipe(t *testing.T) {
+func TestCanaryPreToolHookAllowsReadOnlyPipe(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"paper","can_write":true,"blocked":false,"live_override":"blocked","gateway_port":4002,"account":"DU1234567","endpoint":"127.0.0.1:4002"}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr opportunities status --json | jq ."})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary opportunities status --json | jq ."})
 	if res.code != 0 {
 		t.Fatalf("hook exit=%d stderr=%s", res.code, res.stderr)
 	}
 }
 
-func TestIBKRPreToolHookAllowsHelpPipeForWriteShapedCommand(t *testing.T) {
+func TestCanaryPreToolHookAllowsHelpPipeForWriteShapedCommand(t *testing.T) {
 	t.Parallel()
-	res := runIBKRHook(t, hookRun{command: "ibkr settings set --help | sed -n 1,80p"})
+	res := runCanaryHook(t, hookRun{command: "canary settings set --help | sed -n 1,80p"})
 	if res.code != 0 {
 		t.Fatalf("hook exit=%d stderr=%s", res.code, res.stderr)
 	}
 }
 
-func TestIBKRPreToolHookDoesNotLetHelpHideSecondIBKRWrite(t *testing.T) {
+func TestCanaryPreToolHookDoesNotLetHelpHideSecondCanaryWrite(t *testing.T) {
 	t.Parallel()
 	status := `{"mode":"live","can_write":true,"blocked":false,"live_override":"ready","gateway_port":4001,"account":"U1234567","endpoint":"127.0.0.1:4001"}`
-	res := runIBKRHook(t, hookRun{status: status, command: "ibkr settings set --help; ibkr order place --preview-token TOKEN"})
+	res := runCanaryHook(t, hookRun{status: status, command: "canary settings set --help; canary order place --preview-token TOKEN"})
 	if res.code != 2 {
 		t.Fatalf("hook exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
@@ -106,18 +106,26 @@ func TestIBKRPreToolHookDoesNotLetHelpHideSecondIBKRWrite(t *testing.T) {
 	}
 }
 
-func TestIBKRPreToolHookMissingJQOnlyBlocksIBKR(t *testing.T) {
+func TestCanaryPreToolHookMissingJQOnlyBlocksCanary(t *testing.T) {
 	t.Parallel()
 	path := pathWithoutJQ(t)
-	if res := runIBKRHook(t, hookRun{command: "echo hi", path: path}); res.code != 0 {
-		t.Fatalf("non-ibkr without jq exit=%d stderr=%s", res.code, res.stderr)
+	if res := runCanaryHook(t, hookRun{command: "echo hi", path: path}); res.code != 0 {
+		t.Fatalf("non-canary without jq exit=%d stderr=%s", res.code, res.stderr)
 	}
-	res := runIBKRHook(t, hookRun{command: "ibkr order place --preview-token TOKEN", path: path})
+	res := runCanaryHook(t, hookRun{command: "canary order place --preview-token TOKEN", path: path})
 	if res.code != 2 {
-		t.Fatalf("ibkr without jq exit=%d stderr=%s, want 2", res.code, res.stderr)
+		t.Fatalf("canary without jq exit=%d stderr=%s, want 2", res.code, res.stderr)
 	}
 	if !strings.Contains(res.stderr, "jq is required") {
 		t.Fatalf("stderr missing jq requirement: %s", res.stderr)
+	}
+}
+
+func TestCanaryPreToolHookRejectsRetiredIBKRExecutable(t *testing.T) {
+	t.Parallel()
+	res := runCanaryHook(t, hookRun{command: "ibkr status --json"})
+	if res.code != 2 || !strings.Contains(res.stderr, "retired ibkr executable") {
+		t.Fatalf("retired executable exit=%d stderr=%s", res.code, res.stderr)
 	}
 }
 
@@ -132,20 +140,20 @@ type hookResult struct {
 	stderr string
 }
 
-func runIBKRHook(t *testing.T, in hookRun) hookResult {
+func runCanaryHook(t *testing.T, in hookRun) hookResult {
 	t.Helper()
 	temp := t.TempDir()
-	fakeIBKR := filepath.Join(temp, "ibkr")
+	fakeCanary := filepath.Join(temp, "canary")
 	script := `#!/bin/sh
 if [ "$1" = "trading" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  printf '%s\n' "$IBKR_FAKE_STATUS"
+  printf '%s\n' "$CANARY_FAKE_STATUS"
   exit 0
 fi
-printf 'unexpected fake ibkr call: %s\n' "$*" >&2
+printf 'unexpected fake canary call: %s\n' "$*" >&2
 exit 44
 `
-	if err := os.WriteFile(fakeIBKR, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake ibkr: %v", err)
+	if err := os.WriteFile(fakeCanary, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake canary: %v", err)
 	}
 	payload := `{"tool_input":{"command":` + strconvQuote(in.command) + `}}`
 	cmd := exec.Command("/bin/bash", hookPath)
@@ -156,7 +164,7 @@ exit 44
 	}
 	cmd.Env = append(os.Environ(),
 		"PATH="+path,
-		"IBKR_FAKE_STATUS="+in.status,
+		"CANARY_FAKE_STATUS="+in.status,
 	)
 	out, err := cmd.CombinedOutput()
 	code := 0

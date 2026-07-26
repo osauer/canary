@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-daemon-control.sh"
 
-BIN="${1:?usage: release-smoke.sh <bin/ibkr> <expected-version> <bin/wire-assert>}"
+BIN="${1:?usage: release-smoke.sh <bin/canary> <expected-version> <bin/wire-assert>}"
 EXPECTED="${2:?expected version required, e.g. v0.15.1}"
 ASSERT="${3:?wire-assert path required, e.g. bin/wire-assert}"
 
@@ -34,12 +34,12 @@ if [[ ! "$GATEWAY_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]; then
     echo "release-smoke: invalid IBKR_TEST_HOST: $GATEWAY_HOST" >&2
     exit 2
 fi
-STRICT="${IBKR_SMOKE_STRICT:-0}"
-JSON_TIMEOUT="${IBKR_RELEASE_VERIFY_TIMEOUT:-15}"
-WIRE_TIMEOUT="${IBKR_SMOKE_TIMEOUT:-60}"
-SMOKE_CLIENT_ID="${IBKR_SMOKE_CLIENT_ID:-$((200 + ($$ % 600)))}"
+STRICT="${CANARY_SMOKE_STRICT:-0}"
+JSON_TIMEOUT="${CANARY_RELEASE_VERIFY_TIMEOUT:-15}"
+WIRE_TIMEOUT="${CANARY_SMOKE_TIMEOUT:-60}"
+SMOKE_CLIENT_ID="${CANARY_SMOKE_CLIENT_ID:-$((200 + ($$ % 600)))}"
 if [[ ! "$SMOKE_CLIENT_ID" =~ ^[0-9]+$ ]] || (( SMOKE_CLIENT_ID < 1 || SMOKE_CLIENT_ID > 998 )); then
-    echo "release-smoke: invalid IBKR_SMOKE_CLIENT_ID: $SMOKE_CLIENT_ID" >&2
+    echo "release-smoke: invalid CANARY_SMOKE_CLIENT_ID: $SMOKE_CLIENT_ID" >&2
     exit 2
 fi
 BREADTH_CLIENT_ID=$((SMOKE_CLIENT_ID + 1))
@@ -188,9 +188,9 @@ breadth_client_id = $BREADTH_CLIENT_ID
 tls = false
 EOF
 
-export IBKR_SOCKET="$SOCKET"
-export IBKR_LOG="$LOG"
-export IBKR_CONFIG="$CONFIG"
+export CANARY_SOCKET="$SOCKET"
+export CANARY_LOG="$LOG"
+export CANARY_CONFIG="$CONFIG"
 # Isolated trading state: marks, journals, and tokens must not touch the
 # user's canonical daemon state (nor inherit it — a false inactive mark
 # in operator state failed the v1.15.0 release smoke, 2026-07-08).
@@ -247,7 +247,7 @@ for attempt in $(seq 1 100); do
 done
 if [[ "$daemon_version" != "$EXPECTED" ]]; then
     echo "release-smoke: FAIL: daemon stamped version=$daemon_version, expected=$EXPECTED" >&2
-    echo "(autospawn picked up an unexpected binary - check \$PATH and bin/ibkr)" >&2
+    echo "(autospawn picked up an unexpected binary - check \$PATH and bin/canary)" >&2
     exit 1
 fi
 bg_check="$(printf '%s' "$status_json" | python3 -c '
@@ -340,7 +340,7 @@ echo "  [4] account.summary..."
 # broker snapshot (internal/daemon/account_authority.go's
 # accountSnapshotFreshFor), so Rulebook, Canary, brief, app, and CLI reads
 # arriving together cost one reqAccountSummary instead of a burst. An
-# `ibkr account` issued seconds after the boot/status read is therefore
+# `canary account` issued seconds after the boot/status read is therefore
 # served from that snapshot and emits no request of its own.
 #
 # Unlike the shared SPY line above — a live subscription whose data keeps

@@ -81,7 +81,7 @@ func TestWriteAtomicLeavesNoTempOnSuccess(t *testing.T) {
 
 // TestOpenLockContention exercises the load-bearing property: a second
 // acquisition while the first is held returns ErrLocked, not blocking
-// or succeeding. The `ibkr update` flow relies on this to surface
+// or succeeding. The `canary update` flow relies on this to surface
 // "another install in flight" rather than racing on the .bak rotation.
 func TestOpenLockContention(t *testing.T) {
 	dir := t.TempDir()
@@ -133,7 +133,7 @@ func TestOpenLockReleaseIdempotent(t *testing.T) {
 }
 
 // TestOpenLockGoroutineContention exercises the concurrent case the
-// daemon and `ibkr update` actually hit: two goroutines racing for the
+// daemon and `canary update` actually hit: two goroutines racing for the
 // same lock. Exactly one acquires; the other sees ErrLocked.
 func TestOpenLockGoroutineContention(t *testing.T) {
 	dir := t.TempDir()

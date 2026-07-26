@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runSettings(ctx context.Context, env *Env, args []string) int {
@@ -26,7 +26,7 @@ func runSettings(ctx context.Context, env *Env, args []string) int {
 	case "set":
 		return runSettingsSet(ctx, env, args)
 	default:
-		return fail(env, "settings: unknown subcommand %q (try `ibkr settings show` or `ibkr settings set key=value`)", sub)
+		return fail(env, "settings: unknown subcommand %q (try `canary settings show` or `canary settings set key=value`)", sub)
 	}
 }
 
@@ -81,7 +81,7 @@ func runSettingsSet(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 1 {
-		return fail(env, "settings set: usage is `ibkr settings set key=value`; run `ibkr settings set --help` for supported keys")
+		return fail(env, "settings set: usage is `canary settings set key=value`; run `canary settings set --help` for supported keys")
 	}
 	patch, err := settingsPatchFromAssignment(fs.Arg(0))
 	if err != nil {
@@ -212,18 +212,18 @@ func supportedSettingsKeys() []string {
 }
 
 func printSettingsUsage(env *Env) {
-	fmt.Fprintln(env.Stdout, "ibkr settings — Runtime platform preferences and observed read-only state")
+	fmt.Fprintln(env.Stdout, "canary settings — Runtime platform preferences and observed read-only state")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "Usage: ibkr settings show [--json]")
-	fmt.Fprintln(env.Stdout, "       ibkr settings set <supported-key>=<value> [--json]")
+	fmt.Fprintln(env.Stdout, "Usage: canary settings show [--json]")
+	fmt.Fprintln(env.Stdout, "       canary settings set <supported-key>=<value> [--json]")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "Run `ibkr settings set --help` for supported keys.")
+	fmt.Fprintln(env.Stdout, "Run `canary settings set --help` for supported keys.")
 }
 
 func printSettingsSetUsage(env *Env) {
-	fmt.Fprintln(env.Stdout, "ibkr settings set — update a daemon-owned runtime setting")
+	fmt.Fprintln(env.Stdout, "canary settings set — update a daemon-owned runtime setting")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "Usage: ibkr settings set <supported-key>=<value> [--json]")
+	fmt.Fprintln(env.Stdout, "Usage: canary settings set <supported-key>=<value> [--json]")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Supported keys:")
 	for _, spec := range rpc.SettingsKeys() {
@@ -262,7 +262,7 @@ func parseSettingsValue(raw string) (any, error) {
 func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Settings  %s\n", env.statusBadge(settingsVerdict(*st)))
+	fmt.Fprintf(out, "Canary Settings  %s\n", env.statusBadge(settingsVerdict(*st)))
 	fmt.Fprintln(out)
 	statusRow(env, out, "Purge/restore workflow", formatSettingsBool(env, st.Features.PurgeRestore.Enabled))
 	statusRow(env, out, "Purge/restore submit", "unavailable (use TWS)")

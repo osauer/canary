@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// handshakeWaitBudget bounds how long `ibkr status` waits for the daemon's
+// handshakeWaitBudget bounds how long `canary status` waits for the daemon's
 // IB Gateway handshake to land. The daemon publishes a bounded connection
 // error when TCP succeeds but the API handshake does not; this larger budget
 // also covers TLS fallback and slow healthy gateways.
@@ -175,7 +175,7 @@ func nextConcern(res rpc.HealthResult, cliVersion string) statusConcern {
 		return statusConcern{Text: "Gateway handshake still in progress", Level: statusConcernNotice}
 	case daemonVersionDrift(res.DaemonVersion, cliVersion):
 		return statusConcern{
-			Text:  fmt.Sprintf("CLI version %s differs from daemon %s; run `ibkr restart` to pick up the new binary", cliVersion, res.DaemonVersion),
+			Text:  fmt.Sprintf("CLI version %s differs from daemon %s; run `canary restart` to pick up the new binary", cliVersion, res.DaemonVersion),
 			Level: statusConcernWarn,
 		}
 	case len(res.DataFarms) > 0:
@@ -479,7 +479,7 @@ func isHandshakeInFlight(res rpc.HealthResult) bool {
 // backgroundTaskPhrase renders a stable wire token (the one the
 // daemon's backgroundTasks() emits) as a short verb phrase suitable
 // for the status row. Unknown tokens fall through verbatim so a
-// daemon shipping a new task name still appears in `ibkr status`
+// daemon shipping a new task name still appears in `canary status`
 // even before the CLI has been updated.
 func backgroundTaskPhrase(token string) string {
 	switch token {
@@ -515,7 +515,7 @@ func waitForStatusVerdict(ctx context.Context, progress io.Writer, jsonOut bool,
 // waitForHandshake polls fetch until it returns a verdict (Connected, or
 // LastError set) or budget elapses.
 func waitForHandshake(ctx context.Context, w io.Writer, fetch healthFetcher, initial rpc.HealthResult, budget, pollInterval time.Duration) rpc.HealthResult {
-	fmt.Fprintf(w, "ibkr: waiting for IB Gateway handshake (up to %s)", budget)
+	fmt.Fprintf(w, "canary: waiting for IB Gateway handshake (up to %s)", budget)
 	defer fmt.Fprintln(w)
 
 	res := initial

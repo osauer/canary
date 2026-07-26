@@ -5,7 +5,7 @@
 Please report security issues privately — not via public GitHub issues.
 
 Open a draft advisory via GitHub Private Vulnerability Reporting at
-<https://github.com/osauer/ibkr/security/advisories/new>. Plain English is
+<https://github.com/osauer/canary/security/advisories/new>. Plain English is
 fine; a proof-of-concept is appreciated but not required. GitHub will email
 the maintainer privately and let you correspond in the advisory thread
 without exposing details until the fix ships.
@@ -34,7 +34,7 @@ Only the latest minor release of the current stable line receives security fixes
 
 ## Threat model
 
-`ibkr` default builds are structurally no-broker-write: the order surface is limited to local preview/status reads, and the daemon cannot place, modify, cancel, or transmit broker orders unless built with the trading capability (see [README §Safety](README.md#safety)). The daemon listens only on a Unix-domain socket in the user's runtime directory, never on a TCP port. It speaks to a locally-running IB Gateway or TWS over loopback. The project sends no telemetry or account data to the maintainer, but configured features do make outbound requests: in particular, automatic earnings refresh can disclose held ticker symbols to Nasdaq, and optional remote access carries app traffic through the configured relay. [PRIVACY.md](PRIVACY.md#network-access) inventories the destinations, triggers, and disclosed data classes.
+`canary` default builds are structurally no-broker-write: the order surface is limited to local preview/status reads, and the daemon cannot place, modify, cancel, or transmit broker orders unless built with the trading capability (see [README §Safety](README.md#safety)). The daemon listens only on a Unix-domain socket in the user's runtime directory, never on a TCP port. It speaks to a locally-running IB Gateway or TWS over loopback. The project sends no telemetry or account data to the maintainer, but configured features do make outbound requests: in particular, automatic earnings refresh can disclose held ticker symbols to Nasdaq, and optional remote access carries app traffic through the configured relay. [PRIVACY.md](PRIVACY.md#network-access) inventories the destinations, triggers, and disclosed data classes.
 
 Reports that demonstrate a deviation from those properties — a successful place / modify / cancel / trade reaching the gateway, a daemon listener on a non-loopback or non-Unix socket, or undocumented or broader-than-documented data egress — take priority.
 
@@ -66,7 +66,7 @@ Honest limits of this interlock:
   QA read-only and use the agent-origin gated CLI for an explicitly requested
   write. App writes still require the preview token and server-validated
   account/mode confirmation fields.
-- **Paper-smoke evidence is MAC'd, not secret.** `ibkr trading paper-smoke`
+- **Paper-smoke evidence is MAC'd, not secret.** `canary trading paper-smoke`
   writes evidence signed with the order-token HMAC key, so hand-written or
   edited `trading-readiness.json` files surface as `unsigned` in trading
   status. Since 2026-06-10 the evidence is a release-pipeline quality gate
@@ -80,17 +80,17 @@ Honest limits of this interlock:
 
 Every GitHub release from v1.0.0 onward ships signed checksums for the published install assets:
 
-1. `ibkr-vX.Y.Z-<os>-<arch>.tar.gz` — the shell/manual binary tarballs.
-2. `ibkr-vX.Y.Z.mcpb` — the versioned Claude Desktop MCP Bundle, when published.
-3. `ibkr.mcpb` — stable latest-download alias for the same MCP Bundle bytes, when published.
+1. `canary-vX.Y.Z-<os>-<arch>.tar.gz` — the shell/manual binary tarballs.
+2. `canary-vX.Y.Z.mcpb` — the versioned Claude Desktop MCP Bundle, when published.
+3. `canary.mcpb` — stable latest-download alias for the same MCP Bundle bytes, when published.
 4. `SHA256SUMS` — one line per tarball and MCPB asset with its SHA-256.
 5. `SHA256SUMS.asc` — a PGP detached signature over `SHA256SUMS`, produced by the maintainer's release-signing key.
 
-`install.sh` and `ibkr update` (from v1.0.0 onward) **refuse** any release that does not publish `SHA256SUMS.asc`, and refuse any release whose `SHA256SUMS.asc` does not verify against the maintainer's release-signing key. `install.sh` pins the key fingerprint during bootstrap; `ibkr update` verifies against the public key embedded in the running binary. There is no fallback path. A release whose signature cannot be checked is treated as a compromised release.
+`install.sh` and `canary update` (from v1.0.0 onward) **refuse** any release that does not publish `SHA256SUMS.asc`, and refuse any release whose `SHA256SUMS.asc` does not verify against the maintainer's release-signing key. `install.sh` pins the key fingerprint during bootstrap; `canary update` verifies against the public key embedded in the running binary. There is no fallback path. A release whose signature cannot be checked is treated as a compromised release.
 
 The MCP Registry publish metadata for an MCPB release also includes the versioned bundle URL and `fileSha256`. That registry hash is a discovery/install integrity hint; the signed `SHA256SUMS` file remains the release-level trust anchor.
 
-The MCPB container itself is not yet code-signed. Do not treat the `.mcpb` file as signed unless `mcpb verify ibkr-vX.Y.Z.mcpb` succeeds. Signed checksums and the MCP Registry hash are the current integrity mechanisms for MCPB releases; self-signed bundles are not a trust upgrade.
+The MCPB container itself is not yet code-signed. Do not treat the `.mcpb` file as signed unless `mcpb verify canary-vX.Y.Z.mcpb` succeeds. Signed checksums and the MCP Registry hash are the current integrity mechanisms for MCPB releases; self-signed bundles are not a trust upgrade.
 
 ### The maintainer's release-signing key
 
@@ -99,12 +99,12 @@ The MCPB container itself is not yet code-signed. Do not treat the `.mcpb` file 
 | Owner | Oliver Sauer (`oliver.sauer@gmail.com`) |
 | Algorithm | Ed25519 |
 | Fingerprint | `D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D` |
-| Embedded in | every `ibkr` binary from v1.0.0 onward, at `internal/update/release-signing-key.asc` |
+| Embedded in | every `canary` binary from v1.0.0 onward, at `internal/update/release-signing-key.asc` |
 | Also published at | `https://github.com/osauer.gpg` (served by GitHub) |
 
 ### Verifying a release by hand
 
-If you want to verify a downloaded tarball without trusting `ibkr update`:
+If you want to verify a downloaded tarball without trusting `canary update`:
 
 ```sh
 # 1. Get the maintainer's key (one of two equivalent paths).
@@ -118,8 +118,8 @@ gpg --fingerprint oliver.sauer@gmail.com
 # 3. Download the release artefacts for your platform.
 VERSION=v1.0.0
 PLAT=darwin-arm64
-BASE=https://github.com/osauer/ibkr/releases/download/$VERSION
-curl -fLO $BASE/ibkr-$VERSION-$PLAT.tar.gz
+BASE=https://github.com/osauer/canary/releases/download/$VERSION
+curl -fLO $BASE/canary-$VERSION-$PLAT.tar.gz
 curl -fLO $BASE/SHA256SUMS
 curl -fLO $BASE/SHA256SUMS.asc
 
@@ -138,7 +138,7 @@ Both lines must end in `Good signature` and `OK` respectively. Either failing me
 
 ### Key rotation and revocation
 
-The signing key is long-lived (no expiration date) because it is embedded in every shipped binary. Rotation requires shipping a new ibkr binary with the new public key embedded. A revocation certificate is held offline by the maintainer; if used, it will be published to keyservers and announced in `SECURITY.md`.
+The signing key is long-lived (no expiration date) because it is embedded in every shipped binary. Rotation requires shipping a new Canary binary with the new public key embedded. A revocation certificate is held offline by the maintainer; if used, it will be published to keyservers and announced in `SECURITY.md`.
 
 ## Diagnostic data sensitivity
 

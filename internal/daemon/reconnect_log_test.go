@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/discover"
 )
 
 // These tests pin the reconnect-retry log-volume fix: the connect-failure
@@ -166,11 +166,11 @@ func TestReconnectBackoff_Schedule(t *testing.T) {
 	}
 	// The cap must stay below the CLI's handshakeWaitBudget (internal/cli
 	// status.go, 25s) so a user moving IBKR from Gateway to TWS recovers
-	// within a single `ibkr status`. Duplicated as a literal because that
+	// within a single `canary status`. Duplicated as a literal because that
 	// const is unexported in another package.
 	const cliHandshakeWaitBudget = 25 * time.Second
 	if reconnectBackoffMax >= cliHandshakeWaitBudget {
-		t.Fatalf("reconnectBackoffMax (%s) must stay below the CLI handshakeWaitBudget (%s) so a single `ibkr status` still recovers",
+		t.Fatalf("reconnectBackoffMax (%s) must stay below the CLI handshakeWaitBudget (%s) so a single `canary status` still recovers",
 			reconnectBackoffMax, cliHandshakeWaitBudget)
 	}
 }

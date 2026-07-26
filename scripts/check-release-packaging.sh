@@ -5,6 +5,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/with-release-tag-checkout_test.sh
 ./scripts/build-release-target_test.sh
+./scripts/build-release-artifacts_test.sh
+./scripts/build-mcpb_test.sh
+./scripts/install_test.sh
+./scripts/registry-publish-verify-first_test.sh
+./scripts/check-release-boundary.sh
+./scripts/check-release-boundary_test.sh
+./scripts/lib-daemon-control_test.sh
 ./scripts/release-paper-smoke_test.sh
 
 for path in SECURITY.md docs/docs/operate/orders.md; do
@@ -13,8 +20,16 @@ for path in SECURITY.md docs/docs/operate/orders.md; do
 		exit 1
 	}
 done
-if grep -Eq 'github\.com/osauer/ibkr/blob/(main|master)/' .github/release-notes-template.md; then
+if grep -Eq 'github\.com/osauer/canary/blob/(main|master)/' .github/release-notes-template.md; then
 	echo "check-release-packaging: release notes contain a moving branch link" >&2
+	exit 1
+fi
+grep -Fq 'raw.githubusercontent.com/osauer/canary/main/install.sh' .github/release-notes-template.md || {
+	echo "check-release-packaging: release notes do not use the canonical Canary installer" >&2
+	exit 1
+}
+if grep -Eq 'raw\.githubusercontent\.com/osauer/ibkr/' .github/release-notes-template.md; then
+	echo "check-release-packaging: release notes still install from the legacy repository" >&2
 	exit 1
 fi
 grep -Fq 'blob/$version/PRIVACY.md' scripts/build-mcpb.sh || {

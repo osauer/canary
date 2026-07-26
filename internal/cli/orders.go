@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runOrders(ctx context.Context, env *Env, args []string) int {
@@ -29,7 +29,7 @@ func runOrders(ctx context.Context, env *Env, args []string) int {
 	case "history":
 		return runOrdersHistory(ctx, env, args)
 	default:
-		return fail(env, "orders: unknown subcommand %q (try `ibkr orders open` or `ibkr orders history`)", sub)
+		return fail(env, "orders: unknown subcommand %q (try `canary orders open` or `canary orders history`)", sub)
 	}
 }
 
@@ -44,7 +44,7 @@ func runOrdersOpen(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 0 {
-		return fail(env, "orders open: usage is `ibkr orders open [--json]`")
+		return fail(env, "orders open: usage is `canary orders open [--json]`")
 	}
 	var res rpc.OrdersOpenResult
 	if err := env.Conn.Call(ctx, rpc.MethodOrdersOpen, rpc.OrdersOpenParams{}, &res); err != nil {
@@ -72,7 +72,7 @@ func runOrdersHistory(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 0 {
-		return fail(env, "orders history: usage is `ibkr orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]`")
+		return fail(env, "orders history: usage is `canary orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]`")
 	}
 	params := rpc.OrdersHistoryParams{
 		Since:      strings.TrimSpace(*since),
@@ -99,7 +99,7 @@ func runOrderStatus(ctx context.Context, env *Env, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail(env, "order status: usage is `ibkr order status <order-ref|order-id|perm-id>`")
+		return fail(env, "order status: usage is `canary order status <order-ref|order-id|perm-id>`")
 	}
 	var res rpc.OrderStatusResult
 	if err := env.Conn.Call(ctx, rpc.MethodOrderStatus, rpc.OrderStatusParams{ID: strings.TrimSpace(rest[0])}, &res); err != nil {
@@ -115,7 +115,7 @@ func runOrderStatus(ctx context.Context, env *Env, args []string) int {
 func renderOrdersOpenText(env *Env, res *rpc.OrdersOpenResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Open Orders  %s\n", env.statusBadge(statusConcern{Text: strconv.Itoa(len(res.Orders)), Level: statusConcernNone}))
+	fmt.Fprintf(out, "Canary Open Orders  %s\n", env.statusBadge(statusConcern{Text: strconv.Itoa(len(res.Orders)), Level: statusConcernNone}))
 	renderOrderReadScope(env, res.Account, res.Mode, res.NotBrokerStatement, res.LastLocalEventAt, res.Limitations)
 	if len(res.Orders) == 0 {
 		fmt.Fprintln(out)
@@ -145,7 +145,7 @@ func renderOrdersOpenText(env *Env, res *rpc.OrdersOpenResult) {
 func renderOrdersHistoryText(env *Env, res *rpc.OrdersHistoryResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Order History  %s\n", env.statusBadge(statusConcern{Text: strconv.Itoa(res.Count), Level: statusConcernNone}))
+	fmt.Fprintf(out, "Canary Order History  %s\n", env.statusBadge(statusConcern{Text: strconv.Itoa(res.Count), Level: statusConcernNone}))
 	statusRow(env, out, "Scope", strings.TrimSpace(nonEmpty(res.Account, "unknown")+" "+nonEmpty(res.Mode, "unknown")))
 	statusRow(env, out, "Range", fmt.Sprintf("%s to %s", formatOrderTime(res.Since), formatOrderTime(res.Until)))
 	if res.Truncated {
@@ -208,13 +208,13 @@ func renderOrderStatusText(env *Env, res *rpc.OrderStatusResult, id string) {
 	out := env.Stdout
 	fmt.Fprintln(out)
 	if !res.Found {
-		fmt.Fprintf(out, "IBKR Order Status  %s\n\n", env.statusBadge(statusConcern{Text: "NOT FOUND", Level: statusConcernWarn}))
+		fmt.Fprintf(out, "Canary Order Status  %s\n\n", env.statusBadge(statusConcern{Text: "NOT FOUND", Level: statusConcernWarn}))
 		renderOrderReadScope(env, res.Account, res.Mode, res.NotBrokerStatement, res.LastLocalEventAt, res.Limitations)
 		fmt.Fprintln(out)
 		fmt.Fprintf(out, "No locally tracked order matched %s.\n\n", id)
 		return
 	}
-	fmt.Fprintf(out, "IBKR Order Status  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(res.Order.LifecycleStatus), Level: orderStatusConcernLevel(res.Order.LifecycleStatus)}))
+	fmt.Fprintf(out, "Canary Order Status  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(res.Order.LifecycleStatus), Level: orderStatusConcernLevel(res.Order.LifecycleStatus)}))
 	renderOrderReadScope(env, res.Account, res.Mode, res.NotBrokerStatement, res.LastLocalEventAt, res.Limitations)
 	statusRow(env, out, "Order", formatOrderViewTitle(res.Order))
 	if res.Order.ReservedOrderID != 0 {

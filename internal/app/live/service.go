@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/daemonclient"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/daemonclient"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type alertCandidateClient interface {

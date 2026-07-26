@@ -150,7 +150,7 @@ type SettingsStringMap struct {
 type PlatformTradingSettings struct {
 	// Freeze is the runtime trading brake: true blocks every new broker
 	// write while cancels stay allowed. Toggled via
-	// `ibkr settings set trading.freeze=true|false`.
+	// `canary settings set trading.freeze=true|false`.
 	Freeze               SettingsBool         `json:"freeze"`
 	Mode                 SettingsString       `json:"mode"`
 	Account              SettingsString       `json:"account"`

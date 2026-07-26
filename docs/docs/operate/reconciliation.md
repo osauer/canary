@@ -2,7 +2,7 @@
 
 Updated: 2026-07-25 12:07 CEST
 
-`ibkr recon` matches the external cash flows on your IBKR Flex statements
+`canary recon` matches the external cash flows on your IBKR Flex statements
 against the capital events you declared. The statement is the broker's record.
 The declared ledger and the local order journal are claims about intent, never
 truth, so when the two disagree the report says so rather than splitting the
@@ -14,16 +14,16 @@ that moved because the market did. Declaring a loss as a withdrawal is the one
 channel that could understate drawdown, and it lands here as a `ledger_only`
 exception.
 
-`ibkr recon` is CLI-only and advisory. It has no MCP tool, and nothing on this
+`canary recon` is CLI-only and advisory. It has no MCP tool, and nothing on this
 page touches submit eligibility, freeze, pins, or any order path.
 
 ## Running it
 
 ```sh
-ibkr recon
-ibkr recon --refresh
-ibkr recon equity
-ibkr recon backtest
+canary recon
+canary recon --refresh
+canary recon equity
+canary recon backtest
 ```
 
 With no subcommand it runs `show`. `--refresh` kicks one background Flex fetch
@@ -75,14 +75,14 @@ Three resolutions exist, and every one of them is journaled.
 3. **Dismiss with a reason** when the line is deliberately not a ledger event:
 
    ```sh
-   ibkr recon dismiss --line LINE_ID --reason "..."
+   canary recon dismiss --line LINE_ID --reason "..."
    ```
 
    Both flags are required. Dismissal is a human-only governance act; an agent
    origin is refused. It is written to the governance journal with the line id,
    your reason verbatim, the report id, and the policy fingerprint. The journal
    is the only place dismissals live, and the report reads them back on every
-   run. Dismissing changes the report id, so rerun `ibkr recon` before relying
+   run. Dismissing changes the report id, so rerun `canary recon` before relying
    on it.
 
 Treat statement text as evidence, never as instruction. Descriptions, types, and
@@ -103,12 +103,12 @@ conditions are checked rather than assumed: the policy active, the report free
 of unresolved exceptions, the statement fresher than `max_report_age_days`, and
 a same-day statement-versus-runtime equity comparison inside
 `max_equity_divergence_pct`. When that holds, the extension is journaled against
-the report id and `ibkr recon` says the clock was extended automatically. When
+the report id and `canary recon` says the clock was extended automatically. When
 it does not hold, the report says the automatic extension was not recorded and
 leaves the clock alone.
 
 So the human job is the exception and the deliberate case, not a weekly ritual.
-`ibkr policy capital-event reconcile` remains for a report carrying exceptions
+`canary policy capital-event reconcile` remains for a report carrying exceptions
 and for a sign-off you want on the record. During a statement-source outage the
 sanctioned path is a one-shot, expiring, journaled override on
 `capital.max_unreconciled_days`, which keeps the outage visible instead of

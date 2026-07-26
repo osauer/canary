@@ -2,7 +2,7 @@
 
 Updated: 2026-07-25 07:35 CEST
 
-How the public documentation at <https://osauer.dev/ibkr/docs/> is organised,
+How the public documentation at <https://osauer.dev/canary/docs/> is organised,
 why it is organised that way, and what still has to be written.
 
 ## The problem this replaced
@@ -25,11 +25,11 @@ someone reading the code.
 
 | Section | URL | For |
 | --- | --- | --- |
-| Start | `/ibkr/docs/start/` | Installing, connecting a host, the first session, updates, and what to do when it breaks. |
-| Operate | `/ibkr/docs/operate/` | The daily loop: briefs, agents, the paired app, order previews, protection, reconciliation. |
-| Understand | `/ibkr/docs/understand/` | What each measurement means and who sets the limits it is measured against. |
-| Reference | `/ibkr/docs/reference/` | Command, tool, and configuration lookups. Generated from the code wherever possible. |
-| Under the hood | `/ibkr/docs/internals/` | Architecture, storage, the wire protocol, published design notes, packaging. |
+| Start | `/canary/docs/start/` | Installing, connecting a host, the first session, updates, and what to do when it breaks. |
+| Operate | `/canary/docs/operate/` | The daily loop: briefs, agents, the paired app, order previews, protection, reconciliation. |
+| Understand | `/canary/docs/understand/` | What each measurement means and who sets the limits it is measured against. |
+| Reference | `/canary/docs/reference/` | Command, tool, and configuration lookups. Generated from the code wherever possible. |
+| Under the hood | `/canary/docs/internals/` | Architecture, storage, the wire protocol, published design notes, packaging. |
 
 `docs/` is the published site and holds nothing else. Design records and
 developer guides live in `internal-docs/`; the task contracts and hygiene notes
@@ -41,13 +41,13 @@ into Under the hood instead.
 ## Decisions worth recording
 
 **Markdown sits beside the HTML it produces.** `docs/docs/internals/storage.md`
-publishes to `/ibkr/docs/internals/storage.html`, and the generator derives the
+publishes to `/canary/docs/internals/storage.html`, and the generator derives the
 second from the first. There is no mapping table to keep honest, a link that is
 correct in the source is already correct on the site, and the Markdown reads
 correctly on GitHub too. The manifest adds only what the file system cannot
 say: section, index copy, and retired URLs.
 
-**The site root is `docs/`, so `/ibkr/docs/` lands at `docs/docs/` on disk.**
+**The site root is `docs/`, so `/canary/docs/` lands at `docs/docs/` on disk.**
 Mildly surprising in a diff, and worth it: a "Documentation" navigation entry
 should lead to a URL that says `docs`.
 

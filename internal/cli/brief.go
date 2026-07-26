@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runBrief(ctx context.Context, env *Env, args []string) int {
@@ -55,7 +55,7 @@ func runBrief(ctx context.Context, env *Env, args []string) int {
 	if err != nil {
 		// Rendering succeeded. Stamping is advisory, but the failure must be
 		// conspicuous and must not turn a useful brief into a failing command.
-		fmt.Fprintf(env.Stderr, "ibkr: brief rendered but stamp failed: %v\n", err)
+		fmt.Fprintf(env.Stderr, "canary: brief rendered but stamp failed: %v\n", err)
 		return 0
 	}
 	if ack.AlreadyStamped {
@@ -141,7 +141,7 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 	briefLine(env, "auto-extend", review.AutoExtend.BriefRowState, review.AutoExtend.ReportID)
 	oneTap := "blocked"
 	if review.OneTap.Signable {
-		oneTap = "signable · ibkr policy capital-event reconcile"
+		oneTap = "signable · canary policy capital-event reconcile"
 	} else if len(review.OneTap.Blockers) > 0 {
 		oneTap += " · " + strings.Join(review.OneTap.Blockers, "; ")
 	}

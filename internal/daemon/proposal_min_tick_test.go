@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Xetra trades MiFID-banded grids: a €155 name ticks at 0.02, where the old

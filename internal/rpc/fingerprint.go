@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // Fingerprint versions identify the semantic projection used for each source.
@@ -197,7 +197,7 @@ func buildRegimeFingerprint(r *RegimeSnapshotResult, version string, sources []s
 	return semanticFingerprint(version, projection)
 }
 
-// BuildStressFingerprint returns the semantic alert identity of a canary
+// BuildStressFingerprint returns the semantic alert identity of a Stress
 // result. It hashes the classified alert state and source fingerprints, not
 // timestamps, exact observed values, evidence strings, or render text.
 func BuildStressFingerprint(r *StressResult) Fingerprint {
@@ -251,7 +251,7 @@ func BuildStressFingerprint(r *StressResult) Fingerprint {
 	return semanticFingerprint(StressFingerprintVersion, projection)
 }
 
-// BuildAccountFingerprint hashes only canary-relevant account buckets. It is
+// BuildAccountFingerprint hashes only Stress-relevant account buckets. It is
 // stable across tiny NLV, cushion, or P&L movement until a risk bucket changes.
 func BuildAccountFingerprint(a *AccountResult) Fingerprint {
 	if a == nil {

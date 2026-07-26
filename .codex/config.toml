@@ -1,4 +1,4 @@
-# Project-scoped Codex settings for the IBKR repo.
+# Project-scoped Codex settings for Canary.
 # Loaded only after this project is trusted by Codex.
 
 # Keep routine code work inside the checkout. Commands that need to install a
@@ -26,8 +26,8 @@ config_file = "./agents/risk-governance-reviewer.toml"
 description = "Read-only review of Canary SPA authority, live snapshot semantics, and rendered QA gates."
 config_file = "./agents/spa-authority-reviewer.toml"
 
-[mcp_servers.ibkr]
-command = "ibkr"
+[mcp_servers.canary]
+command = "canary"
 args = ["mcp"]
 startup_timeout_sec = 10
 tool_timeout_sec = 60

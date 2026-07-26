@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -10,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// testStressResult is a fully-populated canary snapshot for round-trip
+// testStressResult is a fully-populated stress snapshot for round-trip
 // drift guards.
 func testStressResult(key string) *rpc.StressResult {
 	relevant := true
@@ -72,6 +74,21 @@ func TestHistoryIndexStressRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDispatchRejectsRetiredCanaryHistoryMethod(t *testing.T) {
+	var wire bytes.Buffer
+	request := &rpc.Request{ID: "retired", Method: "canary.history"}
+	if terminal := (&Server{}).dispatch(context.Background(), request, json.NewEncoder(&wire), bufio.NewReader(strings.NewReader(""))); terminal {
+		t.Fatal("retired method unexpectedly reported a terminal stream")
+	}
+	var response rpc.Response
+	if err := json.Unmarshal(wire.Bytes(), &response); err != nil {
+		t.Fatalf("response decode: %v\n%s", err, wire.String())
+	}
+	if response.Ok || response.Error == nil || response.Error.Code != rpc.CodeUnknownMethod {
+		t.Fatalf("retired method response = %+v", response)
+	}
+}
+
 // TestStressJournalDedupeHeartbeatAndGate pins the journal's dedupe,
 // heartbeat, and runtime-disable semantics.
 func TestStressJournalDedupeHeartbeatAndGate(t *testing.T) {
@@ -122,7 +139,7 @@ func TestStressJournalDedupeHeartbeatAndGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(after) != len(data) {
-		t.Fatal("disabled canary journal still appended")
+		t.Fatal("disabled stress journal still appended")
 	}
 }
 
@@ -137,18 +154,18 @@ func TestStressJournalLoopSkipsWhenDisconnected(t *testing.T) {
 }
 
 // TestComposeBriefJournalsStressDecision proves the brief hook: rendering
-// a brief journals the canary it computed.
+// a brief journals the stress snapshot it computed.
 func TestComposeBriefJournalsStressDecision(t *testing.T) {
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	s.installStressDecisionJournal()
 	if s.stressDecisions == nil {
-		t.Fatal("canary journal not installed")
+		t.Fatal("stress journal not installed")
 	}
 	_, _ = s.composeBrief(context.Background())
 	data, err := os.ReadFile(s.stressDecisions.path)
 	if err != nil {
-		t.Fatalf("brief did not journal a canary decision: %v", err)
+		t.Fatalf("brief did not journal a stress decision: %v", err)
 	}
 	var line stressDecisionLine
 	if err := json.Unmarshal([]byte(strings.SplitN(string(data), "\n", 2)[0]), &line); err != nil {

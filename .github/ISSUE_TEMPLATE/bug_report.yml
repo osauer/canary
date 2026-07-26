@@ -1,5 +1,5 @@
 name: Bug report
-description: Report something reproducible in ibkr canary, the CLI, MCP server, or Canary app.
+description: Report something reproducible in Canary, the CLI, MCP server, or paired app.
 title: "[Bug]: "
 labels: ["bug"]
 body:
@@ -24,8 +24,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: ibkr version
-      description: Run `ibkr version` if available.
+      label: Canary version
+      description: Run `canary version` if available.
       placeholder: "v2.3.0"
   - type: textarea
     id: summary

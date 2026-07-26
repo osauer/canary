@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const marketAuthorityWriteAttempts = 4

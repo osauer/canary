@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Best IBKR MCP server for Claude Code | ibkr</title>
-  <meta name="description" content="Use ibkr mcp when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. This page is for...">
-  <link rel="canonical" href="https://osauer.dev/ibkr/best-ibkr-mcp-server-claude-code/">
+  <title>Best IBKR MCP server for Claude Code | Canary</title>
+  <meta name="description" content="Use Canary with Claude Code to read Interactive Brokers account and market data through a local MCP server that has no order-entry tools.">
+  <link rel="canonical" href="https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/best-ibkr-mcp-server-claude-code/">
-  <meta property="og:title" content="Best IBKR MCP server for Claude Code | ibkr">
-  <meta property="og:description" content="Use ibkr mcp when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. This page is for...">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/social-preview.png">
+  <meta property="og:url" content="https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/">
+  <meta property="og:title" content="Best IBKR MCP server for Claude Code | Canary">
+  <meta property="og:description" content="Use Canary with Claude Code to read Interactive Brokers account and market data through a local MCP server that has no order-entry tools.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
@@ -25,14 +25,14 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-07-18T21:05:00+02:00",
-    "description": "Use ibkr mcp when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. This page is for...",
+    "description": "Use Canary with Claude Code to read Interactive Brokers account and market data through a local MCP server that has no order-entry tools.",
     "headline": "Best IBKR MCP server for Claude Code",
     "isPartOf": {
       "@type": "SoftwareApplication",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     },
-    "url": "https://osauer.dev/ibkr/best-ibkr-mcp-server-claude-code/"
+    "url": "https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/"
   }
   </script>
   <link rel="stylesheet" href="../shared.css">
@@ -40,10 +40,10 @@
 <body>
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">ibkr</a>
+    <a class="brand" href="../index.html">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
@@ -51,13 +51,13 @@
   <main class="wrap doc">
 <h1 id="best-ibkr-mcp-server-for-claude-code">Best IBKR MCP server for Claude Code</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
-<p>Use <code>ibkr mcp</code> when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. This page is for searches such as &#34;best MCP server to connect IBKR API to Claude Code&#34;, &#34;best IBKR MCP server for Claude Code&#34;, &#34;Claude Code IBKR API&#34;, and &#34;read-only IBKR MCP server&#34;.</p>
-<p>Since v2.1 the same binary carries more than the MCP server: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook Claude can read through <code>ibkr_rules</code>, plus an operator-written risk policy (<code>ibkr policy</code>) and daily statement reconciliation (<code>ibkr recon</code>) in the terminal. All of it is advisory, and all of it runs locally.</p>
+<p>Use <code>canary mcp</code> when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. It runs locally through stdio beside IB Gateway or TWS.</p>
+<p>Since v2.1 the same binary carries more than the MCP server: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook Claude can read through <code>canary_rules</code>, plus an operator-written risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>) in the terminal. All of it is advisory, and all of it runs locally.</p>
 <p>Market data is the full surface: real-time and streaming quotes, option chains with Greeks and open interest, daily history, and scanners, with entitlements following your IBKR market-data subscriptions.</p>
-<p>The short answer: choose a local MCP server that connects to IB Gateway or Trader Workstation (TWS), exposes explicit read-only tools, and makes order placement impossible at the tool boundary. <code>ibkr</code> is designed around that boundary.</p>
+<p>The short answer: choose a local MCP server that connects to IB Gateway or Trader Workstation (TWS), exposes explicit read-only tools, and makes order placement impossible at the tool boundary. <code>canary</code> is designed around that boundary.</p>
 <h2 id="why-read-only-matters">Why read-only matters</h2>
 <p>Claude Code is powerful enough to inspect files, run commands, and use MCP tools. That is useful for portfolio analysis, but it is the wrong default for unsupervised brokerage order placement.</p>
-<p><code>ibkr mcp</code> exposes account, positions, quotes, calendars, options, scanners, breadth, gamma, broad-market regime lifecycle, stress-monitoring, and sizing tools. It does not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If Claude asks to trade through this MCP server, there is no tool for it to call.</p>
+<p><code>canary mcp</code> exposes account, positions, quotes, calendars, options, scanners, breadth, gamma, broad-market regime lifecycle, stress-monitoring, and sizing tools. It does not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If Claude asks to trade through this MCP server, there is no tool for it to call.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
 <li>You want Claude Code to answer &#34;what do I own?&#34; and &#34;what changed?&#34; from live IBKR account context.</li>
@@ -68,19 +68,19 @@
 </ul>
 <h2 id="claude-code-install-path">Claude Code install path</h2>
 <p>Install the Claude Code plugin from the self-hosted marketplace:</p>
-<pre><code>/plugin marketplace add osauer/ibkr
-/plugin install ibkr@ibkr</code></pre>
+<pre><code>/plugin marketplace add osauer/canary
+/plugin install canary@canary</code></pre>
 <p>For Claude for Mac&#39;s embedded Claude Code pane, run the equivalent commands from a regular terminal:</p>
-<pre><code>claude plugin marketplace add osauer/ibkr
-claude plugin install ibkr@ibkr</code></pre>
-<p>The plugin is the recommended Claude Code path because it bundles the <code>ibkr</code> skill, safety hooks, and MCP server config. A direct skill install only creates a skill command; it does not register MCP tools or hooks.</p>
-<p>Install the local <code>ibkr</code> binary separately:</p>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh</code></pre>
+<pre><code>claude plugin marketplace add osauer/canary
+claude plugin install canary@canary</code></pre>
+<p>The plugin is the recommended Claude Code path because it bundles the <code>canary</code> skill, safety hooks, and MCP server config. A direct skill install only creates a skill command; it does not register MCP tools or hooks.</p>
+<p>Install the local <code>canary</code> binary separately:</p>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh</code></pre>
 <p>Restart Claude Code or Claude for Mac after installation so the host reloads plugins, skills, hooks, and MCP server processes.</p>
 <h2 id="generic-claude-code-mcp-config">Generic Claude Code MCP config</h2>
 <p>If you do not want the plugin path, add the local stdio MCP server directly:</p>
-<pre><code>claude mcp add ibkr -- /ABSOLUTE/PATH/TO/ibkr mcp</code></pre>
-<p>The command path must be absolute. Use <code>which ibkr</code> after installing the binary.</p>
+<pre><code>claude mcp add canary -- /ABSOLUTE/PATH/TO/canary mcp</code></pre>
+<p>The command path must be absolute. Use <code>which canary</code> after installing the binary.</p>
 <h2 id="what-claude-code-can-ask">What Claude Code can ask</h2>
 <ul>
 <li>&#34;What&#39;s in my IBKR account?&#34;</li>
@@ -110,6 +110,6 @@ claude plugin install ibkr@ibkr</code></pre>
 <li><a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for the tool schema Claude routes against.</li>
 </ul>
   </main>
-  <footer><div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
 </body>
 </html>

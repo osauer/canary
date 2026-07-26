@@ -35,7 +35,7 @@ cloudflare/remote-relay/.dev.vars
 
 # Working artefacts that aren't part of the source tree. Root HTML is a
 # scratch page by definition — real pages live under docs/ (GitHub Pages
-# serves https://osauer.dev/ibkr/ from /docs on main, so generated page
+# serves https://osauer.dev/canary/ from /docs on main, so generated page
 # artifacts there must stay visible to git) or web/. Scratch pages can
 # carry real account figures (the 2026-06-11 buying_power_lab.html leak),
 # so git refusing the add is the first line of defense;

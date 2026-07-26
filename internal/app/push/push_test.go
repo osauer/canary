@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestGovernancePayloadIsExactCanonicalAllowlist(t *testing.T) {
@@ -130,7 +130,7 @@ func TestSafeDiagnosticPayloadIsFixed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"title":"IBKR notification test","body":"Safe test notification. No account data is included.","destination":"alerts","display_id":"diagnostic-safe-test"}`
+	want := `{"title":"Canary notification test","body":"Safe test notification. No account data is included.","destination":"alerts","display_id":"diagnostic-safe-test"}`
 	if string(raw) != want {
 		t.Fatalf("payload=%s, want=%s", raw, want)
 	}

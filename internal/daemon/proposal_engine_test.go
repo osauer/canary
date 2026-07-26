@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/discover"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestOptionDTECalendarDays(t *testing.T) {
@@ -645,7 +645,7 @@ func TestProposalEnginePreservesSnapshotOnTransientRefreshFailure(t *testing.T) 
 		brokerStateScope{Account: "DU1234567", Mode: rpc.AccountModePaper},
 		rpc.AutoTradeStatus{Trading: rpc.TradingStatus{Mode: "paper", CanPreview: true}},
 		rpc.ProtectionPolicyStatus{Status: rpc.ProtectionPolicyStatusDefault, PolicyID: "protection-mvp", PolicyVersion: 1, Fingerprint: policyFP},
-		[]rpc.TradingBlocker{{Code: "account_unavailable", Message: "ibkr connection unavailable"}},
+		[]rpc.TradingBlocker{{Code: "account_unavailable", Message: "IBKR connection unavailable"}},
 		false,
 	)
 	if !ok {
@@ -2342,7 +2342,7 @@ func TestReplaceSnapshotDoesNotPersistShells(t *testing.T) {
 	}
 
 	shell := emptyProposalSnapshot(now.Add(time.Minute))
-	shell.Blockers = []rpc.TradingBlocker{{Code: "account_unavailable", Message: "ibkr connection unavailable"}}
+	shell.Blockers = []rpc.TradingBlocker{{Code: "account_unavailable", Message: "IBKR connection unavailable"}}
 	if err := engine.installSnapshot(shell, false); err != nil {
 		t.Fatalf("install transient shell: %v", err)
 	}
@@ -2365,7 +2365,7 @@ func TestReplaceSnapshotDoesNotPersistShells(t *testing.T) {
 // the cadence, so the 30s default does not retry a dead session twice a
 // minute for the length of an outage. Without the
 // quick retry, a daemon restart that races the gateway connect serves
-// the "ibkr connection unavailable" blocker for a full cadence
+// the "IBKR connection unavailable" blocker for a full cadence
 // (observed 2026-06-11 in the SPA protection panel).
 func TestProposalRefreshWaitBacksOffTransientFailures(t *testing.T) {
 	t.Parallel()

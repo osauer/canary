@@ -10,13 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
 // LockPath returns the canonical instance-lock path co-located with the
 // socket. The daemon writes its PID here under flock; the CLI reads it
 // during recovery to detect a stuck daemon.
 func LockPath(socketPath string) string {
-	return filepath.Join(filepath.Dir(socketPath), "ibkr.lock")
+	return filepath.Join(filepath.Dir(socketPath), productidentity.DaemonLockName)
 }
 
 // LockHolderPID returns the PID written to the lock file, or 0 if the

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/osauer/ibkr/v2/internal/mcp"
+	"github.com/osauer/canary/v2/internal/mcp"
 )
 
 type serverCard struct {

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // handleRegimeSnapshot fans out fetches for all risk-regime
@@ -118,7 +118,7 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 	// Classification + confirmation policy run once, here: band (with
 	// red-exit hysteresis), streak tick, cadence freshness, and
 	// eligibility per row. Every downstream consumer — composite,
-	// lifecycle, CLI, canary, SPA — reads the served results
+	// lifecycle, CLI, Stress, SPA — reads the served results
 	// (internal-docs/design/regime-calibration.md).
 	evaluatedStreaks := s.streaks
 	if s.streaks != nil {
@@ -361,7 +361,7 @@ func runRegimeFanoutOutcome(
 	contentionMsg func() string,
 ) regimeFanoutOutcome {
 	res := &rpc.RegimeSnapshotResult{
-		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
+		SpecDoc: "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
 	}
 
 	type regimeRow struct {
@@ -645,7 +645,7 @@ func boundedSnapshotWith52WHigh(ctx context.Context, deps *regimeDeps, sym strin
 // are live information and the tape row exists to catch them.
 //
 // The closed-date key is rpc.TapeSessionFor — the same official-calendar
-// authority the canary's session-aware severity demotion uses — so value
+// authority the Stress read's session-aware severity demotion uses — so value
 // pinning and severity demotion always agree on what a closed date is.
 
 // regimeTapePinLookbackDays is the calendar-day window for the

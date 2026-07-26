@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runRegime(ctx context.Context, env *Env, args []string) int {
@@ -110,7 +110,7 @@ func runRegimeHistory(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 0 {
-		return fail(env, "regime history: usage is `ibkr regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--stage STAGE] [--limit N] [--json]`")
+		return fail(env, "regime history: usage is `canary regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--stage STAGE] [--limit N] [--json]`")
 	}
 	params := rpc.RegimeHistoryParams{
 		Since: strings.TrimSpace(*since),
@@ -228,7 +228,7 @@ func appendRegimeLog(path string, snap rpc.RegimeSnapshotResult) error {
 //
 // Lives in stdout (not stderr) because env.Stdout is what the rest of
 // the CLI writes to — keeping motion on the same stream prevents a
-// stderr capture (e.g. `bin/ibkr regime 2>/dev/null`) from swallowing
+// stderr capture (e.g. `bin/canary regime 2>/dev/null`) from swallowing
 // the spinner while the final output stays on stdout. The non-TTY
 // guard at the call site means a pipe never sees these escapes.
 func startRegimeSpinner(env *Env) func() {

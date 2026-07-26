@@ -12,7 +12,7 @@ wider industry uses a word differently, the entry says so.
   request. Any agent marker in the environment, or a non-TTY stdin, classifies
   the process as agent, and no environment variable can claim a human origin.
   Origin is recorded for audit and origin-specific policy; it grants no
-  authority by itself. See `IBKR_AGENT_CONTEXT` in the
+  authority by itself. See `CANARY_AGENT_CONTEXT` in the
   [configuration reference](../reference/config.md).
 - **Borrow stress:** the two short-borrow flags on a stock.
   `borrow_inventory_tight` fires at 10,000 shortable shares or fewer and reads
@@ -41,7 +41,7 @@ wider industry uses a word differently, the entry says so.
   [Trading policy](policy.md).
 - **Current state:** the latest accepted version of a fact, used by the running
   product. See [Storage](../internals/storage.md).
-- **Daemon:** the long-running `ibkr daemon` process. It owns the broker
+- **Daemon:** the long-running `canary daemon` process. It owns the broker
   connections, `daemon.db`, the schedulers, and policy execution; CLI, MCP,
   app, and web surfaces are adapters that read typed results from it. See
   [Architecture](../internals/architecture.md).
@@ -60,12 +60,12 @@ wider industry uses a word differently, the entry says so.
   current and not final, which is why restated broker statements get their own
   immutable versions. See [Trading policy](policy.md).
 - **Fixed-fractional sizing:** risking a fixed percent of NLV on each trade.
-  `ibkr size` computes shares as `NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|`,
+  `canary size` computes shares as `NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|`,
   rounded down to the lot, and returns zero shares with status `tight_risk`
   when the budget will not cover one lot. See the
   [CLI reference](../reference/cli.md#ibkr-size).
 - **Freeze:** `trading.freeze`, the runtime brake. Setting it true blocks every
-  new broker write while cancels stay allowed. It is human-only: `ibkr settings
+  new broker write while cancels stay allowed. It is human-only: `canary settings
   set` from an interactive terminal, with missing, agent, and paired-device
   origins rejected. See the
   [configuration reference](../reference/config.md).
@@ -74,14 +74,14 @@ wider industry uses a word differently, the entry says so.
   timestamps, and a failed refresh never restamps an old value. See
   [Sensors](sensors.md#read-the-state-before-the-number).
 - **Greeks:** delta, gamma, theta, and vega, the standard option sensitivities.
-  `ibkr` reports them per option leg when the daemon captured a valid
+  `canary` reports them per option leg when the daemon captured a valid
   model-computation tick, and discloses partial coverage as `greeks_coverage`
   over `greeks_total`. A Greek the gateway did not deliver is null, never
   zero-substituted. See [Working with agents](../operate/agents.md).
 - **Implied move:** the 1-sigma expected dollar move by expiration,
   `spot × IV × √(DTE/365)`. Standard desk math, computed per expiry on the
   chain surface. See the [CLI reference](../reference/cli.md#ibkr-chain).
-- **Journal:** the append-only local record of what `ibkr` attempted. Order
+- **Journal:** the append-only local record of what `canary` attempted. Order
   journal rows bind each lifecycle event to the exact broker route, and policy,
   capital, and governance actions journal their own events. See
   [Storage](../internals/storage.md).
@@ -89,7 +89,7 @@ wider industry uses a word differently, the entry says so.
   refresh leaves last-good visible with explicit health rather than blanking
   it, changing its timestamp, or turning absence into zero. See
   [Sensors](sensors.md#read-the-state-before-the-number).
-- **Local decision record:** what `ibkr` observed, evaluated, or attempted. It
+- **Local decision record:** what `canary` observed, evaluated, or attempted. It
   explains context; it is not evidence of what the broker executed. See
   [Trading policy](policy.md).
 - **LULD:** limit up-limit down, the US volatility pause on a single name. An
@@ -125,9 +125,9 @@ wider industry uses a word differently, the entry says so.
   to the broker. See
   [Order previews and the trading build](../operate/orders.md#required-pins).
 - **R-multiple:** the reward-to-risk ratio, `|target − entry| ÷ |entry − stop|`.
-  `ibkr size` returns it alongside the breakeven win rate, `1 ÷ (1 + R)`. See
+  `canary size` returns it alongside the breakeven win rate, `1 ÷ (1 + R)`. See
   the [CLI reference](../reference/cli.md#ibkr-size).
-- **Reg SHO:** the SEC short-sale rule whose threshold-securities list `ibkr`
+- **Reg SHO:** the SEC short-sale rule whose threshold-securities list `canary`
   reads. Coverage is Nasdaq's file only, so a symbol's absence is not proof it
   is off every listing exchange's list. See
   [Concepts](concepts.md#market-events).

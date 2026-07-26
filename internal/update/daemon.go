@@ -12,7 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
 // Errors reported while locating or stopping the daemon process.
@@ -49,11 +50,12 @@ func IsDaemonRunning() (int, bool) {
 	return pid, true
 }
 
-// FindDaemonProcess returns the live ibkr daemon process for socketPath.
+// FindDaemonProcess returns the live Canary daemon process for socketPath.
 //
 // It is intentionally stricter than IsDaemonRunning: commands that send
 // signals must not trust a stale or forged pidfile. A live pidfile holder is
-// accepted only when its command line looks like `ibkr daemon`. A responding
+// accepted only when its command line uses the canonical `canary daemon` or a
+// pre-upgrade `ibkr daemon` process that must be quiesced. A responding
 // socket without a verifiable pidfile is treated as unverified rather than
 // killed.
 func FindDaemonProcess(ctx context.Context, socketPath string) (DaemonProcess, error) {
@@ -80,8 +82,8 @@ func FindDaemonProcess(ctx context.Context, socketPath string) (DaemonProcess, e
 	if err != nil {
 		return proc, fmt.Errorf("%w: pid %d: %v", ErrDaemonUnverified, pid, err)
 	}
-	if !looksLikeIBKRDaemon(cmdline) {
-		return proc, fmt.Errorf("%w: pid %d command %q is not `ibkr daemon`", ErrDaemonUnverified, pid, cmdline)
+	if !looksLikeProductDaemon(cmdline) {
+		return proc, fmt.Errorf("%w: pid %d command %q is not a Canary daemon", ErrDaemonUnverified, pid, cmdline)
 	}
 
 	proc.PID = pid
@@ -108,14 +110,11 @@ func processCommandLine(ctx context.Context, pid int) (string, error) {
 	return cmdline, nil
 }
 
-func looksLikeIBKRDaemon(cmdline string) bool {
+func looksLikeProductDaemon(cmdline string) bool {
 	fields := strings.Fields(cmdline)
-	for i := 0; i+1 < len(fields); i++ {
-		if filepath.Base(fields[i]) == "ibkr" && fields[i+1] == "daemon" {
-			return true
-		}
-	}
-	return false
+	return len(fields) >= 2 &&
+		productidentity.IsManagedProcessExecutableBase(filepath.Base(fields[0])) &&
+		fields[1] == "daemon"
 }
 
 func commandHasFlag(cmdline, name string) bool {

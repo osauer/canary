@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"os"
@@ -15,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type platformSettingsStore struct {
@@ -59,6 +60,83 @@ type platformSettingsDocument struct {
 	LegacyCanary *platformStressSettingsData `json:"canary,omitempty"`
 }
 
+// platformSettingsDocumentV1 is the complete persisted version-1 shape.
+// Keeping it separate from platformSettingsData is what makes the spelling
+// boundary enforceable: a v1 document cannot smuggle in "stress", and a v2
+// document cannot retain "canary".
+type platformSettingsDocumentV1 struct {
+	Version                  int                         `json:"version,omitempty"`
+	TradingControlGeneration uint64                      `json:"trading_control_generation"`
+	Features                 platformFeatureSettingsData `json:"features"`
+	Trading                  platformTradingSettingsData `json:"trading"`
+	Regime                   platformRegimeSettingsData  `json:"regime"`
+	Canary                   *platformStressSettingsData `json:"canary,omitempty"`
+	History                  platformHistorySettingsData `json:"history"`
+}
+
+type platformSettingsDataJSON platformSettingsData
+
+func (d platformSettingsData) MarshalJSON() ([]byte, error) {
+	switch d.Version {
+	case 0, platformSettingsDocVersionCanary:
+		legacy, err := d.legacyDocument(nil)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(legacy)
+	case platformSettingsDocVersion:
+		return json.Marshal(platformSettingsDataJSON(d))
+	default:
+		return nil, fmt.Errorf("unsupported platform settings version %d", d.Version)
+	}
+}
+
+func (d platformSettingsDocument) MarshalJSON() ([]byte, error) {
+	switch d.Version {
+	case 0, platformSettingsDocVersionCanary:
+		legacy, err := d.platformSettingsData.legacyDocument(d.LegacyCanary)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(legacy)
+	case platformSettingsDocVersion:
+		if d.LegacyCanary != nil {
+			return nil, errors.New(`platform settings version 2 cannot encode legacy field "canary"`)
+		}
+		return json.Marshal(platformSettingsDataJSON(d.platformSettingsData))
+	default:
+		return nil, fmt.Errorf("unsupported platform settings version %d", d.Version)
+	}
+}
+
+func (d platformSettingsData) legacyDocument(canary *platformStressSettingsData) (platformSettingsDocumentV1, error) {
+	if d.Stress.Journal.Enabled != nil {
+		return platformSettingsDocumentV1{}, errors.New(`platform settings version 1 cannot encode current field "stress"`)
+	}
+	return platformSettingsDocumentV1{
+		Version:                  d.Version,
+		TradingControlGeneration: d.TradingControlGeneration,
+		Features:                 d.Features,
+		Trading:                  d.Trading,
+		Regime:                   d.Regime,
+		Canary:                   canary,
+		History:                  d.History,
+	}, nil
+}
+
+// UnmarshalJSON keeps legacy-file cutover on the same version-specific decode
+// contract as live daemon.db reads. Without this hook readOptionalJSON would
+// strictly decode only against the transitional union above, which would still
+// accept both spellings in one document.
+func (d *platformSettingsDocument) UnmarshalJSON(raw []byte) error {
+	doc, err := decodePlatformSettingsDocument(raw)
+	if err != nil {
+		return err
+	}
+	*d = doc
+	return nil
+}
+
 // upgrade returns the runtime value for a decoded document. A document with no
 // version at all predates versioning and is read as version 1, whose authority
 // for the portfolio-stress journal preference is its "canary" object: that
@@ -83,11 +161,80 @@ func (d platformSettingsDocument) upgrade() (platformSettingsData, error) {
 	return data, nil
 }
 
+func decodePlatformSettingsDocument(raw []byte) (platformSettingsDocument, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeStrictPlatformSettingsJSON(raw, &fields); err != nil {
+		return platformSettingsDocument{}, err
+	}
+	if fields == nil {
+		return platformSettingsDocument{}, errors.New("platform settings document must be an object")
+	}
+
+	version := platformSettingsDocVersionCanary
+	versionRaw, versioned := fields["version"]
+	if versioned {
+		if bytes.Equal(bytes.TrimSpace(versionRaw), []byte("null")) {
+			return platformSettingsDocument{}, errors.New("platform settings version must be an integer")
+		}
+		if err := json.Unmarshal(versionRaw, &version); err != nil {
+			return platformSettingsDocument{}, fmt.Errorf("decode platform settings version: %w", err)
+		}
+	}
+
+	switch version {
+	case platformSettingsDocVersionCanary:
+		var legacy platformSettingsDocumentV1
+		if err := decodeStrictPlatformSettingsJSON(raw, &legacy); err != nil {
+			return platformSettingsDocument{}, err
+		}
+		if versioned && legacy.Version != platformSettingsDocVersionCanary {
+			return platformSettingsDocument{}, fmt.Errorf("unsupported version %d", legacy.Version)
+		}
+		return platformSettingsDocument{
+			platformSettingsData: platformSettingsData{
+				Version:                  legacy.Version,
+				TradingControlGeneration: legacy.TradingControlGeneration,
+				Features:                 legacy.Features,
+				Trading:                  legacy.Trading,
+				Regime:                   legacy.Regime,
+				History:                  legacy.History,
+			},
+			LegacyCanary: legacy.Canary,
+		}, nil
+	case platformSettingsDocVersion:
+		var current platformSettingsData
+		if err := decodeStrictPlatformSettingsJSON(raw, &current); err != nil {
+			return platformSettingsDocument{}, err
+		}
+		if current.Version != platformSettingsDocVersion {
+			return platformSettingsDocument{}, fmt.Errorf("unsupported version %d", current.Version)
+		}
+		return platformSettingsDocument{platformSettingsData: current}, nil
+	default:
+		return platformSettingsDocument{}, fmt.Errorf("unsupported version %d", version)
+	}
+}
+
+func decodeStrictPlatformSettingsJSON(raw []byte, dst any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("platform settings document contains trailing JSON")
+		}
+		return fmt.Errorf("platform settings document contains trailing JSON: %w", err)
+	}
+	return nil
+}
+
 // decodePlatformSettings decodes one persisted settings document and upgrades
 // it to the current version.
 func decodePlatformSettings(raw []byte) (platformSettingsData, error) {
 	var doc platformSettingsDocument
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := doc.UnmarshalJSON(raw); err != nil {
 		return platformSettingsData{}, err
 	}
 	return doc.upgrade()
@@ -841,7 +988,7 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 			ClientID:             settingsInt(status.ClientID, rpc.SettingsAccessRead, rpc.SettingsSourceConfig, "set [gateway].client_id in config.toml"),
 			MCPTrading:           settingsString(status.MCPTrading, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "MCP broker-write controls are not exposed"),
 			LiveOverride:         settingsString(status.LiveOverride, rpc.SettingsAccessRead, rpc.SettingsSourceConfig, `computed from [trading].mode and active blockers; "ready" only on an unblocked live route`),
-			BuildWritesAvailable: settingsBool(orderWritesAvailable, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the ibkr build"),
+			BuildWritesAvailable: settingsBool(orderWritesAvailable, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the Canary build"),
 			Limits: rpc.TradingLimitSettings{
 				MaxNotional:           settingsFloat(trading.MaxNotional, limitAccess, limitSource(data.Trading.MaxNotional != nil), limitReason),
 				MaxOptionContracts:    settingsInt(trading.MaxOptionContracts, limitAccess, limitSource(data.Trading.MaxOptionContracts != nil), limitReason),
@@ -875,8 +1022,8 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 		},
 		MarketData: rpc.PlatformMarketDataSetting{Quality: observedMarketDataQuality(observed)},
 		Build: rpc.PlatformBuildSettings{
-			Channel:                settingsString(buildChannel(), rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the ibkr build"),
-			TradingWritesAvailable: settingsBool(orderWritesAvailable, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the ibkr build"),
+			Channel:                settingsString(buildChannel(), rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the Canary build"),
+			TradingWritesAvailable: settingsBool(orderWritesAvailable, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the Canary build"),
 		},
 		AsOf: s.orderNow(),
 	}

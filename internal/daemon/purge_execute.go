@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const (
@@ -72,8 +72,8 @@ func (s *Server) executePurge(ctx context.Context, p rpc.PurgeExecuteParams) (*r
 		Endpoint:             status.Endpoint,
 		ClientID:             status.ClientID,
 		BypassPreview:        bypassPreview,
-		MonitorCommand:       "ibkr purge monitor",
-		RestoreReviewCommand: "ibkr purge restore SYMBOL",
+		MonitorCommand:       "canary purge monitor",
+		RestoreReviewCommand: "canary purge restore SYMBOL",
 		AsOf:                 s.orderNow(),
 	}
 	if res.PurgeID == "" {
@@ -193,7 +193,7 @@ func (s *Server) purgeExecuteBlockers(status rpc.TradingStatus) []rpc.TradingBlo
 		add("purge_ledger_unavailable", "purge execution requires a writable daemon purge ledger", "Fix the daemon state directory before purging positions.")
 	}
 	if !s.purgeRestoreEnabled() {
-		add("purge_restore_disabled", "purge/restore actions are disabled in platform settings", "Run `ibkr settings set features.purge_restore.enabled=true` before using purge/restore.")
+		add("purge_restore_disabled", "purge/restore actions are disabled in platform settings", "Run `canary settings set features.purge_restore.enabled=true` before using purge/restore.")
 	}
 	return blockers
 }
@@ -403,7 +403,7 @@ func (s *Server) planPurgeLeg(positions []*ibkrlib.RawPosition, openByLeg map[st
 		return plan
 	}
 	if foreign, ok := foreignOpenOrderForContract(foreignOpen, contract); ok {
-		plan.skip = fmt.Sprintf("open order %s (%s) already works this contract; cancel it first with `ibkr order cancel %s` so the close cannot double", foreign.OrderRef, nonEmptyString(foreign.OrderType, "order"), foreign.OrderRef)
+		plan.skip = fmt.Sprintf("open order %s (%s) already works this contract; cancel it first with `canary order cancel %s` so the close cannot double", foreign.OrderRef, nonEmptyString(foreign.OrderType, "order"), foreign.OrderRef)
 		return plan
 	}
 	if covered := activePurgeLedgerCoveredQuantity(activeByLegSide, legIDs, currentSide); covered > 0 {

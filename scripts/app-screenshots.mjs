@@ -3,7 +3,7 @@
 // (docs/social/canary-app-{mobile,desktop}.png) from the real PWA with
 // synthetic account figures, so no real account data reaches the pixels.
 //
-// The page is served by a live `ibkr app` and paired exactly like
+// The page is served by a live `canary app` and paired exactly like
 // app-browser-smoke.mjs (helpers shared via lib-app-browser.mjs); an init
 // script then wraps fetch and EventSource and rewrites every
 // account-bearing payload (bootstrap JSON, SSE account/snapshot/positions
@@ -74,7 +74,7 @@ try {
     });
     if (synthetic) {
       await context.addInitScript(() => {
-        globalThis.__ibkrSmoke = {};
+        globalThis.__canarySmoke = {};
       });
     }
     await context.addInitScript(installFixtureRewrite, FIXTURE);
@@ -86,16 +86,16 @@ try {
       // Let its mandatory initial snapshot land, then stop later live events
       // from replacing individual synthetic panels after the patch.
       await page.waitForFunction(
-        () => globalThis.__ibkrSmoke?.initialSnapshotSeen === true,
+        () => globalThis.__canarySmoke?.initialSnapshotSeen === true,
         undefined,
         { timeout: 15000 },
       );
       const applied = await page.evaluate((snapshot) => {
-        const apply = globalThis.__ibkrSmoke?.applySnapshotPatch;
+        const apply = globalThis.__canarySmoke?.applySnapshotPatch;
         if (typeof apply !== "function") {
           throw new Error("synthetic snapshot patch hook is unavailable");
         }
-        globalThis.__ibkrSmoke.freezeLiveEvents = true;
+        globalThis.__canarySmoke.freezeLiveEvents = true;
         return apply(snapshot);
       }, SYNTHETIC_SNAPSHOT);
       if (applied !== true) {
@@ -929,13 +929,13 @@ function buildSyntheticSnapshot() {
     stress: {
       as_of: asOf,
       source_as_of: { account: asOf, positions: asOf, regime: asOf, market_events: asOf },
-      fingerprint: fingerprint("stress-fp-v2", "synthetic-canary-quiet"),
+      fingerprint: fingerprint("stress-fp-v2", "synthetic-stress-quiet"),
       source_fingerprints: {},
       source_health: [sourceHealth("account"), sourceHealth("positions"), sourceHealth("regime"), sourceHealth("market_events")],
-      policy: "synthetic-canary",
+      policy: "synthetic-stress",
       policy_profile: "balanced",
       policy_version: "1",
-      policy_fingerprint: fingerprint("stress-policy-fp-v1", "synthetic-canary-policy"),
+      policy_fingerprint: fingerprint("stress-policy-fp-v1", "synthetic-stress-policy"),
       action: "stand_down",
       market_confirmation: "none",
       portfolio_fit: "low",
@@ -944,7 +944,7 @@ function buildSyntheticSnapshot() {
       severity: "observe",
       planner_mode_hint: "none",
       planner_readiness: "none",
-      summary: "No defensive canary action is indicated.",
+      summary: "No defensive stress action is indicated.",
       primary_drivers: [],
       signals: [],
       rows: [{
@@ -1194,7 +1194,7 @@ function installFixtureRewrite(fixture) {
           } catch {
             // Non-JSON events (heartbeats) pass through untouched.
           }
-          const smoke = globalThis.__ibkrSmoke;
+          const smoke = globalThis.__canarySmoke;
           if (smoke && type === "snapshot") smoke.initialSnapshotSeen = true;
           if (smoke?.freezeLiveEvents) return;
           if (typeof listener === "function") {

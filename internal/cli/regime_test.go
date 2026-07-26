@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // regimeFixture returns the realistic mid-session envelope used across
@@ -32,7 +32,7 @@ func regimeFixture() *rpc.RegimeSnapshotResult {
 	weekly := 0.43
 	return &rpc.RegimeSnapshotResult{
 		AsOf:    asOf,
-		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
+		SpecDoc: "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
 		AuthorityHealth: &rpc.RegimeAuthorityHealth{
 			Status:                rpc.RegimeAuthorityFresh,
 			LastSuccessAt:         &asOf,
@@ -1473,7 +1473,7 @@ func TestAppendRegimeLog_WritesJSONLEntry(t *testing.T) {
 	path := filepath.Join(dir, "regime-v1.jsonl")
 	snap := rpc.RegimeSnapshotResult{
 		AsOf:    time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC),
-		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
+		SpecDoc: "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
 		VIXTermStructure: rpc.RegimeVIXTerm{
 			Status: rpc.RegimeStatusOK,
 		},
@@ -1501,7 +1501,7 @@ func TestAppendRegimeLog_WritesJSONLEntry(t *testing.T) {
 			t.Errorf("line %d: invalid JSON: %v\n%s", i, err, line)
 			continue
 		}
-		if got.Regime.SpecDoc != "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html" {
+		if got.Regime.SpecDoc != "https://osauer.dev/canary/docs/internals/regime-dashboard.html" {
 			t.Errorf("line %d: regime envelope round-tripped wrong: got SpecDoc=%q",
 				i, got.Regime.SpecDoc)
 		}

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Logger is a tiny slog-backed front for the daemon. It also configures the

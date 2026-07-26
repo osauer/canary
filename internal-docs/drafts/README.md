@@ -5,7 +5,7 @@ Empty as of 2026-07-25: every planned page has been written, so the handbook is
 for the next round.
 
 Each file here is the brief for a handbook page that has been designed but not
-written. The page appears on <https://osauer.dev/ibkr/docs/> with its scope and
+written. The page appears on <https://osauer.dev/canary/docs/> with its scope and
 a "not written yet" marker, and has no link and no URL until it exists.
 
 Nothing in this directory is rendered, linked, or listed in the sitemap. It

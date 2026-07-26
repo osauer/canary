@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Updating | ibkr</title>
-  <meta name="description" content="How to update the ibkr binary, Desktop extension, S&amp;P 500 membership, calendars, and local process state.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/start/updating.html">
+  <title>Updating | Canary</title>
+  <meta name="description" content="How to update the Canary binary, Desktop extension, S&amp;P 500 membership, calendars, and local process state.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/start/updating.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How to update the ibkr binary, Desktop extension, S\u0026P 500 membership, calendars, and local process state.","headline":"Updating","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/start/updating.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How to update the Canary binary, Desktop extension, S\u0026P 500 membership, calendars, and local process state.","headline":"Updating","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/start/updating.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,88 +103,88 @@
     <main class="doc">
 <h1 id="updating">Updating</h1>
 <p>Updated: 2026-07-25 09:40 CEST</p>
-<p>Four things can affect data freshness: the <strong>binary</strong> (<code>ibkr</code> itself), the <strong>Claude Desktop MCPB</strong> when installed through Desktop Extensions, the <strong>S&amp;P 500 constituent list</strong> the breadth indicator uses, and the embedded <strong>official market calendars</strong>. They update independently because they have different sources and cadences.</p>
-<h2 id="updating-the-binary-ibkr-update">Updating the binary: <code>ibkr update</code></h2>
+<p>Four things can affect data freshness: the <strong>binary</strong> (<code>canary</code> itself), the <strong>Claude Desktop MCPB</strong> when installed through Desktop Extensions, the <strong>S&amp;P 500 constituent list</strong> the breadth indicator uses, and the embedded <strong>official market calendars</strong>. They update independently because they have different sources and cadences.</p>
+<h2 id="updating-the-binary-canary-update">Updating the binary: <code>canary update</code></h2>
 <p>Once you're on v1.0.0 or later, the next upgrade is one command:</p>
-<pre><code class="language-sh">ibkr update            # fetch latest, prompt to restart the local app/daemon stack
+<pre><code class="language-sh">canary update            # fetch latest, prompt to restart the local app/daemon stack
 </code></pre>
 <p>The CLI then:</p>
 <ol>
-<li>Checks the <a href="https://api.github.com/repos/osauer/ibkr/releases/latest">GitHub <code>/releases/latest</code></a> endpoint and matches your OS/arch against the published tarballs.</li>
-<li>Verifies the <strong>PGP signature on <code>SHA256SUMS</code></strong> against the maintainer's public key embedded in your current <code>ibkr</code> binary.</li>
+<li>Checks the <a href="https://api.github.com/repos/osauer/canary/releases/latest">GitHub <code>/releases/latest</code></a> endpoint and matches your OS/arch against the published tarballs.</li>
+<li>Verifies the <strong>PGP signature on <code>SHA256SUMS</code></strong> against the maintainer's public key embedded in your current <code>canary</code> binary.</li>
 <li>SHA-verifies the tarball.</li>
-<li>Atomically replaces <code>~/.local/bin/ibkr</code>, stashing the prior binary as <code>~/.local/bin/ibkr.bak</code> for one-step rollback (<code>mv ~/.local/bin/ibkr.bak ~/.local/bin/ibkr</code>).</li>
+<li>Atomically replaces <code>~/.local/bin/canary</code>. Prior bytes exist only in hidden transaction staging and are deleted after publication; no runnable rollback binary is retained because daemon state migrations are forward-only.</li>
 </ol>
 <p>At the end, the updater can restart the local processes that were already
-running. It uses the same app-first stack path as <code>ibkr restart</code>: a running app
+running. It uses the same app-first stack path as <code>canary restart</code>: a running app
 is restarted and verified on the installed binary before the daemon is touched.
 Processes that were stopped before the update remain stopped.</p>
 <h3 id="release-integrity">Release integrity</h3>
-<p>From v1.0.0 onward, every release ships <code>SHA256SUMS.asc</code>: a PGP detached signature over <code>SHA256SUMS</code>, produced by the maintainer's Ed25519 key (fingerprint <code>D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D</code>). The public key is embedded in every ibkr binary, so <code>ibkr update</code> verifies the next release using a key your already-installed binary carries, with no network bootstrap an attacker could swap.</p>
-<p>Releases that publish an MCP Bundle include both <code>ibkr-vX.Y.Z.mcpb</code> and the stable latest-download asset <code>ibkr.mcpb</code> in <code>SHA256SUMS</code>. The MCP Registry publish artifact also records the versioned MCPB file's SHA-256 in <code>server.json</code> as <code>fileSha256</code>.</p>
-<p>The MCPB container itself is not yet code-signed. Treat MCPB release integrity as signed-checksum and registry-hash based unless <code>mcpb verify ibkr-vX.Y.Z.mcpb</code> succeeds for a future release.</p>
-<p><code>ibkr update</code> <strong>refuses</strong> any release missing the signature, and any release whose signature does not verify against the embedded key. There is no <code>--insecure</code> flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in <a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity-v100">SECURITY.md → Release integrity</a>.</p>
+<p>From v1.0.0 onward, every release ships <code>SHA256SUMS.asc</code>: a PGP detached signature over <code>SHA256SUMS</code>, produced by the maintainer's Ed25519 key (fingerprint <code>D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D</code>). The public key is embedded in every Canary binary, so <code>canary update</code> verifies the next release using a key your already-installed binary carries, with no network bootstrap an attacker could swap.</p>
+<p>Releases that publish an MCP Bundle include both <code>canary-vX.Y.Z.mcpb</code> and the stable latest-download asset <code>canary.mcpb</code> in <code>SHA256SUMS</code>. The MCP Registry publish artifact also records the versioned MCPB file's SHA-256 in <code>server.json</code> as <code>fileSha256</code>.</p>
+<p>The MCPB container itself is not yet code-signed. Treat MCPB release integrity as signed-checksum and registry-hash based unless <code>mcpb verify canary-vX.Y.Z.mcpb</code> succeeds for a future release.</p>
+<p><code>canary update</code> <strong>refuses</strong> any release missing the signature, and any release whose signature does not verify against the embedded key. There is no <code>--insecure</code> flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in <a href="https://github.com/osauer/canary/blob/main/SECURITY.md#release-integrity-v100">SECURITY.md → Release integrity</a>.</p>
 <h3 id="headless--scripted-use">Headless / scripted use</h3>
 <p>In non-interactive contexts (cron, systemd timers, CI, stdin-redirected shells) the <code>[Y/n]</code> prompt would block. Pass an explicit restart decision:</p>
-<pre><code class="language-sh">ibkr update --restart        # restart a running app first, then a running daemon
-ibkr update --no-restart     # leave both processes as-is; print a restart-pending hint
+<pre><code class="language-sh">canary update --restart        # restart a running app first, then a running daemon
+canary update --no-restart     # leave both processes as-is; print a restart-pending hint
 </code></pre>
-<p>Running <code>ibkr update</code> from a non-TTY <em>without</em> either flag exits non-zero with <code>ambiguous in non-interactive mode</code> and does not install. This is deliberate: silent default-to-N would be a footgun for systemd timers expecting auto-restart.</p>
-<p><code>ibkr update --restart</code> does not wake an app or daemon that was absent. If a
+<p>Running <code>canary update</code> from a non-TTY <em>without</em> either flag exits non-zero with <code>ambiguous in non-interactive mode</code> and does not install. This is deliberate: silent default-to-N would be a footgun for systemd timers expecting auto-restart.</p>
+<p><code>canary update --restart</code> does not wake an app or daemon that was absent. If a
 restart stage fails, the ordered, non-atomic stage rules described under
-<code>ibkr restart</code> apply and the command points back to explicit <code>ibkr restart</code>
+<code>canary restart</code> apply and the command points back to explicit <code>canary restart</code>
 recovery.</p>
 <h3 id="dry-run-and-forced-reinstall">Dry run and forced reinstall</h3>
-<pre><code class="language-sh">ibkr update --check          # dry-run: print &quot;would install vX.Y.Z&quot;, exit 0
-ibkr update --force          # re-install latest even if same version (corrupt-binary recovery)
+<pre><code class="language-sh">canary update --check          # dry-run: print &quot;would install vX.Y.Z&quot;, exit 0
+canary update --force          # re-install latest even if same version (corrupt-binary recovery)
 </code></pre>
-<p><code>--check</code> exits 0 whether or not an update is available; only fetch failures exit non-zero. So <code>ibkr update --check &amp;&amp; ibkr update</code> is the idiomatic confirm-then-install pattern.</p>
+<p><code>--check</code> exits 0 whether or not an update is available; only fetch failures exit non-zero. So <code>canary update --check &amp;&amp; canary update</code> is the idiomatic confirm-then-install pattern.</p>
 <h3 id="pre-v100-binaries">Pre-v1.0.0 binaries</h3>
-<p><code>ibkr update</code> only exists from v1.0.0 onward. Earlier installs upgrade once manually (download the tarball from <a href="https://github.com/osauer/ibkr/releases">releases</a>, extract, run <code>make install</code>), then carry forward with <code>ibkr update</code>.</p>
-<h2 id="restarting-local-processes-ibkr-restart">Restarting local processes: <code>ibkr restart</code></h2>
-<p>Use <code>ibkr restart</code> when you changed daemon-loaded config, installed a new binary outside <code>ibkr update</code>, or want to clear stale gateway connection state:</p>
-<pre><code class="language-sh">ibkr restart
+<p><code>canary update</code> only exists from v1.0.0 onward. Earlier installs upgrade once manually (download the tarball from <a href="https://github.com/osauer/canary/releases">releases</a>, extract, run <code>make install</code>), then carry forward with <code>canary update</code>.</p>
+<h2 id="restarting-local-processes-canary-restart">Restarting local processes: <code>canary restart</code></h2>
+<p>Use <code>canary restart</code> when you changed daemon-loaded config, installed a new binary outside <code>canary update</code>, or want to clear stale gateway connection state:</p>
+<pre><code class="language-sh">canary restart
 </code></pre>
 <p>On the default socket the command runs two ordered stages:</p>
 <ol>
-<li><strong>App stage.</strong> Refreshes an already-running <code>ibkr app</code> host and verifies the
+<li><strong>App stage.</strong> Refreshes an already-running <code>canary app</code> host and verifies the
 replacement. It preserves unsupervised app flags such as <code>--addr</code>,
 <code>--public-url</code>, and <code>--remote</code>; a launchd-owned app is restarted from its
 loaded plist only after the plist executable is verified as the current
 installed binary. If no app host is running, it leaves the app stopped.</li>
 <li><strong>Daemon stage.</strong> Only after the app stage succeeds, the command verifies the
 daemon pidfile holder, stops it, starts a fresh daemon, and reports the new
-PID and gateway health. Plain <code>ibkr restart</code> starts the daemon when none was
+PID and gateway health. Plain <code>canary restart</code> starts the daemon when none was
 running.</li>
 </ol>
 <p>The two stages are ordered but not atomic. An app-stage failure leaves
 the daemon untouched. A later daemon-stage failure does not roll the
-already-restarted app back; fix the reported stage and rerun <code>ibkr restart</code>.</p>
+already-restarted app back; fix the reported stage and rerun <code>canary restart</code>.</p>
 <p><code>--force</code> is an explicit fallback for an app or daemon that ignores SIGTERM:</p>
-<pre><code class="language-sh">ibkr restart --force          # escalate to SIGKILL only after graceful timeout
-ibkr restart --timeout 30s    # wait longer before failing or forcing
-ibkr restart --json           # scriptable result: daemon health plus any refreshed app process
-ibkr restart --app            # app-only restart/start for the HyperServe app process
-ibkr app restart              # same app-only restart path, grouped under app commands
+<pre><code class="language-sh">canary restart --force          # escalate to SIGKILL only after graceful timeout
+canary restart --timeout 30s    # wait longer before failing or forcing
+canary restart --json           # scriptable result: daemon health plus any refreshed app process
+canary restart --app            # app-only restart/start for the HyperServe app process
+canary app restart              # same app-only restart path, grouped under app commands
 </code></pre>
 <p>JSON mode is for automation and CI. It avoids text parsing and includes the post-start <code>status.health</code> payload so a script can distinguish &quot;process restarted but gateway offline&quot; from &quot;restart failed.&quot; When an app host was running, JSON also includes an <code>app</code> object with its old/new PID and preserved args. If that app stage succeeds but the daemon stage fails, the command exits non-zero and still emits the partial structured result with the successful app stage and <code>started: false</code> for the daemon.</p>
-<p>When <code>IBKR_SOCKET</code> selects a non-default daemon scope, app process discovery
+<p>When <code>CANARY_SOCKET</code> selects a non-default daemon scope, app process discovery
 cannot prove which scope a found app belongs to. The decision is therefore made
 before any process mutation: the app is left untouched and only the explicitly
 selected daemon is restarted. The result marks the app as
 <code>reason: &quot;socket_overridden&quot;</code>. If that stack also needs an app restart, run
-<code>ibkr restart --app</code> as a separate, explicit, non-atomic operation.</p>
-<p><code>ibkr restart</code> restarts the shared daemon that CLI commands and MCP tools dial, plus any currently running local or remote app host. It does not restart the <code>ibkr mcp</code> stdio process itself; that process is owned by Claude Desktop, Cursor, Continue, or whichever MCP host launched it. Relaunch the host when you need it to respawn MCP from a new binary or MCPB bundle.</p>
-<p><code>ibkr restart --app</code> targets only the long-running <code>ibkr app</code> HyperServe process. It finds a local <code>ibkr app</code> server process, sends SIGTERM so HyperServe can shut down gently, preserves its old flags, and then starts the app again. A same-argv respawn is accepted only when it uses the current executable. When launchd owns the app, restart uses the loaded job's executable and plist arguments; change those arguments by rewriting and reloading the plist, not with restart flag overrides. If no app or supervisor is present, this explicit app-only form starts <code>ibkr app</code> with default/env configuration.</p>
+<code>canary restart --app</code> as a separate, explicit, non-atomic operation.</p>
+<p><code>canary restart</code> restarts the shared daemon that CLI commands and MCP tools dial, plus any currently running local or remote app host. It does not restart the <code>canary mcp</code> stdio process itself; that process is owned by Claude Desktop, Cursor, Continue, or whichever MCP host launched it. Relaunch the host when you need it to respawn MCP from a new binary or MCPB bundle.</p>
+<p><code>canary restart --app</code> targets only the long-running <code>canary app</code> HyperServe process. It finds a local <code>canary app</code> server process, sends SIGTERM so HyperServe can shut down gently, preserves its old flags, and then starts the app again. A same-argv respawn is accepted only when it uses the current executable. When launchd owns the app, restart uses the loaded job's executable and plist arguments; change those arguments by rewriting and reloading the plist, not with restart flag overrides. If no app or supervisor is present, this explicit app-only form starts <code>canary app</code> with default/env configuration.</p>
 <p>In remote mode the hosted Cloudflare Worker is not restarted or redeployed by
 this command. The local app process restarts its outbound relay connector and
 reuses the persisted relay route while that route remains inside the relay TTL,
 so paired phones and Home Screen installs can keep opening the same relay
 origin across ordinary app restarts.</p>
 <h2 id="updating-claude-desktop-mcpb-installs">Updating Claude Desktop MCPB installs</h2>
-<p>Claude Desktop MCPB installs carry their own embedded <code>ibkr</code> binary. <code>ibkr update</code> updates shell-managed installs such as <code>~/.local/bin/ibkr</code>; it does not replace a binary embedded inside Claude Desktop's extension store.</p>
+<p>Claude Desktop MCPB installs carry their own embedded <code>canary</code> binary. <code>canary update</code> updates shell-managed installs such as <code>~/.local/bin/canary</code>; it does not replace a binary embedded inside Claude Desktop's extension store.</p>
 <p>To update a Claude Desktop MCPB install, download the latest bundle and reinstall it in Claude Desktop:</p>
-<p><a href="https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb">https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb</a></p>
+<p><a href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">https://github.com/osauer/canary/releases/latest/download/canary.mcpb</a></p>
 <p>After reinstalling, fully quit Claude Desktop and reopen it so it respawns the MCP server from the updated bundle.</p>
 <h2 id="updating-the-sp-500-list-automatic">Updating the S&amp;P 500 list: automatic</h2>
 <p>The daemon refreshes the constituent list from <a href="https://en.wikipedia.org/wiki/List_of_S%26P_500_companies">Wikipedia's &quot;List of S&amp;P 500 companies&quot;</a> on three triggers, all converging on one shared fetch:</p>
@@ -205,12 +205,12 @@ list as the cold-start fallback, so breadth never goes silent.</p>
 members_auto_refresh = false
 </code></pre>
 <p><strong>Ad-hoc (env var, overrides TOML):</strong></p>
-<pre><code class="language-sh">IBKR_SPX_MEMBERS_AUTO_REFRESH=0 ibkr daemon   # force off
-IBKR_SPX_MEMBERS_AUTO_REFRESH=1 ibkr daemon   # force on (even if TOML says off)
+<pre><code class="language-sh">CANARY_SPX_MEMBERS_AUTO_REFRESH=0 canary daemon   # force off
+CANARY_SPX_MEMBERS_AUTO_REFRESH=1 canary daemon   # force on (even if TOML says off)
 </code></pre>
-<p>When pinned, <code>ibkr status</code> shows the reason, <code>refresh disabled (env)</code> vs <code>refresh disabled (config)</code>, so a confused user knows which knob to flip.</p>
+<p>When pinned, <code>canary status</code> shows the reason, <code>refresh disabled (env)</code> vs <code>refresh disabled (config)</code>, so a confused user knows which knob to flip.</p>
 <h3 id="status-row">Status row</h3>
-<p><code>ibkr status</code> always carries a one-line summary of the members source and refresh health:</p>
+<p><code>canary status</code> always carries a one-line summary of the members source and refresh health:</p>
 <pre><code>SPX members  cache:2026-05-22, 503 names                            # healthy
 SPX members  embedded:2026-05-22, 503 names, refresh parse_failed   # silent rot (Wikipedia changed HTML)
 SPX members  embedded:2026-05-22, 503 names, refresh network_failed  # offline / DNS down
@@ -219,22 +219,22 @@ SPX members  embedded:2026-05-22, 503 names, refresh network_failed  # offline /
 <h2 id="updating-market-calendars-binary-release">Updating market calendars: binary release</h2>
 <p>Market calendars are embedded official exchange schedules in this first release. The supported calendars are US cash equities, US listed options regular sessions, and German Xetra cash equities. They do not cold-start, hit a network cache, or apply an IBKR-specific overlay at runtime; the official exchange calendar is the binding source for open/closed/holiday/early-close context.</p>
 <p>Each response includes <code>coverage_start</code> and <code>coverage_end</code>. Queries outside embedded coverage return <code>state: &quot;unknown&quot;</code> rather than guessing from weekdays. The CLI/MCP <code>days</code> horizon is capped at 400 calendar days, which covers the practical risk-manager lookahead for next-session, long-weekend, year-end, and next-year holiday checks while keeping responses bounded.</p>
-<p>Calendar updates arrive with normal <code>ibkr</code> binary updates. If a supported exchange publishes an unscheduled closure or changes a future holiday after your installed binary was built, update the binary once a release carrying the refreshed calendar is available.</p>
+<p>Calendar updates arrive with normal <code>canary</code> binary updates. If a supported exchange publishes an unscheduled closure or changes a future holiday after your installed binary was built, update the binary once a release carrying the refreshed calendar is available.</p>
 <h2 id="where-state-lives">Where state lives</h2>
 <ul>
-<li><code>~/.local/bin/ibkr</code>: installed binary; a single <code>.bak</code> beside it carries the immediately-prior version.</li>
-<li>Claude Desktop extension storage: MCPB-managed installs carry a separate embedded binary; update by reinstalling <code>ibkr.mcpb</code>.</li>
+<li><code>~/.local/bin/canary</code>: the sole installed executable. No prior-version binary is retained.</li>
+<li>Claude Desktop extension storage: MCPB-managed installs carry a separate embedded binary; update by reinstalling <code>canary.mcpb</code>.</li>
 <li><code>~/.local/state/ibkr/daemon.db</code>: runtime-refreshed S&amp;P membership state and observations, along with other daemon-owned business state.</li>
 <li><code>~/.cache/ibkr/update/</code>: install-time scratch space (downloaded tarball, lock file).</li>
-<li><code>~/.config/ibkr/config.toml</code>: optional persistent config; the <a href="../reference/config.html">configuration reference</a> documents every TOML field and <code>IBKR_*</code> env var.</li>
+<li><code>~/.config/ibkr/config.toml</code>: optional persistent config; the <a href="../reference/config.html">configuration reference</a> documents every TOML field, product-owned <code>CANARY_*</code> variable, and broker-specific <code>IBKR_*</code> diagnostic variable.</li>
 </ul>
 <p>All under <code>$XDG_STATE_HOME</code> / <code>$XDG_CACHE_HOME</code> / <code>$XDG_CONFIG_HOME</code> when set;
 the paths above are the fallback.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

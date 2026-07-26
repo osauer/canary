@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
-	regimeBuilderSpecDoc = "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html"
+	regimeBuilderSpecDoc = "https://osauer.dev/canary/docs/internals/regime-dashboard.html"
 	regimeBuilderSource  = "point-in-time panel"
 )
 

@@ -3,7 +3,7 @@ package daemon
 import "time"
 
 // expiryIVCache memoises per-(symbol, expiry) ATM implied volatility lookups
-// so repeated `ibkr chain SYM` calls within the TTL skip the per-expiry
+// so repeated `canary chain SYM` calls within the TTL skip the per-expiry
 // market-data subscribe cycle. The cache lives on the daemon (single
 // process) and survives across CLI invocations — that's the whole point:
 // the first call pays the gateway round-trip cost; the next ten do not.

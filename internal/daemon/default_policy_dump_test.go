@@ -11,7 +11,7 @@ import (
 // TestDefaultPolicyTOMLRoundTrips gates the dump command: the printed TOML
 // must decode back into exactly the embedded default, with no undecoded keys
 // and passing the same validation the policy manager applies to user files —
-// otherwise `ibkr policy default > file` would hand the user a broken start.
+// otherwise `canary policy default > file` would hand the user a broken start.
 func TestDefaultPolicyTOMLRoundTrips(t *testing.T) {
 	t.Run("protection", func(t *testing.T) {
 		raw, err := DefaultPolicyTOML("protection")

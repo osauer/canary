@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // historyFakeConn answers regime.history / rules.history with canned
@@ -149,7 +149,7 @@ func TestRunRegimeHistoryRejectsTrailingArgs(t *testing.T) {
 	if code := runRegimeHistory(context.Background(), env, []string{"history", "extra"}); code != 1 {
 		t.Fatalf("exit=%d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "ibkr regime history") {
+	if !strings.Contains(stderr.String(), "canary regime history") {
 		t.Fatalf("stderr missing usage: %s", stderr.String())
 	}
 }

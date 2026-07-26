@@ -20,10 +20,10 @@ const stubReleaseTmpl = `{
   "tag_name": "v1.0.0",
   "assets": [
     {"name": "SHA256SUMS",                        "browser_download_url": "BASE/dl/SHA256SUMS"},
-    {"name": "ibkr-v1.0.0-darwin-arm64.tar.gz",   "browser_download_url": "BASE/dl/ibkr-v1.0.0-darwin-arm64.tar.gz"},
-    {"name": "ibkr-v1.0.0-darwin-amd64.tar.gz",   "browser_download_url": "BASE/dl/ibkr-v1.0.0-darwin-amd64.tar.gz"},
-    {"name": "ibkr-v1.0.0-linux-amd64.tar.gz",    "browser_download_url": "BASE/dl/ibkr-v1.0.0-linux-amd64.tar.gz"},
-    {"name": "ibkr-v1.0.0-linux-arm64.tar.gz",    "browser_download_url": "BASE/dl/ibkr-v1.0.0-linux-arm64.tar.gz"}
+    {"name": "canary-v1.0.0-darwin-arm64.tar.gz", "browser_download_url": "BASE/dl/canary-v1.0.0-darwin-arm64.tar.gz"},
+    {"name": "canary-v1.0.0-darwin-amd64.tar.gz", "browser_download_url": "BASE/dl/canary-v1.0.0-darwin-amd64.tar.gz"},
+    {"name": "canary-v1.0.0-linux-amd64.tar.gz",  "browser_download_url": "BASE/dl/canary-v1.0.0-linux-amd64.tar.gz"},
+    {"name": "canary-v1.0.0-linux-arm64.tar.gz",  "browser_download_url": "BASE/dl/canary-v1.0.0-linux-arm64.tar.gz"}
   ]
 }`
 
@@ -59,11 +59,11 @@ func newReleaseServer(t *testing.T, status int, bodyTmpl string) *httptest.Serve
 // shape → Release) are identical.
 func fetchAt(ctx context.Context, t *testing.T, srv *httptest.Server) (*Release, error) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/repos/osauer/ibkr/releases/latest", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/repos/osauer/canary/releases/latest", nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "ibkr-update-test")
+	req.Header.Set("User-Agent", "canary-update-test")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -136,7 +136,7 @@ func TestAssetForHost(t *testing.T) {
 		if !ok {
 			t.Fatalf("AssetForHost ok=false for supported host %q", want)
 		}
-		wantName := "ibkr-v1.0.0-" + want + ".tar.gz"
+		wantName := "canary-v1.0.0-" + want + ".tar.gz"
 		if name != wantName {
 			t.Fatalf("AssetForHost name = %q, want %q", name, wantName)
 		}
@@ -151,8 +151,8 @@ func TestAssetForHost(t *testing.T) {
 func TestAssetForHostNeverSelectsTradingVariant(t *testing.T) {
 	t.Parallel()
 	platform := runtime.GOOS + "-" + runtime.GOARCH
-	standard := "ibkr-v1.0.0-" + platform + ".tar.gz"
-	trading := "ibkr-trading-v1.0.0-" + platform + ".tar.gz"
+	standard := "canary-v1.0.0-" + platform + ".tar.gz"
+	trading := "canary-trading-v1.0.0-" + platform + ".tar.gz"
 	rel := &Release{
 		TagName: "v1.0.0",
 		Assets: []Asset{
@@ -166,12 +166,34 @@ func TestAssetForHostNeverSelectsTradingVariant(t *testing.T) {
 	}
 }
 
+func TestAssetForHostRejectsRetiredAssetName(t *testing.T) {
+	t.Parallel()
+	platform := runtime.GOOS + "-" + runtime.GOARCH
+	canonical := "canary-v1.0.0-" + platform + ".tar.gz"
+	retired := "ibkr-v1.0.0-" + platform + ".tar.gz"
+	trading := "canary-trading-v1.0.0-" + platform + ".tar.gz"
+	rel := &Release{
+		TagName: "v1.0.0",
+		Assets: []Asset{
+			{Name: trading, URL: "https://example/trading"},
+			{Name: retired, URL: "https://example/retired"},
+		},
+	}
+	if name, _, ok := rel.AssetForHost(); ok {
+		t.Fatalf("AssetForHost selected noncanonical asset %q", name)
+	}
+	rel.Assets = append(rel.Assets, Asset{Name: canonical, URL: "https://example/canonical"})
+	if name, _, ok := rel.AssetForHost(); !ok || name != canonical {
+		t.Fatalf("AssetForHost = %q, %v; want %q, true", name, ok, canonical)
+	}
+}
+
 func TestAssetForHost_NoMatch(t *testing.T) {
 	t.Parallel()
 	rel := &Release{
 		TagName: "v1.0.0",
 		Assets: []Asset{
-			{Name: "ibkr-v1.0.0-plan9-mips.tar.gz", URL: "https://example/x"},
+			{Name: "canary-v1.0.0-plan9-mips.tar.gz", URL: "https://example/x"},
 		},
 	}
 	if _, _, ok := rel.AssetForHost(); ok {
@@ -202,7 +224,7 @@ func TestSHA256SUMSAsset_Missing(t *testing.T) {
 	t.Parallel()
 	rel := &Release{
 		TagName: "v1.0.0",
-		Assets:  []Asset{{Name: "ibkr-v1.0.0-darwin-arm64.tar.gz", URL: "https://example/x"}},
+		Assets:  []Asset{{Name: "canary-v1.0.0-darwin-arm64.tar.gz", URL: "https://example/x"}},
 	}
 	if _, _, ok := rel.SHA256SUMSAsset(); ok {
 		t.Fatalf("SHA256SUMSAsset ok=true with no SHA256SUMS asset")

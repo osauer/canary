@@ -30,7 +30,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -55,7 +55,7 @@ var structSources = []structSource{
 		Path:    "internal/config/config.go",
 		Root:    "Config",
 		Heading: "TOML config",
-		Intro: "Config file is loaded from `$IBKR_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. " +
+		Intro: "Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. " +
 			"Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. " +
 			"Note: defining any `[scans.<name>]` preset replaces the built-in preset set — the scans table is replace-not-merge.",
 	},
@@ -64,7 +64,7 @@ var structSources = []structSource{
 		Root:    "protectionPolicy",
 		Heading: "Protection policy file",
 		Intro: "Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). " +
-			"No file is required or shipped: when absent, the daemon runs the embedded default — print it with `ibkr policy default protection`. " +
+			"No file is required or shipped: when absent, the daemon runs the embedded default — print it with `canary policy default protection`. " +
 			"Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. " +
 			"This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.",
 	},
@@ -73,7 +73,7 @@ var structSources = []structSource{
 		Root:    "opportunityPolicy",
 		Heading: "Opportunity policy file",
 		Intro: "Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). " +
-			"Same envelope and reload discipline as the protection policy; print the embedded default with `ibkr policy default opportunity`. " +
+			"Same envelope and reload discipline as the protection policy; print the embedded default with `canary policy default opportunity`. " +
 			"Governs advisory option-exercise opportunity detection only.",
 	},
 }
@@ -103,7 +103,7 @@ func (f tomlField) Field() string {
 
 // envVar is one row in the environment variables table.
 type envVar struct {
-	Name string // e.g. "IBKR_SPX_MEMBERS_AUTO_REFRESH"
+	Name string // e.g. "CANARY_SPX_MEMBERS_AUTO_REFRESH"
 	Desc string // free-text description
 	File string // source file the docgen comment lives in (for debugging)
 }
@@ -372,7 +372,7 @@ func scanEnvVars(root string) ([]envVar, error) {
 
 // validateDocumentedEnvReads makes the docgen comment convention enforceable.
 // It finds production os.Getenv/os.LookupEnv calls whose argument is an
-// IBKR_* string literal or package constant and requires a matching
+// CANARY_* or broker-specific IBKR_* string literal or package constant and requires a matching
 // // docgen:env row. Dynamic/test-only environment reads are outside the public
 // config reference.
 func validateDocumentedEnvReads(root string, documented []envVar) error {
@@ -385,6 +385,13 @@ func validateDocumentedEnvReads(root string, documented []envVar) error {
 	documentedNames := make(map[string]bool, len(documented))
 	for _, env := range documented {
 		documentedNames[env.Name] = true
+	}
+	// Retired inputs may still be read solely to fail closed or preserve an
+	// anti-bypass restriction. They are deliberately absent from the canonical
+	// configuration reference because they are not supported aliases.
+	retiredInputs := map[string]bool{
+		"IBKR_AGENT_CONTEXT": true,
+		"IBKR_INSTALL_DIR":   true,
 	}
 
 	consts := map[string]map[string]string{}
@@ -470,7 +477,8 @@ func validateDocumentedEnvReads(root string, documented []envVar) error {
 			case *ast.Ident:
 				name = consts[source.key][arg.Name]
 			}
-			if strings.HasPrefix(name, "IBKR_") && !documentedNames[name] {
+			if (strings.HasPrefix(name, "CANARY_") || strings.HasPrefix(name, "IBKR_")) &&
+				!documentedNames[name] && !retiredInputs[name] {
 				missing[name] = source.path
 			}
 			return true
@@ -523,9 +531,9 @@ func render(tables [][]tomlField, envs []envVar) string {
 	}
 
 	out.WriteString("## Runtime platform settings\n\n")
-	out.WriteString("Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `ibkr settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. ")
+	out.WriteString("Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `canary settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. ")
 	out.WriteString("Setting a key to `null` clears the runtime override, and every response field carries access/source/reason metadata. ")
-	out.WriteString("`trading.freeze` and trading-limit keys require `ibkr settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. ")
+	out.WriteString("`trading.freeze` and trading-limit keys require `canary settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. ")
 	out.WriteString("Ownership and semantics: `internal-docs/design/platform-settings.md`.\n\n")
 	out.WriteString("| Key | Value | Class | Description |\n")
 	out.WriteString("|-----|-------|-------|-------------|\n")

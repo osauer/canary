@@ -2,6 +2,7 @@ package appweb
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -85,6 +86,245 @@ func TestManifestUsesStableRootLaunchScope(t *testing.T) {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("manifest missing stable launch contract %q", want)
 		}
+	}
+}
+
+func TestVisibleProductIdentityIsCanary(t *testing.T) {
+	t.Parallel()
+	manifestData, err := Files.ReadFile("manifest.webmanifest")
+	if err != nil {
+		t.Fatalf("read manifest.webmanifest: %v", err)
+	}
+	htmlData, err := Files.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	serviceWorkerData, err := Files.ReadFile("service-worker.js")
+	if err != nil {
+		t.Fatalf("read service-worker.js: %v", err)
+	}
+	manifest, html, serviceWorker := string(manifestData), string(htmlData), string(serviceWorkerData)
+	for name, check := range map[string]struct {
+		source string
+		wants  []string
+	}{
+		"manifest": {manifest, []string{`"name": "Canary"`, `"short_name": "Canary"`}},
+		"browser":  {html, []string{`<title>Canary</title>`, `<h1 aria-label="Canary"><span>Canary</span></h1>`}},
+		"push":     {serviceWorker, []string{`: "Canary";`, `: "Open Canary for details.";`}},
+	} {
+		for _, want := range check.wants {
+			if !strings.Contains(check.source, want) {
+				t.Errorf("%s identity missing %q", name, want)
+			}
+		}
+	}
+	for _, stale := range []string{"ibkr canary", "Canary · IBKR", "Canary IBKR"} {
+		for name, source := range map[string]string{"manifest": manifest, "browser": html, "push": serviceWorker} {
+			if strings.Contains(source, stale) {
+				t.Errorf("%s retains stale product identity %q", name, stale)
+			}
+		}
+	}
+}
+
+func TestProductRenameKeepsPinnedRuntimeConfigPaths(t *testing.T) {
+	t.Parallel()
+	alertsData, err := Files.ReadFile("alerts.js")
+	if err != nil {
+		t.Fatalf("read alerts.js: %v", err)
+	}
+	alerts := string(alertsData)
+	for _, want := range []string{
+		"~/.config/ibkr/flex-token",
+		"~/.config/ibkr/config.toml",
+	} {
+		if !strings.Contains(alerts, want) {
+			t.Errorf("product rename removed safety-pinned runtime path %q", want)
+		}
+	}
+	if strings.Contains(alerts, "~/.config/canary/") {
+		t.Error("product rename invented a nonexistent Canary XDG config namespace")
+	}
+}
+
+func TestVisibleStressCopyDoesNotUseCanaryAsDomainTerm(t *testing.T) {
+	t.Parallel()
+	stressData, err := Files.ReadFile("stress.js")
+	if err != nil {
+		t.Fatalf("read stress.js: %v", err)
+	}
+	protectionData, err := Files.ReadFile("protection.js")
+	if err != nil {
+		t.Fatalf("read protection.js: %v", err)
+	}
+	htmlData, err := Files.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	screenshotData, err := os.ReadFile("../../scripts/app-screenshots.mjs")
+	if err != nil {
+		t.Fatalf("read app-screenshots.mjs: %v", err)
+	}
+	stress, protection, html, screenshots := string(stressData), string(protectionData), string(htmlData), string(screenshotData)
+	for name, check := range map[string]struct {
+		source string
+		wants  []string
+	}{
+		"stress renderer": {stress, []string{
+			`"Stress driver"`,
+			`"No active stress drivers"`,
+			`"Waiting for stress snapshot."`,
+			`fully confirmed stress signal.`,
+			`defensive stress action.`,
+			`source: "stress read"`,
+			`before treating the stress read as a market signal.`,
+		}},
+		"cold shell":         {html, []string{"Waiting for stress snapshot."}},
+		"protection source":  {protection, []string{"Source: stress snapshot."}},
+		"screenshot fixture": {screenshots, []string{"No defensive stress action is indicated."}},
+	} {
+		for _, want := range check.wants {
+			if !strings.Contains(check.source, want) {
+				t.Errorf("%s missing renamed stress copy %q", name, want)
+			}
+		}
+	}
+	for _, stale := range []string{
+		"Canary driver",
+		"canary drivers",
+		"canary snapshot",
+		"canary trigger",
+		"defensive canary action",
+		"canary market read",
+		"canary portfolio snapshot",
+		"canary as a market signal",
+	} {
+		for name, source := range map[string]string{
+			"stress renderer":    stress,
+			"cold shell":         html,
+			"protection source":  protection,
+			"screenshot fixture": screenshots,
+		} {
+			if strings.Contains(strings.ToLower(source), strings.ToLower(stale)) {
+				t.Errorf("%s retains stale stress-domain copy %q", name, stale)
+			}
+		}
+	}
+}
+
+func TestCleanSlateRenameUsesStressDOMAndRetainsSafetyContracts(t *testing.T) {
+	t.Parallel()
+	htmlData, err := Files.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	cssData, err := Files.ReadFile("styles.css")
+	if err != nil {
+		t.Fatalf("read styles.css: %v", err)
+	}
+	serviceWorkerData, err := Files.ReadFile("service-worker.js")
+	if err != nil {
+		t.Fatalf("read service-worker.js: %v", err)
+	}
+	html, css, js, serviceWorker := string(htmlData), string(cssData), embeddedSPASource(t), string(serviceWorkerData)
+
+	for _, id := range []string{
+		"stressAsOf", "stressHero", "stressDetailToggle", "stressAction", "stressSummary",
+		"stressSeverity", "stressRulesCard", "stressRulesCounts", "stressRulesToggle",
+		"stressRulesBrief", "stressRulesNotesToggle", "stressRulesNotesDialog",
+		"stressRulesNotesLabel", "stressRulesNotesTitle", "stressRulesNotesClose",
+		"stressRulesNotesList", "stressRulesDetailPanel", "stressRulesGrid",
+		"stressDetailPanel", "stressDetailGrid", "stressDrivers",
+	} {
+		if !strings.Contains(html, `id="`+id+`"`) {
+			t.Errorf("clean-slate rename missing stress DOM id %q", id)
+		}
+	}
+	for _, class := range []string{
+		"signal-half--stress", "stress-hero", "stress-hero__grid", "stress-hero__copy",
+		"stress-summary-actions", "stress-rules", "stress-rules__head", "stress-rules__brief",
+		"stress-rules-detail",
+	} {
+		if !strings.Contains(html, class) || !strings.Contains(css, "."+class) {
+			t.Errorf("clean-slate rename missing stress DOM/CSS class %q", class)
+		}
+	}
+	if !strings.Contains(html, "signal-detail-col--stress") {
+		t.Error(`clean-slate rename missing DOM class "signal-detail-col--stress"`)
+	}
+	for _, stale := range []string{
+		"canaryAsOf", "canaryHero", "canaryDetailToggle", "canaryAction", "canarySummary",
+		"canarySeverity", "canaryRulesCard", "canaryRulesCounts", "canaryRulesToggle",
+		"canaryRulesBrief", "canaryRulesNotesToggle", "canaryRulesNotesDialog",
+		"canaryRulesNotesLabel", "canaryRulesNotesTitle", "canaryRulesNotesClose",
+		"canaryRulesNotesList", "canaryRulesDetailPanel", "canaryRulesGrid",
+		"canaryDetailPanel", "canaryDetailGrid", "canaryDrivers",
+	} {
+		if strings.Contains(html, `id="`+stale+`"`) || strings.Contains(js, `$("`+stale+`")`) {
+			t.Errorf("clean-slate rename retains stale sensor DOM id %q", stale)
+		}
+	}
+	for _, stale := range []string{
+		"signal-half--canary", "canary-hero", "canary-summary-actions",
+		"canary-rules", "canary-rules-detail", "signal-detail-col--canary",
+	} {
+		if strings.Contains(html, stale) || strings.Contains(css, "."+stale) {
+			t.Errorf("clean-slate rename retains stale sensor DOM/CSS class %q", stale)
+		}
+	}
+	for _, identifier := range []string{
+		`"ibkrRemoteRoute"`, `"ibkrDeviceID"`, `"ibkrDeviceSecret"`,
+		`"ibkrDeviceKeyJWK"`, `"ibkrPurgeBook"`, `"ibkrPurgeBooks"`,
+		`indexedDB.open("ibkr-app", 1)`,
+	} {
+		if !strings.Contains(js, identifier) {
+			t.Errorf("rename removed safety-critical persisted browser identifier %q", identifier)
+		}
+	}
+	for _, identifier := range []string{
+		`"canaryAccountValueVisible"`, `"canarySelectedMarket"`, `"canaryActiveTab"`,
+	} {
+		if !strings.Contains(js, identifier) {
+			t.Errorf("clean-slate rename missing canonical browser preference %q", identifier)
+		}
+	}
+	for _, stale := range []string{
+		`"ibkrAccountValueVisible"`, `"ibkrSelectedMarket"`, `"ibkrActiveTab"`,
+	} {
+		if strings.Contains(js, stale) {
+			t.Errorf("clean-slate rename retained non-safety browser preference %q", stale)
+		}
+	}
+	if !strings.Contains(js, `globalThis.__canarySmoke`) {
+		t.Error("clean-slate rename missing the Canary-owned nonpersistent smoke hook")
+	}
+	if !strings.Contains(js, `"canary", "regime", "rulebook"`) {
+		t.Error("rename removed the daemon alert-source contract identifier")
+	}
+	for _, route := range []string{
+		`navigator.serviceWorker?.register("/service-worker.js")`,
+		`fetch("/api/pairing/complete"`,
+		`fetch("/api/auth/challenge"`,
+		`fetch("/api/auth/session"`,
+	} {
+		if !strings.Contains(js, route) {
+			t.Errorf("rename removed required browser route %q", route)
+		}
+	}
+	for _, route := range []string{
+		`monitor: "/?tab=monitor"`,
+		`brief: "/?tab=brief"`,
+		`alerts: "/?tab=alerts"`,
+	} {
+		if !strings.Contains(serviceWorker, route) {
+			t.Errorf("rename removed required notification route %q", route)
+		}
+	}
+	if !strings.Contains(html, `https://osauer.dev/canary/feedback/?source=canary-app`) {
+		t.Error("feedback must use the canonical Canary public path and product-origin source identifier")
+	}
+	if strings.Contains(html, `osauer.dev/ibkr/`) {
+		t.Error("clean-slate SPA must not link to the removed /ibkr public path")
 	}
 }
 
@@ -199,7 +439,7 @@ func TestAppJSConfirmInputsUsesTraderSafeCopy(t *testing.T) {
 	for _, want := range []string{
 		`if (action === "confirm_inputs") return "Check data";`,
 		"function stressSummaryText(stress, snap = {})",
-		"before treating canary as a market signal",
+		"before treating the stress read as a market signal",
 		"no market-stress action",
 		"function stressNeedsInputCheck(stress)",
 		"function stressInputCheckBlocksAction(stress)",
@@ -304,10 +544,10 @@ func TestAppJSStressDetailUsesSourceBackedEvidenceRows(t *testing.T) {
 			t.Fatalf("app.js should not reintroduce removed stress clutter %q", forbidden)
 		}
 	}
-	if strings.Contains(css, ".canary-hero p {") {
+	if strings.Contains(css, ".stress-hero p {") {
 		t.Fatalf("styles.css must not clamp every paragraph inside the expanded stress panel")
 	}
-	if !strings.Contains(css, ".canary-hero__copy p") || !strings.Contains(css, ".detail-panel--dark .driver-row.warn") {
+	if !strings.Contains(css, ".stress-hero__copy p") || !strings.Contains(css, ".detail-panel--dark .driver-row.warn") {
 		t.Fatalf("styles.css missing scoped stress summary/detail styling")
 	}
 }
@@ -330,7 +570,7 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		`const symbols = ["SPY", "VIX", "QQQ", "IWM", "HYG", "TLT"];`,
 		"function handleExpandablePanelTap(event, which)",
 		`$("regimeSummaryCard").addEventListener("click"`,
-		`$("canaryHero").addEventListener("click"`,
+		`$("stressHero").addEventListener("click"`,
 		`"trading", "auto_trade", "proposals", "opportunities", "settings", "regime", "stress"`,
 		"function setupLiveRefreshLoop()",
 		"function setupBottomTabs()",

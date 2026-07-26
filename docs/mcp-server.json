@@ -1,20 +1,20 @@
 {
-  "name": "ibkr",
-  "title": "IBKR MCP Server",
-  "description": "Local Interactive Brokers (IBKR) MCP server, CLI, and Go TWS API: the read-side core of an agentic trading desk for individual traders, with full market data for agents, portfolio context, and advisory risk checks through IB Gateway or TWS.",
-  "homepage": "https://osauer.dev/ibkr/",
-  "repository": "https://github.com/osauer/ibkr",
+  "name": "canary",
+  "title": "Canary MCP Server",
+  "description": "Canary's local MCP server and CLI for Interactive Brokers: market data for agents, portfolio context, and advisory risk checks through IB Gateway or TWS.",
+  "homepage": "https://osauer.dev/canary/",
+  "repository": "https://github.com/osauer/canary",
   "license": "MIT",
   "version": "2.3.1",
   "transport": {
     "type": "stdio",
-    "command": "ibkr",
+    "command": "canary",
     "args": ["mcp"]
   },
   "install": {
-    "shell": "curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh",
-    "mcpb": "https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb",
-    "claude_desktop": "ibkr setup claude-desktop"
+    "shell": "curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh",
+    "mcpb": "https://github.com/osauer/canary/releases/latest/download/canary.mcpb",
+    "claude_desktop": "canary setup claude-desktop"
   },
   "requires": [
     "IB Gateway 10.37+ or TWS running locally",
@@ -37,7 +37,7 @@
     "daily historical bars",
     "market scanners",
     "portfolio review workflow",
-    "agentic trading research",
+    "market research",
     "risk checks",
     "fixed-fractional position sizing",
     "S&P 500 breadth",
@@ -57,7 +57,7 @@
     "can_place_orders": false,
     "can_modify_orders": false,
     "can_cancel_orders": false,
-    "summary": "The MCP tool surface is preview-only in every release variant: ibkr_order_preview can draft an order and mint a local preview token, but no MCP tool can place, modify, cancel, or transmit a broker order. Standard downloads are read-only builds; each release also publishes a clearly marked ibkr-trading CLI tarball for explicit opt-in order management."
+    "summary": "The MCP tool surface is preview-only in every release variant: canary_order_preview can draft an order and mint a local preview token, but no MCP tool can place, modify, cancel, or transmit a broker order. Standard downloads are read-only builds; each release also publishes a clearly marked canary-trading CLI tarball for explicit opt-in order management."
   },
   "keywords": [
     "Interactive Brokers",
@@ -65,17 +65,17 @@
     "TWS API",
     "IB Gateway",
     "MCP server",
-    "IBKR MCP",
-    "IBKR MCP TWS",
-    "IBKR TWS MCP server",
+    "Canary",
+    "Canary MCP",
+    "Canary Interactive Brokers",
     "Interactive Brokers MCP server",
     "TWS MCP server",
     "IB Gateway MCP",
     "Claude Desktop Interactive Brokers",
     "Interactive Brokers portfolio analysis AI",
     "Claude IBKR portfolio review",
-    "agentic IBKR portfolio analysis",
-    "agentic trading research",
+    "IBKR portfolio analysis",
+    "market research",
     "portfolio review workflow",
     "risk checks",
     "controlled execution boundary",

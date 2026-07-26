@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,15 +70,16 @@ func TestCodexHookAndBrowserPolicyAreWired(t *testing.T) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatalf("decode .codex/hooks.json: %v", err)
 	}
-	if !strings.Contains(string(data), ".codex/hooks/ibkr-pre-tool-use.sh") || !strings.Contains(string(data), "exec_command") {
+	if !strings.Contains(string(data), ".codex/hooks/canary-pre-tool-use.sh") || !strings.Contains(string(data), "exec_command") {
 		t.Fatal(".codex/hooks.json does not wire the project shell hook to exec_command")
 	}
 	for _, path := range []string{
-		repoPath(".codex", "hooks", "ibkr-pre-tool-use.sh"),
-		repoPath("hooks", "ibkr-pre-tool-use.sh"),
+		repoPath(".codex", "hooks", "canary-pre-tool-use.sh"),
+		repoPath("hooks", "canary-pre-tool-use.sh"),
+		repoPath("hooks", "exec-policy-parity_test.sh"),
 	} {
 		if info, err := os.Stat(path); err != nil || info.Mode()&0o111 == 0 {
-			t.Errorf("hook %s missing or not executable: info=%v err=%v", path, info, err)
+			t.Errorf("hook/test %s missing or not executable: info=%v err=%v", path, info, err)
 		}
 	}
 	browserRules, err := os.ReadFile(repoPath("web", "app", "AGENTS.md"))
@@ -92,19 +94,55 @@ func TestCodexHookAndBrowserPolicyAreWired(t *testing.T) {
 	}
 }
 
-func TestRepoSkillDoesNotShadowInstalledIBKRSkill(t *testing.T) {
-	canonical, err := os.ReadFile(repoPath("skills", "ibkr", "SKILL.md"))
+func TestCanaryExecPolicyAndRetiredIBKRBoundaries(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex unavailable")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq unavailable")
+	}
+	cmd := exec.Command("/bin/bash", repoPath("hooks", "exec-policy-parity_test.sh"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("execpolicy parity: %v\n%s", err, out)
+	}
+}
+
+func TestSessionStartInvokesOnlyCanaryAndDetectsRetiredIBKR(t *testing.T) {
+	data, err := os.ReadFile(repoPath("hooks", "session-start.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	repoSkill, err := os.ReadFile(repoPath(".agents", "skills", "ibkr-harness", "SKILL.md"))
+	source := string(data)
+	for _, required := range []string{
+		"command -v canary",
+		"command -v ibkr",
+		"hooks will not invoke it",
+		`cli_bin="canary"`,
+		`bin_raw=$("$cli_bin" version --json`,
+	} {
+		if !strings.Contains(source, required) {
+			t.Errorf("session-start boundary missing %q", required)
+		}
+	}
+	if strings.Contains(source, `cli_bin="ibkr"`) {
+		t.Fatal("session-start still invokes the retired ibkr executable")
+	}
+}
+
+func TestRepoCanaryHarnessSkillIdentity(t *testing.T) {
+	canonical, err := os.ReadFile(repoPath("skills", "canary", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(canonical), "\nname: ibkr\n") {
-		t.Fatal("canonical installed skill must keep name ibkr")
+	repoSkill, err := os.ReadFile(repoPath(".agents", "skills", "canary-harness", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(repoSkill), "\nname: ibkr-harness\n") {
-		t.Fatal("repo development skill must use unique name ibkr-harness")
+	if !strings.Contains(string(canonical), "\nname: canary\n") {
+		t.Fatal("canonical installed skill must use name canary")
+	}
+	if !strings.Contains(string(repoSkill), "\nname: canary-harness\n") {
+		t.Fatal("repo development skill must use unique name canary-harness")
 	}
 }

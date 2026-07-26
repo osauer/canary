@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // A portfolio fit of "low" must be a measurement, never a default reached

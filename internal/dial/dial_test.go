@@ -21,7 +21,7 @@ func TestSpawnDaemonFromExecutableReapsShortLivedChild(t *testing.T) {
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("IBKR_LOG", filepath.Join(dir, "daemon.log"))
+	t.Setenv("CANARY_LOG", filepath.Join(dir, "daemon.log"))
 
 	pid, err := spawnDaemonFromExecutable(executable)
 	if err != nil {
@@ -35,6 +35,26 @@ func TestSpawnDaemonFromExecutableReapsShortLivedChild(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("short-lived daemon child %d was not reaped", pid)
+}
+
+func TestAutospawnExactExecutableHonorsCallerStartupTimeout(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "slow-daemon")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nsleep 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CANARY_LOG", filepath.Join(dir, "daemon.log"))
+
+	timeout := 150 * time.Millisecond
+	startedAt := time.Now()
+	_, err := AutospawnAndConnectContextFromExecutableWithTimeout(context.Background(), shortSocketPath(t), executable, timeout)
+	elapsed := time.Since(startedAt)
+	if err == nil {
+		t.Fatal("slow daemon unexpectedly opened a socket")
+	}
+	if elapsed < timeout || elapsed > time.Second {
+		t.Fatalf("exact startup wait = %s, want caller budget near %s rather than ordinary %s", elapsed, timeout, AutospawnTimeout)
+	}
 }
 
 // shortSocketPath returns a socket path under /tmp so it stays under the
@@ -83,7 +103,7 @@ func seedOrphanSocket(t *testing.T, path string) {
 }
 
 // An orphaned socket file (file exists but no listener) must surface as
-// ErrSocketMissing so cmd/ibkr's autospawn and WaitForSocket's retry both
+// ErrSocketMissing so cmd/canary's autospawn and WaitForSocket's retry both
 // trigger. Pre-fix, ECONNREFUSED leaked through and broke autospawn after
 // any unclean daemon exit.
 func TestConnectOrphanSocketReportsMissing(t *testing.T) {
@@ -249,7 +269,7 @@ func TestDaemonVersion(t *testing.T) {
 // Call blocked on read within the SIGINT-response budget (~150ms). Pre-fix,
 // only the ctx deadline was wired into the socket, so cancellation without
 // a deadline left the CLI hung until the daemon eventually replied (or the
-// per-invocation deadline in cmd/ibkr fired 60s later).
+// per-invocation deadline in cmd/canary fired 60s later).
 func TestCallHonorsContextCancellation(t *testing.T) {
 	t.Parallel()
 	path, stop := silentSocket(t)
@@ -338,7 +358,7 @@ func TestCallDeadlineDoesNotLeakIntoStream(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Tight-deadline Call — mirrors the version-skew check in cmd/ibkr.
+	// Tight-deadline Call — mirrors the version-skew check in cmd/canary.
 	callCtx, callCancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer callCancel()
 	if err := conn.Call(callCtx, "status.health", nil, nil); err != nil {

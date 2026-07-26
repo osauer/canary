@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/app/state"
 )
 
 // SessionTTL is the lifetime of an in-memory bearer session minted after

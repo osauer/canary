@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/discover"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // shortTempDir returns a tempdir under /tmp so Unix socket paths stay
@@ -174,7 +174,7 @@ func TestDispatchQuoteSubscribeReportsTerminal(t *testing.T) {
 }
 
 // unaryDeadline picks a per-method budget that stays under the matching
-// CLI per-invocation deadline (cmd/ibkr/main.go) so the daemon's classified
+// CLI per-invocation deadline (cmd/canary/main.go) so the daemon's classified
 // error reaches the user before the socket times out, while leaving the
 // streaming method (quote.subscribe) without a deadline. Locks two
 // invariants: every unary method has d > 0, and d stays under the CLI's
@@ -302,7 +302,7 @@ func TestRequestCtxNoDeadlineForStreamingMethod(t *testing.T) {
 
 // Server.Start must open the Unix socket and start serving before the
 // gateway handshake starts — otherwise a slow or unreachable gateway blocks
-// `ibkr status` for 30-40s during the IBKR pool's TCP timeouts. The initial
+// `canary status` for 30-40s during the IBKR pool's TCP timeouts. The initial
 // connection must also be marked in-flight before the accept loop is exposed;
 // otherwise an immediate status request launches reconnectFlow alongside the
 // initial handshake and IBKR rejects the duplicate client ID. The fake
@@ -497,7 +497,7 @@ func TestStartDoesNotLaunchBreadthBeforePostConnect(t *testing.T) {
 
 // runIdleWatcher must return when the idle timer fires with no active
 // conns. Pre-fix, the idle case closed the listener directly and returned;
-// the surrounding Start() then returned to cmd/ibkrd's main, which blocked
+// the surrounding Start() then returned to cmd/canaryd's main, which blocked
 // on <-ctx.Done() forever, leaking a zombie process that held the instance
 // lock. The fix moves listener teardown into Start() (via closeListener)
 // so the idle path can simply return and let the deferred Stop() finish
@@ -933,7 +933,7 @@ func TestServerIdleShutdownReleasesListenerAndSocket(t *testing.T) {
 	// Allow acceptLoop a moment to observe net.ErrClosed and exit.
 	time.Sleep(50 * time.Millisecond)
 
-	srv.Stop() // matches cmd/ibkrd's deferred Stop
+	srv.Stop() // matches cmd/canaryd's deferred Stop
 
 	if _, err := os.Stat(srv.socketPath); !os.IsNotExist(err) {
 		t.Fatalf("socket file should be removed after idle shutdown + Stop; stat err=%v", err)
@@ -1026,7 +1026,7 @@ func TestHandshakeWatchdog_DoesNotClobberExistingError(t *testing.T) {
 
 // triggerReconnect is the gate that prevents stacked connect attempts.
 // While a connect is already running, calling it must return false
-// immediately — otherwise the same `ibkr status` poll loop that drives
+// immediately — otherwise the same `canary status` poll loop that drives
 // the recovery would pile up parallel connect goroutines for the same
 // endpoint while the first one is still running its handshake.
 func TestTriggerReconnect_InFlightGateBlocksNewAttempt(t *testing.T) {
@@ -1104,7 +1104,7 @@ func TestReconnectFlow_RepublishesEndpointOnNewProbeWinner(t *testing.T) {
 }
 
 // When discovery itself fails (no IBKR listener), reconnectFlow must
-// record the discovery error so `ibkr status` renders a verdict instead
+// record the discovery error so `canary status` renders a verdict instead
 // of leaving the user staring at "starting…" forever.
 func TestReconnectFlow_RecordsDiscoveryFailure(t *testing.T) {
 	// Not parallel: stubs the package-level discover.Probe.
@@ -1136,7 +1136,7 @@ func TestReconnectFlow_RecordsDiscoveryFailure(t *testing.T) {
 
 // handleStatusHealth must trigger a rediscover+reconnect when the
 // daemon is currently degraded. This is the user-visible recovery path:
-// running `ibkr status` after moving from Gateway to TWS picks up the
+// running `canary status` after moving from Gateway to TWS picks up the
 // new port without a daemon restart. We check the trigger fired by
 // observing connectInFlight transitioning from "claimed" back to
 // "cleared" inside the goroutine.
@@ -1336,7 +1336,7 @@ func TestTryOneHandshakePublishesConnectorLastError(t *testing.T) {
 	t.Parallel()
 	srv := &Server{logger: NewLogger(&bytes.Buffer{}, "error")}
 	ep := discover.Endpoint{Host: "127.0.0.1", Port: 7496, ClientID: 15}
-	cause := "ibkr: client id already in use: gateway client ID 15 is already in use; stop the stale IBKR API client or choose a free [gateway].client_id"
+	cause := "IBKR: client ID already in use: gateway client ID 15 is already in use; stop the stale IBKR API client or choose a free [gateway].client_id"
 
 	if srv.tryOneHandshake(context.Background(), &fakeAttempter{lastError: cause}, ep) {
 		t.Fatal("tryOneHandshake succeeded for disconnected attempter")
@@ -1419,7 +1419,7 @@ func TestConnectWithFailover_AlternateWinsWhenPrimaryFails(t *testing.T) {
 }
 
 // When every candidate's handshake fails, the daemon publishes a verdict
-// that names what was tried so `ibkr status` shows the user the full
+// that names what was tried so `canary status` shows the user the full
 // picture. This is the "all candidates exhausted" branch — the user must
 // fix something upstream (login, API checkbox, port config) before the
 // daemon can recover.

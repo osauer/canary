@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // TestClassifyRegimeAgreement pins the four classifier outcomes plus
@@ -234,7 +234,7 @@ func TestCombineGammaResultsDisagreementSurfaces(t *testing.T) {
 }
 
 // TestGammaScopeForRequestDefaultsToCombined pins that an empty Scope
-// (today's `ibkr gamma` no flag) lands on the combined path.
+// (today's `canary gamma` no flag) lands on the combined path.
 func TestGammaScopeForRequestDefaultsToCombined(t *testing.T) {
 	got, err := gammaScopeForRequest("")
 	if err != nil {

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/watchlist"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/watchlist"
 )
 
 func TestRunWatchlistAddListJSONWithoutDaemon(t *testing.T) {

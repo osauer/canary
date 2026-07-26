@@ -7,7 +7,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // TestRiskPolicyTemplateLoads gates template drift for the one policy that

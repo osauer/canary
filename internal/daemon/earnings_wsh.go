@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // wshEarningsClient is the narrow read-only seam between the daemon's
@@ -25,10 +25,10 @@ type wshStockIdentityClient interface {
 }
 
 var (
-	errWSHEarningsGatewayUnavailable = errors.New("ibkr WSH gateway unavailable")
-	errWSHEarningsRequestFailed      = errors.New("ibkr WSH request failed")
-	errWSHEarningsPayloadInvalid     = errors.New("ibkr WSH earnings payload invalid")
-	errEarningsIdentityRequestFailed = errors.New("ibkr earnings identity request failed")
+	errWSHEarningsGatewayUnavailable = errors.New("IBKR WSH gateway unavailable")
+	errWSHEarningsRequestFailed      = errors.New("IBKR WSH request failed")
+	errWSHEarningsPayloadInvalid     = errors.New("IBKR WSH earnings payload invalid")
+	errEarningsIdentityRequestFailed = errors.New("IBKR earnings identity request failed")
 )
 
 // fetchEarningsIdentity is an exact contract-details read, deliberately

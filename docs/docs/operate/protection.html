@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Protection and emergency exits | ibkr</title>
-  <meta name="description" content="How ibkr generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/protection.html">
+  <title>Protection and emergency exits | Canary</title>
+  <meta name="description" content="How Canary generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/operate/protection.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.","headline":"Protection and emergency exits","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/protection.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How Canary generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.","headline":"Protection and emergency exits","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/operate/protection.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -122,44 +122,44 @@ cannot trust, not a fault to work around.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>ibkr proposals list</code></td>
+<td><code>canary proposals list</code></td>
 <td>no</td>
 <td>the current proposal set, blockers included</td>
 </tr>
 <tr>
-<td><code>ibkr proposals refresh</code></td>
+<td><code>canary proposals refresh</code></td>
 <td>no</td>
 <td>rebuild the set against fresh positions and quotes</td>
 </tr>
 <tr>
-<td><code>ibkr proposals preview KEY REVISION</code></td>
+<td><code>canary proposals preview KEY REVISION</code></td>
 <td>no</td>
 <td>mint a preview token and read the broker WhatIf verdict</td>
 </tr>
 <tr>
-<td><code>ibkr proposals submit KEY REVISION</code></td>
+<td><code>canary proposals submit KEY REVISION</code></td>
 <td>yes</td>
 <td>place that one protective order</td>
 </tr>
 <tr>
-<td><code>ibkr proposals reduce SYMBOL --percent N</code></td>
+<td><code>canary proposals reduce SYMBOL --percent N</code></td>
 <td>only with <code>--submit</code></td>
 <td>a discretionary partial close</td>
 </tr>
 <tr>
-<td><code>ibkr purge dry-run</code></td>
+<td><code>canary purge dry-run</code></td>
 <td>no</td>
 <td>price what a full exit would cost</td>
 </tr>
 <tr>
-<td><code>ibkr purge status</code>, <code>ibkr purge monitor</code></td>
+<td><code>canary purge status</code>, <code>canary purge monitor</code></td>
 <td>no</td>
 <td>the purge ledger and any orders recorded against it</td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><code>ibkr proposals</code> with no subcommand runs <code>list</code>. In a standard build the submit
+<p><code>canary proposals</code> with no subcommand runs <code>list</code>. In a standard build the submit
 path fails closed anyway: the daemon's write handler is compiled out behind the
 <code>trading</code> build tag and returns <code>ErrTradingDisabled</code>. See
 <a href="orders.html">Order previews and the trading build</a>.</p>
@@ -187,7 +187,7 @@ from time value and cannot assert the close is non-destructive.</li>
 <code>single_name_target_pct_nlv</code>. It becomes a full close only when the computed
 quantity equals the whole position.</li>
 </ul>
-<p><code>ibkr proposals reduce</code> is separate: a discretionary partial close you size
+<p><code>canary proposals reduce</code> is separate: a discretionary partial close you size
 yourself. It previews unless you pass <code>--submit</code>. Under <code>--portfolio</code> the
 percentage is the share of net delta-adjusted portfolio risk to remove rather
 than a flat per-position cut, and hedges are never selected, so
@@ -236,11 +236,11 @@ anything.</p>
 <p><code>reduce_to_quantity</code> is the position magnitude available in the order's closing
 direction: the long share count for a SELL, the short magnitude for a BUY. It is
 the exact quantity a reduce-modify has to target, and it appears with
-<code>short_risk_quantity</code> in <code>ibkr orders open --json</code>. The same holdings show up in
-<code>ibkr positions</code> as <code>reconcile_required</code> under protection coverage, where a
+<code>short_risk_quantity</code> in <code>canary orders open --json</code>. The same holdings show up in
+<code>canary positions</code> as <code>reconcile_required</code> under protection coverage, where a
 stale protective order is deliberately not counted as protection.</p>
 <h2 id="purge-and-restore">Purge and restore</h2>
-<p><code>ibkr purge</code> is the emergency full-exit path, and its broker submission is
+<p><code>canary purge</code> is the emergency full-exit path, and its broker submission is
 disabled outright. Before the daemon evaluates anything else it appends a
 <code>purge_submission_unavailable</code> blocker to every purge execute and to every
 restore, preview and execute alike. The blocker's action line says what to do
@@ -251,18 +251,18 @@ afterward.</p>
 controls the workflow and read surface only. Purge is also the one surface
 outside the preview-token gate: it never mints a token, and the fast path is its
 only supported mode.</p>
-<p>The review side still works. <code>ibkr purge dry-run</code> builds a purge book from
+<p>The review side still works. <code>canary purge dry-run</code> builds a purge book from
 current positions, prices each leg, and prints a boundary line stating that no
 broker order has been placed, modified, cancelled, or transmitted. Use it to
 size the exit before you go to TWS. Its prices are real-time wherever your IBKR
 market-data subscriptions cover the instrument, delayed where they don't.
-<code>ibkr purge status</code> and
-<code>ibkr purge monitor</code> read the ledger and any orders already recorded against it.</p>
+<code>canary purge status</code> and
+<code>canary purge monitor</code> read the ledger and any orders already recorded against it.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

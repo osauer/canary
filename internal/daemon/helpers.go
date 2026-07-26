@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // pollCadence is the shared 75 ms cadence at which short-lived snapshot

@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Packaging and distribution | ibkr</title>
-  <meta name="description" content="How ibkr is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/packaging.html">
+  <title>Packaging and distribution | Canary</title>
+  <meta name="description" content="How Canary is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/packaging.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.","headline":"Packaging and distribution","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/packaging.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How Canary is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.","headline":"Packaging and distribution","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/packaging.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,44 +103,44 @@
     <main class="doc">
 <h1 id="packaging-and-distribution">Packaging and distribution</h1>
 <p>Updated: 2026-07-25 20:23 CEST</p>
-<p><code>ibkr</code> ships as a Claude Code plugin, a Claude Desktop <code>.mcpb</code> bundle, and a
+<p>Canary ships as a Claude Code plugin, a Claude Desktop <code>.mcpb</code> bundle, and a
 separately installed binary. This page covers what each package contains and
 what you can check before trusting a download.</p>
-<p><code>ibkr</code> is a local platform for running an agentic trading desk on Interactive
-Brokers, aimed at individual traders who already run IB Gateway or TWS. Agents
-get the full market-data surface (real-time per your IBKR market-data
-subscriptions) and portfolio context. Regime, stress, and rulebook checks stay
-advisory, and risk policy plus statement reconciliation stay operator-owned in
-the terminal.</p>
+<p>Canary is a local interface to Interactive Brokers account, portfolio, market,
+and risk context for individual traders who already run IB Gateway or TWS.
+Available data and freshness depend on the current session and the account's
+market-data subscriptions. Regime, stress, and rulebook checks stay advisory,
+and risk policy plus statement reconciliation stay operator-owned in the
+terminal.</p>
 <p>The description used in listings:</p>
 <blockquote>
-<p>An agentic trading desk for Interactive Brokers: account, positions, real-time and streaming quotes (per your IBKR market-data subscriptions), official market calendars, option chains, history, technical/relative-strength screens, scans, fixed-fractional sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, a broad-market stress-lifecycle regime dashboard, a 14-rule advisory trading rulebook, and a stateless portfolio stress read through a local CLI/MCP server connected to IB Gateway or TWS.</p>
+<p>A local CLI and MCP server for Interactive Brokers account, portfolio, market, and risk context through IB Gateway or TWS. Available data and freshness depend on the current session and the account's market-data subscriptions.</p>
 </blockquote>
 <h2 id="requirements-and-boundaries">Requirements and boundaries</h2>
 <ul>
 <li>Requires IB Gateway 10.37+ or TWS running locally.</li>
 <li>Requires an IBKR Pro account; IBKR Lite does not include TWS API access.</li>
 <li>The bundled path is a macOS or Linux binary.</li>
-<li>The plugin/skill does not ship the binary; users install <code>ibkr</code> separately.</li>
-<li>Current bundled CLI and MCP releases expose analysis, sizing, and preview-only stock/ETF order drafts. The MCP surface has no order-entry tools at all. The CLI keeps the <code>ibkr order place|modify|cancel</code> verbs in every build, and in a standard build they fail closed: the daemon's write handlers are compiled out behind the <code>trading</code> build tag and return <code>ErrTradingDisabled</code> before anything reaches the broker.</li>
+<li>The plugin/skill does not ship the binary; users install <code>canary</code> separately.</li>
+<li>Current bundled CLI and MCP releases expose analysis, sizing, and preview-only stock/ETF order drafts. The MCP surface has no order-entry tools at all. The CLI keeps the <code>canary order place|modify|cancel</code> verbs in every build, and in a standard build they fail closed: the daemon's write handlers are compiled out behind the <code>trading</code> build tag and return <code>ErrTradingDisabled</code> before anything reaches the broker.</li>
 <li>Trading builds ship on every release as a separately named artifact. They are experimental, as-is, and outside the stable read-only channel. Do not promote them through MCP marketplaces until the execution, approval, and safety metadata are reviewed for that channel.</li>
 <li>Data returned by MCP tools can include account-sensitive balances, positions, and P&amp;L.</li>
 </ul>
-<p><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a> covers data locality, local files, and the
-third-party host caveat. <a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a> covers the read-only
+<p><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a> covers data locality, local files, and the
+third-party host caveat. <a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a> covers the read-only
 threat model, release integrity, and diagnostic data sensitivity. Security
 reports go through GitHub Private Vulnerability Reporting, everything else
 through GitHub issues.</p>
 <h2 id="claude-code-plugin">Claude Code plugin</h2>
 <p>The marketplace source is <code>claude-plugin/</code>, which bundles the canonical skill,
-hooks, and plugin-local <code>.mcp.json</code> for <code>ibkr mcp</code>.</p>
+hooks, and plugin-local <code>.mcp.json</code> for <code>canary mcp</code>.</p>
 <ul>
 <li><code>.claude-plugin/plugin.json</code> describes the plugin.</li>
 <li><code>claude-plugin/.mcp.json</code> declares the Claude Code plugin MCP server.</li>
 <li><code>.claude-plugin/marketplace.json</code> exposes the self-hosted marketplace.</li>
-<li><code>skills/ibkr/SKILL.md</code> teaches Claude the current analysis, sizing, and preview-only workflow.</li>
+<li><code>skills/canary/SKILL.md</code> teaches Claude the current analysis, sizing, and preview-only workflow.</li>
 <li><code>hooks/hooks.json</code> allows preview/status order reads, blocks broker-write Bash calls, and starts the install/version warning hook.</li>
-<li><code>settings/ibkr.settings.json</code> is the optional global allow/deny template.</li>
+<li><code>settings/canary.settings.json</code> is the optional global allow/deny template.</li>
 </ul>
 <h2 id="claude-desktop-mcpb">Claude Desktop MCPB</h2>
 <p>Anthropic's public distribution surface for <code>.mcpb</code> files is the Claude
@@ -150,9 +150,9 @@ Anthropic's docs say registry publication does not surface a connector in Claude
 products; directory submission is a separate review process.</p>
 <p>Current package:</p>
 <ul>
-<li>GitHub release asset: <code>ibkr-vX.Y.Z.mcpb</code>, plus stable <code>ibkr.mcpb</code>.</li>
+<li>GitHub release asset: <code>canary-vX.Y.Z.mcpb</code>, plus stable <code>canary.mcpb</code>.</li>
 <li>MCP Registry metadata: generated to <code>dist/server.json</code> with <code>registryType: &quot;mcpb&quot;</code> and <code>fileSha256</code>.</li>
-<li>Release integrity: both MCPB assets are listed in signed <code>SHA256SUMS</code>; the bundle itself is not code-signed unless <code>mcpb verify dist/ibkr-vX.Y.Z.mcpb</code> succeeds.</li>
+<li>Release integrity: both MCPB assets are listed in signed <code>SHA256SUMS</code>; the bundle itself is not code-signed unless <code>mcpb verify dist/canary-vX.Y.Z.mcpb</code> succeeds.</li>
 </ul>
 <p>Two caveats before installing:</p>
 <ul>
@@ -171,19 +171,19 @@ products; directory submission is a separate review process.</p>
 separate preview channel, not a hidden variant of the normal binary.</p>
 <p>Minimum product rules before publishing a trading preview:</p>
 <ul>
-<li>Name the channel and assets distinctly, for example <code>ibkr-trading-preview</code>, so users do not confuse it with stable <code>ibkr</code>.</li>
+<li>Name the channel and assets distinctly, for example <code>canary-trading</code>, so users do not confuse it with the stable read-only Canary build.</li>
 <li>Mark the build experimental and provided as-is in README, release notes, download pages, and any CLI status surface that can report the channel.</li>
 <li>Keep trading config inactive as <code>config.toml.trading</code>. Activation requires removing the <code>.trading</code> suffix, verifying pinned account and endpoint fields, and restarting the daemon.</li>
 <li>Publish paper-trading capability before live trading. Live trading needs its own approval, paper-smoke, audit, and rollback story.</li>
 <li>Keep MCP broker writes out of the preview until there is a separate human-confirmation and nonce model for MCP.</li>
-<li>Tighten updater asset matching before attaching experimental tarballs to any release that stable <code>ibkr update</code> can see.</li>
+<li>Tighten updater asset matching before attaching experimental tarballs to any release that stable <code>canary update</code> can see.</li>
 <li>Run a trading-tag test and smoke matrix separate from the stable read-only release smoke.</li>
 </ul>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

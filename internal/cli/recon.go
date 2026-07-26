@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // runRecon renders the post-trade reconciliation report
 // (internal-docs/design/post-trade-truth.md): broker statement flows vs. the
 // declared capital-event ledger. show is read-only; dismiss is a human-only
 // governance write the daemon refuses from agent origins. The report id
-// printed here is what `ibkr policy capital-event reconcile`
+// printed here is what `canary policy capital-event reconcile`
 // signs off.
 func runRecon(ctx context.Context, env *Env, args []string) int {
 	sub := "show"
@@ -33,7 +33,7 @@ func runRecon(ctx context.Context, env *Env, args []string) int {
 	case "dismiss":
 		return runReconDismiss(ctx, env, args)
 	default:
-		return fail(env, "recon: unknown subcommand %q (try `ibkr recon show`)", sub)
+		return fail(env, "recon: unknown subcommand %q (try `canary recon show`)", sub)
 	}
 }
 
@@ -51,7 +51,7 @@ func runReconEquity(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 0 {
-		return fail(env, "recon equity: usage is `ibkr recon equity [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--json]`")
+		return fail(env, "recon equity: usage is `canary recon equity [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--json]`")
 	}
 	params := rpc.ReconEquityParams{
 		Since: strings.TrimSpace(*since),
@@ -249,7 +249,7 @@ func runReconShow(ctx context.Context, env *Env, args []string) int {
 		if res.StatementCumFlowsBase != nil {
 			fmt.Fprintln(env.Stdout, reconCleanEvidenceMessage(res))
 		} else {
-			fmt.Fprintln(env.Stdout, "\nClean. Sign off with: ibkr policy capital-event reconcile")
+			fmt.Fprintln(env.Stdout, "\nClean. Sign off with: canary policy capital-event reconcile")
 		}
 	}
 	return 0
@@ -447,7 +447,7 @@ func formatDateOrUnavailable(v time.Time) string {
 
 func runReconDismiss(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "recon dismiss")
-	line := fs.String("line", "", "exception line id from `ibkr recon show`")
+	line := fs.String("line", "", "exception line id from `canary recon show`")
 	reason := fs.String("reason", "", "why this line is deliberately not a ledger event (journaled verbatim)")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {

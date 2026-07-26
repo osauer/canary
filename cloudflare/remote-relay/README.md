@@ -1,6 +1,13 @@
-# ibkr Remote Relay Worker
+# Canary Remote Relay Worker
 
-Cloudflare Worker + Durable Object relay for `ibkr app --remote`.
+Cloudflare Worker + Durable Object relay for `canary app --remote`.
+
+The deployed Worker name `ibkr-remote-relay`, `/healthz` service value,
+`RELAY_SESSION` binding, `RelaySession` class and migration, route cookie
+`ibkr_remote_route`, and local-storage key `ibkrRemoteRoute` are continuity
+pins for the existing Durable Object namespace and paired devices. Renaming
+those identifiers requires a separately authorized state-transfer deployment;
+this source rename deliberately leaves them unchanged.
 
 ## Deploy
 

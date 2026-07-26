@@ -161,7 +161,7 @@ function legendItem(x, y, colorName, label, { dashed = false, dotted = false } =
 function header(title, subtitle) {
   return `
   <image href="data:image/png;base64,${canary}" x="36" y="26" width="46" height="46" preserveAspectRatio="xMidYMid slice"/>
-  <text x="96" y="42" class="kicker">ibkr canary</text>
+  <text x="96" y="42" class="kicker">Canary</text>
   <text x="96" y="70" class="title">${esc(title)}</text>
   <text x="96" y="92" class="subtitle">${esc(subtitle)}</text>`;
 }
@@ -174,7 +174,7 @@ function svgFrame({ width, height, title, description, body, extraStyles = "" })
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="diagram-title diagram-desc">
   <title id="diagram-title">${esc(title)}</title>
   <desc id="diagram-desc">${esc(description)}</desc>
-  <metadata>Generic component icons derived from Tabler Icons 3.45.0, MIT License. Canary mark copyright the ibkr project.</metadata>
+  <metadata>Generic component icons derived from Tabler Icons 3.45.0, MIT License. Canary mark copyright the Canary project.</metadata>
   ${defs(extraStyles)}
   <rect width="${width}" height="${height}" fill="${C.paper}"/>
   ${body}
@@ -254,7 +254,7 @@ function systemArchitecture() {
 
   <rect x="224" y="120" width="916" height="548" rx="16" fill="${C.panel}" stroke="${C.muted}" stroke-width="1.2"/>
   <path d="M224 156h916v-20a16 16 0 0 0 -16 -16h-884a16 16 0 0 0 -16 16z" fill="${C.panelAlt}"/>
-  <text x="244" y="143" class="boundary">LOCAL IBKR RUNTIME</text>
+  <text x="244" y="143" class="boundary">LOCAL CANARY RUNTIME</text>
   <text x="1120" y="143" text-anchor="end" class="mono-small">one binary · several processes · one shared daemon</text>
 
   <text x="36" y="184" class="layer">1 · CONSUMERS</text>
@@ -290,7 +290,7 @@ function systemArchitecture() {
 
   <rect x="584" y="200" width="290" height="450" rx="16" fill="${C.terminal}"/>
   ${iconTile("serverCog", 608, 224, C.green, 46)}
-  <text x="668" y="246" style="fill:#ffffff;font-size:18px;font-weight:700">ibkr daemon</text>
+  <text x="668" y="246" style="fill:#ffffff;font-size:18px;font-weight:700">canary daemon</text>
   <text x="668" y="267" class="node-sub on-dark">broker + runtime authority</text>
 
   <rect x="608" y="300" width="242" height="64" rx="10" fill="${C.terminal2}"/>
@@ -345,9 +345,9 @@ function systemArchitecture() {
   ${stripNode(230, 742, 240, "Cloudflare Relay · Worker + DO", "cloud")}
   ${line("M478 756H568", "amber", { dotted: true, both: true, width: 1.6 })}
   <text x="523" y="748" text-anchor="middle" class="flow-label">outbound WSS</text>
-  ${stripNode(576, 742, 84, "ibkr app")}
+  ${stripNode(576, 742, 84, "canary app")}
 
-  ${stripNode(56, 778, 84, "ibkr app")}
+  ${stripNode(56, 778, 84, "canary app")}
   ${line("M148 792H244", "amber", { dotted: true, width: 1.6 })}
   <text x="196" y="788" text-anchor="middle" class="flow-label">VAPID Web Push</text>
   ${stripNode(252, 778, 190, "Browser Push Service", "bell")}
@@ -361,7 +361,7 @@ function systemArchitecture() {
   return svgFrame({
     width: 1440,
     height: 848,
-    title: "Runtime Architecture (ibkr canary)",
+    title: "Runtime Architecture (Canary)",
     description: "Six architecture layers show consumers, surface adapters, the typed RPC contract, daemon authority, integration clients, and external providers. Optional remote delivery is isolated from broker and observed-data paths.",
     body,
   });
@@ -457,7 +457,7 @@ function persistenceArchitecture() {
   return svgFrame({
     width: 1280,
     height: 930,
-    title: "State Ownership and Lifecycle (ibkr canary)",
+    title: "State Ownership and Lifecycle (Canary)",
     description: "A matrix maps operator, daemon, Canary or device, and hosted relay ownership across authored or external authority, durable product authority, refreshable runtime views, and runtime or recovery-only state.",
     body,
   });
@@ -479,10 +479,10 @@ function policyCard({ x, y, width, height, iconName, color, title, lines, format
 
 function policyPrimer() {
   const body = `
-  ${header("How Policy Informs a Trading Decision", "You set the boundary. ibkr checks current evidence. You decide what happens next.")}
+  ${header("How Policy Informs a Trading Decision", "You set the boundary. Canary checks current evidence. You decide what happens next.")}
 
   <text x="36" y="140" class="layer">Boundary Set in Advance</text>
-  <text x="290" y="204" class="layer">ibkr Evaluation</text>
+  <text x="290" y="204" class="layer">Canary Evaluation</text>
   <text x="526" y="204" class="layer">Current Effect</text>
   <text x="750" y="164" class="layer">Human Decision</text>
 
@@ -507,7 +507,7 @@ function policyPrimer() {
   <rect x="290" y="500" width="260" height="118" rx="14" fill="${C.panel}" stroke="${C.slate}"/>
   ${iconTile("database", 306, 516, C.slate, 34)}
   <text x="354" y="536" class="node-title">Local Decision Record</text>
-  <text x="306" y="574" class="card-sub"><tspan x="306">what ibkr saw and concluded</tspan><tspan x="306" dy="19">not execution evidence</tspan></text>
+  <text x="306" y="574" class="card-sub"><tspan x="306">what Canary saw and concluded</tspan><tspan x="306" dy="19">not execution evidence</tspan></text>
 
   <rect x="580" y="500" width="344" height="118" rx="14" fill="${C.panel}" stroke="${C.blue}"/>
   ${iconTile("worldDownload", 596, 516, C.blue, 34)}
@@ -521,14 +521,14 @@ function policyPrimer() {
   <path d="M752 618V656H20V233H36" fill="none" stroke="${C.green}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-green)"/>
   <text x="446" y="650" text-anchor="middle" class="card-sub">Review broker outcomes before publishing a new policy version.</text>
 
-  <text x="924" y="686" text-anchor="end" class="footnote">One trader may hold every role. ibkr does not assign named roles.</text>
+  <text x="924" y="686" text-anchor="end" class="footnote">One trader may hold every role. Canary does not assign named roles.</text>
   `;
 
   return svgFrame({
     width: 960,
     height: 706,
-    title: "How Policy Informs a Trading Decision (ibkr canary)",
-    description: "A trader sets the risk boundary, ibkr checks it against current evidence, and the trader decides what happens next. Policy output is advisory or shadow, local decision records are not proof of execution, and only a human authorizes an order.",
+    title: "How Policy Informs a Trading Decision (Canary)",
+    description: "A trader sets the risk boundary, Canary checks it against current evidence, and the trader decides what happens next. Policy output is advisory or shadow, local decision records are not proof of execution, and only a human authorizes an order.",
     body,
     extraStyles: policyReadableStyles,
   });
@@ -570,7 +570,7 @@ function policyArchitecture() {
 
   <rect x="280" y="526" width="400" height="386" rx="18" fill="${C.panel}" stroke="${C.greenLine}" stroke-width="1.5"/>
   <path d="M280 566h400v-22a18 18 0 0 0 -18 -18h-364a18 18 0 0 0 -18 18z" fill="${C.greenSoft}"/>
-  <text x="300" y="552" class="boundary" style="fill:${C.greenDark}">Owned by the ibkr Daemon</text>
+  <text x="300" y="552" class="boundary" style="fill:${C.greenDark}">Owned by the Canary Daemon</text>
   <text x="304" y="604" class="layer">Policy Advice</text>
   ${flowBox(304, 622, 152, 128, "Check", ["missing evidence", "stays unknown"], C.green, C.terminal, true)}
   ${flowBox(492, 622, 164, 128, "Decision Record", ["status + reasons", "saved locally"], C.slate)}
@@ -594,7 +594,7 @@ function policyArchitecture() {
   return svgFrame({
     width: 960,
     height: 1002,
-    title: "Who Controls What (ibkr canary)",
+    title: "Who Controls What (Canary)",
     description: "A compact matrix separates trader-authored policy, built-in or custom advisory policy, runtime settings, reviewed models, and broker safety controls. Below it, the daemon keeps policy advice separate from the human-authorized broker path, while broker records remain the evidence of execution.",
     body,
     extraStyles: policyReadableStyles,
@@ -625,7 +625,7 @@ function storageOverview() {
   <text x="296" y="144" class="boundary" style="fill:${C.greenDark}">2 · THE DAEMON STORES AND SERVES</text>
 
   ${iconTile("serverCog", 296, 178, C.green, 44)}
-  <text x="354" y="196" class="node-title">ibkr daemon</text>
+  <text x="354" y="196" class="node-title">canary daemon</text>
   <text x="354" y="218" class="card-sub">validates · commits · serves structured results</text>
 
   <rect x="296" y="248" width="380" height="322" rx="16" fill="${C.terminal}"/>
@@ -659,7 +659,7 @@ function storageOverview() {
   return svgFrame({
     width: 960,
     height: 804,
-    title: "What the Daemon Keeps and Where (ibkr canary)",
+    title: "What the Daemon Keeps and Where (Canary)",
     description: "Human-authored TOML, original broker and source evidence, daemon secrets, and app identity enter from their own locations. The daemon alone writes daemon.db, product surfaces use structured access, and recovery artifacts keep a separate lifecycle.",
     body,
     extraStyles: storageOverviewStyles,
@@ -814,7 +814,7 @@ function sqliteDataModel() {
   const svg = svgFrame({
     width: 960,
     height: 1490,
-    title: "How daemon.db Tables Relate (ibkr canary)",
+    title: "How daemon.db Tables Relate (Canary)",
     description: `A physical entity relationship diagram for SQLite schema version ${schema.version}. Solid lines represent declared foreign keys with cardinalities. Dashed lines identify application-level relationships that are not enforced by SQLite. Standalone state, observation, migration, import, and order-floor tables have no invented relationships.`,
     body,
     extraStyles: storageERStyles,
@@ -889,7 +889,7 @@ function sqliteUpdateLifecycle() {
   return svgFrame({
     width: 1440,
     height: 792,
-    title: "SQLite Mutation and Upgrade Lifecycle (ibkr canary)",
+    title: "SQLite Mutation and Upgrade Lifecycle (Canary)",
     description: "The normal mutation lane validates, transactionally commits state and evidence, advances the authority head, seals an external watermark, and only then publishes. Startup validates the entire authority and upgrades older schemas through a verified backup and unpublished candidate before atomic publication.",
     body,
     extraStyles: referenceDiagramStyles,
@@ -962,7 +962,7 @@ function sensorAuthorityPipeline() {
   return svgFrame({
     width: 1440,
     height: 780,
-    title: "Sensor Measurement and Authority (ibkr canary)",
+    title: "Sensor Measurement and Authority (Canary)",
     description: "Broker and public observations enter daemon-owned Gamma, market-series, and market-event sensors. Regime consumes Gamma and market series; Stress consumes Regime, portfolio, and held-name events; Rulebook consumes current desk evidence. Alerts and read-only surfaces consume typed results without recreating authority.",
     body,
     extraStyles: policyReadableStyles,
@@ -1049,7 +1049,7 @@ function sensorFreshnessTimeline() {
   return svgFrame({
     width: 1440,
     height: 744,
-    title: "Freshness, Last-good, and Gaps (ibkr canary)",
+    title: "Freshness, Last-good, and Gaps (Canary)",
     description: "The due-source lane shows a current last-good value, a proactive refresh before hard expiry, successful atomic replacement, or stale fail-closed behavior after failure. The closed-window lane shows completed-session context as typed not-due until the next source window opens, after which a missing replacement is overdue and blocks dependent readiness.",
     body,
     extraStyles: policyReadableStyles,

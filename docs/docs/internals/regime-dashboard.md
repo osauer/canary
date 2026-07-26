@@ -2,7 +2,7 @@
 
 Updated: 2026-07-25 20:23 CEST
 
-`ibkr regime` reports the broad-market stress lifecycle: `quiet`,
+`canary regime` reports the broad-market stress lifecycle: `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
 or `data_quality`. It is an evidence-balance read, not a prediction, trading
 system, portfolio planner, or investment recommendation.
@@ -372,7 +372,7 @@ and makes the `pending_backtest` thresholds calibratable; it is not a separate
 file or a delete-safe cache. A threshold set drops `pending_backtest` only with
 months of coverage, measured false-alarm/recall rates against labeled episodes,
 and a version-label bump documented here. Disable collection via
-`ibkr settings set regime.journal.enabled=false`.
+`canary settings set regime.journal.enabled=false`.
 
 ## Backtesting
 

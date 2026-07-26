@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
-// ErrAlreadyRunning means another ibkrd holds the instance lock for this
-// socket path. Callers (cmd/ibkrd) treat this as an expected, non-fatal
+// ErrAlreadyRunning means another Canary daemon holds the instance lock for this
+// socket path. Callers (cmd/canaryd) treat this as an expected, non-fatal
 // condition: a duplicate start, exit cleanly.
-var ErrAlreadyRunning = errors.New("another ibkrd holds the instance lock")
+var ErrAlreadyRunning = errors.New("another Canary daemon holds the instance lock")
 
 // instanceLock is a flock-backed pidfile. Lifetime is bound to the daemon
 // process; on Stop() we release the flock and remove the pidfile.

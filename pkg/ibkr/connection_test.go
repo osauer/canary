@@ -73,6 +73,9 @@ func TestHandleSystemNotificationClientIDInUseSetsLastError(t *testing.T) {
 	if !errors.Is(err, errClientIDInUse) {
 		t.Fatalf("lastError = %v, want errClientIDInUse", err)
 	}
+	if !strings.HasPrefix(err.Error(), "IBKR: client ID already in use:") {
+		t.Fatalf("lastError = %q, want canonical IBKR prefix", err.Error())
+	}
 	if !strings.Contains(err.Error(), "gateway client ID 15 is already in use") {
 		t.Fatalf("lastError = %q, want operator-facing client ID diagnosis", err.Error())
 	}

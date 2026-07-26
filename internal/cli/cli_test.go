@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // fail() should append a troubleshooting hint when the underlying daemon
@@ -25,7 +25,7 @@ func TestFailAppendsHintForGatewayUnavailable(t *testing.T) {
 		{
 			name:       "gateway unavailable triggers hint",
 			format:     "account: %v",
-			args:       []any{"gateway_unavailable: ibkr connection unavailable"},
+			args:       []any{"gateway_unavailable: IBKR connection unavailable"},
 			wantHint:   true,
 			wantSubstr: "gateway_unavailable",
 		},
@@ -54,7 +54,7 @@ func TestFailAppendsHintForGatewayUnavailable(t *testing.T) {
 			if tc.wantSubstr != "" && !strings.Contains(out, tc.wantSubstr) {
 				t.Fatalf("stderr missing %q: %s", tc.wantSubstr, out)
 			}
-			hasHint := strings.Contains(out, "ibkr status")
+			hasHint := strings.Contains(out, "canary status")
 			if hasHint != tc.wantHint {
 				t.Fatalf("wantHint=%v, gotHint=%v, stderr=%q", tc.wantHint, hasHint, out)
 			}
@@ -63,7 +63,7 @@ func TestFailAppendsHintForGatewayUnavailable(t *testing.T) {
 }
 
 // hoistFlags moves -flag tokens (and their values) ahead of positional args
-// so users can write `ibkr quote AAPL --json`.
+// so users can write `canary quote AAPL --json`.
 func TestHoistFlagsReordersValueFlags(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -184,6 +184,26 @@ func TestCommandRegistryConsistency(t *testing.T) {
 	}
 }
 
+func TestRetiredCanaryCommandIsRejected(t *testing.T) {
+	t.Parallel()
+	if command, ok := lookupCommand("canary"); ok {
+		t.Fatalf("retired command lookup = %+v, true; want absent", command)
+	}
+	if IsKnown("canary") {
+		t.Fatal("retired canary command passed the known-command gate")
+	}
+	for _, command := range Commands() {
+		if command.Name == "canary" {
+			t.Fatal("retired canary command leaked into the advertised registry")
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), &Env{Stdout: &stdout, Stderr: &stderr}, "canary", nil)
+	if code != 2 || !strings.Contains(stderr.String(), `unknown subcommand "canary"`) {
+		t.Fatalf("retired command exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 // Run must intercept --help and -h, exit 0, and not invoke the handler.
 func TestRunInterceptsHelp(t *testing.T) {
 	t.Parallel()
@@ -196,8 +216,8 @@ func TestRunInterceptsHelp(t *testing.T) {
 				t.Fatalf("Run(account, %s) = %d, want 0", helpFlag, code)
 			}
 			out := stdout.String()
-			if !strings.Contains(out, "ibkr account") {
-				t.Errorf("help output missing `ibkr account` header: %q", out)
+			if !strings.Contains(out, "canary account") {
+				t.Errorf("help output missing `canary account` header: %q", out)
 			}
 			if !strings.Contains(out, "Account summary") {
 				t.Errorf("help output missing summary: %q", out)
@@ -633,7 +653,7 @@ func TestRenderChainExpiriesText(t *testing.T) {
 			t.Fatalf("code = %d", code)
 		}
 		out := stdout.String()
-		for _, want := range []string{"AAPL", "3 expiries", "2026-01-16", "2026-06-19", "2026-09-18", "ibkr chain AAPL --expiry"} {
+		for _, want := range []string{"AAPL", "3 expiries", "2026-01-16", "2026-06-19", "2026-09-18", "canary chain AAPL --expiry"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("missing %q\n%s", want, out)
 			}

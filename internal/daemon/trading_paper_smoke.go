@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -132,7 +132,7 @@ func (s *Server) runPaperSmoke(ctx context.Context, p rpc.TradingPaperSmokeParam
 	place, placeErr := s.placeOrder(ctx, rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken, Origin: p.Origin})
 	s.brokerWriteMu.Unlock()
 	if placeErr != nil {
-		res.Message = fmt.Sprintf("paper-smoke place failed: %v. The send may be uncertain — reconcile with `ibkr orders --json` before rerunning.", placeErr)
+		res.Message = fmt.Sprintf("paper-smoke place failed: %v. The send may be uncertain — reconcile with `canary orders --json` before rerunning.", placeErr)
 		return s.finishPaperSmoke(res, status, false)
 	}
 	res.OrderRef = place.OrderRef
@@ -171,13 +171,13 @@ func (s *Server) runPaperSmoke(ctx context.Context, p rpc.TradingPaperSmokeParam
 
 	switch {
 	case !ackOK:
-		res.Message = fmt.Sprintf("broker did not acknowledge order %s within %s; cleanup cancel %s. Check `ibkr orders --json` for the smoke order.", place.OrderRef, paperSmokeAckWait(p.TimeoutMs), paperSmokeCancelOutcome(cancelErr, cancelOK))
+		res.Message = fmt.Sprintf("broker did not acknowledge order %s within %s; cleanup cancel %s. Check `canary orders --json` for the smoke order.", place.OrderRef, paperSmokeAckWait(p.TimeoutMs), paperSmokeCancelOutcome(cancelErr, cancelOK))
 		return s.finishPaperSmoke(res, status, false)
 	case cancelErr != nil:
-		res.Message = fmt.Sprintf("broker acknowledged order %s but the cleanup cancel failed: %v. Cancel it via `ibkr order cancel %s` and rerun.", place.OrderRef, cancelErr, place.OrderRef)
+		res.Message = fmt.Sprintf("broker acknowledged order %s but the cleanup cancel failed: %v. Cancel it via `canary order cancel %s` and rerun.", place.OrderRef, cancelErr, place.OrderRef)
 		return s.finishPaperSmoke(res, status, false)
 	case !cancelOK:
-		res.Message = fmt.Sprintf("broker acknowledged order %s but did not confirm the cancel within %s. Check `ibkr orders --json`, then rerun.", place.OrderRef, paperSmokeCancelBudget)
+		res.Message = fmt.Sprintf("broker acknowledged order %s but did not confirm the cancel within %s. Check `canary orders --json`, then rerun.", place.OrderRef, paperSmokeCancelBudget)
 		return s.finishPaperSmoke(res, status, false)
 	}
 	res.Message = fmt.Sprintf("paper order round-trip confirmed: broker acknowledged and cancelled %s.", place.OrderRef)

@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/stress"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/stress"
 )
 
 const (
@@ -501,7 +501,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 
 	rules := s.evaluateRulesMode(ctx, false, false)
 	// The brief boundary is captured after its input reads. In particular,
-	// Canary source snapshots are stamped while those reads are in flight; a
+	// Stress source snapshots are stamped while those reads are in flight; a
 	// boundary captured before them makes healthy evidence look future-dated
 	// and causes the alert producer to fail closed with source_time_invalid.
 	now := s.briefNow()

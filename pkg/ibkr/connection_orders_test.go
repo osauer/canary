@@ -14,7 +14,7 @@ import (
 
 // TestPlaceOrderDoesNotSendDoubleMaxSentinels pins the v0.7-era regression
 // where unset numeric fields ended up as `MAX_FLOAT` strings on the wire.
-// The bundled `ibkr` binary refuses every order verb at the daemon
+// The bundled `canary` binary refuses every order verb at the daemon
 // dispatcher, so this is the one wire-shape contract worth keeping for
 // library callers (downstream forks, clean-room ports) who may genuinely
 // drive Connection.PlaceOrder.

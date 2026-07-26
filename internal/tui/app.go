@@ -7,14 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/daemonclient"
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/cli"
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/app/daemonclient"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
-// Options carries the process dependencies wired by cmd/ibkr. The TUI owns
-// terminal UX; the command behavior and live data sources stay in cli/live.
+// Options carries the process dependencies wired by the Canary command entry
+// point. The TUI owns terminal UX; command behavior and live data sources stay
+// in cli/live.
 type Options struct {
 	Stdin      *os.File
 	Stdout     *os.File
@@ -40,7 +42,7 @@ func Run(ctx context.Context, opts Options) int {
 	}
 	term, err := openTerminal(opts.Stdin, opts.Stdout)
 	if err != nil {
-		fmt.Fprintf(opts.Stderr, "ibkr: TUI: %v\n", err)
+		fmt.Fprintf(opts.Stderr, "%s: TUI: %v\n", productidentity.Executable, err)
 		return 1
 	}
 	defer term.close()

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/marketcal"
 )
 
 // refreshHourET and refreshMinuteET name the regular-session fallback

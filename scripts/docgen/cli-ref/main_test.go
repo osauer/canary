@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/cli"
-	"github.com/osauer/ibkr/v2/internal/mcp"
+	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/mcp"
 )
 
 func TestRenderIsDeterministic(t *testing.T) {
@@ -24,11 +24,11 @@ func TestRenderCoversEveryCommand(t *testing.T) {
 	t.Parallel()
 	body := render(cli.Catalog())
 	for _, spec := range cli.Catalog() {
-		heading := fmt.Sprintf("## `ibkr %s`\n", spec.Name)
+		heading := fmt.Sprintf("## `canary %s`\n", spec.Name)
 		if !strings.Contains(body, heading) {
 			t.Errorf("command %q has no section in the generated page", spec.Name)
 		}
-		if !strings.Contains(body, fmt.Sprintf("(#ibkr-%s)", spec.Name)) {
+		if !strings.Contains(body, fmt.Sprintf("(#canary-%s)", spec.Name)) {
 			t.Errorf("command %q is missing from the summary table", spec.Name)
 		}
 	}
@@ -41,7 +41,7 @@ func TestRenderKeepsRegistryOrder(t *testing.T) {
 	body := render(cli.Catalog())
 	rest := body
 	for _, spec := range cli.Catalog() {
-		heading := fmt.Sprintf("## `ibkr %s`\n", spec.Name)
+		heading := fmt.Sprintf("## `canary %s`\n", spec.Name)
 		index := strings.Index(rest, heading)
 		if index < 0 {
 			t.Fatalf("command %q is out of registry order in the generated page", spec.Name)
@@ -64,7 +64,7 @@ func TestRenderReportsMCPCounterpartFromExclusions(t *testing.T) {
 	}
 }
 
-// `ibkr order` reaches the broker. The page must say so rather than listing it
+// `canary order` reaches the broker. The page must say so rather than listing it
 // as an ordinary command.
 func TestRenderFlagsGatedBrokerWrites(t *testing.T) {
 	t.Parallel()

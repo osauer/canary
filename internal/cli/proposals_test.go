@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestRunProposalsGroupHelp(t *testing.T) {
@@ -21,7 +21,7 @@ func TestRunProposalsGroupHelp(t *testing.T) {
 			}
 			got := stdout.String()
 			for _, want := range []string{
-				"ibkr proposals",
+				"canary proposals",
 				"Daemon-owned close/reduce-only protection proposals",
 				"status|refresh|list|preview|submit|reduce|ignore",
 			} {

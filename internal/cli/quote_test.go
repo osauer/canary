@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // runQuoteRenderer with rate=0 must emit every frame exactly once, then

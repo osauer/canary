@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runTrading(ctx context.Context, env *Env, args []string) int {
@@ -23,7 +23,7 @@ func runTrading(ctx context.Context, env *Env, args []string) int {
 	case "paper-smoke":
 		return runTradingPaperSmoke(ctx, env, args)
 	default:
-		return fail(env, "trading: unknown subcommand %q (try `ibkr trading status` or `ibkr trading paper-smoke`)", sub)
+		return fail(env, "trading: unknown subcommand %q (try `canary trading status` or `canary trading paper-smoke`)", sub)
 	}
 }
 
@@ -69,7 +69,7 @@ func renderTradingPaperSmokeText(env *Env, res *rpc.TradingPaperSmokeResult) {
 		verdict = statusConcern{Text: "FAILED", Level: statusConcernWarn}
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Paper Smoke  %s\n", env.statusBadge(verdict))
+	fmt.Fprintf(out, "Canary Paper Smoke  %s\n", env.statusBadge(verdict))
 	fmt.Fprintln(out)
 	statusRow(env, out, "Gate", fmt.Sprintf("%s %s via %s (client %d)", nonEmpty(res.Mode, "unknown"), nonEmpty(res.Account, "unknown"), nonEmpty(res.Endpoint, "unknown"), res.ClientID))
 	order := fmt.Sprintf("BUY %d %s LMT %.2f DAY", res.Quantity, res.Symbol, res.LimitPrice)
@@ -106,7 +106,7 @@ func runTradingStatus(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() > 0 {
-		return fail(env, "trading: unknown subcommand %q (try `ibkr trading status` or `ibkr trading paper-smoke`)", fs.Arg(0))
+		return fail(env, "trading: unknown subcommand %q (try `canary trading status` or `canary trading paper-smoke`)", fs.Arg(0))
 	}
 	var res rpc.TradingStatus
 	if err := env.Conn.Call(ctx, rpc.MethodTradingStatus, nil, &res); err != nil {
@@ -125,7 +125,7 @@ func runTradingStatus(ctx context.Context, env *Env, args []string) int {
 func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Trading  %s\n", env.statusBadge(tradingStatusVerdict(*st)))
+	fmt.Fprintf(out, "Canary Trading  %s\n", env.statusBadge(tradingStatusVerdict(*st)))
 	fmt.Fprintln(out)
 	statusRow(env, out, "Mode", formatTradingMode(env, *st))
 	statusRow(env, out, "Endpoint", nonEmpty(st.Endpoint, "auto-detect"))

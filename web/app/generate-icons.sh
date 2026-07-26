@@ -3,10 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-master="${IBKR_CANARY_ICON_MASTER:-icon-512.png}"
-source_sheet="${IBKR_CANARY_ICON_SOURCE_SHEET:-}"
-crop_geometry="${IBKR_CANARY_ICON_CROP:-}"
-tmp_dir="$(mktemp -d -t ibkr-canary-icons)"
+master="${CANARY_ICON_MASTER:-icon-512.png}"
+source_sheet="${CANARY_ICON_SOURCE_SHEET:-}"
+crop_geometry="${CANARY_ICON_CROP:-}"
+tmp_dir="$(mktemp -d -t canary-icons)"
 tmp_crop="$tmp_dir/crop.png"
 tmp_512="$tmp_dir/icon-512.png"
 
@@ -36,13 +36,13 @@ if [[ -n "$source_sheet" ]]; then
     exit 1
   fi
   if [[ -z "$crop_geometry" ]]; then
-    echo "generate-icons: set IBKR_CANARY_ICON_CROP as y,x,height,width for source-sheet recrops" >&2
+    echo "generate-icons: set CANARY_ICON_CROP as y,x,height,width for source-sheet recrops" >&2
     exit 1
   fi
 
   IFS=, read -r crop_y crop_x crop_h crop_w extra <<<"$crop_geometry"
   if [[ -n "${extra:-}" || -z "${crop_y:-}" || -z "${crop_x:-}" || -z "${crop_h:-}" || -z "${crop_w:-}" ]]; then
-    echo "generate-icons: invalid IBKR_CANARY_ICON_CROP; expected y,x,height,width" >&2
+    echo "generate-icons: invalid CANARY_ICON_CROP; expected y,x,height,width" >&2
     exit 1
   fi
 
@@ -65,4 +65,4 @@ resize_png 64 "$master" favicon-64.png
 resize_png 32 "$master" favicon-32.png
 resize_png 16 "$master" favicon-16.png
 
-echo "generated canonical 512px and derived ibkr canary PNG icons"
+echo "generated canonical 512px and derived Canary PNG icons"

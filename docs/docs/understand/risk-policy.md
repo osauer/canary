@@ -57,7 +57,7 @@ sit in `(0, 100]`, `warn_consumed_pct` must be below `block_consumed_pct`,
 `declared_risk_capital` must be positive, and `protected_floor` must not be
 negative. Choosing the values inside those bounds is your decision alone.
 
-`ibkr policy show --explain` is the field inventory: it prints every key with
+`canary policy show --explain` is the field inventory: it prints every key with
 its meaning, current value, source (`file`, `default`, or `unapproved`), and
 enforcement class. The [configuration reference](../reference/config.md)
 covers `config.toml`, the protection and opportunity policies, and runtime
@@ -84,7 +84,7 @@ WhatIf, or origin gating, so no revision can express a change to them, and an
 override naming a key outside the constitution is refused with "safety
 invariants have no keys and cannot be overridden". Unknown keys fail the load
 outright rather than being ignored. `trading.freeze` and the trading limits are
-runtime settings, not policy: they change only through `ibkr settings set` from
+runtime settings, not policy: they change only through `canary settings set` from
 an interactive human terminal, and agent and paired-device origins are
 rejected.
 
@@ -94,7 +94,7 @@ rejected.
    version keeps running. Changed content at the same or a lower version
    reports `drift`, and the daemon keeps the last accepted version in memory.
 2. Wait. The manager rereads the file every 30 seconds.
-3. Run `ibkr policy show`. The header gives the status, policy id, version,
+3. Run `canary policy show`. The header gives the status, policy id, version,
    short fingerprint, and path; add `--explain` for the limit rows or `--json`
    for the typed result. It works without gateway connectivity, falling back to
    the persisted last equity reading.
@@ -120,7 +120,7 @@ opened.
 ## Bounded exceptions
 
 ```sh
-ibkr policy override --control <key> --reason "..." --hours <n>
+canary policy override --control <key> --reason "..." --hours <n>
 ```
 
 `--hours` must be positive and at most `override.max_duration_hours`; until you
@@ -134,9 +134,9 @@ evaluation, and it can extend that deadline, never shorten it. Others are
 recorded and displayed.
 
 A latched drawdown block is not an override case. It clears through
-`ibkr policy reset-drawdown --reason "..."`, which re-bases the adjusted peak.
+`canary policy reset-drawdown --reason "..."`, which re-bases the adjusted peak.
 
-`ibkr policy` is a CLI surface with no MCP tool. That command and the other
+`canary policy` is a CLI surface with no MCP tool. That command and the other
 governance verbs (`capital-event`, `override`, `correct-peak`, `artefact`) are
 human-origin only, so an agent session can read the policy result and never
 operate this file.

@@ -1,0 +1,248 @@
+# Project execpolicy rules for Canary work.
+#
+# `canary` is the only callable executable. Retired `ibkr` spellings appear
+# only in prompt/forbidden anti-bypass rules.
+# Daemon authorization is the broker-write boundary; the project hook adds
+# earlier, best-effort rejection for command shapes prefix rules cannot express.
+
+prefix_rule(
+    pattern = ["canary", ["status", "version", "account", "positions", "quote", "calendar", "chain", "history", "scan", "size", "technical", "market-events", "breadth", "gamma", "regime", "stress", "rules"]],
+    decision = "allow",
+    justification = "Read-only Canary account, market-data, screen, regime, stress, and sizing commands are routine project work.",
+    match = [
+        "canary status --json",
+        "canary quote AAPL --json",
+        "canary stress --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "order", ["preview", "status"]],
+    decision = "allow",
+    justification = "Preview/status order commands are non-submitting read surfaces.",
+    match = [
+        "canary order preview --symbol AAPL --action BUY --quantity 1 --json",
+        "canary order status --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "orders", ["open", "history"]],
+    decision = "allow",
+    justification = "Open/history order commands are read-only journal surfaces.",
+    match = [
+        "canary orders open --json",
+        "canary orders history --since 2026-06-18 --until 2026-06-19 --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "trading", "status"],
+    decision = "allow",
+    justification = "Trading status reports local capability and acknowledgements without placing orders.",
+    match = [
+        "canary trading status --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "trading", "paper-smoke"],
+    decision = "prompt",
+    justification = "Direct paper-smoke reaches broker place/ack/cancel and is not the release exception; the sole release exception remains reachable only through the canonical make release target.",
+    match = [
+        "ibkr trading paper-smoke",
+        "canary trading paper-smoke",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "policy", "show"],
+    decision = "allow",
+    justification = "Risk-constitution read view; every policy write verb (capital-event, override, reset-drawdown, artefact) is a separate human-only subcommand outside this rule.",
+    match = [
+        "canary policy show --json",
+        "canary policy show --explain",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "recon", ["show", "backtest"]],
+    decision = "allow",
+    justification = "Post-trade reconciliation read views over retained local statements; dismiss and the reconcile sign-off are human-only governance verbs outside this rule.",
+    match = [
+        "canary recon show --json",
+        "canary recon backtest --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "proposals", ["status", "list", "refresh", "preview"]],
+    decision = "allow",
+    justification = "Protection proposal discovery and preview do not submit broker orders.",
+    match = [
+        "canary proposals refresh --json",
+        "canary proposals preview --key abc --revision sha256:abc --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "proposals", ["submit", "reduce", "ignore"]],
+    decision = "prompt",
+    justification = "Proposal submit/reduce may reach broker writes, and ignore mutates local decision state; require a current-turn user decision.",
+    match = [
+        "ibkr proposals submit --key abc --revision sha256:abc --json",
+        "ibkr proposals reduce AAPL --percent 25 --submit --json",
+        "canary proposals submit --key abc --revision sha256:abc --json",
+        "canary proposals reduce AAPL --percent 25 --submit --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "order", ["place", "submit", "execute", "modify", "cancel"]],
+    decision = "prompt",
+    justification = "Broker writes require an explicit transaction-specific current-turn instruction in addition to hook and daemon gates.",
+    match = [
+        "ibkr order place --preview-token TOKEN --json",
+        "ibkr order cancel ORDER_ID --json",
+        "canary order place --preview-token TOKEN --json",
+        "canary order cancel ORDER_ID --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "opportunities", ["status", "list", "refresh", "preview"]],
+    decision = "allow",
+    justification = "Opportunity discovery and preview do not submit broker orders.",
+    match = [
+        "canary opportunities status --json",
+        "canary opportunities preview KEY REVISION --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "opportunities", ["exercise", "ignore"]],
+    decision = "prompt",
+    justification = "Exercise reaches a broker write and ignore mutates local decision state; require a current-turn user decision.",
+    match = [
+        "ibkr opportunities exercise KEY REVISION --json",
+        "canary opportunities exercise KEY REVISION --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "restart"],
+    decision = "allow",
+    justification = "The repo requires a CLI restart after installing daemon/CLI changes.",
+    match = [
+        "canary restart --timeout 15s",
+        "canary restart --timeout 15s --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", ["help", "check", "app-check", "app-refresh", "app-refresh-smoke", "app-smoke", "app-lifecycle-smoke", "docs-check", "docs-regen", "test"]],
+    decision = "allow",
+    justification = "Offline verification and local app refresh commands.",
+    match = [
+        "make help",
+        "make check",
+        "make test",
+        "make docs-check",
+        "make app-refresh-smoke APP_SMOKE_BROWSER=webkit",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", ["install", "restart-daemon", "smoke", "smoke-fast"]],
+    decision = "prompt",
+    justification = "Installed-daemon and live-gateway targets need a current-turn human decision; headless delegates fail closed and run offline gates only (root AGENTS.md).",
+    match = [
+        "make install",
+        "make restart-daemon",
+        "make smoke",
+        "make smoke-fast",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", "release"],
+    decision = "prompt",
+    justification = "The canonical release target tags, pushes, publishes, and runs one paper-only SPY place/ack/cancel round-trip; require an exact version and current-turn release authority.",
+    match = [
+        "make release RELEASE_VERSION=v2.3.1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", "release-paper-preflight"],
+    decision = "prompt",
+    justification = "The release paper preflight reaches the configured paper gateway and broker WhatIf surface but never submits an order.",
+    match = [
+        "make release-paper-preflight VERSION=v2.3.1",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "purge", "--all"],
+    decision = "prompt",
+    justification = "Purge execution is a broker write and requires a transaction-specific current-turn instruction.",
+    match = [
+        "ibkr purge --all",
+        "canary purge --all",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "purge", "execute"],
+    decision = "prompt",
+    justification = "Purge execution is a broker write and requires a transaction-specific current-turn instruction.",
+    match = [
+        "ibkr purge execute --all --json",
+        "canary purge execute --all --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "purge", "restore"],
+    decision = "prompt",
+    justification = "Restore preview is read-only but the same prefix can carry --execute; require review at this boundary.",
+    match = [
+        "ibkr purge restore --all --json",
+        "ibkr purge restore --all --execute --json",
+        "canary purge restore --all --json",
+        "canary purge restore --all --execute --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "settings", "set"],
+    decision = "forbidden",
+    justification = "Runtime settings, freeze, and trading-limit changes are human-only in agent sessions.",
+    match = [
+        "ibkr settings set trading.freeze=true",
+        "canary settings set trading.freeze=true",
+        "canary settings set trading.max_order_notional=1000",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "daemon", ["purge", "reset", "wipe"]],
+    decision = "forbidden",
+    justification = "Destructive daemon maintenance is human-only in agent sessions.",
+    match = [
+        "ibkr daemon wipe",
+        "canary daemon wipe",
+    ],
+)
+
+prefix_rule(
+    pattern = ["pkill", "-f"],
+    decision = "prompt",
+    justification = "Use 'canary restart --timeout 15s' for normal daemon restarts; pkill is only for broken/stuck daemon recovery. Retired ibkr process matching remains anti-bypass cleanup detection.",
+    match = [
+        "pkill -f ibkr daemon",
+        "pkill -f 'ibkr daemon'",
+        "pkill -f canary daemon",
+        "pkill -f 'canary daemon'",
+    ],
+)

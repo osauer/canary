@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-const projectBase = "/ibkr";
+const projectBase = "/canary";
 const siteOrigin = "https://osauer.dev";
 const root = path.join(process.cwd(), "docs");
 const problems = [];
@@ -74,7 +74,7 @@ function referencedURLs(data) {
   for (const match of data.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)) {
     out.push(match[1]);
   }
-  for (const match of data.matchAll(/https:\/\/osauer\.dev\/ibkr\/[^\s"'<>)&]+/g)) {
+  for (const match of data.matchAll(/https:\/\/osauer\.dev\/canary\/[^\s"'<>)&]+/g)) {
     out.push(match[0].replace(/[.,;:]+$/, ""));
   }
   return out;
@@ -96,6 +96,10 @@ for await (const file of walk(root)) {
     continue;
   }
   const data = await readFile(file, "utf8");
+  if (/https:\/\/osauer\.dev\/ibkr(?:\/|["'<\s])/i.test(data) ||
+      /\b(?:href|src)=["']\/ibkr(?:\/|["'])/i.test(data)) {
+    problems.push(`${path.relative(process.cwd(), file)}: contains retired /ibkr public base`);
+  }
   for (const raw of referencedURLs(data)) {
     await checkTarget(path.relative(process.cwd(), file), raw);
   }
@@ -109,4 +113,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log("pages link check: all osauer.dev/ibkr links resolve under docs/");
+console.log("pages link check: all osauer.dev/canary links resolve under docs/");

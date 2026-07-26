@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Order previews and the trading build | ibkr</title>
-  <meta name="description" content="The read-only default in ibkr, what the order preview surface does, and how the separate experimental trading build is configured.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/orders.html">
+  <title>Order previews and the trading build | Canary</title>
+  <meta name="description" content="The read-only default in Canary, what the order preview surface does, and how the separate experimental trading build is configured.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/operate/orders.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The read-only default in ibkr, what the order preview surface does, and how the separate experimental trading build is configured.","headline":"Order previews and the trading build","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/orders.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The read-only default in Canary, what the order preview surface does, and how the separate experimental trading build is configured.","headline":"Order previews and the trading build","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/operate/orders.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,7 +103,7 @@
     <main class="doc">
 <h1 id="order-previews-and-the-trading-build">Order previews and the trading build</h1>
 <p>Updated: 2026-07-25 09:22 CEST</p>
-<p>Stable <code>ibkr</code> is read-only. It can read account and market data, compute risk context, size positions, and preview stock/ETF LMT order drafts without broker submission. It does not place, modify, cancel, or transmit broker orders.</p>
+<p>Stable <code>canary</code> is read-only. It can read account and market data, compute risk context, size positions, and preview stock/ETF LMT order drafts without broker submission. It does not place, modify, cancel, or transmit broker orders.</p>
 <p>Trading builds are a separate experimental path. They are provided as-is for explicit operator testing, not as the default product and not as an unattended automation surface.</p>
 <p>For the fields a preview returns, see <a href="agents.html">Working with agents</a>.</p>
 <h2 id="read-only-default">Read-only default</h2>
@@ -116,8 +116,8 @@
 <p>That file is documentation and staging only. The daemon does not load it.</p>
 <p>To activate it, remove the <code>.trading</code> suffix:</p>
 <pre><code class="language-sh">mv ~/.config/ibkr/config.toml.trading ~/.config/ibkr/config.toml
-ibkr restart
-ibkr trading status
+canary restart
+canary trading status
 </code></pre>
 <p>Before doing that, verify the pinned account, endpoint, and client ID. Trading config must not rely on account auto-detection.</p>
 <h2 id="required-pins">Required pins</h2>
@@ -139,14 +139,14 @@ ibkr trading status
 <p>Borrow flags are modifier-only. <code>borrow_inventory_tight</code> and <code>borrow_fee_extreme</code> can strengthen context for a proposal that buys to cover an existing short, but they must not create standalone long sells or buy-add proposals. <code>reg_sho_threshold</code> is regulatory context unless paired with an existing reduce/cover proposal.</p>
 <p>User-facing proposal copy should render any reducing short <code>BUY</code> as <code>Buy to cover</code>. Market-event squeeze-like context remains observational in Underlyings; the separate Opportunities panel is limited to daemon-calculated option-exercise opportunities and does not create buy-add or buy-to-open recommendations.</p>
 <h2 id="release-channel">Release channel</h2>
-<p>Every release publishes both builds side by side. The standard artifact keeps the plain <code>ibkr-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> name and is read-only; the broker-write build is named <code>ibkr-trading-...</code> and carries a <code>TRADING-WARNING.md</code>.</p>
-<p><code>ibkr update</code> and <code>install.sh</code> match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.</p>
+<p>Every release publishes both builds side by side. The standard artifact keeps the plain <code>canary-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> name and is read-only; the broker-write build is named <code>canary-trading-...</code> and carries a <code>TRADING-WARNING.md</code>.</p>
+<p><code>canary update</code> and <code>install.sh</code> match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.</p>
 <p>MCP order writes stay out of both builds. There are no order-entry tools on the MCP surface, and adding any would need its own review, nonce, audit, and human-confirmation model first.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

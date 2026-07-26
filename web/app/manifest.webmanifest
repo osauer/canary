@@ -1,6 +1,6 @@
 {
-  "name": "ibkr canary",
-  "short_name": "canary",
+  "name": "Canary",
+  "short_name": "Canary",
   "id": "/",
   "start_url": "/",
   "scope": "/",

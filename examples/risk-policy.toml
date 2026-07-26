@@ -4,7 +4,7 @@
 # This file is the authority over personal capital numbers
 # (internal-docs/design/risk-policy.md). There is NO embedded default: a key you do
 # not write does not exist, the dependent control renders "unapproved", and
-# `ibkr policy show --explain` names the gap. Editing any value without
+# `Canary policy show --explain` names the gap. Editing any value without
 # raising policy_version puts the manager in drift status.
 #
 # Every commented-out key below is a decision the operator has not made
@@ -38,7 +38,7 @@ base_currency = "EUR"
 [drawdown]
 # Both tiers are % of declared_risk_capital consumed from the
 # cash-flow-adjusted equity peak. warn is advisory and self-clearing; block
-# latches until a journaled human reset (`ibkr policy reset-drawdown`).
+# latches until a journaled human reset (`Canary policy reset-drawdown`).
 #warn_consumed_pct = 0.0
 #block_consumed_pct = 0.0
 # shadow: journal what would block, gate nothing (default).
@@ -47,14 +47,14 @@ base_currency = "EUR"
 block_enforcement = "shadow"
 
 [override]
-# Longest lifetime of a one-shot exception (`ibkr policy override`).
+# Longest lifetime of a one-shot exception (`Canary policy override`).
 # Overrides are human-only, single-control, reasoned, journaled, expiring.
 #max_duration_hours = 0
 
 [recon]
 # What counts as a reconciliation exception when broker statement flows
 # are matched against declared capital events (internal-docs/design/post-trade-truth.md).
-# Reconcile sign-off requires a fresh, fully resolved `ibkr recon` report.
+# Reconcile sign-off requires a fresh, fully resolved `Canary recon` report.
 #amount_tolerance_pct = 0.0
 #amount_tolerance_min = 0.0
 #date_window_business_days = 0
@@ -64,7 +64,7 @@ block_enforcement = "shadow"
 #max_equity_divergence_pct = 0.0
 
 # Operating-cadence artefacts (phase 2). Declaring one enables
-# `ibkr policy artefact <name>` completion journaling. All advisory in v1.
+# `Canary policy artefact <name>` completion journaling. All advisory in v1.
 [cadence.morning]
 class = "advisory"
 [cadence.eod]
@@ -73,7 +73,7 @@ class = "advisory"
 class = "advisory"
 
 # Sibling-policy pins: the constitution records which policy versions it
-# was approved against; `ibkr policy show` discloses drift. Identity only —
+# was approved against; `Canary policy show` discloses drift. Identity only —
 # thresholds stay authoritative in their own files/code.
 [inventory.rulebook]
 id = "rulebook-v2"

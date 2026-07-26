@@ -1,12 +1,12 @@
 # Trading policy
 
 You decide how much capital may be at risk, which evidence must be current,
-and when uncertainty requires attention. Today, `ibkr`'s personal risk policy
+and when uncertainty requires attention. Today, `canary`'s personal risk policy
 observes, explains, and records those decisions; it does not block or authorize
 an order. Every submission remains a transaction-specific human decision and
 must pass separate, code-owned safety controls.
 
-A local record explains what `ibkr` observed and decided. Broker confirmations
+A local record explains what `canary` observed and decided. Broker confirmations
 and statements establish what actually executed. Missing or unusable evidence
 remains unknown rather than being treated as safe.
 
@@ -39,7 +39,7 @@ higher policy version, but they never rewrite the active policy by themselves.
 ## Example: a drawdown boundary on stale evidence
 
 Suppose the last accepted equity reading is near a declared drawdown boundary,
-but the evidence needed to rely on the current result has become stale. `ibkr`
+but the evidence needed to rely on the current result has become stale. `canary`
 must disclose stale or unknown input rather than report a pass. In shadow mode
 it can record the condition and show what the declared response would mean; the
 personal risk policy still does not change submit eligibility.
@@ -68,7 +68,7 @@ decision.
 |---|---|---|---|---|
 | Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema | Material choices remain `unapproved` | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results | Edit approved values and raise `policy_version` |
 | Protection and opportunity policy | Human-customizable TOML, otherwise a system-provided embedded default | The embedded default is usable, but it is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Print the default, review it, save a custom file, and raise `policy_version` |
-| Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files | `ibkr settings set`, Settings UI, or typed API; freeze and trading-limit changes remain human-only |
+| Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files | `canary settings set`, Settings UI, or typed API; freeze and trading-limit changes remain human-only |
 | Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Stress, and related results | Reviewed code and release change |
 | Broker safety controls | Explicit human transaction decision plus non-overridable daemon/code checks | The path stays unavailable | Can block a broker write; cannot be weakened by policy or settings | Exact human decision plus reviewed guardrail change where applicable |
 
@@ -97,7 +97,7 @@ was stopped can therefore be accepted on startup. If a custom protection or
 opportunity file is absent at startup, its engine can use the embedded default.
 
 Drift detection is consequently runtime-local today. Always raise the version
-for a material edit and retain the exact applied TOML outside `ibkr`. The
+for a material edit and retain the exact applied TOML outside `canary`. The
 daemon's status tells you what it currently loaded; the human-owned TOML
 remains the policy source.
 
@@ -125,15 +125,15 @@ lesser of declared risk capital and equity above the protected floor.
 Inspect the current result with:
 
 ```sh
-ibkr policy show
-ibkr policy show --explain
-ibkr policy show --json
+canary policy show
+canary policy show --explain
+canary policy show --json
 ```
 
 `--explain` shows units, effective values, input health, drawdown state,
 reconciliation, active exceptions, cadence, referenced model identities, and
 the current content fingerprint. Mutating governance commands under
-`ibkr policy` are human-only actions, not agent configuration shortcuts.
+`canary policy` are human-only actions, not agent configuration shortcuts.
 
 ### Protection and opportunity policies
 
@@ -142,8 +142,8 @@ one, print the exact current schema, review it, and save a higher-version file:
 
 ```sh
 mkdir -p ~/.config/ibkr/policies
-ibkr policy default protection > ~/.config/ibkr/policies/protection-policy.toml
-ibkr policy default opportunity > ~/.config/ibkr/policies/opportunity-policy.toml
+canary policy default protection > ~/.config/ibkr/policies/protection-policy.toml
+canary policy default opportunity > ~/.config/ibkr/policies/opportunity-policy.toml
 ```
 
 The default paths and every editable key are in the
@@ -156,10 +156,10 @@ false.
 Settings control live product behavior; they do not create a new policy rule:
 
 ```sh
-ibkr settings show
-ibkr settings show --json
-ibkr settings set <key>=<value>
-ibkr settings set <key>=null
+canary settings show
+canary settings show --json
+canary settings set <key>=<value>
+canary settings set <key>=null
 ```
 
 `null` removes an override and exposes the underlying config or build default.

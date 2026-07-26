@@ -1,4 +1,4 @@
-// Package cli adapts typed daemon contracts and local workflows into ibkr
+// Package cli adapts typed daemon contracts and local workflows into Canary
 // commands, machine-readable output, and terminal rendering. Broker-connected
 // and runtime-state commands call the daemon over its typed Unix-socket
 // protocol, while setup, update, watchlist, and offline research workflows run
@@ -18,7 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/rpc"
 	"golang.org/x/sys/unix"
 )
 
@@ -38,10 +39,10 @@ type Env struct {
 	Stdin io.Reader
 	Conn  DaemonConn
 	// Origin is this process's broker-write origin classification
-	// (rpc.OrderOrigin*), resolved once in cmd/ibkr via DetectWriteOrigin.
+	// (rpc.OrderOrigin*), resolved once in cmd/canary via DetectWriteOrigin.
 	// Empty classifies as agent at the daemon (fail closed).
 	Origin string
-	// Version is the running CLI version stamped by cmd/ibkr. Empty in
+	// Version is the running CLI version stamped by cmd/canary. Empty in
 	// renderer tests and local-only helper paths that do not need parity
 	// checks against the daemon.
 	Version string
@@ -59,7 +60,7 @@ type CommandFunc func(ctx context.Context, env *Env, args []string) int
 //
 // Args are reordered so all flags come before positional arguments — Go's
 // flag package stops at the first non-flag token, but users naturally write
-// `ibkr quote AAPL --json` rather than `ibkr quote --json AAPL`.
+// `canary quote AAPL --json` rather than `canary quote --json AAPL`.
 //
 // On an unknown subcommand we print the full top-level usage to stderr,
 // not just the bare hint, so a user who typo'd or guessed wrong sees the
@@ -67,7 +68,7 @@ type CommandFunc func(ctx context.Context, env *Env, args []string) int
 func Run(ctx context.Context, env *Env, cmd string, args []string) int {
 	c, ok := lookupCommand(cmd)
 	if !ok || c.Fn == nil {
-		fmt.Fprintf(env.Stderr, "ibkr: unknown subcommand %q\n\n", cmd)
+		fmt.Fprintf(env.Stderr, "%s: unknown subcommand %q\n\n", productidentity.Executable, cmd)
 		PrintUsage(env.Stderr)
 		return 2
 	}
@@ -170,7 +171,7 @@ func outputColumns(w io.Writer) int {
 type Command struct {
 	Name    string
 	Summary string
-	Usage   string // optional one-line usage example shown in `ibkr X --help`
+	Usage   string // optional one-line usage example shown in `canary X --help`
 	Fn      CommandFunc
 }
 
@@ -181,41 +182,44 @@ var commands []Command
 
 func init() {
 	commands = []Command{
-		{"status", "Daemon + gateway health (run this first if anything fails)", "ibkr status [--json]", runStatus},
-		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "ibkr account [--watch --rate 1s] [--json]", runAccount},
-		{"positions", "List open positions (stocks + options)", "ibkr positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},
-		{"quote", "Snapshot or stream quotes for symbols / option contracts", "ibkr quote SYM[,SYM…] [--market us|de] [--watch --rate 250ms] | ibkr quote SYM YYMMDD C|P STRIKE [--json]", runQuote},
-		{"watch", "Local watchlist symbols; add/remove/clear offline or quote the list live", "ibkr watch [--quotes] [--timeout 5s] [--json] | ibkr watch --list [--json] | ibkr watch --watch --rate 1s | ibkr watch SYM[,SYM…] --add|--remove | ibkr watch --clear", runWatchlist},
-		{"calendar", "Official market sessions for US equities, US options, and Xetra", "ibkr calendar [--market us|us-options|de] [--date YYYY-MM-DD] [--next 14] [--json]", runCalendar},
-		{"chain", "Option chain table or expiry list", "ibkr chain SYM [--expiry YYYY-MM-DD [--width 5] [--side calls|puts|both] [--class SPX|SPXW]] [--no-iv] [--all-expiries] [--require-live-iv] [--min-dte N] [--max-dte N] [--target-dte N] [--json]", runChain},
-		{"history", "Daily OHLCV bars for a symbol", "ibkr history SYM [--days 90] [--json]", runHistory},
-		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "ibkr technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
-		{"market-events", "Held-symbol market-event flags: borrow inventory, Reg SHO, LULD, and halts", "ibkr market-events [SYM[,SYM...]] [--symbol SYM] [--json]", runMarketEvents},
-		{"breadth", "S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold)", "ibkr breadth [--days 30] [--json]", runBreadth},
-		{"gamma", "SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due)", "ibkr gamma [--no-wait] [--force] [--only spy|spx] [--explain] [--diagnostics] [--json]", runGamma},
-		{"regime", "Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth", "ibkr regime [--explain [--diagnostics]] [--watch --rate 5m] [--log PATH] [--json] | ibkr regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--stage STAGE] [--limit N] [--json]", runRegime},
-		{"stress", "Stateless market-regime × portfolio-shape stress read with action, evidence, and source health", "ibkr stress [--details] [--view full|alert] [--json] | ibkr stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]", runStress},
-		{"brief", "Typed morning/EOD operator brief with disclosed source degradation", "ibkr brief [--json] [--kind morning|eod]", runBrief},
-		{"rules", "Advisory 14-rule daily trading checklist, hardest breach first", "ibkr rules [--all] [--symbol SYM] [--json] | ibkr rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]", runRules},
-		{"policy", "Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes)", "ibkr policy show [--explain] [--json] | ibkr policy capital-event deposit|withdrawal [--amount F] [--effective-at TIME] [--note S] | ibkr policy capital-event reconcile [--report ID] | ibkr policy override --control KEY --reason S --hours N | ibkr policy reset-drawdown --reason S | ibkr policy artefact morning|eod|weekly [--note S]", runPolicy},
-		{"recon", "Post-trade reconciliation: broker statement flows vs the declared capital ledger", "ibkr recon show [--refresh] [--json] | ibkr recon backtest [--refresh] [--json] | ibkr recon equity [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--json] | ibkr recon dismiss --line ID --reason S", runRecon},
-		{"proposals", "Daemon-owned close/reduce-only protection proposals", "ibkr proposals status|refresh|list|preview|submit|reduce|ignore [--json]", runProposals},
-		{"opportunities", "Daemon-owned option exercise opportunities", "ibkr opportunities status|refresh|list|preview|exercise|ignore [--json]", runOpportunities},
-		{"purge", "Emergency fast-path close for current stock/ETF and single-leg option positions", "ibkr purge SYMBOL|'*' [--wait 2s] [--json] | ibkr purge --all [--wait 2s] [--json] | ibkr purge restore SYMBOL|'*' [--scale 0.5] [--execute] [--json] | ibkr purge status [PURGE_ID] [--json] | ibkr purge monitor [PURGE_ID] [--watch --rate 1s] | ibkr purge dry-run [--json]", runPurge},
-		{"backtest", "Offline stress/regime/opportunity backtest harness from JSONL snapshots", "ibkr backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | ibkr backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | ibkr backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | ibkr backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | ibkr backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | ibkr backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | ibkr backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]", runBacktest},
-		{"scan", "Run a scanner preset or an ad-hoc scan; dump the gateway catalog with `scan params`", "ibkr scan <preset> | ibkr scan list | ibkr scan params [--instrument STK] [--raw] | ibkr scan --type SCANCODE --exchange LOCATIONCODE [--instrument STK|STOCK.EU] [--limit N] [--min-price 5] [--require-live] [--json]", runScan},
-		{"size", "Fixed-fractional position sizing pegged to live NLV", "ibkr size --symbol SYM --entry F --stop F [--risk-pct 1.0] [--side long|short] [--lot 1] [--fx 1.0] [--json]", runSize},
-		{"trading", "Local trading gate status and configuration", "ibkr trading status [--json] | ibkr trading paper-smoke [--timeout 30s] [--json]", runTrading},
-		{"settings", "Runtime platform preferences and observed read-only state", "ibkr settings show [--json] | ibkr settings set <supported-key>=true|false|null|number", runSettings},
-		{"orders", "Read current-context local order lifecycle state without transmitting orders", "ibkr orders open [--json] | ibkr orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]", runOrders},
-		{"order", "Preview, place, modify, cancel, or inspect gated orders", "ibkr order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT --trigger-method 2] [--json] | ibkr order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY [--order-type TRAIL-LIMIT --trail-percent PCT --limit-offset PRICE] [--json] | ibkr order place --preview-token TOKEN [--json] | ibkr order modify ID --preview-token TOKEN [--json] | ibkr order cancel ID [--json] | ibkr order status ID [--json]", runOrder},
-		{"app", "Run the paired mobile PWA application layer", "ibkr app [--addr HOST:PORT] | ibkr app pair", nil}, // dispatched in cmd/ibkr/main.go — long-lived app server
-		{"mcp", "Run the stdio MCP server for local AI clients", "ibkr mcp", nil},                                                                                   // dispatched in cmd/ibkr/main.go — long-lived stdio server
-		{"daemon", "Run the stateful gateway daemon (normally autospawned)", "ibkr daemon [--foreground] [--config PATH] [--socket PATH] [--log PATH|stderr]", nil}, // dispatched in cmd/ibkr/main.go — long-lived daemon
-		{"setup", "Wire ibkr into a local AI client (default: claude-desktop)", "ibkr setup [claude-desktop]", nil},                                                 // dispatched in cmd/ibkr/main.go — no daemon contact
-		{"update", "Self-update the ibkr binary from the latest GitHub release", "ibkr update [--check] [--force] [--restart|--no-restart]", nil},                   // dispatched in cmd/ibkr/main.go — no daemon contact
-		{"restart", "Gracefully restart the daemon and any running app process", "ibkr restart [--app] [--force] [--timeout 15s] [--json]", nil},                    // dispatched in cmd/ibkr/main.go — process management
-		{"version", "Print version, commit, build date", "ibkr version", nil},                                                                                       // version is handled in cmd/ibkr/main.go before dispatch
+		{"status", "Daemon + gateway health (run this first if anything fails)", "canary status [--json]", runStatus},
+		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "canary account [--watch --rate 1s] [--json]", runAccount},
+		{"positions", "List open positions (stocks + options)", "canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},
+		{"quote", "Snapshot or stream quotes for symbols / option contracts", "canary quote SYM[,SYM…] [--market us|de] [--watch --rate 250ms] | canary quote SYM YYMMDD C|P STRIKE [--json]", runQuote},
+		{"watch", "Local watchlist symbols; add/remove/clear offline or quote the list live", "canary watch [--quotes] [--timeout 5s] [--json] | canary watch --list [--json] | canary watch --watch --rate 1s | canary watch SYM[,SYM…] --add|--remove | canary watch --clear", runWatchlist},
+		{"calendar", "Official market sessions for US equities, US options, and Xetra", "canary calendar [--market us|us-options|de] [--date YYYY-MM-DD] [--next 14] [--json]", runCalendar},
+		{"chain", "Option chain table or expiry list", "canary chain SYM [--expiry YYYY-MM-DD [--width 5] [--side calls|puts|both] [--class SPX|SPXW]] [--no-iv] [--all-expiries] [--require-live-iv] [--min-dte N] [--max-dte N] [--target-dte N] [--json]", runChain},
+		{"history", "Daily OHLCV bars for a symbol", "canary history SYM [--days 90] [--json]", runHistory},
+		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
+		{"market-events", "Held-symbol market-event flags: borrow inventory, Reg SHO, LULD, and halts", "canary market-events [SYM[,SYM...]] [--symbol SYM] [--json]", runMarketEvents},
+		{"breadth", "S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold)", "canary breadth [--days 30] [--json]", runBreadth},
+		{"gamma", "SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due)", "canary gamma [--no-wait] [--force] [--only spy|spx] [--explain] [--diagnostics] [--json]", runGamma},
+		{"regime", "Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth", "canary regime [--explain [--diagnostics]] [--watch --rate 5m] [--log PATH] [--json] | canary regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--stage STAGE] [--limit N] [--json]", runRegime},
+		{"stress", "Stateless market-regime × portfolio-shape stress read with action, evidence, and source health", "canary stress [--details] [--view full|alert] [--json] | canary stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]", runStress},
+		{"brief", "Typed morning/EOD operator brief with disclosed source degradation", "canary brief [--json] [--kind morning|eod]", runBrief},
+		{"rules", "Advisory 14-rule daily trading checklist, hardest breach first", "canary rules [--all] [--symbol SYM] [--json] | canary rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]", runRules},
+		{"policy", "Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes)", "canary policy show [--explain] [--json] | canary policy capital-event deposit|withdrawal [--amount F] [--effective-at TIME] [--note S] | canary policy capital-event reconcile [--report ID] | canary policy override --control KEY --reason S --hours N | canary policy reset-drawdown --reason S | canary policy artefact morning|eod|weekly [--note S]", runPolicy},
+		{"recon", "Post-trade reconciliation: broker statement flows vs the declared capital ledger", "canary recon show [--refresh] [--json] | canary recon backtest [--refresh] [--json] | canary recon equity [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--json] | canary recon dismiss --line ID --reason S", runRecon},
+		{"proposals", "Daemon-owned close/reduce-only protection proposals", "canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]", runProposals},
+		{"opportunities", "Daemon-owned option exercise opportunities", "canary opportunities status|refresh|list|preview|exercise|ignore [--json]", runOpportunities},
+		{"purge", "Emergency fast-path close for current stock/ETF and single-leg option positions", "canary purge SYMBOL|'*' [--wait 2s] [--json] | canary purge --all [--wait 2s] [--json] | canary purge restore SYMBOL|'*' [--scale 0.5] [--execute] [--json] | canary purge status [PURGE_ID] [--json] | canary purge monitor [PURGE_ID] [--watch --rate 1s] | canary purge dry-run [--json]", runPurge},
+		{"backtest", "Offline stress/regime/opportunity backtest harness from JSONL snapshots", "canary backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | canary backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | canary backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | canary backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | canary backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | canary backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | canary backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]", runBacktest},
+		{"scan", "Run a scanner preset or an ad-hoc scan; dump the gateway catalog with `scan params`", "canary scan <preset> | canary scan list | canary scan params [--instrument STK] [--raw] | canary scan --type SCANCODE --exchange LOCATIONCODE [--instrument STK|STOCK.EU] [--limit N] [--min-price 5] [--require-live] [--json]", runScan},
+		{"size", "Fixed-fractional position sizing pegged to live NLV", "canary size --symbol SYM --entry F --stop F [--risk-pct 1.0] [--side long|short] [--lot 1] [--fx 1.0] [--json]", runSize},
+		{"trading", "Local trading gate status and configuration", "canary trading status [--json] | canary trading paper-smoke [--timeout 30s] [--json]", runTrading},
+		{"settings", "Runtime platform preferences and observed read-only state", "canary settings show [--json] | canary settings set <supported-key>=true|false|null|number", runSettings},
+		{"orders", "Read current-context local order lifecycle state without transmitting orders", "canary orders open [--json] | canary orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]", runOrders},
+		{"order", "Preview, place, modify, cancel, or inspect gated orders", "canary order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT --trigger-method 2] [--json] | canary order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY [--order-type TRAIL-LIMIT --trail-percent PCT --limit-offset PRICE] [--json] | canary order place --preview-token TOKEN [--json] | canary order modify ID --preview-token TOKEN [--json] | canary order cancel ID [--json] | canary order status ID [--json]", runOrder},
+		{"app", "Run the paired mobile PWA application layer", "canary app [--addr HOST:PORT] | canary app pair", nil}, // dispatched in cmd/canary/main.go — long-lived app server
+		{"mcp", "Run the stdio MCP server for local AI clients", "canary mcp", nil},                                                                                   // dispatched in cmd/canary/main.go — long-lived stdio server
+		{"daemon", "Run the stateful gateway daemon (normally autospawned)", "canary daemon [--foreground] [--config PATH] [--socket PATH] [--log PATH|stderr]", nil}, // dispatched in cmd/canary/main.go — long-lived daemon
+		{"setup", "Wire Canary into a local AI client (default: claude-desktop)", "canary setup [claude-desktop]", nil},                                               // dispatched in cmd/canary/main.go — no daemon contact
+		{"update", "Self-update the Canary binary from the latest GitHub release", "canary update [--check] [--force] [--restart|--no-restart]", nil},                 // dispatched in cmd/canary/main.go — no daemon contact
+		{"restart", "Gracefully restart the daemon and any running app process", "canary restart [--app] [--force] [--timeout 15s] [--json]", nil},                    // dispatched in cmd/canary/main.go — process management
+		{"version", "Print version, commit, build date", "canary version", nil},                                                                                       // version is handled in cmd/canary/main.go before dispatch
+	}
+	for i := range commands {
+		commands[i].Usage = strings.ReplaceAll(commands[i].Usage, "canary ", productidentity.Executable+" ")
 	}
 }
 
@@ -232,8 +236,8 @@ func lookupCommand(name string) (Command, bool) {
 }
 
 // IsKnown reports whether name is a registered subcommand. Used by
-// cmd/ibkr to skip the daemon autospawn for typos and unknown commands —
-// otherwise `ibkr nonsense` would spawn ibkrd just to fail with
+// cmd/canary to skip the daemon autospawn for typos and unknown commands —
+// otherwise `canary nonsense` would spawn ibkrd just to fail with
 // "unknown subcommand", which is wasteful and confusing if it tips a
 // dormant install into a long startup.
 func IsKnown(name string) bool {
@@ -255,20 +259,20 @@ func Commands() []Command {
 // pointer, since users discovering the tool need to know that every
 // subcommand has its own flag list.
 func PrintUsage(w io.Writer) {
-	fmt.Fprintln(w, "ibkr — Interactive Brokers CLI (broker writes are gated)")
+	fmt.Fprintf(w, "%s — local trading harness (Interactive Brokers connectivity; broker writes are gated)\n", productidentity.ProductName)
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage: ibkr <subcommand> [flags] [args]")
+	fmt.Fprintf(w, "Usage: %s <subcommand> [flags] [args]\n", productidentity.Executable)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands:")
 	for _, c := range commands {
 		fmt.Fprintf(w, "  %-10s  %s\n", c.Name, c.Summary)
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Run `ibkr <subcommand> --help` to see the flags it supports.")
+	fmt.Fprintf(w, "Run `%s <subcommand> --help` to see the flags it supports.\n", productidentity.Executable)
 	fmt.Fprintln(w, "Add --json to data/query subcommands to emit machine-readable output.")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Color: respects NO_COLOR=1 to disable; IBKR_COLOR=always|never overrides.")
-	fmt.Fprintln(w, "First run? Try `ibkr status` to verify the gateway is reachable.")
+	fmt.Fprintln(w, "Color: respects NO_COLOR=1 to disable; CANARY_COLOR=always|never overrides.")
+	fmt.Fprintf(w, "First run? Try `%s status` to verify the gateway is reachable.\n", productidentity.Executable)
 }
 
 // flagSet builds a *flag.FlagSet wired to the env's writers and equipped
@@ -276,18 +280,18 @@ func PrintUsage(w io.Writer) {
 // go to stderr; the Usage output (triggered by --help, after flags are
 // registered) goes to stdout.
 func flagSet(env *Env, name string) *flag.FlagSet {
-	fs := flag.NewFlagSet("ibkr "+name, flag.ContinueOnError)
+	fs := flag.NewFlagSet(productidentity.Executable+" "+name, flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	cmd, known := lookupCommand(name)
 	fs.Usage = func() {
 		w := env.Stdout
 		if known {
-			fmt.Fprintf(w, "ibkr %s — %s\n\n", cmd.Name, cmd.Summary)
+			fmt.Fprintf(w, "%s %s — %s\n\n", productidentity.Executable, cmd.Name, cmd.Summary)
 			if cmd.Usage != "" {
 				fmt.Fprintf(w, "Usage: %s\n\n", cmd.Usage)
 			}
 		} else {
-			fmt.Fprintf(w, "Usage of ibkr %s\n\n", name)
+			fmt.Fprintf(w, "Usage of %s %s\n\n", productidentity.Executable, name)
 		}
 		var any bool
 		fs.VisitAll(func(f *flag.Flag) {
@@ -313,7 +317,7 @@ func printJSONTo(env *Env, out io.Writer, obj any) int {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(obj); err != nil {
-		fmt.Fprintf(env.Stderr, "ibkr: encode json: %v\n", err)
+		fmt.Fprintf(env.Stderr, "%s: encode json: %v\n", productidentity.Executable, err)
 		return 1
 	}
 	return 0
@@ -321,14 +325,14 @@ func printJSONTo(env *Env, out io.Writer, obj any) int {
 
 // fail writes a friendly error line and returns code 1. If the underlying
 // message looks like a gateway-unavailable error from the daemon, an extra
-// hint line is appended pointing the user at `ibkr status`. The hint
+// hint line is appended pointing the user at `canary status`. The hint
 // covers both common cases — a missing/down gateway AND a freshly-spawned
 // daemon whose handshake hasn't completed — without being prescriptive.
 func fail(env *Env, format string, args ...any) int {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(env.Stderr, "ibkr: %s\n", msg)
+	fmt.Fprintf(env.Stderr, "%s: %s\n", productidentity.Executable, msg)
 	if isGatewayUnavailable(msg) {
-		fmt.Fprintln(env.Stderr, "  hint: run `ibkr status` to see whether the daemon is still")
+		fmt.Fprintf(env.Stderr, "  hint: run `%s status` to see whether the daemon is still\n", productidentity.Executable)
 		fmt.Fprintln(env.Stderr, "        connecting (retry in a few seconds) or the gateway is")
 		fmt.Fprintln(env.Stderr, "        down (start IB Gateway; check ~/.local/state/ibkr/ibkr-daemon.log).")
 	}
@@ -343,7 +347,7 @@ func isGatewayUnavailable(msg string) bool {
 
 // failUnexpectedArgs rejects a stray positional argument with the command's
 // usage on top of the error line, suggesting the "--" spelling when the
-// argument names a defined flag — `ibkr restart app` should teach `--app`,
+// argument names a defined flag — `canary restart app` should teach `--app`,
 // not dead-end. Returns 2, the usage-error exit shared with parseExit.
 func failUnexpectedArgs(env *Env, fs *flag.FlagSet) int {
 	arg := fs.Arg(0)
@@ -395,7 +399,7 @@ func formatMoneyCcy(v float64, ccy string) string {
 
 // formatMoneyBare renders the amount with no currency prefix at all.
 // Use this when the currency is already named on the same line (e.g.
-// the Portfolio block in `ibkr positions` shows "Dollar delta X USD"
+// the Portfolio block in `canary positions` shows "Dollar delta X USD"
 // and the X should be currency-neutral).
 func formatMoneyBare(v float64) string {
 	if v == 0 {

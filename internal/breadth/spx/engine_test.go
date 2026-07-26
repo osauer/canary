@@ -624,7 +624,7 @@ func TestEngineGetReturnsDefensiveCopy(t *testing.T) {
 // TestEngineMarkPendingBootstrapSetsRefreshingWhenStale pins the
 // v0.30.1 Bug 1c fix: when shouldRefreshOnStartup would fire on
 // Run() entry, MarkPendingBootstrap pre-sets refreshing=true so
-// `ibkr status` reflects the imminent breadth-spx work even before
+// `canary status` reflects the imminent breadth-spx work even before
 // the goroutine has been scheduled. Without this, the first status
 // call after daemon restart shows Connected=true but no background
 // task — the symptom the user reported on 2026-05-21.

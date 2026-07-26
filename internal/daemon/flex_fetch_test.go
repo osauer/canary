@@ -12,10 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
+
+func TestFlexUserAgentUsesCanonicalProductIdentity(t *testing.T) {
+	t.Parallel()
+	if flexUserAgent != "canary-flex-reconciliation/1" {
+		t.Fatalf("Flex User-Agent = %q", flexUserAgent)
+	}
+}
 
 func TestFlexDailyWindowUsesBerlinMorningAndCalendarDayIdentity(t *testing.T) {
 	berlin, err := time.LoadLocation(flexScheduleZone)

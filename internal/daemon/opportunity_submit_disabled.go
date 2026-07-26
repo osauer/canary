@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func (s *Server) submitOptionExercise(ctx context.Context, _ rpc.Opportunity, _ int, _ string, _ string) error {

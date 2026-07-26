@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // TestGammaZeroCache_SingleflightWithinSession proves the cache's
@@ -794,7 +794,7 @@ func TestGammaZeroCache_RetriesErrorAfterTTL(t *testing.T) {
 // caller doesn't pay for the refresh, the system pays it over the
 // next two calls.
 //
-// Load-bearing: this is what keeps `ibkr regime` fast after a
+// Load-bearing: this is what keeps `canary regime` fast after a
 // long-idle daemon. Without it, the same-session cache served a
 // 10-min-old answer with no path to freshness until midnight NY.
 func TestGammaZeroCache_SoftTTLRefreshesBehindStale(t *testing.T) {
@@ -923,7 +923,7 @@ func TestGammaZeroCache_LongComputeGetsFullSoftTTLAfterSuccess(t *testing.T) {
 // refresh-while-stale path is itself singleflighted: a second caller
 // arriving while a refresh is in flight does NOT kick a second
 // refresh. Otherwise a burst of post-TTL pollers (e.g. an MCP agent
-// hammering ibkr_regime) would launch parallel compute fan-outs,
+// hammering canary_regime) would launch parallel compute fan-outs,
 // defeating the gateway-slot-protection that motivates the cache.
 func TestGammaZeroCache_SoftTTLDoesNotStackRefreshes(t *testing.T) {
 	c := newGammaZeroCache()
@@ -1583,8 +1583,8 @@ func TestGammaZeroCache_OffHoursStaleCacheGetsWarning(t *testing.T) {
 // TestGammaZeroCache_OffHoursForceAllowsPollToJoin proves that once
 // force() kicks an in-flight compute on a closed session, a follow-up
 // non-force kickOrJoin returns the same job rather than reporting Cold.
-// Without this, a user running `ibkr gamma --force` off-hours and then
-// polling with `ibkr gamma` would see a fresh Cold message between
+// Without this, a user running `canary gamma --force` off-hours and then
+// polling with `canary gamma` would see a fresh Cold message between
 // progress updates — confusing and wrong, since the compute IS running.
 func TestGammaZeroCache_OffHoursForceAllowsPollToJoin(t *testing.T) {
 	c := newGammaZeroCache()

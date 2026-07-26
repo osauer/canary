@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 func openBreadthTestCoreStore(t *testing.T) *corestore.Store {

@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gamma cache persistence | ibkr</title>
+  <title>Gamma cache persistence | Canary</title>
   <meta name="description" content="Design and invalidation semantics for the daemon&#39;s persistent dealer zero-gamma cache.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/gamma-cache.html">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/gamma-cache.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.","headline":"Gamma cache persistence","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/gamma-cache.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Design and invalidation semantics for the daemon's persistent dealer zero-gamma cache.","headline":"Gamma cache persistence","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/gamma-cache.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -106,7 +106,7 @@
 <strong>Created:</strong> 2026-05-22 07:30 CEST
 <strong>Last update:</strong> 2026-07-20
 <strong>Owner:</strong> osauer
-<strong>Related:</strong> <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_cache.go">internal/daemon/gamma_zero_cache.go</a>, <a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/gamma_zero_store.go">internal/daemon/gamma_zero_store.go</a>, <a href="../understand/concepts.html#gamma">Concepts</a></p>
+<strong>Related:</strong> <a href="https://github.com/osauer/canary/blob/main/internal/daemon/gamma_zero_cache.go">internal/daemon/gamma_zero_cache.go</a>, <a href="https://github.com/osauer/canary/blob/main/internal/daemon/gamma_zero_store.go">internal/daemon/gamma_zero_store.go</a>, <a href="../understand/concepts.html#gamma">Concepts</a></p>
 <h2 id="why-this-exists">Why this exists</h2>
 <p>The gamma-zero compute is intentionally heavy. It fans out across SPY and SPX
 option chains, filters out post-settlement 0DTE expiries, fits sticky-moneyness
@@ -144,9 +144,9 @@ isolated codec-test seams only.</p>
 <h2 id="scope-isolation">Scope isolation</h2>
 <p>The daemon supports three cache scopes:</p>
 <ul>
-<li><code>spy+spx</code> for dashboard, regime, and default <code>ibkr gamma</code> calls.</li>
-<li><code>spy</code> for <code>ibkr gamma --only=spy</code>.</li>
-<li><code>spx</code> for <code>ibkr gamma --only=spx</code>.</li>
+<li><code>spy+spx</code> for dashboard, regime, and default <code>canary gamma</code> calls.</li>
+<li><code>spy</code> for <code>canary gamma --only=spy</code>.</li>
+<li><code>spx</code> for <code>canary gamma --only=spx</code>.</li>
 </ul>
 <p>Each scope has its own stable authority key:</p>
 <pre><code class="language-text">market/gamma/zero/spy+spx
@@ -196,8 +196,8 @@ codec tests remain only to prove deterministic one-time import.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

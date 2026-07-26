@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Market data and entitlements | ibkr</title>
-  <meta name="description" content="How market data reaches ibkr through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/market-data.html">
+  <title>Market data and entitlements | Canary</title>
+  <meta name="description" content="How market data reaches Canary through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/market-data.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How market data reaches ibkr through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.","headline":"Market data and entitlements","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/market-data.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How market data reaches Canary through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.","headline":"Market data and entitlements","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/market-data.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -105,7 +105,7 @@
 <p>Every price on every surface arrives through your own TWS or IB Gateway
 session. Nothing is resold, proxied, or fetched from a third-party feed. If a
 symbol is real-time in TWS it is real-time here, and if TWS shows it delayed,
-so does <code>ibkr</code>. Market data is real-time wherever your IBKR market-data
+so does <code>canary</code>. Market data is real-time wherever your IBKR market-data
 subscriptions cover it, delayed where they don't.</p>
 <p>That has a useful consequence: no configuration in this project can turn
 delayed data into real-time data. The only place to change what you receive is
@@ -195,27 +195,27 @@ this, including what each badge string says verbatim.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>ibkr quote</code>, position marks</td>
+<td><code>canary quote</code>, position marks</td>
 <td>Streaming or snapshot market data for that instrument.</td>
 </tr>
 <tr>
-<td><code>ibkr chain</code></td>
+<td><code>canary chain</code></td>
 <td>Option market data for the class, typically OPRA. The expiry list alone is contract details and needs less.</td>
 </tr>
 <tr>
-<td><code>ibkr gamma</code></td>
+<td><code>canary gamma</code></td>
 <td>Option market data for SPX and SPY, and it rejects delayed input outright.</td>
 </tr>
 <tr>
-<td><code>ibkr scan</code></td>
+<td><code>canary scan</code></td>
 <td>Scanner access for the ranking, plus market data for the per-row enrichment.</td>
 </tr>
 <tr>
-<td><code>ibkr breadth</code>, <code>ibkr history</code>, <code>ibkr technical</code></td>
+<td><code>canary breadth</code>, <code>canary history</code>, <code>canary technical</code></td>
 <td>Historical daily bars. No streaming-quote entitlement is involved.</td>
 </tr>
 <tr>
-<td><code>ibkr calendar</code></td>
+<td><code>canary calendar</code></td>
 <td>Nothing. It makes no broker call at all.</td>
 </tr>
 </tbody>
@@ -231,13 +231,13 @@ unaffected. A position whose quote is missing stays account truth; the daemon
 marks the missing quote as the expected state rather than a data-quality
 defect.</p>
 <p>Daily bars are a separate entitlement path from streaming quotes, so
-<code>ibkr history</code>, <code>ibkr technical</code>, and the S&amp;P 500 breadth engine keep working.
+<code>canary history</code>, <code>canary technical</code>, and the S&amp;P 500 breadth engine keep working.
 Breadth is computed from constituent daily bars precisely because the index
 itself is not redistributed on retail subscriptions. Its first build is slow
 for pacing reasons covered in
 <a href="../start/troubleshooting.html">Troubleshooting</a>.</p>
 <p>Market calendars are embedded in the binary and read no broker data, so
-<code>ibkr calendar</code> answers whether a market is open even with the gateway down.</p>
+<code>canary calendar</code> answers whether a market is open even with the gateway down.</p>
 <h2 id="when-a-quote-looks-wrong-read-the-session"><span class="secno" aria-hidden="true">06</span>When a quote looks wrong, read the session</h2>
 <p>A quote attaches a <code>session_context</code> block when the calendar state is needed to
 interpret it, and omits it on an ordinary live in-session row. The block names
@@ -251,8 +251,8 @@ whether a market is open.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

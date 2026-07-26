@@ -1,0 +1,1 @@
+../../scripts/canary-mcp.sh

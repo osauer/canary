@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Default calibration window for the zero-gamma compute. Tuned for
@@ -343,7 +343,7 @@ type legFetcher func(
 //	           tickType=13) routes into optIV[key] / optGreeks[key];
 //	           fastest path with the gateway's own σ. Verified to fire
 //	           off-hours under the daemon's default MarketDataType=2 —
-//	           same path `ibkr chain SPY` relies on for ATM IV.
+//	           same path `canary chain SPY` relies on for ATM IV.
 //	Stage 2  — BS-IV fallback. When the gateway never pushed a model
 //	           tick, solve for σ via Newton-Raphson against the option's
 //	           bid/ask mid or prior-session close (tick 9, always pushed
@@ -397,7 +397,7 @@ func productionLegFetcher(
 	// Stage 1: model-tick poll. handleOptionComputation commits
 	// optIV[key] / optGreeks[key] once IBKR sends a non-sentinel model
 	// row (see saneGreek); their presence is the authoritative signal
-	// that the gateway priced the contract. Empirically (see `ibkr chain
+	// that the gateway priced the contract. Empirically (see `canary chain
 	// SPY` working off-hours via the same handleOptionComputation path),
 	// model ticks DO arrive for OPT contracts under the daemon's default
 	// MarketDataType=2 — the prior v0.28 release switched the connection
@@ -781,7 +781,7 @@ func computeGammaZeroFor(
 	}
 
 	// Keep the connection's default MarketDataType (type=2, frozen-aware).
-	// Verified 2026-05-21: `ibkr chain SPY` works off-hours via the same
+	// Verified 2026-05-21: `canary chain SPY` works off-hours via the same
 	// handleOptionComputation routing the gamma fan-out depends on — both
 	// run under type=2 and chain reliably gets model ticks per leg.
 	//

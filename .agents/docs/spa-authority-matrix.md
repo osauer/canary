@@ -37,7 +37,7 @@ the embedded binary and app host are refreshed.
 ```sh
 make app-check
 make app-refresh
-ibkr app pair --public-url http://127.0.0.1:8765 --json
+canary app pair --public-url http://127.0.0.1:8765 --json
 ```
 
 Open the returned `.url` in the Codex Browser. For rendered behavior:

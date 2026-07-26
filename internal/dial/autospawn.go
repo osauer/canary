@@ -12,18 +12,18 @@ import (
 	"time"
 )
 
-// AutospawnTimeout is the budget for `ibkr daemon` to start and open its Unix
-// socket. Discovery + the gateway handshake run in the background, so the
+// AutospawnTimeout is the budget for this executable's `daemon` mode to start
+// and open its Unix socket. Discovery + the gateway handshake run in the background, so the
 // socket appears as soon as the daemon reaches its accept loop — sub-second
 // on a healthy machine.
 const AutospawnTimeout = 5 * time.Second
 
-// AutospawnAndConnect spawns `ibkr daemon` (this same binary, located via
+// AutospawnAndConnect spawns this binary's `daemon` mode (located via
 // os.Executable), waits for the Unix socket to appear at socketPath, and
 // returns a live connection. On wait failure the returned error is annotated
 // with whatever the lock file tells us plus the last daemon log line.
 //
-// Shared between cmd/ibkr (CLI entry) and internal/mcp (stdio MCP server) —
+// Shared between the CLI entry and internal/mcp (stdio MCP server) —
 // both surfaces need the same "is the daemon up? if not, start it" dance.
 //
 // Pre-spawn check: if the lock file points at a live PID, the daemon is
@@ -107,8 +107,19 @@ func AutospawnAndConnectContext(ctx context.Context, socketPath string) (*Conn, 
 // daemon, so connecting to a concurrently started daemon from an unknown
 // executable would be a false-success cutover.
 func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, executable string) (*Conn, error) {
+	return AutospawnAndConnectContextFromExecutableWithTimeout(ctx, socketPath, executable, AutospawnTimeout)
+}
+
+// AutospawnAndConnectContextFromExecutableWithTimeout is the exact-executable
+// cutover path with a caller-owned startup budget. Ordinary CLI/MCP autospawn
+// retains AutospawnTimeout; restart uses its explicit timeout because a first
+// start may include validated schema migration before the socket is published.
+func AutospawnAndConnectContextFromExecutableWithTimeout(ctx context.Context, socketPath, executable string, startupTimeout time.Duration) (*Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if startupTimeout <= 0 {
+		startupTimeout = AutospawnTimeout
 	}
 	executable = strings.TrimSpace(executable)
 	if executable == "" {
@@ -130,7 +141,7 @@ func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to start daemon from %s: %w", executable, err)
 	}
-	conn, waitErr := WaitForSocketContext(ctx, socketPath, AutospawnTimeout)
+	conn, waitErr := WaitForSocketContext(ctx, socketPath, startupTimeout)
 	if waitErr != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -176,9 +187,9 @@ func waitForSocketOrPIDDeath(ctx context.Context, socketPath string, pid int, ti
 	return nil, false
 }
 
-// spawnDaemon starts `ibkr daemon` detached from the calling process. The
+// spawnDaemon starts this executable's `daemon` mode detached from the caller.
 // current binary is located via os.Executable() — no PATH lookup, no separate
-// ibkrd binary, no IBKR_BIN env var.
+// daemon binary, no executable-name environment override.
 //
 // Stdout/stderr route to the daemon log file (or /dev/null on fallback).
 // Leaving Cmd.Stdout/Stderr at the zero value wired exec to a closed fd on

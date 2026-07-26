@@ -1,6 +1,6 @@
 package daemon
 
-import ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+import ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 // daemonBrokerEvidenceBinding joins daemon connector publication authority to
 // the Connector's exact socket/order/portfolio frontiers. It is process-local

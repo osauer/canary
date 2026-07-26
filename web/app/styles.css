@@ -1092,7 +1092,7 @@ p {
   cursor: pointer;
 }
 
-/* The combined Regime+Canary card is one panel with two independently-toned
+/* The combined Regime+Stress card is one panel with two independently-toned
    halves — the outer article stays a neutral frame (each half carries its
    own accent-bar color below) and isn't itself one click target. */
 .signal-panel--combined {
@@ -1120,7 +1120,7 @@ p {
 }
 
 /* The split is side-by-side at every width — market regime left, portfolio
-   canary right — so both reads land in one glance even on phones.
+   stress right — so both reads land in one glance even on phones.
    scripts/app-browser-smoke.mjs asserts the side-by-side posture. */
 .signal-split {
   display: grid;
@@ -1132,7 +1132,7 @@ p {
   padding-right: 12px;
 }
 
-.signal-half--canary {
+.signal-half--stress {
   padding-left: 12px;
   border-left: 1px solid var(--line-soft);
 }
@@ -1190,7 +1190,7 @@ p {
   color: var(--ink-2);
 }
 
-.canary-hero__grid {
+.stress-hero__grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
@@ -1212,7 +1212,7 @@ p {
   line-height: 1;
 }
 
-.canary-rules {
+.stress-rules {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1223,41 +1223,41 @@ p {
   background: var(--surface-soft);
 }
 
-.canary-rules__head {
+.stress-rules__head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.canary-rules__counts {
+.stress-rules__counts {
   flex: 1 1 auto;
   min-width: 0;
   font-size: 11px;
   color: var(--muted);
 }
 
-.canary-rules__brief {
+.stress-rules__brief {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.canary-rules__brief:empty {
+.stress-rules__brief:empty {
   display: none;
 }
 
-.canary-rules__pill.risk {
+.stress-rules__pill.risk {
   border-color: var(--red);
   color: var(--red);
   background: var(--red-soft);
 }
 
-.canary-rules__pill.warn {
+.stress-rules__pill.warn {
   border-color: var(--amber);
   color: #a86d00;
 }
 
-.canary-rules__notes-trigger {
+.stress-rules__notes-trigger {
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
@@ -1273,7 +1273,7 @@ p {
   line-height: 1;
 }
 
-.canary-rules__notes-trigger--attention {
+.stress-rules__notes-trigger--attention {
   border-color: #e6bb9f;
   background: #fdf3ec;
   color: #b34a10;
@@ -1339,17 +1339,17 @@ p {
   color: var(--ink-2);
 }
 
-.canary-rules-detail {
+.stress-rules-detail {
   margin-top: 8px;
 }
 
-.canary-rules__offenders {
+.stress-rules__offenders {
   margin: 6px 0 0;
   font-size: 11px;
   color: var(--muted);
 }
 
-.canary-summary-actions {
+.stress-summary-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1357,27 +1357,27 @@ p {
   min-width: 0;
 }
 
-.canary-hero.severity-act {
+.stress-hero.severity-act {
   border-top-color: var(--market-red);
 }
 
-.canary-hero.severity-act strong {
+.stress-hero.severity-act strong {
   color: var(--market-red);
 }
 
-.canary-hero.severity-watch {
+.stress-hero.severity-watch {
   border-top-color: var(--amber);
 }
 
-.canary-hero.severity-watch strong {
+.stress-hero.severity-watch strong {
   color: #a86d00;
 }
 
-.canary-hero.severity-observe {
+.stress-hero.severity-observe {
   border-top-color: var(--market-green);
 }
 
-.canary-hero.severity-observe strong {
+.stress-hero.severity-observe strong {
   color: var(--market-green);
 }
 
@@ -1840,7 +1840,7 @@ p {
   min-width: 0;
 }
 
-.canary-hero__copy {
+.stress-hero__copy {
   display: grid;
   align-content: start;
   gap: 5px;
@@ -1848,7 +1848,7 @@ p {
 }
 
 .regime-summary b,
-.canary-hero strong {
+.stress-hero strong {
   overflow-wrap: anywhere;
   color: var(--ink);
   font-size: clamp(15px, 4.3vw, 18px);
@@ -1871,7 +1871,7 @@ p {
 }
 
 .regime-summary small,
-.canary-hero__copy p {
+.stress-hero__copy p {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -4737,7 +4737,7 @@ p {
 
 /* .alert-focus sits on --surface-soft, so the dark button variant would be
    white-on-white there. */
-.canary-hero .text-button--dark,
+.stress-hero .text-button--dark,
 .alert-focus .text-button--dark {
   border-color: var(--line);
   background: #fff;
@@ -4901,7 +4901,7 @@ p {
     font-size: 34px;
   }
 
-  .canary-hero__grid {
+  .stress-hero__grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -4935,7 +4935,7 @@ p {
     grid-column: 1 / -1;
   }
 
-  .signal-half--canary {
+  .signal-half--stress {
     padding-left: 18px;
   }
 
@@ -5244,7 +5244,7 @@ p {
 }
 
 @media (max-width: 360px) {
-  .canary-hero__grid {
+  .stress-hero__grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -20,47 +20,48 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // ErrSocketMissing indicates the daemon is not reachable: either the socket
 // file does not exist, or it exists but no daemon is listening on it (a
 // stale socket left behind by a crashed predecessor). Both cases are mapped
-// to the same sentinel because every caller — autospawn in cmd/ibkr,
+// to the same sentinel because every caller — autospawn in cmd/canary,
 // retry in WaitForSocket — treats them identically.
-var ErrSocketMissing = errors.New("ibkrd socket missing")
+var ErrSocketMissing = errors.New("daemon socket missing")
 
 // DefaultSocketPath returns the canonical socket location.
 func DefaultSocketPath() string {
-	// docgen:env IBKR_SOCKET | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`.
-	if v := os.Getenv("IBKR_SOCKET"); v != "" {
+	// docgen:env CANARY_SOCKET | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`.
+	if v := os.Getenv("CANARY_SOCKET"); v != "" {
 		return v
 	}
 	if v := os.Getenv("XDG_RUNTIME_DIR"); v != "" {
-		return filepath.Join(v, "ibkr", "ibkr.sock")
+		return filepath.Join(v, productidentity.PersistentNamespace, productidentity.DaemonSocketName)
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "ibkr", "ibkr.sock")
+	return filepath.Join(home, ".cache", productidentity.PersistentNamespace, productidentity.DaemonSocketName)
 }
 
-// SocketPathOverridden reports whether IBKR_SOCKET points the CLI at a
+// SocketPathOverridden reports whether CANARY_SOCKET points the CLI at a
 // non-default daemon scope. Commands that manage system-wide state by
-// process name (e.g. `ibkr restart`'s implicit app management) use this
+// process name (e.g. `canary restart`'s implicit app management) use this
 // to stay hands-off: a process found by name cannot be attributed to the
 // overridden scope, so signaling it would cross scopes.
 func SocketPathOverridden() bool {
-	// docgen:env IBKR_SOCKET | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`.
-	return os.Getenv("IBKR_SOCKET") != ""
+	// docgen:env CANARY_SOCKET | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`.
+	return os.Getenv("CANARY_SOCKET") != ""
 }
 
 // DefaultLogPath returns the canonical daemon log location.
 func DefaultLogPath() string {
-	// docgen:env IBKR_LOG | Override the daemon log file path. Defaults to `$HOME/.local/state/ibkr/ibkr-daemon.log`.
-	if v := os.Getenv("IBKR_LOG"); v != "" {
+	// docgen:env CANARY_LOG | Override the daemon log file path. Defaults to `$HOME/.local/state/ibkr/ibkr-daemon.log`.
+	if v := os.Getenv("CANARY_LOG"); v != "" {
 		return v
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state", "ibkr", "ibkr-daemon.log")
+	return filepath.Join(home, ".local", "state", productidentity.PersistentNamespace, "ibkr-daemon.log")
 }
 
 // Conn is a single client connection over the Unix socket.

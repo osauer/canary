@@ -8,11 +8,11 @@ Bring up the Canary SPA in an isolated preview-pane instance — never the share
 1. `preview_start` the `canary-app` launch config (`.claude/launch.json`): an
    isolated instance on `127.0.0.1:8766` with its own `/tmp` state dir.
 2. Mint a pairing URL:
-   `ibkr app pair --addr 127.0.0.1:8766 --public-url http://127.0.0.1:8766 --json`
+   `canary app pair --addr 127.0.0.1:8766 --public-url http://127.0.0.1:8766 --json`
 3. `preview_eval` navigation to the returned `.url`
    (e.g. `window.location.href = "<url>"`).
 
-Success = redirect to `/` with title `Canary · IBKR`.
+Success = redirect to `/` with title `Canary`.
 
 Guardrails:
 - Never adopt, kill, or bind the shared `0.0.0.0:8765` host — that's a

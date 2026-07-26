@@ -2,7 +2,7 @@
 
 Version 1.0
 
-Thank you for contributing to `ibkr`. This agreement sets out the rights you
+Thank you for contributing to Canary. This agreement sets out the rights you
 grant the maintainer over the code you submit. It is adapted from the Apache
 Software Foundation's Individual Contributor License Agreement 2.0, which is
 the common template for projects of this kind.

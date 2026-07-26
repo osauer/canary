@@ -19,6 +19,7 @@ const stopRestartedApp = args["stop-restarted-app"] === "true";
 const mobile = args.mobile !== "false";
 const round4Synthetic = args["round4-synthetic"] === "true";
 const rawGatewayCopyPattern = /gateway_unavailable|ibkr connection unavailable|quote\.snapshot|account\.summary|positions\.list/i;
+const staleStressDomainCopyPattern = /\b(?:canary (?:snapshot|driver|drivers|trigger|market read|portfolio snapshot)|defensive canary action|canary as a market signal)\b/i;
 
 const playwright = loadPlaywright("app-browser-smoke");
 
@@ -39,7 +40,7 @@ if (channel) {
 }
 
 async function runRound4SyntheticSmoke() {
-  const syntheticURL = "http://ibkr-synthetic.invalid/";
+  const syntheticURL = "http://canary-synthetic.invalid/";
   const staticRoot = resolve(fileURLToPath(new URL("../web/app/", import.meta.url)));
   const staticTypes = { ".css": "text/css", ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json" };
   const launchedSynthetic = await launchBrowser(playwright[browserName], browserName, { headless: true, ...(channel ? { channel } : {}) });
@@ -107,7 +108,7 @@ async function runRound4SyntheticSmoke() {
     snapshot: {
       account: {},
       positions: { stocks: [], options: [], portfolio: {} },
-      stress: { portfolio_fit: "low", portfolio: {}, fingerprint: { key: "synthetic-canary" } },
+      stress: { portfolio_fit: "low", portfolio: {}, fingerprint: { key: "synthetic-stress" } },
       trading: { mode: "disabled", can_preview: false, can_write: false },
       proposals: {},
       opportunities: {},
@@ -127,11 +128,11 @@ async function runRound4SyntheticSmoke() {
   };
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await context.addInitScript(() => {
-    globalThis.__ibkrSmoke = { applySnapshotPatch: null };
+    globalThis.__canarySmoke = { applySnapshotPatch: null };
     try { Object.defineProperty(globalThis, "Notification", { configurable: true, value: undefined }); } catch {}
     try { Object.defineProperty(globalThis, "EventSource", { configurable: true, value: undefined }); } catch {}
   });
-  await context.route("http://ibkr-synthetic.invalid/**", async (route) => {
+  await context.route("http://canary-synthetic.invalid/**", async (route) => {
     const request = route.request();
     const requestURL = new URL(request.url());
     const requestPath = requestURL.pathname;
@@ -171,6 +172,7 @@ async function runRound4SyntheticSmoke() {
   try {
     await page.goto(syntheticURL, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    await assertVisibleRenameContract(page);
     try {
       await page.waitForFunction(() => document.getElementById("alertUnreadBadge")?.textContent === "2", { timeout: 5000 });
     } catch (error) {
@@ -274,7 +276,7 @@ await context.route(`${baseURL}/api/brief/seen`, async (route) => {
   });
 });
 async function attentionReadInterceptedCount(page) {
-  const diverted = await page.evaluate(() => globalThis.__ibkrSmoke?.attentionReadDiverted || 0);
+  const diverted = await page.evaluate(() => globalThis.__canarySmoke?.attentionReadDiverted || 0);
   return diverted + attentionReadRouted;
 }
 if (noNotification) {
@@ -313,7 +315,7 @@ if (noWebCrypto) {
   });
 }
 await context.addInitScript(() => {
-  globalThis.__ibkrSmoke = {
+  globalThis.__canarySmoke = {
     eventCounts: {},
     fetches: [],
     openedEvents: 0,
@@ -338,8 +340,8 @@ await context.addInitScript(() => {
       } catch {
         // Malformed body still must not reach the real host.
       }
-      globalThis.__ibkrSmoke.attentionReadDiverted += 1;
-      globalThis.__ibkrSmoke.fetches.push({ url, status: 200, diverted: true, at: Date.now() });
+      globalThis.__canarySmoke.attentionReadDiverted += 1;
+      globalThis.__canarySmoke.fetches.push({ url, status: 200, diverted: true, at: Date.now() });
       const current = await nativeFetch("/api/alerts", { credentials: "include" });
       return new Response(
         await current.text(),
@@ -360,8 +362,8 @@ await context.addInitScript(() => {
       } catch {
         // Malformed body still must not reach the real host.
       }
-      globalThis.__ibkrSmoke.briefSeenDiverted += 1;
-      globalThis.__ibkrSmoke.fetches.push({ url, status: 200, diverted: true, at: Date.now() });
+      globalThis.__canarySmoke.briefSeenDiverted += 1;
+      globalThis.__canarySmoke.fetches.push({ url, status: 200, diverted: true, at: Date.now() });
       return new Response(
         JSON.stringify({ ok: true, kind, day: "2026-01-01", already_stamped: false, brief_fingerprint: "smoke-diverted" }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -369,30 +371,30 @@ await context.addInitScript(() => {
     }
     try {
       const res = await nativeFetch(...fetchArgs);
-      globalThis.__ibkrSmoke.fetches.push({ url, status: res.status, at: Date.now() });
+      globalThis.__canarySmoke.fetches.push({ url, status: res.status, at: Date.now() });
       if (res.ok && url.endsWith("/api/bootstrap")) {
         res.clone().json().then((body) => {
-          globalThis.__ibkrSmoke.latestStressHeldStress = body?.snapshot?.stress?.portfolio?.held_stress?.length || 0;
+          globalThis.__canarySmoke.latestStressHeldStress = body?.snapshot?.stress?.portfolio?.held_stress?.length || 0;
         }).catch(() => {});
       }
       return res;
     } catch (err) {
-      globalThis.__ibkrSmoke.fetches.push({ url, error: String(err?.message || err), at: Date.now() });
+      globalThis.__canarySmoke.fetches.push({ url, error: String(err?.message || err), at: Date.now() });
       throw err;
     }
   };
   const NativeEventSource = globalThis.EventSource;
   globalThis.EventSource = function smokeEventSource(url, options) {
     const es = new NativeEventSource(url, options);
-    globalThis.__ibkrSmoke.openedEvents++;
+    globalThis.__canarySmoke.openedEvents++;
     for (const type of ["snapshot", "status", "market_calendar", "account", "positions", "market_quotes", "stress", "rules", "nudges", "heartbeat"]) {
       es.addEventListener(type, (event) => {
-        globalThis.__ibkrSmoke.eventCounts[type] = (globalThis.__ibkrSmoke.eventCounts[type] || 0) + 1;
+        globalThis.__canarySmoke.eventCounts[type] = (globalThis.__canarySmoke.eventCounts[type] || 0) + 1;
         if (type === "snapshot" || type === "stress") {
           try {
             const data = JSON.parse(event.data);
             const stress = type === "snapshot" ? data?.stress : data;
-            globalThis.__ibkrSmoke.latestStressHeldStress = stress?.portfolio?.held_stress?.length || 0;
+            globalThis.__canarySmoke.latestStressHeldStress = stress?.portfolio?.held_stress?.length || 0;
           } catch {
             // Smoke assertions below stay DOM-based when payload inspection fails.
           }
@@ -401,7 +403,7 @@ await context.addInitScript(() => {
           try {
             const data = JSON.parse(event.data);
             const rules = type === "snapshot" ? data?.rules : data;
-            globalThis.__ibkrSmoke.latestRulesCount = rules?.rules?.length || 0;
+            globalThis.__canarySmoke.latestRulesCount = rules?.rules?.length || 0;
           } catch {
             // DOM assertions still cover the card when payload capture fails.
           }
@@ -431,6 +433,7 @@ try {
   await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
   await waitForSnapshotEvent(page, 0);
   const title = await page.title();
+  const visibleIdentity = await assertVisibleRenameContract(page);
   const connection = await waitForHeader(page);
   const pushState = await page.locator("#pushState").textContent();
   const eventsBefore = await fetchEventsDiagnostics(page);
@@ -439,9 +442,9 @@ try {
   const snapshotBanner = await assertSnapshotBannerCopy(page);
   const marketLayout = await exerciseMarketLayout(page);
   const viewportOverflow = await assertNoViewportOverflow(page);
-  const canaryControls = await exerciseCanaryControlsRemoved(page);
+  const stressControls = await exerciseStressControlsRemoved(page);
   const underlyingBookFixture = await exerciseUnderlyingPanelFixture(page);
-  const canaryDetail = await exerciseCanaryDetail(page);
+  const stressDetail = await exerciseStressDetail(page);
   const rulesCard = await exerciseRulesCard(page);
   const marketContext = await exerciseMarketContext(page);
   const portfolioDetail = await exercisePortfolioDetail(page);
@@ -458,7 +461,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100));
     attentionReadIntercepted = await attentionReadInterceptedCount(page);
   }
-  const attentionReadFetches = await page.evaluate(() => globalThis.__ibkrSmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/attention/read")).length);
+  const attentionReadFetches = await page.evaluate(() => globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/attention/read")).length);
   if (attentionReadIntercepted === 0) throw new Error("attention read guard never fired: alerts tab exercised without an intercepted /api/alerts/attention/read POST");
   if (attentionReadFetches !== attentionReadIntercepted) throw new Error(`attention read guard bypass suspected: page fetches=${attentionReadFetches} intercepted=${attentionReadIntercepted}`);
   const openOrders = await exerciseOpenOrders(page);
@@ -474,7 +477,7 @@ try {
   if (lifecycle) {
     lifecycleResult = await runLifecycleSmoke(page);
   }
-  const smokeState = await page.evaluate(() => globalThis.__ibkrSmoke);
+  const smokeState = await page.evaluate(() => globalThis.__canarySmoke);
   const fallbackDeviceSecretStored = await page.evaluate(() => !!localStorage.getItem("ibkrDeviceSecret"));
   console.log(JSON.stringify({
     ok: true,
@@ -486,6 +489,7 @@ try {
     webcrypto_removed: noWebCrypto,
     used_http_fallback: fallbackDeviceSecretStored,
     title,
+    visible_identity: visibleIdentity,
     connection,
     push_state: pushState,
     privacy,
@@ -493,9 +497,9 @@ try {
     snapshot_banner: snapshotBanner,
     market_layout: marketLayout,
     viewport_overflow: viewportOverflow,
-    canary_controls: canaryControls,
+    stress_controls: stressControls,
     underlying_book_fixture: underlyingBookFixture,
-    canary_detail: canaryDetail,
+    stress_detail: stressDetail,
     rules_card: rulesCard,
     market_context: marketContext,
     portfolio_detail: portfolioDetail,
@@ -529,8 +533,8 @@ async function runLifecycleSmoke(page) {
     throw new Error("--restart-command is required with --lifecycle=true");
   }
   const before = await page.evaluate(() => ({
-    snapshot: globalThis.__ibkrSmoke.eventCounts.snapshot || 0,
-    authSessions: globalThis.__ibkrSmoke.fetches.filter((f) => f.url.endsWith("/api/auth/session") && f.status === 200).length,
+    snapshot: globalThis.__canarySmoke.eventCounts.snapshot || 0,
+    authSessions: globalThis.__canarySmoke.fetches.filter((f) => f.url.endsWith("/api/auth/session") && f.status === 200).length,
   }));
   const connectionBeforeRestart = await waitForHeader(page);
   const restart = await runShellJSON(restartCommand);
@@ -538,7 +542,7 @@ async function runLifecycleSmoke(page) {
   const connectionAfterRestart = await waitForHeader(page);
   const eventsAfter = await fetchEventsDiagnostics(page);
   const after = await page.evaluate(() => ({
-    authSessions: globalThis.__ibkrSmoke.fetches.filter((f) => f.url.endsWith("/api/auth/session") && f.status === 200).length,
+    authSessions: globalThis.__canarySmoke.fetches.filter((f) => f.url.endsWith("/api/auth/session") && f.status === 200).length,
   }));
   if (eventsAfter.opened_event_streams < 1) {
     throw new Error(`expected at least one SSE stream after restart, got ${eventsAfter.opened_event_streams}`);
@@ -558,9 +562,9 @@ async function runLifecycleSmoke(page) {
 
 async function waitForSnapshotEvent(page, previousCount) {
   await page.waitForFunction((count) => {
-    return (globalThis.__ibkrSmoke?.eventCounts?.snapshot || 0) > count;
+    return (globalThis.__canarySmoke?.eventCounts?.snapshot || 0) > count;
   }, previousCount, { timeout: 20000 });
-  return page.evaluate(() => globalThis.__ibkrSmoke.eventCounts.snapshot || 0);
+  return page.evaluate(() => globalThis.__canarySmoke.eventCounts.snapshot || 0);
 }
 
 async function waitForHeader(page) {
@@ -574,8 +578,8 @@ async function waitForHeader(page) {
 
 async function fetchEventsDiagnostics(page) {
   const events = await page.evaluate(() => ({
-    opened_event_streams: globalThis.__ibkrSmoke?.openedEvents || 0,
-    event_counts: { ...(globalThis.__ibkrSmoke?.eventCounts || {}) },
+    opened_event_streams: globalThis.__canarySmoke?.openedEvents || 0,
+    event_counts: { ...(globalThis.__canarySmoke?.eventCounts || {}) },
   }));
   if (events.opened_event_streams < 1) {
     throw new Error(`expected at least one SSE stream, got ${events.opened_event_streams}`);
@@ -701,6 +705,43 @@ async function assertSnapshotBannerCopy(page) {
   return banner;
 }
 
+async function assertVisibleRenameContract(page) {
+  const visible = await page.evaluate(() => {
+    const wordmark = document.querySelector(".brand-copy h1");
+    const stressNodes = [
+      document.getElementById("stressHero"),
+      document.getElementById("stressDetailPanel"),
+      document.getElementById("marketQuoteStrip"),
+      document.getElementById("protectionExposure"),
+    ].filter(Boolean);
+    return {
+      title: document.title,
+      wordmark: wordmark?.textContent?.replace(/\s+/g, " ").trim() || "",
+      wordmarkLabel: wordmark?.getAttribute("aria-label") || "",
+      stressText: stressNodes.map((node) => {
+        const titled = [...node.querySelectorAll("[title]")].map((el) => el.getAttribute("title") || "");
+        return [node.textContent || "", node.getAttribute("title") || "", ...titled].join(" ");
+      }).join(" "),
+      alertSourceText: [
+        ...document.querySelectorAll(".alert-row__source"),
+        ...document.querySelectorAll("#alertSourceList b"),
+        document.getElementById("selectedAlertTime"),
+      ].filter(Boolean).map((node) => node.textContent || "").join(" "),
+    };
+  });
+  if (visible.title !== "Canary" || visible.wordmark !== "Canary" || visible.wordmarkLabel !== "Canary") {
+    throw new Error(`visible product identity should be simply Canary: ${JSON.stringify(visible)}`);
+  }
+  const stale = visible.stressText.match(staleStressDomainCopyPattern);
+  if (stale) {
+    throw new Error(`stress surface retains stale domain copy ${JSON.stringify(stale[0])}: ${JSON.stringify(visible.stressText)}`);
+  }
+  if (/\bcanary\b/i.test(visible.alertSourceText)) {
+    throw new Error(`alert source metadata exposes the retained backend sensor id: ${JSON.stringify(visible.alertSourceText)}`);
+  }
+  return { title: visible.title, wordmark: visible.wordmark, wordmark_label: visible.wordmarkLabel };
+}
+
 async function exerciseMarketLayout(page) {
   await page.waitForFunction(() => {
     const text = document.getElementById("sessionPhase")?.textContent?.trim() || "";
@@ -708,13 +749,13 @@ async function exerciseMarketLayout(page) {
   }, { timeout: 10000 });
   const layout = await page.evaluate(() => {
     const regimeHalf = document.getElementById("regimeSummaryCard");
-    const canaryPanel = document.getElementById("canaryHero");
+    const stressPanel = document.getElementById("stressHero");
     const signalPanel = document.getElementById("signalPanel");
     const underlyingPanel = document.getElementById("underlyingPanel");
     const marketStrip = document.querySelector(".market-strip");
     const accountPanel = document.getElementById("accountPanel");
-    const regimeBeforeCanary = !!(regimeHalf && canaryPanel && (regimeHalf.compareDocumentPosition(canaryPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const canaryBeforeUnderlying = !!(signalPanel && underlyingPanel && (signalPanel.compareDocumentPosition(underlyingPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const regimeBeforeStress = !!(regimeHalf && stressPanel && (regimeHalf.compareDocumentPosition(stressPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const stressBeforeUnderlying = !!(signalPanel && underlyingPanel && (signalPanel.compareDocumentPosition(underlyingPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
     const accountAfterMarketStrip = !!(marketStrip && accountPanel && (marketStrip.compareDocumentPosition(accountPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
     const phase = document.getElementById("sessionPhase")?.textContent?.trim() || "";
     const strip = document.querySelector(".market-strip");
@@ -725,18 +766,18 @@ async function exerciseMarketLayout(page) {
     const labelStyle = firstQuote?.querySelector("b") ? getComputedStyle(firstQuote.querySelector("b")) : null;
     const marketOpen = strip?.classList.contains("market-open") || false;
     const accountHasUnderlyingBook = !!document.querySelector("#accountPanel #underlyingBookList");
-    const canaryHasUnderlyingBook = !!document.querySelector("#canaryHero #underlyingBookList");
+    const stressHasUnderlyingBook = !!document.querySelector("#stressHero #underlyingBookList");
     const standaloneHasUnderlyingBook = !!document.querySelector("#underlyingPanel #underlyingBookList");
     const quoteCells = document.querySelectorAll("#marketQuoteStrip .market-quote-cell").length;
     const underlyingOpen = !!underlyingPanel?.open;
     return {
-      regimeBeforeCanary,
-      canaryBeforeUnderlying,
+      regimeBeforeStress,
+      stressBeforeUnderlying,
       accountAfterMarketStrip,
       phase,
       marketOpen,
       accountHasUnderlyingBook,
-      canaryHasUnderlyingBook,
+      stressHasUnderlyingBook,
       standaloneHasUnderlyingBook,
       quoteCells,
       underlyingOpen,
@@ -750,11 +791,11 @@ async function exerciseMarketLayout(page) {
       },
     };
   });
-  if (!layout.regimeBeforeCanary) {
-    throw new Error("Regime should appear before Portfolio Canary in DOM order");
+  if (!layout.regimeBeforeStress) {
+    throw new Error("Regime should appear before Portfolio stress in DOM order");
   }
-  if (!layout.canaryBeforeUnderlying) {
-    throw new Error("Underlyings should appear after Portfolio Canary in DOM order");
+  if (!layout.stressBeforeUnderlying) {
+    throw new Error("Underlyings should appear after Portfolio stress in DOM order");
   }
   if (!layout.accountAfterMarketStrip) {
     throw new Error("Account panel should appear below the market countdown in DOM order");
@@ -768,8 +809,8 @@ async function exerciseMarketLayout(page) {
   if (layout.accountHasUnderlyingBook) {
     throw new Error("Account panel still contains the underlyings subledger");
   }
-  if (layout.canaryHasUnderlyingBook || !layout.standaloneHasUnderlyingBook) {
-    throw new Error("Underlyings subledger should be standalone, not inside Portfolio Canary");
+  if (layout.stressHasUnderlyingBook || !layout.standaloneHasUnderlyingBook) {
+    throw new Error("Underlyings subledger should be standalone, not inside Portfolio stress");
   }
   if (layout.quoteCells !== 6) {
     throw new Error(`market strip should render six bounded quote cells, found ${layout.quoteCells}`);
@@ -805,18 +846,18 @@ async function assertNoViewportOverflow(page) {
       const pageScrollWidth = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
       const signalPanel = document.getElementById("signalPanel")?.getBoundingClientRect();
       const regime = document.querySelector("#signalSplit .signal-half--regime")?.getBoundingClientRect();
-      const canary = document.querySelector("#signalSplit .signal-half--canary")?.getBoundingClientRect();
+      const stress = document.querySelector("#signalSplit .signal-half--stress")?.getBoundingClientRect();
       const dashboard = document.getElementById("dashboard")?.getBoundingClientRect();
-      const signalLayout = regime && canary ? {
-        // The split is side by side at every width: regime and canary share
+      const signalLayout = regime && stress ? {
+        // The split is side by side at every width: regime and stress share
         // a row, roughly splitting signalPanel's width; signalPanel itself
         // spans the full dashboard width rather than pairing with a sibling.
-        sameRow: Math.abs(regime.top - canary.top) <= 4,
-        regimeFirst: regime.left < canary.left,
-        similarWidths: Math.abs(regime.width - canary.width) <= 24,
+        sameRow: Math.abs(regime.top - stress.top) <= 4,
+        regimeFirst: regime.left < stress.left,
+        similarWidths: Math.abs(regime.width - stress.width) <= 24,
         signalPanelFullWidth: !!(signalPanel && dashboard) && Math.abs(signalPanel.width - dashboard.width) <= 4,
         regime: { left: Math.round(regime.left), top: Math.round(regime.top), width: Math.round(regime.width), height: Math.round(regime.height) },
-        canary: { left: Math.round(canary.left), top: Math.round(canary.top), width: Math.round(canary.width), height: Math.round(canary.height) },
+        stress: { left: Math.round(stress.left), top: Math.round(stress.top), width: Math.round(stress.width), height: Math.round(stress.height) },
       } : null;
       const offenders = [...document.querySelectorAll("body *")]
         .filter((el) => {
@@ -846,14 +887,14 @@ async function assertNoViewportOverflow(page) {
   return results;
 }
 
-async function exerciseCanaryControlsRemoved(page) {
+async function exerciseStressControlsRemoved(page) {
   const counts = await page.evaluate(() => ({
-    chipRows: document.querySelectorAll(".canary-chip-row").length,
-    chips: document.querySelectorAll(".canary-chip").length,
-    warningToggle: document.querySelectorAll("#canaryWarningsToggle").length,
-    checksToggle: document.querySelectorAll("#canaryChecksToggle").length,
-    inlineDetail: document.querySelectorAll("#canaryInlineDetailPanel").length,
-    mitigationButton: document.querySelectorAll("#canaryMitigationButton").length,
+    chipRows: document.querySelectorAll(".stress-chip-row").length,
+    chips: document.querySelectorAll(".stress-chip").length,
+    warningToggle: document.querySelectorAll("#stressWarningsToggle").length,
+    checksToggle: document.querySelectorAll("#stressChecksToggle").length,
+    inlineDetail: document.querySelectorAll("#stressInlineDetailPanel").length,
+    mitigationButton: document.querySelectorAll("#stressMitigationButton").length,
     orderReviewPanel: document.querySelectorAll("#orderReviewPanel").length,
     riskPlanQuickAction: document.querySelectorAll("#quickRiskPlanButton").length,
     reviewBlockersButton: document.querySelectorAll("#quickReviewBlockersButton").length,
@@ -862,7 +903,7 @@ async function exerciseCanaryControlsRemoved(page) {
   }));
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   if (total > 0) {
-    throw new Error(`canary summary controls and risk-plan surfaces should be removed: ${JSON.stringify(counts)}`);
+    throw new Error(`stress summary controls and risk-plan surfaces should be removed: ${JSON.stringify(counts)}`);
   }
   return counts;
 }
@@ -895,7 +936,7 @@ async function exerciseUnderlyingPanelFixture(page) {
     winner: document.getElementById("underlyingWinnerPnl")?.textContent?.trim() || "",
     loser: document.getElementById("underlyingLoserPnl")?.textContent?.trim() || "",
     accountHasUnderlyingBook: !!document.querySelector("#accountPanel #underlyingBookList"),
-    canaryHasUnderlyingBook: !!document.querySelector("#canaryHero #underlyingBookList"),
+    stressHasUnderlyingBook: !!document.querySelector("#stressHero #underlyingBookList"),
     standaloneHasUnderlyingBook: !!document.querySelector("#underlyingPanel #underlyingBookList"),
     foldIcon: Boolean(document.querySelector("#underlyingPanel #underlyingDetailToggle.panel-chevron")),
     bulkButtons: [...document.querySelectorAll("#underlyingPanel .underlying-bulk-actions button")].map((button) => ({
@@ -917,7 +958,7 @@ async function exerciseUnderlyingPanelFixture(page) {
       text: row.textContent?.replace(/\s+/g, " ").trim() || "",
     })),
   }));
-  if (info.accountHasUnderlyingBook || info.canaryHasUnderlyingBook || !info.standaloneHasUnderlyingBook) {
+  if (info.accountHasUnderlyingBook || info.stressHasUnderlyingBook || !info.standaloneHasUnderlyingBook) {
     throw new Error(`underlyings subledger is in the wrong panel: ${JSON.stringify(info)}`);
   }
   if (!info.foldIcon) {
@@ -968,7 +1009,7 @@ async function exerciseUnderlyingPanelFixture(page) {
   await page.evaluate(() => localStorage.removeItem("ibkrPurgeBook"));
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
-  // The reload resets __ibkrSmoke and the rendered canary/regime state; later
+  // The reload resets __canarySmoke and the rendered stress/regime state; later
   // exercises assume the same arrived-snapshot barrier as the initial load.
   await waitForSnapshotEvent(page, 0);
 
@@ -983,106 +1024,107 @@ async function exerciseUnderlyingPanelFixture(page) {
   };
 }
 
-async function exerciseCanaryDetail(page) {
+async function exerciseStressDetail(page) {
   // Quiet-when-fresh blanks and hides the badge while the snapshot is fresh;
   // that is the healthy state, not a missing timestamp. Badge and hero are
   // sampled in one evaluate so the no-data decision cannot straddle the
-  // re-render when a fresh instance's first canary poll lands mid-exercise.
-  const readCanaryHead = () => page.evaluate(() => {
-    const badge = document.getElementById("canaryAsOf");
+  // re-render when a fresh instance's first stress poll lands mid-exercise.
+  const readStressHead = () => page.evaluate(() => {
+    const badge = document.getElementById("stressAsOf");
     const text = badge?.textContent?.trim() || "";
     return {
       quietFresh: !!badge && badge.hidden && !text,
       timestamp: text,
-      hero: document.getElementById("canaryHero")?.textContent || "",
+      hero: document.getElementById("stressHero")?.textContent || "",
     };
   });
-  let head = await readCanaryHead();
-  if (!head.quietFresh && canaryTimestampMissing(head.timestamp)) {
+  let head = await readStressHead();
+  if (!head.quietFresh && stressTimestampMissing(head.timestamp)) {
     try {
-      // Wait for either rendered outcome of the first canary poll: a visible
+      // Wait for either rendered outcome of the first stress poll: a visible
       // real timestamp, or the quiet-when-fresh blank+hidden badge that a
       // just-landed fresh snapshot renders.
       await page.waitForFunction(() => {
-        const badge = document.getElementById("canaryAsOf");
+        const badge = document.getElementById("stressAsOf");
         if (!badge) return false;
         const text = badge.textContent?.trim() || "";
         if (badge.hidden && !text) return true;
         return text && text !== "no timestamp" && text !== "updated --" && text !== "--";
       }, { timeout: 30000 });
     } catch {
-      // A first canary poll can legitimately outlast this wait (fresh app
+      // A first stress poll can legitimately outlast this wait (fresh app
       // instance against an off-hours live session); the pending-copy
       // assertion below still pins the rendered no-data contract.
     }
-    head = await readCanaryHead();
+    head = await readStressHead();
   }
   const timestamp = head.timestamp;
-  const timestampMissing = !head.quietFresh && canaryTimestampMissing(timestamp);
-  const initiallyOpen = await page.locator("#canaryDetailPanel").evaluate((el) => !el.hidden);
+  const timestampMissing = !head.quietFresh && stressTimestampMissing(timestamp);
+  const initiallyOpen = await page.locator("#stressDetailPanel").evaluate((el) => !el.hidden);
   if (initiallyOpen) {
-    throw new Error("Portfolio Canary detail should be collapsed by default");
+    throw new Error("Portfolio stress detail should be collapsed by default");
   }
   if (timestampMissing) {
-    if (!/waiting for canary snapshot/i.test(head.hero)) {
-      throw new Error(`canary timestamp is missing without pending copy: ${JSON.stringify({ timestamp, pending: head.hero })}`);
+    if (!/waiting for stress snapshot/i.test(head.hero)) {
+      throw new Error(`stress timestamp is missing without pending copy: ${JSON.stringify({ timestamp, pending: head.hero })}`);
     }
     return { opens: false, initially_open: initiallyOpen, timestamp, no_value: true };
   }
-  await page.locator("#canaryDetailToggle").click();
+  await page.locator("#stressDetailToggle").click();
   await page.waitForFunction(() => {
-    const panel = document.getElementById("canaryDetailPanel");
-    return panel && !panel.hidden && document.getElementById("canaryDetailGrid")?.children.length >= 2;
+    const panel = document.getElementById("stressDetailPanel");
+    return panel && !panel.hidden && document.getElementById("stressDetailGrid")?.children.length >= 2;
   }, { timeout: 5000 });
+  await assertVisibleRenameContract(page);
   const counts = await page.evaluate(() => ({
-    cards: document.getElementById("canaryDetailGrid")?.children.length || 0,
-    drivers: document.getElementById("canaryDrivers")?.children.length || 0,
+    cards: document.getElementById("stressDetailGrid")?.children.length || 0,
+    drivers: document.getElementById("stressDrivers")?.children.length || 0,
     held_stress: document.getElementById("heldStressList")?.children.length || 0,
-    held_stress_payload: globalThis.__ibkrSmoke?.latestStressHeldStress || 0,
+    held_stress_payload: globalThis.__canarySmoke?.latestStressHeldStress || 0,
   }));
   if (counts.held_stress_payload > 0 && counts.held_stress === 0) {
-    throw new Error("canary held_stress payload is present but detail panel did not render it");
+    throw new Error("stress held_stress payload is present but detail panel did not render it");
   }
-  await page.locator("#canaryDetailToggle").click();
+  await page.locator("#stressDetailToggle").click();
   await page.waitForFunction(() => {
-    const canary = document.getElementById("canaryDetailPanel");
-    return canary?.hidden;
+    const stress = document.getElementById("stressDetailPanel");
+    return stress?.hidden;
   }, { timeout: 5000 });
   return { opens: true, initially_open: initiallyOpen, timestamp, cards: counts.cards, drivers: counts.drivers, held_stress: counts.held_stress };
 }
 
-function canaryTimestampMissing(value) {
+function stressTimestampMissing(value) {
   return !value || value === "--" || value === "updated --" || value === "no timestamp";
 }
 
 async function exerciseRulesCard(page) {
-  // The rules card renders only once snapshot.rules arrives (canary
+  // The rules card renders only once snapshot.rules arrives (stress
   // cadence); a fresh instance may legitimately not have it yet. Absent
   // card + no rules payload = pass with exercised:false, but a payload
   // without a card is a rendering bug.
-  const hasPayload = await page.evaluate(() => (globalThis.__ibkrSmoke?.latestRulesCount || 0) > 0);
-  const visible = await page.locator("#canaryRulesCard").evaluate((el) => !el.hidden).catch(() => false);
+  const hasPayload = await page.evaluate(() => (globalThis.__canarySmoke?.latestRulesCount || 0) > 0);
+  const visible = await page.locator("#stressRulesCard").evaluate((el) => !el.hidden).catch(() => false);
   if (!visible) {
     if (hasPayload) {
-      throw new Error("snapshot.rules payload present but #canaryRulesCard is hidden");
+      throw new Error("snapshot.rules payload present but #stressRulesCard is hidden");
     }
     return { exercised: false, reason: "no rules payload yet" };
   }
-  const counts = (await page.locator("#canaryRulesCounts").textContent())?.trim() || "";
+  const counts = (await page.locator("#stressRulesCounts").textContent())?.trim() || "";
   if (!counts || counts === "--") {
     throw new Error("rules card visible without a counts summary");
   }
-  const initiallyOpen = await page.locator("#canaryRulesDetailPanel").evaluate((el) => !el.hidden);
+  const initiallyOpen = await page.locator("#stressRulesDetailPanel").evaluate((el) => !el.hidden);
   if (initiallyOpen) {
     throw new Error("rules detail should be collapsed by default");
   }
-  await page.locator("#canaryRulesToggle").click();
+  await page.locator("#stressRulesToggle").click();
   await page.waitForFunction(() => {
-    const panel = document.getElementById("canaryRulesDetailPanel");
-    return panel && !panel.hidden && (document.getElementById("canaryRulesGrid")?.children.length || 0) >= 12;
+    const panel = document.getElementById("stressRulesDetailPanel");
+    return panel && !panel.hidden && (document.getElementById("stressRulesGrid")?.children.length || 0) >= 12;
   }, { timeout: 5000 });
   const grid = await page.evaluate(() => {
-    const cards = [...(document.getElementById("canaryRulesGrid")?.children || [])];
+    const cards = [...(document.getElementById("stressRulesGrid")?.children || [])];
     return {
       cards: cards.length,
       unknown_as_pass: cards.some((c) => /unknown/i.test(c.textContent || "") && c.classList.contains("ok")),
@@ -1091,8 +1133,8 @@ async function exerciseRulesCard(page) {
   if (grid.unknown_as_pass) {
     throw new Error("a rules row renders unknown status with a pass tone — unknown must never read as pass");
   }
-  await page.locator("#canaryRulesToggle").click();
-  await page.waitForFunction(() => document.getElementById("canaryRulesDetailPanel")?.hidden, { timeout: 5000 });
+  await page.locator("#stressRulesToggle").click();
+  await page.waitForFunction(() => document.getElementById("stressRulesDetailPanel")?.hidden, { timeout: 5000 });
   return { exercised: true, counts, cards: grid.cards };
 }
 
@@ -1148,50 +1190,50 @@ async function exerciseMarketContext(page) {
   if (!["weather-green", "weather-amber", "weather-red"].includes(before.weather)) {
     throw new Error(`market weather is not color coded, got ${JSON.stringify(before.weather)}`);
   }
-  const canaryInitiallyOpen = await page.locator("#canaryDetailPanel").evaluate((el) => !el.hidden);
+  const stressInitiallyOpen = await page.locator("#stressDetailPanel").evaluate((el) => !el.hidden);
   const regimeInitiallyOpen = await page.locator("#regimeDetailPanel").evaluate((el) => !el.hidden);
-  if (canaryInitiallyOpen || regimeInitiallyOpen) {
-    throw new Error(`Regime and Canary details should both be collapsed by default: ${JSON.stringify({ canaryInitiallyOpen, regimeInitiallyOpen })}`);
+  if (stressInitiallyOpen || regimeInitiallyOpen) {
+    throw new Error(`Regime and stress details should both be collapsed by default: ${JSON.stringify({ stressInitiallyOpen, regimeInitiallyOpen })}`);
   }
-  // Regime and canary detail now expand independently (no mutual exclusion):
-  // opening regime must not touch canary, and opening canary afterward must
+  // Regime and stress detail now expand independently (no mutual exclusion):
+  // opening regime must not touch stress, and opening stress afterward must
   // leave regime open too — both can be visible together in the shared deck.
   await page.locator("#regimeDetailToggle").click();
   await page.waitForFunction(() => {
     const panel = document.getElementById("regimeDetailPanel");
-    const canary = document.getElementById("canaryDetailPanel");
-    return panel && !panel.hidden && canary?.hidden;
+    const stress = document.getElementById("stressDetailPanel");
+    return panel && !panel.hidden && stress?.hidden;
   }, { timeout: 5000 });
   const indicators = await page.evaluate(() => document.getElementById("regimeIndicators")?.children.length || 0);
   if (indicators === 0) {
     throw new Error("market regime detail is empty");
   }
-  await page.locator("#canaryDetailToggle").click();
+  await page.locator("#stressDetailToggle").click();
   await page.waitForFunction(() => {
     const regime = document.getElementById("regimeDetailPanel");
-    const canary = document.getElementById("canaryDetailPanel");
-    return regime && !regime.hidden && canary && !canary.hidden;
+    const stress = document.getElementById("stressDetailPanel");
+    return regime && !regime.hidden && stress && !stress.hidden;
   }, { timeout: 5000 });
   const bothOpen = await page.evaluate(() => {
     const regime = document.getElementById("regimeDetailPanel");
-    const canary = document.getElementById("canaryDetailPanel");
-    return !regime?.hidden && !canary?.hidden;
+    const stress = document.getElementById("stressDetailPanel");
+    return !regime?.hidden && !stress?.hidden;
   });
   if (!bothOpen) {
-    throw new Error("Regime and Canary detail should be independently expandable — opening canary should not close regime");
+    throw new Error("Regime and stress detail should be independently expandable — opening stress should not close regime");
   }
   await page.locator("#regimeDetailToggle").click();
-  await page.locator("#canaryDetailToggle").click();
+  await page.locator("#stressDetailToggle").click();
   await page.waitForFunction(() => {
     const regime = document.getElementById("regimeDetailPanel");
-    const canary = document.getElementById("canaryDetailPanel");
-    return regime?.hidden && canary?.hidden;
+    const stress = document.getElementById("stressDetailPanel");
+    return regime?.hidden && stress?.hidden;
   }, { timeout: 5000 });
   return {
     regime: before.regime,
     weather: before.weather,
     quote_cells: before.quotes.length,
-    canary_initially_open: canaryInitiallyOpen,
+    stress_initially_open: stressInitiallyOpen,
     regime_initially_open: regimeInitiallyOpen,
     both_independently_open: bothOpen,
     indicators,
@@ -1298,7 +1340,7 @@ async function exerciseProtectionRiskRendering(page) {
         unprotected_notional_base_currency: "USD",
       }],
     };
-    const apply = globalThis.__ibkrSmoke?.applySnapshotPatch;
+    const apply = globalThis.__canarySmoke?.applySnapshotPatch;
     if (!apply) {
       throw new Error("smoke snapshot patch hook is unavailable");
     }
@@ -1379,12 +1421,12 @@ async function exerciseProtectionRiskRendering(page) {
   });
   await page.waitForFunction(() => {
     const portfolio = document.getElementById("portfolioDetailList")?.textContent?.toLowerCase() || "";
-    const canary = document.getElementById("canaryDetailGrid")?.textContent?.toLowerCase() || "";
+    const stress = document.getElementById("stressDetailGrid")?.textContent?.toLowerCase() || "";
     return document.querySelector(".protection-row__risk-ticket") &&
       document.querySelector(".protection-row__ladder") &&
       document.querySelector(".protection-coverage-ledger") &&
       portfolio.includes("protection coverage") &&
-      canary.includes("protection coverage");
+      stress.includes("protection coverage");
   }, { timeout: 5000 });
   const info = await page.evaluate(() => ({
     noStop: document.getElementById("protectionNoStopExposure")?.textContent?.trim() || "",
@@ -1392,10 +1434,11 @@ async function exerciseProtectionRiskRendering(page) {
     ladder: document.querySelector(".protection-row__ladder")?.textContent?.replace(/\s+/g, " ").trim() || "",
     coverageLedger: document.querySelector(".protection-coverage-ledger")?.textContent?.replace(/\s+/g, " ").trim() || "",
     portfolioDetail: document.getElementById("portfolioDetailList")?.textContent?.replace(/\s+/g, " ").trim() || "",
-    canaryDetail: document.getElementById("canaryDetailGrid")?.textContent?.replace(/\s+/g, " ").trim() || "",
+    stressDetail: document.getElementById("stressDetailGrid")?.textContent?.replace(/\s+/g, " ").trim() || "",
   }));
+  await assertVisibleRenameContract(page);
   if (!info.noStop.includes("123") || info.noStop.includes("999")) {
-    throw new Error(`Protection no-stop exposure should use positions.protection_coverage, not Canary context: ${JSON.stringify(info)}`);
+    throw new Error(`Protection no-stop exposure should use positions.protection_coverage, not stress context: ${JSON.stringify(info)}`);
   }
   for (const text of ["trigger bid / last", "est. loss", "7.5% gap", "trigger becomes market"]) {
     if (!info.riskTicket.includes(text)) {
@@ -1419,8 +1462,8 @@ async function exerciseProtectionRiskRendering(page) {
       throw new Error(`Portfolio protection coverage detail missing ${JSON.stringify(text)}: ${JSON.stringify(info.portfolioDetail)}`);
     }
   }
-  if (!info.canaryDetail.toLowerCase().includes("protection coverage")) {
-    throw new Error(`Canary detail does not include protection coverage context: ${JSON.stringify(info.canaryDetail)}`);
+  if (!info.stressDetail.toLowerCase().includes("protection coverage")) {
+    throw new Error(`Stress detail does not include protection coverage context: ${JSON.stringify(info.stressDetail)}`);
   }
   return info;
 }
@@ -1470,12 +1513,12 @@ async function exerciseAlertHistory(page) {
 
 async function exerciseGovernanceFixtures(page) {
   const mutationPaths = ["/api/push/test", "/api/governance/cutover-review", "/api/recon/check", "/api/brief/seen"];
-  const fetchesBefore = await page.evaluate((paths) => globalThis.__ibkrSmoke.fetches.filter((item) => paths.some((path) => item.url.endsWith(path))).length, mutationPaths);
+  const fetchesBefore = await page.evaluate((paths) => globalThis.__canarySmoke.fetches.filter((item) => paths.some((path) => item.url.endsWith(path))).length, mutationPaths);
   await page.locator("#tabAlerts").click();
   await page.waitForFunction(() => document.getElementById("alertsTab")?.hidden === false, { timeout: 5000 });
 
   const renderFixture = (fixture) => page.evaluate((value) => {
-    const apply = globalThis.__ibkrSmoke?.applySnapshotPatch;
+    const apply = globalThis.__canarySmoke?.applySnapshotPatch;
     if (!apply) throw new Error("smoke snapshot patch hook is unavailable");
     apply(value.patch);
   }, fixture);
@@ -1692,7 +1735,7 @@ async function exerciseGovernanceFixtures(page) {
   }
 
   await new Promise((resolve) => setTimeout(resolve, 100));
-  const fetchesAfter = await page.evaluate((paths) => globalThis.__ibkrSmoke.fetches.filter((item) => paths.some((path) => item.url.endsWith(path))).length, mutationPaths);
+  const fetchesAfter = await page.evaluate((paths) => globalThis.__canarySmoke.fetches.filter((item) => paths.some((path) => item.url.endsWith(path))).length, mutationPaths);
   if (fetchesAfter !== fetchesBefore) throw new Error(`governance fixture QA called a mutation endpoint: before=${fetchesBefore} after=${fetchesAfter}`);
   // Hold the Alerts tab until the SPA's dwell-gated acknowledge has fired
   // (and been diverted); leaving earlier would cancel the dwell and the
@@ -1764,7 +1807,7 @@ async function exerciseOpenOrders(page) {
 }
 
 async function exerciseSettingsTab(page) {
-  const settingWritesBefore = await page.evaluate(() => globalThis.__ibkrSmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/settings")).length);
+  const settingWritesBefore = await page.evaluate(() => globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/settings")).length);
   await page.locator("#tabSettings").click();
   await page.waitForFunction(() => document.getElementById("settingsTab")?.hidden === false, { timeout: 5000 });
   const selectors = [
@@ -1810,7 +1853,7 @@ async function exerciseSettingsTab(page) {
   if (JSON.stringify(notification.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !notification.copy.includes("global for this app host and all paired devices") || !notification.copy.includes("Off stops phone notifications while your in-app history remains") || !notification.copy.includes("Action required sends urgent items only") || !notification.copy.includes("Watch + action also sends review reminders") || !notification.copy.includes("not configured here") || !notification.copy.includes("shared across paired devices")) {
     throw new Error(`Settings notification card is incomplete: ${JSON.stringify(notification)}`);
   }
-  const settingWritesAfter = await page.evaluate(() => globalThis.__ibkrSmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/settings")).length);
+  const settingWritesAfter = await page.evaluate(() => globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/settings")).length);
   if (settingWritesAfter !== settingWritesBefore) throw new Error("rendered Settings smoke changed the alert delivery setting");
   await page.locator("#tabMonitor").click();
   await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });

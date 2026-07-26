@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	stressengine "github.com/osauer/ibkr/v2/internal/stress"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	stressengine "github.com/osauer/canary/v2/internal/stress"
 )
 
 // StressBacktestObservation is one point-in-time stress input and its labelled
@@ -746,7 +746,7 @@ func runBacktest(ctx context.Context, env *Env, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 || (rest[0] != "stress" && rest[0] != "regime" && rest[0] != "opportunity" && rest[0] != "research-opportunity" && rest[0] != "build-regime" && rest[0] != "build-opportunity" && rest[0] != "build-opportunity-pit" && rest[0] != "score-opportunity" && rest[0] != "capture-opportunity" && rest[0] != "export-opportunity-bars") {
-		return fail(env, "backtest: usage: ibkr backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | ibkr backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | ibkr backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | ibkr backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | ibkr backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | ibkr backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | ibkr backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]")
+		return fail(env, "backtest: usage: canary backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | canary backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | canary backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | canary backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | canary backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | canary backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | canary backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]")
 	}
 	if rest[0] == "research-opportunity" && *researchListPlans {
 		if *jsonOut {
@@ -873,7 +873,7 @@ func runBacktest(ctx context.Context, env *Env, args []string) int {
 		if opts.RequireLive && len(rows) > 0 {
 			filtered, skipped := opportunityCaptureRowsSatisfyingLiveContext(rows)
 			if len(skipped) > 0 && env != nil && env.Stderr != nil {
-				fmt.Fprintf(env.Stderr, "ibkr: backtest capture-opportunity skipped %d/%d row(s) that failed --require-live: %s\n", len(skipped), len(rows), strings.Join(skipped, "; "))
+				fmt.Fprintf(env.Stderr, "canary: backtest capture-opportunity skipped %d/%d row(s) that failed --require-live: %s\n", len(skipped), len(rows), strings.Join(skipped, "; "))
 			}
 			if len(filtered) == 0 {
 				return fail(env, "backtest capture-opportunity: no rows satisfied --require-live; %s", strings.Join(skipped, "; "))
@@ -886,7 +886,7 @@ func runBacktest(ctx context.Context, env *Env, args []string) int {
 				return fail(env, "backtest capture-opportunity: append %s: %v", path, err)
 			}
 			if env != nil && env.Stderr != nil {
-				fmt.Fprintf(env.Stderr, "ibkr: backtest capture-opportunity appended %d/%d row(s) to %s (%d duplicate skipped)\n", res.Appended, res.Captured, res.Path, res.SkippedDuplicates)
+				fmt.Fprintf(env.Stderr, "canary: backtest capture-opportunity appended %d/%d row(s) to %s (%d duplicate skipped)\n", res.Appended, res.Captured, res.Path, res.SkippedDuplicates)
 			}
 			rows = appended
 		}

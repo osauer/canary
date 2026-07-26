@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // The sizing math and its validations live in internal/risk (risk.ComputeSize);

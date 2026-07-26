@@ -37,7 +37,7 @@ function setupBottomTabs() {
 function setActiveTab(tab, options = {}) {
   state.activeTab = normalizedTab(tab);
   if (options.persist !== false) {
-    localStorage.setItem("ibkrActiveTab", state.activeTab);
+    localStorage.setItem("canaryActiveTab", state.activeTab);
   }
   renderTabs();
   handleAttentionContextChange();
@@ -47,7 +47,7 @@ function renderTabs() {
   const active = normalizedTab(state.activeTab);
   if (active !== state.activeTab) {
     state.activeTab = active;
-    localStorage.setItem("ibkrActiveTab", active);
+    localStorage.setItem("canaryActiveTab", active);
   }
   for (const panel of document.querySelectorAll("[data-tab-panel]")) {
     panel.hidden = panel.dataset.tabPanel !== active;
@@ -63,7 +63,7 @@ function renderTabs() {
 
 function setAccountValueVisible(visible) {
   state.accountValueVisible = Boolean(visible);
-  localStorage.setItem("ibkrAccountValueVisible", String(state.accountValueVisible));
+  localStorage.setItem("canaryAccountValueVisible", String(state.accountValueVisible));
   renderAll();
 }
 

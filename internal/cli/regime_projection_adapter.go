@@ -3,8 +3,8 @@ package cli
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/regimerows"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/regimerows"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type regimeBand = regimerows.Band

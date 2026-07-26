@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Trading rulebook assembly (internal-docs/design/trading-rulebook.md). The pure
@@ -26,7 +26,7 @@ import (
 // submit eligibility or broker-write authorization.
 
 const (
-	// rulesPreviewTTL spans the established one-minute Canary cadence with a
+	// rulesPreviewTTL spans the established one-minute Stress cadence with a
 	// small scheduling margin. All cache reuse remains scope- and connector-
 	// generation-bound; after this budget a preview gets a bounded canonical
 	// evaluation or an explicit unavailable advisory.
@@ -786,7 +786,7 @@ func earningsWSHNotEntitledOnly(info rpc.EarningsInfo) bool {
 }
 
 // mapRuleNames converts the positions snapshot into pure rule inputs. The
-// exposure figure is the same DollarDeltaBase the canary reads — one
+// exposure figure is the same DollarDeltaBase the Stress read uses — one
 // aggregation, several bars (design: "Which verdict wins when").
 func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy string) []risk.NameInput {
 	loc, _ := time.LoadLocation("America/New_York")
@@ -1621,7 +1621,7 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 			Severity: r.Status,
 			Message:  msg,
 			Impact:   fmt.Sprintf("Advisory rulebook cause (rule %d, as of %s); submit eligibility is unaffected.", r.Number, res.AsOf.Format(time.RFC3339)),
-			Action:   "Run `ibkr rules` for the full checklist.",
+			Action:   "Run `canary rules` for the full checklist.",
 		}
 	}
 	if r, ok := breached(risk.RuleSingleNameExposure); ok && offends(r) {

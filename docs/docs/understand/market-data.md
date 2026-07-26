@@ -3,7 +3,7 @@
 Every price on every surface arrives through your own TWS or IB Gateway
 session. Nothing is resold, proxied, or fetched from a third-party feed. If a
 symbol is real-time in TWS it is real-time here, and if TWS shows it delayed,
-so does `ibkr`. Market data is real-time wherever your IBKR market-data
+so does `canary`. Market data is real-time wherever your IBKR market-data
 subscriptions cover it, delayed where they don't.
 
 That has a useful consequence: no configuration in this project can turn
@@ -67,12 +67,12 @@ this, including what each badge string says verbatim.
 
 | Surface | What it needs |
 | --- | --- |
-| `ibkr quote`, position marks | Streaming or snapshot market data for that instrument. |
-| `ibkr chain` | Option market data for the class, typically OPRA. The expiry list alone is contract details and needs less. |
-| `ibkr gamma` | Option market data for SPX and SPY, and it rejects delayed input outright. |
-| `ibkr scan` | Scanner access for the ranking, plus market data for the per-row enrichment. |
-| `ibkr breadth`, `ibkr history`, `ibkr technical` | Historical daily bars. No streaming-quote entitlement is involved. |
-| `ibkr calendar` | Nothing. It makes no broker call at all. |
+| `canary quote`, position marks | Streaming or snapshot market data for that instrument. |
+| `canary chain` | Option market data for the class, typically OPRA. The expiry list alone is contract details and needs less. |
+| `canary gamma` | Option market data for SPX and SPY, and it rejects delayed input outright. |
+| `canary scan` | Scanner access for the ranking, plus market data for the per-row enrichment. |
+| `canary breadth`, `canary history`, `canary technical` | Historical daily bars. No streaming-quote entitlement is involved. |
+| `canary calendar` | Nothing. It makes no broker call at all. |
 
 Live quotes also consume subscription slots, which retail accounts cap at
 around a hundred concurrent. That is why a wide chain or a large scan
@@ -87,14 +87,14 @@ marks the missing quote as the expected state rather than a data-quality
 defect.
 
 Daily bars are a separate entitlement path from streaming quotes, so
-`ibkr history`, `ibkr technical`, and the S&P 500 breadth engine keep working.
+`canary history`, `canary technical`, and the S&P 500 breadth engine keep working.
 Breadth is computed from constituent daily bars precisely because the index
 itself is not redistributed on retail subscriptions. Its first build is slow
 for pacing reasons covered in
 [Troubleshooting](../start/troubleshooting.md).
 
 Market calendars are embedded in the binary and read no broker data, so
-`ibkr calendar` answers whether a market is open even with the gateway down.
+`canary calendar` answers whether a market is open even with the gateway down.
 
 ## When a quote looks wrong, read the session
 

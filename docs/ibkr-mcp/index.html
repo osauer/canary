@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>IBKR MCP server | ibkr</title>
-  <meta name="description" content="ibkr mcp is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed,...">
-  <link rel="canonical" href="https://osauer.dev/ibkr/ibkr-mcp/">
+  <title>IBKR MCP server | Canary</title>
+  <meta name="description" content="Canary exposes local Interactive Brokers account, portfolio, and market context to stdio MCP hosts through IB Gateway or TWS.">
+  <link rel="canonical" href="https://osauer.dev/canary/ibkr-mcp/">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/ibkr-mcp/">
-  <meta property="og:title" content="IBKR MCP server | ibkr">
-  <meta property="og:description" content="ibkr mcp is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed,...">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/social-preview.png">
+  <meta property="og:url" content="https://osauer.dev/canary/ibkr-mcp/">
+  <meta property="og:title" content="IBKR MCP server | Canary">
+  <meta property="og:description" content="Canary exposes local Interactive Brokers account, portfolio, and market context to stdio MCP hosts through IB Gateway or TWS.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
@@ -25,14 +25,14 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-07-18T21:05:00+02:00",
-    "description": "ibkr mcp is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed,...",
+    "description": "Canary exposes local Interactive Brokers account, portfolio, and market context to stdio MCP hosts through IB Gateway or TWS.",
     "headline": "IBKR MCP server",
     "isPartOf": {
       "@type": "SoftwareApplication",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     },
-    "url": "https://osauer.dev/ibkr/ibkr-mcp/"
+    "url": "https://osauer.dev/canary/ibkr-mcp/"
   }
   </script>
   <link rel="stylesheet" href="../shared.css">
@@ -40,10 +40,10 @@
 <body>
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">ibkr</a>
+    <a class="brand" href="../index.html">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
       <a href="../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../docs/operate/agents.html">Agent guide</a>
     </nav>
@@ -51,9 +51,9 @@
   <main class="wrap doc">
 <h1 id="ibkr-mcp-server">IBKR MCP server</h1>
 <p>Updated: 2026-07-18 21:05 CEST</p>
-<p><code>ibkr mcp</code> is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed, Continue, and other stdio MCP hosts to the machine already running IB Gateway or Trader Workstation (TWS).</p>
-<p>ibkr canary has grown from an MCP server into a small local trading-desk platform for individual traders. Agents get full market data: real-time and streaming quotes, chains with Greeks and open interest, history, and scanners. The risk side stays advisory and operator-controlled: regime dashboard, portfolio stress checks, a 14-rule rulebook, plus <code>ibkr policy</code> and <code>ibkr recon</code> in the terminal.</p>
-<p>Use this page when you searched for &#34;IBKR MCP&#34;, &#34;ibkr mcp server&#34;, or &#34;Interactive Brokers MCP&#34;. If your exact query was &#34;ibkr mcp tws&#34;, use the <a href="../ibkr-mcp-tws/index.html">IBKR MCP TWS setup</a> page. The short version: install the Claude Desktop MCP Bundle or the <code>ibkr</code> binary, run it beside your local IBKR session, and expose account, positions, quotes, calendars, options, scanners, breadth, gamma, regime, stress-monitoring, and sizing context to an AI workflow. The bundled MCP surface is read-side only, so agents can review, monitor, and size plans without receiving order-entry tools.</p>
+<p><code>canary mcp</code> is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed, Continue, and other stdio MCP hosts to the machine already running IB Gateway or Trader Workstation (TWS).</p>
+<p>Canary adds a local daemon, command line, and risk views around that MCP connection. The available data depends on the trader's IBKR subscriptions and the current market session; unavailable or stale inputs stay visible instead of being presented as current.</p>
+<p>Install the Claude Desktop MCP Bundle or the <code>canary</code> binary, run it beside the local IBKR session, and use the typed tools for account, positions, quotes, calendars, options, scanners, breadth, gamma, regime, stress, and sizing context. The bundled MCP surface has no order-entry tools.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
 <li>You want an IBKR MCP server that works locally through stdio.</li>
@@ -63,19 +63,19 @@
 </ul>
 <h2 id="install">Install</h2>
 <p>Claude Desktop users should start with the MCP Bundle:</p>
-<pre><code>open https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb</code></pre>
+<pre><code>open https://github.com/osauer/canary/releases/latest/download/canary.mcpb</code></pre>
 <p>Open the <code>.mcpb</code> file with Claude Desktop, then fully quit and relaunch Claude while IB Gateway or TWS is running locally.</p>
-<p>Claude Code users can install the plugin, which carries the <code>ibkr</code> skill, hooks, and MCP server config, then install the local binary:</p>
-<pre><code>/plugin marketplace add osauer/ibkr
-/plugin install ibkr@ibkr</code></pre>
+<p>Claude Code users can install the plugin, which carries the <code>canary</code> skill, hooks, and MCP server config, then install the local binary:</p>
+<pre><code>/plugin marketplace add osauer/canary
+/plugin install canary@canary</code></pre>
 <p>Shell, Cursor, Continue, Zed, and generic MCP users can install the binary:</p>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh
-ibkr setup claude-desktop</code></pre>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary setup claude-desktop</code></pre>
 <p>Generic MCP configuration:</p>
 <pre><code>{
   &#34;mcpServers&#34;: {
-    &#34;ibkr&#34;: {
-      &#34;command&#34;: &#34;/ABSOLUTE/PATH/TO/ibkr&#34;,
+    &#34;canary&#34;: {
+      &#34;command&#34;: &#34;/ABSOLUTE/PATH/TO/canary&#34;,
       &#34;args&#34;: [&#34;mcp&#34;]
     }
   }
@@ -86,24 +86,24 @@ ibkr setup claude-desktop</code></pre>
 <li>Snapshot stock and ETF quotes, daily history, previous close, and quote freshness.</li>
 <li>Official market calendars for US equities, US listed options, and Xetra.</li>
 <li>Option expiries, implied volatility, expected moves, strike grids, deltas, and open interest.</li>
-<li>Market scanners, fixed-fractional position sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, broad-market regime lifecycle, and the <code>ibkr_stress</code> portfolio-aware stress-lifecycle tool.</li>
-<li>Streaming stock and ETF quote resources through <code>ibkr://quote/{symbol}</code>.</li>
+<li>Market scanners, fixed-fractional position sizing, S&amp;P 500 breadth, SPY+SPX dealer gamma, broad-market regime lifecycle, and the <code>canary_stress</code> portfolio-aware stress-lifecycle tool.</li>
+<li>Streaming stock and ETF quote resources through <code>canary://quote/{symbol}</code>.</li>
 </ul>
 <p>The full schema is in the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> and <a href="../docs/reference/mcp-resources.html">MCP resources reference</a>.</p>
-<p>For a scheduled stress-monitoring workflow that returns lifecycle stage, readiness, confidence, source health, fingerprints, row table, and warnings, use <a href="https://github.com/osauer/ibkr/blob/main/examples/ibkr_portfolio_stress_prompt.md">examples/ibkr_portfolio_stress_prompt.md</a>. It is intentionally narrow: it gives the decision surface and leaves notifications or escalation policy to your host workflow.</p>
+<p>For a scheduled stress-monitoring workflow that returns lifecycle stage, readiness, confidence, source health, fingerprints, row table, and warnings, use <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_stress_prompt.md">examples/canary_portfolio_stress_prompt.md</a>. It is intentionally narrow: it gives the decision surface and leaves notifications or escalation policy to your host workflow.</p>
 <h2 id="current-execution-boundary">Current execution boundary</h2>
 <p>The current bundled CLI and MCP server expose analysis and sizing tools. They do not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If a host asks to buy or sell securities through this MCP server, the correct answer is that the current public server has no order-entry interface.</p>
 <h2 id="related-pages">Related pages</h2>
 <ul>
-<li><a href="https://osauer.dev/ibkr/interactive-brokers-mcp-server/">Interactive Brokers MCP server</a> for the broader setup guide.</li>
-<li><a href="https://osauer.dev/ibkr/ibkr-mcp-tws/">IBKR MCP TWS setup</a> for the exact &#34;ibkr mcp tws&#34; search path.</li>
-<li><a href="https://osauer.dev/ibkr/ib-gateway-mcp/">IB Gateway MCP server</a> for headless Gateway-oriented setup.</li>
-<li><a href="https://osauer.dev/ibkr/claude-desktop-interactive-brokers/">Claude Desktop Interactive Brokers setup</a> for the Claude MCPB path.</li>
-<li><a href="https://osauer.dev/ibkr/best-ibkr-mcp-server-claude-code/">Best IBKR MCP server for Claude Code</a> for the Claude Code comparison and safety query.</li>
-<li><a href="https://osauer.dev/ibkr/portfolio-review-with-claude-ibkr/">Portfolio review with Claude and IBKR</a> for a prompt-driven portfolio review workflow.</li>
-<li><a href="https://osauer.dev/ibkr/read-only-mcp-server/">Read-only MCP server</a> for the current safety boundary.</li>
+<li><a href="https://osauer.dev/canary/interactive-brokers-mcp-server/">Interactive Brokers MCP server</a> for the broader setup guide.</li>
+<li><a href="https://osauer.dev/canary/ibkr-mcp-tws/">IBKR MCP TWS setup</a> for a TWS-oriented install.</li>
+<li><a href="https://osauer.dev/canary/ib-gateway-mcp/">IB Gateway MCP server</a> for headless Gateway-oriented setup.</li>
+<li><a href="https://osauer.dev/canary/claude-desktop-interactive-brokers/">Claude Desktop Interactive Brokers setup</a> for the Claude MCPB path.</li>
+<li><a href="https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/">Canary with Claude Code</a> for plugin setup and safety boundaries.</li>
+<li><a href="https://osauer.dev/canary/portfolio-review-with-claude-ibkr/">Portfolio review with Claude and IBKR</a> for a prompt-driven portfolio review workflow.</li>
+<li><a href="https://osauer.dev/canary/read-only-mcp-server/">Read-only MCP server</a> for the current safety boundary.</li>
 </ul>
   </main>
-  <footer><div class="wrap"><a href="../index.html">ibkr</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
 </body>
 </html>

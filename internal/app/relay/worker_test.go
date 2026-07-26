@@ -17,7 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	appweb "github.com/osauer/ibkr/v2/web/app"
+	appweb "github.com/osauer/canary/v2/web/app"
 )
 
 func TestWorkerPairingURLAddsRemoteRoute(t *testing.T) {

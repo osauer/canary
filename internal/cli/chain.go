@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // optionOffHoursBanner is the one-line disclosure shown by chain renderers
@@ -39,7 +39,7 @@ func runChain(ctx context.Context, env *Env, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail(env, "chain: usage: ibkr chain SYM [--expiry YYYY-MM-DD [--class SPX|SPXW]]")
+		return fail(env, "chain: usage: canary chain SYM [--expiry YYYY-MM-DD [--class SPX|SPXW]]")
 	}
 	symbol := strings.ToUpper(rest[0])
 
@@ -256,7 +256,7 @@ func renderChainExpiriesText(env *Env, r *rpc.ChainExpiriesResult, withIV bool) 
 		fmt.Fprintf(out, "%s  no option expiries available\n", r.Symbol)
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "  Symbol may be non-optionable, or the gateway's market-data farm")
-		fmt.Fprintln(out, "  is not delivering security definitions. Try `ibkr status`.")
+		fmt.Fprintln(out, "  is not delivering security definitions. Try `canary status`.")
 		return 0
 	}
 	cappedAt := chainExpiriesCapBoundary(r.Expiries, withIV)
@@ -292,7 +292,7 @@ func renderChainExpiriesText(env *Env, r *rpc.ChainExpiriesResult, withIV bool) 
 	if cappedAt > 0 {
 		fmt.Fprintf(out, "  IV fetched for the nearest %d expiries; pass `--all-expiries` to fetch IV for the rest.\n", cappedAt)
 	}
-	fmt.Fprintf(out, "  Pick one with `ibkr chain %s --expiry YYYY-MM-DD`.\n", r.Symbol)
+	fmt.Fprintf(out, "  Pick one with `canary chain %s --expiry YYYY-MM-DD`.\n", r.Symbol)
 	if withIV && !rpc.IsOptionRTH(time.Now()) {
 		fmt.Fprintln(out, env.yellow("  "+optionOffHoursBanner))
 	}

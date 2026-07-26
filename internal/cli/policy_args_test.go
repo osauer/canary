@@ -4,7 +4,7 @@ import "testing"
 
 // Run() hoists flags before positionals, so subcommand detection must skip
 // flags and their values. Regression for the live 2026-07-13 miss where
-// `ibkr policy capital-event reconcile --report X` arrived as
+// `canary policy capital-event reconcile --report X` arrived as
 // ["--report","X","capital-event","reconcile"] and fell through to show.
 func TestFirstPositionalIndexSkipsHoistedFlags(t *testing.T) {
 	cases := []struct {

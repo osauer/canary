@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func testClassedGrid(dates ...string) map[string][]ibkrlib.ExpiryClassedStrikes {

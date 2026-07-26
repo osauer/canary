@@ -18,7 +18,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	appweb "github.com/osauer/ibkr/v2/web/app"
+	appweb "github.com/osauer/canary/v2/web/app"
 )
 
 // DefaultWorkerURL is the public relay origin used when WorkerOptions.BaseURL
@@ -235,7 +235,7 @@ func (w *Worker) registerCurrent(ctx context.Context) error {
 		if !errors.Is(err, errRouteExpired) && !errors.Is(err, errRouteRejected) {
 			return err
 		}
-		log.Printf("ibkr app relay: relay refused resume of route %s (%v); registering a fresh route", routeID, err)
+		log.Printf("canary app relay: relay refused resume of route %s (%v); registering a fresh route", routeID, err)
 	}
 	if err := w.register(ctx, registerRequest{Version: w.version}); err != nil {
 		return err
@@ -244,7 +244,7 @@ func (w *Worker) registerCurrent(ctx context.Context) error {
 	newRouteID := w.routeID
 	w.mu.RUnlock()
 	if routeID != "" && newRouteID != routeID {
-		log.Printf("ibkr app relay: route re-registered as %s; previously paired devices must re-pair (their old remote route %s is gone)", newRouteID, routeID)
+		log.Printf("canary app relay: route re-registered as %s; previously paired devices must re-pair (their old remote route %s is gone)", newRouteID, routeID)
 	}
 	return nil
 }
@@ -420,10 +420,10 @@ func (w *Worker) connectOnce(ctx context.Context) error {
 		}
 		return fmt.Errorf("connect remote relay: %w", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "ibkr app relay reconnect")
+	defer conn.Close(websocket.StatusNormalClosure, "canary app relay reconnect")
 	w.setStatus(true, "connected")
 	if err := w.persistRouteExtension(time.Now().UTC()); err != nil {
-		log.Printf("ibkr app relay: persist route extension: %v", err)
+		log.Printf("canary app relay: persist route extension: %v", err)
 	}
 
 	connCtx, cancel := context.WithCancel(ctx)

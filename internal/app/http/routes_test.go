@@ -21,15 +21,15 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/pkg/server"
 
-	"github.com/osauer/ibkr/v2/internal/app/alerts"
-	"github.com/osauer/ibkr/v2/internal/app/auth"
-	"github.com/osauer/ibkr/v2/internal/app/daemonclient"
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/app/push"
-	"github.com/osauer/ibkr/v2/internal/app/relay"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	appweb "github.com/osauer/ibkr/v2/web/app"
+	"github.com/osauer/canary/v2/internal/app/alerts"
+	"github.com/osauer/canary/v2/internal/app/auth"
+	"github.com/osauer/canary/v2/internal/app/daemonclient"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/app/push"
+	"github.com/osauer/canary/v2/internal/app/relay"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
+	appweb "github.com/osauer/canary/v2/web/app"
 )
 
 func TestEmbeddedJavaScriptRoutes(t *testing.T) {

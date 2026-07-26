@@ -26,7 +26,7 @@ broker: no order path, no submit eligibility, no freeze, no pins.
    `EquitySummaryInBase` rows arrive either way; what daily buys is
    next-morning detection of undeclared flows.
 3. **Reconcile gate: required from day one.** Once 3a ships,
-   `ibkr policy capital-event reconcile` refuses without referencing a recon
+   `canary policy capital-event reconcile` refuses without referencing a recon
    report whose exceptions are all resolved. No shadow period. The escape
    valve for tooling outages is the existing one-shot override mechanism
    (below), not a soft mode.
@@ -51,7 +51,7 @@ retry/backoff stays code-owned engineering constants.
 - **Enforcement:** unchanged in 3a. The capital tier already degrades to
   `unknown` when the reconcile clock expires; 3a changes how the clock is
   fed, not what expiry does.
-- **Reporting:** `ibkr recon` renders the latest report; the reconcile
+- **Reporting:** `canary recon` renders the latest report; the reconcile
   journal entry records which report was reviewed and how each exception
   was resolved.
 
@@ -135,7 +135,7 @@ Every ingest regenerates the recon report over the coverage window:
   authoritative `cumFlows` input and matched declarations are demoted to
   provisional bridge entries for the fetch lag (Rückbau R3/R4).
 
-**The reconcile verb after 3a:** `ibkr policy capital-event reconcile
+**The reconcile verb after 3a:** `canary policy capital-event reconcile
 --report <id>` requires a report that exists, covers through the approved
 max age, and has zero unresolved exceptions. Human-only, as today. Since
 risk-policy v3 (2026-07-18) a clean, fresh report with a same-day equity
@@ -152,7 +152,7 @@ keeps outages visible instead of adding a quiet soft mode.
 ## Surfaces
 
 `internal/flexstmt` (pure parser) → daemon statement store + recon engine +
-scheduler → `internal/rpc` recon types → CLI `ibkr recon [--json]` and the
+scheduler → `internal/rpc` recon types → CLI `canary recon [--json]` and the
 extended reconcile verb. Canary receives only a redacted daily-report state,
 actual broker coverage date, safe reason, and retry timing. It separates
 report retrieval from report comparison and offers an authenticated
@@ -203,7 +203,7 @@ never in any marshaled output (grep-style test over RPC results and logs);
 daily-window tests across winter, summer, and DST; restart tests before and
 after raw retention; broker-generation regression and same-date correction
 tests; automatic-retry, action-required, and unavailable Canary fixtures;
-`make check` + `make test` binding; live artifact: redacted `ibkr recon
+`make check` + `make test` binding; live artifact: redacted `canary recon
 --json` (report id, category counts, coverage window — no amounts) plus a
 journaled report-backed reconcile performed by the operator.
 

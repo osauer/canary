@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-// ConstitutionLimit is one row of the generated human view (`ibkr policy
+// ConstitutionLimit is one row of the generated human view (`canary policy
 // show --explain`): a limit key, its effective value, what it means in
 // plain English, where the value came from, and its enforcement class.
 // Observation and override columns are overlaid by the daemon; this layer

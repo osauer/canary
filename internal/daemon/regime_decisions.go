@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // regimeDecisionJournal appends one typed SQLite event per decision-relevant
@@ -81,7 +81,7 @@ type regimeDecisionIndicator struct {
 // journalRegimeDecision appends the snapshot when its semantic fingerprint
 // changed or the heartbeat interval elapsed. Failures degrade to warnings —
 // journaling must never fail a snapshot. Disabled via
-// `ibkr settings set regime.journal.enabled=false`.
+// `canary settings set regime.journal.enabled=false`.
 func (s *Server) journalRegimeDecision(res *rpc.RegimeSnapshotResult) {
 	_ = s.journalRegimeDecisionContext(context.Background(), res)
 }

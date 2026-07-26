@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-07-22
 
-`ibkr` is a local Interactive Brokers client. The default/read-only binary and
+`canary` is a local Interactive Brokers client. The default/read-only binary and
 the MCP surface cannot submit broker orders. A separately published
 trading-capable binary, local trading builds, and the paired PWA can expose
 gated place/modify/cancel or protection-action paths when the operator enables
@@ -11,7 +11,7 @@ to the maintainer.
 
 ## What data the tool can access
 
-When you run `ibkr`, it talks to the IB Gateway or TWS instance that you run locally. Depending on the command, the local daemon can read:
+When you run `canary`, it talks to the IB Gateway or TWS instance that you run locally. Depending on the command, the local daemon can read:
 
 - account identifiers, balances, cash, margin, buying power, and P&L
 - positions, market values, option Greeks, option chains, open interest, and quotes
@@ -29,7 +29,7 @@ surface remains read-oriented; agent writes use the gated CLI.
 By default, data stays on your machine:
 
 - CLI output is written to your terminal.
-- MCP tool results are sent over stdio to the local MCP client that launched `ibkr mcp`.
+- MCP tool results are sent over stdio to the local MCP client that launched `canary mcp`.
 - The daemon listens on a local Unix-domain socket, not a public TCP port.
 - The daemon talks to IB Gateway or TWS over the configured gateway host, normally loopback.
 - The paired PWA can be used over the LAN. If the user explicitly enables the
@@ -40,13 +40,18 @@ If you paste output into a chat, connect the MCP server through a remote tunnel,
 
 ## Local files
 
-`ibkr` may write local operational files:
+`canary` may write local operational files:
+
+The on-disk namespace deliberately remains `ibkr`. Reusing the existing config,
+state, socket, and supervisor identities prevents an upgrade from starting a
+second daemon authority or silently abandoning safety state. It is an internal
+continuity contract, not the product or command name.
 
 - daemon logs under `~/.local/state/ibkr/` by default
 - caches under `~/.cache/ibkr/`, including contract details, S&P 500 constituent data, breadth history, and gamma snapshots
 - local watchlists under `$XDG_DATA_HOME/ibkr/watchlist.json`, falling back to `~/.local/share/ibkr/watchlist.json`
 - optional user configuration under `~/.config/ibkr/config.toml`
-- optional user-requested regime JSONL logs at paths passed to `ibkr regime --log`
+- optional user-requested regime JSONL logs at paths passed to `canary regime --log`
 - local order/proposal/opportunity journals and paired-app device state under
   the configured state directories when those features are used
 - optional diagnostic wire logs only when explicitly enabled with the diagnostic environment variables documented in [SECURITY.md](./SECURITY.md#diagnostic-data-sensitivity)
@@ -58,7 +63,7 @@ These files can contain account-sensitive information. Protect your local user a
 Normal operation requires access to your configured IB Gateway or TWS API
 socket. The project makes these additional outbound connections:
 
-- `install.sh` and `ibkr update` contact GitHub Releases when the user asks
+- `install.sh` and `canary update` contact GitHub Releases when the user asks
   to install or update. They disclose release/platform request metadata, not
   broker account data.
 - The rulebook's automatic earnings refresh queries Nasdaq once per held or
@@ -78,7 +83,7 @@ socket. The project makes these additional outbound connections:
 - Configured IBKR Flex reconciliation contacts IBKR's Flex Statement service
   using the user's query credential and receives the requested broker report.
   That report is exchanged with IBKR, not with this project's maintainer.
-- When the user enables `ibkr app --remote`, authenticated app HTTP and SSE
+- When the user enables `canary app --remote`, authenticated app HTTP and SSE
   traffic passes through the configured Cloudflare relay. This can include
   portfolio/account fields returned to the paired phone; the relay does not own
   the local device grant, daemon credentials, or broker credentials.
@@ -95,7 +100,7 @@ the destination and intervening infrastructure.
 To remove local runtime state, quit MCP clients, stop the daemon, and delete the relevant local directories:
 
 ```sh
-pkill -f 'ibkr daemon'
+pkill -f 'canary daemon'
 rm -rf ~/.cache/ibkr
 rm -rf ~/.local/state/ibkr
 ```

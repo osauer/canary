@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestManifestCoversTrackedTwins(t *testing.T) {
@@ -93,8 +93,8 @@ func TestRewriteDestination(t *testing.T) {
 	page := pageSpec{Source: "docs/docs/start/updating.md"}
 	cases := map[string]string{
 		"../reference/config.md?view=full#limits":                "../reference/config.html?view=full#limits",
-		"../../../SECURITY.md#release-integrity":                 "https://github.com/osauer/ibkr/blob/main/SECURITY.md#release-integrity",
-		"../../../internal-docs/design/internal-only.md#details": "https://github.com/osauer/ibkr/blob/main/internal-docs/design/internal-only.md#details",
+		"../../../SECURITY.md#release-integrity":                 "https://github.com/osauer/canary/blob/main/SECURITY.md#release-integrity",
+		"../../../internal-docs/design/internal-only.md#details": "https://github.com/osauer/canary/blob/main/internal-docs/design/internal-only.md#details",
 		"../../diagrams/example.svg":                             "../../diagrams/example.svg",
 		"../../../LOCAL.md":                                      "../../../LOCAL.md",
 		"#reference":                                             "#reference",

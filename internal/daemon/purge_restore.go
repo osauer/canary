@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const (
@@ -306,7 +306,7 @@ func (s *Server) purgeRestorePreviewBlockers(status rpc.TradingStatus) []rpc.Tra
 		blockers = append(blockers, rpc.TradingBlocker{
 			Code:    "purge_restore_disabled",
 			Message: "purge/restore actions are disabled in platform settings",
-			Action:  "Run `ibkr settings set features.purge_restore.enabled=true` before using purge/restore.",
+			Action:  "Run `canary settings set features.purge_restore.enabled=true` before using purge/restore.",
 		})
 	}
 	for _, blocker := range status.Blockers {
@@ -693,7 +693,7 @@ func purgeRestoreBlockedMessage(res *rpc.PurgeRestoreResult, execute bool, scale
 			legCount++
 		}
 	}
-	cmd := "ibkr purge restore " + strings.Join(symbols, " ")
+	cmd := "canary purge restore " + strings.Join(symbols, " ")
 	if scale != 1 {
 		cmd += fmt.Sprintf(" --scale %g", scale)
 	}

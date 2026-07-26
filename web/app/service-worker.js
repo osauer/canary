@@ -27,8 +27,8 @@ self.addEventListener("push", (event) => {
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) payload = {};
   const destination = coerceDestination(payload.destination);
-  const title = typeof payload.title === "string" && payload.title ? payload.title : "ibkr canary";
-  const body = typeof payload.body === "string" && payload.body ? payload.body : "Open ibkr canary for details.";
+  const title = typeof payload.title === "string" && payload.title ? payload.title : "Canary";
+  const body = typeof payload.body === "string" && payload.body ? payload.body : "Open Canary for details.";
   const tag = notificationTag(payload);
   event.waitUntil((async () => {
     const options = {

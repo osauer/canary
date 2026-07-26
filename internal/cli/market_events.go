@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runMarketEvents(ctx context.Context, env *Env, args []string) int {
@@ -34,7 +34,7 @@ func runMarketEvents(ctx context.Context, env *Env, args []string) int {
 func renderMarketEventsText(env *Env, res *rpc.MarketEventsResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Market Events  %d active/recent flags\n", len(res.Flags))
+	fmt.Fprintf(out, "Canary Market Events  %d active/recent flags\n", len(res.Flags))
 	if len(res.Symbols) > 0 {
 		statusRow(env, out, "Symbols", strings.Join(res.Symbols, ", "))
 	}

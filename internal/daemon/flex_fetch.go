@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/flexstmt"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Daily IBKR Flex statement ingestion (internal-docs/design/post-trade-truth.md).
@@ -31,6 +31,7 @@ import (
 const (
 	flexSendRequestURL    = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest"
 	flexGetStatementURL   = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement"
+	flexUserAgent         = "canary-flex-reconciliation/1"
 	flexStatementsDir     = "statements"
 	flexFetchStateVersion = 2
 	flexFetchStateKind    = "flex_fetch"
@@ -619,7 +620,7 @@ func flexRawCall(ctx context.Context, client *http.Client, endpoint string, para
 		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonResponseInvalid, retryable: true, detail: "Flex request could not be built"}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "ibkr-flex-reconciliation/1")
+	req.Header.Set("User-Agent", flexUserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonNetworkUnavailable, retryable: true, detail: "IBKR Flex service could not be reached"}

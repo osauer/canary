@@ -448,7 +448,7 @@ members_auto_refresh = true
 }
 
 // TestSPXMembersAutoRefreshFromEnv covers the env-override precedence.
-// Symmetric semantics: IBKR_SPX_MEMBERS_AUTO_REFRESH=1 force-enables,
+// Symmetric semantics: CANARY_SPX_MEMBERS_AUTO_REFRESH=1 force-enables,
 // =0 force-disables, unset / anything else defers to TOML.
 func TestSPXMembersAutoRefreshFromEnv(t *testing.T) {
 	cases := []struct {
@@ -467,9 +467,9 @@ func TestSPXMembersAutoRefreshFromEnv(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if c.set {
-				t.Setenv("IBKR_SPX_MEMBERS_AUTO_REFRESH", c.value)
+				t.Setenv("CANARY_SPX_MEMBERS_AUTO_REFRESH", c.value)
 			} else {
-				_ = os.Unsetenv("IBKR_SPX_MEMBERS_AUTO_REFRESH")
+				_ = os.Unsetenv("CANARY_SPX_MEMBERS_AUTO_REFRESH")
 			}
 			enabled, forced := SPXMembersAutoRefreshFromEnv()
 			if enabled != c.wantEnabled {

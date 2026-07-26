@@ -548,7 +548,7 @@ function renderProtectionExposure() {
   const value = document.createElement("b");
   value.textContent = `Gross exposure ${pct(gross)} of NLV`;
   el.replaceChildren(label, value);
-  el.title = "Source: canary portfolio snapshot. Gross market value can exceed NLV under margin, so per-name % of NLV figures can sum past 100%.";
+  el.title = "Source: stress snapshot. Gross market value can exceed NLV under margin, so per-name % of NLV figures can sum past 100%.";
   el.hidden = false;
 }
 

@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Glossary | ibkr</title>
-  <meta name="description" content="Alphabetical definitions of the broker, risk, options, market-state, and system terms the ibkr handbook uses, each linked to the page that owns it.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/glossary.html">
+  <title>Glossary | Canary</title>
+  <meta name="description" content="Alphabetical definitions of the broker, risk, options, market-state, and system terms the Canary handbook uses, each linked to the page that owns it.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/glossary.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Alphabetical definitions of the broker, risk, options, market-state, and system terms the ibkr handbook uses, each linked to the page that owns it.","headline":"Glossary","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/glossary.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Alphabetical definitions of the broker, risk, options, market-state, and system terms the Canary handbook uses, each linked to the page that owns it.","headline":"Glossary","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/glossary.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -114,7 +114,7 @@ checks, and protection proposals are all advisory today. See
 request. Any agent marker in the environment, or a non-TTY stdin, classifies
 the process as agent, and no environment variable can claim a human origin.
 Origin is recorded for audit and origin-specific policy; it grants no
-authority by itself. See <code>IBKR_AGENT_CONTEXT</code> in the
+authority by itself. See <code>CANARY_AGENT_CONTEXT</code> in the
 <a href="../reference/config.html">configuration reference</a>.</li>
 <li><strong>Borrow stress:</strong> the two short-borrow flags on a stock.
 <code>borrow_inventory_tight</code> fires at 10,000 shortable shares or fewer and reads
@@ -143,7 +143,7 @@ content when historical reconstruction matters. See
 <a href="policy.html">Trading policy</a>.</li>
 <li><strong>Current state:</strong> the latest accepted version of a fact, used by the running
 product. See <a href="../internals/storage.html">Storage</a>.</li>
-<li><strong>Daemon:</strong> the long-running <code>ibkr daemon</code> process. It owns the broker
+<li><strong>Daemon:</strong> the long-running <code>canary daemon</code> process. It owns the broker
 connections, <code>daemon.db</code>, the schedulers, and policy execution; CLI, MCP,
 app, and web surfaces are adapters that read typed results from it. See
 <a href="../internals/architecture.html">Architecture</a>.</li>
@@ -162,12 +162,12 @@ a new shape. See <a href="../internals/storage.html">Storage</a>.</li>
 current and not final, which is why restated broker statements get their own
 immutable versions. See <a href="policy.html">Trading policy</a>.</li>
 <li><strong>Fixed-fractional sizing:</strong> risking a fixed percent of NLV on each trade.
-<code>ibkr size</code> computes shares as <code>NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|</code>,
+<code>canary size</code> computes shares as <code>NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|</code>,
 rounded down to the lot, and returns zero shares with status <code>tight_risk</code>
 when the budget will not cover one lot. See the
 <a href="../reference/cli.html#ibkr-size">CLI reference</a>.</li>
 <li><strong>Freeze:</strong> <code>trading.freeze</code>, the runtime brake. Setting it true blocks every
-new broker write while cancels stay allowed. It is human-only: <code>ibkr settings set</code> from an interactive terminal, with missing, agent, and paired-device
+new broker write while cancels stay allowed. It is human-only: <code>canary settings set</code> from an interactive terminal, with missing, agent, and paired-device
 origins rejected. See the
 <a href="../reference/config.html">configuration reference</a>.</li>
 <li><strong>Freshness:</strong> whether evidence is recent enough for the decision at hand.
@@ -175,14 +175,14 @@ Sensors report it as an explicit state instead of leaving you to compare
 timestamps, and a failed refresh never restamps an old value. See
 <a href="sensors.html#read-the-state-before-the-number">Sensors</a>.</li>
 <li><strong>Greeks:</strong> delta, gamma, theta, and vega, the standard option sensitivities.
-<code>ibkr</code> reports them per option leg when the daemon captured a valid
+<code>canary</code> reports them per option leg when the daemon captured a valid
 model-computation tick, and discloses partial coverage as <code>greeks_coverage</code>
 over <code>greeks_total</code>. A Greek the gateway did not deliver is null, never
 zero-substituted. See <a href="../operate/agents.html">Working with agents</a>.</li>
 <li><strong>Implied move:</strong> the 1-sigma expected dollar move by expiration,
 <code>spot × IV × √(DTE/365)</code>. Standard desk math, computed per expiry on the
 chain surface. See the <a href="../reference/cli.html#ibkr-chain">CLI reference</a>.</li>
-<li><strong>Journal:</strong> the append-only local record of what <code>ibkr</code> attempted. Order
+<li><strong>Journal:</strong> the append-only local record of what <code>canary</code> attempted. Order
 journal rows bind each lifecycle event to the exact broker route, and policy,
 capital, and governance actions journal their own events. See
 <a href="../internals/storage.html">Storage</a>.</li>
@@ -190,7 +190,7 @@ capital, and governance actions journal their own events. See
 refresh leaves last-good visible with explicit health rather than blanking
 it, changing its timestamp, or turning absence into zero. See
 <a href="sensors.html#read-the-state-before-the-number">Sensors</a>.</li>
-<li><strong>Local decision record:</strong> what <code>ibkr</code> observed, evaluated, or attempted. It
+<li><strong>Local decision record:</strong> what <code>canary</code> observed, evaluated, or attempted. It
 explains context; it is not evidence of what the broker executed. See
 <a href="policy.html">Trading policy</a>.</li>
 <li><strong>LULD:</strong> limit up-limit down, the US volatility pause on a single name. An
@@ -226,9 +226,9 @@ token; minting one is not eligibility, and the preview itself submits nothing
 to the broker. See
 <a href="../operate/orders.html#required-pins">Order previews and the trading build</a>.</li>
 <li><strong>R-multiple:</strong> the reward-to-risk ratio, <code>|target − entry| ÷ |entry − stop|</code>.
-<code>ibkr size</code> returns it alongside the breakeven win rate, <code>1 ÷ (1 + R)</code>. See
+<code>canary size</code> returns it alongside the breakeven win rate, <code>1 ÷ (1 + R)</code>. See
 the <a href="../reference/cli.html#ibkr-size">CLI reference</a>.</li>
-<li><strong>Reg SHO:</strong> the SEC short-sale rule whose threshold-securities list <code>ibkr</code>
+<li><strong>Reg SHO:</strong> the SEC short-sale rule whose threshold-securities list <code>canary</code>
 reads. Coverage is Nasdaq's file only, so a symbol's absence is not proof it
 is off every listing exchange's list. See
 <a href="concepts.html#market-events">Concepts</a>.</li>
@@ -276,8 +276,8 @@ See <a href="concepts.html#gamma">Concepts</a>.</li>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

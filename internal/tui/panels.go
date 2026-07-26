@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
 func statusLine(m *model) string {
 	snap := m.snapshot
-	parts := []string{styleBrand(" ibkr "), connectionSegment(snap)}
+	parts := []string{styleBrand(" " + productidentity.ProductName + " "), connectionSegment(snap)}
 	if snap.Calendar != nil && snap.Calendar.Session.State != "" {
 		parts = append(parts, styleDim("mkt ")+snap.Calendar.Session.State)
 	}
@@ -64,7 +65,7 @@ func riskPanelLines(m *model, width, height int) []string {
 	lines := []string{canaryPanelTitle(width)}
 	snap := m.snapshot
 	if snap.Stress != nil {
-		lines = append(lines, riskRow(width, "Canary", severityStyle(string(snap.Stress.Severity))))
+		lines = append(lines, riskRow(width, "Stress", severityStyle(string(snap.Stress.Severity))))
 		if snap.Stress.Action != "" {
 			lines = append(lines, riskRow(width, "Action", snap.Stress.Action))
 		}

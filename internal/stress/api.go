@@ -3,8 +3,8 @@ package stress
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Stress action, input-health, and portfolio-fit tokens shared by adapters.

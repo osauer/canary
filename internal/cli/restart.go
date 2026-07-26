@@ -18,10 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app"
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/update"
+	"github.com/osauer/canary/v2/internal/app"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/update"
 )
 
 const restartDefaultTimeout = 15 * time.Second
@@ -84,10 +85,16 @@ type appRestartDeps struct {
 	kill            func(int, time.Duration) error
 	start           func(context.Context, []string) (int, error)
 	executablePaths map[string]struct{}
-	// supervisor reports a loaded launchd job owning the app; kickstart
-	// restarts it in place. Both nil outside macOS wiring and most tests.
+	// supervisor reports a loaded launchd job owning the app. migrate performs
+	// the one-shot pre-rename executable rewrite/reload; kickstart restarts an
+	// already-canonical job in place. All are nil outside macOS wiring and most
+	// tests.
 	supervisor func(context.Context) (appSupervisor, bool)
+	migrate    func(context.Context, appSupervisor) error
 	kickstart  func(context.Context, string) error
+	rewrite    func(context.Context, appSupervisor) error
+	unload     func(context.Context, appSupervisor) error
+	load       func(context.Context, appSupervisor) error
 }
 
 type appRestartBehavior struct {
@@ -118,9 +125,9 @@ var (
 	errAppStopTimeout = errors.New("app stop timed out")
 )
 
-// RunRestart is the top-level `ibkr restart` entrypoint. It intentionally does
+// RunRestart is the top-level `canary restart` entrypoint. It intentionally does
 // not take an Env: restart is local process management and must run before the
-// normal autospawn+dial path in cmd/ibkr/main.go.
+// normal autospawn+dial path in cmd/canary/main.go.
 func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	opts := restartOptions{
 		timeout: restartDefaultTimeout,
@@ -150,11 +157,11 @@ func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return failUnexpectedArgs(env, fs)
 	}
 	if !opts.app && (opts.appAddrSet || opts.appPublicURLSet || opts.appRemoteSet || opts.appRemoteURLSet || opts.appStateDirSet) {
-		fmt.Fprintln(stderr, "ibkr restart: --addr, --public-url, --remote, --remote-url, and --state-dir require --app")
+		fmt.Fprintf(stderr, "%s restart: --addr, --public-url, --remote, --remote-url, and --state-dir require --app\n", productidentity.Executable)
 		return 2
 	}
 	if opts.timeout <= 0 {
-		fmt.Fprintln(stderr, "ibkr restart: --timeout must be positive")
+		fmt.Fprintf(stderr, "%s restart: --timeout must be positive\n", productidentity.Executable)
 		return 2
 	}
 	appDeps := productionAppRestartDeps()
@@ -165,6 +172,9 @@ func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) in
 }
 
 func productionDaemonRestartDeps() restartDeps {
+	if executable, err := os.Executable(); err == nil && strings.TrimSpace(executable) != "" {
+		return productionDaemonRestartDepsForExecutable(executable)
+	}
 	return restartDeps{
 		find:           update.FindDaemonProcess,
 		stop:           update.StopDaemon,
@@ -180,7 +190,7 @@ func productionDaemonRestartDepsForExecutable(executable string) restartDeps {
 		kill: update.KillDaemon,
 		startAndHealth: func(ctx context.Context, socketPath string, progress io.Writer, quiet bool) (int, rpc.HealthResult, error) {
 			return startDaemonAndFetchHealthUsing(ctx, socketPath, progress, quiet, func(ctx context.Context, socketPath string) (*dial.Conn, error) {
-				return dial.AutospawnAndConnectContextFromExecutable(ctx, socketPath, executable)
+				return dial.AutospawnAndConnectContextFromExecutableWithTimeout(ctx, socketPath, executable, restartStartupTimeout(ctx))
 			})
 		},
 	}
@@ -193,11 +203,14 @@ func productionAppRestartDeps() appRestartDeps {
 func productionAppRestartDepsForExecutable(executable string) appRestartDeps {
 	executablePaths := currentExecutablePaths()
 	start := startAppProcess
-	if strings.TrimSpace(executable) != "" {
+	currentExecutable := strings.TrimSpace(executable)
+	if currentExecutable != "" {
 		executablePaths = executablePathVariants(executable)
 		start = func(ctx context.Context, args []string) (int, error) {
 			return startAppProcessFromExecutable(ctx, executable, args)
 		}
+	} else if bin, err := os.Executable(); err == nil {
+		currentExecutable = bin
 	}
 	return appRestartDeps{
 		find: func(ctx context.Context) (appProcess, error) {
@@ -208,7 +221,15 @@ func productionAppRestartDepsForExecutable(executable string) appRestartDeps {
 		start:           start,
 		executablePaths: executablePaths,
 		supervisor:      findAppLaunchAgent,
-		kickstart:       kickstartLaunchAgent,
+		migrate: func(ctx context.Context, sup appSupervisor) error {
+			return migrateAppLaunchAgent(ctx, sup, currentExecutable)
+		},
+		kickstart: kickstartLaunchAgent,
+		rewrite: func(_ context.Context, sup appSupervisor) error {
+			return rewriteAppLaunchAgentForMigration(sup, currentExecutable)
+		},
+		unload: unloadAppLaunchAgent,
+		load:   loadAppLaunchAgent,
 	}
 }
 
@@ -234,38 +255,35 @@ func runRestartAllCore(ctx context.Context, opts *restartOptions, daemonDeps res
 
 func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps restartDeps, appDeps appRestartDeps, behavior restartStackBehavior) int {
 	// App discovery is by process name (findAppProcess) and cannot tell
-	// which daemon scope a found app belongs to. When IBKR_SOCKET points
+	// which daemon scope a found app belongs to. When CANARY_SOCKET points
 	// at a non-default scope, the only app this command could find is one
 	// outside that scope, so implicit app management must stay hands-off.
-	// Decide that before either process can be mutated. `ibkr restart --app`
+	// Decide that before either process can be mutated. `canary restart --app`
 	// remains available as the explicit, separate path.
 	var appRes *appRestartResult
-	appRan := false
+	var appPlan appStackRestartPlan
 	if dial.SocketPathOverridden() {
 		appRes = &appRestartResult{Action: "skipped", Reason: "socket_overridden", Target: "app"}
 		if !opts.jsonOut {
-			fmt.Fprintln(opts.out, "ibkr restart: IBKR_SOCKET is set; leaving the app untouched and restarting only that daemon scope (use `ibkr restart --app` as a separate explicit, non-atomic operation)")
+			fmt.Fprintf(opts.out, "%s restart: CANARY_SOCKET is set; leaving the app untouched and restarting only that daemon scope (use `%s restart --app` as a separate explicit, non-atomic operation)\n", productidentity.Executable, productidentity.Executable)
 		}
 	} else {
-		completed, ran, appExit := restartApp(ctx, opts, appDeps, appRestartBehavior{
-			startWhenMissing: false,
-			prefix:           "ibkr restart",
-		})
+		var appExit int
+		appPlan, appExit = quiesceAppForDaemonRestart(ctx, opts, appDeps)
 		if appExit != 0 {
-			fmt.Fprintln(opts.err, "ibkr restart: app stage failed; daemon was not touched")
+			fmt.Fprintf(opts.err, "%s restart: app quiesce failed; daemon was not touched\n", productidentity.Executable)
 			return appExit
 		}
-		appRan = ran
-		if ran {
-			appRes = &completed
+		if appPlan.ran {
+			appRes = &appPlan.result
 		}
 	}
 
 	res, exit := restartDaemonWithBehavior(ctx, opts, daemonDeps, behavior.startDaemonWhenMissing)
 	res.App = appRes
 	if exit != 0 {
-		if appRan {
-			fmt.Fprintln(opts.err, "ibkr restart: app stage succeeded but daemon stage failed; the app was not rolled back (fix the reported failure and rerun `ibkr restart`)")
+		if appPlan.ran {
+			fmt.Fprintf(opts.err, "%s restart: daemon stage failed while the app was quiesced; the app remains stopped so it cannot autospawn a competing daemon (fix the reported failure and rerun `%s restart`)\n", productidentity.Executable, productidentity.Executable)
 		}
 		if opts.jsonOut {
 			if jsonExit := printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res); jsonExit != 0 {
@@ -274,6 +292,28 @@ func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps r
 		}
 		return exit
 	}
+	if appPlan.ran && !res.Started {
+		fmt.Fprintf(opts.err, "%s restart: daemon remained stopped while the app was quiesced; refusing to resume the app because it would autospawn a daemon outside this restart stage\n", productidentity.Executable)
+		if opts.jsonOut {
+			if jsonExit := printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res); jsonExit != 0 {
+				return jsonExit
+			}
+		}
+		return 1
+	}
+	if appPlan.ran {
+		completed, appExit := resumeAppAfterDaemonRestart(ctx, opts, appDeps, appPlan)
+		res.App = &completed
+		if appExit != 0 {
+			fmt.Fprintf(opts.err, "%s restart: daemon restarted but app resume failed; the daemon remains running (fix the reported failure and rerun `%s restart`)\n", productidentity.Executable, productidentity.Executable)
+			if opts.jsonOut {
+				if jsonExit := printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res); jsonExit != 0 {
+					return jsonExit
+				}
+			}
+			return appExit
+		}
+	}
 	if !opts.jsonOut && res.Started {
 		renderRestartStarted(opts.out, res)
 	}
@@ -281,6 +321,163 @@ func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps r
 		return printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res)
 	}
 	return 0
+}
+
+type appStackRestartPlan struct {
+	result      appRestartResult
+	args        []string
+	supervisor  *appSupervisor
+	currentPath map[string]struct{}
+	startedAt   time.Time
+	ran         bool
+}
+
+// quiesceAppForDaemonRestart removes every running app instance managed by a
+// stack restart before the daemon socket can disappear. A running app is a
+// daemon client with autospawn authority; restarting it before the daemon
+// creates a race in which the app and restart command compete for the daemon
+// lock. The app is resumed only after daemon health succeeds.
+func quiesceAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps appRestartDeps) (appStackRestartPlan, int) {
+	startedAt := time.Now()
+	prefix := productidentity.Executable + " restart"
+	plan := appStackRestartPlan{
+		result:    appRestartResult{Action: "restarted", Target: "app", Args: []string{"app"}},
+		args:      []string{"app"},
+		startedAt: startedAt,
+	}
+	proc, findErr := deps.find(ctx)
+	if deps.supervisor != nil {
+		if sup, ok := deps.supervisor(ctx); ok {
+			if supervisedRestartApplies(proc, findErr, sup) {
+				return quiesceSupervisedAppForDaemonRestart(ctx, opts, deps, prefix, proc, findErr, sup, plan)
+			}
+			if findErr == nil {
+				// A different --state-dir isolates the app lock, not the daemon
+				// socket. The independent process and the loaded shared supervisor
+				// can therefore both autospawn the default daemon. This single-result
+				// restart contract cannot stop and faithfully restore both app
+				// lifecycles, so leave every process untouched rather than restart
+				// the daemon under one still-loaded client.
+				fmt.Fprintf(opts.err, "%s: an independent app process and the shared launchd supervisor %s are both present; refusing stack restart because both may autospawn the default daemon (stop the isolated app or its supervisor, then rerun)\n", prefix, sup.Target)
+				return plan, 1
+			}
+			// Ambiguous or failed process discovery retains its exact error and
+			// flows to the fail-closed switch below. It is not evidence that
+			// launchd safely owns every possible app.
+		}
+	}
+	switch {
+	case findErr == nil:
+		plan.ran = true
+		plan.result.WasRunning = true
+		plan.result.OldPID = proc.PID
+		plan.result.OldCommand = proc.Command
+		if len(proc.Args) > 0 {
+			plan.args = append([]string(nil), proc.Args...)
+		}
+		plan.result.Args = append([]string(nil), plan.args...)
+		forced, exit := stopAppWithPolicy(opts, deps, prefix, proc.PID)
+		if exit != 0 {
+			return plan, exit
+		}
+		plan.result.Forced = forced
+		plan.result.Graceful = !forced
+		return plan, 0
+	case errors.Is(findErr, errAppNotRunning):
+		if !opts.jsonOut {
+			fmt.Fprintf(opts.out, "%s: no app was running; app not restarted\n", prefix)
+		}
+		return plan, 0
+	default:
+		fmt.Fprintf(opts.err, "%s: %v\n", prefix, findErr)
+		return plan, 1
+	}
+}
+
+func quiesceSupervisedAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps appRestartDeps, prefix string, proc appProcess, findErr error, sup appSupervisor, plan appStackRestartPlan) (appStackRestartPlan, int) {
+	plan.ran = true
+	plan.supervisor = &sup
+	plan.currentPath = restartExecutablePaths(deps)
+	plan.args = append([]string(nil), sup.Args...)
+	plan.result.Supervisor = sup.Target
+	plan.result.Args = append([]string(nil), sup.Args...)
+	if sup.ParseError != "" || !isAppServerArgs(sup.Args) {
+		fmt.Fprintf(opts.err, "%s: launchd job %s is untrusted or unparseable (%s); refusing to rewrite, stop, or restart it\n", prefix, sup.Target, supervisorParseFailure(sup))
+		return plan, 1
+	}
+	migrate := !executablePathMatches(sup.Executable, plan.currentPath)
+	if migrate && (filepath.Base(sup.Executable) != productidentity.PreUpgradeExecutable || deps.rewrite == nil) {
+		fmt.Fprintf(opts.err, "%s: launchd job %s points at %q, not the current installed Canary executable or the explicit pre-upgrade executable; refusing to rewrite or restart it\n", prefix, sup.Target, sup.Executable)
+		return plan, 1
+	}
+	if deps.unload == nil || deps.load == nil {
+		fmt.Fprintf(opts.err, "%s: staged launchd restart adapters are unavailable\n", prefix)
+		return plan, 1
+	}
+	if findErr == nil && proc.PID > 0 {
+		plan.result.WasRunning = true
+		plan.result.OldPID = proc.PID
+		plan.result.OldCommand = proc.Command
+		if proc.PID != sup.PID {
+			forced, exit := stopAppWithPolicy(opts, deps, prefix, proc.PID)
+			if exit != 0 {
+				return plan, exit
+			}
+			plan.result.Forced = forced
+			plan.result.Graceful = !forced
+		}
+	}
+	if migrate {
+		if err := deps.rewrite(ctx, sup); err != nil {
+			fmt.Fprintf(opts.err, "%s: rewrite pre-upgrade launchd app supervisor: %v\n", prefix, err)
+			return plan, 1
+		}
+		plan.result.Reason = "migrated_pre_upgrade_supervisor"
+	}
+	if err := deps.unload(ctx, sup); err != nil {
+		fmt.Fprintf(opts.err, "%s: quiesce launchd app supervisor: %v\n", prefix, err)
+		return plan, 1
+	}
+	if !opts.jsonOut {
+		fmt.Fprintf(opts.out, "%s: quiesced supervised app before daemon restart (%s)\n", prefix, sup.Target)
+	}
+	return plan, 0
+}
+
+func resumeAppAfterDaemonRestart(ctx context.Context, opts *restartOptions, deps appRestartDeps, plan appStackRestartPlan) (appRestartResult, int) {
+	res := plan.result
+	prefix := productidentity.Executable + " restart"
+	if plan.supervisor == nil {
+		newPID, err := deps.start(ctx, plan.args)
+		if err != nil {
+			fmt.Fprintf(opts.err, "%s: start app after daemon restart: %v\n", prefix, err)
+			return res, 1
+		}
+		res.Started = true
+		res.NewPID = newPID
+		res.ElapsedMS = time.Since(plan.startedAt).Milliseconds()
+		if !opts.jsonOut {
+			fmt.Fprintf(opts.out, "%s: started app pid %d after daemon restart\n", prefix, newPID)
+		}
+		return res, 0
+	}
+	sup := *plan.supervisor
+	if err := deps.load(ctx, sup); err != nil {
+		fmt.Fprintf(opts.err, "%s: resume launchd app supervisor: %v\n", prefix, err)
+		return res, 1
+	}
+	newPID, err := waitForCanonicalSupervisor(ctx, opts.timeout, deps.supervisor, sup, plan.currentPath, res.OldPID)
+	if err != nil {
+		fmt.Fprintf(opts.err, "%s: %v\n", prefix, err)
+		return res, 1
+	}
+	res.Started = true
+	res.NewPID = newPID
+	res.ElapsedMS = time.Since(plan.startedAt).Milliseconds()
+	if !opts.jsonOut {
+		fmt.Fprintf(opts.out, "%s: resumed supervised app pid %d after daemon restart (%s)\n", prefix, newPID, sup.Target)
+	}
+	return res, 0
 }
 
 func restartDaemon(ctx context.Context, opts *restartOptions, deps restartDeps) (restartResult, int) {
@@ -311,17 +508,17 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 		stopErr := deps.stop(proc.PID, opts.timeout)
 		if stopErr != nil {
 			if !opts.force || !errors.Is(stopErr, update.ErrStopTimeout) {
-				fmt.Fprintf(opts.err, "ibkr restart: %v\n", stopErr)
+				fmt.Fprintf(opts.err, "%s restart: %v\n", productidentity.Executable, stopErr)
 				if !opts.force && errors.Is(stopErr, update.ErrStopTimeout) {
-					fmt.Fprintln(opts.err, "ibkr restart: re-run with --force to send SIGKILL after the graceful timeout")
+					fmt.Fprintf(opts.err, "%s restart: re-run with --force to send SIGKILL after the graceful timeout\n", productidentity.Executable)
 				}
 				return res, 1
 			}
 			if !opts.jsonOut {
-				fmt.Fprintf(opts.out, "ibkr restart: daemon pid %d ignored SIGTERM; forcing SIGKILL\n", proc.PID)
+				fmt.Fprintf(opts.out, "%s restart: daemon pid %d ignored SIGTERM; forcing SIGKILL\n", productidentity.Executable, proc.PID)
 			}
 			if err := deps.kill(proc.PID, opts.timeout); err != nil {
-				fmt.Fprintf(opts.err, "ibkr restart: %v\n", err)
+				fmt.Fprintf(opts.err, "%s restart: %v\n", productidentity.Executable, err)
 				return res, 1
 			}
 			res.Forced = true
@@ -333,29 +530,35 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 			if res.Forced {
 				mode = "with SIGKILL"
 			}
-			fmt.Fprintf(opts.out, "ibkr restart: stopped daemon pid %d %s\n", proc.PID, mode)
-			fmt.Fprintln(opts.out, "ibkr restart: starting daemon")
+			fmt.Fprintf(opts.out, "%s restart: stopped daemon pid %d %s\n", productidentity.Executable, proc.PID, mode)
+			fmt.Fprintf(opts.out, "%s restart: starting daemon\n", productidentity.Executable)
 		}
 	case errors.Is(err, update.ErrDaemonNotRunning):
 		if !startWhenMissing {
 			res.Action = "not_running"
 			res.ElapsedMS = time.Since(startedAt).Milliseconds()
 			if !opts.jsonOut {
-				fmt.Fprintln(opts.out, "ibkr restart: no daemon was running; daemon left stopped")
+				fmt.Fprintf(opts.out, "%s restart: no daemon was running; daemon left stopped\n", productidentity.Executable)
 			}
 			return res, 0
 		}
 		if !opts.jsonOut {
-			fmt.Fprintln(opts.out, "ibkr restart: no daemon was running; starting daemon")
+			fmt.Fprintf(opts.out, "%s restart: no daemon was running; starting daemon\n", productidentity.Executable)
 		}
 	default:
-		fmt.Fprintf(opts.err, "ibkr restart: %v\n", err)
+		fmt.Fprintf(opts.err, "%s restart: %v\n", productidentity.Executable, err)
 		return res, 1
 	}
 
-	newPID, health, err := deps.startAndHealth(ctx, socketPath, opts.err, opts.jsonOut)
+	startCtx := ctx
+	cancel := func() {}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		startCtx, cancel = context.WithTimeout(ctx, opts.timeout)
+	}
+	defer cancel()
+	newPID, health, err := deps.startAndHealth(startCtx, socketPath, opts.err, opts.jsonOut)
 	if err != nil {
-		fmt.Fprintf(opts.err, "ibkr restart: start daemon: %v\n", err)
+		fmt.Fprintf(opts.err, "%s restart: start daemon: %v\n", productidentity.Executable, err)
 		return res, 1
 	}
 	res.Started = true
@@ -365,10 +568,19 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 	return res, 0
 }
 
+func restartStartupTimeout(ctx context.Context) time.Duration {
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 {
+			return remaining
+		}
+	}
+	return restartDefaultTimeout
+}
+
 func runRestartAppCore(ctx context.Context, opts *restartOptions, deps appRestartDeps) int {
 	res, _, exit := restartApp(ctx, opts, deps, appRestartBehavior{
 		startWhenMissing: true,
-		prefix:           "ibkr restart --app",
+		prefix:           productidentity.Executable + " restart --app",
 		pairHint:         true,
 	})
 	if exit != 0 {
@@ -383,7 +595,7 @@ func runRestartAppCore(ctx context.Context, opts *restartOptions, deps appRestar
 func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, behavior appRestartBehavior) (appRestartResult, bool, int) {
 	prefix := strings.TrimSpace(behavior.prefix)
 	if prefix == "" {
-		prefix = "ibkr restart --app"
+		prefix = productidentity.Executable + " restart --app"
 	}
 	startedAt := time.Now()
 	res := appRestartResult{Action: "started", Target: "app", Args: []string{"app"}}
@@ -466,7 +678,7 @@ func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, 
 	if !opts.jsonOut {
 		fmt.Fprintf(opts.out, "%s: started app pid %d\n", prefix, newPID)
 		if behavior.pairHint {
-			fmt.Fprintf(opts.out, "%s: pair a phone with `ibkr app pair`\n", prefix)
+			fmt.Fprintf(opts.out, "%s: pair a phone with `%s app pair`\n", prefix, productidentity.Executable)
 		}
 	}
 	return res, true, 0
@@ -513,13 +725,16 @@ func stopAppWithPolicy(opts *restartOptions, deps appRestartDeps, prefix string,
 // shared host in its place would restart the wrong app and strand the
 // instance the caller asked about.
 func supervisedRestartApplies(proc appProcess, findErr error, sup appSupervisor) bool {
-	if findErr != nil || proc.PID == sup.PID {
+	if findErr != nil {
+		return errors.Is(findErr, errAppNotRunning)
+	}
+	if proc.PID == sup.PID {
 		return true
 	}
 	return appArgsStateDir(proc.Args) == appArgsStateDir(sup.Args)
 }
 
-// appArgsStateDir resolves the state directory an `ibkr app` argv locks:
+// appArgsStateDir resolves the state directory a `canary app` argv locks:
 // the --state-dir value when present, else the shared default (a plist
 // whose arguments could not be parsed resolves to the default too).
 // Symlinked spellings (macOS /tmp vs /private/tmp) resolve to one
@@ -542,12 +757,18 @@ func appArgsStateDir(args []string) string {
 // crash-loops against it, and the app then runs without any supervisor.
 func restartSupervisedApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, prefix string, startedAt time.Time, proc appProcess, findErr error, sup appSupervisor) (appRestartResult, bool, int) {
 	res := appRestartResult{Action: "restarted", Target: "app", Supervisor: sup.Target, Args: sup.Args}
-	if !executablePathMatches(sup.Executable, restartExecutablePaths(deps)) {
-		fmt.Fprintf(opts.err, "%s: launchd job %s points at %q, not the current installed ibkr executable; rewrite and reload its plist with `ibkr setup app`, then rerun\n", prefix, sup.Target, sup.Executable)
+	if sup.ParseError != "" || !isAppServerArgs(sup.Args) {
+		fmt.Fprintf(opts.err, "%s: launchd job %s is untrusted or unparseable (%s); refusing to rewrite, stop, or restart it (repair it with `%s setup app`, reload it, then rerun)\n", prefix, sup.Target, supervisorParseFailure(sup), productidentity.Executable)
 		return res, true, 1
 	}
 	if opts.appAddrSet || opts.appPublicURLSet || opts.appRemoteSet || opts.appRemoteURLSet || opts.appStateDirSet {
-		fmt.Fprintf(opts.err, "%s: app flag overrides do not apply to the launchd-supervised app (%s); rewrite and reload its plist with `ibkr setup app`, then rerun\n", prefix, sup.Target)
+		fmt.Fprintf(opts.err, "%s: app flag overrides do not apply to the launchd-supervised app (%s); rewrite and reload its plist with `%s setup app`, then rerun\n", prefix, sup.Target, productidentity.Executable)
+		return res, true, 1
+	}
+	currentPaths := restartExecutablePaths(deps)
+	migrate := !executablePathMatches(sup.Executable, currentPaths)
+	if migrate && (filepath.Base(sup.Executable) != productidentity.PreUpgradeExecutable || deps.migrate == nil) {
+		fmt.Fprintf(opts.err, "%s: launchd job %s points at %q, not the current installed Canary executable or the explicit pre-upgrade executable; refusing to rewrite or restart it\n", prefix, sup.Target, sup.Executable)
 		return res, true, 1
 	}
 	if findErr == nil && proc.PID > 0 {
@@ -568,45 +789,81 @@ func restartSupervisedApp(ctx context.Context, opts *restartOptions, deps appRes
 			res.Graceful = !forced
 		}
 	}
-	if err := deps.kickstart(ctx, sup.Target); err != nil {
+	if migrate {
+		if err := deps.migrate(ctx, sup); err != nil {
+			fmt.Fprintf(opts.err, "%s: migrate pre-upgrade launchd app supervisor: %v\n", prefix, err)
+			return res, true, 1
+		}
+		res.Reason = "migrated_pre_upgrade_supervisor"
+	} else {
+		if deps.kickstart == nil {
+			fmt.Fprintf(opts.err, "%s: launchd restart adapter is unavailable; daemon was not touched\n", prefix)
+			return res, true, 1
+		}
+		if err := deps.kickstart(ctx, sup.Target); err != nil {
+			fmt.Fprintf(opts.err, "%s: %v\n", prefix, err)
+			return res, true, 1
+		}
+	}
+	newPID, err := waitForCanonicalSupervisor(ctx, opts.timeout, deps.supervisor, sup, currentPaths, res.OldPID)
+	if err != nil {
 		fmt.Fprintf(opts.err, "%s: %v\n", prefix, err)
 		return res, true, 1
+	}
+	res.Started = true
+	res.NewPID = newPID
+	res.ElapsedMS = time.Since(startedAt).Milliseconds()
+	if !opts.jsonOut {
+		action := "kickstart"
+		if migrate {
+			action = "one-shot executable migration"
+		}
+		fmt.Fprintf(opts.out, "%s: restarted supervised app pid %d via launchctl %s (%s)\n", prefix, res.NewPID, action, sup.Target)
+	}
+	return res, true, 0
+}
+
+func waitForCanonicalSupervisor(ctx context.Context, timeout time.Duration, find func(context.Context) (appSupervisor, bool), before appSupervisor, currentPaths map[string]struct{}, oldPID int) (int, error) {
+	if find == nil {
+		return 0, errors.New("launchd supervisor verification adapter is unavailable")
 	}
 	// launchd may throttle the respawn (about 10s after a crash-loop), so
 	// the wait budget must comfortably exceed the throttle interval. Accept
 	// the new pid only after two consecutive samples agree: the first spawn
-	// can lose a short lock race against the old process's graceful exit
-	// and be replaced by a throttled second spawn.
-	deadline := time.Now().Add(max(opts.timeout, 25*time.Second))
+	// can lose a short lock race and be replaced by a throttled second spawn.
+	deadline := time.Now().Add(max(timeout, 25*time.Second))
 	lastPID := 0
 	for {
-		now, ok := deps.supervisor(ctx)
-		if ok && now.PID > 0 && now.PID != sup.PID && now.PID != res.OldPID {
+		now, ok := find(ctx)
+		canonical := ok &&
+			now.ParseError == "" &&
+			now.Target == before.Target &&
+			executablePathMatches(now.Executable, currentPaths) &&
+			slices.Equal(now.Args, before.Args)
+		if canonical && now.PID > 0 && now.PID != before.PID && now.PID != oldPID {
 			if now.PID == lastPID {
-				res.Started = true
-				res.NewPID = now.PID
-				break
+				return now.PID, nil
 			}
 			lastPID = now.PID
 		} else {
 			lastPID = 0
 		}
 		if time.Now().After(deadline) {
-			fmt.Fprintf(opts.err, "%s: launchd did not respawn %s in time; check `launchctl print %s` and ~/Library/Logs/ibkr/app.err.log\n", prefix, sup.Target, sup.Target)
-			return res, true, 1
+			return 0, fmt.Errorf("launchd did not respawn %s in time; check `launchctl print %s` and ~/Library/Logs/ibkr/app.err.log", before.Target, before.Target)
 		}
 		select {
 		case <-ctx.Done():
-			fmt.Fprintf(opts.err, "%s: %v\n", prefix, ctx.Err())
-			return res, true, 1
+			return 0, ctx.Err()
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	res.ElapsedMS = time.Since(startedAt).Milliseconds()
-	if !opts.jsonOut {
-		fmt.Fprintf(opts.out, "%s: restarted supervised app pid %d via launchctl kickstart (%s)\n", prefix, res.NewPID, sup.Target)
+}
+
+func supervisorParseFailure(sup appSupervisor) string {
+	if strings.TrimSpace(sup.ParseError) != "" {
+		return sup.ParseError
 	}
-	return res, true, 0
+	return "ProgramArguments is not a Canary app server command"
 }
 
 func restartFlagWasSet(fs *flag.FlagSet, name string) bool {
@@ -748,21 +1005,21 @@ func waitForHandshakeQuiet(ctx context.Context, fetch healthFetcher, initial rpc
 }
 
 func renderRestartStarted(w io.Writer, res restartResult) {
-	fmt.Fprintf(w, "ibkr restart: started daemon pid %d", res.NewPID)
+	fmt.Fprintf(w, "%s restart: started daemon pid %d", productidentity.Executable, res.NewPID)
 	if res.Health.DaemonVersion != "" {
 		fmt.Fprintf(w, " (%s)", res.Health.DaemonVersion)
 	}
 	fmt.Fprintln(w)
 	if res.Foreground {
-		fmt.Fprintln(w, "ibkr restart: previous daemon was foreground; replacement is detached")
+		fmt.Fprintf(w, "%s restart: previous daemon was foreground; replacement is detached\n", productidentity.Executable)
 	}
 	switch {
 	case res.Health.Connected:
-		fmt.Fprintf(w, "ibkr restart: gateway connected at %s:%d (client %d)\n", res.Health.GatewayHost, res.Health.GatewayPort, res.Health.ClientID)
+		fmt.Fprintf(w, "%s restart: gateway connected at %s:%d (client %d)\n", productidentity.Executable, res.Health.GatewayHost, res.Health.GatewayPort, res.Health.ClientID)
 	case res.Health.LastError != "":
-		fmt.Fprintf(w, "ibkr restart: daemon is running; gateway not connected: %s\n", res.Health.LastError)
+		fmt.Fprintf(w, "%s restart: daemon is running; gateway not connected: %s\n", productidentity.Executable, res.Health.LastError)
 	default:
-		fmt.Fprintln(w, "ibkr restart: daemon is running; gateway handshake still in progress")
+		fmt.Fprintf(w, "%s restart: daemon is running; gateway handshake still in progress\n", productidentity.Executable)
 	}
 }
 
@@ -841,7 +1098,7 @@ func findAppProcessForExecutables(ctx context.Context, executablePaths map[strin
 	case 1:
 		return matches[0], nil
 	default:
-		return appProcess{}, fmt.Errorf("%w: multiple ibkr app processes found", errAppUnverified)
+		return appProcess{}, fmt.Errorf("%w: multiple Canary app processes found", errAppUnverified)
 	}
 }
 
@@ -852,24 +1109,23 @@ func appCommandArgs(cmdline string) ([]string, bool) {
 
 func appCommandMatch(cmdline string, exactPaths map[string]struct{}) ([]string, bool, bool) {
 	fields := strings.Fields(cmdline)
-	for i := range len(fields) - 1 {
-		if filepath.Base(fields[i]) != "ibkr" || fields[i+1] != "app" {
-			continue
-		}
-		args := append([]string(nil), fields[i+1:]...)
-		if !isAppServerArgs(args) {
-			return nil, false, false
-		}
-		exact := false
-		for candidate := range executablePathVariants(fields[i]) {
-			if _, ok := exactPaths[candidate]; ok {
-				exact = true
-				break
-			}
-		}
-		return args, exact, true
+	if len(fields) < 2 ||
+		!productidentity.IsManagedProcessExecutableBase(filepath.Base(fields[0])) ||
+		fields[1] != "app" {
+		return nil, false, false
 	}
-	return nil, false, false
+	args := append([]string(nil), fields[1:]...)
+	if !isAppServerArgs(args) {
+		return nil, false, false
+	}
+	exact := false
+	for candidate := range executablePathVariants(fields[0]) {
+		if _, ok := exactPaths[candidate]; ok {
+			exact = true
+			break
+		}
+	}
+	return args, exact, true
 }
 
 func currentExecutablePaths() map[string]struct{} {

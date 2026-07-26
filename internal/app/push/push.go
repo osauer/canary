@@ -11,9 +11,9 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Sender transports one caller-selected, redacted payload and returns a
@@ -76,7 +76,7 @@ func validGovernanceDisplayID(displayID string) bool {
 // account, position, order, occurrence, or subscription data.
 func SafeDiagnosticPayload() Payload {
 	return Payload{
-		Title: "IBKR notification test", Body: "Safe test notification. No account data is included.",
+		Title: "Canary notification test", Body: "Safe test notification. No account data is included.",
 		Destination: rpc.NudgeDestinationAlerts, DisplayID: "diagnostic-safe-test",
 	}
 }

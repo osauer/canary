@@ -1,6 +1,6 @@
 # The rulebook
 
-`ibkr rules` evaluates fourteen discipline checks against the book you are
+`canary rules` evaluates fourteen discipline checks against the book you are
 holding and reports which are breached. Nothing it produces reaches the
 broker.
 
@@ -82,7 +82,7 @@ Ties break on base-currency impact, then rule number. `unknown` outranks
 `info` on purpose, so a rule you cannot evaluate surfaces above one that is
 merely noting something.
 
-Plain `ibkr rules` shows breaches and hides passes. `--all` prints the full
+Plain `canary rules` shows breaches and hides passes. `--all` prints the full
 checklist, `--symbol` narrows offender lists to one underlying, and `--json`
 returns the ranking and input health alongside the rows.
 
@@ -103,8 +103,8 @@ A transition is recorded when a row's status changes, not on every evaluation,
 so the timeline reads as a sequence of events rather than a log of minutes.
 
 ```sh
-ibkr rules history
-ibkr rules history --rule single_name_exposure --since 2026-01-01 --json
+canary rules history
+canary rules history --rule single_name_exposure --since 2026-01-01 --json
 ```
 
 The window defaults to the last 7 days and returns 50 rows newest first, up to

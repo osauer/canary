@@ -3,7 +3,7 @@ package tui
 import (
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/app/live"
 )
 
 type eventKind int

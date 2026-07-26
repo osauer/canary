@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // composite-building logic. Mirrors the CLI's tallyComposite +
@@ -450,7 +450,7 @@ func warningForRegimeRow(row regimeEvidenceRow) (rpc.RegimeWarning, bool) {
 		w.Action = "Check IDEALPRO FX market-data entitlement, then retry when FX ticks are available."
 	case "gamma_zero":
 		if row.status == rpc.RegimeStatusComputing {
-			w.Action = "Re-run after the ETA or call ibkr gamma for the dedicated gamma status."
+			w.Action = "Re-run after the ETA or call canary gamma for the dedicated gamma status."
 		} else {
 			w.Action = "Run during NY market hours or let the gamma prewarm finish, then retry."
 		}
@@ -458,7 +458,7 @@ func warningForRegimeRow(row regimeEvidenceRow) (rpc.RegimeWarning, bool) {
 		if row.status == rpc.RegimeStatusComputing {
 			w.Action = "Keep the daemon running until the IBKR-paced breadth refresh finishes."
 		} else {
-			w.Action = "Run ibkr breadth to inspect the breadth engine state and cached snapshot."
+			w.Action = "Run canary breadth to inspect the breadth engine state and cached snapshot."
 		}
 	}
 	return w, true
@@ -569,5 +569,5 @@ func bandForBreadth(r rpc.RegimeBreadth) string {
 
 // Cluster combination (raw worst-of bands, isolated-red downgrades,
 // eligibility-keyed independence) lives in internal/rpc/regime_policy.go —
-// the single copy the daemon, lifecycle builder, CLI, canary, and backtest
+// the single copy the daemon, lifecycle builder, CLI, Stress, and backtest
 // all share.

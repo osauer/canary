@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
 )
 
 const outputPath = "internal/breadth/spx/members_data.go"

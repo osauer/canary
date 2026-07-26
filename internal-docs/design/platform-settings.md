@@ -9,7 +9,7 @@ The daemon stores runtime preferences as a versioned, compare-and-swap state
 document in `$XDG_STATE_HOME/ibkr/daemon.db` (or the corresponding fallback
 state root). It does not read, mirror, or fall back to
 `platform-settings.json` after SQLite authority attaches. Only user
-preferences owned by `ibkr` belong in this document: feature toggles, the
+preferences owned by Canary belong in this document: feature toggles, the
 `trading.freeze` brake, rulebook earnings overrides, the regime/stress
 forward-collection switches, and optional experimental trading-limit
 overrides.
@@ -24,7 +24,7 @@ the [Trading Rulebook](trading-rulebook.md).
 This document owns semantics and ownership, not the key list. The writable
 keys, types, and per-key descriptions are enumerated in the generated
 [configuration reference](../reference/config.md) (single source: the settings
-key registry in `internal/rpc`); `ibkr settings set --help` prints the same
+key registry in `internal/rpc`); `canary settings set --help` prints the same
 list.
 
 TOML/config/build still own gateway endpoint, account, client ID, trading
@@ -111,14 +111,14 @@ truth remains on quote, chain, position, and status responses.
 
 - Daemon RPC: `settings.get`, `settings.update`; both must work without gateway
   connectivity.
-- CLI: `ibkr settings show [--json]` and
-  `ibkr settings set <key>=<value>` for the writable keys above, e.g.
+- CLI: `canary settings show [--json]` and
+  `canary settings set <key>=<value>` for the writable keys above, e.g.
   `features.purge_restore.enabled=true|false|null` or
   `features.rulebook.earnings_overrides.<SYMBOL>=YYYY-MM-DD|null`.
-  `ibkr settings set --help` is the authoritative key list.
+  `canary settings set --help` is the authoritative key list.
 - HTTP/app: `GET /api/settings`, `PATCH /api/settings`, `/api/bootstrap`, live
   snapshot, and SSE `settings` events.
-- MCP: read-only `ibkr_settings`; no write tool in V1.
+- MCP: read-only `canary_settings`; no write tool in V1.
 - SPA: Settings tab renders this contract directly and honors `access` before
   enabling controls.
 

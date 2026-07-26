@@ -1,4 +1,4 @@
-module github.com/osauer/ibkr/v2
+module github.com/osauer/canary/v2
 
 go 1.26.0
 

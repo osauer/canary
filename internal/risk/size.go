@@ -27,7 +27,7 @@ type SizeInput struct {
 	Currency    string  // base currency code, surfaced in output only
 }
 
-// SizeResult is the wire shape of `ibkr size --json` and the input to the CLI
+// SizeResult is the wire shape of `canary size --json` and the input to the CLI
 // text renderer.
 //
 // Target / R / RewardQuote / RewardBase / BreakevenWinRate are populated

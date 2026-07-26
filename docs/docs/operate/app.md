@@ -2,20 +2,20 @@
 
 Updated: 2026-07-25 20:23 CEST
 
-Run `ibkr app` on the Mac to get ibkr on your phone. That single process serves
+Run `canary app` on the Mac to get Canary on your phone. That single process serves
 the progressive web app, handles pairing, streams live updates to paired devices
 over `/api/events`, and sends opt-in push notifications.
 
 ## Pair a phone
 
 ```sh
-ibkr app
+canary app
 ```
 
 In another shell:
 
 ```sh
-ibkr app pair
+canary app pair
 ```
 
 Scan the QR code or open the printed pairing URL. The URL contains a short-lived
@@ -30,12 +30,12 @@ re-login can never run there.
 
 The default app bind is LAN-capable (`0.0.0.0:8765`), so the same app process
 can serve a local browser preview at `http://127.0.0.1:8765` and a phone at the
-Mac's LAN URL. Use plain `ibkr app pair` for the phone, so the running app
+Mac's LAN URL. Use plain `canary app pair` for the phone, so the running app
 host's configured public URL is used. For a local preview, override only the
 pairing URL:
 
 ```sh
-ibkr app pair --public-url http://127.0.0.1:8765 --json
+canary app pair --public-url http://127.0.0.1:8765 --json
 ```
 
 Do not run the shared app host with `--addr 127.0.0.1:8765` when a phone needs
@@ -43,7 +43,7 @@ to pair too.
 
 ## Staying paired
 
-Restarting `ibkr app` clears only the in-memory session cookie. The paired
+Restarting `canary app` clears only the in-memory session cookie. The paired
 device mints a fresh session from its device grant silently, retries transient
 failures at page load, and shows the "scan a fresh QR code" instruction only
 when the app definitively rejected the device. A stale or already-consumed
@@ -57,7 +57,7 @@ the cookie, and grants keep a capped list of valid cookie hashes so Safari and
 the installed app (twin copies of the same cookie jar) never invalidate each
 other.
 
-Every auth outcome is logged as `ibkr app auth:` lines in
+Every auth outcome is logged as `canary app auth:` lines in
 `~/Library/Logs/ibkr/app.err.log`.
 
 ## Remote access
@@ -66,18 +66,18 @@ Remote mode keeps the normal app host local, then opens an outbound connector to
 `https://remote.osauer.dev`:
 
 ```sh
-ibkr app --remote
+canary app --remote
 ```
 
 In another shell:
 
 ```sh
-ibkr app pair
+canary app pair
 ```
 
 The printed pairing URL uses the relay origin and includes a `remote=` route id.
 
-Remote mode needs the Mac, TWS/Gateway, `ibkr app --remote`, and the Cloudflare
+Remote mode needs the Mac, TWS/Gateway, `canary app --remote`, and the Cloudflare
 Worker route to stay up. The app exposes relay connection state in
 `/api/bootstrap` under `relay`.
 
@@ -88,7 +88,7 @@ restarts, new builds, and relay-side route expiry. A token-matched resume
 revives the route at the relay, so the route id, and with it every paired phone,
 survives arbitrary Mac downtime as long as the app state directory keeps
 `state.json`. Registration happens inside the connector loop with backoff, so a
-relay or DNS outage at startup degrades the relay instead of killing `ibkr app
+relay or DNS outage at startup degrades the relay instead of killing `canary app
 --remote`.
 
 A new route id is minted only when the relay definitively rejects the held
@@ -107,7 +107,7 @@ the Mac connector is down gets an auto-retrying wait page instead of raw JSON.
 For an unsupervised app host, an app-only restart can switch remote mode on:
 
 ```sh
-ibkr restart --app --remote
+canary restart --app --remote
 ```
 
 Do not pass that override to a loaded LaunchAgent: supervised restart rejects
@@ -115,51 +115,51 @@ runtime flag overrides because the loaded plist is authoritative. Install a
 new supervised host in remote mode with:
 
 ```sh
-ibkr setup app --remote
+canary setup app --remote
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.osauer.ibkr-app.plist
 ```
 
-To change an already-loaded LaunchAgent, run `ibkr setup app --remote`, unload
+To change an already-loaded LaunchAgent, run `canary setup app --remote`, unload
 the existing `gui/$(id -u)/com.osauer.ibkr-app` job, and bootstrap the rewritten
-plist again. Ordinary later restarts use `ibkr restart --app` with no `--remote`
+plist again. Ordinary later restarts use `canary restart --app` with no `--remote`
 override; launchd preserves the plist configuration.
 
 ## Restart
 
 ```sh
-ibkr restart
+canary restart
 ```
 
 On the default daemon socket, this restarts a running app first and only then
-restarts the shared daemon. If no app is running, plain `ibkr restart` leaves
+restarts the shared daemon. If no app is running, plain `canary restart` leaves
 the app stopped.
 
 The two stages are ordered but not atomic. An app-stage failure leaves the
 daemon untouched; a daemon-stage failure does not roll the already-restarted app
-back. Fix the reported stage and rerun `ibkr restart`.
+back. Fix the reported stage and rerun `canary restart`.
 [Updating](../start/updating.md#restarting-local-processes-ibkr-restart) has the
 flags, JSON output, and socket-scope rules.
 
 When the `com.osauer.ibkr-app` LaunchAgent is loaded, the app is restarted
 through `launchctl kickstart -k`. Any unsupervised (orphaned) app process is
 stopped first so launchd can own the app again, and app flag overrides are
-rejected with a pointer to rewrite and reload `ibkr setup app` because the plist
+rejected with a pointer to rewrite and reload `canary setup app` because the plist
 arguments win. The loaded job's executable must resolve to the current installed
-`ibkr` binary. launchd may throttle the respawn for about ten seconds; the
+`canary` binary. launchd may throttle the respawn for about ten seconds; the
 command waits for a stable supervised PID.
 
 Without a loaded LaunchAgent, the unsupervised behavior applies: SIGTERM the
 running app, preserve its flags such as `--addr`, `--public-url`, `--remote`,
 and `--state-dir`, and start a detached replacement.
 
-Use `ibkr restart --app` for app-only restart/start workflows, including cases
-where no app is running yet. `ibkr app restart` is an alias for the same thing.
+Use `canary restart --app` for app-only restart/start workflows, including cases
+where no app is running yet. `canary app restart` is an alias for the same thing.
 
 To switch an old local-only app host back to the shared local-preview plus
 phone mode:
 
 ```sh
-ibkr restart --app --addr 0.0.0.0:8765
+canary restart --app --addr 0.0.0.0:8765
 ```
 
 When `--addr` is overridden without `--public-url`, restart clears any preserved

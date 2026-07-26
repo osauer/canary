@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -342,11 +342,11 @@ func opportunityFeatureChecksum(features OpportunityPointInTimeFeatures) (string
 
 func validateOpportunitySignalProvenance(lineNo int, row OpportunityBacktestObservation) error {
 	if reflect.DeepEqual(row.Features, OpportunityPointInTimeFeatures{}) {
-		return fmt.Errorf("line %d: unverified signal provenance: opportunity observations must carry point-in-time features; rebuild from scored PIT rows with ibkr backtest build-opportunity", lineNo)
+		return fmt.Errorf("line %d: unverified signal provenance: opportunity observations must carry point-in-time features; rebuild from scored PIT rows with canary backtest build-opportunity", lineNo)
 	}
 	expected := opportunityPointInTimeSignal(row.Features)
 	if !opportunitySignalsEqual(row.Signal, expected) {
-		return fmt.Errorf("line %d: unverified signal provenance: signal does not match point-in-time features; rebuild from scored PIT rows with ibkr backtest build-opportunity", lineNo)
+		return fmt.Errorf("line %d: unverified signal provenance: signal does not match point-in-time features; rebuild from scored PIT rows with canary backtest build-opportunity", lineNo)
 	}
 	return nil
 }

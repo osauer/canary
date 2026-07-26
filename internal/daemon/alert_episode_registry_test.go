@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestAlertEpisodeRegistryPersistsEmptyEvaluationAcrossRestart(t *testing.T) {
@@ -628,8 +628,9 @@ func TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState(t *testing
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 7, 24, 15, 30, 0, 0, time.UTC)
+	legacyObservation := alertRegistryObservation(t, "v3-stress-rename", at, true)
 	evaluation := alertRegistryEvaluation(at, alertRegistryCompleteCoverage(at),
-		alertRegistryObservation(t, "v3-stress-rename", at, true))
+		legacyObservation)
 	evaluation.CursorKind = alertShadowCursorStress
 	evaluation.Cursor = alertShadowInputCursor{AsOf: at, Fingerprint: alertRegistryFingerprint("stress-input")}
 	snapshot, err := registry.Apply(t.Context(), evaluation)
@@ -641,6 +642,8 @@ func TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState(t *testing
 	}
 	wantOccurrence := snapshot.Candidates[0].OccurrenceKey
 	wantEpisode := snapshot.Candidates[0].EpisodeKey
+	wantStateChangedAt := snapshot.Candidates[0].StateChangedAt
+	wantEvidenceFingerprint := snapshot.Candidates[0].EvidenceFingerprint
 	wantSequence := registry.document.NextOccurrenceSequence
 	wantCursor := registry.document.Scopes[0].Cursors.Stress
 
@@ -704,6 +707,58 @@ func TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState(t *testing
 	}
 	if err := rpc.ValidateAlertCandidateSnapshot(got); err != nil {
 		t.Fatalf("upgraded snapshot does not validate: %v", err)
+	}
+
+	// A current Stress result carries a different evidence fingerprint after
+	// the rename. Observing it after the v3 document upgrade must refresh the
+	// existing occurrence; a new occurrence would be dispatchable as a fresh
+	// alert by the downstream inbox ledger.
+	observedAt := at.Add(time.Minute)
+	currentObservation := legacyObservation
+	currentObservation.ObservedAt = observedAt
+	currentObservation.EvidenceAsOf = observedAt
+	currentObservation.EvidenceFingerprint = alertRegistryFingerprint("current-stress-evidence")
+	if currentObservation.EvidenceFingerprint == wantEvidenceFingerprint {
+		t.Fatal("post-rename fixture did not change the current evidence fingerprint")
+	}
+	currentEvaluation := alertRegistryEvaluation(observedAt, alertRegistryCompleteCoverage(observedAt), currentObservation)
+	currentEvaluation.CursorKind = alertShadowCursorStress
+	currentEvaluation.Cursor = alertShadowInputCursor{
+		AsOf: observedAt, Fingerprint: alertRegistryFingerprint("current-stress-input"),
+	}
+	refreshed, err := migrated.Apply(t.Context(), currentEvaluation)
+	if err != nil {
+		t.Fatalf("observe current Stress evidence after migration: %v", err)
+	}
+	if len(refreshed.Candidates) != 1 {
+		t.Fatalf("post-migration candidates=%d want 1", len(refreshed.Candidates))
+	}
+	refreshedCandidate := refreshed.Candidates[0]
+	if refreshedCandidate.EpisodeKey != wantEpisode ||
+		refreshedCandidate.OccurrenceKey != wantOccurrence ||
+		!refreshedCandidate.StateChangedAt.Equal(wantStateChangedAt) {
+		t.Fatalf("changed current evidence became a fresh occurrence: %+v", refreshedCandidate)
+	}
+	if refreshedCandidate.EvidenceFingerprint != currentObservation.EvidenceFingerprint ||
+		migrated.document.NextOccurrenceSequence != wantSequence {
+		t.Fatalf("current evidence did not refresh in place: candidate=%+v sequence=%d want %d",
+			refreshedCandidate, migrated.document.NextOccurrenceSequence, wantSequence)
+	}
+	events, err := store.LoadEvents(t.Context(), corestore.EventQuery{
+		ScopeKey: daemonStateScope, Type: alertEpisodeDecisionEventType, Limit: 100,
+	})
+	if err != nil || len(events) == 0 {
+		t.Fatalf("load post-migration decision event: count=%d err=%v", len(events), err)
+	}
+	var event alertEpisodeDecisionEvent
+	if err := json.Unmarshal(events[len(events)-1].PayloadJSON, &event); err != nil {
+		t.Fatalf("decode post-migration decision event: %v", err)
+	}
+	if len(event.Decisions) != 1 ||
+		event.Decisions[0].Action != alertDecisionRefreshedActive ||
+		event.Decisions[0].EpisodeKey != wantEpisode ||
+		event.Decisions[0].OccurrenceKey != wantOccurrence {
+		t.Fatalf("post-migration observation was not an in-place refresh: %+v", event.Decisions)
 	}
 
 	// The stored document now carries only the renamed values, and reloading it

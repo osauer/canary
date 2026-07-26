@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/cli"
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // TestParity is the binding drift gate: every CLI subcommand from
-// internal/cli must either have a matching MCP tool (`ibkr_<name>`) or be
+// internal/cli must either have a matching MCP tool (`canary_<name>`) or be
 // listed in ExcludedCLI with a justification. Adding a new CLI command
 // without an MCP tool — or vice versa — fails `make check`.
 func TestParity(t *testing.T) {
@@ -33,9 +33,9 @@ func TestParity(t *testing.T) {
 
 	mcpNames := map[string]bool{}
 	for _, tool := range Tools {
-		name := strings.TrimPrefix(tool.Name, "ibkr_")
+		name := strings.TrimPrefix(tool.Name, "canary_")
 		if name == tool.Name {
-			t.Errorf("MCP tool %q must use the ibkr_ prefix", tool.Name)
+			t.Errorf("MCP tool %q must use the canary_ prefix", tool.Name)
 			continue
 		}
 		mcpNames[strings.ReplaceAll(name, "_", "-")] = true
@@ -49,7 +49,7 @@ func TestParity(t *testing.T) {
 			continue
 		}
 		if !mcpNames[name] && !hasMCPSubtool(mcpNames, name) {
-			t.Errorf("CLI command %q has no MCP tool (ibkr_%s); add a Tool entry to internal/mcp/tools.go or list it in ExcludedCLI with a reason", name, name)
+			t.Errorf("CLI command %q has no MCP tool (canary_%s); add a Tool entry to internal/mcp/tools.go or list it in ExcludedCLI with a reason", name, name)
 		}
 	}
 	for name := range mcpNames {
@@ -57,7 +57,7 @@ func TestParity(t *testing.T) {
 			continue
 		}
 		// MCP tools can expose CLI subverbs as their own tool (e.g.
-		// `ibkr scan params` → `ibkr_scan_params`). Accept the tool if
+		// `canary scan params` → `canary_scan_params`). Accept the tool if
 		// the prefix up to the first underscore is itself a CLI command,
 		// since MCP clients use a flat tool surface and a focused tool
 		// per subverb is easier for agents than one mega-tool with a
@@ -65,7 +65,7 @@ func TestParity(t *testing.T) {
 		if i := strings.IndexAny(name, "_-"); i > 0 && cliNames[name[:i]] {
 			continue
 		}
-		t.Errorf("MCP tool ibkr_%s has no CLI counterpart (cli.Commands has no command named %q nor a parent command for a subverb) — drop the tool or add the CLI command", name, name)
+		t.Errorf("MCP tool canary_%s has no CLI counterpart (cli.Commands has no command named %q nor a parent command for a subverb) — drop the tool or add the CLI command", name, name)
 	}
 	for name := range ExcludedCLI {
 		if !cliNames[name] {
@@ -108,22 +108,22 @@ func TestTradingToolAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, tool := range Tools {
 		switch tool.Name {
-		case "ibkr_trading_status":
+		case "canary_trading_status":
 			desc := strings.ToLower(tool.Description)
 			if !strings.Contains(desc, "does not place") || !strings.Contains(desc, "only reports readiness") {
 				t.Errorf("tool %s must explicitly say it only reports readiness and does not place orders", tool.Name)
 			}
 			continue
-		case "ibkr_orders_open", "ibkr_orders_history", "ibkr_order_status":
+		case "canary_orders_open", "canary_orders_history", "canary_order_status":
 			desc := strings.ToLower(tool.Description)
 			if !strings.Contains(desc, "read-only") || !strings.Contains(desc, "does not place") {
 				t.Errorf("tool %s must explicitly say it is read-only and does not place orders", tool.Name)
 			}
-			if tool.Name == "ibkr_orders_history" && !strings.Contains(desc, "not an ibkr activity statement") {
+			if tool.Name == "canary_orders_history" && !strings.Contains(desc, "not an ibkr activity statement") {
 				t.Errorf("tool %s must warn that local history is not an IBKR Activity Statement", tool.Name)
 			}
 			continue
-		case "ibkr_order_preview":
+		case "canary_order_preview":
 			desc := strings.ToLower(tool.Description)
 			for _, want := range []string{"does not submit an order", "submit_eligible", "executable=false"} {
 				if !strings.Contains(desc, want) {
@@ -142,30 +142,30 @@ func TestTradingToolAllowlist(t *testing.T) {
 
 func TestOpportunitiesToolIsReadOnlyDiscovery(t *testing.T) {
 	t.Parallel()
-	idx := slices.IndexFunc(Tools, func(tool Tool) bool { return tool.Name == "ibkr_opportunities" })
+	idx := slices.IndexFunc(Tools, func(tool Tool) bool { return tool.Name == "canary_opportunities" })
 	if idx < 0 {
-		t.Fatal("missing ibkr_opportunities tool")
+		t.Fatal("missing canary_opportunities tool")
 	}
 	tool := Tools[idx]
 	if tool.ReadOnlyHint == nil || !*tool.ReadOnlyHint {
-		t.Fatalf("ibkr_opportunities ReadOnlyHint=%v, want true", tool.ReadOnlyHint)
+		t.Fatalf("canary_opportunities ReadOnlyHint=%v, want true", tool.ReadOnlyHint)
 	}
 	desc := strings.ToLower(tool.Description)
 	for _, want := range []string{"read-only", "option exercise", "does not preview", "submit exercise"} {
 		if !strings.Contains(desc, want) {
-			t.Fatalf("ibkr_opportunities description missing %q: %s", want, tool.Description)
+			t.Fatalf("canary_opportunities description missing %q: %s", want, tool.Description)
 		}
 	}
 	if strings.Contains(string(tool.JSONSchema), "exercise") {
-		t.Fatalf("ibkr_opportunities schema must not expose exercise controls: %s", tool.JSONSchema)
+		t.Fatalf("canary_opportunities schema must not expose exercise controls: %s", tool.JSONSchema)
 	}
 }
 
 func TestRulesToolDescribesPolicyAndTerminalProvenance(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_rules")
+	tool, ok := lookupTool("canary_rules")
 	if !ok {
-		t.Fatal("missing ibkr_rules tool")
+		t.Fatal("missing canary_rules tool")
 	}
 	desc := strings.ToLower(tool.Description)
 	for _, want := range []string{
@@ -177,7 +177,7 @@ func TestRulesToolDescribesPolicyAndTerminalProvenance(t *testing.T) {
 		"conflicting or expired terminal evidence stays unknown",
 	} {
 		if !strings.Contains(desc, want) {
-			t.Errorf("ibkr_rules description missing %q", want)
+			t.Errorf("canary_rules description missing %q", want)
 		}
 	}
 }
@@ -198,9 +198,9 @@ func TestNormalizeMCPPreviewOrderTypeRejectsLMTTrailContradiction(t *testing.T) 
 
 func TestOrderPreviewSchemaIncludesRouteAndReplaceFields(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_order_preview")
+	tool, ok := lookupTool("canary_order_preview")
 	if !ok {
-		t.Fatal("missing ibkr_order_preview tool")
+		t.Fatal("missing canary_order_preview tool")
 	}
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -210,20 +210,20 @@ func TestOrderPreviewSchemaIncludesRouteAndReplaceFields(t *testing.T) {
 	}
 	for _, prop := range []string{"exchange", "primary_exchange", "currency", "replace_id", "trigger_method"} {
 		if _, ok := schema.Properties[prop]; !ok {
-			t.Fatalf("ibkr_order_preview schema missing %s", prop)
+			t.Fatalf("canary_order_preview schema missing %s", prop)
 		}
 	}
 }
 
 func TestOrderPreviewHandlerForwardsRouteAndReplaceFields(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_order_preview")
+	tool, ok := lookupTool("canary_order_preview")
 	if !ok {
-		t.Fatal("missing ibkr_order_preview tool")
+		t.Fatal("missing canary_order_preview tool")
 	}
 	conn, calls := startMCPOrderPreviewFakeConn(t, rpc.OrderPreviewResult{PreviewTokenID: "tok", TokenMinted: true})
 	defer conn.Close()
-	args := json.RawMessage(`{"action":"sell","symbol":"AAPL","quantity":1,"order_type":"TRAIL","trailing_percent":2,"trigger_method":4,"exchange":"SMART","primary_exchange":"NASDAQ","currency":"USD","replace_id":"ibkr-123"}`)
+	args := json.RawMessage(`{"action":"sell","symbol":"AAPL","quantity":1,"order_type":"TRAIL","trailing_percent":2,"trigger_method":4,"exchange":"SMART","primary_exchange":"NASDAQ","currency":"USD","replace_id":"canary-123"}`)
 	if _, err := tool.Handler(context.Background(), conn, args); err != nil {
 		t.Fatalf("handler: %v", err)
 	}
@@ -232,8 +232,8 @@ func TestOrderPreviewHandlerForwardsRouteAndReplaceFields(t *testing.T) {
 		t.Fatalf("method = %s, want %s", call.method, rpc.MethodOrderPreview)
 	}
 	p := call.params
-	if p.TriggerMethod != 4 || p.ReplaceID != "ibkr-123" {
-		t.Fatalf("params trigger/replace = %d/%q, want 4/ibkr-123", p.TriggerMethod, p.ReplaceID)
+	if p.TriggerMethod != 4 || p.ReplaceID != "canary-123" {
+		t.Fatalf("params trigger/replace = %d/%q, want 4/canary-123", p.TriggerMethod, p.ReplaceID)
 	}
 	if p.Contract.Exchange != "SMART" || p.Contract.PrimaryExch != "NASDAQ" || p.Contract.Currency != "USD" {
 		t.Fatalf("contract route = %+v, want SMART/NASDAQ/USD", p.Contract)
@@ -250,19 +250,19 @@ func TestToolsHaveDirectoryAnnotations(t *testing.T) {
 }
 
 func TestRulesToolDescribesWSHEntitlementWithoutProviderInternals(t *testing.T) {
-	idx := slices.IndexFunc(Tools, func(tool Tool) bool { return tool.Name == "ibkr_rules" })
+	idx := slices.IndexFunc(Tools, func(tool Tool) bool { return tool.Name == "canary_rules" })
 	if idx < 0 {
-		t.Fatal("ibkr_rules tool missing")
+		t.Fatal("canary_rules tool missing")
 	}
 	desc := Tools[idx].Description
 	for _, want := range []string{"Wall Street Horizon", "WSH research subscription", "Nasdaq remains active", "unknown, never pass"} {
 		if !strings.Contains(desc, want) {
-			t.Fatalf("ibkr_rules description missing %q: %s", want, desc)
+			t.Fatalf("canary_rules description missing %q: %s", want, desc)
 		}
 	}
-	for _, forbidden := range []string{"ibkr_wsh", "not_entitled", "wsh_metadata", "wsh_event"} {
+	for _, forbidden := range []string{"canary_wsh", "not_entitled", "wsh_metadata", "wsh_event"} {
 		if strings.Contains(desc, forbidden) {
-			t.Fatalf("ibkr_rules description exposed provider internals %q: %s", forbidden, desc)
+			t.Fatalf("canary_rules description exposed provider internals %q: %s", forbidden, desc)
 		}
 	}
 }
@@ -274,7 +274,7 @@ type mcpOrderPreviewCall struct {
 
 func startMCPOrderPreviewFakeConn(t *testing.T, result rpc.OrderPreviewResult) (*dial.Conn, <-chan mcpOrderPreviewCall) {
 	t.Helper()
-	socketPath := filepath.Join("/tmp", fmt.Sprintf("ibkr-mcp-order-preview-%d.sock", time.Now().UnixNano()))
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("canary-mcp-order-preview-%d.sock", time.Now().UnixNano()))
 	t.Cleanup(func() { _ = os.Remove(socketPath) })
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -336,6 +336,7 @@ func TestInitializeAndToolsList(t *testing.T) {
 				Name    string `json:"name"`
 				Version string `json:"version"`
 			} `json:"serverInfo"`
+			Instructions string `json:"instructions"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(lines[0], &initResp); err != nil {
@@ -344,8 +345,11 @@ func TestInitializeAndToolsList(t *testing.T) {
 	if initResp.Result.ProtocolVersion != ProtocolVersion {
 		t.Errorf("protocolVersion: got %q want %q", initResp.Result.ProtocolVersion, ProtocolVersion)
 	}
-	if initResp.Result.ServerInfo.Name != "ibkr" {
-		t.Errorf("serverInfo.name: got %q want %q", initResp.Result.ServerInfo.Name, "ibkr")
+	if initResp.Result.ServerInfo.Name != "canary" {
+		t.Errorf("serverInfo.name: got %q want %q", initResp.Result.ServerInfo.Name, "canary")
+	}
+	if !strings.Contains(initResp.Result.Instructions, "Canary tools and resources for Interactive Brokers") {
+		t.Errorf("initialize instructions do not use the Canary product identity: %q", initResp.Result.Instructions)
 	}
 	if _, ok := initResp.Result.Capabilities["tools"]; !ok {
 		t.Errorf("capabilities missing tools key: %v", initResp.Result.Capabilities)
@@ -440,11 +444,14 @@ func TestMonitorProfileInitializeAndToolsList(t *testing.T) {
 	if err := json.Unmarshal(lines[0], &initResp); err != nil {
 		t.Fatalf("initialize response: %v", err)
 	}
-	if !strings.Contains(initResp.Result.Instructions, "Use `ibkr_stress` first") {
-		t.Fatalf("monitor instructions should steer first call to ibkr_stress: %q", initResp.Result.Instructions)
+	if !strings.Contains(initResp.Result.Instructions, "Use `canary_stress` first") {
+		t.Fatalf("monitor instructions should steer first call to canary_stress: %q", initResp.Result.Instructions)
 	}
-	if !strings.Contains(initResp.Result.Instructions, "call `ibkr_status` only") {
-		t.Fatalf("monitor instructions should keep ibkr_status diagnostic-only: %q", initResp.Result.Instructions)
+	if !strings.Contains(initResp.Result.Instructions, "Canary monitor profile for Interactive Brokers") {
+		t.Fatalf("monitor instructions do not use the Canary product identity: %q", initResp.Result.Instructions)
+	}
+	if !strings.Contains(initResp.Result.Instructions, "call `canary_status` only") {
+		t.Fatalf("monitor instructions should keep canary_status diagnostic-only: %q", initResp.Result.Instructions)
 	}
 
 	var listResp struct {
@@ -462,7 +469,7 @@ func TestMonitorProfileInitializeAndToolsList(t *testing.T) {
 	for _, tool := range listResp.Result.Tools {
 		got = append(got, tool.Name)
 	}
-	want := []string{"ibkr_stress", "ibkr_status"}
+	want := []string{"canary_stress", "canary_status"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("monitor tools = %v, want %v", got, want)
 	}
@@ -489,7 +496,7 @@ func TestMonitorToolsListPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 func TestMonitorProfileRejectsHiddenTools(t *testing.T) {
 	t.Parallel()
 
-	lines := serveMCP(t, ProfileMonitor, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ibkr_positions","arguments":{}}}`)
+	lines := serveMCP(t, ProfileMonitor, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"canary_positions","arguments":{}}}`)
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 response line, got %d", len(lines))
 	}
@@ -508,8 +515,20 @@ func TestMonitorProfileRejectsHiddenTools(t *testing.T) {
 	if resp.Error.Code != codeMethodNotFound {
 		t.Fatalf("error code = %d, want %d", resp.Error.Code, codeMethodNotFound)
 	}
-	if !strings.Contains(resp.Error.Message, "profile monitor") || !strings.Contains(resp.Error.Message, "ibkr_positions") {
+	if !strings.Contains(resp.Error.Message, "profile monitor") || !strings.Contains(resp.Error.Message, "canary_positions") {
 		t.Fatalf("hidden-tool message should name profile and tool, got %q", resp.Error.Message)
+	}
+}
+
+func TestMCPHumanTitlesAndMachineNamespaceUseCanary(t *testing.T) {
+	t.Parallel()
+	for _, tool := range Tools {
+		if !strings.HasPrefix(tool.Title, "Canary ") {
+			t.Errorf("tool %s title %q does not use the Canary product identity", tool.Name, tool.Title)
+		}
+		if !strings.HasPrefix(tool.Name, "canary_") {
+			t.Errorf("tool %q does not use the canonical canary_* wire namespace", tool.Name)
+		}
 	}
 }
 
@@ -520,9 +539,9 @@ func TestCompactViewSchemas(t *testing.T) {
 		tool string
 		want map[string]bool
 	}{
-		{tool: "ibkr_stress", want: map[string]bool{rpc.ViewFull: true, rpc.ViewAlert: true}},
-		{tool: "ibkr_regime", want: map[string]bool{rpc.ViewDetail: true, rpc.ViewMonitor: true}},
-		{tool: "ibkr_positions", want: map[string]bool{rpc.ViewFull: true, rpc.ViewRisk: true}},
+		{tool: "canary_stress", want: map[string]bool{rpc.ViewFull: true, rpc.ViewAlert: true}},
+		{tool: "canary_regime", want: map[string]bool{rpc.ViewDetail: true, rpc.ViewMonitor: true}},
+		{tool: "canary_positions", want: map[string]bool{rpc.ViewFull: true, rpc.ViewRisk: true}},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			tool, ok := lookupTool(tc.tool)
@@ -613,16 +632,16 @@ func TestUnknownToolReturnsMethodNotFound(t *testing.T) {
 	}
 }
 
-// TestIbkrGammaSchemaHasScopeParam pins the P1 wire-parity gate: the
-// ibkr_gamma tool's input schema must declare a `scope` property whose
+// TestCanaryGammaSchemaHasScopeParam pins the P1 wire-parity gate: the
+// canary_gamma tool's input schema must declare a `scope` property whose
 // enum carries the three CLI-equivalent values ("spy", "spx",
 // "spy+spx"). Drops the param without updating the schema and this
 // test fails — clients reading tools/list never see the new arg.
-func TestIbkrGammaSchemaHasScopeParam(t *testing.T) {
+func TestCanaryGammaSchemaHasScopeParam(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_gamma")
+	tool, ok := lookupTool("canary_gamma")
 	if !ok {
-		t.Fatalf("ibkr_gamma tool not registered")
+		t.Fatalf("canary_gamma tool not registered")
 	}
 	var schema struct {
 		Properties map[string]struct {
@@ -631,11 +650,11 @@ func TestIbkrGammaSchemaHasScopeParam(t *testing.T) {
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(tool.JSONSchema, &schema); err != nil {
-		t.Fatalf("decode ibkr_gamma schema: %v", err)
+		t.Fatalf("decode canary_gamma schema: %v", err)
 	}
 	scope, ok := schema.Properties["scope"]
 	if !ok {
-		t.Fatalf("ibkr_gamma schema missing 'scope' property")
+		t.Fatalf("canary_gamma schema missing 'scope' property")
 	}
 	if scope.Type != "string" {
 		t.Errorf("scope.type: got %q want %q", scope.Type, "string")
@@ -649,16 +668,16 @@ func TestIbkrGammaSchemaHasScopeParam(t *testing.T) {
 	}
 }
 
-// TestIbkrGammaRejectsUnknownScope pins the validation edge: a bogus
+// TestCanaryGammaRejectsUnknownScope pins the validation edge: a bogus
 // scope value surfaces as a tool error (isError=true) rather than
 // hitting the daemon with garbage and getting a generic wire error.
 // MCP-side normalisation keeps the contract close to the CLI's
 // behaviour for --only.
-func TestIbkrGammaRejectsUnknownScope(t *testing.T) {
+func TestCanaryGammaRejectsUnknownScope(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_gamma")
+	tool, ok := lookupTool("canary_gamma")
 	if !ok {
-		t.Fatalf("ibkr_gamma tool not registered")
+		t.Fatalf("canary_gamma tool not registered")
 	}
 	_, err := tool.Handler(context.Background(), nil, json.RawMessage(`{"scope":"nope"}`))
 	if err == nil {
@@ -669,11 +688,11 @@ func TestIbkrGammaRejectsUnknownScope(t *testing.T) {
 	}
 }
 
-func TestIbkrWatchSchemaHasQuoteParams(t *testing.T) {
+func TestCanaryWatchSchemaHasQuoteParams(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_watch")
+	tool, ok := lookupTool("canary_watch")
 	if !ok {
-		t.Fatalf("ibkr_watch tool not registered")
+		t.Fatalf("canary_watch tool not registered")
 	}
 	var schema struct {
 		Properties map[string]struct {
@@ -683,11 +702,11 @@ func TestIbkrWatchSchemaHasQuoteParams(t *testing.T) {
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(tool.JSONSchema, &schema); err != nil {
-		t.Fatalf("decode ibkr_watch schema: %v", err)
+		t.Fatalf("decode canary_watch schema: %v", err)
 	}
 	for _, name := range []string{"include_quotes", "include_positions", "timeout_ms"} {
 		if _, ok := schema.Properties[name]; !ok {
-			t.Fatalf("ibkr_watch schema missing %q", name)
+			t.Fatalf("canary_watch schema missing %q", name)
 		}
 	}
 	if schema.Properties["include_quotes"].Type != "boolean" {
@@ -700,7 +719,7 @@ func TestIbkrWatchSchemaHasQuoteParams(t *testing.T) {
 		t.Fatalf("timeout_ms schema = %+v, want integer minimum 100", schema.Properties["timeout_ms"])
 	}
 	if !strings.Contains(tool.Description, "decision-making monitor") {
-		t.Fatalf("ibkr_watch description should explain the enriched quote use case:\n%s", tool.Description)
+		t.Fatalf("canary_watch description should explain the enriched quote use case:\n%s", tool.Description)
 	}
 	if !strings.Contains(schema.Properties["include_quotes"].Description, "default true") {
 		t.Fatalf("include_quotes description should document the quote-default behavior: %q", schema.Properties["include_quotes"].Description)
@@ -715,11 +734,11 @@ func TestWatchlistQuoteContractUsesHoldingRoute(t *testing.T) {
 	}
 }
 
-func TestIbkrWatchListOnlyRequiresDaemon(t *testing.T) {
+func TestCanaryWatchListOnlyRequiresDaemon(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	tool, ok := lookupTool("ibkr_watch")
+	tool, ok := lookupTool("canary_watch")
 	if !ok {
-		t.Fatalf("ibkr_watch tool not registered")
+		t.Fatalf("canary_watch tool not registered")
 	}
 	_, err := tool.Handler(context.Background(), nil, json.RawMessage(`{"include_quotes":false}`))
 	if err == nil {
@@ -730,11 +749,11 @@ func TestIbkrWatchListOnlyRequiresDaemon(t *testing.T) {
 	}
 }
 
-func TestIbkrCalendarSchemaHasSupportedMarkets(t *testing.T) {
+func TestCanaryCalendarSchemaHasSupportedMarkets(t *testing.T) {
 	t.Parallel()
-	tool, ok := lookupTool("ibkr_calendar")
+	tool, ok := lookupTool("canary_calendar")
 	if !ok {
-		t.Fatalf("ibkr_calendar tool not registered")
+		t.Fatalf("canary_calendar tool not registered")
 	}
 	var schema struct {
 		Properties map[string]struct {
@@ -743,11 +762,11 @@ func TestIbkrCalendarSchemaHasSupportedMarkets(t *testing.T) {
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(tool.JSONSchema, &schema); err != nil {
-		t.Fatalf("decode ibkr_calendar schema: %v", err)
+		t.Fatalf("decode canary_calendar schema: %v", err)
 	}
 	market, ok := schema.Properties["market"]
 	if !ok {
-		t.Fatalf("ibkr_calendar schema missing market property")
+		t.Fatalf("canary_calendar schema missing market property")
 	}
 	if market.Type != "string" {
 		t.Fatalf("market.type = %q, want string", market.Type)
@@ -761,13 +780,13 @@ func TestIbkrCalendarSchemaHasSupportedMarkets(t *testing.T) {
 	}
 }
 
-// TestIbkrRegimeResponseHasCompositeStreaksQuality is the P2 wire-
+// TestCanaryRegimeResponseHasCompositeStreaksQuality is the P2 wire-
 // parity gate: every RegimeSnapshotResult field the CLI consumes must
 // be reachable via the MCP envelope so an MCP-only client sees the
 // same surface. Marshals the rpc shape with all the new optional
 // fields populated, then re-decodes and checks each load-bearing
 // JSON key landed.
-func TestIbkrRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
+func TestCanaryRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC)
 	ratio := 0.91
@@ -826,7 +845,7 @@ func TestIbkrRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
 			Code: "gamma_zero_computing", Scope: "gamma_zero", Severity: "warning",
 			Message: "dealer gamma is still computing", Impact: "gamma is unranked", Action: "retry later",
 		}},
-		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
+		SpecDoc: "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
 	}
 	b, err := json.Marshal(res)
 	if err != nil {
@@ -895,7 +914,7 @@ func TestIbkrRegimeResponseHasCompositeStreaksQuality(t *testing.T) {
 	}
 }
 
-func TestIbkrStressResponseHasSignalsAndFingerprints(t *testing.T) {
+func TestCanaryStressResponseHasSignalsAndFingerprints(t *testing.T) {
 	t.Parallel()
 	res := rpc.StressResult{
 		AsOf:        time.Date(2026, 5, 31, 8, 45, 0, 0, time.UTC),
@@ -926,7 +945,7 @@ func TestIbkrStressResponseHasSignalsAndFingerprints(t *testing.T) {
 		Portfolio:          rpc.StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
 		Market:             rpc.StressMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
 		Warnings:           []string{"stale clusters: vol"},
-		NotExecution:       "Read-only recommendation; no orders are placed by ibkr.",
+		NotExecution:       "Read-only recommendation; no orders are placed by Canary.",
 	}
 	b, err := json.Marshal(res)
 	if err != nil {

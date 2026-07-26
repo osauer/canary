@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(canary account*)",
+      "Bash(canary positions*)",
+      "Bash(canary quote*)",
+      "Bash(canary calendar*)",
+      "Bash(canary watch --json*)",
+      "Bash(canary watch --list*)",
+      "Bash(canary watch --quotes*)",
+      "Bash(canary watch --watch*)",
+      "Bash(canary watch --timeout*)",
+      "Bash(canary chain*)",
+      "Bash(canary history*)",
+      "Bash(canary scan*)",
+      "Bash(canary size*)",
+      "Bash(canary technical*)",
+      "Bash(canary breadth*)",
+      "Bash(canary gamma*)",
+      "Bash(canary regime*)",
+      "Bash(canary stress*)",
+      "Bash(canary brief*)",
+      "Bash(canary rules*)",
+      "Bash(canary market-events*)",
+      "Bash(canary proposals status*)",
+      "Bash(canary proposals list*)",
+      "Bash(canary proposals refresh*)",
+      "Bash(canary opportunities status*)",
+      "Bash(canary opportunities list*)",
+      "Bash(canary opportunities refresh*)",
+      "Bash(canary backtest research-opportunity*)",
+      "Bash(canary settings show*)",
+      "Bash(canary policy show*)",
+      "Bash(canary recon show*)",
+      "Bash(canary trading status*)",
+      "Bash(canary orders open*)",
+      "Bash(canary orders history*)",
+      "Bash(canary order status*)",
+      "Bash(canary order preview*)",
+      "Bash(canary status*)",
+      "Bash(canary version*)"
+    ],
+    "deny": [
+      "Bash(canary daemon purge*)",
+      "Bash(canary daemon reset*)",
+      "Bash(canary daemon wipe*)"
+    ]
+  }
+}

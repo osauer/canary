@@ -4,7 +4,7 @@
 
 ## TOML config
 
-Config file is loaded from `$IBKR_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. Note: defining any `[scans.<name>]` preset replaces the built-in preset set — the scans table is replace-not-merge.
+Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. Note: defining any `[scans.<name>]` preset replaces the built-in preset set — the scans table is replace-not-merge.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -14,7 +14,7 @@ Config file is loaded from `$IBKR_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.to
 | `[auto_trade]` | `proposal_cadence` | `duration` | ProposalCadence controls how often the daemon refreshes protection proposals; default 30s. |
 | `[auto_trade]` | `proposals_enabled` | `*bool` | ProposalsEnabled controls whether the daemon may produce advisory protection proposals; default true, and proposals are not broker orders unless separately submitted by an explicitly enabled trading path — the `[auto_trade]` section name is historical: nothing auto-trades, and the policy's auto_submit stays false. |
 | `[auto_trade]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks policy-file changes; default 30s. |
-| `[daemon]` | `idle_timeout` | `duration` | IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `ibkr daemon --foreground`. |
+| `[daemon]` | `idle_timeout` | `duration` | IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `canary daemon --foreground`. |
 | `[daemon]` | `log_level` | `string` | LogLevel is the daemon's log verbosity — one of "debug", "info" (default), "warn", or "error". |
 | `[flex]` | `enabled` | `bool` | Enabled turns the daily Flex statement fetch on; default false. |
 | `[flex]` | `query_id` | `string` | QueryID is the IBKR Flex query id to fetch (create the query in Account Management with cash transactions, transfers, and equity summary sections); required when enabled. |
@@ -35,8 +35,8 @@ Config file is loaded from `$IBKR_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.to
 | `[scans.<name>]` | `instrument` | `string` | Instrument is the IBKR scanner instrument token, such as STK for US stocks or STOCK.EU for European stocks; empty defaults to STK. |
 | `[scans.<name>]` | `limit` | `int` | Limit caps returned rows for this preset. |
 | `[scans.<name>]` | `timeout` | `duration` | Timeout is the per-preset scan timeout; <=0 falls back to the daemon default (20s). |
-| `[scans.<name>]` | `type` | `string` | Type is the IBKR scanner code, such as TOP_PERC_GAIN; dump your gateway's catalog with `ibkr scan params`. |
-| `[spx]` | `members_auto_refresh` | `*bool` | MembersAutoRefresh controls whether the daemon refreshes the S&P 500 constituent list from Wikipedia daily at 02:30 ET (default true; set false to pin the embedded baseline) — overridden symmetrically by the `IBKR_SPX_MEMBERS_AUTO_REFRESH` env var (`1` force-on, `0` force-off). |
+| `[scans.<name>]` | `type` | `string` | Type is the IBKR scanner code, such as TOP_PERC_GAIN; dump your gateway's catalog with `canary scan params`. |
+| `[spx]` | `members_auto_refresh` | `*bool` | MembersAutoRefresh controls whether the daemon refreshes the S&P 500 constituent list from Wikipedia daily at 02:30 ET (default true; set false to pin the embedded baseline) — overridden symmetrically by the `CANARY_SPX_MEMBERS_AUTO_REFRESH` env var (`1` force-on, `0` force-off). |
 | `[trading]` | `allow_option_sell_to_open` | `bool` | AllowOptionSellToOpen permits option sell-to-open previews when true. |
 | `[trading]` | `allow_stock_short` | `bool` | AllowStockShort permits stock short/opening flip previews when true. |
 | `[trading]` | `max_notional` | `float64` | MaxNotional caps every equity/ETF order before broker WhatIf; apparent close/reduce orders are not exempt because this client cannot prove that a manual TWS order has not already consumed the exit capacity. |
@@ -46,7 +46,7 @@ Config file is loaded from `$IBKR_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.to
 
 ## Protection policy file
 
-Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). No file is required or shipped: when absent, the daemon runs the embedded default — print it with `ibkr policy default protection`. Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.
+Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). No file is required or shipped: when absent, the daemon runs the embedded default — print it with `canary policy default protection`. Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -88,7 +88,7 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 
 ## Opportunity policy file
 
-Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). Same envelope and reload discipline as the protection policy; print the embedded default with `ibkr policy default opportunity`. Governs advisory option-exercise opportunity detection only.
+Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). Same envelope and reload discipline as the protection policy; print the embedded default with `canary policy default opportunity`. Governs advisory option-exercise opportunity detection only.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -109,7 +109,7 @@ Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/p
 
 ## Runtime platform settings
 
-Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `ibkr settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. Setting a key to `null` clears the runtime override, and every response field carries access/source/reason metadata. `trading.freeze` and trading-limit keys require `ibkr settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. Ownership and semantics: `internal-docs/design/platform-settings.md`.
+Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and changed at runtime without a restart. Feature preferences may be changed via `canary settings set <key>=<value>`, the SPA Settings tab, or `PATCH /api/settings`. Setting a key to `null` clears the runtime override, and every response field carries access/source/reason metadata. `trading.freeze` and trading-limit keys require `canary settings set` from an interactive human terminal; missing, agent, and paired-device origins are rejected in disabled, paper, and live modes. Trading-limit keys additionally require an experimental trading build with `[trading].mode` set. Ownership and semantics: `internal-docs/design/platform-settings.md`.
 
 | Key | Value | Class | Description |
 |-----|-------|-------|-------------|
@@ -131,21 +131,21 @@ Read at process startup. Override TOML config where applicable; see the per-var 
 
 | Variable | Description |
 |----------|-------------|
-| `IBKR_AGENT_CONTEXT` | When set (any value), broker writes from this process are classified as agent-origin for audit and origin-specific policy. The variable can only restrict: no environment variable can claim a human origin. |
-| `IBKR_APP_ADDR` | HTTP listen address for `ibkr app`. Defaults to `0.0.0.0:8765` so a paired phone on the LAN can reach the app. |
-| `IBKR_APP_PUBLIC_URL` | Public trusted HTTPS base URL for the `ibkr app` PWA/relay origin. Defaults to a LAN URL for wildcard listen addresses, falling back to loopback when no LAN address is available. |
-| `IBKR_APP_REMOTE` | Enable the outbound Cloudflare Worker relay for `ibkr app`, making pairing URLs reachable through the public relay origin. |
-| `IBKR_APP_REMOTE_URL` | Cloudflare Worker relay base URL for `ibkr app --remote`. Defaults to `https://remote.osauer.dev`. |
-| `IBKR_APP_STATE_DIR` | Directory for `ibkr app` paired devices, alert settings, VAPID keys, and alert history. Defaults to `$XDG_STATE_HOME/ibkr/app` or `$HOME/.local/state/ibkr/app`. |
-| `IBKR_COLOR` | Force terminal colour on (`always`), off (`never`); any other value defers to NO_COLOR + TTY detection. |
-| `IBKR_CONFIG` | Override the config.toml path. Defaults to `$XDG_CONFIG_HOME/ibkr/config.toml` or `$HOME/.config/ibkr/config.toml`. |
-| `IBKR_INSTALL_DIR` | Override the install directory for `ibkr update`. Defaults to `$HOME/.local/bin`. Phase-2 release pipeline uses this to sandbox dog-food installs to a tmp dir. |
-| `IBKR_LOG` | Override the daemon log file path. Defaults to `$HOME/.local/state/ibkr/ibkr-daemon.log`. |
+| `CANARY_AGENT_CONTEXT` | When set (any value), broker writes from this process are classified as agent-origin for audit and origin-specific policy. The variable can only restrict: no environment variable can claim a human origin. |
+| `CANARY_APP_ADDR` | HTTP listen address for `canary app`. Defaults to `0.0.0.0:8765` so a paired phone on the LAN can reach the app. |
+| `CANARY_APP_PUBLIC_URL` | Public trusted HTTPS base URL for the `canary app` PWA/relay origin. Defaults to a LAN URL for wildcard listen addresses, falling back to loopback when no LAN address is available. |
+| `CANARY_APP_REMOTE` | Enable the outbound Cloudflare Worker relay for `canary app`, making pairing URLs reachable through the public relay origin. |
+| `CANARY_APP_REMOTE_URL` | Cloudflare Worker relay base URL for `canary app --remote`. Defaults to `https://remote.osauer.dev`. |
+| `CANARY_APP_STATE_DIR` | Directory for `canary app` paired devices, alert settings, VAPID keys, and alert history. Defaults to `$XDG_STATE_HOME/ibkr/app` or `$HOME/.local/state/ibkr/app`. |
+| `CANARY_COLOR` | Force terminal colour on (`always`), off (`never`); any other value defers to NO_COLOR + TTY detection. |
+| `CANARY_CONFIG` | Override the config.toml path. Defaults to `$XDG_CONFIG_HOME/ibkr/config.toml` or `$HOME/.config/ibkr/config.toml`. |
+| `CANARY_INSTALL_DIR` | Override the install directory for `canary update`. Defaults to `$HOME/.local/bin`. The release pipeline uses this to sandbox dog-food installs to a temporary directory. |
+| `CANARY_LOG` | Override the daemon log file path. Defaults to `$HOME/.local/state/ibkr/ibkr-daemon.log`. |
+| `CANARY_SOCKET` | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`. |
+| `CANARY_SPX_MEMBERS_AUTO_REFRESH` | Symmetric override of `[spx] members_auto_refresh`. `1` force-enables, `0` force-disables, unset / other defers to TOML. |
 | `IBKR_PACKET_LOG_TEMPLATE` | Template path for raw IBKR wire-packet logs. Trailing `/` treats as directory; `%d` placeholder gets the gateway client ID. Unset disables wire logging. |
-| `IBKR_SOCKET` | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`. |
-| `IBKR_SPX_MEMBERS_AUTO_REFRESH` | Symmetric override of `[spx] members_auto_refresh`. `1` force-enables, `0` force-disables, unset / other defers to TOML. |
 | `IBKR_WIRE_INTERCEPTOR` | Enable the account-sensitive decoded wire-frame recorder. Unset or false disables it. |
 | `IBKR_WIRE_LOG_PATH` | Append decoded account-sensitive wire frames as JSONL at this path. Unset keeps frames in memory only. |
 | `IBKR_WIRE_RING_SIZE` | Maximum decoded wire frames retained in memory when the interceptor is enabled; default 256. |
-| `NO_COLOR` | Standard https://no-color.org/ override. Any non-empty value disables colour regardless of IBKR_COLOR (unless IBKR_COLOR=always). |
+| `NO_COLOR` | Standard https://no-color.org/ override. Any non-empty value disables colour regardless of CANARY_COLOR (unless CANARY_COLOR=always). |
 

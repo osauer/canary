@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 // ProtocolVersion is the MCP spec revision we advertise. 2025-03-26 is the
@@ -327,7 +327,7 @@ func (s *Server) handleInitialize(id, _ json.RawMessage) {
 		ProtocolVersion: ProtocolVersion,
 		Capabilities:    caps,
 		ServerInfo: initializeSrvInfo{
-			Name:    "ibkr",
+			Name:    "canary",
 			Version: s.version,
 		},
 		Instructions: s.instructions(),
@@ -338,9 +338,9 @@ func (s *Server) handleInitialize(id, _ json.RawMessage) {
 
 func (s *Server) instructions() string {
 	if s.profile == ProfileMonitor {
-		return "Read-only Interactive Brokers monitor profile. Use `ibkr_stress` first for portfolio risk posture; call `ibkr_status` only for connectivity or degraded-input troubleshooting."
+		return "Read-only Canary monitor profile for Interactive Brokers. Use `canary_stress` first for portfolio risk posture; call `canary_status` only for connectivity or degraded-input troubleshooting."
 	}
-	return "Interactive Brokers tools and resources. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, technical/relative-strength screens, market scans, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio stress read, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: ibkr://quote/{symbol})."
+	return "Canary tools and resources for Interactive Brokers. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, technical/relative-strength screens, market scans, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio stress read, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: canary://quote/{symbol})."
 }
 
 // toolDescriptor is the wire shape MCP expects in tools/list.
@@ -522,27 +522,27 @@ const (
 
 func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
 	switch name {
-	case "ibkr_status", "ibkr_calendar", "ibkr_breadth":
+	case "canary_status", "canary_calendar", "canary_breadth":
 		return mcpFastToolTimeout
-	case "ibkr_scan":
+	case "canary_scan":
 		if scanListModeArgs(args) {
 			return mcpFastToolTimeout
 		}
 		return mcpScannerToolTimeout
-	case "ibkr_scan_params":
+	case "canary_scan_params":
 		return mcpScanParamsTimeout
-	case "ibkr_watch":
+	case "canary_watch":
 		if watchListOnlyArgs(args) {
 			return mcpFastToolTimeout
 		}
 		return mcpWatchQuoteTimeout
-	case "ibkr_chain", "ibkr_gamma":
+	case "canary_chain", "canary_gamma":
 		return mcpLongToolTimeout
-	case "ibkr_technical":
+	case "canary_technical":
 		return mcpScannerToolTimeout
-	case "ibkr_regime":
+	case "canary_regime":
 		return mcpRegimeToolTimeout
-	case "ibkr_stress":
+	case "canary_stress":
 		return mcpScannerToolTimeout
 	default:
 		return mcpDefaultToolTimeout
@@ -584,7 +584,7 @@ func (s *Server) visibleTools() []Tool {
 	if s.profile != ProfileMonitor {
 		return Tools
 	}
-	names := []string{"ibkr_stress", "ibkr_status"}
+	names := []string{"canary_stress", "canary_status"}
 	out := make([]Tool, 0, len(names))
 	for _, name := range names {
 		if tool, ok := lookupTool(name); ok {

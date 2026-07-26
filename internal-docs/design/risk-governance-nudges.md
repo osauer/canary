@@ -46,9 +46,9 @@ not yet proved itself.
 
 The proof is read-only and redacted:
 
-- `ibkr recon show --json` reports an active report, statement source `ok`,
+- `canary recon show --json` reports an active report, statement source `ok`,
   zero unresolved exceptions, and a same-day equity pair.
-- `ibkr policy show --json` reports policy v3, statement-authoritative flows,
+- `canary policy show --json` reports policy v3, statement-authoritative flows,
   and `last_reconcile_source=automatic` for that report.
 - The automatic event occurs once for the report and advances the reconcile
   evidence time without changing the policy fingerprint, peak, tier, or latch.
@@ -585,7 +585,7 @@ Deliverables:
 ```sh
 make test
 make restart-daemon
-ibkr status --json
+canary status --json
 make smoke
 make app-refresh
 make app-refresh-smoke APP_SMOKE_BROWSER=webkit

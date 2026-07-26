@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/xdgcache"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/xdgcache"
 )
 
 // MembersFilename is the canonical filename for the runtime-refreshed
-// members cache. Lives alongside the rest of ibkr's per-feature cache
+// members cache. Lives alongside the rest of Canary's per-feature cache
 // subdirs under $XDG_CACHE_HOME/ibkr/spx-members/.
 const MembersFilename = "sp500-members.json"
 

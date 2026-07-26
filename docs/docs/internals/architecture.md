@@ -1,6 +1,6 @@
 # Architecture
 
-`ibkr` runs on your machine and connects to one Interactive Brokers TWS or IB
+`canary` runs on your machine and connects to one Interactive Brokers TWS or IB
 Gateway session. It adapts that session for humans, AI hosts, and the Canary
 app, and it adds a risk harness. One ownership rule shapes the design:
 
@@ -15,7 +15,7 @@ without daemon RPC.
 
 ## System overview
 
-[![ibkr canary runtime architecture](../../diagrams/system-architecture.svg)](../../diagrams/system-architecture.svg)
+[![Canary runtime architecture](../../diagrams/system-architecture.svg)](../../diagrams/system-architecture.svg)
 
 [PNG fallback](../../diagrams/system-architecture.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
@@ -25,15 +25,15 @@ The numbered columns are six layers of one system: consumers, surface adapters,
 the shared typed contract, daemon authority and domain logic, integration
 clients, and external providers or data.
 
-All local modes ship in the same `ibkr` binary. They differ in lifetime and
+All local modes ship in the same `canary` binary. They differ in lifetime and
 authority.
 
 | Process or surface | Lifetime | Responsibility |
 |---|---|---|
 | CLI / TUI | One command | Validates input, calls the daemon for broker and runtime work, and renders human or JSON output. A few local-only workflows run without the daemon. |
-| `ibkr daemon` | Demand-driven background process or foreground service | Owns the broker connections and all runtime state: `daemon.db`, refreshable in-memory views, schedulers, source ingestion, risk-policy execution, proposals, opportunities, and reconciliation. |
-| `ibkr mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates tools and resources into short daemon calls. The surface serves read, research, and preview work; it exposes no broker-write tools. |
-| `ibkr app` | Independently run or supervised HTTP process | Serves the embedded Canary PWA and owns pairing, auth, and app state. Maintains the live snapshot and quote streams, emits SSE, and can connect to the remote relay and Web Push. |
+| `canary daemon` | Demand-driven background process or foreground service | Owns the broker connections and all runtime state: `daemon.db`, refreshable in-memory views, schedulers, source ingestion, risk-policy execution, proposals, opportunities, and reconciliation. |
+| `canary mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates tools and resources into short daemon calls. The surface serves read, research, and preview work; it exposes no broker-write tools. |
+| `canary app` | Independently run or supervised HTTP process | Serves the embedded Canary PWA and owns pairing, auth, and app state. Maintains the live snapshot and quote streams, emits SSE, and can connect to the remote relay and Web Push. |
 | Canary Paired PWA | Browser or iOS Home Screen app | Renders authenticated snapshots, receives SSE and push notifications, and keeps device-side credentials and recovery state. It is a plain PWA, not an Android Trusted Web Activity. |
 | TWS / IB Gateway | Interactive Brokers process outside this repo | Terminates the local TWS API socket and maintains the broker-managed session. |
 
@@ -98,7 +98,7 @@ MCP side is JSON-RPC 2.0.
 | Flow | Protocol and payload | Notes |
 |---|---|---|
 | Human → CLI | `argv` / stdin; human text or JSON on stdout | One-shot local process. |
-| AI host → `ibkr mcp` | MCP JSON-RPC 2.0, newline-delimited over stdio | The host owns the process lifetime. |
+| AI host → `canary mcp` | MCP JSON-RPC 2.0, newline-delimited over stdio | The host owns the process lifetime. |
 | CLI / MCP / app → daemon | Custom typed newline-delimited JSON request/response frames over a Unix domain socket | The envelope uses project fields such as `ok`, `frame`, `stream`, and `end`. It is not JSON-RPC 2.0. |
 | App live service → daemon | Periodic typed calls plus long-lived quote streams | Feeds one app snapshot/cache and its change fanout. The source-neutral alert snapshot is ingested directly into the app's private inbox store and is excluded from the public live/SSE DTO. |
 | App request routes → daemon | Request-driven typed calls over the same Unix socket | Used where a route needs a fresh action, review, or settings response instead of the cached snapshot. |
@@ -165,7 +165,7 @@ issuer/symbol text, CIK, source URLs, and evidence prose.
 
 ## Data and persistence
 
-[![ibkr canary state ownership and lifecycle](../../diagrams/data-and-persistence.svg)](../../diagrams/data-and-persistence.svg)
+[![Canary state ownership and lifecycle](../../diagrams/data-and-persistence.svg)](../../diagrams/data-and-persistence.svg)
 
 [PNG fallback](../../diagrams/data-and-persistence.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
@@ -196,8 +196,8 @@ durability and upgrade mechanics, and current recovery limits.
 
 ### History and imported observations
 
-The four history commands (`ibkr regime history`, `ibkr rules history`,
-`ibkr stress history`, and `ibkr recon equity`) query `daemon.db` through typed
+The four history commands (`canary regime history`, `canary rules history`,
+`canary stress history`, and `canary recon equity`) query `daemon.db` through typed
 daemon RPC; MCP and the app currently expose no history surface. Order reads use
 the same database authority. There is no `history.db` ingest path, journal scan
 fallback, rotation job, or dual write after cutover, and the legacy decision
@@ -279,7 +279,7 @@ You can run more daemon, gateway, or account scopes, but nothing multiplexes
 them for you. An isolated stack needs its own config, socket, and log, its own
 gateway, account, and client pins, and its own XDG state, cache, and data
 roots. Most durable paths are XDG-global rather than derived from the socket,
-so changing only `IBKR_SOCKET` does not isolate persistence.
+so changing only `CANARY_SOCKET` does not isolate persistence.
 
 ## HTTP app and remote access
 
@@ -308,7 +308,7 @@ is no external metrics stack and no tracing.
   config key sets the level; the default is `info`. The log lives at
   `~/.local/state/ibkr/ibkr-daemon.log` and rotates at boot once it passes
   64 MiB, keeping one older generation. The app logs to `ibkr-app.log`.
-- `ibkr status` renders the daemon's `status.health` report: gateway,
+- `canary status` renders the daemon's `status.health` report: gateway,
   session, and TLS state, uptime, background tasks, subsystem health, data
   quality, data-farm notices, and trading state. It ends in one verdict:
   ready, attention, offline, or starting.
@@ -318,7 +318,7 @@ is no external metrics stack and no tracing.
 - Append-only SQLite events are the evidence trail for orders, regime, rule,
   and stress decisions, proposal outcomes, capital events, and risk-policy
   governance. Mutable documents use compare-and-swap revisions, while coupled
-  state/event changes share one transaction. `ibkr brief` and the CLI history
+  state/event changes share one transaction. `canary brief` and the CLI history
   commands compose or query this typed daemon authority directly.
 
 ## Reference map

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/stress"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/stress"
 )
 
 // Client is the app host's typed daemon capability surface. Implementations

@@ -15,8 +15,8 @@ function ruleTone(status) {
 // brief row shows the worst three non-pass rows hardest-first; the detail
 // grid shows all rows. Read-only by design — no order actions here.
 function renderRulesCard(rules) {
-  const card = $("canaryRulesCard");
-  const detail = $("canaryRulesDetailPanel");
+  const card = $("stressRulesCard");
+  const detail = $("stressRulesDetailPanel");
   if (!card || !detail) return;
   if (!rules || rules.enabled === false || !Array.isArray(rules.rules) || rules.rules.length === 0) {
     card.hidden = true;
@@ -24,12 +24,12 @@ function renderRulesCard(rules) {
     return;
   }
   card.hidden = false;
-  $("canaryRulesCounts").textContent = rulesCountSummary(rules);
+  $("stressRulesCounts").textContent = rulesCountSummary(rules);
 
   const order = Array.isArray(rules.ranked) && rules.ranked.length === rules.rules.length
     ? rules.ranked
     : rules.rules.map((_, i) => i);
-  const brief = $("canaryRulesBrief");
+  const brief = $("stressRulesBrief");
   brief.replaceChildren();
   let shown = 0;
   for (const ix of order) {
@@ -38,7 +38,7 @@ function renderRulesCard(rules) {
     if (shown >= 3) break;
     shown++;
     const pill = document.createElement("span");
-    pill.className = `severity-pill canary-rules__pill ${ruleTone(r.status)}`;
+    pill.className = `severity-pill stress-rules__pill ${ruleTone(r.status)}`;
     pill.textContent = `${r.number} · ${r.title} · ${ruleStatusLabel(r.status, r.reason)}`;
     pill.title = r.evidence || "";
     brief.appendChild(pill);
@@ -58,7 +58,7 @@ function renderRulesCard(rules) {
   }
   renderRulesNotes(noteParts, Boolean(eventNote));
 
-  const button = $("canaryRulesToggle");
+  const button = $("stressRulesToggle");
   button.setAttribute("aria-expanded", state.rulesDetailOpen ? "true" : "false");
   button.textContent = state.rulesDetailOpen ? "Hide rules" : "Show rules";
   detail.hidden = !state.rulesDetailOpen;
@@ -71,9 +71,9 @@ function renderRulesCard(rules) {
 // into one paragraph is what made them unreadable. Each keeps its own block,
 // behind an info affordance so the rule tiles stay at the top of the card.
 function renderRulesNotes(parts, attention) {
-  const trigger = $("canaryRulesNotesToggle");
-  const list = $("canaryRulesNotesList");
-  const dialog = $("canaryRulesNotesDialog");
+  const trigger = $("stressRulesNotesToggle");
+  const list = $("stressRulesNotesList");
+  const dialog = $("stressRulesNotesDialog");
   if (!trigger || !list || !dialog) return;
   trigger.hidden = parts.length === 0;
   if (parts.length === 0) {
@@ -81,8 +81,8 @@ function renderRulesNotes(parts, attention) {
     list.replaceChildren();
     return;
   }
-  $("canaryRulesNotesLabel").textContent = `Data notes · ${parts.length}`;
-  trigger.classList.toggle("canary-rules__notes-trigger--attention", attention);
+  $("stressRulesNotesLabel").textContent = `Data notes · ${parts.length}`;
+  trigger.classList.toggle("stress-rules__notes-trigger--attention", attention);
   list.replaceChildren(...parts.map((part) => {
     const p = document.createElement("p");
     p.textContent = part;
@@ -91,7 +91,7 @@ function renderRulesNotes(parts, attention) {
 }
 
 function renderRulesGrid(rules, order) {
-  const grid = $("canaryRulesGrid");
+  const grid = $("stressRulesGrid");
   if (!grid) return;
   grid.replaceChildren();
   for (const ix of order) {
@@ -113,7 +113,7 @@ function renderRulesGrid(rules, order) {
     const offenders = (r.offenders || []).slice(0, 3);
     if (offenders.length) {
       const list = document.createElement("p");
-      list.className = "canary-rules__offenders";
+      list.className = "stress-rules__offenders";
       list.textContent = offenders.map((o) => (o.leg || o.symbol) + (o.note ? ` — ${o.note}` : "")).join(" · ");
       cardEl.appendChild(list);
     }
@@ -122,18 +122,18 @@ function renderRulesGrid(rules, order) {
 }
 
 function renderStressDetail(stress, snap = state.snapshot || {}) {
-  const panel = $("canaryDetailPanel");
-  const button = $("canaryDetailToggle");
+  const panel = $("stressDetailPanel");
+  const button = $("stressDetailToggle");
   panel.hidden = !state.stressDetailOpen;
   button.textContent = state.stressDetailOpen ? "Hide detail" : "Show detail";
   button.setAttribute("aria-expanded", String(state.stressDetailOpen));
   if (!state.stressDetailOpen) return;
 
-  $("canaryDetailGrid").replaceChildren(...stressExplanationCards(stress, snap).map(detailCard));
+  $("stressDetailGrid").replaceChildren(...stressExplanationCards(stress, snap).map(detailCard));
   renderHeldStress(stress);
 
   const rows = stressDriverRows(stress);
-  $("canaryDrivers").replaceChildren(...(rows.length > 0 ? rows.map(stressDriverRow) : [stressEmptyDriverRow()]));
+  $("stressDrivers").replaceChildren(...(rows.length > 0 ? rows.map(stressDriverRow) : [stressEmptyDriverRow()]));
 }
 
 function stressDriverRows(stress) {
@@ -172,7 +172,7 @@ function stressDriverRow(row = {}) {
   const label = document.createElement("span");
   label.textContent = stressDriverLabel(row);
   const title = document.createElement("b");
-  title.textContent = row.title || "Canary driver";
+  title.textContent = row.title || "Stress driver";
   const body = document.createElement("p");
   body.textContent = [row.guidance, row.evidence ? `Evidence: ${row.evidence}` : ""].filter(Boolean).join(" ");
   item.append(label, title, body);
@@ -185,7 +185,7 @@ function stressEmptyDriverRow() {
   const label = document.createElement("span");
   label.textContent = "Context";
   const title = document.createElement("b");
-  title.textContent = "No active canary drivers";
+  title.textContent = "No active stress drivers";
   const body = document.createElement("p");
   body.textContent = "The current snapshot has no warning, action, or data-quality rows to review.";
   item.append(label, title, body);
@@ -221,8 +221,8 @@ function stressExplanationCards(stress, snap = state.snapshot || {}) {
 
 function renderStressStatus(stress) {
   const severity = String(stress.severity || "").toLowerCase();
-  const hero = $("canaryHero");
-  const pill = $("canarySeverity");
+  const hero = $("stressHero");
+  const pill = $("stressSeverity");
   hero.classList.remove("severity-act", "severity-watch", "severity-observe");
   pill.classList.remove("severity-act", "severity-watch", "severity-observe");
   if (severity === "act") {
@@ -260,7 +260,7 @@ function firstClause(text) {
 }
 
 function stressSummaryText(stress, snap = {}) {
-  const fallback = stress.summary || "Waiting for canary snapshot.";
+  const fallback = stress.summary || "Waiting for stress snapshot.";
   if (stressHasProvisionalOnlyMarketWarning(stress)) {
     const fit = String(stress.portfolio_fit || "").toLowerCase();
     const exposure = ["high", "medium"].includes(fit) ? " and portfolio exposure is elevated" : "";
@@ -276,7 +276,7 @@ function stressSummaryText(stress, snap = {}) {
   const actionLine = confirmation === "confirmed"
     ? "verify before escalation."
     : "no market-stress action.";
-  return `${prefix}; ${issueLine} before treating canary as a market signal; ${actionLine}`;
+  return `${prefix}; ${issueLine} before treating the stress read as a market signal; ${actionLine}`;
 }
 
 function stressHasProvisionalOnlyMarketWarning(stress) {
@@ -347,7 +347,7 @@ function marketExplanation(stress) {
     String(posture.tone || "").toLowerCase() === "data_quality";
   const body = tone === "warn" || hasGaps
     ? "Market stress is not confirmed, but the regime read has watch or data-quality warnings."
-    : "The broad-market regime is not giving a fully confirmed canary trigger.";
+    : "The broad-market regime is not giving a fully confirmed stress signal.";
   return {
     label: "Market",
     title: verdict === "--" ? "No clear market stress" : verdict,
@@ -405,7 +405,7 @@ function portfolioExplanation(stress, snap = state.snapshot || {}) {
   return {
     label: "Portfolio",
     title: fit === "low" ? "Exposure looks contained" : cleanDetail(stress.portfolio?.largest_exposure),
-    body: "The current portfolio shape is not the main reason for a defensive canary action." + protectionLine,
+    body: "The current portfolio shape is not the main reason for a defensive stress action." + protectionLine,
     tone: "ok",
   };
 }
@@ -424,7 +424,7 @@ function protectionCoverageStressLine(stress = {}, snap = state.snapshot || {}) 
 }
 
 function renderStressTimestamp(stress) {
-  renderFreshnessTimestamp("canaryAsOf", stress.as_of, { staleMinutes: 5, compact: true, quietWhenFresh: true });
+  renderFreshnessTimestamp("stressAsOf", stress.as_of, { staleMinutes: 5, compact: true, quietWhenFresh: true });
   reconcileSignalPanelTimes();
 }
 
@@ -434,7 +434,7 @@ function renderStressTimestamp(stress) {
 // ("now · now"), so collapse to the regime span alone.
 function reconcileSignalPanelTimes() {
   const regime = $("regimeAsOf");
-  const stress = $("canaryAsOf");
+  const stress = $("stressAsOf");
   if (!regime || !stress) return;
   const duplicate = regime.textContent === stress.textContent;
   stress.hidden = stress.hidden || duplicate;
@@ -512,15 +512,15 @@ function marketQuoteInterruptedLine(quote, marketQuotes, hasPrice) {
 function marketQuoteFallback(symbol, market = {}) {
   switch (symbol) {
     case "SPY":
-      return { price: market.spy_price, changePct: market.spy_change_pct, source: "canary market read" };
+      return { price: market.spy_price, changePct: market.spy_change_pct, source: "stress read" };
     case "QQQ":
       return {
         price: firstNumber(market.qqq_price, market.ndx_price, market.nasdaq_price, market.nasdaq_100_price),
         changePct: firstNumber(market.qqq_change_pct, market.ndx_change_pct, market.nasdaq_change_pct, market.nasdaq_100_change_pct),
-        source: "canary market read",
+        source: "stress read",
       };
     case "VIX":
-      return { price: market.vix, changePct: market.vix_change_pct, source: "canary market read" };
+      return { price: market.vix, changePct: market.vix_change_pct, source: "stress read" };
     default:
       return { price: null, changePct: null, source: "IBKR quote pending" };
   }
@@ -965,7 +965,7 @@ function marketHasDataGaps(market = {}) {
 function stressInputCheckSentence(stress) {
   const issues = stressInputIssueSummary(stress, state.snapshot || {});
   return issues
-    ? `Refresh or verify ${issues} before treating the canary as a market signal.`
+    ? `Refresh or verify ${issues} before treating the stress read as a market signal.`
     : "Use the detail rows before acting.";
 }
 

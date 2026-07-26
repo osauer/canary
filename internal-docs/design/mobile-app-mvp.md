@@ -1,4 +1,4 @@
-# ibkr Mobile App MVP
+# Canary Mobile App MVP
 
 Updated: 2026-06-07 22:11 CEST
 
@@ -9,8 +9,8 @@ describes the MVP release, not the current product.
 
 ## Goal
 
-Ship the smallest useful application layer for mobile access to the local IBKR
-daemon: a HyperServe-backed `ibkr app` process that serves a paired PWA, streams
+Ship the smallest useful application layer for mobile access to the local Canary
+daemon connected to IBKR: a HyperServe-backed `canary app` process that serves a paired PWA, streams
 live state over SSE, and sends opt-in Web Push stress alerts.
 
 The MVP proves these boundaries:
@@ -27,12 +27,12 @@ The MVP proves these boundaries:
 
 ## First Connection
 
-1. The user starts the host with `ibkr app` or installs it with `ibkr setup app`.
-2. On the Mac, `ibkr app pair` asks the running app host for a short-lived
+1. The user starts the host with `canary app` or installs it with `canary setup app`.
+2. On the Mac, `canary app pair` asks the running app host for a short-lived
    pairing session and prints a QR code plus URL.
 3. The QR contains a pairing id and nonce, not a durable device or session
    credential.
-4. The phone loads the PWA from `IBKR_APP_PUBLIC_URL`. In production this should
+4. The phone loads the PWA from `CANARY_APP_PUBLIC_URL`. In production this should
    be a trusted HTTPS relay origin. Local HTTP is only a LAN/dev fallback.
 5. The browser generates a P-256 ECDSA device keypair with Web Crypto.
 6. The browser signs the pairing nonce and submits the public JWK, nonce, and
@@ -48,11 +48,11 @@ The MVP proves these boundaries:
 
 ```mermaid
 flowchart LR
-  Phone["iPhone PWA"] -->|"LAN dev HTTP"| App["ibkr app HyperServe"]
+  Phone["iPhone PWA"] -->|"LAN dev HTTP"| App["canary app HyperServe"]
   Phone -->|"Remote HTTPS"| Relay["Cloudflare Worker relay"]
   Relay -->|"Routes HTTP/SSE"| App
   App -->|"Outbound connector"| Relay
-  App -->|"Unix socket RPC"| Daemon["ibkr daemon"]
+  App -->|"Unix socket RPC"| Daemon["canary daemon"]
   Daemon -->|"TWS/GW API"| TWS["IBKR TWS/Gateway"]
   App -->|"Web Push stress alerts"| Push["Browser push service"]
   Push --> Phone
@@ -100,7 +100,7 @@ Threats considered for MVP:
 
 ## Repo Boundaries
 
-- `cmd/ibkr/app.go`: CLI entry for serving and pairing.
+- `cmd/canary/app.go`: CLI entry for serving and pairing.
 - `internal/app`: composition, config, lifecycle, and dependency wiring only.
 - `internal/app/http`: HyperServe routes, middleware, DTO edge, SSE.
 - `internal/app/auth`: pairing sessions, device grants, challenges, sessions.
@@ -126,4 +126,4 @@ At the MVP release, the following work was deferred:
 - Trading approvals and any two-way atomic risk-manager workflow.
 - Android support.
 - Mac sleep mitigation beyond documenting that alerts require the Mac, TWS/GW,
-  and `ibkr app` to be awake.
+  and `canary app` to be awake.

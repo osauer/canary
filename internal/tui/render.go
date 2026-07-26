@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
 const (
@@ -105,7 +107,7 @@ func promptLines(m *model, width int) []string {
 }
 
 func promptPrefix(m *model) string {
-	prefix := styleOK("ibkr> ")
+	prefix := styleOK(productidentity.Executable + "> ")
 	if m.confirm != nil {
 		prefix = styleWarn("confirm> ")
 	}

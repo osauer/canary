@@ -34,14 +34,14 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   Never place, modify, cancel, submit, exercise, purge, or restore through the
   paired PWA or browser automation; Browser use is read-only QA.
 - One exception, and only this one: the release target's fixed paper round-trip
-  (`ibkr trading paper-smoke`, reachable only through `make release`) places a
+  (`canary trading paper-smoke`, reachable only through `make release`) places a
   one-share far-off-market SPY limit order and cancels it. Authorizing a named
   release authorizes that round-trip; it is not a separate broker write and
   needs no second transaction-specific instruction. The exemption attaches to
   that verb alone — it covers no other order, symbol, size, account, or
   invocation — and the paper pin, far-off-market limit, acknowledgement, and
   self-cancel remain binding.
-- `ibkr settings set trading.freeze=true` and all freeze/limit changes are
+- `canary settings set trading.freeze=true` and all freeze/limit changes are
   human-only. Never weaken trading guardrails in code, config, hooks, tests, or
   docs without an explicit human decision about that exact policy change.
 - This is a single-trader desk: recurring manual sign-off rituals — routine
@@ -65,7 +65,7 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
 ## Route specialized work
 
 - Account, order, rulebook, proposal, opportunity, or protection investigation:
-  load `.agents/skills/ibkr-harness/SKILL.md`; start with read-only `ibkr ... --json`
+  load `.agents/skills/canary-harness/SKILL.md`; start with read-only `canary ... --json`
   status/settings/trading/rules/proposals/orders surfaces, then inspect code only
   for gaps the artifacts expose. For Rulebook semantics and authority, read
   `internal-docs/design/trading-rulebook.md`.
@@ -85,7 +85,7 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   single human stop — present findings, then fire; do not ask for the same
   authority a second time in prose.
 - `internal/mcp/**`: read `.claude/rules/mcp-tool-descriptions.md`.
-- Any new `IBKR_*` environment read: add its `// docgen:env` contract and run
+- Any new `CANARY_*` or broker-specific `IBKR_*` environment read: add its `// docgen:env` contract and run
   `make docs-regen`; `.claude/rules/env-var-docgen.md` has the exact convention.
 
 ## Verification and evidence
@@ -99,7 +99,7 @@ Gateway tests serialize through `scripts/with-gateway-lock.sh`; a busy gateway
 is a wait, not a flake. Report skips and first failures explicitly.
 
 After daemon or CLI edits, orchestrating sessions on the primary tree run
-`make restart-daemon`, then capture redacted `ibkr status --json` evidence
+`make restart-daemon`, then capture redacted `canary status --json` evidence
 plus a command exercising the change. Do not use `pkill` for normal restarts.
 `make smoke` uses an isolated daemon and does not refresh the installed one.
 
@@ -129,13 +129,13 @@ releases, not on commits. Check `git log origin/main..HEAD` first and confirm it
 holds only your own reviewed commits: a push carries every local commit, and
 this tree runs concurrent sessions.
 
-Before editing or pushing public `osauer.dev/ibkr` copy, verify the active Pages
-publisher with `gh api repos/osauer/ibkr/pages` and a live header request. Do not
+Before editing or pushing public `osauer.dev/canary` copy, verify the active Pages
+publisher with `gh api repos/osauer/canary/pages` and a live header request. Do not
 infer ownership from neighboring website repos. Cloudflare relay deployment is
 a separate explicit go/no-go; never deploy it as a side effect.
 
 When asked to show Canary in Codex, use the in-app Browser and the paired app
-served by `ibkr app`; do not use macOS `open`. Keep the shared host LAN-capable
+served by `canary app`; do not use macOS `open`. Keep the shared host LAN-capable
 on `0.0.0.0:8765` and use `http://127.0.0.1:8765` in Codex.
 
 The project `.codex` hooks, rules, and reviewer roles load only in trusted

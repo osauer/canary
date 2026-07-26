@@ -9,7 +9,7 @@ The terminal output below comes from the repository's fixture renderer (`go run 
 ## 1. Prove the gateway is reachable
 
 ```sh
-ibkr status
+canary status
 ```
 
 ```
@@ -28,24 +28,24 @@ Read the `Session` row next. The port names which IBKR app you actually reached:
 
 Skip `SPX members` on a first run. It reports the constituent list behind the breadth indicator and says nothing about your connection.
 
-`ibkr status` exits 1 when the gateway is not connected, so it works as a guard in a script. Anything other than `READY` is covered in [Troubleshooting](troubleshooting.md).
+`canary status` exits 1 when the gateway is not connected, so it works as a guard in a script. Anything other than `READY` is covered in [Troubleshooting](troubleshooting.md).
 
 ## 2. Read the account
 
 ```sh
-ibkr account
+canary account
 ```
 
 You get net liquidation and daily P&L on top, then balances, session P&L, margin, look-ahead margin, and the total P&L that IBKR's `reqPnL` stream reports. A multi-currency account gets a currency-exposure table underneath with the FX rate used for each leg.
 
-One figure carries into everything else: net liquidation. `ibkr size` reads it from this same account snapshot and expresses risk as a percentage of it, so an NLV that looks wrong makes every later sizing wrong in the same direction.
+One figure carries into everything else: net liquidation. `canary size` reads it from this same account snapshot and expresses risk as a percentage of it, so an NLV that looks wrong makes every later sizing wrong in the same direction.
 
 Leave the look-ahead margin block alone for now. It answers what happens at the next margin cycle, which matters when you are near a limit and not before.
 
 ## 3. Read the book as risk
 
 ```sh
-ibkr positions --by underlying
+canary positions --by underlying
 ```
 
 `--by underlying` puts each stock together with the options written on it, so a covered call sits under its shares instead of in a separate table. The block under the groups is the part worth your time:
@@ -68,7 +68,7 @@ Check `Greeks coverage` before you trust the Greek rollups above it. It counts t
 ## 4. Quote a symbol
 
 ```sh
-ibkr quote SPY
+canary quote SPY
 ```
 
 The fixture renders three symbols at once so the freshness cases sit side by side:
@@ -88,21 +88,21 @@ A dash in the NVDA row marks a field that never arrived. The daemon leaves an ab
 ## 5. Let one command assemble the rest
 
 ```sh
-ibkr brief
+canary brief
 ```
 
-`ibkr brief` is the assembled read. `Review` covers the last completed session: session P&L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.
+`canary brief` is the assembled read. `Review` covers the last completed session: session P&L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.
 
-Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. `ibkr brief --json` renders without stamping, and an agent-origin invocation prints `agent-origin render — not stamped`. There is no MCP tool for `brief`; it is a CLI surface.
+Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. `canary brief --json` renders without stamping, and an agent-origin invocation prints `agent-origin render — not stamped`. There is no MCP tool for `brief`; it is a CLI surface.
 
 ## 6. Read the market context
 
 ```sh
-ibkr regime
-ibkr stress
+canary regime
+canary stress
 ```
 
-`ibkr regime` returns the eight-row stress dashboard plus a lifecycle stage. `ibkr stress` asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.
+`canary regime` returns the eight-row stress dashboard plus a lifecycle stage. `canary stress` asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.
 
 Two of the regime rows are heavy computes and will not be ready on a cold daemon. Gamma reports `status: "computing"` with an ETA and progress, and the first-ever breadth build is paced by IBKR's historical-data limits into about 74 minutes of wall clock. Neither is broken; both fill in.
 
@@ -114,13 +114,13 @@ With an MCP host wired up, the same reads happen as tool calls. Ask the question
 
 | Ask | Tool the host calls |
 | --- | --- |
-| "How does my account look right now?" | `ibkr_account`, then `ibkr_positions` |
-| "Is SPY quoting live or delayed?" | `ibkr_quote` |
-| "How does the market regime look?" | `ibkr_regime` |
+| "How does my account look right now?" | `canary_account`, then `canary_positions` |
+| "Is SPY quoting live or delayed?" | `canary_quote` |
+| "How does the market regime look?" | `canary_regime` |
 
 The answers are the same data with the interpretation written out, which is most of the value on the regime and stress surfaces. [Working with agents](../operate/agents.md) has the setup commands and a longer list of worked examples.
 
-Two boundaries are worth knowing before you start asking. The bundled MCP surface has no order-entry tools, so no host can place, modify, or cancel an order through it. And several CLI surfaces have no MCP tool at all, `brief` among them, along with the advisory `ibkr policy` and `ibkr recon`.
+Two boundaries are worth knowing before you start asking. The bundled MCP surface has no order-entry tools, so no host can place, modify, or cancel an order through it. And several CLI surfaces have no MCP tool at all, `brief` among them, along with the advisory `canary policy` and `canary recon`.
 
 ## Where to go next
 

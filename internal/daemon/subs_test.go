@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // fakeConnector implements ibkrMarketConnector for unit-testing the

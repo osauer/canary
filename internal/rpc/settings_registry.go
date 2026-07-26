@@ -45,7 +45,7 @@ type SettingsKeySpec struct {
 	// Class selects the writability gate.
 	Class string
 	// Doc is the one-sentence plain-English description rendered in
-	// `ibkr settings set --help` and the generated configuration reference.
+	// `canary settings set --help` and the generated configuration reference.
 	Doc string
 }
 

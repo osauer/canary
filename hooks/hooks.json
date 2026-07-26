@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ibkr-pre-tool-use.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/canary-pre-tool-use.sh\""
           }
         ]
       }

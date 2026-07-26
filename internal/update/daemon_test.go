@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 func TestRestartDaemon_InvalidPID(t *testing.T) {
@@ -22,7 +22,7 @@ func TestRestartDaemon_InvalidPID(t *testing.T) {
 	}
 }
 
-func TestLooksLikeIBKRDaemon(t *testing.T) {
+func TestLooksLikeProductDaemon(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -32,14 +32,22 @@ func TestLooksLikeIBKRDaemon(t *testing.T) {
 		{"plain path", "/Users/me/.local/bin/ibkr daemon", true},
 		{"foreground", "/Users/me/.local/bin/ibkr daemon --foreground", true},
 		{"bare command", "ibkr daemon", true},
+		{"canonical path", "/Users/me/.local/bin/canary daemon", true},
+		{"canonical foreground", "canary daemon --foreground", true},
 		{"mcp is not daemon", "/Users/me/.local/bin/ibkr mcp", false},
+		{"canonical mcp is not daemon", "/Users/me/.local/bin/canary mcp", false},
 		{"daemon word is not subcommand", "/Users/me/.local/bin/ibkr status daemon", false},
+		{"prefixed echo cannot forge canonical daemon", "echo /Users/me/.local/bin/canary daemon", false},
+		{"prefixed echo cannot forge legacy daemon", "echo /Users/me/.local/bin/ibkr daemon", false},
+		{"shell wrapper is not directly signalable daemon", "/bin/sh -c /Users/me/.local/bin/canary daemon", false},
+		{"env wrapper is not directly signalable daemon", "/usr/bin/env canary daemon", false},
+		{"similar executable is not daemon", "/Users/me/.local/bin/canary-helper daemon", false},
 		{"unrelated", "/bin/sleep 30", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := looksLikeIBKRDaemon(tc.line); got != tc.want {
-				t.Fatalf("looksLikeIBKRDaemon(%q) = %v, want %v", tc.line, got, tc.want)
+			if got := looksLikeProductDaemon(tc.line); got != tc.want {
+				t.Fatalf("looksLikeProductDaemon(%q) = %v, want %v", tc.line, got, tc.want)
 			}
 		})
 	}

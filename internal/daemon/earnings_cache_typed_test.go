@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type earningsRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -250,6 +250,13 @@ func TestFetchNasdaqEarningsBareClientErrorsAreProtocolFailures(t *testing.T) {
 				t.Fatalf("failure = %+v", result.Failure)
 			}
 		})
+	}
+}
+
+func TestEarningsNasdaqUserAgentUsesCanonicalProductIdentity(t *testing.T) {
+	t.Parallel()
+	if !strings.HasSuffix(earningsNasdaqUserAgent, " canary-earnings/1.0") {
+		t.Fatalf("Nasdaq User-Agent = %q", earningsNasdaqUserAgent)
 	}
 }
 

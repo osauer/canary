@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Resource template URIs exposed by the streaming MCP surface. Streaming
@@ -17,9 +17,9 @@ import (
 // an explicit option contract at the resource-to-daemon seam and end-to-end
 // subscription verification; it must not reuse the stock template contract.
 const (
-	StockQuoteURITemplate = "ibkr://quote/{symbol}"
+	StockQuoteURITemplate = "canary://quote/{symbol}"
 
-	stockQuoteScheme = "ibkr://quote/"
+	stockQuoteScheme = "canary://quote/"
 )
 
 // ResourceTemplate is the wire shape returned by resources/templates/list.
@@ -62,7 +62,7 @@ type parsedURI struct {
 // as an MCP invalid-params response.
 //
 // Accepted shape:
-//   - ibkr://quote/AAPL  → sym="AAPL"
+//   - canary://quote/AAPL  → sym="AAPL"
 func parseQuoteURI(uri string) (parsedURI, error) {
 	uri = strings.TrimSpace(uri)
 	if !strings.HasPrefix(uri, stockQuoteScheme) {
@@ -77,7 +77,7 @@ func parseQuoteURI(uri string) (parsedURI, error) {
 
 // uriContainsTradingVerb is the safety counterpart for resource URIs,
 // parallel to TestNoTradingTools' check on tool names. Catches a
-// contributor adding a `ibkr://order/...` template by mistake.
+// contributor adding a `canary://order/...` template by mistake.
 //
 //lint:ignore U1000 Retained as a package-local helper for the safety test.
 func uriContainsTradingVerb(uri string) (bool, string) {

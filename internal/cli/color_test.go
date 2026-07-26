@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // ShouldColor returns false for non-*os.File writers (bytes.Buffer is the
-// canonical test/output target). NO_COLOR and IBKR_COLOR=never also force
-// off; IBKR_COLOR=always overrides the TTY check. The variable order
+// canonical test/output target). NO_COLOR and CANARY_COLOR=never also force
+// off; CANARY_COLOR=always overrides the TTY check. The variable order
 // (always > never > NO_COLOR > TTY) lets users force-on for piping into
 // `less -R` without losing the global NO_COLOR opt-out elsewhere.
 func TestShouldColorPolicy(t *testing.T) {
@@ -22,9 +22,9 @@ func TestShouldColorPolicy(t *testing.T) {
 	}{
 		{"buffer alone is not a TTY", nil, true},
 		{"NO_COLOR set forces off", map[string]string{"NO_COLOR": "1"}, true},
-		{"IBKR_COLOR=never forces off", map[string]string{"IBKR_COLOR": "never"}, true},
-		{"IBKR_COLOR=always forces on", map[string]string{"IBKR_COLOR": "always"}, false},
-		{"IBKR_COLOR=always wins over NO_COLOR", map[string]string{"IBKR_COLOR": "always", "NO_COLOR": "1"}, false},
+		{"CANARY_COLOR=never forces off", map[string]string{"CANARY_COLOR": "never"}, true},
+		{"CANARY_COLOR=always forces on", map[string]string{"CANARY_COLOR": "always"}, false},
+		{"CANARY_COLOR=always wins over NO_COLOR", map[string]string{"CANARY_COLOR": "always", "NO_COLOR": "1"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -366,7 +366,7 @@ func TestAccountColoring(t *testing.T) {
 // Run on an unknown subcommand prints the full top-level usage to stderr
 // and returns exit code 2. This guards the "discoverability on typo"
 // behavior — pre-fix only the bare error line was shown and users had
-// to know to type `ibkr --help` next.
+// to know to type `canary --help` next.
 func TestRunUnknownPrintsUsage(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
@@ -382,7 +382,7 @@ func TestRunUnknownPrintsUsage(t *testing.T) {
 	if !strings.Contains(out, "Subcommands:") {
 		t.Errorf("expected full usage in stderr:\n%s", out)
 	}
-	if !strings.Contains(out, "ibkr <subcommand> --help") {
+	if !strings.Contains(out, "canary <subcommand> --help") {
 		t.Errorf("expected --help hint in stderr:\n%s", out)
 	}
 }
@@ -396,11 +396,11 @@ func TestPrintUsageMentionsDiscoveryHints(t *testing.T) {
 	PrintUsage(&w)
 	out := w.String()
 	for _, want := range []string{
-		"ibkr <subcommand> --help",
+		"canary <subcommand> --help",
 		"--json",
 		"NO_COLOR",
-		"IBKR_COLOR",
-		"ibkr status",
+		"CANARY_COLOR",
+		"canary status",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("PrintUsage missing %q:\n%s", want, out)

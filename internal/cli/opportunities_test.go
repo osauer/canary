@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestOpportunitiesSubcommandIndexFindsHoistedSubcommand(t *testing.T) {
@@ -39,7 +39,7 @@ func TestRunOpportunitiesGroupHelp(t *testing.T) {
 			}
 			got := stdout.String()
 			for _, want := range []string{
-				"ibkr opportunities",
+				"canary opportunities",
 				"Daemon-owned option exercise opportunities",
 				"status|refresh|list|preview|exercise|ignore",
 			} {
@@ -92,7 +92,7 @@ func TestRenderOpportunitiesText(t *testing.T) {
 	})
 	got := stdout.String()
 	for _, want := range []string{
-		"IBKR Opportunities  1 actionable / 1 total",
+		"Canary Opportunities  1 actionable / 1 total",
 		"Expected gain",
 		"option_exercise:key",
 		"gain=$ 100.00",

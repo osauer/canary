@@ -2,7 +2,7 @@
 
 Updated: 2026-07-25 09:22 CEST
 
-Stable `ibkr` is read-only. It can read account and market data, compute risk context, size positions, and preview stock/ETF LMT order drafts without broker submission. It does not place, modify, cancel, or transmit broker orders.
+Stable `canary` is read-only. It can read account and market data, compute risk context, size positions, and preview stock/ETF LMT order drafts without broker submission. It does not place, modify, cancel, or transmit broker orders.
 
 Trading builds are a separate experimental path. They are provided as-is for explicit operator testing, not as the default product and not as an unattended automation surface.
 
@@ -28,8 +28,8 @@ To activate it, remove the `.trading` suffix:
 
 ```sh
 mv ~/.config/ibkr/config.toml.trading ~/.config/ibkr/config.toml
-ibkr restart
-ibkr trading status
+canary restart
+canary trading status
 ```
 
 Before doing that, verify the pinned account, endpoint, and client ID. Trading config must not rely on account auto-detection.
@@ -65,8 +65,8 @@ User-facing proposal copy should render any reducing short `BUY` as `Buy to cove
 
 ## Release channel
 
-Every release publishes both builds side by side. The standard artifact keeps the plain `ibkr-vX.Y.Z-<os>-<arch>.tar.gz` name and is read-only; the broker-write build is named `ibkr-trading-...` and carries a `TRADING-WARNING.md`.
+Every release publishes both builds side by side. The standard artifact keeps the plain `canary-vX.Y.Z-<os>-<arch>.tar.gz` name and is read-only; the broker-write build is named `canary-trading-...` and carries a `TRADING-WARNING.md`.
 
-`ibkr update` and `install.sh` match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.
+`canary update` and `install.sh` match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.
 
 MCP order writes stay out of both builds. There are no order-entry tools on the MCP surface, and adding any would need its own review, nonce, audit, and human-confirmation model first.

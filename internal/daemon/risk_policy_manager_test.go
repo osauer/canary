@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const validRiskPolicyTOML = `
@@ -83,6 +83,20 @@ func TestRiskPolicyManagerLoadsValidFile(t *testing.T) {
 	}
 	if got := snap.policy.UnapprovedKeys(); len(got) != 0 {
 		t.Fatalf("fully specified file reports unapproved keys: %v", got)
+	}
+}
+
+func TestRiskPolicyManagerRejectsRetiredCanaryInventoryPin(t *testing.T) {
+	t.Parallel()
+	text := validRiskPolicyTOML + `
+[inventory.canary]
+id = "active-v1"
+version = "risk-policy-v1"
+`
+	manager, _ := newTestRiskPolicyManager(t, text)
+	snapshot := manager.snapshot()
+	if snapshot.status != rpc.RiskPolicyStatusError || !strings.Contains(snapshot.message, "unknown risk policy key(s): inventory.canary") {
+		t.Fatalf("retired pin snapshot status=%s message=%q", snapshot.status, snapshot.message)
 	}
 }
 

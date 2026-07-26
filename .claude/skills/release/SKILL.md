@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut an ibkr release end-to-end with exactly one human stop. Autonomously preflights auth (verify-first Actions-OIDC), shared-tree state, version stamps, changelog, and gates; presents a findings-first GO/NO-GO; then fires and supervises `make release` and runs the full post-release verification (assets, tags, registry, fresh-clone build, live site stamps). Use when asked to cut, ship, prepare, or verify a release. Never tags, pushes, or creates GitHub releases directly; never force-pushes; never implements feature code in-release.
+description: Cut a Canary release end-to-end with exactly one human stop. Autonomously preflights auth (verify-first Actions-OIDC), shared-tree state, version stamps, changelog, and gates; presents a findings-first GO/NO-GO; then fires and supervises `make release` and runs the full post-release verification (assets, tags, registry, fresh-clone build, live site stamps). Use when asked to cut, ship, prepare, or verify a release. Never tags, pushes, or creates GitHub releases directly; never force-pushes; never implements feature code in-release.
 ---
 
 Updated: 2026-07-19 08:34 CEST
@@ -136,23 +136,30 @@ questions go to the user. Never weaken a gate to reach GO.
 
 ## Stage 7 — Post-release verification (autonomous)
 
-- `gh release view vX.Y.Z --json assets,isDraft` — expect 12 assets, not draft.
-- `git ls-remote --tags origin` — both tag families (`vX.Y.Z`, `ibkr--vX.Y.Z`)
-  at the release commit.
+- `gh release view vX.Y.Z --json assets,isDraft` — expect 12 assets, not draft:
+  four canonical read-only `canary-*` archives, four canonical
+  `canary-trading-*` archives, canonical `canary-vX.Y.Z.mcpb` and
+  `canary.mcpb`, `SHA256SUMS`, and
+  `SHA256SUMS.asc`.
+- `git ls-remote --tags origin` — both tag families (`vX.Y.Z`,
+  `canary--vX.Y.Z`) point at the release commit.
 - Registry: wait ≥2 minutes after the publish leg (an early query catches the
   Actions leg mid-flight and reads like a strand), then
   `curl 'https://registry.modelcontextprotocol.io/v0/servers?search=osauer&version=latest'`
-  and expect the exact version. Heal only after a real timeout:
+  and require both exact server name `io.github.osauer/canary` and the exact
+  version. An immutable `io.github.osauer/ibkr` entry is not release proof,
+  even if it happens to carry that version. Heal only after a real timeout:
   `make registry-publish RELEASE_VERSION=vX.Y.Z`.
-- Fresh clone (public-surface proof): clone the public repo into the
-  scratchpad, `git checkout vX.Y.Z && make build`, assert `./bin/ibkr version`
-  prints vX.Y.Z.
+- Fresh clone (public-surface proof): clone `osauer/canary` into the
+  scratchpad, `git checkout vX.Y.Z && make build`, assert
+  `./bin/canary version` prints vX.Y.Z and no `bin/ibkr` executable or symlink
+  exists.
 - Live site (non-patch): verify the Pages publisher and a live header, and
   that all coupled freshness stamps moved — JSON-LD `softwareVersion` and
   `dateModified`, sitemap lastmods, `llms.txt` / `llms-full.txt`.
 - Local install: `make restart-daemon` — use `FORCE=1` when the running daemon
   predates the install (the skip check compares the installed file, not the
-  running process) — then capture redacted `ibkr status --json` evidence.
+  running process) — then capture redacted `canary status --json` evidence.
 - If Dependabot files post-tag alerts, run a fresh `govulncheck ./...` before
   reacting; post-06:00 vulndb batches miss the release gate's daily stamp.
 

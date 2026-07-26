@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const opportunityExportWhatToShow = "ADJUSTED_LAST"
@@ -243,7 +243,7 @@ func opportunityExportCommand(opts opportunityPriceBarExportOptions, symbols []s
 		commandSymbols = symbols
 	}
 	parts := []string{
-		"ibkr backtest export-opportunity-bars",
+		"canary backtest export-opportunity-bars",
 		"--symbols", strings.Join(commandSymbols, ","),
 		"--benchmark", strings.ToUpper(strings.TrimSpace(opts.Benchmark)),
 		"--lookback-days", fmt.Sprintf("%d", opts.LookbackDays),

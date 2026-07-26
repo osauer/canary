@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestAlertRoutesRequireAuthAndBootstrapMatchesGET(t *testing.T) {

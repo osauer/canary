@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 const (
 	// ViewFull requests the complete result shape.
 	ViewFull = "full"
-	// ViewAlert requests the compact Canary alert projection.
+	// ViewAlert requests the compact Stress alert projection.
 	ViewAlert = "alert"
 	// ViewDetail requests expanded detail from a supporting surface.
 	ViewDetail = "detail"
@@ -27,7 +27,7 @@ const (
 	defaultRiskExposureLimit         = 5
 )
 
-// StressAlertResult is a bounded, alert-safe projection of Canary state. Empty
+// StressAlertResult is a bounded, alert-safe projection of Stress state. Empty
 // flags are not reassuring unless the carried source health is conclusive.
 type StressAlertResult struct {
 	AsOf               time.Time                `json:"as_of"`

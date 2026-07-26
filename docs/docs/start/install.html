@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Install and first run | ibkr</title>
-  <meta name="description" content="What has to be running before ibkr connects, which install path to choose on macOS or Linux, how to read the ibkr status health check, and where the binary, config, state, and logs are written.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/start/install.html">
+  <title>Install and first run | Canary</title>
+  <meta name="description" content="What has to be running before Canary connects, which install path to choose on macOS or Linux, how to read the status health check, and where the binary, config, state, and logs are written.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/start/install.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What has to be running before ibkr connects, which install path to choose on macOS or Linux, how to read the ibkr status health check, and where the binary, config, state, and logs are written.","headline":"Install and first run","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/start/install.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What has to be running before Canary connects, which install path to choose on macOS or Linux, how to read the status health check, and where the binary, config, state, and logs are written.","headline":"Install and first run","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/start/install.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,7 +103,7 @@
     <main class="doc">
 <h1 id="install-and-first-run">Install and first run</h1>
 <p>Updated: 2026-07-25 11:38 CEST</p>
-<p><code>ibkr</code> is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.</p>
+<p><code>canary</code> is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.</p>
 <h2 id="before-you-start">Before you start</h2>
 <ul>
 <li><strong>A gateway, running and logged in.</strong> IB Gateway 10.37 or newer, or TWS. Paper or live both work.</li>
@@ -126,22 +126,22 @@
 <tbody>
 <tr>
 <td>Claude Desktop bundle</td>
-<td>Open <a href="https://github.com/osauer/ibkr/releases/latest/download/ibkr.mcpb"><code>ibkr.mcpb</code></a> with Claude Desktop</td>
+<td>Open <a href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb"><code>canary.mcpb</code></a> with Claude Desktop</td>
 <td>Claude Desktop is your only host. The bundle carries its own macOS and Linux binaries.</td>
 </tr>
 <tr>
 <td>Shell installer</td>
-<td><code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh</code></td>
+<td><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh</code></td>
 <td>You want one shared binary for the terminal and for every MCP host.</td>
 </tr>
 <tr>
 <td><code>go install</code></td>
-<td><code>go install github.com/osauer/ibkr/v2/cmd/ibkr@latest</code></td>
+<td><code>go install github.com/osauer/canary/v2/cmd/canary@latest</code></td>
 <td>You already have Go 1.26 or newer and prefer building from source.</td>
 </tr>
 <tr>
 <td>Release tarball</td>
-<td>Download <code>ibkr-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>, verify it against <code>SHA256SUMS</code></td>
+<td>Download <code>canary-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>, verify it against <code>SHA256SUMS</code></td>
 <td>You verify downloads by hand, or you install to a managed location.</td>
 </tr>
 <tr>
@@ -160,16 +160,16 @@
 <li>Downloads the tarball, <code>SHA256SUMS</code>, and <code>SHA256SUMS.asc</code>. From v1.0.0 onward a missing signature aborts the install rather than falling back to a checksum-only path.</li>
 <li>Imports the release-signing key from the tagged source tree into a throwaway keyring, checks its fingerprint against <code>D98426D48FED85EFA33904694D922A4F922B7D7D</code>, and verifies the signature. A fingerprint or signature mismatch aborts. <code>gpg</code> is required for v1.0.0 and later.</li>
 <li>Verifies the SHA-256 checksum.</li>
-<li>Lists the archive before extracting it. Anything beyond <code>ibkr</code>, <code>LICENSE</code>, and <code>README.md</code> is rejected, and a symlinked <code>ibkr</code> is rejected too.</li>
-<li>Installs the binary mode 0755 into <code>~/.local/bin</code>, or into <code>IBKR_INSTALL_DIR</code> if you set one.</li>
+<li>Lists the archive before extracting it. Anything beyond <code>canary</code>, <code>LICENSE</code>, and <code>README.md</code> is rejected, and a symlinked <code>canary</code> is rejected too.</li>
+<li>Installs the binary mode 0755 into <code>~/.local/bin</code>, or into <code>CANARY_INSTALL_DIR</code> if you set one.</li>
 <li>Clears the macOS <code>com.apple.quarantine</code> attribute so Gatekeeper does not block the first run.</li>
-<li>Adds <code>~/.local/bin</code> to your shell rc when it is missing from <code>PATH</code>, picking the file from <code>$SHELL</code>: <code>.zshrc</code>, <code>.bashrc</code>, <code>config.fish</code>, or <code>.profile</code>. Open a new terminal afterwards, or source that file, before the shell finds <code>ibkr</code>. Setting <code>IBKR_INSTALL_DIR</code> suppresses the edit entirely, and you manage <code>PATH</code> yourself.</li>
-<li>Runs <code>ibkr version</code> and warns if the installed binary reports something other than the version it just fetched.</li>
+<li>Adds <code>~/.local/bin</code> to your shell rc when it is missing from <code>PATH</code>, picking the file from <code>$SHELL</code>: <code>.zshrc</code>, <code>.bashrc</code>, <code>config.fish</code>, or <code>.profile</code>. Open a new terminal afterwards, or source that file, before the shell finds <code>canary</code>. Setting <code>CANARY_INSTALL_DIR</code> suppresses the edit entirely, and you manage <code>PATH</code> yourself.</li>
+<li>Runs <code>canary version</code> and warns if the installed binary reports something other than the version it just fetched.</li>
 </ol>
-<p>Prefer to read it first: <code>curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh -o install.sh</code>, then <code>less install.sh</code>, then <code>sh install.sh</code>.</p>
-<h2 id="check-it-worked-ibkr-status">Check it worked: <code>ibkr status</code></h2>
-<p><code>ibkr status</code> is the one command worth memorizing. It answers whether the daemon is up, whether the gateway handshake completed, which endpoint and account it landed on, and which subsystem is still warming.</p>
-<pre><code class="language-sh">ibkr status
+<p>Prefer to read it first: <code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh -o install.sh</code>, then <code>less install.sh</code>, then <code>sh install.sh</code>.</p>
+<h2 id="check-it-worked-canary-status">Check it worked: <code>canary status</code></h2>
+<p><code>canary status</code> is the one command worth memorizing. It answers whether the daemon is up, whether the gateway handshake completed, which endpoint and account it landed on, and which subsystem is still warming.</p>
+<pre><code class="language-sh">canary status
 </code></pre>
 <p>A healthy install prints something close to this. The values below are synthetic, from the <code>cmd/_preview</code> fixtures:</p>
 <pre><code class="language-text">IBKR Gateway  READY
@@ -184,8 +184,8 @@ SPX members    cache:2026-05-22, 503 names
 <p>When the daemon has no verdict from the gateway yet, <code>status</code> polls every 500 ms for up to 25 seconds before giving up, then prints the API checklist and the daemon log path. When the gateway is not connected, the command exits 1 and the <code>Next concern</code> row carries the underlying error, which makes it usable in a script.</p>
 <p>No config file is needed for this. The daemon probes <code>4001</code> (Gateway live), <code>4002</code> (Gateway paper), <code>7496</code> (TWS live), and <code>7497</code> (TWS paper) in parallel with a 200 ms timeout each, takes the first responder in that order, lists any others as alternates, auto-detects the account from <code>managedAccounts</code>, and uses client ID <code>15</code>. Create <code>~/.config/ibkr/config.toml</code> only when you want to pin something; every key in the <a href="../reference/config.html">configuration reference</a> is optional.</p>
 <h2 id="two-things-that-surprise-people">Two things that surprise people</h2>
-<p><strong>The daemon starts itself.</strong> Any daemon-backed command dials the Unix socket, and starts <code>ibkr daemon</code> in its own session when the socket is missing, waiting up to 5 seconds for it to appear. You never start it by hand. One daemon serves the CLI and every MCP host, so they share a single gateway connection and client ID. It exits once 15 minutes pass with no client connection and no background work in flight, which <code>[daemon].idle_timeout</code> controls.</p>
-<p><strong>The first breadth build takes about 74 minutes.</strong> S&amp;P 500 breadth is computed locally from constituent daily bars, because IBKR does not redistribute S&amp;P DJI's breadth indices on retail subscriptions. The shared historical-data limiter allows an initial 60 requests and then refills at 0.1 per second, so the remaining 443 names pace out to roughly 74 minutes on a cold cache. Nothing is broken while that runs: <code>ibkr status</code> shows <code>breadth:computing</code> and a <code>Background</code> row reading <code>refreshing rolling SPX breadth</code>. The snapshot is published only once coverage reaches 80% of the member count; below that the engine keeps the per-name windows it did fetch, retries every 12 minutes, and gives up after 15 tries until the next post-close refresh. The idle timer will not cut the build short: breadth counts as background work, so the daemon stays up until the refresh finishes or the retry budget runs out. Later refreshes are quick, and the cache survives restarts.</p>
+<p><strong>The daemon starts itself.</strong> Any daemon-backed command dials the Unix socket, and starts <code>canary daemon</code> in its own session when the socket is missing, waiting up to 5 seconds for it to appear. You never start it by hand. One daemon serves the CLI and every MCP host, so they share a single gateway connection and client ID. It exits once 15 minutes pass with no client connection and no background work in flight, which <code>[daemon].idle_timeout</code> controls.</p>
+<p><strong>The first breadth build takes about 74 minutes.</strong> S&amp;P 500 breadth is computed locally from constituent daily bars, because IBKR does not redistribute S&amp;P DJI's breadth indices on retail subscriptions. The shared historical-data limiter allows an initial 60 requests and then refills at 0.1 per second, so the remaining 443 names pace out to roughly 74 minutes on a cold cache. Nothing is broken while that runs: <code>canary status</code> shows <code>breadth:computing</code> and a <code>Background</code> row reading <code>refreshing rolling SPX breadth</code>. The snapshot is published only once coverage reaches 80% of the member count; below that the engine keeps the per-name windows it did fetch, retries every 12 minutes, and gives up after 15 tries until the next post-close refresh. The idle timer will not cut the build short: breadth counts as background work, so the daemon stays up until the refresh finishes or the retry budget runs out. Later refreshes are quick, and the cache survives restarts.</p>
 <h2 id="where-things-land">Where things land</h2>
 <div class="tblwrap">
 <table>
@@ -197,8 +197,8 @@ SPX members    cache:2026-05-22, 503 names
 </thead>
 <tbody>
 <tr>
-<td><code>~/.local/bin/ibkr</code></td>
-<td>The binary, unless you set <code>IBKR_INSTALL_DIR</code></td>
+<td><code>~/.local/bin/canary</code></td>
+<td>The binary, unless you set <code>CANARY_INSTALL_DIR</code></td>
 </tr>
 <tr>
 <td><code>~/.config/ibkr/config.toml</code></td>
@@ -227,14 +227,14 @@ SPX members    cache:2026-05-22, 503 names
 </tbody>
 </table>
 </div>
-<p><code>$XDG_CONFIG_HOME</code>, <code>$XDG_STATE_HOME</code>, <code>$XDG_CACHE_HOME</code>, and <code>$XDG_RUNTIME_DIR</code> take precedence where they are set. <code>IBKR_CONFIG</code>, <code>IBKR_SOCKET</code>, and <code>IBKR_LOG</code> override the config, socket, and log paths individually.</p>
+<p><code>$XDG_CONFIG_HOME</code>, <code>$XDG_STATE_HOME</code>, <code>$XDG_CACHE_HOME</code>, and <code>$XDG_RUNTIME_DIR</code> take precedence where they are set. <code>CANARY_CONFIG</code>, <code>CANARY_SOCKET</code>, and <code>CANARY_LOG</code> override the config, socket, and log paths individually.</p>
 <h2 id="next">Next</h2>
 <p>Wire an agent to the server in <a href="hosts.html">Connect an MCP host</a>. Keep the binary current with <a href="updating.html">Updating</a>. Read <a href="../operate/orders.html">Order previews and the trading build</a> before assuming anything about what this can and cannot send to the broker.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 // Store persists the engine's current snapshot, constituent windows, and

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runQuote(ctx context.Context, env *Env, args []string) int {
@@ -31,8 +31,8 @@ func runQuote(ctx context.Context, env *Env, args []string) int {
 	}
 
 	// Two surface forms:
-	//   ibkr quote AAPL,MSFT[,...]            → list of stock snapshots
-	//   ibkr quote AAPL YYMMDD C|P STRIKE     → single option snapshot
+	//   canary quote AAPL,MSFT[,...]            → list of stock snapshots
+	//   canary quote AAPL YYMMDD C|P STRIKE     → single option snapshot
 	if len(rest) == 4 {
 		if quoteRouteFlagsSet(*market, *exchange, *primary, *currency) {
 			return fail(env, "quote option: --market/--exchange/--primary/--currency apply only to stock snapshots")
@@ -112,7 +112,7 @@ func runQuoteSnapshotList(ctx context.Context, env *Env, syms []string, jsonOut 
 				return fail(env, "quote: %v", err)
 			}
 			if !jsonOut {
-				fmt.Fprintf(env.Stderr, "ibkr: quote %s: %v\n", sym, err)
+				fmt.Fprintf(env.Stderr, "canary: quote %s: %v\n", sym, err)
 			}
 			continue
 		}
@@ -498,7 +498,7 @@ func runQuoteRenderer(env *Env, frames <-chan rpc.Frame, done <-chan error, rate
 		if autoExit {
 			if !jsonOut {
 				fmt.Fprintln(env.Stdout)
-				fmt.Fprintln(env.Stdout, "  stream ended — frozen data is snapshot-only. Use `ibkr quote SYM` for one-shots.")
+				fmt.Fprintln(env.Stdout, "  stream ended — frozen data is snapshot-only. Use `canary quote SYM` for one-shots.")
 			}
 			return nil
 		}

@@ -24,7 +24,7 @@
 // validate a caller-supplied [PaperOrderGate] for a concrete paper account and
 // matching connection coordinates before writing. That validation is not a
 // substitute for application-level authorization, preview, policy, freeze,
-// journaling, or reconciliation controls. The ibkr daemon invokes broker-write
+// journaling, or reconciliation controls. The Canary daemon invokes broker-write
 // paths only in trading-capable builds and owns those additional controls;
 // direct library users must provide an equivalent authority boundary.
 //

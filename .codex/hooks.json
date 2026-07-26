@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/env bash \"$(git rev-parse --show-toplevel)/.codex/hooks/ibkr-pre-tool-use.sh\"",
+            "command": "/usr/bin/env bash \"$(git rev-parse --show-toplevel)/.codex/hooks/canary-pre-tool-use.sh\"",
             "timeout": 10,
-            "statusMessage": "Checking ibkr command safety"
+            "statusMessage": "Checking Canary command safety"
           }
         ]
       }
@@ -19,9 +19,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/bin/env bash \"$(git rev-parse --show-toplevel)/.codex/hooks/ibkr-pre-tool-use.sh\"",
+            "command": "/usr/bin/env bash \"$(git rev-parse --show-toplevel)/.codex/hooks/canary-pre-tool-use.sh\"",
             "timeout": 10,
-            "statusMessage": "Checking ibkr approval safety"
+            "statusMessage": "Checking Canary approval safety"
           }
         ]
       }

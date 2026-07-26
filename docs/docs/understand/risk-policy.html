@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Writing a risk policy | ibkr</title>
-  <meta name="description" content="How to write the ibkr personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/risk-policy.html">
+  <title>Writing a risk policy | Canary</title>
+  <meta name="description" content="How to write the Canary personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/risk-policy.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How to write the ibkr personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.","headline":"Writing a risk policy","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/risk-policy.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How to write the Canary personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.","headline":"Writing a risk policy","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/risk-policy.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -117,7 +117,7 @@ that governs risk numbers cannot be relocated:</p>
 <pre><code class="language-text">~/.config/ibkr/policies/risk-policy.toml
 </code></pre>
 <p>Start from the template at
-<a href="https://github.com/osauer/ibkr/blob/main/examples/risk-policy.toml"><code>examples/risk-policy.toml</code></a>. Every
+<a href="https://github.com/osauer/canary/blob/main/examples/risk-policy.toml"><code>examples/risk-policy.toml</code></a>. Every
 material key arrives commented out. The few values that are filled in are
 either structural, where the schema accepts only one or two values anyway, or
 copied from the author's own setup, like the base currency and the
@@ -179,7 +179,7 @@ on each revision.</p>
 sit in <code>(0, 100]</code>, <code>warn_consumed_pct</code> must be below <code>block_consumed_pct</code>,
 <code>declared_risk_capital</code> must be positive, and <code>protected_floor</code> must not be
 negative. Choosing the values inside those bounds is your decision alone.</p>
-<p><code>ibkr policy show --explain</code> is the field inventory: it prints every key with
+<p><code>canary policy show --explain</code> is the field inventory: it prints every key with
 its meaning, current value, source (<code>file</code>, <code>default</code>, or <code>unapproved</code>), and
 enforcement class. The <a href="../reference/config.html">configuration reference</a>
 covers <code>config.toml</code>, the protection and opportunity policies, and runtime
@@ -202,7 +202,7 @@ WhatIf, or origin gating, so no revision can express a change to them, and an
 override naming a key outside the constitution is refused with &quot;safety
 invariants have no keys and cannot be overridden&quot;. Unknown keys fail the load
 outright rather than being ignored. <code>trading.freeze</code> and the trading limits are
-runtime settings, not policy: they change only through <code>ibkr settings set</code> from
+runtime settings, not policy: they change only through <code>canary settings set</code> from
 an interactive human terminal, and agent and paired-device origins are
 rejected.</p>
 <h2 id="making-a-revision-effective">Making a revision effective</h2>
@@ -211,7 +211,7 @@ rejected.</p>
 version keeps running. Changed content at the same or a lower version
 reports <code>drift</code>, and the daemon keeps the last accepted version in memory.</li>
 <li>Wait. The manager rereads the file every 30 seconds.</li>
-<li>Run <code>ibkr policy show</code>. The header gives the status, policy id, version,
+<li>Run <code>canary policy show</code>. The header gives the status, policy id, version,
 short fingerprint, and path; add <code>--explain</code> for the limit rows or <code>--json</code>
 for the typed result. It works without gateway connectivity, falling back to
 the persisted last equity reading.
@@ -236,7 +236,7 @@ cash-flow-adjusted peak, so a revision changes the answer for everything you
 hold at once. No position carries the policy that was in force when it was
 opened.</p>
 <h2 id="bounded-exceptions">Bounded exceptions</h2>
-<pre><code class="language-sh">ibkr policy override --control &lt;key&gt; --reason &quot;...&quot; --hours &lt;n&gt;
+<pre><code class="language-sh">canary policy override --control &lt;key&gt; --reason &quot;...&quot; --hours &lt;n&gt;
 </code></pre>
 <p><code>--hours</code> must be positive and at most <code>override.max_duration_hours</code>; until you
 declare that cap, overrides are unavailable. <code>--control</code> must name a key that
@@ -247,16 +247,16 @@ longer override.</p>
 evaluation, and it can extend that deadline, never shorten it. Others are
 recorded and displayed.</p>
 <p>A latched drawdown block is not an override case. It clears through
-<code>ibkr policy reset-drawdown --reason &quot;...&quot;</code>, which re-bases the adjusted peak.</p>
-<p><code>ibkr policy</code> is a CLI surface with no MCP tool. That command and the other
+<code>canary policy reset-drawdown --reason &quot;...&quot;</code>, which re-bases the adjusted peak.</p>
+<p><code>canary policy</code> is a CLI surface with no MCP tool. That command and the other
 governance verbs (<code>capital-event</code>, <code>override</code>, <code>correct-peak</code>, <code>artefact</code>) are
 human-origin only, so an agent session can read the policy result and never
 operate this file.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

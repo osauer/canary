@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestRenderTradingStatusTextDisabled(t *testing.T) {
@@ -22,7 +22,7 @@ func TestRenderTradingStatusTextDisabled(t *testing.T) {
 	})
 	got := stdout.String()
 	for _, want := range []string{
-		"IBKR Trading  DISABLED",
+		"Canary Trading  DISABLED",
 		"Mode           disabled",
 		"MCP trading    disabled",
 		"Capabilities   preview=false write=false",
@@ -55,7 +55,7 @@ func TestRenderTradingStatusTextBlocked(t *testing.T) {
 	})
 	got := stdout.String()
 	for _, want := range []string{
-		"IBKR Trading  BLOCKED",
+		"Canary Trading  BLOCKED",
 		"Mode           paper blocked",
 		"Capabilities   preview=false write=false",
 		"gateway_client_id_unpinned: order submission requires a pinned client ID",
@@ -89,7 +89,7 @@ func TestRenderTradingStatusTextWriteBlockers(t *testing.T) {
 	})
 	got := stdout.String()
 	for _, want := range []string{
-		"IBKR Trading  READY",
+		"Canary Trading  READY",
 		"Capabilities   preview=true write=false",
 		"Write blockers:",
 		"order_writes_unavailable: order writes are unavailable in this build",
@@ -101,7 +101,7 @@ func TestRenderTradingStatusTextWriteBlockers(t *testing.T) {
 	}
 }
 
-// The dispatcher hoists flags ahead of positionals, so `ibkr trading
+// The dispatcher hoists flags ahead of positionals, so `canary trading
 // paper-smoke --json` reaches runTrading as ["--json", "paper-smoke"].
 // The old dispatch treated a leading flag as "status implied" and
 // silently ran `trading status` instead of the paper smoke — which let

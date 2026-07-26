@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runGamma(ctx context.Context, env *Env, args []string) int {
@@ -119,7 +119,7 @@ func renderGammaTextWithOptions(env *Env, r *rpc.GammaZeroSPXResult, opts gammaR
 			fmt.Fprintln(out, env.dim("  option-chain fan against a closed market. "+r.ColdAction))
 		} else {
 			fmt.Fprintln(out, env.dim("  option-chain fan against a closed market. To force a compute now (mostly"))
-			fmt.Fprintln(out, env.dim("  useful when troubleshooting or testing): ibkr gamma --force"))
+			fmt.Fprintln(out, env.dim("  useful when troubleshooting or testing): canary gamma --force"))
 		}
 		fmt.Fprintln(out)
 		return 0
@@ -139,7 +139,7 @@ func renderGammaTextWithOptions(env *Env, r *rpc.GammaZeroSPXResult, opts gammaR
 		fmt.Fprintln(out, env.dim("  The daemon prewarms gamma after gateway startup. During regular U.S."))
 		fmt.Fprintln(out, env.dim("  option hours, the last successful result refreshes behind the served"))
 		fmt.Fprintln(out, env.dim("  value after a 15-minute soft TTL; off-hours automatic refresh is not due."))
-		fmt.Fprintln(out, env.dim("  Re-run `ibkr gamma` to block again, or add --no-wait to poll."))
+		fmt.Fprintln(out, env.dim("  Re-run `canary gamma` to block again, or add --no-wait to poll."))
 		fmt.Fprintln(out)
 		return 0
 
@@ -837,7 +837,7 @@ func gammaTopStrikesForRender(c *rpc.GammaZeroComputed, explain bool) ([]rpc.Str
 		}
 		return spx.TopStrikes,
 			"Top SPX strikes by |GEX| (canonical concentration):",
-			"SPY context strikes are available with --explain or `ibkr gamma --only=spy`.",
+			"SPY context strikes are available with --explain or `canary gamma --only=spy`.",
 			false
 	}
 	label := gammaSpotLabelForScope(c)
@@ -1098,17 +1098,17 @@ func renderSPYUnavailableMessage(reason string) string {
 func spyUnavailableAction(reason string) string {
 	switch normalizeSPXUnavailableReason(reason) {
 	case "354":
-		return "Check the U.S. options market-data subscription in IBKR, or run `ibkr gamma --only=spx` to suppress this note."
+		return "Check the U.S. options market-data subscription in IBKR, or run `canary gamma --only=spx` to suppress this note."
 	case "200":
-		return "Retry later; if it repeats, run `ibkr gamma --only=spy --force` for diagnostics or `ibkr gamma --only=spx` to suppress this note."
+		return "Retry later; if it repeats, run `canary gamma --only=spy --force` for diagnostics or `canary gamma --only=spx` to suppress this note."
 	case "no_data", "fetch_canceled", "timeout":
-		return "Retry during 09:30-16:15 ET; if it repeats during regular hours, check TWS/daemon market-data logs or run `ibkr gamma --only=spx`."
+		return "Retry during 09:30-16:15 ET; if it repeats during regular hours, check TWS/daemon market-data logs or run `canary gamma --only=spx`."
 	case "throttled":
-		return "Wait a few minutes and retry without --force; use `ibkr gamma --only=spx` if you only want the SPX surface."
+		return "Wait a few minutes and retry without --force; use `canary gamma --only=spx` if you only want the SPX surface."
 	case "zero_magnitude":
-		return "Retry during 09:30-16:15 ET, or run `ibkr gamma --only=spy --force` for SPY-only diagnostics."
+		return "Retry during 09:30-16:15 ET, or run `canary gamma --only=spy --force` for SPY-only diagnostics."
 	default:
-		return "Retry later; if it repeats, check the daemon log and TWS market-data farm messages, or run `ibkr gamma --only=spx`."
+		return "Retry later; if it repeats, check the daemon log and TWS market-data farm messages, or run `canary gamma --only=spx`."
 	}
 }
 
@@ -1671,9 +1671,9 @@ func qualifyGammaAction(action string) string {
 		from string
 		to   string
 	}{
-		{"run --only=spy", "run `ibkr gamma --only=spy`"},
-		{"run --only=spx --force", "run `ibkr gamma --only=spx --force`"},
-		{"re-run with --only=spy", "run `ibkr gamma --only=spy`"},
+		{"run --only=spy", "run `canary gamma --only=spy`"},
+		{"run --only=spx --force", "run `canary gamma --only=spx --force`"},
+		{"re-run with --only=spy", "run `canary gamma --only=spy`"},
 	}
 	for _, r := range replacements {
 		action = strings.ReplaceAll(action, r.from, r.to)
@@ -1709,17 +1709,17 @@ func renderSPXUnavailableMessage(reason string) string {
 func spxUnavailableAction(reason string) string {
 	switch normalizeSPXUnavailableReason(reason) {
 	case "354":
-		return "Check the CBOE OPRA/SPX option data subscription in IBKR, or run `ibkr gamma --only=spy` to suppress the banner."
+		return "Check the CBOE OPRA/SPX option data subscription in IBKR, or run `canary gamma --only=spy` to suppress the banner."
 	case "200":
-		return "Retry later; if it repeats, run `ibkr gamma --only=spx --force` for diagnostics or `ibkr gamma --only=spy` to suppress the fallback banner."
+		return "Retry later; if it repeats, run `canary gamma --only=spx --force` for diagnostics or `canary gamma --only=spy` to suppress the fallback banner."
 	case "no_data", "fetch_canceled", "timeout":
-		return "Retry during 09:30-16:15 ET; if it repeats during regular hours, check TWS/daemon market-data logs or run `ibkr gamma --only=spy`."
+		return "Retry during 09:30-16:15 ET; if it repeats during regular hours, check TWS/daemon market-data logs or run `canary gamma --only=spy`."
 	case "throttled":
-		return "Wait a few minutes and retry without --force; use `ibkr gamma --only=spy` if you only want the SPY surface."
+		return "Wait a few minutes and retry without --force; use `canary gamma --only=spy` if you only want the SPY surface."
 	case "zero_magnitude":
-		return "Retry during 09:30-16:15 ET, or run `ibkr gamma --only=spx --force` for SPX-only diagnostics."
+		return "Retry during 09:30-16:15 ET, or run `canary gamma --only=spx --force` for SPX-only diagnostics."
 	default:
-		return "Retry later; if it repeats, check the daemon log and TWS market-data farm messages, or run `ibkr gamma --only=spy`."
+		return "Retry later; if it repeats, check the daemon log and TWS market-data farm messages, or run `canary gamma --only=spy`."
 	}
 }
 

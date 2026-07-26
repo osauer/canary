@@ -22,7 +22,7 @@ permissions:
 
 env:
   MCP_PUBLISHER_VERSION: v1.7.9
-  SERVER_NAME: io.github.osauer/ibkr
+  SERVER_NAME: io.github.osauer/canary
 
 jobs:
   publish:
@@ -72,7 +72,7 @@ jobs:
           mkdir -p dist
           gh release download "${{ steps.tag.outputs.tag }}" \
             --repo "${{ github.repository }}" \
-            --pattern "ibkr-${{ steps.tag.outputs.tag }}.mcpb" \
+            --pattern "canary-${{ steps.tag.outputs.tag }}.mcpb" \
             --dir dist
 
       - name: Install mcp-publisher

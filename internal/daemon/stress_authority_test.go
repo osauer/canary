@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 type stressAuthorityTestReader struct {
@@ -199,15 +199,15 @@ func runStressAuthorityTick(t *testing.T, reader *stressAuthorityTestReader) str
 		stressEvaluationSourceReaderForTest: reader,
 	}
 	if !server.stressEvaluationTick(t.Context()) {
-		t.Fatal("canary evaluation tick did not publish")
+		t.Fatal("stress evaluation tick did not publish")
 	}
 	raw, err := os.ReadFile(server.stressDecisions.path)
 	if err != nil {
-		t.Fatalf("read canary decision: %v", err)
+		t.Fatalf("read stress decision: %v", err)
 	}
 	var line stressDecisionLine
 	if err := json.Unmarshal(bytes.TrimSpace(raw), &line); err != nil {
-		t.Fatalf("decode canary decision: %v", err)
+		t.Fatalf("decode stress decision: %v", err)
 	}
 	return line
 }

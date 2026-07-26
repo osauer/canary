@@ -32,7 +32,7 @@ const state = {
   connectionOK: false,
   pairingRequired: false,
   authenticated: false,
-  accountValueVisible: localStorage.getItem("ibkrAccountValueVisible") === "true",
+  accountValueVisible: localStorage.getItem("canaryAccountValueVisible") === "true",
   stressDetailOpen: false,
   rulesDetailOpen: false,
   regimeDetailOpen: false,
@@ -44,7 +44,7 @@ const state = {
   accountExposureOpen: false,
   protectionOpen: false,
   opportunitiesOpen: false,
-  selectedMarket: localStorage.getItem("ibkrSelectedMarket") || "us",
+  selectedMarket: localStorage.getItem("canarySelectedMarket") || "us",
   marketCalendarOverride: null,
   proposalMarketCalendars: {},
   proposalMarketCalendarBusy: {},
@@ -73,7 +73,7 @@ const state = {
   latestPurgeStatus: null,
   fallbackRefreshBusy: false,
   settings: null,
-  activeTab: normalizedTab(localStorage.getItem("ibkrActiveTab") || "monitor"),
+  activeTab: normalizedTab(localStorage.getItem("canaryActiveTab") || "monitor"),
 };
 
 function normalizedTab(tab) {

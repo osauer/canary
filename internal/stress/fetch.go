@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // FetchStress reads the three existing snapshots needed by ComputeStress.
@@ -91,7 +91,7 @@ func fetchStressMarketEvents(ctx context.Context, conn interface {
 				Impact:   "Held-name market-event flags remain unknown, not inactive.",
 				Action:   "Retry market-events before relying on absence of halt, LULD, Reg SHO, or borrow pressure tags.",
 			}},
-			NotExecution: "Market-event flags are observed context and daemon safety gates; no orders are placed by ibkr.",
+			NotExecution: "Market-event flags are observed context and daemon safety gates; no orders are placed by Canary.",
 		}
 		out.Fingerprint = rpc.BuildMarketEventsFingerprint(&out)
 	}

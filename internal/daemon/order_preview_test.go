@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/discover"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestPreviewLimitPriceDefaultsPatientLimit(t *testing.T) {
@@ -632,6 +632,9 @@ func TestOrderPreviewPaperMintsTokenAndJournal(t *testing.T) {
 	}
 	if !res.TokenMinted || res.PreviewToken == "" || res.PreviewTokenID == "" {
 		t.Fatalf("preview token not minted: %+v", res)
+	}
+	if !strings.HasPrefix(res.Draft.OrderRef, "canary-20260528-084500-") {
+		t.Fatalf("new order ref = %q, want canonical Canary prefix", res.Draft.OrderRef)
 	}
 	if res.SubmitEligible || res.Executable {
 		t.Fatalf("unavailable WhatIf preview should not be submit eligible: %+v", res)

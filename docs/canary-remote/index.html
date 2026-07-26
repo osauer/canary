@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canary Remote App Beta for IBKR</title>
-  <meta name="description" content="Experimental remote access for the Canary IBKR mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/canary-remote/">
+  <meta name="description" content="Experimental remote access for the Canary mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.">
+  <link rel="canonical" href="https://osauer.dev/canary/canary-remote/">
   <link rel="icon" type="image/png" href="../social/canary-icon.png">
 
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/ibkr/canary-remote/">
+  <meta property="og:url" content="https://osauer.dev/canary/canary-remote/">
   <meta property="og:title" content="Canary Remote App Beta">
-  <meta property="og:description" content="A short beta guide for pairing the Canary IBKR app through the remote relay.">
-  <meta property="og:image" content="https://osauer.dev/ibkr/social/canary-app-mobile.png">
+  <meta property="og:description" content="A short beta guide for pairing the Canary app through the remote relay.">
+  <meta property="og:image" content="https://osauer.dev/canary/social/canary-app-mobile.png">
   <meta name="twitter:card" content="summary_large_image">
 
   <script type="application/ld+json">
@@ -20,7 +20,7 @@
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "Canary Remote App Beta",
-    "description": "Experimental remote access for the Canary IBKR mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.",
+    "description": "Experimental remote access for the Canary mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.",
     "dateModified": "2026-07-18T21:05:00+02:00",
     "author": {
       "@type": "Person",
@@ -29,8 +29,8 @@
     },
     "isPartOf": {
       "@type": "WebSite",
-      "name": "ibkr",
-      "url": "https://osauer.dev/ibkr/"
+      "name": "Canary",
+      "url": "https://osauer.dev/canary/"
     }
   }
   </script>
@@ -257,19 +257,34 @@
 
     .screens {
       display: grid;
-      grid-template-columns: minmax(220px, 0.38fr) minmax(0, 0.62fr);
-      gap: 22px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 28px 22px;
       align-items: start;
     }
 
-    .screens img {
+    .screen {
+      margin: 0;
+    }
+
+    .screen img {
+      display: block;
+      width: 100%;
       border: 1px solid var(--terminal-line);
       border-radius: 8px;
       box-shadow: 0 18px 42px rgba(16, 24, 39, 0.16);
     }
 
-    .screens img:first-child {
+    .screen.phone img {
+      width: min(360px, 100%);
+      margin-inline: auto;
       border-radius: 28px;
+    }
+
+    .screen figcaption {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 15px;
+      text-align: center;
     }
 
     pre {
@@ -371,12 +386,12 @@
   <div class="topline"></div>
 
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../" aria-label="ibkr canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../" aria-label="Canary home"><img src="../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Page">
       <a href="../">Home</a>
-      <a href="https://github.com/osauer/ibkr/blob/main/docs/docs/operate/app.md">Mobile guide</a>
+      <a href="https://github.com/osauer/canary/blob/main/docs/docs/operate/app.md">Mobile guide</a>
       <a href="../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
 
@@ -393,13 +408,13 @@
           <a class="button" href="../feedback/">Give feedback</a>
         </div>
       </div>
-      <img class="phone-shot" src="../social/canary-app-mobile.png" width="780" height="1688" alt="Canary mobile app monitor screen showing market regime and portfolio canary cards">
+      <img class="phone-shot" src="../social/canary-app-mobile.png" width="780" height="1688" alt="Canary mobile app monitor screen showing market regime and portfolio stress cards">
     </section>
 
     <section class="wrap" aria-labelledby="what-title">
       <div class="section-head">
         <h2 id="what-title">What this adds.</h2>
-        <p>Since v2.1 the monitor tab opens on a daily desk brief with five sections (market, calendar, portfolio, risk, process), composed by the daemon on your Mac and rendered in the paired app.</p>
+        <p>The Brief tab has two movements composed by the daemon on your Mac: Review explains the last completed session, and Ready shows today's market, risk-capacity, and desk-readiness evidence.</p>
         <p>The remote path keeps the local-first design, but makes the paired PWA reachable from outside your home network.</p>
       </div>
       <div class="feature-grid">
@@ -426,10 +441,10 @@
         <h2 id="start-title">Start the remote server.</h2>
         <p>Run the app in remote mode on the Mac that already has TWS or IB Gateway running.</p>
       </div>
-      <pre><code>ibkr app --remote
+      <pre><code>canary app --remote
 
 # in another shell
-ibkr app pair</code></pre>
+canary app pair</code></pre>
     </section>
 
     <section class="wrap" aria-labelledby="pairing-title">
@@ -437,11 +452,11 @@ ibkr app pair</code></pre>
         <h2 id="pairing-title">Pair and use it.</h2>
       </div>
       <ol class="steps">
-        <li>Start TWS or IB Gateway locally and make sure <code>ibkr status</code> is healthy enough for app reads.</li>
-        <li>Run <code>ibkr app --remote</code>. The app opens an outbound connector to the relay; you do not expose an inbound port on your Mac.</li>
-        <li>Run <code>ibkr app pair</code> and open the printed URL on the phone. The URL includes a short-lived pairing id, nonce, and relay route.</li>
-        <li>Use the Monitor, Positions, Alerts, and Settings tabs from the PWA. Market and account values still come from your local IBKR session.</li>
-        <li>For a supervised app host, configure remote mode with <code>ibkr setup app --remote</code>, reload the LaunchAgent, then use <code>ibkr restart --app</code> without flag overrides.</li>
+        <li>Start TWS or IB Gateway locally and make sure <code>canary status</code> is healthy enough for app reads.</li>
+        <li>Run <code>canary app --remote</code>. The app opens an outbound connector to the relay; you do not expose an inbound port on your Mac.</li>
+        <li>Run <code>canary app pair</code> and open the printed URL on the phone. The URL includes a short-lived pairing id, nonce, and relay route.</li>
+        <li>Use the Monitor, Brief, Alerts, Orders, and Settings tabs from the PWA. Market and account values still come from your local IBKR session.</li>
+        <li>For a supervised app host, configure remote mode with <code>canary setup app --remote</code>, reload the LaunchAgent, then use <code>canary restart --app</code> without flag overrides.</li>
       </ol>
     </section>
 
@@ -473,24 +488,38 @@ ibkr app pair</code></pre>
     <section class="wrap" id="screenshots" aria-labelledby="screenshots-title">
       <div class="section-head">
         <h2 id="screenshots-title">Screenshots.</h2>
-        <p>These captures are from the real PWA served by <code>ibkr app</code>; the account id and balances are synthetic fixture values (the market strip is live public data), regenerated with <code>make app-screenshots</code>.</p>
+        <p>These captures are from the real PWA served by <code>canary app</code>. The complete monitor snapshot, including account, positions, orders, proposals, and market strip, is deterministic synthetic fixture data regenerated with <code>make app-screenshots</code>.</p>
       </div>
       <div class="screens">
-        <img src="../social/canary-app-mobile.png" width="780" height="1688" loading="lazy" alt="Canary mobile app with account, market regime, and portfolio canary panels">
-        <img src="../social/canary-app-desktop.png" width="2360" height="1520" loading="lazy" alt="Canary app wide viewport showing account, market regime, portfolio canary, and protection panels">
+        <figure class="screen phone">
+          <img src="../social/canary-app-mobile.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile Monitor tab with account, regime, stress, and protection panels">
+          <figcaption>Mobile Monitor</figcaption>
+        </figure>
+        <figure class="screen phone">
+          <img src="../social/canary-app-mobile-brief.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile Brief tab showing the Review movement">
+          <figcaption>Mobile Brief</figcaption>
+        </figure>
+        <figure class="screen">
+          <img src="../social/canary-app-desktop.png" width="2360" height="1520" loading="lazy" alt="Synthetic Canary wide Monitor tab with account, regime, stress, and protection panels">
+          <figcaption>Wide Monitor</figcaption>
+        </figure>
+        <figure class="screen">
+          <img src="../social/canary-app-desktop-brief.png" width="2360" height="1520" loading="lazy" alt="Synthetic Canary wide Brief tab showing Review and Ready">
+          <figcaption>Wide Brief</figcaption>
+        </figure>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="wrap">
-      <p><strong>Independent third-party project.</strong> "Interactive Brokers", "IBKR", "TWS", and "IB Gateway" are trademarks or registered trademarks of Interactive Brokers Group, Inc. or its affiliates. This project is not built, endorsed, sponsored, or supported by Interactive Brokers Group, Inc. or its affiliates. <strong>Not financial advice.</strong> ibkr is analysis software; nothing on this site or in its output is a recommendation to buy or sell any security. Trading decisions are yours.</p>
+      <p><strong>Independent third-party project.</strong> "Interactive Brokers", "IBKR", "TWS", and "IB Gateway" are trademarks or registered trademarks of Interactive Brokers Group, Inc. or its affiliates. This project is not built, endorsed, sponsored, or supported by Interactive Brokers Group, Inc. or its affiliates. <strong>Not financial advice.</strong> Canary is analysis software; nothing on this site or in its output is a recommendation to buy or sell any security. Trading decisions are yours.</p>
       <div class="footer-links">
         <a href="https://www.linkedin.com/in/osauer/">Oliver Sauer</a>
-        <a href="https://github.com/osauer/ibkr">GitHub</a>
+        <a href="https://github.com/osauer/canary">GitHub</a>
         <a href="../feedback/">Feedback</a>
-        <a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a>
-        <a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a>
+        <a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a>
       </div>
     </div>
   </footer>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# release-verify.sh — run the freshly-built ibkr binary against a live
+# release-verify.sh — run the freshly-built Canary binary against a live
 # IBKR Gateway and assert it can complete a deterministic smoke matrix.
 #
 # Wired into `make release` between the rebuild and the cross-compile,
@@ -25,14 +25,14 @@
 #   scripts/release-verify.sh <bin-path> <expected-version>
 #
 # Example:
-#   scripts/release-verify.sh bin/ibkr v0.15.1
+#   scripts/release-verify.sh bin/canary v0.15.1
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-daemon-control.sh"
 
-BIN="${1:?usage: release-verify.sh <bin/ibkr> <expected-version> (e.g. v0.15.1)}"
+BIN="${1:?usage: release-verify.sh <bin/canary> <expected-version> (e.g. v0.15.1)}"
 EXPECTED="${2:?expected version required, e.g. v0.15.1}"
 
 if [[ ! -x "$BIN" ]]; then
@@ -43,10 +43,10 @@ fi
 # Tight per-command budgets. SPY snapshots typically return in <1s when
 # the gateway is healthy; 15s is generous enough for a momentarily slow
 # market-data farm without letting a wedged daemon hang the release.
-PER_CMD_TIMEOUT="${IBKR_RELEASE_VERIFY_TIMEOUT:-15}"
+PER_CMD_TIMEOUT="${CANARY_RELEASE_VERIFY_TIMEOUT:-15}"
 
 # Isolated environment under /tmp (macOS Unix-socket path limit is 104
-# bytes, so we keep the dir short). Using IBKR_SOCKET + IBKR_LOG mirrors
+# bytes, so we keep the dir short). Using CANARY_SOCKET + CANARY_LOG mirrors
 # what test/integration/lifecycle_test.go does for the same reason.
 TMPDIR_BASE="${TMPDIR:-/tmp}"
 SMOKE_DIR="$(mktemp -d "$TMPDIR_BASE/ibkr-release-verify-XXXXXX")"
@@ -54,8 +54,8 @@ SOCKET="$SMOKE_DIR/ibkr.sock"
 LOG="$SMOKE_DIR/ibkr-daemon.log"
 LOCK="$SMOKE_DIR/ibkr.lock"
 
-export IBKR_SOCKET="$SOCKET"
-export IBKR_LOG="$LOG"
+export CANARY_SOCKET="$SOCKET"
+export CANARY_LOG="$LOG"
 # Isolated trading state: marks, journals, and tokens must not touch the
 # user's canonical daemon state (nor inherit it — a false inactive mark
 # in operator state failed the v1.15.0 release smoke, 2026-07-08).
@@ -141,7 +141,7 @@ if [[ "$actual_version" != "$EXPECTED" ]]; then
 fi
 
 # 2 — status: daemon spawned, gateway connected, daemon_version matches.
-# `status` autospawns the daemon at IBKR_SOCKET if one isn't running there.
+# `status` autospawns the daemon at CANARY_SOCKET if one isn't running there.
 #
 # Poll for connected=true because the daemon's postConnectSetupDone
 # barrier (v0.30.1) makes Connected briefly false between c.ready=true
@@ -170,7 +170,7 @@ if [[ "$connected" != "True" ]]; then
 fi
 if [[ "$daemon_version" != "$EXPECTED" ]]; then
     echo "release-verify: FAIL: daemon stamped version=$daemon_version, expected=$EXPECTED" >&2
-    echo "(autospawn picked up an unexpected binary — check \$PATH and bin/ibkr)" >&2
+    echo "(autospawn picked up an unexpected binary — check \$PATH and bin/canary)" >&2
     exit 1
 fi
 # v0.27.4 wire contract: background_tasks is always emitted (possibly

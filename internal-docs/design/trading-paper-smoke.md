@@ -1,4 +1,4 @@
-# `ibkr trading paper-smoke` — the release-gate order-pipeline smoke
+# `canary trading paper-smoke` — the release-gate order-pipeline smoke
 
 Updated: 2026-06-10 17:05 CEST
 Status: shipped, then re-gated same day by owner decision (see Revision below)
@@ -52,7 +52,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 ## Scope
 
 - **Goal:** every live-trading blocker tells the user to run
-  `ibkr trading paper-smoke`, but the command does not exist —
+  `canary trading paper-smoke`, but the command does not exist —
   `SavePaperSmoke` has zero production callers and the de-facto live switch is
   hand-writing `~/.local/state/ibkr/trading-readiness.json` (unaudited plain
   JSON). Implement the producer: a daemon-owned paper order round-trip
@@ -61,7 +61,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
   hand-forged. Additionally, make SPA live writes possible at all: the daemon
   now requires a typed `live/<account>` confirmation from human origins, and
   the SPA never collects one.
-- **User-facing command/tool/API:** `ibkr trading paper-smoke
+- **User-facing command/tool/API:** `canary trading paper-smoke
   [--timeout 30s] [--json]`; new daemon RPC `trading.paper_smoke`;
   SPA proposals-submit / order-modify / purge live flows gain a typed
   live-confirmation input. **No MCP tool** — agents must not be able to mint
@@ -81,7 +81,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback or unavailable state |
 |---|---|---|---|---|
-| Paper-smoke evidence | daemon `trading.paper_smoke` run (place→ack→cancel→confirm observed in-daemon) | daemon.db `trading_readiness_v1` state document with `paper_smoke{…}` + `mac` | `ibkr trading status` (`PaperSmoke*` fields) | missing/stale/mismatch stays informational; release smoke remains binding |
+| Paper-smoke evidence | daemon `trading.paper_smoke` run (place→ack→cancel→confirm observed in-daemon) | daemon.db `trading_readiness_v1` state document with `paper_smoke{…}` + `mac` | `canary trading status` (`PaperSmoke*` fields) | missing/stale/mismatch stays informational; release smoke remains binding |
 | Evidence integrity | HMAC-SHA256 with the private `order-preview-key-v2`, domain-separated prefix `ibkr-paper-smoke-v1\|` | `paper_smoke.mac` (base64url) plus daemon.db signer generation | status `unsigned` when invalid | missing/invalid MAC is disclosed; there is no JSON file fallback |
 | Smoke invocation origin | invoking adapter (CLI `DetectWriteOrigin`) | `origin` on `TradingPaperSmokeParams` | order journal origin | automated origins allowed; smoke transmits only on paper |
 | Live human confirmation (SPA) — **removed in v1.10.0** | ~~typed input in the PWA, verbatim `live/<account>`~~ the typed phrase, `live_confirmation` field, and `live_confirmation_required` blocker were removed end-to-end in v1.10.0; the app HTTP layer now rejects the field as an unknown field on every broker-write route | server-validated `confirm_account`/`confirm_mode` on every HTTP write (unchanged) | single-click after preview; purge keeps its typed confirm | mismatched confirm fields → write refused |
@@ -158,7 +158,7 @@ never relays lifecycle claims — otherwise evidence would trust the client):
   `unsigned`.
 - `CheckPaperSmoke`: evidence with missing/invalid MAC → new status
   `unsigned` (blocker `paper_smoke_unsigned`, action: rerun
-  `ibkr trading paper-smoke`; hand-written evidence is not accepted).
+  `canary trading paper-smoke`; hand-written evidence is not accepted).
   File version stays 1 — the `mac` field is additive.
 - **Trust model (SECURITY.md note):** the key lives in the same state dir a
   same-uid process can read, so the MAC is an interlock against hand-editing
@@ -167,14 +167,14 @@ never relays lifecycle claims — otherwise evidence would trust the client):
 
 ### CLI
 
-- `ibkr trading paper-smoke` subcommand: flags `--timeout` (broker-ack wait,
+- `canary trading paper-smoke` subcommand: flags `--timeout` (broker-ack wait,
   default 30 s), `--json`. Sends `env.Origin`; renders gate echo, order
   ref/ID, limit, ack + cancel status, evidence age window, and — on pass —
   the note that evidence is bound to this binary version (every
   `make install` requires a rerun); failures render reason + action
   prominently since a failed run deliberately revokes prior valid evidence;
   exit 0 on pass, 1 on fail.
-- `cmd/ibkr/main.go`: paper-smoke gets a long unary budget (120 s);
+- `cmd/canary/main.go`: paper-smoke gets a long unary budget (120 s);
   daemon-side method deadline 100 s (under the CLI ceiling so classified
   errors reach the user — same pattern as `scan`).
 - catalog entry + docs regen.
@@ -225,16 +225,16 @@ never relays lifecycle claims — otherwise evidence would trust the client):
 Before:
 
 ```sh
-ibkr trading status --json      # live blockers say: run `ibkr trading paper-smoke`
-ibkr trading paper-smoke        # → unknown subcommand
+canary trading status --json      # live blockers say: run `canary trading paper-smoke`
+canary trading paper-smoke        # → unknown subcommand
 ```
 
 After:
 
 ```sh
-make install && ibkr restart --timeout 15s
-ibkr trading paper-smoke --json # paper round-trip + MAC'd evidence
-ibkr trading status --json      # paper_smoke fields populated from evidence
+make install && canary restart --timeout 15s
+canary trading paper-smoke --json # paper round-trip + MAC'd evidence
+canary trading status --json      # paper_smoke fields populated from evidence
 ```
 
 If no paper gateway is reachable, the exact missing artifact is named in the
@@ -258,7 +258,7 @@ completion message.
 - Generated docs needed: yes (`make docs-regen` — new subcommand, new env
   none, config unchanged).
 - Static gate: `make check`. Tests: `make test` (incl. `-tags trading` leg).
-- Live gate: `make smoke`, then the real artifact: `ibkr trading paper-smoke`
+- Live gate: `make smoke`, then the real artifact: `canary trading paper-smoke`
   against paper TWS with output pasted.
 
 ## Rollback Notes

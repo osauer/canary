@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/flexstmt"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Reconciliation engine (internal-docs/design/post-trade-truth.md): matches broker

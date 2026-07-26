@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// accountSnapshotFreshFor lets the daemon's closely spaced Rulebook, Canary,
+// accountSnapshotFreshFor lets the daemon's closely spaced Rulebook, Stress,
 // brief, app, and CLI reads share one completed broker snapshot. It is short
 // enough that a decision never rides an old account value merely to save a
 // request, while removing bursts of parallel reqAccountSummary subscriptions.

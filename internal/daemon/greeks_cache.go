@@ -3,7 +3,7 @@ package daemon
 import (
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // greeksCache memoises per-option model-computation Greeks so the
@@ -17,7 +17,7 @@ import (
 // (delta drifts on the order of minutes for liquid names), and a stale
 // cached value is far better than nil for the portfolio-aggregate
 // rendering. 60 s strikes the balance: short enough that an aggressive
-// `watch -n 60 ibkr positions` re-warms each cycle, long enough that
+// `watch -n 60 canary positions` re-warms each cycle, long enough that
 // back-to-back invocations during a decision pause cost zero gateway
 // round trips.
 //
@@ -50,7 +50,7 @@ const (
 	// relative to spot (delta drifts on the order of minutes for liquid
 	// names), and a stale cached value is far better than nil for the
 	// portfolio aggregate. 60 s is short enough that an aggressive
-	// `watch -n 60 ibkr positions` re-warms each cycle, long enough that
+	// `watch -n 60 canary positions` re-warms each cycle, long enough that
 	// back-to-back invocations during a decision pause cost zero gateway
 	// round trips.
 	greeksTTL = 60 * time.Second

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -28,15 +29,19 @@ var elfHeader = []byte{0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01, 0x01, 0x00,
 	'p', 'a', 'd', 'd', 'i', 'n', 'g'}
 
 // buildTarball returns a gzipped tar archive containing one regular
-// file named `ibkr` with the given payload. Used by every install
+// file named `canary` with the given payload. Used by every install
 // test that needs a happy-path or near-happy-path archive.
 func buildTarball(t *testing.T, payload []byte) []byte {
+	return buildTarballEntry(t, "canary", payload)
+}
+
+func buildTarballEntry(t *testing.T, name string, payload []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
 	hdr := &tar.Header{
-		Name:     "ibkr",
+		Name:     name,
 		Mode:     0o755,
 		Size:     int64(len(payload)),
 		Typeflag: tar.TypeReg,
@@ -71,6 +76,14 @@ func writeFile(t *testing.T, path string, data []byte) {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestResolveInstallDirRejectsRetiredEnvironment(t *testing.T) {
+	t.Setenv("IBKR_INSTALL_DIR", "")
+	t.Setenv("CANARY_INSTALL_DIR", t.TempDir())
+	if _, err := ResolveInstallDir(); err == nil || !strings.Contains(err.Error(), "CANARY_INSTALL_DIR") {
+		t.Fatalf("ResolveInstallDir error = %v, want retired-variable guidance", err)
 	}
 }
 
@@ -143,12 +156,12 @@ func TestExtractTarball_HappyPath(t *testing.T) {
 	writeFile(t, tarPath, buildTarball(t, elfHeader))
 
 	dest := filepath.Join(dir, "out")
-	bin, err := ExtractTarball(tarPath, dest)
+	bin, err := ExtractTarball(tarPath, dest, "")
 	if err != nil {
 		t.Fatalf("ExtractTarball: %v", err)
 	}
-	if bin != filepath.Join(dest, "ibkr") {
-		t.Fatalf("bin = %q, want %q", bin, filepath.Join(dest, "ibkr"))
+	if bin != filepath.Join(dest, "canary") {
+		t.Fatalf("bin = %q, want %q", bin, filepath.Join(dest, "canary"))
 	}
 	got, err := os.ReadFile(bin)
 	if err != nil {
@@ -166,6 +179,33 @@ func TestExtractTarball_HappyPath(t *testing.T) {
 	}
 }
 
+func TestExtractTarball_CanonicalEntryIsExact(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tarPath := filepath.Join(dir, "asset.tar.gz")
+	root := "canary-v1.2.3-" + runtime.GOOS + "-" + runtime.GOARCH
+	writeFile(t, tarPath, buildTarballEntry(t, root+"/canary", elfHeader))
+	got, err := ExtractTarball(tarPath, filepath.Join(dir, "out"), root)
+	if err != nil {
+		t.Fatalf("ExtractTarball: %v", err)
+	}
+	if filepath.Base(got) != "canary" {
+		t.Fatalf("extracted path = %q, want basename canary", got)
+	}
+
+	retiredPath := filepath.Join(dir, "retired.tar.gz")
+	writeFile(t, retiredPath, buildTarballEntry(t, root+"/ibkr", elfHeader))
+	if _, err := ExtractTarball(retiredPath, filepath.Join(dir, "retired"), root); err == nil {
+		t.Fatal("retired executable entry was accepted")
+	}
+
+	traversalPath := filepath.Join(dir, "traversal.tar.gz")
+	writeFile(t, traversalPath, buildTarballEntry(t, "../canary", elfHeader))
+	if _, err := ExtractTarball(traversalPath, filepath.Join(dir, "traversal"), ""); err == nil || !strings.Contains(err.Error(), "escapes archive root") {
+		t.Fatalf("traversal archive error = %v, want archive-root rejection", err)
+	}
+}
+
 func TestExtractTarball_RejectsGarbage(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -174,7 +214,7 @@ func TestExtractTarball_RejectsGarbage(t *testing.T) {
 	// e.g. an HTML 404 page mistakenly tarred up.
 	writeFile(t, tarPath, buildTarball(t, []byte("<html>404 not found</html>")))
 
-	if _, err := ExtractTarball(tarPath, filepath.Join(dir, "out")); err == nil {
+	if _, err := ExtractTarball(tarPath, filepath.Join(dir, "out"), ""); err == nil {
 		t.Fatal("ExtractTarball returned nil for non-executable payload")
 	} else if !strings.Contains(err.Error(), "not a valid ELF/Mach-O") {
 		t.Fatalf("err = %v, want 'not a valid ELF/Mach-O'", err)
@@ -184,7 +224,7 @@ func TestExtractTarball_RejectsGarbage(t *testing.T) {
 func TestExtractTarball_NoBinaryEntry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	// Build a tarball whose single entry is NOT named "ibkr".
+	// Build a tarball whose single entry is NOT named "canary".
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -200,61 +240,137 @@ func TestExtractTarball_NoBinaryEntry(t *testing.T) {
 	tarPath := filepath.Join(dir, "asset.tar.gz")
 	writeFile(t, tarPath, buf.Bytes())
 
-	if _, err := ExtractTarball(tarPath, filepath.Join(dir, "out")); err == nil {
-		t.Fatal("ExtractTarball returned nil for tarball with no ibkr binary")
+	if _, err := ExtractTarball(tarPath, filepath.Join(dir, "out"), ""); err == nil {
+		t.Fatal("ExtractTarball returned nil for tarball with no canary binary")
 	}
 }
 
-func TestInstall_AtomicRenameAndBak(t *testing.T) {
+func TestInstallCanonicalRetiresPreUpgradePath(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	prior := filepath.Join(dir, "ibkr")
-	src := filepath.Join(dir, "staging", "ibkr")
-	writeFile(t, prior, []byte("prior-binary"))
-	writeFile(t, src, []byte("new-binary"))
+	for _, tc := range []struct {
+		name       string
+		canonical  string
+		preUpgrade string
+	}{
+		{name: "pre-upgrade-only", preUpgrade: "pre-upgrade-prior"},
+		{name: "canonical-only", canonical: "canonical-prior"},
+		{name: "both-names", canonical: "canonical-prior", preUpgrade: "stale-pre-upgrade"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.canonical != "" {
+				writeFile(t, filepath.Join(dir, "canary"), []byte(tc.canonical))
+			}
+			if tc.preUpgrade != "" {
+				writeFile(t, filepath.Join(dir, "ibkr"), []byte(tc.preUpgrade))
+			}
+			writeFile(t, filepath.Join(dir, "canary.bak"), []byte("stale-backup"))
+			writeFile(t, filepath.Join(dir, "ibkr.bak"), []byte("stale-backup"))
+			src := filepath.Join(t.TempDir(), "candidate")
+			writeFile(t, src, []byte("new-canary"))
 
-	if err := Install(src, prior); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-
-	got, err := os.ReadFile(prior)
-	if err != nil {
-		t.Fatalf("read dest: %v", err)
-	}
-	if string(got) != "new-binary" {
-		t.Fatalf("dest contents = %q, want 'new-binary'", got)
-	}
-	bak, err := os.ReadFile(prior + ".bak")
-	if err != nil {
-		t.Fatalf("read .bak: %v", err)
-	}
-	if string(bak) != "prior-binary" {
-		t.Fatalf(".bak contents = %q, want 'prior-binary'", bak)
-	}
-	if got, err := os.ReadFile(src); err != nil || string(got) != "new-binary" {
-		t.Fatalf("source staging binary should remain for outer cleanup, got %q err=%v", got, err)
+			if err := InstallCanonical(src, dir); err != nil {
+				t.Fatalf("InstallCanonical: %v", err)
+			}
+			assertFileContents(t, filepath.Join(dir, "canary"), "new-canary")
+			if _, err := os.Lstat(filepath.Join(dir, "ibkr")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("pre-upgrade executable remains after install (err=%v)", err)
+			}
+			for _, residue := range []string{"canary.bak", "ibkr.bak"} {
+				if _, err := os.Lstat(filepath.Join(dir, residue)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("durable rollback residue %s remains (err=%v)", residue, err)
+				}
+			}
+		})
 	}
 }
 
-func TestInstall_FirstInstallNoPriorBak(t *testing.T) {
+func TestInstallCanonicalRejectsNonRegularPublicPaths(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "newhome", "ibkr")
-	src := filepath.Join(dir, "staging", "ibkr")
-	writeFile(t, src, []byte("first-binary"))
+	for _, tc := range []struct {
+		name string
+		path string
+		make func(t *testing.T, path string)
+	}{
+		{
+			name: "canonical symlink",
+			path: "canary",
+			make: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Symlink("target", path); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "pre-upgrade symlink",
+			path: "ibkr",
+			make: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Symlink("target", path); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "pre-upgrade directory",
+			path: "ibkr",
+			make: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Mkdir(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tc.make(t, filepath.Join(dir, tc.path))
+			src := filepath.Join(t.TempDir(), "candidate")
+			writeFile(t, src, []byte("new-canary"))
+			if err := InstallCanonical(src, dir); err == nil || !strings.Contains(err.Error(), "regular file") {
+				t.Fatalf("InstallCanonical error = %v, want non-regular-path rejection", err)
+			}
+		})
+	}
+}
 
-	if err := Install(src, dest); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-	got, err := os.ReadFile(dest)
+func assertFileContents(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read dest: %v", err)
+		t.Fatalf("read %s: %v", path, err)
 	}
-	if string(got) != "first-binary" {
-		t.Fatalf("dest contents = %q, want 'first-binary'", got)
+	if string(got) != want {
+		t.Fatalf("%s contents = %q, want %q", path, got, want)
 	}
-	if _, err := os.Stat(dest + ".bak"); !os.IsNotExist(err) {
-		t.Fatalf(".bak unexpectedly exists on first install (err=%v)", err)
+}
+
+func TestMakeUninstallRemovesLegacyCanonicalAndBothLayouts(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files []string
+	}{
+		{name: "legacy-only", files: []string{"ibkr", "ibkr.bak"}},
+		{name: "canonical-only", files: []string{"canary", "canary.bak"}},
+		{name: "both-names", files: []string{"canary", "ibkr", "canary.bak", "ibkr.bak"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix := t.TempDir()
+			for _, name := range tc.files {
+				writeFile(t, filepath.Join(prefix, "bin", name), []byte(name))
+			}
+			cmd := exec.Command("make", "-s", "uninstall", "PREFIX="+prefix)
+			cmd.Dir = filepath.Join("..", "..")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("make uninstall: %v\n%s", err, out)
+			}
+			for _, name := range []string{"canary", "ibkr", "canary.bak", "ibkr.bak"} {
+				if _, err := os.Lstat(filepath.Join(prefix, "bin", name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("%s remains after uninstall (err=%v)", name, err)
+				}
+			}
+		})
 	}
 }
 
@@ -391,7 +507,7 @@ func TestRunInstall_EndToEnd(t *testing.T) {
 	// Build a synthetic release: one valid tarball, one SHA256SUMS
 	// listing its hash, one detached signature over SHA256SUMS.
 	tarball := buildTarball(t, elfHeader)
-	assetName := "ibkr-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
+	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
 	sums := hashHex(tarball) + "  " + assetName + "\n"
 	sumsSig := signer.SignDetachedArmored(t, []byte(sums))
 
@@ -411,7 +527,7 @@ func TestRunInstall_EndToEnd(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	installDir := t.TempDir()
-	t.Setenv("IBKR_INSTALL_DIR", installDir)
+	t.Setenv("CANARY_INSTALL_DIR", installDir)
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
 
 	rel := &Release{
@@ -429,6 +545,12 @@ func TestRunInstall_EndToEnd(t *testing.T) {
 	if !strings.HasPrefix(plan.InstallDir, installDir) {
 		t.Fatalf("InstallDir = %q, want prefix %q", plan.InstallDir, installDir)
 	}
+	if filepath.Base(plan.DestPath) != "canary" {
+		t.Fatalf("install path = %q, want canonical canary path", plan.DestPath)
+	}
+	if plan.ArchiveRoot != strings.TrimSuffix(assetName, ".tar.gz") {
+		t.Fatalf("ArchiveRoot = %q, want %q", plan.ArchiveRoot, strings.TrimSuffix(assetName, ".tar.gz"))
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -442,6 +564,9 @@ func TestRunInstall_EndToEnd(t *testing.T) {
 	}
 	if !bytes.Equal(got, elfHeader) {
 		t.Fatalf("DestPath contents differ from synthetic binary")
+	}
+	if _, err := os.Lstat(filepath.Join(plan.InstallDir, "ibkr")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-upgrade executable path was published (err=%v)", err)
 	}
 }
 
@@ -458,7 +583,7 @@ func TestRunInstall_ShaMismatchLeavesPriorIntact(t *testing.T) {
 	useTestKey(t, signer)
 
 	tarball := buildTarball(t, elfHeader)
-	assetName := "ibkr-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
+	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
 	wrongSums := strings.Repeat("00", 32) + "  " + assetName + "\n"
 	wrongSumsSig := signer.SignDetachedArmored(t, []byte(wrongSums))
 
@@ -478,10 +603,10 @@ func TestRunInstall_ShaMismatchLeavesPriorIntact(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	installDir := t.TempDir()
-	t.Setenv("IBKR_INSTALL_DIR", installDir)
+	t.Setenv("CANARY_INSTALL_DIR", installDir)
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
 
-	priorPath := filepath.Join(installDir, "ibkr")
+	priorPath := filepath.Join(installDir, "canary")
 	writeFile(t, priorPath, []byte("PRIOR"))
 
 	rel := &Release{
@@ -521,7 +646,7 @@ func TestRunInstall_TamperedSumsRejected(t *testing.T) {
 	useTestKey(t, signer)
 
 	tarball := buildTarball(t, elfHeader)
-	assetName := "ibkr-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
+	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
 	// Original SHA256SUMS the maintainer would sign.
 	realSums := []byte(hashHex(tarball) + "  " + assetName + "\n")
 	sig := signer.SignDetachedArmored(t, realSums)
@@ -545,10 +670,10 @@ func TestRunInstall_TamperedSumsRejected(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	installDir := t.TempDir()
-	t.Setenv("IBKR_INSTALL_DIR", installDir)
+	t.Setenv("CANARY_INSTALL_DIR", installDir)
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
 
-	priorPath := filepath.Join(installDir, "ibkr")
+	priorPath := filepath.Join(installDir, "canary")
 	writeFile(t, priorPath, []byte("PRIOR"))
 
 	rel := &Release{
@@ -584,7 +709,7 @@ func TestRunInstall_TamperedSumsRejected(t *testing.T) {
 // release that doesn't publish SHA256SUMS.asc must be refused at
 // plan-build time, before any download.
 func TestPlanFor_MissingSignatureRejected(t *testing.T) {
-	assetName := "ibkr-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
+	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
 	rel := &Release{
 		TagName: "v9.9.9",
 		Assets: []Asset{

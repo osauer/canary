@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // MethodRulesSnapshot returns the daily trading-rulebook checklist evaluated
@@ -228,7 +228,7 @@ type RulesResult struct {
 	// positions, earnings, regime_stage, and tape.
 	InputHealth []SourceHealth `json:"input_health,omitempty"`
 	Earnings    []EarningsInfo `json:"earnings,omitempty"`
-	// Policy provenance, mirroring proposals/canary.
+	// Policy provenance, mirroring proposals/Stress.
 	PolicyID          string       `json:"policy_id"`
 	PolicyVersion     int          `json:"policy_version"`
 	PolicyFingerprint *Fingerprint `json:"policy_fingerprint,omitempty"`

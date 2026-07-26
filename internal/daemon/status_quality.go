@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const regimeProjectionConsumerRepairTimeout = 2 * time.Second
@@ -66,7 +66,7 @@ func (s *Server) regimeConsumerContext() context.Context {
 // journal projection. Such a revision is repaired under a small caller- or
 // daemon-bounded context before it is returned; when repair cannot complete,
 // callers must withhold the snapshot. This helper calls current, never serve,
-// so a brief, canary journal tick, or status poll cannot start market-data work.
+// so a brief, Stress journal tick, or status poll cannot start market-data work.
 func (s *Server) currentDecisionReadyRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshotResult, error) {
 	if s == nil || s.regimeSnapshots == nil {
 		return nil, fmt.Errorf("no daemon regime snapshot has completed yet")

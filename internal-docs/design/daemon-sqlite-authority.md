@@ -278,7 +278,7 @@ to old journals.
   Disk-full/read-only/I/O fault injection and an actual prior-binary isolation
   run remain release-hardening work, not claims made by this cutover.
 - Repository gates: `make test` and full `make smoke`.
-- Installed runtime: `make restart-daemon`, redacted `ibkr status --json`,
+- Installed runtime: `make restart-daemon`, redacted `canary status --json`,
   history reads, order open/history/status reads, and integrity/backup health.
   No broker submission is required or authorized.
 

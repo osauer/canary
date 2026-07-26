@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # lib-daemon-control.sh — shared helpers for the smoke scripts to spin
-# up an isolated `ibkr daemon` under /tmp without colliding with the
+# up an isolated `canary daemon` under /tmp without colliding with the
 # user's canonical daemon. Sourced by release-verify.sh, release-smoke.sh,
 # and wire-smoke.sh.
 #
 # Provides:
 #   stop_existing_daemons <label>
-#       SIGTERM (with SIGKILL fallback) every running `ibkr daemon`
-#       process. The IBKR gateway accepts one connection per client ID,
+#       SIGTERM (with SIGKILL fallback) every running canonical
+#       `canary daemon` or still-running pre-upgrade `ibkr daemon` process. The IBKR
+#       gateway accepts one connection per client ID,
 #       so running two daemons with the same ID makes the second fail
 #       with "code 326 / client id already in use" — this aborted the
 #       v0.16.0 release on first run before the workaround was added.
@@ -22,14 +23,20 @@
 
 stop_existing_daemons() {
     local label="${1:-smoke}"
-    local pids
-    pids="$(pgrep -f 'ibkr daemon' 2>/dev/null || true)"
+    local pids candidate_pids pid cmd
+    candidate_pids="$(pgrep -f '(^|/)(canary|ibkr)[[:space:]]+daemon([[:space:]]|$)' 2>/dev/null || true)"
+    pids=""
+    for pid in $candidate_pids; do
+        cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+        if is_product_daemon_command "$cmd"; then
+            pids="${pids:+$pids }$pid"
+        fi
+    done
     if [[ -z "$pids" ]]; then
         return 0
     fi
     echo "${label}: stopping pre-existing daemon(s) so they don't race the smoke daemon for the gateway client-ID slot:"
     for pid in $pids; do
-        local cmd
         cmd="$(ps -o command= -p "$pid" 2>/dev/null || echo '?')"
         echo "  pid=$pid cmd=$cmd"
     done
@@ -66,6 +73,14 @@ stop_existing_daemons() {
     # rather than rare; 5s is conservative — TWS typically clears in
     # 1-2s but a busy gateway can stretch it.
     sleep 5
+}
+
+is_product_daemon_command() {
+    local command="${1:-}"
+    local program subcommand
+    read -r program subcommand _ <<<"$command"
+    program="${program##*/}"
+    [[ "$program" == "canary" || "$program" == "ibkr" ]] && [[ "$subcommand" == "daemon" ]]
 }
 
 kill_daemon_from_lockfile() {

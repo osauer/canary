@@ -8,6 +8,18 @@ const SOURCES = new Set([
   "canary", "regime", "rulebook", "risk_policy", "protection", "order_integrity",
   "reconciliation", "governance", "data_health", "delivery",
 ]);
+const SOURCE_LABELS = {
+  canary: "Stress",
+  regime: "Regime",
+  rulebook: "Rulebook",
+  risk_policy: "Risk policy",
+  protection: "Protection",
+  order_integrity: "Order integrity",
+  reconciliation: "Reconciliation",
+  governance: "Governance",
+  data_health: "Data health",
+  delivery: "Delivery",
+};
 const KINDS = new Set([
   "market_state", "portfolio_risk", "margin_safety", "drawdown", "protection_gap",
   "order_integrity", "reconciliation_exception", "governance", "policy_drift",
@@ -361,6 +373,10 @@ function timeLabel(value) {
   return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 
+function alertSourceLabel(source) {
+  return SOURCE_LABELS[source] || "Unknown source";
+}
+
 function setText(id, copy) {
   const element = $(id);
   if (element) element.textContent = copy;
@@ -399,7 +415,7 @@ function alertRowElement(occurrence) {
   copy.append(head, body);
   const meta = document.createElement("span");
   meta.className = "alert-row__source";
-  meta.textContent = `${occurrence.source} · ${occurrence.state} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`;
+  meta.textContent = `${alertSourceLabel(occurrence.source)} · ${occurrence.state} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`;
   row.append(copy, meta);
   return row;
 }
@@ -447,7 +463,7 @@ function renderSources(value) {
     const row = document.createElement("div");
     row.className = "alert-source-row";
     const name = document.createElement("b");
-    name.textContent = source.source;
+    name.textContent = alertSourceLabel(source.source);
     const status = document.createElement("span");
     status.textContent = `${source.status}${source.reason ? ` · ${source.reason}` : ""}`;
     const timing = document.createElement("small");
@@ -530,7 +546,7 @@ function renderSelectedAlert() {
   if (!occurrence) return;
   setText("selectedAlertTitle", occurrence.title);
   setText("selectedAlertBody", occurrence.body);
-  setText("selectedAlertTime", `${occurrence.source} · ${occurrence.state} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`);
+  setText("selectedAlertTime", `${alertSourceLabel(occurrence.source)} · ${occurrence.state} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`);
 }
 
 function attentionViewReady() {
@@ -671,6 +687,7 @@ export {
   acknowledgeAttention,
   acknowledgeAttentionNow,
   alertRowElement,
+  alertSourceLabel,
   attentionViewReady,
   canAssertAlertClear,
   handleAttentionContextChange,

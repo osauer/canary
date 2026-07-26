@@ -1,5 +1,5 @@
 User-agent: *
-Allow: /ibkr/
-Sitemap: https://osauer.dev/ibkr/sitemap.xml
-LLMs: https://osauer.dev/ibkr/llms.txt
-LLMs: https://osauer.dev/ibkr/llms-full.txt
+Allow: /canary/
+Sitemap: https://osauer.dev/canary/sitemap.xml
+LLMs: https://osauer.dev/canary/llms.txt
+LLMs: https://osauer.dev/canary/llms-full.txt

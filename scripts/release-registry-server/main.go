@@ -54,7 +54,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) != 3 {
-		return fmt.Errorf("usage: go run ./scripts/release-registry-server vX.Y.Z dist/ibkr-vX.Y.Z.mcpb dist/server.json")
+		return fmt.Errorf("usage: go run ./scripts/release-registry-server vX.Y.Z dist/canary-vX.Y.Z.mcpb dist/server.json")
 	}
 
 	releaseVersion, mcpbPath, outputPath := args[0], args[1], args[2]
@@ -88,7 +88,7 @@ func run(args []string) error {
 	server.Packages = []registryPackage{
 		{
 			RegistryType: "mcpb",
-			Identifier:   fmt.Sprintf("https://github.com/osauer/ibkr/releases/download/%s/ibkr-%s.mcpb", releaseVersion, releaseVersion),
+			Identifier:   fmt.Sprintf("https://github.com/osauer/canary/releases/download/%s/canary-%s.mcpb", releaseVersion, releaseVersion),
 			FileSHA256:   digest,
 			Transport: registryTransport{
 				Type: "stdio",

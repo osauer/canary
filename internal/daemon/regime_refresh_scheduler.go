@@ -7,7 +7,7 @@ import (
 
 // startRegimeRefreshLoop starts the daemon-owned Regime freshness scheduler.
 // It waits for gateway readiness without consuming refresh backoff and is
-// deliberately independent of the alert registry, Canary journaling, and app
+// deliberately independent of the alert registry, Stress journaling, and app
 // polling.
 func (s *Server) startRegimeRefreshLoop(ctx context.Context) {
 	if s == nil || ctx == nil || ctx.Err() != nil || s.regimeSnapshots == nil {

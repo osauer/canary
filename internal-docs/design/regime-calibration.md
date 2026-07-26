@@ -501,7 +501,7 @@ Fingerprints feed alert dedupe, so new fields need an explicit stance:
 - `daemon.db` append-only decision events: the forward regime and stress
   calibration corpora, deduped by semantic fingerprint with an hourly
   heartbeat.
-- `ibkr regime --log <path>`: manual, opt-in JSONL of full snapshots.
+- `canary regime --log <path>`: manual, opt-in JSONL of full snapshots.
 - `docs/docs/internals/regime-backtest.md`: PIT-panel methodology, with gamma and
   breadth explicitly *unavailable* in its historical tiers.
 
@@ -512,7 +512,7 @@ regime/rules/stress/proposal/opportunity decision histories clean. Imported
 historic market and gamma measurements are immutable observations stamped
 `decision_eligible=false`, never current state or retrospective decisions.
 
-`ibkr regime history` and `ibkr stress history` query the post-cutover event
+`canary regime history` and `canary stress history` query the post-cutover event
 corpus directly through typed daemon RPC. There is no derived `history.db`,
 JSONL backfill/tail ingest, raw-month rotation, archive query, file fallback,
 or dual write. See `internal-docs/design/history-index.md`.
@@ -615,7 +615,7 @@ Additive only; raw measurements untouched:
 
 ### MCP (`internal/mcp/tools.go`)
 
-`ibkr_regime` (and the regime-relevant text in `ibkr_stress`) updated to
+`canary_regime` (and the regime-relevant text in `canary_stress`) updated to
 documentation grade: explain eligible-vs-provisional reds, the governor (why
 severity may read watch while two rows show red), cadence freshness, and that
 `governors[]` is the place to look before concluding the engine is "ignoring"
@@ -677,8 +677,8 @@ red rows. Then `make docs-regen`; `make check` enforces no drift.
   across all four former call sites; fingerprint v2 projection test (age-only
   change does not re-key).
 - Verification per repo rules: `make check`; **full `make smoke`** (daemon +
-  wire-path change), `make restart-daemon`, then `ibkr regime` /
-  `ibkr regime --json --explain` and an `ibkr stress` output pasted in the
+  wire-path change), `make restart-daemon`, then `canary regime` /
+  `canary regime --json --explain` and an `canary stress` output pasted in the
   completion message.
 
 ## Part 6 — Settings knobs (deliberately almost none)

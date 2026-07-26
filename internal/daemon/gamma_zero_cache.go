@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // gammaZeroCache holds the current and most-recent zero-gamma compute
@@ -88,7 +88,7 @@ type gammaZeroCache struct {
 	loadNow  time.Time
 }
 
-const gammaColdCacheAction = "Run `ibkr gamma --force` for a diagnostic off-hours recompute, or call again during the next regular U.S. options session."
+const gammaColdCacheAction = "Run `canary gamma --force` for a diagnostic off-hours recompute, or call again during the next regular U.S. options session."
 
 // gammaSlot is the per-scope cache cell. Mirrors the original
 // single-slot fields of gammaZeroCache: current, refresh, plus the
@@ -242,7 +242,7 @@ const gammaErrorRetryMaxTTL = 15 * time.Minute
 //
 // Per-class values:
 //   - softTTLRTH (15 min): during the regular U.S. listed-options session,
-//     dealer gamma should be refreshed often enough for regime/canary reads
+//     dealer gamma should be refreshed often enough for regime/Stress reads
 //     to see intraday positioning changes without overlapping the
 //     several-minute option fan-out.
 //   - softTTLClosed (math.MaxInt64): outside that option-data session, a
@@ -516,13 +516,13 @@ func gammaProfileAllZero(profile []rpc.GammaProfilePoint) bool {
 // IsComputing reports whether a gamma compute is currently in flight.
 // Used by Server.isBusy() so the daemon's idle watcher doesn't shut
 // down while a multi-minute compute is still running (a fresh
-// `ibkr regime` call kicks gamma and returns immediately; the user
+// `canary regime` call kicks gamma and returns immediately; the user
 // can walk away and the compute should still complete). Safe for
 // concurrent callers — read under c.mu, follows the same lock
 // discipline as kickOrJoin.
 //
 // A soft-TTL refresh counts as in-flight even when current is done:
-// the user can see "computing dealer zero-gamma" in `ibkr status`
+// the user can see "computing dealer zero-gamma" in `canary status`
 // whenever any compute is happening, so they understand why the
 // next call may briefly carry a stale AsOf.
 func (c *gammaZeroCache) IsComputing() bool {

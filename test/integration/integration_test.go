@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Package integration runs end-to-end tests of the full `ibkr daemon` and CLI
+// Package integration runs end-to-end tests of the full `canary daemon` and CLI
 // stack against a live IB Gateway. The tests deliberately do not mock or stub
 // IBKR; they prove the shipped multi-mode binary connects and talks to the real
 // gateway.
@@ -33,8 +33,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 var (
@@ -57,8 +57,8 @@ const (
 	integrationCLILongTimeoutText  = "3s"
 )
 
-// TestMain probes the IB Gateway, builds the single ibkr binary, and
-// launches one daemon (`ibkr daemon --foreground`) shared by every test
+// TestMain probes the IB Gateway, builds the single canary binary, and
+// launches one daemon (`canary daemon --foreground`) shared by every test
 // in this package. Per-test daemons are too slow (each handshake is
 // multi-second) and risk overwhelming the gateway with rapid-fire
 // client-ID changes.
@@ -133,7 +133,7 @@ func TestMain(m *testing.M) {
 // handshake (observably ~0.7s against paper TWS), so a single-shot check
 // here raced the handshake and could mark a healthy suite "no live
 // gateway" — every live test skipped and the run still exited 0. The
-// 25s budget mirrors the daemon's own handshake wait (`ibkr restart`).
+// 25s budget mirrors the daemon's own handshake wait (`canary restart`).
 // A daemon whose connector entered degraded mode stays disconnected
 // forever, so a truly muted gateway still skips cleanly — it just pays
 // the full budget once.
@@ -174,7 +174,7 @@ func daemonHealthConnected(socketPath string) bool {
 //
 // The kill pattern "<binpath> (daemon|app)" matches the shared daemon
 // (launchSharedDaemon), anything the lifecycle tests autospawn through
-// the CLI, and any `ibkr app` a regression spawns from the test binary
+// the CLI, and any `canary app` a regression spawns from the test binary
 // (no test does so on purpose — see the leak tripwire in lifecycleEnv),
 // and nothing else: the binary path is unique to this run's temp dir. SIGTERM first so daemons unlink their socket/lock files; SIGKILL the
 // stragglers (e.g. a SIGSTOPped daemon from the stuck-daemon test) two
@@ -188,8 +188,8 @@ func startReaper(cliBin string) {
 		return
 	}
 	cmd := exec.Command("/bin/sh", "-c",
-		`cat >/dev/null; pkill -TERM -f "$IBKR_REAP_PATTERN"; sleep 2; pkill -KILL -f "$IBKR_REAP_PATTERN"; exit 0`)
-	cmd.Env = append(os.Environ(), "IBKR_REAP_PATTERN="+regexp.QuoteMeta(cliBin)+" (daemon|app)")
+		`cat >/dev/null; pkill -TERM -f "$CANARY_REAP_PATTERN"; sleep 2; pkill -KILL -f "$CANARY_REAP_PATTERN"; exit 0`)
+	cmd.Env = append(os.Environ(), "CANARY_REAP_PATTERN="+regexp.QuoteMeta(cliBin)+" (daemon|app)")
 	cmd.Stdin = r
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -228,13 +228,13 @@ func skipIfNoGateway(t *testing.T) {
 }
 
 func buildBin() (string, error) {
-	dir, err := os.MkdirTemp("", "ibkr-integration-")
+	dir, err := os.MkdirTemp("", "canary-integration-")
 	if err != nil {
 		return "", err
 	}
-	out := filepath.Join(dir, "ibkr")
+	out := filepath.Join(dir, "canary")
 	ldflags := fmt.Sprintf("-X main.cliUnaryTimeout=%s -X main.cliLongUnaryTimeout=%s", integrationCLIUnaryTimeoutText, integrationCLILongTimeoutText)
-	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", out, "../../cmd/ibkr")
+	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", out, "../../cmd/canary")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -244,7 +244,7 @@ func buildBin() (string, error) {
 }
 
 func launchSharedDaemon(cliBin string) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "ibkr-integration-run-")
+	dir, err := os.MkdirTemp("", "canary-integration-run-")
 	if err != nil {
 		return "", nil, err
 	}
@@ -551,14 +551,14 @@ func TestCLIBinaryAccountText(t *testing.T) {
 	skipIfNoGateway(t)
 
 	cmd := exec.Command(sharedCLI, "account")
-	cmd.Env = append(os.Environ(), "IBKR_SOCKET="+sharedSocket)
+	cmd.Env = append(os.Environ(), "CANARY_SOCKET="+sharedSocket)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("ibkr account: %v\n%s", err, out)
+		t.Fatalf("canary account: %v\n%s", err, out)
 	}
 	s := string(out)
 	if !strings.Contains(s, "Account") || !strings.Contains(s, "Net liquidation") {
-		t.Errorf("unexpected ibkr account text output:\n%s", s)
+		t.Errorf("unexpected canary account text output:\n%s", s)
 	}
 }
 

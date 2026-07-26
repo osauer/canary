@@ -29,9 +29,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/cli"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func main() {
@@ -358,7 +358,7 @@ func fixtureSize() *risk.SizeResult {
 }
 
 // fixtureStatus is a healthy connected daemon — the happy-path screen
-// the user sees after `ibkr status` on a working setup.
+// the user sees after `canary status` on a working setup.
 func fixtureStatus() *rpc.HealthResult {
 	return &rpc.HealthResult{
 		DaemonVersion: "v1.0.0",
@@ -479,7 +479,7 @@ func fixtureRegime() *rpc.RegimeSnapshotResult {
 	officialDate := "2026-06-03"
 	r := &rpc.RegimeSnapshotResult{
 		AsOf:    now,
-		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
+		SpecDoc: "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
 		Summary: rpc.RegimeSummary{
 			Label:             "Stress signal present",
 			Evidence:          "3 green clusters / 1 yellow cluster / 1 red cluster / 1 waiting",
@@ -487,7 +487,7 @@ func fixtureRegime() *rpc.RegimeSnapshotResult {
 			PunchLine:         "Stress is visible, but not broad enough to dominate the read.",
 			Confidence:        "medium",
 			DominantRisks:     []string{"dealer gamma", "breadth"},
-			NotAdvice:         "Regime read only; no orders are placed by ibkr.",
+			NotAdvice:         "Regime read only; no orders are placed by Canary.",
 		},
 		VIXTermStructure: rpc.RegimeVIXTerm{
 			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{

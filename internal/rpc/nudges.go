@@ -9,7 +9,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 const (

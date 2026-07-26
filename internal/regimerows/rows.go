@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Spec thresholds, baked from docs/docs/internals/regime-dashboard.md. The

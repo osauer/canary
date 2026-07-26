@@ -24,7 +24,7 @@ type terminal struct {
 }
 
 // IsInteractive reports whether stdin and stdout both point at terminal
-// devices. Zero-arg `ibkr` only enters the TUI in this case.
+// devices. Zero-arg `canary` only enters the TUI in this case.
 func IsInteractive(in, out *os.File) bool {
 	return isTerminalFile(in) && isTerminalFile(out)
 }

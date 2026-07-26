@@ -6,10 +6,10 @@
 # The shared LAN host on 0.0.0.0:8765 is a separate process; never bind it here.
 #
 # Pair a fresh preview browser against the assigned port:
-#   ibkr app pair --addr 127.0.0.1:$PORT --public-url http://127.0.0.1:$PORT --json
+#   canary app pair --addr 127.0.0.1:$PORT --public-url http://127.0.0.1:$PORT --json
 set -eu
 port="${PORT:-8766}"
-exec /Users/osauer/.local/bin/ibkr app \
+exec /Users/osauer/.local/bin/canary app \
   --addr "127.0.0.1:${port}" \
   --public-url "http://127.0.0.1:${port}" \
   --state-dir "/tmp/ibkr-preview-app-state-${port}"

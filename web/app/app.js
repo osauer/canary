@@ -18,7 +18,7 @@ import { renderAccountPanel, renderUnderlyings, runUnderlyingAction, setUnderlyi
 installSmokeHooks();
 
 function installSmokeHooks() {
-  const smoke = globalThis.__ibkrSmoke;
+  const smoke = globalThis.__canarySmoke;
   if (!smoke || smoke.applySnapshotPatch) return;
   smoke.applySnapshotPatch = (patch = {}, ui = {}) => {
     const current = state.snapshot || {};
@@ -147,12 +147,12 @@ function renderAll() {
   $("stockCount").textContent = (positions.stocks || []).length;
   $("optionCount").textContent = (positions.options || []).length;
   $("baseCurrency").textContent = account.base_currency || positions.portfolio?.base_currency || "--";
-  $("canarySeverity").textContent = labelize(stress.severity || "--");
-  $("canaryAction").textContent = stressStageLabel(stress);
+  $("stressSeverity").textContent = labelize(stress.severity || "--");
+  $("stressAction").textContent = stressStageLabel(stress);
   // The hero clamps to 2 lines; cutting at the first clause reads cleaner
   // than a mid-word ellipsis, and the full text stays one tap away in detail.
   const stressSummaryFull = stressSummaryText(stress, snap);
-  const stressSummaryEl = $("canarySummary");
+  const stressSummaryEl = $("stressSummary");
   stressSummaryEl.textContent = firstClause(stressSummaryFull);
   stressSummaryEl.title = stressSummaryFull;
   renderStressStatus(stress);
@@ -195,20 +195,20 @@ $("accountOverviewToggle").addEventListener("click", () => {
   setAccountOverviewExpansion(!state.accountOverviewOpen);
 });
 $("accountPanel").addEventListener("click", (event) => handleAccountPanelTap(event));
-$("canaryDetailToggle").addEventListener("click", () => {
+$("stressDetailToggle").addEventListener("click", () => {
   setRegimeStressExpansion("stress", !state.stressDetailOpen);
 });
-$("canaryRulesToggle").addEventListener("click", () => {
+$("stressRulesToggle").addEventListener("click", () => {
   state.rulesDetailOpen = !state.rulesDetailOpen;
   renderRulesCard(state.snapshot?.rules);
 });
-$("canaryRulesNotesToggle").addEventListener("click", () => {
-  $("canaryRulesNotesDialog").showModal();
+$("stressRulesNotesToggle").addEventListener("click", () => {
+  $("stressRulesNotesDialog").showModal();
 });
-$("canaryRulesNotesClose").addEventListener("click", () => {
-  $("canaryRulesNotesDialog").close();
+$("stressRulesNotesClose").addEventListener("click", () => {
+  $("stressRulesNotesDialog").close();
 });
-$("canaryRulesNotesDialog").addEventListener("click", (event) => {
+$("stressRulesNotesDialog").addEventListener("click", (event) => {
   // A modal dialog's own box is the backdrop hit target; children stop here.
   if (event.target === event.currentTarget) event.currentTarget.close();
 });
@@ -235,7 +235,7 @@ $("clearSelectedAlertButton").addEventListener("click", () => {
 $("regimeSummaryCard").addEventListener("click", (event) => {
   handleExpandablePanelTap(event, "regime");
 });
-$("canaryHero").addEventListener("click", (event) => {
+$("stressHero").addEventListener("click", (event) => {
   handleExpandablePanelTap(event, "stress");
 });
 $("underlyingDetailToggle").addEventListener("click", () => {
@@ -272,7 +272,7 @@ $("protectionDeriskPreview").addEventListener("click", previewProtectionDerisk);
 $("protectionDeriskCancel").addEventListener("click", cancelProtectionDerisk);
 
 window.addEventListener("storage", (event) => {
-  if (event.key !== "ibkrAccountValueVisible") return;
+  if (event.key !== "canaryAccountValueVisible") return;
   state.accountValueVisible = event.newValue === "true";
   renderAll();
 });

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // stressTestNow pins tests to a regular NY trading date (Mon 2026-06-01,
@@ -1661,12 +1661,13 @@ func TestComputeStressEstablishedAlertProjectionPreservesActAcrossAuthorityHealt
 	if !fresh.EstablishedAlertProjection.OccurrenceEligible || !fresh.EstablishedAlertProjection.ActOnlyEligible {
 		t.Fatalf("fresh established eligibility=%+v, want occurrence and act-only eligible", fresh.EstablishedAlertProjection)
 	}
-	// The alert fingerprint hashes both rows[].title and the fingerprint version
-	// label, so these goldens rotated twice in this release: once when the overall
-	// row title became "Portfolio stress", and once when the version label moved
-	// from canary-fp-v2 to stress-fp-v2. They still guard the ad5b77b behaviour;
-	// only the recorded keys moved.
-	if got, want := fresh.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:44615a05f4628104937e0a56a27d5dbf80595300dbbafda812c3b98f1c52892a"; got != want {
+	if fresh.Fingerprint.Version != rpc.StressFingerprintVersion ||
+		fresh.PolicyFingerprint.Version != risk.StressPolicyFingerprintVersion ||
+		len(fresh.Rows) == 0 || fresh.Rows[0].Title != "Portfolio stress" {
+		t.Fatalf("current Stress labels changed: fingerprint=%+v policy=%+v rows=%+v",
+			fresh.Fingerprint, fresh.PolicyFingerprint, fresh.Rows)
+	}
+	if got, want := fresh.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:6a6e879570bc1a4d98c9cf45deca585c45c64ec3d46b4a99843a31282b1ee45c"; got != want {
 		t.Fatalf("established act fingerprint=%s, want ad5b77b golden %s", got, want)
 	}
 
@@ -1730,7 +1731,7 @@ func TestComputeStressEstablishedAlertProjectionIgnoresNewMarketEventRequirement
 	if baseline.EstablishedAlertProjection == nil {
 		t.Fatal("baseline missing established alert projection")
 	}
-	if got, want := baseline.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:328580a1c37c3a8ff9ef2b51036bd8e24ef6403e4edd455ccfaa0763cb1f15d9"; got != want {
+	if got, want := baseline.EstablishedAlertProjection.CanonicalFingerprint.Key, "sha256:4c84336687746ce418ce19bda97c1209e3c3731fdd85ab06820288be5a1b6c42"; got != want {
 		t.Fatalf("established MarketEvents fingerprint=%s, want ad5b77b golden %s", got, want)
 	}
 
@@ -1843,11 +1844,11 @@ func TestComputeStressEstablishedAlertProjectionKeepsAccountAndPositionsConfirmI
 	}{
 		{
 			name: "stale_account", account: staleAccount, positions: freshStressPositions(),
-			wantKey: "sha256:b77376f2842bce563743d014a12e004ab8e96206c18f14baf003d70532953c4b",
+			wantKey: "sha256:183f4f116827746d7b1f8823112b5b3f8a3d4b3d3f73f6231677dcbdca196ecb",
 		},
 		{
 			name: "missing_positions", account: freshAccount,
-			wantKey: "sha256:a20d08013801c16ff20f942750fd1709ea8a440c09985fd67f6f4b49418ab9f6",
+			wantKey: "sha256:98e6947dafd31135972ef90ea9767575cecfdba3c37ed619de453da7f1a4dde7",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

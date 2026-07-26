@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "ibkr": {
+    "canary": {
       "command": "bash",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ibkr-mcp.sh"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/canary-mcp.sh"]
     }
   }
 }

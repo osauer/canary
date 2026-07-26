@@ -42,7 +42,7 @@ case "$major:$minor:$patch" in
 esac
 
 if [ ! -d docs ]; then
-  echo "release-site-check: docs/ missing; run from the ibkr repo root" >&2
+  echo "release-site-check: docs/ missing; run from the Canary repo root" >&2
   exit 1
 fi
 
@@ -84,7 +84,7 @@ fi
 
 if ! grep -q "\"softwareVersion\": \"$plain\"" docs/index.html; then
   echo "release-site-check: docs/index.html softwareVersion is not $plain" >&2
-  echo "                    update the osauer.dev/ibkr landing page for this non-patch release" >&2
+  echo "                    update the osauer.dev/canary landing page for this non-patch release" >&2
   exit 1
 fi
 
@@ -97,4 +97,4 @@ if ! grep -q "\"softwareVersion\": \"$plain\"" docs/interactive-brokers-mcp-serv
   exit 1
 fi
 
-echo "release-site-check: $version requires and has a pushed osauer.dev/ibkr docs update"
+echo "release-site-check: $version requires and has a pushed osauer.dev/canary docs update"

@@ -4,7 +4,7 @@ Updated: 2026-07-25 20:23 CEST
 
 `pkg/ibkr` is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
-narrow order-wire operations used by the `ibkr` binary and daemon.
+narrow order-wire operations used by the `canary` binary and daemon.
 
 ## Order and exercise gates
 

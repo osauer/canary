@@ -125,7 +125,7 @@ function setupMarketSelect() {
   select.value = state.selectedMarket;
   select.addEventListener("change", () => {
     state.selectedMarket = select.value || "us";
-    localStorage.setItem("ibkrSelectedMarket", state.selectedMarket);
+    localStorage.setItem("canarySelectedMarket", state.selectedMarket);
     if (state.selectedMarket === "us") {
       state.marketCalendarOverride = null;
       renderTopbar(state.snapshot || {});

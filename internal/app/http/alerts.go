@@ -9,9 +9,9 @@ import (
 	"slices"
 	"time"
 
-	appalerts "github.com/osauer/ibkr/v2/internal/app/alerts"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (

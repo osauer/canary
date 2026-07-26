@@ -1,23 +1,23 @@
 #!/bin/sh
-# ibkr installer — one-shot binary install for darwin & linux.
+# Canary installer — one-shot binary install for Darwin and Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
 #
 # Detects your OS/arch, downloads the matching pre-built tarball from the
 # latest GitHub release, verifies the SHA-256 checksum, installs the binary
-# to ~/.local/bin/ibkr, clears the macOS quarantine flag, and adds
+# to ~/.local/bin/canary, clears the macOS quarantine flag, and adds
 # ~/.local/bin to your PATH if it's not there yet. Idempotent — safe to
 # re-run to upgrade.
 #
 # Paranoid? Download and inspect first instead of piping:
-#   curl -fsSL https://raw.githubusercontent.com/osauer/ibkr/main/install.sh -o install.sh
+#   curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh -o install.sh
 #   less install.sh   # read it
 #   sh install.sh
 
 set -eu
 
-REPO="osauer/ibkr"
-INSTALL_DIR="${IBKR_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="osauer/canary"
+INSTALL_DIR="${CANARY_INSTALL_DIR:-$HOME/.local/bin}"
 
 # --- pretty printing ---------------------------------------------------------
 # Detect a TTY for color output. Pipes / CI lose the colors gracefully.
@@ -36,6 +36,10 @@ info()  { printf '%s==>%s %s\n' "$GREEN" "$RESET" "$*"; }
 warn()  { printf '%s!!%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
 fail()  { printf '%sERROR:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 step()  { printf '%s%s%s\n' "$DIM" "$*" "$RESET"; }
+
+if [ "${IBKR_INSTALL_DIR+x}" = "x" ]; then
+	fail "IBKR_INSTALL_DIR was retired by the Canary rename; use CANARY_INSTALL_DIR"
+fi
 
 # --- prereqs -----------------------------------------------------------------
 command -v curl >/dev/null 2>&1 || fail "curl is required but not on PATH"
@@ -88,12 +92,86 @@ esac
 info "Latest version:    $BOLD$VERSION$RESET"
 
 # --- download tarball + checksums into a scratch dir ------------------------
-TARBALL="ibkr-${VERSION}-${PLATFORM}.tar.gz"
+# Publication-order bootstrap: main may contain this installer before the
+# first Canary-named release exists. The latest release at that boundary is
+# exactly v2.3.1 and publishes only the pre-rename archive shape. Accept that
+# one immutable version, install its executable bytes under the canonical
+# `canary` path, and require Canary asset names for every other version. This
+# is deliberately not a general legacy-asset fallback.
+archive_product="canary"
+archive_binary="canary"
+if [ "$VERSION" = "v2.3.1" ]; then
+	archive_product="ibkr"
+	archive_binary="ibkr"
+	warn "Using the version-bounded v2.3.1 bootstrap archive; rerun this installer after the first Canary release"
+fi
+TARBALL="${archive_product}-${VERSION}-${PLATFORM}.tar.gz"
 TARBALL_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL}"
 SUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
 
-tmp=$(mktemp -d -t ibkr-install.XXXXXX)
-trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d -t canary-install.XXXXXX)
+canonical_stage=""
+canonical_retired=""
+pre_upgrade_retired=""
+install_started=0
+install_committed=0
+install_rolled_back=0
+canonical_published=0
+
+copy_executable() {
+	source_path="$1"
+	dest_path="$2"
+	if command -v install >/dev/null 2>&1; then
+		install -m 0755 "$source_path" "$dest_path"
+	else
+		cp "$source_path" "$dest_path"
+		chmod 0755 "$dest_path"
+	fi
+}
+
+rollback_install() {
+	[ "$install_started" = "1" ] || return 0
+	[ "$install_committed" = "0" ] || return 0
+	[ "$install_rolled_back" = "0" ] || return 0
+	install_rolled_back=1
+
+	if [ "$canonical_published" = "1" ]; then
+		rm -f "$canonical"
+	fi
+	if [ -n "$canonical_retired" ] && [ -e "$canonical_retired" ]; then
+		if ! chmod 0755 "$canonical_retired" || ! mv -f "$canonical_retired" "$canonical"; then
+			warn "automatic rollback could not restore canonical executable $canonical"
+			return 1
+		fi
+		canonical_retired=""
+	fi
+	if [ -n "$pre_upgrade_retired" ] && [ -e "$pre_upgrade_retired" ]; then
+		if ! chmod 0755 "$pre_upgrade_retired" || ! mv -f "$pre_upgrade_retired" "$pre_upgrade"; then
+			warn "automatic rollback could not restore pre-upgrade executable $pre_upgrade"
+			return 1
+		fi
+		pre_upgrade_retired=""
+	fi
+	return 0
+}
+
+cleanup() {
+	if [ "$install_started" = "1" ] && [ "$install_committed" = "0" ]; then
+		rollback_install || true
+	fi
+	rm -rf "$tmp"
+	[ -z "$canonical_stage" ] || rm -f "$canonical_stage"
+	if [ -n "$canonical_retired" ]; then
+		chmod 0600 "$canonical_retired" 2>/dev/null || true
+		rm -f "$canonical_retired"
+	fi
+	if [ -n "$pre_upgrade_retired" ]; then
+		chmod 0600 "$pre_upgrade_retired" 2>/dev/null || true
+		rm -f "$pre_upgrade_retired"
+	fi
+}
+trap cleanup EXIT
+trap 'rollback_install || true; exit 130' HUP INT TERM
 
 SIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.asc"
 KEY_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}/internal/update/release-signing-key.asc"
@@ -151,17 +229,25 @@ fi
 
 # --- verify checksum ---------------------------------------------------------
 step "Verifying SHA-256 checksum..."
-( cd "$tmp" && $SHA256_CMD -c SHA256SUMS --ignore-missing ) >/dev/null || \
+expected_sum=$(awk -v asset="$TARBALL" '$2 == asset { print $1 }' "$tmp/SHA256SUMS")
+case "$expected_sum" in
+	""|*[!0-9A-Fa-f]*) fail "SHA256SUMS does not contain a valid exact entry for $TARBALL" ;;
+	*) ;;
+esac
+[ "$(printf '%s' "$expected_sum" | wc -c | tr -d ' ')" = "64" ] || \
+	fail "SHA256SUMS contains a malformed digest for $TARBALL"
+actual_sum=$($SHA256_CMD "$tmp/$TARBALL" | awk '{print $1}')
+[ "$actual_sum" = "$expected_sum" ] || \
 	fail "checksum verification failed for $TARBALL — aborting (the download may be corrupted or tampered with)"
 info "Checksum OK"
 
 # --- extract + install -------------------------------------------------------
 step "Extracting..."
 tar -tzf "$tmp/$TARBALL" > "$tmp/tar.entries" || fail "could not list $TARBALL"
-archive_prefix="ibkr-${VERSION}-${PLATFORM}"
+archive_prefix="${archive_product}-${VERSION}-${PLATFORM}"
 while IFS= read -r entry; do
 	case "$entry" in
-		"$archive_prefix/"|"$archive_prefix/ibkr"|"$archive_prefix/LICENSE"|"$archive_prefix/README.md") ;;
+		"$archive_prefix/"|"$archive_prefix/$archive_binary"|"$archive_prefix/LICENSE"|"$archive_prefix/README.md") ;;
 		""|/*|*"/../"*|"../"*|*"/.."|*\\*)
 			fail "unsafe archive entry: $entry" ;;
 		*)
@@ -169,28 +255,74 @@ while IFS= read -r entry; do
 	esac
 done < "$tmp/tar.entries"
 tar -xzf "$tmp/$TARBALL" -C "$tmp"
-extracted_dir="$tmp/ibkr-${VERSION}-${PLATFORM}"
-[ ! -L "$extracted_dir/ibkr" ] || fail "extracted ibkr binary is a symlink — aborting"
-[ -f "$extracted_dir/ibkr" ] && [ -x "$extracted_dir/ibkr" ] || fail "extracted tree missing the ibkr binary (tried $extracted_dir/ibkr)"
+extracted_dir="$tmp/$archive_prefix"
+[ ! -L "$extracted_dir/$archive_binary" ] || fail "extracted executable is a symlink — aborting"
+[ -f "$extracted_dir/$archive_binary" ] && [ -x "$extracted_dir/$archive_binary" ] || \
+	fail "extracted tree missing the expected executable (tried $extracted_dir/$archive_binary)"
 
-step "Installing to $INSTALL_DIR/ibkr..."
+step "Installing to $INSTALL_DIR/canary..."
 mkdir -p "$INSTALL_DIR"
-# `install -m 0755` is more portable than mv+chmod and atomic-ish on most
-# filesystems. Falls back to cp on systems without `install` (rare).
-if command -v install >/dev/null 2>&1; then
-	install -m 0755 "$extracted_dir/ibkr" "$INSTALL_DIR/ibkr"
+
+canonical="$INSTALL_DIR/canary"
+pre_upgrade="$INSTALL_DIR/ibkr"
+for path in "$canonical" "$pre_upgrade"; do
+	if [ -e "$path" ] || [ -L "$path" ]; then
+		[ -f "$path" ] && [ ! -L "$path" ] || \
+			fail "refusing executable path $path because it is not a regular file"
+	fi
+done
+rm -f "$INSTALL_DIR/canary.bak" "$INSTALL_DIR/ibkr.bak"
+
+# Stage the candidate in the destination directory. Existing public paths move
+# to transaction-only hidden names and are restored only if canonical
+# publication fails. They are made non-executable and deleted after success.
+canonical_stage="$INSTALL_DIR/.canary-install.$$"
+canonical_retired="$INSTALL_DIR/.canary-pre-install.$$"
+pre_upgrade_retired="$INSTALL_DIR/.ibkr-pre-upgrade.$$"
+rm -f "$canonical_stage" "$canonical_retired" "$pre_upgrade_retired"
+copy_executable "$extracted_dir/$archive_binary" "$canonical_stage"
+install_started=1
+if [ -e "$canonical" ]; then
+	mv -f "$canonical" "$canonical_retired"
 else
-	cp "$extracted_dir/ibkr" "$INSTALL_DIR/ibkr"
-	chmod 0755 "$INSTALL_DIR/ibkr"
+	canonical_retired=""
+fi
+if [ -e "$pre_upgrade" ]; then
+	mv -f "$pre_upgrade" "$pre_upgrade_retired"
+else
+	pre_upgrade_retired=""
+fi
+canonical_published=1
+if ! mv -f "$canonical_stage" "$canonical"; then
+	rollback_install || fail "canonical publish failed and automatic rollback was incomplete"
+	fail "could not publish the canonical executable; restored the prior installation"
+fi
+canonical_stage=""
+# Once both prior paths are non-executable there is no runnable rollback
+# authority. Removal is best-effort only after that invariant is established.
+for retired in "$canonical_retired" "$pre_upgrade_retired"; do
+	[ -z "$retired" ] || chmod 0600 "$retired" || {
+		rollback_install || fail "transaction staging cleanup failed and automatic rollback was incomplete"
+		fail "could not retire the prior executable; restored the prior installation"
+	}
+done
+install_committed=1
+if [ -n "$canonical_retired" ]; then
+	rm -f "$canonical_retired" || warn "could not remove non-executable transaction residue $canonical_retired"
+	canonical_retired=""
+fi
+if [ -n "$pre_upgrade_retired" ]; then
+	rm -f "$pre_upgrade_retired" || warn "could not remove non-executable transaction residue $pre_upgrade_retired"
+	pre_upgrade_retired=""
 fi
 
 # macOS Gatekeeper marks downloads with com.apple.quarantine; clearing it
 # avoids "cannot verify developer" prompts on first run. Silent on linux.
-xattr -d com.apple.quarantine "$INSTALL_DIR/ibkr" 2>/dev/null || true
+xattr -d com.apple.quarantine "$canonical" 2>/dev/null || true
 
 # --- PATH handling -----------------------------------------------------------
 # Auto-edit shell rc files ONLY when installing to the default location.
-# A user who set IBKR_INSTALL_DIR is doing something custom; touching their
+# A user who set CANARY_INSTALL_DIR is doing something custom; touching their
 # shell config without asking would be rude (and was a real bug pre-v0.6.2).
 DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 
@@ -226,31 +358,42 @@ if [ "$INSTALL_DIR" = "$DEFAULT_INSTALL_DIR" ]; then
 		if [ -f "$rc" ] && grep -Fq '$HOME/.local/bin' "$rc" 2>/dev/null; then
 			info "$INSTALL_DIR already referenced in $rc — leaving it alone"
 		else
-			printf '\n# Added by ibkr installer\n%s\n' "$line" >> "$rc"
+			printf '\n# Added by Canary installer\n%s\n' "$line" >> "$rc"
 			info "Added $INSTALL_DIR to PATH in $rc"
-			warn "Open a new terminal (or run: source $rc) for ibkr to be on PATH in this shell"
+			warn "Open a new terminal (or run: source $rc) for canary to be on PATH in this shell"
 		fi
 	fi
 else
 	# Custom install dir: don't touch rc files; just tell the user.
 	case ":${PATH}:" in
 		*":${INSTALL_DIR}:"*) ;;
-		*) warn "$INSTALL_DIR is not on \$PATH; add it manually or invoke ibkr by absolute path" ;;
+		*) warn "$INSTALL_DIR is not on \$PATH; add it manually or invoke canary by absolute path" ;;
 	esac
 fi
 
 # --- verify install ----------------------------------------------------------
 step "Verifying..."
-installed_version=$("$INSTALL_DIR/ibkr" version 2>/dev/null | head -n1 || true)
+installed_version=$("$canonical" version 2>/dev/null | head -n1 || true)
 case "$installed_version" in
-	"ibkr $VERSION"*) info "Installed: $BOLD$installed_version$RESET" ;;
+	"Canary CLI  $VERSION"*|"canary $VERSION"*|"canary  $VERSION"*)
+		info "Installed: $BOLD$installed_version$RESET"
+		;;
+	"ibkr $VERSION"*|"ibkr  $VERSION"*)
+		if [ "$VERSION" = "v2.3.1" ]; then
+			info "Installed the version-bounded $VERSION bootstrap at $canonical"
+		else
+			warn "Installed binary reports retired product identity: $installed_version"
+		fi
+		;;
 	*)                warn "Installed binary reports unexpected version: $installed_version" ;;
 esac
+[ ! -e "$pre_upgrade" ] && [ ! -L "$pre_upgrade" ] || \
+	fail "pre-upgrade executable path still exists after canonical install: $pre_upgrade"
 
 # --- next steps --------------------------------------------------------------
 printf '\n'
 printf '%sNext steps%s\n' "$BOLD" "$RESET"
-printf '  %s•%s Try the CLI:           %sibkr account%s   (needs IB Gateway running)\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
-printf '  %s•%s Wire Claude Desktop:   %sibkr setup claude-desktop%s\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
+printf '  %s•%s Try the CLI:           %scanary account%s   (needs IB Gateway running)\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
+printf '  %s•%s Wire Claude Desktop:   %scanary setup claude-desktop%s\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
 printf '  %s•%s Full docs:             https://github.com/%s\n' "$GREEN" "$RESET" "$REPO"
 printf '\n'

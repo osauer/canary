@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>The rulebook | ibkr</title>
+  <title>The rulebook | Canary</title>
   <meta name="description" content="What each of the fourteen advisory rulebook checks protects against, why a rule that cannot get clean data never passes, and why a clean run is not permission to trade.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/rulebook.html">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/rulebook.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What each of the fourteen advisory rulebook checks protects against, why a rule that cannot get clean data never passes, and why a clean run is not permission to trade.","headline":"The rulebook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/rulebook.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What each of the fourteen advisory rulebook checks protects against, why a rule that cannot get clean data never passes, and why a clean run is not permission to trade.","headline":"The rulebook","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/rulebook.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -102,10 +102,10 @@
     </details>
     <main class="doc">
 <h1 id="the-rulebook">The rulebook</h1>
-<p><code>ibkr rules</code> evaluates fourteen discipline checks against the book you are
+<p><code>canary rules</code> evaluates fourteen discipline checks against the book you are
 holding and reports which are breached. Nothing it produces reaches the
 broker.</p>
-<p>The <a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>
+<p>The <a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>
 design document is the semantic authority for every threshold and edge case,
 and stays in the repository. <a href="sensors.html#rulebook">Sensors</a> covers the same
 component as a measurement: authority, freshness, and evidence reuse.</p>
@@ -246,7 +246,7 @@ one row each for account, positions, earnings, regime stage, and tape.</p>
 Ties break on base-currency impact, then rule number. <code>unknown</code> outranks
 <code>info</code> on purpose, so a rule you cannot evaluate surfaces above one that is
 merely noting something.</p>
-<p>Plain <code>ibkr rules</code> shows breaches and hides passes. <code>--all</code> prints the full
+<p>Plain <code>canary rules</code> shows breaches and hides passes. <code>--all</code> prints the full
 checklist, <code>--symbol</code> narrows offender lists to one underlying, and <code>--json</code>
 returns the ranking and input health alongside the rows.</p>
 <h2 id="what-a-clean-run-means"><span class="secno" aria-hidden="true">05</span>What a clean run means</h2>
@@ -260,8 +260,8 @@ transaction-specific human decision behind the separate controls described in
 <h2 id="what-history-is-kept"><span class="secno" aria-hidden="true">06</span>What history is kept</h2>
 <p>A transition is recorded when a row's status changes, not on every evaluation,
 so the timeline reads as a sequence of events rather than a log of minutes.</p>
-<pre><code class="language-sh">ibkr rules history
-ibkr rules history --rule single_name_exposure --since 2026-01-01 --json
+<pre><code class="language-sh">canary rules history
+canary rules history --rule single_name_exposure --since 2026-01-01 --json
 </code></pre>
 <p>The window defaults to the last 7 days and returns 50 rows newest first, up to
 500 with <code>--limit</code>; <code>--until</code> closes it. Each row carries the transition, the
@@ -271,8 +271,8 @@ are free text for display and are never parsed back into authority.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Concepts | ibkr</title>
+  <title>Concepts | Canary</title>
   <meta name="description" content="What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/understand/concepts.html">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/understand/concepts.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.","headline":"Concepts","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/understand/concepts.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What the load-bearing market, portfolio, and data-quality context surfaces measure, and how to read them without mis-acting on the output.","headline":"Concepts","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/understand/concepts.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -127,7 +127,7 @@
 <p>Treat futures, FX, crypto, bonds, Eurex, and exchange-specific derivatives as out of scope unless a result explicitly names a supported market.</p>
 <p>The schedules are embedded, not IBKR overlays, so cold starts are instant and nothing depends on a remote calendar file at runtime. The official exchange calendar is binding here. IBKR quote state still matters for entitlement, routing, and farm-health issues, but it never redefines whether the exchange is open.</p>
 <p>The cost is bounded coverage: the response carries <code>coverage_start</code> / <code>coverage_end</code>, <code>days</code> caps at 400 calendar days, and dates outside embedded coverage return <code>state: &quot;unknown&quot;</code> rather than guessing from weekdays.</p>
-<p><code>ibkr quote</code> adds a <code>session_context</code> block only when it helps explain stale, frozen, or missing data. In an ordinary live regular session with prices present, quote output stays quiet.</p>
+<p><code>canary quote</code> adds a <code>session_context</code> block only when it helps explain stale, frozen, or missing data. In an ordinary live regular session with prices present, quote output stays quiet.</p>
 <h2 id="regime"><span class="secno" aria-hidden="true">02</span>Regime</h2>
 <p>The eight-row risk-regime dashboard summarizes the market's current posture. Each row measures a different stress channel, which is what separates ordinary chop from a regime shift in progress. It also emits a broad-market lifecycle stage (<code>quiet</code>, <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>, <code>opportunity</code>, or <code>data_quality</code>), source health, and semantic fingerprints for monitors.</p>
 <ol>
@@ -153,7 +153,7 @@
 <li>held-name stock quote or option bid/ask degradation</li>
 </ul>
 <p>The stress read calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.</p>
-<p>Stress marks the alert boundary. The diagnosis behind an alert comes from <code>ibkr_positions</code>, <code>ibkr_regime</code>, <code>ibkr_market_events</code>, or <code>ibkr_account</code>.</p>
+<p>Stress marks the alert boundary. The diagnosis behind an alert comes from <code>canary_positions</code>, <code>canary_regime</code>, <code>canary_market_events</code>, or <code>canary_account</code>.</p>
 <h2 id="market-events"><span class="secno" aria-hidden="true">04</span>Market events</h2>
 <p>Market events answer a single-name context question: does this held or requested stock or ETF have borrow, threshold-list, LULD, or halt evidence that should affect risk review or protection proposals?</p>
 <p>V1 flags are reduce-only context and gates. They can annotate, prioritize, or block an existing protection proposal, but they never create buy-to-open, buy-add, or squeeze-style opportunity recommendations. The separate Opportunities surface is daemon-calculated from positions and executable market data; its MVP bucket is option exercise only. When a <code>BUY</code> proposal reduces an existing short, the user-facing copy is <code>Buy to cover</code>.</p>
@@ -168,7 +168,7 @@
 <p>When a due FTP refresh is unusable, the daemon can inspect exact currently held short-stock contracts through TWS historical <code>FEE_RATE</code>. Those rows are portfolio-only, nullable, scale-unverified, and policy-ineligible until a controlled broker fixture commissions the numeric scale. <code>borrow_fee_coverage[]</code> separates global FTP coverage from that held-short-only TWS context and names entitlement, scale, and policy eligibility directly.</p>
 <p>Unknown and null mean unavailable, not false or zero. Each feed's health reads <code>ok</code>, <code>partial</code>, <code>stale</code>, <code>unknown</code>, or <code>degraded</code>, and <a href="sensors.html#market-events">Sensors</a> defines what each state permits. Stale and unknown health stays visible because it changes how much confidence the absence of a flag deserves.</p>
 <p>Rule 201 / short-sale restriction is not a V1 protection driver. If added later, it should be context-only unless the order path is directly short-sale relevant.</p>
-<p><code>ibkr market-events --symbol GME --json</code> evaluates explicit symbols. Omitting symbols evaluates held stock/ETF underlyings, which needs a usable positions snapshot from the daemon/gateway.</p>
+<p><code>canary market-events --symbol GME --json</code> evaluates explicit symbols. Omitting symbols evaluates held stock/ETF underlyings, which needs a usable positions snapshot from the daemon/gateway.</p>
 <h2 id="protective-stops"><span class="secno" aria-hidden="true">05</span>Protective stops</h2>
 <p>A protective stop is only protective while it matches the position. Sell part of the position somewhere else, in TWS for instance, and the stop keeps its old size. If it then triggers, it closes what is left and opens the remainder in the opposite direction.</p>
 <p>The daemon treats that state as critical. The paired app shows the row in red with the consequence spelled out, one push notification goes to the phone, and the row offers a single fix that reduces the stop to the quantity still held.</p>
@@ -176,7 +176,7 @@
 <p>The order journal underneath heals itself. After every reconnect, and every 30 minutes, the daemon asks the broker for its actual open-order list; journaled orders the broker no longer reports are closed locally as <code>closed_reconciled</code>. A cancel or fill that happened while the daemon was offline can no longer leave a stale &quot;open&quot; row behind.</p>
 <h2 id="gamma"><span class="secno" aria-hidden="true">06</span>Gamma</h2>
 <p>Dealer zero-gamma is the spot price at which the aggregate options-dealer book switches from amplifying market moves (short-gamma, below zero) to stabilizing them (long-gamma, above zero). It is a regime hint rather than a precision level, and the qualitative state is what matters for short-horizon risk.</p>
-<p><code>ibkr_gamma</code> and the regime dashboard's dealer-gamma row both compute from IBKR's option chains using the Perfiliev convention (dealers long calls, short puts), summed across the 6 nearest non-0DTE-post-settlement expirations at ±10% strike width. Two methodology choices shape the result.</p>
+<p><code>canary_gamma</code> and the regime dashboard's dealer-gamma row both compute from IBKR's option chains using the Perfiliev convention (dealers long calls, short puts), summed across the 6 nearest non-0DTE-post-settlement expirations at ±10% strike width. Two methodology choices shape the result.</p>
 <p><strong>Sticky-moneyness skew</strong> (<code>bs-gamma-profile-v3-stickymoneyness-0dte-split</code>). The spot sweep reprices each leg's IV at the scenario-spot's <em>moneyness</em> via a per-expiry quadratic skew curve fitted at snapshot time: sticky-moneyness rather than sticky-IV. Without this, the put-side skew biases zero-gamma estimates upward by 5–10%.</p>
 <p><strong>SPX/SPXW is the production signal; SPY is corroboration.</strong> SPX index options are the canonical dealer-gamma book for the S&amp;P 500. SPY (continuous ETF, retail flow) is useful context when its option surface is fresh and high quality, but missing or throttled SPY does not downgrade an otherwise fresh, rankable SPX result. When both books are usable, the diagnostic is <strong>disagreement</strong>: one book stabilizing while the other amplifies. The classifier reports <code>&quot;agree:long-gamma&quot;</code>, <code>&quot;agree:short-gamma&quot;</code>, <code>&quot;agree:transition-gamma&quot;</code>, or <code>&quot;disagree&quot;</code> directly. A crossing is long, transition, or short based on spot's distance from the identified γ-zero, not merely the existence of a crossing.</p>
 <p>Every result carries two complementary readings:</p>
@@ -201,8 +201,8 @@
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

@@ -223,12 +223,12 @@ type checkEntry struct {
 
 func catalogue() []checkEntry {
 	return []checkEntry{
-		{"status-handshake", "after ibkr status: at least one MarketDataType notice inbound", checkStatusHandshake},
-		{"quote-spy", "after ibkr quote SPY: reqMktData OUT + tickPrice IN within budget", checkQuoteSPY},
-		{"account-summary", "after ibkr account: reqAccountSummary OUT + acctValue/accountSummary IN", checkAccountSummary},
-		{"chain-iv-source", "after ibkr chain SPY --width 5: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV from any OPT reqID", checkChainIVSource},
-		{"regime-subs", "after ibkr regime: MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY", checkRegimeSubs},
-		{"gamma-noflag", "after ibkr gamma --no-wait: terminal status (ready or known error), never pending", checkGammaNoFlag},
+		{"status-handshake", "after canary status: at least one MarketDataType notice inbound", checkStatusHandshake},
+		{"quote-spy", "after canary quote SPY: reqMktData OUT + tickPrice IN within budget", checkQuoteSPY},
+		{"account-summary", "after canary account: reqAccountSummary OUT + acctValue/accountSummary IN", checkAccountSummary},
+		{"chain-iv-source", "after canary chain SPY --width 5: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV from any OPT reqID", checkChainIVSource},
+		{"regime-subs", "after canary regime: MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY", checkRegimeSubs},
+		{"gamma-noflag", "after canary gamma --no-wait: terminal status (ready or known error), never pending", checkGammaNoFlag},
 		{"gamma-premarket-derived", "in loose mode, gamma envelope JSON reports derived_iv_legs > 0 or model_tick_legs > 0 (off-hours pricing path landed)", checkGammaPremarketDerived},
 	}
 }
@@ -382,13 +382,13 @@ func checkAccountSummary(in checkInputs) CheckResult {
 	}
 	if !outFound {
 		return CheckResult{
-			Expected: "reqAccountSummary OUT (msg 62) after ibkr account",
+			Expected: "reqAccountSummary OUT (msg 62) after canary account",
 			Observed: "no msg 62 OUT frame",
 		}
 	}
 	if !inFound {
 		return CheckResult{
-			Expected:   "accountSummary IN (msg 63) or acctValue IN (msg 6) after ibkr account",
+			Expected:   "accountSummary IN (msg 63) or acctValue IN (msg 6) after canary account",
 			Observed:   "no msg 63 or msg 6 IN frame",
 			Hypothesis: "gateway may not be entitled for account data on this client ID",
 		}
@@ -425,7 +425,7 @@ func checkChainIVSource(in checkInputs) CheckResult {
 	}
 	if !anyOPTOut {
 		return CheckResult{
-			Expected: "≥1 reqMktData OUT with SecType=OPT after ibkr chain",
+			Expected: "≥1 reqMktData OUT with SecType=OPT after canary chain",
 			Observed: "0 OPT subscribes",
 		}
 	}
@@ -506,7 +506,7 @@ func checkGammaNoFlag(in checkInputs) CheckResult {
 // off-hours found at least one priced leg through either the BS-IV
 // Newton-Raphson fallback or a gateway model tick. Inspects the JSON
 // envelope passed via --gamma-envelope-path (the daemon's response
-// from `ibkr gamma --wait …`), not the wire frames — these counters are
+// from `canary gamma --wait …`), not the wire frames — these counters are
 // daemon-internal aggregations that have no wire-frame representation.
 //
 // Strict mode (live): the check is skipped (model engine is active,

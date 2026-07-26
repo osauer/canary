@@ -1,6 +1,6 @@
 package rpc
 
-import "github.com/osauer/ibkr/v2/internal/risk"
+import "github.com/osauer/canary/v2/internal/risk"
 
 // Alert candidate wire types are aliases of the pure risk contract. Keeping a
 // single concrete definition makes conversion loss impossible and ensures RPC

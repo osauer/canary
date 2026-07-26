@@ -15,15 +15,15 @@ cannot trust, not a fault to work around.
 
 | Command | Reaches the broker | Use it for |
 |---|---|---|
-| `ibkr proposals list` | no | the current proposal set, blockers included |
-| `ibkr proposals refresh` | no | rebuild the set against fresh positions and quotes |
-| `ibkr proposals preview KEY REVISION` | no | mint a preview token and read the broker WhatIf verdict |
-| `ibkr proposals submit KEY REVISION` | yes | place that one protective order |
-| `ibkr proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close |
-| `ibkr purge dry-run` | no | price what a full exit would cost |
-| `ibkr purge status`, `ibkr purge monitor` | no | the purge ledger and any orders recorded against it |
+| `canary proposals list` | no | the current proposal set, blockers included |
+| `canary proposals refresh` | no | rebuild the set against fresh positions and quotes |
+| `canary proposals preview KEY REVISION` | no | mint a preview token and read the broker WhatIf verdict |
+| `canary proposals submit KEY REVISION` | yes | place that one protective order |
+| `canary proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close |
+| `canary purge dry-run` | no | price what a full exit would cost |
+| `canary purge status`, `canary purge monitor` | no | the purge ledger and any orders recorded against it |
 
-`ibkr proposals` with no subcommand runs `list`. In a standard build the submit
+`canary proposals` with no subcommand runs `list`. In a standard build the submit
 path fails closed anyway: the daemon's write handler is compiled out behind the
 `trading` build tag and returns `ErrTradingDisabled`. See
 [Order previews and the trading build](orders.md).
@@ -54,7 +54,7 @@ Three buckets generate rows, each enabled separately in the protection policy:
   `single_name_target_pct_nlv`. It becomes a full close only when the computed
   quantity equals the whole position.
 
-`ibkr proposals reduce` is separate: a discretionary partial close you size
+`canary proposals reduce` is separate: a discretionary partial close you size
 yourself. It previews unless you pass `--submit`. Under `--portfolio` the
 percentage is the share of net delta-adjusted portfolio risk to remove rather
 than a flat per-position cut, and hedges are never selected, so
@@ -92,13 +92,13 @@ anything.
 `reduce_to_quantity` is the position magnitude available in the order's closing
 direction: the long share count for a SELL, the short magnitude for a BUY. It is
 the exact quantity a reduce-modify has to target, and it appears with
-`short_risk_quantity` in `ibkr orders open --json`. The same holdings show up in
-`ibkr positions` as `reconcile_required` under protection coverage, where a
+`short_risk_quantity` in `canary orders open --json`. The same holdings show up in
+`canary positions` as `reconcile_required` under protection coverage, where a
 stale protective order is deliberately not counted as protection.
 
 ## Purge and restore
 
-`ibkr purge` is the emergency full-exit path, and its broker submission is
+`canary purge` is the emergency full-exit path, and its broker submission is
 disabled outright. Before the daemon evaluates anything else it appends a
 `purge_submission_unavailable` blocker to every purge execute and to every
 restore, preview and execute alike. The blocker's action line says what to do
@@ -111,10 +111,10 @@ controls the workflow and read surface only. Purge is also the one surface
 outside the preview-token gate: it never mints a token, and the fast path is its
 only supported mode.
 
-The review side still works. `ibkr purge dry-run` builds a purge book from
+The review side still works. `canary purge dry-run` builds a purge book from
 current positions, prices each leg, and prints a boundary line stating that no
 broker order has been placed, modified, cancelled, or transmitted. Use it to
 size the exit before you go to TWS. Its prices are real-time wherever your IBKR
 market-data subscriptions cover the instrument, delayed where they don't.
-`ibkr purge status` and
-`ibkr purge monitor` read the ledger and any orders already recorded against it.
+`canary purge status` and
+`canary purge monitor` read the ledger and any orders already recorded against it.

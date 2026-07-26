@@ -48,6 +48,9 @@ jobs:
       - name: make test-pkg
         run: make test-pkg
 
+      - name: make test-support (-race; command and release-registry helper)
+        run: make test-support
+
       - name: make test-daemon (-race; integration tests self-skip when no gateway)
         run: make test-daemon
 
@@ -70,6 +73,8 @@ jobs:
           for target in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
             os=$(echo "$target" | cut -d- -f1)
             arch=$(echo "$target" | cut -d- -f2)
-            echo "==> $os/$arch"
-            GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -o /tmp/ibkr-$target ./cmd/ibkr
+            echo "==> $os/$arch (default)"
+            GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -o /tmp/canary-$target ./cmd/canary
+            echo "==> $os/$arch (trading)"
+            GOOS=$os GOARCH=$arch go build -tags trading -trimpath -buildvcs=false -o /tmp/canary-trading-$target ./cmd/canary
           done

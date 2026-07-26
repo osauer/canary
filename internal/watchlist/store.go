@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/xdgcache"
+	"github.com/osauer/canary/v2/internal/xdgcache"
 )
 
 const (
@@ -60,7 +60,7 @@ func NormalizeSymbol(s string) string {
 }
 
 // NormalizeSymbols splits the same comma-separated symbol input that
-// `ibkr quote` accepts.
+// `canary quote` accepts.
 func NormalizeSymbols(s string) []string {
 	parts := strings.Split(s, ",")
 	out := make([]string, 0, len(parts))

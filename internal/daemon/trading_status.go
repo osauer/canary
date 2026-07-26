@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/discover"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func (s *Server) handleTradingStatus() *rpc.TradingStatus {
@@ -108,7 +108,7 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		status.LastOrderEvent = summary.LastEvent
 	}
 	if !s.tradingGatewayReady() {
-		add("gateway_unavailable", "order preview and broker writes require a connected IBKR Gateway/TWS session", "Run `ibkr status` and wait for the gateway handshake to complete.")
+		add("gateway_unavailable", "order preview and broker writes require a connected IBKR Gateway/TWS session", "Run `canary status` and wait for the gateway handshake to complete.")
 	}
 
 	switch tr.Mode {
@@ -260,7 +260,7 @@ func (s *Server) brokerWriteAuthorizationWithControls(status rpc.TradingStatus, 
 		add("order_journal_unavailable", "order writes require a writable local order journal", "Fix the daemon state directory before enabling trading.")
 	}
 	if includeControls && s.tradingFrozen() {
-		add(tradingFrozenBlockerCode, "trading writes are frozen by runtime platform settings", "Run `ibkr settings set trading.freeze=false` to resume broker writes; new orders, modifies, and reduce sweeps are all blocked while frozen — only cancels remain allowed.")
+		add(tradingFrozenBlockerCode, "trading writes are frozen by runtime platform settings", "Run `canary settings set trading.freeze=false` to resume broker writes; new orders, modifies, and reduce sweeps are all blocked while frozen — only cancels remain allowed.")
 	}
 	auth.Blockers = blockers
 	auth.Allowed = len(blockers) == 0
@@ -383,7 +383,7 @@ func (s *Server) checkPaperSmoke(account, endpoint string, clientID int, maxAge 
 		return tradingPaperSmokeCheck{
 			Status:  tradingPaperSmokeStatusMissing,
 			Message: "live trading requires recent paper-smoke evidence in daemon-owned state",
-			Action:  "Run `ibkr trading paper-smoke` against the pinned paper account first.",
+			Action:  "Run `canary trading paper-smoke` against the pinned paper account first.",
 		}
 	}
 	now := time.Now()

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/cli"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func testCatalog(t *testing.T) []cli.CommandSpec {
@@ -49,16 +49,39 @@ func testSnapshot() live.Snapshot {
 
 func TestParseCommandLine(t *testing.T) {
 	t.Parallel()
-	got, err := parseCommandLine(`ibkr quote "BRK B" --market de`)
+	got, err := parseCommandLine(`canary quote "BRK B" --market de`)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	want := []string{"ibkr", "quote", "BRK B", "--market", "de"}
+	want := []string{"canary", "quote", "BRK B", "--market", "de"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("tokens=%q want %q", got, want)
 	}
 	if _, err := parseCommandLine(`quote "AAPL`); err == nil {
 		t.Fatal("unterminated quote returned nil error")
+	}
+}
+
+func TestTUICommandCanonicalPrefixIsOptional(t *testing.T) {
+	t.Parallel()
+	want := []string{"quote", "BRK B", "--market", "de"}
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{name: "prefixless", line: `quote "BRK B" --market de`},
+		{name: "canonical", line: `canary quote "BRK B" --market de`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseTUICommandLine(tc.line)
+			if err != nil {
+				t.Fatalf("parseTUICommandLine: %v", err)
+			}
+			if !slices.Equal(got, want) {
+				t.Fatalf("tokens=%q want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -76,6 +99,32 @@ func TestCompletionUsesCatalog(t *testing.T) {
 	}
 }
 
+func TestCompletionSupportsCanonicalExecutablePrefix(t *testing.T) {
+	t.Parallel()
+	catalog := testCatalog(t)
+	for _, prefix := range []string{"", "canary "} {
+		name := strings.TrimSpace(prefix)
+		if name == "" {
+			name = "prefixless"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			commandLine := prefix + "pos"
+			if got := completeLine(commandLine, len(commandLine), catalog, nil); !slices.Equal(got, []string{"positions"}) {
+				t.Fatalf("command completion=%v, want positions", got)
+			}
+			flagLine := prefix + "positions --s"
+			if got := completeLine(flagLine, len(flagLine), catalog, nil); !contains(got, "--sort") || !contains(got, "--symbol") {
+				t.Fatalf("flag completion=%v, want sort and symbol", got)
+			}
+			enumLine := prefix + "positions --type "
+			if got := completeLine(enumLine, len(enumLine), catalog, nil); !contains(got, "stk") || !contains(got, "opt") {
+				t.Fatalf("enum completion=%v, want stk/opt", got)
+			}
+		})
+	}
+}
+
 func TestConfirmationPolicy(t *testing.T) {
 	t.Parallel()
 	catalog := testCatalog(t)
@@ -86,6 +135,8 @@ func TestConfirmationPolicy(t *testing.T) {
 		{"status", false},
 		{"order preview buy AAPL 1", false},
 		{"order place --preview-token tok", true},
+		{"order modify --preview-token tok", true},
+		{"order cancel --preview-token tok", true},
 		{"purge status", false},
 		{"purge dry-run", false},
 		{"purge dry-run --save", true},
@@ -102,12 +153,71 @@ func TestConfirmationPolicy(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.line, func(t *testing.T) {
 			t.Parallel()
-			got, err := confirmationFor(tc.line, catalog)
-			if err != nil {
-				t.Fatalf("confirmationFor: %v", err)
+			for _, prefix := range []string{"", "canary "} {
+				name := strings.TrimSpace(prefix)
+				if name == "" {
+					name = "prefixless"
+				}
+				t.Run(name, func(t *testing.T) {
+					t.Parallel()
+					line := prefix + tc.line
+					got, err := confirmationFor(line, catalog)
+					if err != nil {
+						t.Fatalf("confirmationFor: %v", err)
+					}
+					if (got != nil) != tc.want {
+						t.Fatalf("confirmationFor(%q)=%v, want present=%v", line, got, tc.want)
+					}
+				})
 			}
-			if (got != nil) != tc.want {
-				t.Fatalf("confirmationFor(%q)=%v, want present=%v", tc.line, got, tc.want)
+		})
+	}
+}
+
+func TestVersionOutputSupportsCanonicalExecutablePrefix(t *testing.T) {
+	t.Parallel()
+	catalog := testCatalog(t)
+	for _, line := range []string{
+		"version", "canary version",
+		"--version", "canary --version",
+	} {
+		t.Run(line, func(t *testing.T) {
+			t.Parallel()
+			var stdout, stderr bytes.Buffer
+			code := (commandRunner{version: "v9.8.7"}).runParsed(context.Background(), line, catalog, &stdout, &stderr)
+			if code != 0 || stderr.Len() != 0 {
+				t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+			}
+			if got, want := stdout.String(), "canary v9.8.7\n"; got != want {
+				t.Fatalf("stdout=%q want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestExternalCommandHintUsesCanonicalExecutable(t *testing.T) {
+	t.Parallel()
+	catalog := testCatalog(t)
+	for _, command := range []string{"daemon", "app pair", "mcp", "setup"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			for _, prefix := range []string{"", "canary "} {
+				name := strings.TrimSpace(prefix)
+				if name == "" {
+					name = "prefixless"
+				}
+				t.Run(name, func(t *testing.T) {
+					t.Parallel()
+					var stdout, stderr bytes.Buffer
+					code := (commandRunner{}).runParsed(context.Background(), prefix+command, catalog, &stdout, &stderr)
+					if code != 0 || stderr.Len() != 0 {
+						t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+					}
+					want := "Run `canary " + command + "` in a normal terminal."
+					if !strings.Contains(stdout.String(), want) {
+						t.Fatalf("external hint is not canonical: %q", stdout.String())
+					}
+				})
 			}
 		})
 	}
@@ -280,7 +390,7 @@ func TestRenderUsesAbsoluteCursorMoves(t *testing.T) {
 	if strings.Contains(got, "\n") || strings.Contains(got, "\r") {
 		t.Fatalf("render frame contains raw line separator: %q", got)
 	}
-	if !strings.Contains(got, "\x1b[1;1H") || !strings.Contains(got, "\x1b[11;13H") {
+	if !strings.Contains(got, "\x1b[1;1H") || !strings.Contains(got, "\x1b[11;15H") {
 		t.Fatalf("render frame missing absolute cursor moves: %q", got)
 	}
 }
@@ -290,8 +400,11 @@ func TestStartupCanaryIsTerminalNativeAndYellow(t *testing.T) {
 	m := newModel(testCatalog(t), Size{Rows: 14, Cols: 72})
 	got := render(m)
 	plain := stripControl(got)
-	if !strings.Contains(plain, "▐████ ███▌▸") || !strings.Contains(plain, "ibkr canary") {
+	if !strings.Contains(plain, "▐████ ███▌▸") || !strings.Contains(plain, "Canary") {
 		t.Fatalf("startup canary missing from render: %q", plain)
+	}
+	if !strings.Contains(plain, "canary> ") || strings.Contains(plain, "ibkr> ") {
+		t.Fatalf("prompt does not use canonical command identity: %q", plain)
 	}
 	if !strings.Contains(got, ansiWarn+"   ▐████ ███▌▸") {
 		t.Fatalf("startup canary is not yellow: %q", got)

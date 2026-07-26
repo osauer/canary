@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type tickerCell struct {

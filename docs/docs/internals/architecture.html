@@ -4,28 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Architecture | ibkr</title>
-  <meta name="description" content="System architecture, protocols, external data flows, process boundaries, and local persistence for ibkr Canary.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/architecture.html">
+  <title>Architecture | Canary</title>
+  <meta name="description" content="System architecture, protocols, external data flows, process boundaries, and local persistence for Canary.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/architecture.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Architecture | ibkr">
-  <meta property="og:description" content="System architecture, protocols, external data flows, process boundaries, and local persistence for ibkr Canary.">
-  <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/system-architecture.png">
+  <meta property="og:title" content="Architecture | Canary">
+  <meta property="og:description" content="System architecture, protocols, external data flows, process boundaries, and local persistence for Canary.">
+  <meta property="og:image" content="https://osauer.dev/canary/diagrams/system-architecture.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"System architecture, protocols, external data flows, process boundaries, and local persistence for ibkr Canary.","headline":"Architecture","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/architecture.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"System architecture, protocols, external data flows, process boundaries, and local persistence for Canary.","headline":"Architecture","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/architecture.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -106,7 +106,7 @@
     </details>
     <main class="doc">
 <h1 id="architecture">Architecture</h1>
-<p><code>ibkr</code> runs on your machine and connects to one Interactive Brokers TWS or IB
+<p><code>canary</code> runs on your machine and connects to one Interactive Brokers TWS or IB
 Gateway session. It adapts that session for humans, AI hosts, and the Canary
 app, and it adds a risk harness. One ownership rule shapes the design:</p>
 <blockquote>
@@ -133,14 +133,14 @@ without daemon RPC.</p>
 </ul>
 </nav>
 <h2 id="system-overview"><span class="secno" aria-hidden="true">01</span>System overview</h2>
-<p><a href="../../diagrams/system-architecture.svg"><img src="../../diagrams/system-architecture.svg" alt="ibkr canary runtime architecture"></a></p>
+<p><a href="../../diagrams/system-architecture.svg"><img src="../../diagrams/system-architecture.svg" alt="Canary runtime architecture"></a></p>
 <p><a href="../../diagrams/system-architecture.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>The numbered columns are six layers of one system: consumers, surface adapters,
 the shared typed contract, daemon authority and domain logic, integration
 clients, and external providers or data.</p>
-<p>All local modes ship in the same <code>ibkr</code> binary. They differ in lifetime and
+<p>All local modes ship in the same <code>canary</code> binary. They differ in lifetime and
 authority.</p>
 <div class="tblwrap">
 <table>
@@ -158,17 +158,17 @@ authority.</p>
 <td>Validates input, calls the daemon for broker and runtime work, and renders human or JSON output. A few local-only workflows run without the daemon.</td>
 </tr>
 <tr>
-<td><code>ibkr daemon</code></td>
+<td><code>canary daemon</code></td>
 <td>Demand-driven background process or foreground service</td>
 <td>Owns the broker connections and all runtime state: <code>daemon.db</code>, refreshable in-memory views, schedulers, source ingestion, risk-policy execution, proposals, opportunities, and reconciliation.</td>
 </tr>
 <tr>
-<td><code>ibkr mcp</code></td>
+<td><code>canary mcp</code></td>
 <td>Long-lived child of each MCP host</td>
 <td>Speaks MCP JSON-RPC 2.0 over stdio and translates tools and resources into short daemon calls. The surface serves read, research, and preview work; it exposes no broker-write tools.</td>
 </tr>
 <tr>
-<td><code>ibkr app</code></td>
+<td><code>canary app</code></td>
 <td>Independently run or supervised HTTP process</td>
 <td>Serves the embedded Canary PWA and owns pairing, auth, and app state. Maintains the live snapshot and quote streams, emits SSE, and can connect to the remote relay and Web Push.</td>
 </tr>
@@ -205,7 +205,7 @@ connectors, the external-source clients, refreshable views, schedulers,
 post-trade reconciliation.</li>
 <li><code>internal/risk</code> is the pure evaluation library behind advisory verdicts:
 thresholds and fingerprints, stress signal types, option math, the daily
-<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">trading rulebook</a>, and risk-constitution
+<a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md">trading rulebook</a>, and risk-constitution
 evaluation. It does no I/O and owns no broker state.</li>
 <li><code>internal/stress</code> composes the portfolio stress read from typed account,
 position, regime, and market-event inputs. Evaluation is deterministic once
@@ -254,7 +254,7 @@ MCP side is JSON-RPC 2.0.</p>
 <td>One-shot local process.</td>
 </tr>
 <tr>
-<td>AI host → <code>ibkr mcp</code></td>
+<td>AI host → <code>canary mcp</code></td>
 <td>MCP JSON-RPC 2.0, newline-delimited over stdio</td>
 <td>The host owns the process lifetime.</td>
 </tr>
@@ -393,9 +393,9 @@ ConID, authority revision and record fingerprint, review and validity times, and
 classification, or else an explicit empty linkage list. Either way they exclude
 issuer/symbol text, CIK, source URLs, and evidence prose.</p>
 <h2 id="data-and-persistence"><span class="secno" aria-hidden="true">05</span>Data and persistence</h2>
-<p><a href="../../diagrams/data-and-persistence.svg"><img src="../../diagrams/data-and-persistence.svg" alt="ibkr canary state ownership and lifecycle"></a></p>
+<p><a href="../../diagrams/data-and-persistence.svg"><img src="../../diagrams/data-and-persistence.svg" alt="Canary state ownership and lifecycle"></a></p>
 <p><a href="../../diagrams/data-and-persistence.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>Configuration is operator-owned, and daemon state and app state are separate
 authorities. <code>daemon.db</code> is the daemon's sole live authority for mutable state,
@@ -474,8 +474,8 @@ durability and upgrade mechanics, and current recovery limits.</p>
 </table>
 </div>
 <h3 id="history-and-imported-observations">History and imported observations</h3>
-<p>The four history commands (<code>ibkr regime history</code>, <code>ibkr rules history</code>,
-<code>ibkr stress history</code>, and <code>ibkr recon equity</code>) query <code>daemon.db</code> through typed
+<p>The four history commands (<code>canary regime history</code>, <code>canary rules history</code>,
+<code>canary stress history</code>, and <code>canary recon equity</code>) query <code>daemon.db</code> through typed
 daemon RPC; MCP and the app currently expose no history surface. Order reads use
 the same database authority. There is no <code>history.db</code> ingest path, journal scan
 fallback, rotation job, or dual write after cutover, and the legacy decision
@@ -539,13 +539,13 @@ daemon's closed presentation code to fixed app-owned copy, and records
 acceptance, retry, rejection, or uncertain interruption. Scope changes create
 only bounded generic previous context; they are not recovery, clear, unread, or
 delivery events. See
-<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/alert-regime-production.md">Alerts and Regime production contract</a>.</p>
+<a href="https://github.com/osauer/canary/blob/main/internal-docs/design/alert-regime-production.md">Alerts and Regime production contract</a>.</p>
 <h2 id="running-more-than-one-instance"><span class="secno" aria-hidden="true">06</span>Running more than one instance</h2>
 <p>You can run more daemon, gateway, or account scopes, but nothing multiplexes
 them for you. An isolated stack needs its own config, socket, and log, its own
 gateway, account, and client pins, and its own XDG state, cache, and data
 roots. Most durable paths are XDG-global rather than derived from the socket,
-so changing only <code>IBKR_SOCKET</code> does not isolate persistence.</p>
+so changing only <code>CANARY_SOCKET</code> does not isolate persistence.</p>
 <h2 id="http-app-and-remote-access"><span class="secno" aria-hidden="true">07</span>HTTP app and remote access</h2>
 <p>The app is the only HTTP process. It serves through HyperServe
 (<code>github.com/osauer/hyperserve</code>), the project's companion <code>net/http</code>-shaped
@@ -568,7 +568,7 @@ is no external metrics stack and no tracing.</p>
 config key sets the level; the default is <code>info</code>. The log lives at
 <code>~/.local/state/ibkr/ibkr-daemon.log</code> and rotates at boot once it passes
 64 MiB, keeping one older generation. The app logs to <code>ibkr-app.log</code>.</li>
-<li><code>ibkr status</code> renders the daemon's <code>status.health</code> report: gateway,
+<li><code>canary status</code> renders the daemon's <code>status.health</code> report: gateway,
 session, and TLS state, uptime, background tasks, subsystem health, data
 quality, data-farm notices, and trading state. It ends in one verdict:
 ready, attention, offline, or starting.</li>
@@ -578,14 +578,14 @@ unknown instead of guessing.</li>
 <li>Append-only SQLite events are the evidence trail for orders, regime, rule,
 and stress decisions, proposal outcomes, capital events, and risk-policy
 governance. Mutable documents use compare-and-swap revisions, while coupled
-state/event changes share one transaction. <code>ibkr brief</code> and the CLI history
+state/event changes share one transaction. <code>canary brief</code> and the CLI history
 commands compose or query this typed daemon authority directly.</li>
 </ul>
 <h2 id="reference-map"><span class="secno" aria-hidden="true">09</span>Reference map</h2>
 <ul>
 <li><a href="../understand/sensors.html">Sensors</a>: measurement, freshness, last-good, and
 dependency semantics.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: the compiled discipline
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md">Trading Rulebook</a>: the compiled discipline
 model and its evidence contract.</li>
 <li><a href="../understand/policy.html">Trading Policy</a>: the human decision and
 system-control model.</li>
@@ -595,8 +595,8 @@ boundaries, durability, and recovery.</li>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

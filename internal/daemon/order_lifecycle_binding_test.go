@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestOrderLifecycleRegistrationRejectsDelayedOldEpochAfterSamePointerRepublish(t *testing.T) {

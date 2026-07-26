@@ -44,7 +44,7 @@ The harness is a local CLI research surface:
 Scanner capture collects current market candidates:
 
 ```sh
-ibkr backtest capture-opportunity \
+canary backtest capture-opportunity \
   --preset top-movers \
   --append build/backtest/opportunity-pit.jsonl \
   --json
@@ -66,14 +66,14 @@ after capture.
 After the forward window is observable, export bars and score the PIT ledger:
 
 ```sh
-ibkr backtest export-opportunity-bars \
+canary backtest export-opportunity-bars \
   --symbols NVDA,MSFT,AVGO,QQQ \
   --bars build/backtest/opportunity-bars.jsonl \
   --bars-manifest build/backtest/opportunity-bars.manifest.json \
   --benchmark QQQ \
   --json
 
-ibkr backtest score-opportunity \
+canary backtest score-opportunity \
   --input build/backtest/opportunity-pit.jsonl \
   --bars build/backtest/opportunity-bars.jsonl \
   --bars-manifest build/backtest/opportunity-bars.manifest.json \
@@ -90,14 +90,14 @@ label.
 List registered plans:
 
 ```sh
-ibkr backtest research-opportunity --list-plans
+canary backtest research-opportunity --list-plans
 ```
 
 Compare selected plans, or pass `--plan all` for every registered plan. Add
 `--json` for notebooks, spreadsheets, or repeatable notes:
 
 ```sh
-ibkr backtest research-opportunity \
+canary backtest research-opportunity \
   --input build/backtest/opportunity-scored.jsonl \
   --plan pullback_uptrend_rs63_v1,pullback_uptrend_rs63_macro_veto_v1
 ```

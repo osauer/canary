@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type regimeSnapshotTestClock struct {
@@ -140,7 +140,7 @@ func regimeSnapshotCacheFixture(at time.Time, label string) *rpc.RegimeSnapshotR
 		WarningDetails: []rpc.RegimeWarning{
 			{Code: "fixture", Scope: "test", Severity: "info", Message: "fixture warning"},
 		},
-		SpecDoc: "https://osauer.dev/ibkr/docs/internals/regime-dashboard.html",
+		SpecDoc: "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
 	}
 	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
 	return snapshot

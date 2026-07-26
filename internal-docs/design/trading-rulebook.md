@@ -59,10 +59,10 @@ authorize or block a broker write.
   pre-market the affected legs conservatively take the stricter non-hedge
   path), an fx_exposure act tier + preview cause (watch-only until the TOML
   policy loader ships), and the TOML loader itself.
-- User-facing surfaces: `ibkr rules [--json]`, `ibkr rules history`, MCP
-  `ibkr_rules`, the SPA Rules card, daily-brief Rulebook deltas,
+- User-facing surfaces: `canary rules [--json]`, `canary rules history`, MCP
+  `canary_rules`, the SPA Rules card, daily-brief Rulebook deltas,
   source-neutral alert episodes/inbox delivery, and advisory `rule_*` warnings
-  on `ibkr order preview`.
+  on `canary order preview`.
 - Owner layers: compiled `rulebook-v2` policy (`internal/risk`; an operator
   Rulebook TOML loader remains planned, not shipped), earnings and regime
   state (`daemon.db`), manual earnings overrides + feature toggle (runtime
@@ -103,7 +103,7 @@ contradiction:
    override; unknown renders as `unknown`, never a false pass.
 2. Enforcement: advisory + preview causes. No hard blocks in v1.
 3. SPA: compact card on the overview + drill-in. No new tab.
-4. Hook: read-only `ibkr orders` allowlisted explicitly (see Agent hook
+4. Hook: read-only `canary orders` allowlisted explicitly (see Agent hook
    boundary).
 5. Amendment (2026-07-21): earnings resolution combines Nasdaq with the
    subscription-gated IBKR Wall Street Horizon feed. Provider outcomes remain
@@ -360,8 +360,8 @@ internal/daemon/earnings_terminal.go
                                   exact-contract terminal evidence authority
 pkg/ibkr/wsh.go                   serialized read-only WSH wire protocol
 internal/rpc/rulebook.go          MethodRulesSnapshot, RulesResult, RuleRow
-internal/cli/rules.go             `ibkr rules` renderer
-internal/mcp/tools.go             ibkr_rules tool
+internal/cli/rules.go             `canary rules` renderer
+internal/mcp/tools.go             canary_rules tool
 internal/app/live/service.go      snapshot.rules sibling section (SSE)
 web/app/*                         rules card + drill-in
 ```
@@ -540,7 +540,7 @@ web/app/*                         rules card + drill-in
   JSON/JSONL paths exist only as one-time cutover inputs and isolated test seams.
 - Settings: `features.rulebook.enabled` (default true, runtime) gates
   canonical evaluation, alert production, the SPA card, and preview causes;
-  disabled leaves `ibkr rules` readable with `status: disabled`
+  disabled leaves `canary rules` readable with `status: disabled`
   (stock_protection pattern). This is a product feature toggle, not a
   rule-scoped policy exception, threshold approval, or broker-write control.
 
@@ -588,15 +588,15 @@ naming.
   `not_evaluated`; absent inputs are `unknown`. Never false pass.
 - `as_of`, InputHealth, and policy fingerprint ride every result.
 - MCP description states when to invoke (daily review, "what should I fix
-  today") and when not (`ibkr_stress` for regime×portfolio alerting,
-  `ibkr_proposals` for executable protection orders).
+  today") and when not (`canary_stress` for regime×portfolio alerting,
+  `canary_proposals` for executable protection orders).
 
 ## Agent hook boundary
 
 The broker hook explicitly allowlists Rulebook and other read-only
 investigations while keeping broker writes, settings writes, and destructive
 maintenance on their separate gated paths. The table-driven
-`hooks/ibkr-pre-tool-use_test.sh` is wired into `make check` and covers both
+`hooks/canary-pre-tool-use_test.sh` is wired into `make check` and covers both
 false-block and false-allow directions. Hook deployment/version history is not
 part of the Rulebook semantic contract.
 
@@ -659,8 +659,8 @@ part of the Rulebook semantic contract.
 - SPA: browser_script_ids_test additions; app-browser-smoke exercises card,
   drill-in, and InputHealth-degraded rendering.
 - Live gate: full `make smoke` + before/after artifacts per the
-  daemon-cli-trading-contract template: `ibkr status --json`, `ibkr rules
-  --json` against the live book, `ibkr order preview … --json` showing a
+  daemon-cli-trading-contract template: `canary status --json`, `canary rules
+  --json` against the live book, `canary order preview … --json` showing a
   `rule_*` warning, SPA rendered-flow screenshot.
 
 ## Rollback
@@ -674,7 +674,7 @@ part of the Rulebook semantic contract.
   before a code rollback, import a reviewed empty v1 document and verify its
   advanced SQLite revision; removing the import path alone deliberately retains
   authority.
-- User-visible on rollback: the rules card, current `ibkr rules` result,
+- User-visible on rollback: the rules card, current `canary rules` result,
   advisory `rule_*` preview warnings, new Rulebook alert production, and new
   brief state deltas disappear. Retained history/evidence is not deleted; no
   trading-path change occurs either way.

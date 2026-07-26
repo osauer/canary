@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f6f7f9">
-    <title>Canary · IBKR</title>
+    <title>Canary</title>
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
@@ -17,7 +17,7 @@
         <div class="brand-block">
           <img class="brand-mark" src="/icon-192.png" width="50" height="50" alt="" aria-hidden="true">
           <div class="brand-copy">
-            <h1 aria-label="Canary IBKR"><span>Canary</span><sub aria-hidden="true">IBKR</sub></h1>
+            <h1 aria-label="Canary"><span>Canary</span></h1>
           </div>
         </div>
       </header>
@@ -141,7 +141,7 @@
             <span class="panel-time-group">
               <span class="panel-time" id="regimeAsOf" title="Market regime freshness">--</span>
               <span class="panel-time-sep" aria-hidden="true">·</span>
-              <span class="panel-time" id="canaryAsOf" title="Portfolio stress freshness">--</span>
+              <span class="panel-time" id="stressAsOf" title="Portfolio stress freshness">--</span>
             </span>
           </div>
           <div class="signal-split" id="signalSplit">
@@ -155,49 +155,49 @@
               <b id="marketRegime">--</b>
               <small id="marketRegimeSummary">Regime read</small>
             </div>
-            <div class="signal-half signal-half--canary canary-hero" id="canaryHero" role="group" aria-label="Portfolio stress">
+            <div class="signal-half signal-half--stress stress-hero" id="stressHero" role="group" aria-label="Portfolio stress">
               <div class="signal-half__head">
                 <span class="signal-half__label">Portfolio</span>
-                <button class="signal-half__toggle" id="canaryDetailToggle" type="button" aria-expanded="false" aria-controls="canaryDetailPanel">
+                <button class="signal-half__toggle" id="stressDetailToggle" type="button" aria-expanded="false" aria-controls="stressDetailPanel">
                   Show detail
                 </button>
               </div>
-              <div class="canary-hero__grid">
-                <div class="canary-hero__copy">
-                  <strong id="canaryAction">--</strong>
-                  <p id="canarySummary">Waiting for canary snapshot.</p>
+              <div class="stress-hero__grid">
+                <div class="stress-hero__copy">
+                  <strong id="stressAction">--</strong>
+                  <p id="stressSummary">Waiting for stress snapshot.</p>
                 </div>
               </div>
-              <div class="canary-summary-actions">
-                <span class="severity-pill" id="canarySeverity">--</span>
+              <div class="stress-summary-actions">
+                <span class="severity-pill" id="stressSeverity">--</span>
               </div>
             </div>
           </div>
-          <div class="canary-rules" id="canaryRulesCard" hidden>
-            <div class="canary-rules__head">
+          <div class="stress-rules" id="stressRulesCard" hidden>
+            <div class="stress-rules__head">
               <span class="signal-half__label">Rules</span>
-              <span class="canary-rules__counts" id="canaryRulesCounts">--</span>
-              <button class="signal-half__toggle" id="canaryRulesToggle" type="button" aria-expanded="false" aria-controls="canaryRulesDetailPanel">Show rules</button>
+              <span class="stress-rules__counts" id="stressRulesCounts">--</span>
+              <button class="signal-half__toggle" id="stressRulesToggle" type="button" aria-expanded="false" aria-controls="stressRulesDetailPanel">Show rules</button>
             </div>
-            <div class="canary-rules__brief" id="canaryRulesBrief"></div>
-            <button class="canary-rules__notes-trigger" id="canaryRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
+            <div class="stress-rules__brief" id="stressRulesBrief"></div>
+            <button class="stress-rules__notes-trigger" id="stressRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
                 <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
                 <circle cx="8" cy="4.7" r="0.95" fill="currentColor"></circle>
                 <path d="M8 7.2v4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
               </svg>
-              <span id="canaryRulesNotesLabel">Data notes</span>
+              <span id="stressRulesNotesLabel">Data notes</span>
             </button>
           </div>
-          <dialog class="app-dialog" id="canaryRulesNotesDialog" aria-labelledby="canaryRulesNotesTitle">
+          <dialog class="app-dialog" id="stressRulesNotesDialog" aria-labelledby="stressRulesNotesTitle">
             <div class="app-dialog__head">
-              <b id="canaryRulesNotesTitle">Data notes</b>
-              <button class="app-dialog__close" id="canaryRulesNotesClose" type="button">Close</button>
+              <b id="stressRulesNotesTitle">Data notes</b>
+              <button class="app-dialog__close" id="stressRulesNotesClose" type="button">Close</button>
             </div>
-            <div class="app-dialog__body" id="canaryRulesNotesList"></div>
+            <div class="app-dialog__body" id="stressRulesNotesList"></div>
           </dialog>
-          <div class="detail-panel detail-panel--dark canary-rules-detail" id="canaryRulesDetailPanel" hidden>
-            <div class="detail-grid" id="canaryRulesGrid"></div>
+          <div class="detail-panel detail-panel--dark stress-rules-detail" id="stressRulesDetailPanel" hidden>
+            <div class="detail-grid" id="stressRulesGrid"></div>
           </div>
           <div class="alert-focus" id="selectedAlertPanel" hidden>
             <div>
@@ -217,8 +217,8 @@
               </div>
               <p class="regime-governed-note" id="marketRegimeMix" hidden>Waiting for market evidence</p>
             </div>
-            <div class="signal-detail-col signal-detail-col--canary detail-panel detail-panel--dark" id="canaryDetailPanel" hidden>
-              <div class="detail-grid" id="canaryDetailGrid"></div>
+            <div class="signal-detail-col signal-detail-col--stress detail-panel detail-panel--dark" id="stressDetailPanel" hidden>
+              <div class="detail-grid" id="stressDetailGrid"></div>
               <div class="held-stress" id="heldStressPanel" hidden>
                 <div class="held-stress__head">
                   <span>Held stress</span>
@@ -226,7 +226,7 @@
                 </div>
                 <div class="held-stress__list" id="heldStressList"></div>
               </div>
-              <div class="detail-list" id="canaryDrivers"></div>
+              <div class="detail-list" id="stressDrivers"></div>
             </div>
           </div>
         </article>
@@ -606,7 +606,7 @@
                 <span></span>
               </label>
             </div>
-            <a class="settings-row settings-row--link" href="https://osauer.dev/ibkr/feedback/?source=canary-app" target="_blank" rel="noopener">
+            <a class="settings-row settings-row--link" href="https://osauer.dev/canary/feedback/?source=canary-app" target="_blank" rel="noopener">
               <div>
                 <span>Feedback</span>
                 <b>Share feedback or report issues</b>

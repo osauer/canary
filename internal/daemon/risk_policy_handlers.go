@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Risk-constitution RPC handlers (internal-docs/design/risk-policy.md). The snapshot
@@ -177,7 +177,7 @@ func (s *Server) reconcileReportGate(reportID string) (*rpc.ReconResult, error) 
 func (s *Server) reconcileReportAssessment(reportID string) (*rpc.ReconResult, []string) {
 	reportID = strings.TrimSpace(reportID)
 	if reportID == "" {
-		return nil, []string{"current reconcile report is unavailable to sign off; review `ibkr recon` for its blocking status"}
+		return nil, []string{"current reconcile report is unavailable to sign off; review `canary recon` for its blocking status"}
 	}
 	rep := s.buildReconReport()
 	switch rep.Status {
@@ -188,7 +188,7 @@ func (s *Server) reconcileReportAssessment(reportID string) (*rpc.ReconResult, [
 		return rep, []string{"no recon report can be built: " + nonEmptyString(rep.Message, rep.Status)}
 	}
 	if rep.ReportID != reportID {
-		return rep, []string{fmt.Sprintf("report %s is superseded; review the current report %s (`ibkr recon`) and sign that off", reportID, rep.ReportID)}
+		return rep, []string{fmt.Sprintf("report %s is superseded; review the current report %s (`canary recon`) and sign that off", reportID, rep.ReportID)}
 	}
 	pol := s.riskPolicies.snapshot().policy
 	rc := reconPolicyOf(pol)
@@ -331,7 +331,7 @@ func (s *Server) handleReconDismiss(_ context.Context, req *rpc.Request) (*rpc.R
 		}
 	}
 	if !found {
-		return nil, errBadRequest("line " + lineID + " is not an exception on the current report; run `ibkr recon` for the live list")
+		return nil, errBadRequest("line " + lineID + " is not an exception on the current report; run `canary recon` for the live list")
 	}
 	now := time.Now().UTC()
 	if err := s.riskCapital.RecordGovernanceEvent(map[string]any{
@@ -342,7 +342,7 @@ func (s *Server) handleReconDismiss(_ context.Context, req *rpc.Request) (*rpc.R
 	}
 	s.kickHistoryIndex()
 	return &rpc.RiskPolicyWriteResult{OK: true, At: now,
-		Message: "exception dismissed and journaled; the report id changes to reflect it — rerun `ibkr recon` before reconciling"}, nil
+		Message: "exception dismissed and journaled; the report id changes to reflect it — rerun `canary recon` before reconciling"}, nil
 }
 
 func (s *Server) handleRiskPolicyOverride(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
@@ -490,6 +490,6 @@ func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.Or
 		Severity: severity,
 		Message:  fmt.Sprintf("Drawdown %s tier: %s of declared risk capital consumed from the adjusted peak; this order increases risk.", tier, consumed),
 		Impact:   fmt.Sprintf("Advisory constitution cause (enforcement %s); submit eligibility is unaffected.", authority.policy.EffectiveBlockEnforcement()),
-		Action:   "Run `ibkr policy show --explain` for the capital state and ladder.",
+		Action:   "Run `canary policy show --explain` for the capital state and ladder.",
 	}}
 }

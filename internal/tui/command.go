@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/cli"
-	"github.com/osauer/ibkr/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
 type commandRunner struct {
@@ -37,24 +38,21 @@ func (r commandRunner) run(ctx context.Context, line string, started time.Time, 
 }
 
 func (r commandRunner) runParsed(ctx context.Context, line string, catalog []cli.CommandSpec, stdout, stderr *bytes.Buffer) int {
-	tokens, err := parseCommandLine(line)
+	tokens, err := parseTUICommandLine(line)
 	if err != nil {
-		fmt.Fprintf(stderr, "ibkr: %v\n", err)
+		fmt.Fprintf(stderr, "%s: %v\n", productidentity.Executable, err)
 		return 2
 	}
 	if len(tokens) == 0 {
 		return 0
 	}
-	if tokens[0] == "ibkr" {
-		tokens = tokens[1:]
-	}
-	if len(tokens) == 0 || tokens[0] == "help" {
+	if tokens[0] == "help" {
 		cli.PrintUsage(stdout)
 		return 0
 	}
 	cmd, args := tokens[0], tokens[1:]
 	if cmd == "--version" || cmd == "version" {
-		fmt.Fprintf(stdout, "ibkr %s\n", r.version)
+		fmt.Fprintf(stdout, "%s %s\n", productidentity.Executable, r.version)
 		return 0
 	}
 	spec, known := findSpec(catalog, cmd)
@@ -64,13 +62,13 @@ func (r commandRunner) runParsed(ctx context.Context, line string, catalog []cli
 	}
 	if cmd == "update" {
 		if !hasFlag(args, "check") && !hasFlag(args, "restart") && !hasFlag(args, "no-restart") {
-			fmt.Fprintln(stderr, "ibkr update: inside the TUI, pass --restart or --no-restart to avoid an interactive installer prompt")
+			fmt.Fprintf(stderr, "%s update: inside the TUI, pass --restart or --no-restart to avoid an interactive installer prompt\n", productidentity.Executable)
 			return 2
 		}
 		return cli.RunUpdate(ctx, args, r.version, bytes.NewReader(nil), stdout, stderr)
 	}
 	if spec.TUI == cli.TUIExternal {
-		fmt.Fprintf(stdout, "Run `ibkr %s` in a normal terminal. This command owns a process, installer, or stdio lifecycle outside the TUI.\n", strings.Join(tokens, " "))
+		fmt.Fprintf(stdout, "Run `%s %s` in a normal terminal. This command owns a process, installer, or stdio lifecycle outside the TUI.\n", productidentity.Executable, strings.Join(tokens, " "))
 		return 0
 	}
 	if cmd == "restart" {
@@ -88,12 +86,29 @@ func (r commandRunner) runParsed(ctx context.Context, line string, catalog []cli
 	}
 	conn, err := connectDaemon(runCtx, r.socketPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "ibkr: %v\n", err)
+		fmt.Fprintf(stderr, "%s: %v\n", productidentity.Executable, err)
 		return 1
 	}
 	defer conn.Close()
 	env := &cli.Env{Stdout: stdout, Stderr: stderr, Conn: conn, Version: r.version, Color: r.color}
 	return cli.Run(runCtx, env, cmd, args)
+}
+
+// parseTUICommandLine accepts both installed executable spellings as optional
+// prefixes. Prefixless input remains the normal interactive form.
+func parseTUICommandLine(line string) ([]string, error) {
+	tokens, err := parseCommandLine(line)
+	if err != nil {
+		return nil, err
+	}
+	return stripExecutablePrefix(tokens), nil
+}
+
+func stripExecutablePrefix(tokens []string) []string {
+	if len(tokens) > 0 && tokens[0] == productidentity.Executable {
+		return tokens[1:]
+	}
+	return tokens
 }
 
 func unknownCommandMessage(cmd string, catalog []cli.CommandSpec) string {

@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TWS wire protocol | ibkr</title>
+  <title>TWS wire protocol | Canary</title>
   <meta name="description" content="Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/protocol.html">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/protocol.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.","headline":"TWS wire protocol","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/protocol.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Coverage and semantic fingerprints for the clean-room Go implementation of the Interactive Brokers TWS wire protocol.","headline":"TWS wire protocol","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/protocol.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -105,7 +105,7 @@
 <p>Updated: 2026-07-25 20:23 CEST</p>
 <p><code>pkg/ibkr</code> is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
-narrow order-wire operations used by the <code>ibkr</code> binary and daemon.</p>
+narrow order-wire operations used by the <code>canary</code> binary and daemon.</p>
 <h2 id="order-and-exercise-gates">Order and exercise gates</h2>
 <p>Unrestricted <code>SubmitOrder</code>/<code>CancelOrder</code>, <code>PlaceOrder</code>/<code>CancelOrder</code>, and
 <code>ExerciseOptions</code> methods are present in every build, but their
@@ -171,7 +171,7 @@ classified market state, source-health buckets, row titles/states, and
 V2 includes typed source failure
 code/stage. The separate <code>established_alert_projection</code> intentionally retains
 its frozen <code>stress-fp-v1</code> compatibility identity for delivery continuity.</p>
-<p><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/trading-rulebook.md"><code>rules.snapshot</code></a> emits
+<p><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/trading-rulebook.md"><code>rules.snapshot</code></a> emits
 <code>rulebook-fp-v3</code>, a policy-identity fingerprint rather than a classified-state
 hash. The key is a SHA-256 of a JSON projection of the active Rulebook model
 (rule set, thresholds, regime-conditional sets), so it changes when the model
@@ -380,8 +380,8 @@ the highest supported protocol version with newer gateways.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/osauer/ibkr/v2/internal/daemon"
+	"github.com/osauer/canary/v2/internal/daemon"
 )
 
 // runPolicyDefault prints the embedded default protection or opportunity

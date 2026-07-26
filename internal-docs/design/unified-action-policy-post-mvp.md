@@ -10,7 +10,7 @@ exercise-specific policy behavior mature.
 ## Target Shape
 
 A future migration can introduce a unified policy kind, likely
-`ibkr.action_policy`, with protection and opportunities as sibling buckets:
+`canary.action_policy`, with protection and opportunities as sibling buckets:
 
 - `buckets.protection.theta_hygiene`
 - `buckets.protection.risk_reduction`

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/push"
-	"github.com/osauer/ibkr/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/app/push"
+	"github.com/osauer/canary/v2/internal/app/state"
 )
 
 // SetAlertMode serializes a notification-mode change with confirmation and

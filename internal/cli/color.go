@@ -9,8 +9,8 @@ import (
 // ANSI SGR codes used across renderers. Kept to a tight palette so colored
 // output stays signal — green/red for sign, dim for the absent/zero
 // placeholder, yellow for warning badges, bold for the section title and
-// the single hero number per screen (e.g. Net Liquidation on `ibkr account`,
-// EXPECTED MOVE on `ibkr chain`, effective/dollar delta on the Portfolio
+// the single hero number per screen (e.g. Net Liquidation on `canary account`,
+// EXPECTED MOVE on `canary chain`, effective/dollar delta on the Portfolio
 // aggregate). Bold is the strongest emphasis — use it sparingly.
 const (
 	ansiReset  = "\x1b[0m"
@@ -24,8 +24,8 @@ const (
 // ShouldColor reports whether ANSI color escapes should be emitted to w.
 // Policy, in order:
 //
-//  1. IBKR_COLOR=always  → on (overrides TTY check)
-//  2. IBKR_COLOR=never   → off
+//  1. CANARY_COLOR=always  → on (overrides TTY check)
+//  2. CANARY_COLOR=never   → off
 //  3. NO_COLOR set (any) → off (https://no-color.org)
 //  4. w is a character device (interactive terminal) → on
 //  5. otherwise → off (pipes, file redirects, bytes.Buffer in tests)
@@ -33,14 +33,14 @@ const (
 // Computed once per process and cached on Env.Color so colored renderers
 // don't re-syscall on every value.
 func ShouldColor(w io.Writer) bool {
-	// docgen:env IBKR_COLOR | Force terminal colour on (`always`), off (`never`); any other value defers to NO_COLOR + TTY detection.
-	switch os.Getenv("IBKR_COLOR") {
+	// docgen:env CANARY_COLOR | Force terminal colour on (`always`), off (`never`); any other value defers to NO_COLOR + TTY detection.
+	switch os.Getenv("CANARY_COLOR") {
 	case "always":
 		return true
 	case "never":
 		return false
 	}
-	// docgen:env NO_COLOR | Standard https://no-color.org/ override. Any non-empty value disables colour regardless of IBKR_COLOR (unless IBKR_COLOR=always).
+	// docgen:env NO_COLOR | Standard https://no-color.org/ override. Any non-empty value disables colour regardless of CANARY_COLOR (unless CANARY_COLOR=always).
 	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}

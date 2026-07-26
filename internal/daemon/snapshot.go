@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // briefSnapshotPriceWithClose wraps briefSnapshotFull and returns the

@@ -1,4 +1,4 @@
-// Package daemon implements the long-running runtime authority for ibkr. It
+// Package daemon implements Canary's long-running runtime authority. It
 // owns broker connectivity, durable and in-memory runtime state, background
 // schedulers, policy execution, and the gated coordination of broker writes;
 // other processes access those capabilities through typed daemon requests.
@@ -22,14 +22,14 @@ import (
 	"syscall"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/daemon/history"
-	"github.com/osauer/ibkr/v2/internal/discover"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/daemon/history"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // maxFrameBytes caps each newline-delimited JSON-RPC request the daemon will
@@ -49,7 +49,7 @@ var errFrameTooLarge = fmt.Errorf("request frame exceeds %d bytes", maxFrameByte
 // handshake to complete before publishing a degraded-state hint to
 // lastConnectError. pkg/ibkr's per-attempt budget is 10s; 12s is just past
 // that so a healthy attempt always lands first, and a wedged gateway
-// surfaces a verdict to `ibkr status` well inside its 25s budget.
+// surfaces a verdict to `canary status` well inside its 25s budget.
 const handshakeWatchdogDelay = 12 * time.Second
 
 // perCandidateConnectBudget is the hard cap on one candidate's connect+
@@ -61,7 +61,7 @@ const handshakeWatchdogDelay = 12 * time.Second
 // non-TLS listener), the retry hangs indefinitely and failover never
 // advances. This deadline guarantees the loop reaches the alternate
 // within a bounded time even in the worst case. 25s matches the
-// `ibkr status` budget so a fresh status invocation triggers one full
+// `canary status` budget so a fresh status invocation triggers one full
 // candidate attempt; the next status invocation sees the failover result.
 //
 // `var` (not const) so tests can drop it to milliseconds to exercise
@@ -114,7 +114,7 @@ type Server struct {
 	fxRates *fxRateCache
 
 	// accountSnapshots owns the short-lived, request-authored account summary
-	// shared by Rulebook, Canary, brief, app, and CLI reads. Its zero value is
+	// shared by Rulebook, Stress, brief, app, and CLI reads. Its zero value is
 	// ready for use; connector session and broker scope are part of every key.
 	accountSnapshots accountSnapshotAuthority
 	// dailyPnLObservations keeps an observed same-session feed failure visible
@@ -131,7 +131,7 @@ type Server struct {
 	// lastDiscoveryWarn remembers the most recent reconnect-discovery
 	// WARN line so the reconnect loop logs each unique verdict once
 	// instead of repeating the same line every poll cycle (~500ms while
-	// `ibkr status` waits for handshake).
+	// `canary status` waits for handshake).
 	lastDiscoveryWarn string
 
 	// lastEndpointResolvedSig / lastGatewayUnreachable / lastNoEndpointUsable
@@ -154,7 +154,7 @@ type Server struct {
 
 	// connectInFlight is true while a connect attempt (initial or reconnect)
 	// is running its handshake. triggerReconnect refuses to fire while this
-	// is set so a stream of `ibkr status` calls during a wedged-gateway
+	// is set so a stream of `canary status` calls during a wedged-gateway
 	// recovery doesn't pile up parallel connect goroutines.
 	connectInFlight bool
 	// initialAcceptLoopStartedForTest observes the exact startup boundary after
@@ -202,7 +202,7 @@ type Server struct {
 	subs *subManager
 
 	// expiryIVCache memoises per-(symbol, expiry) ATM IV so a fresh
-	// `ibkr chain SYM` invocation reuses results from earlier calls
+	// `canary chain SYM` invocation reuses results from earlier calls
 	// within the TTL window. The first call pays the per-expiry
 	// subscribe cost; subsequent calls are near-instant.
 	expiryIVs *expiryIVCache
@@ -214,7 +214,7 @@ type Server struct {
 
 	// prevCloses memoises per-symbol previous-session close (tick 9)
 	// so the positions handler can render daily-change deltas without
-	// re-subscribing on every invocation. The first `ibkr positions`
+	// re-subscribing on every invocation. The first `canary positions`
 	// call after daemon startup pre-warms; later calls are instant.
 	prevCloses *prevCloseCache
 
@@ -419,7 +419,7 @@ type Server struct {
 	proposalOutcomes *proposalOutcomeStore
 	// platformSettings persists daemon-owned runtime preferences. Gateway,
 	// account, trading mode, and build capability stay config/build owned;
-	// this store only carries settings ibkr may edit at runtime.
+	// this store only carries settings the operator may edit at runtime.
 	platformSettings    *platformSettingsStore
 	protectionPolicies  *protectionPolicyManager
 	tradeProposals      *proposalEngine
@@ -529,7 +529,7 @@ type Server struct {
 
 	// regimePrewarming is set while prewarmRegimeSymbols' fan-out is in
 	// flight. Surfaces via backgroundTasks() so the idle watcher defers
-	// shutdown and `ibkr status` reflects the work — same coherence
+	// shutdown and `canary status` reflects the work — same coherence
 	// guarantee breadth-spx and gamma-zero ride. Up to ~30 s of
 	// gateway-slot pressure during postConnectSetup; if the user
 	// autospawns the daemon and walks away, the idle watcher could
@@ -546,12 +546,12 @@ type Server struct {
 	// the high-impact regime surface flap between ranked and unranked.
 	regimeHistory *regimeHistoryCache
 	// regimeSnapshots is the daemon-owned, daemon.db-backed last-good regime
-	// authority. All RPC, brief, rulebook, proposal, Canary, and alert reads
+	// authority. All RPC, brief, rulebook, proposal, Stress, and alert reads
 	// converge here; only a complete fan-out may publish into it.
 	regimeSnapshots          *regimeSnapshotCache
 	regimeProjectionRepairMu sync.Mutex
 	regimeRefreshLoopWG      sync.WaitGroup
-	// Canary evaluation is daemon-owned and independent of app presence and
+	// Stress evaluation is daemon-owned and independent of app presence and
 	// decision-journal retention. Regime publications and reconnects share the
 	// buffered wake; the loop drains during daemon shutdown.
 	stressEvaluationWake   chan struct{}
@@ -590,7 +590,7 @@ type Server struct {
 	alertShadowLoopWG        sync.WaitGroup
 	// postConnectSetupDone latches true at the end of the first
 	// successful postConnectSetup. Gates the Connected field of
-	// handleStatusHealth so an `ibkr status` that lands between
+	// handleStatusHealth so an `canary status` that lands between
 	// `c.ready=true` (set asynchronously by the connection read loop
 	// in pkg/ibkr) and postConnectSetup finishing its synchronous
 	// prewarm sentinel-setting reports Connected=false (the CLI keeps
@@ -927,7 +927,7 @@ func (s *Server) resolveBreadthMembers() []string {
 //   - breadth engine missing (cache-dir failure) → no refresher.
 //   - members cache path unresolvable (HOME unset) → no refresher.
 //
-// The IBKR_SPX_MEMBERS_AUTO_REFRESH env var (symmetric override:
+// The CANARY_SPX_MEMBERS_AUTO_REFRESH env var (symmetric override:
 // "1" force-on, "0" force-off, unset defers) takes precedence over the
 // TOML [spx] members_auto_refresh field. The status renderer surfaces
 // which gate is active. Run() is launched separately in
@@ -1266,7 +1266,7 @@ func (s *Server) installSubs() {
 // opens the IB Gateway connection in the background, listens on the Unix
 // socket, and blocks until ctx is cancelled or Stop is called. Returns
 // the first fatal error encountered. Returns ErrAlreadyRunning (without
-// touching the gateway) if another ibkrd holds the instance lock.
+// touching the gateway) if another Canary daemon holds the instance lock.
 func (s *Server) Start(ctx context.Context) error {
 	lock, err := acquireInstanceLock(s.socketPath)
 	if err != nil {
@@ -1289,7 +1289,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// the socket comes up so handleStatusHealth can report the endpoint
 	// the daemon will be talking to. Failure here only happens when the
 	// user left port unpinned AND no IBKR ports respond — we still bring
-	// the socket up so `ibkr status` can render the verdict.
+	// the socket up so `canary status` can render the verdict.
 	// Derive a cancellable child of the caller's ctx for background
 	// goroutines (reconnect, watchdog). The deferred cancel below ensures
 	// any reconnect goroutine launched late by a handler unwinds promptly
@@ -1351,11 +1351,11 @@ func (s *Server) Start(ctx context.Context) error {
 	defer s.closeListener()
 
 	s.startedAt = time.Now()
-	s.logger.Infof("ibkr daemon %s listening on %s (gateway=%s:%d, clientID=%d)",
+	s.logger.Infof("canary daemon %s listening on %s (gateway=%s:%d, clientID=%d)",
 		s.version, s.socketPath, ep.Host, ep.Port, ep.ClientID)
 	s.evaluateRiskPolicyV3Reconciliation()
 	// Skip the connect goroutine when discovery already failed — there's
-	// nothing to connect to. The socket is still up so `ibkr status`
+	// nothing to connect to. The socket is still up so `canary status`
 	// renders the discovery error, and the next request will trigger a
 	// rediscover. Claim the initial attempt before exposing the accept loop:
 	// an immediately queued status request otherwise sees no ready connector
@@ -1573,7 +1573,7 @@ func (s *Server) runConnectAttempt(ctx context.Context, primary discover.Endpoin
 // On a healthy primary the loop completes in one iteration. On an
 // unhealthy primary, each failed candidate adds roughly pkg/ibkr's
 // per-attempt budget (~20s with TLS fallback) before moving on — worst
-// case can exceed `ibkr status`'s 25s budget, in which case the next
+// case can exceed `canary status`'s 25s budget, in which case the next
 // status call surfaces the verdict.
 func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpoint) {
 	factory := s.attempterFactory
@@ -1656,7 +1656,7 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		return
 	}
 	// All candidates exhausted. Publish a verdict that names what we
-	// tried so `ibkr status` shows the user the full picture (not just
+	// tried so `canary status` shows the user the full picture (not just
 	// the original probe winner).
 	names := make([]string, 0, len(candidates))
 	for _, c := range candidates {
@@ -1975,9 +1975,9 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 		})
 	}
 
-	// Prewarm dealer zero-gamma so the first `ibkr regime` / `ibkr
+	// Prewarm dealer zero-gamma so the first `canary regime` / `canary
 	// gamma` of the day doesn't block on a cold ~4-min compute. The
-	// user sees "computing dealer zero-gamma" in `ibkr status`
+	// user sees "computing dealer zero-gamma" in `canary status`
 	// immediately. No periodic loop here — kickOrJoin's soft-TTL
 	// machinery handles staleness from RPC handlers thereafter, so we
 	// only need the initial kick. The Once gates against
@@ -1988,7 +1988,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// cache mutex and assigns c.current under it; the multi-minute
 	// fan-out runs on the goroutine spawnJob spawns internally. By the
 	// time postConnectSetup returns, IsComputing() reflects the
-	// in-flight compute — closing the race where the first `ibkr
+	// in-flight compute — closing the race where the first `canary
 	// status` after restart would see Connected=true but no background
 	// tasks.
 	if s.zeroGamma != nil && s.serverCtx != nil {
@@ -2028,7 +2028,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 }
 
 // prewarmZeroGamma kicks the first dealer zero-gamma compute of a
-// daemon's lifetime so the first `ibkr regime` / `ibkr gamma` call
+// daemon's lifetime so the first `canary regime` / `canary gamma` call
 // doesn't block on the cold compute. Mirrors handleGammaZeroSPX's
 // compute closure construction (connector + normalized default params
 // + production leg fetcher) so the prewarm result and a subsequent
@@ -2076,7 +2076,7 @@ func (s *Server) kickZeroGamma(ctx context.Context, caller string) {
 	}
 	params := normalizeGammaParams(rpc.GammaZeroParams{})
 	// Startup prewarm builds the canonical combined cache so the first
-	// user-driven `ibkr gamma` (default scope) hits ready instead of
+	// user-driven `canary gamma` (default scope) hits ready instead of
 	// kicking another 7-minute fan-out. computeGammaCombined holds
 	// SPY then SPX serially via runUnderlyingPhase, and degrades to
 	// SPY-only with a structured warning when SPX is unreachable —
@@ -2209,7 +2209,7 @@ func (s *Server) handshakeWatchdog(ctx context.Context, isConnected func() bool,
 // reconnectBackoffBase / reconnectBackoffMax bound the quiet period between
 // reconnect attempts. The cap is deliberately below the CLI's
 // handshakeWaitBudget (25s) so a user moving IBKR from Gateway to TWS still
-// recovers within a single `ibkr status` invocation.
+// recovers within a single `canary status` invocation.
 const (
 	reconnectBackoffBase = time.Second
 	reconnectBackoffMax  = 15 * time.Second
@@ -2774,7 +2774,7 @@ func requestCtx(parent context.Context, method string) (context.Context, context
 
 // unaryDeadline returns the per-request deadline for a method, or 0 for
 // methods that own their own lifetime (streaming). Values are picked to
-// stay below the CLI's 60s per-invocation budget in cmd/ibkr/main.go so
+// stay below the CLI's 60s per-invocation budget in cmd/canary/main.go so
 // the daemon's classified error reaches the user instead of a raw socket
 // timeout, while still being generous enough for the slowest legitimate
 // path: chain.fetch's sequential per-strike contract resolution.
@@ -2793,7 +2793,7 @@ func unaryDeadline(method string) time.Duration {
 		// details warmup (2-3 s × first-wave timeouts → retries) on top of
 		// the per-leg market-data tick window; observed cold cost on a
 		// 14-leg AAPL fetch is 25-30 s and at 25 s the handler is cut off
-		// mid-leg-fanout. CLI ceiling is 60 s ([cmd/ibkr/main.go:125]) so
+		// mid-leg-fanout. CLI ceiling is 60 s ([cmd/canary/main.go:125]) so
 		// 50 s leaves room for the classified daemon error to surface
 		// before the socket times out.
 		return 50 * time.Second
@@ -2833,7 +2833,7 @@ func unaryDeadline(method string) time.Duration {
 		return 50 * time.Second
 	case rpc.MethodBriefSnapshot, rpc.MethodBriefAck:
 		// Brief composition fans out across the same gateway-heavy account,
-		// positions, regime, market-event, and rulebook reads as canary.
+		// positions, regime, market-event, and rulebook reads as Stress.
 		return 75 * time.Second
 	case rpc.MethodNudgesSnapshot, rpc.MethodNudgesCutoverReview, rpc.MethodReconStatus, rpc.MethodReconCheck:
 		// Local policy, retained statements, and daemon state only.
@@ -2846,7 +2846,7 @@ func unaryDeadline(method string) time.Duration {
 		// can take 25-45 s) + per-row enrichment in waves of
 		// scanEnrichConcurrency × scanEnrichWindow each. Typical RTH scan:
 		// ~15 s. Worst case off-hours: 35 s scan + 20 s enrichment + slack.
-		// The CLI per-invocation deadline at cmd/ibkr/main.go is bumped to
+		// The CLI per-invocation deadline at cmd/canary/main.go is bumped to
 		// 90 s in lockstep so the daemon's classified error reaches the
 		// user instead of a raw socket timeout.
 		return 75 * time.Second

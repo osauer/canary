@@ -4,7 +4,7 @@ Updated: 2026-07-23 08:15 CEST
 Status: design approved by the operator (interviews 2026-07-16, consolidated
 greenlight 2026-07-18). Implemented same day: the backfill backtest (decision
 4/5 mechanics), risk-policy v3 (auto-extend, R3/R4, divergence gate), and the
-L1 brief surface (decisions 1+3 — daemon brief, `ibkr brief`, PWA card,
+L1 brief surface (decisions 1+3 — daemon brief, `canary brief`, PWA card,
 render-stamps, one-tap sign-off; see the implementation records at the end).
 L2 push nudges, cadence re-declaration, and the monthly pulse were approved for
 implementation later on 2026-07-18; live v4 activation remains gated on the
@@ -37,7 +37,7 @@ Principles (approved):
 1. **Brief surface.** The daemon composes a typed morning/EOD brief from
    existing results (policy tier + latch, recon clock, rules deltas since the
    last brief, stress state, Phase-2 day counter, artefacts due). Rendered by
-   `ibkr brief` and a card in the paired PWA. Rendering on a human-origin
+   `canary brief` and a card in the paired PWA. Rendering on a human-origin
    surface journals the artefact completion; agent-origin renders never stamp.
 2. **Push nudges** over the existing relay/PWA pairing: artefact not done by
    the operator's chosen time, recon clock inside 2 days, recon exception,
@@ -157,13 +157,13 @@ tier degrades ⇒ push. Silence is structurally self-limiting at
 
 | Concept | Authoritative source | Typed contract | Renderer/tool | Fallback / unavailable |
 |---|---|---|---|---|
-| Brief content | daemon composition of existing typed results | new `rpc` brief result | `ibkr brief`, PWA card, push summary | degraded inputs disclosed per row, never omitted silently |
+| Brief content | daemon composition of existing typed results | new `rpc` brief result | `canary brief`, PWA card, push summary | degraded inputs disclosed per row, never omitted silently |
 | Artefact completion | human-origin brief render | journal entry with origin + brief fingerprint | `policy show`, 3b replay | agent-origin render ⇒ no stamp |
 | Nudge schedule | v3 TOML cadence keys (times `unapproved`) | `risk.Constitution` | daemon scheduler → relay push | relay down ⇒ missed nudge journaled, never blocks |
 | Backfill statements | one-off long-period Flex query (operator-configured at IBKR) | existing `flexstmt` records | backtest report | fetch failure ⇒ no backtest, no flip |
-| Backtest verdict | recon engine over full window + equity replay | new `rpc` backtest report (id, window, flow list, replay result) | `ibkr recon` (backtest view) | exceptions block the flip |
+| Backtest verdict | recon engine over full window + equity replay | new `rpc` backtest report (id, window, flow list, replay result) | `canary recon` (backtest view) | exceptions block the flip |
 | cumFlows after flip | statement-confirmed flows | flows/equity store | `policy show` | statements stale ⇒ existing staleness posture, clocks unchanged |
-| Auto-extend evidence | clean fresh report | auto-entry in reconcile journal carrying report id | `ibkr recon`, `policy show` | any exception or staleness ⇒ no extend, clock runs, push |
+| Auto-extend evidence | clean fresh report | auto-entry in reconcile journal carrying report id | `canary recon`, `policy show` | any exception or staleness ⇒ no extend, clock runs, push |
 
 ## Safety invariants
 
@@ -324,7 +324,7 @@ fixture), then `make app-refresh` on the real host.
   per artefact kind per daemon-local day, recording `origin` and
   `brief_fingerprint` as new omitempty fields on `ArtefactRecord` and the
   `artefact_completed` journal entry (legacy entries and the manual
-  `ibkr policy artefact` verb unchanged).
+  `canary policy artefact` verb unchanged).
 - **Stamp kind = first-incomplete rule (operator choice):** morning, then
   eod, then nothing (disclosed); `--kind` overrides; weekly is never
   render-stamped until the v4 cadence re-declaration. Accepted quirk: two

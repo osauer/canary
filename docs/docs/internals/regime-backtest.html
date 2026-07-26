@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Regime and stress backtest runbook | ibkr</title>
-  <meta name="description" content="Runbook for proving and tuning the ibkr regime and Stress lifecycle against point-in-time evidence.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/regime-backtest.html">
+  <title>Regime and stress backtest runbook | Canary</title>
+  <meta name="description" content="Runbook for proving and tuning the Regime and Stress lifecycle against point-in-time evidence.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/regime-backtest.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Runbook for proving and tuning the ibkr regime and Stress lifecycle against point-in-time evidence.","headline":"Regime and stress backtest runbook","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/regime-backtest.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"Runbook for proving and tuning the Regime and Stress lifecycle against point-in-time evidence.","headline":"Regime and stress backtest runbook","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/regime-backtest.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,8 +103,8 @@
     <main class="doc">
 <h1 id="regime-and-stress-backtest-runbook">Regime and stress backtest runbook</h1>
 <p>Updated: 2026-07-25 20:23 CEST</p>
-<p>This is the single umbrella for proving and tuning <code>ibkr regime</code> and
-<code>ibkr stress</code>. Keep the work here. Do not add another experiment plan, tuning
+<p>This is the single umbrella for proving and tuning <code>canary regime</code> and
+<code>canary stress</code>. Keep the work here. Do not add another experiment plan, tuning
 plan, or backtest framework unless this runbook says to.</p>
 <p>The goal: prove that regime and stress produce useful stress detection without
 overfitting to named events.</p>
@@ -137,7 +137,7 @@ are out-of-scope for market-regime precision and recall.</li>
 </tr>
 <tr>
 <td><code>docs/docs/internals/regime-dashboard.md</code></td>
-<td>Product contract for live <code>ibkr regime</code>; not a tuning backlog.</td>
+<td>Product contract for live <code>canary regime</code>; not a tuning backlog.</td>
 </tr>
 <tr>
 <td><code>scripts/backtest/</code></td>
@@ -170,34 +170,34 @@ are out-of-scope for market-regime precision and recall.</li>
 the source of truth. Rebuild them.</p>
 <h2 id="command-sequence">Command sequence</h2>
 <p>Small smoke fixtures:</p>
-<pre><code class="language-bash">ibkr backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
-ibkr backtest stress --input internal/cli/testdata/stress_backtest_sample.jsonl
+<pre><code class="language-bash">canary backtest regime --input internal/cli/testdata/regime_backtest_sample.jsonl
+canary backtest stress --input internal/cli/testdata/stress_backtest_sample.jsonl
 </code></pre>
 <p>Capture a fresh tuning and holdout split before tuning anything. The checked-in
 sourced corpora were deleted in July 2026: they recorded verdicts from regime
 code that has been corrected several times since, so they measured the old bugs
 rather than the current engine.</p>
-<pre><code class="language-bash">ibkr backtest capture-opportunity --preset top-movers --include-regime --split tuning \
+<pre><code class="language-bash">canary backtest capture-opportunity --preset top-movers --include-regime --split tuning \
   --append /tmp/regime_tuning.jsonl
-ibkr backtest capture-opportunity --preset top-movers --include-regime --split holdout \
+canary backtest capture-opportunity --preset top-movers --include-regime --split holdout \
   --holdout-plan &lt;plan-id&gt; --append /tmp/regime_holdout.jsonl
-ibkr backtest regime --input /tmp/regime_tuning.jsonl
-ibkr backtest stress --input /tmp/regime_tuning.jsonl
+canary backtest regime --input /tmp/regime_tuning.jsonl
+canary backtest stress --input /tmp/regime_tuning.jsonl
 </code></pre>
 <p>Keep captures outside the repository. A corpus checked in beside the unit-test
 fixtures reads as a fixture and stops being regenerated.</p>
 <p>Point-in-time regime builder:</p>
-<pre><code class="language-bash">ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
+<pre><code class="language-bash">canary backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
   &gt; /tmp/regime_backtest_rows.jsonl
-ibkr backtest regime --input /tmp/regime_backtest_rows.jsonl
+canary backtest regime --input /tmp/regime_backtest_rows.jsonl
 </code></pre>
 <p>That is two passes only when starting from raw point-in-time market rows. If the
-input is already compact regime JSONL, run <code>ibkr backtest regime</code> directly.</p>
+input is already compact regime JSONL, run <code>canary backtest regime</code> directly.</p>
 <p>Tier 1 expanded panel. Build it, then work from the build output:</p>
 <pre><code class="language-bash">python3 scripts/backtest/build-tier1-regime-panel.py
-ibkr backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl \
+canary backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl \
   &gt; build/backtest/regime_backtest_tier1.jsonl
-ibkr backtest regime --input build/backtest/regime_backtest_tier1.jsonl
+canary backtest regime --input build/backtest/regime_backtest_tier1.jsonl
 python3 scripts/backtest/compare-tier1-vol-rules.py
 </code></pre>
 <h2 id="data-tiers">Data tiers</h2>
@@ -245,7 +245,7 @@ classification for the current pass:</p>
 <tr>
 <td><code>RSP/SPY</code></td>
 <td>Historical proxy for missing breadth/participation.</td>
-<td>Do not promote. Live <code>ibkr regime</code> already has first-class constituent breadth.</td>
+<td>Do not promote. Live <code>canary regime</code> already has first-class constituent breadth.</td>
 </tr>
 <tr>
 <td><code>QQQE/QQQ</code></td>
@@ -280,10 +280,10 @@ classification for the current pass:</p>
 </tbody>
 </table>
 </div>
-<p>No Tier 2 ETF proxy is promoted into live <code>ibkr regime</code> in this pass. The
+<p>No Tier 2 ETF proxy is promoted into live <code>canary regime</code> in this pass. The
 production change is narrower: isolated red VVIX is treated as an
 unconfirmed equity-volatility warning unless severity or already-visible tape
-confirms it. The red row remains visible in <code>ibkr regime</code>; only the cluster vote
+confirms it. The red row remains visible in <code>canary regime</code>; only the cluster vote
 is downgraded from stress to watch.</p>
 <h2 id="current-findings">Current findings</h2>
 <h3 id="from-the-sourced-corpora">From the sourced corpora</h3>
@@ -425,10 +425,10 @@ make smoke
 </code></pre>
 <p>After CLI or daemon changes, also install and smoke the actual binary:</p>
 <pre><code class="language-bash">make restart-daemon
-ibkr status
-ibkr backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
+canary status
+canary backtest build-regime --input internal/cli/testdata/regime_pit_panel_sample.jsonl \
   &gt; /tmp/ibkr-build-regime-smoke.jsonl
-ibkr backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
+canary backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
 </code></pre>
 <h2 id="not-doing">Not doing</h2>
 <ul>
@@ -443,8 +443,8 @@ ibkr backtest regime --input /tmp/ibkr-build-regime-smoke.jsonl
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

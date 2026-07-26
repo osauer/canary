@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Releases and support | ibkr</title>
-  <meta name="description" content="What each ibkr release publishes, how the read-only and trading builds differ, how to verify a download against the maintainer&#39;s signing key, and how to report a security issue.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/reference/releases.html">
+  <title>Releases and support | Canary</title>
+  <meta name="description" content="What each Canary release publishes, how the read-only and trading builds differ, how to verify a download against the maintainer&#39;s signing key, and how to report a security issue.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/reference/releases.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What each ibkr release publishes, how the read-only and trading builds differ, how to verify a download against the maintainer's signing key, and how to report a security issue.","headline":"Releases and support","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/reference/releases.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"What each Canary release publishes, how the read-only and trading builds differ, how to verify a download against the maintainer's signing key, and how to report a security issue.","headline":"Releases and support","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/reference/releases.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -106,7 +106,7 @@
 <p>Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.</p>
 <p><a href="../start/updating.html">Updating</a> covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.</p>
 <h2 id="what-a-release-publishes">What a release publishes</h2>
-<p>Assets hang off each tag on the <a href="https://github.com/osauer/ibkr/releases">releases page</a>.</p>
+<p>Assets hang off each tag on the <a href="https://github.com/osauer/canary/releases">releases page</a>.</p>
 <div class="tblwrap">
 <table>
 <thead>
@@ -117,19 +117,19 @@
 </thead>
 <tbody>
 <tr>
-<td><code>ibkr-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code></td>
+<td><code>canary-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code></td>
 <td>Standard read-only build, one per platform.</td>
 </tr>
 <tr>
-<td><code>ibkr-trading-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code></td>
+<td><code>canary-trading-vX.Y.Z-&lt;os&gt;-&lt;arch&gt;.tar.gz</code></td>
 <td>Broker-write capable build, same platforms.</td>
 </tr>
 <tr>
-<td><code>ibkr-vX.Y.Z.mcpb</code></td>
+<td><code>canary-vX.Y.Z.mcpb</code></td>
 <td>Claude Desktop MCP Bundle for that version.</td>
 </tr>
 <tr>
-<td><code>ibkr.mcpb</code></td>
+<td><code>canary.mcpb</code></td>
 <td>The same bundle bytes under a stable latest-download name.</td>
 </tr>
 <tr>
@@ -144,22 +144,22 @@
 </table>
 </div>
 <p>The platforms are <code>darwin-arm64</code>, <code>darwin-amd64</code>, <code>linux-amd64</code>, and <code>linux-arm64</code>. There is no Windows build, because the daemon uses <code>setsid</code>, <code>flock</code>, and AF_UNIX sockets. WSL works.</p>
-<p>A standard tarball holds the <code>ibkr</code> binary, <code>LICENSE</code>, and <code>README.md</code>, and <code>install.sh</code> rejects an archive containing anything else. A trading tarball adds <code>TRADING-WARNING.md</code>, which links to the security policy and the order-preview guide at that exact tag.</p>
+<p>A standard tarball holds the <code>canary</code> binary, <code>LICENSE</code>, and <code>README.md</code>, and <code>install.sh</code> rejects an archive containing anything else. A trading tarball adds <code>TRADING-WARNING.md</code>, which links to the security policy and the order-preview guide at that exact tag.</p>
 <p>A release that publishes an MCP Bundle also carries MCP Registry metadata recording that bundle's SHA-256 as <code>fileSha256</code>. The registry hash is a discovery-time integrity hint; signed <code>SHA256SUMS</code> remains the release-level trust anchor. <a href="../internals/packaging.html">Packaging and distribution</a> describes the bundle and plugin formats.</p>
 <h2 id="the-standard-build-and-the-trading-build">The standard build and the trading build</h2>
-<p>The read-only artifact keeps the historical filename, so old links and <code>install.sh</code> keep resolving to the safe variant. Getting the other one takes a deliberate download.</p>
-<p><strong>Standard build.</strong> Order transmission is not compiled in. The CLI keeps <code>ibkr order place</code>, <code>ibkr order modify</code>, and <code>ibkr order cancel</code> in every build; in a standard build the daemon's write handlers are compiled out behind the <code>trading</code> build tag and return <code>ErrTradingDisabled</code>, so the verbs exist and fail closed before anything reaches the broker. The bundled MCP surface has no order-entry tools in either build.</p>
+<p>The standard read-only artifact uses the canonical <code>canary</code> filename. Getting the broker-write-capable variant takes a deliberate <code>canary-trading</code> download.</p>
+<p><strong>Standard build.</strong> Order transmission is not compiled in. The CLI keeps <code>canary order place</code>, <code>canary order modify</code>, and <code>canary order cancel</code> in every build; in a standard build the daemon's write handlers are compiled out behind the <code>trading</code> build tag and return <code>ErrTradingDisabled</code>, so the verbs exist and fail closed before anything reaches the broker. The bundled MCP surface has no order-entry tools in either build.</p>
 <p><strong>Trading build.</strong> This binary can place, modify, and cancel orders once <code>[trading].mode</code> and the pinned gateway endpoint and account are set and cross-checked against the connected session. Every write still needs a submit-eligible preview token, which is an invariant rather than a switch. Purge and restore sit outside that gate: they never mint a token, and their broker submission is disabled outright. Trading builds are experimental and provided as-is. <a href="../operate/orders.html">Order previews and the trading build</a> has the configuration and the gates in full.</p>
-<p>To see which one you are running, <code>ibkr settings</code> prints a <code>Build</code> row reading either <code>stable</code> or <code>experimental-trading</code>, followed by a build note.</p>
+<p>To see which one you are running, <code>canary settings</code> prints a <code>Build</code> row reading either <code>stable</code> or <code>experimental-trading</code>, followed by a build note.</p>
 <p>Four install paths all land on the standard build:</p>
 <ul>
-<li><code>install.sh</code> downloads <code>ibkr-&lt;version&gt;-&lt;platform&gt;.tar.gz</code> and nothing else.</li>
-<li><code>ibkr update</code> matches that exact filename, so it cannot install a trading build over your binary.</li>
+<li><code>install.sh</code> downloads <code>canary-&lt;version&gt;-&lt;platform&gt;.tar.gz</code> and nothing else.</li>
+<li><code>canary update</code> matches that exact filename, so it cannot install a trading build over your binary.</li>
 <li>The MCP Bundles are assembled from the standard tarballs' binaries.</li>
-<li><code>go install github.com/osauer/ibkr/v2/cmd/ibkr@vX.Y.Z</code> compiles without the tag.</li>
+<li><code>go install github.com/osauer/canary/v2/cmd/canary@vX.Y.Z</code> compiles without the tag.</li>
 </ul>
 <h2 id="verifying-a-download">Verifying a download</h2>
-<p><code>install.sh</code> and <code>ibkr update</code> verify signature and checksum for you, and from v1.0.0 onward both refuse a release whose <code>SHA256SUMS.asc</code> is missing or does not verify. There is no override flag. Verify by hand when you took a tarball straight off the releases page.</p>
+<p><code>install.sh</code> and <code>canary update</code> verify signature and checksum for you, and from v1.0.0 onward both refuse a release whose <code>SHA256SUMS.asc</code> is missing or does not verify. There is no override flag. Verify by hand when you took a tarball straight off the releases page.</p>
 <ol>
 <li>Import the signing key and check its fingerprint against the table below.</li>
 </ol>
@@ -170,10 +170,10 @@ gpg --fingerprint oliver.sauer@gmail.com
 <ol start="2">
 <li>Download the tarball for your platform plus both checksum files. Set <code>VERSION</code> to the tag you want and <code>PLAT</code> to your platform.</li>
 </ol>
-<pre><code class="language-sh">VERSION=v2.3.1
+<pre><code class="language-sh">VERSION=vX.Y.Z
 PLAT=darwin-arm64
-BASE=https://github.com/osauer/ibkr/releases/download/$VERSION
-curl -fLO $BASE/ibkr-$VERSION-$PLAT.tar.gz
+BASE=https://github.com/osauer/canary/releases/download/$VERSION
+curl -fLO $BASE/canary-$VERSION-$PLAT.tar.gz
 curl -fLO $BASE/SHA256SUMS
 curl -fLO $BASE/SHA256SUMS.asc
 </code></pre>
@@ -209,7 +209,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 </tr>
 <tr>
 <td>Embedded in</td>
-<td>every <code>ibkr</code> binary from v1.0.0 onward, at <code>internal/update/release-signing-key.asc</code></td>
+<td>every <code>canary</code> binary from v1.0.0 onward, at <code>internal/update/release-signing-key.asc</code></td>
 </tr>
 <tr>
 <td>Also published at</td>
@@ -218,33 +218,33 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 </tbody>
 </table>
 </div>
-<p>Because the public key ships inside the binary you already run, <code>ibkr update</code> checks the next release against a key it carries, with no network bootstrap step to interpose on. The key has no expiry, since rotating it means shipping a new binary with a new key embedded. A revocation certificate is held offline.</p>
+<p>Because the public key ships inside the binary you already run, <code>canary update</code> checks the next release against a key it carries, with no network bootstrap step to interpose on. The key has no expiry, since rotating it means shipping a new binary with a new key embedded. A revocation certificate is held offline.</p>
 <p>This defends against an attacker who compromises the GitHub account and swaps the tarball and <code>SHA256SUMS</code> together: without the private key, the signature they can produce will not verify. It does not defend against theft of that private key, which is what the revocation certificate is for, nor against a compromised dependency at build time, which <code>govulncheck</code> covers separately.</p>
-<p>The <code>.mcpb</code> container itself is not code-signed. Treat bundle integrity as checksum-based unless <code>mcpb verify ibkr-vX.Y.Z.mcpb</code> succeeds.</p>
+<p>The <code>.mcpb</code> container itself is not code-signed. Treat bundle integrity as checksum-based unless <code>mcpb verify canary-vX.Y.Z.mcpb</code> succeeds.</p>
 <h2 id="version-numbers">Version numbers</h2>
-<p>Releases follow <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>, and every entry in <a href="https://github.com/osauer/ibkr/blob/main/CHANGELOG.md">CHANGELOG.md</a> uses Keep a Changelog categories.</p>
+<p>Releases follow <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>, and every entry in <a href="https://github.com/osauer/canary/blob/main/CHANGELOG.md">CHANGELOG.md</a> uses Keep a Changelog categories.</p>
 <ul>
 <li><strong>Patch</strong> (<code>v2.3.0</code> to <code>v2.3.1</code>): fixes and internal changes.</li>
 <li><strong>Minor</strong> (<code>v2.2.1</code> to <code>v2.3.0</code>): new commands, tools, or fields, backward compatible.</li>
 <li><strong>Major</strong>: a breaking change to a published contract.</li>
 </ul>
-<p>So far, &quot;published contract&quot; has meant the Go library. v2.0.0, the only major bump since v1.0.0, modernized the <code>pkg/ibkr</code> API and moved the module path to <code>github.com/osauer/ibkr/v2</code>. Users of the binary, the MCP Bundle, and the plugin were unaffected. Go developers importing the library had to update their imports.</p>
-<p><code>ibkr version</code> prints the version, commit, build date, and runtime, plus a trust line saying whether the binary is a stamped release build or something compiled locally.</p>
+<p>So far, &quot;published contract&quot; has meant the Go library. v2.0.0, the only major bump since v1.0.0, modernized the broker-nominative <code>pkg/ibkr</code> API. The later clean-slate product rename moved the module to <code>github.com/osauer/canary/v2</code>; Go developers importing the library must update their imports.</p>
+<p><code>canary version</code> prints the version, commit, build date, and runtime, plus a trust line saying whether the binary is a stamped release build or something compiled locally.</p>
 <h2 id="which-versions-are-supported">Which versions are supported</h2>
 <p>One person maintains this. There is no funded support program, no long-term-support line, and no maintenance branch: every tag sits on <code>main</code>, and fixes go into the next release rather than back into an older one. In practice the latest release is the supported one.</p>
-<p>The written policy in <a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">SECURITY.md</a> says the same thing about security specifically: only the latest minor release receives security fixes. An older minor may get a best-effort backport for a critical issue when the patch is low-risk. Otherwise the answer is to upgrade.</p>
-<p>To find out where you stand, <code>ibkr update --check</code> prints your installed version beside the latest published one and exits 0 either way, installing nothing.</p>
+<p>The written policy in <a href="https://github.com/osauer/canary/blob/main/SECURITY.md">SECURITY.md</a> says the same thing about security specifically: only the latest minor release receives security fixes. An older minor may get a best-effort backport for a critical issue when the patch is low-risk. Otherwise the answer is to upgrade.</p>
+<p>To find out where you stand, <code>canary update --check</code> prints your installed version beside the latest published one and exits 0 either way, installing nothing.</p>
 <h2 id="reporting-a-security-problem">Reporting a security problem</h2>
-<p>Report privately rather than opening a public issue. The channel is a draft advisory through <a href="https://github.com/osauer/ibkr/security/advisories/new">GitHub Private Vulnerability Reporting</a>. Plain English is fine, and a proof of concept is appreciated but not required. Without a GitHub account, open a normal issue titled <code>security: request private channel</code> carrying no details, and you will get a one-time reporting address back.</p>
+<p>Report privately rather than opening a public issue. The channel is a draft advisory through <a href="https://github.com/osauer/canary/security/advisories/new">GitHub Private Vulnerability Reporting</a>. Plain English is fine, and a proof of concept is appreciated but not required. Without a GitHub account, open a normal issue titled <code>security: request private channel</code> carrying no details, and you will get a one-time reporting address back.</p>
 <p>The policy commits to acknowledgement within 7 days, triage within 30 days for most reports, and a patched release before the advisory becomes public. Responses are best-effort.</p>
 <p><strong>In scope</strong>: the daemon, the CLI, the stdio MCP server, the Claude Code plugin, the <code>pkg/ibkr</code> wire-protocol implementation, <code>install.sh</code>, and the published release artifacts.</p>
 <p><strong>Out of scope</strong>: bugs in IBKR's own TWS and IB Gateway software, which go to IBKR directly; vulnerabilities in upstream Go modules, which go to the upstream maintainer and reach this project as a re-release once the fix lands; and denial of service against the local daemon by someone who already has a shell as your user.</p>
-<p>Reports that break a stated property come first: a place, modify, cancel, or trade reaching the gateway from a default build, a daemon listener on anything other than its Unix socket, or data leaving the machine beyond what <a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">PRIVACY.md</a> documents.</p>
+<p>Reports that break a stated property come first: a place, modify, cancel, or trade reaching the gateway from a default build, a daemon listener on anything other than its Unix socket, or data leaving the machine beyond what <a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">PRIVACY.md</a> documents.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

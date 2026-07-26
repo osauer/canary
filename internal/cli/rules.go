@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // runRules renders the daemon's advisory trading-rulebook checklist
@@ -141,7 +141,7 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 			fmt.Fprintf(env.Stdout, "Issuer earnings not applicable: %s — exact broker identity is available in --json without exposing the contract identifier.\n", strings.Join(nonissuer, ", "))
 		}
 		if len(unresolved) > 0 {
-			fmt.Fprintf(env.Stdout, "Earnings unresolved: %s — set an authoritative override with `ibkr settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 stay unknown, never pass).\n",
+			fmt.Fprintf(env.Stdout, "Earnings unresolved: %s — set an authoritative override with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 stay unknown, never pass).\n",
 				strings.Join(unresolved, ", "))
 		}
 		if wshEntitlementNotice(&res) {
@@ -213,7 +213,7 @@ func runRulesHistory(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 0 {
-		return fail(env, "rules history: usage is `ibkr rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]`")
+		return fail(env, "rules history: usage is `canary rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]`")
 	}
 	params := rpc.RulesHistoryParams{
 		Since: strings.TrimSpace(*since),

@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // handleAccountSummary issues a one-shot reqAccountSummary and converts the
@@ -143,7 +143,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	// empty until the gateway emits managedAccounts after handshake), so
 	// the first `account` call doubles as the kickoff. SubscribeAccountPnL
 	// is idempotent — subsequent calls for the same account are no-ops. After
-	// kicking the subscription, wait briefly so cold-start canary does not
+	// kicking the subscription, wait briefly so cold-start Stress does not
 	// falsely report missing P&L while the first frame is in flight.
 	snap, ok := c.AccountDailyPnL()
 	if !ok {
@@ -486,7 +486,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 // positionsResultAuthorityAsOf stamps only a complete, current, account-scoped
 // portfolio projection. Cached rows remain useful context when the stream is
 // unprimed or stale, but a zero timestamp makes that uncertainty explicit to
-// Canary and every other consumer instead of laundering the handler time into
+// Stress and every other consumer instead of laundering the handler time into
 // a fresh empty-book receipt.
 func positionsResultAuthorityAsOf(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, completedAt time.Time) time.Time {
 	if classifyPortfolioStreamHealth(scope, health, completedAt.UTC()) != orderIntegrityHealthCurrent {
@@ -3298,7 +3298,7 @@ func (s *Server) handleScanRun(ctx context.Context, req *rpc.Request) (*rpc.Scan
 	case p.Preset != "":
 		preset, ok := s.cfg.Scans[p.Preset]
 		if !ok {
-			return nil, errBadRequest(fmt.Sprintf("unknown preset %q (run 'ibkr scan list' for available)", p.Preset))
+			return nil, errBadRequest(fmt.Sprintf("unknown preset %q (run 'canary scan list' for available)", p.Preset))
 		}
 		scanType = preset.Type
 		scanExch = preset.Exchange
@@ -3315,10 +3315,10 @@ func (s *Server) handleScanRun(ctx context.Context, req *rpc.Request) (*rpc.Scan
 	default:
 		// Ad-hoc.
 		if strings.TrimSpace(p.Type) == "" {
-			return nil, errBadRequest("ad-hoc scan requires either preset or type (scanCode); see 'ibkr scan params' for available scanCodes")
+			return nil, errBadRequest("ad-hoc scan requires either preset or type (scanCode); see 'canary scan params' for available scanCodes")
 		}
 		if strings.TrimSpace(p.Exchange) == "" {
-			return nil, errBadRequest("ad-hoc scan requires exchange (locationCode); see 'ibkr scan params' for available locationCodes")
+			return nil, errBadRequest("ad-hoc scan requires exchange (locationCode); see 'canary scan params' for available locationCodes")
 		}
 		scanType = p.Type
 		scanExch = p.Exchange
@@ -3682,7 +3682,7 @@ func (s *Server) handleScanList() *rpc.ScanListResult {
 // call (reconnect rewrites s.endpoint and s.connector).
 //
 // PortOrigin / TLSOrigin / Alternates come from the discovery layer and
-// let `ibkr status` show whether the endpoint was pinned in config or
+// let `canary status` show whether the endpoint was pinned in config or
 // found by probe — the user-visible contract for the AUTO-by-default
 // design.
 //
@@ -3827,7 +3827,7 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 // health. The engine preserves the last-good snapshot through transient
 // refresh failures (err == nil, served as_of frozen), so the gateway can
 // look healthy while the protection panel serves stale data — this row
-// makes that state diagnosable from `ibkr status` alone. It stays "ready"
+// makes that state diagnosable from `canary status` alone. It stays "ready"
 // below proposalRefreshWarnStreak because the first refreshes after a
 // daemon start race the gateway connect by design.
 func (s *Server) proposalSubsystemHealth() (rpc.SubsystemHealth, bool) {

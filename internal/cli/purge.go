@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -150,13 +150,13 @@ type purgeRPCConn interface {
 
 func runPurge(ctx context.Context, env *Env, args []string) int {
 	if len(args) == 0 {
-		return fail(env, "purge: usage is `ibkr purge SYMBOL` or `ibkr purge --all`")
+		return fail(env, "purge: usage is `canary purge SYMBOL` or `canary purge --all`")
 	}
 	// "help" must never reach the ticker path: a bare word is otherwise treated
-	// as a symbol and `ibkr purge help` would close a real position.
+	// as a symbol and `canary purge help` would close a real position.
 	switch args[0] {
 	case "help", "--help", "-h":
-		return fail(env, "purge: usage is `ibkr purge SYMBOL|'*' [--bypass-preview=true] [--wait 2s] [--json]`, `ibkr purge --all [...]`, `ibkr purge restore SYMBOL|'*' [--scale 0.5] [--execute]`, `ibkr purge status [PURGE_ID]`, `ibkr purge monitor [PURGE_ID]`, or `ibkr purge dry-run`")
+		return fail(env, "purge: usage is `canary purge SYMBOL|'*' [--bypass-preview=true] [--wait 2s] [--json]`, `canary purge --all [...]`, `canary purge restore SYMBOL|'*' [--scale 0.5] [--execute]`, `canary purge status [PURGE_ID]`, `canary purge monitor [PURGE_ID]`, or `canary purge dry-run`")
 	}
 	subIdx := purgeSubcommandIndex(args)
 	if subIdx < 0 {
@@ -210,7 +210,7 @@ func runPurgeTicker(ctx context.Context, env *Env, args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
-	target, err := purgeTargetArg(*all, fs.Args(), "ibkr purge SYMBOL|'*' [--wait 2s] [--json] or ibkr purge --all [--wait 2s] [--json]")
+	target, err := purgeTargetArg(*all, fs.Args(), "canary purge SYMBOL|'*' [--wait 2s] [--json] or canary purge --all [--wait 2s] [--json]")
 	if err != nil {
 		return fail(env, "purge: %v", err)
 	}
@@ -280,9 +280,9 @@ func runPurgeStatus(ctx context.Context, env *Env, args []string, monitor bool) 
 	}
 	if fs.NArg() > 1 {
 		if monitor {
-			return fail(env, "purge monitor: usage is `ibkr purge monitor [PURGE_ID]`")
+			return fail(env, "purge monitor: usage is `canary purge monitor [PURGE_ID]`")
 		}
-		return fail(env, "purge status: usage is `ibkr purge status [PURGE_ID]`")
+		return fail(env, "purge status: usage is `canary purge status [PURGE_ID]`")
 	}
 	purgeID := activePurgeBookID
 	if fs.NArg() == 1 {
@@ -340,7 +340,7 @@ func runPurgeRestore(ctx context.Context, env *Env, args []string) int {
 	if *record {
 		return fail(env, "purge restore: --record is disabled; daemon ledger quantities change only after broker fills or safe reconciliation")
 	}
-	target, err := purgeTargetArg(*all, fs.Args(), "ibkr purge restore SYMBOL|'*' [--scale 0.5] [--execute] [--json] or ibkr purge restore --all [--scale 0.5] [--execute] [--json]")
+	target, err := purgeTargetArg(*all, fs.Args(), "canary purge restore SYMBOL|'*' [--scale 0.5] [--execute] [--json] or canary purge restore --all [--scale 0.5] [--execute] [--json]")
 	if err != nil {
 		return fail(env, "purge restore: %v", err)
 	}
@@ -395,7 +395,7 @@ func runPurgeExecute(ctx context.Context, env *Env, args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
-	target, err := purgeOptionalTargetArg(*all, fs.Args(), "ibkr purge execute [SYMBOL|'*'|--all] [--wait 2s] [--json]")
+	target, err := purgeOptionalTargetArg(*all, fs.Args(), "canary purge execute [SYMBOL|'*'|--all] [--wait 2s] [--json]")
 	if err != nil {
 		return fail(env, "purge execute: %v", err)
 	}
@@ -477,7 +477,7 @@ func purgeOptionalTargetArg(all bool, args []string, usage string) (purgeTarget,
 
 func purgeTargetUsageError(args []string, usage string) error {
 	if len(args) > 1 {
-		return fmt.Errorf("expected one ticker (got %d args); if you typed an unquoted *, your shell expanded it before ibkr saw it; use `ibkr purge --all` or quote it as `ibkr purge '*'`; usage is `%s`", len(args), usage)
+		return fmt.Errorf("expected one ticker (got %d args); if you typed an unquoted *, your shell expanded it before canary saw it; use `canary purge --all` or quote it as `canary purge '*'`; usage is `%s`", len(args), usage)
 	}
 	return fmt.Errorf("usage is `%s`", usage)
 }
@@ -512,7 +512,7 @@ func buildPurgeBookFromPositions(pos rpc.PositionsResult, now time.Time) purgeBo
 		SourceAsOf:       pos.AsOf,
 		PositionCount:    len(pos.Stocks) + len(pos.Options),
 		NotExecution:     "Dry-run review only; no broker order has been placed, modified, cancelled, or transmitted.",
-		ExecutionCommand: "ibkr purge --all",
+		ExecutionCommand: "canary purge --all",
 	}
 	if pos.Portfolio != nil {
 		book.BaseCurrency = pos.Portfolio.BaseCurrency
@@ -545,8 +545,8 @@ func buildPurgeBookFromPositions(pos rpc.PositionsResult, now time.Time) purgeBo
 		leg := purgeBookLegFromPosition(i+1, p)
 		book.Legs = append(book.Legs, leg)
 	}
-	book.RestoreCommand = "ibkr purge restore SYMBOL"
-	book.MonitorCommand = "ibkr purge monitor"
+	book.RestoreCommand = "canary purge restore SYMBOL"
+	book.MonitorCommand = "canary purge monitor"
 	recomputePurgeBookTotals(&book)
 	if len(book.Legs) == 0 {
 		book.Warnings = append(book.Warnings, "no open positions were available to purge")
@@ -567,9 +567,9 @@ func newActivePurgeBook(now time.Time) purgeBook {
 		UpdatedAt:        now,
 		Source:           "active.purge_book",
 		NotExecution:     "Saved restore review only; no broker order has been placed, modified, cancelled, or transmitted.",
-		RestoreCommand:   "ibkr purge restore SYMBOL",
-		MonitorCommand:   "ibkr purge monitor",
-		ExecutionCommand: "ibkr purge --all",
+		RestoreCommand:   "canary purge restore SYMBOL",
+		MonitorCommand:   "canary purge monitor",
+		ExecutionCommand: "canary purge --all",
 	}
 	return book
 }
@@ -606,9 +606,9 @@ func prepareActivePurgeBook(book *purgeBook, now time.Time) {
 	}
 	book.PositionCount = len(book.Legs)
 	book.NotExecution = "Saved restore review only; no broker order has been placed, modified, cancelled, or transmitted."
-	book.RestoreCommand = "ibkr purge restore SYMBOL"
-	book.MonitorCommand = "ibkr purge monitor"
-	book.ExecutionCommand = "ibkr purge --all"
+	book.RestoreCommand = "canary purge restore SYMBOL"
+	book.MonitorCommand = "canary purge monitor"
+	book.ExecutionCommand = "canary purge --all"
 	sortPurgeBookLegs(book.Legs)
 	recomputePurgeBookTotals(book)
 }
@@ -1188,7 +1188,7 @@ func renderPurgeStatusText(env *Env, out io.Writer, res *rpc.PurgeStatusResult) 
 		fmt.Fprintln(out, "No purge status")
 		return
 	}
-	fmt.Fprintf(out, "IBKR Purge Status  %s\n", env.statusBadge(statusConcern{Text: purgeStatusBadgeText(res.Status), Level: purgeStatusConcernLevel(res.Status)}))
+	fmt.Fprintf(out, "Canary Purge Status  %s\n", env.statusBadge(statusConcern{Text: purgeStatusBadgeText(res.Status), Level: purgeStatusConcernLevel(res.Status)}))
 	if res.PurgeID != "" {
 		statusRow(env, out, "Purge", res.PurgeID)
 	} else {
@@ -1327,7 +1327,7 @@ func renderPurgeBookText(env *Env, out io.Writer, book *purgeBook) {
 		fmt.Fprintln(out, "No purge book")
 		return
 	}
-	fmt.Fprintf(out, "IBKR Purge Review  %s\n", env.statusBadge(statusConcern{Text: "REVIEW", Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Purge Review  %s\n", env.statusBadge(statusConcern{Text: "REVIEW", Level: statusConcernNotice}))
 	statusRow(env, out, "Review", book.PurgeID)
 	if book.AccountID != "" {
 		statusRow(env, out, "Account", book.AccountID)
@@ -1413,7 +1413,7 @@ func renderPurgeRestoreResultText(env *Env, out io.Writer, res *rpc.PurgeRestore
 	default:
 		badge.Level = statusConcernBad
 	}
-	fmt.Fprintf(out, "IBKR Purge Restore  %s\n", env.statusBadge(badge))
+	fmt.Fprintf(out, "Canary Purge Restore  %s\n", env.statusBadge(badge))
 	statusRow(env, out, "Purge", nonEmpty(res.PurgeID, "active"))
 	if res.Account != "" {
 		statusRow(env, out, "Account", res.Account)
@@ -1530,7 +1530,7 @@ func renderPurgeExecuteResultText(env *Env, out io.Writer, result *rpc.PurgeExec
 	default:
 		badge.Level = statusConcernBad
 	}
-	fmt.Fprintf(out, "IBKR Purge  %s\n", env.statusBadge(badge))
+	fmt.Fprintf(out, "Canary Purge  %s\n", env.statusBadge(badge))
 	statusRow(env, out, "Purge", result.PurgeID)
 	if result.Account != "" {
 		statusRow(env, out, "Account", result.Account)
@@ -1827,5 +1827,5 @@ func purgeProgress(env *Env, jsonOut bool, format string, args ...any) {
 	if jsonOut || env == nil || env.Stderr == nil {
 		return
 	}
-	fmt.Fprintf(env.Stderr, "ibkr: "+format+"...\n", args...)
+	fmt.Fprintf(env.Stderr, "canary: "+format+"...\n", args...)
 }

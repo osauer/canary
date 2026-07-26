@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // gammaReadyFixture returns a realistic Ready-state envelope: combined
@@ -170,7 +170,7 @@ func TestRenderGammaSkippedBannerExplainsContextCanceledWithSessionContext(t *te
 		"fetch was canceled before usable data landed",
 		"outside regular U.S. option hours",
 		"not a confirmed root cause",
-		"ibkr gamma --only=spy",
+		"canary gamma --only=spy",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("banner missing %q:\n%s", want, out)
@@ -205,7 +205,7 @@ func TestRenderGammaSkippedBannerFramesEntitlementAsNotAfterHours(t *testing.T) 
 		"missing CBOE OPRA entitlement",
 		"not an after-hours",
 		"condition",
-		"ibkr gamma --only=spy",
+		"canary gamma --only=spy",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("entitlement banner missing %q:\n%s", want, out)
@@ -666,7 +666,7 @@ func TestRenderGamma_DefaultShowsCanonicalSPXTopStrikes(t *testing.T) {
 	out := stdout.String()
 	for _, want := range []string{
 		"Top SPX strikes by |GEX| (canonical concentration):",
-		"SPY context strikes are available with --explain or `ibkr gamma --only=spy`.",
+		"SPY context strikes are available with --explain or `canary gamma --only=spy`.",
 		"DTE",
 		"SPOT",
 		"2026-05-29   6   5400  -0.6%   C",
@@ -843,7 +843,7 @@ func TestRenderGamma_ColdRendersDaemonReason(t *testing.T) {
 	res := &rpc.GammaZeroSPXResult{
 		Status:     rpc.GammaZeroStatusCold,
 		ColdReason: "persisted gamma cache for spy+spx was rejected: per_index[SPX]: zero-gamma invalid result",
-		ColdAction: "Run `ibkr gamma --force` for a diagnostic off-hours recompute.",
+		ColdAction: "Run `canary gamma --force` for a diagnostic off-hours recompute.",
 	}
 	if code := renderGammaText(env, res, false); code != 0 {
 		t.Fatalf("cold should exit 0, got %d", code)

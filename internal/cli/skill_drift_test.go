@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	skillPath         = "../../skills/ibkr/SKILL.md"
-	skillSettingsPath = "../../settings/ibkr.settings.json"
+	skillPath         = "../../skills/canary/SKILL.md"
+	skillSettingsPath = "../../settings/canary.settings.json"
 )
 
 // skillExcluded lists CLI commands deliberately absent from the agent
 // skill. Every other Commands() entry must appear in SKILL.md as
-// `ibkr <name>` (body or allowed-tools); adding a CLI command without
+// `canary <name>` (body or allowed-tools); adding a CLI command without
 // updating the skill fails `make check` via parity-check.
 var skillExcluded = map[string]string{
 	"daemon":   "lifecycle plumbing, not an agent data command",
@@ -31,12 +31,12 @@ var skillExcluded = map[string]string{
 // allowlisted in the skill: broker/state writes stay outside it so the
 // PreToolUse hook and the daemon origin gate remain the deciding layers.
 var forbiddenAllowPrefixes = []string{
-	"ibkr order place", "ibkr order modify", "ibkr order cancel",
-	"ibkr proposals preview", "ibkr proposals submit", "ibkr proposals ignore",
-	"ibkr opportunities preview", "ibkr opportunities exercise", "ibkr opportunities ignore",
-	"ibkr settings set",
-	"ibkr watch --add", "ibkr watch --remove", "ibkr watch --clear",
-	"ibkr purge",
+	"canary order place", "canary order modify", "canary order cancel",
+	"canary proposals preview", "canary proposals submit", "canary proposals ignore",
+	"canary opportunities preview", "canary opportunities exercise", "canary opportunities ignore",
+	"canary settings set",
+	"canary watch --add", "canary watch --remove", "canary watch --clear",
+	"canary purge",
 }
 
 func readSkill(t *testing.T) string {
@@ -57,7 +57,7 @@ func TestSkillMentionsEveryCommand(t *testing.T) {
 		if _, excluded := skillExcluded[c.Name]; excluded {
 			continue
 		}
-		if !strings.Contains(skill, "ibkr "+c.Name) {
+		if !strings.Contains(skill, "canary "+c.Name) {
 			t.Errorf("CLI command %q is not mentioned in %s; document it there or add it to skillExcluded with a reason", c.Name, skillPath)
 		}
 	}
@@ -125,9 +125,9 @@ func TestSkillAllowlistMirrorsSettingsAndCLI(t *testing.T) {
 	}
 	for p := range skillAllows {
 		inner := strings.TrimSuffix(strings.TrimPrefix(p, "Bash("), ")")
-		rest, ok := strings.CutPrefix(inner, "ibkr ")
+		rest, ok := strings.CutPrefix(inner, "canary ")
 		if !ok {
-			t.Errorf("allowed-tools pattern %q is not an ibkr invocation", p)
+			t.Errorf("allowed-tools pattern %q is not an canary invocation", p)
 			continue
 		}
 		first := strings.TrimSuffix(strings.Fields(rest)[0], "*")
@@ -143,8 +143,8 @@ func TestSkillAllowlistMirrorsSettingsAndCLI(t *testing.T) {
 	for _, p := range settings.Permissions.Deny {
 		inner := strings.TrimSuffix(strings.TrimPrefix(p, "Bash("), ")")
 		for _, brokerWrite := range []string{
-			"ibkr order place", "ibkr order modify", "ibkr order cancel",
-			"ibkr proposals submit", "ibkr opportunities exercise",
+			"canary order place", "canary order modify", "canary order cancel",
+			"canary proposals submit", "canary opportunities exercise",
 		} {
 			if strings.HasPrefix(inner, brokerWrite) {
 				t.Errorf("settings deny pattern %q hard-denies broker write path %q; hook/daemon gates should decide", p, brokerWrite)
@@ -163,11 +163,11 @@ func TestAgentPolicyDocsDoNotClaimLiveAgentHardBlock(t *testing.T) {
 		"../../internal-docs/design/trading-paper-smoke.md",
 		"../../.agents/docs/agent-session-hygiene.md",
 		"../../.agents/docs/daemon-cli-trading-contract.md",
-		"../../skills/ibkr/SKILL.md",
-		"../../skills/ibkr/schemas.md",
-		"../../.agents/skills/ibkr-harness/SKILL.md",
+		"../../skills/canary/SKILL.md",
+		"../../skills/canary/schemas.md",
+		"../../.agents/skills/canary-harness/SKILL.md",
 		"../../.claude-plugin/plugin.json",
-		"../../.codex/rules/ibkr.rules",
+		"../../.codex/rules/canary.rules",
 	}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)

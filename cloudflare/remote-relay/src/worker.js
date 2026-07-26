@@ -1,4 +1,7 @@
 const ROUTE_COOKIE = "ibkr_remote_route";
+// These route/storage identifiers and the deployed Worker/DO names are
+// continuity pins. Renaming them is a separate state-transfer deployment,
+// not part of Canary's source-level product rename.
 const CONNECTOR_TOKEN_KEY = "connector_token";
 const EXPIRES_AT_KEY = "expires_at";
 const ROUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -81,7 +84,7 @@ function recoveryPage() {
     location.replace("/?remote=" + encodeURIComponent(route));
   } else {
     document.getElementById("msg").textContent =
-      "This phone has no saved remote route. Scan a pairing QR code from \`ibkr app pair\` on the Mac.";
+      "This phone has no saved remote route. Scan a pairing QR code from \`canary app pair\` on the Mac.";
   }
 </script>
 </body>`);
@@ -97,7 +100,7 @@ function retryPage(status) {
 <title>Canary · waiting for Mac</title>
 <body style="font-family:-apple-system,sans-serif;padding:2rem;text-align:center">
 <p>${why}</p>
-<p style="color:#888">Retrying automatically. If this never recovers, restart \`ibkr app --remote\` on the Mac.</p>
+<p style="color:#888">Retrying automatically. If this never recovers, restart \`canary app --remote\` on the Mac.</p>
 <script>setTimeout(() => location.reload(), 5000);</script>
 </body>`, status);
 }

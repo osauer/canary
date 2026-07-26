@@ -19,5 +19,5 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Check osauer.dev/ibkr links
+      - name: Check osauer.dev/canary links
         run: node scripts/check-pages-links.mjs

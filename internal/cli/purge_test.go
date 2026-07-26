@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestBuildPurgeBookFromPositionsCreatesClosingAndRestoreSides(t *testing.T) {
@@ -148,7 +148,7 @@ func TestRenderPurgeBookTextUsesReviewLanguage(t *testing.T) {
 			t.Fatalf("render output contains stale execution language %q:\n%s", bad, got)
 		}
 	}
-	if !strings.Contains(got, "IBKR Purge Review") || !strings.Contains(got, "REVIEW") {
+	if !strings.Contains(got, "Canary Purge Review") || !strings.Contains(got, "REVIEW") {
 		t.Fatalf("render output missing review language:\n%s", got)
 	}
 }

@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runOrder(ctx context.Context, env *Env, args []string) int {
 	if len(args) == 0 {
-		return fail(env, "order: subcommand required (try `ibkr order preview ...`)")
+		return fail(env, "order: subcommand required (try `canary order preview ...`)")
 	}
 	subIdx := orderSubcommandIndex(args)
 	if subIdx < 0 {
@@ -33,7 +33,7 @@ func runOrder(ctx context.Context, env *Env, args []string) int {
 	case "cancel":
 		return runOrderCancel(ctx, env, args)
 	default:
-		return fail(env, "order: unknown subcommand %q (try `ibkr order preview` or `ibkr order status`)", sub)
+		return fail(env, "order: unknown subcommand %q (try `canary order preview` or `canary order status`)", sub)
 	}
 }
 
@@ -74,7 +74,7 @@ func runOrderPreview(ctx context.Context, env *Env, args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) != 3 && len(rest) != 6 {
-		return fail(env, "order preview: usage is `ibkr order preview buy|sell SYMBOL QTY` or `ibkr order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY`")
+		return fail(env, "order preview: usage is `canary order preview buy|sell SYMBOL QTY` or `canary order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY`")
 	}
 	qtyArg := rest[2]
 	if len(rest) == 6 {
@@ -261,7 +261,7 @@ func runOrderModify(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 1 {
-		return fail(env, "order modify: usage is `ibkr order modify <order-ref|order-id|perm-id> --preview-token TOKEN`")
+		return fail(env, "order modify: usage is `canary order modify <order-ref|order-id|perm-id> --preview-token TOKEN`")
 	}
 	if strings.TrimSpace(*token) == "" {
 		return fail(env, "order modify: --preview-token is required")
@@ -284,7 +284,7 @@ func runOrderCancel(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() != 1 {
-		return fail(env, "order cancel: usage is `ibkr order cancel <order-ref|order-id|perm-id>`")
+		return fail(env, "order cancel: usage is `canary order cancel <order-ref|order-id|perm-id>`")
 	}
 	var res rpc.OrderCancelResult
 	if err := env.Conn.Call(ctx, rpc.MethodOrderCancel, rpc.OrderCancelParams{ID: strings.TrimSpace(fs.Arg(0)), Origin: env.Origin}, &res); err != nil {
@@ -300,7 +300,7 @@ func runOrderCancel(ctx context.Context, env *Env, args []string) int {
 func renderOrderPreviewText(env *Env, res *rpc.OrderPreviewResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Order Preview  %s\n", env.statusBadge(statusConcern{Text: "TOKEN", Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Order Preview  %s\n", env.statusBadge(statusConcern{Text: "TOKEN", Level: statusConcernNotice}))
 	statusRow(env, out, "Mode", res.Mode)
 	statusRow(env, out, "Account", res.Account)
 	statusRow(env, out, "Endpoint", fmt.Sprintf("%s client %d", res.Endpoint, res.ClientID))
@@ -379,7 +379,7 @@ func formatOrderTrail(trail *rpc.OrderTrailSpec) string {
 func renderOrderPlaceText(env *Env, res *rpc.OrderPlaceResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Order Place  %s\n", env.statusBadge(statusConcern{Text: "SENT", Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Order Place  %s\n", env.statusBadge(statusConcern{Text: "SENT", Level: statusConcernNotice}))
 	statusRow(env, out, "Mode", res.Mode)
 	statusRow(env, out, "Account", res.Account)
 	statusRow(env, out, "Order", fmt.Sprintf("%s broker_id=%d", res.OrderRef, res.ReservedOrderID))
@@ -394,7 +394,7 @@ func renderOrderPlaceText(env *Env, res *rpc.OrderPlaceResult) {
 func renderOrderModifyText(env *Env, res *rpc.OrderModifyResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Order Modify  %s\n", env.statusBadge(statusConcern{Text: "SENT", Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Order Modify  %s\n", env.statusBadge(statusConcern{Text: "SENT", Level: statusConcernNotice}))
 	statusRow(env, out, "Order", fmt.Sprintf("%s broker_id=%d", res.OrderRef, res.ReservedOrderID))
 	statusRow(env, out, "Draft", formatOrderDraftSummary(res.Draft))
 	statusRow(env, out, "State", nonEmpty(res.LifecycleStatus, res.SendState))
@@ -407,7 +407,7 @@ func renderOrderModifyText(env *Env, res *rpc.OrderModifyResult) {
 func renderOrderCancelText(env *Env, res *rpc.OrderCancelResult) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Order Cancel  %s\n", env.statusBadge(statusConcern{Text: "SENT", Level: statusConcernNotice}))
+	fmt.Fprintf(out, "Canary Order Cancel  %s\n", env.statusBadge(statusConcern{Text: "SENT", Level: statusConcernNotice}))
 	statusRow(env, out, "Order", formatOrderViewTitle(res.Order))
 	statusRow(env, out, "State", nonEmpty(res.LifecycleStatus, res.SendState))
 	if res.Message != "" {

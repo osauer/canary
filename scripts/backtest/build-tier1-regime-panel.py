@@ -9,7 +9,7 @@ Tier 1 is intentionally narrow:
   point-in-time source is provided later
 
 The generated rows are point-in-time inputs for:
-    ibkr backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl
+    canary backtest build-regime --input build/backtest/regime_pit_panel_tier1.jsonl
 """
 
 from __future__ import annotations

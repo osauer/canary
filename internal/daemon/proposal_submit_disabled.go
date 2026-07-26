@@ -5,7 +5,7 @@ package daemon
 import (
 	"context"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func (s *Server) proposalPlaceOrder(context.Context, rpc.OrderPlaceParams) (*rpc.OrderPlaceResult, error) {

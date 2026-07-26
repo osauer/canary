@@ -3,10 +3,10 @@
 # This file is inert while named config.toml.trading. To activate it, move it to
 # ~/.config/ibkr/config.toml, verify every pinned value, then run:
 #
-#   ibkr restart
-#   ibkr trading status
+#   canary restart
+#   canary trading status
 #
-# Stable ibkr releases are read-only. Trading builds are experimental,
+# Stable Canary releases are read-only. Trading builds are experimental,
 # provided as-is, and intended for explicit operator testing.
 
 [gateway]

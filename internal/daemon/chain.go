@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // defaultExpiryIVCap is how many expiries get IV by default — the front
@@ -386,7 +386,7 @@ type chainContractTimeoutError struct {
 }
 
 func (e *chainContractTimeoutError) Error() string {
-	return fmt.Sprintf("option chain unavailable for %s: gateway did not deliver security definitions in time. This is usually transient — try again in a moment, or run `ibkr status` to verify the gateway connection.", e.symbol)
+	return fmt.Sprintf("option chain unavailable for %s: gateway did not deliver security definitions in time. This is usually transient — try again in a moment, or run `canary status` to verify the gateway connection.", e.symbol)
 }
 
 func (e *chainContractTimeoutError) Unwrap() error { return e.cause }

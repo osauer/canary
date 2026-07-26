@@ -7,8 +7,8 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // openCoreStore runs only after the socket-specific instance lock has been

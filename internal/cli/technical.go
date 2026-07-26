@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runTechnical(ctx context.Context, env *Env, args []string) int {
@@ -22,7 +22,7 @@ func runTechnical(ctx context.Context, env *Env, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail(env, "technical: usage: ibkr technical SYM[,SYM...] [--benchmark SPY] [--market us|de]")
+		return fail(env, "technical: usage: canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de]")
 	}
 	params := rpc.TechnicalParams{
 		Symbols:      splitSymbols(rest[0]),

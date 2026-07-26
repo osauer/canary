@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const gammaNotAdvice = "Market-structure context only; not a trade recommendation."

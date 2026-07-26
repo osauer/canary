@@ -46,7 +46,7 @@ async function fetchBootstrap() {
       // Definitive rejection: the device grant or local credential is
       // gone. Only here is a fresh QR pairing the right advice.
       state.pairingRequired = true;
-      showPairing("Scan a fresh QR code from `ibkr app pair` on the Mac.");
+      showPairing("Scan a fresh QR code from `canary app pair` on the Mac.");
       return null;
     }
     if (login !== "ok") {

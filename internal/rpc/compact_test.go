@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 func TestOptionDTECalendarDays(t *testing.T) {
@@ -188,7 +188,7 @@ func TestCompactStressAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
 		},
 		Portfolio:    StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
 		Market:       StressMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
-		NotExecution: "Read-only recommendation; no orders are placed by ibkr.",
+		NotExecution: "Read-only recommendation; no orders are placed by Canary.",
 	}
 	positions := PositionsResult{AsOf: now, Portfolio: &PositionsPortfolio{GreeksCoverage: 0, GreeksTotal: 0}}
 
@@ -244,7 +244,7 @@ func TestCompactStressAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 		Summary:            "Freeze new risk and stage reductions.",
 		Portfolio:          StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
 		Market:             StressMarketSummary{RegimeVerdict: "Elevated stress watch", RankedClusters: 5, YellowClusters: 3},
-		NotExecution:       "Read-only stress snapshot; no orders are placed by ibkr.",
+		NotExecution:       "Read-only stress snapshot; no orders are placed by Canary.",
 	}
 	for i := range 12 {
 		full.Signals = append(full.Signals, risk.Signal{

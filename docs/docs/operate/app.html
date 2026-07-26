@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>The paired app | ibkr</title>
-  <meta name="description" content="How the ibkr app process serves the paired PWA, owns pairing, streams events, and sends opt-in push notifications.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/app.html">
+  <title>The paired app | Canary</title>
+  <meta name="description" content="How the canary app process serves the paired PWA, owns pairing, streams events, and sends opt-in push notifications.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/operate/app.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the ibkr app process serves the paired PWA, owns pairing, streams events, and sends opt-in push notifications.","headline":"The paired app","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/app.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the canary app process serves the paired PWA, owns pairing, streams events, and sends opt-in push notifications.","headline":"The paired app","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/operate/app.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,14 +103,14 @@
     <main class="doc">
 <h1 id="the-paired-app">The paired app</h1>
 <p>Updated: 2026-07-25 20:23 CEST</p>
-<p>Run <code>ibkr app</code> on the Mac to get ibkr on your phone. That single process serves
+<p>Run <code>canary app</code> on the Mac to get Canary on your phone. That single process serves
 the progressive web app, handles pairing, streams live updates to paired devices
 over <code>/api/events</code>, and sends opt-in push notifications.</p>
 <h2 id="pair-a-phone">Pair a phone</h2>
-<pre><code class="language-sh">ibkr app
+<pre><code class="language-sh">canary app
 </code></pre>
 <p>In another shell:</p>
-<pre><code class="language-sh">ibkr app pair
+<pre><code class="language-sh">canary app pair
 </code></pre>
 <p>Scan the QR code or open the printed pairing URL. The URL contains a short-lived
 pairing id plus nonce, not a durable secret. After the first successful pair,
@@ -122,15 +122,15 @@ Safari's cookies but not Safari's <code>localStorage</code> or <code>IndexedDB</
 re-login can never run there.</p>
 <p>The default app bind is LAN-capable (<code>0.0.0.0:8765</code>), so the same app process
 can serve a local browser preview at <code>http://127.0.0.1:8765</code> and a phone at the
-Mac's LAN URL. Use plain <code>ibkr app pair</code> for the phone, so the running app
+Mac's LAN URL. Use plain <code>canary app pair</code> for the phone, so the running app
 host's configured public URL is used. For a local preview, override only the
 pairing URL:</p>
-<pre><code class="language-sh">ibkr app pair --public-url http://127.0.0.1:8765 --json
+<pre><code class="language-sh">canary app pair --public-url http://127.0.0.1:8765 --json
 </code></pre>
 <p>Do not run the shared app host with <code>--addr 127.0.0.1:8765</code> when a phone needs
 to pair too.</p>
 <h2 id="staying-paired">Staying paired</h2>
-<p>Restarting <code>ibkr app</code> clears only the in-memory session cookie. The paired
+<p>Restarting <code>canary app</code> clears only the in-memory session cookie. The paired
 device mints a fresh session from its device grant silently, retries transient
 failures at page load, and shows the &quot;scan a fresh QR code&quot; instruction only
 when the app definitively rejected the device. A stale or already-consumed
@@ -142,18 +142,18 @@ grant, and the app mints fresh sessions from it. Key/secret logins re-provision
 the cookie, and grants keep a capped list of valid cookie hashes so Safari and
 the installed app (twin copies of the same cookie jar) never invalidate each
 other.</p>
-<p>Every auth outcome is logged as <code>ibkr app auth:</code> lines in
+<p>Every auth outcome is logged as <code>canary app auth:</code> lines in
 <code>~/Library/Logs/ibkr/app.err.log</code>.</p>
 <h2 id="remote-access">Remote access</h2>
 <p>Remote mode keeps the normal app host local, then opens an outbound connector to
 <code>https://remote.osauer.dev</code>:</p>
-<pre><code class="language-sh">ibkr app --remote
+<pre><code class="language-sh">canary app --remote
 </code></pre>
 <p>In another shell:</p>
-<pre><code class="language-sh">ibkr app pair
+<pre><code class="language-sh">canary app pair
 </code></pre>
 <p>The printed pairing URL uses the relay origin and includes a <code>remote=</code> route id.</p>
-<p>Remote mode needs the Mac, TWS/Gateway, <code>ibkr app --remote</code>, and the Cloudflare
+<p>Remote mode needs the Mac, TWS/Gateway, <code>canary app --remote</code>, and the Cloudflare
 Worker route to stay up. The app exposes relay connection state in
 <code>/api/bootstrap</code> under <code>relay</code>.</p>
 <h3 id="what-survives-a-restart">What survives a restart</h3>
@@ -162,7 +162,7 @@ restarts, new builds, and relay-side route expiry. A token-matched resume
 revives the route at the relay, so the route id, and with it every paired phone,
 survives arbitrary Mac downtime as long as the app state directory keeps
 <code>state.json</code>. Registration happens inside the connector loop with backoff, so a
-relay or DNS outage at startup degrades the relay instead of killing <code>ibkr app --remote</code>.</p>
+relay or DNS outage at startup degrades the relay instead of killing <code>canary app --remote</code>.</p>
 <p>A new route id is minted only when the relay definitively rejects the held
 credentials, and the app logs that paired devices must re-pair.</p>
 <h3 id="what-the-phone-sees-when-something-is-wrong">What the phone sees when something is wrong</h3>
@@ -173,57 +173,57 @@ cookie gets a recovery page that rebuilds it from the mirror. A navigation while
 the Mac connector is down gets an auto-retrying wait page instead of raw JSON.</p>
 <h3 id="running-remote-mode-under-launchd">Running remote mode under launchd</h3>
 <p>For an unsupervised app host, an app-only restart can switch remote mode on:</p>
-<pre><code class="language-sh">ibkr restart --app --remote
+<pre><code class="language-sh">canary restart --app --remote
 </code></pre>
 <p>Do not pass that override to a loaded LaunchAgent: supervised restart rejects
 runtime flag overrides because the loaded plist is authoritative. Install a
 new supervised host in remote mode with:</p>
-<pre><code class="language-sh">ibkr setup app --remote
+<pre><code class="language-sh">canary setup app --remote
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.osauer.ibkr-app.plist
 </code></pre>
-<p>To change an already-loaded LaunchAgent, run <code>ibkr setup app --remote</code>, unload
+<p>To change an already-loaded LaunchAgent, run <code>canary setup app --remote</code>, unload
 the existing <code>gui/$(id -u)/com.osauer.ibkr-app</code> job, and bootstrap the rewritten
-plist again. Ordinary later restarts use <code>ibkr restart --app</code> with no <code>--remote</code>
+plist again. Ordinary later restarts use <code>canary restart --app</code> with no <code>--remote</code>
 override; launchd preserves the plist configuration.</p>
 <h2 id="restart">Restart</h2>
-<pre><code class="language-sh">ibkr restart
+<pre><code class="language-sh">canary restart
 </code></pre>
 <p>On the default daemon socket, this restarts a running app first and only then
-restarts the shared daemon. If no app is running, plain <code>ibkr restart</code> leaves
+restarts the shared daemon. If no app is running, plain <code>canary restart</code> leaves
 the app stopped.</p>
 <p>The two stages are ordered but not atomic. An app-stage failure leaves the
 daemon untouched; a daemon-stage failure does not roll the already-restarted app
-back. Fix the reported stage and rerun <code>ibkr restart</code>.
+back. Fix the reported stage and rerun <code>canary restart</code>.
 <a href="../start/updating.html#restarting-local-processes-ibkr-restart">Updating</a> has the
 flags, JSON output, and socket-scope rules.</p>
 <p>When the <code>com.osauer.ibkr-app</code> LaunchAgent is loaded, the app is restarted
 through <code>launchctl kickstart -k</code>. Any unsupervised (orphaned) app process is
 stopped first so launchd can own the app again, and app flag overrides are
-rejected with a pointer to rewrite and reload <code>ibkr setup app</code> because the plist
+rejected with a pointer to rewrite and reload <code>canary setup app</code> because the plist
 arguments win. The loaded job's executable must resolve to the current installed
-<code>ibkr</code> binary. launchd may throttle the respawn for about ten seconds; the
+<code>canary</code> binary. launchd may throttle the respawn for about ten seconds; the
 command waits for a stable supervised PID.</p>
 <p>Without a loaded LaunchAgent, the unsupervised behavior applies: SIGTERM the
 running app, preserve its flags such as <code>--addr</code>, <code>--public-url</code>, <code>--remote</code>,
 and <code>--state-dir</code>, and start a detached replacement.</p>
-<p>Use <code>ibkr restart --app</code> for app-only restart/start workflows, including cases
-where no app is running yet. <code>ibkr app restart</code> is an alias for the same thing.</p>
+<p>Use <code>canary restart --app</code> for app-only restart/start workflows, including cases
+where no app is running yet. <code>canary app restart</code> is an alias for the same thing.</p>
 <p>To switch an old local-only app host back to the shared local-preview plus
 phone mode:</p>
-<pre><code class="language-sh">ibkr restart --app --addr 0.0.0.0:8765
+<pre><code class="language-sh">canary restart --app --addr 0.0.0.0:8765
 </code></pre>
 <p>When <code>--addr</code> is overridden without <code>--public-url</code>, restart clears any preserved
 app <code>--public-url</code> flag so the app can derive the Mac's LAN URL again.</p>
 <h2 id="developing-the-app">Developing the app</h2>
-<p>Building or debugging the app itself is contributor work. <a href="https://github.com/osauer/ibkr/blob/main/internal-docs/guides/canary-spa-dev.md">Canary SPA
+<p>Building or debugging the app itself is contributor work. <a href="https://github.com/osauer/canary/blob/main/internal-docs/guides/canary-spa-dev.md">Canary SPA
 Development</a> has the
 development and debugging playbook, including P/L semantics and Browser plugin
 caveats, and <code>make help</code> lists the app refresh and browser-smoke targets.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

@@ -4,28 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Storage | ibkr</title>
-  <meta name="description" content="How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/storage.html">
+  <title>Storage | Canary</title>
+  <meta name="description" content="How the Canary daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/storage.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 <meta property="og:type" content="article">
-  <meta property="og:title" content="Storage | ibkr">
-  <meta property="og:description" content="How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.">
-  <meta property="og:image" content="https://osauer.dev/ibkr/diagrams/storage-overview.png">
+  <meta property="og:title" content="Storage | Canary">
+  <meta property="og:description" content="How the Canary daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.">
+  <meta property="og:image" content="https://osauer.dev/canary/diagrams/storage-overview.png">
   <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.","headline":"Storage","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/storage.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How the Canary daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.","headline":"Storage","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/storage.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-architecture">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -106,11 +106,11 @@
     </details>
     <main class="doc">
 <h1 id="storage">Storage</h1>
-<p>When <code>ibkr</code> restarts, it must pick up the same account context with the same
+<p>When <code>canary</code> restarts, it must pick up the same account context with the same
 safety history: which state was current, which evidence supported a decision,
 which preview tokens were consumed, and how far broker order IDs advanced.</p>
 <p>That job belongs to the daemon's storage layer, a local SQLite file named
-<code>daemon.db</code> reached through a pure-Go driver inside the <code>ibkr</code> binary. SQLite
+<code>daemon.db</code> reached through a pure-Go driver inside the <code>canary</code> binary. SQLite
 supplies the storage engine. The surrounding code defines what may be stored,
 who may write it, and how it becomes safe to use.</p>
 <blockquote>
@@ -133,7 +133,7 @@ their own sources of record.</p>
 <h2 id="what-the-daemon-owns"><span class="secno" aria-hidden="true">01</span>What the daemon owns</h2>
 <p><a href="../../diagrams/storage-overview.svg"><img src="../../diagrams/storage-overview.svg" alt="What the daemon storage layer owns and what remains outside it"></a></p>
 <p><a href="../../diagrams/storage-overview.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
 <a href="../../diagrams/ICON-LICENSE.txt">Tabler Icons license</a></p>
 <p>Inputs with their own owners enter from the left, and CLI, app, and MCP
 surfaces receive structured results on the right. The boundary keeps the
@@ -258,8 +258,8 @@ yet: the main Regime, rules, Stress, and capital-history readers still load
 matching <code>event_log</code> JSON and filter it in Go.</p>
 <p><a href="../../diagrams/sqlite-data-model.svg"><img src="../../diagrams/sqlite-data-model.svg" alt="Physical entity relationships in daemon.db schema version 3"></a></p>
 <p><a href="../../diagrams/sqlite-data-model.png">PNG fallback</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
-<a href="https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go">Canonical DDL</a></p>
+<a href="https://github.com/osauer/canary/blob/main/scripts/render-architecture.mjs">SVG source generator</a> ·
+<a href="https://github.com/osauer/canary/blob/main/internal/daemon/corestore/schema.go">Canonical DDL</a></p>
 <p>The diagram shows schema version 3. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
 such as <code>scope_key</code> creates a namespace only when no foreign key joins it.</p>
@@ -367,7 +367,7 @@ dashboards, and alternate files cannot replace this durable safety evidence.</p>
 </tr>
 <tr>
 <td>Orders</td>
-<td><code>ibkr orders open</code>, <code>ibkr orders history</code>, and <code>ibkr order status</code></td>
+<td><code>canary orders open</code>, <code>canary orders history</code>, and <code>canary order status</code></td>
 <td>Local lifecycle records explain intent and evidence; the broker Activity Statement remains execution truth.</td>
 </tr>
 <tr>
@@ -436,7 +436,7 @@ mutable JSON documents carry independent, kind-specific payload versions and
 typed migrations. Append-only events are not rewritten to fit a new shape; a new
 event or payload version retains a compatible reader or feeds a new projection.</p>
 <p>The full crash-boundary protocol lives in the
-<a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Migration 1
+<a href="https://github.com/osauer/canary/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite implementation contract</a>. Migration 1
 creates the schema. Migrations 2 and 3 rename the portfolio-stress sensor's
 projection table, its <code>event_log</code> label, and the observations imported from the
 pre-rename decision journal; they are the first transitions the general
@@ -557,9 +557,9 @@ or a change stream from each authoritative daemon.</p>
 <li><a href="architecture.html">Architecture</a>: process, broker, RPC, and state ownership.</li>
 <li><a href="../understand/sensors.html">Sensors</a>: measurement authority, source cadence, last-good
 behavior, and safe operator checks.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite Implementation Contract</a>: cutover,
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/daemon-sqlite-authority.md">SQLite Implementation Contract</a>: cutover,
 durability, upgrade, and recovery mechanics.</li>
-<li><a href="https://github.com/osauer/ibkr/blob/main/internal-docs/design/platform-settings.md">Platform Settings</a>: the typed daemon document for
+<li><a href="https://github.com/osauer/canary/blob/main/internal-docs/design/platform-settings.md">Platform Settings</a>: the typed daemon document for
 live preferences.</li>
 <li><a href="../understand/policy.html">Trading Policy</a>: human-authored limits, and the applied
 state and events the daemon retains.</li>
@@ -570,8 +570,8 @@ indexes, constraints, triggers, and migration ledger in <code>schema.go</code>.<
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

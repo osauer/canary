@@ -12,12 +12,13 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/osauer/ibkr/v2/internal/update"
+	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/update"
 )
 
-// updateOptions is the parsed flag state for `ibkr update`. Carries
+// updateOptions is the parsed flag state for `canary update`. Carries
 // the four orthogonal axes plus the installed-version string the
-// caller injects (cmd/ibkr/main.go stamps it from `var version`).
+// caller injects (cmd/canary/main.go stamps it from `var version`).
 type updateOptions struct {
 	check     bool
 	force     bool
@@ -26,7 +27,7 @@ type updateOptions struct {
 
 	// installedVersion is the running binary's version string (e.g.
 	// "v0.32.0" or "dev"). Injected via RunUpdate so this package
-	// stays buildable without a circular dependency on cmd/ibkr.
+	// stays buildable without a circular dependency on cmd/canary.
 	installedVersion string
 
 	// in/out/err are the I/O streams. Stdin is read for the
@@ -40,14 +41,14 @@ type updateOptions struct {
 	isTTY bool
 }
 
-// RunUpdate is the entrypoint cmd/ibkr/main.go dispatches to. It does
+// RunUpdate is the entrypoint cmd/canary/main.go dispatches to. It does
 // not match the CommandFunc signature because update has no Env (no
 // daemon connection) — `update` is registered in cli.commands with
 // Fn=nil and the binary's main.go calls this function directly, the
 // same pattern `setup` uses.
 //
-// args are the raw CLI args after `ibkr update`. version is the
-// installed binary's version string (cmd/ibkr stamps it at build).
+// args are the raw CLI args after `canary update`. version is the
+// installed binary's version string (cmd/canary stamps it at build).
 // stdin / stdout / stderr are the process I/O streams.
 //
 // Returns the process exit code.
@@ -79,7 +80,7 @@ func parseUpdateFlags(args []string, opts *updateOptions, stdout, stderr io.Writ
 		return parseExit(err), false
 	}
 	if opts.restart && opts.noRestart {
-		fmt.Fprintln(stderr, "ibkr update: --restart and --no-restart are mutually exclusive")
+		fmt.Fprintf(stderr, "%s update: --restart and --no-restart are mutually exclusive\n", productidentity.Executable)
 		return 2, false
 	}
 	return 0, true
@@ -99,13 +100,13 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 	// be a footgun for systemd timers expecting auto-restart. The
 	// `--check` flag is a query, not an install, so it is exempt.
 	if !opts.check && !opts.isTTY && !opts.restart && !opts.noRestart {
-		fmt.Fprintln(opts.err, "ibkr update: ambiguous in non-interactive mode — pass --restart or --no-restart")
+		fmt.Fprintf(opts.err, "%s update: ambiguous in non-interactive mode — pass --restart or --no-restart\n", productidentity.Executable)
 		return 2
 	}
 
 	rel, err := fetch(ctx)
 	if err != nil {
-		fmt.Fprintf(opts.err, "ibkr update: could not reach GitHub releases API: %v\n", err)
+		fmt.Fprintf(opts.err, "%s update: could not reach GitHub releases API: %v\n", productidentity.Executable, err)
 		return 1
 	}
 
@@ -123,31 +124,31 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 	}
 
 	if !needsInstall {
-		fmt.Fprintf(opts.out, "ibkr update: already on %s (latest is %s)\n", installed, latest)
+		fmt.Fprintf(opts.out, "%s update: already on %s (latest is %s)\n", productidentity.Executable, installed, latest)
 		return 0
 	}
 
 	// Confirm the platform has an asset before fetching anything.
 	if _, _, ok := rel.AssetForHost(); !ok {
-		fmt.Fprintf(opts.err, "ibkr update: no release asset for %s/%s on %s\n", runtime.GOOS, runtime.GOARCH, latest)
+		fmt.Fprintf(opts.err, "%s update: no release asset for %s/%s on %s\n", productidentity.Executable, runtime.GOOS, runtime.GOARCH, latest)
 		return 1
 	}
 	plan, err := update.PlanFor(rel)
 	if err != nil {
-		fmt.Fprintf(opts.err, "ibkr update: %v\n", err)
+		fmt.Fprintf(opts.err, "%s update: %v\n", productidentity.Executable, err)
 		return 1
 	}
 
-	fmt.Fprintf(opts.out, "ibkr update: installing %s -> %s\n", latest, plan.DestPath)
+	fmt.Fprintf(opts.out, "%s update: installing %s -> %s\n", productidentity.Executable, latest, plan.DestPath)
 	if err := doInstall(ctx, plan); err != nil {
 		if errors.Is(err, update.ErrInstallInProgress) {
-			fmt.Fprintln(opts.err, "ibkr update: another ibkr update is already running")
+			fmt.Fprintf(opts.err, "%s update: another Canary update is already running\n", productidentity.Executable)
 			return 1
 		}
-		fmt.Fprintf(opts.err, "ibkr update: install failed: %v\n", err)
+		fmt.Fprintf(opts.err, "%s update: install failed: %v\n", productidentity.Executable, err)
 		return 1
 	}
-	fmt.Fprintf(opts.out, "ibkr update: installed %s (prior binary stashed as %s.bak)\n", latest, plan.DestPath)
+	fmt.Fprintf(opts.out, "%s update: installed %s at %s\n", productidentity.Executable, latest, plan.DestPath)
 
 	// Local stack restart decision. This deliberately reuses the canonical
 	// app-first restart path: a running app must be on the newly-installed
@@ -158,20 +159,20 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 	}
 
 	if doRestart {
-		fmt.Fprintln(opts.out, "ibkr update: restarting the local app/daemon stack (app first)")
+		fmt.Fprintf(opts.out, "%s update: restarting the local app/daemon stack (app first)\n", productidentity.Executable)
 		if restart == nil {
-			fmt.Fprintln(opts.err, "ibkr update: restart adapter unavailable")
+			fmt.Fprintf(opts.err, "%s update: restart adapter unavailable\n", productidentity.Executable)
 			return 1
 		}
 		if exit := restart(ctx, plan.DestPath, opts.out, opts.err); exit != 0 {
-			fmt.Fprintln(opts.err, "ibkr update: stack restart failed; app and daemon stages are ordered but non-atomic, and successful earlier stages are not rolled back (fix the reported failure and rerun `ibkr restart`)")
+			fmt.Fprintf(opts.err, "%s update: stack restart failed; app and daemon stages are ordered but non-atomic, and successful earlier stages are not rolled back (fix the reported failure and rerun `%s restart`)\n", productidentity.Executable, productidentity.Executable)
 			return exit
 		}
-		fmt.Fprintln(opts.out, "ibkr update: requested restart stages completed; previously stopped processes remain stopped")
+		fmt.Fprintf(opts.out, "%s update: requested restart stages completed; previously stopped processes remain stopped\n", productidentity.Executable)
 		return 0
 	}
 
-	fmt.Fprintln(opts.out, "ibkr update: app and daemon were not restarted; run `ibkr restart` to move running processes to the installed binary")
+	fmt.Fprintf(opts.out, "%s update: app and daemon were not restarted; run `%s restart` to move running processes to the installed binary\n", productidentity.Executable, productidentity.Executable)
 	return 0
 }
 
@@ -196,14 +197,14 @@ func promptRestart(in io.Reader, out io.Writer) bool {
 // renderCheck prints the dry-run summary. Exit code per design
 // (open-decision #1): 0 on already-latest, 0 on update-available
 // (informational), non-zero only on actual fetch failures. So
-// `ibkr update --check && ibkr update` is the idiomatic confirm-then-
+// `canary update --check && canary update` is the idiomatic confirm-then-
 // install pattern.
 func renderCheck(w io.Writer, installed, latest string, needsInstall bool, forced bool) {
 	switch {
 	case forced:
-		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n--force was set; `ibkr update` would re-install %s\n", installed, latest, latest)
+		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n--force was set; `%s update` would re-install %s\n", installed, latest, productidentity.Executable, latest)
 	case needsInstall:
-		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n`ibkr update` would install %s\n", installed, latest, latest)
+		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n`%s update` would install %s\n", installed, latest, productidentity.Executable, latest)
 	default:
 		fmt.Fprintf(w, "installed: %s\nlatest:    %s\nalready on latest; nothing to do\n", installed, latest)
 	}

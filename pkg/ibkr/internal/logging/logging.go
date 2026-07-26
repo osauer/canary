@@ -6,7 +6,7 @@
 // emitting events. The default sink is a discard handler — pkg/ibkr stays
 // silent until callers wire a handler via SetLogger(...). This is deliberate:
 // daemonised consumers route stderr to /dev/null and a stderr-default would
-// wedge the runtime on first emit (see cmd/ibkr/main.go::spawnDaemon).
+// wedge the runtime on first emit (see cmd/canary/main.go::spawnDaemon).
 // Pass nil to SetLogger to silence again.
 package logging
 

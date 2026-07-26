@@ -247,6 +247,9 @@ func TestRequestAccountSummary_DisconnectedReturnsErrIBKRUnavailable(t *testing.
 	if !errors.Is(err, ErrIBKRUnavailable) {
 		t.Fatalf("expected ErrIBKRUnavailable, got %v", err)
 	}
+	if got := err.Error(); got != "IBKR connection unavailable" {
+		t.Fatalf("error text = %q, want canonical broker identity", got)
+	}
 }
 
 func TestRequestAccountSummary_NoConnectorReturnsErrIBKRUnavailable(t *testing.T) {

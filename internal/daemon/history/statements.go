@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/flexstmt"
+	"github.com/osauer/canary/v2/internal/flexstmt"
 )
 
 type retainedStatementFile struct {

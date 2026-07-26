@@ -20,7 +20,7 @@ The schedules are embedded, not IBKR overlays, so cold starts are instant and no
 
 The cost is bounded coverage: the response carries `coverage_start` / `coverage_end`, `days` caps at 400 calendar days, and dates outside embedded coverage return `state: "unknown"` rather than guessing from weekdays.
 
-`ibkr quote` adds a `session_context` block only when it helps explain stale, frozen, or missing data. In an ordinary live regular session with prices present, quote output stays quiet.
+`canary quote` adds a `session_context` block only when it helps explain stale, frozen, or missing data. In an ordinary live regular session with prices present, quote output stays quiet.
 
 ## Regime
 
@@ -55,7 +55,7 @@ The high-precision rule is intentional: broad-market stress must be confirmed by
 
 The stress read calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.
 
-Stress marks the alert boundary. The diagnosis behind an alert comes from `ibkr_positions`, `ibkr_regime`, `ibkr_market_events`, or `ibkr_account`.
+Stress marks the alert boundary. The diagnosis behind an alert comes from `canary_positions`, `canary_regime`, `canary_market_events`, or `canary_account`.
 
 ## Market events
 
@@ -77,7 +77,7 @@ Unknown and null mean unavailable, not false or zero. Each feed's health reads `
 
 Rule 201 / short-sale restriction is not a V1 protection driver. If added later, it should be context-only unless the order path is directly short-sale relevant.
 
-`ibkr market-events --symbol GME --json` evaluates explicit symbols. Omitting symbols evaluates held stock/ETF underlyings, which needs a usable positions snapshot from the daemon/gateway.
+`canary market-events --symbol GME --json` evaluates explicit symbols. Omitting symbols evaluates held stock/ETF underlyings, which needs a usable positions snapshot from the daemon/gateway.
 
 ## Protective stops
 
@@ -93,7 +93,7 @@ The order journal underneath heals itself. After every reconnect, and every 30 m
 
 Dealer zero-gamma is the spot price at which the aggregate options-dealer book switches from amplifying market moves (short-gamma, below zero) to stabilizing them (long-gamma, above zero). It is a regime hint rather than a precision level, and the qualitative state is what matters for short-horizon risk.
 
-`ibkr_gamma` and the regime dashboard's dealer-gamma row both compute from IBKR's option chains using the Perfiliev convention (dealers long calls, short puts), summed across the 6 nearest non-0DTE-post-settlement expirations at ±10% strike width. Two methodology choices shape the result.
+`canary_gamma` and the regime dashboard's dealer-gamma row both compute from IBKR's option chains using the Perfiliev convention (dealers long calls, short puts), summed across the 6 nearest non-0DTE-post-settlement expirations at ±10% strike width. Two methodology choices shape the result.
 
 **Sticky-moneyness skew** (`bs-gamma-profile-v3-stickymoneyness-0dte-split`). The spot sweep reprices each leg's IV at the scenario-spot's *moneyness* via a per-expiry quadratic skew curve fitted at snapshot time: sticky-moneyness rather than sticky-IV. Without this, the put-side skew biases zero-gamma estimates upward by 5–10%.
 

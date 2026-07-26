@@ -13,36 +13,36 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	archivepath "path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 
-	"github.com/osauer/ibkr/v2/internal/xdgcache"
+	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/xdgcache"
 )
 
-// ErrInstallInProgress signals that another `ibkr update` already holds
+// ErrInstallInProgress signals that another `canary update` already holds
 // the install-time flock. Re-exported as a typed sentinel so the CLI
 // command can detect it without string-matching the error message.
-var ErrInstallInProgress = errors.New("another ibkr update is already running")
+var ErrInstallInProgress = errors.New("another Canary update is already running")
 
-// defaultInstallSubdir is the user-default install root when neither
-// IBKR_INSTALL_DIR nor an explicit override is provided. Matches
-// `make install` conventions and the install.sh script.
+// defaultInstallSubdir is the user-default install root when no explicit
+// override is provided. It matches `make install` and install.sh.
 const defaultInstallSubdir = ".local/bin"
 
-// ResolveInstallDir returns the directory where the updated `ibkr`
-// binary should land. IBKR_INSTALL_DIR overrides — used by the Phase 2
+// ResolveInstallDir returns the directory where the updated `canary`
+// binary should land. CANARY_INSTALL_DIR overrides — used by the
 // release pipeline to sandbox dog-food installs into a tmp dir, and by
 // tests to avoid touching the host's real ~/.local/bin. Falls back to
 // $HOME/.local/bin otherwise.
-//
-// Documented in the design as the single env-var knob between Path B
-// today and Phase 2's release pipeline dog-fooding: Phase 1 plumbs it,
-// Phase 2 wires the Makefile.
 func ResolveInstallDir() (string, error) {
-	// docgen:env IBKR_INSTALL_DIR | Override the install directory for `ibkr update`. Defaults to `$HOME/.local/bin`. Phase-2 release pipeline uses this to sandbox dog-food installs to a tmp dir.
-	if v := os.Getenv("IBKR_INSTALL_DIR"); v != "" {
+	// docgen:env CANARY_INSTALL_DIR | Override the install directory for `canary update`. Defaults to `$HOME/.local/bin`. The release pipeline uses this to sandbox dog-food installs to a temporary directory.
+	if _, retired := os.LookupEnv("IBKR_INSTALL_DIR"); retired {
+		return "", errors.New("IBKR_INSTALL_DIR was retired by the Canary rename; use CANARY_INSTALL_DIR")
+	}
+	if v := os.Getenv("CANARY_INSTALL_DIR"); v != "" {
 		return v, nil
 	}
 	home, err := os.UserHomeDir()
@@ -64,9 +64,9 @@ func CacheDir() (string, error) {
 // Returns ErrInstallInProgress on contention so the CLI can print the
 // friendly message without unwrapping a wrapped syscall error.
 //
-// The lock covers the full flow (download + verify + extract + rename
-// + .bak rotation). Two parallel `ibkr update` invocations queue rather
-// than race on .bak — the loser exits immediately with the friendly
+// The lock covers the full flow (download + verify + extract + rename +
+// transaction staging cleanup). Two parallel `canary update` invocations
+// queue rather than race on publication — the loser exits immediately with the friendly
 // "another update is running" message.
 func AcquireLock(cacheDir string) (*xdgcache.Lock, error) {
 	lock, err := xdgcache.OpenLock(filepath.Join(cacheDir, "update.lock"))
@@ -167,7 +167,7 @@ func lookupChecksum(sumsPath, assetName string) (string, error) {
 // magicNumbers are the leading bytes a freshly-extracted Linux or
 // macOS binary should start with. The smoke check rejects garbage
 // (e.g. an HTML 404 page mistakenly tarred up) before we hand the
-// file to os.Rename and inherit it as the live ibkr binary.
+// file to os.Rename and inherit it as the live Canary binary.
 var magicNumbers = [][]byte{
 	{0x7F, 0x45, 0x4C, 0x46}, // ELF (Linux)
 	{0xFE, 0xED, 0xFA, 0xCE}, // Mach-O 32-bit LE
@@ -200,11 +200,12 @@ func hasExecutableMagic(path string) bool {
 	return false
 }
 
-// ExtractTarball untars+ungzips tarballPath into destDir, expecting a
-// single `ibkr` binary entry at the archive root. Returns the absolute
-// path of the extracted binary on success, or an error if the archive
-// is malformed, the binary entry is missing, or the magic-byte smoke
-// check rejects the extracted file as non-executable.
+// ExtractTarball untars+ungzips tarballPath into destDir, expecting a single
+// regular `canary` binary either at the archive root (older fixtures) or
+// directly under archiveRoot (the current release layout). It returns the
+// absolute path of the extracted binary on success, or an error if the archive
+// is malformed, the binary entry is missing, or the magic-byte smoke check
+// rejects the extracted file as non-executable.
 //
 // Hardening:
 //   - Reject any entry whose resolved path escapes destDir
@@ -215,7 +216,15 @@ func hasExecutableMagic(path string) bool {
 //     (size: math.MaxInt64) can't OOM the CLI.
 //   - File mode is forced to 0o755 — the archive's stored mode is
 //     taken as informational only.
-func ExtractTarball(tarballPath, destDir string) (string, error) {
+func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
+	executable := productidentity.Executable
+	archiveRoot = archivepath.Clean(strings.TrimSpace(archiveRoot))
+	if archiveRoot == "." {
+		archiveRoot = ""
+	}
+	if archivepath.IsAbs(archiveRoot) || archiveRoot == ".." || strings.HasPrefix(archiveRoot, "../") || strings.Contains(archiveRoot, "/") {
+		return "", fmt.Errorf("unsupported archive root %q", archiveRoot)
+	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir destDir: %w", err)
 	}
@@ -240,21 +249,31 @@ func ExtractTarball(tarballPath, destDir string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("read tar header: %w", err)
 		}
+		// Tar headers always use slash-separated paths, independent of the
+		// host OS. Reject traversal before considering the entry basename.
+		name := archivepath.Clean(hdr.Name)
+		if archivepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+			return "", fmt.Errorf("tar entry %q escapes archive root", hdr.Name)
+		}
 		if hdr.Typeflag != tar.TypeReg {
-			// Skip directories, symlinks, etc. — the ibkr tarball
-			// only contains a single regular file at the root.
+			// Skip safe directories, symlinks, etc. — only the expected
+			// regular executable entry is extracted.
 			continue
 		}
-		// Path-traversal defence. After filepath.Clean+Join, the
-		// resolved path must still be under destDir.
-		name := filepath.Base(filepath.Clean("/" + hdr.Name))
-		if name == "" || name == "." || name == ".." {
+		rootEntry := executable
+		if archiveRoot != "" {
+			rootEntry = archiveRoot + "/" + executable
+		}
+		if name != executable && name != rootEntry {
 			continue
 		}
-		if name != "ibkr" {
-			continue
+		if binPath != "" {
+			return "", fmt.Errorf("tarball contains multiple %q binary entries", executable)
 		}
-		out := filepath.Join(destDir, name)
+		if hdr.Size < 0 || hdr.Size > 200<<20 {
+			return "", fmt.Errorf("tar entry %q size %d exceeds the 200 MiB limit", hdr.Name, hdr.Size)
+		}
+		out := filepath.Join(destDir, executable)
 		if !strings.HasPrefix(out, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return "", fmt.Errorf("tar entry %q escapes destDir", hdr.Name)
 		}
@@ -275,11 +294,11 @@ func ExtractTarball(tarballPath, destDir string) (string, error) {
 			return "", fmt.Errorf("chmod %s: %w", out, err)
 		}
 		binPath = out
-		// Don't break — one entry per tarball, but if a malformed
-		// archive had duplicates we'd take the last one. Cheap.
+		// Do not break: scanning the rest lets us reject a duplicate entry
+		// instead of silently selecting whichever payload appeared last.
 	}
 	if binPath == "" {
-		return "", errors.New("tarball did not contain an `ibkr` binary entry")
+		return "", fmt.Errorf("tarball did not contain a %q binary entry", executable)
 	}
 	if !hasExecutableMagic(binPath) {
 		return "", fmt.Errorf("extracted file %s is not a valid ELF/Mach-O binary", binPath)
@@ -326,51 +345,121 @@ func StripQuarantine(path string) error {
 	return fmt.Errorf("strip quarantine from %s: %w (output: %s)", path, err, strings.TrimSpace(string(out)))
 }
 
-// Install atomically replaces destPath with srcBinary. The prior binary is
-// stashed as `destPath + ".bak"` (overwriting any existing .bak — per design,
-// .bak is the *immediately prior* binary, not "before everything went wrong").
-//
-// The candidate is first copied into destPath's directory and chmodded there,
-// so the final os.Rename is same-filesystem and cannot fail with EXDEV after
-// the old binary has been touched. Existing installs are backed up with a hard
-// link before the final rename, so a failed rename leaves destPath pointing at
-// the prior inode instead of creating a no-binary window.
-//
-// The destination directory is created if missing — covers a fresh
-// install where ~/.local/bin/ doesn't exist yet.
-func Install(srcBinary, destPath string) error {
-	destDir := filepath.Dir(destPath)
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", destDir, err)
+// InstallCanonical installs srcBinary only as the canonical canary executable.
+// Existing canonical or pre-upgrade executables are moved to transaction-local
+// hidden paths and restored only if canonical publication fails. After success,
+// those bytes are made non-executable and removed. No durable rollback binary
+// is retained because daemon state migrations are forward-only.
+func InstallCanonical(srcBinary, installDir string) error {
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", installDir, err)
 	}
-	staged, err := copyBinaryIntoDir(srcBinary, destDir)
+	canonical := productidentity.CanonicalPath(installDir)
+	preUpgrade := filepath.Join(installDir, productidentity.PreUpgradeExecutable)
+	exists := map[string]bool{}
+	for _, path := range []string{canonical, preUpgrade} {
+		if info, err := os.Lstat(path); err == nil {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("refusing to replace executable path %s: expected a regular file, got %s", path, info.Mode().Type())
+			}
+			exists[path] = true
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect executable path %s: %w", path, err)
+		}
+	}
+	for _, residue := range []string{canonical + ".bak", preUpgrade + ".bak"} {
+		if err := os.Remove(residue); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove retired executable residue %s: %w", residue, err)
+		}
+	}
+
+	staged, err := copyBinaryIntoDir(srcBinary, installDir)
 	if err != nil {
 		return err
 	}
-	installed := false
+	canonicalInstalled := false
 	defer func() {
-		if !installed {
+		if !canonicalInstalled {
 			_ = os.Remove(staged)
 		}
 	}()
 
-	// Stash prior binary, if any. .bak is overwritten — there is exactly one
-	// slot of rollback history per design.
-	if _, err := os.Stat(destPath); err == nil {
-		bak := destPath + ".bak"
-		if err := os.Remove(bak); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove old backup %s: %w", bak, err)
+	canonicalStage := ""
+	preUpgradeStage := ""
+	published := false
+	defer func() {
+		if published {
+			_ = discardRetiredExecutable(canonicalStage)
+			_ = discardRetiredExecutable(preUpgradeStage)
+			return
 		}
-		if err := os.Link(destPath, bak); err != nil {
-			return fmt.Errorf("stash prior binary to %s: %w", bak, err)
+		if canonicalStage != "" {
+			_ = os.Rename(canonicalStage, canonical)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat %s: %w", destPath, err)
+		if preUpgradeStage != "" {
+			_ = os.Rename(preUpgradeStage, preUpgrade)
+		}
+	}()
+
+	if exists[canonical] {
+		canonicalStage, err = stageExistingExecutable(canonical, installDir, ".canary-pre-install-*")
+		if err != nil {
+			return err
+		}
 	}
-	if err := os.Rename(staged, destPath); err != nil {
-		return fmt.Errorf("install %s -> %s: %w", staged, destPath, err)
+	if exists[preUpgrade] {
+		preUpgradeStage, err = stageExistingExecutable(preUpgrade, installDir, ".ibkr-pre-upgrade-*")
+		if err != nil {
+			return err
+		}
 	}
-	installed = true
+	if err := os.Rename(staged, canonical); err != nil {
+		return fmt.Errorf("install %s -> %s: %w", staged, canonical, err)
+	}
+	canonicalInstalled = true
+	published = true
+	if err := discardRetiredExecutable(canonicalStage); err != nil {
+		return fmt.Errorf("installed %s but could not remove transaction staging: %w", canonical, err)
+	}
+	canonicalStage = ""
+	if preUpgradeStage != "" {
+		if err := discardRetiredExecutable(preUpgradeStage); err != nil {
+			return fmt.Errorf("installed %s but could not remove transaction staging: %w", canonical, err)
+		}
+		preUpgradeStage = ""
+	}
+	return nil
+}
+
+func stageExistingExecutable(path, installDir, pattern string) (string, error) {
+	f, err := os.CreateTemp(installDir, pattern)
+	if err != nil {
+		return "", fmt.Errorf("create transaction staging path: %w", err)
+	}
+	staged := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(staged)
+		return "", fmt.Errorf("close transaction staging path: %w", err)
+	}
+	if err := os.Remove(staged); err != nil {
+		return "", fmt.Errorf("prepare transaction staging path: %w", err)
+	}
+	if err := os.Rename(path, staged); err != nil {
+		return "", fmt.Errorf("stage existing executable %s: %w", path, err)
+	}
+	return staged, nil
+}
+
+func discardRetiredExecutable(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.Chmod(path, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("make retired executable non-runnable %s: %w", path, err)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove retired executable %s: %w", path, err)
+	}
 	return nil
 }
 
@@ -381,7 +470,7 @@ func copyBinaryIntoDir(srcBinary, destDir string) (string, error) {
 	}
 	defer in.Close()
 
-	out, err := os.CreateTemp(destDir, ".ibkr-update-*")
+	out, err := os.CreateTemp(destDir, ".canary-update-*")
 	if err != nil {
 		return "", fmt.Errorf("create staging binary in %s: %w", destDir, err)
 	}
@@ -427,7 +516,7 @@ func CleanupOnSignal(paths ...string) (cancel func()) {
 			for _, p := range paths {
 				_ = os.Remove(p)
 			}
-			// Exit non-zero so callers wrapping `ibkr update` see
+			// Exit non-zero so callers wrapping `canary update` see
 			// the interruption. 130 == 128 + SIGINT by convention.
 			os.Exit(130)
 		case <-done:
@@ -447,13 +536,16 @@ func CleanupOnSignal(paths ...string) (cancel func()) {
 // so tests can construct partial state and exercise per-step branches
 // without re-running the network layer.
 type Plan struct {
-	CacheDir    string // ~/.cache/ibkr/update/
+	CacheDir    string // ~/.cache/ibkr/update/ (durable namespace compatibility pin)
 	TarballPath string // CacheDir/<asset>.tar.gz
 	SumsPath    string // CacheDir/SHA256SUMS
 	SumsSigPath string // CacheDir/SHA256SUMS.asc (PGP detached signature)
 	ExtractDir  string // CacheDir/extract/
-	InstallDir  string // $IBKR_INSTALL_DIR or ~/.local/bin
-	DestPath    string // InstallDir/ibkr
+	InstallDir  string // $CANARY_INSTALL_DIR or ~/.local/bin
+	DestPath    string // InstallDir/canary
+	// ArchiveRoot is the exact top-level directory derived from AssetName
+	// (for example canary-vX-darwin-arm64).
+	ArchiveRoot string
 	AssetName   string // <asset>.tar.gz (used for SHA lookup)
 	AssetURL    string // GitHub asset URL
 	SumsURL     string // SHA256SUMS asset URL
@@ -499,7 +591,8 @@ func PlanFor(rel *Release) (*Plan, error) {
 		SumsSigPath: filepath.Join(cacheDir, "SHA256SUMS.asc"),
 		ExtractDir:  filepath.Join(cacheDir, "extract"),
 		InstallDir:  installDir,
-		DestPath:    filepath.Join(installDir, "ibkr"),
+		DestPath:    productidentity.CanonicalPath(installDir),
+		ArchiveRoot: strings.TrimSuffix(assetName, ".tar.gz"),
 		AssetName:   assetName,
 		AssetURL:    assetURL,
 		SumsURL:     sumsURL,
@@ -556,7 +649,7 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 	if err := os.RemoveAll(plan.ExtractDir); err != nil {
 		return fmt.Errorf("clear extract dir: %w", err)
 	}
-	binPath, err := ExtractTarball(plan.TarballPath, plan.ExtractDir)
+	binPath, err := ExtractTarball(plan.TarballPath, plan.ExtractDir, plan.ArchiveRoot)
 	if err != nil {
 		return err
 	}
@@ -566,7 +659,7 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 	if err := StripQuarantine(binPath); err != nil {
 		return err
 	}
-	if err := Install(binPath, plan.DestPath); err != nil {
+	if err := InstallCanonical(binPath, plan.InstallDir); err != nil {
 		return err
 	}
 	return nil

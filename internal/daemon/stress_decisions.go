@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	"github.com/osauer/ibkr/v2/internal/stress"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/stress"
 )
 
 // stressDecisionJournal appends one typed SQLite event per decision-relevant
@@ -113,7 +113,7 @@ func (s *Server) installStressDecisionJournal() {
 // journalStressDecision appends the stress snapshot when its semantic
 // fingerprint changed or the heartbeat interval elapsed. Failures degrade
 // to warnings — journaling must never fail a snapshot or brief. Disabled
-// via `ibkr settings set stress.journal.enabled=false`. Always ends with
+// via `canary settings set stress.journal.enabled=false`. Always ends with
 // the data-free history-index kick.
 func (s *Server) journalStressDecision(res *rpc.StressResult) {
 	if s == nil || res == nil {

@@ -24,12 +24,12 @@ const WikipediaURL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 // the release script and the daemon present a unified identity (only
 // the version segment varies — the caller passes it).
 //
-// Format: "ibkr/<version> (https://github.com/osauer/ibkr; +breadth indicator)"
+// Format: "canary/<version> (https://github.com/osauer/canary; +breadth indicator)"
 func UserAgent(version string) string {
 	if version == "" {
 		version = "dev"
 	}
-	return fmt.Sprintf("ibkr/%s (https://github.com/osauer/ibkr; +breadth indicator)", version)
+	return fmt.Sprintf("canary/%s (https://github.com/osauer/canary; +breadth indicator)", version)
 }
 
 // HTTPTimeout bounds the Wikipedia fetch. 15 s comfortably covers a

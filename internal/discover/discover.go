@@ -55,7 +55,7 @@ type Endpoint struct {
 	Account  string
 
 	// Alternates lists other ports that responded during the probe but
-	// lost the first-hit race. Surface them in `ibkr status` so the user
+	// lost the first-hit race. Surface them in `canary status` so the user
 	// knows e.g. "I'm on Gateway live but TWS is also up." Empty when the
 	// port was pinned (discovery skipped) or no other ports responded.
 	Alternates []int

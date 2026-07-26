@@ -3,12 +3,12 @@
 Updated: 2026-06-05 17:42 CEST
 
 This guide covers the fast path for changing and verifying the Canary SPA served
-by `ibkr app`.
+by `canary app`.
 
 ## Mental Model
 
 The app is not served from loose source files during normal local preview. It is
-embedded in the `ibkr` binary and served by the long-running `ibkr app` process.
+embedded in the `canary` binary and served by the long-running `canary app` process.
 After changing `web/app`, install a new binary and restart the app host before
 trusting the browser.
 
@@ -27,7 +27,7 @@ The root URL is authenticated. For a fresh browser context, create a local
 pairing URL:
 
 ```sh
-ibkr app pair --public-url http://127.0.0.1:8765 --json
+canary app pair --public-url http://127.0.0.1:8765 --json
 ```
 
 Open the returned `.url`. A successful pairing redirects to

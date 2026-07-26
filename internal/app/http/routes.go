@@ -17,13 +17,13 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/pkg/server"
 
-	"github.com/osauer/ibkr/v2/internal/app/auth"
-	"github.com/osauer/ibkr/v2/internal/app/daemonclient"
-	"github.com/osauer/ibkr/v2/internal/app/live"
-	"github.com/osauer/ibkr/v2/internal/app/relay"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	appweb "github.com/osauer/ibkr/v2/web/app"
+	"github.com/osauer/canary/v2/internal/app/auth"
+	"github.com/osauer/canary/v2/internal/app/daemonclient"
+	"github.com/osauer/canary/v2/internal/app/live"
+	"github.com/osauer/canary/v2/internal/app/relay"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
+	appweb "github.com/osauer/canary/v2/web/app"
 )
 
 // Dependencies supplies the app host's explicit adapters and authorities to
@@ -58,7 +58,7 @@ type handler struct {
 
 type contextKey string
 
-const sessionKey contextKey = "ibkr-app-session"
+const sessionKey contextKey = "canary-app-session"
 
 // Register installs the embedded SPA, pairing, authenticated read, settings,
 // preview, and paired-device action routes on deps.Server.
@@ -255,7 +255,7 @@ func (h *handler) handleDevicesPrune(w nethttp.ResponseWriter, r *nethttp.Reques
 		return
 	}
 	kept := len(h.deps.Store.Devices())
-	log.Printf("ibkr app auth: pruned %d device grants older than %d days (%d kept)", removed, req.KeepDays, kept)
+	log.Printf("canary app auth: pruned %d device grants older than %d days (%d kept)", removed, req.KeepDays, kept)
 	writeJSON(w, map[string]any{"removed": removed, "kept": kept, "keep_days": req.KeepDays})
 }
 
@@ -285,7 +285,7 @@ func (h *handler) handleCompletePairing(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	res, err := h.deps.Auth.CompletePairing(req)
 	if err != nil {
-		log.Printf("ibkr app auth: pairing rejected: %v", err)
+		log.Printf("canary app auth: pairing rejected: %v", err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())
 		return
 	}
@@ -293,9 +293,9 @@ func (h *handler) handleCompletePairing(w nethttp.ResponseWriter, r *nethttp.Req
 	if cookie, err := h.deps.Auth.IssueDeviceCookie(res.DeviceID); err == nil {
 		setDeviceCookie(w, r, cookie)
 	} else {
-		log.Printf("ibkr app auth: issue device cookie for %s: %v", res.DeviceID, err)
+		log.Printf("canary app auth: issue device cookie for %s: %v", res.DeviceID, err)
 	}
-	log.Printf("ibkr app auth: paired device %s", res.DeviceID)
+	log.Printf("canary app auth: paired device %s", res.DeviceID)
 	writeJSON(w, res)
 }
 
@@ -309,7 +309,7 @@ func (h *handler) handleAuthChallenge(w nethttp.ResponseWriter, r *nethttp.Reque
 	}
 	ch, err := h.deps.Auth.StartChallenge(req.DeviceID)
 	if err != nil {
-		log.Printf("ibkr app auth: challenge rejected for device %s: %v", req.DeviceID, err)
+		log.Printf("canary app auth: challenge rejected for device %s: %v", req.DeviceID, err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())
 		return
 	}
@@ -329,7 +329,7 @@ func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request
 	}
 	sess, err := h.deps.Auth.CompleteChallenge(req.DeviceID, req.Challenge, req.Signature, req.DeviceSecret)
 	if err != nil {
-		log.Printf("ibkr app auth: session rejected for device %s: %v", req.DeviceID, err)
+		log.Printf("canary app auth: session rejected for device %s: %v", req.DeviceID, err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())
 		return
 	}
@@ -341,9 +341,9 @@ func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request
 	if cookie, err := h.deps.Auth.IssueDeviceCookie(sess.DeviceID); err == nil {
 		setDeviceCookie(w, r, cookie)
 	} else {
-		log.Printf("ibkr app auth: issue device cookie for %s: %v", sess.DeviceID, err)
+		log.Printf("canary app auth: issue device cookie for %s: %v", sess.DeviceID, err)
 	}
-	log.Printf("ibkr app auth: device login for %s", sess.DeviceID)
+	log.Printf("canary app auth: device login for %s", sess.DeviceID)
 	writeJSON(w, sess)
 }
 
@@ -958,10 +958,10 @@ func (h *handler) deviceCookieSession(w nethttp.ResponseWriter, r *nethttp.Reque
 	}
 	sess, err := h.deps.Auth.AuthenticateDeviceCookie(c.Value)
 	if err != nil {
-		log.Printf("ibkr app auth: device cookie rejected (%s %s): %v", r.Method, r.URL.Path, err)
+		log.Printf("canary app auth: device cookie rejected (%s %s): %v", r.Method, r.URL.Path, err)
 		return auth.Session{}, false
 	}
-	log.Printf("ibkr app auth: session minted from device cookie for %s (%s %s)", sess.DeviceID, r.Method, r.URL.Path)
+	log.Printf("canary app auth: session minted from device cookie for %s (%s %s)", sess.DeviceID, r.Method, r.URL.Path)
 	setSessionCookie(w, r, sess.Token, sess.ExpiresAt)
 	// Slide the cookie's clock without rotating its value (twin jars).
 	setDeviceCookie(w, r, c.Value)

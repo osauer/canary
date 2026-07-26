@@ -1,6 +1,6 @@
 package alerts
 
-import "github.com/osauer/ibkr/v2/internal/rpc"
+import "github.com/osauer/canary/v2/internal/rpc"
 
 // Presentation is fixed app-authored copy selected only by the daemon's
 // closed presentation code. It contains no producer free text or private

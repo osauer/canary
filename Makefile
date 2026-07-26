@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-# `--match='v*'` excludes the `ibkr--vX.Y.Z` plugin tags created by
+# `--match='v*'` excludes the `canary--vX.Y.Z` plugin tags created by
 # `claude plugin tag` so the binary always stamps itself with the
 # nearest binary-release tag (e.g. v0.4.4) and not the lexicographically
 # earlier plugin tag at the same commit.
@@ -36,18 +36,18 @@ GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
 # user-local convention; usually already on PATH). Override for a system
 # install: make install PREFIX=/usr/local (needs sudo). Note: $GOBIN is
 # the wrong target here — that's a Go-developer convention for source
-# tools, but ibkr is an end-user CLI binary and shouldn't require Go to
+# tools, but Canary is an end-user CLI binary and shouldn't require Go to
 # be installed at runtime.
 PREFIX ?= $(HOME)/.local
 RESTART_TIMEOUT ?= 15s
 
 CLAUDE_DIR ?= $(HOME)/.claude
-CLAUDE_PLUGIN_ID ?= ibkr@ibkr
+CLAUDE_PLUGIN_ID ?= canary@canary
 CLAUDE_PLUGIN_MARKETPLACE ?= $(CURDIR)
-SKILL_DIR  ?= $(CLAUDE_DIR)/skills/ibkr
+SKILL_DIR  ?= $(CLAUDE_DIR)/skills/canary
 CODEX_DIR  ?= $(HOME)/.codex
-CODEX_SKILL_DIR ?= $(CODEX_DIR)/skills/ibkr
-SKILL_SRC  ?= skills/ibkr
+CODEX_SKILL_DIR ?= $(CODEX_DIR)/skills/canary
+SKILL_SRC  ?= skills/canary
 
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 3
@@ -55,7 +55,7 @@ MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publis
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-publish release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-publish release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -63,28 +63,41 @@ help: ## List available targets
 		$(MAKEFILE_LIST)
 	@echo
 	@echo "Common flow:  make fmt && make test && make build   (test already runs check)"
-	@echo "Daemon flow:  make install restart-daemon   (FORCE=1 adds ibkr restart --force; refreshes any running app)"
+	@echo "Daemon flow:  make install restart-daemon   (FORCE=1 adds canary restart --force; refreshes any running app)"
 	@echo "Release flow: make release RELEASE_VERSION=vX.Y.Z   (clean tree + HEAD == origin/$(MAIN_BRANCH))"
 	@echo "              tags + pushes + cross-compiles + creates GitHub Release with binaries attached"
 
-build: ## Compile bin/ibkr with version stamped via ldflags
+build: ## Compile the canonical bin/canary executable
 	@mkdir -p bin
-	go build $(GO_BUILD_TAGS) -ldflags '$(LDFLAGS)' -o bin/ibkr ./cmd/ibkr
+	@rm -f bin/ibkr
+	go build $(GO_BUILD_TAGS) -ldflags '$(LDFLAGS)' -o bin/canary ./cmd/canary
 	@case " $(GO_TAGS) " in (*" trading "*) ;; (*) \
 		echo "NOTE: built WITHOUT broker-write capability (read-only daemon)."; \
 		echo "      Installing this over a trading build silently downgrades it."; \
 		echo "      For order placement build with: make install GO_TAGS=trading"; \
 	;; esac
 
-install: build ## Install ibkr to $(PREFIX)/bin (default ~/.local/bin); skips the copy when byte-identical
-	@if cmp -s bin/ibkr $(PREFIX)/bin/ibkr; then \
-		echo "ibkr unchanged at $(PREFIX)/bin/ibkr — skipping copy"; \
+install: build ## Install only the canonical canary executable to $(PREFIX)/bin
+	@install -d "$(PREFIX)/bin"
+	@for path in "$(PREFIX)/bin/canary" "$(PREFIX)/bin/ibkr"; do \
+		if [ -e "$$path" ] || [ -L "$$path" ]; then \
+			if [ ! -f "$$path" ] || [ -L "$$path" ]; then \
+				echo "install: refusing executable path $$path because it is not a regular file" >&2; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+	@if cmp -s bin/canary "$(PREFIX)/bin/canary"; then \
+		echo "canary unchanged at $(PREFIX)/bin/canary — skipping copy"; \
 	else \
-		install -d $(PREFIX)/bin && \
-		install -m 0755 bin/ibkr $(PREFIX)/bin/ibkr && \
-		echo "Installed ibkr to $(PREFIX)/bin" && \
-		echo "Restart the daemon and any running app with: $(PREFIX)/bin/ibkr restart"; \
+		stage="$(PREFIX)/bin/.canary-install.$$$$"; \
+		trap 'rm -f "$$stage"' EXIT HUP INT TERM; \
+		install -m 0755 bin/canary "$$stage" && \
+		mv -f "$$stage" "$(PREFIX)/bin/canary" && \
+		echo "Installed canary to $(PREFIX)/bin"; \
 	fi
+	@rm -f "$(PREFIX)/bin/ibkr" "$(PREFIX)/bin/canary.bak" "$(PREFIX)/bin/ibkr.bak"
+	@echo "Restart the daemon and any running app with: $(PREFIX)/bin/canary restart"
 
 # Skip the bounce when the freshly-built binary is byte-identical to the
 # installed one AND the canonical daemon is already running — restarting
@@ -95,11 +108,12 @@ install: build ## Install ibkr to $(PREFIX)/bin (default ~/.local/bin); skips th
 # left alone too (the next CLI call autospawns it — that is the design).
 # FORCE=1 always installs and restarts.
 restart-daemon: build ## Install + restart daemon, skipped when the binary is unchanged (FORCE=1 always bounces)
-	@if [ -z "$(FORCE)" ] && cmp -s bin/ibkr $(PREFIX)/bin/ibkr && pgrep -f "$(PREFIX)/bin/ibkr daemon" >/dev/null 2>&1; then \
+	@if [ -z "$(FORCE)" ] && cmp -s bin/canary "$(PREFIX)/bin/canary" && \
+		pgrep -f "$(PREFIX)/bin/canary daemon" >/dev/null 2>&1; then \
 		echo "binary unchanged and daemon running — skipping restart (FORCE=1 to bounce anyway)"; \
 	else \
 		$(MAKE) --no-print-directory install && \
-		$(PREFIX)/bin/ibkr restart --timeout $(RESTART_TIMEOUT) $(if $(FORCE),--force,); \
+		"$(PREFIX)/bin/canary" restart --timeout $(RESTART_TIMEOUT) $(if $(FORCE),--force,); \
 	fi
 
 APP_SMOKE_URL ?= http://127.0.0.1:8765
@@ -157,6 +171,7 @@ release-packaging-check: ## Verify tag-isolated assembly, archive contents, rele
 	@# release-site-check itself is release-time only (it needs RELEASE_VERSION
 	@# and reads the real tree), so its fixture runs here to stay inside `check`.
 	@./scripts/check-release-site-sync_test.sh
+	@./scripts/canary-mcp_test.sh
 
 # Static drift gate between the Playwright app scripts and the SPA they
 # assert against, plus the other web/app contract tests. Born of the
@@ -170,33 +185,36 @@ app-contract-check: ## Browser-script ↔ SPA element-id drift gate + static app
 	go test ./web/app
 
 app-refresh: install ## Install, restart the shared app host, and print a local pairing URL
-	$(PREFIX)/bin/ibkr restart --app --timeout $(RESTART_TIMEOUT)
+	"$(PREFIX)/bin/canary" restart --app --timeout $(RESTART_TIMEOUT)
 	@for i in $$(seq 1 60); do \
 		if curl -fsS $(APP_SMOKE_URL)/manifest.webmanifest >/dev/null 2>&1; then break; fi; \
 		sleep 0.5; \
 	done
-	$(PREFIX)/bin/ibkr app pair --public-url $(APP_SMOKE_URL) --json
+	"$(PREFIX)/bin/canary" app pair --public-url $(APP_SMOKE_URL) --json
 
 app-refresh-smoke: app-refresh ## Refresh the shared app host, then run the browser app smoke
 	$(MAKE) app-smoke APP_SMOKE_URL=$(APP_SMOKE_URL) APP_SMOKE_BROWSER=$(APP_SMOKE_BROWSER)
 
-app-smoke: ## Browser-smoke a running ibkr app without scanning a QR code
+app-smoke: ## Browser-smoke a running Canary app without scanning a QR code
 	node scripts/app-browser-smoke.mjs --base-url $(APP_SMOKE_URL) --browser $(APP_SMOKE_BROWSER) --no-notification
 
 # The complete monitor snapshot is synthetic before any published image is
 # written, covering positions, symbols, orders, and proposals as well as the
 # account id and balances. See docs/social/canary-app-{mobile,desktop}.png.
-app-screenshots: ## Regenerate the published app screenshots from a running ibkr app (fully synthetic data)
+app-screenshots: ## Regenerate the published app screenshots from a running Canary app (fully synthetic data)
 	node scripts/app-screenshots.mjs --base-url $(APP_SMOKE_URL) --browser $(APP_SMOKE_BROWSER) --synthetic
 
 cli-screenshots: ## Regenerate the published CLI screenshots from cmd/_preview fixtures
 	node scripts/cli-screenshots.mjs
 
+social-preview: cli-screenshots ## Regenerate the published social card from synthetic CLI fixtures
+	node scripts/social-preview.mjs
+
 APP_LIFECYCLE_ADDR ?= 127.0.0.1:18765
 APP_LIFECYCLE_URL ?= http://$(APP_LIFECYCLE_ADDR)
 app-lifecycle-smoke: build ## Start an isolated app, pair, restart it, and verify browser SSE/auth recovery
-	@tmpdir=$$(mktemp -d /tmp/ibkr-app-lifecycle-smoke.XXXXXX); \
-	app="$$(pwd)/bin/ibkr"; \
+	@tmpdir=$$(mktemp -d /tmp/canary-app-lifecycle-smoke.XXXXXX); \
+	app="$$(pwd)/bin/canary"; \
 	log="$$tmpdir/app.log"; \
 	cleanup() { \
 		kill -TERM "$$app_pid" >/dev/null 2>&1 || true; \
@@ -220,14 +238,14 @@ app-lifecycle-smoke: build ## Start an isolated app, pair, restart it, and verif
 		--restart-command "$$app restart --app --json --timeout $(RESTART_TIMEOUT)" \
 		--stop-restarted-app=true
 
-uninstall: ## Remove ibkr from $(PREFIX)/bin
-	rm -f $(PREFIX)/bin/ibkr
-	@echo "Removed ibkr from $(PREFIX)/bin"
+uninstall: ## Remove Canary and any pre-upgrade executable residue from $(PREFIX)/bin
+	rm -f "$(PREFIX)/bin/canary" "$(PREFIX)/bin/ibkr" "$(PREFIX)/bin/canary.bak" "$(PREFIX)/bin/ibkr.bak"
+	@echo "Removed Canary executables and pre-upgrade residue from $(PREFIX)/bin"
 
 TEST_JOBS ?= 3
 TEST_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(TEST_JOBS),)
-test: ## Full gate: check + pkg tests + daemon/integration tests (-race), overlapped by default
-	$(MAKE) $(TEST_MAKEFLAGS) check test-pkg test-daemon
+test: ## Full gate: check + pkg, command/support, and daemon/integration tests (-race), overlapped by default
+	$(MAKE) $(TEST_MAKEFLAGS) check test-pkg test-support test-daemon
 
 # Binding pre-commit gate: agent config/hooks + formatting + go vet +
 # staticcheck + govulncheck + plugin manifest validation. Fails on stdlib
@@ -243,10 +261,14 @@ test: ## Full gate: check + pkg tests + daemon/integration tests (-race), overla
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check modernize-check docs-check docs-html-check changelog-check account-data-check release-packaging-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
+
+product-identity-check: ## Reject retired product/module/site/CLI/MCP identities outside reviewed continuity exceptions
+	@./scripts/check-product-identity.sh
+	@./scripts/check-product-identity_test.sh
 
 go-doc-check: ## Verify package and exported API documentation across all tracked Go build variants
 	go run ./scripts/go-doc-audit -check
@@ -328,27 +350,27 @@ registry-version-check: ## Ensure server.json version tracks .claude-plugin/plug
 
 # The pre-tool-use hook is a broker guardrail with real routing logic
 # (read-only allowlists, write gates, composition checks). It shipped for
-# weeks blocking the read-only `ibkr orders` journal view, caught only by
+# weeks blocking the read-only `canary orders` journal view, caught only by
 # a human. Table-driven behavior cases keep both failure directions gated:
 # false-allow (agent reaches a write) and false-block (read paths break).
 hook-behavior-check: ## Run table-driven allow/block cases against the broker hooks
-	@bash hooks/ibkr-pre-tool-use_test.sh
-	@HOOK_UNDER_TEST=.codex/hooks/ibkr-pre-tool-use.sh bash hooks/ibkr-pre-tool-use_test.sh
+	@bash hooks/canary-pre-tool-use_test.sh
+	@HOOK_UNDER_TEST=.codex/hooks/canary-pre-tool-use.sh bash hooks/canary-pre-tool-use_test.sh
 
 agent-config-check: hook-behavior-check ## Validate project agent config, hooks, and read-only reviewer roles
-	@bash -n hooks/ibkr-pre-tool-use.sh .codex/hooks/ibkr-pre-tool-use.sh
+	@bash -n hooks/canary-pre-tool-use.sh .codex/hooks/canary-pre-tool-use.sh
 	@jq -e . .codex/hooks.json >/dev/null
 	@jq -e . .claude/settings.json >/dev/null
 	@go test ./internal/agentconfig/
 	@if command -v codex >/dev/null 2>&1; then \
-		read_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- ibkr status --json | jq -r .decision); \
-		write_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- ibkr order place --preview-token TOKEN --json | jq -r .decision); \
-		human_only_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- ibkr settings set trading.freeze=true | jq -r .decision); \
-		offline_gate_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make check | jq -r .decision); \
-		live_gate_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make restart-daemon | jq -r .decision); \
-		smoke_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make smoke | jq -r .decision); \
-		release_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make release RELEASE_VERSION=v2.3.1 | jq -r .decision); \
-		release_preflight_decision=$$(codex execpolicy check --rules .codex/rules/ibkr.rules -- make release-paper-preflight VERSION=v2.3.1 | jq -r .decision); \
+		read_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary status --json | jq -r .decision); \
+		write_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary order place --preview-token TOKEN --json | jq -r .decision); \
+		human_only_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary settings set trading.freeze=true | jq -r .decision); \
+		offline_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make check | jq -r .decision); \
+		live_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make restart-daemon | jq -r .decision); \
+		smoke_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make smoke | jq -r .decision); \
+		release_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make release RELEASE_VERSION=v2.3.1 | jq -r .decision); \
+		release_preflight_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make release-paper-preflight VERSION=v2.3.1 | jq -r .decision); \
 		[ "$$read_decision" = allow ] && [ "$$write_decision" = prompt ] && [ "$$human_only_decision" = forbidden ] \
 			&& [ "$$offline_gate_decision" = allow ] && [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
 			&& [ "$$release_decision" = prompt ] && [ "$$release_preflight_decision" = prompt ] || { \
@@ -390,11 +412,11 @@ hook-version-check: ## Ensure session-start.sh fallback version tracks .claude-p
 # Drift gate for the MCP surface: TestParity in internal/mcp asserts that
 # every cli.Commands() entry has a matching ibkr_<name> MCP tool (or is on
 # the documented exclude list). TestStreamingParity is the streaming-
-# resource counterpart — it pins the ibkr://… template inventory the
+# resource counterpart — it pins the canary://… template inventory the
 # server actually exposes. TestSkill* in internal/cli is the skill-layer
-# counterpart: every CLI command documented in skills/ibkr/SKILL.md (or
+# counterpart: every CLI command documented in skills/canary/SKILL.md (or
 # excluded with a reason), the allowed-tools list mirrored exactly in
-# settings/ibkr.settings.json, and no broker/state write allowlisted.
+# settings/canary.settings.json, and no broker/state write allowlisted.
 # Cheap enough to live in the pre-commit gate.
 parity-check: ## Verify MCP tool inventory matches the CLI surface
 	go test -run 'TestParity|TestStreamingParity|TestNoTradingTools|TestSchemasAreValidJSON' ./internal/mcp/
@@ -524,6 +546,14 @@ fmt: ## Apply gofmt -w to every tracked / non-gitignored .go file
 test-pkg: ## Run pkg/ibkr/... tests under -race (TWS protocol library; cached when unchanged)
 	go test -race -timeout=180s ./pkg/ibkr/...
 
+# Command entrypoints and the hermetic registry metadata helper are shipped
+# surfaces too. Keep them in one explicit race-enabled leg so both local
+# `make test` and CI exercise them without depending on package discovery
+# elsewhere in the matrix.
+test-support: ## Run command and release-registry support tests under -race
+	go test -race -timeout=180s ./cmd/...
+	go test -race -timeout=60s ./scripts/release-registry-server
+
 # Daemon + CLI integration tests. -race is on for the daemon path because
 # this layer carries the goroutines (subscriptions, idle timer, signal
 # handlers); race detector earns its slot here. Integration tests skip
@@ -538,7 +568,7 @@ test-daemon: ## Run internal/... and test/integration/... under -race (incl. tra
 	go test -race -timeout=240s -tags trading ./internal/daemon/...
 
 # Install the standalone skill bundle directly under global agent skill roots.
-# Dogfood path only — end users get the skill via `/plugin install ibkr`.
+# Dogfood path only — end users get the skill via `/plugin install canary`.
 # Idempotent: re-running updates files in place.
 install-skill: build ## Install SKILL.md to global Claude/Codex skill dirs (dogfood path)
 	install -d $(SKILL_DIR)
@@ -551,10 +581,10 @@ install-skill: build ## Install SKILL.md to global Claude/Codex skill dirs (dogf
 	@echo "Installed skill to $(CODEX_SKILL_DIR)"
 	@echo
 	@echo "Prefer the plugin install path for end users:"
-	@echo "  /plugin marketplace add osauer/ibkr"
-	@echo "  /plugin install ibkr"
+	@echo "  /plugin marketplace add osauer/canary"
+	@echo "  /plugin install canary"
 	@echo
-	@echo "For a global Bash(ibkr ...) allowlist, copy settings/ibkr.settings.json"
+	@echo "For a global Bash(canary ...) allowlist, copy settings/canary.settings.json"
 	@echo "into your ~/.claude/settings.json by hand (the SKILL frontmatter already"
 	@echo "grants the read patterns when the skill is active)."
 	@if command -v claude >/dev/null 2>&1; then \
@@ -600,7 +630,7 @@ RELEASE_BUILD_JOBS ?= 4
 # `git checkout`. -buildvcs=false suppresses runtime/debug.BuildInfo's
 # vcs.modified flag — the -ldflags vars are authoritative for releases,
 # and the dirty/clean signal is only useful for in-tree dev builds.
-release-verify: ## Smoke-test the local bin/ibkr against a live gateway (called by `make release`)
+release-verify: ## Smoke-test the local bin/canary against a live gateway (called by `make release`)
 	@# Standalone so a release-flow failure can be diagnosed in isolation:
 	@#   make release-verify RELEASE_VERSION=v0.15.1
 	@# The script spawns an isolated daemon under /tmp, runs a fixed
@@ -612,27 +642,27 @@ release-verify: ## Smoke-test the local bin/ibkr against a live gateway (called 
 		echo "release-verify: RELEASE_VERSION is required, e.g. make release-verify RELEASE_VERSION=v0.15.1" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -x bin/ibkr ]; then \
-		echo "release-verify: bin/ibkr missing — run 'make build' first" >&2; \
+	@if [ ! -x bin/canary ]; then \
+		echo "release-verify: bin/canary missing — run 'make build' first" >&2; \
 		exit 1; \
 	fi
-	./scripts/with-gateway-lock.sh ./scripts/release-verify.sh bin/ibkr $(RELEASE_VERSION)
+	./scripts/with-gateway-lock.sh ./scripts/release-verify.sh bin/canary $(RELEASE_VERSION)
 
 release-smoke: smoke-build ## Release gate: JSON contract + wire smoke in one reachable TWS/Gateway daemon session
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-smoke: RELEASE_VERSION is required, e.g. make release-smoke RELEASE_VERSION=v0.15.1" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -x bin/ibkr ]; then \
-		echo "release-smoke: bin/ibkr missing — run 'make build VERSION=$(RELEASE_VERSION)' first" >&2; \
+	@if [ ! -x bin/canary ]; then \
+		echo "release-smoke: bin/canary missing — run 'make build VERSION=$(RELEASE_VERSION)' first" >&2; \
 		exit 1; \
 	fi
-	IBKR_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/release-smoke.sh bin/ibkr $(RELEASE_VERSION) bin/wire-assert
+	CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/release-smoke.sh bin/canary $(RELEASE_VERSION) bin/wire-assert
 
 release-paper-preflight: build ## Early read-only paper account/FX/WhatIf gate; never submits an order
-	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh --preview-only bin/ibkr
+	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh --preview-only bin/canary
 
-release-site-check: ## Require osauer.dev/ibkr static site sync for non-patch releases
+release-site-check: ## Require osauer.dev/canary static site sync for non-patch releases
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-site-check: RELEASE_VERSION is required, e.g. make release-site-check RELEASE_VERSION=v1.8.0" >&2; \
 		exit 1; \
@@ -643,20 +673,20 @@ smoke-build: ## Compile the bin/wire-assert helper used by `make smoke`
 	@mkdir -p bin
 	go build -o bin/wire-assert ./cmd/wire-assert
 
-# Run wire-smoke against the *existing* bin/ibkr without rebuilding it.
+# Run wire-smoke against the *existing* bin/canary without rebuilding it.
 # The release flow uses this so it can exercise the version-stamped
 # binary produced by `make build VERSION=$(RELEASE_VERSION)`, instead
 # of clobbering that stamp with a `git describe` rebuild via the smoke
 # dep chain.
 #
-# Drives bin/ibkr against a reachable TWS/Gateway session with the wire interceptor
+# Drives bin/canary against a reachable TWS/Gateway session with the wire interceptor
 # enabled and asserts per-command protocol-level invariants — catches
 # bugs the unit suite can't see (e.g. the v0.24.x productionLegFetcher
 # bug where the gateway sent the right ticks but the daemon read the
 # wrong field).
 #
 # SMOKE_STRICT controls the no-gateway posture (forwarded to the script
-# as IBKR_SMOKE_STRICT):
+# as CANARY_SMOKE_STRICT):
 #   SMOKE_STRICT=0 (default) → SKIP cleanly when no gateway is up; lets
 #                              user-invoked `make smoke` work on a laptop
 #                              without paper-account IBKR access.
@@ -669,20 +699,20 @@ SMOKE_STRICT ?= 0
 # SPX_EXPECTED_REACHABLE — default ON in this repo because this is the
 # dev machine with CBOE OPRA entitlement; the user's standing guardrail
 # (per internal-docs/design/gamma-spx-coverage.md §11.2): "no SPX data would be
-# a bug on my setup." If `ibkr gamma --only=spx` returns the
+# a bug on my setup." If `canary gamma --only=spx` returns the
 # entitlement-skipped banner, fail loudly rather than silently passing
 # the smoke. Override with `make smoke SPX_EXPECTED_REACHABLE=0` on
 # accounts that legitimately lack SPX entitlement.
 SPX_EXPECTED_REACHABLE ?= 1
 
-smoke-only: smoke-build ## Run wire smoke against existing bin/ibkr (no rebuild); SMOKE_STRICT=1 makes no-gateway a failure
-	@if [ ! -x bin/ibkr ]; then \
-		echo "smoke-only: bin/ibkr missing — run 'make build' first" >&2; \
+smoke-only: smoke-build ## Run wire smoke against existing bin/canary (no rebuild); SMOKE_STRICT=1 makes no-gateway a failure
+	@if [ ! -x bin/canary ]; then \
+		echo "smoke-only: bin/canary missing — run 'make build' first" >&2; \
 		exit 1; \
 	fi
-	IBKR_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/ibkr bin/wire-assert
+	CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
 
-smoke: build smoke-only ## Wire-level smoke vs. reachable TWS/Gateway (rebuilds bin/ibkr; SKIP if no gateway)
+smoke: build smoke-only ## Wire-level smoke vs. reachable TWS/Gateway (rebuilds bin/canary; SKIP if no gateway)
 
 # The per-commit inner-loop gate: boot + handshake + quote + account
 # against a real gateway (~15s) instead of the full wire matrix. The full
@@ -690,9 +720,9 @@ smoke: build smoke-only ## Wire-level smoke vs. reachable TWS/Gateway (rebuilds 
 # releases — this tier exists so a docs/proposal/SPA change doesn't pay
 # the chain/regime/gamma fan-out every commit.
 smoke-fast: build smoke-build ## Fast wire smoke: boot + quote + account only (~15s; full matrix stays in `make smoke`)
-	IBKR_SMOKE_FAST=1 IBKR_SMOKE_STRICT=$(SMOKE_STRICT) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/ibkr bin/wire-assert
+	CANARY_SMOKE_FAST=1 CANARY_SMOKE_STRICT=$(SMOKE_STRICT) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
 
-release-binaries: ## Cross-compile read-only + trading tarballs and the (read-only) MCPB into dist/ — needs RELEASE_VERSION=vX.Y.Z
+release-binaries: ## Cross-compile canonical read-only/trading tarballs and the read-only MCPB
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-binaries: RELEASE_VERSION is required, e.g. make release-binaries RELEASE_VERSION=v0.6.0" >&2; \
 		exit 1; \
@@ -731,11 +761,11 @@ release-registry-server: ## Generate and validate dist/server.json for MCP Regis
 		echo "release-registry-server: RELEASE_VERSION is required, e.g. make release-registry-server RELEASE_VERSION=v1.2.1" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(DIST_DIR)/ibkr-$(RELEASE_VERSION).mcpb" ]; then \
-		echo "release-registry-server: missing $(DIST_DIR)/ibkr-$(RELEASE_VERSION).mcpb; run make release-mcpb" >&2; \
+	@if [ ! -f "$(DIST_DIR)/canary-$(RELEASE_VERSION).mcpb" ]; then \
+		echo "release-registry-server: missing $(DIST_DIR)/canary-$(RELEASE_VERSION).mcpb; run make release-mcpb" >&2; \
 		exit 1; \
 	fi
-	go run ./scripts/release-registry-server $(RELEASE_VERSION) "$(DIST_DIR)/ibkr-$(RELEASE_VERSION).mcpb" "$(DIST_DIR)/server.json"
+	go run ./scripts/release-registry-server $(RELEASE_VERSION) "$(DIST_DIR)/canary-$(RELEASE_VERSION).mcpb" "$(DIST_DIR)/server.json"
 	$(MCP_PUBLISHER) validate "$(DIST_DIR)/server.json"
 
 registry-login: ## Refresh MCP Registry auth token (default: GitHub device flow)
@@ -766,37 +796,53 @@ registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall
 # `### What's new` section, so the release body's top stanza is mechanically
 # derived from CHANGELOG — no second place to drift. Marks the new release
 # as latest.
-release-publish: ## Create the GitHub Release page (notes + binaries) — RELEASE_VERSION required
+_release-publish:
+	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then \
+		echo "_release-publish: internal pipeline helper; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
+		exit 1; \
+	fi
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "release-publish: RELEASE_VERSION is required, e.g. make release-publish RELEASE_VERSION=v0.6.0" >&2; \
+		echo "_release-publish: RELEASE_VERSION is required" >&2; \
 		exit 1; \
 	fi
 	@if [ ! -d "$(DIST_DIR)" ] || [ ! -f "$(DIST_DIR)/SHA256SUMS" ]; then \
-		echo "release-publish: $(DIST_DIR)/ missing or empty; run \`make release-binaries RELEASE_VERSION=$(RELEASE_VERSION)\` first" >&2; \
+		echo "_release-publish: $(DIST_DIR)/ missing or empty; release artifact assembly did not complete" >&2; \
 		exit 1; \
 	fi
 	@if [ ! -f "$(DIST_DIR)/SHA256SUMS.asc" ]; then \
-		echo "release-publish: $(DIST_DIR)/SHA256SUMS.asc missing — `ibkr update` from v1.0+ requires the signature; re-run release-binaries" >&2; \
+		echo "_release-publish: $(DIST_DIR)/SHA256SUMS.asc missing — Canary updater requires the signature" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(DIST_DIR)/ibkr-$(RELEASE_VERSION).mcpb" ]; then \
-		echo "release-publish: $(DIST_DIR)/ibkr-$(RELEASE_VERSION).mcpb missing — re-run release-binaries" >&2; \
+	@for asset in "canary-$(RELEASE_VERSION).mcpb" canary.mcpb; do \
+		if [ ! -f "$(DIST_DIR)/$$asset" ]; then \
+			echo "_release-publish: $(DIST_DIR)/$$asset missing — release artifact assembly did not complete" >&2; \
+			exit 1; \
+		fi; \
+	done
+	@sum_count=$$(wc -l < "$(DIST_DIR)/SHA256SUMS" | tr -d '[:space:]'); \
+	payload_count=$$(find "$(DIST_DIR)" -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.mcpb' \) | wc -l | tr -d '[:space:]'); \
+	if [ "$$sum_count" != 10 ] || [ "$$payload_count" != 10 ]; then \
+		echo "_release-publish: expected 10 checksummed payloads (8 tarballs + 2 MCPB; 12 published assets including checksums/signature), got sums=$$sum_count files=$$payload_count" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(DIST_DIR)/ibkr.mcpb" ]; then \
-		echo "release-publish: $(DIST_DIR)/ibkr.mcpb missing — re-run release-binaries" >&2; \
-		exit 1; \
-	fi
-	@command -v gh >/dev/null 2>&1 || { echo "release-publish: gh CLI not on PATH; brew install gh" >&2; exit 1; }
+	@cd "$(DIST_DIR)" && shasum -a 256 -c SHA256SUMS
+	@command -v gh >/dev/null 2>&1 || { echo "_release-publish: gh CLI not on PATH; brew install gh" >&2; exit 1; }
 	$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
-	@notes=$$(mktemp -t ibkr-release-notes.XXXXXX) && \
-	highlights=$$(mktemp -t ibkr-release-highlights.XXXXXX) && \
+	@notes=$$(mktemp -t canary-release-notes.XXXXXX) && \
+	highlights=$$(mktemp -t canary-release-highlights.XXXXXX) && \
 	trap 'rm -f $$notes $$highlights' EXIT && \
 	awk -v ver='$(RELEASE_VERSION)' '/^## v[0-9]/{ if(in_ver) exit; in_ver = ($$0 ~ "^## "ver" "); next } in_ver && /^### What.s new$$/{ in_new=1; next } in_ver && in_new && /^###/{ exit } in_new' CHANGELOG.md > $$highlights && \
 	awk -v ver='$(RELEASE_VERSION)' -v hf="$$highlights" '{ gsub(/__VERSION__/, ver) } /__HIGHLIGHTS__/{ while ((getline line < hf) > 0) print line; close(hf); next } { print }' .github/release-notes-template.md > $$notes && \
 	awk -v ver='$(RELEASE_VERSION)' '/^## v[0-9]/{ in_section = ($$0 ~ "^## " ver " "); skip=0; if(in_section){ next } } in_section && /^### What.s new$$/{ skip=1; next } in_section && skip && /^### /{ skip=0 } in_section && !skip' CHANGELOG.md >> $$notes && \
+	assets=""; asset_count=0; \
+	while read -r digest asset; do \
+		case "$$asset" in ""|*/*|*[!A-Za-z0-9._-]*) echo "_release-publish: unsafe SHA256SUMS asset name: $$asset" >&2; exit 1 ;; esac; \
+		[ -n "$$digest" ] && [ -f "$(DIST_DIR)/$$asset" ] || { echo "_release-publish: missing checksummed asset $$asset" >&2; exit 1; }; \
+		assets="$$assets $(DIST_DIR)/$$asset"; asset_count=$$((asset_count + 1)); \
+	done < "$(DIST_DIR)/SHA256SUMS"; \
+	[ "$$asset_count" -eq 10 ] || { echo "_release-publish: expected 10 checksummed payloads, got $$asset_count" >&2; exit 1; }; \
 	title="$${MESSAGE:-$(RELEASE_VERSION)}" && \
-	gh release create $(RELEASE_VERSION) --notes-file $$notes --title "$$title" --latest $(DIST_DIR)/*.tar.gz $(DIST_DIR)/*.mcpb $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc
+	gh release create $(RELEASE_VERSION) --notes-file $$notes --title "$$title" --latest $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc
 
 changelog-check: ## Verify CHANGELOG.md has no template or maintainer-process leakage
 	@./scripts/check-changelog-public.sh
@@ -895,7 +941,7 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 	@# test / build / smoke have already run.
 	$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
 	@# Non-patch releases change the public product surface enough that the
-	@# static osauer.dev/ibkr pages must be synced and pushed before tagging.
+	@# static osauer.dev/canary pages must be synced and pushed before tagging.
 	$(MAKE) release-site-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@# Refresh the S&P-500 membership list from Wikipedia. The release
 	@# flow runs this on every cut so every tagged binary carries a
@@ -924,7 +970,7 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 	@# Build the release binary with the target version stamped BEFORE
 	@# tagging — pass VERSION explicitly so the build doesn't fall back
 	@# to `git describe` (which wouldn't see the tag yet). The smoke
-	@# script asserts `bin/ibkr version == $(RELEASE_VERSION)`, so the
+	@# script asserts `bin/canary version == $(RELEASE_VERSION)`, so the
 	@# stamp has to match.
 	$(MAKE) build VERSION=$(RELEASE_VERSION)
 	@# Binding TWS/Gateway JSON + wire smoke against the freshly-stamped
@@ -935,7 +981,7 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 	@# a 1-share paper round-trip via an isolated daemon pinned to the
 	@# local PAPER session. No SKIP: a missing paper login aborts the
 	@# release. This replaces the human-certified runtime live gate.
-	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh bin/ibkr
+	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh bin/canary
 	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
 	git tag -a $(RELEASE_VERSION) -m "$$msg"
 	@$(MAKE) release-binaries RELEASE_VERSION=$(RELEASE_VERSION) || { \
@@ -946,13 +992,15 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
 	claude plugin tag . --push --message "$$msg"
 	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
-	$(MAKE) release-publish RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"
+	$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"
 	$(MAKE) registry-publish-verify-first RELEASE_VERSION=$(RELEASE_VERSION)
 	@echo
 	@echo "Released $(RELEASE_VERSION):"
-	@echo "  https://github.com/osauer/ibkr/releases/tag/$(RELEASE_VERSION)"
+	@echo "  https://github.com/osauer/canary/releases/tag/$(RELEASE_VERSION)"
 	@echo
 	@echo "Verify:"
-	@echo "  bin/ibkr version"
+	@echo "  bin/canary version"
+	@echo "  test ! -e bin/ibkr && test ! -L bin/ibkr"
 	@echo "  gh release view $(RELEASE_VERSION) --json assets -q '.assets[].name'"
-	@echo "  gh api repos/osauer/ibkr/git/refs/tags/ibkr--$(RELEASE_VERSION) --jq '.object.sha'"
+	@plugin_name=$$(sed -n 's/^[[:space:]]*\"name\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' .claude-plugin/plugin.json | head -n1); \
+	echo "  gh api repos/osauer/canary/git/refs/tags/$$plugin_name--$(RELEASE_VERSION) --jq '.object.sha'"

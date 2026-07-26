@@ -4,16 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/cli"
 )
 
 func confirmationFor(line string, catalog []cli.CommandSpec) (*confirmation, error) {
-	tokens, err := parseCommandLine(line)
+	tokens, err := parseTUICommandLine(line)
 	if err != nil {
 		return nil, err
-	}
-	if len(tokens) > 0 && tokens[0] == "ibkr" {
-		tokens = tokens[1:]
 	}
 	if len(tokens) == 0 {
 		return nil, nil

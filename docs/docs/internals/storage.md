@@ -1,11 +1,11 @@
 # Storage
 
-When `ibkr` restarts, it must pick up the same account context with the same
+When `canary` restarts, it must pick up the same account context with the same
 safety history: which state was current, which evidence supported a decision,
 which preview tokens were consumed, and how far broker order IDs advanced.
 
 That job belongs to the daemon's storage layer, a local SQLite file named
-`daemon.db` reached through a pure-Go driver inside the `ibkr` binary. SQLite
+`daemon.db` reached through a pure-Go driver inside the `canary` binary. SQLite
 supplies the storage engine. The surrounding code defines what may be stored,
 who may write it, and how it becomes safe to use.
 
@@ -95,7 +95,7 @@ matching `event_log` JSON and filter it in Go.
 
 [PNG fallback](../../diagrams/sqlite-data-model.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
-[Canonical DDL](https://github.com/osauer/ibkr/blob/main/internal/daemon/corestore/schema.go)
+[Canonical DDL](https://github.com/osauer/canary/blob/main/internal/daemon/corestore/schema.go)
 
 The diagram shows schema version 3. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
@@ -160,7 +160,7 @@ dashboards, and alternate files cannot replace this durable safety evidence.
 |---|---|---|
 | Current product or dashboard state | Typed daemon RPC and a daemon-owned reader | A new dashboard needs a defined contract before it gets a query. |
 | Regime, rules, Stress, or capital history | Existing CLI commands over typed daemon RPC | Most paths still scan canonical event JSON instead of indexed projections. |
-| Orders | `ibkr orders open`, `ibkr orders history`, and `ibkr order status` | Local lifecycle records explain intent and evidence; the broker Activity Statement remains execution truth. |
+| Orders | `canary orders open`, `canary orders history`, and `canary order status` | Local lifecycle records explain intent and evidence; the broker Activity Statement remains execution truth. |
 | Statement-derived equity | Typed reconciliation and equity readers | The current reader has a fixed result ceiling rather than a general paginated API. |
 | Retained observations | Narrow daemon-owned readers for their product purpose | General research access awaits a corrected time-and-ID pagination cursor. |
 | Offline forensic SQL | Stop the daemon and open `daemon.db` read-only, or inspect a verified consistent backup | SQL shapes are implementation details and may change with the binary. |

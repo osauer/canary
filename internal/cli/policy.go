@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // runPolicy renders and operates the risk constitution
@@ -38,7 +38,7 @@ func runPolicy(ctx context.Context, env *Env, args []string) int {
 	case "artefact":
 		return runPolicyArtefact(ctx, env, args)
 	default:
-		return fail(env, "policy: unknown subcommand %q (try `ibkr policy show --explain`)", sub)
+		return fail(env, "policy: unknown subcommand %q (try `canary policy show --explain`)", sub)
 	}
 }
 
@@ -116,7 +116,7 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		fmt.Fprintf(env.Stdout, "  loss from the mark  %14.2f %s  = %.1f%% of your declared risk capital%s\n", deref(c.DrawdownBase), cur, *c.ConsumedPct, drawdownLadderHint(res.Limits))
 	}
 	if c.BlockLatched {
-		fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — it stays on until you release it: `ibkr policy reset-drawdown --reason \"...\"`\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+		fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — it stays on until you release it: `canary policy reset-drawdown --reason \"...\"`\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
 	}
 	if c.LastReconciledAt.IsZero() {
 		fmt.Fprintln(env.Stdout, ledgerNeverVerifiedMessage(c))
@@ -208,9 +208,9 @@ func reconcileEvidenceDetail(c rpc.CapitalStateReport) string {
 
 func ledgerNeverVerifiedMessage(c rpc.CapitalStateReport) string {
 	if c.StatementCumFlowsBase != nil {
-		return "  ledger check        never verified against broker statements — run `ibkr recon`; a qualifying clean report extends automatically, otherwise use human sign-off"
+		return "  ledger check        never verified against broker statements — run `canary recon`; a qualifying clean report extends automatically, otherwise use human sign-off"
 	}
-	return "  ledger check        never verified against broker statements — run `ibkr recon`, then sign off the report it prints"
+	return "  ledger check        never verified against broker statements — run `canary recon`, then sign off the report it prints"
 }
 
 // capitalHeadline renders the tier as a sentence a human can act on, with
@@ -291,7 +291,7 @@ func runPolicyCapitalEvent(ctx context.Context, env *Env, args []string) int {
 
 func runPolicyOverride(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "policy override")
-	control := fs.String("control", "", "constitution key being excepted (see `ibkr policy show --explain`)")
+	control := fs.String("control", "", "constitution key being excepted (see `canary policy show --explain`)")
 	reason := fs.String("reason", "", "why this exception is justified (journaled verbatim)")
 	hours := fs.Int("hours", 0, "override lifetime; capped by override.max_duration_hours")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")

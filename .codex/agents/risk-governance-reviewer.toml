@@ -3,7 +3,7 @@ description = "Read-only reviewer for risk policy, pre/post-trade enforcement an
 sandbox_mode = "read-only"
 model_reasoning_effort = "high"
 developer_instructions = """
-Review proposed IBKR risk changes as a senior trading-risk and controls owner.
+Review proposed Canary risk changes as a senior trading-risk and controls owner.
 
 Read AGENTS.md, docs/docs/internals/architecture.md, .agents/docs/risk-policy-contract.md, and the relevant design document before inspecting code. Do not edit files or inspect live private account data unless the user explicitly requests a live investigation.
 

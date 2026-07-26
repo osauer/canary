@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/breadth/spx"
 )
 
 // TestBreadthMembers_CacheLoadOncePerProcess pins the lazy

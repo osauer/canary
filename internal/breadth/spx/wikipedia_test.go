@@ -105,20 +105,20 @@ func TestParseHTMLSortsAscending(t *testing.T) {
 // version segment have to stay readable.
 func TestUserAgentFormat(t *testing.T) {
 	ua := UserAgent("v0.33.0")
-	if !strings.HasPrefix(ua, "ibkr/v0.33.0 ") {
-		t.Errorf("missing ibkr/<version> prefix: %q", ua)
+	if !strings.HasPrefix(ua, "canary/v0.33.0 ") {
+		t.Errorf("missing canary/<version> prefix: %q", ua)
 	}
-	if !strings.Contains(ua, "github.com/osauer/ibkr") {
+	if !strings.Contains(ua, "github.com/osauer/canary") {
 		t.Errorf("missing project URL: %q", ua)
 	}
 }
 
 // TestUserAgentEmptyVersionFallback pins the dev-build fallback so an
 // unstamped binary (`go run` without ldflags) still presents a valid
-// UA rather than `ibkr/ ` with a blank version.
+// UA rather than `canary/ ` with a blank version.
 func TestUserAgentEmptyVersionFallback(t *testing.T) {
 	ua := UserAgent("")
-	if !strings.HasPrefix(ua, "ibkr/dev ") {
+	if !strings.HasPrefix(ua, "canary/dev ") {
 		t.Errorf("empty version should fall back to dev: %q", ua)
 	}
 }
@@ -148,7 +148,7 @@ func TestFetchAndParseHappyPath(t *testing.T) {
 	if asOf.IsZero() {
 		t.Error("asOf should be set")
 	}
-	if !strings.Contains(gotUA, "ibkr/v0.33.0") {
+	if !strings.Contains(gotUA, "canary/v0.33.0") {
 		t.Errorf("User-Agent not propagated: %q", gotUA)
 	}
 }

@@ -1,0 +1,14 @@
+interface:
+  display_name: "Canary Harness"
+  short_description: "Inspect live Canary harness contracts safely"
+  brand_color: "#2563EB"
+  default_prompt: "Use $canary-harness to inspect the account, rulebook, data quality, or a preview-only order contract safely."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "canary"
+      description: "Local read-only Canary MCP server for Interactive Brokers, exposed by this repo's CLI."
+
+policy:
+  allow_implicit_invocation: true

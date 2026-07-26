@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/dial"
-	"github.com/osauer/ibkr/v2/internal/mcp"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/mcp"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // streamingTestSymbol is the symbol every streaming integration test
@@ -30,7 +30,7 @@ const streamingTestTimeout = 8 * time.Second
 // TestStreamingDirectSubscribe is the end-to-end smoke for the daemon's
 // quote.subscribe RPC: open a dial.Conn against the shared daemon, call
 // Stream, assert at least one Frame arrives within the timeout. This is
-// the same code path `ibkr quote --watch` exercises, validated against a
+// the same code path `canary quote --watch` exercises, validated against a
 // live IB Gateway.
 func TestStreamingDirectSubscribe(t *testing.T) {
 	skipIfNoGateway(t)
@@ -145,7 +145,7 @@ func TestStreamingConcurrentSubscribers(t *testing.T) {
 // from stdout, and assert at least one resources/updated notification
 // arrives within the timeout.
 //
-// In-process rather than spawning `ibkr mcp` because we want to observe
+// In-process rather than spawning `canary mcp` because we want to observe
 // the wire output deterministically; the dialer points at the same
 // sharedSocket so the daemon-side fan-out machinery is exercised.
 func TestStreamingMCPResourceSubscribe(t *testing.T) {
@@ -164,7 +164,8 @@ func TestStreamingMCPResourceSubscribe(t *testing.T) {
 	buf.WriteString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
 	buf.WriteString(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
 	buf.WriteString(`{"jsonrpc":"2.0","id":2,"method":"resources/templates/list"}` + "\n")
-	buf.WriteString(`{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"ibkr://quote/` + streamingTestSymbol + `"}}` + "\n")
+	stockQuoteURI := strings.Replace(mcp.StockQuoteURITemplate, "{symbol}", streamingTestSymbol, 1)
+	buf.WriteString(`{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"` + stockQuoteURI + `"}}` + "\n")
 
 	out := &safeBuffer{}
 	ctx, cancel := context.WithTimeout(context.Background(), streamingTestTimeout)
@@ -195,7 +196,7 @@ func TestStreamingMCPResourceSubscribe(t *testing.T) {
 	if !strings.Contains(body, `"protocolVersion":"`+mcp.ProtocolVersion+`"`) {
 		t.Errorf("initialize response missing protocolVersion: %s", body)
 	}
-	if !strings.Contains(body, `"uriTemplate":"ibkr://quote/{symbol}"`) {
+	if !strings.Contains(body, `"uriTemplate":"`+mcp.StockQuoteURITemplate+`"`) {
 		t.Errorf("resources/templates/list response missing stock template: %s", body)
 	}
 	if !strings.Contains(body, `"method":"notifications/resources/updated"`) {

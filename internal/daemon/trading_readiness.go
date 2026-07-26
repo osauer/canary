@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 const (
@@ -290,7 +290,7 @@ func (s *tradingReadinessStore) CheckPaperSmoke(liveAccount, liveEndpoint string
 		return tradingPaperSmokeCheck{
 			Status:  tradingPaperSmokeStatusMissing,
 			Message: "live trading requires recent paper-smoke evidence in daemon-owned state",
-			Action:  "Run `ibkr trading paper-smoke` against the pinned paper account first.",
+			Action:  "Run `canary trading paper-smoke` against the pinned paper account first.",
 		}
 	}
 	f, err := s.Load()
@@ -298,14 +298,14 @@ func (s *tradingReadinessStore) CheckPaperSmoke(liveAccount, liveEndpoint string
 		return tradingPaperSmokeCheck{
 			Status:  tradingPaperSmokeStatusUnreadable,
 			Message: "paper-smoke evidence is unreadable",
-			Action:  "Inspect daemon storage health, then rerun `ibkr trading paper-smoke`.",
+			Action:  "Inspect daemon storage health, then rerun `canary trading paper-smoke`.",
 		}
 	}
 	if f.PaperSmoke == nil {
 		return tradingPaperSmokeCheck{
 			Status:  tradingPaperSmokeStatusMissing,
 			Message: "live trading requires recent paper-smoke evidence in daemon-owned state",
-			Action:  "Run `ibkr trading paper-smoke` against the pinned paper account first.",
+			Action:  "Run `canary trading paper-smoke` against the pinned paper account first.",
 		}
 	}
 	ev := f.PaperSmoke
@@ -313,7 +313,7 @@ func (s *tradingReadinessStore) CheckPaperSmoke(liveAccount, liveEndpoint string
 		return tradingPaperSmokeCheck{
 			Status:   tradingPaperSmokeStatusUnsigned,
 			Message:  "paper-smoke evidence is not signed by this daemon",
-			Action:   "Run `ibkr trading paper-smoke`; hand-written evidence is not accepted.",
+			Action:   "Run `canary trading paper-smoke`; hand-written evidence is not accepted.",
 			Evidence: ev,
 		}
 	}
@@ -321,7 +321,7 @@ func (s *tradingReadinessStore) CheckPaperSmoke(liveAccount, liveEndpoint string
 		return tradingPaperSmokeCheck{
 			Status:   tradingPaperSmokeStatusFailed,
 			Message:  "last paper-smoke evidence did not pass",
-			Action:   "Fix the paper order lifecycle and rerun `ibkr trading paper-smoke`.",
+			Action:   "Fix the paper order lifecycle and rerun `canary trading paper-smoke`.",
 			Evidence: ev,
 		}
 	}
@@ -330,7 +330,7 @@ func (s *tradingReadinessStore) CheckPaperSmoke(liveAccount, liveEndpoint string
 		return tradingPaperSmokeCheck{
 			Status:   tradingPaperSmokeStatusMismatch,
 			Message:  "paper-smoke evidence does not match the live account family, pinned host, client ID, binary version, or paper endpoint requirement",
-			Action:   "Run `ibkr trading paper-smoke` on the paper gateway that pairs with this live setup before enabling live.",
+			Action:   "Run `canary trading paper-smoke` on the paper gateway that pairs with this live setup before enabling live.",
 			Evidence: ev,
 		}
 	}
@@ -338,7 +338,7 @@ func (s *tradingReadinessStore) CheckPaperSmoke(liveAccount, liveEndpoint string
 		return tradingPaperSmokeCheck{
 			Status:   tradingPaperSmokeStatusStale,
 			Message:  "paper-smoke evidence is stale",
-			Action:   "Rerun `ibkr trading paper-smoke` before enabling live.",
+			Action:   "Rerun `canary trading paper-smoke` before enabling live.",
 			Evidence: ev,
 		}
 	}

@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const opportunityRefreshRetryBase = 30 * time.Second

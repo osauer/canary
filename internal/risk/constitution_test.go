@@ -246,6 +246,33 @@ timezone = "Europe/Berlin"
 	}
 }
 
+func TestConstitutionInventoryRejectsRetiredCanaryTOMLKey(t *testing.T) {
+	t.Parallel()
+	const input = `kind = "ibkr.risk_policy"
+schema_version = 1
+policy_id = "risk-constitution"
+policy_version = 1
+[inventory.canary]
+id = "active-v1"
+version = "risk-policy-v1"
+`
+	var constitution Constitution
+	metadata, err := toml.Decode(input, &constitution)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var unknown []string
+	for _, key := range metadata.Undecoded() {
+		unknown = append(unknown, key.String())
+	}
+	if got := strings.Join(unknown, ", "); !strings.Contains(got, "inventory.canary") {
+		t.Fatalf("undecoded keys=%q, want retired inventory.canary", got)
+	}
+	if constitution.Inventory.Stress != nil {
+		t.Fatalf("retired inventory.canary populated Stress: %+v", constitution.Inventory.Stress)
+	}
+}
+
 // Material keys never backfill: an empty file section validates but stays
 // unapproved, and a partially approved policy names exactly the gaps.
 func TestConstitutionUnapprovedKeys(t *testing.T) {

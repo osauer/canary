@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	"github.com/osauer/ibkr/v2/internal/regimerows"
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/regimerows"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 var stressPolicy = risk.DefaultPolicy()
@@ -21,6 +21,8 @@ const heldStressLimit = 5
 const (
 	stressEstablishedRegimeFingerprintVersion       = "regime-fp-v1"
 	stressEstablishedMarketEventsFingerprintVersion = "market-events-fp-v1"
+	stressEstablishedPolicyFingerprintVersion       = "canary-policy-fp-v1"
+	stressEstablishedOverallRowTitle                = "Portfolio canary"
 )
 
 // StressInput is the shared typed input contract defined by package rpc.
@@ -97,7 +99,7 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 		Portfolio:          summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now),
 		Market:             summarizeStressMarket(in.Regime, now),
 		MarketIndicators:   stressMarketIndicators(in.Regime, now),
-		NotExecution:       "Read-only stress snapshot; no orders are placed by ibkr.",
+		NotExecution:       "Read-only stress snapshot; no orders are placed by Canary.",
 	}
 	rows := []StressRow{
 		stressMarginRow(res.Portfolio),
@@ -238,13 +240,32 @@ func stressEstablishedAlertProjection(result StressResult) rpc.EstablishedAlertP
 		(severityRankAtLeast(result.Severity, risk.SeverityWatch) || actionEligible)
 	return rpc.EstablishedAlertProjection{
 		SchemaVersion:        rpc.EstablishedAlertProjectionSchemaVersion,
-		CanonicalFingerprint: rpc.Fingerprint{Version: rpc.EstablishedStressFingerprintVersion, Key: result.Fingerprint.Key},
+		CanonicalFingerprint: stressEstablishedAlertFingerprint(result),
 		OccurrenceEligible:   occurrenceEligible,
 		ActOnlyEligible:      occurrenceEligible && actionEligible,
 		Action:               result.Action,
 		MarketConfirmation:   result.MarketConfirmation,
 		Severity:             result.Severity,
 		PortfolioRelevant:    portfolioRelevant,
+	}
+}
+
+// stressEstablishedAlertFingerprint retains the exact semantic projection
+// hashed before the sensor rename. The current Stress result remains wholly
+// Stress-labelled; only this compatibility copy restores the two renamed
+// values that participate in the frozen key.
+func stressEstablishedAlertFingerprint(result StressResult) rpc.Fingerprint {
+	compatibility := result
+	compatibility.PolicyFingerprint.Version = stressEstablishedPolicyFingerprintVersion
+	compatibility.Rows = slices.Clone(result.Rows)
+	if len(compatibility.Rows) > 0 {
+		// computeStress always prepends the producer-owned overall row.
+		compatibility.Rows[0].Title = stressEstablishedOverallRowTitle
+	}
+	fingerprint := rpc.BuildStressFingerprint(&compatibility)
+	return rpc.Fingerprint{
+		Version: rpc.EstablishedStressFingerprintVersion,
+		Key:     fingerprint.Key,
 	}
 }
 

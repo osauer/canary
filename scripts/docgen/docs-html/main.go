@@ -30,9 +30,9 @@ import (
 )
 
 const (
-	publicBaseURL = "https://osauer.dev/ibkr/"
+	publicBaseURL = "https://osauer.dev/canary/"
 	// hubOutput is the handbook index. The site root is docs/, so the public
-	// /ibkr/docs/ prefix lands at docs/docs/ on disk.
+	// /canary/docs/ prefix lands at docs/docs/ on disk.
 	hubOutput = "docs/docs/index.html"
 	hubHref   = "docs/"
 )
@@ -59,7 +59,7 @@ var sections = []sectionSpec{
 	{
 		Slug:  "start",
 		Title: "Start",
-		Blurb: "Install ibkr, point it at a gateway and an MCP host, and confirm the desk is live.",
+		Blurb: "Install Canary, point it at a gateway and an MCP host, and confirm the desk is live.",
 	},
 	{
 		Slug:  "operate",
@@ -130,7 +130,7 @@ var pages = []pageSpec{
 		Section:     "start",
 		NavTitle:    "Install and first run",
 		Summary:     "Prerequisites, the install paths, and the first commands that prove the gateway is reachable.",
-		Description: "What has to be running before ibkr connects, which install path to choose on macOS or Linux, how to read the ibkr status health check, and where the binary, config, state, and logs are written.",
+		Description: "What has to be running before Canary connects, which install path to choose on macOS or Linux, how to read the status health check, and where the binary, config, state, and logs are written.",
 		Status:      statusPublished,
 	},
 	{
@@ -138,7 +138,7 @@ var pages = []pageSpec{
 		Section:     "start",
 		NavTitle:    "Connect an MCP host",
 		Summary:     "Wiring Claude Desktop, Claude Code, Cursor, and Zed to the local server, and checking the connection.",
-		Description: "How to point Claude Desktop, Claude Code, Cursor, Zed, or any stdio MCP host at the local ibkr server, confirm the connection, and see what the agent gets.",
+		Description: "How to point Claude Desktop, Claude Code, Cursor, Zed, or any stdio MCP host at the local Canary server, confirm the connection, and see what the agent gets.",
 		Status:      statusPublished,
 	},
 	{
@@ -146,7 +146,7 @@ var pages = []pageSpec{
 		Section:     "start",
 		NavTitle:    "Your first session",
 		Summary:     "A guided half hour: read the account, quote a symbol, run a brief, and interpret what comes back.",
-		Description: "A seven-command walkthrough of a first ibkr session: gateway health, account, positions, quote freshness, the daily brief, market context, and the same reads through an agent.",
+		Description: "A seven-command walkthrough of a first Canary session: gateway health, account, positions, quote freshness, the daily brief, market context, and the same reads through an agent.",
 		Status:      statusPublished,
 	},
 	{
@@ -154,7 +154,7 @@ var pages = []pageSpec{
 		Section:     "start",
 		NavTitle:    "Updating",
 		Summary:     "Update the binary, the Desktop extension, S&P 500 membership, calendars, and local process state.",
-		Description: "How to update the ibkr binary, Desktop extension, S&P 500 membership, calendars, and local process state.",
+		Description: "How to update the Canary binary, Desktop extension, S&P 500 membership, calendars, and local process state.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/guides/updating.html"},
 	},
@@ -163,7 +163,7 @@ var pages = []pageSpec{
 		Section:     "start",
 		NavTitle:    "Troubleshooting",
 		Summary:     "Gateway not reachable, stale quotes, a daemon that will not start, and the logs that answer each one.",
-		Description: "Symptom-first fixes for ibkr: gateway discovery and handshake errors, a daemon that will not start, delayed or frozen quotes, breadth and gamma states, MCP host wiring, and where the logs live.",
+		Description: "Symptom-first fixes for Canary: gateway discovery and handshake errors, a daemon that will not start, delayed or frozen quotes, breadth and gamma states, MCP host wiring, and where the logs live.",
 		Status:      statusPublished,
 	},
 
@@ -173,15 +173,15 @@ var pages = []pageSpec{
 		Section:     "operate",
 		NavTitle:    "The daily desk",
 		Summary:     "A working routine from the morning brief through regime, stress, and rules to the end-of-day read.",
-		Description: "The recurring ibkr trading-day loop in time order: which command to run before the open, how to read the brief's row statuses, what to leave watching during the session, and which checks the daemon already absorbs.",
+		Description: "The recurring Canary trading-day loop in time order: which command to run before the open, how to read the brief's row statuses, what to leave watching during the session, and which checks the daemon already absorbs.",
 		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/operate/agents.md",
 		Section:     "operate",
 		NavTitle:    "Working with agents",
-		Summary:     "Workflows, limits, and worked examples for driving ibkr from an MCP host.",
-		Description: "Practical agentic workflows, limits, and examples for using ibkr through an MCP host.",
+		Summary:     "Workflows, limits, and worked examples for driving Canary from an MCP host.",
+		Description: "Practical workflows, limits, and examples for using Canary through an MCP host.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/guides/agentic-use.html"},
 	},
@@ -189,8 +189,8 @@ var pages = []pageSpec{
 		Source:      "docs/docs/operate/app.md",
 		Section:     "operate",
 		NavTitle:    "The paired app",
-		Summary:     "Running ibkr app, pairing a phone, the event stream, and opt-in push notifications.",
-		Description: "How the ibkr app process serves the paired PWA, owns pairing, streams events, and sends opt-in push notifications.",
+		Summary:     "Running canary app, pairing a phone, the event stream, and opt-in push notifications.",
+		Description: "How the canary app process serves the paired PWA, owns pairing, streams events, and sends opt-in push notifications.",
 		Status:      statusPublished,
 	},
 	{
@@ -198,7 +198,7 @@ var pages = []pageSpec{
 		Section:     "operate",
 		NavTitle:    "Alerts and notifications",
 		Summary:     "What raises an alert, where it is delivered, how delivery is proven, and how to tune the noise down.",
-		Description: "The nine daemon producers that can raise an ibkr alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.",
+		Description: "The nine daemon producers that can raise a Canary alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.",
 		Status:      statusPublished,
 	},
 	{
@@ -206,7 +206,7 @@ var pages = []pageSpec{
 		Section:     "operate",
 		NavTitle:    "Order previews and the trading build",
 		Summary:     "The read-only default, what an order preview does and does not do, and the separate opt-in trading build.",
-		Description: "The read-only default in ibkr, what the order preview surface does, and how the separate experimental trading build is configured.",
+		Description: "The read-only default in Canary, what the order preview surface does, and how the separate experimental trading build is configured.",
 		Status:      statusPublished,
 	},
 	{
@@ -214,7 +214,7 @@ var pages = []pageSpec{
 		Section:     "operate",
 		NavTitle:    "Protection and emergency exits",
 		Summary:     "Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.",
-		Description: "How ibkr generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.",
+		Description: "How Canary generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.",
 		Status:      statusPublished,
 	},
 	{
@@ -222,7 +222,7 @@ var pages = []pageSpec{
 		Section:     "operate",
 		NavTitle:    "Reconciliation",
 		Summary:     "Matching broker statement flows against the declared capital ledger, and handling the lines that will not match.",
-		Description: "How ibkr recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.",
+		Description: "How canary recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.",
 		Status:      statusPublished,
 	},
 
@@ -242,7 +242,7 @@ var pages = []pageSpec{
 		Section:     "understand",
 		NavTitle:    "Sensors",
 		Summary:     "How each measurement establishes authority and freshness, and how a gap fails closed instead of guessing.",
-		Description: "How ibkr Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.",
+		Description: "How Canary Gamma, Regime, Stress, Rulebook, and market-event sensors establish authority, freshness, last-good context, and fail-closed data quality.",
 		Layout:      "architecture",
 		SocialImage: "diagrams/sensor-authority-pipeline.png",
 		Status:      statusPublished,
@@ -253,7 +253,7 @@ var pages = []pageSpec{
 		Section:     "understand",
 		NavTitle:    "Trading policy",
 		Summary:     "Who decides the risk boundaries, what the daemon evaluates, and what never becomes submit authority.",
-		Description: "Who decides trading policy in ibkr, what the daemon does today, how controls change, and what remains an explicit human decision.",
+		Description: "Who decides trading policy in Canary, what the daemon does today, how controls change, and what remains an explicit human decision.",
 		Layout:      "architecture",
 		SocialImage: "diagrams/policy-lifecycle.png",
 		Status:      statusPublished,
@@ -273,7 +273,7 @@ var pages = []pageSpec{
 		Section:     "understand",
 		NavTitle:    "Writing a risk policy",
 		Summary:     "Turning a personal risk mandate into the policy file: limits, drawdown ladder, overrides, and review.",
-		Description: "How to write the ibkr personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.",
+		Description: "How to write the Canary personal risk policy file: where it lives, what each section governs, what the schema refuses, and how a revision becomes effective.",
 		Status:      statusPublished,
 	},
 	{
@@ -281,7 +281,7 @@ var pages = []pageSpec{
 		Section:     "understand",
 		NavTitle:    "Market data and entitlements",
 		Summary:     "Which subscriptions produce real-time data, what delayed and frozen mean, and how freshness is reported.",
-		Description: "How market data reaches ibkr through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.",
+		Description: "How market data reaches Canary through your own TWS or IB Gateway session, what each data type supports, which surfaces need which entitlement, and what works with none.",
 		Layout:      "architecture",
 		Status:      statusPublished,
 	},
@@ -290,7 +290,7 @@ var pages = []pageSpec{
 		Section:     "understand",
 		NavTitle:    "Glossary",
 		Summary:     "One place for the terms the other pages assume: NLV, R-multiple, zero gamma, last-good, fingerprint.",
-		Description: "Alphabetical definitions of the broker, risk, options, market-state, and system terms the ibkr handbook uses, each linked to the page that owns it.",
+		Description: "Alphabetical definitions of the broker, risk, options, market-state, and system terms the Canary handbook uses, each linked to the page that owns it.",
 		Status:      statusPublished,
 	},
 
@@ -299,16 +299,16 @@ var pages = []pageSpec{
 		Source:      "docs/docs/reference/cli.md",
 		Section:     "reference",
 		NavTitle:    "CLI",
-		Summary:     "Every ibkr subcommand with its flags and usage, generated from the command registry in the binary.",
-		Description: "Generated reference for every ibkr subcommand, with its usage line, flags, subcommands, guard class, and MCP counterpart.",
+		Summary:     "Every Canary subcommand with its flags and usage, generated from the command registry in the binary.",
+		Description: "Generated reference for every Canary subcommand, with its usage line, flags, subcommands, guard class, and MCP counterpart.",
 		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/reference/mcp-tools.md",
 		Section:     "reference",
 		NavTitle:    "MCP tools",
-		Summary:     "Every tool exposed by ibkr mcp, with parameters and invocation guidance. Generated from the registry.",
-		Description: "Generated reference for every tool exposed by ibkr mcp, including parameters and invocation guidance.",
+		Summary:     "Every tool exposed by canary mcp, with parameters and invocation guidance. Generated from the registry.",
+		Description: "Generated reference for every tool exposed by canary mcp, including parameters and invocation guidance.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/reference/mcp-tools.html"},
 	},
@@ -317,7 +317,7 @@ var pages = []pageSpec{
 		Section:     "reference",
 		NavTitle:    "MCP resources",
 		Summary:     "The non-tool resources, including the live quote subscription URI template.",
-		Description: "Reference for the non-tool resources exposed by ibkr mcp, including live quote subscriptions.",
+		Description: "Reference for the non-tool resources exposed by canary mcp, including live quote subscriptions.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/reference/mcp-resources.html"},
 	},
@@ -326,7 +326,7 @@ var pages = []pageSpec{
 		Section:     "reference",
 		NavTitle:    "Configuration",
 		Summary:     "TOML configuration, policy files, runtime platform settings, and environment variables.",
-		Description: "Generated reference for ibkr TOML configuration, policy files, runtime platform settings, and environment variables.",
+		Description: "Generated reference for Canary TOML configuration, policy files, runtime platform settings, and environment variables.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/reference/config.html"},
 	},
@@ -335,7 +335,7 @@ var pages = []pageSpec{
 		Section:     "reference",
 		NavTitle:    "Releases and support",
 		Summary:     "Version scheme, what a release contains, how signatures are verified, and which versions are supported.",
-		Description: "What each ibkr release publishes, how the read-only and trading builds differ, how to verify a download against the maintainer's signing key, and how to report a security issue.",
+		Description: "What each Canary release publishes, how the read-only and trading builds differ, how to verify a download against the maintainer's signing key, and how to report a security issue.",
 		Status:      statusPublished,
 	},
 
@@ -345,7 +345,7 @@ var pages = []pageSpec{
 		Section:     "internals",
 		NavTitle:    "Architecture",
 		Summary:     "Runtime processes, typed contracts, external data flows, state ownership, and deployment boundaries.",
-		Description: "System architecture, protocols, external data flows, process boundaries, and local persistence for ibkr Canary.",
+		Description: "System architecture, protocols, external data flows, process boundaries, and local persistence for Canary.",
 		Layout:      "architecture",
 		SocialImage: "diagrams/system-architecture.png",
 		Status:      statusPublished,
@@ -356,7 +356,7 @@ var pages = []pageSpec{
 		Section:     "internals",
 		NavTitle:    "Storage",
 		Summary:     "Why the daemon uses SQLite, how the data model follows from its job, and how state survives a restart.",
-		Description: "How the ibkr daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.",
+		Description: "How the Canary daemon preserves state and evidence with SQLite, why the model exists, how data moves, and where the design must evolve.",
 		Layout:      "architecture",
 		SocialImage: "diagrams/storage-overview.png",
 		Status:      statusPublished,
@@ -385,7 +385,7 @@ var pages = []pageSpec{
 		Section:     "internals",
 		NavTitle:    "Regime and stress backtest runbook",
 		Summary:     "How the regime and stress lifecycle is proven and tuned against point-in-time evidence.",
-		Description: "Runbook for proving and tuning the ibkr regime and Stress lifecycle against point-in-time evidence.",
+		Description: "Runbook for proving and tuning the Regime and Stress lifecycle against point-in-time evidence.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/specs/regime-backtest-plan.html"},
 	},
@@ -411,7 +411,7 @@ var pages = []pageSpec{
 		Section:     "internals",
 		NavTitle:    "Packaging and distribution",
 		Summary:     "What each published artifact contains, how it is signed, and the boundary every channel ships with.",
-		Description: "How ibkr is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.",
+		Description: "How Canary is packaged and distributed: the plugin, the Claude Desktop bundle, directory metadata, signing, and the read-only boundary each channel ships with.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/guides/marketplace-readiness.html"},
 	},
@@ -425,7 +425,7 @@ var navItems = []struct{ Label, Href string }{
 	{"MCP tools", "docs/reference/mcp-tools.html"},
 	{"Remote app beta", "canary-remote/"},
 	{"Feedback", "feedback/"},
-	{"GitHub", "https://github.com/osauer/ibkr"},
+	{"GitHub", "https://github.com/osauer/canary"},
 }
 
 type headingInfo struct {
@@ -454,7 +454,7 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} | ibkr</title>
+  <title>{{.Title}} | Canary</title>
   <meta name="description" content="{{.Description}}">
   <link rel="canonical" href="{{.Canonical}}">
   <link rel="icon" type="image/png" href="{{.RootPrefix}}social/canary-icon.png">
@@ -465,15 +465,15 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
 <body class="docpage layout-{{.Layout}}">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="{{.RootPrefix}}index.html" aria-label="ibkr canary home"><img src="{{.RootPrefix}}social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="{{.RootPrefix}}index.html" aria-label="Canary home"><img src="{{.RootPrefix}}social/canary-icon.png" width="192" height="192" alt="">Canary</a>
 {{.Nav}}  </header>
   <div class="wrap shell">
 {{.SideNav}}    <main class="doc">
 {{.Body}}    </main>
   </div>
   <footer>
-    <div class="wrap"><a href="{{.RootPrefix}}index.html">ibkr</a><a href="{{.RootPrefix}}docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="{{.RootPrefix}}index.html">Canary</a><a href="{{.RootPrefix}}docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>
@@ -490,7 +490,7 @@ var redirectTemplate = template.Must(template.New("redirect").Parse(`<!doctype h
   <meta name="robots" content="noindex">
   <meta http-equiv="refresh" content="0; url={{.Target}}">
   <link rel="canonical" href="{{.Canonical}}">
-  <title>{{.Title}} | ibkr</title>
+  <title>{{.Title}} | Canary</title>
 </head>
 <body>
   <p>This page has moved to <a href="{{.Target}}">{{.Title}}</a>.</p>
@@ -688,7 +688,7 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 		},
 		"isPartOf": map[string]string{
 			"@type": "SoftwareApplication",
-			"name":  "ibkr",
+			"name":  "Canary",
 			"url":   publicBaseURL,
 		},
 	})
@@ -718,7 +718,7 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	}
 	if page.SocialImage != "" {
 		data.SocialHead = template.HTML(fmt.Sprintf(
-			"<meta property=\"og:type\" content=\"article\">\n  <meta property=\"og:title\" content=\"%s | ibkr\">\n  <meta property=\"og:description\" content=\"%s\">\n  <meta property=\"og:image\" content=\"%s\">\n  <meta name=\"twitter:card\" content=\"summary_large_image\">",
+			"<meta property=\"og:type\" content=\"article\">\n  <meta property=\"og:title\" content=\"%s | Canary\">\n  <meta property=\"og:description\" content=\"%s\">\n  <meta property=\"og:image\" content=\"%s\">\n  <meta name=\"twitter:card\" content=\"summary_large_image\">",
 			template.HTMLEscapeString(data.Title), template.HTMLEscapeString(data.Description), template.HTMLEscapeString(publicBaseURL+page.SocialImage),
 		))
 	}
@@ -732,7 +732,7 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 
 const generatorNotice = template.HTML("<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->")
 
-const hubDescription = "The ibkr canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath."
+const hubDescription = "The Canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath."
 
 // renderHub builds the handbook index from the manifest. Planned pages appear
 // with their scope but without a link, so a reader can see the whole shape
@@ -743,7 +743,7 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 
 	var body strings.Builder
 	body.WriteString("<h1>Documentation</h1>\n")
-	body.WriteString("<p class=\"hub-lead\">Everything written down about running an agentic trading desk on your own Interactive Brokers account. Start at the top if ibkr is new to you; the sections below get progressively closer to the code.</p>\n")
+	body.WriteString("<p class=\"hub-lead\">How to install, operate, and understand Canary against your own Interactive Brokers account. Start at the top if Canary is new to you; later sections move closer to the code.</p>\n")
 
 	for _, section := range sections {
 		fmt.Fprintf(&body, "<section class=\"hub-section\" id=\"%s\">\n", section.Slug)
@@ -774,12 +774,12 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 	jsonLD, err := json.Marshal(map[string]any{
 		"@context":    "https://schema.org",
 		"@type":       "CollectionPage",
-		"name":        "ibkr documentation",
+		"name":        "Canary documentation",
 		"description": hubDescription,
 		"url":         canonical,
 		"isPartOf": map[string]string{
 			"@type": "SoftwareApplication",
-			"name":  "ibkr",
+			"name":  "Canary",
 			"url":   publicBaseURL,
 		},
 	})
@@ -901,7 +901,7 @@ func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []b
 		github := &url.URL{
 			Scheme:   "https",
 			Host:     "github.com",
-			Path:     "/osauer/ibkr/blob/main/" + resolved,
+			Path:     "/osauer/canary/blob/main/" + resolved,
 			RawQuery: parsed.RawQuery,
 			Fragment: parsed.Fragment,
 		}

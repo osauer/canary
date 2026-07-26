@@ -9,18 +9,67 @@ dist_dir="${3:?dist dir required}"
 targets="${4:?release targets required}"
 jobs="${5:-1}"
 strip_ldflags="${6:--s -w}"
+ownership_marker=".canary-release-output"
 
 case "$mode" in all|mcpb|checksums) ;; *) echo "build-release-artifacts: invalid mode: $mode" >&2; exit 2 ;; esac
 case "$version" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "build-release-artifacts: invalid version: $version" >&2; exit 2 ;; esac
 case "$dist_dir" in /*) ;; *) echo "build-release-artifacts: dist directory must be absolute" >&2; exit 2 ;; esac
-if [ "$dist_dir" = "/" ] || [ "$dist_dir" = "$PWD" ]; then
-	echo "build-release-artifacts: refusing unsafe dist directory: $dist_dir" >&2
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+owner_repo="$(git -C "$script_dir" rev-parse --show-toplevel)"
+owner_repo="$(cd "$owner_repo" && pwd -P)"
+expected_dist="$owner_repo/dist"
+dist_leaf="${dist_dir##*/}"
+dist_parent="${dist_dir%/*}"
+if [ "$dist_leaf" != "dist" ] || [ ! -d "$dist_parent" ]; then
+	echo "build-release-artifacts: dist directory must be the caller repository output: $expected_dist" >&2
+	exit 2
+fi
+dist_dir="$(cd "$dist_parent" && pwd -P)/$dist_leaf"
+if [ "$dist_dir" != "$expected_dist" ]; then
+	echo "build-release-artifacts: dist directory must be the caller repository output: $expected_dist" >&2
+	exit 2
+fi
+if [ -L "$dist_dir" ]; then
+	echo "build-release-artifacts: refusing symlink dist directory: $dist_dir" >&2
 	exit 2
 fi
 case "$jobs" in ''|*[!0-9]*) echo "build-release-artifacts: jobs must be a positive integer" >&2; exit 2 ;; esac
 if [ "$jobs" -lt 1 ]; then
 	echo "build-release-artifacts: jobs must be a positive integer" >&2
 	exit 2
+fi
+
+ownership_record() {
+	printf '%s\n' \
+		'format=canary-release-output-v1' \
+		"repository=$owner_repo" \
+		"path=$expected_dist"
+}
+
+require_owned_dist() {
+	local marker="$dist_dir/$ownership_marker" expected actual
+	if [ ! -d "$dist_dir" ] || [ -L "$dist_dir" ]; then
+		echo "build-release-artifacts: existing output is not an owned directory: $dist_dir" >&2
+		exit 1
+	fi
+	if [ ! -f "$marker" ] || [ -L "$marker" ]; then
+		echo "build-release-artifacts: existing output lacks a regular ownership marker: $marker" >&2
+		exit 1
+	fi
+	expected="$(ownership_record)"
+	actual="$(cat "$marker")"
+	if [ "$actual" != "$expected" ]; then
+		echo "build-release-artifacts: existing output ownership marker does not match this repository" >&2
+		exit 1
+	fi
+}
+
+if [ -e "$dist_dir" ]; then
+	require_owned_dist
+elif [ "$mode" != "all" ]; then
+	echo "build-release-artifacts: owned output does not exist; run all mode first" >&2
+	exit 1
 fi
 
 tag_commit="$(git rev-parse --verify "refs/tags/$version^{commit}")"
@@ -31,29 +80,56 @@ if [ "$head_commit" != "$tag_commit" ] || [ -n "$(git status --porcelain)" ]; th
 fi
 release_date="$(git show -s --format=%cI HEAD)"
 release_ldflags="$strip_ldflags -X main.version=$version -X main.commit=$head_commit -X main.date=$release_date"
+artifact_dir="$dist_dir"
+stage_dir=""
+cleanup() {
+	if [ -n "$stage_dir" ] && [ -d "$stage_dir" ]; then
+		rm -rf -- "$stage_dir"
+	fi
+}
+trap cleanup EXIT HUP INT TERM
 
 build_mcpb() {
-	./scripts/build-mcpb.sh "$version" "$dist_dir" "$targets"
+	./scripts/build-mcpb.sh "$version" "$artifact_dir" "$targets"
 }
 
 build_checksums() {
-	if ! ls "$dist_dir"/ibkr-"$version"-*.tar.gz >/dev/null 2>&1; then
-		echo "build-release-artifacts: missing read-only release tarballs" >&2
-		exit 1
-	fi
-	if ! ls "$dist_dir"/ibkr-trading-"$version"-*.tar.gz >/dev/null 2>&1; then
-		echo "build-release-artifacts: missing trading release tarballs" >&2
-		exit 1
-	fi
-	for asset in "ibkr-$version.mcpb" ibkr.mcpb; do
-		if [ ! -f "$dist_dir/$asset" ]; then
-			echo "build-release-artifacts: missing $dist_dir/$asset" >&2
+	local release_assets=() target prefix asset
+	for target in $targets; do
+		for prefix in canary canary-trading; do
+			asset="${prefix}-${version}-${target}.tar.gz"
+			if [ ! -f "$artifact_dir/$asset" ]; then
+				echo "build-release-artifacts: missing $artifact_dir/$asset" >&2
+				exit 1
+			fi
+			release_assets+=("$asset")
+		done
+	done
+	for asset in "canary-$version.mcpb" canary.mcpb; do
+		if [ ! -f "$artifact_dir/$asset" ]; then
+			echo "build-release-artifacts: missing $artifact_dir/$asset" >&2
 			exit 1
 		fi
+		release_assets+=("$asset")
 	done
+
+	expected_tarballs="$(printf '%s\n' "${release_assets[@]}" | grep -E '\.tar\.gz$' | sort)"
+	actual_tarballs="$(find "$artifact_dir" -maxdepth 1 -type f -name '*.tar.gz' -exec basename {} \; | sort)"
+	if [ "$actual_tarballs" != "$expected_tarballs" ]; then
+		echo "build-release-artifacts: release tarball inventory is not exact" >&2
+		diff -u <(printf '%s\n' "$expected_tarballs") <(printf '%s\n' "$actual_tarballs") >&2 || true
+		exit 1
+	fi
+	expected_mcpbs="$(printf '%s\n' "${release_assets[@]}" | grep -E '\.mcpb$' | sort)"
+	actual_mcpbs="$(find "$artifact_dir" -maxdepth 1 -type f -name '*.mcpb' -exec basename {} \; | sort)"
+	if [ "$actual_mcpbs" != "$expected_mcpbs" ]; then
+		echo "build-release-artifacts: release MCPB inventory is not exact" >&2
+		diff -u <(printf '%s\n' "$expected_mcpbs") <(printf '%s\n' "$actual_mcpbs") >&2 || true
+		exit 1
+	fi
 	(
-		cd "$dist_dir"
-		shasum -a 256 ibkr-"$version"-*.tar.gz ibkr-trading-"$version"-*.tar.gz "ibkr-$version.mcpb" ibkr.mcpb > SHA256SUMS
+		cd "$artifact_dir"
+		shasum -a 256 "${release_assets[@]}" > SHA256SUMS
 	)
 	command -v gpg >/dev/null 2>&1 || {
 		echo "build-release-artifacts: gpg not on PATH" >&2
@@ -66,7 +142,7 @@ build_checksums() {
 	fi
 	echo "==> signing SHA256SUMS with the key pinned by $version"
 	(
-		cd "$dist_dir"
+		cd "$artifact_dir"
 		gpg --batch --yes --local-user "$expected_fp" --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
 		gpg --verify SHA256SUMS.asc SHA256SUMS >/dev/null 2>&1
 	)
@@ -74,11 +150,18 @@ build_checksums() {
 
 case "$mode" in
 	all)
-		rm -rf "$dist_dir"
-		mkdir -p "$dist_dir"
-		printf '%s\n' $targets | xargs -P "$jobs" -I {} ./scripts/build-release-target.sh {} "$version" "$release_ldflags" "$dist_dir"
+		stage_dir="$(mktemp -d "$owner_repo/.canary-release-output.XXXXXX")"
+		artifact_dir="$stage_dir"
+		ownership_record > "$artifact_dir/$ownership_marker"
+		printf '%s\n' $targets | xargs -P "$jobs" -I {} ./scripts/build-release-target.sh {} "$version" "$release_ldflags" "$artifact_dir"
 		build_mcpb
 		build_checksums
+		if [ -e "$dist_dir" ]; then
+			require_owned_dist
+			rm -rf -- "$dist_dir"
+		fi
+		mv "$stage_dir" "$dist_dir"
+		stage_dir=""
 		;;
 	mcpb)
 		build_mcpb

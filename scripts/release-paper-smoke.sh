@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # release-paper-smoke.sh — binding release gate: run the daemon-observed
-# paper order round-trip (`ibkr trading paper-smoke`: place 1-share
+# paper order round-trip (`canary trading paper-smoke`: place 1-share
 # far-off-market SPY LMT → broker ack → cancel → cancel confirm) against
 # an isolated daemon pinned to the local *paper* TWS/Gateway session.
 #
@@ -14,7 +14,7 @@
 #   - smoke result != passed      → release aborts
 #
 # Usage:
-#   scripts/release-paper-smoke.sh [--preview-only] <bin/ibkr>
+#   scripts/release-paper-smoke.sh [--preview-only] <bin/canary>
 #
 # --preview-only runs a production order preview through account-currency,
 # notional/FX, and broker WhatIf authority, then exits without placing an
@@ -24,7 +24,7 @@
 # Environment hooks:
 #   IBKR_TEST_HOST        — gateway host (default 127.0.0.1)
 #   IBKR_PAPER_PORTS      — space-separated paper probe ports (default "4002 7497")
-#   IBKR_SMOKE_CLIENT_ID  — client ID for the isolated daemon (default derived)
+#   CANARY_SMOKE_CLIENT_ID — client ID for the isolated daemon (default derived)
 #
 set -euo pipefail
 
@@ -37,7 +37,7 @@ if [[ "${1:-}" == "--preview-only" ]]; then
     shift
 fi
 
-BIN="${1:?usage: release-paper-smoke.sh [--preview-only] <bin/ibkr>}"
+BIN="${1:?usage: release-paper-smoke.sh [--preview-only] <bin/canary>}"
 if [[ ! -x "$BIN" ]]; then
     echo "release-paper-smoke: $BIN not executable" >&2
     exit 2
@@ -67,7 +67,7 @@ if [[ -z "$PORT" ]]; then
 fi
 echo "release-paper-smoke: paper gateway present at ${HOST}:${PORT}"
 
-CLIENT_ID="${IBKR_SMOKE_CLIENT_ID:-$((300 + ($$ % 600)))}"
+CLIENT_ID="${CANARY_SMOKE_CLIENT_ID:-$((300 + ($$ % 600)))}"
 
 TMPDIR_BASE="${TMPDIR:-/tmp}"
 SMOKE_DIR="$(mktemp -d "$TMPDIR_BASE/ibkr-paper-smoke-XXXXXX")"
@@ -76,9 +76,9 @@ LOG="$SMOKE_DIR/ibkr-daemon.log"
 LOCK="$SMOKE_DIR/ibkr.lock"
 CONFIG="$SMOKE_DIR/config.toml"
 
-export IBKR_SOCKET="$SOCKET"
-export IBKR_LOG="$LOG"
-export IBKR_CONFIG="$CONFIG"
+export CANARY_SOCKET="$SOCKET"
+export CANARY_LOG="$LOG"
+export CANARY_CONFIG="$CONFIG"
 # Isolated trading state: evidence, journal, and tokens must not touch the
 # user's canonical daemon state.
 export XDG_STATE_HOME="$SMOKE_DIR/state"

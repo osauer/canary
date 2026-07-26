@@ -207,7 +207,10 @@ test("render uses only API title and body, and records the exact unread set rend
     high_water_seq: 4,
     refs: [{ display_id: "alert-0123456789abcdef", source: "canary", kind: "portfolio_risk" }],
   });
+  assert.match(visibleText(elements.get("currentSignalList").children[0]), /Stress · open/);
+  assert.doesNotMatch(visibleText(elements.get("currentSignalList").children[0]), /canary/i);
   assert.match(elements.get("alertDeliveryAcceptance").textContent, /does not prove the phone displayed it or that it was read/i);
+  assert.equal(elements.get("alertSourceList").children[0].children[0].textContent, "Stress");
   assert.match(elements.get("alertSourceList").children[0].children[1].textContent, /current · authoritative/);
 });
 

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/app/push"
-	"github.com/osauer/ibkr/v2/internal/app/state"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/app/push"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestDispatcherObserveConfirmsSendsAndDeduplicates(t *testing.T) {

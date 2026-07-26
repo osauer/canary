@@ -24,13 +24,13 @@ func TestNewRejectsSecondAppForSameStateDir(t *testing.T) {
 		_ = second.Close()
 		t.Fatalf("second New unexpectedly succeeded")
 	}
-	if !strings.Contains(err.Error(), "another ibkr app process is already running") {
+	if !strings.Contains(err.Error(), "another Canary app process is already running") {
 		t.Fatalf("second New error = %v", err)
 	}
 }
 
 func TestDefaultOptionsMarksPublicURLFromEnv(t *testing.T) {
-	t.Setenv("IBKR_APP_PUBLIC_URL", " http://example.test:8765/ ")
+	t.Setenv("CANARY_APP_PUBLIC_URL", " http://example.test:8765/ ")
 
 	opts := DefaultOptions("test")
 	if !opts.PublicURLFromEnv {
@@ -42,8 +42,8 @@ func TestDefaultOptionsMarksPublicURLFromEnv(t *testing.T) {
 }
 
 func TestDefaultOptionsRemoteEnv(t *testing.T) {
-	t.Setenv("IBKR_APP_REMOTE", "yes")
-	t.Setenv("IBKR_APP_REMOTE_URL", " https://remote.example.test/ ")
+	t.Setenv("CANARY_APP_REMOTE", "yes")
+	t.Setenv("CANARY_APP_REMOTE_URL", " https://remote.example.test/ ")
 
 	opts := DefaultOptions("test")
 	if !opts.Remote {

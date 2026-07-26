@@ -11,7 +11,7 @@ remains unapproved until the operator writes it into the policy file.
 The machine-readable policy is the constitution. `~/.config/ibkr/policies/
 risk-policy.toml` is the single authority over personal capital numbers;
 code owns schema, validation, calculation, and non-overridable invariants;
-daemon runtime state owns observed and derived facts; `ibkr policy show
+daemon runtime state owns observed and derived facts; `canary policy show
 --explain` renders the whole contract. A prose constitution is optional and
 must not duplicate numbers.
 
@@ -45,7 +45,7 @@ must not duplicate numbers.
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback or unavailable state |
 |---|---|---|---|---|
-| Capital numbers, ladder, override cap, cadence declarations, sibling pins | `risk-policy.toml` (no embedded default) | `risk.Constitution` | `ibkr policy show [--explain]` | missing file/key ⇒ `unapproved`, never a code value |
+| Capital numbers, ladder, override cap, cadence declarations, sibling pins | `risk-policy.toml` (no embedded default) | `risk.Constitution` | `canary policy show [--explain]` | missing file/key ⇒ `unapproved`, never a code value |
 | Schema, validation, evaluation, explain text | code | `internal/risk/constitution*.go` | all | n/a |
 | Policy identity | manager | `rpc.RiskPolicyResult.PolicyFingerprint` (`risk-constitution-fp-v1`) | policy show, journals | absent |
 | Adjusted peak, drawdown tier, latch, flows, overrides, artefacts | daemon runtime state | daemon.db `risk_capital` state document plus `capital_events` | policy show | unseeded ⇒ tier `unknown`; storage failure ⇒ unavailable |
@@ -67,7 +67,7 @@ peak and a withdrawal is not a fake drawdown. A deposit whose effective
 time precedes the recorded peak corrects the peak downward (never-inflate).
 Since phase 3a (risk-policy v2, internal-docs/design/post-trade-truth.md) the
 reconcile event is a human sign-off against a specific, fully resolved
-`ibkr recon` report — bare attestation is retired, and the `[recon]`
+`canary recon` report — bare attestation is retired, and the `[recon]`
 policy keys define what counts as a matching exception.
 
 Since risk-policy v3 (2026-07-18, internal-docs/design/operator-ergonomics.md):
@@ -107,7 +107,7 @@ internal/daemon/risk_policy_manager.go TOML manager (absent/active/drift/error)
 internal/daemon/risk_capital_state.go  peak/latch/events/overrides/artefacts + journals
 internal/daemon/risk_policy_handlers.go RPC handlers + preview cause
 internal/daemon/recon_auto_extend.go   v3 clean-report auto-extend (startup + post-ingest only)
-internal/cli/policy.go                 ibkr policy show/capital-event/override/reset-drawdown/artefact
+internal/cli/policy.go                 canary policy show/capital-event/override/reset-drawdown/artefact
 examples/risk-policy.toml              operator template (all material keys commented out)
 ```
 
@@ -117,7 +117,7 @@ cutover inputs, not live fallbacks.
 
 ## Deferred (explicitly not in phase 1)
 
-MCP `ibkr_policy` tool; SPA card; push alerts; Flex/Activity ingestion;
+MCP `canary_policy` tool; SPA card; push alerts; Flex/Activity ingestion;
 promotion of any control to hard; automated reports (phase 4); capital
 allocation responses (phase 5). The stress policy fingerprint label is
 `stress-policy-fp-v1` (originally `risk-policy-fp-v1`) to keep identities
@@ -128,6 +128,6 @@ unambiguous; fingerprint keys are unchanged.
 Revert the files above. The risk-capital document and governance events remain
 inside daemon.db and may be ignored by older feature code, but daemon.db must
 not be deleted or replaced; the operator's TOML remains separate policy
-authority. User-visible change on rollback: `ibkr policy` disappears and
+authority. User-visible change on rollback: `canary policy` disappears and
 previews lose the advisory `capital_drawdown` cause; no trading-path behavior
 changes either way.

@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/ibkr/v2/pkg/ibkr/internal/logging"
+	"github.com/osauer/canary/v2/pkg/ibkr/internal/logging"
 )
 
 // ConnectionStatus identifies the lifecycle state of a [Connection].
@@ -51,7 +51,7 @@ var (
 	// same notice. Consumers branch on this via errors.Is so the retry
 	// path is decoupled from the human-readable wording. Producers wrap
 	// it with the original gateway text via %w for context.
-	errClientIDInUse = errors.New("ibkr: client id already in use")
+	errClientIDInUse = errors.New("IBKR: client ID already in use")
 	ibkrLogger       = logging.Component("IBKR")
 	connectLogger    = logging.Component("IBKR Connect")
 	wireLogger       = logging.Component("IBKR Wire")
@@ -1030,7 +1030,7 @@ func (c *Connection) Disconnect() error {
 	// only checks stopChan between Read() calls, so a reader parked on a
 	// blocking socket read won't honour the close — it unblocks only when the
 	// TCP socket above is closed. Without this bound, SIGTERM would propagate
-	// through cmd/ibkr/daemon.go -> Server.Stop -> here and pin the process
+	// through cmd/canary/daemon.go -> Server.Stop -> here and pin the process
 	// forever; user-visible symptom was "Quit doesn't work, only Force Quit."
 	waitDone := make(chan struct{})
 	go func() {

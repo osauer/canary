@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runHistory(ctx context.Context, env *Env, args []string) int {
@@ -17,7 +17,7 @@ func runHistory(ctx context.Context, env *Env, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail(env, "history: usage: ibkr history SYM [--days N]")
+		return fail(env, "history: usage: canary history SYM [--days N]")
 	}
 	params := rpc.HistoryDailyParams{
 		Symbol: strings.ToUpper(rest[0]),

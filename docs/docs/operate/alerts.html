@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Alerts and notifications | ibkr</title>
-  <meta name="description" content="The nine daemon producers that can raise an ibkr alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/alerts.html">
+  <title>Alerts and notifications | Canary</title>
+  <meta name="description" content="The nine daemon producers that can raise a Canary alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/operate/alerts.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The nine daemon producers that can raise an ibkr alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.","headline":"Alerts and notifications","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/alerts.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The nine daemon producers that can raise a Canary alert, the single paired-app inbox they share, the three notification modes and the per-source delivery gate, and what a push-service acceptance does and does not prove.","headline":"Alerts and notifications","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/operate/alerts.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -110,7 +110,7 @@
 <p>Daemon-owned heartbeats re-observe the sources every 30 seconds, so a condition can open with no app or CLI window anywhere. A source that cannot express both an active fact and a trustworthy negative counts as uncovered, and an uncovered source can neither clear a condition nor authorize a push.</p>
 <h2 id="where-it-goes">Where it goes</h2>
 <p>Every occurrence enters one inbox on the Alerts tab of <a href="app.html">the paired app</a>, under a single read-through cursor shared by all paired devices. The inbox shows a redacted display id and fixed app-authored copy; producer keys, targets, and receipts stay private.</p>
-<p>The CLI has no alerts command. <code>ibkr stress --view alert</code> (which requires <code>--json</code>) gives the compact stress view, and <code>ibkr brief</code> and <code>ibkr rules</code> carry the same facts as rows.</p>
+<p>The CLI has no alerts command. <code>canary stress --view alert</code> (which requires <code>--json</code>) gives the compact stress view, and <code>canary brief</code> and <code>canary rules</code> carry the same facts as rows.</p>
 <p>Phone notifications are configured under Settings → Phone notifications. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.</p>
 <div class="tblwrap">
 <table>
@@ -159,8 +159,8 @@
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

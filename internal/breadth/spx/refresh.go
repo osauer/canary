@@ -9,7 +9,7 @@ import (
 
 // RefreshState reflects the current health of the members-list
 // refresher. Surfaced on the wire by the daemon's status handler so
-// `ibkr status` can flag silent parser rot or a long-disabled
+// `canary status` can flag silent parser rot or a long-disabled
 // auto-refresh.
 type RefreshState string
 
@@ -29,7 +29,7 @@ const (
 	// RefreshDisabledConfig means the daemon's config.toml has
 	// `[spx] members_auto_refresh = false`.
 	RefreshDisabledConfig RefreshState = "disabled (config)"
-	// RefreshDisabledEnv means the IBKR_SPX_MEMBERS_AUTO_REFRESH env
+	// RefreshDisabledEnv means the CANARY_SPX_MEMBERS_AUTO_REFRESH env
 	// var force-disabled refresh (=0), regardless of TOML.
 	RefreshDisabledEnv RefreshState = "disabled (env)"
 )
@@ -106,7 +106,7 @@ type RefresherOptions struct {
 	// force-enable. The refresher renders the state as
 	// "disabled (config)" and Run() returns immediately.
 	PinnedByConfig bool
-	// PinnedByEnv is true when IBKR_SPX_MEMBERS_AUTO_REFRESH=0 is
+	// PinnedByEnv is true when CANARY_SPX_MEMBERS_AUTO_REFRESH=0 is
 	// set. Takes precedence over PinnedByConfig in the status
 	// surface. Run() returns immediately. Env=1 force-enables and
 	// leaves both Pinned* flags false even when TOML says false —

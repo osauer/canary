@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // pickedExpiration carries one (date, trading-class, strikes) tuple
@@ -98,7 +98,7 @@ func buildPickedExpirations(c expiryStrikesClassedFetcher, sym string, spotAt ti
 	// sibling classes on a date, and merging them creates false jobs that
 	// later fall into per-leg contract-detail resolution. That waterfall is
 	// exactly what trips the gateway pacing guard. The default selector
-	// mirrors `ibkr chain`: prefer the symbol class when present, otherwise
+	// mirrors `canary chain`: prefer the symbol class when present, otherwise
 	// use the only/first listed class for that date.
 	out := pickDefaultClassedExpirations(sym, classed, spotAt, expiryCount)
 	if len(out) == 0 {

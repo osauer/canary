@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 func openStatementProjectionTestServer(t *testing.T) (*Server, *corestore.Store, time.Time) {

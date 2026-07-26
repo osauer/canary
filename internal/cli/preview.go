@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/osauer/ibkr/v2/internal/risk"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // PreviewRenderAccount renders synthetic account data with the production text

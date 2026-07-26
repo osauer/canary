@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Opportunity research harness | ibkr</title>
+  <title>Opportunity research harness | Canary</title>
   <meta name="description" content="The diagnostic harness that captures point-in-time evidence, scores later outcomes, and reports whether a candidate strategy is still too weak to trust.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/internals/opportunity-research.html">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/internals/opportunity-research.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The diagnostic harness that captures point-in-time evidence, scores later outcomes, and reports whether a candidate strategy is still too weak to trust.","headline":"Opportunity research harness","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/internals/opportunity-research.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"The diagnostic harness that captures point-in-time evidence, scores later outcomes, and reports whether a candidate strategy is still too weak to trust.","headline":"Opportunity research harness","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/internals/opportunity-research.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -137,7 +137,7 @@ paths, so a strategy can be researched without becoming execution policy.</li>
 </ul>
 <h2 id="capture-candidates">Capture candidates</h2>
 <p>Scanner capture collects current market candidates:</p>
-<pre><code class="language-sh">ibkr backtest capture-opportunity \
+<pre><code class="language-sh">canary backtest capture-opportunity \
   --preset top-movers \
   --append build/backtest/opportunity-pit.jsonl \
   --json
@@ -168,14 +168,14 @@ watchlist. Two further flags change what a captured row carries:</p>
 after capture.</p>
 <h2 id="score-rows">Score rows</h2>
 <p>After the forward window is observable, export bars and score the PIT ledger:</p>
-<pre><code class="language-sh">ibkr backtest export-opportunity-bars \
+<pre><code class="language-sh">canary backtest export-opportunity-bars \
   --symbols NVDA,MSFT,AVGO,QQQ \
   --bars build/backtest/opportunity-bars.jsonl \
   --bars-manifest build/backtest/opportunity-bars.manifest.json \
   --benchmark QQQ \
   --json
 
-ibkr backtest score-opportunity \
+canary backtest score-opportunity \
   --input build/backtest/opportunity-pit.jsonl \
   --bars build/backtest/opportunity-bars.jsonl \
   --bars-manifest build/backtest/opportunity-bars.manifest.json \
@@ -187,11 +187,11 @@ return, excess return, adverse excursion, favorable excursion, and a target
 label.</p>
 <h2 id="compare-plans">Compare plans</h2>
 <p>List registered plans:</p>
-<pre><code class="language-sh">ibkr backtest research-opportunity --list-plans
+<pre><code class="language-sh">canary backtest research-opportunity --list-plans
 </code></pre>
 <p>Compare selected plans, or pass <code>--plan all</code> for every registered plan. Add
 <code>--json</code> for notebooks, spreadsheets, or repeatable notes:</p>
-<pre><code class="language-sh">ibkr backtest research-opportunity \
+<pre><code class="language-sh">canary backtest research-opportunity \
   --input build/backtest/opportunity-scored.jsonl \
   --plan pullback_uptrend_rs63_v1,pullback_uptrend_rs63_macro_veto_v1
 </code></pre>
@@ -270,8 +270,8 @@ holdout evidence.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

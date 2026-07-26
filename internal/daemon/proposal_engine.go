@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const (
@@ -111,9 +111,9 @@ func (s *Server) installProposalEngine() {
 // account/positions fetch failure, no concrete account identity yet). It
 // doubles per consecutive transient failure and caps at the sustained-outage
 // ceiling. Without it the startup refresh races the gateway connect and the
-// cached "ibkr connection unavailable" blocker is served for a full cadence
+// cached "IBKR connection unavailable" blocker is served for a full cadence
 // (observed 2026-06-11: the SPA protection panel sat on the error for
-// 15 minutes after every `ibkr restart`).
+// 15 minutes after every `canary restart`).
 const proposalRefreshRetryBase = 30 * time.Second
 
 // proposalRefreshBackoffCap bounds sustained-failure retries independently of
@@ -1653,7 +1653,7 @@ func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.
 		return []rpc.TradingBlocker{{
 			Code:    "existing_protective_order",
 			Message: fmt.Sprintf("open order %s already works %s %s (%s)", v.OrderRef, p.Action, p.Symbol, nonEmptyString(v.OrderType, "order")),
-			Action:  fmt.Sprintf("Keep the standing protection, or cancel it first with `ibkr order cancel %s` before submitting a replacement.", v.OrderRef),
+			Action:  fmt.Sprintf("Keep the standing protection, or cancel it first with `canary order cancel %s` before submitting a replacement.", v.OrderRef),
 		}}
 	}
 	return nil

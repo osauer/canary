@@ -20,11 +20,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/marketcal"
-	ibkrlib "github.com/osauer/ibkr/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 	// polls. Each worker is a passive tick-wait on one held market-data
 	// subscription, so 8 in flight is negligible against the gateway's
 	// slot pool; runBounded caps workers at len(symbols) for small books.
-	// Sequential polling made every canary run pay symbols ×
+	// Sequential polling made every Stress run pay symbols ×
 	// marketEventsBorrowPollBudget for books whose names never deliver
 	// tick 236 (observed: 3 EUR names → +7.5 s per run, and the proposal
 	// engine's 8 s market-events context expiring mid-snapshot).
@@ -53,7 +53,7 @@ const (
 	// failure. Without failure memory a blocked endpoint re-burns its
 	// full timeout on EVERY market-events snapshot — observed with
 	// ftp3.interactivebrokers.com:21 filtered by the local network: a
-	// 10 s dial hang per canary run, forever. Halts retries sooner than
+	// 10 s dial hang per Stress run, forever. Halts retries sooner than
 	// the others because it is the active-halt/LULD detector — a
 	// transient failure shouldn't blind it for long — and one timeout
 	// per minute is an acceptable cap.
@@ -271,7 +271,7 @@ func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs 
 		AsOf:          now,
 		Symbols:       symbols,
 		BySymbol:      map[string][]rpc.MarketEventFlag{},
-		NotExecution:  "Market-event flags are observed context and daemon safety gates; no orders are placed by ibkr.",
+		NotExecution:  "Market-event flags are observed context and daemon safety gates; no orders are placed by Canary.",
 	}
 	if len(symbols) == 0 {
 		res.WarningDetails = append(res.WarningDetails, rpc.DataWarning{

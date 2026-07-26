@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/ibkr/v2/internal/config"
-	"github.com/osauer/ibkr/v2/internal/daemon/corestore"
-	"github.com/osauer/ibkr/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
@@ -281,7 +281,7 @@ func TestPlatformSettingsStressJournalMigratesStoredCanaryKey(t *testing.T) {
 	}
 	defer core.Close()
 
-	// Exactly what a pre-rename daemon persisted after `ibkr settings set
+	// Exactly what a pre-rename daemon persisted after `canary settings set
 	// canary.journal.enabled=false`.
 	legacy := []byte(`{"version":1,"trading_control_generation":0,` +
 		`"features":{"purge_restore":{},"stock_protection":{},"rulebook":{}},` +
@@ -348,10 +348,10 @@ func TestPlatformSettingsStressJournalMigratesStoredCanaryKey(t *testing.T) {
 	}
 }
 
-// TestPlatformSettingsDocumentUpgradeRules pins the decode contract itself: an
-// unversioned document is read with the version-1 spelling, a version-2
-// document is taken as-is, and an unknown version is refused rather than
-// silently reset to defaults.
+// TestPlatformSettingsDocumentUpgradeRules pins the decode contract itself:
+// each document version accepts exactly its own spelling and shape. This is a
+// safety boundary because accepting a legacy false under the wrong key can
+// silently reveal the current true default.
 func TestPlatformSettingsDocumentUpgradeRules(t *testing.T) {
 	t.Parallel()
 	disabled := false
@@ -365,7 +365,16 @@ func TestPlatformSettingsDocumentUpgradeRules(t *testing.T) {
 		{name: "version 1 canary", raw: `{"version":1,"canary":{"journal":{"enabled":false}}}`, want: &disabled},
 		{name: "version 1 without a preference", raw: `{"version":1}`},
 		{name: "version 2 stress", raw: `{"version":2,"stress":{"journal":{"enabled":false}}}`, want: &disabled},
-		{name: "version 2 ignores a stale canary key", raw: `{"version":2,"canary":{"journal":{"enabled":false}}}`},
+		{name: "version 2 rejects legacy canary", raw: `{"version":2,"canary":{"journal":{"enabled":false}}}`, wantErr: `unknown field "canary"`},
+		{name: "version 1 rejects current stress", raw: `{"version":1,"stress":{"journal":{"enabled":false}}}`, wantErr: `unknown field "stress"`},
+		{name: "unversioned rejects current stress", raw: `{"stress":{"journal":{"enabled":false}}}`, wantErr: `unknown field "stress"`},
+		{name: "version 1 rejects mixed spellings", raw: `{"version":1,"canary":{"journal":{"enabled":false}},"stress":{"journal":{"enabled":true}}}`, wantErr: `unknown field "stress"`},
+		{name: "version 2 rejects mixed spellings", raw: `{"version":2,"stress":{"journal":{"enabled":true}},"canary":{"journal":{"enabled":false}}}`, wantErr: `unknown field "canary"`},
+		{name: "rejects unknown top-level field", raw: `{"version":2,"surprise":true}`, wantErr: `unknown field "surprise"`},
+		{name: "rejects unknown nested field", raw: `{"version":2,"stress":{"journal":{"enabled":false,"surprise":true}}}`, wantErr: `unknown field "surprise"`},
+		{name: "rejects trailing JSON", raw: `{"version":2} {"version":2}`, wantErr: "trailing JSON"},
+		{name: "rejects explicit null version", raw: `{"version":null}`, wantErr: "version must be an integer"},
+		{name: "rejects explicit version zero", raw: `{"version":0}`, wantErr: "unsupported version 0"},
 		{name: "unknown version", raw: `{"version":3}`, wantErr: "unsupported version 3"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

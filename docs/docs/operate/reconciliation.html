@@ -4,24 +4,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reconciliation | ibkr</title>
-  <meta name="description" content="How ibkr recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.">
-  <link rel="canonical" href="https://osauer.dev/ibkr/docs/operate/reconciliation.html">
+  <title>Reconciliation | Canary</title>
+  <meta name="description" content="How canary recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.">
+  <link rel="canonical" href="https://osauer.dev/canary/docs/operate/reconciliation.html">
   <link rel="icon" type="image/png" href="../../social/canary-icon.png">
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How ibkr recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.","headline":"Reconciliation","isPartOf":{"@type":"SoftwareApplication","name":"ibkr","url":"https://osauer.dev/ibkr/"},"url":"https://osauer.dev/ibkr/docs/operate/reconciliation.html"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","author":{"@type":"Person","name":"Oliver Sauer","url":"https://github.com/osauer"},"description":"How canary recon matches IBKR Flex statement flows against declared capital events, how to read each exception category, and which parts of the loop run without a person.","headline":"Reconciliation","isPartOf":{"@type":"SoftwareApplication","name":"Canary","url":"https://osauer.dev/canary/"},"url":"https://osauer.dev/canary/docs/operate/reconciliation.html"}</script>
   <link rel="stylesheet" href="../../shared.css">
 </head>
 <body class="docpage layout-standard">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../../index.html" aria-label="ibkr canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">ibkr canary</a>
+    <a class="brand" href="../../index.html" aria-label="Canary home"><img src="../../social/canary-icon.png" width="192" height="192" alt="">Canary</a>
     <nav class="nav-links" aria-label="Site">
       <a href="../../docs/">Documentation</a>
       <a href="../../docs/reference/mcp-tools.html">MCP tools</a>
       <a href="../../canary-remote/">Remote app beta</a>
       <a href="../../feedback/">Feedback</a>
-      <a href="https://github.com/osauer/ibkr">GitHub</a>
+      <a href="https://github.com/osauer/canary">GitHub</a>
     </nav>
   </header>
   <div class="wrap shell">
@@ -103,7 +103,7 @@
     <main class="doc">
 <h1 id="reconciliation">Reconciliation</h1>
 <p>Updated: 2026-07-25 12:07 CEST</p>
-<p><code>ibkr recon</code> matches the external cash flows on your IBKR Flex statements
+<p><code>canary recon</code> matches the external cash flows on your IBKR Flex statements
 against the capital events you declared. The statement is the broker's record.
 The declared ledger and the local order journal are claims about intent, never
 truth, so when the two disagree the report says so rather than splitting the
@@ -113,13 +113,13 @@ so equity that moved because you moved money has to be separated from equity
 that moved because the market did. Declaring a loss as a withdrawal is the one
 channel that could understate drawdown, and it lands here as a <code>ledger_only</code>
 exception.</p>
-<p><code>ibkr recon</code> is CLI-only and advisory. It has no MCP tool, and nothing on this
+<p><code>canary recon</code> is CLI-only and advisory. It has no MCP tool, and nothing on this
 page touches submit eligibility, freeze, pins, or any order path.</p>
 <h2 id="running-it">Running it</h2>
-<pre><code class="language-sh">ibkr recon
-ibkr recon --refresh
-ibkr recon equity
-ibkr recon backtest
+<pre><code class="language-sh">canary recon
+canary recon --refresh
+canary recon equity
+canary recon backtest
 </code></pre>
 <p>With no subcommand it runs <code>show</code>. <code>--refresh</code> kicks one background Flex fetch
 before reporting. <code>equity</code> prints the statement-derived daily equity series with
@@ -202,13 +202,13 @@ backs it.</p>
 </li>
 <li>
 <p><strong>Dismiss with a reason</strong> when the line is deliberately not a ledger event:</p>
-<pre><code class="language-sh">ibkr recon dismiss --line LINE_ID --reason &quot;...&quot;
+<pre><code class="language-sh">canary recon dismiss --line LINE_ID --reason &quot;...&quot;
 </code></pre>
 <p>Both flags are required. Dismissal is a human-only governance act; an agent
 origin is refused. It is written to the governance journal with the line id,
 your reason verbatim, the report id, and the policy fingerprint. The journal
 is the only place dismissals live, and the report reads them back on every
-run. Dismissing changes the report id, so rerun <code>ibkr recon</code> before relying
+run. Dismissing changes the report id, so rerun <code>canary recon</code> before relying
 on it.</p>
 </li>
 </ol>
@@ -227,11 +227,11 @@ conditions are checked rather than assumed: the policy active, the report free
 of unresolved exceptions, the statement fresher than <code>max_report_age_days</code>, and
 a same-day statement-versus-runtime equity comparison inside
 <code>max_equity_divergence_pct</code>. When that holds, the extension is journaled against
-the report id and <code>ibkr recon</code> says the clock was extended automatically. When
+the report id and <code>canary recon</code> says the clock was extended automatically. When
 it does not hold, the report says the automatic extension was not recorded and
 leaves the clock alone.</p>
 <p>So the human job is the exception and the deliberate case, not a weekly ritual.
-<code>ibkr policy capital-event reconcile</code> remains for a report carrying exceptions
+<code>canary policy capital-event reconcile</code> remains for a report carrying exceptions
 and for a sign-off you want on the record. During a statement-source outage the
 sanctioned path is a one-shot, expiring, journaled override on
 <code>capital.max_unreconciled_days</code>, which keeps the outage visible instead of
@@ -243,8 +243,8 @@ owns the capital-event vocabulary and the drawdown state this feeds.</p>
     </main>
   </div>
   <footer>
-    <div class="wrap"><a href="../../index.html">ibkr</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/ibkr">GitHub</a><a href="https://github.com/osauer/ibkr/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/ibkr/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. ibkr is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="../../index.html">Canary</a><a href="../../docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
+    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
   </footer>
 </body>
 </html>

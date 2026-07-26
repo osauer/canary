@@ -3,7 +3,7 @@
 # build-mcpb.sh - assemble the release MCP Bundle from the native tarballs.
 #
 # Called by `make release-mcpb` after `make release-binaries` has produced
-# dist/ibkr-vX.Y.Z-<os>-<arch>.tar.gz. The bundle reuses those tarball
+# dist/canary-vX.Y.Z-<os>-<arch>.tar.gz. The bundle reuses those tarball
 # binaries so the one-click MCPB path and the direct-download path ship the
 # same stamped executables.
 
@@ -22,9 +22,9 @@ case "$version" in
 esac
 
 semver="${version#v}"
-stage="${dist_dir}/mcpb/ibkr"
-bundle="${dist_dir}/ibkr-${version}.mcpb"
-stable_bundle="${dist_dir}/ibkr.mcpb"
+stage="${dist_dir}/mcpb/canary"
+bundle="${dist_dir}/canary-${version}.mcpb"
+stable_bundle="${dist_dir}/canary.mcpb"
 
 mcpb_package="${MCPB_PACKAGE:-@anthropic-ai/mcpb@2.1.2}"
 mcpb() {
@@ -36,7 +36,7 @@ mkdir -p "$stage/server/bin"
 install -m 0644 web/app/icon-512.png "$stage/icon.png"
 
 for target in $targets; do
-    tarball="${dist_dir}/ibkr-${version}-${target}.tar.gz"
+    tarball="${dist_dir}/canary-${version}-${target}.tar.gz"
     if [[ ! -f "$tarball" ]]; then
         echo "build-mcpb: missing release tarball: $tarball" >&2
         exit 1
@@ -44,13 +44,13 @@ for target in $targets; do
 
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' RETURN
-    tar -xzf "$tarball" -C "$tmp" "ibkr-${version}-${target}/ibkr"
-    install -m 0755 "$tmp/ibkr-${version}-${target}/ibkr" "$stage/server/bin/ibkr-${target}"
+    tar -xzf "$tarball" -C "$tmp" "canary-${version}-${target}/canary"
+    install -m 0755 "$tmp/canary-${version}-${target}/canary" "$stage/server/bin/canary-${target}"
     rm -rf "$tmp"
     trap - RETURN
 done
 
-cat > "$stage/server/ibkr" <<'SH'
+cat > "$stage/server/canary" <<'SH'
 #!/usr/bin/env sh
 set -eu
 
@@ -60,7 +60,7 @@ case "$(uname -s)" in
     Darwin) os=darwin ;;
     Linux) os=linux ;;
     *)
-        echo "ibkr MCPB: unsupported OS $(uname -s); supported: Darwin, Linux" >&2
+        echo "Canary MCPB: unsupported OS $(uname -s); supported: Darwin, Linux" >&2
         exit 127
         ;;
 esac
@@ -69,30 +69,30 @@ case "$(uname -m)" in
     arm64|aarch64) arch=arm64 ;;
     x86_64|amd64) arch=amd64 ;;
     *)
-        echo "ibkr MCPB: unsupported architecture $(uname -m); supported: arm64, amd64" >&2
+        echo "Canary MCPB: unsupported architecture $(uname -m); supported: arm64, amd64" >&2
         exit 127
         ;;
 esac
 
-bin="$server_dir/bin/ibkr-$os-$arch"
+bin="$server_dir/bin/canary-$os-$arch"
 if [ ! -x "$bin" ]; then
-    echo "ibkr MCPB: missing bundled binary $bin" >&2
+    echo "Canary MCPB: missing bundled binary $bin" >&2
     exit 127
 fi
 
 exec "$bin" "$@"
 SH
-chmod 0755 "$stage/server/ibkr"
+chmod 0755 "$stage/server/canary"
 
 cat > "$stage/manifest.json" <<JSON
 {
   "\$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
   "manifest_version": "0.4",
-  "name": "ibkr",
-  "display_name": "canary ibkr",
+  "name": "canary",
+  "display_name": "Canary",
   "version": "$semver",
-  "description": "No-broker-write Interactive Brokers MCP server for account, market analysis, and preview-only drafts.",
-  "long_description": "ibkr packages a local no-broker-write Interactive Brokers (IBKR) MCP server for Claude Desktop and other MCPB-compatible clients. It exposes account, positions, quotes, watchlists, option chains, scanners, technical screens, breadth, dealer gamma, risk-regime context, and preview-only stock/ETF order drafts through the local ibkr CLI. It cannot place, modify, cancel, or transmit broker orders.",
+  "description": "Canary's no-broker-write Interactive Brokers MCP server for account, market analysis, and preview-only drafts.",
+  "long_description": "Canary packages a local no-broker-write Interactive Brokers (IBKR) MCP server for Claude Desktop and other MCPB-compatible clients. It exposes account, positions, quotes, watchlists, option chains, scanners, technical screens, breadth, dealer gamma, risk-regime context, and preview-only stock/ETF order drafts through the local Canary CLI. It cannot place, modify, cancel, or transmit broker orders.",
   "icon": "icon.png",
   "icons": [
     {
@@ -106,16 +106,16 @@ cat > "$stage/manifest.json" <<JSON
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/osauer/ibkr"
+    "url": "https://github.com/osauer/canary"
   },
-  "homepage": "https://osauer.dev/ibkr/",
-  "documentation": "https://osauer.dev/ibkr/docs/",
-  "support": "https://github.com/osauer/ibkr/issues",
+  "homepage": "https://osauer.dev/canary/",
+  "documentation": "https://osauer.dev/canary/docs/",
+  "support": "https://github.com/osauer/canary/issues",
   "server": {
     "type": "binary",
-    "entry_point": "server/ibkr",
+    "entry_point": "server/canary",
     "mcp_config": {
-      "command": "\${__dirname}/server/ibkr",
+      "command": "\${__dirname}/server/canary",
       "args": ["mcp"],
       "env": {}
     }
@@ -133,7 +133,7 @@ cat > "$stage/manifest.json" <<JSON
   ],
   "license": "MIT",
   "privacy_policies": [
-    "https://github.com/osauer/ibkr/blob/$version/PRIVACY.md"
+    "https://github.com/osauer/canary/blob/$version/PRIVACY.md"
   ],
   "compatibility": {
     "platforms": ["darwin", "linux"]
@@ -163,16 +163,16 @@ fi
 mcpb info "$bundle"
 cp "$bundle" "$stable_bundle"
 cmp -s "$bundle" "$stable_bundle" || {
-    echo "build-mcpb: stable asset differs from versioned bundle" >&2
+    echo "build-mcpb: stable asset differs from versioned bundle: $stable_bundle" >&2
     exit 1
 }
 
 unpack_dir="$(mktemp -d)"
 trap 'rm -rf "$unpack_dir"' EXIT
 mcpb unpack "$bundle" "$unpack_dir" >/dev/null
-wrapped_version="$("$unpack_dir/server/ibkr" version | head -n1)"
+wrapped_version="$("$unpack_dir/server/canary" version | head -n1)"
 case "$wrapped_version" in
-    "ibkr $version"*|"ibkr  $version"*|"IBKR CLI  $version"*) ;;
+    "canary $version"*|"canary  $version"*|"Canary CLI  $version"*) ;;
     *)
         echo "build-mcpb: unpacked wrapper reports unexpected version: $wrapped_version" >&2
         exit 1
