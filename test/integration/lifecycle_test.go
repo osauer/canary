@@ -75,7 +75,8 @@ func lifecycleEnv(t *testing.T) (env []string, socketPath, logPath string) {
 // pattern, it stays a pure tripwire only as long as that invariant holds.
 func reapLeakedTestApps(t *testing.T) {
 	t.Helper()
-	out, err := exec.Command("pgrep", "-f", regexp.QuoteMeta(sharedCLI)+" app").Output()
+	pattern := leakedTestAppPattern(sharedCLI)
+	out, err := exec.Command("pgrep", "-f", pattern).Output()
 	if err != nil {
 		return // pgrep exits 1 when nothing matches
 	}
@@ -86,6 +87,28 @@ func reapLeakedTestApps(t *testing.T) {
 		}
 		t.Errorf("test binary leaked a `canary app` process (pid %d) — restart's app management escaped the CANARY_SOCKET scope; killing it", pid)
 		killDaemonTree(pid)
+	}
+}
+
+// leakedTestAppPattern uses the conventional self-excluding character class:
+// it matches a real "<sharedCLI> app" argv, but the literal "[a]pp" in pgrep's
+// own argv does not match itself. Without this, parallel lifecycle cleanups can
+// match each other's pgrep processes and report two false app leaks even though
+// restart correctly skipped app management for the overridden socket.
+func leakedTestAppPattern(cliPath string) string {
+	return regexp.QuoteMeta(cliPath) + " [a]pp"
+}
+
+func TestLifecycle_LeakedAppPatternExcludesParallelPgrep(t *testing.T) {
+	cliPath := "/tmp/canary-integration/bin/canary"
+	pattern := leakedTestAppPattern(cliPath)
+	re := regexp.MustCompile(pattern)
+
+	if !re.MatchString(cliPath + " app --remote") {
+		t.Fatal("leak tripwire no longer matches a real Canary app process")
+	}
+	if re.MatchString("pgrep -f " + pattern) {
+		t.Fatal("leak tripwire matches its own pgrep argv")
 	}
 }
 
