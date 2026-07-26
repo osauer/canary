@@ -13,24 +13,27 @@ fixture="$test_root/repo"
 dist="$test_root/dist"
 fake_bin="$test_root/fake-bin"
 packed_stage="$test_root/packed-stage"
+targets="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"
 mkdir -p "$fixture/scripts" "$fixture/web/app" "$dist" "$fake_bin"
 cp "$repo_root/scripts/build-mcpb.sh" "$fixture/scripts/"
 printf '%s\n' 'fixture icon' > "$fixture/web/app/icon-512.png"
 
-archive_root="$test_root/archive/canary-v1.2.3-darwin-arm64"
-mkdir -p "$archive_root"
-cat > "$archive_root/canary" <<'EOF'
+for target in $targets; do
+	archive_root="$test_root/archive/canary-v1.2.3-$target"
+	mkdir -p "$archive_root"
+	cat > "$archive_root/canary" <<'EOF'
 #!/bin/sh
 case "${1:-}" in
 	version) printf '%s\n' 'Canary CLI  v1.2.3' ;;
 	*) exit 2 ;;
 esac
 EOF
-chmod 0755 "$archive_root/canary"
-(
-	cd "$test_root/archive"
-	tar -czf "$dist/canary-v1.2.3-darwin-arm64.tar.gz" canary-v1.2.3-darwin-arm64
-)
+	chmod 0755 "$archive_root/canary"
+	(
+		cd "$test_root/archive"
+		tar -czf "$dist/canary-v1.2.3-$target.tar.gz" "canary-v1.2.3-$target"
+	)
+done
 
 cat > "$fake_bin/npx" <<'EOF'
 #!/bin/bash
@@ -65,7 +68,7 @@ chmod 0755 "$fake_bin/npx"
 	cd "$fixture"
 	PATH="$fake_bin:/usr/bin:/bin" \
 	MCPB_FIXTURE_PACKED_STAGE="$packed_stage" \
-		./scripts/build-mcpb.sh v1.2.3 "$dist" darwin-arm64
+		./scripts/build-mcpb.sh v1.2.3 "$dist" "$targets"
 )
 
 canonical="$dist/canary-v1.2.3.mcpb"
@@ -105,10 +108,12 @@ fi
 	echo "build-mcpb test: legacy server/ibkr entry point was retained" >&2
 	exit 1
 }
-[ -x "$packed_stage/server/bin/canary-darwin-arm64" ] || {
-	echo "build-mcpb test: canonical bundled binary entry is missing" >&2
-	exit 1
-}
+for target in $targets; do
+	[ -x "$packed_stage/server/bin/canary-$target" ] || {
+		echo "build-mcpb test: canonical bundled binary entry is missing for $target" >&2
+		exit 1
+	}
+done
 grep -Fq 'canary-${version}-${target}/canary' "$fixture/scripts/build-mcpb.sh" || {
 	echo "build-mcpb test: bundle assembly did not consume the canonical archive entry" >&2
 	exit 1
