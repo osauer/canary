@@ -27,7 +27,10 @@ func TestSpawnDaemonFromExecutableReapsShortLivedChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	// The contract is "eventually reaped, never a zombie" — not reap latency.
+	// Under the release pipeline's fully parallel gates the 2s this budget
+	// started at was consumed whole by scheduler starvation (-race, -j).
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return
@@ -52,7 +55,9 @@ func TestAutospawnExactExecutableHonorsCallerStartupTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("slow daemon unexpectedly opened a socket")
 	}
-	if elapsed < timeout || elapsed > time.Second {
+	// Upper bound must stay well under AutospawnTimeout (5s) to keep proving
+	// the caller budget was honored, while tolerating loaded-gate scheduling.
+	if elapsed < timeout || elapsed > 3*time.Second {
 		t.Fatalf("exact startup wait = %s, want caller budget near %s rather than ordinary %s", elapsed, timeout, AutospawnTimeout)
 	}
 }
