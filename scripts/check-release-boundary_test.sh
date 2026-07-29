@@ -10,15 +10,28 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+# Fixture makes run with a scrubbed environment and cwd pinned inside the
+# fixture dir. Inside the release pipeline, MAKEFLAGS carries MAKELEVEL and
+# RELEASE_PIPELINE_ENTRY=release into every descendant make — on 2026-07-29
+# that armed the fixture guards and the fixture's then-real `gh release
+# create` executed against the repository and published a bogus release.
+# Publication recipes below are therefore inert (`touch guard-leaked &&
+# false`, command text kept as a trailing comment for the checker's scan),
+# so even a broken guard can only write a marker and fail.
+fixture_make() {
+	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL RELEASE_PIPELINE_ENTRY= \
+		make -s -C "$test_root" -f Makefile "$@"
+}
+
 mkdir -p "$test_root/scripts" "$test_root/.github/workflows"
 cat > "$test_root/Makefile" <<'EOF'
 _release-publish:
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then exit 1; fi
-	gh release create v1.2.3
+	@touch guard-leaked && false # gh release create v1.2.3
 _release-run:
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then exit 1; fi
-	git tag -a v1.2.3 -m fixture
-	git push origin v1.2.3
+	@touch guard-leaked && false # git tag -a v1.2.3 -m fixture
+	@touch guard-leaked && false # git push origin v1.2.3
 	$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release
 release:
 	$(MAKE) -C . _release-run RELEASE_PIPELINE_ENTRY=release
@@ -31,14 +44,33 @@ chmod 0755 "$test_root/scripts/package.sh"
 
 "$checker" "$test_root" >/dev/null
 
-if make -s -f "$test_root/Makefile" _release-publish >/dev/null 2>&1; then
+rm -f "$test_root/guard-leaked"
+if fixture_make _release-publish >/dev/null 2>&1; then
 	echo "check-release-boundary test: direct internal publication helper invocation passed" >&2
 	exit 1
 fi
-if make -s -f "$test_root/Makefile" _release-run >/dev/null 2>&1; then
+if [ -e "$test_root/guard-leaked" ]; then
+	echo "check-release-boundary test: _release-publish guard leaked; publication recipe executed" >&2
+	exit 1
+fi
+if fixture_make _release-run >/dev/null 2>&1; then
 	echo "check-release-boundary test: direct internal pipeline body invocation passed" >&2
 	exit 1
 fi
+if [ -e "$test_root/guard-leaked" ]; then
+	echo "check-release-boundary test: _release-run guard leaked; publication recipe executed" >&2
+	exit 1
+fi
+
+# Regression for the 2026-07-29 incident: under a pipeline-shaped
+# environment the guards legitimately pass, so the inert recipes are the
+# last line of defense — the invocation must still fail rather than publish.
+if MAKEFLAGS="RELEASE_PIPELINE_ENTRY=release" MAKELEVEL=4 RELEASE_PIPELINE_ENTRY=release \
+	make -s -C "$test_root" -f Makefile _release-publish >/dev/null 2>&1; then
+	echo "check-release-boundary test: pipeline-shaped env let the publication recipe succeed" >&2
+	exit 1
+fi
+rm -f "$test_root/guard-leaked"
 
 cat > "$test_root/scripts/rogue.sh" <<'EOF'
 #!/bin/sh
