@@ -938,7 +938,9 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 		exit 1; \
 	fi
 
-_release-run: ## Internal: release pipeline body; runs inside the worktree created by `make release`
+# Internal: release pipeline body; runs inside the worktree created by
+# `make release`. Deliberately not advertised in `make help`.
+_release-run:
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then \
 		echo "_release-run: internal pipeline body; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
