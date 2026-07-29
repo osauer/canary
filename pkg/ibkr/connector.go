@@ -190,8 +190,11 @@ type Connector struct {
 	// dataFarms records the latest IBKR data-farm notice per farm. The
 	// status endpoint surfaces only unhealthy entries, but keeping the
 	// healthy notices here lets a later "OK" clear an earlier break.
-	dataFarmMu sync.RWMutex
-	dataFarms  map[string]DataFarmStatus
+	// farmRecoveryAt stamps the most recent impaired->ok transition; see
+	// farmRecoverySettleWindow.
+	dataFarmMu     sync.RWMutex
+	dataFarms      map[string]DataFarmStatus
+	farmRecoveryAt time.Time
 
 	// pnl holds account-level and per-conId Daily P&L subscription state.
 	// The cache is on the Connector (not the Connection) so a Connection
@@ -457,21 +460,39 @@ func (c *Connector) marketDataAbsenceFor(key string) *MarketDataAbsenceError {
 	}
 }
 
+// farmRecoverySettleWindow keeps the impairment verdict standing after a
+// farm reports OK. TWS flushes answers to requests queued during an outage
+// as a burst around the status transition, and those answers carry
+// outage-era verdicts: on 2026-07-29 the per-farm break notices for the
+// 16:24 outage arrived 4s AFTER the queued code=200 burst they explain, and
+// the 16:22 flap healed every farm within seconds of breaking it. A window
+// after the last impaired->ok transition absorbs both edges; a genuinely
+// dead symbol just confirms one settle window later.
+const farmRecoverySettleWindow = time.Minute
+
+func farmStatusImpaired(status string) bool {
+	return status == "disconnected" || status == "broken"
+}
+
 // marketDataFarmImpaired reports whether any market-data (or TWS-server
-// connectivity) farm is currently disconnected/broken. Absence recording
-// is gated on this: a 354 raised while a farm is bouncing says nothing
-// about entitlement, and remembering it would blind an entitled name (the
-// SPY/zero-gamma worst case) for a full retry window — a farm bounce does
-// not rebuild the Connector, so the reconnect-clears-memory path would not
-// save it. "inactive" farms stay eligible: that status is the normal
-// off-hours idle state, not an outage.
+// connectivity) farm is currently disconnected/broken, or recovered less
+// than farmRecoverySettleWindow ago. Absence recording is gated on this: a
+// 354 raised while a farm is bouncing says nothing about entitlement, and
+// remembering it would blind an entitled name (the SPY/zero-gamma worst
+// case) for a full retry window — a farm bounce does not rebuild the
+// Connector, so the reconnect-clears-memory path would not save it.
+// "inactive" farms stay eligible: that status is the normal off-hours idle
+// state, not an outage.
 func (c *Connector) marketDataFarmImpaired() bool {
 	c.dataFarmMu.RLock()
 	defer c.dataFarmMu.RUnlock()
+	if !c.farmRecoveryAt.IsZero() && time.Since(c.farmRecoveryAt) < farmRecoverySettleWindow {
+		return true
+	}
 	for _, farm := range c.dataFarms {
 		switch farm.Type {
 		case "market", "connectivity", "security_definition", "historical":
-			if farm.Status == "disconnected" || farm.Status == "broken" {
+			if farmStatusImpaired(farm.Status) {
 				return true
 			}
 		}
@@ -1204,9 +1225,19 @@ func (c *Connector) recordDataFarmNotice(code int, message string, asOf time.Tim
 		c.dataFarms = make(map[string]DataFarmStatus)
 	}
 	if farm.Status == "ok" {
-		delete(c.dataFarms, dataFarmKey("connectivity", "tws-server"))
+		// Any OK notice implies the TWS<->IBKR link is up again; if it was
+		// marked broken, this delete is itself an impaired->ok transition.
+		connKey := dataFarmKey("connectivity", "tws-server")
+		if prev, had := c.dataFarms[connKey]; had && farmStatusImpaired(prev.Status) {
+			c.farmRecoveryAt = time.Now()
+		}
+		delete(c.dataFarms, connKey)
 	}
-	c.dataFarms[dataFarmKey(farm.Type, farm.Name)] = farm
+	key := dataFarmKey(farm.Type, farm.Name)
+	if prev, had := c.dataFarms[key]; had && farmStatusImpaired(prev.Status) && farm.Status == "ok" {
+		c.farmRecoveryAt = time.Now()
+	}
+	c.dataFarms[key] = farm
 	c.dataFarmMu.Unlock()
 }
 
@@ -1220,10 +1251,13 @@ func dataFarmStatusFromNotice(code int, message string, asOf time.Time) (DataFar
 		return DataFarmStatus{}, false
 	}
 	name := dataFarmNameFromMessage(message)
-	if name == "" {
+	// Connectivity notices name the TWS<->IBKR link, never a farm. 1102's
+	// trailing "All data farms are connected: a; b; ..." would otherwise
+	// become the name and mint a key that 1100's broken mark never matches.
+	if farmType == "connectivity" {
+		name = "tws-server"
+	} else if name == "" {
 		switch farmType {
-		case "connectivity":
-			name = "tws-server"
 		case "security_definition":
 			name = "secdef"
 		default:
@@ -1251,7 +1285,14 @@ func dataFarmTypeForCode(code int, message string) (string, bool) {
 		return "historical", true
 	case 2157, 2158:
 		return "security_definition", true
-	case 2110:
+	case 1100, 1101, 1102, 2110:
+		// 1100/1101/1102 word the link as "between IBKR and Trader
+		// Workstation", so the "connectivity between tws" fallback below
+		// (2110's wording) never matches them; they must be code-mapped.
+		// Observed 2026-07-29 16:24:17: an untracked 1100 arrived 1ms
+		// before TWS flushed queued code=200 answers for pending
+		// resubscriptions, and IWM/TLT/QQQ were marked inactive with the
+		// per-farm break notices still 4s away.
 		return "connectivity", true
 	}
 	msg := strings.ToLower(message)
@@ -1271,13 +1312,13 @@ func dataFarmTypeForCode(code int, message string) (string, bool) {
 
 func dataFarmStatusForCode(code int) string {
 	switch code {
-	case 2104, 2106, 2119, 2158:
+	case 1101, 1102, 2104, 2106, 2119, 2158:
 		return "ok"
 	case 2107, 2108:
 		return "inactive"
 	case 2103, 2105, 2157:
 		return "disconnected"
-	case 2110:
+	case 1100, 2110:
 		return "broken"
 	default:
 		return ""

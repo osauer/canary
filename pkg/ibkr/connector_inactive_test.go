@@ -67,10 +67,18 @@ func TestRegisterInactiveCandidateSuppressedWhileFarmImpaired(t *testing.T) {
 		t.Fatal("impaired-window errors must not accumulate as candidates")
 	}
 
-	// Farm recovers: normal confirmation applies again.
+	// Farm recovers: the settle window still counts as impaired until it
+	// ages out (queued outage-era answers flush around the transition),
+	// then normal confirmation applies again.
 	c.recordDataFarmNotice(2106, "HMDS data farm connection is OK:ushmds", time.Now())
+	if !c.marketDataFarmImpaired() {
+		t.Fatal("fresh recovery must stay impaired for the settle window")
+	}
+	c.dataFarmMu.Lock()
+	c.farmRecoveryAt = time.Now().Add(-farmRecoverySettleWindow - time.Second)
+	c.dataFarmMu.Unlock()
 	if c.marketDataFarmImpaired() {
-		t.Fatal("recovered farm must clear impairment")
+		t.Fatal("recovered farm must clear impairment after the settle window")
 	}
 	c.registerInactiveCandidate("ZVZZT", reason)
 	if !c.registerInactiveCandidate("ZVZZT", reason) {
@@ -88,8 +96,84 @@ func TestSecurityDefinitionFarmCountsAsImpaired(t *testing.T) {
 		t.Fatal("broken secdef farm must count as impaired")
 	}
 	c.recordDataFarmNotice(2158, "Sec-def data farm connection is OK:secdefnj", time.Now())
+	c.dataFarmMu.Lock()
+	c.farmRecoveryAt = time.Now().Add(-farmRecoverySettleWindow - time.Second)
+	c.dataFarmMu.Unlock()
 	if c.marketDataFarmImpaired() {
-		t.Fatal("recovered secdef farm must clear impairment")
+		t.Fatal("recovered secdef farm must clear impairment after the settle window")
+	}
+}
+
+// TestConnectivityLostCountsAsImpaired pins the 1100/1101/1102 mapping.
+// Regression: 2026-07-29 16:24:17 — TWS flushed queued code=200 answers 1ms
+// after an untracked 1100 and 4s before the per-farm break notices, so the
+// farm map read healthy and IWM/TLT/QQQ were marked inactive for the 12h TTL.
+func TestConnectivityLostCountsAsImpaired(t *testing.T) {
+	c := NewConnector(&ConnectorConfig{})
+	c.recordDataFarmNotice(1100, "Connectivity between IBKR and Trader Workstation has been lost.", time.Now())
+	if !c.marketDataFarmImpaired() {
+		t.Fatal("1100 connectivity-lost must count as impaired")
+	}
+
+	reason := "No security definition has been found for the request"
+	for range 4 {
+		if c.registerInactiveCandidate("IWM", reason) {
+			t.Fatal("must not mark while connectivity is lost")
+		}
+	}
+	if c.IsSymbolInactive("IWM") {
+		t.Fatal("no mark may form while connectivity is lost")
+	}
+
+	// 1102 restores connectivity; its trailing farm list must not mint a
+	// second connectivity key that the broken mark never matches.
+	c.recordDataFarmNotice(1102, "Connectivity between IBKR and Trader Workstation has been restored - data maintained. All data farms are connected: usfarm; ushmds; secdefeu.", time.Now())
+	for _, farm := range c.DataFarmStatuses() {
+		if farm.Type == "connectivity" && farm.Name != "tws-server" {
+			t.Fatalf("connectivity entry name = %q, want tws-server", farm.Name)
+		}
+		if farm.Type == "connectivity" && farm.Status != "ok" {
+			t.Fatalf("connectivity entry status = %q after 1102, want ok", farm.Status)
+		}
+	}
+	if !c.marketDataFarmImpaired() {
+		t.Fatal("fresh 1102 recovery must stay impaired for the settle window")
+	}
+	c.dataFarmMu.Lock()
+	c.farmRecoveryAt = time.Now().Add(-farmRecoverySettleWindow - time.Second)
+	c.dataFarmMu.Unlock()
+	if c.marketDataFarmImpaired() {
+		t.Fatal("restored connectivity must clear impairment after the settle window")
+	}
+	c.registerInactiveCandidate("ZVZZT", reason)
+	if !c.registerInactiveCandidate("ZVZZT", reason) {
+		t.Fatal("second confirmation after recovery must mark")
+	}
+}
+
+// TestFarmRecoverySettleWindowSuppressesDefinitionErrors pins the settle
+// window on the plain farm break/heal path: answers to requests queued
+// during the break flush around the OK notice and still carry outage-era
+// verdicts.
+func TestFarmRecoverySettleWindowSuppressesDefinitionErrors(t *testing.T) {
+	c := NewConnector(&ConnectorConfig{})
+	c.recordDataFarmNotice(2103, "Market data farm connection is broken:usfarm", time.Now())
+	c.recordDataFarmNotice(2104, "Market data farm connection is OK:usfarm", time.Now())
+	if !c.marketDataFarmImpaired() {
+		t.Fatal("settle window after farm recovery must count as impaired")
+	}
+
+	reason := "No security definition has been found for the request"
+	c.registerInactiveCandidate("TLT", reason)
+	if c.registerInactiveCandidate("TLT", reason) || c.IsSymbolInactive("TLT") {
+		t.Fatal("definition errors inside the settle window must not mark")
+	}
+
+	c.dataFarmMu.Lock()
+	c.farmRecoveryAt = time.Now().Add(-farmRecoverySettleWindow - time.Second)
+	c.dataFarmMu.Unlock()
+	if c.marketDataFarmImpaired() {
+		t.Fatal("settle window must age out")
 	}
 }
 
