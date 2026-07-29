@@ -19,13 +19,13 @@ import (
 func TestClassifyErrorMarketDataAbsence(t *testing.T) {
 	t.Parallel()
 	absent := &ibkrlib.MarketDataAbsenceError{
-		Key:        "HGENQ",
+		Key:        "ZVZZT",
 		Code:       354,
 		Message:    "Requested market data is not subscribed.",
 		ObservedAt: time.Date(2026, 6, 11, 19, 14, 0, 0, time.UTC),
 		RetryAt:    time.Date(2026, 6, 11, 19, 44, 0, 0, time.UTC),
 	}
-	for _, err := range []error{absent, fmt.Errorf("subscribe HGENQ: %w", absent)} {
+	for _, err := range []error{absent, fmt.Errorf("subscribe ZVZZT: %w", absent)} {
 		code, msg := classifyError(err)
 		if code != rpc.CodeSymbolInactive {
 			t.Errorf("classifyError(%v) code = %s, want %s", err, code, rpc.CodeSymbolInactive)
@@ -46,15 +46,15 @@ func TestAbsentQuoteShell(t *testing.T) {
 	t.Parallel()
 	s := &Server{}
 	absent := &ibkrlib.MarketDataAbsenceError{
-		Key:        "HGENQ",
+		Key:        "ZVZZT",
 		Code:       354,
 		Message:    "Requested market data is not subscribed.",
 		ObservedAt: time.Date(2026, 6, 11, 19, 14, 0, 0, time.UTC),
 		RetryAt:    time.Date(2026, 6, 11, 19, 44, 0, 0, time.UTC),
 	}
 
-	q := &rpc.Quote{Symbol: "HGENQ", IVStatus: "unavailable"}
-	shell := s.absentQuoteShell(q, fmt.Errorf("subscribe HGENQ: %w", absent), marketcal.MarketUSEquity, false)
+	q := &rpc.Quote{Symbol: "ZVZZT", IVStatus: "unavailable"}
+	shell := s.absentQuoteShell(q, fmt.Errorf("subscribe ZVZZT: %w", absent), marketcal.MarketUSEquity, false)
 	if shell == nil {
 		t.Fatal("absence error must produce a shell quote")
 	}

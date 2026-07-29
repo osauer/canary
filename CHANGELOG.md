@@ -264,7 +264,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
-- Removed the persistent inactive-symbol store (`inactive-symbols.json`) entirely. It was added 2026-06-19 to save re-confirming dead tickers across restarts — worth roughly two wire messages per daemon rebuild — and in exchange created the poisoning class above: cross-process shared state with no TTL, no self-heal, no ops surface, and a persistence filter keyed on exactly the error message a degraded gateway mass-produces. In-memory marks (which fixed the original HGENQ churn loop and are unchanged) carry the suppression; the state file is no longer read or written and can be deleted.
+- Removed the persistent inactive-symbol store (`inactive-symbols.json`) entirely. It was added 2026-06-19 to save re-confirming dead tickers across restarts — worth roughly two wire messages per daemon rebuild — and in exchange created the poisoning class above: cross-process shared state with no TTL, no self-heal, no ops surface, and a persistence filter keyed on exactly the error message a degraded gateway mass-produces. In-memory marks (which fixed the original delisted-zombie churn loop and are unchanged) carry the suppression; the state file is no longer read or written and can be deleted.
 - Release-smoke, wire-smoke, and release-verify daemons now run with an isolated `XDG_STATE_HOME`/`XDG_CACHE_HOME` (as the paper smoke already did), so operator daemon state can neither fail a release nor be written to by smoke runs.
 ## v1.15.0 — 2026-07-07 19:31 CEST
 
@@ -3783,7 +3783,7 @@ All four fields are nil-omitted when the subscription didn't capture them in the
 
 ### Delisted positions no longer inflate `effective_delta`
 
-A held delisted ticker (the user's HGENQ-style zombie) arrives via `msgPortfolioValue` with mark=0 — the gateway streams the position but rejects market-data subscriptions for it. On the first `positions` call after daemon start, the connector hasn't yet flagged the symbol inactive, so the zombie contributed its full share count (20 000 in the test book) to `effective_delta`. The second call would correctly exclude it once the inactive flag landed, so the same daemon reported wildly different effective deltas back-to-back. `buildPortfolioAggregates` now skips stocks with mark ≤ 0 from the aggregate; the position row still renders with mark=0, which is the honest answer. New test `TestBuildPortfolioAggregatesExcludesZombieStocks` covers it.
+A held delisted ticker (ZVZZT plays the zombie in the test book) arrives via `msgPortfolioValue` with mark=0 — the gateway streams the position but rejects market-data subscriptions for it. On the first `positions` call after daemon start, the connector hasn't yet flagged the symbol inactive, so the zombie contributed its full share count (20 000 in the test book) to `effective_delta`. The second call would correctly exclude it once the inactive flag landed, so the same daemon reported wildly different effective deltas back-to-back. `buildPortfolioAggregates` now skips stocks with mark ≤ 0 from the aggregate; the position row still renders with mark=0, which is the honest answer. New test `TestBuildPortfolioAggregatesExcludesZombieStocks` covers it.
 
 ### Other notes
 

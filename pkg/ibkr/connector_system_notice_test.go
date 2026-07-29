@@ -37,28 +37,28 @@ func TestProcessSystemNoticeSkipsDerivativeInactive(t *testing.T) {
 // TestProcessSystemNoticeMarksStockInactive pins the record-key/check-key
 // contract: the mark lands on the connector's own subscription key, so the
 // next SubscribeMarketData is actually suppressed. The former alias-derived
-// key (HGENQ|STK|SMART|DOLLR4LOT|USD|HGENQ|HGENQ) matched no check-time key,
-// so HGENQ was re-marked and re-requested every poll cycle. A single notice
+// key (ZVZZT|STK|SMART|DOLLR4LOT|USD|ZVZZT|ZVZZT) matched no check-time key,
+// so ZVZZT was re-marked and re-requested every poll cycle. A single notice
 // must NOT mark: one code-200 is routinely transient.
 func TestProcessSystemNoticeMarksStockInactive(t *testing.T) {
 	c := readyBrokerEvidenceTestConnector(t)
 	c.subMu.Lock()
-	c.reqIDMap[7] = "HGENQ"
-	c.subscriptions["HGENQ"] = &Subscription{Symbol: "HGENQ", ReqID: 7}
+	c.reqIDMap[7] = "ZVZZT"
+	c.subscriptions["ZVZZT"] = &Subscription{Symbol: "ZVZZT", ReqID: 7}
 	c.subMu.Unlock()
-	alias := reqAliasEntry{symbol: "HGENQ", secType: "STK", localSymbol: "HGENQ", tradingClass: "HGENQ", primaryExch: "DOLLR4LOT"}
+	alias := reqAliasEntry{symbol: "ZVZZT", secType: "STK", localSymbol: "ZVZZT", tradingClass: "ZVZZT", primaryExch: "DOLLR4LOT"}
 
 	c.processSystemNotice(alias, noDefinitionNotice(7))
-	if c.IsSymbolInactive("HGENQ") {
+	if c.IsSymbolInactive("ZVZZT") {
 		t.Fatal("a single definition error must not mark a symbol inactive")
 	}
 
 	c.processSystemNotice(alias, noDefinitionNotice(7))
-	if !c.IsSymbolInactive("HGENQ") {
-		t.Fatal("expected HGENQ to be marked inactive after confirmation")
+	if !c.IsSymbolInactive("ZVZZT") {
+		t.Fatal("expected ZVZZT to be marked inactive after confirmation")
 	}
 
-	if err := c.SubscribeMarketData(context.Background(), "HGENQ", nil); !errors.Is(err, ErrSymbolInactive) {
+	if err := c.SubscribeMarketData(context.Background(), "ZVZZT", nil); !errors.Is(err, ErrSymbolInactive) {
 		t.Fatalf("expected ErrSymbolInactive from suppressed subscribe, got %v", err)
 	}
 }

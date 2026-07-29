@@ -46,9 +46,9 @@ func TestEnsureMarketDataSubscription_NoConnection(t *testing.T) {
 
 func TestEnsureMarketDataSubscription_ReturnsInactiveError(t *testing.T) {
 	c := NewConnector(&ConnectorConfig{})
-	c.markSymbolInactive("HGENQ", "No security definition has been found for the request")
+	c.markSymbolInactive("ZVZZT", "No security definition has been found for the request")
 
-	made, err := c.EnsureMarketDataSubscription(context.Background(), "HGENQ", []string{"LAST"}, time.Minute)
+	made, err := c.EnsureMarketDataSubscription(context.Background(), "ZVZZT", []string{"LAST"}, time.Minute)
 	if !errors.Is(err, ErrSymbolInactive) {
 		t.Fatalf("expected ErrSymbolInactive, got %v", err)
 	}
@@ -59,9 +59,9 @@ func TestEnsureMarketDataSubscription_ReturnsInactiveError(t *testing.T) {
 
 func TestSubscribeMarketData_ReturnsInactiveError(t *testing.T) {
 	c := NewConnector(&ConnectorConfig{})
-	c.markSymbolInactive("HGENQ", "No security definition has been found for the request")
+	c.markSymbolInactive("ZVZZT", "No security definition has been found for the request")
 
-	err := c.SubscribeMarketData(context.Background(), "HGENQ", []string{"LAST"})
+	err := c.SubscribeMarketData(context.Background(), "ZVZZT", []string{"LAST"})
 	if !errors.Is(err, ErrSymbolInactive) {
 		t.Fatalf("expected ErrSymbolInactive, got %v", err)
 	}

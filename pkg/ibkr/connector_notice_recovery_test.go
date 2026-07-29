@@ -12,7 +12,7 @@ import (
 // msgErrMsg frames, so processSystemNotice — not handleIBKRError — is the
 // only error path that actually runs against current gateways (observed
 // 2026-06-11: 779 system notices, zero msgErrMsg errors, while the
-// HGENQ/354 churn loop, the cancel-after-354 error-300 loop, and the
+// ZVZZT/354 churn loop, the cancel-after-354 error-300 loop, and the
 // historical timeout-then-cancel error-366 loop all repeated every poll
 // cycle).
 
@@ -25,7 +25,7 @@ import (
 func TestSystemNoticeFailsPendingHistorical(t *testing.T) {
 	c := readyBrokerEvidenceTestConnector(t)
 
-	req := c.createHistoricalRequest(202, "HGENQ")
+	req := c.createHistoricalRequest(202, "ZVZZT")
 	c.processSystemNotice(reqAliasEntry{}, &systemNotification{
 		tickerID: 202,
 		code:     200,
@@ -87,13 +87,13 @@ func TestSystemNotice354RemembersAbsence(t *testing.T) {
 	now := time.Date(2026, 6, 11, 19, 14, 0, 0, time.UTC)
 	c.absenceNow = func() time.Time { return now }
 
-	sub := &Subscription{Symbol: "HGENQ", ReqID: 7}
+	sub := &Subscription{Symbol: "ZVZZT", ReqID: 7}
 	c.subMu.Lock()
-	c.reqIDMap[7] = "HGENQ"
-	c.subscriptions["HGENQ"] = sub
+	c.reqIDMap[7] = "ZVZZT"
+	c.subscriptions["ZVZZT"] = sub
 	c.subMu.Unlock()
 
-	c.processSystemNotice(reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+	c.processSystemNotice(reqAliasEntry{symbol: "ZVZZT", secType: "STK"}, &systemNotification{
 		tickerID: 7,
 		code:     354,
 		message:  "Requested market data is not subscribed.",
@@ -109,16 +109,16 @@ func TestSystemNotice354RemembersAbsence(t *testing.T) {
 	// Simulate the holder releasing the dead line, then the next poll
 	// cycle trying again: the absence memory must fail it fast.
 	c.subMu.Lock()
-	delete(c.subscriptions, "HGENQ")
+	delete(c.subscriptions, "ZVZZT")
 	c.subMu.Unlock()
 
-	err := c.SubscribeMarketData(context.Background(), "HGENQ", nil)
+	err := c.SubscribeMarketData(context.Background(), "ZVZZT", nil)
 	var absent *MarketDataAbsenceError
 	if !errors.As(err, &absent) {
 		t.Fatalf("expected MarketDataAbsenceError, got %v", err)
 	}
-	if absent.Code != 354 || absent.Key != "HGENQ" {
-		t.Fatalf("absence = %+v, want code 354 key HGENQ", absent)
+	if absent.Code != 354 || absent.Key != "ZVZZT" {
+		t.Fatalf("absence = %+v, want code 354 key ZVZZT", absent)
 	}
 	if got := len(c.MarketDataSnapshot()); got != 0 {
 		t.Fatalf("suppressed subscribe must not create a subscription, found %d", got)
@@ -126,7 +126,7 @@ func TestSystemNotice354RemembersAbsence(t *testing.T) {
 
 	// Past the retry window the probe re-arms.
 	now = now.Add(marketDataAbsenceRetry + time.Second)
-	if err := c.SubscribeMarketData(context.Background(), "HGENQ", nil); err != nil {
+	if err := c.SubscribeMarketData(context.Background(), "ZVZZT", nil); err != nil {
 		t.Fatalf("expired absence must re-arm the subscribe, got %v", err)
 	}
 }
@@ -345,15 +345,15 @@ func TestStaleRefreshAfterServerRejectionKeepsSlotAccounting(t *testing.T) {
 	c.conn.marketDataSlots[9] = c.conn.BrokerSessionEpoch()
 	c.conn.marketDataSlotsMu.Unlock()
 
-	sub := &Subscription{Symbol: "HGENQ", ReqID: 9, LastTime: time.Now().Add(-time.Hour)}
+	sub := &Subscription{Symbol: "ZVZZT", ReqID: 9, LastTime: time.Now().Add(-time.Hour)}
 	c.subMu.Lock()
-	c.reqIDMap[9] = "HGENQ"
-	c.subscriptions["HGENQ"] = sub
+	c.reqIDMap[9] = "ZVZZT"
+	c.subscriptions["ZVZZT"] = sub
 	c.subMu.Unlock()
 
 	// Terminal definition rejection: the notice path releases the slot and
 	// marks the exact reqID server-dead.
-	c.processSystemNotice(reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+	c.processSystemNotice(reqAliasEntry{symbol: "ZVZZT", secType: "STK"}, &systemNotification{
 		tickerID: 9,
 		code:     200,
 		message:  "No security definition has been found for the request",
@@ -363,7 +363,7 @@ func TestStaleRefreshAfterServerRejectionKeepsSlotAccounting(t *testing.T) {
 	}
 
 	// The refresh fails (no live session) — but it must not over-release.
-	if _, err := c.EnsureMarketDataSubscription(ctx, "HGENQ", nil, time.Millisecond); err == nil {
+	if _, err := c.EnsureMarketDataSubscription(ctx, "ZVZZT", nil, time.Millisecond); err == nil {
 		t.Fatal("expected refresh to fail without a live session")
 	}
 	if got := c.conn.rateLimiter.marketDataSubs.Count(); got != 0 {

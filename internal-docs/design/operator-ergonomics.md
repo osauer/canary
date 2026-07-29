@@ -20,9 +20,8 @@ The constitution needs about four human signatures; everything else was
 paperwork and memory. The daemon knows every clock, latch, and due state but
 pushes nothing — phase 1 deliberately deferred push alerts, the SPA card, and
 automated reports, and Phase 2 surfaced that deferral as the dominant
-operating cost immediately: artefacts stopped after day 1 (morning 2026-07-16
-was the only completion as of 2026-07-18), while a real shadow-block latch ran
-from 2026-07-15. A control that is correct in code but too heavy to operate is
+operating cost immediately: artefacts stopped after day one, while a real
+shadow-block latch ran unattended. A control that is correct in code but too heavy to operate is
 not effective risk management (harness guide, step 7).
 
 Principles (approved):
@@ -48,12 +47,12 @@ Principles (approved):
 3. **One-tap reconcile.** The sign-off verb defaults to the latest clean
    report; the brief presents it as a single confirm. Semantics unchanged.
 4. **Accelerated R3/R4 via backfill backtest.** The "two future fetch cycles
-   with all declarations auto-matched" trigger is retired: flows are rare in
-   this account, so the gate could stall for months while months of broker
+   with all declarations auto-matched" trigger is retired: flow events are
+   sparse enough that the gate could stall for months while months of broker
    history sit unfetched, and empty windows satisfy it vacuously. Replacement
    gate: one backfill backtest review (below).
-5. **Backtest before reset.** The drawdown latch (engaged 2026-07-15, 51.9%
-   of declared risk consumed as of 2026-07-18) stays until the equity replay
+5. **Backtest before reset.** The drawdown latch (engagement date and consumed
+   fraction live in the private desk journal) stays until the equity replay
    has validated the runtime-observed peak and crossing dates against
    statement truth. The reset itself remains the operator's journaled act.
 6. **Signatures only on drift.** Standing sign-off duties are retired; every
@@ -263,7 +262,8 @@ Shipped and active 2026-07-18 evening, all gates green
   report ids pin full row content (a restated confirmed flow cannot reuse an
   id).
 - **Process note (one-shot, dated):** the v3 numbers are the operator's
-  (divergence bound 1.0% chosen in-session 2026-07-18); the mechanical file
+  (divergence bound chosen in-session 2026-07-18, recorded only in the
+  untracked risk-policy TOML); the mechanical file
   save was delegated to the agent by explicit one-shot operator instruction
   the same day, recorded in the session transcript and the file header. The
   standing operator-authored rule is unchanged for all future revisions, and
@@ -271,9 +271,9 @@ Shipped and active 2026-07-18 evening, all gates green
 - **Known edge (accepted, documented):** if a system with v2-era declared
   deposits flipped to v3 *before ever ingesting a statement*, statements
   arriving later could re-apply a peak correction the v2 heuristic already
-  made (conservative direction: peak too low). Unreachable on this
-  installation — statements predate the flip, so activation baselined the
-  full history.
+  made (conservative direction: peak too low). Unreachable wherever
+  statements predate the flip — activation then baselines the full
+  history.
 - **Candidate L2 push trigger (recorded for the ergonomics build):** "new
   `confirmed` statement flow." Post-flip flows are deliberately not
   exceptions; a push should still announce money movement so an unexpected
@@ -285,8 +285,8 @@ Shipped and active 2026-07-18 evening, all gates green
   full-year coverage in the merged report either way; the next fetch
   confirms the new window.
 - **Expected first automatic extension:** the first fetch that brings a
-  same-day equity pair (statement day paired with a runtime daily sample —
-  ~2026-07-19), comfortably before the 2026-07-25 clock expiry.
+  same-day equity pair (statement day paired with a runtime daily sample),
+  comfortably before the clock expiry.
 
 ## Implementation record — L1 brief surface (2026-07-18)
 
@@ -362,9 +362,9 @@ fixture), then `make app-refresh` on the real host.
   `window.confirm` in the module.
 - **Live verification (2026-07-18, Saturday):** agent-origin CLI render
   left the real artefact journal byte-identical; gateway-down rows
-  disclosed per-row while risk/process rows rendered (latch age `3
-  day(s)`, reconcile `due 2026-07-25 (7 day(s))`, one-tap signable with
-  the pinned report id). Rendered QA ran in the isolated stack: the SPA
+  disclosed per-row while risk/process rows rendered live latch age,
+  reconcile due date, and a one-tap signable row with the pinned report
+  id. Rendered QA ran in the isolated stack: the SPA
   correctly refused to stamp while the page reported itself hidden (the
   preview pane never becomes visible — agent browsing structurally cannot
   stamp), and with visibility simulated in isolation the full chain

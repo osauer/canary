@@ -11,28 +11,28 @@ import (
 // 2-in-10-min confirmation.
 func TestInactiveMarkExpiresAfterTTL(t *testing.T) {
 	c := NewConnector(&ConnectorConfig{})
-	c.markSymbolInactive("HGENQ", "No security definition has been found for the request")
-	if !c.IsSymbolInactive("HGENQ") {
+	c.markSymbolInactive("ZVZZT", "No security definition has been found for the request")
+	if !c.IsSymbolInactive("ZVZZT") {
 		t.Fatal("fresh mark must suppress")
 	}
 
 	c.inactiveMu.Lock()
-	state := c.inactiveSymbols["HGENQ"]
+	state := c.inactiveSymbols["ZVZZT"]
 	state.markedAt = time.Now().Add(-inactiveMarkTTL - time.Minute)
-	c.inactiveSymbols["HGENQ"] = state
+	c.inactiveSymbols["ZVZZT"] = state
 	c.inactiveMu.Unlock()
 
-	if c.IsSymbolInactive("HGENQ") {
+	if c.IsSymbolInactive("ZVZZT") {
 		t.Fatal("expired mark must not suppress")
 	}
 	c.inactiveMu.RLock()
-	_, still := c.inactiveSymbols["HGENQ"]
+	_, still := c.inactiveSymbols["ZVZZT"]
 	c.inactiveMu.RUnlock()
 	if still {
 		t.Fatal("expired mark must be deleted on read, not just ignored")
 	}
 	// One error after expiry is a transient, not a confirmation.
-	if c.registerInactiveCandidate("HGENQ", "No security definition has been found for the request"); c.IsSymbolInactive("HGENQ") {
+	if c.registerInactiveCandidate("ZVZZT", "No security definition has been found for the request"); c.IsSymbolInactive("ZVZZT") {
 		t.Fatal("re-marking after expiry must require fresh confirmation")
 	}
 }
@@ -72,8 +72,8 @@ func TestRegisterInactiveCandidateSuppressedWhileFarmImpaired(t *testing.T) {
 	if c.marketDataFarmImpaired() {
 		t.Fatal("recovered farm must clear impairment")
 	}
-	c.registerInactiveCandidate("HGENQ", reason)
-	if !c.registerInactiveCandidate("HGENQ", reason) {
+	c.registerInactiveCandidate("ZVZZT", reason)
+	if !c.registerInactiveCandidate("ZVZZT", reason) {
 		t.Fatal("second confirmation after recovery must mark")
 	}
 }

@@ -1,9 +1,8 @@
 #!/bin/sh
 # check-no-account-data.sh — fail the pre-commit gate when tracked/staged
-# files carry real IBKR account data. Born of the 2026-06-11 incident where
-# a root-level scratch page (buying_power_lab.html) with live margin /
-# buying-power / net-liq / position figures shipped inside the v1.9.0 tag
-# and had to be purged with a history rewrite and force-push.
+# files carry real IBKR account data. Scratch pages and screenshots are the
+# historical leak vector here, so the gate is deliberately paranoid about
+# root-level HTML, scratch-style filenames, and account-id shapes.
 #
 # Three checks, all over the git index (tracked + staged-for-add files):
 #   1. No HTML files at the repo root — real pages live under docs/ or
@@ -63,6 +62,24 @@ for f in $candidates; do
 		status=1
 	fi
 done
+
+# 4) No compiled executables in the index (Mach-O / ELF magic). A stray
+#    `go build` output at the repo root has been committed before; images
+#    and other checked-in assets pass — only executable container magic
+#    fails. Size-gated so the magic sniff touches a handful of files.
+bins=$(printf '%s\n' "$files" | while IFS= read -r f; do
+	[ -f "$f" ] || continue
+	size=$(wc -c <"$f" | tr -d ' ')
+	[ "$size" -gt 65536 ] || continue
+	case $(od -An -N4 -tx1 "$f" | tr -d ' \n') in
+	(cffaedfe | cefaedfe | feedface | feedfacf | cafebabe | bebafeca | 7f454c46) printf '%s\n' "$f" ;;
+	esac
+done)
+if [ -n "$bins" ]; then
+	echo "check-no-account-data: compiled executable(s) tracked — build outputs stay untracked:" >&2
+	printf '  %s\n' $bins >&2
+	status=1
+fi
 
 [ "$status" -eq 0 ] && echo "check-no-account-data: OK"
 exit "$status"

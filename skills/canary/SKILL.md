@@ -305,7 +305,7 @@ $ canary positions --json
 	    {"underlying": "AAPL", "stock": {...}, "options": [...],
 	     "group_market_value_base": 25488.0,
 	     "group_market_value_pct_nlv": 25.5,
-	     "group_dollar_delta_base": 326584.5}
+	     "group_dollar_delta_base": 64440.0}
 	  ]
 	}
 ```
@@ -424,15 +424,15 @@ $ canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1 --json
 {
   "symbol": "AAPL", "side": "long", "entry": 207.50, "stop": 202.50,
   "risk_pct": 1.0, "lot": 1, "fx": 1.0,
-  "nlv": 248310.42, "base_currency": "EUR",
-  "risk_base": 2483.10, "risk_quote": 2483.10,
+  "nlv": 1250000.00, "base_currency": "EUR",
+  "risk_base": 12500.00, "risk_quote": 12500.00,
   "per_share_risk": 5.0,
-  "shares": 496, "notional": 102920.0, "max_loss": 2480.0,
+  "shares": 2500, "notional": 518750.0, "max_loss": 12500.0,
   "status": "ok"
 }
 ```
 
-Render as a short summary: `Risk 1% of NLV (€2,483) on AAPL 207.50 entry / 202.50 stop → 496 shares (notional €102,920, max loss €2,480).` Always quote the `status` field — `tight_risk` means shares=0 (suggest widening the stop or raising `--risk-pct`), `exceeds_buying_power` means notional > BP (suggest trimming `--risk-pct`). When the user's account base differs from the symbol's quote currency, ask them for the FX rate or pass `--fx` explicitly; never invent one.
+Render as a short summary: `Risk 1% of NLV (€12,500) on AAPL 207.50 entry / 202.50 stop → 2500 shares (notional €518,750, max loss €12,500).` Always quote the `status` field — `tight_risk` means shares=0 (suggest widening the stop or raising `--risk-pct`), `exceeds_buying_power` means notional > BP (suggest trimming `--risk-pct`). When the user's account base differs from the symbol's quote currency, ask them for the FX rate or pass `--fx` explicitly; never invent one.
 
 ### What about implied volatility?
 The CLI never derives or estimates IV. If `iv_status` is `"unavailable"`, the

@@ -194,7 +194,7 @@ func TestBuildPortfolioAggregatesPartialCoverage(t *testing.T) {
 }
 
 // TestBuildPortfolioAggregatesExcludesZombieStocks verifies the
-// HGENQ-style zombie filter (v0.12.1): a held delisted ticker that IBKR
+// delisted-zombie filter (v0.12.1): a held delisted ticker that IBKR
 // still streams via msgPortfolioValue with mark=0 must NOT contribute
 // to effective_delta. Without this filter, the first positions call
 // after daemon start inflates effective_delta by the zombie's full share
@@ -204,7 +204,7 @@ func TestBuildPortfolioAggregatesExcludesZombieStocks(t *testing.T) {
 	stocks := []rpc.PositionView{
 		{Symbol: "AAPL", SecType: "STK", Quantity: 100, Mark: 200, Currency: "USD"},
 		// Zombie: held but no live quote. Mark=0 is the gateway's signal.
-		{Symbol: "HGENQ", SecType: "STK", Quantity: 20000, Mark: 0, Currency: "USD"},
+		{Symbol: "ZVZZT", SecType: "STK", Quantity: 20000, Mark: 0, Currency: "USD"},
 	}
 	got := buildPortfolioAggregates(stocks, nil)
 	if got.EffectiveDelta == nil || math.Abs(*got.EffectiveDelta-100) > 1e-9 {
@@ -214,13 +214,13 @@ func TestBuildPortfolioAggregatesExcludesZombieStocks(t *testing.T) {
 
 func TestZeroValueStockPositionSkipsQuotePrewarmButStaysVisible(t *testing.T) {
 	stocks := []rpc.PositionView{
-		{Symbol: "HGENQ", SecType: "STK", Quantity: 20000, Mark: 0, ValuationMark: 0, MarketValue: 0, Currency: "USD"},
+		{Symbol: "ZVZZT", SecType: "STK", Quantity: 20000, Mark: 0, ValuationMark: 0, MarketValue: 0, Currency: "USD"},
 	}
 	if shouldPrewarmStockQuote(stocks[0]) {
 		t.Fatal("zero-value stock position should not trigger quote prewarm")
 	}
 	flagZeroValueStockPositions(stocks)
-	if len(stocks) != 1 || stocks[0].Symbol != "HGENQ" {
+	if len(stocks) != 1 || stocks[0].Symbol != "ZVZZT" {
 		t.Fatalf("zero-value stock position should remain visible, got %+v", stocks)
 	}
 	if !stocks[0].Stale || stocks[0].StaleReason == "" {

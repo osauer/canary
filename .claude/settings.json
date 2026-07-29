@@ -42,8 +42,7 @@
       "Bash(make account-data-check)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git fetch *)",
-      "Bash(git push origin main)"
+      "Bash(git fetch *)"
     ],
     "deny": [
       "Bash(git push --force *)",

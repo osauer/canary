@@ -1,6 +1,7 @@
 # Build artifacts
 /bin/
 /dist/
+/docs-html
 *.log
 
 # Cache files
@@ -37,9 +38,8 @@ cloudflare/remote-relay/.dev.vars
 # scratch page by definition — real pages live under docs/ (GitHub Pages
 # serves https://osauer.dev/canary/ from /docs on main, so generated page
 # artifacts there must stay visible to git) or web/. Scratch pages can
-# carry real account figures (the 2026-06-11 buying_power_lab.html leak),
-# so git refusing the add is the first line of defense;
-# scripts/check-no-account-data.sh in `make check` is the backstop.
+# carry real account figures, so git refusing the add is the first line of
+# defense; scripts/check-no-account-data.sh in `make check` is the backstop.
 /*.html
 *lab*.html
 *scratch*

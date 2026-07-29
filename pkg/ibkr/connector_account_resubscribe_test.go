@@ -134,8 +134,8 @@ func TestCachedPositionsKeepsZeroValueStockPositionsVisible(t *testing.T) {
 			MarketPrice: 100,
 			MarketValue: 2000,
 		},
-		"HGENQ": {
-			Contract:      Contract{ConID: 12345, Symbol: "HGENQ", SecType: "STK", Currency: "USD"},
+		"ZVZZT": {
+			Contract:      Contract{ConID: 12345, Symbol: "ZVZZT", SecType: "STK", Currency: "USD"},
 			Position:      20000,
 			MarketPrice:   0,
 			MarketValue:   0,
@@ -150,13 +150,13 @@ func TestCachedPositionsKeepsZeroValueStockPositionsVisible(t *testing.T) {
 		t.Fatalf("CachedPositions: %v", err)
 	}
 	if len(positions) != 2 {
-		t.Fatalf("positions len = %d, want AMD and HGENQ: %+v", len(positions), positions)
+		t.Fatalf("positions len = %d, want AMD and ZVZZT: %+v", len(positions), positions)
 	}
-	if c.IsSymbolInactive("HGENQ") {
+	if c.IsSymbolInactive("ZVZZT") {
 		t.Fatal("zero-value stock position must stay visible and must not be marked inactive without broker definition evidence")
 	}
 	c.contractMu.RLock()
-	_, cached := c.contractCache["HGENQ"]
+	_, cached := c.contractCache["ZVZZT"]
 	c.contractMu.RUnlock()
 	if cached {
 		t.Fatal("zero-value stock position must not seed contract cache for quote routing")
@@ -165,11 +165,11 @@ func TestCachedPositionsKeepsZeroValueStockPositionsVisible(t *testing.T) {
 
 func TestCachedPositionsKeepsInactiveHeldZeroValueStockVisible(t *testing.T) {
 	c, conn, _ := newAcctResubscribeRig(t)
-	c.markSymbolInactive("HGENQ", "No security definition has been found for the request")
+	c.markSymbolInactive("ZVZZT", "No security definition has been found for the request")
 	conn.positionsMu.Lock()
 	conn.positions = map[string]*RawPosition{
-		"HGENQ": {
-			Contract:      Contract{ConID: 12345, Symbol: "HGENQ", SecType: "STK", Currency: "USD"},
+		"ZVZZT": {
+			Contract:      Contract{ConID: 12345, Symbol: "ZVZZT", SecType: "STK", Currency: "USD"},
 			Position:      20000,
 			MarketPrice:   0,
 			MarketValue:   0,
@@ -183,11 +183,11 @@ func TestCachedPositionsKeepsInactiveHeldZeroValueStockVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CachedPositions: %v", err)
 	}
-	if len(positions) != 1 || positions[0].Contract.Symbol != "HGENQ" {
+	if len(positions) != 1 || positions[0].Contract.Symbol != "ZVZZT" {
 		t.Fatalf("held inactive zero-value stock should remain visible, got %+v", positions)
 	}
 	c.contractMu.RLock()
-	_, cached := c.contractCache["HGENQ"]
+	_, cached := c.contractCache["ZVZZT"]
 	c.contractMu.RUnlock()
 	if cached {
 		t.Fatal("held inactive zero-value stock must not seed contract cache for quote routing")

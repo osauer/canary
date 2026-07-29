@@ -1265,21 +1265,21 @@ func TestBriefWSHEntitlementNoticeRequiresExactTypedTuple(t *testing.T) {
 
 func TestBriefMoversAggregateByUnderlyingWithResidual(t *testing.T) {
 	pos := &rpc.PositionsResult{ByUnderlying: []rpc.PositionGroup{
-		{Underlying: "spy", GroupDailyPnLBase: new(10263.60)},
-		{Underlying: "MSFT", GroupDailyPnLBase: new(-1568.26)},
-		{Underlying: "CRWV", GroupDailyPnLBase: new(796.02)},
-		{Underlying: "NOW", GroupDailyPnLBase: new(-740.90)},
-		{Underlying: "BB", GroupDailyPnLBase: new(-1361.14)},
-		{Underlying: "HGENQ"},
+		{Underlying: "spy", GroupDailyPnLBase: new(10500.50)},
+		{Underlying: "MSFT", GroupDailyPnLBase: new(-1600.25)},
+		{Underlying: "GOOG", GroupDailyPnLBase: new(800.10)},
+		{Underlying: "AMZN", GroupDailyPnLBase: new(-750.40)},
+		{Underlying: "TSLA", GroupDailyPnLBase: new(-1400.30)},
+		{Underlying: "ZVZZT"},
 	}}
 	row := briefMovers(pos, false)
-	if len(row.Rows) != 3 || row.Rows[0].Symbol != "SPY" || row.Rows[1].Symbol != "MSFT" || row.Rows[2].Symbol != "BB" {
+	if len(row.Rows) != 3 || row.Rows[0].Symbol != "SPY" || row.Rows[1].Symbol != "MSFT" || row.Rows[2].Symbol != "TSLA" {
 		t.Fatalf("rows=%+v", row.Rows)
 	}
 	if row.OtherPnLBase == nil || row.OtherCount != 2 {
 		t.Fatalf("residual=%+v count=%d", row.OtherPnLBase, row.OtherCount)
 	}
-	if diff := *row.OtherPnLBase - (796.02 - 740.90); diff < -0.001 || diff > 0.001 {
+	if diff := *row.OtherPnLBase - (800.10 - 750.40); diff < -0.001 || diff > 0.001 {
 		t.Fatalf("residual sum=%v", *row.OtherPnLBase)
 	}
 	if !strings.Contains(row.Detail, "by underlying") || !strings.Contains(row.Detail, "last session") {

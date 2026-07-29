@@ -35,10 +35,11 @@ broker: no order path, no submit eligibility, no freeze, no pins.
    auto-generated report artefacts (Phase 4).
 
 Numbers approved by the operator (2026-07-13, second interview) and
-recorded in risk-policy.toml v2 under `[recon]`: amount tolerance 0.5% with
-a 5 EUR floor; date window 3 business days; maximum statement age for a
-reconcile 4 calendar days (2 was rejected as failing every Monday); fetch
-retry/backoff stays code-owned engineering constants.
+recorded in the untracked risk-policy.toml v2 under `[recon]`: a percentage
+amount tolerance with a small EUR floor; a date window in business days; a
+maximum statement age for a reconcile in calendar days (a tighter age was
+rejected as failing every Monday); fetch retry/backoff stays code-owned
+engineering constants. The values live only in the operator's TOML.
 
 ## Four things, kept separate
 

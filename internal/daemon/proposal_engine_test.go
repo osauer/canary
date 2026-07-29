@@ -454,7 +454,7 @@ func TestTrailingStopStockProposalUsesBidAskAndBlocksWideSpread(t *testing.T) {
 	}
 
 	zombieRow := rpc.PositionView{
-		Symbol:      "HGENQ",
+		Symbol:      "ZVZZT",
 		SecType:     "STOCK",
 		Quantity:    20000,
 		Mark:        0,
