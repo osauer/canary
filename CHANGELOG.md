@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.5.1 — 2026-07-29 19:29 CEST
+
+### What's new
+
+- **Daemon restarts warm up in seconds instead of minutes, and a connectivity blip no longer wedges tickers.** The option-contract cache persists across restarts again, so the dealer-gamma read starts from thousands of already-resolved contracts instead of re-asking the gateway for every strike. A brief TWS connectivity outage no longer leaves liquid tickers marked inactive for hours after the feed recovers.
+
+### Fixed
+
+- The gateway reports option expiries with a settlement-time suffix (`20260729 15:00:00 US/Central`); the connector stored that raw string, so every cached option row contradicted its own cache key and the contract store refused to persist each snapshot — a warning per minute during the gamma fan-out, and a cold two-minute option-chain prewarm with dropped strikes and thin open-interest coverage on every restart. Expiries are now reduced to their date token the way the official IB decoders do, and the option snapshot persists again.
+- TWS flushes queued "no security definition" answers before the farm-break notices that explain them, and most farm breaks heal within seconds of appearing — so during a short connectivity outage the farm map read all-OK and liquid tickers were marked inactive for the 12-hour TTL. Connectivity notices 1100/1101/1102 now feed the farm tracker directly, and a 60-second settle window after recovery absorbs flushed outage-era answers before delisting detection resumes.
+- A burst of stress-driven alerts no longer triggers an unbounded cascade of alert refetches in the paired app; refreshes coalesce through a minimum-interval scheduler.
+
 ## v2.5.0 — 2026-07-29 08:01 CEST
 
 ### What's new
