@@ -118,13 +118,16 @@ pins, freeze state, and committed versus in-flight work. See
 
 Use only `make release RELEASE_VERSION=vX.Y.Z`; never create tags, push tags, or
 create GitHub releases directly, and never force-push as a release step. The
-target owns its clean-tree, origin, live-TWS, paper-round-trip, signing,
-publishing, and registry checks. After success, verify the GitHub release,
-remote tag, and registry artifact.
+target runs the pipeline body in a detached worktree of `origin/main` (removed
+on success, kept and its path printed on failure), so the primary checkout
+stays free for concurrent work, and it owns its origin, live-TWS,
+paper-round-trip, signing, publishing, and registry checks. After success,
+verify the GitHub release, remote tag, and registry artifact.
 
-Publishing the release commit is a prerequisite, not a release step. The target
-requires `HEAD == origin/main`, so a fast-forward `git push origin main` of
-reviewed commits is normal and permitted — the prohibition above is on tags and
+Publishing the release commit is a prerequisite, not a release step. The
+release ships whatever `origin/main` holds — local HEAD may differ (the target
+prints a note when it does) — so a fast-forward `git push origin main` of
+reviewed commits is normal and permitted; the prohibition above is on tags and
 releases, not on commits. Check `git log origin/main..HEAD` first and confirm it
 holds only your own reviewed commits: a push carries every local commit, and
 this tree runs concurrent sessions.

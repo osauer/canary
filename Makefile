@@ -52,10 +52,11 @@ SKILL_SRC  ?= skills/canary
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 3
 MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publisher)
+RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-publish release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -891,8 +892,11 @@ version: ## Print the version string the next build would embed
 # → live/paper smoke → annotated tag → publish. The early preview exercises the
 # account-currency, FX, and broker WhatIf path before the expensive test suite.
 # The transmitting smoke still runs only after every test and before tagging.
-# Does NOT push commits — push those first.
-release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE="..."]
+# The pipeline body (_release-run) executes in a detached worktree checked out
+# at origin/MAIN_BRANCH, so this checkout stays free for concurrent work and
+# local edits can never leak into release artifacts. Releases ship what is on
+# origin/MAIN_BRANCH — push stamp commits first.
+release: ## Cut a release from an isolated worktree of origin/main: make release RELEASE_VERSION=vX.Y.Z [MESSAGE="..."]
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release: RELEASE_VERSION is required, e.g. make release RELEASE_VERSION=v0.3.1" >&2; \
 		exit 1; \
@@ -901,32 +905,57 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 		echo "release: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
-	@expected=$$(echo "$(RELEASE_VERSION)" | sed 's/^v//'); \
-	if ! grep -q "\"version\": \"$$expected\"" .claude-plugin/plugin.json; then \
-		echo "release: .claude-plugin/plugin.json version != $$expected — bump it before releasing so plugin tag agrees with binary tag" >&2; \
-		grep '"version"' .claude-plugin/plugin.json >&2; \
-		exit 1; \
-	fi
-	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "release: working tree is dirty; commit or stash first" >&2; \
-		git status --short >&2; \
-		exit 1; \
-	fi
-	@head=$$(git rev-parse HEAD); \
-	main=$$(git rev-parse origin/$(MAIN_BRANCH) 2>/dev/null) || { \
+	@git rev-parse origin/$(MAIN_BRANCH) >/dev/null 2>&1 || { \
 		echo "release: origin/$(MAIN_BRANCH) ref missing locally; run 'git fetch origin $(MAIN_BRANCH)' first" >&2; \
 		exit 1; \
-	}; \
-	if [ "$$head" != "$$main" ]; then \
-		echo "release: HEAD ($$head) does not match origin/$(MAIN_BRANCH) ($$main); push your commits first" >&2; \
-		exit 1; \
-	fi
+	}
 	@if git rev-parse --verify --quiet $(RELEASE_VERSION) >/dev/null; then \
 		echo "release: tag $(RELEASE_VERSION) already exists locally" >&2; \
 		exit 1; \
 	fi
 	@if git ls-remote --tags --exit-code origin $(RELEASE_VERSION) >/dev/null 2>&1; then \
 		echo "release: tag $(RELEASE_VERSION) already exists on origin" >&2; \
+		exit 1; \
+	fi
+	@wt="$(RELEASE_WORKTREE_ROOT)/canary-release-$(RELEASE_VERSION)"; \
+	sha=$$(git rev-parse origin/$(MAIN_BRANCH)); \
+	if [ "$$(git rev-parse HEAD)" != "$$sha" ]; then \
+		echo "release: NOTE: local HEAD differs from origin/$(MAIN_BRANCH); the release ships origin/$(MAIN_BRANCH) @ $$sha" >&2; \
+	fi; \
+	if [ -e "$$wt" ]; then \
+		echo "release: $$wt already exists (previous failed run?)." >&2; \
+		echo "        inspect it, then remove with: git worktree remove --force $$wt" >&2; \
+		exit 1; \
+	fi; \
+	echo "==> release worktree: $$wt (origin/$(MAIN_BRANCH) @ $$sha)"; \
+	git worktree add --detach "$$wt" "$$sha" || exit 1; \
+	msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+	if MESSAGE="$$msg" $(MAKE) -C "$$wt" _release-run RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION) $(if $(wildcard bin/mcp-publisher),MCP_PUBLISHER=$(CURDIR)/bin/mcp-publisher); then \
+		git worktree remove --force "$$wt"; \
+	else \
+		echo "release: pipeline failed; worktree kept for inspection: $$wt" >&2; \
+		echo "        when done: git worktree remove --force $$wt" >&2; \
+		exit 1; \
+	fi
+
+_release-run: ## Internal: release pipeline body; runs inside the worktree created by `make release`
+	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then \
+		echo "_release-run: internal pipeline body; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "_release-run: RELEASE_VERSION is required" >&2; \
+		exit 1; \
+	fi
+	@expected=$$(echo "$(RELEASE_VERSION)" | sed 's/^v//'); \
+	if ! grep -q "\"version\": \"$$expected\"" .claude-plugin/plugin.json; then \
+		echo "_release-run: .claude-plugin/plugin.json version != $$expected on origin/$(MAIN_BRANCH) — land and push the stamp commit first" >&2; \
+		grep '"version"' .claude-plugin/plugin.json >&2; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "_release-run: release worktree is unexpectedly dirty" >&2; \
+		git status --short >&2; \
 		exit 1; \
 	fi
 	@# Auth preflight before any expensive step: gh auth goes stale
@@ -953,8 +982,8 @@ release: ## Tag and push a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE
 	@# dirty tree to the refresh, not to stray edits.
 	$(MAKE) refresh-spx-members
 	@if [ -n "$$(git status --porcelain)" ]; then \
-		echo "release: refresh-spx-members produced uncommitted changes." >&2; \
-		echo "        commit the S&P-500 membership update and re-run \`make release\`." >&2; \
+		echo "_release-run: refresh-spx-members produced uncommitted changes." >&2; \
+		echo "        in your main checkout: make refresh-spx-members, commit, push, then re-run \`make release\`." >&2; \
 		git status --short >&2; \
 		exit 1; \
 	fi
