@@ -125,8 +125,9 @@ paper-round-trip, signing, publishing, and registry checks. After success,
 verify the GitHub release, remote tag, and registry artifact.
 
 Publishing the release commit is a prerequisite, not a release step. The
-release ships whatever `origin/main` holds — local HEAD may differ (the target
-prints a note when it does) — so a fast-forward `git push origin main` of
+release ships whatever `origin/main` holds — the target fetches first, aborts
+on unpushed local commits unless RELEASE_ALLOW_UNPUSHED=1, and proceeds with a
+note when the checkout is merely behind — so a fast-forward `git push origin main` of
 reviewed commits is normal and permitted; the prohibition above is on tags and
 releases, not on commits. Check `git log origin/main..HEAD` first and confirm it
 holds only your own reviewed commits: a push carries every local commit, and

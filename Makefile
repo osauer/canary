@@ -905,10 +905,24 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 		echo "release: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
-	@git rev-parse origin/$(MAIN_BRANCH) >/dev/null 2>&1 || { \
-		echo "release: origin/$(MAIN_BRANCH) ref missing locally; run 'git fetch origin $(MAIN_BRANCH)' first" >&2; \
+	@# Fetch so origin/MAIN_BRANCH means GitHub's state, not a stale local
+	@# remote-tracking ref. Releasing needs the network anyway.
+	@git fetch origin $(MAIN_BRANCH) --quiet || { \
+		echo "release: git fetch origin $(MAIN_BRANCH) failed; releasing requires the network" >&2; \
 		exit 1; \
 	}
+	@# Unpushed local commits usually mean a forgotten push, not a deliberate
+	@# decouple — refuse loudly. RELEASE_ALLOW_UNPUSHED=1 is the explicit
+	@# "release origin/$(MAIN_BRANCH) without my local WIP" override. A local
+	@# checkout that is merely BEHIND origin is fine: the release ships
+	@# origin/$(MAIN_BRANCH) regardless.
+	@ahead=$$(git rev-list --count origin/$(MAIN_BRANCH)..HEAD); \
+	if [ "$$ahead" -gt 0 ] && [ "$${RELEASE_ALLOW_UNPUSHED:-0}" != "1" ]; then \
+		echo "release: local HEAD carries $$ahead commit(s) that origin/$(MAIN_BRANCH) lacks:" >&2; \
+		git log --oneline origin/$(MAIN_BRANCH)..HEAD >&2; \
+		echo "        push them to include them in the release, or set RELEASE_ALLOW_UNPUSHED=1 to release without them." >&2; \
+		exit 1; \
+	fi
 	@if git rev-parse --verify --quiet $(RELEASE_VERSION) >/dev/null; then \
 		echo "release: tag $(RELEASE_VERSION) already exists locally" >&2; \
 		exit 1; \
