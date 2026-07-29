@@ -564,21 +564,66 @@ function setAttentionStatus(copy, error = false) {
   renderAttention();
 }
 
-async function refreshAlerts() {
+const ALERTS_REFRESH_MIN_INTERVAL_MS = 15000;
+
+function scheduleAlertsRefresh(options = {}) {
   if (!state.authenticated) return false;
-  try {
-    const response = await fetch("/api/alerts", { credentials: "include" });
-    if (!response.ok) throw new Error("alerts unavailable");
-    const result = ingestAlerts(await response.json());
-    if (result.status === "rejected") throw new Error("alerts malformed");
-    renderAlerts();
-    renderSelectedAlert();
-    return true;
-  } catch {
-    markInvalid("alert refresh unavailable");
-    renderAlerts();
-    return false;
+  const delayMs = Math.max(0, Number(options.delayMs) || 0);
+  const minIntervalMs = options.minIntervalMs === undefined
+    ? ALERTS_REFRESH_MIN_INTERVAL_MS
+    : Math.max(0, Number(options.minIntervalMs) || 0);
+  const now = Date.now();
+  const throttleDelay = Math.max(0, minIntervalMs - (now - state.alertsLastRefreshAt));
+  const dueAt = now + Math.max(delayMs, throttleDelay);
+  const ensureTrailing = options.ensureTrailing === true;
+  let timerEnsureTrailing = ensureTrailing;
+  if (state.alertsRefreshTimer) {
+    timerEnsureTrailing ||= state.alertsRefreshTimerEnsureTrailing;
+    state.alertsRefreshTimerEnsureTrailing = timerEnsureTrailing;
+    if (state.alertsRefreshDueAt <= dueAt) return true;
+    clearTimeout(state.alertsRefreshTimer);
   }
+  state.alertsRefreshDueAt = dueAt;
+  state.alertsRefreshTimerEnsureTrailing = timerEnsureTrailing;
+  state.alertsRefreshTimer = setTimeout(() => {
+    const trailing = state.alertsRefreshTimerEnsureTrailing;
+    state.alertsRefreshTimer = null;
+    state.alertsRefreshDueAt = 0;
+    state.alertsRefreshTimerEnsureTrailing = false;
+    refreshAlerts({ ensureTrailing: trailing });
+  }, Math.max(0, dueAt - Date.now()));
+  return true;
+}
+
+async function refreshAlerts(options = {}) {
+  if (!state.authenticated) return false;
+  if (state.alertsRefreshInFlight) {
+    if (options.ensureTrailing === true) state.alertsRefreshAfterFlight = true;
+    return state.alertsRefreshInFlight;
+  }
+  state.alertsLastRefreshAt = Date.now();
+  state.alertsRefreshInFlight = (async () => {
+    try {
+      const response = await fetch("/api/alerts", { credentials: "include" });
+      if (!response.ok) throw new Error("alerts unavailable");
+      const result = ingestAlerts(await response.json());
+      if (result.status === "rejected") throw new Error("alerts malformed");
+      renderAlerts();
+      renderSelectedAlert();
+      return true;
+    } catch {
+      markInvalid("alert refresh unavailable");
+      renderAlerts();
+      return false;
+    } finally {
+      state.alertsRefreshInFlight = null;
+      if (state.alertsRefreshAfterFlight) {
+        state.alertsRefreshAfterFlight = false;
+        scheduleAlertsRefresh({ minIntervalMs: 0 });
+      }
+    }
+  })();
+  return state.alertsRefreshInFlight;
 }
 
 async function acknowledgeAttention(options = {}) {
@@ -697,6 +742,7 @@ export {
   renderAlerts,
   renderAttention,
   renderSelectedAlert,
+  scheduleAlertsRefresh,
   setupAttentionVisibility,
   validateAlerts,
   validateAttention,

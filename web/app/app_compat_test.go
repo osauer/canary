@@ -1308,10 +1308,11 @@ func TestActiveAlertInboxIsTheSoleRenderedAuthority(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, refreshAlerts, renderAlerts, renderSelectedAlert } from "./alert-inbox.js";`,
+		`import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, renderAlerts, renderSelectedAlert, scheduleAlertsRefresh } from "./alert-inbox.js";`,
 		`ingestAlerts(data.alerts);`,
 		`type === "alerts"`,
 		`ingestAlertsEvent(event.data);`,
+		`scheduleAlertsRefresh({ delayMs: 500, ensureTrailing: true })`,
 	} {
 		if !strings.Contains(lifecycle, want) {
 			t.Fatalf("lifecycle missing active alert wiring %q", want)

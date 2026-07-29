@@ -47,7 +47,9 @@ const {
   canAssertAlertClear,
   ingestAlerts,
   ingestAlertsEvent,
+  refreshAlerts,
   renderAlerts,
+  scheduleAlertsRefresh,
   validateAlerts,
 } = await import("../alert-inbox.js");
 const { state } = await import("../state.js");
@@ -136,6 +138,13 @@ function reset() {
   state.alerts = null;
   state.alertsFeedValid = null;
   state.alertsFeedError = "";
+  state.alertsRefreshInFlight = null;
+  if (state.alertsRefreshTimer) clearTimeout(state.alertsRefreshTimer);
+  state.alertsRefreshTimer = null;
+  state.alertsRefreshDueAt = 0;
+  state.alertsRefreshTimerEnsureTrailing = false;
+  state.alertsRefreshAfterFlight = false;
+  state.alertsLastRefreshAt = 0;
   state.renderedAlertAttention = null;
   state.attentionEpoch = 0;
   state.attentionReadInFlight = null;
@@ -153,6 +162,10 @@ function reset() {
 
 function visibleText(element) {
   return `${element?.textContent || ""} ${(element?.children || []).map(visibleText).join(" ")}`.trim();
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 test("the active DTO accepts current and previous display ids with a reused attention sequence", () => {
@@ -268,4 +281,45 @@ test("malformed or hidden unread state never advances the read cursor", async ()
   globalThis.fetch = async () => { called = true; throw new Error("must not fetch"); };
   assert.equal(await acknowledgeAttention({ retry: false }), false);
   assert.equal(called, false);
+});
+
+test("burst refresh triggers coalesce into one GET and a stale in-flight fetch gets one trailing refresh", async () => {
+  reset();
+  let calls = 0;
+  let releaseFirst;
+  const first = new Promise((resolve) => { releaseFirst = resolve; });
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      await first;
+      return { ok: true, async json() { return dto(); } };
+    }
+    return { ok: true, async json() { return dto({ generation: 10 }); } };
+  };
+  const inFlight = refreshAlerts();
+  scheduleAlertsRefresh({ delayMs: 1, minIntervalMs: 0, ensureTrailing: true });
+  scheduleAlertsRefresh({ delayMs: 1, minIntervalMs: 0, ensureTrailing: true });
+  await wait(5);
+  assert.equal(calls, 1, "concurrent delayed triggers must not start a second in-flight GET");
+  releaseFirst();
+  await inFlight;
+  await wait(10);
+  assert.equal(calls, 2, "the first stale GET must be followed by exactly one trailing refresh");
+  assert.equal(state.alerts.generation, 10);
+});
+
+test("the default min interval defers a refresh scheduled right after a completed fetch", async () => {
+  reset();
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return { ok: true, async json() { return dto(); } };
+  };
+  assert.equal(await refreshAlerts(), true);
+  assert.equal(calls, 1);
+  assert.equal(scheduleAlertsRefresh({ delayMs: 1 }), true);
+  await wait(10);
+  assert.equal(calls, 1, "a schedule inside the min interval must not fetch immediately");
+  assert.ok(state.alertsRefreshTimer, "the deferred trailing refresh must stay scheduled");
+  reset();
 });

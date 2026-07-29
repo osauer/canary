@@ -1,5 +1,5 @@
 import { applyGovernanceCutoverOverlay, refreshGovernance, refreshPushState, scheduleGovernanceRefresh, validateGovernanceResponse } from "./alerts.js";
-import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, refreshAlerts, renderAlerts, renderSelectedAlert } from "./alert-inbox.js";
+import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, renderAlerts, renderSelectedAlert, scheduleAlertsRefresh } from "./alert-inbox.js";
 import { renderAll } from "./app.js";
 import { tryDeviceLogin } from "./auth.js";
 import { refreshOpenOrders } from "./orders.js";
@@ -137,7 +137,7 @@ function connectEvents() {
       renderAll();
       if (["snapshot", "stress", "nudges"].includes(type)) handleAttentionContextChange();
       if (type === "stress") {
-        setTimeout(refreshAlerts, 500);
+        scheduleAlertsRefresh({ delayMs: 500, ensureTrailing: true });
       }
       if (type === "nudges" && state.authenticated) {
         refreshGovernance();
