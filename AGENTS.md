@@ -118,20 +118,20 @@ pins, freeze state, and committed versus in-flight work. See
 
 Use only `make release RELEASE_VERSION=vX.Y.Z`; never create tags, push tags, or
 create GitHub releases directly, and never force-push as a release step. The
-target runs the pipeline body in a detached worktree of `origin/main` (removed
-on success, kept and its path printed on failure), so the primary checkout
-stays free for concurrent work, and it owns its origin, live-TWS,
-paper-round-trip, signing, publishing, and registry checks. After success,
+target runs the pipeline body in a detached worktree pinned to the operator's
+committed HEAD (removed on success, kept and its path printed on failure), so
+the primary checkout stays free for concurrent work, and it owns its origin,
+live-TWS, paper-round-trip, signing, publishing, and registry checks. After success,
 verify the GitHub release, remote tag, and registry artifact.
 
-Publishing the release commit is a prerequisite, not a release step. The
-release ships whatever `origin/main` holds — the target fetches first, aborts
-on unpushed local commits unless RELEASE_ALLOW_UNPUSHED=1, and proceeds with a
-note when the checkout is merely behind — so a fast-forward `git push origin main` of
-reviewed commits is normal and permitted; the prohibition above is on tags and
-releases, not on commits. Check `git log origin/main..HEAD` first and confirm it
-holds only your own reviewed commits: a push carries every local commit, and
-this tree runs concurrent sessions.
+The release ships the operator's committed HEAD and lands it on origin/main
+itself, with a fast-forward push as the pipeline's first step — a separate
+`git push origin main` beforehand is normal but no longer required, and the
+fire refuses to start when origin/main carries commits the checkout lacks.
+The prohibition above is on tags and releases, not on commits. Check
+`git log origin/main..HEAD` before firing and confirm it holds only your own
+reviewed commits: a fire lands and publishes every local commit, and this
+tree runs concurrent sessions.
 
 Before editing or pushing public `osauer.dev/canary` copy, verify the active Pages
 publisher with `gh api repos/osauer/canary/pages` and a live header request. Do not

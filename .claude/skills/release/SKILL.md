@@ -34,16 +34,17 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 
 ## Stage 0 — Context (autonomous)
 
-- The pipeline self-isolates: `make release` creates a detached worktree at
-  `origin/main`, runs the whole body there, removes it on success, and keeps
-  it (printing the path) on failure. Fire from the primary checkout. What
-  ships is `origin/main` — snapshot `git status && git log --oneline
-  origin/main..HEAD` and push anything that must be in the release. The
-  target fetches origin/main and refuses to fire while local HEAD carries
-  unpushed commits (RELEASE_ALLOW_UNPUSHED=1 is the deliberate override); a
-  checkout that is merely behind origin proceeds with a note. The worktree runs
-  `origin/main`'s Makefile, so changes to the pipeline itself take effect
-  only once pushed.
+- The pipeline self-isolates: `make release` pins the operator's committed
+  HEAD, creates a detached worktree at that commit, runs the whole body
+  there, removes it on success, and keeps it (printing the path) on failure.
+  The body's first step fast-forward-pushes the pinned commit to origin/main
+  (a no-op when already landed), so "commit it, fire" is the entire
+  protocol: dirty files never ship, commits made after firing never ship,
+  and no separate push is required. The fire aborts only when origin/main
+  carries commits the checkout lacks — pull/rebase first. Snapshot
+  `git status` and `git log --oneline origin/main..HEAD` before firing: a
+  fire lands and publishes every local commit. The worktree runs the pinned
+  commit's Makefile, so pipeline changes take effect once committed.
 - Shared-tree check (guards the prep commits, not the pipeline — the
   worktree isolates the run from local edits): uncommitted files or unpushed
   commits that are not yours mean another session is live — wait or push on

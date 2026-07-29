@@ -911,18 +911,14 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 		echo "release: git fetch origin $(MAIN_BRANCH) failed; releasing requires the network" >&2; \
 		exit 1; \
 	}
-	@# Unpushed local commits usually mean a forgotten push, not a deliberate
-	@# decouple — refuse loudly. RELEASE_ALLOW_UNPUSHED=1 is the explicit
-	@# "release origin/$(MAIN_BRANCH) without my local WIP" override. A local
-	@# checkout that is merely BEHIND origin is fine: the release ships
-	@# origin/$(MAIN_BRANCH) regardless.
-	@ahead=$$(git rev-list --count origin/$(MAIN_BRANCH)..HEAD); \
-	if [ "$$ahead" -gt 0 ] && [ "$${RELEASE_ALLOW_UNPUSHED:-0}" != "1" ]; then \
-		echo "release: local HEAD carries $$ahead commit(s) that origin/$(MAIN_BRANCH) lacks:" >&2; \
-		git log --oneline origin/$(MAIN_BRANCH)..HEAD >&2; \
-		echo "        push them to include them in the release, or set RELEASE_ALLOW_UNPUSHED=1 to release without them." >&2; \
+	@# The release ships exactly the operator's committed HEAD. If origin has
+	@# commits this checkout lacks, releasing HEAD would drop landed work from
+	@# the release — that is a merge decision for a human, so refuse.
+	@git merge-base --is-ancestor origin/$(MAIN_BRANCH) HEAD || { \
+		echo "release: origin/$(MAIN_BRANCH) has commits this checkout lacks; pull/rebase first:" >&2; \
+		git log --oneline HEAD..origin/$(MAIN_BRANCH) >&2; \
 		exit 1; \
-	fi
+	}
 	@if git rev-parse --verify --quiet $(RELEASE_VERSION) >/dev/null; then \
 		echo "release: tag $(RELEASE_VERSION) already exists locally" >&2; \
 		exit 1; \
@@ -932,16 +928,13 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 		exit 1; \
 	fi
 	@wt="$(RELEASE_WORKTREE_ROOT)/canary-release-$(RELEASE_VERSION)"; \
-	sha=$$(git rev-parse origin/$(MAIN_BRANCH)); \
-	if [ "$$(git rev-parse HEAD)" != "$$sha" ]; then \
-		echo "release: NOTE: local HEAD differs from origin/$(MAIN_BRANCH); the release ships origin/$(MAIN_BRANCH) @ $$sha" >&2; \
-	fi; \
+	sha=$$(git rev-parse HEAD); \
 	if [ -e "$$wt" ]; then \
 		echo "release: $$wt already exists (previous failed run?)." >&2; \
 		echo "        inspect it, then remove with: git worktree remove --force $$wt" >&2; \
 		exit 1; \
 	fi; \
-	echo "==> release worktree: $$wt (origin/$(MAIN_BRANCH) @ $$sha)"; \
+	echo "==> release worktree: $$wt (HEAD @ $$sha)"; \
 	git worktree add --detach "$$wt" "$$sha" || exit 1; \
 	msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
 	if MESSAGE="$$msg" $(MAKE) -C "$$wt" _release-run RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION) $(if $(wildcard bin/mcp-publisher),MCP_PUBLISHER=$(CURDIR)/bin/mcp-publisher); then \
@@ -965,7 +958,7 @@ _release-run:
 	fi
 	@expected=$$(echo "$(RELEASE_VERSION)" | sed 's/^v//'); \
 	if ! grep -q "\"version\": \"$$expected\"" .claude-plugin/plugin.json; then \
-		echo "_release-run: .claude-plugin/plugin.json version != $$expected on origin/$(MAIN_BRANCH) — land and push the stamp commit first" >&2; \
+		echo "_release-run: .claude-plugin/plugin.json version != $$expected in the release commit — commit the stamp first" >&2; \
 		grep '"version"' .claude-plugin/plugin.json >&2; \
 		exit 1; \
 	fi
@@ -974,6 +967,10 @@ _release-run:
 		git status --short >&2; \
 		exit 1; \
 	fi
+	@# Land the release commit before anything expensive: the release ships
+	@# exactly this commit, and origin/$(MAIN_BRANCH) must carry it. Plain
+	@# push refuses non-fast-forward, so origin moving since fire aborts here.
+	git push origin HEAD:$(MAIN_BRANCH)
 	@# Auth preflight before any expensive step: gh auth goes stale
 	@# between releases and used to surface only at the LAST pipeline
 	@# legs (v2.0.0 stranded twice on registry-publish). Actions OIDC is
