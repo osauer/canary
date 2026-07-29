@@ -28,7 +28,7 @@
         "headline": "IBKR / Interactive Brokers MCP server for local trading research",
         "description": "A practical guide to using Canary as a local Interactive Brokers MCP server for Claude Desktop, Claude Code, Cursor, Zed, IB Gateway, TWS, portfolio analysis, risk checks, quotes, calendars, and market context.",
         "url": "https://osauer.dev/canary/interactive-brokers-mcp-server/",
-        "dateModified": "2026-07-23T12:30:00+02:00",
+        "dateModified": "2026-07-29T09:45:00+02:00",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
@@ -45,28 +45,20 @@
       {
         "@type": "SoftwareApplication",
         "name": "Canary",
-        "alternateName": [
-          "IBKR MCP Server",
-          "Interactive Brokers MCP Server",
-          "TWS MCP Server",
-          "IB Gateway MCP Server",
-          "IBKR Claude Desktop MCP",
-          "Portfolio review with Claude and IBKR"
-        ],
         "url": "https://osauer.dev/canary/",
-        "description": "Canary is a local Interactive Brokers MCP server, CLI, Go TWS API, and paired app with entitlement-aware market data and advisory risk controls.",
+        "description": "Canary is a local Interactive Brokers risk system: MCP server, CLI, Go TWS API, and paired app with entitlement-aware market data and advisory risk controls.",
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
         "softwareVersion": "2.5.0",
-        "dateModified": "2026-07-26T10:00:00+02:00",
+        "dateModified": "2026-07-29T09:45:00+02:00",
         "codeRepository": "https://github.com/osauer/canary",
         "isAccessibleForFree": true,
         "sameAs": [
           "https://github.com/osauer/canary",
           "https://pkg.go.dev/github.com/osauer/canary/v2"
         ],
-        "keywords": "IBKR MCP, Interactive Brokers MCP server, portfolio review with Claude and IBKR, Claude IBKR portfolio review, best IBKR MCP server for Claude Code, IBKR Claude Desktop MCP, TWS MCP server, IB Gateway MCP, Claude Desktop Interactive Brokers"
+        "keywords": "Interactive Brokers, IBKR, MCP server, TWS API, IB Gateway, risk desk, portfolio risk"
       },
       {
         "@type": "FAQPage",
@@ -623,7 +615,7 @@
           </div>
           <div class="strip-item">
             <strong>Workflow tools</strong>
-            <span>Account, positions, quotes, calendars, options, scans, sizing, breadth, gamma, and regime.</span>
+            <span>26 read/preview tools: account, positions, quotes, calendars, options, history, scans, screens, watchlist, sizing, breadth, gamma, regime, stress, event flags, rulebook, and order-journal reads.</span>
           </div>
           <div class="strip-item">
             <strong>Controlled boundary</strong>
@@ -636,7 +628,7 @@
     <section class="wrap">
       <div class="section-head">
         <h2>What an assistant can do with it.</h2>
-        <p>The MCP server is one part of a larger local platform. Since v2.1, Canary also covers the risk side of a small trading desk: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook, an operator-written risk policy, and daily broker-statement reconciliation. The last two are terminal commands (<code>canary policy</code>, <code>canary recon</code>), not MCP tools, and every one of these surfaces is advisory: it reports, and it never places an order.</p>
+        <p>The MCP server is one part of a larger local platform. Canary also covers the risk side of a small trading desk: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook, an operator-written risk policy, and daily broker-statement reconciliation. The last two are terminal commands (<code>canary policy</code>, <code>canary recon</code>), not MCP tools, and every one of these surfaces is advisory: it reports, and it never places an order.</p>
         <p>The tools expose snapshot quotes with freshness and spread context, a streaming quote resource for stocks and ETFs, option chains with implied volatility, Greeks, and open interest, daily history bars, market scanners, S&amp;P 500 breadth, and dealer gamma. Everything flows through your own TWS or IB Gateway session, so real-time coverage follows your IBKR market-data subscriptions and unavailable inputs remain explicit.</p>
         <p>Ask in plain language. The assistant chooses the right MCP tool for portfolio review, market context, risk checks, and trade-plan sizing.</p>
       </div>
@@ -678,7 +670,7 @@
       <div>
         <div class="section-head">
           <h2>What it does not expose.</h2>
-          <p>The boundary is simple: account and market data are available; order entry is not part of the bundled CLI or MCP server.</p>
+          <p>The boundary is simple: account and market data are available; order entry is not part of the bundled CLI or MCP server. Each release also publishes a separate, clearly marked <code>canary-trading</code> CLI tarball for explicit opt-in order management — and even there, the MCP surface stays preview-only.</p>
         </div>
       </div>
       <ul class="list negative">

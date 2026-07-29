@@ -837,7 +837,6 @@
   },
   "links": {
     "portfolioReview": "https://osauer.dev/canary/portfolio-review-with-claude-ibkr/",
-    "portfolioAnalysis": "https://osauer.dev/canary/analyze-interactive-brokers-portfolio-with-ai/",
     "mcpTools": "https://osauer.dev/canary/docs/reference/mcp-tools.html",
     "mcpResources": "https://osauer.dev/canary/docs/reference/mcp-resources.html",
     "privacy": "https://github.com/osauer/canary/blob/main/PRIVACY.md",
@@ -845,16 +844,12 @@
     "downloadMCPB": "https://github.com/osauer/canary/releases/latest/download/canary.mcpb"
   },
   "keywords": [
-    "IBKR MCP",
-    "Interactive Brokers MCP server",
-    "portfolio review with Claude and IBKR",
-    "Claude IBKR portfolio review",
-    "Interactive Brokers portfolio analysis AI",
-    "IBKR portfolio analysis",
-    "portfolio stress checks",
-    "market research",
-    "TWS MCP server",
-    "IB Gateway MCP",
-    "Claude Desktop Interactive Brokers"
+    "Interactive Brokers",
+    "IBKR",
+    "MCP server",
+    "TWS API",
+    "IB Gateway",
+    "risk desk",
+    "portfolio risk"
   ]
 }

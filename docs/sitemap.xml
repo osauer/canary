@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://osauer.dev/canary/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -218,7 +218,7 @@
   </url>
   <url>
     <loc>https://osauer.dev/canary/ibkr-mcp/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.95</priority>
   </url>
@@ -230,7 +230,7 @@
   </url>
   <url>
     <loc>https://osauer.dev/canary/interactive-brokers-mcp-server/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
@@ -248,7 +248,7 @@
   </url>
   <url>
     <loc>https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
@@ -260,7 +260,7 @@
   </url>
   <url>
     <loc>https://osauer.dev/canary/read-only-mcp-server/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
@@ -278,13 +278,13 @@
   </url>
   <url>
     <loc>https://osauer.dev/canary/.well-known/mcp/server.json</loc>
-    <lastmod>2026-07-24</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/.well-known/mcp/server-card.json</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-07-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>

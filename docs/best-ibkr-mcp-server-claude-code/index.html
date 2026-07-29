@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-18T21:05:00+02:00",
+    "dateModified": "2026-07-29T09:45:00+02:00",
     "description": "Use Canary with Claude Code to read Interactive Brokers account and market data through a local MCP server that has no order-entry tools.",
     "headline": "Best IBKR MCP server for Claude Code",
     "isPartOf": {
@@ -50,9 +50,9 @@
   </header>
   <main class="wrap doc">
 <h1 id="best-ibkr-mcp-server-for-claude-code">Best IBKR MCP server for Claude Code</h1>
-<p>Updated: 2026-07-18 21:05 CEST</p>
+<p>Updated: 2026-07-29 09:45 CEST</p>
 <p>Use <code>canary mcp</code> when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. It runs locally through stdio beside IB Gateway or TWS.</p>
-<p>Since v2.1 the same binary carries more than the MCP server: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook Claude can read through <code>canary_rules</code>, plus an operator-written risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>) in the terminal. All of it is advisory, and all of it runs locally.</p>
+<p>The same binary carries more than the MCP server: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook Claude can read through <code>canary_rules</code>, plus an operator-written risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>) in the terminal. All of it is advisory, and all of it runs locally.</p>
 <p>Market data is the full surface: real-time and streaming quotes, option chains with Greeks and open interest, daily history, and scanners, with entitlements following your IBKR market-data subscriptions.</p>
 <p>The short answer: choose a local MCP server that connects to IB Gateway or Trader Workstation (TWS), exposes explicit read-only tools, and makes order placement impossible at the tool boundary. <code>canary</code> is designed around that boundary.</p>
 <h2 id="why-read-only-matters">Why read-only matters</h2>

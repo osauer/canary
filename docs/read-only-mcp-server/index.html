@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-18T21:05:00+02:00",
+    "dateModified": "2026-07-29T09:45:00+02:00",
     "description": "Canary reads Interactive Brokers account and market context but cannot place, modify, cancel, or transmit broker orders through MCP.",
     "headline": "Read-only MCP server for Interactive Brokers",
     "isPartOf": {
@@ -50,19 +50,22 @@
   </header>
   <main class="wrap doc">
 <h1 id="read-only-mcp-server-for-interactive-brokers">Read-only MCP server for Interactive Brokers</h1>
-<p>Updated: 2026-07-18 21:05 CEST</p>
+<p>Updated: 2026-07-29 09:45 CEST</p>
 <p><code>canary mcp</code> is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it does not expose a place-order, modify-order, or cancel-order tool.</p>
 <p>The read-only boundary is what makes the rest of the platform workable. Because agents hold no order-entry tools, regime context, stress checks, the rulebook, risk policy, and statement reconciliation can use the available portfolio and market context without gaining execution authority.</p>
 <p>This page describes the standard downloads: the installer, the Claude Desktop bundle, and the plain <code>canary</code> tarballs. Releases also publish a separate, clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management; nothing on this page applies to that variant, and it is never installed by default.</p>
 <p>This is a capability boundary, not a claim that market data is complete. Quotes, chains, and scans still depend on the connected account's entitlements, the market session, and source freshness.</p>
 <h2 id="what-read-only-means-here">What read-only means here</h2>
-<p>Allowed surfaces:</p>
+<p>Allowed surfaces (26 tools in the current release):</p>
 <ul>
 <li>account summary, cash, margin, buying power, daily P&amp;L</li>
 <li>positions, option legs, marks, and Greek coverage</li>
-<li>quotes, quote freshness, daily bars, and official market calendars</li>
-<li>option chains, expiries, expected moves, scanners, breadth, dealer gamma, and risk regime</li>
+<li>quotes, quote freshness, daily bars, official market calendars, and a local watchlist</li>
+<li>option chains, expiries, expected moves, scanners, technical screens, breadth, dealer gamma, risk regime, and portfolio stress</li>
+<li>held-name market-event flags, rulebook snapshots, protection-proposal and opportunity reads, and platform-settings reads</li>
+<li>open-order, order-history, and order-status journal reads</li>
 <li>fixed-fractional position sizing as math only</li>
+<li>order previews as local drafts only — a preview token can never transmit</li>
 </ul>
 <p>Not exposed:</p>
 <ul>

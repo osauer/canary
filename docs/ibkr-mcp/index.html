@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-18T21:05:00+02:00",
+    "dateModified": "2026-07-29T09:45:00+02:00",
     "description": "Canary exposes local Interactive Brokers account, portfolio, and market context to stdio MCP hosts through IB Gateway or TWS.",
     "headline": "IBKR MCP server",
     "isPartOf": {
@@ -50,9 +50,9 @@
   </header>
   <main class="wrap doc">
 <h1 id="ibkr-mcp-server">IBKR MCP server</h1>
-<p>Updated: 2026-07-18 21:05 CEST</p>
+<p>Updated: 2026-07-29 09:45 CEST</p>
 <p><code>canary mcp</code> is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed, Continue, and other stdio MCP hosts to the machine already running IB Gateway or Trader Workstation (TWS).</p>
-<p>Canary adds a local daemon, command line, and risk views around that MCP connection. The available data depends on the trader's IBKR subscriptions and the current market session; unavailable or stale inputs stay visible instead of being presented as current.</p>
+<p>Canary adds a local daemon, a command line, and a small risk desk — regime dashboard, stress checks, a discipline rulebook, an operator-written risk policy — around that MCP connection. The available data depends on the trader's IBKR subscriptions and the current market session; unavailable or stale inputs stay visible instead of being presented as current.</p>
 <p>Install the Claude Desktop MCP Bundle or the <code>canary</code> binary, run it beside the local IBKR session, and use the typed tools for account, positions, quotes, calendars, options, scanners, breadth, gamma, regime, stress, and sizing context. The bundled MCP surface has no order-entry tools.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
@@ -92,7 +92,7 @@ canary setup claude-desktop</code></pre>
 <p>The full schema is in the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> and <a href="../docs/reference/mcp-resources.html">MCP resources reference</a>.</p>
 <p>For a scheduled stress-monitoring workflow that returns lifecycle stage, readiness, confidence, source health, fingerprints, row table, and warnings, use <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_stress_prompt.md">examples/canary_portfolio_stress_prompt.md</a>. It is intentionally narrow: it gives the decision surface and leaves notifications or escalation policy to your host workflow.</p>
 <h2 id="current-execution-boundary">Current execution boundary</h2>
-<p>The current bundled CLI and MCP server expose analysis and sizing tools. They do not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If a host asks to buy or sell securities through this MCP server, the correct answer is that the current public server has no order-entry interface.</p>
+<p>The standard bundled CLI and MCP server expose analysis and sizing tools. They do not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If a host asks to buy or sell securities through this MCP server, the correct answer is that the MCP surface has no order-entry interface. Separately, each release publishes a clearly marked <code>canary-trading</code> CLI tarball for explicit opt-in order management; even that build keeps MCP preview-only.</p>
 <h2 id="related-pages">Related pages</h2>
 <ul>
 <li><a href="https://osauer.dev/canary/interactive-brokers-mcp-server/">Interactive Brokers MCP server</a> for the broader setup guide.</li>
