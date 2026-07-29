@@ -95,8 +95,8 @@ function pageHTML(imageURL) {
     h1 {
       max-width: 590px;
       margin: 0;
-      font-size: 55px;
-      line-height: 1.08;
+      font-size: 48px;
+      line-height: 1.1;
       letter-spacing: -0.045em;
     }
     .lead {
@@ -134,9 +134,9 @@ function pageHTML(imageURL) {
   <main>
     <section class="copy">
       <p class="brand">Canary</p>
-      <h1>Interactive Brokers context, available locally.</h1>
-      <p class="lead">One CLI and MCP server for account, market, and risk views through your own TWS or IB Gateway session.</p>
-      <p class="boundary">Typed data quality · no MCP order-entry tools</p>
+      <h1>A local risk system for the Interactive Brokers account you can't watch all day.</h1>
+      <p class="lead">Runs on the same machine as TWS or IB Gateway, so the account data stays there. Use it from the shell. Or let an agent use it over MCP.</p>
+      <p class="boundary">MCP tools read and preview · they never place an order</p>
     </section>
     <figure class="terminal" aria-label="Synthetic Canary regime output">
       <img id="terminal-shot" src="${imageURL}" alt="">
