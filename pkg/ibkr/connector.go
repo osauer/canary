@@ -2545,6 +2545,20 @@ func parseIntSafe(s string) int {
 	return v
 }
 
+// normalizeWireLastTradeDate reduces a lastTradeDateOrContractMonth wire value
+// to its leading date token. The gateway appends the settlement time and zone
+// for options ("20260729 15:00:00 US/Central"); the official IB decoders split
+// on whitespace or hyphen and keep only the first token, and everything
+// downstream — optionContractKey, the persisted contract cache, and OPT
+// order-contract matching — expects the bare YYYYMMDD.
+func normalizeWireLastTradeDate(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if i := strings.IndexAny(raw, " -"); i >= 0 {
+		return raw[:i]
+	}
+	return raw
+}
+
 func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion int) (*ContractDetailsLite, bool) {
 	if len(fields) <= 1 {
 		return nil, false
@@ -2575,7 +2589,7 @@ func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion 
 	idx++
 
 	// Last trade date / contract month — for OPT this is the expiry YYYYMMDD.
-	expiry := strings.TrimSpace(safeGet(fields, idx))
+	expiry := normalizeWireLastTradeDate(safeGet(fields, idx))
 	idx++
 	if serverVersion >= minServerVerLastTradeDate {
 		idx++

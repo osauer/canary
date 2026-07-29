@@ -100,6 +100,38 @@ func TestParseContractDetailsLiteStockTypeServerBoundary(t *testing.T) {
 	}
 }
 
+func TestParseContractDetailsLiteOptionExpiryDropsSettlementTimeSuffix(t *testing.T) {
+	// The gateway reports lastTradeDateOrContractMonth for options with a
+	// settlement-time suffix ("20260729 15:00:00 US/Central"). The parsed
+	// Expiry must be the bare date or every cached row contradicts its
+	// optionContractKey and the contract-cache save is refused.
+	for _, tc := range []struct {
+		name, wire, want string
+	}{
+		{"space_time_zone", "20260729 15:00:00 US/Central", "20260729"},
+		{"hyphen_time", "20260729-15:00:00", "20260729"},
+		{"bare_date", "20260729", "20260729"},
+		{"empty", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fields := syntheticContractDetailsFields(maxClientVersion, "OPT", "")
+			fields[4] = tc.wire // lastTradeDateOrContractMonth
+			fields[6] = "555"   // strike
+			fields[7] = "P"     // right
+			got, ok := parseContractDetailsLite(fields, 41, maxClientVersion)
+			if !ok {
+				t.Fatal("option contract-details frame was rejected")
+			}
+			if got.Expiry != tc.want {
+				t.Fatalf("expiry = %q, want %q", got.Expiry, tc.want)
+			}
+			if got.Strike != 555 || got.Right != "P" {
+				t.Fatalf("strike/right = %v/%q, want 555/P", got.Strike, got.Right)
+			}
+		})
+	}
+}
+
 func TestParseContractDetailsLiteMalformedOrTruncatedTailCannotFabricateStockType(t *testing.T) {
 	valid := syntheticStockContractDetailsFields(maxClientVersion, "TYPE_CODE")
 	secIDCountIndex := 31
