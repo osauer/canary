@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.5.3 — 2026-07-30 11:49 CEST
+
+### What's new
+
+- **Policy gates now respect the official options calendar.** The option-exercise trading-hours blocker and the live-IV requirement used a clock-only check that treated market holidays as open, missed early closes, and ended the session at 16:00 where listed options trade to 16:15. Both now consult the embedded official calendar, so a holiday morning is correctly blocked and the 16:00–16:15 window is correctly open.
+- **The terminal UI asks before exactly the commands that write.** Seven confirm-classified paths ran without a prompt — `trading paper-smoke`, the five `policy` write subcommands, and `recon dismiss` — while ten read-only `proposals` and `opportunities` subcommands prompted needlessly. Confirmation now follows the per-subcommand guard classification.
+
+### Deprecated
+
+- `pkg/ibkr` marks its dead public surface for removal at the next major version: `ConnectorConfig.ServiceName` (no reader since the connection-pool removal), `RateLimitedRequest` (scheduler-internal), and the three system-notice setters whose callback types are unexported and therefore unusable outside the package. Nothing is removed in v2.
+
+### Fixed
+
+- The CLI reference omitted `restart --remote` and `--remote-url` and still advertised `proposals --protect-hedges`, a flag the parser rejects; the command catalog now carries both restart flags, drops the phantom, and a parity test pins every catalog flag to a real flag registration so this drift class fails `make check`.
+- The Claude Desktop install page shipped malformed inline CSS — two unclosed rules that browsers silently dropped, leaving its callout unstyled. The stylesheet is closed and a new structural check gates every hand-authored docs page's `<style>` blocks.
+- The experimental trading example told users to add live acknowledgement fields that the strict config loader has rejected since their removal, and the generated configuration reference described the paper smoke as governing live enablement. Both now state the real gate: `[trading].mode` plus the gateway pins, with the paper smoke as informational, release-pipeline-only evidence.
+- The README claimed market data is never stored, cached, or leaves the machine; the daemon keeps local caches and journals, and optional features (remote relay, Web Push, MCP hosts) transmit data by design. The claim is now scoped and `PRIVACY.md` is named as the authoritative list.
+
 ## v2.5.2 — 2026-07-30 10:47 CEST
 
 ### What's new
