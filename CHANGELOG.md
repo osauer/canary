@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.5.2 — 2026-07-30 08:59 CEST
+
+### What's new
+
+- **A broker-link data loss now recovers completely.** When TWS loses its own connection to IBKR and restores it with subscriptions dropped, every live market-data subscription is re-issued automatically and the account streams rebuild; order transmission is refused while the link is down instead of sending into a dead connection.
+- **The paired app's alert badge survives network hiccups.** A failed or hung alert refresh no longer clears the unread badge or announces "no unread alerts"; the last validated state stays visible until real evidence replaces it.
+- **Unknown state is reported as unknown, not as zero.** A transiently zero-valued holding, an unprimed empty position stream, and an unreadable order journal each used to read as clean absence; all three now stay visible as unresolved until positive evidence settles them.
+
+### Changed
+
+- A release interrupted after its tag was pushed can be resumed with `make release-resume RELEASE_VERSION=vX.Y.Z`. Completed publication legs verify themselves and skip, every leg runs pinned to the exact tagged commit, and a partially uploaded GitHub release stops for a human decision instead of being overwritten.
+- The release smoke gate exercises the regime dashboard and an option-chain read again, this time against a settled session rather than the deliberately contended sequence that had made those steps flaky enough to remove.
+
+### Fixed
+
+- TWS distinguishes two recovery notices after a broker-link outage: code 1102 keeps server-side subscriptions, code 1101 drops them. The connector treated both as plain recovery, so after a data-loss restore every streaming subscription stayed silently dead while farm status read ok. Each live shared subscription is now replayed exactly once on 1101, the account-updates and daily P&L streams force-rebuild, and code 1100 refuses order transmission until a restore notice arrives.
+- A failed or timed-out `/api/alerts` refresh in the paired app marked the whole validated alert feed invalid: the unread badge disappeared, the tab announced "no unread alerts", and a hung request wedged every later refresh. Refreshes are now bounded by a deadline, a transport failure keeps the retained validated state and surfaces itself as a status note, and a genuinely invalidated feed also quarantines the delivery-health and selected-alert panels instead of leaving them looking current.
+- A held stock whose account row transiently reported zero marks was sealed as "no market data expected" before any quote probe could disprove it, and stayed excluded from quote enrichment afterwards. The probe now runs for zero-value rows, and only the broker's own non-reporting verdict may seal a row as expecting no data.
+- An empty position stream is only trusted as a flat book once the portfolio stream's account-scoped completion receipt has arrived. Previously a missing gross-position-value field, which flattens to numeric zero on the wire contract, could make an unprimed empty stream pass for a completed flat book in proposals, opportunities, and the rulebook.
+- A daemon whose order journal became unreadable counted zero open orders and could idle-exit while broker-side protective orders were still working. An unreadable journal now defers idle shutdown and reports itself as a degraded status row.
+
+### Security
+
+- Broker WhatIf free text and advanced-reject JSON no longer cross the MCP boundary. Agent surfaces receive the typed status, the broker's numeric margin fields, and fixed Canary guidance; the verbatim broker text stays on the CLI order-preview surface and in the local journal.
+- Release packaging refuses ambient `GOFLAGS` carrying build tags and capability-checks the binary inside every packaged archive, so the canonical read-only artifact can never silently ship a trading-capable build.
+
 ## v2.5.1 — 2026-07-29 19:29 CEST
 
 ### What's new
