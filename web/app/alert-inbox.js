@@ -373,8 +373,58 @@ function timeLabel(value) {
   return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 
+// Panel clock: the weekday and the minute, on the same 24-hour register the
+// lamp-test stamp already keeps. The annunciator log spans days, so the
+// weekday earns its place; the seconds never do.
+function clockLabel(value) {
+  if (!value) return "not observed";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "not observed";
+  const day = parsed.toLocaleDateString([], { weekday: "short" });
+  const time = parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${day} ${time}`;
+}
+
 function alertSourceLabel(source) {
   return SOURCE_LABELS[source] || "Unknown source";
+}
+
+// The engraved source placard is the daemon's own vocabulary and nothing
+// else: the display label for the served source, plus the served kind where
+// the kind says something the source does not. No invented geography, no
+// re-derived severity, no sensor ids.
+function alertPlacard(occurrence) {
+  const source = alertSourceLabel(occurrence.source);
+  const kind = String(occurrence.kind || "").replaceAll("_", " ");
+  return kind && kind.toLowerCase() !== source.toLowerCase() ? `${source} \u00b7 ${kind}` : source;
+}
+
+// The age line reads the served timestamps back as words. A lit annunciator
+// says when it lit; an extinguished one says when it lit, when it went out,
+// and how long it burned. Lifecycle state and evidence health are appended in
+// the daemon's vocabulary only when they are not the nominal case, so a row
+// that says nothing extra is genuinely ordinary.
+function alertAgeLine(occurrence) {
+  const parts = occurrence.ended_at === null
+    ? [`Lit ${clockLabel(occurrence.first_seen_at)}`]
+    : [`Lit ${clockLabel(occurrence.first_seen_at)}, out ${clockLabel(occurrence.ended_at)}`, litDuration(occurrence.first_seen_at, occurrence.ended_at)];
+  if (occurrence.state !== "open") parts.push(occurrence.state);
+  if (occurrence.evidence_health !== "current") parts.push(`evidence ${occurrence.evidence_health}`);
+  return parts.filter(Boolean).join(" \u00b7 ");
+}
+
+function litDuration(from, to) {
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "";
+  const minutes = Math.round((end - start) / 60000);
+  if (minutes < 1) return "under a minute lit";
+  if (minutes < 60) return `${minutes} min lit`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours < 24) return remainder === 0 ? `${hours} h lit` : `${hours} h ${remainder} min lit`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "1 day lit" : `${days} days lit`;
 }
 
 function setText(id, copy) {
@@ -389,10 +439,18 @@ function emptyRow(copy) {
   return row;
 }
 
+// One annunciator tile. Lit rows carry the lamp bar and the severity wash;
+// the title takes the 60% tint so the lamp reads as a lamp and the sentence
+// stays readable. An extinguished row is the same tile unlit — engraved, no
+// bar, no wash — which is what a register of past events should look like.
+const SEVERITY_TINT = { urgent: "pd-tile--act", act: "pd-tile--act", watch: "pd-tile--watch" };
+
 function alertRowElement(occurrence) {
   const row = document.createElement("button");
   row.type = "button";
-  row.className = `alert-row alert-row--${["act", "urgent"].includes(occurrence.severity) ? "risk" : occurrence.severity === "watch" ? "warn" : "info"}`;
+  const out = occurrence.ended_at !== null;
+  const tint = out ? "" : SEVERITY_TINT[occurrence.severity] || "";
+  row.className = `alert-row pd-tile pd-alert${out ? " pd-alert--out" : ""}${tint ? ` ${tint}` : ""}`;
   row.dataset.displayId = occurrence.display_id;
   row.classList.toggle("active", occurrence.display_id === state.selectedAlertID);
   row.addEventListener("click", () => {
@@ -400,24 +458,68 @@ function alertRowElement(occurrence) {
     renderAlerts();
     renderSelectedAlert();
   });
-  const copy = document.createElement("div");
-  copy.className = "alert-row__copy";
-  const head = document.createElement("div");
-  head.className = "alert-row__head";
-  const chip = document.createElement("span");
-  chip.className = "alert-chip";
-  chip.textContent = occurrence.severity.toUpperCase();
+  if (tint) {
+    const bar = document.createElement("span");
+    bar.className = "pd-tile__bar";
+    bar.setAttribute("aria-hidden", "true");
+    row.append(bar);
+  }
+  const placard = document.createElement("span");
+  placard.className = "alert-row__source pd-alert__src";
+  placard.textContent = alertPlacard(occurrence);
   const title = document.createElement("b");
+  title.className = "pd-alert__title";
   title.textContent = occurrence.title;
-  head.append(chip, title);
   const body = document.createElement("p");
+  body.className = "pd-alert__body";
   body.textContent = occurrence.body;
-  copy.append(head, body);
-  const meta = document.createElement("span");
-  meta.className = "alert-row__source";
-  meta.textContent = `${alertSourceLabel(occurrence.source)} · ${occurrence.state} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`;
-  row.append(copy, meta);
+  const age = document.createElement("span");
+  age.className = "pd-alert__age";
+  age.textContent = alertAgeLine(occurrence);
+  row.append(placard, title, body, age);
   return row;
+}
+
+// The engraved unlit poster: the quiet desk stated as a fact, and only when
+// the feed can actually assert it. Incomplete or stale coverage keeps the
+// honest sentence instead — a dark panel and an unreadable panel look the
+// same, and only one of them means nothing is wrong.
+function allDarkPoster(value) {
+  const poster = document.createElement("div");
+  poster.className = "pd-poster";
+  const word = document.createElement("div");
+  word.className = "pd-poster__word";
+  word.textContent = "ALL DARK.";
+  const sub = document.createElement("div");
+  sub.className = "pd-poster__sub";
+  sub.textContent = `No annunciators lit \u00b7 ${value.coverage.covered_sources.length}/${value.coverage.expected_sources.length} sources current \u00b7 ${clockLabel(value.coverage.as_of)}`;
+  poster.append(word, sub);
+  return poster;
+}
+
+// Act above watch, and the served order kept inside each band: the operator
+// reads the loudest lamp first, and nothing below it moves between renders.
+const SEVERITY_ORDER = { urgent: 0, act: 1, watch: 2, observe: 3 };
+
+function bySeverity(left, right) {
+  return (SEVERITY_ORDER[left.severity] ?? 9) - (SEVERITY_ORDER[right.severity] ?? 9);
+}
+
+const EXTINGUISHED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+// The extinguished register is the last seven days off the SERVED clock. An
+// occurrence the served attention set still counts as unread stays in the
+// register whatever its age: the acknowledge guard requires every unread
+// reference to have been rendered, and a display window must never quietly
+// satisfy that with a row the operator cannot see.
+function extinguishedRegister(value, ended) {
+  const asOf = Date.parse(value.as_of);
+  const unread = new Set(value.attention.unread_refs.map((ref) => ref.display_id));
+  return ended.filter((item) => {
+    if (unread.has(item.display_id)) return true;
+    const endedAt = Date.parse(item.ended_at);
+    return !Number.isFinite(asOf) || !Number.isFinite(endedAt) || asOf - endedAt <= EXTINGUISHED_WINDOW_MS;
+  });
 }
 
 function deliveryCopy(health) {
@@ -478,7 +580,9 @@ function renderSources(value) {
   }
   const rows = value.sources.map((source) => {
     const row = document.createElement("div");
-    row.className = "alert-source-row";
+    // A source row reads lit only while its own served evidence says so; the
+    // dark class is a tint, never a verdict the daemon did not state.
+    row.className = source.covered && source.evidence_health === "current" ? "alert-source-row" : "alert-source-row alert-source-row--dark";
     const name = document.createElement("b");
     name.textContent = alertSourceLabel(source.source);
     const status = document.createElement("span");
@@ -538,11 +642,16 @@ function renderAlerts() {
   setText("currentSignalCount", String(active.length));
   setText("alertAuthorityState", authorityState);
   setText("alertCoverageSummary", `${value.coverage.state} coverage · ${value.coverage.freshness} · ${value.coverage.covered_sources.length}/${value.coverage.expected_sources.length} sources · ${timeLabel(value.coverage.as_of)}`);
-  if (currentList) currentList.replaceChildren(...(active.length > 0 ? active.map(alertRowElement) : [emptyRow(clear ? "No active alerts. Every expected source is current." : "No active alert can be confirmed because source coverage is incomplete or stale.")]));
-  if (historyList) historyList.replaceChildren(...ended.map(alertRowElement));
+  const extinguished = extinguishedRegister(value, ended);
+  if (currentList) {
+    currentList.replaceChildren(...(active.length > 0
+      ? [...active].sort(bySeverity).map(alertRowElement)
+      : [clear ? allDarkPoster(value) : emptyRow("No active alert can be confirmed because source coverage is incomplete or stale.")]));
+  }
+  if (historyList) historyList.replaceChildren(...extinguished.map(alertRowElement));
   const history = $("alertsHistorySection");
-  if (history) history.hidden = ended.length === 0;
-  setText("alertHistoryCount", String(ended.length));
+  if (history) history.hidden = extinguished.length === 0;
+  setText("alertHistoryCount", String(extinguished.length));
   renderSources(value);
   renderDelivery(value);
   renderAttention();

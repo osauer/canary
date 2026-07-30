@@ -218,16 +218,128 @@ test("render uses only API title and body, and records the exact unread set rend
   ingestAlerts(value);
   const view = renderAlerts();
   assert.equal(view.active.length, 1);
-  assert.match(visibleText(elements.get("currentSignalList").children[0]), /Portfolio stress/);
+  const row = elements.get("currentSignalList").children[0];
+  assert.match(visibleText(row), /Portfolio stress/);
   assert.deepEqual(state.renderedAlertAttention, {
     high_water_seq: 4,
     refs: [{ display_id: "alert-0123456789abcdef", source: "canary", kind: "portfolio_risk" }],
   });
-  assert.match(visibleText(elements.get("currentSignalList").children[0]), /Stress · open/);
-  assert.doesNotMatch(visibleText(elements.get("currentSignalList").children[0]), /canary/i);
+  // The engraved placard is the served source label plus the served kind, and
+  // never the retained backend sensor id.
+  assert.match(visibleText(row), /Stress · portfolio risk/);
+  assert.doesNotMatch(visibleText(row), /canary/i);
+  // A lit annunciator is the Monitor's tile, tinted by the served severity,
+  // with the served timestamps read back as words.
+  assert.match(row.className, /\balert-row\b/);
+  assert.match(row.className, /\bpd-alert\b/);
+  assert.match(row.className, /\bpd-tile--act\b/);
+  assert.match(visibleText(row), /Lit \w/);
   assert.match(elements.get("alertDeliveryAcceptance").textContent, /does not prove the phone displayed it or that it was read/i);
   assert.equal(elements.get("alertSourceList").children[0].children[0].textContent, "Stress");
   assert.match(elements.get("alertSourceList").children[0].children[1].textContent, /current · authoritative/);
+  assert.equal(elements.get("alertSourceList").children[0].className, "alert-source-row");
+});
+
+test("the log lamps act above watch, and an extinguished row reads unlit with its burn time", () => {
+  reset();
+  const value = dto({
+    occurrences: [
+      occurrence({ display_id: "alert-watch0123456789", source: "regime", kind: "market_state", severity: "watch", title: "Watch lamp", attention_seq: 5 }),
+      occurrence({ display_id: "alert-act01234567890", severity: "act", title: "Act lamp", attention_seq: 6 }),
+      occurrence({
+        display_id: "alert-previous-abcdef0123456789", severity: "act", state: "recovered", title: "Out lamp",
+        first_seen_at: "2026-07-22T11:00:00Z", last_seen_at: "2026-07-22T11:38:00Z",
+        ended_at: "2026-07-22T11:38:00Z", end_reason: "recovered", attention_seq: 4,
+      }),
+    ],
+    attention: { unread_count: 0, high_water_seq: 6, read_through_seq: 6, unread_refs: [] },
+  });
+  assert.equal(validateAlerts(value), value);
+  ingestAlerts(value);
+  renderAlerts();
+  const active = elements.get("currentSignalList").children;
+  assert.equal(active.length, 2);
+  assert.match(visibleText(active[0]), /Act lamp/);
+  assert.match(visibleText(active[1]), /Watch lamp/);
+  assert.match(active[1].className, /\bpd-tile--watch\b/);
+  const out = elements.get("alertHistoryList").children;
+  assert.equal(out.length, 1);
+  assert.match(out[0].className, /\bpd-alert--out\b/);
+  assert.doesNotMatch(out[0].className, /pd-tile--(act|watch)/);
+  assert.match(visibleText(out[0]), /Lit .*, out .*38 min lit · recovered/);
+  assert.equal(elements.get("alertHistoryCount").textContent, "1");
+  assert.equal(elements.get("alertsHistorySection").hidden, false);
+});
+
+test("a confirmed quiet desk posts ALL DARK, and an unconfirmed one keeps the honest sentence", () => {
+  reset();
+  const now = new Date();
+  const nowISO = now.toISOString();
+  const fresh = new Date(now.getTime() + 600_000).toISOString();
+  const quiet = dto({
+    as_of: nowISO,
+    current_state: "clear",
+    coverage: { state: "complete", freshness: "current", as_of: nowISO, expected_sources: [...sourceNames], covered_sources: [...sourceNames] },
+    sources: sourceNames.map((name) => source(name, { input_as_of: nowISO, observed_at: nowISO, evidence_as_of: nowISO, fresh_until: fresh })),
+    occurrences: [],
+    attention: { unread_count: 0, high_water_seq: 4, read_through_seq: 4, unread_refs: [] },
+  });
+  assert.equal(canAssertAlertClear(quiet), true);
+  ingestAlerts(quiet);
+  renderAlerts();
+  const poster = elements.get("currentSignalList").children[0];
+  assert.equal(poster.className, "pd-poster");
+  assert.match(visibleText(poster), /ALL DARK\./);
+  assert.match(visibleText(poster), new RegExp(`${sourceNames.length}/${sourceNames.length} sources current`));
+
+  reset();
+  const unconfirmed = dto({
+    current_state: "clear",
+    occurrences: [],
+    attention: { unread_count: 0, high_water_seq: 4, read_through_seq: 4, unread_refs: [] },
+  });
+  assert.equal(canAssertAlertClear(unconfirmed), false);
+  ingestAlerts(unconfirmed);
+  renderAlerts();
+  const empty = elements.get("currentSignalList").children[0];
+  assert.equal(empty.className, "empty-row");
+  assert.match(empty.textContent, /source coverage is incomplete or stale/);
+});
+
+test("an unread occurrence outside the seven-day window stays in the extinguished register", () => {
+  reset();
+  const stale = occurrence({
+    display_id: "alert-previous-abcdef0123456789", severity: "watch", state: "recovered", title: "Old lamp",
+    first_seen_at: "2026-07-10T09:00:00Z", last_seen_at: "2026-07-10T09:40:00Z",
+    ended_at: "2026-07-10T09:40:00Z", end_reason: "recovered", attention_seq: 4,
+  });
+  const unread = dto({
+    occurrences: [stale],
+    attention: {
+      unread_count: 1,
+      high_water_seq: 4,
+      read_through_seq: 3,
+      unread_refs: [{ display_id: stale.display_id, source: stale.source, kind: stale.kind }],
+    },
+  });
+  assert.equal(validateAlerts(unread), unread);
+  ingestAlerts(unread);
+  renderAlerts();
+  // The acknowledge guard requires every unread reference to have been
+  // rendered: a display window must never satisfy it with an invisible row.
+  assert.equal(elements.get("alertHistoryList").children.length, 1);
+  assert.equal(elements.get("alertHistoryCount").textContent, "1");
+  assert.deepEqual(state.renderedAlertAttention, { high_water_seq: 4, refs: unread.attention.unread_refs });
+
+  reset();
+  const read = dto({
+    occurrences: [stale],
+    attention: { unread_count: 0, high_water_seq: 4, read_through_seq: 4, unread_refs: [] },
+  });
+  ingestAlerts(read);
+  renderAlerts();
+  assert.equal(elements.get("alertHistoryList").children.length, 0);
+  assert.equal(elements.get("alertsHistorySection").hidden, true);
 });
 
 test("an unread row outside bounded history keeps the inbox visible but cannot be acknowledged", async () => {

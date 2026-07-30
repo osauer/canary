@@ -26,8 +26,25 @@ func TestGovernanceSurfaceStaticContract(t *testing.T) {
 			t.Errorf("index.html missing governance id %q", id)
 		}
 	}
-	if !strings.Contains(html, ">Ended alerts<") || strings.Contains(html, ">Alert History<") {
-		t.Fatal("Ended alerts must be visibly distinct from Risk & process history")
+	// The annunciator log keeps its own register of past lamps ("extinguished")
+	// and must stay visibly distinct from the Risk & process history block.
+	if !strings.Contains(html, ">Extinguished &middot; last 7 days<") || strings.Contains(html, ">Alert History<") {
+		t.Fatal("the extinguished register must be visibly distinct from Risk & process history")
+	}
+	// Alert authority, delivery evidence and the report check moved behind the
+	// Monitor's lamp-test stamp; the Alerts tab is the log alone.
+	alertsAt := strings.Index(html, `id="alertsTab"`)
+	ordersAt := strings.Index(html, `id="ordersTab"`)
+	if alertsAt < 0 || ordersAt < alertsAt {
+		t.Fatal("index.html must declare the alerts tab panel ahead of the orders tab panel")
+	}
+	for _, id := range []string{"alertAuthoritySection", "reconciliationCard", "alertSourceList", "alertDeliveryHealth"} {
+		if at := strings.Index(html, `id="`+id+`"`); at > alertsAt && at < ordersAt {
+			t.Errorf("%q must live in the lamp-test detail, not inside the Alerts tab panel", id)
+		}
+	}
+	if !strings.Contains(html, `id="lampTestDialog"`) || !strings.Contains(html, `id="lampTestButton"`) {
+		t.Fatal("the lamp-test stamp must open a detail dialog")
 	}
 	detailsAt := strings.Index(html, `id="governanceEvidenceDetails"`)
 	if detailsAt < 0 || strings.Contains(html[detailsAt:strings.Index(html[detailsAt:], `>`)+detailsAt], " open") {

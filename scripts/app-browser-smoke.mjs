@@ -193,6 +193,9 @@ async function runRound4SyntheticSmoke() {
       endedAlerts: document.getElementById("alertHistoryList")?.textContent || "",
       authority: document.getElementById("alertAuthorityState")?.textContent || "",
       governanceHistory: document.getElementById("governanceHistoryList")?.textContent || "",
+      litTiles: document.querySelectorAll("#currentSignalList .alert-row.pd-tile--watch").length,
+      outTiles: document.querySelectorAll("#alertHistoryList .alert-row.pd-alert--out").length,
+      authoritySeated: document.getElementById("lampTestDialog")?.contains(document.getElementById("alertAuthorityState")) === true,
     }));
     await page.locator("#tabSettings").click();
     const settings = await page.evaluate(() => ({
@@ -202,6 +205,9 @@ async function runRound4SyntheticSmoke() {
     }));
     if (!monitor.active || monitor.badge !== "2" || monitor.label !== "Alerts, 2 unread") throw new Error(`synthetic unread monitor state failed: ${JSON.stringify(monitor)}`);
     if (alertsView.detailsOpen !== false || !alertsView.cutoverVisible || !alertsView.coverage.includes("Older payments need a one-time review") || !alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active" || !alertsView.governanceHistory.includes("Synthetic process review")) throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
+    // The log renders as annunciator tiles (watch lit, ended unlit) and the
+    // alert authority now reports from inside the lamp-test detail.
+    if (alertsView.litTiles !== 1 || alertsView.outTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while your in-app history remains") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
     if (mutationRequests.length !== 1 || mutationRequests[0].method !== "POST" || mutationRequests[0].path !== "/api/alerts/attention/read" || JSON.parse(mutationRequests[0].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
     if (errors.length > 0) throw new Error(`synthetic browser errors: ${errors.join("\n")}`);
@@ -464,6 +470,7 @@ try {
   const portfolioDetail = await exercisePortfolioDetail(page);
   const protectionRiskRendering = await exerciseProtectionRiskRendering(page);
   const alertHistory = await exerciseAlertHistory(page);
+  const lampTestDetail = await exerciseLampTestDetail(page);
   const briefNarrative = await assertBriefNarrative(page);
   const governanceFixtures = await exerciseGovernanceFixtures(page);
   // Prove the attention-read guard was armed and effective: the alerts tab
@@ -536,6 +543,7 @@ try {
     portfolio_detail: portfolioDetail,
     protection_risk_rendering: protectionRiskRendering,
     alert_history: alertHistory,
+    lamp_test_detail: lampTestDetail,
     brief_narrative: briefNarrative,
     governance_fixtures: governanceFixtures,
     open_orders: openOrders,
@@ -1584,21 +1592,43 @@ async function exerciseProtectionRiskRendering(page) {
   return info;
 }
 
+// Alerts is the annunciator log: lit tiles above, the extinguished register
+// below, and nothing else. Every row must carry the engraved source placard,
+// the served title, and a worded age line; act tiles must never sit under
+// watch tiles; and an extinguished row must read unlit.
 async function exerciseAlertHistory(page) {
+  const SEVERITY_RANK = { act: 0, watch: 1, "": 2 };
   const initiallyOpen = await page.locator("#alertsPanel").evaluate((el) => !!el.open);
   if (!initiallyOpen) {
     await page.locator("#alertsPanel summary").click();
     await page.waitForFunction(() => document.getElementById("alertsPanel")?.open, { timeout: 5000 });
   }
-  const info = await page.evaluate(() => ({
-    count: Number.parseInt(document.getElementById("alertCount")?.textContent || "0", 10) || 0,
-    currentRows: document.querySelectorAll("#currentSignalList .alert-row").length,
-    historyRows: document.querySelectorAll("#alertHistoryList .alert-row").length,
-    currentCount: Number.parseInt(document.getElementById("currentSignalCount")?.textContent || "0", 10) || 0,
-    historyCount: Number.parseInt(document.getElementById("alertHistoryCount")?.textContent || "0", 10) || 0,
-    authority: document.getElementById("alertAuthorityState")?.textContent || "",
-    coverage: document.getElementById("alertCoverageSummary")?.textContent || "",
-  }));
+  const info = await page.evaluate(() => {
+    const readLog = (id) => [...document.querySelectorAll(`#${id} .alert-row`)].map((row) => ({
+      placard: row.querySelector(".alert-row__source")?.textContent?.trim() || "",
+      title: row.querySelector(".pd-alert__title")?.textContent?.trim() || "",
+      age: row.querySelector(".pd-alert__age")?.textContent?.trim() || "",
+      tint: row.classList.contains("pd-tile--act") ? "act" : row.classList.contains("pd-tile--watch") ? "watch" : "",
+      out: row.classList.contains("pd-alert--out"),
+    }));
+    return {
+      count: Number.parseInt(document.getElementById("alertCount")?.textContent || "0", 10) || 0,
+      currentRows: document.querySelectorAll("#currentSignalList .alert-row").length,
+      historyRows: document.querySelectorAll("#alertHistoryList .alert-row").length,
+      currentCount: Number.parseInt(document.getElementById("currentSignalCount")?.textContent || "0", 10) || 0,
+      historyCount: Number.parseInt(document.getElementById("alertHistoryCount")?.textContent || "0", 10) || 0,
+      authority: document.getElementById("alertAuthorityState")?.textContent || "",
+      coverage: document.getElementById("alertCoverageSummary")?.textContent || "",
+      active: readLog("currentSignalList"),
+      extinguished: readLog("alertHistoryList"),
+      poster: document.querySelector("#currentSignalList .pd-poster__word")?.textContent?.trim() || "",
+      quiet: document.querySelector("#currentSignalList .empty-row")?.textContent?.trim() || "",
+      // A placard row carries its count or chip alongside the legend; the
+      // legend is the first span, so read that rather than the whole row.
+      placards: [...document.querySelectorAll("#alertsTab .pd-placard")].map((el) => (el.querySelector("span") || el).textContent?.trim() || ""),
+      historyHidden: document.getElementById("alertsHistorySection")?.hidden !== false,
+    };
+  });
   let selected = false;
   const firstAlert = page.locator("#currentSignalList .alert-row:visible, #alertHistoryList .alert-row:visible").first();
   if ((await firstAlert.count()) > 0) {
@@ -1610,6 +1640,31 @@ async function exerciseAlertHistory(page) {
     selected = true;
   }
   if (!info.authority || !info.coverage) throw new Error(`active alert authority did not render: ${JSON.stringify(info)}`);
+  for (const row of [...info.active, ...info.extinguished]) {
+    if (!row.placard || !row.title || !/^Lit /.test(row.age)) {
+      throw new Error(`annunciator tile is incomplete: ${JSON.stringify(row)}`);
+    }
+  }
+  const ranks = info.active.map((row) => SEVERITY_RANK[row.tint] ?? 9);
+  if (ranks.some((rank, index) => index > 0 && rank < ranks[index - 1])) {
+    throw new Error(`act tiles must sit above watch tiles: ${JSON.stringify(info.active.map((row) => row.tint))}`);
+  }
+  for (const row of info.extinguished) {
+    if (!row.out || row.tint !== "" || !/, out /.test(row.age)) {
+      throw new Error(`extinguished tile must read unlit with its burn window: ${JSON.stringify(row)}`);
+    }
+  }
+  // A quiet log is either the engraved poster or the honest coverage
+  // sentence — never an empty panel that could be mistaken for calm.
+  if (info.active.length === 0 && info.poster !== "ALL DARK." && !/coverage is incomplete or stale/.test(info.quiet)) {
+    throw new Error(`a quiet annunciator log must state why it is quiet: ${JSON.stringify({ poster: info.poster, quiet: info.quiet })}`);
+  }
+  if (!info.placards.includes("Active") || !info.placards.includes("Process evidence")) {
+    throw new Error(`alerts placards are incomplete: ${JSON.stringify(info.placards)}`);
+  }
+  if (!info.historyHidden && !info.placards.some((placard) => /^Extinguished/.test(placard))) {
+    throw new Error(`the extinguished register must carry its own placard: ${JSON.stringify(info.placards)}`);
+  }
   if (!initiallyOpen) {
     await page.locator("#alertsPanel summary").click();
   }
@@ -1623,7 +1678,63 @@ async function exerciseAlertHistory(page) {
     history_count: info.historyCount,
     authority: info.authority,
     coverage: info.coverage,
+    placards: info.placards,
+    poster: info.poster,
+    active_tints: info.active.map((row) => row.tint),
+    first_age: info.active[0]?.age || info.extinguished[0]?.age || "",
     selected,
+  };
+}
+
+// Source coverage, delivery evidence and the daily report check moved behind
+// the Monitor's lamp-test stamp. Read-only QA: the report check's own button
+// is asserted, never pressed.
+async function exerciseLampTestDetail(page) {
+  await page.locator("#tabMonitor").click();
+  await page.waitForSelector("#dashboard:not([hidden])", { timeout: 5000 });
+  const closedBefore = await page.evaluate(() => document.getElementById("lampTestDialog")?.open === false);
+  await page.locator("#lampTestButton").click();
+  await page.waitForFunction(() => document.getElementById("lampTestDialog")?.open === true, { timeout: 5000 });
+  const detail = await page.evaluate(() => {
+    const dialog = document.getElementById("lampTestDialog");
+    const alertsTab = document.getElementById("alertsTab");
+    return {
+      stamp: document.getElementById("lampTestStamp")?.textContent?.trim() || "",
+      authority: document.getElementById("alertAuthorityState")?.textContent?.trim() || "",
+      coverage: document.getElementById("alertCoverageSummary")?.textContent?.trim() || "",
+      sourceRows: document.querySelectorAll("#alertSourceList .alert-source-row").length,
+      delivery: document.getElementById("alertDeliveryHealth")?.textContent?.trim() || "",
+      acceptance: document.getElementById("alertDeliveryAcceptance")?.textContent?.trim() || "",
+      reportState: document.getElementById("reconciliationState")?.textContent?.trim() || "",
+      reportButton: document.getElementById("reconciliationCheckButton")?.textContent?.trim() || "",
+      seated: ["alertAuthoritySection", "alertSourceList", "alertDeliveryHealth", "reconciliationCard"]
+        .filter((id) => dialog?.contains(document.getElementById(id))),
+      strandedInAlerts: ["alertAuthoritySection", "alertSourceList", "alertDeliveryHealth", "reconciliationCard"]
+        .filter((id) => alertsTab?.contains(document.getElementById(id))),
+    };
+  });
+  await page.locator("#lampTestDialogClose").click();
+  await page.waitForFunction(() => document.getElementById("lampTestDialog")?.open === false, { timeout: 5000 });
+  if (closedBefore !== true) throw new Error("the lamp-test detail must start closed");
+  if (detail.seated.length !== 4 || detail.strandedInAlerts.length > 0) {
+    throw new Error(`lamp-test detail is not the seat for alert authority and the report check: ${JSON.stringify(detail)}`);
+  }
+  if (!detail.authority || !detail.coverage || !detail.delivery || !detail.acceptance || !detail.reportState) {
+    throw new Error(`lamp-test detail did not render its served evidence: ${JSON.stringify(detail)}`);
+  }
+  if (detail.sourceRows === 0 && !/not initialized|rejected/i.test(detail.coverage)) {
+    throw new Error(`lamp-test detail rendered no alert sources and did not say why: ${JSON.stringify(detail)}`);
+  }
+  if (detail.reportButton !== "Check again") {
+    throw new Error(`the report check button lost its label: ${JSON.stringify(detail)}`);
+  }
+  return {
+    opens: true,
+    stamp: detail.stamp,
+    authority: detail.authority,
+    source_rows: detail.sourceRows,
+    delivery: detail.delivery,
+    report_state: detail.reportState,
   };
 }
 

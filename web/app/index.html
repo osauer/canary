@@ -148,9 +148,45 @@
             <p class="pd-master__sub" id="marketRegimeSummary">Regime read</p>
           </div>
           <div class="pd-lamptest" id="lampTest">
-            <span id="lampTestStamp">Last snapshot --</span>
+            <button class="pd-lamptest__stamp" id="lampTestButton" type="button" aria-haspopup="dialog">
+              <span id="lampTestStamp">Last snapshot --</span>
+            </button>
             <span class="pd-hold" aria-hidden="true">Hold to test</span>
           </div>
+          <dialog class="app-dialog app-dialog--lamptest" id="lampTestDialog" aria-labelledby="lampTestDialogTitle">
+            <div class="app-dialog__head">
+              <b id="lampTestDialogTitle">Lamp test</b>
+              <button class="app-dialog__close" id="lampTestDialogClose" type="button">Close</button>
+            </div>
+            <div class="app-dialog__body">
+              <section class="alert-authority" id="alertAuthoritySection" aria-labelledby="alertAuthorityHeading">
+                <div class="pd-placard pd-placard--row">
+                  <span id="alertAuthorityHeading">Source coverage</span>
+                  <span class="pd-chip" id="alertAuthorityState">Unknown</span>
+                </div>
+                <p class="alert-authority__summary" id="alertCoverageSummary">Alert authority has not initialized yet.</p>
+                <div class="alert-authority__sources" id="alertSourceList"></div>
+                <div class="pd-placard">Delivery</div>
+                <div class="alert-authority__delivery">
+                  <b id="alertDeliveryHealth">unavailable</b>
+                  <p id="alertDeliveryAcceptance">No push-service acceptance is recorded. Phone display and reading are not known.</p>
+                </div>
+              </section>
+              <div class="pd-placard">Daily broker report</div>
+              <section class="reconciliation-card" id="reconciliationCard" data-state="unavailable" aria-labelledby="reconciliationHeading">
+                <div class="reconciliation-card__head">
+                  <b id="reconciliationHeading">Latest report check</b>
+                  <span class="pd-chip reconciliation-card__state" id="reconciliationState">Unavailable</span>
+                </div>
+                <p class="reconciliation-card__summary" id="reconciliationSummary">Canary has not checked the latest IBKR report yet.</p>
+                <p class="reconciliation-card__meta" id="reconciliationMeta"></p>
+                <div class="reconciliation-card__actions">
+                  <button class="text-button" id="reconciliationCheckButton" type="button" disabled>Check again</button>
+                  <p class="governance-action-status" id="reconciliationCheckStatus" role="status"></p>
+                </div>
+              </section>
+            </div>
+          </dialog>
           <div class="pd-placard pd-placard--row">
             <span>Regime</span>
             <button class="signal-half__toggle" id="regimeDetailToggle" type="button" aria-expanded="false" aria-controls="regimeDetailPanel">
@@ -438,62 +474,28 @@
           </summary>
           <div class="alerts-body">
             <p class="alerts-delivery-banner" id="alertsDeliveryBanner" role="alert" hidden></p>
-            <p class="alerts-status" id="alertsStatusLine" role="status" hidden></p>
-            <section class="alert-section" aria-label="Needs attention">
-              <div class="alert-section__head">
-                <span>Needs attention</span>
+            <section class="alert-section" aria-label="Lit annunciators">
+              <div class="pd-placard pd-placard--row" id="currentSignalPlacard">
+                <span>Active</span>
                 <b id="currentSignalCount">0</b>
               </div>
-              <div class="list" id="currentSignalList"></div>
+              <div class="alert-log" id="currentSignalList"></div>
             </section>
-            <details class="previous-alerts" id="alertsHistorySection" hidden>
-              <summary>
-                <span>Ended alerts</span>
+            <section class="alert-section alert-section--out" id="alertsHistorySection" aria-label="Extinguished annunciators" hidden>
+              <div class="pd-placard pd-placard--row">
+                <span>Extinguished &middot; last 7 days</span>
                 <b id="alertHistoryCount">0</b>
-              </summary>
-              <div class="list" id="alertHistoryList"></div>
-            </details>
-            <section class="alert-authority" id="alertAuthoritySection" aria-labelledby="alertAuthorityHeading">
-              <div class="alert-authority__head">
-                <div>
-                  <span>Alert authority</span>
-                  <b id="alertAuthorityHeading">Source coverage</b>
-                </div>
-                <span class="alert-authority__state" id="alertAuthorityState">Unknown</span>
               </div>
-              <p class="alert-authority__summary" id="alertCoverageSummary">Alert authority has not initialized yet.</p>
-              <div class="alert-authority__sources" id="alertSourceList"></div>
-              <div class="alert-authority__delivery">
-                <b id="alertDeliveryHealth">unavailable</b>
-                <p id="alertDeliveryAcceptance">No push-service acceptance is recorded. Phone display and reading are not known.</p>
-              </div>
+              <div class="alert-log" id="alertHistoryList"></div>
             </section>
             <section class="governance-section" aria-labelledby="governanceHeading">
-              <div class="governance-heading">
-                <div>
-                  <span>Risk &amp; process</span>
-                  <b id="governanceHeading">Process checks</b>
-                </div>
-                <span class="governance-state" id="governanceCurrentState">Unavailable</span>
+              <div class="pd-placard pd-placard--row">
+                <span id="governanceHeading">Process evidence</span>
+                <span class="pd-chip" id="governanceCurrentState">Unavailable</span>
               </div>
               <p class="governance-summary" id="governanceSummary">Process check status not observed yet.</p>
-              <section class="reconciliation-card" id="reconciliationCard" data-state="unavailable" aria-labelledby="reconciliationHeading">
-                <div class="reconciliation-card__head">
-                  <div>
-                    <span>Daily broker report</span>
-                    <b id="reconciliationHeading">Latest report check</b>
-                  </div>
-                  <span class="reconciliation-card__state" id="reconciliationState">Unavailable</span>
-                </div>
-                <p class="reconciliation-card__summary" id="reconciliationSummary">Canary has not checked the latest IBKR report yet.</p>
-                <p class="reconciliation-card__meta" id="reconciliationMeta"></p>
-                <div class="reconciliation-card__actions">
-                  <button class="text-button" id="reconciliationCheckButton" type="button" disabled>Check again</button>
-                  <p class="governance-action-status" id="reconciliationCheckStatus" role="status"></p>
-                </div>
-              </section>
               <section class="governance-block" aria-label="Current risk and process reminders" id="governanceCurrentBlock" hidden>
-                <div class="alert-section__head">
+                <div class="pd-placard pd-placard--row">
                   <span>Current</span>
                   <b id="governanceCurrentCount">--</b>
                 </div>
@@ -506,9 +508,9 @@
                 <p class="governance-action-status" id="governanceCutoverReviewStatus" role="status"></p>
               </section>
               <details class="governance-details" id="governanceEvidenceDetails">
-                <summary>Process evidence</summary>
+                <summary>Evidence detail</summary>
                 <section class="governance-block" aria-label="Governance history">
-                  <div class="alert-section__head">
+                  <div class="pd-placard pd-placard--row">
                     <span>History</span>
                     <b id="governanceHistoryCount">0</b>
                   </div>

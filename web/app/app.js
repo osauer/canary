@@ -194,6 +194,19 @@ $("stressRulesToggle").addEventListener("click", () => {
   state.rulesDetailOpen = !state.rulesDetailOpen;
   renderRulesCard(state.snapshot?.rules);
 });
+// The lamp-test stamp opens the panel's own self-report: which alert sources
+// are covered, whether delivery is reaching the phone, and where the daily
+// broker report stands. Detail behind the stamp that reports it, not a
+// standing block on the log.
+$("lampTestButton").addEventListener("click", () => {
+  $("lampTestDialog").showModal();
+});
+$("lampTestDialogClose").addEventListener("click", () => {
+  $("lampTestDialog").close();
+});
+$("lampTestDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
 $("stressRulesNotesToggle").addEventListener("click", () => {
   $("stressRulesNotesDialog").showModal();
 });

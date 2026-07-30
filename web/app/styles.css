@@ -20,6 +20,8 @@
   --pd-prose: #a7adb9;
   --pd-plate: #4a515e;
   --pd-plate-quiet: #3b424e;
+  /* Unlit legend ink: the engraved word on a lamp that is not burning. */
+  --pd-unlit: #353c48;
   --pd-caution: #ffb43b;
   --pd-warning: #ff4f44;
   --pd-advisory: #6fb3ff;
@@ -1508,6 +1510,17 @@ p {
   white-space: nowrap;
 }
 
+/* The stamp is also the way in: the line that reports source health opens the
+   detail that explains it. It stays engraved — an affordance, not a control. */
+.pd-lamptest__stamp {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
 .pd-dimcount {
   color: var(--pd-engraved);
   font-weight: 600;
@@ -1535,6 +1548,15 @@ p {
 
 .pd-placard--row .signal-half__toggle {
   margin-left: auto;
+}
+
+/* A placard count is a readout, not a legend: engraved caps on the left, the
+   figure right-set in readout ink. */
+.pd-placard--row b {
+  margin-left: auto;
+  color: var(--pd-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .pd-grid {
@@ -1788,11 +1810,24 @@ p {
   padding: 12px 14px 14px;
 }
 
-.app-dialog__body p {
+/* Note-sheet paragraphs only. A dialog that seats whole sections (the
+   lamp-test detail) keeps each section's own register ink, including the
+   error tint on an action status line. */
+.app-dialog__body > p {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
   color: var(--ink-2);
+}
+
+/* The lamp-test detail carries the whole source register plus delivery and
+   the report check, so it is allowed more of the screen than a note sheet. */
+.app-dialog--lamptest {
+  max-height: min(84vh, 720px);
+}
+
+.app-dialog--lamptest .pd-placard:first-child {
+  margin-top: 0;
 }
 
 .stress-rules-detail {
@@ -4305,272 +4340,216 @@ p {
   line-height: 1.3;
 }
 
+/* ---- The annunciator log ----
+   Alerts is a register of lamps, not a feed. Every entry is the machined tile
+   the Monitor already uses: lit while the condition holds, engraved once it
+   is out. Severity is never re-derived here — the wash and bar follow the
+   served severity word and the title takes it at 60%, so the lamp stays the
+   loudest thing on the tile and the sentence stays readable. */
 .alert-section {
   display: grid;
-  gap: 4px;
-  padding: 9px 0;
-  border-top: 1px solid var(--line-soft);
+  gap: 0;
 }
 
-.alert-section:first-of-type {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.alert-section__head,
-.previous-alerts summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--muted);
-}
-
-.alert-section__head span,
-.previous-alerts summary span {
-  font-size: 10px;
-  font-weight: 780;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.alert-section__head b,
-.previous-alerts summary b {
-  color: var(--ink-2);
-  font-size: 12px;
-}
-
-.previous-alerts {
-  padding-top: 8px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.previous-alerts summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.previous-alerts summary::-webkit-details-marker {
-  display: none;
-}
-
-.previous-alerts .list {
-  padding-top: 5px;
-}
-
-.list {
+.alert-log {
   display: grid;
+  gap: 8px;
   min-width: 0;
   max-width: 100%;
 }
 
 .alert-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(92px, auto);
-  gap: 10px;
-  align-items: start;
+  display: block;
   width: 100%;
-  min-height: 56px;
-  padding: 9px 0;
   border: 0;
-  border-top: 1px solid var(--line-soft);
-  background: transparent;
   color: inherit;
+  cursor: pointer;
   text-align: left;
 }
 
-.alert-row:first-child {
-  border-top: 0;
+.pd-alert {
+  padding: 10px 12px 11px;
 }
 
-.alert-row {
-  cursor: pointer;
+.pd-alert__src {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--pd-engraved);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  line-height: 1.3;
+  text-transform: uppercase;
 }
 
-.alert-row::before {
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--blue);
-  content: "";
+.pd-alert__title {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--pd-strip-value);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.28;
 }
 
-.alerts-status {
-  margin: 2px 0 10px;
-  padding: 10px 12px;
-  border-left: 3px solid var(--blue);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--ink);
-  font-size: 13px;
+.pd-tile--watch .pd-alert__title {
+  color: var(--pd-watch-tint);
+}
+
+.pd-tile--act .pd-alert__title {
+  color: var(--pd-act-tint);
+}
+
+.pd-alert__body {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 3px 0 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+  color: var(--pd-subtext);
+  font-size: 12.5px;
   line-height: 1.4;
 }
 
-.alerts-status--warn {
-  border-left-color: var(--orange);
+.pd-alert__age {
+  display: block;
+  margin-top: 5px;
+  color: var(--pd-engraved);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
 }
 
-.alerts-status--risk {
-  border-left-color: var(--red);
+/* Extinguished: the same tile with the lamp out. The plate is engraved in
+   every state — only the bar and the wash ever light. */
+.pd-alert--out .pd-alert__title {
+  color: var(--pd-engraved);
+}
+
+.pd-alert--out .pd-alert__body {
+  color: var(--pd-dim);
+}
+
+/* Tapping a tile expands it in place: the detail panel lives on the Monitor
+   tab, so a clamped sentence would otherwise be unreachable here. */
+.alert-row.active {
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.075), inset 0 -1.5px 0 rgba(0, 0, 0, 0.5), inset 0 0 0 1px var(--pd-border);
+}
+
+.alert-row.active .pd-alert__body {
+  -webkit-line-clamp: unset;
+}
+
+/* ALL DARK: the quiet desk stated as a fact, engraved and unlit. It renders
+   only when the served feed can actually assert clear — an unreadable panel
+   and a dark panel look alike, and only one of them means nothing is wrong. */
+.pd-poster {
+  padding: 46px 20px 8px;
+  text-align: center;
+}
+
+.pd-poster__word {
+  color: var(--pd-unlit);
+  font-size: clamp(28px, 9vw, 36px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.07), 0 -1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.pd-poster__sub {
+  margin-top: 10px;
+  color: var(--pd-dim);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  text-transform: uppercase;
 }
 
 /* Push delivery failing during an open session outranks every other line on
    the page: the operator may be trading unalerted. */
 .alerts-delivery-banner {
-  margin: 2px 0 10px;
-  padding: 10px 12px;
-  border-left: 3px solid var(--red);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--ink);
-  font-size: 13px;
+  margin: 2px 0 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(180deg, rgba(255, 79, 68, 0.15), rgba(255, 79, 68, 0.045) 55%), #231c1b;
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.075), inset 0 -1.5px 0 rgba(0, 0, 0, 0.5);
+  color: var(--pd-act-tint);
+  font-size: 12.5px;
   font-weight: 600;
   line-height: 1.4;
 }
 
-.alert-row__head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-
-.alert-chip {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--blue-soft, rgba(111, 179, 255, 0.14));
-  color: var(--blue);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-}
-
-.alert-chip--warn {
-  background: rgba(255, 180, 59, 0.14);
-  color: var(--orange);
-}
-
-.alert-chip--risk {
-  background: rgba(255, 79, 68, 0.14);
-  color: var(--red);
-}
-
-.alert-chip--data {
-  background: var(--surface-soft);
-  color: var(--muted);
-}
-
-.alert-row--stale .alert-chip {
-  background: var(--surface-soft);
-  color: var(--muted-2);
-}
-
-.alert-row__details {
-  margin-top: 4px;
-}
-
-.alert-row__details summary {
-  color: var(--muted-2);
-  font-size: 11px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.alert-row__details p {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-  -webkit-line-clamp: unset;
-}
-
 .governance-summary {
-  margin: 4px 0 10px;
-  color: var(--muted);
+  margin: 0 2px 8px;
+  color: var(--pd-subtext);
   font-size: 12.5px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
+/* The report check reads as a readout strip inside the lamp-test detail: a
+   flush face with the served state carried on the edge lamp, never a card
+   competing with the annunciator log. */
 .reconciliation-card {
   display: grid;
   gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  border-left: 3px solid var(--muted-2);
-  border-radius: 9px;
-  background: var(--surface-soft);
+  padding: 10px 12px 11px;
+  border-radius: var(--radius-card);
+  background: var(--pd-readout-face);
+  box-shadow: inset 3px 0 var(--pd-dim);
 }
 
 .reconciliation-card[data-state="checking"],
 .reconciliation-card[data-state="retrying"] {
-  border-left-color: var(--blue);
+  box-shadow: inset 3px 0 var(--pd-advisory);
 }
 
 .reconciliation-card[data-state="up_to_date"] {
-  border-left-color: var(--green);
+  box-shadow: inset 3px 0 var(--pd-nominal);
 }
 
 .reconciliation-card[data-state="needs_you"] {
-  border-left-color: var(--orange);
+  box-shadow: inset 3px 0 var(--pd-caution);
 }
 
 .reconciliation-card[data-state="unavailable"] {
-  border-left-color: var(--red);
+  box-shadow: inset 3px 0 var(--pd-warning);
 }
 
-.reconciliation-card__head,
-.reconciliation-card__actions {
+.reconciliation-card__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
 }
 
-.reconciliation-card__head > div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.reconciliation-card__head > div > span {
-  color: var(--muted-2);
-  font-size: 10px;
-  font-weight: 780;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .reconciliation-card__head b {
-  color: var(--ink);
-  font-size: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-wrap: anywhere;
+  color: var(--pd-strip-value);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .reconciliation-card__state {
-  flex: none;
-  padding: 3px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--ink-2);
-  font-size: 10px;
-  font-weight: 720;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
 .reconciliation-card__summary,
 .reconciliation-card__meta {
   margin: 0;
-  color: var(--muted);
+  color: var(--pd-subtext);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .reconciliation-card__meta {
-  color: var(--muted-2);
+  color: var(--pd-engraved);
+  font-variant-numeric: tabular-nums;
 }
 
 .reconciliation-card__meta:empty {
@@ -4578,8 +4557,10 @@ p {
 }
 
 .reconciliation-card__actions {
-  justify-content: flex-start;
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   padding-top: 2px;
 }
 
@@ -4593,201 +4574,95 @@ p {
   opacity: 0.55;
 }
 
-.alert-row.alert-row--risk::before {
-  background: var(--red);
-}
-
-.alert-row.alert-row--warn::before {
-  background: var(--orange);
-}
-
-.alert-row.alert-row--stale {
-  opacity: 0.62;
-}
-
-.alert-row.alert-row--stale::before {
-  background: var(--muted-2);
-}
-
-.alert-row b {
-  display: block;
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 560;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.alert-row__copy {
-  min-width: 0;
-}
-
-.alert-row p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.28;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.alert-row__source {
-  display: inline-flex;
-  align-items: center;
-  justify-self: end;
-  max-width: 150px;
-  min-height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--muted-2);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.alert-row--stale .alert-row__source {
-  border-color: var(--line-soft);
-  color: var(--muted);
-}
-
-.alert-row.active {
-  margin-right: -7px;
-  margin-left: -7px;
-  padding-right: 7px;
-  padding-left: 7px;
-  border-radius: 7px;
-  background: var(--blue-soft);
-}
-
-/* Tapping an alert expands it in place: the detail panel lives on the
-   Monitor tab, so clamped text would otherwise be unreachable here. */
-.alert-row.active b {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-}
-
-.alert-row.active p {
-  -webkit-line-clamp: unset;
-}
-
 .empty-row {
   padding: 8px 0;
   color: var(--muted);
   font-size: 13px;
 }
 
+/* Alert authority lives behind the lamp-test stamp: one engraved row per
+   served source, its own status words, and the delivery evidence under it. */
 .alert-authority {
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  border-left: 3px solid var(--muted-2);
-  border-radius: 9px;
-  background: var(--surface-soft);
-}
-
-.alert-authority__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.alert-authority__head > div {
-  display: grid;
-  gap: 2px;
-}
-
-.alert-authority__head > div > span {
-  color: var(--muted-2);
-  font-size: 10px;
-  font-weight: 780;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.alert-authority__head > div > b {
-  color: var(--ink);
-  font-size: 15px;
-}
-
-.alert-authority__state {
-  flex: 0 0 auto;
-  padding: 3px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 720;
+  gap: 0;
 }
 
 .alert-authority__summary,
 .alert-authority__delivery p {
   margin: 0;
-  color: var(--muted);
+  color: var(--pd-subtext);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .alert-authority__sources {
   display: grid;
   gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line-soft);
+  margin-top: 8px;
 }
 
 .alert-source-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.65fr) minmax(0, 1fr);
+  grid-template-columns: minmax(84px, 0.55fr) minmax(0, 1fr);
   gap: 2px 10px;
-  padding: 8px;
-  border: 1px solid var(--line-soft);
-  border-radius: 7px;
-  background: var(--surface);
+  padding: 8px 10px;
+  border-radius: var(--radius-card);
+  background: var(--pd-readout-face);
 }
 
 .alert-source-row b {
-  color: var(--ink);
-  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--pd-readout);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
-.alert-source-row span,
-.alert-source-row small {
-  color: var(--muted-2);
-  font-size: 11px;
+.alert-source-row span {
+  overflow-wrap: anywhere;
+  color: var(--pd-caption);
+  font-size: 11.5px;
 }
 
 .alert-source-row small {
   grid-column: 1 / -1;
+  color: var(--pd-plate);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A source without current evidence is a dark window, not a quiet one: its
+   legend dims and its own served status word carries the caution tint. */
+.alert-source-row--dark b {
+  color: var(--pd-engraved);
+}
+
+.alert-source-row--dark span {
+  color: var(--pd-watch-tint);
 }
 
 .alert-authority__delivery {
   display: grid;
   gap: 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line-soft);
 }
 
+.alert-authority__delivery b {
+  color: var(--pd-readout);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Process evidence keeps its seat at the foot of the log until the Settings
+   back panel exists; the register is the same, the semantics unchanged. */
 .governance-section {
   display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 2px solid var(--line);
+  gap: 0;
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pd-hairline);
 }
 
-.governance-heading,
 .governance-delivery__head {
   display: flex;
   align-items: center;
@@ -4795,12 +4670,6 @@ p {
   gap: 12px;
 }
 
-.governance-heading > div {
-  display: grid;
-  gap: 2px;
-}
-
-.governance-heading span,
 .governance-evidence span,
 .governance-delivery__head span {
   color: var(--muted-2);
@@ -4808,20 +4677,6 @@ p {
   font-weight: 780;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.governance-heading b {
-  color: var(--ink);
-  font-size: 16px;
-}
-
-.governance-state {
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--ink-2) !important;
-  white-space: nowrap;
 }
 
 .governance-block,
@@ -4901,27 +4756,27 @@ p {
 
 .governance-list {
   display: grid;
+  gap: 8px;
 }
 
+/* A reminder row is a flush readout with an edge lamp: the tint follows the
+   served severity word, nothing else. */
 .governance-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px 12px;
-  padding: 10px 0 10px 14px;
-  border-top: 1px solid var(--line-soft);
-  box-shadow: inset 4px 0 var(--line);
-}
-
-.governance-row:first-child {
-  border-top: 0;
+  gap: 6px 12px;
+  padding: 10px 12px 11px;
+  border-radius: var(--radius-card);
+  background: var(--pd-readout-face);
+  box-shadow: inset 3px 0 var(--pd-hairline);
 }
 
 .governance-row--watch {
-  box-shadow: inset 4px 0 var(--orange);
+  box-shadow: inset 3px 0 var(--pd-caution);
 }
 
 .governance-row--act {
-  box-shadow: inset 4px 0 var(--red);
+  box-shadow: inset 3px 0 var(--pd-warning);
 }
 
 .governance-row b,
@@ -4932,22 +4787,35 @@ p {
 }
 
 .governance-row b {
-  color: var(--ink);
-  font-size: 14px;
+  overflow-wrap: anywhere;
+  color: var(--pd-strip-value);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.governance-row--watch b {
+  color: var(--pd-watch-tint);
+}
+
+.governance-row--act b {
+  color: var(--pd-act-tint);
 }
 
 .governance-row p {
   margin-top: 3px;
-  color: var(--muted);
+  overflow-wrap: anywhere;
+  color: var(--pd-subtext);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .governance-row span,
 .governance-row small {
-  color: var(--muted-2);
-  font-size: 11px;
-  font-weight: 650;
+  color: var(--pd-engraved);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -5282,16 +5150,6 @@ p {
   .underlying-action {
     min-height: 36px;
     padding: 0 11px;
-  }
-
-  .alert-row {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .alert-row__source {
-    grid-column: 2;
-    justify-self: start;
-    max-width: 100%;
   }
 }
 
