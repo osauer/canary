@@ -908,18 +908,6 @@ func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 	return nil
 }
 
-func isGovernanceRetryable(class string) bool {
-	switch class {
-	case GovernanceTransportReserved, GovernanceTransportDeadlineRetry, GovernanceTransportCanceledRetry,
-		GovernanceTransportNetworkRetry, GovernanceTransportHTTPRetry,
-		GovernanceTransportMissingKeys, GovernanceTransportSenderMissing,
-		GovernanceTransportTimeoutRetry:
-		return true
-	default:
-		return false
-	}
-}
-
 // RecordDiagnosticStatus validates and persists the latest safe notification
 // test result.
 func (s *Store) RecordDiagnosticStatus(status GovernanceDiagnosticStatus) error {
@@ -935,21 +923,6 @@ func (s *Store) RecordDiagnosticStatus(status GovernanceDiagnosticStatus) error 
 		return err
 	}
 	return nil
-}
-
-func validGovernanceTransportClass(class string) bool {
-	switch class {
-	case GovernanceTransportAccepted, GovernanceTransportPartial, GovernanceTransportAllFailed,
-		GovernanceTransportNoSubscription, GovernanceTransportMissingKeys, GovernanceTransportSenderMissing,
-		GovernanceTransportReserved, GovernanceTransportInterrupted, GovernanceTransportTargetRetired,
-		GovernanceTransportDeadlineRetry, GovernanceTransportCanceledRetry,
-		GovernanceTransportNetworkRetry, GovernanceTransportHTTPRetry, GovernanceTransportHTTPRejected,
-		GovernanceTransportTimeoutRetry, GovernanceTransportRejected, GovernanceTransportDead,
-		GovernanceTransportStateWrite, GovernanceTransportRecovery, GovernanceTransportSuppressed, GovernanceTransportOverflow:
-		return true
-	default:
-		return false
-	}
 }
 
 func validDiagnosticState(state string) bool {

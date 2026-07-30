@@ -78,18 +78,6 @@ type regimeDecisionIndicator struct {
 	ThresholdsLabel string   `json:"thresholds_label,omitempty"`
 }
 
-// journalRegimeDecision appends the snapshot when its semantic fingerprint
-// changed or the heartbeat interval elapsed. Failures degrade to warnings —
-// journaling must never fail a snapshot. Disabled via
-// `canary settings set regime.journal.enabled=false`.
-func (s *Server) journalRegimeDecision(res *rpc.RegimeSnapshotResult) {
-	_ = s.journalRegimeDecisionContext(context.Background(), res)
-}
-
-func (s *Server) journalRegimeDecisionContext(ctx context.Context, res *rpc.RegimeSnapshotResult) error {
-	return s.journalRegimeDecisionPublicationContext(ctx, res, regimeSnapshotPublication{PublishedAt: time.Now().UTC()})
-}
-
 func (s *Server) journalRegimeDecisionPublicationContext(ctx context.Context, res *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication) error {
 	if s == nil || s.regimeDecisions == nil || res == nil {
 		return nil

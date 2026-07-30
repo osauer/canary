@@ -617,18 +617,6 @@ func decodeCoreOrderEvent(record corestore.OrderEventRecord) (orderJournalEvent,
 	return ev, nil
 }
 
-// validateOrderJournalLine is injected into the derived history index so
-// parse_ok has precisely the reference scanner's full-event semantics.
-// The size check matches loadEventsLocked's Scanner buffer: the newline
-// delimiter must fit inside maxFrameBytes as well as the payload.
-func validateOrderJournalLine(raw []byte) error {
-	if len(raw) >= maxFrameBytes {
-		return fmt.Errorf("order journal line exceeds the %d-byte cap", maxFrameBytes)
-	}
-	_, err := decodeOrderJournalLine(raw)
-	return err
-}
-
 func decodeOrderJournalLine(raw []byte) (orderJournalEvent, error) {
 	var ev orderJournalEvent
 	if err := json.Unmarshal(raw, &ev); err != nil {
