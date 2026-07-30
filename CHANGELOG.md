@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.5.4 — 2026-07-30 13:37 CEST
+
+### What's new
+
+- **The app's governance panel shows live evidence again.** Its delivery section had kept reading a ledger that production stopped writing at the source-neutral alert cutover, so fresh installs showed a permanently empty panel and older installs showed frozen counters with live-looking labels. The panel now projects governance rows from the same delivery ledger every other alert uses, alongside the shared delivery health and the safe-notification test result. The per-attempt list and the frozen counter walls are gone.
+
+### Removed
+
+- The retired derived-history storage layer is deleted. daemon.db became the sole live authority within a day of that layer shipping, and both changes reached users in the same release — no released daemon ever created or read the secondary file. The runtime, its rotation crash-recovery, and their isolated compatibility tests (~8.4k lines) removed nothing anyone had; the retired rotation settings keys keep their read-only compatibility shape, and upgrading from any released version is unaffected.
+- The app's retired governance delivery ledger is deleted (~1.9k lines). Old state files migrate on first load: legacy governance rows leave the shared unread-attention sequence space with read state preserved, and the legacy keys disappear from `state.json` on the next write.
+
 ## v2.5.3 — 2026-07-30 12:42 CEST
 
 ### What's new
