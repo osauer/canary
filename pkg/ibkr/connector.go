@@ -169,6 +169,18 @@ type Connector struct {
 	pnlResubLastAt time.Time
 	pnlResubNow    func() time.Time
 
+	// backendConnMu guards the TWS<->IBKR backend-link state driven by
+	// system notices 1100 (link lost) and 1101/1102 (link restored).
+	// Distinct from the local API socket: the socket stays connected while
+	// the gateway's own upstream is down, and an order transmitted in that
+	// window is accepted locally but cannot reach the broker.
+	backendConnMu   sync.Mutex
+	backendConnDown bool
+	backendConnAt   time.Time
+	// mdReplayInFlight collapses concurrent 1101 recoveries so each
+	// data-loss event replays every live shared subscription at most once.
+	mdReplayInFlight atomic.Bool
+
 	// Option IV tracking (by underlying symbol or per-contract key)
 	optMu           sync.RWMutex
 	optIV           map[string]float64 // last observed implied vol (fraction, e.g., 0.30)
@@ -323,6 +335,12 @@ type Subscription struct {
 	// the error-handler goroutine. A nil channel means fast-abort is
 	// disabled (used by test fixtures that bypass the Subscribe path).
 	RejectCh chan SubscriptionRejection
+	// replaySpec records the wire form of this subscription so the 1101
+	// backend-recovery path can re-issue it: IBKR code 1101 means the
+	// TWS<->IBKR link was restored with server-side subscriptions LOST,
+	// so the old reqID will never tick again. Nil for exact-session
+	// subscriptions and disconnected placeholders, which are not replayed.
+	replaySpec *mdReplaySpec
 	// rejectedReqID records the reqID the gateway reported dead via a
 	// terminal entitlement/definition error (200/354): the server tears
 	// the ticker down itself, so a wire CancelMarketData for that exact
@@ -949,6 +967,15 @@ func (c *Connector) processSystemNoticeFrom(origin ConnectorSessionBinding, alia
 			}
 			return
 		}
+		// Backend-connectivity notices (1100/1101/1102) are session-global
+		// and must be tracked on every current-session path, including the
+		// historical-collision early returns below: during an outage TWS
+		// also answers pending requests with per-reqID code-1100 notices.
+		defer func() {
+			if post := c.handleBackendConnectivityNotice(origin, note); post != nil {
+				postBarrier = joinPostActions(postBarrier, post)
+			}
+		}()
 		// Legacy sessions and already-consumed IDs may still surface delayed broker
 		// errors, so active exact-historical ownership wins before any durable order
 		// lifecycle callback. New allocations use one monotonic disjoint namespace.
@@ -1338,6 +1365,161 @@ func dataFarmKey(farmType, name string) string {
 	return strings.ToLower(strings.TrimSpace(farmType)) + "\x00" + strings.ToLower(strings.TrimSpace(name))
 }
 
+// mdReplaySpec captures the exact wire-request shape of a shared market-data
+// subscription. symbol=="" selects the routed-contract form; a non-empty
+// primaryExch selects the primary-exchange form of the bare-symbol request.
+type mdReplaySpec struct {
+	contract     Contract
+	genericTicks string
+	symbol       string
+	primaryExch  string
+}
+
+// handleBackendConnectivityNotice tracks the TWS<->IBKR backend link.
+// 1100: link lost — refuse new order transmissions until a restore notice.
+// 1102: restored with server-side state maintained — nothing to replay.
+// 1101: restored with subscriptions LOST server-side — the gateway will never
+// resume ticking the old request IDs, so the post action replays every live
+// shared market-data subscription and force-rebuilds the account-updates and
+// daily-P&L streams.
+func (c *Connector) handleBackendConnectivityNotice(origin ConnectorSessionBinding, note *systemNotification) func() {
+	switch note.code {
+	case 1100:
+		c.setBackendConnectivityDown(true, note.timestamp)
+		return nil
+	case 1102:
+		c.setBackendConnectivityDown(false, note.timestamp)
+		return nil
+	case 1101:
+		c.setBackendConnectivityDown(false, note.timestamp)
+		return func() { go c.recoverFromBackendDataLoss(origin) }
+	default:
+		return nil
+	}
+}
+
+func (c *Connector) setBackendConnectivityDown(down bool, at time.Time) {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	c.backendConnMu.Lock()
+	changed := c.backendConnDown != down
+	c.backendConnDown = down
+	c.backendConnAt = at
+	c.backendConnMu.Unlock()
+	if !changed {
+		return
+	}
+	if down {
+		c.logWarn("TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice")
+	} else {
+		c.logInfo("TWS restored connectivity to the IBKR backend")
+	}
+}
+
+func (c *Connector) backendConnectivityDown() (bool, time.Time) {
+	c.backendConnMu.Lock()
+	defer c.backendConnMu.Unlock()
+	return c.backendConnDown, c.backendConnAt
+}
+
+// recoverFromBackendDataLoss is the 1101 post action. Exact-session
+// subscriptions (SessionEpoch != 0) are excluded: they are short-lived
+// broker-write evidence bound to one request, and their owners fail and
+// retry themselves. Runs off the read loop; the in-flight guard makes a
+// duplicate 1101 a no-op instead of a double replay.
+func (c *Connector) recoverFromBackendDataLoss(origin ConnectorSessionBinding) {
+	if !c.mdReplayInFlight.CompareAndSwap(false, true) {
+		c.logDebug("1101 subscription replay already in flight; skipping duplicate")
+		return
+	}
+	defer c.mdReplayInFlight.Store(false)
+	replayed, dropped := c.replayMarketDataSubscriptions(origin)
+	if replayed > 0 || dropped > 0 {
+		c.logInfo("Replayed %d market-data subscriptions after 1101 data loss (%d dropped for demand re-subscribe)", replayed, dropped)
+	}
+	c.acctUpdatesMu.Lock()
+	hadAcctStream := !c.acctUpdatesLastAt.IsZero()
+	c.acctUpdatesMu.Unlock()
+	if hadAcctStream {
+		_ = c.RequestAccountUpdates("")
+	}
+	c.forceResubscribeDailyPnL()
+}
+
+func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding) (replayed, dropped int) {
+	type replayEntry struct {
+		key      string
+		sub      *Subscription
+		oldReqID int
+		spec     mdReplaySpec
+	}
+	var entries []replayEntry
+	c.subMu.RLock()
+	for key, sub := range c.subscriptions {
+		if sub == nil || sub.SessionEpoch != 0 || sub.ReqID == 0 || sub.replaySpec == nil {
+			continue
+		}
+		if sub.rejectedReqID == sub.ReqID {
+			// The gateway already tore this ticker down terminally; the
+			// demand paths own any retry decision.
+			continue
+		}
+		entries = append(entries, replayEntry{key: key, sub: sub, oldReqID: sub.ReqID, spec: *sub.replaySpec})
+	}
+	c.subMu.RUnlock()
+
+	for _, e := range entries {
+		if origin.connection == nil || !c.SessionCurrent(origin) {
+			// Socket bounced mid-replay; the successor session rebuilds
+			// everything from scratch via invalidateUnstampedConnectorObservations.
+			return replayed, dropped
+		}
+		_ = origin.connection.CancelMarketData(e.oldReqID)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		var (
+			newReqID int
+			err      error
+		)
+		switch {
+		case e.spec.symbol == "":
+			newReqID, err = origin.connection.RequestMarketDataWithContract(ctx, e.spec.contract, e.spec.genericTicks, false, false)
+		case e.spec.primaryExch != "":
+			newReqID, err = origin.connection.RequestMarketDataWithPrimary(ctx, e.spec.symbol, e.spec.primaryExch)
+		default:
+			newReqID, err = origin.connection.RequestMarketData(ctx, e.spec.symbol)
+		}
+		cancel()
+		c.subMu.Lock()
+		current := c.subscriptions[e.key]
+		if current != e.sub || current.ReqID != e.oldReqID {
+			// Raced with an unsubscribe or competing rebuild; do not adopt.
+			c.subMu.Unlock()
+			if err == nil && newReqID != 0 {
+				_ = origin.connection.CancelMarketData(newReqID)
+			}
+			continue
+		}
+		if err != nil || newReqID == 0 {
+			// Drop the entry so the demand paths re-create it instead of
+			// leaving a forever-dead reqID mapping behind.
+			delete(c.subscriptions, e.key)
+			delete(c.reqIDMap, e.oldReqID)
+			c.subMu.Unlock()
+			dropped++
+			c.logWarn("Failed to replay market data for %s after 1101 (%v); dropped for demand re-subscribe", e.key, err)
+			continue
+		}
+		delete(c.reqIDMap, e.oldReqID)
+		c.reqIDMap[newReqID] = e.key
+		e.sub.ReqID = newReqID
+		e.sub.LastTime = time.Now()
+		c.subMu.Unlock()
+		replayed++
+	}
+	return replayed, dropped
+}
+
 type retiredMarketDataSubscription struct {
 	connection *Connection
 	epoch      uint64
@@ -1573,6 +1755,10 @@ func (c *Connector) invalidateUnstampedConnectorObservations(conn *Connection) {
 	clear(c.subscriptions)
 	clear(c.reqIDMap)
 	c.subMu.Unlock()
+	c.backendConnMu.Lock()
+	c.backendConnDown = false
+	c.backendConnAt = time.Time{}
+	c.backendConnMu.Unlock()
 	c.contractMu.Lock()
 	clear(c.contractCache)
 	c.contractMu.Unlock()
@@ -2999,6 +3185,11 @@ func (c *Connector) Stop() error {
 	return nil
 }
 
+// sharedGenericTicks is the wire generic-tick set requested for shared
+// streaming subscriptions (OI, vol/IV, misc stats, mark price, RTVolume,
+// shortable).
+const sharedGenericTicks = "100,101,104,106,165,221,233,236"
+
 // SubscribeMarketData ensures a symbol-keyed streaming subscription exists.
 // Repeating the call for the same normalized symbol is a no-op, including from
 // concurrent callers. ctx must be non-nil and bounds acquisition of a
@@ -3039,6 +3230,7 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 	c.subMu.RUnlock()
 
 	reqID := 0
+	var spec *mdReplaySpec
 	if c.conn != nil && c.conn.IsConnected() {
 		contract, ready := c.prepareContract(symbol, 2*time.Second, true)
 		contract, ready = c.waitForContractDetails(symbol, contract, ready)
@@ -3046,15 +3238,19 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 		var err error
 		switch {
 		case ready:
-			reqID, err = c.conn.RequestMarketDataWithContract(ctx, contract, "100,101,104,106,165,221,233,236", false, false)
+			reqID, err = c.conn.RequestMarketDataWithContract(ctx, contract, sharedGenericTicks, false, false)
+			spec = &mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks}
 		case contract.PrimaryExch != "":
 			reqID, err = c.conn.RequestMarketDataWithPrimary(ctx, symbol, contract.PrimaryExch)
+			spec = &mdReplaySpec{symbol: symbol, primaryExch: contract.PrimaryExch}
 		default:
 			reqID, err = c.conn.RequestMarketData(ctx, symbol)
+			spec = &mdReplaySpec{symbol: symbol}
 		}
 		if err != nil {
 			c.logWarn("Failed to request market data for %s: %v", symbol, err)
 			reqID = 0
+			spec = nil
 		}
 	}
 
@@ -3081,11 +3277,12 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 	}
 
 	c.subscriptions[symbol] = &Subscription{
-		Symbol:   symbol,
-		ReqID:    reqID,
-		Fields:   fields,
-		LastTime: time.Now(),
-		RejectCh: make(chan SubscriptionRejection, 1),
+		Symbol:     symbol,
+		ReqID:      reqID,
+		Fields:     fields,
+		LastTime:   time.Now(),
+		RejectCh:   make(chan SubscriptionRejection, 1),
+		replaySpec: spec,
 	}
 	c.subMu.Unlock()
 
@@ -3130,7 +3327,7 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 	reqID := 0
 	if c.conn != nil && c.conn.IsConnected() {
 		var err error
-		reqID, err = c.conn.RequestMarketDataWithContract(ctx, contract, "100,101,104,106,165,221,233,236", false, false)
+		reqID, err = c.conn.RequestMarketDataWithContract(ctx, contract, sharedGenericTicks, false, false)
 		if err != nil {
 			c.logWarn("Failed to request market data for %s: %v", key, err)
 			return key, err
@@ -3152,11 +3349,12 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 		c.reqIDMap[reqID] = key
 	}
 	c.subscriptions[key] = &Subscription{
-		Symbol:   key,
-		ReqID:    reqID,
-		Fields:   fields,
-		LastTime: time.Now(),
-		RejectCh: make(chan SubscriptionRejection, 1),
+		Symbol:     key,
+		ReqID:      reqID,
+		Fields:     fields,
+		LastTime:   time.Now(),
+		RejectCh:   make(chan SubscriptionRejection, 1),
+		replaySpec: &mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks},
 	}
 	c.subMu.Unlock()
 
@@ -3569,6 +3767,9 @@ func (c *Connector) submitOrderForSession(ctx context.Context, binding Connector
 	}
 	if !c.SessionCurrent(binding) {
 		return definitelyUnsent(fmt.Errorf("broker session binding is not current for this Connector"))
+	}
+	if down, at := c.backendConnectivityDown(); down {
+		return definitelyUnsent(fmt.Errorf("TWS reported IBKR backend connectivity lost at %s (code 1100) with no restore notice yet; refusing to transmit a broker order into a dead link", at.Format(time.RFC3339)))
 	}
 	conn := binding.connection
 
