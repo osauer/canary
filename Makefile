@@ -502,15 +502,18 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 	done; \
 	exit $$fail
 
-# Markdown is the only prose authority for the 14 public documentation pages
-# declared by scripts/docgen/docs-html. GitHub Pages currently publishes docs/
-# verbatim, so deterministic HTML derivatives stay checked in. The check
-# re-renders every declared page and compares exact bytes; it never trusts a
-# marker stored in the derivative.
-docs-html-check: ## Verify generated docs/ HTML exactly matches Markdown sources
+# Markdown is the only prose authority for the generator-declared public
+# documentation pages (see the manifest in scripts/docgen/docs-html). GitHub
+# Pages currently publishes docs/ verbatim, so deterministic HTML derivatives
+# stay checked in. The check re-renders every declared page and compares exact
+# bytes; it never trusts a marker stored in the derivative. Hand-authored
+# pages get a structural pass instead: unbalanced inline CSS ships invisibly
+# (browsers drop the swallowed rules), so the structure check gates it.
+docs-html-check: ## Verify generated docs/ HTML matches sources and page structure is sound
 	@go test ./scripts/docgen/docs-html
 	@go run ./scripts/docgen/docs-html -check
 	@node scripts/render-architecture.mjs --check
+	@node scripts/check-docs-html-structure.mjs
 
 docs-html-regen: ## Regenerate public docs/ HTML from Markdown sources
 	@go run ./scripts/docgen/docs-html
