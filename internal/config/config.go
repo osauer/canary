@@ -127,7 +127,7 @@ type Trading struct {
 	AllowStockShort bool `toml:"allow_stock_short"`
 	// AllowOptionSellToOpen permits option sell-to-open previews when true. Default false.
 	AllowOptionSellToOpen bool `toml:"allow_option_sell_to_open"`
-	// PaperSmokeMaxAge is how long a paper trading smoke remains acceptable for live enablement. Defaults to 168h.
+	// PaperSmokeMaxAge is the freshness window for the paper-smoke evidence reported in trading status. The smoke is informational at runtime and enforced by the release pipeline; it does not gate live enablement. Defaults to 168h.
 	PaperSmokeMaxAge duration `toml:"paper_smoke_max_age"`
 }
 

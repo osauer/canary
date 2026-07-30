@@ -42,7 +42,7 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[trading]` | `max_notional` | `float64` | MaxNotional caps every equity/ETF order before broker WhatIf; apparent close/reduce orders are not exempt because this client cannot prove that a manual TWS order has not already consumed the exit capacity. |
 | `[trading]` | `max_option_contracts` | `int` | MaxOptionContracts caps every single-leg option order; apparent close/reduce orders are not exempt because account-global working-order authority is incomplete. |
 | `[trading]` | `mode` | `string` | Mode selects the local order-entry state: "disabled" (default), "paper", or "live". |
-| `[trading]` | `paper_smoke_max_age` | `duration` | PaperSmokeMaxAge is how long a paper trading smoke remains acceptable for live enablement. |
+| `[trading]` | `paper_smoke_max_age` | `duration` | PaperSmokeMaxAge is the freshness window for the paper-smoke evidence reported in trading status. |
 
 ## Protection policy file
 

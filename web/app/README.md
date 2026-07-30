@@ -74,5 +74,5 @@ web/app/generate-icons.sh
 Trading workflows, HTTP MCP, debug diagnostics, and production relay hosting are
 future work.
 
-Design and architecture notes live in
+The original MVP design is preserved as a historical record in
 [`internal-docs/design/mobile-app-mvp.md`](../../internal-docs/design/mobile-app-mvp.md).

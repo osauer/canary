@@ -33,6 +33,8 @@ max_option_contracts = 5
 allow_stock_short = false
 allow_option_sell_to_open = false
 
-# Live experiments require deliberate live acknowledgement fields. This
-# template does not include a live override. Add live fields only after
-# verifying the exact live account, endpoint, and required paper-smoke evidence.
+# There are no separate live acknowledgement keys: [trading].mode = "live" plus
+# the [gateway] pins above are the whole config gate, and the loader rejects the
+# retired acknowledgement keys. Before switching to live, verify the exact live
+# endpoint, client ID, and account values. Paper-smoke evidence is informational
+# and release-pipeline-only; it does not gate live mode.

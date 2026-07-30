@@ -98,7 +98,7 @@ Every data command supports `--json`. `canary restart --json` is also useful for
 
 For schemas and edge cases, see the [agent skill schema notes](skills/canary/schemas.md), [MCP tools reference](docs/docs/reference/mcp-tools.md), [MCP resources reference](docs/docs/reference/mcp-resources.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
 
-For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](examples/canary_portfolio_analysis_prompt.md) for portfolio review and [examples/canary_portfolio_stress_prompt.md](examples/canary_portfolio_stress_prompt.md) for scheduled stress checks.
+For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](examples/canary_portfolio_analysis_prompt.md) for portfolio review, [examples/canary_portfolio_stress_prompt.md](examples/canary_portfolio_stress_prompt.md) for scheduled stress checks, and [examples/canary_fresh_ideas_screen_prompt.md](examples/canary_fresh_ideas_screen_prompt.md) for a fresh-ideas screening session.
 
 ## Pick your path
 
@@ -187,7 +187,7 @@ $ canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 
 For access away from the LAN without router setup, run `canary app --remote` to use the Cloudflare Worker relay at `remote.osauer.dev`, then run `canary app pair` as usual.
 
-See [web/app/README.md](web/app/README.md) for the short operator notes and [internal-docs/design/mobile-app-mvp.md](internal-docs/design/mobile-app-mvp.md) for the MVP design.
+See [web/app/README.md](web/app/README.md) for the short operator notes; the original MVP design is preserved as a historical record in [internal-docs/design/mobile-app-mvp.md](internal-docs/design/mobile-app-mvp.md).
 
 ### Go and other agent SDKs
 
@@ -357,7 +357,7 @@ This project is an **independent, third-party client** for Interactive Brokers' 
 
 - "Interactive Brokers", "IBKR", "TWS", and "IB Gateway" are trademarks or registered trademarks of Interactive Brokers Group, Inc. or its affiliates. They are used here nominatively, solely to identify the brokerage and the API this project connects to.
 - `pkg/ibkr` is a clean-room Go re-implementation of the TWS wire protocol. **No code, libraries, or jars distributed by Interactive Brokers are included or redistributed in this project.**
-- This project does not store, cache, or redistribute IBKR market data. All data is read live from a gateway you run locally, against your own account, and never leaves your machine via this code.
+- This project does not redistribute IBKR market data. Data is read from a gateway you run locally, against your own account. The daemon keeps local operational caches and journals on your machine, and data leaves it only through features you explicitly enable — the remote app relay, Web Push — or an MCP host you choose to connect. [PRIVACY.md](PRIVACY.md) is the authoritative list.
 - Connecting to IBKR via the TWS API requires an **IBKR Pro** account; IBKR Lite does not include API access.
 - Nothing here is investment advice. Use at your own risk; the MIT license's AS IS clause applies in full.
 
