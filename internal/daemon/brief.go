@@ -535,6 +535,12 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process)
 	res.StampTarget, res.StampTargetReason = s.briefStampTarget(policy, constitution, now)
 	res.BriefFingerprint = briefContentFingerprint(res)
+	// The narrative is a deterministic projection of the two movements above
+	// (internal/daemon/brief_narrative.go): it states served facts and their
+	// served statuses and adds none of its own. It is composed after the
+	// fingerprint and stays outside it — the identity hashes Review and Ready
+	// only, so revised prose can never invalidate a stamped brief.
+	res.Narrative = composeBriefNarrative(res)
 	// V4 monthly render evidence is bound to the current constitution even
 	// when a policy-only revision happens not to alter a visible brief row.
 	// V1-v3 retain their existing daily-stamp fingerprint byte behavior.

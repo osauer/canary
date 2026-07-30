@@ -464,6 +464,7 @@ try {
   const portfolioDetail = await exercisePortfolioDetail(page);
   const protectionRiskRendering = await exerciseProtectionRiskRendering(page);
   const alertHistory = await exerciseAlertHistory(page);
+  const briefNarrative = await assertBriefNarrative(page);
   const governanceFixtures = await exerciseGovernanceFixtures(page);
   // Prove the attention-read guard was armed and effective: the alerts tab
   // was just exercised in a visible headless page, so the SPA must have
@@ -535,6 +536,7 @@ try {
     portfolio_detail: portfolioDetail,
     protection_risk_rendering: protectionRiskRendering,
     alert_history: alertHistory,
+    brief_narrative: briefNarrative,
     governance_fixtures: governanceFixtures,
     open_orders: openOrders,
     settings_tab: settingsTab,
@@ -1115,7 +1117,10 @@ async function exerciseStressDetail(page) {
     throw new Error("Portfolio stress detail should be collapsed by default");
   }
   if (timestampMissing) {
-    if (!/waiting for stress snapshot/i.test(head.hero)) {
+    // Panel Dark's pending stress window states "cushion pending" (WP1); the
+    // pre-instrument copy said "waiting for stress snapshot". Both are honest
+    // no-data renders on a freshly restarted daemon.
+    if (!/waiting for stress snapshot|cushion pending/i.test(head.hero)) {
       throw new Error(`stress timestamp is missing without pending copy: ${JSON.stringify({ timestamp, pending: head.hero })}`);
     }
     return { opens: false, initially_open: initiallyOpen, timestamp, no_value: true };
@@ -1622,6 +1627,142 @@ async function exerciseAlertHistory(page) {
   };
 }
 
+// Briefing contract: the daemon composes the prose, the SPA renders it
+// verbatim. Either render is accepted (an older daemon serves no narrative and
+// the row sections stay the surface), but when the narrative IS served the
+// Panel Dark register must hold: movement placards, typed runs rendered as
+// text rather than markup, and the reconcile sign-off reachable inside the
+// Review movement exactly when the served row says it is signable.
+async function assertBriefNarrative(page) {
+  // Declared inside the function: the smoke invokes itself through a
+  // top-level await mid-file, so module-level consts below that line are
+  // still in the temporal dead zone when assertions run.
+  const MOVEMENT_PLACARDS = ["Review \u00b7 last session", "Ready \u00b7 next open"];
+  const SEVERITY_WORDS = ["observe", "watch", "act", "ok", "attention", "degraded", "unavailable"];
+  const MARKUP_LEAKS = ["[f]", "[/f]", "[w]", "[/w]", "[a]", "[/a]", "<span", "<b>"];
+  const FIXTURE_REPORT = "smoke-signoff-fixture";
+
+  await page.locator("#tabBrief").click();
+  await page.waitForFunction(() => document.getElementById("briefTab")?.hidden === false, { timeout: 5000 });
+  await page.waitForSelector("#briefPanel:not([hidden])", { timeout: 5000 });
+  // A brief source that is down renders its own empty state; report that as
+  // what it is instead of timing out on a selector that cannot appear.
+  const settled = await (await page.waitForFunction(() => {
+    const sections = document.getElementById("briefSections");
+    if (sections?.querySelector(".pd-brf-lead")) return "narrative";
+    if (sections?.querySelector(".brief-section")) return "sections";
+    if (sections?.querySelector(".brief-empty")) return "unavailable";
+    return null;
+  }, { timeout: 5000 })).jsonValue();
+  if (settled === "unavailable") {
+    await page.locator("#tabMonitor").click();
+    await page.waitForSelector("#dashboard:not([hidden])", { timeout: 5000 });
+    return { mode: settled };
+  }
+
+  const served = await page.evaluate(async () => {
+    const res = await fetch("/api/bootstrap", { credentials: "include" });
+    const body = await res.json();
+    const brief = body?.snapshot?.brief || {};
+    return {
+      narrative: Boolean(brief.narrative),
+      review: brief.review || {},
+      signable: brief.review?.one_tap?.signable === true && String(brief.review?.one_tap?.report_id || "") !== "",
+    };
+  });
+  const rendered = await page.evaluate(() => {
+    const sections = document.getElementById("briefSections");
+    return {
+      mode: sections?.classList.contains("brief-sections--narrative") ? "narrative" : "sections",
+      placards: [...sections.querySelectorAll(".pd-placard")].map((el) => el.textContent?.trim() || ""),
+      lead: sections.querySelector(".pd-brf-lead")?.textContent?.trim() || "",
+      paragraphs: [...sections.querySelectorAll(".pd-brf-para")].map((el) => el.textContent?.trim() || ""),
+      coda: sections.querySelector(".pd-brf-coda")?.textContent?.trim() || "",
+      chip: sections.querySelector(".pd-chip")?.textContent?.trim() || "",
+      roles: {
+        figure: sections.querySelectorAll(".pd-fig").length,
+        watch: sections.querySelectorAll(".pd-wtint").length,
+        act: sections.querySelectorAll(".pd-atint").length,
+      },
+      text: sections.textContent || "",
+      sectionHeadings: [...sections.querySelectorAll(".brief-section__head h3")].map((el) => el.textContent?.trim() || ""),
+    };
+  });
+  if ((rendered.mode === "narrative") !== served.narrative) {
+    throw new Error(`brief render mode disagrees with the served payload: ${JSON.stringify({ served: served.narrative, rendered: rendered.mode })}`);
+  }
+  if (rendered.mode !== "narrative") {
+    // Older daemon: the row render must still be complete.
+    if (rendered.sectionHeadings.join("|") !== "Review|Ready") {
+      throw new Error(`brief row fallback is incomplete: ${JSON.stringify(rendered.sectionHeadings)}`);
+    }
+    await page.locator("#tabMonitor").click();
+    await page.waitForSelector("#dashboard:not([hidden])", { timeout: 5000 });
+    return { mode: rendered.mode, headings: rendered.sectionHeadings };
+  }
+
+  if (!rendered.placards[0]?.startsWith("Briefing")) {
+    throw new Error(`the briefing placard must stamp the brief: ${JSON.stringify(rendered.placards)}`);
+  }
+  for (const placard of MOVEMENT_PLACARDS) {
+    if (!rendered.placards.some((text) => text.startsWith(placard))) {
+      throw new Error(`briefing is missing the ${placard} placard: ${JSON.stringify(rendered.placards)}`);
+    }
+  }
+  if (!rendered.lead || rendered.paragraphs.length === 0 || !rendered.coda) {
+    throw new Error(`briefing must render a lead, paragraphs, and a coda: ${JSON.stringify(rendered)}`);
+  }
+  if (rendered.chip && !SEVERITY_WORDS.includes(rendered.chip.toLowerCase())) {
+    throw new Error(`briefing severity chip must print the served vocabulary: ${JSON.stringify(rendered.chip)}`);
+  }
+  for (const leak of MARKUP_LEAKS) {
+    if (rendered.text.includes(leak)) {
+      throw new Error(`briefing prose leaked run markup ${JSON.stringify(leak)} into visible text`);
+    }
+  }
+
+  // Sign-off reachability, both directions, against a frozen stream so a live
+  // snapshot cannot repaint the fixture mid-assertion. Nothing is clicked:
+  // /api/recon/signoff stays untouched.
+  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = true; });
+  const signoff = await page.evaluate(({ review, reportID }) => {
+    const apply = globalThis.__canarySmoke?.applySnapshotPatch;
+    if (!apply) throw new Error("smoke snapshot patch hook is unavailable");
+    const read = () => {
+      const button = document.getElementById("briefSignoffButton");
+      return {
+        present: Boolean(button),
+        disabled: button?.disabled === true,
+        title: button?.title || "",
+        inReviewMovement: Boolean(button?.closest(".brief-signoff-seat")),
+      };
+    };
+    apply({ brief: { review: { ...review, one_tap: { status: "ok", detail: "current report is signable", report_id: reportID, signable: true, blockers: [] } } } });
+    const signable = read();
+    apply({ brief: { review } });
+    return { signable, restored: read() };
+  }, { review: served.review, reportID: FIXTURE_REPORT });
+  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = false; });
+  if (!signoff.signable.present || signoff.signable.disabled || !signoff.signable.inReviewMovement || !signoff.signable.title.includes(FIXTURE_REPORT)) {
+    throw new Error(`a signable report must seat the sign-off control in the Review movement: ${JSON.stringify(signoff.signable)}`);
+  }
+  if (signoff.restored.present !== served.signable) {
+    throw new Error(`sign-off availability must follow the served row: ${JSON.stringify({ served: served.signable, restored: signoff.restored })}`);
+  }
+
+  await page.locator("#tabMonitor").click();
+  await page.waitForSelector("#dashboard:not([hidden])", { timeout: 5000 });
+  return {
+    mode: rendered.mode,
+    placards: rendered.placards.length,
+    paragraphs: rendered.paragraphs.length,
+    roles: rendered.roles,
+    chip: rendered.chip,
+    signoff_seated: signoff.signable.inReviewMovement,
+    signoff_served: served.signable,
+  };
+}
+
 async function exerciseGovernanceFixtures(page) {
   const mutationPaths = ["/api/push/test", "/api/governance/cutover-review", "/api/recon/check", "/api/brief/seen"];
   const fetchesBefore = await page.evaluate((paths) => globalThis.__canarySmoke.fetches.filter((item) => paths.some((path) => item.url.endsWith(path))).length, mutationPaths);
@@ -1672,10 +1813,14 @@ async function exerciseGovernanceFixtures(page) {
     },
   };
 
+  // The monthly-pulse assertions below read the brief ROW render, so every
+  // brief fixture in this function pins narrative: null. Without it the live
+  // daemon's composed prose survives the shallow patch merge and the SPA
+  // renders the narrative instead, where these rows do not exist.
   await renderFixture({ patch: {
     sources: { nudges: { state: "current", updated_at: asOf, last_success_at: asOf } },
     nudges: { as_of: asOf, candidates: [], source_health: readyHealth, context: null, confirmed_flow_coverage: { coverage_from: earlier, pre_cutover_flows_unreviewed: false } },
-    brief: { stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "not_due", month: "2099-01", due_at: later } } },
+    brief: { narrative: null, stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "not_due", month: "2099-01", due_at: later } } },
     governance: baseGovernance,
     governanceRefreshSucceeded: true,
   } });
@@ -1696,7 +1841,7 @@ async function exerciseGovernanceFixtures(page) {
       context: { shadow: { count: 2 }, drawdown: { tier: "block", consumed_pct: 0 } },
       confirmed_flow_coverage: { coverage_from: earlier, pre_cutover_flows_unreviewed: true },
     },
-    brief: { stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "due", month: "2099-01", due_at: earlier } } },
+    brief: { narrative: null, stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "due", month: "2099-01", due_at: earlier } } },
     governance: baseGovernance,
   } });
   await page.waitForFunction(() => document.getElementById("governanceCurrentList")?.textContent?.includes("Monthly risk pulse"), { timeout: 5000 });
@@ -1786,7 +1931,7 @@ async function exerciseGovernanceFixtures(page) {
   await renderFixture({ patch: {
     sources: { nudges: { state: "current", updated_at: asOf, last_success_at: asOf } },
     nudges: { candidates: [], source_health: { ...readyHealth, aggregate: "suppressed", pins: { status: "stale", reason: "evidence_stale", as_of: asOf } }, context: { drawdown: { tier: "block", consumed_pct: null } }, confirmed_flow_coverage: { coverage_from: earlier, pre_cutover_flows_unreviewed: false } },
-    brief: { stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "blocked", month: "2099-01" } } },
+    brief: { narrative: null, stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "blocked", month: "2099-01" } } },
     governance: baseGovernance,
   } });
   const blocked = await page.evaluate(() => ({ source: document.getElementById("governanceSourceHealth")?.textContent || "", context: document.getElementById("governanceContext")?.textContent || "", monthly: [...document.querySelectorAll("#briefSections .brief-row")].find((row) => row.querySelector(".brief-row__head b")?.textContent === "Monthly pulse")?.textContent || "" }));
@@ -1795,7 +1940,7 @@ async function exerciseGovernanceFixtures(page) {
   await renderFixture({ patch: {
     sources: { nudges: { state: "current", updated_at: asOf, last_success_at: asOf } },
     nudges: { candidates: [], source_health: readyHealth, context: null, confirmed_flow_coverage: { coverage_from: earlier, pre_cutover_flows_unreviewed: false } },
-    brief: { stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "completed", month: "2099-01", completed_at: asOf } } },
+    brief: { narrative: null, stamp_target: "", brief_fingerprint: "", ready: { monthly_pulse: { status: "completed", month: "2099-01", completed_at: asOf } } },
   } });
   const completed = await page.evaluate(() => ({ current: document.getElementById("governanceCurrentList")?.textContent || "", monthly: [...document.querySelectorAll("#briefSections .brief-row")].find((row) => row.querySelector(".brief-row__head b")?.textContent === "Monthly pulse")?.textContent || "" }));
   if (!completed.current.includes("No current risk and process reminders") || !completed.monthly.includes("completed this month")) throw new Error(`governance completed fixture is incomplete: ${JSON.stringify(completed)}`);

@@ -147,7 +147,13 @@ try {
       // Brief-tab shot: the daily brief now lives on its own tab, so the
       // published gallery gains a second synthetic frame showing it.
       await page.locator("#tabBrief").click();
-      await page.waitForSelector("#briefTab:not([hidden]) #briefSections .brief-section", { state: "visible", timeout: 5000 });
+      // Either render is a valid frame: the row sections, or the daemon's
+      // composed narrative when the fixture serves one.
+      await page.waitForFunction(() => {
+        const sections = document.getElementById("briefSections");
+        return Boolean(document.getElementById("briefTab")?.hidden === false &&
+          (sections?.querySelector(".brief-section") || sections?.querySelector(".pd-brf-lead")));
+      }, { timeout: 5000 });
       pendingSyntheticShots.push({
         out: out.replace(/\.png$/i, "-brief.png"),
         png: await page.screenshot(),
@@ -178,11 +184,15 @@ async function assertSyntheticRender(page) {
   await page.locator("#tabBrief").click();
   await page.waitForSelector("#briefTab:not([hidden])", { timeout: 5000 });
   await page.waitForSelector("#briefPanel:not([hidden])", { timeout: 5000 });
+  // Both movements must render, in order, in whichever register the fixture
+  // serves: row section headings, or the narrative's movement placards.
   await page.waitForFunction(
     (headings) => {
-      const actual = [...document.querySelectorAll("#briefSections .brief-section__head h3")]
+      const sections = [...document.querySelectorAll("#briefSections .brief-section__head h3")]
         .map((heading) => heading.textContent?.trim());
-      return actual.length === headings.length && actual.every((heading, index) => heading === headings[index]);
+      if (sections.length === headings.length && sections.every((heading, index) => heading === headings[index])) return true;
+      const placards = [...document.querySelectorAll("#briefSections .pd-placard")].map((placard) => placard.textContent?.trim() || "");
+      return headings.every((heading) => placards.some((placard) => placard.startsWith(heading)));
     },
     expectedHeadings,
     { timeout: 5000 },
@@ -1024,6 +1034,12 @@ function buildSyntheticSnapshot() {
     brief: {
       as_of: asOf,
       brief_fingerprint: "synthetic-brief-quiet",
+      // Published frame: the daemon-composed narrative is prose over the
+      // OPERATOR's real figures, and the fixture patch merges shallowly, so
+      // live prose would survive into a synthetic screenshot. Pin it off; the
+      // synthetic brief frame shows the row render until this fixture carries
+      // a synthetic narrative of its own.
+      narrative: null,
       review: {
         ...briefState("Last session closed clean."),
         session_pnl: { ...briefState("Account snapshot is fresh."), equity_base: FIXTURE.netLiquidation, daily_pnl_base: FIXTURE.dailyPnl, base_currency: baseCurrency, as_of: asOf },

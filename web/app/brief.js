@@ -48,12 +48,123 @@ function renderBriefCard(snap = state.snapshot || {}) {
   }
 
   $("briefAsOf").textContent = dateTimeValue(brief.as_of);
-  $("briefSections").replaceChildren(
-    renderReviewSection(brief.review || {}, brief),
-    renderReadySection(brief.ready || {}, snap.sources || {}),
-  );
+  const sections = $("briefSections");
+  // The daemon composes the narrative; an older daemon serves none and the
+  // row render below stays the surface. Both paths keep the render stamp,
+  // the sign-off flow, and the monthly-pulse gating identical.
+  const narrative = servedNarrative(brief);
+  sections.classList.toggle("brief-sections--narrative", Boolean(narrative));
+  if (narrative) {
+    sections.replaceChildren(...renderNarrative(narrative, brief));
+  } else {
+    sections.replaceChildren(
+      renderReviewSection(brief.review || {}, brief),
+      renderReadySection(brief.ready || {}, snap.sources || {}),
+    );
+  }
   renderBriefAckStatus(brief);
   scheduleBriefStamp(brief);
+}
+
+// Narrative render: the daemon's composed prose, rendered verbatim as typed
+// runs. The SPA never composes a sentence and never re-derives a role.
+const RUN_ROLE_CLASSES = { figure: "pd-fig", watch: "pd-wtint", act: "pd-atint" };
+
+function servedNarrative(brief) {
+  const narrative = brief?.narrative;
+  if (!narrative) return null;
+  const lead = runList(narrative.lead);
+  const review = paragraphList(narrative.review);
+  const ready = paragraphList(narrative.ready);
+  if (lead.length === 0 && review.length === 0 && ready.length === 0) return null;
+  return { lead, review, ready, coda: runList(narrative.coda) };
+}
+
+function runList(runs) {
+  return Array.isArray(runs) ? runs.filter((run) => String(run?.text || "") !== "") : [];
+}
+
+function paragraphList(paragraphs) {
+  if (!Array.isArray(paragraphs)) return [];
+  return paragraphs.map((paragraph) => runList(paragraph?.runs)).filter((runs) => runs.length > 0);
+}
+
+function renderNarrative(narrative, brief) {
+  const nodes = [briefPlacardRow(brief)];
+  if (narrative.lead.length > 0) nodes.push(runsElement("div", "pd-brf-lead", narrative.lead));
+  nodes.push(briefPlacard("Review \u00b7 last session"));
+  for (const runs of narrative.review) nodes.push(runsElement("p", "pd-brf-para", runs));
+  const signoff = renderNarrativeSignoff(brief);
+  if (signoff) nodes.push(signoff);
+  nodes.push(briefPlacard("Ready \u00b7 next open"));
+  for (const runs of narrative.ready) nodes.push(runsElement("p", "pd-brf-para", runs));
+  if (narrative.coda.length > 0) nodes.push(runsElement("p", "pd-brf-coda", narrative.coda));
+  return nodes;
+}
+
+// Runs are text, never markup: each span is created and filled through
+// textContent, so composed prose can never inject nodes.
+function runsElement(tag, className, runs) {
+  const el = document.createElement(tag);
+  el.className = className;
+  for (const run of runs) {
+    const text = String(run?.text || "");
+    const roleClass = RUN_ROLE_CLASSES[String(run?.role || "")];
+    if (!roleClass) {
+      el.append(document.createTextNode(text));
+      continue;
+    }
+    const span = document.createElement(roleClass === "pd-fig" ? "b" : "span");
+    span.className = roleClass;
+    span.textContent = text;
+    el.append(span);
+  }
+  return el;
+}
+
+function briefPlacard(text) {
+  const placard = document.createElement("div");
+  placard.className = "pd-placard";
+  placard.textContent = text;
+  return placard;
+}
+
+// The placard row carries the brief's own stamp line and the served stress
+// severity, printed in the daemon's vocabulary. An unreadable stress row shows
+// its status word instead of an implied calm.
+function briefPlacardRow(brief) {
+  const row = document.createElement("div");
+  row.className = "pd-placard pd-placard--row";
+  const label = document.createElement("span");
+  label.textContent = joinValues("Briefing", dateValue(brief.as_of), timeValue(brief.as_of));
+  row.append(label);
+  const stress = brief.ready?.stress || {};
+  const severity = String(stress.severity || "").trim() || String(stress.status || "").trim();
+  if (severity) {
+    const chip = document.createElement("span");
+    chip.className = `pd-chip ${severityChipClass(severity)}`.trim();
+    chip.textContent = severity;
+    row.append(chip);
+  }
+  return row;
+}
+
+function severityChipClass(severity) {
+  const normalized = String(severity || "").toLowerCase();
+  if (normalized === "act") return "pd-chip--act";
+  if (normalized === "watch") return "pd-chip--watch";
+  return "";
+}
+
+// The sign-off control keeps its exact semantics in the narrative render; only
+// its seat changes, from the One-tap row to the Review movement.
+function renderNarrativeSignoff(brief) {
+  const controls = signoffControls(brief.review?.one_tap || {}, brief, brief.review?.rules_delta || {});
+  if (controls.length === 0) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "brief-signoff-seat";
+  wrap.append(...controls);
+  return wrap;
 }
 
 function briefEmptyState() {
@@ -301,6 +412,15 @@ function renderOneTapRow(row, brief, rulesDelta = {}) {
   }
   if (blockers.childElementCount > 0) el.append(blockers);
 
+  el.append(...signoffControls(row, brief, rulesDelta));
+  return el;
+}
+
+// signoffControls builds the reconcile sign-off control, its rulebook caveat,
+// and its receipt. Both renders seat the same elements, so the flow and its
+// gating are one implementation, not two.
+function signoffControls(row = {}, brief = {}, rulesDelta = {}) {
+  const nodes = [];
   const reportID = String(row.report_id || "");
   const fingerprint = String(brief.brief_fingerprint || "");
   const outcome = signoffOutcome(fingerprint, reportID);
@@ -309,14 +429,15 @@ function renderOneTapRow(row, brief, rulesDelta = {}) {
     button.id = "briefSignoffButton";
     button.type = "button";
     button.className = "primary brief-signoff";
-    // The row value above already prints the raw report id; the tap target
+    // Whichever seat renders it, the report is already named beside the
+    // control (the row value, or the Review movement's prose); the tap target
     // speaks trader language, scopes the claim to what the report actually
     // attests (statement reconcile), and keeps the exact id in its tooltip.
     button.textContent = outcome.busy ? "Signing off the reconcile report" : "Sign off this reconcile report — statement clean";
     button.title = `Report ${reportID}`;
     button.disabled = outcome.busy;
     button.addEventListener("click", () => submitReconcileSignoff(fingerprint, reportID));
-    el.append(button);
+    nodes.push(button);
     // Signability is statement-scoped by design; when the rulebook changed
     // since the last stamped brief — or the delta cannot be verified at all —
     // the caveat sits on the control so the sign-off cannot borrow the
@@ -329,7 +450,7 @@ function renderOneTapRow(row, brief, rulesDelta = {}) {
       caveat.textContent = deltaUnknowable
         ? "Note: the rulebook delta cannot be verified right now — unknown is not clean; review the Rules delta row before signing."
         : "Note: the rulebook changed since the last stamped brief — review the Rules delta row before signing.";
-      el.append(caveat);
+      nodes.push(caveat);
     }
   }
   const message = outcome.error || outcome.result?.message || (outcome.result?.ok ? `Report ${reportID} signed off.` : "");
@@ -337,9 +458,9 @@ function renderOneTapRow(row, brief, rulesDelta = {}) {
     const receipt = document.createElement("p");
     receipt.className = outcome.error ? "brief-action-message brief-action-message--error" : "brief-action-message";
     receipt.textContent = message;
-    el.append(receipt);
+    nodes.push(receipt);
   }
-  return el;
+  return nodes;
 }
 
 async function submitReconcileSignoff(fingerprint, reportID) {
@@ -544,6 +665,13 @@ function dateTimeValue(value) {
   const at = new Date(value);
   if (Number.isNaN(at.getTime())) return String(value);
   return `${dateValue(at)} ${padDatePart(at.getHours())}:${padDatePart(at.getMinutes())}`;
+}
+
+function timeValue(value) {
+  if (!value) return "";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "";
+  return `${padDatePart(at.getHours())}:${padDatePart(at.getMinutes())}`;
 }
 
 function padDatePart(value) {

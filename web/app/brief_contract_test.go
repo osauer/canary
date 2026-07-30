@@ -39,6 +39,21 @@ func TestBriefCardStaticContract(t *testing.T) {
 	}
 	brief := string(briefData)
 	for _, want := range []string{
+		// Narrative path: the daemon-composed prose renders when it is served,
+		// and the row sections stay the fallback when an older daemon serves
+		// none. Both paths keep the same stamp, sign-off, and pulse handling.
+		`const narrative = servedNarrative(brief)`,
+		`sections.classList.toggle("brief-sections--narrative", Boolean(narrative))`,
+		`sections.replaceChildren(...renderNarrative(narrative, brief))`,
+		`const RUN_ROLE_CLASSES = { figure: "pd-fig", watch: "pd-wtint", act: "pd-atint" }`,
+		`briefPlacard("Review \u00b7 last session")`,
+		`briefPlacard("Ready \u00b7 next open")`,
+		`runsElement("div", "pd-brf-lead", narrative.lead)`,
+		`runsElement("p", "pd-brf-para", runs)`,
+		`runsElement("p", "pd-brf-coda", narrative.coda)`,
+		`joinValues("Briefing", dateValue(brief.as_of), timeValue(brief.as_of))`,
+		`chip.textContent = severity`,
+		`signoffControls(brief.review?.one_tap || {}, brief, brief.review?.rules_delta || {})`,
 		`renderReviewSection(brief.review || {}, brief)`,
 		`renderReadySection(brief.ready || {}, snap.sources || {})`,
 		`proposalsValue(section.proposals || {})`,
@@ -106,9 +121,35 @@ func TestBriefCardStaticContract(t *testing.T) {
 		`declared ${artefact.declared}`,
 		`completed ${artefact.completed}`,
 		`fingerprint changed ${row.rulebook_fingerprint_changed}`,
+		// Runs are typed text. The mockup's inline markers are prototype
+		// notation and must never reach the SPA, and no run may be injected as
+		// markup.
+		"innerHTML",
+		"[/f]",
+		"[/w]",
+		"[/a]",
 	} {
 		if strings.Contains(brief, forbidden) {
 			t.Errorf("brief.js contains forbidden contract %q", forbidden)
+		}
+	}
+	runs := jsFunctionBlock(t, brief, "runsElement")
+	for _, want := range []string{
+		`document.createTextNode(text)`,
+		`span.className = roleClass`,
+		`span.textContent = text`,
+	} {
+		if !strings.Contains(runs, want) {
+			t.Errorf("runsElement must render served runs as text %q:\n%s", want, runs)
+		}
+	}
+	narrative := jsFunctionBlock(t, brief, "servedNarrative")
+	for _, want := range []string{
+		`if (!narrative) return null;`,
+		`if (lead.length === 0 && review.length === 0 && ready.length === 0) return null;`,
+	} {
+		if !strings.Contains(narrative, want) {
+			t.Errorf("servedNarrative must fall back to the row render when no prose is served %q:\n%s", want, narrative)
 		}
 	}
 	percent := jsFunctionBlock(t, brief, "percentValue")

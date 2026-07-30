@@ -15,6 +15,9 @@
   --pd-caption: #8a92a1;
   --pd-subtext: #9aa1ae;
   --pd-master-legend: #a7b0bf;
+  /* Running prose sits between the readout ink and the captions: bright
+     enough to read a paragraph, quiet enough that figures still lead. */
+  --pd-prose: #a7adb9;
   --pd-plate: #4a515e;
   --pd-plate-quiet: #3b424e;
   --pd-caution: #ffb43b;
@@ -946,6 +949,94 @@ p {
 .brief-sections {
   display: grid;
   gap: 8px;
+}
+
+/* ---- Briefing: the narrative register ----
+   The composed brief is prose, not a table: placards separate the movements,
+   the lead carries display weight, paragraphs run at reading size, and the
+   coda sits under a hairline. Roles come from the daemon: figures take
+   readout ink, watch and act take the 60% tints — so nothing here decides
+   tone; it only renders the tone that was served. */
+.brief-sections--narrative {
+  display: block;
+}
+
+.brief-sections--narrative .pd-placard:first-child {
+  margin-top: 0;
+}
+
+.pd-chip {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 7px;
+  border: 1px solid var(--pd-border);
+  border-radius: 4px;
+  color: var(--pd-dim);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pd-chip--watch {
+  border-color: rgba(255, 180, 59, 0.35);
+  color: var(--pd-watch-tint);
+}
+
+.pd-chip--act {
+  border-color: rgba(255, 79, 68, 0.4);
+  color: var(--pd-act-tint);
+}
+
+.pd-brf-lead {
+  padding: 4px 2px 6px;
+  overflow-wrap: anywhere;
+  color: var(--pd-readout);
+  font-size: clamp(17px, 5vw, 19px);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.pd-brf-para {
+  margin: 0 2px 11px;
+  overflow-wrap: anywhere;
+  color: var(--pd-prose);
+  font-size: 13.5px;
+  line-height: 1.62;
+}
+
+/* A figure keeps readout ink and never lamps; a tinted clause keeps its tint
+   through its own figures, so a watch number is not read as neutral. */
+.pd-fig {
+  color: var(--pd-readout);
+  font-weight: 600;
+}
+
+.pd-wtint {
+  color: var(--pd-watch-tint);
+}
+
+.pd-atint {
+  color: var(--pd-act-tint);
+}
+
+.pd-brf-coda {
+  margin: 4px 2px 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--pd-hairline);
+  overflow-wrap: anywhere;
+  color: var(--pd-caption);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* The sign-off control sits inside the Review movement, ahead of the Ready
+   placard: the one thing the brief can act on stays with the movement that
+   states it. */
+.brief-signoff-seat {
+  display: grid;
+  gap: 6px;
+  margin: 2px 2px 12px;
 }
 
 .brief-section {

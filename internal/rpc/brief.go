@@ -408,11 +408,50 @@ type BriefReadySection struct {
 	MonthlyPulse  *BriefMonthlyPulseRow `json:"monthly_pulse,omitempty"`
 }
 
+// Brief narrative run roles. A run carries text plus at most one role, and a
+// role is a claim about the underlying row, not a styling hint: figure marks a
+// first-class served number, watch and act may appear only on clauses whose
+// own row status or served severity is watch- or act-class. Surfaces map the
+// roles to their own register and must never re-derive them.
+const (
+	BriefRunRoleFigure = "figure"
+	BriefRunRoleWatch  = "watch"
+	BriefRunRoleAct    = "act"
+)
+
+// BriefRun is one typed span of composed narrative text. Runs are text, never
+// markup: the daemon emits the spans and each surface decides how a role
+// renders.
+type BriefRun struct {
+	Text string `json:"text"`
+	Role string `json:"role,omitempty"`
+}
+
+// BriefParagraph is one composed paragraph as an ordered run sequence.
+type BriefParagraph struct {
+	Runs []BriefRun `json:"runs,omitempty"`
+}
+
+// BriefNarrative is the daemon-composed prose reading of the same two
+// movements BriefResult already carries. It states served facts and their
+// served statuses in fixed template language and adds no fact of its own, so
+// it stays outside the brief content identity: BriefFingerprint hashes Review
+// and Ready only, and a prose revision can never invalidate a stamped brief.
+// Absent when an older daemon serves the brief; surfaces fall back to the row
+// render.
+type BriefNarrative struct {
+	Lead   []BriefRun       `json:"lead,omitempty"`
+	Review []BriefParagraph `json:"review,omitempty"`
+	Ready  []BriefParagraph `json:"ready,omitempty"`
+	Coda   []BriefRun       `json:"coda,omitempty"`
+}
+
 // BriefResult is the complete typed daily brief, composed as two process
 // movements: Review (post-trade of the last completed session) and Ready
 // (pre-trade for today). BriefFingerprint hashes the two composed movements
-// only; AsOf and stamp-target state are deliberately outside the content
-// identity. The daemon composes both movements; surfaces render them verbatim.
+// only; AsOf, Narrative, and stamp-target state are deliberately outside the
+// content identity. The daemon composes both movements; surfaces render them
+// verbatim.
 type BriefResult struct {
 	AsOf              time.Time          `json:"as_of"`
 	BriefFingerprint  string             `json:"brief_fingerprint"`
@@ -420,4 +459,5 @@ type BriefResult struct {
 	StampTargetReason string             `json:"stamp_target_reason,omitempty"`
 	Review            BriefReviewSection `json:"review"`
 	Ready             BriefReadySection  `json:"ready"`
+	Narrative         *BriefNarrative    `json:"narrative,omitempty"`
 }
