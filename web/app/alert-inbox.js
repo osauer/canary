@@ -429,7 +429,8 @@ function deliveryCopy(health) {
 function renderAttention() {
   const attention = state.alerts?.attention;
   const unread = attention?.unread_count;
-  const known = Number.isSafeInteger(unread) && unread >= 0 && state.alertsFeedValid !== false;
+  const feedInvalid = state.alertsFeedValid === false;
+  const known = Number.isSafeInteger(unread) && unread >= 0 && !feedInvalid;
   const badge = $("alertUnreadBadge");
   const tab = $("tabAlerts");
   if (badge) {
@@ -437,8 +438,10 @@ function renderAttention() {
     badge.textContent = known && unread > 0 ? (unread > 99 ? "99+" : String(unread)) : "";
     badge.setAttribute("aria-hidden", "true");
   }
-  if (tab) tab.setAttribute("aria-label", known && unread > 0 ? `Alerts, ${unread} unread` : "Alerts, no unread alerts");
-  syncAppIconBadge(known ? unread : 0);
+  // An invalidated feed makes the unread state unknown, not zero: never
+  // announce "no unread alerts" or clear the OS icon badge on it.
+  if (tab) tab.setAttribute("aria-label", known && unread > 0 ? `Alerts, ${unread} unread` : feedInvalid ? "Alerts, unread state unknown" : "Alerts, no unread alerts");
+  if (!feedInvalid) syncAppIconBadge(known ? unread : 0);
   const status = $("attentionStatus");
   if (status) {
     status.textContent = state.attentionStatus.state;
@@ -504,7 +507,10 @@ function renderAlerts() {
     const history = $("alertsHistorySection");
     if (history) history.hidden = true;
     renderSources(null);
-    renderDelivery(value);
+    // Delivery health shares the feed's authority: an invalid or
+    // uninitialized feed must not keep presenting the retained health as
+    // current.
+    renderDelivery(null);
     renderAttention();
     return { state: "unknown", active: [], ended: [] };
   }
@@ -539,7 +545,12 @@ function renderAlerts() {
 }
 
 function renderSelectedAlert() {
-  const occurrence = state.alerts?.occurrences?.find((item) => item.display_id === state.selectedAlertID);
+  // An invalid feed quarantines the detail panel with the other alert
+  // surfaces; the selection id survives in state and the panel returns
+  // when the feed revalidates.
+  const occurrence = state.alertsFeedValid === false
+    ? null
+    : state.alerts?.occurrences?.find((item) => item.display_id === state.selectedAlertID);
   const panel = $("selectedAlertPanel");
   if (!panel) return;
   panel.hidden = !occurrence;
@@ -565,6 +576,14 @@ function setAttentionStatus(copy, error = false) {
 }
 
 const ALERTS_REFRESH_MIN_INTERVAL_MS = 15000;
+const ALERTS_FETCH_DEADLINE_MS = 10000;
+const ALERTS_REFRESH_FAILED_COPY = "Alert refresh unavailable; retained state shown";
+
+function alertsFetchDeadlineMs() {
+  return Number.isSafeInteger(state.alertsFetchDeadlineMs) && state.alertsFetchDeadlineMs > 0
+    ? state.alertsFetchDeadlineMs
+    : ALERTS_FETCH_DEADLINE_MS;
+}
 
 function scheduleAlertsRefresh(options = {}) {
   if (!state.authenticated) return false;
@@ -604,16 +623,22 @@ async function refreshAlerts(options = {}) {
   state.alertsLastRefreshAt = Date.now();
   state.alertsRefreshInFlight = (async () => {
     try {
-      const response = await fetch("/api/alerts", { credentials: "include" });
+      const response = await fetch("/api/alerts", { credentials: "include", signal: AbortSignal.timeout(alertsFetchDeadlineMs()) });
       if (!response.ok) throw new Error("alerts unavailable");
       const result = ingestAlerts(await response.json());
       if (result.status === "rejected") throw new Error("alerts malformed");
+      if (state.attentionStatus.state === ALERTS_REFRESH_FAILED_COPY) setAttentionStatus("");
       renderAlerts();
       renderSelectedAlert();
       return true;
     } catch {
-      markInvalid("alert refresh unavailable");
+      // A failed or timed-out recovery GET is weaker evidence than the
+      // retained validated feed: keep the last accepted authority (the
+      // ingest path already invalidated it if the body itself was
+      // malformed or equivocating) and surface the failure as status.
+      setAttentionStatus(ALERTS_REFRESH_FAILED_COPY, true);
       renderAlerts();
+      renderSelectedAlert();
       return false;
     } finally {
       state.alertsRefreshInFlight = null;
@@ -633,11 +658,11 @@ async function acknowledgeAttention(options = {}) {
     const epoch = (state.attentionEpoch || 0) + 1;
     state.attentionEpoch = epoch;
     try {
-      const attentionResponse = await fetch("/api/alerts/attention", { credentials: "include" });
+      const attentionResponse = await fetch("/api/alerts/attention", { credentials: "include", signal: AbortSignal.timeout(alertsFetchDeadlineMs()) });
       if (!attentionResponse.ok) throw new Error("attention unavailable");
       const attention = validateAttention(await attentionResponse.json());
       if (state.attentionEpoch !== epoch) return false;
-      const alertsResponse = await fetch("/api/alerts", { credentials: "include" });
+      const alertsResponse = await fetch("/api/alerts", { credentials: "include", signal: AbortSignal.timeout(alertsFetchDeadlineMs()) });
       if (!alertsResponse.ok) throw new Error("alerts unavailable");
       const alerts = await alertsResponse.json();
       if (state.attentionEpoch !== epoch) return false;
@@ -657,6 +682,7 @@ async function acknowledgeAttention(options = {}) {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ through_seq: attention.high_water_seq }),
+        signal: AbortSignal.timeout(alertsFetchDeadlineMs()),
       });
       if (!readResponse.ok) throw new Error("attention read unavailable");
       const readResult = ingestAlerts(await readResponse.json());
@@ -699,7 +725,11 @@ function scheduleAttentionRetry() {
 function handleAttentionContextChange() {
   if (!attentionViewReady()) {
     cancelAttentionDwell();
-    return refreshAlerts();
+    // The typed SSE feed owns passive authority; a context change away
+    // from the alerts view only needs a coalesced recovery read through
+    // the scheduler, never a per-event direct GET (stress bursts used to
+    // fan out one fetch per event here).
+    return scheduleAlertsRefresh();
   }
   if (attentionDwellTimer) return true;
   const delay = Number.isSafeInteger(state.attentionDwellMs) && state.attentionDwellMs >= 0 ? state.attentionDwellMs : ATTENTION_DWELL_MS;

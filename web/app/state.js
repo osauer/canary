@@ -25,6 +25,7 @@ const state = {
   alertsRefreshTimerEnsureTrailing: false,
   alertsRefreshAfterFlight: false,
   alertsLastRefreshAt: 0,
+  alertsFetchDeadlineMs: null,
   renderedAlertAttention: null,
   attentionEpoch: 0,
   attentionReadInFlight: null,

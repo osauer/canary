@@ -45,10 +45,12 @@ Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true }
 const {
   acknowledgeAttention,
   canAssertAlertClear,
+  handleAttentionContextChange,
   ingestAlerts,
   ingestAlertsEvent,
   refreshAlerts,
   renderAlerts,
+  renderSelectedAlert,
   scheduleAlertsRefresh,
   validateAlerts,
 } = await import("../alert-inbox.js");
@@ -145,6 +147,7 @@ function reset() {
   state.alertsRefreshTimerEnsureTrailing = false;
   state.alertsRefreshAfterFlight = false;
   state.alertsLastRefreshAt = 0;
+  state.alertsFetchDeadlineMs = null;
   state.renderedAlertAttention = null;
   state.attentionEpoch = 0;
   state.attentionReadInFlight = null;
@@ -321,5 +324,80 @@ test("the default min interval defers a refresh scheduled right after a complete
   await wait(10);
   assert.equal(calls, 1, "a schedule inside the min interval must not fetch immediately");
   assert.ok(state.alertsRefreshTimer, "the deferred trailing refresh must stay scheduled");
+  reset();
+});
+
+test("a failed recovery GET keeps the retained unread authority instead of clearing it", async () => {
+  reset();
+  ingestAlerts(dto());
+  renderAlerts();
+  const badge = elements.get("alertUnreadBadge");
+  const tab = elements.get("tabAlerts");
+  assert.equal(badge.hidden, false);
+  assert.equal(badge.textContent, "1");
+  globalThis.fetch = async () => { throw new Error("network down"); };
+  assert.equal(await refreshAlerts(), false);
+  assert.notEqual(state.alertsFeedValid, false, "a transport failure must not invalidate the validated feed");
+  assert.equal(badge.hidden, false, "the unread badge must survive a failed refresh");
+  assert.equal(badge.textContent, "1");
+  assert.equal(tab.attributes["aria-label"], "Alerts, 1 unread");
+  assert.equal(state.attentionStatus.error, true);
+  assert.match(state.attentionStatus.state, /retained state/i);
+  globalThis.fetch = async () => ({ ok: true, async json() { return dto({ generation: 10 }); } });
+  assert.equal(await refreshAlerts(), true);
+  assert.equal(state.attentionStatus.state, "", "a successful refresh must clear the failure note");
+  reset();
+});
+
+test("a hung GET aborts at the deadline and later refreshes are not wedged", async () => {
+  reset();
+  state.alertsFetchDeadlineMs = 25;
+  globalThis.fetch = (url, init = {}) => new Promise((resolve, reject) => {
+    init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+  });
+  assert.equal(await refreshAlerts(), false);
+  assert.equal(state.alertsRefreshInFlight, null, "the aborted refresh must clear the in-flight slot");
+  assert.notEqual(state.alertsFeedValid, false);
+  globalThis.fetch = async () => ({ ok: true, async json() { return dto(); } });
+  assert.equal(await refreshAlerts(), true, "a later refresh must run after the abort");
+  assert.equal(state.alerts.generation, 9);
+  reset();
+});
+
+test("a context change away from the alerts view schedules a coalesced refresh instead of a direct GET", async () => {
+  reset();
+  state.activeTab = "monitor";
+  state.alertsLastRefreshAt = Date.now();
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return { ok: true, async json() { return dto(); } };
+  };
+  handleAttentionContextChange();
+  handleAttentionContextChange();
+  handleAttentionContextChange();
+  await wait(10);
+  assert.equal(calls, 0, "SSE-driven context changes must not fetch outside the scheduler min interval");
+  assert.ok(state.alertsRefreshTimer, "a coalesced scheduler timer must be pending");
+  reset();
+});
+
+test("an invalidated feed quarantines delivery health and the selected-alert panel", () => {
+  reset();
+  const value = dto();
+  ingestAlerts(value);
+  state.selectedAlertID = value.occurrences[0].display_id;
+  renderAlerts();
+  renderSelectedAlert();
+  assert.equal(elements.get("selectedAlertPanel").hidden, false);
+  assert.match(elements.get("alertDeliveryHealth").textContent, /healthy/);
+  const equivocation = structuredClone(value);
+  equivocation.occurrences[0].title = "Client-invented copy";
+  assert.equal(ingestAlerts(equivocation).status, "rejected");
+  renderAlerts();
+  renderSelectedAlert();
+  assert.equal(elements.get("selectedAlertPanel").hidden, true, "stale selected-alert detail must not present as current");
+  assert.equal(elements.get("alertDeliveryHealth").textContent, "unavailable");
+  assert.equal(elements.get("tabAlerts").attributes["aria-label"], "Alerts, unread state unknown");
   reset();
 });
