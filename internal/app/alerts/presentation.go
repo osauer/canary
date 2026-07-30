@@ -12,6 +12,7 @@ type Presentation struct {
 
 var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationPortfolioStress:                  {Title: "Portfolio stress", Body: "Canary reports portfolio stress."},
+	rpc.AlertPresentationMarginCushion:                    {Title: "Margin cushion", Body: "The account margin cushion is below its safety threshold."},
 	rpc.AlertPresentationRegimeMarketStress:               {Title: "Market stress", Body: "Broad-market stress conditions need attention."},
 	rpc.AlertPresentationRulebookSingleNameExposure:       {Title: "Single-name exposure", Body: "A portfolio concentration rule needs attention."},
 	rpc.AlertPresentationRulebookOptionLinePremium:        {Title: "Option premium limit", Body: "An option-line premium rule needs attention."},

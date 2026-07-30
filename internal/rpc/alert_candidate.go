@@ -75,6 +75,7 @@ const (
 	AlertSeverityUrgent  = risk.AlertSeverityUrgent
 
 	AlertPresentationPortfolioStress                  = risk.AlertPresentationPortfolioStress
+	AlertPresentationMarginCushion                    = risk.AlertPresentationMarginCushion
 	AlertPresentationRegimeMarketStress               = risk.AlertPresentationRegimeMarketStress
 	AlertPresentationRulebookSingleNameExposure       = risk.AlertPresentationRulebookSingleNameExposure
 	AlertPresentationRulebookOptionLinePremium        = risk.AlertPresentationRulebookOptionLinePremium

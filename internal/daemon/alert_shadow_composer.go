@@ -53,6 +53,7 @@ const (
 	alertShadowReasonPortfolioEvidenceStale        = "portfolio_evidence_stale"
 	alertShadowReasonPortfolioEvidenceUnavailable  = "portfolio_evidence_unavailable"
 	alertShadowDecisionLegacyGateActive            = "legacy_gate_active"
+	alertShadowDecisionMarginIndependent           = "margin_cushion_independent"
 	alertShadowDecisionNudgeActive                 = "nudge_active"
 	alertShadowDecisionRulebookActive              = "rulebook_active"
 	alertShadowDecisionOrderIntegrityActive        = "order_integrity_active"
@@ -96,7 +97,11 @@ const (
 	// portfolio-stress episode would be abandoned mid-flight and reopen as a
 	// fresh occurrence, re-paging the operator for an alert they already have.
 	// It is only ever compared against itself, never displayed.
-	stressEpisodeIdentity               = "portfolio_canary"
+	stressEpisodeIdentity = "portfolio_canary"
+	// marginEpisodeIdentity keys the independent margin-cushion episode
+	// (2026-07-30 operator decision). Same persistence rule as
+	// stressEpisodeIdentity: never change it.
+	marginEpisodeIdentity               = "margin_cushion"
 	alertShadowCursorNudges             = "nudges"
 	alertShadowCursorRegime             = "regime"
 	alertShadowCursorRulebook           = "rulebook"
@@ -249,8 +254,14 @@ type alertShadowSourceBatch struct {
 	Scope                       alertShadowBrokerScope
 	Covered                     bool
 	NegativeReady               bool
-	DuplicateCandidates         uint64
-	Observations                []alertEpisodeObservation
+	// MarginEvidenceObserved reports whether a stress batch carried any
+	// margin-cushion evidence (margin signals or observed cushion values).
+	// When false, the synthesized source-level negative must not recover
+	// the margin-safety episode: an unobserved cushion is an omission,
+	// never evidence that the account is safe.
+	MarginEvidenceObserved bool
+	DuplicateCandidates    uint64
+	Observations           []alertEpisodeObservation
 }
 
 // alertShadowStatusReport is the producer operational view. Counts are
@@ -1031,6 +1042,12 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 			}
 			batch := state.sources[candidate.Source]
 			if !batch.NegativeReady || !alertShadowCandidateMatchesScope(candidate, batch.Scope) {
+				continue
+			}
+			if candidate.Kind == rpc.AlertKindMarginSafety && !batch.MarginEvidenceObserved {
+				// An unobserved margin cushion is an omission: the episode
+				// holds on aging evidence instead of recovering on a
+				// source-level negative that never saw the cushion.
 				continue
 			}
 			// The retired Protection classifier cannot be recovered by a successor
@@ -1999,29 +2016,77 @@ func alertShadowMapStress(scope alertShadowBrokerScope, result rpc.StressResult,
 	}
 	batch.NegativeSeverity = severity
 	batch.NegativeReady = !batch.EvidenceAsOf.IsZero()
-	if !alertShadowStressOccurrenceEligible(result) {
-		return batch
+	if alertShadowStressOccurrenceEligible(result) {
+		episodeKey, err := rpc.BuildAlertEpisodeKey(
+			rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk,
+			scope.account, scope.mode, stressEpisodeIdentity,
+		)
+		if err != nil {
+			batch.Covered = false
+			batch.NegativeReady = false
+			batch.Status = alertShadowStatusError
+			batch.Reason = alertShadowReasonCandidateInvalid
+			batch.EvidenceHealth = rpc.AlertEvidenceError
+			return batch
+		}
+		batch.Observations = append(batch.Observations, alertEpisodeObservation{
+			EpisodeKey: episodeKey, Source: rpc.AlertSourceStress, Kind: rpc.AlertKindPortfolioRisk,
+			PresentationCode: rpc.AlertPresentationPortfolioStress, Active: true, Severity: severity,
+			EvidenceFingerprint: result.Fingerprint.Key, EvidenceHealth: batch.EvidenceHealth,
+			Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: batch.EvidenceAsOf, ObservedAt: observedAt.UTC(),
+			PolicyFingerprint: result.PolicyFingerprint.Key, ProducerDecisionReason: alertShadowDecisionLegacyGateActive,
+		})
+	}
+	margin, marginActive, marginObserved := alertShadowMarginObservation(scope, result, batch, observedAt)
+	batch.MarginEvidenceObserved = marginObserved
+	if marginActive {
+		batch.Observations = append(batch.Observations, margin)
+	}
+	return batch
+}
+
+// alertShadowMarginObservation is the independent account-risk producer
+// (2026-07-30 operator decision): a low margin cushion alerts on its own
+// authority, without the market confirmation the top-level stress verdict
+// requires — the alert channel must not stay silent through an
+// account-only emergency in a calm market. Severity comes from the margin
+// signals the stress engine already stamped with its policy row thresholds
+// (MarginUrgentPct/ActPct/WatchPct), so this producer owns no thresholds
+// and the policy keeps exactly one copy. Recovery rides the synthesized
+// source-level negative, gated by MarginEvidenceObserved: an observed
+// healthy cushion recovers the episode, an unobserved cushion holds it.
+func alertShadowMarginObservation(scope alertShadowBrokerScope, result rpc.StressResult, batch alertShadowSourceBatch, observedAt time.Time) (observation alertEpisodeObservation, active, observed bool) {
+	var worst risk.SignalSeverity
+	for _, sig := range result.Signals {
+		if sig.ID != risk.SignalMarginCushionLow && sig.ID != risk.SignalLookAheadCushionLow {
+			continue
+		}
+		if worst == "" || alertShadowStressSeverityAtLeast(sig.Severity, worst) {
+			worst = sig.Severity
+		}
+	}
+	observed = worst != "" || result.Portfolio.CushionPct != nil || result.Portfolio.LookAheadCushionPct != nil
+	if worst == "" {
+		return alertEpisodeObservation{}, false, observed
+	}
+	severity, ok := alertShadowStressSeverity(worst)
+	if !ok {
+		return alertEpisodeObservation{}, false, observed
 	}
 	episodeKey, err := rpc.BuildAlertEpisodeKey(
-		rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk,
-		scope.account, scope.mode, stressEpisodeIdentity,
+		rpc.AlertSourceStress, rpc.AlertKindMarginSafety,
+		scope.account, scope.mode, marginEpisodeIdentity,
 	)
 	if err != nil {
-		batch.Covered = false
-		batch.NegativeReady = false
-		batch.Status = alertShadowStatusError
-		batch.Reason = alertShadowReasonCandidateInvalid
-		batch.EvidenceHealth = rpc.AlertEvidenceError
-		return batch
+		return alertEpisodeObservation{}, false, observed
 	}
-	batch.Observations = append(batch.Observations, alertEpisodeObservation{
-		EpisodeKey: episodeKey, Source: rpc.AlertSourceStress, Kind: rpc.AlertKindPortfolioRisk,
-		PresentationCode: rpc.AlertPresentationPortfolioStress, Active: true, Severity: severity,
+	return alertEpisodeObservation{
+		EpisodeKey: episodeKey, Source: rpc.AlertSourceStress, Kind: rpc.AlertKindMarginSafety,
+		PresentationCode: rpc.AlertPresentationMarginCushion, Active: true, Severity: severity,
 		EvidenceFingerprint: result.Fingerprint.Key, EvidenceHealth: batch.EvidenceHealth,
 		Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: batch.EvidenceAsOf, ObservedAt: observedAt.UTC(),
-		PolicyFingerprint: result.PolicyFingerprint.Key, ProducerDecisionReason: alertShadowDecisionLegacyGateActive,
-	})
-	return batch
+		PolicyFingerprint: result.PolicyFingerprint.Key, ProducerDecisionReason: alertShadowDecisionMarginIndependent,
+	}, true, observed
 }
 
 func alertShadowStressFreshUntil(result rpc.StressResult, observedAt time.Time) time.Time {
@@ -2911,6 +2976,9 @@ func alertShadowCandidateMatchesScope(candidate rpc.AlertCandidate, scope alertS
 	identity := candidate.EvidenceFingerprint
 	if candidate.Source == rpc.AlertSourceStress {
 		identity = stressEpisodeIdentity
+		if candidate.Kind == rpc.AlertKindMarginSafety {
+			identity = marginEpisodeIdentity
+		}
 	}
 	key, err := rpc.BuildAlertEpisodeKey(
 		candidate.Source, candidate.Kind, scope.account, scope.mode, identity,

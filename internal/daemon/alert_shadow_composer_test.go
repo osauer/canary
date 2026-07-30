@@ -1813,3 +1813,96 @@ func assertAlertShadowCoverage(t *testing.T, coverage rpc.AlertCoverage, covered
 		}
 	}
 }
+
+// The margin-cushion producer (2026-07-30 operator decision) alerts on
+// account-only danger without market confirmation, holds through an
+// unobserved cushion, recovers only from an observed healthy one, and
+// coexists with the market-confirmed portfolio-stress occurrence.
+func TestAlertShadowComposerMarginCushionIndependentLifecycle(t *testing.T) {
+	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
+	defer store.Close()
+	registry, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	composer := newAlertShadowComposer(registry)
+	scope := alertShadowTestBrokerScope(t)
+	base := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	now := base.Add(2 * time.Second)
+	composer.now = func() time.Time { return now }
+	relevant := true
+	lowCushion := 2.0
+
+	marginSignals := func(observed *float64) []risk.Signal {
+		return []risk.Signal{
+			{ID: risk.SignalMarginCushionLow, Direction: risk.DirectionDefensive, Severity: risk.SeverityUrgent, Metric: "cushion", Observed: observed},
+			{ID: risk.SignalLookAheadCushionLow, Direction: risk.DirectionDefensive, Severity: risk.SeverityAct, Metric: "lookahead_cushion", Observed: observed},
+		}
+	}
+
+	// Account-only danger: the top-level verdict stays calm (observe /
+	// stand_down), so the legacy occurrence gate never fires — the margin
+	// producer must alert anyway, at the worst margin-signal severity.
+	danger := alertShadowTestStress(base, risk.SeverityObserve, "stand_down", &relevant, rpc.SourceStatusOK, "margin-danger")
+	danger.Portfolio.CushionPct = &lowCushion
+	danger.Signals = marginSignals(&lowCushion)
+	opened, err := composer.ObserveStress(t.Context(), scope, danger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opened.Candidates) != 1 {
+		t.Fatalf("account-only danger candidates=%+v", opened.Candidates)
+	}
+	margin := opened.Candidates[0]
+	if margin.Source != rpc.AlertSourceStress || margin.Kind != rpc.AlertKindMarginSafety ||
+		margin.PresentationCode != rpc.AlertPresentationMarginCushion || margin.State != rpc.AlertEpisodeOpen ||
+		margin.Severity != rpc.AlertSeverityUrgent || margin.Destination != rpc.AlertDestinationAlerts {
+		t.Fatalf("unexpected margin candidate: %+v", margin)
+	}
+
+	// Unobserved cushion: no margin signals and no cushion values. The
+	// synthesized source-level negative must not recover the episode.
+	now = base.Add(time.Minute + 2*time.Second)
+	unknown := alertShadowTestStress(base.Add(time.Minute), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "margin-unknown")
+	held, err := composer.ObserveStress(t.Context(), scope, unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held.Candidates) != 1 || held.Candidates[0].State != rpc.AlertEpisodeOpen ||
+		held.Candidates[0].OccurrenceKey != margin.OccurrenceKey {
+		t.Fatalf("unobserved cushion did not hold the open episode: %+v", held.Candidates)
+	}
+
+	// Observed healthy cushion: values present, no margin signals — the
+	// source-level negative now carries real margin evidence and recovers.
+	now = base.Add(2*time.Minute + 2*time.Second)
+	healthyCushion := 35.0
+	healthy := alertShadowTestStress(base.Add(2*time.Minute), risk.SeverityObserve, "observe", &relevant, rpc.SourceStatusOK, "margin-healthy")
+	healthy.Portfolio.CushionPct = &healthyCushion
+	recovered, err := composer.ObserveStress(t.Context(), scope, healthy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered.Candidates) != 1 || recovered.Candidates[0].State != rpc.AlertEpisodeRecovered ||
+		recovered.Candidates[0].OccurrenceKey != margin.OccurrenceKey {
+		t.Fatalf("observed healthy cushion did not recover: %+v", recovered.Candidates)
+	}
+
+	// Market-confirmed stress with a low cushion: both occurrences, each
+	// under its own episode identity.
+	now = base.Add(3*time.Minute + 2*time.Second)
+	both := alertShadowTestStress(base.Add(3*time.Minute), risk.SeverityAct, "defend", &relevant, rpc.SourceStatusOK, "margin-both")
+	both.Portfolio.CushionPct = &lowCushion
+	both.Signals = marginSignals(&lowCushion)
+	dual, err := composer.ObserveStress(t.Context(), scope, both)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[rpc.AlertKind]rpc.AlertEpisodeState{}
+	for _, candidate := range dual.Candidates {
+		kinds[candidate.Kind] = candidate.State
+	}
+	if len(dual.Candidates) != 2 || kinds[rpc.AlertKindPortfolioRisk] != rpc.AlertEpisodeOpen || kinds[rpc.AlertKindMarginSafety] != rpc.AlertEpisodeOpen {
+		t.Fatalf("coexistence candidates=%+v", dual.Candidates)
+	}
+}

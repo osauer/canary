@@ -429,6 +429,7 @@ func TestPresentationForCoversClosedCodesAndStates(t *testing.T) {
 	t.Parallel()
 	codes := []rpc.AlertPresentationCode{
 		rpc.AlertPresentationPortfolioStress,
+		rpc.AlertPresentationMarginCushion,
 		rpc.AlertPresentationRegimeMarketStress,
 		rpc.AlertPresentationRulebookSingleNameExposure,
 		rpc.AlertPresentationRulebookOptionLinePremium,

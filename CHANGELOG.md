@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The project adheres to 
 - **The paired app's alert badge survives network hiccups.** A failed or hung alert refresh no longer clears the unread badge or announces "no unread alerts"; the last validated state stays visible until real evidence replaces it.
 - **Unknown state is reported as unknown, not as zero.** A transiently zero-valued holding, an unprimed empty position stream, and an unreadable order journal each used to read as clean absence; all three now stay visible as unresolved until positive evidence settles them.
 
+### Added
+
+- A margin-cushion alert that does not wait for market confirmation. The stress read already classified a low cushion as urgent, but the alert channel only fired on the market-confirmed top-level verdict, so an account-only emergency in a calm market stayed a silent panel row. A cushion below the stress policy's existing watch, act, or urgent thresholds now opens its own alert episode, recovers only when a healthy cushion is actually observed, and holds open instead of resolving when the cushion cannot be read.
+
 ### Changed
 
 - A release interrupted after its tag was pushed can be resumed with `make release-resume RELEASE_VERSION=vX.Y.Z`. Completed publication legs verify themselves and skip, every leg runs pinned to the exact tagged commit, and a partially uploaded GitHub release stops for a human decision instead of being overwritten.

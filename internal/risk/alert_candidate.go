@@ -112,6 +112,7 @@ type AlertPresentationCode string
 // with the precise code without opening a new occurrence.
 const (
 	AlertPresentationPortfolioStress                  AlertPresentationCode = "portfolio_stress"
+	AlertPresentationMarginCushion                    AlertPresentationCode = "margin_cushion"
 	AlertPresentationRegimeMarketStress               AlertPresentationCode = "regime_market_stress"
 	AlertPresentationRulebookSingleNameExposure       AlertPresentationCode = "rulebook_single_name_exposure"
 	AlertPresentationRulebookOptionLinePremium        AlertPresentationCode = "rulebook_option_line_premium"
@@ -831,7 +832,7 @@ func validAlertSeverity(value AlertSeverity) bool {
 func validAlertPresentationCode(source AlertSource, value AlertPresentationCode) bool {
 	switch source {
 	case AlertSourceStress:
-		return value == AlertPresentationPortfolioStress
+		return value == AlertPresentationPortfolioStress || value == AlertPresentationMarginCushion
 	case AlertSourceRegime:
 		return value == AlertPresentationRegimeMarketStress
 	case AlertSourceRulebook:
