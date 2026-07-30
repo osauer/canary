@@ -5,8 +5,11 @@
 # verify artifacts, but they must not grow an independent tag/push/release
 # path. Canonical shape: `release` (worktree orchestrator, owns no
 # publication command) → `_release-run` (pipeline body: tag, tag push,
-# plugin tag) → `_release-publish` (gh release create). Both internal
-# targets must reject top-level invocation and stay out of `make help`.
+# plugin tag) → `_release-publish` (gh release create), plus the post-tag
+# recovery lane `release-resume` (worktree orchestrator, owns no
+# publication command) → `_release-resume-run` (idempotent re-entry:
+# plugin tag, may re-invoke `_release-publish`). Every internal target
+# must reject top-level invocation and stay out of `make help`.
 
 set -euo pipefail
 
@@ -48,12 +51,16 @@ done < <(
 target=""
 run_seen=0
 publish_seen=0
+resume_seen=0
 run_guard_makelevel=0
 run_guard_entry=0
 publish_guard_makelevel=0
 publish_guard_entry=0
+resume_guard_makelevel=0
+resume_guard_entry=0
 run_called_from_release=0
 publish_called_from_run=0
+resume_called_from_release_resume=0
 while IFS= read -r line; do
 	if [[ "$line" =~ ^([^[:space:]#][^:]*)\: ]]; then
 		target="${BASH_REMATCH[1]}"
@@ -61,7 +68,7 @@ while IFS= read -r line; do
 			printf 'check-release-boundary: public release-publish target is forbidden; GitHub publication must stay internal to release\n' >&2
 			failure=1
 		fi
-		if { [ "$target" = "_release-publish" ] || [ "$target" = "_release-run" ]; } && [[ "$line" == *"##"* ]]; then
+		if { [ "$target" = "_release-publish" ] || [ "$target" = "_release-run" ] || [ "$target" = "_release-resume-run" ]; } && [[ "$line" == *"##"* ]]; then
 			printf 'check-release-boundary: %s must not be advertised by make help\n' "$target" >&2
 			failure=1
 		fi
@@ -79,8 +86,12 @@ while IFS= read -r line; do
 		[[ "$trimmed" == *'$(MAKELEVEL)'* ]] && run_guard_makelevel=1
 		[[ "$trimmed" == *'$(RELEASE_PIPELINE_ENTRY)'* ]] && run_guard_entry=1
 	fi
+	if [ "$target" = "_release-resume-run" ]; then
+		[[ "$trimmed" == *'$(MAKELEVEL)'* ]] && resume_guard_makelevel=1
+		[[ "$trimmed" == *'$(RELEASE_PIPELINE_ENTRY)'* ]] && resume_guard_entry=1
+	fi
 	if printf '%s\n' "$trimmed" | grep -Eq '(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-publish([;&|[:space:]]|$)'; then
-		if [ "$target" = "_release-run" ]; then
+		if [ "$target" = "_release-run" ] || [ "$target" = "_release-resume-run" ]; then
 			publish_called_from_run=1
 		else
 			printf 'check-release-boundary: target %q may not invoke _release-publish\n' "$target" >&2
@@ -95,6 +106,14 @@ while IFS= read -r line; do
 			failure=1
 		fi
 	fi
+	if printf '%s\n' "$trimmed" | grep -Eq '(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-resume-run([;&|[:space:]]|$)'; then
+		if [ "$target" = "release-resume" ]; then
+			resume_called_from_release_resume=1
+		else
+			printf 'check-release-boundary: target %q may not invoke _release-resume-run\n' "$target" >&2
+			failure=1
+		fi
+	fi
 	if printf '%s\n' "$trimmed" | grep -Eq '(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+create|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'; then
 		case "$target" in
 			_release-run)
@@ -102,6 +121,9 @@ while IFS= read -r line; do
 				;;
 			_release-publish)
 				publish_seen=1
+				;;
+			_release-resume-run)
+				resume_seen=1
 				;;
 			*)
 				printf 'check-release-boundary: Makefile target %q owns a forbidden publication command: %s\n' \
@@ -129,6 +151,16 @@ if [ "$publish_seen" -eq 1 ]; then
 	fi
 	if [ "$publish_called_from_run" -ne 1 ]; then
 		printf 'check-release-boundary: _release-publish must be reachable from _release-run\n' >&2
+		failure=1
+	fi
+fi
+if [ "$resume_seen" -eq 1 ]; then
+	if [ "$resume_guard_makelevel" -ne 1 ] || [ "$resume_guard_entry" -ne 1 ]; then
+		printf 'check-release-boundary: _release-resume-run must reject top-level calls using MAKELEVEL and RELEASE_PIPELINE_ENTRY guards\n' >&2
+		failure=1
+	fi
+	if [ "$resume_called_from_release_resume" -ne 1 ]; then
+		printf 'check-release-boundary: _release-resume-run must be reachable from the canonical release-resume target\n' >&2
 		failure=1
 	fi
 fi

@@ -56,7 +56,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -944,6 +944,98 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 		echo "        when done: git worktree remove --force $$wt" >&2; \
 		exit 1; \
 	fi
+
+# The primary tag push is the pipeline's irreversible boundary: plugin tag,
+# GitHub release, and registry publication follow it, and a failure in any of
+# them used to strand a pushed tag that `make release` then refuses. Resume
+# re-enters exactly at that boundary. The tag exists only because every
+# pre-tag gate (tests, live smoke, paper round-trip) already passed, so no
+# gate re-runs; every leg is pinned to the exact tagged commit via a detached
+# worktree, artifacts rebuild deterministically from the tag checkout, and
+# completed legs verify-and-skip. A partially uploaded GitHub release fails
+# loudly for a human decision instead of being clobbered.
+release-resume: ## Resume a release interrupted after its tag was pushed: make release-resume RELEASE_VERSION=vX.Y.Z
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "release-resume: RELEASE_VERSION is required, e.g. make release-resume RELEASE_VERSION=v0.3.1" >&2; \
+		exit 1; \
+	fi
+	@git fetch origin --tags --quiet || { \
+		echo "release-resume: git fetch origin failed; resuming requires the network" >&2; \
+		exit 1; \
+	}
+	@sha=$$(git rev-parse --verify --quiet "refs/tags/$(RELEASE_VERSION)^{commit}") || { \
+		echo "release-resume: tag $(RELEASE_VERSION) does not exist locally; nothing to resume — run make release" >&2; \
+		exit 1; \
+	}; \
+	peeled=$$(git ls-remote origin "refs/tags/$(RELEASE_VERSION)^{}" | awk '{print $$1}'); \
+	plain=$$(git ls-remote origin "refs/tags/$(RELEASE_VERSION)" | awk '{print $$1}'); \
+	remote_commit=$${peeled:-$$plain}; \
+	if [ -z "$$remote_commit" ]; then \
+		echo "release-resume: tag $(RELEASE_VERSION) is not on origin; the failure predates the irreversible boundary." >&2; \
+		echo "        delete the local tag (git tag -d $(RELEASE_VERSION)) and re-run make release" >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$remote_commit" != "$$sha" ]; then \
+		echo "release-resume: origin tag $(RELEASE_VERSION) points at $$remote_commit but the local tag at $$sha; refusing to resume a diverged tag" >&2; \
+		exit 1; \
+	fi; \
+	wt="$(RELEASE_WORKTREE_ROOT)/canary-resume-$(RELEASE_VERSION)"; \
+	if [ -e "$$wt" ]; then \
+		echo "release-resume: $$wt already exists (previous failed resume?)." >&2; \
+		echo "        inspect it, then remove with: git worktree remove --force $$wt" >&2; \
+		exit 1; \
+	fi; \
+	echo "==> resume worktree: $$wt (tag $(RELEASE_VERSION) @ $$sha)"; \
+	git worktree add --detach "$$wt" "$$sha" || exit 1; \
+	msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+	if MESSAGE="$$msg" $(MAKE) -C "$$wt" _release-resume-run RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION) $(if $(wildcard bin/mcp-publisher),MCP_PUBLISHER=$(CURDIR)/bin/mcp-publisher); then \
+		git worktree remove --force "$$wt"; \
+	else \
+		echo "release-resume: resume failed; worktree kept for inspection: $$wt" >&2; \
+		echo "        when done: git worktree remove --force $$wt" >&2; \
+		exit 1; \
+	fi
+
+_release-resume-run:
+	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then \
+		echo "_release-resume-run: internal pipeline body; invoke 'make release-resume RELEASE_VERSION=vX.Y.Z'" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "_release-resume-run: RELEASE_VERSION is required" >&2; \
+		exit 1; \
+	fi
+	@expected=$$(echo "$(RELEASE_VERSION)" | sed 's/^v//'); \
+	if ! grep -q "\"version\": \"$$expected\"" .claude-plugin/plugin.json; then \
+		echo "_release-resume-run: the tagged commit does not carry the $$expected version stamp — this tag was not minted by the release pipeline" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) release-auth-preflight
+	$(MAKE) release-binaries RELEASE_VERSION=$(RELEASE_VERSION)
+	@plugin_name=$$(sed -n 's/^[[:space:]]*"name":[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1); \
+	if git ls-remote --exit-code origin "refs/tags/$$plugin_name--$(RELEASE_VERSION)" >/dev/null 2>&1; then \
+		echo "release-resume: plugin tag $$plugin_name--$(RELEASE_VERSION) already on origin; skipping"; \
+	else \
+		msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+		claude plugin tag . --push --message "$$msg"; \
+	fi
+	@if gh release view $(RELEASE_VERSION) >/dev/null 2>&1; then \
+		count=$$(gh release view $(RELEASE_VERSION) --json assets -q '.assets | length'); \
+		if [ "$$count" -eq 12 ]; then \
+			echo "release-resume: GitHub release exists with all 12 assets; skipping"; \
+		else \
+			echo "release-resume: GitHub release exists with $$count/12 assets — a partial upload needs a human decision:" >&2; \
+			echo "        upload the missing assets with 'gh release upload $(RELEASE_VERSION) <files>' or delete the release and re-run release-resume" >&2; \
+			exit 1; \
+		fi; \
+	else \
+		msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+		$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"; \
+	fi
+	$(MAKE) registry-publish-verify-first RELEASE_VERSION=$(RELEASE_VERSION)
+	@echo
+	@echo "Resumed $(RELEASE_VERSION):"
+	@echo "  https://github.com/osauer/canary/releases/tag/$(RELEASE_VERSION)"
 
 # Internal: release pipeline body; runs inside the worktree created by
 # `make release`. Deliberately not advertised in `make help`.

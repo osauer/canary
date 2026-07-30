@@ -16,10 +16,32 @@ printf '%s\n' '# Security fixture' > "$test_root/repo/SECURITY.md"
 printf '%s\n' '# Trading preview fixture' > "$test_root/repo/docs/docs/operate/orders.md"
 printf '%s\n' '# ibkr' '' '## Safety' > "$test_root/repo/README.md"
 printf '%s\n' 'package main' 'func main() {}' > "$test_root/repo/cmd/canary/main.go"
-printf '%s\n' '#!/bin/sh' 'set -eu' 'out=' 'while [ "$#" -gt 0 ]; do' '  if [ "$1" = "-o" ]; then out="$2"; shift 2; else shift; fi' 'done' 'test -n "$out"' 'printf "%s\n" "fixture binary" > "$out"' 'chmod 0755 "$out"' > "$test_root/fake-bin/go"
+# The fake go embeds any -tags value into the fixture binary and plays it
+# back for `go version -m`, so the script's capability assertion is
+# exercised end-to-end without a real toolchain.
+printf '%s\n' '#!/bin/sh' 'set -eu' \
+	'if [ "${1:-}" = "version" ] && [ "${2:-}" = "-m" ]; then cat "$3"; exit 0; fi' \
+	'out=' 'tags=' 'while [ "$#" -gt 0 ]; do' \
+	'  if [ "$1" = "-o" ]; then out="$2"; shift 2;' \
+	'  elif [ "$1" = "-tags" ]; then tags="$2"; shift 2;' \
+	'  else shift; fi' 'done' 'test -n "$out"' \
+	'printf "%s\n" "fixture binary" > "$out"' \
+	'if [ -n "$tags" ]; then printf "\tbuild\t-tags=%s\n" "$tags" >> "$out"; fi' \
+	'chmod 0755 "$out"' > "$test_root/fake-bin/go"
 chmod 0755 "$test_root/fake-bin/go"
 
 (cd "$test_root/repo" && PATH="$test_root/fake-bin:$PATH" ./build-release-target.sh darwin-arm64 v1.2.3 '-s -w' "$test_root/dist")
+
+mkdir -p "$test_root/dist-goflags"
+if (cd "$test_root/repo" && GOFLAGS="-tags=trading" PATH="$test_root/fake-bin:$PATH" ./build-release-target.sh darwin-arm64 v1.2.3 '-s -w' "$test_root/dist-goflags") 2> "$test_root/goflags-err.log"; then
+	echo "build-release-target test: tag-bearing ambient GOFLAGS was not refused" >&2
+	exit 1
+fi
+grep -q "refuses ambient GOFLAGS" "$test_root/goflags-err.log" || {
+	echo "build-release-target test: GOFLAGS refusal message missing:" >&2
+	cat "$test_root/goflags-err.log" >&2
+	exit 1
+}
 
 readonly_list="$(tar -tzf "$test_root/dist/canary-v1.2.3-darwin-arm64.tar.gz" | sort)"
 trading_list="$(tar -tzf "$test_root/dist/canary-trading-v1.2.3-darwin-arm64.tar.gz" | sort)"

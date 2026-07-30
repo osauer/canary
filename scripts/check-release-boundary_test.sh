@@ -35,6 +35,12 @@ _release-run:
 	$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release
 release:
 	$(MAKE) -C . _release-run RELEASE_PIPELINE_ENTRY=release
+_release-resume-run:
+	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then exit 1; fi
+	@touch guard-leaked && false # claude plugin tag . --push
+	$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release
+release-resume:
+	$(MAKE) -C . _release-resume-run RELEASE_PIPELINE_ENTRY=release-resume
 EOF
 cat > "$test_root/scripts/package.sh" <<'EOF'
 #!/bin/sh
@@ -59,6 +65,14 @@ if fixture_make _release-run >/dev/null 2>&1; then
 fi
 if [ -e "$test_root/guard-leaked" ]; then
 	echo "check-release-boundary test: _release-run guard leaked; publication recipe executed" >&2
+	exit 1
+fi
+if fixture_make _release-resume-run >/dev/null 2>&1; then
+	echo "check-release-boundary test: direct internal resume body invocation passed" >&2
+	exit 1
+fi
+if [ -e "$test_root/guard-leaked" ]; then
+	echo "check-release-boundary test: _release-resume-run guard leaked; publication recipe executed" >&2
 	exit 1
 fi
 

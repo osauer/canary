@@ -17,6 +17,15 @@ dist_dir="${4:?dist dir required}"
 os="${target%-*}"
 arch="${target#*-}"
 
+# Variant capability is pinned by the explicit -tags flags below. Ambient
+# GOFLAGS build tags would silently apply to the read-only build (which
+# passes no -tags of its own) and could ship a broker-write-capable binary
+# in the canonical archive.
+if [[ "${GOFLAGS:-}" == *"-tags"* ]]; then
+	echo "release build refuses ambient GOFLAGS carrying build tags (GOFLAGS=${GOFLAGS})" >&2
+	exit 1
+fi
+
 for source_path in LICENSE README.md SECURITY.md docs/docs/operate/orders.md; do
 	if [ ! -f "$source_path" ]; then
 		echo "release source is missing required file: $source_path" >&2
@@ -65,6 +74,7 @@ WARN
 			exit 1
 		fi
 	done
+	assert_archive_capability "$archive" "$base" "$binary_name" "$warning"
 	if tar -tzf "$archive" | grep -Fqx "$base/ibkr"; then
 		echo "release archive contains retired executable entry: $base/ibkr" >&2
 		exit 1
@@ -83,6 +93,30 @@ WARN
 	rm -rf "$stage"
 }
 
+# assert_archive_capability capability-checks the exact binary inside the
+# upload archive: `go version -m` reads the embedded build settings, so the
+# check works for every cross-compiled target. The trading archive must
+# carry the trading build tag; the canonical read-only archive must not.
+assert_archive_capability() {
+	local archive="$1" base="$2" binary_name="$3" warning="$4"
+	local check_dir="$build_root/capability-$base"
+	rm -rf "$check_dir"
+	mkdir -p "$check_dir"
+	tar -xzf "$archive" -C "$check_dir" "$base/$binary_name"
+	local settings
+	settings="$(go version -m "$check_dir/$base/$binary_name")"
+	if [ "$warning" = "trading" ]; then
+		if ! grep -Eq 'build[[:space:]]+-tags=.*trading' <<< "$settings"; then
+			echo "trading archive $archive lacks the trading build tag in its binary" >&2
+			exit 1
+		fi
+	elif grep -Eq 'build[[:space:]]+-tags=.*trading' <<< "$settings"; then
+		echo "read-only archive $archive carries a trading-tagged binary" >&2
+		exit 1
+	fi
+	rm -rf "$check_dir"
+}
+
 build_root="$(mktemp -d "${TMPDIR:-/tmp}/canary-release-target.XXXXXX")"
 cleanup() {
 	rm -rf "$build_root"
@@ -90,8 +124,8 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 echo "==> ${os}/${arch} (canonical read-only + trading)"
-GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "$build_root/canary" ./cmd/canary
-GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false -tags trading -ldflags "$ldflags" -o "$build_root/canary-trading" ./cmd/canary
+GOFLAGS="" GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "$build_root/canary" ./cmd/canary
+GOFLAGS="" GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false -tags trading -ldflags "$ldflags" -o "$build_root/canary-trading" ./cmd/canary
 
 package_variant "canary" "canary" "$build_root/canary" ""
 package_variant "canary-trading" "canary" "$build_root/canary-trading" "trading"

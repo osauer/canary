@@ -416,6 +416,122 @@ if [[ "$breadth_check" != ok* ]]; then
 fi
 echo "    $breadth_check"
 
+# Steps [7]/[8] restore the regime and chain coverage that 73cf1e4 removed,
+# without the deliberate mid-fan-out contention repro that made them flaky:
+# both reads run in this isolated daemon session after the breadth fan-out
+# has drained, i.e. against the settled gateway a real caller sees.
+echo "  [7] regime call-sequence (settled session, two scoped rounds, no downgrade)..."
+echo "    waiting up to 60s for the breadth fan-out to drain before regime..."
+for _ in $(seq 1 60); do
+    status_check="$(timeout 5 "$BIN" status --json 2>/dev/null || true)"
+    if printf '%s' "$status_check" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    tasks = d.get("background_tasks") or []
+    for t in tasks:
+        if isinstance(t, dict) and t.get("name") == "breadth-spx":
+            sys.exit(1)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+' 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
+
+run_wire_cli regime_1 30 regime --json
+regime_json_1="$LAST_CMD_OUTPUT"
+# Regime also shares market-data lines with startup prewarm and earlier quote
+# probes. The JSON checks below pin the command result; the wire invariant is
+# scoped to the isolated daemon session so shared SPY/HYG subscriptions do not
+# look like missing fan-out.
+assert_wire regime-subs "$boot_offset"
+run_wire_cli regime_2 30 regime --json
+regime_json_2="$LAST_CMD_OUTPUT"
+assert_wire regime-subs "$boot_offset"
+
+regime_check="$(python3 -c '
+import json, sys
+a = json.loads(sys.argv[1])
+b = json.loads(sys.argv[2])
+rows = ["vix_term_structure", "hyg_spy_divergence", "usd_jpy", "gamma_zero"]
+drops = []
+for r in rows:
+    s1 = a.get(r, {}).get("status", "")
+    s2 = b.get(r, {}).get("status", "")
+    if s1 in ("ok", "stale") and s2 in ("error", "unavailable"):
+        drops.append(r + ": " + s1 + " -> " + s2)
+if drops:
+    print("DROP " + "; ".join(drops))
+    sys.exit(0)
+print("ok (no rows downgraded between calls)")
+' "$regime_json_1" "$regime_json_2")"
+if [[ "$regime_check" != ok* ]]; then
+    echo "release-smoke: FAIL: regime sequence: $regime_check" >&2
+    echo "" >&2
+    echo "call 1:" >&2
+    echo "$regime_json_1" >&2
+    echo "call 2:" >&2
+    echo "$regime_json_2" >&2
+    exit 1
+fi
+echo "    $regime_check"
+
+shape_check="$(python3 -c '
+import json, sys
+findings = []
+for label, payload in (("call 1", sys.argv[1]), ("call 2", sys.argv[2])):
+    d = json.loads(payload)
+    for r in ("vix_term_structure", "hyg_spy_divergence", "usd_jpy"):
+        msg = d.get(r, {}).get("error_message", "") or ""
+        if "fan-out exceeded handler deadline" in msg:
+            findings.append(label + " " + r + ": orchestrator safety net triggered; message=" + repr(msg))
+if findings:
+    print("FALLBACK " + " | ".join(findings))
+    sys.exit(0)
+print("ok (no row hit the orchestrator-deadline fallback on either call)")
+' "$regime_json_1" "$regime_json_2")"
+if [[ "$shape_check" != ok* ]]; then
+    echo "release-smoke: FAIL: regime shape: $shape_check" >&2
+    echo "" >&2
+    echo "call 1:" >&2
+    echo "$regime_json_1" >&2
+    echo "call 2:" >&2
+    echo "$regime_json_2" >&2
+    exit 1
+fi
+echo "    $shape_check"
+
+echo "  [8] chain SPY 1-wide (settled session)..."
+echo "    re-checking the fan-out drain for up to 45s before the chain read..."
+for _ in $(seq 1 45); do
+    status_check="$(timeout 5 "$BIN" status --json 2>/dev/null || true)"
+    if printf '%s' "$status_check" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    tasks = d.get("background_tasks") or []
+    for t in tasks:
+        if isinstance(t, dict) and t.get("name") == "breadth-spx":
+            sys.exit(1)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+' 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
+expiries="$("$BIN" chain SPY 2>/dev/null | awk '/^[[:space:]]+20[0-9]{2}-[0-9]{2}-[0-9]{2}/ {print $1}' | head -3 | tail -1)"
+if [[ -z "$expiries" ]]; then
+    echo "release-smoke: FAIL: could not list SPY expiries via 'canary chain SPY'" >&2
+    exit 1
+fi
+run_wire_cli chain-iv "$WIRE_TIMEOUT" chain SPY --expiry "$expiries" --width 1 --side both --json
+assert_wire chain-iv-source "$LAST_WIRE_OFFSET"
+
 echo "  [9] gamma --no-wait..."
 run_wire_cli gamma "$WIRE_TIMEOUT" gamma --no-wait --json
 assert_wire gamma-noflag "$LAST_WIRE_OFFSET"

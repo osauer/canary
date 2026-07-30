@@ -135,7 +135,7 @@ var Tools = []Tool{
 	{
 		Name:         "canary_order_preview",
 		Title:        "Canary Order Preview",
-		Description:  "Preview a locally gated stock/ETF or single-leg option LMT, TRAIL, or TRAIL LIMIT order and mint a short-lived local preview token without placing, modifying, cancelling, or transmitting any broker order. Use only after `canary_trading_status` shows the local trading gate is ready. Defaults are order_type `LMT`, strategy `patient-limit`, TIF `DAY`, and `outside_rth=false`; providing trail fields defaults order_type to `TRAIL`, or `TRAIL LIMIT` when limit_offset is present. TIF `GTC` is accepted for TRAIL and TRAIL LIMIT drafts only — protective stops meant to survive the session close — while LMT stays DAY-only. Stock/ETF TRAIL and TRAIL LIMIT drafts default `trigger_method` to 2 (IBKR LAST) unless explicitly supplied. Option trails are option-premium based, not underlying-driven, and require explicit expiry/right/strike. This tool validates the local trading gate, pinned endpoint/account/client ID, supported order type, the size caps (max notional binds every equity/ETF order and max option contracts binds every single-leg option order, including apparent close/reduce exits), stock short/flip policy, option sell-to-open policy, and broker WhatIf availability, then returns quote inputs, position effect, `token_minted`, and `submit_eligible`. Because this client cannot prove that a manual TWS order has not already consumed exit capacity, a SELL that appears to close or reduce also needs short/sell-to-open permission under worst-case exposure; if that blocks a genuine exit, use TWS and then reconcile. For IBKR percent trails, `trailing_percent: 2` means 2%, not 0.02. `TRAIL LIMIT` uses `limit_offset`; do not send a LMT limit price with broker trail orders. `token_minted=true` means the local preview artifact exists; `submit_eligible=true` only when IBKR accepted a non-transmitting WhatIf for the exact draft. If broker WhatIf is unavailable or rejected, `submit_eligible=false` and compatibility field `executable=false`. It does NOT submit an order and returns only the redacted `preview_token_id`, never the raw submit-capable token; broker writes require a separate place/modify/cancel path with its own gated token. For protection proposals use the proposal flow; for market context without token minting use `canary_quote` or `canary_chain`; for holdings use `canary_positions`; for cash/margin use `canary_account`.",
+		Description:  "Preview a locally gated stock/ETF or single-leg option LMT, TRAIL, or TRAIL LIMIT order and mint a short-lived local preview token without placing, modifying, cancelling, or transmitting any broker order. Use only after `canary_trading_status` shows the local trading gate is ready. Defaults are order_type `LMT`, strategy `patient-limit`, TIF `DAY`, and `outside_rth=false`; providing trail fields defaults order_type to `TRAIL`, or `TRAIL LIMIT` when limit_offset is present. TIF `GTC` is accepted for TRAIL and TRAIL LIMIT drafts only — protective stops meant to survive the session close — while LMT stays DAY-only. Stock/ETF TRAIL and TRAIL LIMIT drafts default `trigger_method` to 2 (IBKR LAST) unless explicitly supplied. Option trails are option-premium based, not underlying-driven, and require explicit expiry/right/strike. This tool validates the local trading gate, pinned endpoint/account/client ID, supported order type, the size caps (max notional binds every equity/ETF order and max option contracts binds every single-leg option order, including apparent close/reduce exits), stock short/flip policy, option sell-to-open policy, and broker WhatIf availability, then returns quote inputs, position effect, `token_minted`, and `submit_eligible`. Because this client cannot prove that a manual TWS order has not already consumed exit capacity, a SELL that appears to close or reduce also needs short/sell-to-open permission under worst-case exposure; if that blocks a genuine exit, use TWS and then reconcile. For IBKR percent trails, `trailing_percent: 2` means 2%, not 0.02. `TRAIL LIMIT` uses `limit_offset`; do not send a LMT limit price with broker trail orders. `token_minted=true` means the local preview artifact exists; `submit_eligible=true` only when IBKR accepted a non-transmitting WhatIf for the exact draft. If broker WhatIf is unavailable or rejected, `submit_eligible=false` and compatibility field `executable=false`. It does NOT submit an order and returns only the redacted `preview_token_id`, never the raw submit-capable token; broker writes require a separate place/modify/cancel path with its own gated token. Broker WhatIf free text and advanced-reject JSON never cross this surface (broker prose is untrusted data): the typed `what_if.status`, margin fields, and fixed Canary guidance carry the decision signal, and the verbatim broker reason stays on the CLI order-preview surface and in the local journal. For protection proposals use the proposal flow; for market context without token minting use `canary_quote` or `canary_chain`; for holdings use `canary_positions`; for cash/margin use `canary_account`.",
 		ReadOnlyHint: new(false),
 		JSONSchema: schemaObject(map[string]json.RawMessage{
 			"action":             schemaEnum([]string{"buy", "sell"}, "order side; buy increases or closes short exposure, sell reduces/closes long exposure unless the local policy allows the opening effect"),
@@ -260,6 +260,7 @@ var Tools = []Tool{
 			// agent must mint its own token through the gated CLI path
 			// before any place/modify write.
 			res.PreviewToken = ""
+			sanitizeOrderPreviewWhatIfForMCP(&res)
 			return json.Marshal(res)
 		},
 	},
@@ -1025,6 +1026,24 @@ func normalizeMCPPreviewOrderType(raw string, hasTrail, hasLimitOffset bool) (st
 		return rpc.OrderTypeLMT, nil
 	}
 	return "", fmt.Errorf("order_type must be LMT, TRAIL, or TRAIL LIMIT")
+}
+
+// sanitizeOrderPreviewWhatIfForMCP replaces broker-authored WhatIf prose with
+// fixed Canary copy before the result crosses the MCP boundary. Broker free
+// text is untrusted data and must not reach an agent surface where it could
+// smuggle instructions or authorization claims; the typed status, margin
+// numbers, and eligibility fields carry the decision signal, and the verbatim
+// broker text stays on the CLI surface and in the local journal for the human.
+func sanitizeOrderPreviewWhatIfForMCP(res *rpc.OrderPreviewResult) {
+	res.WhatIf.AdvancedRejectJSON = ""
+	switch res.WhatIf.Status {
+	case rpc.OrderWhatIfStatusAccepted:
+		res.WhatIf.Message = "Broker WhatIf accepted the draft; the margin impact fields below are the broker's typed numbers."
+	case rpc.OrderWhatIfStatusRejected:
+		res.WhatIf.Message = "Broker WhatIf rejected this draft. The verbatim broker reason is untrusted free text and is withheld from this surface; read it with the CLI order preview or in the local order journal."
+	default:
+		res.WhatIf.Message = "Broker WhatIf did not return an accepted preview; local detail is on the CLI order-preview surface."
+	}
 }
 
 // ExcludedCLI is the set of cli.Commands() names that intentionally have no
