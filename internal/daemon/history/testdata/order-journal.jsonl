@@ -1,6 +1,0 @@
-{"version":1,"at":"2026-07-01T10:00:00.123Z","type":"previewed","order_ref":"ord-1","preview_token_id":"tok-a","account":"UGOLDEN","mode":"paper","symbol":"TSYM","sec_type":"STK","action":"SELL","quantity":5}
-{"version":1,"at":"2026-07-01T10:01:00Z","type":"token-confirmed","order_ref":"ord-1","preview_token_id":"tok-a","account":"UGOLDEN","mode":"paper"}
-{"version":1,"at":"2026-07-01T10:01:30Z","type":"send-attempted","order_ref":"ord-1","preview_token_id":"tok-a","reserved_order_id":501,"account":"UGOLDEN","mode":"paper","send_state":"send_attempted"}
-this line is not JSON at all
-{"version":2,"at":"2026-07-01T10:02:30Z","type":"future-shape"}
-{"version":1,"at":"2026-07-01T10:03:00Z","type":"broker-acknowledged","order_ref":"ord-1","reserved_order_id":501,"perm_id":9001,"account":"UGOLDEN","mode":"paper","status":"Submitted","send_state":"broker_acknowledged"}

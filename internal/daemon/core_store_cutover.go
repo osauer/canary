@@ -211,14 +211,10 @@ func (s *Server) createAndPublishCoreStore(ctx context.Context) (*corestore.Stor
 
 func (s *Server) populateLegacyCutover(ctx context.Context, store *corestore.Store, manifest *coreCutoverManifest) error {
 	// openCoreStore holds the state-root persistence lock while the
-	// unpublished authority is populated. Resolve any legacy decision-file
-	// rotation crash under that same lock before either the market importer or
-	// the sealing manifest scans archives and live tails. Otherwise an archive
-	// published before the live-tail swap could duplicate the unchanged live
-	// prefix, and post-swap evidence would not have been proven converged.
-	if err := s.recoverLegacyDecisionRotations(ctx); err != nil {
-		return fmt.Errorf("recover legacy decision rotation before cutover: %w", err)
-	}
+	// unpublished authority is populated. Rotation crash-recovery is gone with
+	// the retired history.db stack: no released daemon ever rotated the
+	// decision journals (rotation shipped and was retired inside the same
+	// release), so archives and live tails scan directly.
 	stateReport, err := prepareDaemonStateCutover(ctx, store)
 	if err != nil {
 		return fmt.Errorf("import daemon safety state: %w", err)

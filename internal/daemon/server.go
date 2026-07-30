@@ -27,7 +27,6 @@ import (
 	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/daemon/history"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -347,22 +346,6 @@ type Server struct {
 	// rulesJournalMu serializes the legacy file-backed rule-transition seam;
 	// daemon.db writes bypass it and commit transactionally in coreStore.
 	rulesJournalMu sync.Mutex
-
-	// historyIndex is the legacy history adapter serving regime.history and
-	// rules.history. Runtime reads use coreStore; the history.db/file branches
-	// remain only for explicit legacy import and isolated tests
-	// (internal-docs/design/history-index.md).
-	// Deliberately NOT named history: regimeHistory below already names
-	// the unrelated HMDS daily-bars cache. Opened by the flock winner in
-	// Start, published before the accept loop so handlers read it without
-	// synchronization; nil means the legacy adapter is unavailable.
-	// historyIndexOpts carries the paths resolved
-	// at construction time — New must not touch the DB because every
-	// autospawn race loser runs it before the flock decides.
-	// The store is published once at Start and read by the ingest and
-	// maintenance goroutines, so the pointer itself is atomic.
-	historyIndex     atomic.Pointer[history.Store]
-	historyIndexOpts *history.Options
 
 	// coreStore is the daemon's sole live persistence authority. New resolves
 	// its path but never opens it: only the Start winner may touch daemon.db,
@@ -782,7 +765,6 @@ func (s *Server) installOrderJournalStore() {
 		return
 	}
 	s.orderJournal = newOrderJournalStore(path)
-	s.installOrderIndexReads()
 }
 
 func (s *Server) installPurgeLedgerStore() {

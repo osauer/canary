@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,194 @@ import (
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
+
+// newJournalTestServer builds a Server with the real journal writers and
+// settings store on a private XDG_STATE_HOME, without any persistence
+// authority attached. Tests that need daemon.db attach it explicitly via
+// attachFreshOrderTestAuthority or openMarketTestCoreStore.
+func newJournalTestServer(t *testing.T) *Server {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s := &Server{logger: NewLogger(&syncWriter{buf: &bytes.Buffer{}}, "error"), now: time.Now}
+	if path, err := regimeDecisionsDefaultPath(); err == nil {
+		s.regimeDecisions = &regimeDecisionJournal{path: path}
+	} else {
+		t.Fatalf("resolve regime journal path: %v", err)
+	}
+	s.installStressDecisionJournal()
+	s.installOrderJournalStore()
+	s.installProposalOutcomeStore()
+	s.installRiskCapitalStore()
+	s.installPlatformSettingsStore()
+	return s
+}
+
+// syncWriter makes a bytes.Buffer safe for the daemon logger under -race.
+type syncWriter struct {
+	mu  sync.Mutex
+	buf *bytes.Buffer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func TestRulesHistorySQLiteRoundTrip(t *testing.T) {
+	store := openMarketTestCoreStore(t)
+	s := &Server{coreStore: store, logger: NewLogger(&bytes.Buffer{}, "error")}
+	pol := risk.DefaultRulebookPolicy()
+	asOf := time.Now().UTC()
+	s.journalRuleTransitions(&rpc.RulesResult{
+		AsOf:          asOf,
+		PolicyID:      pol.ID,
+		PolicyVersion: pol.Version,
+		PolicyFingerprint: &rpc.Fingerprint{
+			Version: rpc.RulebookPolicyFingerprintVersion,
+			Key:     pol.FingerprintKey(),
+		},
+		Rules: []risk.RuleRow{{
+			ID: risk.RuleOptionLinePremium, Status: risk.RuleStatusWatch,
+			Evidence: "hedge tier drives the current state",
+		}},
+	})
+
+	got, err := s.handleRulesHistory(&rpc.Request{})
+	if err != nil {
+		t.Fatalf("rules history: %v", err)
+	}
+	if got.Count != 1 || got.TotalCount != 1 || len(got.Entries) != 1 {
+		t.Fatalf("rules history counts = count %d total %d entries %d", got.Count, got.TotalCount, len(got.Entries))
+	}
+	entry := got.Entries[0]
+	if entry.Rule != risk.RuleOptionLinePremium || entry.Status != risk.RuleStatusWatch ||
+		entry.Evidence != "hedge tier drives the current state" ||
+		entry.PolicyFingerprint != pol.FingerprintKey() {
+		t.Fatalf("SQLite rule transition did not round-trip: %+v", entry)
+	}
+}
+
+func TestStateHistoryParamValidation(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s := &Server{logger: NewLogger(&bytes.Buffer{}, "error")}
+	// Validation runs before the authority check, so a nil coreStore still
+	// classifies bad params as bad requests.
+	for name, params := range map[string]rpc.RegimeHistoryParams{
+		"bad since":       {Since: "not-a-time"},
+		"bad until":       {Until: "2026-13-99"},
+		"inverted window": {Since: "2026-07-10", Until: "2026-07-01"},
+		"limit over max":  {Limit: 501},
+		"negative limit":  {Limit: -1},
+	} {
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.handleRegimeHistory(&rpc.Request{Params: raw})
+		if _, ok := errors.AsType[*badRequestError](err); !ok {
+			t.Errorf("%s: err = %v, want bad request", name, err)
+		}
+	}
+
+	// Nil authority with valid params → classified unavailable error.
+	if _, err := s.handleRegimeHistory(&rpc.Request{}); !errors.Is(err, errHistoryIndexUnavailable) {
+		t.Fatalf("nil authority err = %v, want errHistoryIndexUnavailable", err)
+	}
+	if _, err := s.handleRulesHistory(&rpc.Request{}); !errors.Is(err, errHistoryIndexUnavailable) {
+		t.Fatalf("nil authority rules err = %v, want errHistoryIndexUnavailable", err)
+	}
+}
+
+func TestStateHistoryEnvelopeDefaults(t *testing.T) {
+	store := openMarketTestCoreStore(t)
+	s := &Server{coreStore: store, logger: NewLogger(&bytes.Buffer{}, "error")}
+	before := time.Now().UTC()
+	out, err := s.handleRegimeHistory(&rpc.Request{})
+	if err != nil {
+		t.Fatalf("handleRegimeHistory: %v", err)
+	}
+	if out.Limit != historyIndexDefaultLimit || out.Count != 0 || out.TotalCount != 0 || out.Truncated {
+		t.Fatalf("empty envelope = %+v", out)
+	}
+	if out.AsOf.Before(before) || !out.Until.Equal(out.AsOf) {
+		t.Fatalf("as_of/until = %v/%v, want now", out.AsOf, out.Until)
+	}
+	if got := out.Until.Sub(out.Since); got != historyIndexDefaultLookback {
+		t.Fatalf("default lookback = %v, want %v", got, historyIndexDefaultLookback)
+	}
+
+	// Whole-day until: 2026-07-10 as until must include that entire UTC day.
+	raw, _ := json.Marshal(rpc.RegimeHistoryParams{Since: "2026-07-01", Until: "2026-07-10"})
+	out, err = s.handleRegimeHistory(&rpc.Request{Params: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUntil := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	wantSince := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	if !out.Until.Equal(wantUntil) || !out.Since.Equal(wantSince) {
+		t.Fatalf("day grammar window = %v → %v, want %v → %v", out.Since, out.Until, wantSince, wantUntil)
+	}
+
+	// Truncation: two transitions in one evaluation, limit 1.
+	s.journalRuleTransitions(&rpc.RulesResult{
+		AsOf: time.Now(),
+		Rules: []risk.RuleRow{
+			{ID: "rule_a", Status: risk.RuleStatusWatch},
+			{ID: "rule_b", Status: risk.RuleStatusAct},
+		},
+	})
+	rawLimit, _ := json.Marshal(rpc.RulesHistoryParams{Limit: 1})
+	rules, err := s.handleRulesHistory(&rpc.Request{Params: rawLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rules.TotalCount != 2 || rules.Count != 1 || !rules.Truncated || rules.Limit != 1 {
+		t.Fatalf("truncated envelope = %+v", rules)
+	}
+}
+
+// TestHistoryIndexJournalBytesSingleWrite pins the legacy-seam rules journal
+// consolidation: all transition lines from one evaluation land through one
+// write, and the bytes are the same shape line-per-line as before.
+func TestHistoryIndexJournalBytesSingleWrite(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s := &Server{}
+	s.journalRuleTransitions(&rpc.RulesResult{
+		AsOf: time.Now(),
+		Rules: []risk.RuleRow{
+			{ID: "rule_a", Status: risk.RuleStatusWatch},
+			{ID: "rule_b", Status: risk.RuleStatusAct},
+		},
+	})
+	path, err := defaultTradingStatePath("rules-decisions.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("journal lines = %d, want 2", len(lines))
+	}
+	for _, line := range lines {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("line is not standalone JSON: %v", err)
+		}
+		if entry["rule"] == "" || entry["status"] == "" {
+			t.Fatalf("line lost fields: %q", line)
+		}
+	}
+}
 
 // testStressResult is a fully-populated stress snapshot for round-trip
 // drift guards.
@@ -39,41 +228,6 @@ func testStressResult(key string) *rpc.StressResult {
 	}
 }
 
-// TestHistoryIndexStressRoundTrip is the canary writer→parser drift
-// guard: a decision journaled by the REAL stressDecisionJournal must come
-// back from stress.history with the same fields.
-func TestHistoryIndexStressRoundTrip(t *testing.T) {
-	s := newHistoryIndexServer(t)
-	now := time.Now()
-	s.journalStressDecision(testStressResult("sha256:canary-roundtrip"))
-
-	var got rpc.StressHistoryResult
-	waitForHistory(t, func() (bool, error) {
-		out, err := s.handleStressHistory(&rpc.Request{})
-		if err != nil {
-			return false, err
-		}
-		got = *out
-		return out.Count == 1, nil
-	})
-	e := got.Entries[0]
-	if e.Fingerprint != "sha256:canary-roundtrip" || e.Action != "watch" || e.Severity != "watch" || e.Direction != "defensive" {
-		t.Fatalf("decision fields did not round-trip: %+v", e)
-	}
-	if e.MarketStage != "early_warning" || e.InputHealth != "ok" || e.Summary != "round-trip canary summary" {
-		t.Fatalf("evidence fields did not round-trip: %+v", e)
-	}
-	if e.PortfolioAlertRelevant == nil || !*e.PortfolioAlertRelevant {
-		t.Fatalf("portfolio_alert_relevant did not round-trip: %+v", e.PortfolioAlertRelevant)
-	}
-	if e.SessionKey != nyTradingSessionKey(nyTime(now)) {
-		t.Fatalf("session key = %q, want writer's", e.SessionKey)
-	}
-	if got.Index.IngestedBytes == 0 || got.Index.JournalBytes != got.Index.IngestedBytes {
-		t.Fatalf("index health = %+v, want fully ingested", got.Index)
-	}
-}
-
 func TestDispatchRejectsRetiredCanaryHistoryMethod(t *testing.T) {
 	var wire bytes.Buffer
 	request := &rpc.Request{ID: "retired", Method: "canary.history"}
@@ -92,7 +246,7 @@ func TestDispatchRejectsRetiredCanaryHistoryMethod(t *testing.T) {
 // TestStressJournalDedupeHeartbeatAndGate pins the journal's dedupe,
 // heartbeat, and runtime-disable semantics.
 func TestStressJournalDedupeHeartbeatAndGate(t *testing.T) {
-	s := newHistoryIndexServer(t)
+	s := newJournalTestServer(t)
 	j := s.stressDecisions
 	res := testStressResult("sha256:dedupe")
 
@@ -124,8 +278,7 @@ func TestStressJournalDedupeHeartbeatAndGate(t *testing.T) {
 		}
 	}
 
-	// Runtime disable: journalStressDecision must not append. Mutate the
-	// installed store through its own lock (the maintenance loop reads it).
+	// Runtime disable: journalStressDecision must not append.
 	if err := s.platformSettings.update(func(next *platformSettingsData) error {
 		disabled := false
 		next.Stress.Journal.Enabled = &disabled
@@ -146,7 +299,7 @@ func TestStressJournalDedupeHeartbeatAndGate(t *testing.T) {
 // TestStressJournalLoopSkipsWhenDisconnected pins the cadence-loop gate:
 // no gateway connector → no broker round-trips, no journal write.
 func TestStressJournalLoopSkipsWhenDisconnected(t *testing.T) {
-	s := newHistoryIndexServer(t)
+	s := newJournalTestServer(t)
 	s.stressJournalTick(context.Background())
 	if _, err := os.Stat(s.stressDecisions.path); !os.IsNotExist(err) {
 		t.Fatalf("disconnected tick touched the journal (stat err %v)", err)
@@ -176,94 +329,11 @@ func TestComposeBriefJournalsStressDecision(t *testing.T) {
 	}
 }
 
-// TestHistoryIndexCapitalAndRiskPolicyRoundTrip drives the REAL capital
-// and governance journal writers and proves the index parsers track them.
-func TestHistoryIndexCapitalAndRiskPolicyRoundTrip(t *testing.T) {
-	s := newHistoryIndexServer(t)
-	ev, err := s.riskCapital.ApplyCapitalEvent(rpc.CapitalEventParams{Type: "deposit", AmountBase: 1234.5, Note: "round-trip"}, "human-tty")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.journalRiskPolicyTransition("absent", "active", nil)
-
-	var got rpc.ReconEquityResult
-	waitForHistory(t, func() (bool, error) {
-		out, err := s.handleReconEquity(&rpc.Request{})
-		if err != nil {
-			return false, err
-		}
-		got = *out
-		return len(out.Events) == 1, nil
-	})
-	e := got.Events[0]
-	if e.Type != "deposit" || e.AmountBase != 1234.5 || e.Note != "round-trip" || e.Origin != "human-tty" {
-		t.Fatalf("capital event did not round-trip: %+v", e)
-	}
-	if e.At.UnixMilli() != ev.At.UnixMilli() {
-		t.Fatalf("at = %v, want %v", e.At, ev.At)
-	}
-	if len(got.Days) != 0 || got.Count != 0 {
-		t.Fatalf("no statements retained, but days = %+v", got.Days)
-	}
-
-	// risk_policy_events row via direct read (no RPC surface for it).
-	db, err := sql.Open("sqlite", "file:"+s.historyIndexOpts.DBPath+"?mode=ro")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	waitForHistory(t, func() (bool, error) {
-		var kind string
-		err := db.QueryRow(`SELECT kind FROM risk_policy_events WHERE kind = 'policy_status'`).Scan(&kind)
-		if err != nil {
-			return false, nil //nolint:nilerr // row may not be ingested yet
-		}
-		return kind == "policy_status", nil
-	})
-}
-
-// TestHistoryIndexProposalOutcomeRoundTrip drives the REAL AppendMark
-// writer.
-func TestHistoryIndexProposalOutcomeRoundTrip(t *testing.T) {
-	s := newHistoryIndexServer(t)
-	mark := proposalOutcomeMark{
-		State:             proposalOutcomeStateMarked,
-		ProposalKey:       "pk-roundtrip",
-		Symbol:            "TSYM",
-		Quantity:          4,
-		BaselinePrice:     10.5,
-		MarkPrice:         9.75,
-		PolicyFingerprint: rpc.Fingerprint{Version: "v1", Key: "sha256:prot-roundtrip"},
-		BenchmarkSymbol:   "SPY",
-	}
-	if err := s.proposalOutcomes.AppendMark(mark); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", "file:"+s.historyIndexOpts.DBPath+"?mode=ro")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	waitForHistory(t, func() (bool, error) {
-		var key, fingerprint string
-		var markPrice float64
-		err := db.QueryRow(`SELECT proposal_key, policy_fingerprint, mark_price FROM proposal_outcomes WHERE proposal_key = 'pk-roundtrip'`).
-			Scan(&key, &fingerprint, &markPrice)
-		if err != nil {
-			return false, nil //nolint:nilerr // not ingested yet
-		}
-		if fingerprint != "sha256:prot-roundtrip" || markPrice != 9.75 {
-			t.Fatalf("outcome fields did not round-trip: %q %v", fingerprint, markPrice)
-		}
-		return true, nil
-	})
-}
-
 // TestSQLiteOrderJournalRoundTrip drives the real order adapter directly
-// against daemon.db. history.db and JSONL are not freshness or fallback
-// layers after the authority cutover.
+// against daemon.db. JSONL is not a freshness or fallback layer after the
+// authority cutover.
 func TestSQLiteOrderJournalRoundTrip(t *testing.T) {
-	s := newHistoryIndexServer(t)
+	s := newJournalTestServer(t)
 	authority := attachFreshOrderTestAuthority(t, s)
 	if err := s.orderJournal.Append(orderJournalEvent{
 		At: time.Now().UTC(), Type: orderJournalEventPreviewed,
@@ -273,9 +343,9 @@ func TestSQLiteOrderJournalRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events, ok := s.indexedOrderEvents("test", nil, nil)
-	if !ok || len(events) != 1 {
-		t.Fatalf("indexed events = %d ok=%v, want 1/true", len(events), ok)
+	events, err := s.orderJournal.LoadEvents(0)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("authoritative events = %d err=%v, want 1/nil", len(events), err)
 	}
 	e := events[0]
 	if e.OrderRef != "ord-rt" || e.PreviewTokenID != "tok-rt" || e.ReservedOrderID != 42 || e.Account != "UTEST" || e.Mode != "paper" {
@@ -304,7 +374,7 @@ func TestHistoryRotationSettingsRetired(t *testing.T) {
 		t.Fatal("stress.journal.enabled=false did not apply")
 	}
 
-	s := newHistoryIndexServer(t)
+	s := newJournalTestServer(t)
 	out := s.platformSettingsSnapshot(nil)
 	if out.History.Rotation.Enabled.Value || out.History.Rotation.Enabled.Access != rpc.SettingsAccessRead || out.History.Rotation.KeepRawMonths.Value != 0 {
 		t.Fatalf("retired history settings = %+v", out.History)
@@ -312,15 +382,12 @@ func TestHistoryRotationSettingsRetired(t *testing.T) {
 	if !out.Stress.Journal.Enabled.Value {
 		t.Fatalf("default stress settings = %+v", out.Stress)
 	}
-	if s.historyMaintenancePass(context.Background()) {
-		t.Fatal("retired history maintenance pass ran")
-	}
 }
 
 // TestPurgeEvidenceInvariant is D12.2: a purge-shaped flow grows only the
 // authoritative SQLite event stream, and purge_id rows remain intact.
 func TestPurgeEvidenceInvariant(t *testing.T) {
-	s := newHistoryIndexServer(t)
+	s := newJournalTestServer(t)
 	attachFreshOrderTestAuthority(t, s)
 	last := 0
 	appendAndCheck := func(ev orderJournalEvent) {
@@ -351,9 +418,9 @@ func TestPurgeEvidenceInvariant(t *testing.T) {
 	third.Status, third.SendState = "Filled", orderSendStateTerminal
 	appendAndCheck(third)
 
-	events, ok := s.indexedOrderEvents("test", nil, nil)
-	if !ok {
-		t.Fatal("index not serving after purge-shaped appends")
+	events, err := s.orderJournal.LoadEvents(0)
+	if err != nil {
+		t.Fatalf("authority not serving after purge-shaped appends: %v", err)
 	}
 	purgeRows := 0
 	for _, ev := range events {

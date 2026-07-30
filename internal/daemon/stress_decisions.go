@@ -133,9 +133,6 @@ func (s *Server) journalStressDecision(res *rpc.StressResult) {
 			s.logger.Warnf("stress: decisions journal append failed: %v", err)
 		}
 	}
-	// Wake the history-index ingester unconditionally (not gated on the
-	// append outcome): the kick carries no data, only "look at the file".
-	s.kickHistoryIndex()
 }
 
 func (s *Server) stressJournalEnabled() bool {

@@ -727,7 +727,6 @@ func (s *Server) reconcileRegimeDecisionProjection(ctx context.Context, snapshot
 			if err := s.regimeDecisions.appendPublicationContext(ctx, publication.PublishedAt, snapshot, publication); err != nil {
 				return "", fmt.Errorf("repair regime decision projection: %w", err)
 			}
-			s.kickHistoryIndex()
 			currentLine = buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication)
 		}
 		s.regimeDecisions.mu.Lock()

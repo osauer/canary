@@ -1557,9 +1557,6 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 	}
 	_ = f.Close()
 	s.rulesJournalMu.Unlock()
-	// Wake the history-index ingester; data-free by design (the journal
-	// file is the only ingest input).
-	s.kickHistoryIndex()
 }
 
 func errText(err error) string {

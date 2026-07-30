@@ -1049,13 +1049,6 @@ func stressJournalEnabledFrom(data platformSettingsData) bool {
 	return *data.Stress.Journal.Enabled
 }
 
-// historyRotationSettings is retained only for the disconnected legacy
-// history-index test oracle. daemon.db stores events directly and never
-// rotates an external journal.
-func (s *Server) historyRotationSettings() (enabled bool, keepRawMonths int) {
-	return false, 0
-}
-
 func buildChannel() string {
 	if orderWritesAvailable {
 		return "experimental-trading"

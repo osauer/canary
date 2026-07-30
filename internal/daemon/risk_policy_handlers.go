@@ -340,7 +340,6 @@ func (s *Server) handleReconDismiss(_ context.Context, req *rpc.Request) (*rpc.R
 	}); err != nil {
 		return nil, fmt.Errorf("persist reconciliation dismissal: %w", err)
 	}
-	s.kickHistoryIndex()
 	return &rpc.RiskPolicyWriteResult{OK: true, At: now,
 		Message: "exception dismissed and journaled; the report id changes to reflect it — rerun `canary recon` before reconciling"}, nil
 }

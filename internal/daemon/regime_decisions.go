@@ -105,9 +105,6 @@ func (s *Server) journalRegimeDecisionPublicationContext(ctx context.Context, re
 		s.logger.Warnf("regime: decisions journal append failed: %v", err)
 		return err
 	}
-	// Wake the history-index ingester unconditionally (not gated on the
-	// append outcome): the kick carries no data, only "look at the file".
-	s.kickHistoryIndex()
 	return nil
 }
 

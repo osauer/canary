@@ -1865,3 +1865,22 @@ func (s *Server) orderNow() time.Time {
 	}
 	return time.Now().UTC()
 }
+
+func (s *Server) loadOrderJournalEventsForRead(_ string) ([]orderJournalEvent, error) {
+	if s == nil || s.orderJournal == nil {
+		return nil, ErrTradingDisabled
+	}
+	return s.orderJournal.LoadEvents(0)
+}
+
+func (s *Server) reservedBrokerOrderIDFloor() (int, error) {
+	if s == nil || s.orderJournal == nil {
+		return 0, nil
+	}
+	store, err := s.orderJournal.coreStore()
+	if err != nil {
+		return 0, err
+	}
+	floor, err := store.GlobalOrderIDFloor(context.Background())
+	return int(floor), err
+}

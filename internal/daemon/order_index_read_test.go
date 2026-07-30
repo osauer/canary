@@ -28,32 +28,9 @@ func TestOrderReadsUseSQLiteAndIgnoreSealedLegacyJournal(t *testing.T) {
 		t.Fatalf("write sealed legacy decoy: %v", err)
 	}
 
-	events, ok := srv.indexedOrderEvents("orders.open", nil, nil)
-	if !ok || len(events) != 1 || events[0].OrderRef != "sqlite-only" {
-		t.Fatalf("authoritative read ok=%v events=%+v", ok, events)
-	}
 	loaded, err := srv.loadOrderJournalEventsForRead("orders.open")
 	if err != nil || len(loaded) != 1 || loaded[0].OrderRef != "sqlite-only" {
 		t.Fatalf("direct authoritative read events=%+v err=%v", loaded, err)
-	}
-}
-
-func TestAuthoritativeOrderReadWindowPreservesEventSequence(t *testing.T) {
-	t.Parallel()
-	journal := newTestOrderJournalStore(t, filepath.Join(t.TempDir(), "order-journal.jsonl"))
-	srv := &Server{orderJournal: journal}
-	base := time.Date(2026, 7, 20, 13, 30, 0, 0, time.UTC)
-	events := []orderJournalEvent{
-		{At: base.Add(time.Second), Type: orderJournalEventSendAttempted, OrderRef: "first", Endpoint: "127.0.0.1:4002", ClientID: 31, Account: "DU123", Mode: "paper"},
-		{At: base, Type: orderJournalEventStatusUpdated, OrderRef: "second", Endpoint: "127.0.0.1:4002", ClientID: 31, Account: "DU123", Mode: "paper"},
-	}
-	if err := journal.AppendAll(events); err != nil {
-		t.Fatalf("append events: %v", err)
-	}
-	since, until := base.UnixMilli(), base.Add(2*time.Second).UnixMilli()
-	got, ok := srv.indexedOrderEvents("orders.history", &since, &until)
-	if !ok || len(got) != 2 || got[0].OrderRef != "first" || got[1].OrderRef != "second" {
-		t.Fatalf("windowed event-seq read ok=%v events=%+v", ok, got)
 	}
 }
 
@@ -86,9 +63,6 @@ func TestUnattachedOrderAuthorityFailsClosedWithoutLegacyFallback(t *testing.T) 
 		t.Fatal(err)
 	}
 	srv := &Server{orderJournal: newOrderJournalStore(legacyPath)}
-	if events, ok := srv.indexedOrderEvents("orders.open", nil, nil); ok || events != nil {
-		t.Fatalf("unattached indexed read ok=%v events=%+v", ok, events)
-	}
 	if _, err := srv.loadOrderJournalEventsForRead("orders.open"); err == nil {
 		t.Fatal("unattached order read succeeded through legacy fallback")
 	}

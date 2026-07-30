@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"io"
 	"io/fs"
 	"maps"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +20,6 @@ import (
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/daemon/history"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -51,131 +48,6 @@ type legacyMarketImportPlan struct {
 	stateDocs     int
 	observations  int
 	apply         func(context.Context, *corestore.Store) error
-}
-
-// recoverLegacyDecisionRotations reuses the retired history index's verified
-// file-side rotation contract before SQLite cutover reads legacy regime and
-// stress measurements. Callers must hold the daemon persistence lock and must
-// run this before any rotated/live source scan. The legacy history database is
-// opened only when it already exists or filesystem recovery evidence exists,
-// so a normal empty cutover does not recreate discarded derived state.
-func (s *Server) recoverLegacyDecisionRotations(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	dbPath, err := defaultTradingStatePath("history.db")
-	if err != nil {
-		return fmt.Errorf("resolve legacy history database: %w", err)
-	}
-	regimePath, err := regimeDecisionsDefaultPath()
-	if err != nil {
-		return fmt.Errorf("resolve legacy regime journal: %w", err)
-	}
-	rulesPath, err := defaultTradingStatePath("rules-decisions.jsonl")
-	if err != nil {
-		return fmt.Errorf("resolve legacy rules journal: %w", err)
-	}
-	stressJournalPath, err := stressDecisionsDefaultPath()
-	if err != nil {
-		return fmt.Errorf("resolve legacy stress journal: %w", err)
-	}
-	rotatedDir := filepath.Join(filepath.Dir(regimePath), "rotated")
-
-	needed, err := legacyRotationRecoveryNeeded(dbPath, rotatedDir)
-	if err != nil {
-		return err
-	}
-	if !needed {
-		return nil
-	}
-	opts := history.Options{
-		DBPath:            dbPath,
-		RegimeJournalPath: regimePath,
-		RulesJournalPath:  rulesPath,
-		StressJournalPath: stressJournalPath,
-		RotatedDir:        rotatedDir,
-		Logf:              s.warnf,
-		Infof:             s.infof,
-	}
-	legacy, err := history.Open(opts)
-	if err != nil {
-		return fmt.Errorf("open legacy rotation recovery index: %w", err)
-	}
-	legacy.RecoverRotations(s.historyRotationSources())
-	if err := legacy.Close(); err != nil {
-		return fmt.Errorf("close legacy rotation recovery index: %w", err)
-	}
-	if err := verifyLegacyRotationRecovery(ctx, dbPath, rotatedDir); err != nil {
-		return err
-	}
-	return nil
-}
-
-func legacyRotationRecoveryNeeded(dbPath, rotatedDir string) (bool, error) {
-	dbExists := false
-	if info, err := os.Lstat(dbPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return false, fmt.Errorf("legacy history database is not a regular non-symlink file: %s", dbPath)
-		}
-		dbExists = true
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("inspect legacy history database: %w", err)
-	}
-	dirInfo, err := os.Lstat(rotatedDir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return dbExists, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("inspect legacy rotation directory: %w", err)
-	}
-	if dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
-		return false, fmt.Errorf("legacy rotation path is not a real directory: %s", rotatedDir)
-	}
-	entries, err := os.ReadDir(rotatedDir)
-	if err != nil {
-		return false, fmt.Errorf("scan legacy rotation directory: %w", err)
-	}
-	for _, entry := range entries {
-		if isLegacyRotationRecoveryArtifact(entry.Name()) {
-			return true, nil
-		}
-	}
-	return dbExists, nil
-}
-
-func verifyLegacyRotationRecovery(ctx context.Context, dbPath, rotatedDir string) error {
-	entries, err := os.ReadDir(rotatedDir)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("verify legacy rotation directory: %w", err)
-	}
-	for _, entry := range entries {
-		if isLegacyRotationRecoveryArtifact(entry.Name()) {
-			return fmt.Errorf("legacy rotation recovery remains unresolved: %s", entry.Name())
-		}
-	}
-
-	dsn := &url.URL{Scheme: "file", Path: dbPath}
-	query := dsn.Query()
-	query.Set("mode", "ro")
-	query.Set("_dqs", "0")
-	dsn.RawQuery = query.Encode()
-	db, err := sql.Open("sqlite", dsn.String())
-	if err != nil {
-		return fmt.Errorf("verify legacy rotation index: %w", err)
-	}
-	defer db.Close()
-	var pending int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rotation_log WHERE state = 'pending'`).Scan(&pending); err != nil {
-		return fmt.Errorf("verify legacy pending rotations: %w", err)
-	}
-	if pending != 0 {
-		return fmt.Errorf("legacy rotation recovery left %d pending rotation(s)", pending)
-	}
-	return nil
-}
-
-func isLegacyRotationRecoveryArtifact(name string) bool {
-	return strings.HasPrefix(name, ".rotation-intent-") || strings.HasPrefix(name, ".tmp-")
 }
 
 const (

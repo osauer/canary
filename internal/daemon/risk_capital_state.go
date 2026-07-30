@@ -149,16 +149,13 @@ type riskCapitalStore struct {
 	// scopeRejectionsJournaled throttles equity_observation_rejected journal
 	// rows to one per (reason, account) per process.
 	scopeRejectionsJournaled map[string]bool
-	// kick is retained as a nil-safe legacy test hook. Production readers query
-	// the committed event log directly.
-	kick func()
 }
 
 func (s *Server) installRiskCapitalStore() {
 	if s == nil {
 		return
 	}
-	s.riskCapital = &riskCapitalStore{now: s.now, kick: s.kickHistoryIndex}
+	s.riskCapital = &riskCapitalStore{now: s.now}
 }
 
 func (st *riskCapitalStore) bindCore(ctx context.Context, core *corestore.Store) error {
@@ -241,8 +238,7 @@ func (st *riskCapitalStore) installSQLiteDocumentLocked(doc riskCapitalSQLiteDoc
 	st.reconciledReportIDs = replayed.reconciledReportIDs
 }
 
-// appendCapitalEvent journals one declared capital event and nudges the
-// history index. Evidence first, kick second — the kick carries no data.
+// appendCapitalEvent journals one declared capital event.
 func (st *riskCapitalStore) appendCapitalEvent(ev capitalEventV1) error {
 	if st != nil && st.core != nil {
 		raw, err := json.Marshal(ev)
@@ -262,13 +258,10 @@ func (st *riskCapitalStore) appendCapitalEvent(ev capitalEventV1) error {
 		})
 		return nil
 	}
-	err := appendCapitalEvent(ev)
-	st.kickIndex()
-	return err
+	return appendCapitalEvent(ev)
 }
 
-// appendRiskPolicyJournal journals one governance event and nudges the
-// history index.
+// appendRiskPolicyJournal journals one governance event.
 func (st *riskCapitalStore) appendRiskPolicyJournal(entry map[string]any) {
 	if st != nil && st.core != nil {
 		raw, err := json.Marshal(entry)
@@ -299,7 +292,6 @@ func (st *riskCapitalStore) appendRiskPolicyJournal(entry map[string]any) {
 		return
 	}
 	appendRiskPolicyJournal(entry)
-	st.kickIndex()
 }
 
 func integerAny(value any) (int64, bool) {
@@ -315,12 +307,6 @@ func integerAny(value any) (int64, bool) {
 		return n, err == nil
 	default:
 		return 0, false
-	}
-}
-
-func (st *riskCapitalStore) kickIndex() {
-	if st != nil && st.kick != nil {
-		st.kick()
 	}
 }
 
@@ -1390,5 +1376,4 @@ func (s *Server) journalRiskPolicyTransition(prev, next string, c *risk.Constitu
 		// risk capital store before policy reload can emit transitions.
 		appendRiskPolicyJournal(entry)
 	}
-	s.kickHistoryIndex()
 }

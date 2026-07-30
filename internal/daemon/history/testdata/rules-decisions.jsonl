@@ -1,3 +1,0 @@
-{"at":"2026-07-07T09:00:34.304235+02:00","evidence":"synthetic evidence line one","policy_fingerprint":"sha256:golden-rules","policy_id":"rulebook-v1","policy_version":1,"rule":"single_name_exposure","status":"watch","version":1,"was":""}
-{"at":"2026-07-08T10:15:00Z","evidence":"synthetic evidence line two","policy_fingerprint":"sha256:golden-rules","policy_id":"rulebook-v1","policy_version":1,"rule":"single_name_exposure","status":"pass","version":1,"was":"watch"}
-{"at":"2026-07-09T11:30:00Z","rule":"cash_sell_only","status":"act","version":1}

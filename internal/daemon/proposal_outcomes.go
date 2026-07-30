@@ -27,9 +27,6 @@ type proposalOutcomeStore struct {
 	core        *corestore.Store
 	mu          sync.Mutex
 	outcomeKeys map[string]struct{}
-	// onAppend is retained as a nil-safe legacy test hook. Production history
-	// reads the committed SQLite event directly.
-	onAppend func()
 }
 
 type proposalOutcomeMark struct {
@@ -74,7 +71,6 @@ func (s *Server) installProposalOutcomeStore() {
 		return
 	}
 	s.proposalOutcomes = newProposalOutcomeStore(path)
-	s.proposalOutcomes.onAppend = s.kickHistoryIndex
 }
 
 func (s *proposalOutcomeStore) AppendMark(mark proposalOutcomeMark) error {
@@ -135,9 +131,6 @@ func (s *proposalOutcomeStore) appendMarkLocked(mark proposalOutcomeMark) error 
 			return fmt.Errorf("append proposal outcome to SQLite: %w", err)
 		}
 		s.outcomeKeys[identity] = struct{}{}
-		if s.onAppend != nil {
-			s.onAppend()
-		}
 		return nil
 	}
 	if err := ensurePrivateStateDir(s.Path); err != nil {
@@ -157,9 +150,6 @@ func (s *proposalOutcomeStore) appendMarkLocked(mark proposalOutcomeMark) error 
 		return fmt.Errorf("append proposal outcome: %w", err)
 	}
 	s.outcomeKeys[identity] = struct{}{}
-	if s.onAppend != nil {
-		s.onAppend()
-	}
 	return nil
 }
 
