@@ -1528,7 +1528,6 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	conn.AutoReconnect = false
 
 	cc := &ibkrlib.ConnectorConfig{
-		ServiceName:       "ibkrd",
 		PreferredClientID: ep.ClientID,
 		BaseConfig:        conn,
 	}

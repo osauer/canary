@@ -254,6 +254,8 @@ func (c *Connector) DataFarmStatuses() []DataFarmStatus {
 // A nil BaseConfig uses [DefaultConfig]. PreferredClientID falls back first to
 // BaseConfig.ClientID and then to 1. [NewConnector] copies both config values.
 type ConnectorConfig struct {
+	// Deprecated: ServiceName has no effect; nothing reads it since the
+	// connection-pool removal. It will be removed in the next major version.
 	ServiceName       string
 	PreferredClientID int
 	BaseConfig        *ConnectionConfig
@@ -649,9 +651,7 @@ func (e *HistoricalDataValidationError) Error() string {
 // config uses package defaults; call [Connector.Start] to connect.
 func NewConnector(config *ConnectorConfig) *Connector {
 	if config == nil {
-		config = &ConnectorConfig{
-			ServiceName: "regime-connector",
-		}
+		config = &ConnectorConfig{}
 	} else {
 		configCopy := *config
 		config = &configCopy

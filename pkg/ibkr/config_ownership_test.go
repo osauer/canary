@@ -77,8 +77,7 @@ func TestNewConnectorOwnsConfig(t *testing.T) {
 		WireInterceptor: &WireInterceptor{},
 	}
 	config := &ConnectorConfig{
-		ServiceName: "test-connector",
-		BaseConfig:  baseConfig,
+		BaseConfig: baseConfig,
 	}
 	wantCallerConfig := *config
 	wantCallerBaseConfig := *baseConfig
@@ -114,7 +113,6 @@ func TestNewConnectorOwnsConfig(t *testing.T) {
 	wantEffectiveBaseConfig := *connector.config.BaseConfig
 	wantConnectionConfig := *connector.conn.config
 	*config = ConnectorConfig{
-		ServiceName:       "mutated-connector",
 		PreferredClientID: 99,
 		BaseConfig:        &ConnectionConfig{ClientID: 99},
 	}

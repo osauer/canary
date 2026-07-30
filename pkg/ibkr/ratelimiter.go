@@ -59,7 +59,11 @@ type RateLimiterMetrics struct {
 	ConsecutiveErrors    int
 }
 
-// RateLimitedRequest wraps a request with rate limiting metadata
+// RateLimitedRequest wraps a request with rate limiting metadata.
+//
+// Deprecated: RateLimitedRequest is internal to the scheduler — no exported
+// API accepts or returns it — and it will be unexported in the next major
+// version.
 type RateLimitedRequest struct {
 	Type       RequestType
 	Context    context.Context

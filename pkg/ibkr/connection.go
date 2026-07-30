@@ -465,6 +465,10 @@ func (c *Connection) lookupReqAlias(reqID int) (reqAliasEntry, bool) {
 
 // SetSystemNoticeHandler is the compatibility form of
 // [Connection.SetSystemNoticeHandlerAtEpoch].
+//
+// Deprecated: the callback's parameter types are unexported, so a caller
+// outside this package can only ever pass nil. It will be removed in the next
+// major version.
 func (c *Connection) SetSystemNoticeHandler(handler func(note *systemNotification, alias reqAliasEntry)) {
 	if handler == nil {
 		c.SetSystemNoticeHandlerAtEpoch(nil)
@@ -476,9 +480,11 @@ func (c *Connection) SetSystemNoticeHandler(handler func(note *systemNotificatio
 }
 
 // SetSystemNoticeHandlerAtEpoch replaces the callback for parsed gateway
-// system notices. Passing nil disables delivery. Connector installs this
-// before Connection.Connect starts the reader, so wire notices never cross a
-// handler-registration gap.
+// system notices. Passing nil disables delivery.
+//
+// Deprecated: the callback's parameter types are unexported, so a caller
+// outside this package can only ever pass nil. It will be removed in the next
+// major version.
 func (c *Connection) SetSystemNoticeHandlerAtEpoch(handler func(note *systemNotification, alias reqAliasEntry, epoch uint64)) {
 	if handler == nil {
 		c.SetSystemNoticeHandlerAtEpochWithPostAction(nil)
@@ -494,7 +500,8 @@ func (c *Connection) SetSystemNoticeHandlerAtEpoch(handler func(note *systemNoti
 // The returned one-shot action runs only after Connection releases its inbound
 // generation lease. This lets a current notice mark state atomically while
 // deferring any outbound recovery frame until reconnect can no longer deadlock
-// behind the reader.
+// behind the reader. Its parameter types are unexported, so callers outside
+// this package can only pass nil; the next major version unexports it.
 func (c *Connection) SetSystemNoticeHandlerAtEpochWithPostAction(handler func(note *systemNotification, alias reqAliasEntry, epoch uint64) func()) {
 	c.systemNoticeMu.Lock()
 	c.systemNoticeHandler = handler
