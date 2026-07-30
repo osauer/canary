@@ -33,29 +33,23 @@ func confirmationFor(line string, catalog []cli.CommandSpec) (*confirmation, err
 	return nil, nil
 }
 
+// commandNeedsConfirm resolves the TUI confirmation prompt from the catalog:
+// a matching SubcommandSpec guard wins, the parent guard covers the rest. Only
+// commands whose confirm decision depends on flags rather than the subcommand
+// keep special cases.
 func commandNeedsConfirm(spec cli.CommandSpec, args []string) bool {
 	switch spec.Name {
-	case "order":
-		if len(args) == 0 {
-			return false
-		}
-		switch args[0] {
-		case "place", "modify", "cancel":
-			return true
-		default:
-			return false
-		}
 	case "purge":
 		return purgeNeedsConfirm(args)
-	case "settings":
-		// `set` writes a runtime preference, and trading.freeze plus the
-		// trading-limit keys are accepted precisely because the TUI is an
-		// interactive human terminal. That makes the prompt worth having.
-		return len(args) > 0 && args[0] == "set"
-	case "restart":
-		return true
 	case "update":
 		return !hasFlag(args, "check")
+	}
+	if len(args) > 0 {
+		for _, sub := range spec.Subcommands {
+			if sub.Name == args[0] {
+				return sub.Guard == cli.GuardConfirm
+			}
+		}
 	}
 	return spec.Guard == cli.GuardConfirm
 }

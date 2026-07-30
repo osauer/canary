@@ -518,7 +518,6 @@ canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]
 | `--con-id` | yes | - |
 | `--include-hedges` | no | - |
 | `--portfolio` | no | - |
-| `--protect-hedges` | no | - |
 | `--submit` | no | - |
 | `--json` | no | - |
 
@@ -964,6 +963,8 @@ canary restart [--app] [--force] [--timeout 15s] [--json]
 | `--timeout` | yes | - |
 | `--addr` | yes | - |
 | `--public-url` | yes | - |
+| `--remote` | no | - |
+| `--remote-url` | yes | - |
 | `--state-dir` | yes | - |
 | `--json` | no | - |
 
