@@ -3,42 +3,44 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#f6f7f9">
+    <meta name="theme-color" content="#121418">
     <title>Canary</title>
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=live-gate-simplification-20260611">
+    <link rel="stylesheet" href="/styles.css?v=panel-dark-20260730">
   </head>
   <body>
     <main class="shell">
       <div class="app-scroll" id="appScroll">
       <header class="app-header">
         <div class="brand-block">
-          <img class="brand-mark" src="/icon-192.png" width="50" height="50" alt="" aria-hidden="true">
+          <img class="brand-mark" src="/icon-192.png" width="20" height="20" alt="" aria-hidden="true">
           <div class="brand-copy">
             <h1 aria-label="Canary"><span>Canary</span></h1>
           </div>
         </div>
+        <div class="session-chip" aria-live="polite">
+          <span class="market-strip__pulse" id="marketStateDot" role="img" aria-label="Market session status" title="Market session status"></span>
+          <label class="market-strip__selector">
+            <select id="marketSelect" aria-label="Market calendar">
+              <option value="us">US</option>
+              <option value="us-options">US options</option>
+              <option value="de">Xetra</option>
+            </select>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m7.5 9.5 4.5 4.5 4.5-4.5"></path>
+            </svg>
+          </label>
+          <span class="market-strip__phase" id="sessionPhase">Syncing</span>
+        </div>
+        <div class="app-dataplate">
+          <b id="accountLabel">--</b>
+          <span class="trading-env-pill" id="tradingEnvPill">--</span>
+        </div>
       </header>
 
       <section class="market-strip" aria-live="polite">
-        <div class="market-strip__session">
-          <div class="market-strip__status">
-            <span class="market-strip__pulse" id="marketStateDot" role="img" aria-label="Market session status" title="Market session status"></span>
-            <label class="market-strip__selector">
-              <select id="marketSelect" aria-label="Market calendar">
-                <option value="us">US Markets</option>
-                <option value="us-options">US Options</option>
-                <option value="de">Xetra</option>
-              </select>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m7.5 9.5 4.5 4.5 4.5-4.5"></path>
-              </svg>
-            </label>
-          </div>
-          <span class="market-strip__phase" id="sessionPhase">Syncing</span>
-        </div>
         <div class="market-strip__quotes" id="marketQuoteStrip" aria-label="Market quotes"></div>
         <div class="market-strip__side sr-only">
           <p class="status-banner" id="connectionLine">Waiting for official market calendar</p>
@@ -54,25 +56,15 @@
       </section>
 
       <article class="panel account-panel" id="accountPanel" aria-label="Account and risk">
-        <div class="account-panel__top">
-          <span class="trading-env-pill" id="tradingEnvPill">--</span>
-          <div class="account-panel__identity">
-            <b id="accountLabel">--</b>
-          </div>
-          <button class="panel-chevron account-overview-toggle" id="accountOverviewToggle" type="button" aria-expanded="false" aria-controls="accountOverviewDetail">
-            Detail
-          </button>
+        <div class="account-metrics">
           <button class="icon-button account-privacy-toggle" id="accountPrivacyToggle" type="button" aria-label="Show account values" aria-pressed="false" title="Show account values">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 12s3.4-6 9-6 9 6 9 6-3.4 6-9 6-9-6-9-6Z"></path>
               <circle cx="12" cy="12" r="2.6"></circle>
             </svg>
           </button>
-          <span class="account-panel__freshness" id="accountAsOf">--</span>
-        </div>
-        <div class="account-metrics">
           <div class="account-primary">
-            <span>Net Liquidation</span>
+            <span>Net Liq</span>
             <strong id="netLiquidation">--</strong>
           </div>
           <div class="account-primary">
@@ -80,10 +72,16 @@
             <strong id="buyingPower">--</strong>
           </div>
           <div class="account-primary">
-            <span>Daily P&amp;L</span>
+            <span>Daily P/L</span>
             <strong id="dailyPnl">--</strong>
             <small id="dailyPnlPct">--</small>
           </div>
+        </div>
+        <div class="account-panel__top">
+          <button class="panel-chevron account-overview-toggle" id="accountOverviewToggle" type="button" aria-expanded="false" aria-controls="accountOverviewDetail">
+            Detail
+          </button>
+          <span class="account-panel__freshness" id="accountAsOf">--</span>
         </div>
         <div class="account-overview-detail" id="accountOverviewDetail" hidden>
           <div class="account-risk-strip">

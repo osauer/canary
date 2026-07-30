@@ -449,7 +449,7 @@ function renderMarketContext(snap) {
   const market = stress.market || {};
   const quotes = snap.market_quotes?.quotes || {};
   const strip = $("marketQuoteStrip");
-  const symbols = ["SPY", "VIX", "QQQ", "IWM", "HYG", "TLT"];
+  const symbols = ["SPY", "VIX", "QQQ"];
   strip.replaceChildren(...symbols.map((symbol) => marketQuoteCell(symbol, quoteBySymbol(quotes, symbol), market, snap.market_quotes, snap.market_calendar)));
 }
 

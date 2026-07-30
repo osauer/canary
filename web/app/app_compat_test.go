@@ -567,7 +567,7 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 	css := string(cssData)
 
 	for _, want := range []string{
-		`const symbols = ["SPY", "VIX", "QQQ", "IWM", "HYG", "TLT"];`,
+		`const symbols = ["SPY", "VIX", "QQQ"];`,
 		"function handleExpandablePanelTap(event, which)",
 		`$("regimeSummaryCard").addEventListener("click"`,
 		`$("stressHero").addEventListener("click"`,
@@ -786,7 +786,9 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		"--bottom-tabs-space: 92px;",
 		"padding-bottom: calc(var(--bottom-tabs-space) + var(--bottom-tab-safe));",
 		".bottom-tabs {\n  position: absolute;",
-		"bottom: calc(14px + var(--bottom-tab-safe));",
+		// Panel Dark seats the bar flush on the bottom edge, so the
+		// safe-area inset moved from `bottom:` into the bar's own padding.
+		"padding: 6px 4px calc(8px + var(--bottom-tab-safe));",
 		"transform: translateX(-50%);",
 		"--bottom-tab-safe: 0px;",
 		"@media (display-mode: standalone), (display-mode: fullscreen)",

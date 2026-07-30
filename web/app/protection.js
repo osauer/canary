@@ -813,7 +813,9 @@ function protectionMarketStateHint(proposal = {}) {
     return `${marketName} is currently tradable.`;
   }
   const label = marketSessionLabel(calendar);
-  const market = label.phase || label.text || `${marketName} is closed`;
+  // The session chip's phase is a bare countdown ("opens 17:12"), so the
+  // sentence leads with the session's words and keeps the countdown as detail.
+  const market = [label.text, label.phase].filter(Boolean).join(" · ") || `${marketName} is closed`;
   return `${market}; broker may queue after fresh WhatIf.`;
 }
 

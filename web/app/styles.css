@@ -1,36 +1,64 @@
+/* Panel Dark: a dark cockpit annunciator register. The palette below is the
+   design of record — panel ground, machined tile faces, engraved legends, and
+   a readout ink that never lamps. Severity lives in bars, washes and lamps;
+   figures stay readout ink, and money carries the 60% tints so a red number
+   reads as a number, not as an alarm. */
 :root {
-  color-scheme: light;
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-soft: #f9fafb;
-  --ink: #0b1018;
-  --ink-2: #202938;
-  --muted: #697184;
-  --muted-2: #8a93a3;
-  --line: #dfe4eb;
-  --line-soft: #edf0f4;
-  --dark: #101824;
-  --dark-2: #070d15;
-  --dark-line: rgba(255, 255, 255, 0.14);
-  --blue: #1268db;
-  --blue-soft: #eaf2ff;
-  --red: #ff3733;
-  --red-soft: #fff0ef;
-  --green: #28c76f;
-  --green-soft: #eafaf2;
-  --market-blue: #1268d8;
-  --market-red: #e00022;
-  --market-green: #008a22;
-  --market-amber: #b45309;
-  --market-divider: #d7dce3;
-  --amber: #ffb521;
-  --orange: #ff6b2c;
-  --shadow: 0 8px 22px rgba(15, 23, 42, 0.055);
-  --shadow-soft: 0 4px 14px rgba(15, 23, 42, 0.04);
-  --radius-card: 8px;
-  --radius-control: 10px;
+  --pd-ground: #121418;
+  --pd-tile-top: #1d2129;
+  --pd-tile-bottom: #191d24;
+  --pd-tile-face: linear-gradient(180deg, #1d2129, #191d24);
+  --pd-readout-face: #171b21;
+  --pd-engraved: #7c8494;
+  --pd-readout: #dce1ea;
+  --pd-strip-value: #c3cad6;
+  --pd-caution: #ffb43b;
+  --pd-warning: #ff4f44;
+  --pd-advisory: #6fb3ff;
+  --pd-nominal: #4bd07a;
+  --pd-watch-tint: #d3b285;
+  --pd-act-tint: #d9938f;
+  --pd-money-up: #8fbf9f;
+  --pd-money-down: #d9938f;
+  --pd-hairline: #1e232b;
+  --pd-border: #262b33;
+  --pd-dim: #59606e;
+  --pd-chip: #2a2f38;
+  --pd-tabbar: #101216;
+
+  color-scheme: dark;
+  --bg: var(--pd-ground);
+  --surface: var(--pd-tile-top);
+  --surface-soft: var(--pd-readout-face);
+  --ink: var(--pd-readout);
+  --ink-2: #c6cbd4;
+  --muted: var(--pd-engraved);
+  --muted-2: var(--pd-dim);
+  --line: var(--pd-hairline);
+  --line-soft: #1a1f26;
+  --dark: #171b21;
+  --dark-2: #101216;
+  --dark-line: rgba(255, 255, 255, 0.09);
+  --blue: var(--pd-advisory);
+  --blue-soft: rgba(111, 179, 255, 0.12);
+  --red: var(--pd-warning);
+  --red-soft: rgba(255, 79, 68, 0.12);
+  --green: var(--pd-nominal);
+  --green-soft: rgba(75, 208, 122, 0.12);
+  --market-blue: var(--pd-engraved);
+  --market-red: var(--pd-money-down);
+  --market-green: var(--pd-money-up);
+  --market-amber: var(--pd-watch-tint);
+  --market-divider: var(--pd-hairline);
+  --amber: var(--pd-caution);
+  --orange: #ff8a3b;
+  --shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 4px 14px rgba(0, 0, 0, 0.34);
+  --radius-card: 6px;
+  --radius-control: 6px;
   --radius-pill: 999px;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 * {
@@ -81,12 +109,12 @@ button {
 }
 
 :where(button, summary, .alert-row):focus-visible {
-  outline: 2px solid rgba(18, 104, 219, 0.36);
+  outline: 2px solid rgba(111, 179, 255, 0.36);
   outline-offset: 3px;
 }
 
 .shell {
-  --shell-pad-x: 28px;
+  --shell-pad-x: 16px;
   --bottom-tab-safe: 0px;
   --bottom-tabs-space: 92px;
 
@@ -100,7 +128,7 @@ button {
   height: 100dvh;
   min-height: 0;
   margin: 0;
-  padding: max(28px, env(safe-area-inset-top)) var(--shell-pad-x) 0;
+  padding: max(14px, env(safe-area-inset-top)) var(--shell-pad-x) 0;
   overflow: clip;
   overscroll-behavior: none;
   transform: translateX(-50%);
@@ -117,27 +145,28 @@ button {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Header: brand mark, session chip, account dataplate. One row, engraved
+   register, nothing in it lamps. */
 .app-header {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 10px;
 }
 
 .brand-block {
   display: flex;
   min-width: 0;
-  align-items: flex-end;
-  gap: 10px;
+  align-items: center;
+  gap: 7px;
 }
 
 .brand-mark {
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
-  box-shadow: 0 6px 14px rgba(9, 15, 24, 0.08);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: block;
 }
 
 .brand-copy {
@@ -154,11 +183,69 @@ h1 {
   display: flex;
   align-items: baseline;
   gap: 3px;
-  color: var(--ink);
-  font-size: 26px;
-  font-weight: 780;
-  line-height: 0.96;
-  letter-spacing: 0;
+  color: var(--pd-engraved);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Session chip: market code, phase and countdown in one bordered plate. The
+   market code is the #marketSelect control itself, so tapping the chip still
+   switches calendar. */
+/* The countdown is an operational readout, so the chip keeps its natural
+   width; the identity plate beside it is a label and truncates first. */
+.session-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 5px;
+  border: 1px solid var(--pd-border);
+  border-radius: 4px;
+  color: var(--pd-engraved);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* Account dataplate: stamped identity, never a control. */
+.app-dataplate {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--pd-engraved);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* The account id truncates before the mode does: which environment this is
+   must never be the part that falls off the plate. */
+.app-dataplate b {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+.app-dataplate .trading-env-pill {
+  flex: 0 0 auto;
+}
+
+.app-dataplate .trading-env-pill::before {
+  margin-right: 4px;
+  content: "·";
 }
 
 h1 sub {
@@ -181,50 +268,25 @@ p {
   line-height: 1.38;
 }
 
+/* Quote readout strip: hairline above and below, three bounded cells, no
+   frame and no shadow. */
 .market-strip {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 3px;
   min-height: 0;
-  margin: 0 0 10px;
-  padding: 0;
+  margin: 0;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   color: var(--ink-2);
 }
 
-.market-strip__session {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.market-strip__status,
 .market-strip__side {
   min-width: 0;
 }
 
-.market-strip__status {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 5px;
-  min-width: 0;
-  padding-right: 9px;
-  border-right: 1px solid var(--market-divider);
-}
-
 .market-strip__pulse {
   display: none;
-}
-
-.market-strip.market-warn .market-strip__pulse {
-  background: var(--amber);
-  box-shadow: 0 0 0 4px rgba(255, 181, 33, 0.14);
-}
-
-.market-strip.market-closed .market-strip__pulse {
-  background: var(--muted-2);
-  box-shadow: 0 0 0 4px rgba(138, 147, 163, 0.12);
 }
 
 .market-strip__selector {
@@ -235,15 +297,13 @@ p {
 }
 
 .market-strip__selector select {
-  max-width: 145px;
-  min-height: 22px;
-  padding: 0 18px 0 0;
+  max-width: 76px;
+  min-height: 16px;
+  padding: 0 11px 0 0;
   border: 0;
   background: transparent;
-  color: var(--ink);
+  color: inherit;
   font: inherit;
-  font-size: 16px;
-  font-weight: 680;
   line-height: 1.1;
   appearance: none;
 }
@@ -251,33 +311,37 @@ p {
 .market-strip__selector svg {
   position: absolute;
   right: 0;
-  width: 12px;
-  height: 12px;
+  width: 9px;
+  height: 9px;
   fill: none;
   pointer-events: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2;
+  stroke-width: 2.4;
 }
 
 .market-strip__phase {
   overflow: hidden;
   min-width: 0;
   max-width: 100%;
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 430;
-  letter-spacing: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
 }
 
+.market-strip__phase::before {
+  margin-right: 4px;
+  content: "·";
+}
+
 .market-strip__quotes {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 126px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
@@ -296,11 +360,7 @@ p {
   display: grid;
   gap: 1px;
   min-width: 0;
-  padding: 2px 8px 3px;
-  border-left: 1px solid var(--market-divider);
-}
-
-.market-quote-cell:first-child {
+  padding: 0 2px;
   border-left: 0;
 }
 
@@ -310,27 +370,29 @@ p {
 
 .market-quote-cell__value {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 5px;
+  gap: 0 5px;
   min-width: 0;
 }
 
 .market-quote-cell b {
   overflow: hidden;
-  color: var(--market-blue);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0;
-  line-height: 1.12;
+  color: var(--pd-engraved);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.18;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .market-quote-cell strong {
-  color: #1f2933;
-  font-size: 14px;
-  font-weight: 540;
-  line-height: 1.05;
+  color: var(--pd-strip-value);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -352,7 +414,7 @@ p {
 }
 
 .market-quote-cell__source.error {
-  color: #9a6500;
+  color: var(--pd-watch-tint);
 }
 
 .market-quote-cell__source.error::before {
@@ -360,13 +422,18 @@ p {
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  background: #d58a00;
+  background: var(--pd-caution);
   content: "";
 }
 
-.market-quote-cell .market-change {
-  font-size: 13px;
-  font-weight: 540;
+/* A quote delta is a readout, not a lamp: the strip states the move, the
+   annunciators decide whether anything is lit. */
+.market-quote-cell .market-change,
+.market-quote-cell .market-change.signed.ok,
+.market-quote-cell .market-change.signed.risk {
+  color: var(--pd-engraved);
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
 .market-quote-cell--missing strong,
@@ -376,14 +443,6 @@ p {
 
 .market-quote-cell--error {
   background: transparent;
-}
-
-.market-strip.market-warn .market-strip__phase {
-  color: var(--muted);
-}
-
-.market-strip.market-closed .market-strip__phase {
-  color: var(--muted);
 }
 
 .market-strip__side {
@@ -405,11 +464,11 @@ p {
 }
 
 .status-banner.market-open {
-  color: #138f50;
+  color: var(--pd-money-up);
 }
 
 .status-banner.market-warn {
-  color: #a86d00;
+  color: var(--pd-watch-tint);
 }
 
 .status-banner.market-closed {
@@ -463,25 +522,38 @@ p {
   min-height: calc(100vh - 188px - env(safe-area-inset-bottom));
 }
 
+/* Tab bar: opaque, flush to the bottom edge, same register as the panel. It
+   stays shell-positioned (absolute) rather than viewport-fixed. */
 .bottom-tabs {
   position: absolute;
-  right: auto;
-  bottom: calc(14px + var(--bottom-tab-safe));
-  left: 50%;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-  width: min(520px, calc(100% - (var(--shell-pad-x) * 2)));
-  min-height: 64px;
+  gap: 0;
+  min-height: 54px;
   margin: 0;
-  padding: 7px;
-  border: 1px solid rgba(223, 228, 235, 0.95);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(12px);
-  transform: translateX(-50%);
+  padding: 6px 4px calc(8px + var(--bottom-tab-safe));
+  border: 0;
+  border-top: 1px solid var(--pd-hairline);
+  border-radius: 0;
+  background: var(--pd-tabbar);
+  box-shadow: none;
+  color: var(--pd-dim);
+}
+
+/* Scrolling text dissolves into the bar instead of being sliced by it. */
+.bottom-tabs::before {
+  position: absolute;
+  top: -18px;
+  right: 0;
+  left: 0;
+  height: 18px;
+  background: linear-gradient(180deg, rgba(16, 18, 22, 0), var(--pd-tabbar));
+  content: "";
+  pointer-events: none;
 }
 
 @media (display-mode: standalone), (display-mode: fullscreen) {
@@ -495,33 +567,48 @@ p {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
-  min-height: 50px;
-  padding: 5px 4px;
+  min-height: 40px;
+  padding: 5px 2px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--pd-dim);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   line-height: 1.1;
+  text-transform: uppercase;
 }
 
+/* Count chip. It follows the loudest ACTIVE alert: amber for watch, red only
+   for act, dark numeral on both; a neutral chip when severity says nothing. */
 .bottom-tab__badge {
   position: absolute;
-  top: 3px;
+  top: -1px;
   left: calc(50% + 4px);
-  min-width: 18px;
-  padding: 2px 5px;
-  border: 2px solid #fff;
+  min-width: 16px;
+  padding: 1px 5px;
+  border: 0;
   border-radius: 999px;
-  background: #b42318;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.2;
+  background: var(--pd-chip);
+  color: #9aa1ae;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.3;
   text-align: center;
+}
+
+.bottom-tab__badge--watch {
+  background: var(--pd-caution);
+  color: #16181c;
+}
+
+.bottom-tab__badge--act {
+  background: var(--pd-warning);
+  color: #16181c;
 }
 
 .bottom-tab svg {
@@ -535,8 +622,18 @@ p {
 }
 
 .bottom-tab.active {
-  background: var(--blue-soft);
-  color: var(--blue);
+  background: transparent;
+  color: var(--pd-readout);
+}
+
+.bottom-tab.active::after {
+  position: absolute;
+  top: 0;
+  left: calc(50% - 9px);
+  width: 18px;
+  height: 2px;
+  background: var(--pd-readout);
+  content: "";
 }
 
 .bottom-tab:disabled {
@@ -560,7 +657,7 @@ p {
   border-radius: var(--radius-card);
   background: var(--red);
   color: #fff;
-  box-shadow: 0 5px 12px rgba(224, 0, 34, 0.12);
+  box-shadow: 0 5px 12px rgba(255, 79, 68, 0.12);
 }
 
 .source-banner span {
@@ -590,13 +687,13 @@ p {
   align-items: center;
   margin-top: 10px;
   padding: 8px 10px;
-  border: 1px solid rgba(184, 117, 0, 0.18);
+  border: 1px solid rgba(255, 180, 59, 0.18);
   border-radius: 8px;
-  background: rgba(255, 190, 71, 0.08);
+  background: rgba(255, 180, 59, 0.08);
 }
 
 .source-inline span {
-  color: #9a6400;
+  color: var(--pd-watch-tint);
   font-size: 10px;
   font-weight: 760;
   letter-spacing: 0.08em;
@@ -610,14 +707,17 @@ p {
   font-weight: 650;
 }
 
+/* Base coat for every panel the later packages have not restructured yet: a
+   machined tile face with the annunciator's relief, so the whole app reads as
+   one instrument instead of half a theme. */
 .pairing,
 .panel {
   min-width: 0;
   max-width: 100%;
-  border: 1px solid var(--line);
+  border: 1px solid var(--pd-hairline);
   border-radius: var(--radius-card);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  background: var(--pd-tile-face);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .pairing__body,
@@ -668,8 +768,8 @@ p {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  border-color: rgba(18, 104, 219, 0.2);
-  background: #f0f6ff;
+  border-color: rgba(111, 179, 255, 0.2);
+  background: rgba(111, 179, 255, 0.08);
   color: inherit;
   text-decoration: none;
 }
@@ -754,8 +854,8 @@ p {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+  background: var(--pd-strip-value);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   content: "";
   transition: transform 0.16s ease;
 }
@@ -775,10 +875,10 @@ p {
 .pairing button,
 .primary {
   min-height: 42px;
-  border: 0;
+  border: 1px solid #323947;
   border-radius: var(--radius-control);
   background: var(--dark);
-  color: #fff;
+  color: var(--pd-readout);
   font-size: 14px;
   font-weight: 720;
 }
@@ -911,7 +1011,7 @@ p {
 
 .brief-row.brief-status--attention {
   border-left-color: var(--orange);
-  background: rgba(255, 107, 44, 0.05);
+  background: rgba(255, 138, 59, 0.05);
 }
 
 .brief-row.brief-status--degraded {
@@ -944,22 +1044,22 @@ p {
 }
 
 .brief-status--ok {
-  background: rgba(40, 199, 111, 0.1);
-  color: #148247;
+  background: rgba(75, 208, 122, 0.1);
+  color: var(--pd-money-up);
 }
 
 .brief-status--attention {
-  background: rgba(255, 107, 44, 0.16);
-  color: #b34a10;
+  background: rgba(255, 138, 59, 0.16);
+  color: var(--pd-watch-tint);
 }
 
 .brief-status--degraded {
-  background: rgba(255, 190, 71, 0.14);
-  color: #8a5a00;
+  background: rgba(255, 180, 59, 0.14);
+  color: var(--pd-watch-tint);
 }
 
 .brief-status--unavailable {
-  background: rgba(224, 71, 71, 0.1);
+  background: rgba(255, 79, 68, 0.1);
   color: var(--red);
 }
 
@@ -1001,7 +1101,7 @@ p {
 .brief-action-message,
 .brief-receipt {
   margin: 7px 0 0;
-  color: #148247;
+  color: var(--pd-money-up);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -1254,7 +1354,7 @@ p {
 
 .stress-rules__pill.warn {
   border-color: var(--amber);
-  color: #a86d00;
+  color: var(--pd-watch-tint);
 }
 
 .stress-rules__notes-trigger {
@@ -1274,9 +1374,9 @@ p {
 }
 
 .stress-rules__notes-trigger--attention {
-  border-color: #e6bb9f;
-  background: #fdf3ec;
-  color: #b34a10;
+  border-color: rgba(255, 180, 59, 0.35);
+  background: rgba(255, 180, 59, 0.1);
+  color: var(--pd-watch-tint);
 }
 
 .app-dialog {
@@ -1297,7 +1397,7 @@ p {
 }
 
 .app-dialog::backdrop {
-  background: rgba(11, 16, 24, 0.44);
+  background: rgba(0, 0, 0, 0.62);
 }
 
 .app-dialog__head {
@@ -1370,7 +1470,7 @@ p {
 }
 
 .stress-hero.severity-watch strong {
-  color: #a86d00;
+  color: var(--pd-watch-tint);
 }
 
 .stress-hero.severity-observe {
@@ -1382,15 +1482,15 @@ p {
 }
 
 .severity-pill.severity-act {
-  border-color: rgba(224, 0, 34, 0.22);
+  border-color: rgba(255, 79, 68, 0.22);
   background: var(--red-soft);
   color: var(--market-red);
 }
 
 .severity-pill.severity-watch {
-  border-color: rgba(255, 181, 33, 0.32);
-  background: rgba(255, 181, 33, 0.12);
-  color: #9a6500;
+  border-color: rgba(255, 180, 59, 0.32);
+  background: rgba(255, 180, 59, 0.12);
+  color: var(--pd-watch-tint);
 }
 
 .severity-pill.severity-observe {
@@ -1445,9 +1545,9 @@ p {
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid rgba(255, 181, 33, 0.22);
+  border: 1px solid rgba(255, 180, 59, 0.22);
   border-radius: 8px;
-  background: rgba(255, 181, 33, 0.08);
+  background: rgba(255, 180, 59, 0.08);
 }
 
 .held-stress__head {
@@ -1458,7 +1558,7 @@ p {
 }
 
 .held-stress__head span {
-  color: #9a6500;
+  color: var(--pd-watch-tint);
   font-size: 10px;
   font-weight: 780;
   letter-spacing: 0.08em;
@@ -1486,15 +1586,15 @@ p {
   padding: 10px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .held-stress-row.risk {
-  border-color: rgba(255, 55, 51, 0.32);
+  border-color: rgba(255, 79, 68, 0.32);
 }
 
 .held-stress-row.warn {
-  border-color: rgba(255, 181, 33, 0.32);
+  border-color: rgba(255, 180, 59, 0.32);
 }
 
 .held-stress-row b {
@@ -1553,17 +1653,17 @@ p {
 .detail-panel--dark .detail-card,
 .detail-panel--dark .driver-row {
   border-color: var(--line-soft);
-  background: #fff;
+  background: var(--surface);
 }
 
 .detail-panel--dark .detail-card.risk {
-  border-color: rgba(224, 0, 34, 0.22);
+  border-color: rgba(255, 79, 68, 0.22);
   background: var(--red-soft);
 }
 
 .detail-panel--dark .detail-card.warn {
-  border-color: rgba(255, 181, 33, 0.3);
-  background: rgba(255, 181, 33, 0.1);
+  border-color: rgba(255, 180, 59, 0.3);
+  background: rgba(255, 180, 59, 0.1);
 }
 
 .detail-panel--dark .detail-card.ok {
@@ -1572,13 +1672,13 @@ p {
 }
 
 .detail-fact.risk {
-  border-color: rgba(224, 0, 34, 0.22);
+  border-color: rgba(255, 79, 68, 0.22);
   background: var(--red-soft);
 }
 
 .detail-fact.warn {
-  border-color: rgba(255, 181, 33, 0.3);
-  background: rgba(255, 181, 33, 0.08);
+  border-color: rgba(255, 180, 59, 0.3);
+  background: rgba(255, 180, 59, 0.08);
 }
 
 .detail-fact.ok {
@@ -1588,22 +1688,22 @@ p {
 
 .detail-panel--dark .detail-card.neutral {
   border-color: var(--line-soft);
-  background: #fff;
+  background: var(--surface);
 }
 
 .detail-panel--dark .driver-row.risk {
-  border-color: rgba(224, 0, 34, 0.22);
+  border-color: rgba(255, 79, 68, 0.22);
   background: var(--red-soft);
 }
 
 .detail-panel--dark .driver-row.warn {
-  border-color: rgba(255, 181, 33, 0.3);
-  background: rgba(255, 181, 33, 0.08);
+  border-color: rgba(255, 180, 59, 0.3);
+  background: rgba(255, 180, 59, 0.08);
 }
 
 .detail-panel--dark .driver-row.neutral {
   border-color: var(--line-soft);
-  background: #fff;
+  background: var(--surface);
 }
 
 .detail-card span,
@@ -1688,7 +1788,7 @@ p {
 }
 
 .protection-coverage-ledger__row--covered .protection-coverage-ledger__state {
-  color: #047857;
+  color: var(--pd-money-up);
 }
 
 .protection-coverage-ledger__row--partial .protection-coverage-ledger__state,
@@ -1863,7 +1963,7 @@ p {
 }
 
 .regime-summary.weather-amber b {
-  color: #9a6500;
+  color: var(--pd-watch-tint);
 }
 
 .regime-summary.weather-red b {
@@ -1887,57 +1987,38 @@ p {
   margin-bottom: 14px;
 }
 
+/* Account readout strip: the same register as the quote strip above it, one
+   shared hairline between them and one below. Not a card. */
 .account-panel {
   display: grid;
-  gap: 13px;
+  gap: 0;
   min-height: 0;
-  margin: 0 0 10px;
-  padding: 15px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  margin: 0 0 6px;
+  padding: 7px 0 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .account-panel__top {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 8px;
+  display: flex;
   align-items: center;
-}
-
-.account-panel__identity {
-  display: grid;
-  gap: 0;
-  min-width: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px 2px 7px;
 }
 
 .account-panel__freshness {
+  max-width: 100%;
+  overflow: hidden;
   color: var(--muted-2);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.04em;
+  text-overflow: ellipsis;
   text-transform: none;
-}
-
-.account-panel__identity b {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: 0.02em;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account-panel__freshness {
-  grid-column: 2 / -1;
-  justify-self: end;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1954,8 +2035,20 @@ p {
   color: var(--muted);
 }
 
+/* The eye rides on the strip itself, top right, engraved. Masking behaviour
+   is unchanged — only the seat moved. */
 .account-privacy-toggle {
-  margin-left: auto;
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  margin-left: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--pd-dim);
 }
 
 /* The Detail toggle is a text pill, not a caret: .panel-chevron zeroes its
@@ -1964,16 +2057,18 @@ p {
 .account-overview-toggle {
   width: auto;
   min-width: 0;
-  min-height: 24px;
+  min-height: 22px;
   justify-content: center;
-  padding: 2px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-soft);
+  padding: 3px 9px;
+  border: 1px solid var(--pd-border);
+  border-radius: 4px;
+  background: transparent;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 720;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   line-height: 1;
+  text-transform: uppercase;
 }
 
 .account-overview-toggle::after {
@@ -1981,26 +2076,28 @@ p {
 }
 
 .account-overview-toggle[aria-expanded="true"] {
-  background: var(--surface);
-  color: var(--ink-2);
+  border-color: #323947;
+  background: var(--pd-border);
+  color: var(--pd-readout);
 }
 
 .account-privacy-toggle.is-visible {
-  border-color: rgba(18, 104, 219, 0.32);
-  background: var(--blue-soft);
-  color: var(--blue);
+  border-color: transparent;
+  background: transparent;
+  color: var(--pd-readout);
 }
 
+/* On the dataplate the mode is stamped, not badged: mono, tracked, no chip. */
 .trading-env-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: var(--line-soft);
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 780;
+  font-size: inherit;
+  font-weight: 400;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -2010,8 +2107,9 @@ p {
    unresolved mode is a muted "mode?" that fails visible without resembling
    live. */
 .trading-env-pill--paper {
-  background: rgba(255, 55, 51, 0.12);
-  color: var(--red);
+  background: transparent;
+  color: var(--pd-act-tint);
+  font-weight: 700;
 }
 
 .trading-env-pill--live {
@@ -2019,13 +2117,13 @@ p {
 }
 
 .trading-env-pill--unknown {
-  background: var(--line-soft);
+  background: transparent;
   color: var(--muted);
 }
 
 .account-privacy-toggle svg {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -2038,18 +2136,19 @@ p {
 }
 
 .account-metrics {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 0;
-  padding-top: 2px;
+  padding-top: 0;
 }
 
 .account-primary {
   display: grid;
-  gap: 7px;
+  gap: 2px;
   min-width: 0;
-  padding: 0 14px;
-  border-left: 1px solid var(--line-soft);
+  padding: 0 2px;
+  border-left: 0;
 }
 
 /* Daily P&L: value and %-today share a baseline row instead of stacking —
@@ -2071,7 +2170,6 @@ p {
   border-left: 0;
 }
 
-.account-primary span,
 .portfolio-lede span,
 .greeks-row span {
   color: var(--muted);
@@ -2080,13 +2178,25 @@ p {
   line-height: 1.22;
 }
 
+.account-primary span {
+  overflow: hidden;
+  color: var(--pd-engraved);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .account-primary strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--ink);
-  font-size: 19px;
-  font-weight: 720;
-  line-height: 1.05;
+  color: var(--pd-strip-value);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2095,19 +2205,19 @@ p {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 690;
+  font-size: 11.5px;
+  font-weight: 500;
   line-height: 1.12;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .account-pnl-pct.ok {
-  color: #12834b;
+  color: var(--pd-money-up);
 }
 
 .account-pnl-pct.risk {
-  color: #c52a26;
+  color: var(--pd-money-down);
 }
 
 .account-overview-detail {
@@ -2184,8 +2294,8 @@ p {
 .account-primary strong.is-private,
 .detail-fact .is-private,
 #portfolioDollarDelta.is-private {
-  color: var(--ink);
-  font-size: 18px;
+  color: var(--pd-strip-value);
+  font-size: 15px;
   letter-spacing: 0.13em;
 }
 
@@ -2278,12 +2388,12 @@ p {
 }
 
 .underlying-pnl-card--winner {
-  border-color: rgba(40, 199, 111, 0.2);
+  border-color: rgba(75, 208, 122, 0.2);
   background: var(--green-soft);
 }
 
 .underlying-pnl-card--loser {
-  border-color: rgba(255, 55, 51, 0.2);
+  border-color: rgba(255, 79, 68, 0.2);
   background: var(--red-soft);
 }
 
@@ -2320,19 +2430,19 @@ p {
 }
 
 .market-flag-chip--hard {
-  border-color: rgba(255, 55, 51, 0.34);
+  border-color: rgba(255, 79, 68, 0.34);
   background: var(--red-soft);
-  color: #ba2723;
+  color: var(--pd-money-down);
 }
 
 .market-flag-chip--friction {
-  border-color: rgba(255, 181, 33, 0.48);
-  background: rgba(255, 181, 33, 0.14);
-  color: #8e5c00;
+  border-color: rgba(255, 180, 59, 0.48);
+  background: rgba(255, 180, 59, 0.14);
+  color: var(--pd-watch-tint);
 }
 
 .market-flag-chip--context {
-  border-color: rgba(18, 104, 219, 0.26);
+  border-color: rgba(111, 179, 255, 0.26);
   background: var(--blue-soft);
   color: var(--blue);
 }
@@ -2403,7 +2513,7 @@ p {
 
 .underlying-action-result {
   padding: 9px 10px;
-  border: 1px solid rgba(18, 104, 219, 0.18);
+  border: 1px solid rgba(111, 179, 255, 0.18);
   border-radius: 8px;
   background: var(--blue-soft);
   color: var(--ink-2);
@@ -2412,7 +2522,7 @@ p {
 }
 
 .underlying-action-result.risk {
-  border-color: rgba(255, 55, 51, 0.24);
+  border-color: rgba(255, 79, 68, 0.24);
   background: var(--red-soft);
 }
 
@@ -2439,10 +2549,10 @@ p {
 .underlying-row--virtual {
   min-height: 58px;
   padding: 9px;
-  border: 1px dashed rgba(255, 181, 33, 0.48);
+  border: 1px dashed rgba(255, 180, 59, 0.48);
   border-radius: 8px;
   margin-top: 8px;
-  background: rgba(255, 181, 33, 0.08);
+  background: rgba(255, 180, 59, 0.08);
 }
 
 .underlying-row--virtual:first-child {
@@ -2506,11 +2616,11 @@ p {
 }
 
 .underlying-row__metric b.ok {
-  color: #12834b;
+  color: var(--pd-money-up);
 }
 
 .underlying-row__metric b.risk {
-  color: #c52a26;
+  color: var(--pd-money-down);
 }
 
 .underlying-row__metric b.is-private {
@@ -2523,7 +2633,7 @@ p {
 }
 
 .underlying-row--quote-error {
-  background: linear-gradient(90deg, rgba(255, 55, 51, 0.045), rgba(255, 255, 255, 0));
+  background: linear-gradient(90deg, rgba(255, 79, 68, 0.09), rgba(255, 79, 68, 0));
 }
 
 .underlying-quote-status {
@@ -2543,7 +2653,7 @@ p {
 }
 
 .underlying-quote-status.ok {
-  color: #12834b;
+  color: var(--pd-money-up);
 }
 
 .underlying-quote-status.ok::before {
@@ -2552,16 +2662,16 @@ p {
 
 .underlying-quote-status.warn,
 .underlying-quote-status.fallback {
-  color: #9a6500;
+  color: var(--pd-watch-tint);
 }
 
 .underlying-quote-status.warn::before,
 .underlying-quote-status.fallback::before {
-  background: #d58a00;
+  background: var(--pd-caution);
 }
 
 .underlying-quote-status.error {
-  color: #c52a26;
+  color: var(--pd-money-down);
 }
 
 .underlying-quote-status.error::before {
@@ -2583,13 +2693,13 @@ p {
 
 .underlying-marker--virtual,
 .underlying-marker--purged {
-  border-color: rgba(255, 181, 33, 0.46);
-  background: rgba(255, 181, 33, 0.14);
-  color: #9a6500;
+  border-color: rgba(255, 180, 59, 0.46);
+  background: rgba(255, 180, 59, 0.14);
+  color: var(--pd-watch-tint);
 }
 
 .underlying-marker--book {
-  border-color: rgba(18, 104, 219, 0.24);
+  border-color: rgba(111, 179, 255, 0.24);
   background: var(--blue-soft);
   color: var(--blue);
 }
@@ -2614,19 +2724,19 @@ p {
 }
 
 .underlying-action--purge:not(:disabled) {
-  border-color: rgba(255, 55, 51, 0.28);
+  border-color: rgba(255, 79, 68, 0.28);
   background: var(--red-soft);
-  color: #ba2723;
+  color: var(--pd-money-down);
 }
 
 .underlying-action--restore:not(:disabled) {
-  border-color: rgba(40, 199, 111, 0.3);
+  border-color: rgba(75, 208, 122, 0.3);
   background: var(--green-soft);
-  color: #12834b;
+  color: var(--pd-money-up);
 }
 
 .underlying-action--build:not(:disabled) {
-  border-color: rgba(18, 104, 219, 0.28);
+  border-color: rgba(111, 179, 255, 0.28);
   background: var(--blue-soft);
   color: var(--blue);
 }
@@ -2905,13 +3015,13 @@ p {
 }
 
 .protection-row .protection-row__ladder-step--selected {
-  border-color: rgba(18, 104, 219, 0.22);
+  border-color: rgba(111, 179, 255, 0.22);
   background: var(--blue-soft);
 }
 
 .protection-row .protection-row__ladder-step--open {
-  border-color: rgba(5, 150, 105, 0.22);
-  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(75, 208, 122, 0.22);
+  background: rgba(75, 208, 122, 0.08);
 }
 
 .protection-row__trail--fallback {
@@ -3006,9 +3116,9 @@ p {
   width: fit-content;
   max-width: 100%;
   padding: 5px 7px;
-  border: 1px solid rgba(220, 38, 38, 0.16);
+  border: 1px solid rgba(255, 79, 68, 0.16);
   border-radius: 7px;
-  background: rgba(220, 38, 38, 0.08);
+  background: rgba(255, 79, 68, 0.08);
   color: var(--red);
   font-weight: 650;
 }
@@ -3018,7 +3128,7 @@ p {
   width: fit-content;
   max-width: 100%;
   padding: 5px 7px;
-  border: 1px solid rgba(18, 104, 219, 0.16);
+  border: 1px solid rgba(111, 179, 255, 0.16);
   border-radius: 7px;
   background: var(--blue-soft);
   color: var(--blue);
@@ -3032,14 +3142,14 @@ p {
 }
 
 .protection-row__submit-state--ready {
-  border-color: rgba(5, 150, 105, 0.18);
-  background: rgba(5, 150, 105, 0.09);
-  color: #047857;
+  border-color: rgba(75, 208, 122, 0.18);
+  background: rgba(75, 208, 122, 0.09);
+  color: var(--pd-money-up);
 }
 
 .protection-row__submit-state--blocked {
-  border-color: rgba(220, 38, 38, 0.16);
-  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(255, 79, 68, 0.16);
+  background: rgba(255, 79, 68, 0.08);
   color: var(--red);
 }
 
@@ -3062,24 +3172,24 @@ p {
 }
 
 .protection-sell {
-  color: #fff;
-  background: #2563eb;
+  color: #0f1216;
+  background: #7fb6f0;
 }
 
 .protection-buy {
-  color: #fff;
-  background: #dc2626;
+  color: #0f1216;
+  background: #e0857f;
 }
 
 .protection-preview {
-  border-color: rgba(18, 104, 219, 0.24);
+  border-color: rgba(111, 179, 255, 0.24);
   background: var(--blue-soft);
   color: var(--blue);
 }
 
 .protection-submit {
-  color: #fff;
-  background: #047857;
+  color: #0f1216;
+  background: var(--pd-money-up);
 }
 
 .protection-ignore {
@@ -3172,13 +3282,13 @@ p {
 
 .protection-derisk__badge--eligible,
 .protection-derisk__badge--placed {
-  color: #047857;
-  border-color: #047857;
+  color: var(--pd-money-up);
+  border-color: var(--pd-money-up);
 }
 
 .protection-derisk__badge--blocked {
-  color: #b91c1c;
-  border-color: #b91c1c;
+  color: var(--pd-money-down);
+  border-color: var(--pd-money-down);
 }
 
 .protection-derisk__submit {
@@ -3202,7 +3312,7 @@ p {
 }
 
 .protection-derisk__note--blocked {
-  color: #b91c1c;
+  color: var(--pd-money-down);
 }
 
 .protection-derisk__state {
@@ -3340,14 +3450,14 @@ p {
 }
 
 .opportunity-row .opportunity-row__metric--gain {
-  border-color: rgba(5, 150, 105, 0.18);
-  background: rgba(5, 150, 105, 0.09);
-  color: #047857;
+  border-color: rgba(75, 208, 122, 0.18);
+  background: rgba(75, 208, 122, 0.09);
+  color: var(--pd-money-up);
 }
 
 .opportunity-row .opportunity-row__metric--risk {
-  border-color: rgba(220, 38, 38, 0.16);
-  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(255, 79, 68, 0.16);
+  background: rgba(255, 79, 68, 0.08);
   color: var(--red);
 }
 
@@ -3355,9 +3465,9 @@ p {
   width: fit-content;
   max-width: 100%;
   padding: 5px 7px;
-  border: 1px solid rgba(220, 38, 38, 0.16);
+  border: 1px solid rgba(255, 79, 68, 0.16);
   border-radius: 7px;
-  background: rgba(220, 38, 38, 0.08);
+  background: rgba(255, 79, 68, 0.08);
   color: var(--red);
   font-weight: 650;
 }
@@ -3367,7 +3477,7 @@ p {
   width: fit-content;
   max-width: 100%;
   padding: 5px 7px;
-  border: 1px solid rgba(18, 104, 219, 0.16);
+  border: 1px solid rgba(111, 179, 255, 0.16);
   border-radius: 7px;
   background: var(--blue-soft);
   color: var(--blue);
@@ -3375,14 +3485,14 @@ p {
 }
 
 .opportunity-row__submit-state--ready {
-  border-color: rgba(5, 150, 105, 0.18);
-  background: rgba(5, 150, 105, 0.09);
-  color: #047857;
+  border-color: rgba(75, 208, 122, 0.18);
+  background: rgba(75, 208, 122, 0.09);
+  color: var(--pd-money-up);
 }
 
 .opportunity-row__submit-state--blocked {
-  border-color: rgba(220, 38, 38, 0.16);
-  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(255, 79, 68, 0.16);
+  background: rgba(255, 79, 68, 0.08);
   color: var(--red);
 }
 
@@ -3411,7 +3521,7 @@ p {
 }
 
 .opportunity-preview {
-  border-color: rgba(18, 104, 219, 0.24);
+  border-color: rgba(111, 179, 255, 0.24);
   background: var(--blue-soft);
   color: var(--blue);
 }
@@ -3519,15 +3629,15 @@ p {
 }
 
 .portfolio-delta-posture.ok {
-  color: #12834b;
+  color: var(--pd-money-up);
 }
 
 .portfolio-delta-posture.warn {
-  color: #9a6500;
+  color: var(--pd-watch-tint);
 }
 
 .portfolio-delta-posture.risk {
-  color: #c52a26;
+  color: var(--pd-money-down);
 }
 
 .portfolio-delta-posture.neutral {
@@ -3554,7 +3664,7 @@ p {
   min-height: 28px;
   border: 1px solid var(--line-soft);
   border-radius: 7px;
-  background: #eef1f5;
+  background: #22262e;
 }
 
 .exposure-visual__segment {
@@ -3668,7 +3778,7 @@ p {
 
 .greeks-row b {
   margin-left: auto;
-  color: #139953;
+  color: var(--pd-money-up);
   font-size: 14px;
   font-weight: 740;
   white-space: nowrap;
@@ -3747,7 +3857,7 @@ p {
   padding: 2px;
   border: 0;
   border-radius: 7px;
-  background: #eff1f3;
+  background: #171b21;
 }
 
 .segments button {
@@ -3763,9 +3873,9 @@ p {
 }
 
 .segments button.active {
-  background: #fff;
+  background: #262b33;
   color: var(--ink);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .alert-active-count {
@@ -3783,7 +3893,7 @@ p {
 }
 
 .alert-active-count.has-warn {
-  color: #b87500;
+  color: var(--pd-watch-tint);
 }
 
 .alert-active-count.is-zero {
@@ -3891,7 +4001,7 @@ p {
   min-height: 31px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface-soft);
   color: var(--ink);
   font: inherit;
   font-size: 13px;
@@ -4060,7 +4170,7 @@ p {
   flex: none;
   padding: 1px 7px;
   border-radius: 999px;
-  background: var(--blue-soft, rgba(59, 130, 246, 0.14));
+  background: var(--blue-soft, rgba(111, 179, 255, 0.14));
   color: var(--blue);
   font-size: 10px;
   font-weight: 750;
@@ -4068,12 +4178,12 @@ p {
 }
 
 .alert-chip--warn {
-  background: rgba(234, 138, 42, 0.14);
+  background: rgba(255, 180, 59, 0.14);
   color: var(--orange);
 }
 
 .alert-chip--risk {
-  background: rgba(217, 65, 65, 0.14);
+  background: rgba(255, 79, 68, 0.14);
   color: var(--red);
 }
 
@@ -4346,7 +4456,7 @@ p {
   padding: 3px 7px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #fff;
+  background: var(--surface);
   color: var(--muted);
   font-size: 10px;
   font-weight: 720;
@@ -4374,7 +4484,7 @@ p {
   padding: 8px;
   border: 1px solid var(--line-soft);
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .alert-source-row b {
@@ -4611,7 +4721,7 @@ p {
 .stress-hero .text-button--dark,
 .alert-focus .text-button--dark {
   border-color: var(--line);
-  background: #fff;
+  background: var(--surface);
   color: var(--blue);
 }
 
@@ -4691,9 +4801,9 @@ p {
   min-height: 52px;
   margin-top: 10px;
   padding: 0 13px;
-  border: 1px solid rgba(40, 199, 111, 0.36);
+  border: 1px solid rgba(75, 208, 122, 0.36);
   border-radius: 10px;
-  background: rgba(245, 252, 248, 0.92);
+  background: rgba(75, 208, 122, 0.06);
   box-shadow: var(--shadow-soft);
 }
 
@@ -4701,7 +4811,7 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #149452;
+  color: var(--pd-money-up);
   font-size: 13px;
   font-weight: 650;
   text-transform: capitalize;
@@ -4751,11 +4861,11 @@ p {
 }
 
 .signed.ok {
-  color: #139953;
+  color: var(--pd-money-up);
 }
 
 .signed.risk {
-  color: var(--red);
+  color: var(--pd-money-down);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -4768,10 +4878,6 @@ p {
 }
 
 @media (min-width: 760px) {
-  h1 {
-    font-size: 34px;
-  }
-
   .stress-hero__grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4946,113 +5052,23 @@ p {
   }
 }
 
-@media (max-width: 560px) {
-  .market-strip {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    min-height: 0;
-    margin-left: 0;
-    padding-right: 2px;
-    padding-left: 2px;
-  }
-
-  .market-strip__session {
-    flex-wrap: wrap;
-  }
-
-  .market-strip__quotes {
-    grid-auto-columns: 132px;
-  }
-
-  .market-strip__status {
-    gap: 7px;
-  }
-
-  .market-strip__phase {
-    min-width: 0;
-    max-width: 100%;
-    font-size: 14px;
-  }
-
-  .market-strip__selector select {
-    font-size: 15px;
-  }
-
-  .market-quote-cell strong,
-  .market-quote-cell .market-change {
-    font-size: 13px;
-  }
-}
+/* The Panel Dark chrome is fixed-size by design: engraved 9-10px legends and
+   a 16px readout do not rescale per breakpoint, so only the shell padding
+   below still adapts. */
 
 @media (max-width: 430px) {
   .shell {
     --shell-pad-x: 13px;
   }
 
-  .app-header {
-    gap: 8px;
-  }
-
-  .brand-block {
-    gap: 9px;
-  }
-
-  h1 {
-    font-size: 24px;
-  }
-
-  h1 sub {
-    font-size: 9px;
-    letter-spacing: 0.05em;
-  }
-
-  .market-strip {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    min-height: 0;
-    margin-left: 0;
-    padding-right: 2px;
-    padding-left: 2px;
-  }
-
-  .market-strip__status {
-    gap: 7px;
-  }
-
-  .market-strip__phase {
-    min-width: 0;
-    max-width: 100%;
-    font-size: 13px;
-  }
-
   .market-strip__side {
     display: none;
   }
 
-  .account-primary {
-    padding-right: 9px;
-    padding-left: 9px;
-  }
-
-  .account-primary strong {
-    font-size: 16px;
-  }
-
   .account-primary strong.is-private {
-    font-size: 16px;
+    font-size: 15px;
     letter-spacing: 0.08em;
     white-space: nowrap;
-  }
-
-  .account-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 0;
-  }
-
-  .account-primary:nth-child(3) {
-    grid-column: 1 / -1;
-    padding-left: 0;
-    border-left: 0;
   }
 
   .open-order-row {
@@ -5079,21 +5095,10 @@ p {
     --shell-pad-x: 11px;
   }
 
-  h1 {
-    font-size: 24px;
-  }
-
-  .brand-mark {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
-  }
-
-  .market-strip {
-    gap: 7px;
-    margin-left: 0;
-    padding-top: 2px;
-    padding-bottom: 2px;
+  /* Below 375 the mark carries the brand on its own so the session chip
+     keeps its countdown whole. */
+  .brand-copy {
+    display: none;
   }
 
   .market-strip__side {

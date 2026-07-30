@@ -437,6 +437,9 @@ function renderAttention() {
     badge.hidden = !known || unread === 0;
     badge.textContent = known && unread > 0 ? (unread > 99 ? "99+" : String(unread)) : "";
     badge.setAttribute("aria-hidden", "true");
+    const severity = highestActiveAlertSeverity();
+    badge.classList.toggle("bottom-tab__badge--act", severity === "act");
+    badge.classList.toggle("bottom-tab__badge--watch", severity === "watch");
   }
   // An invalidated feed makes the unread state unknown, not zero: never
   // announce "no unread alerts" or clear the OS icon badge on it.
@@ -447,6 +450,17 @@ function renderAttention() {
     status.textContent = state.attentionStatus.state;
     status.classList.toggle("governance-action-status--error", state.attentionStatus.error);
   }
+}
+
+// The tab badge follows the loudest ACTIVE alert, read straight off the
+// validated inbox feed — no new client-side severity policy. act and urgent
+// lamp red, watch lamps amber, everything else stays a neutral count chip.
+// An invalidated feed asserts nothing about severity and stays neutral.
+function highestActiveAlertSeverity() {
+  if (state.alertsFeedValid === false) return "";
+  const active = (state.alerts?.occurrences || []).filter((item) => item.ended_at === null);
+  if (active.some((item) => item.severity === "act" || item.severity === "urgent")) return "act";
+  return active.some((item) => item.severity === "watch") ? "watch" : "";
 }
 
 function syncAppIconBadge(unread) {

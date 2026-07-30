@@ -743,9 +743,11 @@ async function assertVisibleRenameContract(page) {
 }
 
 async function exerciseMarketLayout(page) {
+  // Panel Dark session chip: "RTH · closes 3:59" while open, "opens 17:12"
+  // otherwise — a minutes-precision countdown in both directions.
   await page.waitForFunction(() => {
     const text = document.getElementById("sessionPhase")?.textContent?.trim() || "";
-    return /\b(closing|opening) in\b/i.test(text);
+    return /\b(closes|opens) \d+d? ?\d*:\d{2}\b/i.test(text);
   }, { timeout: 10000 });
   const layout = await page.evaluate(() => {
     const regimeHalf = document.getElementById("regimeSummaryCard");
@@ -800,11 +802,14 @@ async function exerciseMarketLayout(page) {
   if (!layout.accountAfterMarketStrip) {
     throw new Error("Account panel should appear below the market countdown in DOM order");
   }
-  if (layout.marketOpen && !/\bclosing in\b/i.test(layout.phase)) {
-    throw new Error(`open market line should contain closing in: ${JSON.stringify(layout.phase)}`);
+  if (layout.marketOpen && !/\bcloses \d/i.test(layout.phase)) {
+    throw new Error(`open market chip should count down to the close: ${JSON.stringify(layout.phase)}`);
   }
-  if (!layout.marketOpen && !/\bopening in\b/i.test(layout.phase)) {
-    throw new Error(`closed market line should contain opening in: ${JSON.stringify(layout.phase)}`);
+  if (!layout.marketOpen && !/\bopens \d/i.test(layout.phase)) {
+    throw new Error(`closed market chip should count down to the open: ${JSON.stringify(layout.phase)}`);
+  }
+  if (/:\d{2}:\d{2}\b/.test(layout.phase)) {
+    throw new Error(`session countdown should stop at minutes, not tick seconds: ${JSON.stringify(layout.phase)}`);
   }
   if (layout.accountHasUnderlyingBook) {
     throw new Error("Account panel still contains the underlyings subledger");
@@ -812,8 +817,8 @@ async function exerciseMarketLayout(page) {
   if (layout.stressHasUnderlyingBook || !layout.standaloneHasUnderlyingBook) {
     throw new Error("Underlyings subledger should be standalone, not inside Portfolio stress");
   }
-  if (layout.quoteCells !== 6) {
-    throw new Error(`market strip should render six bounded quote cells, found ${layout.quoteCells}`);
+  if (layout.quoteCells !== 3) {
+    throw new Error(`market strip should render three bounded quote cells, found ${layout.quoteCells}`);
   }
   if (layout.underlyingOpen) {
     throw new Error("Underlyings should be folded by default");
@@ -821,8 +826,8 @@ async function exerciseMarketLayout(page) {
   if (layout.marketStyle.stripShadow !== "none" || layout.marketStyle.quoteBorder !== "0px" || layout.marketStyle.quoteRadius !== "0px") {
     throw new Error(`market strip should be flat and unframed: ${JSON.stringify(layout.marketStyle)}`);
   }
-  if (!/^1[1-3]px$/.test(layout.marketStyle.labelSize)) {
-    throw new Error(`market symbol labels should use compact subtle sizing: ${JSON.stringify(layout.marketStyle)}`);
+  if (!/^(9|10|11)(\.\d+)?px$/.test(layout.marketStyle.labelSize)) {
+    throw new Error(`market symbol labels should use compact engraved sizing: ${JSON.stringify(layout.marketStyle)}`);
   }
   if (/\b(Xetra|US market|US equities|US options)\b/i.test(layout.phase)) {
     throw new Error(`market line should not repeat the selected market label: ${JSON.stringify(layout.phase)}`);
@@ -1151,7 +1156,7 @@ async function exerciseMarketContext(page) {
       // Keep the no-value assertion below for app instances without live data.
     }
   }
-  const expectedSymbols = ["SPY", "QQQ", "IWM", "VIX", "HYG", "TLT"];
+  const expectedSymbols = ["SPY", "VIX", "QQQ"];
   if (before.quotes.length !== expectedSymbols.length) {
     throw new Error(`market strip should render ${expectedSymbols.length} quote cells: ${JSON.stringify(before.quotes)}`);
   }
