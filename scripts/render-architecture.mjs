@@ -834,68 +834,6 @@ function stepCard({ x, y, width, number, title, lines, color = C.slate }) {
   </g>`;
 }
 
-function sqliteUpdateLifecycle() {
-  const body = `
-  ${header("SQLite Mutation and Upgrade Lifecycle", "Every commit advances the authority head; startup validates before RPC or broker connectivity.")}
-
-  ${legendItem(1035, 40, "green", "Validated authority")}
-  ${legendItem(1208, 40, "slate", "Local durable flow")}
-  ${legendItem(1035, 64, "amber", "Anti-rollback", { dotted: true })}
-  ${legendItem(1208, 64, "blue", "Recovery artifact", { dashed: true })}
-
-  <rect x="36" y="126" width="1368" height="214" rx="16" fill="${C.panelAlt}" stroke="${C.line}"/>
-  <text x="56" y="154" class="layer">NORMAL MUTATION · ONE SERIALIZED WRITER</text>
-  ${stepCard({ x: 56, y: 174, width: 238, number: "1", title: "Validate input", lines: ["scope · revision · payload", "typed invariants"], color: C.slate })}
-  ${stepCard({ x: 326, y: 174, width: 238, number: "2", title: "BEGIN transaction", lines: ["CAS state and/or insert", "event · observation · safety rows"], color: C.slate })}
-  ${stepCard({ x: 596, y: 174, width: 238, number: "3", title: "Advance head", lines: ["head_generation monotonic", "event_seq when applicable"], color: C.green })}
-  ${stepCard({ x: 866, y: 174, width: 238, number: "4", title: "Commit SQLite", lines: ["WAL · FULL sync · foreign keys", "failure publishes nothing"], color: C.green })}
-  ${stepCard({ x: 1136, y: 174, width: 248, number: "5", title: "Seal watermark", lines: ["fsync daemon.db.head", "then publish in-memory / RPC"], color: C.amber })}
-  ${line("M300 226H320", "slate")}
-  ${line("M570 226H590", "slate")}
-  ${line("M840 226H860", "green")}
-  ${line("M1110 226H1130", "amber", { dotted: true })}
-
-  <rect x="36" y="372" width="1368" height="352" rx="16" fill="${C.panel}" stroke="${C.greenLine}" stroke-width="1.4"/>
-  <text x="56" y="402" class="layer">STARTUP GATE · BEFORE ADAPTERS, RPC, SCHEDULERS, OR BROKER CONNECTIONS</text>
-  ${stepCard({ x: 56, y: 424, width: 250, number: "1", title: "Inspect published DB", lines: ["locks · file/sidecars · app id", "schema · ledger · min head"], color: C.slate })}
-  ${stepCard({ x: 330, y: 424, width: 250, number: "2", title: "Validate authority", lines: ["objects · integrity · foreign keys", "content hashes · counters"], color: C.green })}
-  ${stepCard({ x: 604, y: 424, width: 250, number: "3", title: "Compare versions", lines: ["equal → verified open", "newer → refuse downgrade"], color: C.green })}
-  ${line("M312 476H324", "slate")}
-  ${line("M586 476H598", "green")}
-
-  <path d="M729 534V558H159V574" fill="none" stroke="${C.slate}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-slate)"/>
-  <text x="592" y="550" class="mono-small">older, valid schema → out-of-place coordinator</text>
-
-  ${stepCard({ x: 56, y: 580, width: 206, number: "4", title: "Exact-head backup", lines: ["standalone · verified", "source stays published"], color: C.blue })}
-  ${stepCard({ x: 282, y: 580, width: 206, number: "5", title: "Migrate candidate", lines: ["same directory · ordered", "transactional migrations"], color: C.slate })}
-  ${stepCard({ x: 508, y: 580, width: 206, number: "6", title: "Validate + manifest", lines: ["target objects · hashes", "fsynced recovery phase"], color: C.green })}
-  ${stepCard({ x: 734, y: 580, width: 206, number: "7", title: "Arm watermark", lines: ["candidate head bound", "old WAL quiesced"], color: C.amber })}
-  ${stepCard({ x: 960, y: 580, width: 206, number: "8", title: "Atomic publish", lines: ["rename candidate", "fsync parent · reopen"], color: C.green })}
-  ${stepCard({ x: 1186, y: 580, width: 198, number: "9", title: "Verify + finalize", lines: ["remove manifest", "backup stays recovery-only"], color: C.green })}
-  ${line("M268 632H276", "blue", { dashed: true })}
-  ${line("M494 632H502", "slate")}
-  ${line("M720 632H728", "green")}
-  ${line("M946 632H954", "amber", { dotted: true })}
-  ${line("M1172 632H1180", "green")}
-
-  <rect x="884" y="424" width="500" height="106" rx="12" fill="${C.amberSoft}" stroke="${C.amber}" stroke-dasharray="7 5"/>
-  ${icon("lock", 904, 442, 26, C.amber, 2)}
-  <text x="944" y="458" class="card-title">Any ambiguity fails closed</text>
-  <text x="904" y="484" class="card-sub"><tspan x="904">corruption · future schema · missing watermark · tamper</tspan><tspan x="904" dy="16">mismatched recovery artifacts · unsafe sidecars</tspan></text>
-
-  <text x="1404" y="758" text-anchor="end" class="footnote">no in-place upgrade · no automatic repair/restore · no legacy-file fallback</text>
-  `;
-
-  return svgFrame({
-    width: 1440,
-    height: 792,
-    title: "SQLite Mutation and Upgrade Lifecycle (Canary)",
-    description: "The normal mutation lane validates, transactionally commits state and evidence, advances the authority head, seals an external watermark, and only then publishes. Startup validates the entire authority and upgrades older schemas through a verified backup and unpublished candidate before atomic publication.",
-    body,
-    extraStyles: referenceDiagramStyles,
-  });
-}
-
 function sensorBox({ x, y, width, height, title, lines, color = C.slate, iconName = "cpu", fill = C.panel, dark = false }) {
   const titleFill = dark ? "#ffffff" : C.ink;
   const bodyClass = dark ? "node-sub on-dark" : "card-sub";
@@ -1065,7 +1003,6 @@ const outputs = new Map([
   ["policy-authority.svg", cleanGeneratedSVG(policyArchitecture())],
   ["storage-overview.svg", cleanGeneratedSVG(storageOverview())],
   ["sqlite-data-model.svg", cleanGeneratedSVG(sqliteDataModel())],
-  ["sqlite-update-lifecycle.svg", cleanGeneratedSVG(sqliteUpdateLifecycle())],
   ["sensor-authority-pipeline.svg", cleanGeneratedSVG(sensorAuthorityPipeline())],
   ["sensor-freshness-timeline.svg", cleanGeneratedSVG(sensorFreshnessTimeline())],
 ]);

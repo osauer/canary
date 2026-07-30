@@ -14,7 +14,6 @@ rsvg-convert --zoom=2 policy-lifecycle.svg --output policy-lifecycle.png
 rsvg-convert --zoom=2 policy-authority.svg --output policy-authority.png
 rsvg-convert --zoom=2 storage-overview.svg --output storage-overview.png
 rsvg-convert --zoom=2 sqlite-data-model.svg --output sqlite-data-model.png
-rsvg-convert --zoom=2 sqlite-update-lifecycle.svg --output sqlite-update-lifecycle.png
 rsvg-convert --zoom=2 sensor-authority-pipeline.svg --output sensor-authority-pipeline.png
 rsvg-convert --zoom=2 sensor-freshness-timeline.svg --output sensor-freshness-timeline.png
 ```
