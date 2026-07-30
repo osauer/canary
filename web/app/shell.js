@@ -173,9 +173,14 @@ function renderSyncStrip(snap) {
       : ageMinutes >= 5
         ? "stale"
         : "live";
-  $("syncStatusLabel").textContent = sourceIssues > 0 ? "Data gaps" : "Last sync:";
-  $("syncStatusTime").textContent = `${shortTimeWithZone(snap.updated_at)} · ${state.connectionOK ? "SSE connected" : "SSE reconnecting"}`;
+  // Panel Dark foot plate: "Snapshot HH:MM:SS · Auto" in the engraved
+  // register. The transport word moved into the plate's title so the line
+  // stays a stamp rather than a status paragraph.
+  $("syncStatusLabel").textContent = sourceIssues > 0 ? "Data gaps" : "Snapshot";
+  $("syncStatusTime").textContent = shortTimeWithZone(snap.updated_at);
   $("syncStatusState").textContent = labelize(stateLabel);
+  strip.classList.toggle("sync-strip--degraded", stateLabel !== "live");
+  strip.title = state.connectionOK ? "SSE connected" : "SSE reconnecting";
   strip.hidden = false;
 }
 

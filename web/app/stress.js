@@ -1,7 +1,7 @@
 import { stressProtectionCoverageFor, protectionCoverageBaseCurrency, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestText, protectionCoverageStaleText } from "./protection-coverage.js";
 import { unknownEventRuleNote } from "./earnings-relevance.js";
 import { earningsApplicabilitySummary, earningsHealthNotes, ruleStatusLabel, rulesCountSummary, wshEntitlementNotice } from "./rules-presentation.js";
-import { $, cleanDetail, firstNumber, labelize, normalizeSymbol, numberRead, parseDate, pct, quoteTimestamp, renderFreshnessTimestamp, shortTimeWithZone, signedClass, signedPct } from "./shared.js";
+import { $, cleanDetail, firstNumber, labelize, normalizeSymbol, numberRead, parseDate, pct, quoteTimestamp, renderFreshnessTimestamp, shortTimeWithZone, signedClass, signedPct, wholePct } from "./shared.js";
 import { state } from "./state.js";
 
 const RULE_TONES = { act: "risk", watch: "warn", pass: "ok", info: "neutral", unknown: "neutral", not_evaluated: "neutral" };
@@ -16,19 +16,23 @@ function ruleTone(status) {
 // grid shows all rows. Read-only by design — no order actions here.
 function renderRulesCard(rules) {
   const card = $("stressRulesCard");
+  const strip = $("stressRulesStrip");
   const detail = $("stressRulesDetailPanel");
-  if (!card || !detail) return;
+  if (!card || !strip || !detail) return;
   if (!rules || rules.enabled === false || !Array.isArray(rules.rules) || rules.rules.length === 0) {
     card.hidden = true;
+    strip.hidden = true;
     detail.hidden = true;
     return;
   }
   card.hidden = false;
-  $("stressRulesCounts").textContent = rulesCountSummary(rules);
+  strip.hidden = false;
+  $("stressRulesCounts").textContent = rulesTileFigure(rules);
 
   const order = Array.isArray(rules.ranked) && rules.ranked.length === rules.rules.length
     ? rules.ranked
     : rules.rules.map((_, i) => i);
+  renderRulesTileState(rules, order);
   const brief = $("stressRulesBrief");
   brief.replaceChildren();
   let shown = 0;
@@ -67,9 +71,39 @@ function renderRulesCard(rules) {
   }
 }
 
+// The tile figure states the served tally over its denominator, so "2 watch"
+// is read against the size of the daemon's checklist rather than alone.
+function rulesTileFigure(rules = {}) {
+  const rows = Array.isArray(rules.rules) ? rules.rules : [];
+  const pass = typeof rules.breach_counts?.pass === "number"
+    ? rules.breach_counts.pass
+    : rows.filter((row) => row?.status === "pass").length;
+  const summary = rulesCountSummary(rules);
+  return summary === "all pass" ? `${pass} pass` : `${pass} pass · ${summary}`;
+}
+
+
+// The Rules window states the worst flagged rule the daemon ranked — its own
+// title, verbatim — over the served tally. An info-only day lamps nothing and
+// shows the advisory dot instead, so "info" never reads as a breach.
+function renderRulesTileState(rules, order) {
+  const card = $("stressRulesCard");
+  const caption = $("stressRulesState");
+  const dot = $("stressRulesInfoDot");
+  if (!card || !caption || !dot) return;
+  const worst = order.map((ix) => rules.rules[ix]).find((rule) => rule && rule.status !== "pass");
+  const status = String(worst?.status || "").toLowerCase();
+  const infoOnly = Boolean(worst) && status === "info";
+  applyTileSeverity(card, status === "act" ? "act" : status === "watch" ? "watch" : "");
+  dot.hidden = !infoOnly;
+  caption.textContent = worst ? cleanDetail(worst.title) : "No breaches";
+  caption.title = worst ? `${worst.number} · ${worst.title} · ${ruleStatusLabel(worst.status, worst.reason)}` : "Every evaluated rule passes";
+}
+
+
 // The note builders return five independent degradation notices; joining them
 // into one paragraph is what made them unreadable. Each keeps its own block,
-// behind an info affordance so the rule tiles stay at the top of the card.
+// behind an info affordance so the ranked rule chips keep the strip.
 function renderRulesNotes(parts, attention) {
   const trigger = $("stressRulesNotesToggle");
   const list = $("stressRulesNotesList");
@@ -219,22 +253,26 @@ function stressExplanationCards(stress, snap = state.snapshot || {}) {
   ];
 }
 
-function renderStressStatus(stress) {
-  const severity = String(stress.severity || "").toLowerCase();
-  const hero = $("stressHero");
-  const pill = $("stressSeverity");
-  hero.classList.remove("severity-act", "severity-watch", "severity-observe");
-  pill.classList.remove("severity-act", "severity-watch", "severity-observe");
-  if (severity === "act") {
-    hero.classList.add("severity-act");
-    pill.classList.add("severity-act");
-  } else if (severity === "watch") {
-    hero.classList.add("severity-watch");
-    pill.classList.add("severity-watch");
-  } else if (severity === "observe") {
-    hero.classList.add("severity-observe");
-    pill.classList.add("severity-observe");
-  }
+// The Stress window: served severity as the caption, served action and the
+// portfolio cushion as the figure. The full served summary stays one hover
+// (and one tap into the detail panel) away rather than crowding the tile.
+function renderStressStatus(stress, snap = state.snapshot || {}) {
+  applyTileSeverity($("stressHero"), String(stress.severity || "").toLowerCase());
+  $("stressSeverity").textContent = labelize(stress.severity || "--");
+  $("stressAction").textContent = stressStageLabel(stress);
+  const summary = $("stressSummary");
+  const full = stressSummaryText(stress, snap);
+  summary.textContent = stressCushionFigure(stress);
+  summary.title = full;
+}
+
+
+// No trip anchor: the stress payload serves the cushion reading but no
+// cushion threshold, so the figure states what was measured and stops there.
+function stressCushionFigure(stress = {}) {
+  const cushion = stress.portfolio?.cushion_pct;
+  if (typeof cushion !== "number") return "cushion pending";
+  return `cushion ${wholePct(cushion)}`;
 }
 
 function stressStageLabel(stress) {
@@ -242,10 +280,11 @@ function stressStageLabel(stress) {
   if (action === "defend") return "Defend";
   if (action === "rebalance") return "Rebalance";
   if (action === "confirm_inputs") return "Check data";
+  if (action === "stand_down") return "Stand down";
   const severity = String(stress.severity || "").toLowerCase();
   if (severity === "act") return "Defend";
   if (severity === "watch") return "Watch";
-  if (severity === "observe") return "Steady";
+  if (severity === "observe") return "Stand down";
   return labelize(stress.action || "--");
 }
 
@@ -556,8 +595,15 @@ function renderRegimePanel(snap) {
   const regimeStatus = marketRegimeStatusLine(snap, stress, market, indicators);
   $("marketRegime").textContent = regimeAuthorityLabel(posture, authority);
   const summary = $("marketRegimeSummary");
-  summary.textContent = regimeStatus.summary;
-  summary.title = regimeStatus.title || regimeStatus.detail || regimeStatus.summary;
+  const subline = masterSubline(snap, stress);
+  summary.textContent = subline;
+  // The subline clamps; its title keeps the full text plus the freshness or
+  // authority explanation behind it, so nothing disclosed here is truncated
+  // out of reach.
+  summary.title = [subline, regimeStatus.title || regimeStatus.detail || regimeStatus.summary]
+    .filter(Boolean).join(" — ");
+  applyTileSeverity($("masterAnnunciator"), masterSeverity(snap, stress));
+  renderLampTest(snap, stress);
   // marketRegimeMix now lives in the expanded detail deck and shows only the
   // governed-severity note (a real policy downgrade disclosure) — not a
   // repeat of the freshness badge or the itemized data-gap list, both of
@@ -572,7 +618,279 @@ function renderRegimePanel(snap) {
   renderRegimeAuthorityTimestamp(snap, latestRegimeTimestamp(stress, indicators));
   reconcileSignalPanelTimes();
   renderMarketWeather(regimePresentationPosture(posture, authority));
+  renderRegimeGrid(snap, stress);
   renderRegimeDetail(indicators, snap, stress);
+}
+
+
+// Severity ranking for the annunciator lamps. Only the daemon's own severity
+// words appear here; the rank exists so the master can light on the worst
+// SERVED verdict rather than inventing one.
+const SEVERITY_RANK = { observe: 1, watch: 2, act: 3, urgent: 4 };
+
+function severityRank(value) {
+  return SEVERITY_RANK[String(value || "").trim().toLowerCase()] || 0;
+}
+
+function worstSeverity(...values) {
+  return values.reduce((worst, value) => (severityRank(value) > severityRank(worst) ? value : worst), "");
+}
+
+
+// masterSeverity is the worst severity the daemon serves across the two
+// verdicts this panel shows — portfolio stress and the regime posture. A
+// master annunciator that stayed dark while a subordinate window was lit
+// would be a lie, so the master takes the maximum; it never derives a
+// severity of its own.
+function masterSeverity(snap = {}, stress = {}) {
+  const regime = snap.regime || {};
+  return String(worstSeverity(
+    stress.severity,
+    regime.posture?.severity,
+    regime.lifecycle?.severity,
+  ) || "").toLowerCase();
+}
+
+
+// applyTileSeverity is the one place a severity word becomes a lamp class.
+// "stale" is the dead-window treatment: a darker face with no severity tint,
+// used when the served cluster health says the reading cannot be trusted.
+function applyTileSeverity(el, severity) {
+  if (!el) return;
+  el.classList.remove("pd-tile--watch", "pd-tile--act", "pd-tile--info", "pd-tile--stale");
+  const key = String(severity || "").trim().toLowerCase();
+  if (key === "watch" || key === "yellow") el.classList.add("pd-tile--watch");
+  else if (key === "act" || key === "urgent" || key === "red") el.classList.add("pd-tile--act");
+  else if (key === "info") el.classList.add("pd-tile--info");
+  else if (key === "stale") el.classList.add("pd-tile--stale");
+}
+
+
+// masterSubline states the action first, then anything the panel would
+// otherwise disclose only in a subordinate window, then the served timing
+// word. The red-window clause is the master law in code: when cluster
+// windows are lit red while the master is not at act grade, the master says
+// so instead of letting the two surfaces disagree in silence.
+function masterSubline(snap = {}, stress = {}) {
+  const action = stressStageLabel(stress);
+  const parts = [action === "--" ? "" : action, masterSeverity(snap, stress)];
+  // The daemon ranks more clusters than this panel gives windows to, so the
+  // reds are named, not just counted: a red cluster without a window of its
+  // own has nowhere else on the Monitor face to appear.
+  const reds = stress.market?.red_cluster_names || [];
+  if (reds.length > 0) parts.push(`${reds.length} red: ${reds.join(", ")}`);
+  // A dead window under a quiet master is the same silent disagreement as a
+  // lit one, so the master names the windows it cannot read.
+  const dark = REGIME_CLUSTERS
+    .filter((cluster) => regimeClusterBand(cluster, snap, stress) === "stale")
+    .map((cluster) => cluster.legend.toLowerCase());
+  if (dark.length > 0) parts.push(`${dark.join(", ")} dark`);
+  parts.push(regimeGovernedNote(snap, stress.market || {}));
+  const timing = cleanDetail(snap.regime?.lifecycle?.timing);
+  if (timing !== "--") parts.push(labelize(timing).toLowerCase());
+  return parts.filter(Boolean).join(" · ");
+}
+
+
+// The lamp test is the panel's own self-report: how many served feeds are
+// healthy, and which ones are not. The count covers the daemon's regime and
+// stress source-health entries (the instrument's feeds); app-transport
+// failures are named as faults but never silently change the feed count.
+function renderLampTest(snap = {}, stress = {}) {
+  const stamp = $("lampTestStamp");
+  if (!stamp) return;
+  const health = lampTestSources(snap, stress);
+  const at = parseDate(snap.updated_at);
+  const when = at ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--";
+  stamp.replaceChildren();
+  const lead = document.createElement("span");
+  lead.textContent = `Last snapshot ${when} · `;
+  const count = document.createElement("b");
+  count.className = health.faults.length > 0 ? "pd-dimcount" : "";
+  count.textContent = `${health.ok}/${health.total} sources ok`;
+  stamp.append(lead, count);
+  if (health.faults.length > 0) {
+    const note = document.createElement("span");
+    note.className = "pd-stale-note";
+    note.textContent = ` · ${humanList(health.faults, 2)}`;
+    stamp.append(note);
+  }
+  stamp.title = health.faults.length > 0
+    ? `Served source health: ${health.ok} of ${health.total} ok; ${health.faults.join(", ")}`
+    : `Served source health: ${health.ok} of ${health.total} ok`;
+}
+
+function lampTestSources(snap = {}, stress = {}) {
+  const seen = new Map();
+  for (const source of [...(snap.regime?.source_health || []), ...(stress.source_health || [])]) {
+    const name = String(source?.source || "").trim().toLowerCase();
+    if (!name || seen.has(name)) continue;
+    seen.set(name, String(source?.status || "").trim().toLowerCase());
+  }
+  const faults = [];
+  let ok = 0;
+  for (const [name, status] of seen) {
+    if (!status || status === "ok") {
+      ok++;
+      continue;
+    }
+    faults.push(`${clusterInputLabel(name)} ${status}`);
+  }
+  for (const [name, meta] of Object.entries(snap.sources || {})) {
+    if (!meta?.error) continue;
+    faults.push(`${snapshotSourceName(name)} unavailable`);
+  }
+  return { ok, total: seen.size, faults: [...new Set(faults)] };
+}
+
+function snapshotSourceName(name) {
+  const key = String(name || "").trim().toLowerCase();
+  return key === "market_quotes" ? "market quotes" : clusterInputLabel(key);
+}
+
+
+// The four regime windows, in fixed positions. Nothing here is reordered by
+// severity: an instrument that moves cannot be read by muscle memory, and
+// the lamps already say which window needs attention.
+const REGIME_CLUSTERS = [
+  { key: "breadth", legend: "Breadth", sources: ["breadth"], match: ["breadth"] },
+  { key: "vol", legend: "Volatility", sources: ["vol", "volatility"], match: ["vix", "vol"] },
+  { key: "credit", legend: "Credit", sources: ["credit"], match: ["credit", "hyg", "oas", "hy/ig"] },
+  { key: "gamma", legend: "Dealer gamma", sources: ["gamma"], match: ["gamma", "γ-zero"] },
+];
+
+function renderRegimeGrid(snap = {}, stress = {}) {
+  const grid = $("regimeSummaryCard");
+  if (!grid) return;
+  grid.replaceChildren(...REGIME_CLUSTERS.map((cluster) => regimeClusterTile(cluster, snap, stress)));
+}
+
+function regimeClusterTile(cluster, snap = {}, stress = {}) {
+  const band = regimeClusterBand(cluster, snap, stress);
+  const lead = clusterLeadIndicator(cluster, stress);
+  const tile = document.createElement("div");
+  tile.className = "pd-tile";
+  applyTileSeverity(tile, band);
+  const bar = document.createElement("span");
+  bar.className = "pd-tile__bar";
+  bar.setAttribute("aria-hidden", "true");
+  const legend = document.createElement("span");
+  legend.className = "pd-tile__legend";
+  legend.textContent = cluster.legend;
+  const cap = document.createElement("b");
+  cap.className = "pd-tile__cap";
+  cap.textContent = clusterCaption(lead, band);
+  const fig = document.createElement("div");
+  fig.className = "pd-tile__fig";
+  fig.textContent = clusterFigure(lead, band);
+  tile.append(bar, legend, cap, fig);
+  // No trip anchor: the app snapshot's indicators carry no served threshold
+  // bands, so the tile shows the reading the daemon did serve and keeps the
+  // rest of that evidence in the title rather than inventing a cutoff.
+  tile.title = [lead.name, lead.reading, lead.comment, indicatorAsOfLabel(lead.as_of)]
+    .map((part) => humanizeStalenessSeconds(cleanDetail(part)))
+    .filter((part) => part && part !== "--")
+    .join(" · ");
+  tile.setAttribute("aria-label", `${cluster.legend} ${clusterCaption(lead, band)}`);
+  return tile;
+}
+
+
+// The caption is served text: the indicator's own worded comment, falling
+// back to its reading and then to the served band word. Nothing is composed
+// from the numbers here — a caption this renderer wrote would be analysis
+// the daemon never published.
+function clusterCaption(lead = {}, band = "") {
+  for (const source of [lead.comment, lead.reading]) {
+    const clause = leadingClause(source);
+    if (clause) return clause;
+  }
+  return band === "stale" ? "Fault" : labelize(band || "no read");
+}
+
+
+// The caption is one clause of served text, without the sentence punctuation
+// that a caps annunciator legend would carry as visual noise.
+function leadingClause(value) {
+  const text = firstClause(humanizeStalenessSeconds(cleanDetail(value))).replace(/[.;,]+$/, "").trim();
+  return text === "--" ? "" : text;
+}
+
+function clusterFigure(lead = {}, band = "") {
+  const reading = humanizeStalenessSeconds(cleanDetail(lead.reading));
+  if (reading !== "--") return reading;
+  const at = indicatorAsOfLabel(lead.as_of);
+  if (band === "stale" && at !== "--") return `Last ${at}`;
+  return "Reading pending";
+}
+
+
+// The band is the daemon's own cluster verdict, in served-authority order:
+// the regime lifecycle's per-cluster evidence, then the stress market
+// summary's cluster-name lists, and only then the worst served indicator
+// status inside the cluster. Data-quality cluster lists win over all of them
+// — a window whose input is stale must read as a dead window, not as calm.
+function regimeClusterBand(cluster, snap = {}, stress = {}) {
+  const market = stress.market || {};
+  const degraded = [
+    market.stale_clusters, market.degraded_clusters, market.partial_clusters,
+    market.computing_clusters, market.ambiguous_clusters,
+  ];
+  if (degraded.some((names) => clusterNameListed(names, cluster))) return "stale";
+  for (const item of snap.regime?.lifecycle?.evidence || []) {
+    if (String(item?.signal || "").toLowerCase() !== "cluster") continue;
+    if (!cluster.sources.includes(String(item?.source || "").trim().toLowerCase())) continue;
+    const bucket = String(item.bucket || "").trim().toLowerCase();
+    if (bucket) return bucket;
+  }
+  if (clusterNameListed(market.red_cluster_names, cluster)) return "red";
+  if (clusterNameListed(market.yellow_cluster_names, cluster)) return "yellow";
+  const indicators = clusterIndicators(cluster, stress);
+  if (indicators.length === 0) return "stale";
+  return indicators.map(indicatorBand).reduce((worst, band) => (bandRank(band) > bandRank(worst) ? band : worst), "green");
+}
+
+function clusterNameListed(names, cluster) {
+  return (names || []).some((name) => cluster.sources.includes(String(name || "").trim().toLowerCase()));
+}
+
+function clusterIndicators(cluster, stress = {}) {
+  return (stress.market_indicators || []).filter((indicator) => {
+    const name = String(indicator?.name || "").toLowerCase();
+    return cluster.match.some((needle) => name.includes(needle));
+  });
+}
+
+
+// The lead indicator is the worst-reading window inside the cluster: the one
+// whose evidence explains why the cluster lamp is lit. Ties keep served
+// order.
+function clusterLeadIndicator(cluster, stress = {}) {
+  const indicators = clusterIndicators(cluster, stress);
+  let lead = indicators[0] || {};
+  for (const indicator of indicators) {
+    if (bandRank(indicatorBand(indicator)) > bandRank(indicatorBand(lead))) lead = indicator;
+  }
+  return lead;
+}
+
+function indicatorBand(indicator = {}) {
+  const status = String(indicator.band || indicator.status || "").trim().toLowerCase();
+  if (status === "amber") return "yellow";
+  return status;
+}
+
+function bandRank(band) {
+  switch (String(band || "").trim().toLowerCase()) {
+    case "red":
+      return 3;
+    case "yellow":
+      return 2;
+    case "green":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 
@@ -1339,4 +1657,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { RULE_TONES, clusterInputLabel, detailCard, earningsApplicabilitySummary, earningsHealthNotes, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanList, humanizeStalenessSeconds, indicatorAsOfLabel, indicatorStatusClass, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, ruleStatusLabel, ruleTone, rulesCountSummary, sourceHealthMentions, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote };
+export { applyTileSeverity, bandRank, clusterCaption, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, detailCard, earningsApplicabilitySummary, earningsHealthNotes, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

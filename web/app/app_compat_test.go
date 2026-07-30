@@ -241,9 +241,9 @@ func TestCleanSlateRenameUsesStressDOMAndRetainsSafetyContracts(t *testing.T) {
 		}
 	}
 	for _, class := range []string{
-		"signal-half--stress", "stress-hero", "stress-hero__grid", "stress-hero__copy",
-		"stress-summary-actions", "stress-rules", "stress-rules__head", "stress-rules__brief",
-		"stress-rules-detail",
+		"signal-half--stress", "stress-hero", "stress-hero__copy",
+		"stress-rules", "stress-rules__head", "stress-rules__brief",
+		"stress-rules__strip", "stress-rules-detail",
 	} {
 		if !strings.Contains(html, class) || !strings.Contains(css, "."+class) {
 			t.Errorf("clean-slate rename missing stress DOM/CSS class %q", class)

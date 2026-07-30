@@ -51,6 +51,36 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
     portfolio.fx_base_currency || baseCurrency,
   ), hasNumericValue(portfolio.fx_sensitivity_per_pct));
   renderAccountLargestExposure(portfolio, stress, baseCurrency);
+  renderDeltaTile(portfolio, baseCurrency);
+}
+
+
+// The Net $ Delta window is a flush readout: no lamp slot, because a delta is
+// a reading, not an alarm. Every figure is a served portfolio field and
+// stays behind the account privacy mask.
+function renderDeltaTile(portfolio = {}, baseCurrency = "") {
+  const lead = $("deltaTileLead");
+  const sub = $("deltaTileSub");
+  if (!lead || !sub) return;
+  const delta = portfolio.dollar_delta_base ?? portfolio.dollar_delta_ccy;
+  const theta = portfolio.daily_theta_base ?? portfolio.daily_theta_ccy;
+  lead.textContent = [
+    maskedRiskMoney(delta, portfolio.dollar_delta_base_currency || portfolio.dollar_delta_ccy_currency || baseCurrency),
+    `theta ${maskedRiskMoney(theta, portfolio.daily_theta_base_currency || portfolio.daily_theta_ccy_currency || baseCurrency)}/d`,
+  ].join(" · ");
+  const largest = (portfolio.exposure_base || [])[0];
+  const top = largest?.underlying
+    ? `top ${largest.underlying}${typeof largest.market_value_pct_nlv === "number" ? ` ${pct(largest.market_value_pct_nlv)}` : ""}`
+    : "top --";
+  sub.textContent = [
+    `FX1% ${maskedRiskMoney(portfolio.fx_sensitivity_per_pct, portfolio.fx_base_currency || baseCurrency)}`,
+    top,
+  ].join(" · ");
+}
+
+function maskedRiskMoney(value, currency) {
+  if (!hasNumericValue(value)) return "--";
+  return state.accountValueVisible ? riskMoney(value, currency) : privacyMask();
 }
 
 function renderAccountDailyPnlPct(account = {}) {
@@ -149,6 +179,7 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
   const heldLabel = heldSymbols.length > 0 ? ` · ${heldSymbols.join(", ")}${heldCount > heldSymbols.length ? ` +${heldCount - heldSymbols.length}` : ""}` : "";
   const quoteSummary = underlyingQuoteSummary(rows);
   renderUnderlyingPnlSummary(underlyingHeldDailyPnlTotals(rows, baseCurrency));
+  renderMovers(rows, baseCurrency);
   renderMarketFlagRail("underlyingFlagRail", underlyingHeroMarketFlags(rows, marketEvents));
   if (count) {
     count.textContent = rows.length === 0
@@ -224,6 +255,52 @@ function renderUnderlyingPnlSummary(totals) {
     basis.textContent = `Daily P/L by underlying · all held names${marketSessionClosed() ? " · last session" : ""}`;
   }
 }
+
+// The movers row on the Monitor face: the same daily-P/L-by-underlying basis
+// the Underlyings hero uses, largest movement first, with the remainder
+// disclosed as one residual clause so the row never implies it is the whole
+// book. Money keeps the 60% tints and the account privacy mask.
+function renderMovers(rows, baseCurrency) {
+  const placard = $("moversPlacard");
+  const strip = $("moversRow");
+  if (!placard || !strip) return;
+  const movers = moverRows(rows);
+  placard.hidden = movers.length === 0;
+  strip.hidden = movers.length === 0;
+  if (movers.length === 0) {
+    strip.replaceChildren();
+    return;
+  }
+  const currency = normalizeCurrency(movers[0].pnlCurrency || baseCurrency);
+  placard.textContent = `Daily P/L by name${currency ? ` · ${currency}` : ""}`;
+  const shown = movers.slice(0, 3);
+  const rest = movers.slice(shown.length);
+  const cells = shown.map((mover) => moverCell(mover.symbol, mover.pnl, mover.pnlCurrency || baseCurrency));
+  if (rest.length > 0) {
+    const residual = rest.reduce((sum, mover) => sum + mover.pnl, 0);
+    const residualCurrency = rest.reduce((ccy, mover) => mergeCurrency(ccy, mover.pnlCurrency || baseCurrency), "");
+    cells.push(moverCell(`+${rest.length} others`, residual, residualCurrency || baseCurrency));
+  }
+  strip.replaceChildren(...cells);
+}
+
+function moverRows(rows) {
+  return (rows || [])
+    .filter((row) => !row.virtual && typeof row.pnl === "number" && row.pnl !== 0)
+    .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl) || a.symbol.localeCompare(b.symbol));
+}
+
+function moverCell(label, value, currency) {
+  const cell = document.createElement("b");
+  const name = document.createElement("span");
+  name.textContent = label;
+  const amount = document.createElement("i");
+  amount.className = sensitiveMoneyHidden(value) ? "is-private" : signedClass(value);
+  amount.textContent = sensitiveMoneyHidden(value) ? privacyMask() : displayMoney(value, currency);
+  cell.append(name, amount);
+  return cell;
+}
+
 
 // marketSessionClosed reads the served official us-equity calendar (never the
 // market-strip selection override): held-book daily P/L freezes when the
@@ -981,4 +1058,4 @@ function renderUnderlyingActionResult(result = {}) {
   panel.textContent = lines.join(" / ") || purgeResultSummary(result);
 }
 
-export { accountDailyPnlPct, canWriteUnderlyings, collectPurgeEntries, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, purgeBookEntries, purgeEntryPnl, purgeResultSummary, purgedUnderlyingRows, quoteErrorBySymbol, quoteSourceLabel, readLocalPurgeBook, refreshPurgeStatus, renderAccountDailyPnlPct, renderAccountLargestExposure, renderAccountPanel, renderUnderlyingActionResult, renderUnderlyingBulkActions, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, runUnderlyingAction, setUnderlyingActionButtonState, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingActionButton, underlyingActionEndpoint, underlyingActionLabel, underlyingActionTitle, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarker, underlyingMarkers, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl, underlyingWriteConfirmation, underlyingWriteReason };
+export { accountDailyPnlPct, canWriteUnderlyings, collectPurgeEntries, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, purgeBookEntries, purgeEntryPnl, purgeResultSummary, purgedUnderlyingRows, quoteErrorBySymbol, quoteSourceLabel, readLocalPurgeBook, refreshPurgeStatus, renderAccountDailyPnlPct, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderUnderlyingActionResult, renderUnderlyingBulkActions, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, runUnderlyingAction, setUnderlyingActionButtonState, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingActionButton, underlyingActionEndpoint, underlyingActionLabel, underlyingActionTitle, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarker, underlyingMarkers, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl, underlyingWriteConfirmation, underlyingWriteReason };

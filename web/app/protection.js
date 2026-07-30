@@ -1,5 +1,5 @@
 import { renderAll } from "./app.js";
-import { quoteBySymbol } from "./stress.js";
+import { applyTileSeverity, quoteBySymbol } from "./stress.js";
 import { marketEventFlagVisible, marketEventHealthItems, marketEventIDLabel, marketEventTone, marketFlagRow, protectionEffectiveBlockers, protectionEffectiveMarketFlags, renderMarketFlagRail } from "./market-events.js";
 import { refreshOpenOrders } from "./orders.js";
 import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
@@ -40,6 +40,7 @@ function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = st
   defunctEl.textContent = defunctNote;
   defunctEl.hidden = !defunctNote;
   $("protectionActions").textContent = String(counts.actionable ?? rows.length ?? 0);
+  renderProtectionTile(proposals, rows, theta);
   renderProtectionExposure();
   renderMarketFlagRail("protectionFlagRail", protectionHeroMarketFlags(rows, marketEvents));
   const autoButton = $("protectionAutoButton");
@@ -63,6 +64,32 @@ function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = st
   if (protectionNeedsSnapshotSync(proposals, autoTrade)) {
     queueProtectionSnapshotSync();
   }
+}
+
+
+// The Protection window on the Monitor desk grid. The caption is the served
+// bucket of the first proposal the daemon ranked as workable — its own word
+// for what it staged — and the figure is the served counts plus the served
+// theta. The lamp follows actionability only: staged work deserves
+// attention, and no severity is derived here that the daemon did not publish.
+function renderProtectionTile(proposals = {}, rows = [], theta = {}) {
+  const tile = $("protectionTile");
+  const caption = $("protectionTileState");
+  const figure = $("protectionTileCounts");
+  if (!tile || !caption || !figure) return;
+  const counts = proposals.counts || {};
+  const actionable = Number(counts.actionable ?? rows.length ?? 0);
+  const isBlocked = (row) => String(row?.state || "").toLowerCase() === "blocked";
+  const blocked = rows.filter(isBlocked).length;
+  const top = rows.find((row) => !isBlocked(row));
+  applyTileSeverity(tile, actionable > 0 ? "watch" : "");
+  caption.textContent = actionable > 0 && top ? protectionBucketLabel(top) : blocked > 0 ? "Blocked" : "No action";
+  const parts = [`${actionable} action${actionable === 1 ? "" : "s"}`];
+  if (hasNumericValue(theta.value)) parts.push(`theta ${money(theta.value, theta.currency)}/d`);
+  else if (theta.mixed) parts.push("theta mixed");
+  if (blocked > 0) parts.push(`${blocked} blocked`);
+  figure.textContent = parts.join(" · ");
+  figure.title = theta.title || "";
 }
 
 
@@ -1942,4 +1969,4 @@ function queueProposalMarketCalendarSync(market = "") {
     });
 }
 
-export { DERISK_PREVIEW_VALID_MS, cancelProtectionDerisk, deriskBasketLine, deriskLegRow, deriskPreviewExpired, deriskPreviewRemainingMs, deriskRequestRef, deriskValidityTicker, formatExpiry, formatStrike, goDurationMinutes, ignoreProtectionProposal, marketCalendarMatches, nudgeProtectionQuantity, previewProtectionDerisk, previewProtectionProposal, proposalIsBuyToCover, proposalMarketKey, proposalMarketLabel, protectionActionLabel, protectionActionTitle, protectionBlockerText, protectionBucketLabel, protectionButtonTitle, protectionContractLabel, protectionDecisionFlags, protectionDeriskStateText, protectionEffectiveQuantity, protectionExecutionTriggerLabel, protectionExecutionWarningLabel, protectionFinalSubmitLabel, protectionHeroMarketFlags, protectionInferredReference, protectionLiveTrailStop, protectionLossCurrency, protectionMarketCalendar, protectionMarketStateHint, protectionMetricText, protectionNeedsSnapshotSync, protectionOptionLeg, protectionPositionLine, protectionPositionUnitLabel, protectionPreviewGate, protectionPreviewOutcomeLabel, protectionPreviewStale, protectionPreviewStateKey, protectionPreviewSubmitBlockedReason, protectionPreviewSubmitEligible, protectionPreviewSubmitGate, protectionPreviewText, protectionPreviewTimeoutMs, protectionProposalDTE, protectionProposalTitle, protectionQuantityAcceleratedStep, protectionQuantityStepDelta, protectionQuantityStepper, protectionQuoteFor, protectionQuoteFrozen, protectionQuoteLine, protectionQuoteStatusLabel, protectionQuoteTickDir, protectionReason, protectionReasonText, protectionReferenceLabel, protectionRiskExcessCurrency, protectionRiskExcessSummary, protectionRiskTicket, protectionRiskTicketParts, protectionRiskTicketTitle, protectionRow, protectionSideLabel, protectionSnapshotRefreshReason, protectionStopChanged, protectionStopDraftSummary, protectionStopLadder, protectionStopLadderDisplaySteps, protectionStopLadderLabel, protectionStopLadderShortLabel, protectionStopLadderStepClass, protectionStopLadderStepDetail, protectionStopLadderStepTitle, protectionStopRiskGapLabel, protectionStopRiskGapName, protectionStopRiskLossLabel, protectionSubmitButtonTitle, protectionSubmitGate, protectionSubmitLabel, protectionSubmitResultText, protectionSubmitStateClass, protectionSubmitStateText, protectionThetaSummary, protectionTrailOffsetLabel, protectionTrailSizingFallback, protectionTrailSizingLabel, protectionTrailSizingRangeLabel, protectionTrailSizingSourceLabel, protectionTransientSnapshotBlocker, protectionUsesPreviewFlow, protectionWhatIfDetails, queueProposalMarketCalendarSync, queueProtectionSnapshotSync, reduceEligibleHoldings, reduceIsOption, refreshProtectionProposals, renderProtectionDerisk, renderProtectionDeriskBasket, renderProtectionExposure, renderProtectionPanel, renderProtectionTimestamp, setProtectionQuantity, submitProtectionDerisk, submitProtectionProposal, syncDeriskValidityTicker, syncProtectionSnapshot };
+export { DERISK_PREVIEW_VALID_MS, cancelProtectionDerisk, deriskBasketLine, deriskLegRow, deriskPreviewExpired, deriskPreviewRemainingMs, deriskRequestRef, deriskValidityTicker, formatExpiry, formatStrike, goDurationMinutes, ignoreProtectionProposal, marketCalendarMatches, nudgeProtectionQuantity, previewProtectionDerisk, previewProtectionProposal, proposalIsBuyToCover, proposalMarketKey, proposalMarketLabel, protectionActionLabel, protectionActionTitle, protectionBlockerText, protectionBucketLabel, protectionButtonTitle, protectionContractLabel, protectionDecisionFlags, protectionDeriskStateText, protectionEffectiveQuantity, protectionExecutionTriggerLabel, protectionExecutionWarningLabel, protectionFinalSubmitLabel, protectionHeroMarketFlags, protectionInferredReference, protectionLiveTrailStop, protectionLossCurrency, protectionMarketCalendar, protectionMarketStateHint, protectionMetricText, protectionNeedsSnapshotSync, protectionOptionLeg, protectionPositionLine, protectionPositionUnitLabel, protectionPreviewGate, protectionPreviewOutcomeLabel, protectionPreviewStale, protectionPreviewStateKey, protectionPreviewSubmitBlockedReason, protectionPreviewSubmitEligible, protectionPreviewSubmitGate, protectionPreviewText, protectionPreviewTimeoutMs, protectionProposalDTE, protectionProposalTitle, protectionQuantityAcceleratedStep, protectionQuantityStepDelta, protectionQuantityStepper, protectionQuoteFor, protectionQuoteFrozen, protectionQuoteLine, protectionQuoteStatusLabel, protectionQuoteTickDir, protectionReason, protectionReasonText, protectionReferenceLabel, protectionRiskExcessCurrency, protectionRiskExcessSummary, protectionRiskTicket, protectionRiskTicketParts, protectionRiskTicketTitle, protectionRow, protectionSideLabel, protectionSnapshotRefreshReason, protectionStopChanged, protectionStopDraftSummary, protectionStopLadder, protectionStopLadderDisplaySteps, protectionStopLadderLabel, protectionStopLadderShortLabel, protectionStopLadderStepClass, protectionStopLadderStepDetail, protectionStopLadderStepTitle, protectionStopRiskGapLabel, protectionStopRiskGapName, protectionStopRiskLossLabel, protectionSubmitButtonTitle, protectionSubmitGate, protectionSubmitLabel, protectionSubmitResultText, protectionSubmitStateClass, protectionSubmitStateText, protectionThetaSummary, protectionTrailOffsetLabel, protectionTrailSizingFallback, protectionTrailSizingLabel, protectionTrailSizingRangeLabel, protectionTrailSizingSourceLabel, protectionTransientSnapshotBlocker, protectionUsesPreviewFlow, protectionWhatIfDetails, queueProposalMarketCalendarSync, queueProtectionSnapshotSync, reduceEligibleHoldings, reduceIsOption, refreshProtectionProposals, renderProtectionDerisk, renderProtectionDeriskBasket, renderProtectionExposure, renderProtectionPanel, renderProtectionTile, renderProtectionTimestamp, setProtectionQuantity, submitProtectionDerisk, submitProtectionProposal, syncDeriskValidityTicker, syncProtectionSnapshot };

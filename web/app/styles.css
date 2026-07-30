@@ -12,6 +12,11 @@
   --pd-engraved: #7c8494;
   --pd-readout: #dce1ea;
   --pd-strip-value: #c3cad6;
+  --pd-caption: #8a92a1;
+  --pd-subtext: #9aa1ae;
+  --pd-master-legend: #a7b0bf;
+  --pd-plate: #4a515e;
+  --pd-plate-quiet: #3b424e;
   --pd-caution: #ffb43b;
   --pd-warning: #ff4f44;
   --pd-advisory: #6fb3ff;
@@ -1219,22 +1224,301 @@ p {
   font-size: 10px;
 }
 
-/* The split is side-by-side at every width — market regime left, portfolio
-   stress right — so both reads land in one glance even on phones.
-   scripts/app-browser-smoke.mjs asserts the side-by-side posture. */
-.signal-split {
+/* ---- Panel Dark instruments: the annunciator tile grammar ----
+   A tile is a machined face with fixed geometry: engraved legend, caps state
+   caption, readout figure. Severity lives in the lamp bar and the wash; the
+   figure never lamps, so a red number still reads as a number. */
+.pd-tile {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  padding: 9px 12px 10px;
+  border-radius: var(--radius-card);
+  background: var(--pd-tile-face);
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.075), inset 0 -1.5px 0 rgba(0, 0, 0, 0.5);
+}
+
+.pd-tile__bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+}
+
+.pd-tile--watch .pd-tile__bar {
+  background: var(--pd-caution);
+}
+
+.pd-tile--act .pd-tile__bar {
+  background: var(--pd-warning);
+}
+
+.pd-tile--info .pd-tile__bar {
+  background: var(--pd-advisory);
+}
+
+/* Washes composite over a warm dark base so red stays red and amber amber. */
+.pd-tile--watch {
+  background: linear-gradient(180deg, rgba(255, 180, 59, 0.14), rgba(255, 180, 59, 0.04) 55%), #21201b;
+}
+
+.pd-tile--act {
+  background: linear-gradient(180deg, rgba(255, 79, 68, 0.15), rgba(255, 79, 68, 0.045) 55%), #231c1b;
+}
+
+.pd-tile--info {
+  background: linear-gradient(180deg, rgba(111, 179, 255, 0.1), rgba(111, 179, 255, 0.03) 55%), #1b1f26;
+}
+
+/* Readout class: a flush face with no relief and no lamp slot. */
+.pd-tile--readout {
+  background: var(--pd-readout-face);
+  box-shadow: none;
+}
+
+/* Dead window: a darker face, no severity tint, last-good figure. */
+.pd-tile--stale {
+  background: #14181e;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.pd-tile__legend {
+  display: block;
+  color: var(--pd-engraved);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.pd-tile__cap {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 5px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  color: var(--pd-caption);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.pd-tile--watch .pd-tile__cap {
+  color: var(--pd-watch-tint);
+}
+
+.pd-tile--act .pd-tile__cap {
+  color: var(--pd-act-tint);
+}
+
+.pd-tile--info .pd-tile__cap {
+  color: var(--pd-advisory);
+}
+
+.pd-tile--stale .pd-tile__cap {
+  color: var(--pd-dim);
+}
+
+.pd-tile__fig {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 4px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  color: var(--pd-readout);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+.pd-tile--stale .pd-tile__fig {
+  color: var(--pd-caption);
+}
+
+.pd-tile__dot {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--pd-advisory);
+}
+
+/* Master annunciator: the one lamp that must never disagree with the panel
+   below it. Quiet it is engraved; lit it backlights with a soft glow. */
+.pd-master {
+  min-height: 72px;
+  margin: 2px 0 4px;
+  padding: 12px 14px;
+}
+
+.pd-master__legend {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--pd-master-legend);
+  font-size: clamp(17px, 5.2vw, 22px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.05), 0 -1px 1px rgba(0, 0, 0, 0.55);
+  text-transform: uppercase;
+}
+
+.pd-master.pd-tile--watch .pd-master__legend {
+  color: var(--pd-caution);
+  text-shadow: 0 0 14px rgba(255, 180, 59, 0.35);
+}
+
+.pd-master.pd-tile--act .pd-master__legend {
+  color: var(--pd-warning);
+  text-shadow: 0 0 14px rgba(255, 79, 68, 0.4);
+}
+
+.pd-master__sub {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+  color: var(--pd-subtext);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* Lamp-test stamp: the panel's self-report, engraved and never loud. */
+.pd-lamptest {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 2px 8px;
+  color: var(--pd-plate);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.pd-lamptest b {
+  color: var(--pd-nominal);
+  font-weight: 600;
+}
+
+.pd-lamptest .pd-hold {
+  color: var(--pd-plate-quiet);
+  white-space: nowrap;
+}
+
+.pd-dimcount {
+  color: var(--pd-engraved);
+  font-weight: 600;
+}
+
+.pd-stale-note {
+  color: var(--pd-watch-tint);
+  font-weight: 600;
+}
+
+.pd-placard {
+  margin: 10px 2px 6px;
+  color: var(--pd-engraved);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pd-placard--row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pd-placard--row .signal-half__toggle {
+  margin-left: auto;
+}
+
+.pd-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
+  gap: 8px;
 }
 
-.signal-half--regime {
-  padding-right: 12px;
+.pd-grid .pd-tile {
+  min-height: 78px;
 }
 
-.signal-half--stress {
-  padding-left: 12px;
-  border-left: 1px solid var(--line-soft);
+/* The regime windows keep fixed positions and are tapped as one region: the
+   grid is the toggle for the indicator detail below it. The weather-* class
+   is the served regime tone marker (read by the browser smoke); the lamps
+   carry the ink, so it paints nothing of its own. */
+.regime-grid {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.delta-tile__lead {
+  margin-top: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.delta-tile__sub {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+/* The Stress window stacks two served lines inside its figure, so the tile's
+   two-line clamp would fight the inner grid; the lines clamp themselves. */
+.stress-hero .pd-tile__fig {
+  display: block;
+}
+
+/* Movers row: names left, money in the 60% tints, residual clause last. */
+.pd-movers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 5px 2px 0;
+  font-size: 14px;
+}
+
+.pd-movers b {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.pd-movers span {
+  color: var(--pd-engraved);
+  font-weight: 400;
+}
+
+.pd-movers i {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.pd-movers i.ok {
+  color: var(--pd-money-up);
+}
+
+.pd-movers i.risk {
+  color: var(--pd-money-down);
+}
+
+.pd-movers i.is-private {
+  color: var(--pd-engraved);
 }
 
 .signal-detail-deck {
@@ -1242,32 +1526,9 @@ p {
   gap: 10px;
 }
 
-.signal-half {
-  display: grid;
-  align-content: start;
-  gap: 5px;
-  min-width: 0;
-  padding-top: 10px;
-  border-top: 3px solid var(--line);
+.signal-half--stress {
   cursor: pointer;
   touch-action: manipulation;
-}
-
-.signal-half :where(button, a, input, select, textarea, label) {
-  cursor: pointer;
-}
-
-.signal-half__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.signal-half__label {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 680;
-  line-height: 1.2;
 }
 
 .signal-half__toggle {
@@ -1290,13 +1551,6 @@ p {
   color: var(--ink-2);
 }
 
-.stress-hero__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-  align-items: center;
-}
-
 .severity-pill {
   justify-self: start;
   display: inline-flex;
@@ -1312,15 +1566,11 @@ p {
   line-height: 1;
 }
 
+/* The Rules window is a desk tile; the ranked breach chips and their
+   affordances sit in a strip beneath the grid. The tile reserves room on the
+   right for the advisory dot an info-only day lights. */
 .stress-rules {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--surface-soft);
+  padding-right: 20px;
 }
 
 .stress-rules__head {
@@ -1329,11 +1579,17 @@ p {
   gap: 8px;
 }
 
-.stress-rules__counts {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 11px;
-  color: var(--muted);
+.stress-rules__strip {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.stress-rules__strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .stress-rules__brief {
@@ -1346,14 +1602,23 @@ p {
   display: none;
 }
 
+/* Tinted register: a chip discloses a rule state, so it carries the 60% tint
+   and a hairline border. Full saturation stays in lamp bars and dots. */
+.stress-rules__pill {
+  border-color: var(--pd-border);
+  background: transparent;
+  color: var(--pd-engraved);
+}
+
 .stress-rules__pill.risk {
-  border-color: var(--red);
-  color: var(--red);
-  background: var(--red-soft);
+  border-color: rgba(255, 79, 68, 0.4);
+  background: transparent;
+  color: var(--pd-act-tint);
 }
 
 .stress-rules__pill.warn {
-  border-color: var(--amber);
+  border-color: rgba(255, 180, 59, 0.35);
+  background: transparent;
   color: var(--pd-watch-tint);
 }
 
@@ -1449,55 +1714,6 @@ p {
   color: var(--muted);
 }
 
-.stress-summary-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.stress-hero.severity-act {
-  border-top-color: var(--market-red);
-}
-
-.stress-hero.severity-act strong {
-  color: var(--market-red);
-}
-
-.stress-hero.severity-watch {
-  border-top-color: var(--amber);
-}
-
-.stress-hero.severity-watch strong {
-  color: var(--pd-watch-tint);
-}
-
-.stress-hero.severity-observe {
-  border-top-color: var(--market-green);
-}
-
-.stress-hero.severity-observe strong {
-  color: var(--market-green);
-}
-
-.severity-pill.severity-act {
-  border-color: rgba(255, 79, 68, 0.22);
-  background: var(--red-soft);
-  color: var(--market-red);
-}
-
-.severity-pill.severity-watch {
-  border-color: rgba(255, 180, 59, 0.32);
-  background: rgba(255, 180, 59, 0.12);
-  color: var(--pd-watch-tint);
-}
-
-.severity-pill.severity-observe {
-  border-color: rgba(0, 138, 34, 0.22);
-  background: var(--green-soft);
-  color: var(--market-green);
-}
 
 .alert-focus,
 .detail-panel--dark {
@@ -1921,65 +2137,28 @@ p {
   font-size: 12px;
 }
 
-.signal-half--regime.weather-green {
-  border-top-color: var(--market-green);
-}
-
-.signal-half--regime.weather-amber {
-  border-top-color: var(--amber);
-}
-
-.signal-half--regime.weather-red {
-  border-top-color: var(--market-red);
-}
-
-.regime-summary {
-  display: grid;
-  align-content: start;
-  gap: 5px;
-  min-width: 0;
-}
-
 .stress-hero__copy {
   display: grid;
   align-content: start;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
 }
 
-.regime-summary b,
-.stress-hero strong {
-  overflow-wrap: anywhere;
-  color: var(--ink);
-  font-size: clamp(15px, 4.3vw, 18px);
-  font-weight: 760;
-  line-height: 1.25;
-  letter-spacing: 0;
-  text-transform: none;
+.stress-hero__copy b {
+  color: var(--pd-readout);
+  font-weight: 600;
 }
 
-.regime-summary.weather-green b {
-  color: var(--market-green);
-}
-
-.regime-summary.weather-amber b {
-  color: var(--pd-watch-tint);
-}
-
-.regime-summary.weather-red b {
-  color: var(--market-red);
-}
-
-.regime-summary small,
 .stress-hero__copy p {
   display: -webkit-box;
   overflow: hidden;
+  margin: 0;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  color: var(--muted);
+  -webkit-line-clamp: 2;
+  color: var(--pd-caption);
   font-size: 12px;
-  font-weight: 460;
   font-style: normal;
+  font-weight: 460;
   line-height: 1.3;
 }
 
@@ -4793,71 +4972,58 @@ p {
   background: var(--blue);
 }
 
+/* Snapshot foot plate: an engraved stamp at the foot of the panel, not a
+   status card. The middots are drawn by CSS so the strip stays four labelled
+   spans the renderer addresses independently. */
 .sync-strip {
-  display: grid;
-  grid-template-columns: auto minmax(0, 0.45fr) minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  min-height: 52px;
-  margin-top: 10px;
-  padding: 0 13px;
-  border: 1px solid rgba(75, 208, 122, 0.36);
-  border-radius: 10px;
-  background: rgba(75, 208, 122, 0.06);
-  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 6px;
+  min-height: 0;
+  margin: 12px 2px 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--pd-plate);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sync-strip > * + *::before {
+  margin-right: 6px;
+  content: "\00b7";
 }
 
 .sync-strip__state {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--pd-money-up);
-  font-size: 13px;
-  font-weight: 650;
-  text-transform: capitalize;
+  color: var(--pd-plate);
+  font-weight: 600;
 }
 
-.sync-strip__state::before {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--green);
-  content: "";
+/* A transport that is not live earns the 60% caution tint, never full
+   saturation: this is a stamp, not an annunciator. */
+.sync-strip--degraded .sync-strip__state {
+  color: var(--pd-watch-tint);
 }
 
 .sync-strip__label,
-.sync-strip__time,
 .sync-strip__auto {
   min-width: 0;
-  color: var(--ink-2);
-  font-size: 12px;
-}
-
-.sync-strip__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .sync-strip__time {
-  overflow: hidden;
-  color: var(--ink);
-  font-weight: 560;
+  color: var(--pd-engraved);
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .sync-strip__auto {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(120, 132, 150, 0.08);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
-  white-space: nowrap;
+  color: var(--pd-plate-quiet);
 }
 
 .signed.ok {
@@ -4877,12 +5043,6 @@ p {
   }
 }
 
-@media (min-width: 760px) {
-  .stress-hero__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (min-width: 900px) {
   .dashboard {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4897,10 +5057,6 @@ p {
     grid-column: 1 / -1;
   }
 
-  .signal-half--regime {
-    padding-right: 18px;
-  }
-
   .brief-sections {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4910,10 +5066,6 @@ p {
   .brief-section--review,
   .brief-section--ready {
     grid-column: 1 / -1;
-  }
-
-  .signal-half--stress {
-    padding-left: 18px;
   }
 
   .signal-detail-deck:has(.signal-detail-col:not([hidden]) ~ .signal-detail-col:not([hidden])) {
@@ -5112,10 +5264,6 @@ p {
 }
 
 @media (max-width: 360px) {
-  .stress-hero__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .portfolio-layout {
     grid-template-columns: 1fr;
   }

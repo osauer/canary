@@ -142,51 +142,77 @@
               <span class="panel-time" id="stressAsOf" title="Portfolio stress freshness">--</span>
             </span>
           </div>
-          <div class="signal-split" id="signalSplit">
-            <div class="signal-half signal-half--regime regime-summary weather-na" id="regimeSummaryCard" role="group" aria-label="Market regime">
-              <div class="signal-half__head">
-                <span class="signal-half__label">Market</span>
-                <button class="signal-half__toggle" id="regimeDetailToggle" type="button" aria-expanded="false" aria-controls="regimeDetailPanel">
-                  Detail
-                </button>
+          <div class="pd-tile pd-master" id="masterAnnunciator" role="group" aria-label="Master annunciator">
+            <span class="pd-tile__bar" aria-hidden="true"></span>
+            <b class="pd-master__legend" id="marketRegime">--</b>
+            <p class="pd-master__sub" id="marketRegimeSummary">Regime read</p>
+          </div>
+          <div class="pd-lamptest" id="lampTest">
+            <span id="lampTestStamp">Last snapshot --</span>
+            <span class="pd-hold" aria-hidden="true">Hold to test</span>
+          </div>
+          <div class="pd-placard pd-placard--row">
+            <span>Regime</span>
+            <button class="signal-half__toggle" id="regimeDetailToggle" type="button" aria-expanded="false" aria-controls="regimeDetailPanel">
+              Detail
+            </button>
+          </div>
+          <div class="pd-grid regime-grid weather-na" id="regimeSummaryCard" role="group" aria-label="Market regime clusters"></div>
+          <div class="pd-placard pd-placard--row">
+            <span>Desk</span>
+            <button class="signal-half__toggle" id="stressDetailToggle" type="button" aria-expanded="false" aria-controls="stressDetailPanel">
+              Show detail
+            </button>
+          </div>
+          <div class="pd-grid" id="deskGrid">
+            <div class="pd-tile stress-rules" id="stressRulesCard" hidden>
+              <span class="pd-tile__bar" aria-hidden="true"></span>
+              <i class="pd-tile__dot" id="stressRulesInfoDot" hidden aria-hidden="true"></i>
+              <div class="stress-rules__head">
+                <span class="pd-tile__legend">Rules</span>
               </div>
-              <b id="marketRegime">--</b>
-              <small id="marketRegimeSummary">Regime read</small>
+              <b class="pd-tile__cap" id="stressRulesState">--</b>
+              <div class="pd-tile__fig" id="stressRulesCounts">--</div>
             </div>
-            <div class="signal-half signal-half--stress stress-hero" id="stressHero" role="group" aria-label="Portfolio stress">
-              <div class="signal-half__head">
-                <span class="signal-half__label">Portfolio</span>
-                <button class="signal-half__toggle" id="stressDetailToggle" type="button" aria-expanded="false" aria-controls="stressDetailPanel">
-                  Show detail
-                </button>
-              </div>
-              <div class="stress-hero__grid">
+            <div class="pd-tile" id="protectionTile" role="group" aria-label="Protection">
+              <span class="pd-tile__bar" aria-hidden="true"></span>
+              <span class="pd-tile__legend">Protection</span>
+              <b class="pd-tile__cap" id="protectionTileState">--</b>
+              <div class="pd-tile__fig" id="protectionTileCounts">--</div>
+            </div>
+            <div class="pd-tile signal-half--stress stress-hero" id="stressHero" role="group" aria-label="Portfolio stress">
+              <span class="pd-tile__bar" aria-hidden="true"></span>
+              <span class="pd-tile__legend">Stress</span>
+              <b class="pd-tile__cap" id="stressSeverity">--</b>
+              <div class="pd-tile__fig">
                 <div class="stress-hero__copy">
-                  <strong id="stressAction">--</strong>
+                  <b id="stressAction">--</b>
                   <p id="stressSummary">Waiting for stress snapshot.</p>
                 </div>
               </div>
-              <div class="stress-summary-actions">
-                <span class="severity-pill" id="stressSeverity">--</span>
-              </div>
+            </div>
+            <div class="pd-tile pd-tile--readout" id="deltaTile" role="group" aria-label="Net dollar delta">
+              <span class="pd-tile__legend">Net $ Delta</span>
+              <div class="pd-tile__fig delta-tile__lead" id="deltaTileLead">--</div>
+              <div class="pd-tile__fig delta-tile__sub" id="deltaTileSub">--</div>
             </div>
           </div>
-          <div class="stress-rules" id="stressRulesCard" hidden>
-            <div class="stress-rules__head">
-              <span class="signal-half__label">Rules</span>
-              <span class="stress-rules__counts" id="stressRulesCounts">--</span>
-              <button class="signal-half__toggle" id="stressRulesToggle" type="button" aria-expanded="false" aria-controls="stressRulesDetailPanel">Show rules</button>
-            </div>
+          <div class="stress-rules__strip" id="stressRulesStrip" hidden>
             <div class="stress-rules__brief" id="stressRulesBrief"></div>
-            <button class="stress-rules__notes-trigger" id="stressRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
-              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
-                <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
-                <circle cx="8" cy="4.7" r="0.95" fill="currentColor"></circle>
-                <path d="M8 7.2v4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
-              </svg>
-              <span id="stressRulesNotesLabel">Data notes</span>
-            </button>
+            <div class="stress-rules__strip-actions">
+              <button class="signal-half__toggle" id="stressRulesToggle" type="button" aria-expanded="false" aria-controls="stressRulesDetailPanel">Show rules</button>
+              <button class="stress-rules__notes-trigger" id="stressRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+                  <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+                  <circle cx="8" cy="4.7" r="0.95" fill="currentColor"></circle>
+                  <path d="M8 7.2v4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                </svg>
+                <span id="stressRulesNotesLabel">Data notes</span>
+              </button>
+            </div>
           </div>
+          <div class="pd-placard" id="moversPlacard" hidden>Daily P/L by name</div>
+          <div class="pd-movers" id="moversRow" hidden></div>
           <dialog class="app-dialog" id="stressRulesNotesDialog" aria-labelledby="stressRulesNotesTitle">
             <div class="app-dialog__head">
               <b id="stressRulesNotesTitle">Data notes</b>
@@ -648,9 +674,9 @@
       </section>
       </section>
 
-      <footer class="sync-strip" id="syncStrip" hidden>
+      <footer class="pd-lamptest sync-strip" id="syncStrip" hidden>
         <span class="sync-strip__state" id="syncStatusState">standby</span>
-        <span class="sync-strip__label" id="syncStatusLabel">Waiting for snapshot</span>
+        <span class="sync-strip__label" id="syncStatusLabel">Snapshot</span>
         <b class="sync-strip__time" id="syncStatusTime">--</b>
         <span class="sync-strip__auto">Auto</span>
       </footer>

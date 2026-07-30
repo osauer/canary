@@ -2,7 +2,7 @@ import { enablePush, renderAlertMode, renderGovernance, sendGovernanceCutoverRev
 import { renderAlerts, renderSelectedAlert, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard, setupBriefVisibility } from "./brief.js";
-import { stressStageLabel, stressSummaryText, firstClause, renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
+import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
 import { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeStressExpansion, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
 import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.js";
@@ -10,7 +10,7 @@ import { renderOpenOrders } from "./orders.js";
 import { renderPortfolioRisk, setPortfolioExpansion } from "./portfolio.js";
 import { cancelProtectionDerisk, previewProtectionDerisk, renderProtectionPanel } from "./protection.js";
 import { renderSettings, setPurgeRestoreEnabled, setStockProtectionEnabled } from "./settings.js";
-import { $, labelize, pct, renderFreshnessTimestamp, renderSensitiveText } from "./shared.js";
+import { $, pct, renderFreshnessTimestamp, renderSensitiveText } from "./shared.js";
 import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect } from "./shell.js";
 import { state } from "./state.js";
 import { renderAccountPanel, renderUnderlyings, runUnderlyingAction, setUnderlyingExpansion } from "./underlyings.js";
@@ -147,15 +147,7 @@ function renderAll() {
   $("stockCount").textContent = (positions.stocks || []).length;
   $("optionCount").textContent = (positions.options || []).length;
   $("baseCurrency").textContent = account.base_currency || positions.portfolio?.base_currency || "--";
-  $("stressSeverity").textContent = labelize(stress.severity || "--");
-  $("stressAction").textContent = stressStageLabel(stress);
-  // The hero clamps to 2 lines; cutting at the first clause reads cleaner
-  // than a mid-word ellipsis, and the full text stays one tap away in detail.
-  const stressSummaryFull = stressSummaryText(stress, snap);
-  const stressSummaryEl = $("stressSummary");
-  stressSummaryEl.textContent = firstClause(stressSummaryFull);
-  stressSummaryEl.title = stressSummaryFull;
-  renderStressStatus(stress);
+  renderStressStatus(stress, snap);
   renderRulesCard(snap.rules);
   renderStressTimestamp(stress);
   renderSelectedAlert();

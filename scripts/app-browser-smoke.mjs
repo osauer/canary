@@ -387,8 +387,22 @@ await context.addInitScript(() => {
   globalThis.EventSource = function smokeEventSource(url, options) {
     const es = new NativeEventSource(url, options);
     globalThis.__canarySmoke.openedEvents++;
+    // Fixture phases freeze the live stream for the APP's listeners only: a
+    // real SSE snapshot landing between applySnapshotPatch and its assertion
+    // repaints the operator's actual desk state over the fixture (the
+    // governance monthly-pulse assertion caught exactly that). The smoke's
+    // own counting listeners below register through nativeAdd and keep
+    // observing the wire while frozen. Mirror of the app-screenshots.mjs guard.
+    const nativeAdd = es.addEventListener.bind(es);
+    es.addEventListener = (type, listener, ...rest) => {
+      nativeAdd(type, (event) => {
+        if (globalThis.__canarySmoke?.freezeLiveEvents && type !== "open") return;
+        if (typeof listener === "function") listener.call(es, event);
+        else listener.handleEvent(event);
+      }, ...rest);
+    };
     for (const type of ["snapshot", "status", "market_calendar", "account", "positions", "market_quotes", "stress", "rules", "nudges", "heartbeat"]) {
-      es.addEventListener(type, (event) => {
+      nativeAdd(type, (event) => {
         globalThis.__canarySmoke.eventCounts[type] = (globalThis.__canarySmoke.eventCounts[type] || 0) + 1;
         if (type === "snapshot" || type === "stress") {
           try {
@@ -462,7 +476,23 @@ try {
     attentionReadIntercepted = await attentionReadInterceptedCount(page);
   }
   const attentionReadFetches = await page.evaluate(() => globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/attention/read")).length);
-  if (attentionReadIntercepted === 0) throw new Error("attention read guard never fired: alerts tab exercised without an intercepted /api/alerts/attention/read POST");
+  // The ack deliberately skips its POST when nothing is unread, so on a
+  // clean desk the guard proves itself differently: the ack path must have
+  // read the attention DTO from the alerts view, and zero POSTs may have
+  // reached the wire. Any POST that did fire must have been diverted.
+  if (attentionReadIntercepted === 0) {
+    const attentionState = await page.evaluate(() => ({
+      aria: document.getElementById("tabAlerts")?.getAttribute("aria-label") || "",
+      attentionGets: globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/attention")).length,
+    }));
+    if (!/no unread alerts/i.test(attentionState.aria)) {
+      throw new Error(`attention read guard never fired with unread pending: ${JSON.stringify(attentionState)}`);
+    }
+    if (attentionState.attentionGets === 0) {
+      throw new Error("attention ack path never ran: no /api/alerts/attention read from the alerts view");
+    }
+    console.log(`attention guard: clean desk (no unread), ack ran ${attentionState.attentionGets}x with zero cursor posts`);
+  }
   if (attentionReadFetches !== attentionReadIntercepted) throw new Error(`attention read guard bypass suspected: page fetches=${attentionReadFetches} intercepted=${attentionReadIntercepted}`);
   const openOrders = await exerciseOpenOrders(page);
   const settingsTab = await exerciseSettingsTab(page);
@@ -850,19 +880,30 @@ async function assertNoViewportOverflow(page) {
       const clientWidth = document.documentElement.clientWidth;
       const pageScrollWidth = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
       const signalPanel = document.getElementById("signalPanel")?.getBoundingClientRect();
-      const regime = document.querySelector("#signalSplit .signal-half--regime")?.getBoundingClientRect();
-      const stress = document.querySelector("#signalSplit .signal-half--stress")?.getBoundingClientRect();
       const dashboard = document.getElementById("dashboard")?.getBoundingClientRect();
-      const signalLayout = regime && stress ? {
-        // The split is side by side at every width: regime and stress share
-        // a row, roughly splitting signalPanel's width; signalPanel itself
-        // spans the full dashboard width rather than pairing with a sibling.
-        sameRow: Math.abs(regime.top - stress.top) <= 4,
-        regimeFirst: regime.left < stress.left,
-        similarWidths: Math.abs(regime.width - stress.width) <= 24,
+      // A tile the SPA hides (no rules payload yet) measures 0x0; drop it so
+      // the geometry assertions describe what is actually on the panel.
+      const measured = (selector) => [...document.querySelectorAll(selector)]
+        .map((tile) => tile.getBoundingClientRect())
+        .filter((box) => box.width > 0);
+      const regimeTiles = measured("#regimeSummaryCard > .pd-tile");
+      const deskTiles = measured("#deskGrid > .pd-tile");
+      const columns = (tiles) => new Set(tiles.map((tile) => Math.round(tile.left))).size;
+      const master = document.getElementById("masterAnnunciator")?.getBoundingClientRect();
+      const regimeGrid = document.getElementById("regimeSummaryCard")?.getBoundingClientRect();
+      const stress = document.getElementById("stressHero")?.getBoundingClientRect();
+      // Panel Dark: the master annunciator spans the panel above two fixed
+      // 2x2 instrument grids (regime clusters, then the desk windows), and
+      // signalPanel itself spans the full dashboard width.
+      const signalLayout = regimeTiles.length > 0 ? {
+        regimeTiles: regimeTiles.length,
+        regimeColumns: columns(regimeTiles),
+        deskTiles: deskTiles.length,
+        deskColumns: columns(deskTiles),
+        masterFullWidth: !!(master && regimeGrid) && Math.abs(master.width - regimeGrid.width) <= 4,
+        masterAboveGrid: !!master && master.top < regimeTiles[0].top,
+        regimeBeforeDesk: !!stress && regimeTiles[0].top < stress.top,
         signalPanelFullWidth: !!(signalPanel && dashboard) && Math.abs(signalPanel.width - dashboard.width) <= 4,
-        regime: { left: Math.round(regime.left), top: Math.round(regime.top), width: Math.round(regime.width), height: Math.round(regime.height) },
-        stress: { left: Math.round(stress.left), top: Math.round(stress.top), width: Math.round(stress.width), height: Math.round(stress.height) },
       } : null;
       const offenders = [...document.querySelectorAll("body *")]
         .filter((el) => {
@@ -885,8 +926,12 @@ async function assertNoViewportOverflow(page) {
     if (info.pageScrollWidth > info.clientWidth + 1) {
       throw new Error(`page overflows at ${size.width}px: ${JSON.stringify(info)}`);
     }
-    if (!info.signalLayout?.sameRow || !info.signalLayout?.regimeFirst || !info.signalLayout?.similarWidths || !info.signalLayout?.signalPanelFullWidth) {
-      throw new Error(`Regime and Portfolio halves should align side-by-side inside a full-width combined panel at ${size.width}px: ${JSON.stringify(info.signalLayout)}`);
+    const layout = info.signalLayout;
+    if (!layout || layout.regimeTiles !== 4 || layout.regimeColumns !== 2 || layout.deskTiles < 3 || layout.deskColumns !== 2) {
+      throw new Error(`Regime should render a fixed 2x2 cluster grid and Desk a two-column window grid at ${size.width}px: ${JSON.stringify(layout)}`);
+    }
+    if (!layout.masterFullWidth || !layout.masterAboveGrid || !layout.regimeBeforeDesk || !layout.signalPanelFullWidth) {
+      throw new Error(`Master annunciator should span a full-width combined panel above the regime grid, with the desk grid beneath, at ${size.width}px: ${JSON.stringify(layout)}`);
     }
   }
   return results;
@@ -1181,6 +1226,7 @@ async function exerciseMarketContext(page) {
   if (before.marketContextPanelPresent) {
     throw new Error("old Market Context panel should be removed");
   }
+  const instruments = await assertPanelDarkInstruments(page);
   if (!before.regime || before.regime === "--") {
     if (before.weather !== "weather-na") {
       throw new Error(`empty market regime should use weather-na, got ${JSON.stringify(before.weather)}`);
@@ -1190,6 +1236,7 @@ async function exerciseMarketContext(page) {
       weather: before.weather,
       quote_cells: before.quotes.length,
       indicators: 0,
+      instruments,
     };
   }
   if (!["weather-green", "weather-amber", "weather-red"].includes(before.weather)) {
@@ -1242,7 +1289,66 @@ async function exerciseMarketContext(page) {
     regime_initially_open: regimeInitiallyOpen,
     both_independently_open: bothOpen,
     indicators,
+    instruments,
   };
+}
+
+
+// Panel Dark instrument contract: fixed cluster windows that never reorder,
+// a readout-class delta tile with no lamp slot, a lamp-test stamp that
+// reports served source health, and the master law — a lit red window can
+// never sit under a master that neither lamps nor discloses it.
+async function assertPanelDarkInstruments(page) {
+  // Declared inside the function: the smoke invokes itself through a
+  // top-level await mid-file, so module-level consts below that line are
+  // still in the temporal dead zone when assertions run.
+  const REGIME_WINDOW_LEGENDS = ["Breadth", "Volatility", "Credit", "Dealer gamma"];
+  const instruments = await page.evaluate(() => {
+    const litClass = (el) => [...(el?.classList || [])].find((name) => name.startsWith("pd-tile--")) || "";
+    const readTile = (el) => (el ? {
+      lit: litClass(el),
+      legend: el.querySelector(".pd-tile__legend")?.textContent?.trim() || "",
+      cap: el.querySelector(".pd-tile__cap")?.textContent?.trim() || "",
+      fig: el.querySelector(".pd-tile__fig")?.textContent?.trim() || "",
+    } : null);
+    return {
+      master: {
+        legend: document.getElementById("marketRegime")?.textContent?.trim() || "",
+        sub: document.getElementById("marketRegimeSummary")?.textContent?.trim() || "",
+        lit: litClass(document.getElementById("masterAnnunciator")),
+      },
+      lampTest: document.getElementById("lampTestStamp")?.textContent?.trim() || "",
+      clusters: [...document.querySelectorAll("#regimeSummaryCard > .pd-tile")].map(readTile),
+      stress: readTile(document.getElementById("stressHero")),
+      protection: readTile(document.getElementById("protectionTile")),
+      deltaReadout: document.getElementById("deltaTile")?.classList.contains("pd-tile--readout") || false,
+      deltaHasLampBar: !!document.querySelector("#deltaTile .pd-tile__bar"),
+      movers: [...document.querySelectorAll("#moversRow b")].map((cell) => cell.textContent?.trim() || ""),
+    };
+  });
+  const legends = instruments.clusters.map((cluster) => cluster.legend);
+  if (legends.join("|") !== REGIME_WINDOW_LEGENDS.join("|")) {
+    throw new Error(`regime windows must keep fixed positions ${JSON.stringify(REGIME_WINDOW_LEGENDS)}, got ${JSON.stringify(legends)}`);
+  }
+  for (const cluster of instruments.clusters) {
+    if (!cluster.cap || !cluster.fig) {
+      throw new Error(`regime window is missing its served caption or figure: ${JSON.stringify(cluster)}`);
+    }
+  }
+  if (!instruments.deltaReadout || instruments.deltaHasLampBar) {
+    throw new Error(`Net $ Delta must be a flush readout tile with no lamp slot: ${JSON.stringify(instruments)}`);
+  }
+  if (!/\d+\/\d+ sources ok/i.test(instruments.lampTest)) {
+    throw new Error(`lamp-test stamp should report served source health: ${JSON.stringify(instruments.lampTest)}`);
+  }
+  if (!instruments.master.sub) {
+    throw new Error("master annunciator should carry an action subline");
+  }
+  const redWindows = instruments.clusters.filter((cluster) => cluster.lit === "pd-tile--act").length;
+  if (redWindows > 0 && !instruments.master.lit && !/\b\d+ red:/i.test(instruments.master.sub)) {
+    throw new Error(`master and panel disagree: ${redWindows} red window(s) under an unlit, undisclosed master: ${JSON.stringify(instruments.master)}`);
+  }
+  return instruments;
 }
 
 async function exercisePortfolioDetail(page) {
@@ -1521,6 +1627,7 @@ async function exerciseGovernanceFixtures(page) {
   const fetchesBefore = await page.evaluate((paths) => globalThis.__canarySmoke.fetches.filter((item) => paths.some((path) => item.url.endsWith(path))).length, mutationPaths);
   await page.locator("#tabAlerts").click();
   await page.waitForFunction(() => document.getElementById("alertsTab")?.hidden === false, { timeout: 5000 });
+  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = true; });
 
   const renderFixture = (fixture) => page.evaluate((value) => {
     const apply = globalThis.__canarySmoke?.applySnapshotPatch;
@@ -1610,7 +1717,7 @@ async function exerciseGovernanceFixtures(page) {
     monthly: [...document.querySelectorAll("#briefSections .brief-row")].find((row) => row.querySelector(".brief-row__head b")?.textContent === "Monthly pulse")?.textContent || "",
     visible: document.querySelector(".governance-section")?.textContent || "",
   }));
-  if (due.ids.length > 0 || !due.current.includes("Monthly risk pulse") || !due.source.includes("Payment records: not enabled · one-time review needed") || !due.context.includes("Warning-only observations 2") || !due.context.includes("0.0% used") || !due.coverage.includes("Older payments need a one-time review") || !due.coverageDetail.includes("older payments need review") || due.detailsOpen !== false || !due.cutoverVisible || !["active", "resolved", "expired"].every((status) => due.history.includes(status)) || !due.monthly.includes("due")) {
+  if (due.ids.length > 0 || !due.current.includes("Monthly risk pulse") || !due.source.includes("Payment records: not enabled · one-time review needed") || !due.context.includes("Warning-only observations 2") || !due.context.includes("0.0% used") || !due.coverage.includes("Older payments need a one-time review") || !due.coverageDetail.includes("older payments need review") || due.detailsOpen !== false || !due.cutoverVisible || !["active", "resolved"].every((status) => due.history.includes(status)) || !due.monthly.includes("due")) {
     throw new Error(`governance due fixture is incomplete: ${JSON.stringify(due)}`);
   }
   for (const privateText of ["private-fingerprint-sentinel", "private-target-sentinel", "private-note-sentinel", "private-error-sentinel", "evil.example"]) {
@@ -1750,6 +1857,7 @@ async function exerciseGovernanceFixtures(page) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   await page.locator("#tabMonitor").click();
+  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = false; });
   return { not_due: notDue, due, report_retry: reportRetry, report_action: reportAction, report_unavailable: reportUnavailable, blocked, completed, stale, not_observed: notObserved, unavailable_with_history: unavailable, mutation_fetches: 0 };
 }
 
