@@ -3,7 +3,7 @@
   "name": "io.github.osauer/canary",
   "title": "Canary MCP",
   "description": "Canary MCP server for Interactive Brokers market data, portfolio context, and risk checks.",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "websiteUrl": "https://osauer.dev/canary/",
   "repository": {
     "url": "https://github.com/osauer/canary",
