@@ -1,14 +1,24 @@
 # `canary` JSON schemas
 
-Updated: 2026-07-25 16:43 CEST
+Updated: 2026-07-30 11:49 CEST
 
-This document is the authoritative description of every `--json` output the
-`canary` CLI emits. Field absence semantics matter:
+This document describes the `--json` outputs agents most often read. It is
+NOT complete: the typed structs in `internal/rpc` are the wire truth for
+every command, and this file documents a curated subset on top of them.
+Field absence semantics matter:
 
 - `null` for a `float64` field means the gateway did not deliver that tick.
 - An empty array means the user genuinely has nothing to show, not a failure.
 - Numbers are always `float64` unless explicitly marked `int64`.
 - Times are RFC 3339 with timezone.
+
+Coverage boundary: commands without a section here — `rules` (+`history`),
+`recon`, `policy`, `brief`, `purge`, `backtest`, `opportunities`, the
+`proposals` write subcommands, `settings set`, `trading paper-smoke`,
+`order place|modify|cancel`, and `update` — still emit `--json`, shaped by
+their result structs in `internal/rpc/rpc.go` and neighbors. For those, run
+the command with `--json` and read the actual field names; nothing in this
+file overrides the daemon's typed contract.
 
 ## account
 
@@ -1037,9 +1047,35 @@ Action-relevant fields:
 - `data_type` — `live`, `delayed`, `frozen`, or `delayed-frozen`. If a
   user asks about a quote and `data_type != "live"`, mention it.
 
-A full set of additional metadata fields (`alternates`, `tls_origin`,
-`server_version`, `daemon_started`) is also returned but rarely
-actionable; show them only when the user is debugging discovery.
+- `connected_account` / `account_mode` — the account the gateway session
+  actually advertises and its `paper`/`live`/`unknown` classification.
+  When `account_mode` disagrees with what the user expects, say so before
+  discussing anything order-related.
+- `background_tasks` — always present, `[]` means idle; non-empty lists
+  daemon computes running or awaiting retry.
+- `subsystems`, `data_quality`, `data_farms`, `members` — health rows the
+  CLI renders; consult them when quotes or sensors look stale.
+- `trading` — always present; the local order-entry readiness surface and
+  the single most action-relevant object here:
+  - `mode` — `disabled`/`paper`/`live` from config; `mcp_trading` reports
+    the MCP exposure state.
+  - `can_preview` / `can_write` — local gate results. `can_write=false`
+    with `write_blockers[]` (each `{code, message, action}`) is the list
+    to show the user verbatim.
+  - `blocked` / `blockers[]` — current overall trading-gate state.
+  - `live_override` — `ready`/`blocked` local readiness evidence; never
+    submit authority.
+  - `endpoint`, `gateway_host`, `gateway_port`, `account`, `client_id`
+    with their `*_origin` fields — the pins actually in force and whether
+    each was pinned by config or discovered.
+  - `open_orders`, `last_order_event` — local journal context.
+  - `paper_smoke*` — informational paper round-trip evidence (result,
+    timestamp, freshness window, account/endpoint/client/version); it
+    reports release-pipeline evidence and does not gate live mode.
+
+Additional metadata fields (`alternates`, `tls_origin`, `server_version`,
+`daemon_started`) are rarely actionable; show them only when the user is
+debugging discovery.
 
 ## restart
 
