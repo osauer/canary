@@ -98,7 +98,7 @@ func (s *Server) handleChainExpiries(ctx context.Context, req *rpc.Request) (*rp
 	if !p.AllExpiries && len(work) > defaultExpiryIVCap {
 		work = work[:defaultExpiryIVCap]
 	}
-	if p.RequireLiveIV && !rpc.IsOptionRTH(time.Now()) {
+	if p.RequireLiveIV && !optionSessionOpen(time.Now()) {
 		for _, e := range work {
 			res.Expiries = append(res.Expiries, rpc.ChainExpiry{
 				Date:      e,

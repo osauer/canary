@@ -7,26 +7,31 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+// optionSessionOpen reports whether the official U.S. listed-options session
+// is open at now. marketcal is the authority — holidays, early closes, and the
+// 16:15 close included — and only outside its embedded coverage does the
+// clock-only weekday fallback apply. Policy blockers and eligibility gates
+// must use this, not rpc.IsOptionRTH: that helper is holiday-blind by
+// documented contract and is kept for display cadence only.
+func optionSessionOpen(now time.Time) bool {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	cal := marketcal.NewWithClock(func() time.Time { return now })
+	session, err := cal.SessionAt(marketcal.MarketUSOptions, now)
+	if err == nil && session.State != marketcal.StateUnknown {
+		return session.IsOpen
+	}
+	return gammaWeekdayOptionsRegular(now)
+}
+
 // gammaClassifySession classifies the option-data surface used by dealer
 // gamma, not the underlying ETF quote session. The compute needs option OI,
 // IV/model ticks, and classed SPX/SPXW contracts; outside the official regular
 // U.S. listed-options session a non-force refresh is not expected to improve a
 // good last-known snapshot reliably.
 func gammaClassifySession(now time.Time) rpc.SessionClass {
-	if now.IsZero() {
-		now = time.Now()
-	}
-	cal := marketcal.NewWithClock(func() time.Time { return now })
-	session, err := cal.SessionAt(marketcal.MarketUSOptions, now)
-	if err == nil {
-		if session.IsOpen {
-			return rpc.SessionRTH
-		}
-		if session.State != marketcal.StateUnknown {
-			return rpc.SessionClosed
-		}
-	}
-	if gammaWeekdayOptionsRegular(now) {
+	if optionSessionOpen(now) {
 		return rpc.SessionRTH
 	}
 	return rpc.SessionClosed

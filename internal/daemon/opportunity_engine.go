@@ -521,8 +521,8 @@ func optionExerciseOpportunity(policy opportunityPolicy, status rpc.OpportunityP
 	addBlocker := func(code, message, action string) {
 		opp.Blockers = appendTradingBlockerOnce(opp.Blockers, rpc.TradingBlocker{Code: code, Message: message, Action: action})
 	}
-	if policyBucket.RequireRTH && !rpc.IsOptionRTH(now) {
-		addBlocker("options_rth_required", "option exercise opportunities require regular U.S. options trading hours in this policy", "Refresh opportunities during 09:30-16:00 ET.")
+	if policyBucket.RequireRTH && !optionSessionOpen(now) {
+		addBlocker("options_rth_required", "option exercise opportunities require regular U.S. options trading hours in this policy", "Refresh opportunities during regular U.S. options trading hours (09:30-16:15 ET on trading days).")
 	}
 	if policyBucket.RequireAmericanStyle && !opportunityLooksAmericanEquityOption(row, stock) {
 		addBlocker("exercise_style_unknown_or_unsupported", "option exercise style is not confirmed as a U.S. equity or ETF style contract", "Use TWS Option Exercise manually for non-U.S., index, cash-settled, or unknown-style options.")

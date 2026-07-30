@@ -107,8 +107,12 @@ func IsLiveDataType(dt string) bool {
 // Holidays are NOT modeled. The fall-through is "open" on those days; the
 // existing model-tick → BS-IV fallback chain keeps results usable, and a
 // missed disclosure on a holiday is preferable to mis-flagging a regular
-// session. If holiday accuracy becomes load-bearing, route the gateway's
-// TradingHours field through and check against it instead.
+// session.
+//
+// Display cadence only — never use this for policy blockers or eligibility
+// gates. Those must go through a marketcal-backed authority (the daemon's
+// optionSessionOpen), which models holidays, early closes, and the 16:15
+// options close, and reports unknown coverage instead of guessing.
 //
 // Fail-open: if the America/New_York zone can't be loaded (e.g. tzdata
 // missing in a minimal container), returns true so the banner stays
