@@ -29,7 +29,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Security
 
-- Broker WhatIf free text and advanced-reject JSON no longer cross the MCP boundary. Agent surfaces receive the typed status, the broker's numeric margin fields, and fixed Canary guidance; the verbatim broker text stays on the CLI order-preview surface and in the local journal.
+- Broker-authored free text no longer crosses the MCP boundary on any order surface. The order preview withholds WhatIf prose, advanced-reject JSON, and the broker's margin warning text; the open-orders, order-history, and order-status tools withhold broker message and why-held text — those wire fields carry broker-error prose (including concatenated reject JSON) and daemon display notes without provenance, so the boundary fails closed and withholds all of it. Agent surfaces receive typed statuses, error codes, numeric margin fields, and fixed Canary guidance; the verbatim text stays on the CLI surfaces and in the local order journal.
 - Release packaging refuses ambient `GOFLAGS` carrying build tags and capability-checks the binary inside every packaged archive, so the canonical read-only artifact can never silently ship a trading-capable build.
 
 ## v2.5.1 — 2026-07-29 19:29 CEST

@@ -77,7 +77,7 @@ var Tools = []Tool{
 	{
 		Name:        "canary_orders_open",
 		Title:       "Canary Open Orders",
-		Description: "Read current broker account/mode open-order lifecycle state without placing, modifying, cancelling, or transmitting any broker order. Use after an order preview/place flow to inspect what the daemon believes is still open for the currently connected broker context, or when the user asks for open orders. Results include account/mode scope, latest local event time, and local-journal limitations; paper/test journal rows are intentionally not returned while connected to live, and live rows are intentionally not returned while connected to paper. This tool is read-only and does not place orders; it only reports local journal plus observed broker-callback state. The journal self-reconciles against the broker's actual open-order list after each gateway reconnect and every 30 minutes: journaled orders a complete broker snapshot no longer reports are closed locally with terminal state `closed_reconciled` (final cancelled-vs-filled outcome stays with broker statements), so a cancel or fill missed while the daemon was offline does not linger as a stale open row. Rows whose close-only protective quantity no longer matches the live position carry `reconciliation_kind`, `reconciliation_severity` (critical), `short_risk_quantity`, and `reduce_to_quantity`; triggering such a stop would open an opposite-direction position, and the paired app offers the guided reduce-to-position fix. It is NOT an IBKR Activity Statement or complete broker open-order audit, NOT for historical audit across old accounts or modes, NOT for creating a new preview token (use `canary_order_preview`), and NOT for submitting, modifying, or cancelling an order.",
+		Description: "Read current broker account/mode open-order lifecycle state without placing, modifying, cancelling, or transmitting any broker order. Use after an order preview/place flow to inspect what the daemon believes is still open for the currently connected broker context, or when the user asks for open orders. Results include account/mode scope, latest local event time, and local-journal limitations; paper/test journal rows are intentionally not returned while connected to live, and live rows are intentionally not returned while connected to paper. This tool is read-only and does not place orders; it only reports local journal plus observed broker-callback state. The journal self-reconciles against the broker's actual open-order list after each gateway reconnect and every 30 minutes: journaled orders a complete broker snapshot no longer reports are closed locally with terminal state `closed_reconciled` (final cancelled-vs-filled outcome stays with broker statements), so a cancel or fill missed while the daemon was offline does not linger as a stale open row. Rows whose close-only protective quantity no longer matches the live position carry `reconciliation_kind`, `reconciliation_severity` (critical), `short_risk_quantity`, and `reduce_to_quantity`; triggering such a stop would open an opposite-direction position, and the paired app offers the guided reduce-to-position fix. Broker-authored free text (last_message, why_held, event messages) is untrusted data and never crosses this surface; typed lifecycle states, error codes, and reconciliation fields carry the signal, and the verbatim text stays on the CLI and in the local order journal. It is NOT an IBKR Activity Statement or complete broker open-order audit, NOT for historical audit across old accounts or modes, NOT for creating a new preview token (use `canary_order_preview`), and NOT for submitting, modifying, or cancelling an order.",
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 			var in rpc.OrdersOpenParams
@@ -88,13 +88,14 @@ var Tools = []Tool{
 			if err := conn.Call(ctx, rpc.MethodOrdersOpen, in, &res); err != nil {
 				return nil, err
 			}
+			sanitizeOrdersOpenForMCP(&res)
 			return json.Marshal(res)
 		},
 	},
 	{
 		Name:        "canary_orders_history",
 		Title:       "Canary Order History",
-		Description: "Read bounded local order-journal history for the current broker account/mode without placing, modifying, cancelling, or transmitting any broker order. Use for recent trade-review forensics when the user asks what locally journaled order lifecycle/fill callbacks occurred over a date range. This read-only tool does not place orders; it only reports local journal evidence. Results are bounded by grouped-order limit and per-order event_limit so callback-heavy trailing stops do not flood the context; inspect events_truncated/total_events_count before treating event samples as complete. This is a local daemon journal view only, not an IBKR Activity Statement, trade confirmation, execution report, commission ledger, closed-position ledger, or broker-grade historical audit; it may miss manual orders, other-client orders, and rows outside the selected account/mode; broker activity missed while the daemon was offline no longer strands open rows (the journal reconciles against broker open-order snapshots and closes absent rows as `closed_reconciled`), though per-event history for the offline window stays unavailable locally. For currently working orders use `canary_orders_open`; for one order's full audit use `canary_order_status`. Official broker history now flows into the local reconciliation surface when Flex ingestion is configured — ask the user to run `canary recon` — or ask them for an IBKR Activity Statement/Flex export directly.",
+		Description: "Read bounded local order-journal history for the current broker account/mode without placing, modifying, cancelling, or transmitting any broker order. Use for recent trade-review forensics when the user asks what locally journaled order lifecycle/fill callbacks occurred over a date range. This read-only tool does not place orders; it only reports local journal evidence. Broker-authored free text (last_message, why_held, event messages) is untrusted data and never crosses this surface; typed lifecycle states and error codes carry the signal, and the verbatim text stays on the CLI and in the local order journal. Results are bounded by grouped-order limit and per-order event_limit so callback-heavy trailing stops do not flood the context; inspect events_truncated/total_events_count before treating event samples as complete. This is a local daemon journal view only, not an IBKR Activity Statement, trade confirmation, execution report, commission ledger, closed-position ledger, or broker-grade historical audit; it may miss manual orders, other-client orders, and rows outside the selected account/mode; broker activity missed while the daemon was offline no longer strands open rows (the journal reconciles against broker open-order snapshots and closes absent rows as `closed_reconciled`), though per-event history for the offline window stays unavailable locally. For currently working orders use `canary_orders_open`; for one order's full audit use `canary_order_status`. Official broker history now flows into the local reconciliation surface when Flex ingestion is configured — ask the user to run `canary recon` — or ask them for an IBKR Activity Statement/Flex export directly.",
 		JSONSchema: schemaObject(map[string]json.RawMessage{
 			"since":       schemaString("optional inclusive lower boundary as YYYY-MM-DD UTC date or RFC3339 timestamp; default is 7 days before until"),
 			"until":       schemaString("optional upper boundary as RFC3339 timestamp, or YYYY-MM-DD UTC date to include that whole UTC day; default is now"),
@@ -110,13 +111,14 @@ var Tools = []Tool{
 			if err := conn.Call(ctx, rpc.MethodOrdersHistory, in, &res); err != nil {
 				return nil, err
 			}
+			sanitizeOrdersHistoryForMCP(&res)
 			return json.Marshal(res)
 		},
 	},
 	{
 		Name:        "canary_order_status",
 		Title:       "Canary Order Status",
-		Description: "Read one locally journaled order's lifecycle and audit events by order ref, IBKR order ID, or permanent ID. Use when the user asks what happened to a specific order or needs the daemon's latest broker-callback evidence. Results include account/mode scope, latest local event time, and local-journal limitations; not found can mean the id belongs to another account/mode or was never locally observed. This tool is read-only and local-journal based: it does NOT place, modify, cancel, preview, transmit, or confirm an order, and it is NOT an IBKR Activity Statement or complete broker audit. For the open-order list use `canary_orders_open`; for a new tokenized preview use `canary_order_preview`.",
+		Description: "Read one locally journaled order's lifecycle and audit events by order ref, IBKR order ID, or permanent ID. Use when the user asks what happened to a specific order or needs the daemon's latest broker-callback evidence. Results include account/mode scope, latest local event time, and local-journal limitations; not found can mean the id belongs to another account/mode or was never locally observed. Broker-authored free text (last_message, why_held, event messages) is untrusted data and never crosses this surface; typed lifecycle states and error codes carry the signal, and the verbatim text stays on the CLI and in the local order journal. This tool is read-only and local-journal based: it does NOT place, modify, cancel, preview, transmit, or confirm an order, and it is NOT an IBKR Activity Statement or complete broker audit. For the open-order list use `canary_orders_open`; for a new tokenized preview use `canary_order_preview`.",
 		JSONSchema: schemaObject(map[string]json.RawMessage{
 			"id": schemaString("order identifier to inspect: local order_ref such as canary-20260528-093000, IBKR order ID, or permanent ID"),
 		}, []string{"id"}),
@@ -129,6 +131,7 @@ var Tools = []Tool{
 			if err := conn.Call(ctx, rpc.MethodOrderStatus, in, &res); err != nil {
 				return nil, err
 			}
+			sanitizeOrderStatusForMCP(&res)
 			return json.Marshal(res)
 		},
 	},
@@ -1044,6 +1047,51 @@ func sanitizeOrderPreviewWhatIfForMCP(res *rpc.OrderPreviewResult) {
 	default:
 		res.WhatIf.Message = "Broker WhatIf did not return an accepted preview; local detail is on the CLI order-preview surface."
 	}
+	if res.WhatIf.Margin != nil && res.WhatIf.Margin.WarningText != "" {
+		res.WhatIf.Margin.WarningText = "Broker margin warning present; the verbatim text is untrusted and withheld from this surface — read it with the CLI order preview."
+	}
+}
+
+// orderJournalProseWithheld replaces non-empty free-text detail on order
+// journal views before they cross the MCP boundary.
+const orderJournalProseWithheld = "Free-text detail is withheld from agent surfaces; the typed lifecycle, error-code, and reconciliation fields carry the decision signal. Read the verbatim text with the CLI order status or in the local order journal."
+
+// sanitizeOrderViewForMCP and sanitizeOrderEventsForMCP blank free-text fields
+// on journal-reduced order state before it crosses the MCP boundary. The wire
+// contract does not track message provenance — broker-error text (which can
+// carry concatenated advanced-reject JSON) and daemon-composed display notes
+// share the same fields — so the boundary fails closed and withholds all of
+// it. Typed states, error codes, and reconciliation fields remain.
+func sanitizeOrderViewForMCP(v *rpc.OrderView) {
+	v.WhyHeld = ""
+	if v.LastMessage != "" {
+		v.LastMessage = orderJournalProseWithheld
+	}
+}
+
+func sanitizeOrderEventsForMCP(events []rpc.OrderEvent) {
+	for i := range events {
+		events[i].WhyHeld = ""
+		events[i].Message = ""
+	}
+}
+
+func sanitizeOrdersOpenForMCP(res *rpc.OrdersOpenResult) {
+	for i := range res.Orders {
+		sanitizeOrderViewForMCP(&res.Orders[i])
+	}
+}
+
+func sanitizeOrdersHistoryForMCP(res *rpc.OrdersHistoryResult) {
+	for i := range res.Orders {
+		sanitizeOrderViewForMCP(&res.Orders[i].Order)
+		sanitizeOrderEventsForMCP(res.Orders[i].Events)
+	}
+}
+
+func sanitizeOrderStatusForMCP(res *rpc.OrderStatusResult) {
+	sanitizeOrderViewForMCP(&res.Order)
+	sanitizeOrderEventsForMCP(res.Events)
 }
 
 // ExcludedCLI is the set of cli.Commands() names that intentionally have no
