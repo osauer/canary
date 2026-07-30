@@ -16,6 +16,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const opportunityRefreshRetryBase = 30 * time.Second
@@ -325,7 +326,8 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		}
 		return snap, err
 	}
-	pos, err := e.server.handlePositionsList(ctx, &rpc.Request{})
+	var portfolioHealth ibkrlib.PortfolioStreamHealth
+	pos, err := e.server.handlePositionsListCaptured(ctx, &rpc.Request{}, &portfolioHealth)
 	if err != nil {
 		blockers := []rpc.TradingBlocker{{Code: "positions_unavailable", Message: err.Error()}}
 		if snap, ok := e.preserveSnapshotOnRefreshFailure(scope, status, policyStatus, blockers, show); ok {
@@ -344,8 +346,8 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		return snap, err
 	}
 	pos = e.server.analysisPositions(pos, now)
-	if proposalPositionsUnprimed(pos, acct) {
-		blockers := []rpc.TradingBlocker{{Code: "positions_pending", Message: "portfolio stream not yet primed; account summary reports open positions"}}
+	if proposalPositionsUnprimed(pos, acct, portfolioHealth) {
+		blockers := []rpc.TradingBlocker{{Code: "positions_pending", Message: "portfolio stream not yet primed; an empty position list needs a completed account-scoped receipt and no contradicting account summary"}}
 		if snap, ok := e.preserveSnapshotOnRefreshFailure(scope, status, policyStatus, blockers, show); ok {
 			return snap, nil
 		}

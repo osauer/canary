@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +94,43 @@ func TestUnattachedOrderAuthorityFailsClosedWithoutLegacyFallback(t *testing.T) 
 	}
 	if _, err := srv.reservedBrokerOrderIDFloor(); err == nil {
 		t.Fatal("unattached order floor succeeded through legacy fallback")
+	}
+}
+
+// A configured order journal that cannot be read defers idle exit and
+// reports itself as a degraded status row; a daemon with no journal at all
+// keeps its normal idle exit — no broker-write capability means no broker
+// orders to go dark on.
+func TestUnreadableOrderJournalDefersIdleExit(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "order-journal.jsonl")
+	dbPath := filepath.Join(filepath.Dir(path), "authority", filepath.Base(path)+".db")
+	store, err := corestore.Open(context.Background(), corestore.Options{Path: dbPath})
+	if err != nil {
+		t.Fatalf("open order authority: %v", err)
+	}
+	journal := newOrderJournalStore(path)
+	if err := journal.UseCoreStore(store); err != nil {
+		t.Fatalf("attach order authority: %v", err)
+	}
+	_ = store.Close()
+
+	srv := &Server{orderJournal: journal}
+	if !srv.isBusy() {
+		t.Fatal("unreadable order journal must defer idle exit")
+	}
+	found := false
+	for _, task := range srv.backgroundTasks() {
+		if task.Name == "open-orders" && strings.Contains(task.Status, "journal unreadable") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("degraded open-orders row missing: %+v", srv.backgroundTasks())
+	}
+
+	bare := &Server{}
+	if bare.isBusy() {
+		t.Fatal("a daemon with no order journal must keep its normal idle exit")
 	}
 }

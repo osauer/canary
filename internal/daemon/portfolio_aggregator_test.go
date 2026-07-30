@@ -212,12 +212,13 @@ func TestBuildPortfolioAggregatesExcludesZombieStocks(t *testing.T) {
 	}
 }
 
-func TestZeroValueStockPositionSkipsQuotePrewarmButStaysVisible(t *testing.T) {
+// A zero-value row is a data-quality fact, not expectation authority: it
+// stays visible, stale, and warned, but numeric zeros alone may not mint
+// QuoteExpectationNone — only the broker's terminal non-reporting verdict
+// (stamped by the prewarm probe from the connector's inactive marks) may.
+func TestZeroValueStockPositionStaysVisibleWithoutExpectationAuthority(t *testing.T) {
 	stocks := []rpc.PositionView{
 		{Symbol: "ZVZZT", SecType: "STK", Quantity: 20000, Mark: 0, ValuationMark: 0, MarketValue: 0, Currency: "USD"},
-	}
-	if shouldPrewarmStockQuote(stocks[0]) {
-		t.Fatal("zero-value stock position should not trigger quote prewarm")
 	}
 	flagZeroValueStockPositions(stocks)
 	if len(stocks) != 1 || stocks[0].Symbol != "ZVZZT" {
@@ -228,6 +229,9 @@ func TestZeroValueStockPositionSkipsQuotePrewarmButStaysVisible(t *testing.T) {
 	}
 	if !positionWarningHasCode(stocks[0].WarningDetails, "zero_value_stock_position") {
 		t.Fatalf("zero-value warning missing: %+v", stocks[0].WarningDetails)
+	}
+	if stocks[0].QuoteExpectation == rpc.QuoteExpectationNone {
+		t.Fatalf("numeric zeros must not mint QuoteExpectationNone: %+v", stocks[0])
 	}
 }
 

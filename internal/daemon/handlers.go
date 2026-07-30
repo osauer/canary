@@ -521,9 +521,10 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 		if sym == "" || seen[sym] {
 			continue
 		}
-		if !shouldPrewarmStockQuote(stocks[i]) {
-			continue
-		}
+		// Zero-value rows are probed too: the probe is the evidence that
+		// either disproves inactivity (live quote) or reaches the broker's
+		// terminal verdict; the connector's inactive marks keep repeat
+		// probes of genuinely dead names cheap.
 		seen[sym] = true
 		jobs = append(jobs, job{
 			index: i,
@@ -539,7 +540,12 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 		if ctx.Err() != nil {
 			return
 		}
-		q, ok := s.snapshotHeldStockQuote(ctx, c, j.contract, positionStockQuoteBudget)
+		q, ok, terminal := s.snapshotHeldStockQuote(ctx, c, j.contract, positionStockQuoteBudget)
+		if terminal {
+			p := &stocks[j.index]
+			p.QuoteExpectation = rpc.QuoteExpectationNone
+			p.QuoteExpectationReason = rpc.QuoteExpectationReasonTerminal
+		}
 		if !ok {
 			if s.prevCloses != nil {
 				s.prevCloses.put(j.contract.Symbol, prevCloseEntry{}, time.Now())
@@ -588,17 +594,18 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 	})
 }
 
-func shouldPrewarmStockQuote(p rpc.PositionView) bool {
-	return !stockPositionLooksInactive(p)
-}
-
-func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connector, contract rpc.ContractParams, timeout time.Duration) (rpc.Quote, bool) {
+// snapshotHeldStockQuote probes one held stock for a quote summary.
+// terminal reports the broker's own non-reporting verdict (the connector's
+// guarded inactive mark, minted from confirmed "no security definition"
+// answers) — the only evidence allowed to mint QuoteExpectationNone. A
+// probe that merely times out or fails transiently is not terminal.
+func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connector, contract rpc.ContractParams, timeout time.Duration) (q rpc.Quote, ok, terminal bool) {
 	if s == nil || s.subs == nil {
-		return rpc.Quote{}, false
+		return rpc.Quote{}, false, false
 	}
 	routeContract, echoedContract, routedQuote, err := normaliseStockQuoteContract(contract)
 	if err != nil {
-		return rpc.Quote{}, false
+		return rpc.Quote{}, false, false
 	}
 	sessionMarket, hasSessionMarket := quoteSessionMarketForContract(echoedContract)
 	sym := echoedContract.Symbol
@@ -608,20 +615,20 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 	if routedQuote {
 		key, err := c.SubscribeMarketDataWithContract(ctx, routeContract, defaultGenericTicks)
 		if err != nil {
-			return rpc.Quote{}, false
+			return rpc.Quote{}, false, errors.Is(err, ibkrlib.ErrSymbolInactive)
 		}
 		pollKey = key
 		releaseSub = func() { _ = c.UnsubscribeMarketData(key) }
 	} else {
 		release, err := s.subs.Hold(ctx, sym)
 		if err != nil {
-			return rpc.Quote{}, false
+			return rpc.Quote{}, false, errors.Is(err, ibkrlib.ErrSymbolInactive)
 		}
 		releaseSub = release
 	}
 	defer releaseSub()
 
-	q := rpc.Quote{
+	q = rpc.Quote{
 		Symbol:   sym,
 		Contract: echoedContract,
 		IVStatus: "unavailable",
@@ -640,7 +647,7 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 		return ready || fallback
 	})
 	if !seen {
-		return rpc.Quote{}, false
+		return rpc.Quote{}, false, false
 	}
 	q.AsOf = time.Now()
 	if quoteNeedsHistoryForSession(&q, sessionMarket, hasSessionMarket) {
@@ -650,7 +657,7 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 		s.attachQuoteSessionContext(&q, sessionMarket)
 	}
 	s.decorateQuote(&q, sessionMarket)
-	return q, true
+	return q, true, false
 }
 
 // positionSecType maps IBKR's raw SecType codes ("STK", "OPT", "FUT", "IND")
@@ -1115,16 +1122,18 @@ func flagOptionMarkOutsideBidAsk(options []rpc.PositionView) {
 	}
 }
 
+// flagZeroValueStockPositions marks rows whose quote probe left them with
+// zero marks and no quote fields. Numeric zeros are a data-quality flag, not
+// authority: only the broker's terminal non-reporting verdict (stamped by
+// prewarmStockQuoteSummaries from the connector's guarded inactive marks) may
+// mint QuoteExpectationNone, so a transiently zeroed real holding stays
+// visible as unresolved exposure instead of being sealed as expected-silent.
 func flagZeroValueStockPositions(stocks []rpc.PositionView) {
 	for i := range stocks {
 		p := &stocks[i]
 		if !stockPositionLooksInactive(*p) {
 			continue
 		}
-		// Stamped before the warning-dedupe check: the expectation is a
-		// property of the contract, not of whether we already warned.
-		p.QuoteExpectation = rpc.QuoteExpectationNone
-		p.QuoteExpectationReason = rpc.QuoteExpectationReasonZeroValue
 		if positionWarningHasCode(p.WarningDetails, "zero_value_stock_position") {
 			continue
 		}
@@ -1135,8 +1144,8 @@ func flagZeroValueStockPositions(stocks []rpc.PositionView) {
 			Scope:    p.Symbol,
 			Severity: "data_quality",
 			Message:  "Held stock position has nonzero quantity but zero mark and zero market value.",
-			Impact:   "Treat as defunct or not currently quoteable; it is excluded from quote enrichment and portfolio delta, but remains visible as account position truth.",
-			Action:   "Reconcile the bankrupt/delisted holding with broker records before using it in risk or protection workflows.",
+			Impact:   "Unresolved exposure until a live quote or the broker's terminal non-reporting verdict resolves it; remains visible as account position truth.",
+			Action:   "Reconcile the holding with broker records before using it in risk or protection workflows.",
 		})
 	}
 }

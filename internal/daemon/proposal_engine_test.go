@@ -2618,20 +2618,25 @@ func TestProposalPositionsUnprimedDecision(t *testing.T) {
 	t.Parallel()
 	flat := &rpc.PositionsResult{Stocks: []rpc.PositionView{}, Options: []rpc.PositionView{}}
 	held := &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "MSFT", Quantity: 10}}}
+	receipt := ibkrlib.PortfolioStreamHealth{InitialCompletedAt: time.Now()}
 	cases := []struct {
-		name string
-		pos  *rpc.PositionsResult
-		acct *rpc.AccountResult
-		want bool
+		name   string
+		pos    *rpc.PositionsResult
+		acct   *rpc.AccountResult
+		health ibkrlib.PortfolioStreamHealth
+		want   bool
 	}{
-		{"empty cache, summary shows positions", flat, &rpc.AccountResult{GrossPositionValue: 120_000}, true},
-		{"empty cache, genuinely flat book", flat, &rpc.AccountResult{GrossPositionValue: 0}, false},
-		{"primed cache", held, &rpc.AccountResult{GrossPositionValue: 120_000}, false},
-		{"nil positions", nil, &rpc.AccountResult{GrossPositionValue: 120_000}, false},
-		{"nil account", flat, nil, false},
+		{"empty cache, no completion receipt", flat, &rpc.AccountResult{}, ibkrlib.PortfolioStreamHealth{}, true},
+		{"empty cache, no receipt, absent summary flattened to zero", flat, &rpc.AccountResult{GrossPositionValue: 0}, ibkrlib.PortfolioStreamHealth{}, true},
+		{"empty cache, no receipt, nil account", flat, nil, ibkrlib.PortfolioStreamHealth{}, true},
+		{"empty cache, receipt but summary shows positions", flat, &rpc.AccountResult{GrossPositionValue: 120_000}, receipt, true},
+		{"empty cache, receipt and genuinely flat summary", flat, &rpc.AccountResult{GrossPositionValue: 0}, receipt, false},
+		{"empty cache, receipt, nil account", flat, nil, receipt, false},
+		{"primed cache", held, &rpc.AccountResult{GrossPositionValue: 120_000}, ibkrlib.PortfolioStreamHealth{}, false},
+		{"nil positions", nil, &rpc.AccountResult{GrossPositionValue: 120_000}, ibkrlib.PortfolioStreamHealth{}, false},
 	}
 	for _, tc := range cases {
-		if got := proposalPositionsUnprimed(tc.pos, tc.acct); got != tc.want {
+		if got := proposalPositionsUnprimed(tc.pos, tc.acct, tc.health); got != tc.want {
 			t.Errorf("%s: proposalPositionsUnprimed = %v, want %v", tc.name, got, tc.want)
 		}
 	}

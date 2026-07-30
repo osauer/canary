@@ -212,20 +212,24 @@ func proposalRefreshWait(cadence time.Duration, failures int) time.Duration {
 	return refreshBackoff(cadence, proposalRefreshRetryBase, proposalRefreshBackoffCap, failures)
 }
 
-// proposalPositionsUnprimed reports whether an empty positions list
-// contradicts the account summary. A connected session serves an empty
-// position cache (no error) until the account-updates portfolio burst
-// lands; when the summary reports gross position value, the empty list is
-// the unprimed stream, not a flat book — generating "no proposals" from
-// it would replace a last-good snapshot with a silently wrong empty
-// panel. Same heuristic as the connector's maybeResubscribeAccountUpdates
-// self-heal. A genuinely flat account (gross position value 0) never
-// trips this, so an emptied book still converges to an empty panel.
-func proposalPositionsUnprimed(pos *rpc.PositionsResult, acct *rpc.AccountResult) bool {
-	if pos == nil || acct == nil {
+// proposalPositionsUnprimed reports whether an empty positions list can be
+// trusted as a flat book. A connected session serves an empty position
+// cache (no error) until the account-updates portfolio burst lands, so
+// only the stream's completed account-scoped receipt proves flatness —
+// the account summary's gross position value cannot carry that burden,
+// because an absent wire field flattens to numeric zero and would bless
+// the unprimed stream as flat. A positive summary value stays as a second
+// tripwire against a receipt that raced a stale projection. Generating
+// "no proposals" from an untrusted empty list would replace a last-good
+// snapshot with a silently wrong empty panel.
+func proposalPositionsUnprimed(pos *rpc.PositionsResult, acct *rpc.AccountResult, health ibkrlib.PortfolioStreamHealth) bool {
+	if pos == nil || len(pos.Stocks) != 0 || len(pos.Options) != 0 {
 		return false
 	}
-	return len(pos.Stocks) == 0 && len(pos.Options) == 0 && acct.GrossPositionValue > 0
+	if health.InitialCompletedAt.IsZero() {
+		return true
+	}
+	return acct != nil && acct.GrossPositionValue > 0
 }
 
 // proposalRefreshTransient reports whether the installed snapshot is
@@ -433,7 +437,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		}
 		return snap, err
 	}
-	pos, err := e.server.handlePositionsList(ctx, &rpc.Request{})
+	var portfolioHealth ibkrlib.PortfolioStreamHealth
+	pos, err := e.server.handlePositionsListCaptured(ctx, &rpc.Request{}, &portfolioHealth)
 	if err != nil {
 		blockers := []rpc.TradingBlocker{{Code: "positions_unavailable", Message: err.Error()}}
 		if snap, ok := e.preserveSnapshotOnRefreshFailure(scope, autoStatus, policyStatus, blockers, show); ok {
@@ -451,8 +456,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		return snap, err
 	}
 	pos = e.server.analysisPositions(pos, now)
-	if proposalPositionsUnprimed(pos, acct) {
-		blockers := []rpc.TradingBlocker{{Code: "positions_pending", Message: "portfolio stream not yet primed; account summary reports open positions"}}
+	if proposalPositionsUnprimed(pos, acct, portfolioHealth) {
+		blockers := []rpc.TradingBlocker{{Code: "positions_pending", Message: "portfolio stream not yet primed; an empty position list needs a completed account-scoped receipt and no contradicting account summary"}}
 		if snap, ok := e.preserveSnapshotOnRefreshFailure(scope, autoStatus, policyStatus, blockers, show); ok {
 			return snap, nil
 		}

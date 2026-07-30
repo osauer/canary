@@ -3021,7 +3021,18 @@ func (s *Server) backgroundTasks() []rpc.BackgroundTaskStatus {
 	if s.flexFetch.isBusy() {
 		tasks = append(tasks, rpc.BackgroundTaskStatus{Name: "flex-report", Status: "checking"})
 	}
-	if scoped, total := s.openBrokerOrderCounts(); total > 0 {
+	if scoped, total, err := s.openBrokerOrderCounts(); err != nil && !errors.Is(err, ErrTradingDisabled) {
+		// A configured journal that cannot be read is unknown order
+		// authority, not zero: broker-side protective orders may still be
+		// working, so idle exit stays deferred and the degradation is
+		// visible in status instead of reading as a clean empty book. The
+		// cost — a daemon that cannot idle-exit while its state directory
+		// is broken — is the visible failure; going dark on fills would be
+		// the silent one. A daemon with no order journal at all
+		// (ErrTradingDisabled) has no broker-write capability to go dark
+		// on and keeps its normal idle exit.
+		tasks = append(tasks, rpc.BackgroundTaskStatus{Name: "open-orders", Status: "journal unreadable; count unknown, idle exit deferred"})
+	} else if err == nil && total > 0 {
 		// A daemon that idle-exits while protective stops are working goes
 		// dark on fills, cancels, and the order journal exactly when they
 		// matter; stay up while any non-terminal order is on the books —
@@ -3039,12 +3050,12 @@ func (s *Server) backgroundTasks() []rpc.BackgroundTaskStatus {
 
 // openBrokerOrderCounts reports non-terminal journaled orders: scoped counts
 // only the connected account/mode (what the orders tab shows), total spans
-// all scopes (what idle shutdown must respect). Zero on any journal problem:
-// idle shutdown must not be blocked by a broken state directory.
-func (s *Server) openBrokerOrderCounts() (scoped, total int) {
+// all scopes (what idle shutdown must respect). A journal read error is
+// returned as such — never flattened to zero counts.
+func (s *Server) openBrokerOrderCounts() (scoped, total int, err error) {
 	views, _, err := s.loadOrderViews()
 	if err != nil {
-		return 0, 0
+		return 0, 0, err
 	}
 	scope := s.currentBrokerStateScope()
 	for _, v := range views {
@@ -3056,7 +3067,7 @@ func (s *Server) openBrokerOrderCounts() (scoped, total int) {
 			scoped++
 		}
 	}
-	return scoped, total
+	return scoped, total, nil
 }
 
 // isBusy reports whether the daemon has daemon-internal background work

@@ -479,10 +479,10 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	case posErr != nil || pos == nil:
 		in.Positions = risk.SourceState{Healthy: false, Reason: "positions_unavailable"}
 		health = append(health, rpc.SourceHealth{Source: "positions", Status: "unavailable", Notes: []string{errText(posErr)}})
-	case acct != nil && proposalPositionsUnprimed(pos, acct):
+	case proposalPositionsUnprimed(pos, acct, portfolioHealth):
 		in.Positions = risk.SourceState{Healthy: false, Reason: "positions_pending"}
 		health = append(health, rpc.SourceHealth{Source: "positions", Status: "pending",
-			Notes: []string{"portfolio stream not yet primed; account summary reports open positions"}})
+			Notes: []string{"portfolio stream not yet primed; an empty position list needs a completed account-scoped receipt and no contradicting account summary"}})
 	default:
 		positionsState, positionsHealth := rulebookPortfolioSourceHealth(brokerScope, portfolioHealth, positionsCompletedAt)
 		in.Positions = positionsState
