@@ -26,6 +26,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: make check
         run: make check CHECK_DEPS=parity-check
 
@@ -48,11 +53,16 @@ jobs:
       - name: make test-pkg
         run: make test-pkg
 
-      - name: make test-support (-race; command and release-registry helper)
+      - name: make test-support (-race; command and CI/release helpers)
         run: make test-support
 
-      - name: make test-daemon (-race; integration tests self-skip when no gateway)
+      - name: make test-daemon (Linux, sharded -race)
+        if: runner.os == 'Linux'
         run: make test-daemon
+
+      - name: make test-daemon (macOS, unsharded -race)
+        if: runner.os == 'macOS'
+        run: make test-daemon-unsharded
 
   cross-compile:
     name: cross-compile release matrix

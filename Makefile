@@ -56,7 +56,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -554,9 +554,10 @@ test-pkg: ## Run pkg/ibkr/... tests under -race (TWS protocol library; cached wh
 # surfaces too. Keep them in one explicit race-enabled leg so both local
 # `make test` and CI exercise them without depending on package discovery
 # elsewhere in the matrix.
-test-support: ## Run command and release-registry support tests under -race
+test-support: ## Run command and CI/release support tests under -race
 	go test -race -timeout=180s ./cmd/...
 	go test -race -timeout=60s ./scripts/release-registry-server
+	go test -race -timeout=60s ./scripts/test-shard
 
 # Daemon + CLI integration tests. -race is on for the daemon path because
 # this layer carries the goroutines (subscriptions, idle timer, signal
@@ -566,10 +567,39 @@ test-support: ## Run command and release-registry support tests under -race
 # The integration leg is serialized across sessions via with-gateway-lock:
 # its client IDs and daemon spawns hit the shared TWS gateway, and two
 # overlapping runs used to flake with error 326 and force a full re-run.
-test-daemon: ## Run internal/... and test/integration/... under -race (incl. trading-tag write path)
-	go test -race -timeout=240s ./internal/...
+# The root daemon package has more than 1,200 top-level tests. On Linux the
+# single race-enabled test binary exhausted its 240-second package deadline
+# while newly started tests were still making progress. Keep the deadline and
+# full inventory binding, but split only that oversized package into four
+# sequential processes; subpackages continue to run as ordinary package legs.
+test-daemon: ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
+	@set -eu; \
+		daemon_pkg="$$(go list ./internal/daemon)"; \
+		all_internal="$$(go list ./internal/...)"; \
+		internal_pkgs="$$(printf '%s\n' "$$all_internal" | awk -v omit="$$daemon_pkg" '$$0 != omit')"; \
+		if [ -n "$$internal_pkgs" ]; then \
+			go test -race -timeout=240s $$internal_pkgs; \
+		fi
+	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -race -timeout 240s
 	./scripts/with-gateway-lock.sh go test -race -count=1 -timeout=420s ./test/integration/...
-	go test -race -timeout=240s -tags trading ./internal/daemon/...
+	@set -eu; \
+		daemon_pkg="$$(go list -tags trading ./internal/daemon)"; \
+		all_daemon="$$(go list -tags trading ./internal/daemon/...)"; \
+		daemon_subpkgs="$$(printf '%s\n' "$$all_daemon" | awk -v omit="$$daemon_pkg" '$$0 != omit')"; \
+		if [ -n "$$daemon_subpkgs" ]; then \
+			go test -race -timeout=240s -tags trading $$daemon_subpkgs; \
+		fi
+	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -race -tags trading -timeout 240s
+
+# One CI lane intentionally keeps the daemon package in a single race-enabled
+# process. Sharding is the reliable Linux gate, while this macOS diagnostic
+# retains visibility into package-global races between otherwise independent
+# tests that land in different shards. Its larger deadline is diagnostic
+# headroom, not the Linux timeout repair.
+test-daemon-unsharded: ## Run the daemon gate in one process per build mode (macOS CI race diagnostic)
+	go test -race -timeout=420s ./internal/...
+	./scripts/with-gateway-lock.sh go test -race -count=1 -timeout=420s ./test/integration/...
+	go test -race -timeout=420s -tags trading ./internal/daemon/...
 
 # Install the standalone skill bundle directly under global agent skill roots.
 # Dogfood path only — end users get the skill via `/plugin install canary`.

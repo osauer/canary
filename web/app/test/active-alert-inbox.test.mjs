@@ -352,10 +352,21 @@ test("a failed recovery GET keeps the retained unread authority instead of clear
 test("a hung GET aborts at the deadline and later refreshes are not wedged", async () => {
   reset();
   state.alertsFetchDeadlineMs = 25;
+  let deadlineSignal;
   globalThis.fetch = (url, init = {}) => new Promise((resolve, reject) => {
-    init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+    deadlineSignal = init.signal;
+    // AbortSignal.timeout() deliberately uses an unreferenced timer in Node.
+    // Keep this mocked fetch alive long enough to observe the real deadline;
+    // otherwise node:test may cancel the pending promise when the event loop
+    // becomes empty before the abort event is delivered.
+    const watchdog = setTimeout(() => reject(new Error("deadline did not abort")), 250);
+    init.signal?.addEventListener("abort", () => {
+      clearTimeout(watchdog);
+      reject(new Error("aborted"));
+    }, { once: true });
   });
   assert.equal(await refreshAlerts(), false);
+  assert.equal(deadlineSignal?.aborted, true, "the fetch deadline must abort the request");
   assert.equal(state.alertsRefreshInFlight, null, "the aborted refresh must clear the in-flight slot");
   assert.notEqual(state.alertsFeedValid, false);
   globalThis.fetch = async () => ({ ok: true, async json() { return dto(); } });
