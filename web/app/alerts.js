@@ -54,8 +54,8 @@ function validateReconciliation(value) {
 
 function validateGovernanceResponse(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  if (!Array.isArray(value.candidates) || !Array.isArray(value.occurrences) || !Array.isArray(value.attempts)) return null;
-  for (const field of ["source_health", "poll_source", "attempt_aggregate", "health_aggregate", "delivery_health", "diagnostic"]) {
+  if (!Array.isArray(value.candidates) || !Array.isArray(value.occurrences)) return null;
+  for (const field of ["source_health", "poll_source", "delivery_health", "diagnostic"]) {
     if (!value[field] || typeof value[field] !== "object" || Array.isArray(value[field])) return null;
   }
   const reconciliation = Object.prototype.hasOwnProperty.call(value, "reconciliation")
@@ -151,7 +151,6 @@ function governanceSummaryCopy(current, aggregate, pollState, candidateCount, so
 
 const governanceInputNames = ["policy", "reconciliation", "capital", "pins", "cadence", "confirmed_flow"];
 const governanceSnapshotRefreshMinInterval = 15000;
-const governanceRecentAttemptLimit = 6;
 const governanceTransportClasses = new Set([
   "push_service_accepted", "partial_acceptance", "all_failed", "no_subscription", "missing_keys",
   "sender_unavailable", "attempt_reserved", "interrupted_uncertain", "target_retired", "deadline_retry",
@@ -190,7 +189,6 @@ function renderGovernance() {
   renderGovernanceCoverage(nudges?.confirmed_flow_coverage, current);
   renderGovernanceHistory(governance?.occurrences);
   renderGovernanceDelivery(governance);
-  renderGovernanceAttempts(governance?.attempts);
   renderGovernanceControlStatus();
 }
 
@@ -519,17 +517,14 @@ function governanceOccurrenceElement(occurrence = {}) {
   row.classList.add("governance-row--history");
   const status = document.createElement("small");
   const lifecycle = governanceOccurrenceLifecycle(occurrence);
-  const at = lifecycle === "resolved" ? occurrence.resolved_at : lifecycle === "expired" ? occurrence.expires_at : occurrence.occurred_at;
+  const at = lifecycle === "resolved" ? occurrence.resolved_at : occurrence.occurred_at;
   status.textContent = `${lifecycle} · ${governanceTime(at)}`;
   row.append(status);
   return row;
 }
 
-function governanceOccurrenceLifecycle(occurrence = {}, now = Date.now()) {
-  if (occurrence.resolved_at) return "resolved";
-  const expiresAt = Date.parse(occurrence.expires_at || "");
-  if (Number.isFinite(expiresAt) && expiresAt <= now) return "expired";
-  return "active";
+function governanceOccurrenceLifecycle(occurrence = {}) {
+  return occurrence.resolved_at ? "resolved" : "active";
 }
 
 function renderGovernanceDelivery(governance) {
@@ -546,72 +541,15 @@ function renderGovernanceDelivery(governance) {
     $("governanceDeliveryHealth").textContent = `${lastKnown} · updated ${governanceTime(health.updated_at)}`;
   }
 
-  const attempts = governance?.attempt_aggregate || {};
-  const healthTotals = governance?.health_aggregate || {};
   const diagnostic = governance?.diagnostic || {};
   const diagnosticState = safeGovernanceTransportClass(diagnostic.state) || "not_observed";
   const lastAccepted = health.last_push_service_acceptance_at
     ? `last push-service acceptance ${governanceTime(health.last_push_service_acceptance_at)}`
     : "last push-service acceptance not observed";
-  // Counter walls carry no information at zero: render only nonzero facts.
-  const attemptFacts = [
-    ["cumulative", attempts.cumulative_attempts], ["push_service_accepted", attempts.push_service_accepted],
-    ["retryable_failures", attempts.retryable_failures], ["rejected", attempts.rejected],
-    ["retry_pending", attempts.retry_pending], ["dead_subscription", attempts.dead_subscription],
-    ["missed", attempts.missed], ["suppressed", attempts.suppressed],
-    ["interrupted_uncertain", attempts.interrupted_uncertain], ["target_retired", attempts.target_retired],
-  ].filter(([, value]) => safeCount(value) > 0).map(([label, value]) => `${label} ${safeCount(value)}`);
-  const healthFacts = [
-    ["partial_episodes", healthTotals.partial_episodes], ["state_write_failures", healthTotals.state_write_failures],
-    ["recoveries", healthTotals.recoveries], ["overflows", healthTotals.overflows],
-  ].filter(([, value]) => safeCount(value) > 0).map(([label, value]) => `${label} ${safeCount(value)}`);
   $("governanceDeliveryDetail").textContent = [
     lastAccepted,
-    attemptFacts.length > 0 ? `attempts ${attemptFacts.join(" · ")}` : "no delivery attempts recorded",
-    healthFacts.length > 0 ? `health ${healthFacts.join(" · ")}` : "",
     `diagnostic ${diagnosticState}${diagnostic.at ? ` · ${governanceTime(diagnostic.at)}` : ""}`,
-  ].filter(Boolean).join("\n");
-}
-
-function renderGovernanceAttempts(attempts) {
-  const target = $("governanceAttemptList");
-  const rows = governanceAttemptRows(attempts);
-  if (rows.length === 0) {
-    renderGovernanceEmpty("governanceAttemptList", state.governance === null ? "Delivery attempts not observed." : "No recent delivery attempts.");
-    return;
-  }
-  target.replaceChildren(...rows.map((attempt) => {
-    const row = document.createElement("div");
-    row.className = `governance-attempt governance-attempt--${attempt.class === "unknown" ? "unknown" : "known"}`;
-    const className = document.createElement("b");
-    className.textContent = attempt.class;
-    const facts = document.createElement("p");
-    facts.textContent = attempt.facts.join(" · ");
-    row.append(className, facts);
-    return row;
-  }));
-}
-
-function governanceAttemptRows(attempts) {
-  if (!Array.isArray(attempts)) return [];
-  const recent = attempts
-    .map((attempt, index) => ({ attempt: attempt || {}, index }))
-    .sort((left, right) => governanceTimestamp(right.attempt.at) - governanceTimestamp(left.attempt.at) || right.index - left.index)
-    .slice(0, governanceRecentAttemptLimit);
-  const targets = new Map();
-  return recent.map(({ attempt }) => {
-    const opaqueTarget = typeof attempt.target_ref === "string" ? attempt.target_ref : "";
-    if (opaqueTarget && !targets.has(opaqueTarget)) targets.set(opaqueTarget, targets.size + 1);
-    const transportClass = safeGovernanceTransportClass(attempt.class) || "unknown";
-    const facts = [];
-    if (opaqueTarget) facts.push(`target ${targets.get(opaqueTarget)}`);
-    facts.push(`at ${governanceTime(attempt.at)}`);
-    if (attempt.completed_at) facts.push(`completed ${governanceTime(attempt.completed_at)}`);
-    if (attempt.retry_at) facts.push(`retry ${governanceTime(attempt.retry_at)}`);
-    if (attempt.target_retired_at) facts.push(`retired ${governanceTime(attempt.target_retired_at)}`);
-    if (Number.isFinite(attempt.transport_count) && attempt.transport_count >= 0) facts.push(`transport count ${Math.trunc(attempt.transport_count)}`);
-    return { class: transportClass, facts };
-  });
+  ].join("\n");
 }
 
 function renderGovernanceControlStatus() {
@@ -898,10 +836,6 @@ function safeGovernanceTransportClass(value) {
   return governanceTransportClasses.has(value) ? value : "";
 }
 
-function safeCount(value) {
-  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
-}
-
 function safeReconciliationDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
   const parsed = new Date(`${value}T12:00:00Z`);
@@ -1009,4 +943,4 @@ function canUseWebPush() {
   return hasNotifications() && "PushManager" in globalThis && !!navigator.serviceWorker;
 }
 
-export { applyGovernanceCutoverOverlay, applyGovernanceCutoverReceipt, applyReconciliationResponse, canUseWebPush, enablePush, governanceAttemptRows, governanceOccurrenceLifecycle, hasNotifications, notificationStateLabel, reconciliationIsTerminal, reconciliationView, refreshGovernance, refreshPushState, renderAlertMode, renderGovernance, scheduleGovernanceRefresh, sendGovernanceCutoverReview, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode, validateAlertSettings, validateGovernanceResponse, validateReconciliation };
+export { applyGovernanceCutoverOverlay, applyGovernanceCutoverReceipt, applyReconciliationResponse, canUseWebPush, enablePush, governanceOccurrenceLifecycle, hasNotifications, notificationStateLabel, reconciliationIsTerminal, reconciliationView, refreshGovernance, refreshPushState, renderAlertMode, renderGovernance, scheduleGovernanceRefresh, sendGovernanceCutoverReview, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode, validateAlertSettings, validateGovernanceResponse, validateReconciliation };

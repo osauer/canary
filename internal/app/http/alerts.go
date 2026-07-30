@@ -116,9 +116,9 @@ func (h *handler) alertDTO() AlertDTO {
 	return newAlertDTO(h.deps.Store.AlertDelivery(now), now)
 }
 
-func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
-	quarantined := view.DeliveryHealth.State == state.AlertDeliveryHealthUnavailable &&
-		view.DeliveryHealth.Class == state.AlertDeliveryHealthClassInvalidPersistedState
+// alertDeliveryHealthDTO maps the ledger's delivery health for HTTP, with the
+// uninitialized-store fallback shared by the alert and governance surfaces.
+func alertDeliveryHealthDTO(view state.AlertDeliveryView) AlertDeliveryHealthDTO {
 	health := AlertDeliveryHealthDTO{
 		State:     view.DeliveryHealth.State,
 		Class:     view.DeliveryHealth.Class,
@@ -131,6 +131,13 @@ func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
 		health.State = state.AlertDeliveryHealthUnavailable
 		health.Class = alertHealthUninitialized
 	}
+	return health
+}
+
+func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
+	quarantined := view.DeliveryHealth.State == state.AlertDeliveryHealthUnavailable &&
+		view.DeliveryHealth.Class == state.AlertDeliveryHealthClassInvalidPersistedState
+	health := alertDeliveryHealthDTO(view)
 	dto := AlertDTO{
 		SchemaVersion:  AlertSchemaVersion,
 		Version:        view.Version,

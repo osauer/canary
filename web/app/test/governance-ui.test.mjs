@@ -131,9 +131,6 @@ function governanceDTO(overrides = {}) {
     source_health: {},
     poll_source: {},
     occurrences: [],
-    attempts: [],
-    attempt_aggregate: {},
-    health_aggregate: {},
     delivery_health: {},
     diagnostic: {},
     ...overrides,
@@ -588,45 +585,6 @@ test("cutover receipt overlays stale snapshots until authority catches up while 
   assert.equal(JSON.stringify(failed.state.snapshot.nudges.confirmed_flow_coverage), before);
   assert.equal(failed.state.governanceCutoverReceipt, null);
   assert.equal(malformed.state.governanceCutoverReceipt, null);
-});
-
-test("recent attempt rows expose allowlisted delivery facts without opaque identities", () => {
-  const harness = loadAlerts();
-  assert.equal(typeof harness.exports.governanceAttemptRows, "function");
-  const rows = harness.exports.governanceAttemptRows([
-    {
-      occurrence_id: "private-occurrence", target_ref: "private-target-a", receipt_key: "private-receipt",
-      class: "push_service_accepted", at: "2026-07-01T10:00:00Z", completed_at: "2026-07-01T10:00:01Z",
-      transport_count: 1, raw_error: "private-error", endpoint: "https://evil.example",
-    },
-    {
-      occurrence_id: "private-occurrence", target_ref: "private-target-b", class: "timeout_retry",
-      at: "2026-07-01T10:01:00Z", retry_at: "2026-07-01T10:06:00Z", transport_count: 2,
-    },
-    {
-      target_ref: "private-target-b", class: "target_retired", at: "2026-07-01T10:02:00Z",
-      target_retired_at: "2026-07-01T10:03:00Z",
-    },
-    { target_ref: "private-target-c", class: "partial_acceptance", at: "2026-07-01T10:03:00Z", transport_count: 3 },
-    { class: "no_subscription", at: "2026-07-01T10:04:00Z" },
-    { class: "interrupted_uncertain", at: "2026-07-01T10:05:00Z", retry_at: "2026-07-01T10:10:00Z" },
-  ]);
-  const visible = JSON.stringify(rows);
-  for (const expected of ["push_service_accepted", "timeout_retry", "target_retired", "partial_acceptance", "no_subscription", "interrupted_uncertain", "target 1", "target 2", "target 3", "retry", "retired", "transport count 2", "transport count 3"]) {
-    assert.match(visible, new RegExp(expected));
-  }
-
-  const closed = JSON.stringify(harness.exports.governanceAttemptRows([
-    { target_ref: "private-target-d", class: "http_rejected", at: "2026-07-01T10:06:00Z" },
-    { target_ref: "private-target-e", class: "suppressed", at: "2026-07-01T10:07:00Z" },
-    { target_ref: "private-target-f", class: "hostile-private-class", at: "2026-07-01T10:08:00Z" },
-  ]));
-  for (const expected of ["http_rejected", "suppressed", "unknown"]) {
-    assert.match(closed, new RegExp(expected));
-  }
-  for (const forbidden of ["private-occurrence", "private-target", "private-receipt", "private-error", "evil.example", "hostile-private-class"]) {
-    assert.equal(`${visible}${closed}`.includes(forbidden), false, `attempt display leaked ${forbidden}`);
-  }
 });
 
 test("monthly mapper exposes all four dedicated visible states", () => {

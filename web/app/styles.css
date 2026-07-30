@@ -4580,54 +4580,6 @@ p {
   font-size: 12px;
 }
 
-.governance-attempts {
-  display: grid;
-  gap: 4px;
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.governance-attempts > span {
-  color: var(--muted-2);
-  font-size: 10px;
-  font-weight: 780;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-#governanceAttemptList {
-  display: grid;
-}
-
-.governance-attempt {
-  display: grid;
-  grid-template-columns: minmax(140px, auto) minmax(0, 1fr);
-  gap: 8px;
-  align-items: baseline;
-  padding: 6px 0;
-  border-top: 1px solid var(--line-soft);
-}
-
-.governance-attempt:first-child {
-  border-top: 0;
-}
-
-.governance-attempt b {
-  overflow-wrap: anywhere;
-  color: var(--ink-2);
-  font-size: 11px;
-}
-
-.governance-attempt p {
-  margin: 0;
-  text-align: right;
-}
-
-.governance-attempt--unknown b {
-  color: var(--muted-2);
-}
-
 .governance-action-status {
   min-height: 17px;
 }
@@ -4872,14 +4824,6 @@ p {
 
   .governance-evidence {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .governance-attempt {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .governance-attempt p {
-    text-align: left;
   }
 
   .source-banner {

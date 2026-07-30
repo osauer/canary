@@ -44,7 +44,7 @@ func TestAlertDeliveryCutoverIdentityRedactionAndLegacyIsolation(t *testing.T) {
 	}
 	legacyAttention := store.Attention()
 	legacyHistory := store.AlertHistory(0)
-	legacyGovernance := store.Governance(time.Now().UTC())
+	legacyDiagnostic := store.GovernanceDiagnostic()
 
 	at := time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC)
 	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "private-account-symbol", "opening-1", at)
@@ -61,8 +61,8 @@ func TestAlertDeliveryCutoverIdentityRedactionAndLegacyIsolation(t *testing.T) {
 	if got := store.AlertDeliveriesDue(at); len(got) != 0 {
 		t.Fatalf("cutover observation produced transport work: %+v", got)
 	}
-	if !reflect.DeepEqual(store.Attention(), legacyAttention) || !reflect.DeepEqual(store.AlertHistory(0), legacyHistory) || !reflect.DeepEqual(store.Governance(at), legacyGovernance) {
-		t.Fatal("source-neutral observation changed legacy Canary/Governance state or attention")
+	if !reflect.DeepEqual(store.Attention(), legacyAttention) || !reflect.DeepEqual(store.AlertHistory(0), legacyHistory) || store.GovernanceDiagnostic() != legacyDiagnostic {
+		t.Fatal("source-neutral observation changed legacy Canary state, diagnostic, or attention")
 	}
 	public, err := json.Marshal(view)
 	if err != nil {

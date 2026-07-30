@@ -2,7 +2,6 @@ package state
 
 import (
 	"cmp"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +59,6 @@ const (
 // App-state errors describe fail-closed capacity, cursor, and persisted-state
 // validation failures without exposing private record identity.
 var (
-	ErrGovernanceOverflow            = errors.New("governance evidence overflow")
 	ErrAlertHistoryOverflow          = errors.New("alert history overflow: unread retention limit reached")
 	ErrAttentionReadRegression       = errors.New("attention read cursor cannot regress")
 	ErrAttentionReadBeyondHighWater  = errors.New("attention read cursor exceeds high-water sequence")
@@ -69,12 +67,9 @@ var (
 	ErrInvalidPersistedState         = errors.New("invalid persisted app state")
 )
 
-// Attention kinds identify the two legacy inbox record families sharing the
-// app's durable read cursor.
-const (
-	AttentionKindStress     = "stress"
-	AttentionKindGovernance = "governance"
-)
+// AttentionKindStress identifies the single legacy inbox record family
+// sharing the app's durable read cursor.
+const AttentionKindStress = "stress"
 
 // legacyStressAlertIDPrefix is the ID prefix the retired portfolio-stress inbox
 // wrote onto its records. It stays "canary-" because it is a read-side
@@ -83,16 +78,7 @@ const (
 // disable their fingerprint-mismatch retention rule.
 const legacyStressAlertIDPrefix = "canary-"
 
-// Governance delivery dispositions freeze whether an occurrence was eligible
-// when the app first persisted it.
 const (
-	GovernanceDispositionEligible             = "eligible"
-	GovernanceDispositionSuppressedAtCreation = "suppressed_at_creation"
-	GovernanceDispositionLegacyUnknown        = "legacy_unknown"
-)
-
-const (
-	governanceRetention = 90 * 24 * time.Hour
 	// alertPreviousContextRetention expires read alert records that stopped
 	// matching the live context (operator decision 2026-07-20: 14 days).
 	// Unread records and still-matching records never expire.
@@ -100,8 +86,7 @@ const (
 	// alertMatchStampInterval bounds LastMatchedAt refresh writes: matching
 	// is observed on the stress cadence (about once a minute), but a
 	// 14-day retention only needs hourly stamp granularity.
-	alertMatchStampInterval   = time.Hour
-	defaultGovernanceMaxItems = 4096
+	alertMatchStampInterval = time.Hour
 )
 
 // Store serializes access to the app's private state.json and returns copies or
@@ -111,10 +96,6 @@ type Store struct {
 	path                            string
 	mu                              sync.Mutex
 	data                            Data
-	governanceMaxItems              int
-	governanceMaxAttempts           int
-	volatileHealth                  *GovernanceDeliveryHealth
-	governanceInFlight              map[string]bool
 	saveHook                        func(string) error
 	saveObserver                    func()
 	alertDeliveryMaxItems           int
@@ -130,24 +111,30 @@ type Store struct {
 // independently versioned section even though the surrounding legacy fields
 // are exported for JSON persistence and tests.
 type Data struct {
-	Devices                 []DeviceGrant               `json:"devices,omitempty"`
-	AlertSettings           AlertSettings               `json:"alert_settings"`
-	PushSubscriptions       []PushSubscription          `json:"push_subscriptions,omitempty"`
-	AlertHistory            []AlertRecord               `json:"alert_history,omitempty"`
-	VAPID                   *VAPIDKeys                  `json:"vapid,omitempty"`
-	LastPush                *PushAttempt                `json:"last_push,omitempty"`
-	ProposalAudit           []ProposalAuditItem         `json:"proposal_audit,omitempty"`
-	RelayRoute              *RelayRoute                 `json:"relay_route,omitempty"`
-	GovernanceOccurrences   []GovernanceOccurrence      `json:"governance_occurrences,omitempty"`
-	GovernanceAttempts      []GovernanceAttempt         `json:"governance_attempts,omitempty"`
-	GovernanceReceipts      []GovernanceReceipt         `json:"governance_receipts,omitempty"`
-	GovernanceHealth        GovernanceDeliveryHealth    `json:"governance_delivery_health"`
-	GovernanceTotals        GovernanceAttemptTotals     `json:"governance_attempt_totals"`
-	GovernanceHealthTotals  GovernanceHealthEventTotals `json:"governance_health_event_totals"`
-	DiagnosticStatus        GovernanceDiagnosticStatus  `json:"diagnostic_status"`
-	AttentionHighWaterSeq   uint64                      `json:"attention_high_water_seq"`
-	AttentionReadThroughSeq uint64                      `json:"attention_read_through_seq"`
-	AlertDelivery           *alertDeliveryData          `json:"alert_delivery,omitempty"`
+	Devices           []DeviceGrant       `json:"devices,omitempty"`
+	AlertSettings     AlertSettings       `json:"alert_settings"`
+	PushSubscriptions []PushSubscription  `json:"push_subscriptions,omitempty"`
+	AlertHistory      []AlertRecord       `json:"alert_history,omitempty"`
+	VAPID             *VAPIDKeys          `json:"vapid,omitempty"`
+	LastPush          *PushAttempt        `json:"last_push,omitempty"`
+	ProposalAudit     []ProposalAuditItem `json:"proposal_audit,omitempty"`
+	RelayRoute        *RelayRoute         `json:"relay_route,omitempty"`
+	// LegacyGovernanceOccurrences decodes the retired governance ledger's
+	// occurrence rows for exactly one purpose: compacting their attention
+	// sequences out of the shared cursor space at load. It is nilled by that
+	// migration and never persisted again.
+	LegacyGovernanceOccurrences []legacyGovernanceOccurrence `json:"governance_occurrences,omitempty"`
+	DiagnosticStatus            GovernanceDiagnosticStatus   `json:"diagnostic_status"`
+	AttentionHighWaterSeq       uint64                       `json:"attention_high_water_seq"`
+	AttentionReadThroughSeq     uint64                       `json:"attention_read_through_seq"`
+	AlertDelivery               *alertDeliveryData           `json:"alert_delivery,omitempty"`
+}
+
+// legacyGovernanceOccurrence is the one-way decode shape for rows the retired
+// governance ledger persisted. Only the attention sequence matters: the
+// migration renumbers the shared cursor space without them.
+type legacyGovernanceOccurrence struct {
+	AttentionSeq uint64 `json:"attention_seq"`
 }
 
 // DeviceGrant is an app-owned paired-device identity. RevokedAt is terminal:
@@ -233,27 +220,6 @@ type PushAttempt struct {
 	Class          string    `json:"class,omitempty"`
 }
 
-// GovernanceOccurrence is durable app transport state. Fingerprint is the
-// daemon's opaque semantic identity and is never exposed by Governance().
-type GovernanceOccurrence struct {
-	Fingerprint         string    `json:"fingerprint"`
-	DisplayID           string    `json:"display_id"`
-	Kind                string    `json:"kind"`
-	State               string    `json:"state"`
-	Severity            string    `json:"severity"`
-	Title               string    `json:"title"`
-	Body                string    `json:"body"`
-	Destination         string    `json:"destination"`
-	OccurredAt          time.Time `json:"occurred_at"`
-	DueAt               time.Time `json:"due_at,omitzero"`
-	ExpiresAt           time.Time `json:"expires_at,omitzero"`
-	FirstSeenAt         time.Time `json:"first_seen_at"`
-	LastSeenAt          time.Time `json:"last_seen_at"`
-	ResolvedAt          time.Time `json:"resolved_at,omitzero"`
-	AttentionSeq        uint64    `json:"attention_seq"`
-	DeliveryDisposition string    `json:"delivery_disposition"`
-}
-
 // AttentionRef identifies one redacted legacy inbox row without exposing its
 // private fingerprint or transport identity.
 type AttentionRef struct {
@@ -275,147 +241,10 @@ type attentionEntry struct {
 	ref AttentionRef
 }
 
-// GovernanceAttempt is durable app-local evidence for one occurrence-target
-// transport decision. An incomplete reservation is uncertain after restart.
-type GovernanceAttempt struct {
-	ID             string    `json:"id"`
-	OccurrenceID   string    `json:"occurrence_id,omitempty"`
-	TargetRef      string    `json:"target_ref,omitempty"`
-	ReceiptKey     string    `json:"receipt_key,omitempty"`
-	At             time.Time `json:"at"`
-	CompletedAt    time.Time `json:"completed_at,omitzero"`
-	Class          string    `json:"class"`
-	RetryAt        time.Time `json:"retry_at,omitzero"`
-	RetiredAt      time.Time `json:"target_retired_at,omitzero"`
-	TransportCount int       `json:"transport_count,omitempty"`
-}
-
-// GovernanceReceipt records push-service acceptance for one occurrence-target
-// pair; it is not proof of device display or human attention.
-type GovernanceReceipt struct {
-	OccurrenceID string    `json:"occurrence_id"`
-	TargetRef    string    `json:"target_ref"`
-	ReceiptKey   string    `json:"receipt_key"`
-	AcceptedAt   time.Time `json:"accepted_at"`
-	ResolvedAt   time.Time `json:"resolved_at,omitzero"`
-	RetiredAt    time.Time `json:"target_retired_at,omitzero"`
-}
-
-// GovernanceDeliveryHealth summarizes the legacy governance transport ledger.
-// A zero LastAcceptedAt means no acceptance has been retained.
-type GovernanceDeliveryHealth struct {
-	State          string    `json:"state"`
-	Class          string    `json:"class,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at,omitzero"`
-	LastAcceptedAt time.Time `json:"last_push_service_acceptance_at,omitzero"`
-}
-
 // GovernanceDiagnosticStatus stores the latest safe notification-test result.
 type GovernanceDiagnosticStatus struct {
 	State string    `json:"state,omitempty"`
 	At    time.Time `json:"at,omitzero"`
-}
-
-// GovernanceCompletionDisposition reports whether a completed transport still
-// belonged to its target or returned after target retirement.
-type GovernanceCompletionDisposition string
-
-// Governance completion dispositions distinguish an applied result from a
-// late result for a retired target.
-const (
-	GovernanceCompletionApplied GovernanceCompletionDisposition = "applied"
-	GovernanceCompletionRetired GovernanceCompletionDisposition = "retired"
-)
-
-// GovernanceCompletionOutcome reports how a completed governance reservation
-// was reconciled with current durable target state.
-type GovernanceCompletionOutcome struct {
-	Disposition GovernanceCompletionDisposition
-}
-
-// GovernanceAttemptTotals contains cumulative durable transport dispositions;
-// RetryPending is a current derived count rather than a persisted total.
-type GovernanceAttemptTotals struct {
-	CumulativeAttempts int `json:"cumulative_attempts"`
-	Accepted           int `json:"push_service_accepted"`
-	RetryableFailures  int `json:"retryable_failures"`
-	Rejected           int `json:"rejected"`
-	Dead               int `json:"dead_subscription"`
-	Missed             int `json:"missed"`
-	Suppressed         int `json:"suppressed"`
-	Interrupted        int `json:"interrupted_uncertain"`
-	TargetRetired      int `json:"target_retired"`
-	RetryPending       int `json:"-"`
-
-	// Legacy counters are accepted on load and migrated into the explicit
-	// attempt/health split. They remain zero in newly written state.
-	LegacyTotal         int `json:"total,omitempty"`
-	LegacyPartial       int `json:"partial,omitempty"`
-	LegacyRetryPending  int `json:"retry_pending,omitempty"`
-	LegacyStateFailures int `json:"state_write_failure,omitempty"`
-	LegacyRecovery      int `json:"recovery,omitempty"`
-	LegacyOverflow      int `json:"overflow,omitempty"`
-}
-
-// GovernanceHealthEventTotals counts app-local delivery-health transitions
-// separately from actual transport attempts.
-type GovernanceHealthEventTotals struct {
-	PartialEpisodes int `json:"partial_episodes"`
-	StateFailures   int `json:"state_write_failures"`
-	Recoveries      int `json:"recoveries"`
-	Overflows       int `json:"overflows"`
-}
-
-// GovernanceOccurrenceView is the redacted operator projection of a durable
-// governance occurrence; its producer fingerprint and attention sequence stay
-// private.
-type GovernanceOccurrenceView struct {
-	DisplayID   string    `json:"display_id"`
-	Kind        string    `json:"kind"`
-	State       string    `json:"state"`
-	Severity    string    `json:"severity"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body"`
-	Destination string    `json:"destination"`
-	OccurredAt  time.Time `json:"occurred_at"`
-	DueAt       time.Time `json:"due_at,omitzero"`
-	ExpiresAt   time.Time `json:"expires_at,omitzero"`
-	FirstSeenAt time.Time `json:"first_seen_at"`
-	LastSeenAt  time.Time `json:"last_seen_at"`
-	ResolvedAt  time.Time `json:"resolved_at,omitzero"`
-}
-
-// GovernanceAttemptView exposes classified timing without attempt IDs, receipt
-// keys, subscription endpoints, or transport error text.
-type GovernanceAttemptView struct {
-	OccurrenceID   string    `json:"occurrence_id,omitempty"`
-	TargetRef      string    `json:"target_ref,omitempty"`
-	At             time.Time `json:"at"`
-	CompletedAt    time.Time `json:"completed_at,omitzero"`
-	Class          string    `json:"class"`
-	RetryAt        time.Time `json:"retry_at,omitzero"`
-	RetiredAt      time.Time `json:"target_retired_at,omitzero"`
-	TransportCount int       `json:"transport_count,omitempty"`
-}
-
-// GovernanceReceiptView exposes acceptance timing without its private receipt
-// key or subscription endpoint.
-type GovernanceReceiptView struct {
-	OccurrenceID string    `json:"occurrence_id"`
-	TargetRef    string    `json:"target_ref"`
-	AcceptedAt   time.Time `json:"accepted_at"`
-	RetiredAt    time.Time `json:"target_retired_at,omitzero"`
-}
-
-// GovernanceView is the redacted app-local governance delivery projection.
-type GovernanceView struct {
-	Occurrences    []GovernanceOccurrenceView  `json:"occurrences"`
-	Attempts       []GovernanceAttemptView     `json:"attempts"`
-	Receipts       []GovernanceReceiptView     `json:"receipts"`
-	DeliveryHealth GovernanceDeliveryHealth    `json:"delivery_health"`
-	AttemptTotals  GovernanceAttemptTotals     `json:"attempt_totals"`
-	HealthTotals   GovernanceHealthEventTotals `json:"health_event_totals"`
-	Diagnostic     GovernanceDiagnosticStatus  `json:"diagnostic"`
 }
 
 // VAPIDKeys stores the app-owned signing key pair. PrivateKey must never cross
@@ -444,7 +273,7 @@ func Open(dir string) (*Store, error) {
 	if dir == "" {
 		return nil, errors.New("state dir required")
 	}
-	s := &Store{path: filepath.Join(dir, "state.json"), governanceMaxItems: defaultGovernanceMaxItems, governanceMaxAttempts: defaultGovernanceMaxItems}
+	s := &Store{path: filepath.Join(dir, "state.json")}
 	s.initAlertDeliveryRuntime()
 	if err := s.load(); err != nil {
 		return nil, err
@@ -453,16 +282,6 @@ func Open(dir string) (*Store, error) {
 		s.data.AlertSettings.Mode = AlertModeWatchAndAct
 	} else if !validAlertMode(s.data.AlertSettings.Mode) {
 		return nil, fmt.Errorf("%w: invalid alert mode %q", ErrInvalidPersistedState, s.data.AlertSettings.Mode)
-	}
-	for i := range s.data.GovernanceOccurrences {
-		disposition := s.data.GovernanceOccurrences[i].DeliveryDisposition
-		if disposition == "" {
-			s.data.GovernanceOccurrences[i].DeliveryDisposition = GovernanceDispositionLegacyUnknown
-			continue
-		}
-		if !validGovernanceDisposition(disposition) {
-			return nil, fmt.Errorf("%w: invalid governance delivery disposition %q", ErrInvalidPersistedState, disposition)
-		}
 	}
 	if err := s.validateAttentionState(); err != nil {
 		return nil, err
@@ -532,29 +351,44 @@ func (s *Store) load() error {
 			s.data.AlertDelivery = &typed
 		}
 	}
-	s.migrateGovernanceTotals()
+	s.migrateLegacyGovernanceAttention()
 	return nil
 }
 
-func (s *Store) migrateGovernanceTotals() {
-	totals := &s.data.GovernanceTotals
-	if totals.CumulativeAttempts == 0 && totals.LegacyTotal > 0 {
-		healthEvents := totals.LegacyPartial + totals.LegacyStateFailures + totals.LegacyRecovery + totals.LegacyOverflow
-		totals.CumulativeAttempts = max(0, totals.LegacyTotal-healthEvents)
+// migrateLegacyGovernanceAttention is the one-way decoder for the retired
+// governance ledger: its persisted occurrence rows shared the durable
+// attention cursor, so dropping them would leave sequence gaps the validator
+// rejects. The migration renumbers the remaining alert-history sequences
+// contiguously, preserves order and each record's read/unread position, and
+// nils the legacy rows so the next save drops them permanently. Unread
+// governance rows simply vanish: nothing has produced or resolved them since
+// the source-neutral ledger cutover.
+func (s *Store) migrateLegacyGovernanceAttention() {
+	if len(s.data.LegacyGovernanceOccurrences) == 0 {
+		return
 	}
-	if totals.RetryableFailures == 0 {
-		totals.RetryableFailures = totals.LegacyRetryPending
+	s.data.LegacyGovernanceOccurrences = nil
+	type seqRef struct {
+		seq uint64
+		idx int
 	}
-	s.data.GovernanceHealthTotals.PartialEpisodes += totals.LegacyPartial
-	s.data.GovernanceHealthTotals.StateFailures += totals.LegacyStateFailures
-	s.data.GovernanceHealthTotals.Recoveries += totals.LegacyRecovery
-	s.data.GovernanceHealthTotals.Overflows += totals.LegacyOverflow
-	totals.LegacyTotal = 0
-	totals.LegacyPartial = 0
-	totals.LegacyRetryPending = 0
-	totals.LegacyStateFailures = 0
-	totals.LegacyRecovery = 0
-	totals.LegacyOverflow = 0
+	rows := make([]seqRef, 0, len(s.data.AlertHistory))
+	for i, rec := range s.data.AlertHistory {
+		if rec.AttentionSeq != 0 {
+			rows = append(rows, seqRef{seq: rec.AttentionSeq, idx: i})
+		}
+	}
+	slices.SortFunc(rows, func(a, b seqRef) int { return cmp.Compare(a.seq, b.seq) })
+	var next, readThrough uint64
+	for _, row := range rows {
+		next++
+		if row.seq <= s.data.AttentionReadThroughSeq {
+			readThrough = next
+		}
+		s.data.AlertHistory[row.idx].AttentionSeq = next
+	}
+	s.data.AttentionReadThroughSeq = readThrough
+	s.data.AttentionHighWaterSeq = next
 }
 
 // AlertSettings returns the current app notification mode.
@@ -606,11 +440,6 @@ func (s *Store) attentionLocked() Attention {
 			entries = append(entries, attentionEntry{seq: record.AttentionSeq, ref: AttentionRef{Kind: AttentionKindStress, ID: record.ID}})
 		}
 	}
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		if occurrence.AttentionSeq > s.data.AttentionReadThroughSeq && occurrence.AttentionSeq <= s.data.AttentionHighWaterSeq {
-			entries = append(entries, attentionEntry{seq: occurrence.AttentionSeq, ref: AttentionRef{Kind: AttentionKindGovernance, ID: occurrence.DisplayID}})
-		}
-	}
 	slices.SortFunc(entries, func(a, b attentionEntry) int {
 		if order := cmp.Compare(a.seq, b.seq); order != 0 {
 			return order
@@ -641,11 +470,6 @@ func (s *Store) attentionReferencesCompleteThroughLocked(throughSeq uint64) bool
 	}
 	for _, record := range s.data.AlertHistory {
 		if !add(record.AttentionSeq) {
-			return false
-		}
-	}
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		if !add(occurrence.AttentionSeq) {
 			return false
 		}
 	}
@@ -685,11 +509,6 @@ func (s *Store) validateAttentionState() error {
 	}
 	for _, record := range s.data.AlertHistory {
 		if err := validate(record.AttentionSeq, AttentionRef{Kind: AttentionKindStress, ID: record.ID}); err != nil {
-			return err
-		}
-	}
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		if err := validate(occurrence.AttentionSeq, AttentionRef{Kind: AttentionKindGovernance, ID: occurrence.DisplayID}); err != nil {
 			return err
 		}
 	}
@@ -736,20 +555,15 @@ func (s *Store) AddDevice(d DeviceGrant) error {
 			if !priorDevice.RevokedAt.IsZero() && d.RevokedAt.IsZero() {
 				return errors.New("revoked device identity cannot be reactivated; pair a new device")
 			}
-			priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-			priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-			priorTotals := s.data.GovernanceTotals
 			priorAlertDelivery := s.data.AlertDelivery
 			var alertRelease []string
 			alertChanged := false
 			if priorDevice.RevokedAt.IsZero() && !d.RevokedAt.IsZero() {
-				governanceTargets := map[string]bool{}
 				alertTargets := map[string]bool{}
 				for _, subscription := range s.data.PushSubscriptions {
 					if subscription.DeviceID != d.ID {
 						continue
 					}
-					governanceTargets[GovernanceTargetRef(subscription.DeviceID, subscription.ID)] = true
 					alertTargets[AlertDeliveryTargetRef(subscription.DeviceID, subscription.ID)] = true
 				}
 				var err error
@@ -760,14 +574,10 @@ func (s *Store) AddDevice(d DeviceGrant) error {
 				if err != nil {
 					return err
 				}
-				s.retireGovernanceTargetsLocked(governanceTargets, d.RevokedAt.UTC())
 			}
 			s.data.Devices[i] = d
 			if err := s.save(); err != nil {
 				s.data.Devices[i] = priorDevice
-				s.data.GovernanceAttempts = priorAttempts
-				s.data.GovernanceReceipts = priorReceipts
-				s.data.GovernanceTotals = priorTotals
 				s.data.AlertDelivery = priorAlertDelivery
 				if alertChanged {
 					s.noteAlertDeliverySaveFailureLocked(d.RevokedAt.UTC())
@@ -862,15 +672,10 @@ func (s *Store) PruneDevices(cutoff time.Time) (int, error) {
 	}
 	priorDevices := append([]DeviceGrant(nil), s.data.Devices...)
 	priorSubscriptions := append([]PushSubscription(nil), s.data.PushSubscriptions...)
-	priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	priorTotals := s.data.GovernanceTotals
 	priorAlertDelivery := s.data.AlertDelivery
-	governanceTargets := map[string]bool{}
 	alertTargets := map[string]bool{}
 	for _, sub := range s.data.PushSubscriptions {
 		if removed[sub.DeviceID] {
-			governanceTargets[GovernanceTargetRef(sub.DeviceID, sub.ID)] = true
 			alertTargets[AlertDeliveryTargetRef(sub.DeviceID, sub.ID)] = true
 		}
 	}
@@ -886,13 +691,9 @@ func (s *Store) PruneDevices(cutoff time.Time) (int, error) {
 	s.data.PushSubscriptions = slices.DeleteFunc(s.data.PushSubscriptions, func(sub PushSubscription) bool {
 		return removed[sub.DeviceID]
 	})
-	s.retireGovernanceTargetsLocked(governanceTargets, retiredAt)
 	if err := s.save(); err != nil {
 		s.data.Devices = priorDevices
 		s.data.PushSubscriptions = priorSubscriptions
-		s.data.GovernanceAttempts = priorAttempts
-		s.data.GovernanceReceipts = priorReceipts
-		s.data.GovernanceTotals = priorTotals
 		s.data.AlertDelivery = priorAlertDelivery
 		if alertChanged {
 			s.noteAlertDeliverySaveFailureLocked(retiredAt)
@@ -940,9 +741,6 @@ func (s *Store) AddPushSubscription(sub PushSubscription) error {
 				sub.ID = priorSub.ID
 				sub.CreatedAt = priorSub.CreatedAt
 			}
-			priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-			priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-			priorTotals := s.data.GovernanceTotals
 			priorAlertDelivery := s.data.AlertDelivery
 			var alertRelease []string
 			alertChanged := false
@@ -959,14 +757,10 @@ func (s *Store) AddPushSubscription(sub PushSubscription) error {
 				if err != nil {
 					return err
 				}
-				s.retireGovernanceTargetsLocked(map[string]bool{GovernanceTargetRef(priorSub.DeviceID, priorSub.ID): true}, retiredAt)
 			}
 			s.data.PushSubscriptions[i] = sub
 			if err := s.save(); err != nil {
 				s.data.PushSubscriptions[i] = priorSub
-				s.data.GovernanceAttempts = priorAttempts
-				s.data.GovernanceReceipts = priorReceipts
-				s.data.GovernanceTotals = priorTotals
 				s.data.AlertDelivery = priorAlertDelivery
 				if alertChanged {
 					s.noteAlertDeliverySaveFailureLocked(retiredAt)
@@ -1007,17 +801,6 @@ func (s *Store) pushTargetIdentityInUseLocked(deviceID, subscriptionID string, e
 func (s *Store) pushTargetIdentityRetiredLocked(deviceID, subscriptionID string) bool {
 	if data := s.data.AlertDelivery; data != nil && !data.RetiredTargets[AlertDeliveryTargetRef(deviceID, subscriptionID)].IsZero() {
 		return true
-	}
-	target := GovernanceTargetRef(deviceID, subscriptionID)
-	for _, attempt := range s.data.GovernanceAttempts {
-		if attempt.TargetRef == target && !attempt.RetiredAt.IsZero() {
-			return true
-		}
-	}
-	for _, receipt := range s.data.GovernanceReceipts {
-		if receipt.TargetRef == target && !receipt.RetiredAt.IsZero() {
-			return true
-		}
 	}
 	return false
 }
@@ -1089,19 +872,14 @@ func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	priorSubscriptions := append([]PushSubscription(nil), s.data.PushSubscriptions...)
-	priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	priorTotals := s.data.GovernanceTotals
 	priorAlertDelivery := s.data.AlertDelivery
-	governanceTargets := map[string]bool{}
 	alertTargets := map[string]bool{}
 	for _, sub := range s.data.PushSubscriptions {
 		if sub.ID == id || sub.Endpoint == id {
-			governanceTargets[GovernanceTargetRef(sub.DeviceID, sub.ID)] = true
 			alertTargets[AlertDeliveryTargetRef(sub.DeviceID, sub.ID)] = true
 		}
 	}
-	if len(governanceTargets) == 0 {
+	if len(alertTargets) == 0 {
 		return nil
 	}
 	retiredAt = retiredAt.UTC()
@@ -1118,12 +896,8 @@ func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 	s.data.PushSubscriptions = slices.DeleteFunc(s.data.PushSubscriptions, func(sub PushSubscription) bool {
 		return sub.ID == id || sub.Endpoint == id
 	})
-	s.retireGovernanceTargetsLocked(governanceTargets, retiredAt)
 	if err := s.save(); err != nil {
 		s.data.PushSubscriptions = priorSubscriptions
-		s.data.GovernanceAttempts = priorAttempts
-		s.data.GovernanceReceipts = priorReceipts
-		s.data.GovernanceTotals = priorTotals
 		s.data.AlertDelivery = priorAlertDelivery
 		if alertChanged {
 			s.noteAlertDeliverySaveFailureLocked(retiredAt)
@@ -1132,559 +906,6 @@ func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 	}
 	s.finishAlertDeliveryRetirementLocked(alertRelease, alertChanged)
 	return nil
-}
-
-func (s *Store) retireGovernanceTargetsLocked(targets map[string]bool, retiredAt time.Time) {
-	if retiredAt.IsZero() {
-		retiredAt = time.Now().UTC()
-	}
-	for i := range s.data.GovernanceAttempts {
-		attempt := &s.data.GovernanceAttempts[i]
-		if !targets[attempt.TargetRef] || !attempt.RetiredAt.IsZero() {
-			continue
-		}
-		attempt.RetiredAt = retiredAt
-		attempt.RetryAt = time.Time{}
-		if attempt.Class == GovernanceTransportReserved {
-			attempt.Class = GovernanceTransportTargetRetired
-			attempt.CompletedAt = retiredAt
-			addGovernanceAttemptTotal(&s.data.GovernanceTotals, attempt.Class)
-		}
-	}
-	for i := range s.data.GovernanceReceipts {
-		receipt := &s.data.GovernanceReceipts[i]
-		if targets[receipt.TargetRef] && receipt.RetiredAt.IsZero() {
-			receipt.RetiredAt = retiredAt
-		}
-	}
-}
-
-// GovernanceTargetRef derives the opaque stable identity of an app-owned
-// device/subscription pair.
-func GovernanceTargetRef(deviceID, subscriptionID string) string {
-	return governanceHash("target", strings.TrimSpace(deviceID), strings.TrimSpace(subscriptionID))
-}
-
-// GovernanceReceiptKey derives the opaque deduplication key for one legacy
-// governance occurrence-target pair.
-func GovernanceReceiptKey(occurrenceID, targetRef string) string {
-	return governanceHash("receipt", strings.TrimSpace(occurrenceID), strings.TrimSpace(targetRef))
-}
-
-func governanceHash(parts ...string) string {
-	h := sha256.New()
-	for _, part := range parts {
-		h.Write([]byte{0})
-		h.Write([]byte(part))
-	}
-	return fmt.Sprintf("sha256:%x", h.Sum(nil))
-}
-
-func governanceDisplayID(fingerprint string, episode int, at time.Time) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d\x00%s", fingerprint, episode, at.UTC().Format(time.RFC3339Nano)))
-	return fmt.Sprintf("gov-%x", sum[:8])
-}
-
-// UpsertGovernanceOccurrence records one non-authoritative observation and
-// reports the active durable occurrence plus whether a new episode was created.
-func (s *Store) UpsertGovernanceOccurrence(rec GovernanceOccurrence, now time.Time) (GovernanceOccurrence, bool, error) {
-	if strings.TrimSpace(rec.Fingerprint) == "" {
-		return GovernanceOccurrence{}, false, errors.New("governance occurrence fingerprint required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	observed, created, err := s.observeGovernanceOccurrencesLocked([]GovernanceOccurrence{rec}, false, now.UTC())
-	if err != nil {
-		return GovernanceOccurrence{}, false, err
-	}
-	if len(observed) != 1 {
-		return GovernanceOccurrence{}, false, errors.New("governance occurrence was not active at observation time")
-	}
-	return observed[0], created[0], nil
-}
-
-// ObserveGovernanceOccurrences applies one daemon observation in a single
-// durable update. Identical active rows do not churn LastSeenAt; a fingerprint
-// that was previously resolved starts a distinct app delivery episode.
-func (s *Store) ObserveGovernanceOccurrences(records []GovernanceOccurrence, authoritative bool, now time.Time) ([]GovernanceOccurrence, error) {
-	now = now.UTC()
-	for _, rec := range records {
-		if strings.TrimSpace(rec.Fingerprint) == "" {
-			return nil, errors.New("governance occurrence fingerprint required")
-		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	observed, _, err := s.observeGovernanceOccurrencesLocked(records, authoritative, now)
-	return observed, err
-}
-
-func (s *Store) observeGovernanceOccurrencesLocked(records []GovernanceOccurrence, authoritative bool, now time.Time) ([]GovernanceOccurrence, []bool, error) {
-	priorOccurrences := append([]GovernanceOccurrence(nil), s.data.GovernanceOccurrences...)
-	priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	priorHighWater := s.data.AttentionHighWaterSeq
-	priorReadThrough := s.data.AttentionReadThroughSeq
-	changed := false
-	active := make(map[string]bool, len(records))
-	resolvedIDs := map[string]bool{}
-	result := make([]GovernanceOccurrence, 0, len(records))
-	created := make([]bool, 0, len(records))
-	for i := range s.data.GovernanceOccurrences {
-		occurrence := &s.data.GovernanceOccurrences[i]
-		if occurrence.ResolvedAt.IsZero() && !occurrence.ExpiresAt.IsZero() && !now.Before(occurrence.ExpiresAt) {
-			occurrence.ResolvedAt = now
-			resolvedIDs[occurrence.DisplayID] = true
-			changed = true
-		}
-	}
-	for _, incoming := range records {
-		expired := !incoming.ExpiresAt.IsZero() && !now.Before(incoming.ExpiresAt)
-		if !expired {
-			active[incoming.Fingerprint] = true
-		}
-		found := -1
-		episodes := 0
-		for i := range s.data.GovernanceOccurrences {
-			if s.data.GovernanceOccurrences[i].Fingerprint != incoming.Fingerprint {
-				continue
-			}
-			episodes++
-			if s.data.GovernanceOccurrences[i].ResolvedAt.IsZero() {
-				found = i
-			}
-		}
-		if found >= 0 {
-			prior := s.data.GovernanceOccurrences[found]
-			incoming.AttentionSeq = prior.AttentionSeq
-			incoming.DeliveryDisposition = prior.DeliveryDisposition
-			incoming.DisplayID = prior.DisplayID
-			incoming.FirstSeenAt = prior.FirstSeenAt
-			incoming.LastSeenAt = prior.LastSeenAt
-			incoming.ResolvedAt = time.Time{}
-			if expired {
-				incoming.ResolvedAt = now
-				resolvedIDs[incoming.DisplayID] = true
-			}
-			if !sameGovernanceOccurrenceSemantics(prior, incoming) {
-				incoming.LastSeenAt = now
-				s.data.GovernanceOccurrences[found] = incoming
-				changed = true
-			} else {
-				incoming = prior
-			}
-			if !expired {
-				result = append(result, incoming)
-				created = append(created, false)
-			}
-			continue
-		}
-		if expired {
-			continue
-		}
-		if s.governanceMaxItems <= 0 {
-			s.governanceMaxItems = defaultGovernanceMaxItems
-		}
-		if len(s.data.GovernanceOccurrences) >= s.governanceMaxItems {
-			s.data.GovernanceOccurrences = priorOccurrences
-			s.data.GovernanceAttempts = priorAttempts
-			s.data.GovernanceReceipts = priorReceipts
-			s.data.AttentionHighWaterSeq = priorHighWater
-			s.data.AttentionReadThroughSeq = priorReadThrough
-			return nil, nil, s.setGovernanceOverflowLocked(now)
-		}
-		attentionSeq, err := s.nextAttentionSeqLocked()
-		if err != nil {
-			s.data.GovernanceOccurrences = priorOccurrences
-			s.data.GovernanceAttempts = priorAttempts
-			s.data.GovernanceReceipts = priorReceipts
-			s.data.AttentionHighWaterSeq = priorHighWater
-			s.data.AttentionReadThroughSeq = priorReadThrough
-			return nil, nil, err
-		}
-		incoming.AttentionSeq = attentionSeq
-		incoming.DeliveryDisposition = GovernanceDispositionEligible
-		if s.data.AlertSettings.Mode == AlertModeNone {
-			incoming.DeliveryDisposition = GovernanceDispositionSuppressedAtCreation
-		}
-		incoming.DisplayID = governanceDisplayID(incoming.Fingerprint, episodes+1, now)
-		incoming.FirstSeenAt = now
-		incoming.LastSeenAt = now
-		incoming.ResolvedAt = time.Time{}
-		s.data.GovernanceOccurrences = append(s.data.GovernanceOccurrences, incoming)
-		result = append(result, incoming)
-		created = append(created, true)
-		changed = true
-	}
-	if authoritative {
-		for i := range s.data.GovernanceOccurrences {
-			occurrence := &s.data.GovernanceOccurrences[i]
-			if !active[occurrence.Fingerprint] && occurrence.ResolvedAt.IsZero() {
-				occurrence.ResolvedAt = now
-				resolvedIDs[occurrence.DisplayID] = true
-				changed = true
-			}
-		}
-	}
-	for i := range s.data.GovernanceReceipts {
-		if resolvedIDs[s.data.GovernanceReceipts[i].OccurrenceID] && s.data.GovernanceReceipts[i].ResolvedAt.IsZero() {
-			s.data.GovernanceReceipts[i].ResolvedAt = now
-			changed = true
-		}
-	}
-	for i := range s.data.GovernanceAttempts {
-		attempt := &s.data.GovernanceAttempts[i]
-		if resolvedIDs[attempt.OccurrenceID] && !attempt.RetryAt.IsZero() {
-			attempt.RetryAt = time.Time{}
-			changed = true
-		}
-	}
-	if !changed {
-		if s.hasVolatileGovernanceWriteFailureLocked() {
-			if err := s.saveGovernanceLocked(now); err != nil {
-				return nil, nil, err
-			}
-		}
-		return result, created, nil
-	}
-	if err := s.saveGovernanceLocked(now); err != nil {
-		s.data.GovernanceOccurrences = priorOccurrences
-		s.data.GovernanceAttempts = priorAttempts
-		s.data.GovernanceReceipts = priorReceipts
-		s.data.AttentionHighWaterSeq = priorHighWater
-		s.data.AttentionReadThroughSeq = priorReadThrough
-		return nil, nil, err
-	}
-	return result, created, nil
-}
-
-func sameGovernanceOccurrenceSemantics(a, b GovernanceOccurrence) bool {
-	return a.Fingerprint == b.Fingerprint && a.DisplayID == b.DisplayID && a.Kind == b.Kind && a.State == b.State &&
-		a.Severity == b.Severity && a.Title == b.Title && a.Body == b.Body && a.Destination == b.Destination &&
-		a.OccurredAt.Equal(b.OccurredAt) && a.DueAt.Equal(b.DueAt) && a.ExpiresAt.Equal(b.ExpiresAt) && a.FirstSeenAt.Equal(b.FirstSeenAt) &&
-		a.ResolvedAt.Equal(b.ResolvedAt) && a.AttentionSeq == b.AttentionSeq &&
-		a.DeliveryDisposition == b.DeliveryDisposition
-}
-
-// ResolveGovernanceOccurrences ends active occurrences omitted from the given
-// fingerprint set and stops their pending retries. The fingerprints remain
-// private and never enter [GovernanceView].
-func (s *Store) ResolveGovernanceOccurrences(activeFingerprints []string, now time.Time) error {
-	now = now.UTC()
-	active := make(map[string]bool, len(activeFingerprints))
-	for _, fingerprint := range activeFingerprints {
-		active[fingerprint] = true
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	priorOccurrences := append([]GovernanceOccurrence(nil), s.data.GovernanceOccurrences...)
-	priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	resolvedIDs := map[string]bool{}
-	for i := range s.data.GovernanceOccurrences {
-		occurrence := &s.data.GovernanceOccurrences[i]
-		if !active[occurrence.Fingerprint] && occurrence.ResolvedAt.IsZero() {
-			occurrence.ResolvedAt = now
-			resolvedIDs[occurrence.DisplayID] = true
-		}
-	}
-	for i := range s.data.GovernanceReceipts {
-		if resolvedIDs[s.data.GovernanceReceipts[i].OccurrenceID] && s.data.GovernanceReceipts[i].ResolvedAt.IsZero() {
-			s.data.GovernanceReceipts[i].ResolvedAt = now
-		}
-	}
-	for i := range s.data.GovernanceAttempts {
-		if resolvedIDs[s.data.GovernanceAttempts[i].OccurrenceID] {
-			s.data.GovernanceAttempts[i].RetryAt = time.Time{}
-		}
-	}
-	if len(resolvedIDs) == 0 {
-		if s.hasVolatileGovernanceWriteFailureLocked() {
-			return s.saveGovernanceLocked(now)
-		}
-		return nil
-	}
-	if err := s.saveGovernanceLocked(now); err != nil {
-		s.data.GovernanceOccurrences = priorOccurrences
-		s.data.GovernanceAttempts = priorAttempts
-		s.data.GovernanceReceipts = priorReceipts
-		return err
-	}
-	return nil
-}
-
-// ReserveGovernanceAttempt durably reserves both the attempt row and the
-// possible acceptance receipt before any external push transport is called.
-func (s *Store) ReserveGovernanceAttempt(occurrenceID, targetRef string, now time.Time) (GovernanceAttempt, bool, error) {
-	now = now.UTC()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	active := false
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		if occurrence.DisplayID == occurrenceID && occurrence.ResolvedAt.IsZero() && (occurrence.ExpiresAt.IsZero() || now.Before(occurrence.ExpiresAt)) {
-			active = true
-			break
-		}
-	}
-	if !active {
-		return GovernanceAttempt{}, false, nil
-	}
-	receiptKey := GovernanceReceiptKey(occurrenceID, targetRef)
-	for _, receipt := range s.data.GovernanceReceipts {
-		if receipt.ReceiptKey == receiptKey && receipt.ResolvedAt.IsZero() && receipt.RetiredAt.IsZero() {
-			return GovernanceAttempt{}, false, nil
-		}
-	}
-	latest := -1
-	for i := range s.data.GovernanceAttempts {
-		if s.data.GovernanceAttempts[i].ReceiptKey == receiptKey && s.data.GovernanceAttempts[i].RetiredAt.IsZero() {
-			latest = i
-		}
-	}
-	if latest >= 0 {
-		attempt := s.data.GovernanceAttempts[latest]
-		if !isGovernanceRetryable(attempt.Class) || attempt.RetryAt.IsZero() || now.Before(attempt.RetryAt) {
-			return attempt, false, nil
-		}
-		if attempt.Class == GovernanceTransportReserved {
-			if s.governanceMaxAttempts <= 0 {
-				s.governanceMaxAttempts = defaultGovernanceMaxItems
-			}
-			if len(s.data.GovernanceAttempts) >= s.governanceMaxAttempts {
-				return GovernanceAttempt{}, false, s.setGovernanceOverflowLocked(now)
-			}
-			priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-			priorTotals := s.data.GovernanceTotals
-			attempt.Class = GovernanceTransportInterrupted
-			attempt.CompletedAt = now
-			attempt.RetryAt = time.Time{}
-			s.data.GovernanceAttempts[latest] = attempt
-			addGovernanceAttemptTotal(&s.data.GovernanceTotals, attempt.Class)
-			fresh := newGovernanceReservation(s.data.GovernanceAttempts, occurrenceID, targetRef, receiptKey, now)
-			s.data.GovernanceAttempts = append(s.data.GovernanceAttempts, fresh)
-			if err := s.saveGovernanceLocked(now); err != nil {
-				s.data.GovernanceAttempts = priorAttempts
-				s.data.GovernanceTotals = priorTotals
-				return GovernanceAttempt{}, false, err
-			}
-			return fresh, true, nil
-		}
-	}
-	if s.governanceMaxAttempts <= 0 {
-		s.governanceMaxAttempts = defaultGovernanceMaxItems
-	}
-	if s.governanceMaxItems <= 0 {
-		s.governanceMaxItems = defaultGovernanceMaxItems
-	}
-	pendingReceipts := s.bindingGovernanceReceiptReservationsLocked(now)
-	if len(s.data.GovernanceAttempts) >= s.governanceMaxAttempts || len(s.data.GovernanceReceipts)+pendingReceipts >= s.governanceMaxItems {
-		return GovernanceAttempt{}, false, s.setGovernanceOverflowLocked(now)
-	}
-	attempt := newGovernanceReservation(s.data.GovernanceAttempts, occurrenceID, targetRef, receiptKey, now)
-	s.data.GovernanceAttempts = append(s.data.GovernanceAttempts, attempt)
-	if err := s.saveGovernanceLocked(now); err != nil {
-		s.data.GovernanceAttempts = s.data.GovernanceAttempts[:len(s.data.GovernanceAttempts)-1]
-		return GovernanceAttempt{}, false, err
-	}
-	return attempt, true, nil
-}
-
-func newGovernanceReservation(attempts []GovernanceAttempt, occurrenceID, targetRef, receiptKey string, now time.Time) GovernanceAttempt {
-	return GovernanceAttempt{
-		ID:           governanceHash("attempt", occurrenceID, targetRef, now.Format(time.RFC3339Nano), fmt.Sprint(len(attempts)+1)),
-		OccurrenceID: occurrenceID, TargetRef: targetRef, ReceiptKey: receiptKey, At: now,
-		Class: GovernanceTransportReserved, RetryAt: now.Add(governanceRetryBackoff(attempts, receiptKey)), TransportCount: 1,
-	}
-}
-
-// BeginGovernanceTransport marks the short volatile interval in which an
-// external sender may still return after its durable target is retired. A
-// process restart clears this marker, so abandoned reservations do not retain
-// receipt capacity merely because their audit row remains.
-func (s *Store) BeginGovernanceTransport(id string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, attempt := range s.data.GovernanceAttempts {
-		if attempt.ID != id {
-			continue
-		}
-		if attempt.Class != GovernanceTransportReserved || !attempt.RetiredAt.IsZero() {
-			return false
-		}
-		if s.governanceInFlight == nil {
-			s.governanceInFlight = map[string]bool{}
-		}
-		s.governanceInFlight[id] = true
-		return true
-	}
-	return false
-}
-
-func (s *Store) bindingGovernanceReceiptReservationsLocked(now time.Time) int {
-	active := map[string]bool{}
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		if occurrence.ResolvedAt.IsZero() && (occurrence.ExpiresAt.IsZero() || now.Before(occurrence.ExpiresAt)) {
-			active[occurrence.DisplayID] = true
-		}
-	}
-	pending := 0
-	for _, attempt := range s.data.GovernanceAttempts {
-		switch {
-		case attempt.Class == GovernanceTransportReserved && attempt.RetiredAt.IsZero() && active[attempt.OccurrenceID]:
-			pending++
-		case attempt.Class == GovernanceTransportTargetRetired && s.governanceInFlight[attempt.ID]:
-			pending++
-		}
-	}
-	return pending
-}
-
-// CompleteGovernanceAttempt updates an existing reservation, so completion can
-// never fail merely because a new evidence row no longer fits.
-func (s *Store) CompleteGovernanceAttempt(id, class string, accepted bool, now time.Time) (GovernanceCompletionOutcome, error) {
-	now = now.UTC()
-	if !validGovernanceTransportClass(class) || class == GovernanceTransportReserved {
-		return GovernanceCompletionOutcome{}, errors.New("invalid governance completion class")
-	}
-	if accepted != (class == GovernanceTransportAccepted) {
-		return GovernanceCompletionOutcome{}, errors.New("governance acceptance/class mismatch")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	index := -1
-	for i := range s.data.GovernanceAttempts {
-		if s.data.GovernanceAttempts[i].ID == id {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
-		return GovernanceCompletionOutcome{}, errors.New("governance reservation not found")
-	}
-	defer delete(s.governanceInFlight, id)
-	priorAttempt := s.data.GovernanceAttempts[index]
-	disposition := GovernanceCompletionApplied
-	if !priorAttempt.RetiredAt.IsZero() {
-		disposition = GovernanceCompletionRetired
-	}
-	if priorAttempt.Class != GovernanceTransportReserved && priorAttempt.Class != GovernanceTransportTargetRetired {
-		return GovernanceCompletionOutcome{Disposition: disposition}, nil
-	}
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	priorTotals := s.data.GovernanceTotals
-	attempt := priorAttempt
-	attempt.Class = class
-	attempt.CompletedAt = now
-	attempt.RetryAt = time.Time{}
-	if isGovernanceRetryable(class) && disposition == GovernanceCompletionApplied {
-		attempt.RetryAt = now.Add(governanceRetryBackoff(s.data.GovernanceAttempts, attempt.ReceiptKey))
-	}
-	s.data.GovernanceAttempts[index] = attempt
-	if priorAttempt.Class == GovernanceTransportTargetRetired {
-		removeGovernanceAttemptTotal(&s.data.GovernanceTotals, GovernanceTransportTargetRetired)
-	}
-	addGovernanceAttemptTotal(&s.data.GovernanceTotals, class)
-	if accepted {
-		s.data.GovernanceReceipts = append(s.data.GovernanceReceipts, GovernanceReceipt{
-			OccurrenceID: attempt.OccurrenceID, TargetRef: attempt.TargetRef, ReceiptKey: attempt.ReceiptKey, AcceptedAt: now, RetiredAt: attempt.RetiredAt,
-		})
-	}
-	if err := s.saveGovernanceLocked(now); err != nil {
-		s.data.GovernanceAttempts[index] = priorAttempt
-		s.data.GovernanceReceipts = priorReceipts
-		s.data.GovernanceTotals = priorTotals
-		return GovernanceCompletionOutcome{}, err
-	}
-	return GovernanceCompletionOutcome{Disposition: disposition}, nil
-}
-
-// RecordGovernanceAttempt appends a completed legacy transport decision and,
-// when accepted is true, its deduplicating receipt in the same durable write.
-func (s *Store) RecordGovernanceAttempt(attempt GovernanceAttempt, accepted bool) error {
-	if attempt.At.IsZero() || !validGovernanceTransportClass(attempt.Class) {
-		return errors.New("invalid governance attempt")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if accepted && attempt.Class != GovernanceTransportAccepted {
-		return errors.New("accepted governance attempt must use push_service_accepted")
-	}
-	if accepted {
-		for _, receipt := range s.data.GovernanceReceipts {
-			if receipt.ReceiptKey == attempt.ReceiptKey {
-				return nil
-			}
-		}
-	}
-	if s.governanceMaxAttempts <= 0 {
-		s.governanceMaxAttempts = defaultGovernanceMaxItems
-	}
-	if len(s.data.GovernanceAttempts) >= s.governanceMaxAttempts {
-		return s.setGovernanceOverflowLocked(attempt.At)
-	}
-	if accepted && len(s.data.GovernanceReceipts) >= s.governanceMaxItems {
-		return s.setGovernanceOverflowLocked(attempt.At)
-	}
-	priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	priorTotals := s.data.GovernanceTotals
-	if attempt.ID == "" {
-		attempt.ID = governanceHash("attempt", attempt.OccurrenceID, attempt.TargetRef, attempt.At.UTC().Format(time.RFC3339Nano), fmt.Sprint(len(s.data.GovernanceAttempts)+1))
-	}
-	attempt.CompletedAt = attempt.At.UTC()
-	if isGovernanceRetryable(attempt.Class) {
-		attempt.RetryAt = attempt.At.Add(governanceRetryBackoff(s.data.GovernanceAttempts, attempt.ReceiptKey))
-	}
-	s.data.GovernanceAttempts = append(s.data.GovernanceAttempts, attempt)
-	addGovernanceAttemptTotal(&s.data.GovernanceTotals, attempt.Class)
-	if accepted {
-		s.data.GovernanceReceipts = append(s.data.GovernanceReceipts, GovernanceReceipt{
-			OccurrenceID: attempt.OccurrenceID, TargetRef: attempt.TargetRef, ReceiptKey: attempt.ReceiptKey, AcceptedAt: attempt.At,
-		})
-	}
-	if err := s.saveGovernanceLocked(attempt.At); err != nil {
-		s.data.GovernanceAttempts = priorAttempts
-		s.data.GovernanceReceipts = priorReceipts
-		s.data.GovernanceTotals = priorTotals
-		return err
-	}
-	return nil
-}
-
-func governanceRetryBackoff(attempts []GovernanceAttempt, receiptKey string) time.Duration {
-	count := 0
-	for _, attempt := range attempts {
-		if attempt.ReceiptKey == receiptKey && attempt.Class != GovernanceTransportReserved && attempt.RetiredAt.IsZero() {
-			count++
-		}
-	}
-	backoffs := [...]time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
-	if count >= len(backoffs) {
-		return backoffs[len(backoffs)-1]
-	}
-	return backoffs[count]
-}
-
-// GovernanceAttemptDue reports whether an occurrence-target pair lacks an
-// active receipt and has no attempt or a retry whose deadline has arrived.
-func (s *Store) GovernanceAttemptDue(receiptKey string, now time.Time) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, receipt := range s.data.GovernanceReceipts {
-		if receipt.ReceiptKey == receiptKey && receipt.ResolvedAt.IsZero() && receipt.RetiredAt.IsZero() {
-			return false
-		}
-	}
-	var latest *GovernanceAttempt
-	for i := range s.data.GovernanceAttempts {
-		if s.data.GovernanceAttempts[i].ReceiptKey == receiptKey && s.data.GovernanceAttempts[i].RetiredAt.IsZero() {
-			latest = &s.data.GovernanceAttempts[i]
-		}
-	}
-	if latest == nil {
-		return true
-	}
-	return isGovernanceRetryable(latest.Class) && !latest.RetryAt.IsZero() && !now.Before(latest.RetryAt)
 }
 
 func isGovernanceRetryable(class string) bool {
@@ -1699,49 +920,6 @@ func isGovernanceRetryable(class string) bool {
 	}
 }
 
-// HasGovernanceReceipt reports whether receiptKey has a current, non-retired
-// push-service acceptance receipt.
-func (s *Store) HasGovernanceReceipt(receiptKey string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, receipt := range s.data.GovernanceReceipts {
-		if receipt.ReceiptKey == receiptKey && receipt.ResolvedAt.IsZero() && receipt.RetiredAt.IsZero() {
-			return true
-		}
-	}
-	return false
-}
-
-// SetGovernanceDeliveryHealth validates and persists aggregate app-local
-// governance transport health while preserving the last acceptance timestamp
-// when the caller leaves it zero.
-func (s *Store) SetGovernanceDeliveryHealth(health GovernanceDeliveryHealth) error {
-	if !validGovernanceDeliveryHealth(health) {
-		return errors.New("invalid governance delivery health")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	prior := s.data.GovernanceHealth
-	priorHealthTotals := s.data.GovernanceHealthTotals
-	if health.LastAcceptedAt.IsZero() {
-		health.LastAcceptedAt = prior.LastAcceptedAt
-	}
-	if s.volatileHealth == nil && health.State == prior.State && health.Class == prior.Class && health.LastAcceptedAt.Equal(prior.LastAcceptedAt) {
-		return nil
-	}
-	if health.Class == GovernanceTransportPartial {
-		s.data.GovernanceHealthTotals.PartialEpisodes++
-	}
-	s.data.GovernanceHealth = health
-	if err := s.saveGovernanceLocked(health.UpdatedAt); err != nil {
-		s.data.GovernanceHealth = prior
-		s.data.GovernanceHealthTotals = priorHealthTotals
-		return err
-	}
-	s.volatileHealth = nil
-	return nil
-}
-
 // RecordDiagnosticStatus validates and persists the latest safe notification
 // test result.
 func (s *Store) RecordDiagnosticStatus(status GovernanceDiagnosticStatus) error {
@@ -1752,199 +930,11 @@ func (s *Store) RecordDiagnosticStatus(status GovernanceDiagnosticStatus) error 
 	defer s.mu.Unlock()
 	prior := s.data.DiagnosticStatus
 	s.data.DiagnosticStatus = status
-	if err := s.saveGovernanceLocked(status.At); err != nil {
+	if err := s.save(); err != nil {
 		s.data.DiagnosticStatus = prior
 		return err
 	}
 	return nil
-}
-
-// Governance returns a redacted snapshot of app-local legacy governance
-// occurrences and delivery evidence. RetryPending is derived at now.
-func (s *Store) Governance(now time.Time) GovernanceView {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	view := GovernanceView{
-		Occurrences:    make([]GovernanceOccurrenceView, 0, len(s.data.GovernanceOccurrences)),
-		Attempts:       make([]GovernanceAttemptView, 0, len(s.data.GovernanceAttempts)),
-		Receipts:       make([]GovernanceReceiptView, 0, len(s.data.GovernanceReceipts)),
-		DeliveryHealth: s.data.GovernanceHealth,
-		AttemptTotals:  s.data.GovernanceTotals,
-		HealthTotals:   s.data.GovernanceHealthTotals,
-		Diagnostic:     s.data.DiagnosticStatus,
-	}
-	if s.volatileHealth != nil {
-		view.DeliveryHealth = *s.volatileHealth
-	}
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		view.Occurrences = append(view.Occurrences, GovernanceOccurrenceView{
-			DisplayID: occurrence.DisplayID, Kind: occurrence.Kind, State: occurrence.State, Severity: occurrence.Severity,
-			Title: occurrence.Title, Body: occurrence.Body, Destination: occurrence.Destination, OccurredAt: occurrence.OccurredAt,
-			DueAt: occurrence.DueAt, ExpiresAt: occurrence.ExpiresAt, FirstSeenAt: occurrence.FirstSeenAt, LastSeenAt: occurrence.LastSeenAt, ResolvedAt: occurrence.ResolvedAt,
-		})
-	}
-	for _, attempt := range s.data.GovernanceAttempts {
-		view.Attempts = append(view.Attempts, GovernanceAttemptView{
-			OccurrenceID: attempt.OccurrenceID, TargetRef: attempt.TargetRef, At: attempt.At, CompletedAt: attempt.CompletedAt,
-			Class: attempt.Class, RetryAt: attempt.RetryAt, RetiredAt: attempt.RetiredAt, TransportCount: attempt.TransportCount,
-		})
-	}
-	for _, receipt := range s.data.GovernanceReceipts {
-		view.Receipts = append(view.Receipts, GovernanceReceiptView{OccurrenceID: receipt.OccurrenceID, TargetRef: receipt.TargetRef, AcceptedAt: receipt.AcceptedAt, RetiredAt: receipt.RetiredAt})
-	}
-	view.AttemptTotals.RetryPending = s.currentGovernanceRetryPendingLocked(now.UTC())
-	return view
-}
-
-func (s *Store) currentGovernanceRetryPendingLocked(now time.Time) int {
-	activeOccurrences := map[string]bool{}
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		if occurrence.ResolvedAt.IsZero() && (occurrence.ExpiresAt.IsZero() || now.Before(occurrence.ExpiresAt)) {
-			activeOccurrences[occurrence.DisplayID] = true
-		}
-	}
-	accepted := map[string]bool{}
-	for _, receipt := range s.data.GovernanceReceipts {
-		if receipt.ResolvedAt.IsZero() && receipt.RetiredAt.IsZero() {
-			accepted[receipt.ReceiptKey] = true
-		}
-	}
-	latest := map[string]GovernanceAttempt{}
-	for _, attempt := range s.data.GovernanceAttempts {
-		if attempt.RetiredAt.IsZero() {
-			latest[attempt.ReceiptKey] = attempt
-		}
-	}
-	pending := 0
-	for receiptKey, attempt := range latest {
-		if activeOccurrences[attempt.OccurrenceID] && !accepted[receiptKey] && isGovernanceRetryable(attempt.Class) && !attempt.RetryAt.IsZero() {
-			pending++
-		}
-	}
-	return pending
-}
-
-// CompactGovernance removes read, resolved occurrences and retired transport
-// evidence older than the retention window while retaining unread evidence.
-func (s *Store) CompactGovernance(now time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cutoff := now.UTC().Add(-governanceRetention)
-	removed := map[string]bool{}
-	unreadOccurrences := map[string]bool{}
-	occurrences := make([]GovernanceOccurrence, 0, len(s.data.GovernanceOccurrences))
-	for _, occurrence := range s.data.GovernanceOccurrences {
-		attentionRead := occurrence.AttentionSeq == 0 || occurrence.AttentionSeq <= s.data.AttentionReadThroughSeq
-		if attentionRead && !occurrence.ResolvedAt.IsZero() && occurrence.ResolvedAt.Before(cutoff) {
-			removed[occurrence.DisplayID] = true
-			continue
-		}
-		if !attentionRead {
-			unreadOccurrences[occurrence.DisplayID] = true
-		}
-		occurrences = append(occurrences, occurrence)
-	}
-	priorOccurrences := append([]GovernanceOccurrence(nil), s.data.GovernanceOccurrences...)
-	priorAttempts := append([]GovernanceAttempt(nil), s.data.GovernanceAttempts...)
-	priorReceipts := append([]GovernanceReceipt(nil), s.data.GovernanceReceipts...)
-	priorHighWater := s.data.AttentionHighWaterSeq
-	priorReadThrough := s.data.AttentionReadThroughSeq
-	s.data.GovernanceOccurrences = occurrences
-	s.data.GovernanceAttempts = slices.DeleteFunc(s.data.GovernanceAttempts, func(attempt GovernanceAttempt) bool {
-		return removed[attempt.OccurrenceID] || (!unreadOccurrences[attempt.OccurrenceID] && !attempt.RetiredAt.IsZero() && attempt.RetiredAt.Before(cutoff))
-	})
-	s.data.GovernanceReceipts = slices.DeleteFunc(s.data.GovernanceReceipts, func(receipt GovernanceReceipt) bool {
-		return removed[receipt.OccurrenceID] || (!unreadOccurrences[receipt.OccurrenceID] && !receipt.RetiredAt.IsZero() && receipt.RetiredAt.Before(cutoff))
-	})
-	if len(removed) == 0 && len(s.data.GovernanceAttempts) == len(priorAttempts) && len(s.data.GovernanceReceipts) == len(priorReceipts) {
-		if s.hasVolatileGovernanceWriteFailureLocked() {
-			return s.saveGovernanceLocked(now)
-		}
-		return nil
-	}
-	if err := s.saveGovernanceLocked(now); err != nil {
-		s.data.GovernanceOccurrences = priorOccurrences
-		s.data.GovernanceAttempts = priorAttempts
-		s.data.GovernanceReceipts = priorReceipts
-		s.data.AttentionHighWaterSeq = priorHighWater
-		s.data.AttentionReadThroughSeq = priorReadThrough
-		return err
-	}
-	return nil
-}
-
-func (s *Store) setGovernanceOverflowLocked(now time.Time) error {
-	if s.volatileHealth == nil && s.data.GovernanceHealth.State == GovernanceDeliveryOverflow && s.data.GovernanceHealth.Class == GovernanceTransportOverflow {
-		return ErrGovernanceOverflow
-	}
-	health := GovernanceDeliveryHealth{State: GovernanceDeliveryOverflow, Class: GovernanceTransportOverflow, UpdatedAt: now.UTC(), LastAcceptedAt: s.data.GovernanceHealth.LastAcceptedAt}
-	s.data.GovernanceHealth = health
-	s.data.GovernanceHealthTotals.Overflows++
-	_ = s.saveGovernanceLocked(now)
-	return ErrGovernanceOverflow
-}
-
-func addGovernanceAttemptTotal(totals *GovernanceAttemptTotals, class string) {
-	switch class {
-	case GovernanceTransportAccepted:
-		totals.CumulativeAttempts++
-		totals.Accepted++
-	case GovernanceTransportRejected, GovernanceTransportHTTPRejected:
-		totals.CumulativeAttempts++
-		totals.Rejected++
-	case GovernanceTransportDeadlineRetry, GovernanceTransportCanceledRetry,
-		GovernanceTransportNetworkRetry, GovernanceTransportHTTPRetry, GovernanceTransportTimeoutRetry,
-		GovernanceTransportMissingKeys, GovernanceTransportSenderMissing:
-		totals.CumulativeAttempts++
-		totals.RetryableFailures++
-	case GovernanceTransportDead:
-		totals.CumulativeAttempts++
-		totals.Dead++
-	case GovernanceTransportNoSubscription:
-		totals.CumulativeAttempts++
-		totals.Missed++
-	case GovernanceTransportSuppressed:
-		totals.CumulativeAttempts++
-		totals.Suppressed++
-	case GovernanceTransportInterrupted:
-		totals.CumulativeAttempts++
-		totals.Interrupted++
-	case GovernanceTransportTargetRetired:
-		totals.CumulativeAttempts++
-		totals.TargetRetired++
-	}
-}
-
-func removeGovernanceAttemptTotal(totals *GovernanceAttemptTotals, class string) {
-	if totals.CumulativeAttempts > 0 {
-		totals.CumulativeAttempts--
-	}
-	if class == GovernanceTransportTargetRetired && totals.TargetRetired > 0 {
-		totals.TargetRetired--
-	}
-}
-
-func (s *Store) saveGovernanceLocked(now time.Time) error {
-	priorHealthTotals := s.data.GovernanceHealthTotals
-	recoveringWrite := s.hasVolatileGovernanceWriteFailureLocked()
-	if recoveringWrite {
-		s.data.GovernanceHealthTotals.StateFailures++
-		s.data.GovernanceHealthTotals.Recoveries++
-	}
-	if err := s.save(); err != nil {
-		s.data.GovernanceHealthTotals = priorHealthTotals
-		health := GovernanceDeliveryHealth{State: GovernanceDeliveryUnavailable, Class: GovernanceTransportStateWrite, UpdatedAt: now.UTC(), LastAcceptedAt: s.data.GovernanceHealth.LastAcceptedAt}
-		s.volatileHealth = &health
-		return err
-	}
-	if recoveringWrite {
-		s.volatileHealth = nil
-	}
-	return nil
-}
-
-func (s *Store) hasVolatileGovernanceWriteFailureLocked() bool {
-	return s.volatileHealth != nil && s.volatileHealth.Class == GovernanceTransportStateWrite
 }
 
 func validGovernanceTransportClass(class string) bool {
@@ -1962,18 +952,6 @@ func validGovernanceTransportClass(class string) bool {
 	}
 }
 
-func validGovernanceDeliveryHealth(health GovernanceDeliveryHealth) bool {
-	if health.UpdatedAt.IsZero() || !validGovernanceTransportClass(health.Class) {
-		return false
-	}
-	switch health.State {
-	case GovernanceDeliveryHealthy, GovernanceDeliverySuppressed, GovernanceDeliveryDegraded, GovernanceDeliveryUnavailable, GovernanceDeliveryOverflow:
-		return true
-	default:
-		return false
-	}
-}
-
 func validDiagnosticState(state string) bool {
 	switch state {
 	case GovernanceTransportAccepted, GovernanceTransportPartial, GovernanceTransportAllFailed,
@@ -1985,6 +963,13 @@ func validDiagnosticState(state string) bool {
 	default:
 		return false
 	}
+}
+
+// GovernanceDiagnostic returns the latest safe notification-test result.
+func (s *Store) GovernanceDiagnostic() GovernanceDiagnosticStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.DiagnosticStatus
 }
 
 // RecordAlert appends one redacted legacy inbox record and assigns its durable
@@ -2332,15 +1317,6 @@ func (s *Store) save() error {
 func validAlertMode(mode string) bool {
 	switch mode {
 	case AlertModeNone, AlertModeActOnly, AlertModeWatchAndAct:
-		return true
-	default:
-		return false
-	}
-}
-
-func validGovernanceDisposition(disposition string) bool {
-	switch disposition {
-	case GovernanceDispositionEligible, GovernanceDispositionSuppressedAtCreation, GovernanceDispositionLegacyUnknown:
 		return true
 	default:
 		return false

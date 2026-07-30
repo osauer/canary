@@ -106,15 +106,45 @@ func TestGovernanceDTOIsAuthenticatedAndTyped(t *testing.T) {
 		t.Fatalf("unauth status=%d, want 401", unauth.Code)
 	}
 
-	occ, _, err := store.UpsertGovernanceOccurrence(state.GovernanceOccurrence{
-		Fingerprint: "sha256:" + strings.Repeat("a", 64), Kind: rpc.NudgeKindPolicyDrift, State: rpc.NudgeStateOpen,
-		Severity: rpc.NudgeSeverityAct, Title: "Policy pins need review", Body: "Review the policy pin status.",
-		Destination: rpc.NudgeDestinationAlerts, OccurredAt: now,
-	}, now)
+	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceGovernance, rpc.AlertKindGovernance, "monthly-pulse")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordGovernanceAttempt(state.GovernanceAttempt{OccurrenceID: occ.DisplayID, TargetRef: state.GovernanceTargetRef("device-private", "subscription-private"), ReceiptKey: "internal-private", At: now, Class: state.GovernanceTransportRejected}, false); err != nil {
+	occurrenceKey, err := rpc.BuildAlertOccurrenceKey(episode, "opening-private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ObserveAlertSnapshot(rpc.AlertCandidateSnapshot{
+		SchemaVersion:  rpc.AlertCandidateSnapshotVersion,
+		AuthorityScope: alertHTTPAuthorityScope(t),
+		AsOf:           now,
+		CurrentState:   rpc.AlertSnapshotActive,
+		Coverage: rpc.AlertCoverage{
+			State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent, AsOf: now,
+			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceGovernance},
+			CoveredSources:  []rpc.AlertSource{rpc.AlertSourceGovernance},
+		},
+		Sources: []rpc.AlertSourceCoverage{{
+			Source: rpc.AlertSourceGovernance, Status: "current", Reason: "source_current",
+			EvidenceHealth: rpc.AlertEvidenceCurrent, InputAsOf: now, ObservedAt: now,
+			EvidenceAsOf: now, FreshUntil: now.Add(time.Hour), Covered: true,
+		}},
+		Candidates: []rpc.AlertCandidate{{
+			EpisodeKey:          episode,
+			OccurrenceKey:       occurrenceKey,
+			EvidenceFingerprint: "sha256:" + strings.Repeat("b", 64),
+			Source:              rpc.AlertSourceGovernance,
+			Kind:                rpc.AlertKindGovernance,
+			PresentationCode:    rpc.AlertPresentationGovernanceMonthlyPulse,
+			State:               rpc.AlertEpisodeOpen,
+			Severity:            rpc.AlertSeverityWatch,
+			EvidenceHealth:      rpc.AlertEvidenceCurrent,
+			Destination:         rpc.AlertDestinationAlerts,
+			EvidenceAsOf:        now,
+			StateChangedAt:      now,
+			ObservedAt:          now,
+		}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,14 +164,24 @@ func TestGovernanceDTOIsAuthenticatedAndTyped(t *testing.T) {
 	if len(dto.Candidates) != 1 || dto.SourceHealth.Aggregate != rpc.NudgeAggregateReady || dto.PollSource.State != live.SourceStateCurrent {
 		t.Fatalf("dto source/candidates=%+v", dto)
 	}
-	if dto.ConfirmedFlowCoverage == nil || !dto.ConfirmedFlowCoverage.CoverageFrom.Equal(now) || dto.AttemptAggregate.Rejected != 1 {
-		t.Fatalf("dto coverage/aggregate=%+v", dto)
+	if dto.ConfirmedFlowCoverage == nil || !dto.ConfirmedFlowCoverage.CoverageFrom.Equal(now) {
+		t.Fatalf("dto coverage=%+v", dto)
 	}
-	if dto.AttemptAggregate.CumulativeAttempts != 1 || !strings.Contains(string(raw), `"cumulative_attempts":1`) || strings.Contains(string(raw), `"total":`) {
-		t.Fatalf("ambiguous attempt aggregate contract: %s", raw)
+	if len(dto.Occurrences) != 1 || dto.Occurrences[0].Title != "Monthly desk review" || dto.Occurrences[0].State != string(rpc.AlertEpisodeOpen) {
+		t.Fatalf("projected governance occurrences=%+v", dto.Occurrences)
 	}
-	if strings.Contains(string(raw), "monthly_pulse") || strings.Contains(string(raw), "device-private") || strings.Contains(string(raw), "subscription-private") || strings.Contains(string(raw), "internal-private") {
-		t.Fatalf("governance DTO leaked private identifiers: %s", raw)
+	if dto.DeliveryHealth.State == "" {
+		t.Fatalf("delivery health missing: %+v", dto.DeliveryHealth)
+	}
+	for _, retired := range []string{"attempt_aggregate", "health_aggregate", `"attempts"`, "cumulative_attempts"} {
+		if strings.Contains(string(raw), retired) {
+			t.Fatalf("retired governance-ledger surface %q reappeared: %s", retired, raw)
+		}
+	}
+	for _, private := range []string{"monthly_pulse", "opening-private", string(episode), string(occurrenceKey), strings.Repeat("b", 64)} {
+		if strings.Contains(string(raw), private) {
+			t.Fatalf("governance DTO leaked private identifiers: %s", raw)
+		}
 	}
 }
 
@@ -487,9 +527,11 @@ func TestSafeDiagnosticUsesAuthenticatedDeviceFixedCopyAndHonorsNone(t *testing.
 	if sender.payloads[0] != want {
 		t.Fatalf("diagnostic payload=%+v, want fixed=%+v", sender.payloads[0], want)
 	}
-	view := store.Governance(time.Now())
-	if len(view.Occurrences) != 0 || len(view.Attempts) != 0 || len(view.Receipts) != 0 || view.Diagnostic.State != state.GovernanceTransportAccepted {
-		t.Fatalf("diagnostic contaminated governance evidence: %+v", view)
+	if diagnostic := store.GovernanceDiagnostic(); diagnostic.State != state.GovernanceTransportAccepted {
+		t.Fatalf("diagnostic state=%+v", diagnostic)
+	}
+	if delivery := store.AlertDelivery(time.Now()); len(delivery.Occurrences) != 0 {
+		t.Fatalf("diagnostic contaminated delivery evidence: %+v", delivery)
 	}
 }
 
@@ -1461,15 +1503,17 @@ func governanceAppStateForTest(t *testing.T, store *state.Store, at time.Time) [
 	t.Helper()
 	vapid, hasVAPID := store.VAPID()
 	value := struct {
-		AlertSettings state.AlertSettings      `json:"alert_settings"`
-		Subscriptions []state.PushSubscription `json:"subscriptions"`
-		Governance    state.GovernanceView     `json:"governance"`
-		LastPush      *state.PushAttempt       `json:"last_push"`
-		VAPID         state.VAPIDKeys          `json:"vapid"`
-		HasVAPID      bool                     `json:"has_vapid"`
+		AlertSettings state.AlertSettings              `json:"alert_settings"`
+		Subscriptions []state.PushSubscription         `json:"subscriptions"`
+		Delivery      state.AlertDeliveryView          `json:"delivery"`
+		Diagnostic    state.GovernanceDiagnosticStatus `json:"diagnostic"`
+		LastPush      *state.PushAttempt               `json:"last_push"`
+		VAPID         state.VAPIDKeys                  `json:"vapid"`
+		HasVAPID      bool                             `json:"has_vapid"`
 	}{
 		AlertSettings: store.AlertSettings(), Subscriptions: store.PushSubscriptions(),
-		Governance: store.Governance(at), LastPush: store.LastPush(), VAPID: vapid, HasVAPID: hasVAPID,
+		Delivery: store.AlertDelivery(at), Diagnostic: store.GovernanceDiagnostic(),
+		LastPush: store.LastPush(), VAPID: vapid, HasVAPID: hasVAPID,
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {

@@ -18,7 +18,7 @@ func TestGovernanceSurfaceStaticContract(t *testing.T) {
 		"governanceCoverageDetail", "governanceEvidenceDetails",
 		"governanceCutoverReviewButton", "governanceCutoverReviewStatus",
 		"governanceHistoryCount", "governanceHistoryList", "governanceDeliveryHealth",
-		"governanceDeliveryDetail", "governanceAttemptList", "safeNotificationTestButton", "safeNotificationTestStatus",
+		"governanceDeliveryDetail", "safeNotificationTestButton", "safeNotificationTestStatus",
 		"reconciliationCard", "reconciliationHeading", "reconciliationState", "reconciliationSummary",
 		"reconciliationMeta", "reconciliationCheckButton", "reconciliationCheckStatus",
 	} {
@@ -71,8 +71,7 @@ func TestGovernanceRendererConsumesTypedAuthorities(t *testing.T) {
 		`const reconciliation = validateReconciliation(governance?.reconciliation)`,
 		`Open IBKR Client Portal → Reporting → Flex Queries on this Mac, renew the Flex Web Service token`,
 		`process_reminders_not_enabled: "reminders are not enabled"`,
-		`renderGovernanceAttempts(governance?.attempts)`,
-		`safeGovernanceTransportClass(attempt.class) || "unknown"`,
+		`renderGovernanceHistory(governance?.occurrences)`,
 		`pre_cutover_flows_unreviewed: false`,
 		`Older payments marked reviewed.`,
 		`Older payments were already marked reviewed.`,

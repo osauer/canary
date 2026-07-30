@@ -17,6 +17,7 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/pkg/server"
 
+	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
 	"github.com/osauer/canary/v2/internal/app/auth"
 	"github.com/osauer/canary/v2/internal/app/daemonclient"
 	"github.com/osauer/canary/v2/internal/app/live"
@@ -372,30 +373,6 @@ type GovernancePollSource struct {
 	LastSuccessAt time.Time `json:"last_success_at,omitzero"`
 }
 
-// GovernanceAttemptAggregate summarizes app transport dispositions. Accepted
-// means push-service acceptance, not device display or human attention.
-type GovernanceAttemptAggregate struct {
-	CumulativeAttempts int `json:"cumulative_attempts"`
-	Accepted           int `json:"push_service_accepted"`
-	RetryableFailures  int `json:"retryable_failures"`
-	Rejected           int `json:"rejected"`
-	RetryPending       int `json:"retry_pending"`
-	Dead               int `json:"dead_subscription"`
-	Missed             int `json:"missed"`
-	Suppressed         int `json:"suppressed"`
-	Interrupted        int `json:"interrupted_uncertain"`
-	TargetRetired      int `json:"target_retired"`
-}
-
-// GovernanceHealthAggregate counts app-local delivery-health events separately
-// from transport attempts.
-type GovernanceHealthAggregate struct {
-	PartialEpisodes int `json:"partial_episodes"`
-	StateFailures   int `json:"state_write_failures"`
-	Recoveries      int `json:"recoveries"`
-	Overflows       int `json:"overflows"`
-}
-
 // GovernanceSourceHealth is a wire value rather than rpc.NudgeSourceHealth so
 // its JSON encoding preserves the result-level aggregate that was normalized
 // with candidate context.
@@ -409,10 +386,29 @@ type GovernanceSourceHealth struct {
 	ConfirmedFlow  rpc.NudgeInputHealth `json:"confirmed_flow"`
 }
 
+// GovernanceOccurrenceDTO is one governance-sourced row projected from the
+// source-neutral delivery ledger. Producer keys, evidence fingerprints, and
+// transport identities are deliberately absent; title and body are fixed
+// Canary presentation copy, never daemon or broker free text.
+type GovernanceOccurrenceDTO struct {
+	DisplayID   string    `json:"display_id"`
+	Kind        string    `json:"kind"`
+	State       string    `json:"state"`
+	Severity    string    `json:"severity"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	Destination string    `json:"destination"`
+	OccurredAt  time.Time `json:"occurred_at"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+	ResolvedAt  time.Time `json:"resolved_at,omitzero"`
+}
+
 // GovernanceDTO is the typed SPA boundary. Current candidates retain the
-// foundation's opaque semantic fingerprint; durable app evidence deliberately
-// excludes that fingerprint, internal receipt keys, raw device/subscription
-// identities, endpoints, keys, and transport error prose.
+// foundation's opaque semantic fingerprint; durable evidence is projected
+// from the source-neutral alert-delivery ledger (the legacy governance
+// ledger is retired), so delivery health is the shared alert transport
+// health, and per-attempt rows are not exposed.
 type GovernanceDTO struct {
 	Candidates            []rpc.NudgeCandidate             `json:"candidates"`
 	SourceHealth          GovernanceSourceHealth           `json:"source_health"`
@@ -420,31 +416,41 @@ type GovernanceDTO struct {
 	Reconciliation        *ReconciliationDTO               `json:"reconciliation,omitempty"`
 	ConfirmedFlowCoverage *rpc.NudgeConfirmedFlowCoverage  `json:"confirmed_flow_coverage,omitempty"`
 	Context               *rpc.NudgeSnapshotContext        `json:"context,omitempty"`
-	Occurrences           []state.GovernanceOccurrenceView `json:"occurrences"`
-	Attempts              []state.GovernanceAttemptView    `json:"attempts"`
-	AttemptAggregate      GovernanceAttemptAggregate       `json:"attempt_aggregate"`
-	HealthAggregate       GovernanceHealthAggregate        `json:"health_aggregate"`
-	DeliveryHealth        state.GovernanceDeliveryHealth   `json:"delivery_health"`
+	Occurrences           []GovernanceOccurrenceDTO        `json:"occurrences"`
+	DeliveryHealth        AlertDeliveryHealthDTO           `json:"delivery_health"`
 	Diagnostic            state.GovernanceDiagnosticStatus `json:"diagnostic"`
 }
 
 func (h *handler) governanceDTO() GovernanceDTO {
 	snapshot := h.deps.Live.Snapshot()
-	view := h.deps.Store.Governance(time.Now().UTC())
+	now := time.Now().UTC()
+	delivery := h.deps.Store.AlertDelivery(now)
+	occurrences := make([]GovernanceOccurrenceDTO, 0)
+	for _, occ := range delivery.Occurrences {
+		if occ.Source != rpc.AlertSourceGovernance {
+			continue
+		}
+		row := GovernanceOccurrenceDTO{
+			DisplayID:   occ.DisplayID,
+			Kind:        string(occ.Kind),
+			State:       string(occ.State),
+			Severity:    string(occ.Severity),
+			Destination: string(occ.Destination),
+			OccurredAt:  occ.EvidenceAsOf,
+			FirstSeenAt: occ.FirstSeenAt,
+			LastSeenAt:  occ.LastSeenAt,
+			ResolvedAt:  occ.EndedAt,
+		}
+		if presentation, ok := appalerts.PresentationFor(occ.PresentationCode, occ.State); ok {
+			row.Title, row.Body = presentation.Title, presentation.Body
+		}
+		occurrences = append(occurrences, row)
+	}
 	dto := GovernanceDTO{
-		Candidates: make([]rpc.NudgeCandidate, 0), Occurrences: view.Occurrences, Attempts: view.Attempts,
-		DeliveryHealth: view.DeliveryHealth, Diagnostic: view.Diagnostic,
-		AttemptAggregate: GovernanceAttemptAggregate{
-			CumulativeAttempts: view.AttemptTotals.CumulativeAttempts, Accepted: view.AttemptTotals.Accepted,
-			RetryableFailures: view.AttemptTotals.RetryableFailures, Rejected: view.AttemptTotals.Rejected,
-			RetryPending: view.AttemptTotals.RetryPending, Dead: view.AttemptTotals.Dead, Missed: view.AttemptTotals.Missed,
-			Suppressed: view.AttemptTotals.Suppressed, Interrupted: view.AttemptTotals.Interrupted,
-			TargetRetired: view.AttemptTotals.TargetRetired,
-		},
-		HealthAggregate: GovernanceHealthAggregate{
-			PartialEpisodes: view.HealthTotals.PartialEpisodes, StateFailures: view.HealthTotals.StateFailures,
-			Recoveries: view.HealthTotals.Recoveries, Overflows: view.HealthTotals.Overflows,
-		},
+		Candidates:     make([]rpc.NudgeCandidate, 0),
+		Occurrences:    occurrences,
+		DeliveryHealth: alertDeliveryHealthDTO(delivery),
+		Diagnostic:     h.deps.Store.GovernanceDiagnostic(),
 	}
 	failClosed := rpc.NormalizeNudgeSourceHealth(rpc.NudgeSourceHealth{}, 0)
 	dto.SourceHealth = governanceSourceHealth(failClosed)
