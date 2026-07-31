@@ -14,6 +14,10 @@ import (
 
 const coreSchemaUpgradeMinimumMarginBytes = uint64(1 << 30)
 
+type coreSchemaUpgradeStatfsInteger interface {
+	~int | ~int32 | ~int64 | ~uint | ~uint32 | ~uint64
+}
+
 type coreSchemaUpgradeSpaceError struct {
 	Path           string
 	Phase          string
@@ -99,15 +103,22 @@ func coreSchemaUpgradeAvailableBytes(path string) (uint64, error) {
 	if err := unix.Statfs(filepath.Dir(path), &stat); err != nil {
 		return 0, fmt.Errorf("inspect schema upgrade filesystem: %w", err)
 	}
-	if stat.Bavail < 0 || stat.Bsize < 0 {
+	availableBlocks, availableOK := coreSchemaUpgradeNonNegativeStatfsValue(stat.Bavail)
+	blockSize, blockSizeOK := coreSchemaUpgradeNonNegativeStatfsValue(stat.Bsize)
+	if !availableOK || !blockSizeOK {
 		return 0, fmt.Errorf("schema upgrade filesystem returned invalid available space")
 	}
-	availableBlocks := uint64(stat.Bavail)
-	blockSize := uint64(stat.Bsize)
 	if blockSize != 0 && availableBlocks > math.MaxUint64/blockSize {
 		return 0, fmt.Errorf("schema upgrade available-space overflow")
 	}
 	return availableBlocks * blockSize, nil
+}
+
+func coreSchemaUpgradeNonNegativeStatfsValue[T coreSchemaUpgradeStatfsInteger](value T) (uint64, bool) {
+	if value < 0 {
+		return 0, false
+	}
+	return uint64(value), true
 }
 
 func ensureCoreSchemaUpgradeSpace(path, phase string, availableProbe func(string) (uint64, error)) error {

@@ -41,6 +41,17 @@ func TestCoreSchemaUpgradeSpaceRequirementIncludesSidecarsAndMargin(t *testing.T
 	}
 }
 
+func TestCoreSchemaUpgradeStatfsValueSupportsSignedAndUnsignedPlatforms(t *testing.T) {
+	t.Parallel()
+
+	if _, ok := coreSchemaUpgradeNonNegativeStatfsValue(int64(-1)); ok {
+		t.Fatal("negative signed filesystem value was accepted")
+	}
+	if got, ok := coreSchemaUpgradeNonNegativeStatfsValue(uint64(42)); !ok || got != 42 {
+		t.Fatalf("unsigned filesystem value = %d, ok=%v", got, ok)
+	}
+}
+
 func TestCoreSchemaUpgradeInsufficientSpaceRefusesBeforeIntent(t *testing.T) {
 	t.Parallel()
 
