@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -57,7 +58,7 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 		if pendingErr != nil {
 			err = pendingErr
 		} else if upgradePending {
-			minimum, err = ensureCoreStoreSchemaCurrent(ctx, s.coreStorePath, minimum, s.nowUTC())
+			minimum, err = s.upgradeCoreStoreSchema(ctx, minimum)
 		}
 		if err != nil {
 			lock.Release()
@@ -65,7 +66,7 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 		}
 		store, err = corestore.Open(ctx, s.liveCoreStoreOptions(minimum))
 		if errors.Is(err, corestore.ErrUpgradeRequired) {
-			minimum, err = ensureCoreStoreSchemaCurrent(ctx, s.coreStorePath, minimum, s.nowUTC())
+			minimum, err = s.upgradeCoreStoreSchema(ctx, minimum)
 			if err == nil {
 				store, err = corestore.Open(ctx, s.liveCoreStoreOptions(minimum))
 			}
@@ -125,6 +126,44 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 		return cleanup(err)
 	}
 	return nil
+}
+
+func (s *Server) upgradeCoreStoreSchema(ctx context.Context, minimum *corestore.AuthorityHead) (*corestore.AuthorityHead, error) {
+	startedAt := time.Now()
+	sourceBytes, sourceSizeErr := coreSchemaUpgradeSourceFootprint(s.coreStorePath)
+	if s.logger != nil {
+		if sourceSizeErr == nil {
+			s.logger.Infof(
+				"daemon authority: one-time database maintenance starting; pruning unused contract-cache history and compacting %s before broker connection; do not interrupt",
+				formatStorageBytes(sourceBytes),
+			)
+		} else {
+			s.logger.Infof("daemon authority: one-time database maintenance starting; pruning unused contract-cache history and compacting the database before broker connection; do not interrupt")
+		}
+	}
+
+	updatedMinimum, err := ensureCoreStoreSchemaCurrent(ctx, s.coreStorePath, minimum, s.nowUTC())
+	if err != nil {
+		return nil, err
+	}
+	if s.logger != nil {
+		elapsed := time.Since(startedAt).Round(time.Second)
+		targetBytes, targetSizeErr := coreSchemaUpgradeSourceFootprint(s.coreStorePath)
+		if sourceSizeErr == nil && targetSizeErr == nil {
+			s.logger.Infof(
+				"daemon authority: one-time database maintenance completed in %s; database %s -> %s; recovery artifacts verified",
+				elapsed,
+				formatStorageBytes(sourceBytes),
+				formatStorageBytes(targetBytes),
+			)
+		} else {
+			s.logger.Infof(
+				"daemon authority: one-time database maintenance completed in %s; recovery artifacts verified",
+				elapsed,
+			)
+		}
+	}
+	return updatedMinimum, nil
 }
 
 func (s *Server) liveCoreStoreOptions(minimum *corestore.AuthorityHead) corestore.Options {

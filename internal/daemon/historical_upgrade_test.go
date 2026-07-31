@@ -780,12 +780,40 @@ func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T
 		)
 	}
 
-	upgradedMinimum, err := ensureCoreStoreSchemaCurrent(
-		t.Context(), databasePath, minimum,
-		time.Date(2026, 7, 31, 12, 30, 0, 0, time.UTC),
-	)
+	sourceBytes, err := coreSchemaUpgradeSourceFootprint(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var maintenanceLogs bytes.Buffer
+	upgradeTime := time.Date(2026, 7, 31, 12, 30, 0, 0, time.UTC)
+	server := &Server{
+		coreStorePath: databasePath,
+		logger:        NewLogger(&maintenanceLogs, "info"),
+		now:           func() time.Time { return upgradeTime },
+	}
+	upgradedMinimum, err := server.upgradeCoreStoreSchema(t.Context(), minimum)
 	if err != nil {
 		t.Fatalf("upgrade authentic schema-v3 authority: %v", err)
+	}
+	targetBytes, err := coreSchemaUpgradeSourceFootprint(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := maintenanceLogs.String()
+	wantStart := fmt.Sprintf(
+		"daemon authority: one-time database maintenance starting; pruning unused contract-cache history and compacting %s before broker connection; do not interrupt",
+		formatStorageBytes(sourceBytes),
+	)
+	wantCompletionTail := fmt.Sprintf(
+		"; database %s -> %s; recovery artifacts verified",
+		formatStorageBytes(sourceBytes),
+		formatStorageBytes(targetBytes),
+	)
+	if !strings.Contains(logs, wantStart) ||
+		!strings.Contains(logs, "daemon authority: one-time database maintenance completed in ") ||
+		!strings.Contains(logs, wantCompletionTail) ||
+		strings.Count(logs, "daemon authority: one-time database maintenance") != 2 {
+		t.Fatalf("schema maintenance logs=%q", logs)
 	}
 	if upgradedMinimum == nil || *upgradedMinimum != source.Head {
 		t.Fatalf("maintenance-only minimum=%+v, want unchanged %+v", upgradedMinimum, source.Head)
