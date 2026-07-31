@@ -99,6 +99,49 @@ func TestReduceEligible(t *testing.T) {
 	}
 }
 
+// The reduce workflow is scoped to stocks/ETFs and long options. Unsupported
+// holdings must fail before an order draft exists; defaulting an unknown
+// PositionView security type to STK can otherwise turn a bond, future, or index
+// holding into a stock-shaped broker preview.
+func TestReducePreparationNeverRecastsUnsupportedContractAsStock(t *testing.T) {
+	for _, secType := range []string{"BOND", rpc.SecTypeFuture, rpc.SecTypeIndex} {
+		t.Run(secType, func(t *testing.T) {
+			row := rpc.PositionView{
+				Symbol:     "SAME",
+				SecType:    secType,
+				ConID:      500001,
+				Currency:   "USD",
+				Quantity:   10,
+				Multiplier: 1,
+				Mark:       100,
+			}
+
+			t.Run("single position", func(t *testing.T) {
+				prep, blockers := prepareReduceForRow(row, rpc.TradeProposalReduceParams{
+					ConID:   row.ConID,
+					Percent: 50,
+				})
+				if len(blockers) != 1 || blockers[0].Code != "not_reducible" {
+					t.Fatalf("blockers=%+v, want one not_reducible blocker", blockers)
+				}
+				if prep.params.Contract.SecType != "" || prep.params.Quantity != 0 {
+					t.Fatalf("unsupported %s produced an order draft: %+v", secType, prep.params)
+				}
+			})
+
+			t.Run("portfolio sweep", func(t *testing.T) {
+				prep, blockers := preparedReduceWithQty(row, 5, 1000)
+				if len(blockers) != 1 || blockers[0].Code != "not_reducible" {
+					t.Fatalf("blockers=%+v, want one not_reducible blocker", blockers)
+				}
+				if prep.params.Contract.SecType != "" || prep.params.Quantity != 0 {
+					t.Fatalf("unsupported %s produced an order draft: %+v", secType, prep.params)
+				}
+			})
+		})
+	}
+}
+
 func TestFindReducePosition(t *testing.T) {
 	pos := &rpc.PositionsResult{
 		Stocks: []rpc.PositionView{

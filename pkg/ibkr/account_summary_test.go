@@ -1,13 +1,25 @@
 package ibkr
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+type accountSummaryWriteSignal struct {
+	once  sync.Once
+	wrote chan struct{}
+}
+
+func (w *accountSummaryWriteSignal) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.wrote) })
+	return len(p), nil
+}
 
 func TestParseAccountSummary_AllTagsBaseCurrency(t *testing.T) {
 	raw := map[string]string{
@@ -258,6 +270,80 @@ func TestRequestAccountSummary_NoConnectorReturnsErrIBKRUnavailable(t *testing.T
 	_, err := c.RequestAccountSummary(context.Background(), 1*time.Second)
 	if !errors.Is(err, ErrIBKRUnavailable) {
 		t.Fatalf("expected ErrIBKRUnavailable, got %v", err)
+	}
+}
+
+// A multi-account login reports the full managed-account list on the session,
+// but the one-shot summary must remain scoped to the operator's pinned account.
+// Falling back to the list (or its first entry) either blocks the read or can
+// return a sibling account's balances to risk and sizing consumers.
+func TestRequestAccountSummaryUsesPinnedAccountWithinManagedList(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		managed  string
+		pinnedID string
+	}{
+		{name: "single account control", managed: "DU2222222", pinnedID: "DU2222222"},
+		{name: "pinned member of managed list", managed: "DU1111111,DU2222222", pinnedID: "DU2222222"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &ConnectionConfig{
+				Host:     "127.0.0.1",
+				Port:     7497,
+				ClientID: 41,
+				Account:  tc.pinnedID,
+			}
+			c := NewConnector(&ConnectorConfig{BaseConfig: cfg})
+			conn := c.conn
+			t.Cleanup(conn.rateLimiter.Stop)
+			conn.status = StatusConnected
+			setServerVersionReady(conn, minServerVersionRequired)
+			wire := &accountSummaryWriteSignal{wrote: make(chan struct{})}
+			conn.writer = bufio.NewWriter(wire)
+			c.running = true
+			c.ready = true
+			conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", tc.managed))
+
+			type result struct {
+				summary    *RawAccountSummary
+				provenance AccountSummaryProvenance
+				err        error
+			}
+			resultCh := make(chan result, 1)
+			go func() {
+				summary, provenance, err := c.RequestAccountSummaryWithProvenance(context.Background(), time.Second)
+				resultCh <- result{summary: summary, provenance: provenance, err: err}
+			}()
+
+			select {
+			case got := <-resultCh:
+				t.Fatalf("summary returned before sending the pinned-account request: provenance=%q err=%v", got.provenance, got.err)
+			case <-wire.wrote:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for account-summary request")
+			}
+
+			conn.handleAccountSummary([]string{"63", "2", "1", cfg.Account, "NetLiquidation", "100000", "USD"})
+			conn.processMessage(conn.encodeMsg(msgAccountSummaryEnd, "1", 1))
+
+			select {
+			case got := <-resultCh:
+				if got.err != nil {
+					t.Fatalf("pinned-account summary failed: %v", got.err)
+				}
+				if got.provenance != AccountSummaryProvenanceRequest {
+					t.Fatalf("provenance=%q, want %q", got.provenance, AccountSummaryProvenanceRequest)
+				}
+				if got.summary == nil {
+					t.Fatal("pinned-account summary is nil")
+				}
+				if got.summary.AccountID != cfg.Account {
+					t.Fatalf("summary account=%q, want pinned account %q", got.summary.AccountID, cfg.Account)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for pinned-account summary")
+			}
+		})
 	}
 }
 

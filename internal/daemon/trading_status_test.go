@@ -112,8 +112,11 @@ func TestAccountMismatchesConnectedAllowsAggregateManagedAccount(t *testing.T) {
 		{name: "same concrete account", configured: "DU1234567", connected: "DU1234567", want: false},
 		{name: "case-insensitive concrete account", configured: "du1234567", connected: "DU1234567", want: false},
 		{name: "connected aggregate all", configured: "DU1234567", connected: "All", want: false},
+		{name: "configured account is in managed account list", configured: "DU1234567", connected: "DU7654321, DU1234567", want: false},
+		{name: "configured account is in managed account list case-insensitively", configured: "du1234567", connected: "DU7654321,DU1234567", want: false},
 		{name: "blank connected account unknown", configured: "DU1234567", connected: "", want: false},
 		{name: "different concrete account", configured: "DU1234567", connected: "DU7654321", want: true},
+		{name: "configured account is absent from managed account list", configured: "DU1234567", connected: "DU7654321,DU9999999", want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

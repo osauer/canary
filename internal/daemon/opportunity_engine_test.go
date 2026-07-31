@@ -87,6 +87,61 @@ func TestOptionExerciseOpportunityPutUsesUnderlyingAsk(t *testing.T) {
 	}
 }
 
+// The flat "stocks" slice also contains bonds, futures, and indices. A
+// same-symbol non-equity row must never replace the actual equity underlying
+// used for option-exercise economics or position-effect classification.
+func TestOpportunityGenerateUsesEquityUnderlyingWhenSymbolIsShared(t *testing.T) {
+	t.Parallel()
+	now := opportunityTestRTH()
+	policy := defaultOpportunityPolicy()
+	status := opportunityPolicyStatus(policy, rpc.OpportunityPolicyStatusDefault, "test", "", now)
+	bid, ask, optionBid := 103.0, 103.20, 2.0
+	option := opportunityTestOption(now, "C", 100, &optionBid)
+	stock := opportunityTestStock(now, -100, &bid, &ask)
+	stock.ConID = 9001
+	bond := rpc.PositionView{
+		Symbol:     "AAPL",
+		SecType:    "BOND",
+		ConID:      9002,
+		Currency:   "USD",
+		Quantity:   -5,
+		Multiplier: 1,
+		Bid:        &bid,
+		Ask:        &ask,
+		PriceAt:    now,
+	}
+	engine := &opportunityEngine{}
+
+	for _, tc := range []struct {
+		name   string
+		stocks []rpc.PositionView
+	}{
+		{name: "equity follows bond", stocks: []rpc.PositionView{bond, stock}},
+		{name: "bond follows equity", stocks: []rpc.PositionView{stock, bond}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &rpc.PositionsResult{
+				Stocks:  tc.stocks,
+				Options: []rpc.PositionView{option},
+			}
+			got := engine.generate(policy, status, pos, rpc.OpportunitySourceFingerprints{}, brokerStateScope{}, now)
+			if len(got) != 1 {
+				t.Fatalf("opportunities=%d, want 1 using the equity underlying", len(got))
+			}
+			opp := got[0]
+			if len(opp.Blockers) != 0 {
+				t.Fatalf("blockers=%+v, want equity-underlying opportunity to remain unblocked", opp.Blockers)
+			}
+			if opp.UnderlyingContract.ConID != stock.ConID {
+				t.Fatalf("underlying con_id=%d, want equity con_id=%d", opp.UnderlyingContract.ConID, stock.ConID)
+			}
+			if opp.UnderlyingQuantityBefore != stock.Quantity {
+				t.Fatalf("underlying quantity before=%.0f, want equity quantity %.0f", opp.UnderlyingQuantityBefore, stock.Quantity)
+			}
+		})
+	}
+}
+
 func TestOptionExercisePostExerciseRiskContext(t *testing.T) {
 	t.Parallel()
 	now := opportunityTestRTH()

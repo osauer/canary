@@ -912,6 +912,31 @@ func TestGroupByUnderlying(t *testing.T) {
 	}
 }
 
+// Exact contract identity must survive the grouped projection. IBKR can report
+// multiple non-option contracts under the same base symbol (for example,
+// different bonds or futures expiries); dropping one makes the flat position
+// list disagree with exposure, rulebook, proposal, and Brief consumers.
+func TestGroupByUnderlyingPreservesDistinctSameSymbolContracts(t *testing.T) {
+	t.Parallel()
+	stocks := []rpc.PositionView{
+		{Symbol: "T", SecType: "BOND", ConID: 500001, LocalSymbol: "T 4 1/8 11/15/32", Quantity: 2, MarketValue: 2000},
+		{Symbol: "T", SecType: "BOND", ConID: 500002, LocalSymbol: "T 4 5/8 02/15/35", Quantity: 3, MarketValue: 3000},
+	}
+
+	groups := groupByUnderlying(stocks, nil, "USD", nil)
+	visible := map[string]bool{}
+	for _, group := range groups {
+		if group.Stock != nil {
+			visible[positionViewKey(*group.Stock)] = true
+		}
+	}
+	for _, position := range stocks {
+		if !visible[positionViewKey(position)] {
+			t.Errorf("grouped projection dropped held contract %s", positionViewKey(position))
+		}
+	}
+}
+
 // history.daily with an empty symbol must surface as bad_request, not
 // internal — the CLI relies on this to render a usage hint.
 func TestHistoryDailyEmptySymbolIsBadRequest(t *testing.T) {
