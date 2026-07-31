@@ -253,10 +253,15 @@ type Connection struct {
 	// side effects atomic with socket-generation rollover. It is deliberately
 	// separate from outbound invalidation so late receipts remain attributable.
 	inboundEpochMu sync.RWMutex
-	account        string
-	handshakeMu    sync.RWMutex
-	handshakeReady chan struct{}
-	useTLS         bool
+	// account holds the raw msgManagedAccts value, which is a
+	// comma-separated list for a login that carries several accounts.
+	// managedAccounts is that value split into concrete codes. Guarded by
+	// accountMu.
+	account         string
+	managedAccounts []string
+	handshakeMu     sync.RWMutex
+	handshakeReady  chan struct{}
+	useTLS          bool
 
 	// Outbound sequencing to guarantee single-writer semantics per client ID
 	transportMu     sync.Mutex
@@ -1976,6 +1981,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		if acct := managedAccountsField(fields); acct != "" {
 			c.accountMu.Lock()
 			c.account = acct
+			c.managedAccounts = parseManagedAccounts(acct)
 			c.accountMu.Unlock()
 			// The canonical primary client logs this account-wide notice; auxiliary
 			// clients receive the same payload and would duplicate it.
@@ -2874,7 +2880,6 @@ func (c *Connection) handlePortfolioValue(fields []string) {
 	c.portfolioProjectionMu.Lock()
 	defer c.portfolioProjectionMu.Unlock()
 	if !c.acceptPortfolioAccountFrame(fields[19], time.Now().UTC()) {
-		portfolioLogger.Warnf("Portfolio frame account did not match the requested account; stream health is unavailable until resubscribe")
 		return
 	}
 
@@ -2895,14 +2900,18 @@ func (c *Connection) handlePortfolioValue(fields []string) {
 	if multiplierRaw != "" {
 		multiplier, multiplierErr = strconv.Atoi(multiplierRaw)
 	}
-	// IB stock frames commonly omit multiplier or encode it as zero; one
-	// share remains the correct normalization. Derivatives need a positive
-	// multiplier, and options need an explicit strike.
+	// IB omits multiplier — or encodes it as zero — on every frame whose
+	// contract has no real multiplier: stocks, cash, bonds, bills, funds and
+	// CFDs. One unit is the correct normalization for all of them, and the
+	// downstream renderers already treat the field that way. Derivatives do
+	// carry a real multiplier, so normalizing theirs to 1 would understate
+	// the row; they still require an explicit positive value, and options
+	// need an explicit strike.
 	derivativeIdentity := secType == "OPT" || secType == "FOP" || secType == "WAR"
 	requiresDerivativeTerms := secType == "OPT" || secType == "FOP"
 	right := strings.ToUpper(strings.TrimSpace(fields[7]))
-	requiresMultiplier := secType != "STK"
-	if secType == "STK" && multiplierErr == nil && multiplier == 0 {
+	requiresMultiplier := portfolioMultiplierIsContractual(secType)
+	if !requiresMultiplier && multiplierErr == nil && multiplier == 0 {
 		multiplier = 1
 	}
 	position, positionErr := strconv.ParseFloat(strings.TrimSpace(fields[13]), 64)
@@ -3027,8 +3036,54 @@ func (c *Connection) handlePortfolioValue(fields []string) {
 		key, position, marketPrice, unrealizedPNL)
 }
 
+// portfolioMultiplierIsContractual reports whether a portfolio frame's
+// secType names a contract that actually carries a multiplier. Only these
+// may fail the generation for a missing or zero one: every other secType
+// normalizes to a single unit, and treating an absent bond or bill
+// multiplier as corruption discards the whole staged download over a row
+// IB never intended to carry the field.
+func portfolioMultiplierIsContractual(secType string) bool {
+	switch secType {
+	case "OPT", "FOP", "WAR", "FUT":
+		return true
+	}
+	return false
+}
+
+// managedAccountMember reports whether account is one of the codes the
+// gateway listed in msgManagedAccts. One TWS login can hold several
+// unlinked accounts, and the account-updates service streams all of them
+// over the single subscription, so a sibling's frames are expected traffic
+// for another scope rather than evidence the stream is misrouted.
+func (c *Connection) managedAccountMember(account string) bool {
+	account = strings.TrimSpace(account)
+	if !accountCodeConcrete(account) {
+		return false
+	}
+	c.accountMu.RLock()
+	defer c.accountMu.RUnlock()
+	return slices.ContainsFunc(c.managedAccounts, func(managed string) bool {
+		return strings.EqualFold(managed, account)
+	})
+}
+
+// portfolioStreamAccount returns the concrete account the account-updates
+// stream is bound to, or "" when no account-scoped subscribe has landed.
+func (c *Connection) portfolioStreamAccount() string {
+	c.portfolioHealthMu.RLock()
+	defer c.portfolioHealthMu.RUnlock()
+	bound := strings.TrimSpace(c.portfolioHealth.Account)
+	if !accountCodeConcrete(bound) {
+		return ""
+	}
+	return bound
+}
+
 func (c *Connection) acceptPortfolioAccountFrame(account string, observedAt time.Time) bool {
 	account = strings.TrimSpace(account)
+	// Snapshot the managed list before taking portfolioHealthMu: no path in
+	// this file nests the two locks, and this keeps it that way.
+	sibling := c.managedAccountMember(account)
 	c.portfolioHealthMu.Lock()
 	defer c.portfolioHealthMu.Unlock()
 	if !c.portfolioHealth.ScopeConflictAt.IsZero() || !c.portfolioHealth.InvalidPayloadAt.IsZero() {
@@ -3040,15 +3095,19 @@ func (c *Connection) acceptPortfolioAccountFrame(account string, observedAt time
 	}
 	bound := strings.TrimSpace(c.portfolioHealth.Account)
 	if accountCodeConcrete(bound) {
-		if !strings.EqualFold(account, bound) {
-			c.latchPortfolioScopeConflictLocked(observedAt)
+		if strings.EqualFold(account, bound) {
+			return true
+		}
+		if sibling {
+			// Steady state for an unlinked multi-account login: drop the row
+			// and leave the stream healthy for the bound account.
+			portfolioLogger.Debugf("Dropping portfolio frame for sibling managed account")
 			return false
 		}
-		return true
+		c.latchPortfolioScopeConflictLocked(observedAt)
+		return false
 	}
-	if accountCodeConcrete(account) {
-		c.portfolioHealth.Account = account
-	}
+	c.portfolioHealth.Account = account
 	return true
 }
 
@@ -3058,6 +3117,7 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	c.portfolioProjectionMu.Lock()
 	defer c.portfolioProjectionMu.Unlock()
 	account = strings.TrimSpace(account)
+	sibling := c.managedAccountMember(account)
 	c.portfolioHealthMu.Lock()
 	defer c.portfolioHealthMu.Unlock()
 	if !c.portfolioHealth.ScopeConflictAt.IsZero() || !c.portfolioHealth.InvalidPayloadAt.IsZero() {
@@ -3073,6 +3133,11 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	}
 	bound := strings.TrimSpace(c.portfolioHealth.Account)
 	if accountCodeConcrete(bound) && !strings.EqualFold(account, bound) {
+		if sibling {
+			// A sibling account's end marker says nothing about the bound
+			// account's download, which may still be staging.
+			return false
+		}
 		c.latchPortfolioScopeConflictLocked(completedAt)
 		c.portfolioStaging = nil
 		c.portfolioStagingActive = false
@@ -3096,8 +3161,14 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	return true
 }
 
+// latchPortfolioScopeConflictLocked is called with portfolioHealthMu held.
+// It warns once per conflict rather than per frame: a conflicted stream keeps
+// receiving rows at the account-update cadence until a resubscribe lands.
 func (c *Connection) latchPortfolioScopeConflictLocked(observedAt time.Time) {
 	changed := c.portfolioHealth.ScopeConflictAt.IsZero()
+	if changed {
+		portfolioLogger.Warnf("Portfolio stream named an account outside this login; stream health is unavailable until resubscribe")
+	}
 	c.portfolioHealth.RequestedAt = time.Time{}
 	c.portfolioHealth.InitialCompletedAt = time.Time{}
 	c.portfolioHealth.LastUpdateAt = time.Time{}
@@ -3174,15 +3245,26 @@ func (c *Connection) handleAccountValue(fields []string) {
 	account := strings.TrimSpace(fields[5])
 
 	// Streaming account-value rows carry the account they belong to.
-	// TWS shares the account-updates service across API clients, so a
-	// displaced or foreign-account batch can land on this stream;
-	// merging it blindly clobbers the bound account's values in the
-	// shared map (issue #12). Drop rows naming a different concrete
-	// account; rows with an empty or aggregate account name pass
-	// through because single-account logins may omit the code.
+	// TWS shares the account-updates service across API clients and streams
+	// every account of a multi-account login over the one subscription, so a
+	// displaced or sibling batch lands here as steady state; merging it
+	// blindly clobbers the bound account's values in the shared map
+	// (issue #12). Drop rows naming a different concrete account; rows with
+	// an empty or aggregate account name pass through because single-account
+	// logins may omit the code.
+	//
+	// The subscription's bound account is authoritative. c.account holds the
+	// raw managedAccounts value, which is a comma-separated list for a
+	// multi-account login and therefore never concrete — comparing against it
+	// alone disabled this guard for exactly the logins that need it most
+	// (issue #14: a sibling's zeroed batch and its JOINT AccountType
+	// overwrote the pinned account's summary).
+	bound := c.portfolioStreamAccount()
 	c.accountMu.Lock()
-	if accountCodeConcrete(account) && accountCodeConcrete(c.account) && !strings.EqualFold(account, c.account) {
-		bound := c.account
+	if !accountCodeConcrete(bound) {
+		bound = strings.TrimSpace(c.account)
+	}
+	if accountCodeConcrete(account) && accountCodeConcrete(bound) && !strings.EqualFold(account, bound) {
 		c.accountMu.Unlock()
 		portfolioLogger.Debugf("Dropping %s update for foreign account %s (bound %s)", key, account, bound)
 		return
@@ -3906,6 +3988,19 @@ func accountCodeConcrete(account string) bool {
 		return false
 	}
 	return !strings.ContainsAny(account, ", \t")
+}
+
+// parseManagedAccounts splits a raw msgManagedAccts value into its concrete
+// account codes. Aggregates and empty entries are dropped.
+func parseManagedAccounts(managed string) []string {
+	var out []string
+	for entry := range strings.SplitSeq(managed, ",") {
+		entry = strings.TrimSpace(entry)
+		if accountCodeConcrete(entry) {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // firstConcreteAccountCode extracts a usable account code from a
@@ -4923,6 +5018,7 @@ func (c *Connection) invalidateUnstampedObservationAuthority() {
 
 	c.accountMu.Lock()
 	c.account = ""
+	c.managedAccounts = nil
 	clear(c.accountSummary)
 	clear(c.summarySnapshots)
 	c.accountMu.Unlock()
@@ -6508,9 +6604,17 @@ func (c *Connection) RequestAccountUpdates(account string) error {
 		return fmt.Errorf("not connected to IBKR")
 	}
 
+	// A multi-account login's managedAccounts value is a list, not a code.
+	// Binding the stream to it would put a comma-separated string in
+	// PortfolioStreamHealth.Account and leave every concrete-account check
+	// downstream silently disabled; leave it empty and let the first frame
+	// bind instead.
 	bound := strings.TrimSpace(account)
 	if !accountCodeConcrete(bound) {
 		bound = strings.TrimSpace(c.GetAccountCode())
+	}
+	if !accountCodeConcrete(bound) {
+		bound = ""
 	}
 	c.resetPortfolioStreamHealth(bound, time.Now().UTC())
 

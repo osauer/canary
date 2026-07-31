@@ -156,11 +156,13 @@ type Connector struct {
 	absenceNow    func() time.Time
 
 	// acctUpdatesMu guards the account-updates resubscribe throttle (see
-	// maybeResubscribeAccountUpdates). acctUpdatesNow is a test seam, nil
-	// meaning time.Now (same pattern as absenceNow).
-	acctUpdatesMu     sync.Mutex
-	acctUpdatesLastAt time.Time
-	acctUpdatesNow    func() time.Time
+	// maybeResubscribeAccountUpdates) and the account the stream is currently
+	// subscribed with. acctUpdatesNow is a test seam, nil meaning time.Now
+	// (same pattern as absenceNow).
+	acctUpdatesMu      sync.Mutex
+	acctUpdatesLastAt  time.Time
+	acctUpdatesAccount string
+	acctUpdatesNow     func() time.Time
 
 	// pnlResubMu guards the daily-P&L resubscribe throttle (see
 	// MaybeResubscribeStaleDailyPnL). pnlResubNow is a test seam, nil
@@ -1442,7 +1444,7 @@ func (c *Connector) recoverFromBackendDataLoss(origin ConnectorSessionBinding) {
 	hadAcctStream := !c.acctUpdatesLastAt.IsZero()
 	c.acctUpdatesMu.Unlock()
 	if hadAcctStream {
-		_ = c.RequestAccountUpdates("")
+		_ = c.resubscribeAccountUpdates()
 	}
 	c.forceResubscribeDailyPnL()
 }
@@ -1783,6 +1785,7 @@ func (c *Connector) invalidateUnstampedConnectorObservations(conn *Connection) {
 	c.dataFarmMu.Unlock()
 	c.acctUpdatesMu.Lock()
 	c.acctUpdatesLastAt = time.Time{}
+	c.acctUpdatesAccount = ""
 	c.acctUpdatesMu.Unlock()
 	c.pnlResubMu.Lock()
 	c.pnlResubLastAt = time.Time{}
@@ -4636,8 +4639,22 @@ func (c *Connector) RequestAccountUpdates(account string) error {
 	now := c.acctUpdatesClock()
 	c.acctUpdatesMu.Lock()
 	c.acctUpdatesLastAt = now
+	c.acctUpdatesAccount = account
 	c.acctUpdatesMu.Unlock()
 	return c.conn.RequestAccountUpdates(account)
+}
+
+// resubscribeAccountUpdates re-issues the subscription with the account the
+// stream is already bound to. The self-heal paths must not pass "": on a
+// multi-account login that resolves through the raw managedAccounts list to
+// its positionally first entry, which silently rebinds the stream away from
+// the operator's pinned account and makes the pinned account's own frames
+// look foreign (issue #14).
+func (c *Connector) resubscribeAccountUpdates() error {
+	c.acctUpdatesMu.Lock()
+	account := c.acctUpdatesAccount
+	c.acctUpdatesMu.Unlock()
+	return c.RequestAccountUpdates(account)
 }
 
 // acctUpdatesResubscribeThrottle bounds the dead-stream self-heal below to
@@ -4690,7 +4707,7 @@ func (c *Connector) maybeResubscribeAccountUpdatesForReason(scopeConflict bool) 
 	} else {
 		ibkrLogger.Warnf("positions cache empty while account summary shows gross position value; resubscribing account updates")
 	}
-	_ = c.RequestAccountUpdates("")
+	_ = c.resubscribeAccountUpdates()
 }
 
 // accountSummaryShowsPositions reports whether any GrossPositionValue
