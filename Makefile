@@ -63,7 +63,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-auth-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-auth-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -259,6 +259,16 @@ TEST_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(TEST_JOBS),)
 test: ## Full gate: check + pkg, command/support, and daemon/integration tests (-race), overlapped by default
 	$(MAKE) $(TEST_MAKEFLAGS) check test-pkg test-support test-daemon
 
+# Fast checkpoint gate for the exact staged tree. It selects conservative
+# target families, tests the staged candidate in an isolated worktree, and
+# caches only successful exact-tree fast plans. It is not final handoff, CI,
+# or release evidence; those continue to require check/test.
+commit-check: ## Verify the exact staged tree with an impact-aware intermediate gate
+	go run ./scripts/commit-check
+
+commit-check-contract-check: ## Keep the fast staged gate additive and out of CI/release authority
+	go test ./scripts/commit-check
+
 # Binding pre-commit gate: agent config/hooks + formatting + go vet +
 # staticcheck + govulncheck + plugin manifest validation. Fails on stdlib
 # vulnerabilities too — keep Go patched.
@@ -273,7 +283,7 @@ test: ## Full gate: check + pkg, command/support, and daemon/integration tests (
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-contract-check app-syntax-check app-auth-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check commit-check-contract-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-contract-check app-syntax-check app-auth-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -378,15 +388,16 @@ agent-config-check: hook-behavior-check ## Validate project agent config, hooks,
 		read_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary status --json | jq -r .decision); \
 		write_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary order place --preview-token TOKEN --json | jq -r .decision); \
 		human_only_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary settings set trading.freeze=true | jq -r .decision); \
+		commit_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make commit-check | jq -r .decision); \
 		offline_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make check | jq -r .decision); \
 		live_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make restart-daemon | jq -r .decision); \
 		smoke_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make smoke | jq -r .decision); \
 		release_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make release RELEASE_VERSION=v2.3.1 | jq -r .decision); \
 		release_preflight_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make release-paper-preflight VERSION=v2.3.1 | jq -r .decision); \
 		[ "$$read_decision" = allow ] && [ "$$write_decision" = prompt ] && [ "$$human_only_decision" = forbidden ] \
-			&& [ "$$offline_gate_decision" = allow ] && [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
+			&& [ "$$commit_gate_decision" = allow ] && [ "$$offline_gate_decision" = allow ] && [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
 			&& [ "$$release_decision" = prompt ] && [ "$$release_preflight_decision" = prompt ] || { \
-			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision offline-gate=$$offline_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision release=$$release_decision release-preflight=$$release_preflight_decision" >&2; exit 1; \
+			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision commit-gate=$$commit_gate_decision offline-gate=$$offline_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision release=$$release_decision release-preflight=$$release_preflight_decision" >&2; exit 1; \
 		}; \
 	fi
 
@@ -570,6 +581,7 @@ test-support: ## Run command and CI/release support tests under -race
 	go test -race -timeout=60s ./scripts/release-registry-server
 	go test -race -timeout=60s ./scripts/release-ci-wait
 	go test -race -timeout=60s ./scripts/test-shard
+	go test -race -timeout=60s ./scripts/commit-check
 
 test-integration: ## Run hermetic CLI/daemon lifecycle integration tests; never probes a live Gateway
 	INTEGRATION_TEST_MODE=hermetic go test -race -count=1 -timeout=420s -run '^TestLifecycle_' ./test/integration/...

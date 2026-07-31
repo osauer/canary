@@ -97,6 +97,8 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 
 ## Stage 3 — Gates (hard, fail-fast)
 
+- `make commit-check` and its exact-tree cache are intermediate development
+  aids only. They are never release evidence.
 - `make check` first, then the binding `make test`, backgrounded to a log with
   the exit recorded (Stage 6 pattern). `make smoke-fast` as the gateway sanity
   check. Do **not** run a standalone full `make smoke` immediately before

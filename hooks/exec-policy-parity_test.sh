@@ -80,13 +80,14 @@ run_shell_case command-substitution unmatched 'CLI order place --preview-token $
 
 # The only release exception is the canonical make target. Direct paper-smoke
 # remains prompted above; both release entry points retain their existing prompt.
+commit_check_decision="$(decision make commit-check)"
 release_decision="$(decision make release RELEASE_VERSION=v9.9.9)"
 preflight_decision="$(decision make release-paper-preflight VERSION=v9.9.9)"
-if [[ "$release_decision" != "prompt" || "$preflight_decision" != "prompt" ]]; then
-  echo "FAIL release-boundary: release=$release_decision preflight=$preflight_decision want=prompt" >&2
+if [[ "$commit_check_decision" != "allow" || "$release_decision" != "prompt" || "$preflight_decision" != "prompt" ]]; then
+  echo "FAIL release-boundary: commit-check=$commit_check_decision release=$release_decision preflight=$preflight_decision want=allow/prompt/prompt" >&2
   fails=$((fails + 1))
 else
-  echo "ok   release-boundary (prompt)"
+  echo "ok   verification-release-boundary (allow/prompt)"
 fi
 
 if [[ "$fails" -gt 0 ]]; then

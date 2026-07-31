@@ -90,6 +90,10 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
 
 ## Verification and evidence
 
+For intermediate checkpoint commits, `make commit-check` may verify the exact
+staged tree with a conservative impact-aware plan. Its cache and partial plan
+are never final handoff, CI, or release evidence.
+
 For instructions, docs, or config-only changes, run the targeted check plus
 `make check`. For Go or runtime behavior, `make test` is binding and already
 includes `check`; run it once, backgrounded or logged, rather than as a

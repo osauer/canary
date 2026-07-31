@@ -140,11 +140,12 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["make", ["help", "check", "app-check", "app-refresh", "app-refresh-smoke", "app-smoke", "app-lifecycle-smoke", "docs-check", "docs-regen", "test"]],
+    pattern = ["make", ["help", "commit-check", "check", "app-check", "app-refresh", "app-refresh-smoke", "app-smoke", "app-lifecycle-smoke", "docs-check", "docs-regen", "test"]],
     decision = "allow",
     justification = "Offline verification and local app refresh commands.",
     match = [
         "make help",
+        "make commit-check",
         "make check",
         "make test",
         "make docs-check",
