@@ -70,4 +70,37 @@ fi
 [[ "$downstream_calls" -eq 0 ]] ||
     fail "permanently active task invoked downstream work"
 
+payloads=(
+    '{"background_tasks":[{"name":"breadth-spx"}]}'
+    '{"background_tasks":[{"name":"breadth-spx"}]}'
+    '{"background_tasks":[{"name":"breadth-spx"}]}'
+)
+payload_index=0
+provider_calls=0
+sleep_calls=0
+release_smoke_settle_or_fail sequence_provider breadth-spx 2 regime no_sleep ||
+    fail "a still-draining fan-out blocked the release"
+[[ "$provider_calls" -eq 3 ]] ||
+    fail "still-draining provider calls=$provider_calls, want 3 (2 polls + 1 readability probe)"
+
+payloads=('not-json' 'not-json' 'not-json')
+payload_index=0
+provider_calls=0
+sleep_calls=0
+if release_smoke_settle_or_fail sequence_provider breadth-spx 2 regime no_sleep; then
+    fail "unreadable status was accepted as a slow fan-out"
+fi
+
+payloads=(
+    '{"background_tasks":[{"name":"breadth-spx"}]}'
+    '{"background_tasks":[]}'
+)
+payload_index=0
+provider_calls=0
+sleep_calls=0
+release_smoke_settle_or_fail sequence_provider breadth-spx 5 regime no_sleep ||
+    fail "a fan-out that drained in budget did not settle"
+[[ "$provider_calls" -eq 2 ]] ||
+    fail "drained provider calls=$provider_calls, want 2 (no readability probe)"
+
 echo "release-smoke_test: OK"
