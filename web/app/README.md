@@ -4,13 +4,20 @@ This is the small PWA served by `canary app`. It is meant for the thing you want
 on a phone: is the local IBKR setup alive, what does the account look like, and
 is the portfolio stress read asking for attention?
 
-The Protection panel shows proposal-bound market-event chips when halt, LULD,
+Monitor is glance-only. Depth lives in tap-through sheets opened from the
+instrument that reports it: the Protection window opens the Protection sheet,
+the Rules window opens the rules checklist, and the movers row opens the
+Underlyings book.
+
+The Protection sheet shows proposal-bound market-event chips when halt, LULD,
 borrow, fee, or Reg SHO flags affect current protection proposals. Active halt
 and active LULD chips are hard blockers; recent halt/LULD and borrow/Reg SHO/fee
 chips are evidence tags. A reducing short `BUY` proposal is labeled `Buy to
-cover`.
+cover`. Option-exercise opportunities are exception-shaped: an advisory bar at
+the top of that sheet when the daemon serves any, and nothing at all when it
+does not.
 
-The Underlyings panel shows held-name market-event tags in the hero and row
+The Underlyings sheet shows held-name market-event tags in the hero and row
 tags for affected symbols, including long holdings where borrow pressure is
 observational squeeze context. Stale or unknown sources stay visible with
 source/as-of detail instead of disappearing.

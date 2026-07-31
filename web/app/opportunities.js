@@ -4,6 +4,10 @@ import { goDurationMinutes, protectionContractLabel } from "./protection.js";
 import { $, blockerText, hasNumericValue, labelize, money, normalizeSymbol, numberRead, renderFreshnessTimestamp, shortPreviewMessage } from "./shared.js";
 import { state } from "./state.js";
 
+// Opportunities are exception-shaped: no standing surface. The advisory bar
+// exists only while the daemon serves exercises, and it exists at the top of
+// the Protection sheet — the one place a reduce-only desk acts on option
+// positions. A clean book renders nothing at all, anywhere.
 function renderOpportunitiesPanel(opportunities = {}) {
   const panel = $("opportunitiesPanel");
   if (!panel) return;
@@ -11,12 +15,13 @@ function renderOpportunitiesPanel(opportunities = {}) {
   const toggle = $("opportunitiesToggle");
   const rows = opportunities.opportunities || [];
   const counts = opportunities.counts || {};
+  const total = counts.total ?? rows.length ?? 0;
+  panel.hidden = total <= 0;
   panel.dataset.open = String(state.opportunitiesOpen);
   detail.hidden = !state.opportunitiesOpen;
   toggle.textContent = state.opportunitiesOpen ? "Hide opportunities" : "Show opportunities";
   toggle.setAttribute("aria-expanded", String(state.opportunitiesOpen));
   renderOpportunitiesTimestamp(opportunities);
-  const total = counts.total ?? rows.length ?? 0;
   $("opportunitiesCount").textContent = String(total);
   const gainCurrency = counts.expected_gain_currency || rows.find((row) => row.expected_gain_currency)?.expected_gain_currency || "";
   const gainEl = $("opportunitiesExpectedGain");

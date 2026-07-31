@@ -3,7 +3,7 @@ import { renderAlerts, renderSelectedAlert, setupAttentionVisibility } from "./a
 import { completePairing } from "./auth.js";
 import { renderBriefCard, setupBriefVisibility } from "./brief.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
-import { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeStressExpansion, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
+import { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
 import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.js";
 import { renderOpenOrders } from "./orders.js";
@@ -194,6 +194,36 @@ $("stressRulesToggle").addEventListener("click", () => {
   state.rulesDetailOpen = !state.rulesDetailOpen;
   renderRulesCard(state.snapshot?.rules);
 });
+// Tap-through: the instrument that reports a subject is the way into the
+// sheet that explains it. The tiles stay tiles (role/tabindex, not real
+// buttons, so the annunciator face is unchanged), so Enter and Space are
+// wired to match the tap.
+for (const [openerID, setSheet] of [
+  ["protectionTile", setProtectionSheetOpen],
+  ["stressRulesCard", setRulesSheetOpen],
+  ["moversPlacard", setUnderlyingsSheetOpen],
+  ["moversRow", setUnderlyingsSheetOpen],
+]) {
+  $(openerID).addEventListener("click", () => setSheet(true));
+  $(openerID).addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setSheet(true);
+  });
+}
+// Escape and backdrop dismissal never run the Close handler, so the dialog's
+// own close event is what returns the seated depth surface to folded.
+for (const [sheetID, closeID, setSheet] of [
+  ["protectionSheet", "protectionSheetClose", setProtectionSheetOpen],
+  ["rulesSheet", "rulesSheetClose", setRulesSheetOpen],
+  ["underlyingsSheet", "underlyingsSheetClose", setUnderlyingsSheetOpen],
+]) {
+  $(closeID).addEventListener("click", () => setSheet(false));
+  $(sheetID).addEventListener("close", () => setSheet(false));
+  $(sheetID).addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  });
+}
 // The lamp-test stamp opens the panel's own self-report: which alert sources
 // are covered, whether delivery is reaching the phone, and where the daily
 // broker report stands. Detail behind the stamp that reports it, not a

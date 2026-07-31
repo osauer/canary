@@ -1,6 +1,6 @@
 import { renderAll } from "./app.js";
 import { handleAttentionContextChange } from "./alert-inbox.js";
-import { renderStressDetail, renderRegimePanel } from "./stress.js";
+import { renderRulesCard, renderStressDetail, renderRegimePanel } from "./stress.js";
 import { renderOpportunitiesPanel } from "./opportunities.js";
 import { setPortfolioExpansion } from "./portfolio.js";
 import { renderProtectionPanel } from "./protection.js";
@@ -172,4 +172,43 @@ function setOpportunitiesExpansion(open) {
   renderOpportunitiesPanel(state.snapshot?.opportunities || {});
 }
 
-export { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setRegimeStressExpansion, setupBottomTabs, syncAccountPrivacyState };
+
+// One sheet primitive for the whole panel: a full-height <dialog> in the
+// Panel Dark register. The native modal is the right underlying element —
+// it brings focus containment, Escape, the backdrop, and a top layer that
+// no tab panel can hide underneath — so a sheet is a styled .app-dialog,
+// not a second overlay mechanism.
+//
+// Opening a sheet also opens the depth surface it seats: the panels below
+// already gate their rendering (and, for proposals, their snapshot refresh)
+// on those expansion flags, so the sheet's own open state drives them
+// rather than a parallel flag that could drift.
+function sheetElement(id) {
+  const sheet = $(id);
+  return sheet && typeof sheet.showModal === "function" ? sheet : null;
+}
+
+function setSheetOpen(id, open) {
+  const sheet = sheetElement(id);
+  if (!sheet) return;
+  if (open && !sheet.open) sheet.showModal();
+  else if (!open && sheet.open) sheet.close();
+}
+
+function setProtectionSheetOpen(open) {
+  setProtectionExpansion(open);
+  setSheetOpen("protectionSheet", open);
+}
+
+function setRulesSheetOpen(open) {
+  state.rulesDetailOpen = Boolean(open);
+  renderRulesCard(state.snapshot?.rules);
+  setSheetOpen("rulesSheet", open);
+}
+
+function setUnderlyingsSheetOpen(open) {
+  setUnderlyingExpansion(open);
+  setSheetOpen("underlyingsSheet", open);
+}
+
+export { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, sheetElement, syncAccountPrivacyState };

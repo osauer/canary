@@ -3088,6 +3088,7 @@ p {
 .protection-panel .panel-chevron {
   width: 28px;
   height: 28px;
+  margin-left: 0;
 }
 
 .protection-detail {
@@ -3106,7 +3107,7 @@ p {
 }
 
 .protection-summary div,
-.protection-row > div:first-child {
+.protection-row__copy {
   display: grid;
   align-content: start;
   gap: 5px;
@@ -3212,32 +3213,33 @@ p {
   gap: 10px;
 }
 
+/* Order bar geometry: the .pd-tile face carries the relief and the lamp, so
+   the row keeps only its two-column layout and the tile's own padding. */
 .protection-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  padding: 12px 0;
-  border-top: 1px solid var(--line-soft);
+  padding: 12px 13px 13px;
 }
 
+/* The bars are gapped tiles now; the leading one needs no offset of its own. */
 .protection-row:first-child {
-  padding-top: 0;
-  border-top: 0;
+  margin-top: 0;
 }
 
 /* Scoped under .protection-row to outrank the `.protection-row span`
-   muted-color rule above — the bucket label is the row's cluster heading
-   and was unreadably dim at var(--muted). var(--ink-2) keeps it clearly
-   secondary to the var(--ink) title while restoring contrast; --red is
-   deliberately NOT used here: the panel reserves red for hard blockers
-   and stress (blocker badges, stale stamps, theta burn), and a taxonomy
-   label on every healthy row must not cry wolf. */
+   muted-color rule above — without it the identity plate inherits the
+   generic muted span colour and loses the engraved register. The plate is
+   the tile legend: engraved ink, never lit. --red is deliberately NOT used
+   here: the panel reserves red for hard blockers and stress (blocker
+   badges, stale stamps, theta burn), and an identity plate on every
+   healthy row must not cry wolf. */
 .protection-row .protection-row__bucket {
-  color: var(--ink-2);
-  font-size: 12px;
-  font-weight: 780;
-  letter-spacing: 0.08em;
+  color: var(--pd-engraved);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 
@@ -3633,24 +3635,23 @@ p {
   color: var(--ink-2);
 }
 
+/* Exception-shaped advisory bar. It renders only when the daemon serves
+   exercises, at the top of the Protection sheet, in the advisory-blue tile
+   anatomy — a disclosure, never a standing surface. */
 .opportunities-panel {
   display: grid;
   align-content: start;
-  gap: 8px;
-  padding: 13px;
-  border-top: 3px solid var(--green);
+  gap: 6px;
+  margin: 4px 0 12px;
+  padding: 10px 12px 11px;
   cursor: pointer;
   touch-action: manipulation;
-}
-
-.opportunities-panel .panel-head {
-  min-height: 0;
-  margin-bottom: 0;
 }
 
 .opportunities-panel .panel-chevron {
   width: 28px;
   height: 28px;
+  margin-left: 0;
 }
 
 .opportunities-detail {
@@ -3662,14 +3663,30 @@ p {
 }
 
 .opportunities-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
-  gap: 8px;
-  align-items: stretch;
-  min-height: 57px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
 }
 
-.opportunities-summary div,
+.opportunities-summary .pd-tile__legend {
+  flex: 0 0 auto;
+}
+
+.opportunities-summary__reading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.opportunities-summary .panel-time {
+  margin-left: auto;
+}
+
 .opportunity-row > div:first-child {
   display: grid;
   align-content: start;
@@ -3677,7 +3694,7 @@ p {
   min-width: 0;
 }
 
-.opportunities-summary span,
+.opportunities-summary__reading span,
 .opportunity-row span,
 .opportunity-row small {
   color: var(--muted);
@@ -3685,7 +3702,22 @@ p {
   line-height: 1.25;
 }
 
-.opportunities-summary b,
+.opportunities-summary__reading .opportunities-summary__sep {
+  color: var(--pd-plate);
+}
+
+/* Bar figures stay readout ink: the tile's blue bar carries the advisory,
+   the numbers only read. */
+.opportunities-summary__reading b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--pd-readout);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
 .opportunity-row b {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -3693,11 +3725,6 @@ p {
   font-size: 18px;
   font-weight: 760;
   line-height: 1.08;
-}
-
-#opportunitiesCount,
-#opportunitiesExpectedGain {
-  color: var(--market-green);
 }
 
 .opportunities-refresh {
@@ -3863,14 +3890,6 @@ p {
 
   .protection-row__actions button {
     min-height: 44px;
-  }
-
-  .opportunities-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .opportunities-refresh {
-    justify-self: start;
   }
 
   .opportunity-row {
@@ -5237,6 +5256,214 @@ p {
   .alert-active-count {
     justify-self: start;
   }
+}
+
+/* ---- Sheet layer ------------------------------------------------------- */
+
+/* One sheet primitive: a full-height overlay in the panel register, built on
+   the same <dialog> the app already uses for note sheets. The native modal
+   brings focus containment, Escape, and a top layer nothing on the panel can
+   cover, so the sheet is a variant rather than a second overlay mechanism. */
+.app-sheet {
+  inset: 0;
+  width: min(100%, 853px);
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  margin: 0 auto;
+  background: var(--pd-ground);
+}
+
+/* Engraved placard header: the sheet's name, and the way back out. */
+.app-sheet__head {
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: max(14px, env(safe-area-inset-top)) 16px 10px;
+  border-bottom: 1px solid var(--pd-hairline);
+}
+
+.app-sheet__head .pd-placard {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.app-sheet__body {
+  flex: 1 1 auto;
+  gap: 0;
+  min-height: 0;
+  padding: 4px 16px calc(20px + var(--bottom-tab-safe));
+}
+
+.app-sheet__body > .panel {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* The sheet body already owns the side gutter; the reseated panels drop the
+   card inset they carried as standalone Monitor cards. */
+.app-sheet__body .underlying-panel__head,
+.app-sheet__body .underlying-panel .underlying-book {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* A tile that opens a sheet reads as an instrument, not a control: no chrome
+   changes, only the pointer and a focus ring the panel already defines. */
+.pd-tile--sheet,
+.pd-placard--sheet,
+.pd-movers--sheet {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+:where(.pd-tile--sheet, .pd-placard--sheet, .pd-movers--sheet):focus-visible {
+  outline: 2px solid rgba(111, 179, 255, 0.36);
+  outline-offset: 3px;
+}
+
+/* Hard key: an engraved key face for the book's bulk actions. */
+.pd-key {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid #323947;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Order bar: the Orders-screen tile shape, reused for a staged proposal. */
+.pd-order .pd-tile__legend {
+  margin-bottom: 2px;
+}
+
+/* ---- Rules checklist --------------------------------------------------- */
+
+.rules-checklist {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+/* Checklist row: the register a dot-leader line is drawn in — a flush band
+   with no relief, so a fourteen-row list reads as one instrument. */
+.pd-row {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 4px;
+}
+
+.rules-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rules-row__number {
+  min-width: 16px;
+  color: var(--pd-plate);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.rules-row__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The leader is the checklist: dots carry the eye from the rule to its
+   verdict, so a long list still reads row by row. */
+.rules-row__leader {
+  flex: 1 1 auto;
+  min-width: 12px;
+  height: 1px;
+  border-bottom: 1px dotted var(--pd-hairline);
+  transform: translateY(-3px);
+}
+
+.rules-row__status {
+  color: var(--pd-caption);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Nominal tick: a pass is engraved, never lit. */
+.rules-row__tick {
+  width: 5px;
+  height: 9px;
+  border: solid var(--pd-nominal);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg) translateY(-1px);
+}
+
+.rules-row.ok .rules-row__status {
+  color: var(--pd-plate);
+}
+
+/* Advisory dot: an info row is disclosed, not flagged. */
+.rules-row__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--pd-advisory);
+}
+
+.rules-row--info .rules-row__status {
+  color: var(--pd-advisory);
+}
+
+.rules-row--watch {
+  background: linear-gradient(180deg, rgba(255, 180, 59, 0.12), rgba(255, 180, 59, 0.03) 60%), transparent;
+}
+
+.rules-row--watch .rules-row__status {
+  color: var(--pd-watch-tint);
+}
+
+.rules-row--act {
+  background: linear-gradient(180deg, rgba(255, 79, 68, 0.13), rgba(255, 79, 68, 0.035) 60%), transparent;
+}
+
+.rules-row--act .rules-row__status {
+  color: var(--pd-act-tint);
+}
+
+.rules-row--watch .rules-row__title,
+.rules-row--act .rules-row__title {
+  color: var(--pd-readout);
+}
+
+.rules-row__evidence {
+  margin: 4px 0 0 23px;
+  color: var(--pd-prose);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rules-row .stress-rules__offenders {
+  margin-left: 23px;
 }
 
 @media (prefers-reduced-motion: reduce) {

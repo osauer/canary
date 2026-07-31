@@ -101,7 +101,6 @@ try {
       if (applied !== true) {
         throw new Error("synthetic snapshot patch hook did not confirm the patch");
       }
-      await page.locator("#underlyingDetailToggle").click();
     }
     // Balances and the account id are privacy-masked by default (the id now
     // masks to U•••••NN under the same eye toggle); the published shots show the
@@ -209,10 +208,18 @@ async function assertSyntheticRender(page) {
     state: "visible",
     timeout: 5000,
   });
-  await page.waitForSelector("#underlyingBookListPanel:not([hidden]) .underlying-row", {
+  // The underlyings book moved into a tap-through sheet, so the Monitor face
+  // carries only the movers row. Open the sheet from that row to prove the
+  // synthetic book renders, then close it: the published frame is the
+  // glance-only Monitor, not an overlay.
+  await page.waitForSelector("#moversRow:not([hidden]) b", { state: "visible", timeout: 5000 });
+  await page.locator("#moversRow").click();
+  await page.waitForSelector("#underlyingsSheet[open] #underlyingBookListPanel:not([hidden]) .underlying-row", {
     state: "visible",
     timeout: 5000,
   });
+  await page.locator("#underlyingsSheetClose").click();
+  await page.waitForFunction(() => !document.getElementById("underlyingsSheet")?.open, undefined, { timeout: 5000 });
 }
 
 function compactFixtureMoney(value, currency) {

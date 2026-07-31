@@ -18,16 +18,21 @@ function renderRulesCard(rules) {
   const card = $("stressRulesCard");
   const strip = $("stressRulesStrip");
   const detail = $("stressRulesDetailPanel");
+  const tally = $("rulesSheetTally");
   if (!card || !strip || !detail) return;
   if (!rules || rules.enabled === false || !Array.isArray(rules.rules) || rules.rules.length === 0) {
     card.hidden = true;
     strip.hidden = true;
     detail.hidden = true;
+    if (tally) tally.textContent = "--";
     return;
   }
   card.hidden = false;
   strip.hidden = false;
   $("stressRulesCounts").textContent = rulesTileFigure(rules);
+  // The sheet opens on its own tally: the same served breach_counts figure
+  // the Monitor window carries, restated where the checklist begins.
+  if (tally) tally.textContent = rulesTileFigure(rules);
 
   const order = Array.isArray(rules.ranked) && rules.ranked.length === rules.rules.length
     ? rules.ranked
@@ -124,35 +129,77 @@ function renderRulesNotes(parts, attention) {
   }));
 }
 
+// The Rules sheet is a checklist, not a card deck: one dot-leader line per
+// rule — number, title, leader dots, then the daemon's own status word. A
+// pass carries the nominal tick and nothing else; a flagged row is tinted
+// and states its served evidence beneath; an info row carries the advisory
+// dot so it never reads as a breach. One element per rule, keeping the tone
+// class, so "unknown" can still never render with the pass tone.
 function renderRulesGrid(rules, order) {
   const grid = $("stressRulesGrid");
   if (!grid) return;
-  grid.replaceChildren();
+  const rows = [];
   for (const ix of order) {
     const r = rules.rules[ix];
     if (!r) continue;
-    const cardEl = document.createElement("div");
-    cardEl.className = `detail-card ${ruleTone(r.status)}`;
-    const label = document.createElement("span");
-    label.textContent = `Rule ${r.number} · ${ruleStatusLabel(r.status, r.reason)}`;
-    const title = document.createElement("b");
-    title.textContent = r.title;
-    const body = document.createElement("p");
+    rows.push(ruleChecklistRow(r));
+  }
+  grid.replaceChildren(...rows);
+}
+
+function ruleChecklistRow(r) {
+  const status = String(r.status || "").toLowerCase();
+  const row = document.createElement("div");
+  row.className = `pd-row rules-row ${ruleTone(r.status)}`;
+  if (status === "act" || status === "watch") row.classList.add(`rules-row--${status}`);
+  if (status === "info") row.classList.add("rules-row--info");
+  const line = document.createElement("span");
+  line.className = "rules-row__line";
+  const number = document.createElement("span");
+  number.className = "rules-row__number";
+  number.textContent = String(r.number ?? "--");
+  const title = document.createElement("span");
+  title.className = "rules-row__title";
+  title.textContent = cleanDetail(r.title);
+  const leader = document.createElement("span");
+  leader.className = "rules-row__leader";
+  leader.setAttribute("aria-hidden", "true");
+  line.append(number, title, leader);
+  if (status === "info") {
+    const dot = document.createElement("i");
+    dot.className = "rules-row__dot";
+    dot.setAttribute("aria-hidden", "true");
+    line.append(dot);
+  }
+  if (status === "pass") {
+    const tick = document.createElement("i");
+    tick.className = "rules-row__tick";
+    tick.setAttribute("aria-hidden", "true");
+    line.append(tick);
+  }
+  const statusWord = document.createElement("b");
+  statusWord.className = "rules-row__status";
+  statusWord.textContent = ruleStatusLabel(r.status, r.reason);
+  line.append(statusWord);
+  row.append(line);
+  if (status !== "pass") {
+    const evidence = document.createElement("p");
+    evidence.className = "rules-row__evidence";
     let text = r.evidence || "--";
     if (typeof r.observed === "number" && typeof r.threshold === "number") {
       text += ` (observed ${r.observed} vs ${r.threshold}${r.unit ? " " + r.unit : ""})`;
     }
-    body.textContent = text;
-    cardEl.append(label, title, body);
-    const offenders = (r.offenders || []).slice(0, 3);
-    if (offenders.length) {
-      const list = document.createElement("p");
-      list.className = "stress-rules__offenders";
-      list.textContent = offenders.map((o) => (o.leg || o.symbol) + (o.note ? ` — ${o.note}` : "")).join(" · ");
-      cardEl.appendChild(list);
-    }
-    grid.appendChild(cardEl);
+    evidence.textContent = text;
+    row.append(evidence);
   }
+  const offenders = (r.offenders || []).slice(0, 3);
+  if (offenders.length) {
+    const list = document.createElement("p");
+    list.className = "stress-rules__offenders";
+    list.textContent = offenders.map((o) => (o.leg || o.symbol) + (o.note ? ` — ${o.note}` : "")).join(" · ");
+    row.append(list);
+  }
+  return row;
 }
 
 function renderStressDetail(stress, snap = state.snapshot || {}) {
@@ -1657,4 +1704,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { applyTileSeverity, bandRank, clusterCaption, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, detailCard, earningsApplicabilitySummary, earningsHealthNotes, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { applyTileSeverity, bandRank, clusterCaption, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, detailCard, earningsApplicabilitySummary, earningsHealthNotes, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

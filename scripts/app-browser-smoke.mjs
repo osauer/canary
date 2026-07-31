@@ -466,6 +466,7 @@ try {
   const underlyingBookFixture = await exerciseUnderlyingPanelFixture(page);
   const stressDetail = await exerciseStressDetail(page);
   const rulesCard = await exerciseRulesCard(page);
+  const sheetLayer = await exerciseSheetLayer(page);
   const marketContext = await exerciseMarketContext(page);
   const portfolioDetail = await exercisePortfolioDetail(page);
   const protectionRiskRendering = await exerciseProtectionRiskRendering(page);
@@ -539,6 +540,7 @@ try {
     underlying_book_fixture: underlyingBookFixture,
     stress_detail: stressDetail,
     rules_card: rulesCard,
+    sheet_layer: sheetLayer,
     market_context: marketContext,
     portfolio_detail: portfolioDetail,
     protection_risk_rendering: protectionRiskRendering,
@@ -1181,24 +1183,121 @@ async function exerciseRulesCard(page) {
   if (initiallyOpen) {
     throw new Error("rules detail should be collapsed by default");
   }
-  await page.locator("#stressRulesToggle").click();
+  // The checklist lives in a tap-through sheet now: the Monitor Rules window
+  // is the way in, and opening the sheet is what expands the detail.
+  await page.locator("#stressRulesCard").click();
   await page.waitForFunction(() => {
     const panel = document.getElementById("stressRulesDetailPanel");
-    return panel && !panel.hidden && (document.getElementById("stressRulesGrid")?.children.length || 0) >= 12;
+    return Boolean(document.getElementById("rulesSheet")?.open) && panel && !panel.hidden &&
+      (document.getElementById("stressRulesGrid")?.children.length || 0) >= 12;
   }, { timeout: 5000 });
   const grid = await page.evaluate(() => {
     const cards = [...(document.getElementById("stressRulesGrid")?.children || [])];
     return {
       cards: cards.length,
+      tally: document.getElementById("rulesSheetTally")?.textContent?.trim() || "",
+      leaders: cards.filter((c) => c.querySelector(".rules-row__leader")).length,
       unknown_as_pass: cards.some((c) => /unknown/i.test(c.textContent || "") && c.classList.contains("ok")),
     };
   });
   if (grid.unknown_as_pass) {
     throw new Error("a rules row renders unknown status with a pass tone — unknown must never read as pass");
   }
+  if (grid.leaders !== grid.cards) {
+    throw new Error(`every rules row should render as a dot-leader checklist line: ${JSON.stringify(grid)}`);
+  }
+  if (!grid.tally || grid.tally === "--") {
+    throw new Error(`rules sheet should open on the served breach tally: ${JSON.stringify(grid)}`);
+  }
   await page.locator("#stressRulesToggle").click();
   await page.waitForFunction(() => document.getElementById("stressRulesDetailPanel")?.hidden, { timeout: 5000 });
-  return { exercised: true, counts, cards: grid.cards };
+  await page.locator("#rulesSheetClose").click();
+  await page.waitForFunction(() => !document.getElementById("rulesSheet")?.open, { timeout: 5000 });
+  return { exercised: true, counts, cards: grid.cards, tally: grid.tally };
+}
+
+
+// Panel Dark tap-through: the Monitor is glance-only, so depth must live in
+// sheets opened from the instruments — and Opportunities must be
+// exception-shaped, with no standing surface on a clean book.
+async function exerciseSheetLayer(page) {
+  const before = await page.evaluate(() => ({
+    protectionSheetOpen: Boolean(document.getElementById("protectionSheet")?.open),
+    underlyingsSheetOpen: Boolean(document.getElementById("underlyingsSheet")?.open),
+    // A hidden ancestor means no boxes at all, which is exactly how a closed
+    // sheet keeps the reseated panels off the Monitor face.
+    protectionOnMonitor: Boolean(document.getElementById("protectionPanel")?.offsetParent),
+    underlyingsOnMonitor: Boolean(document.getElementById("underlyingPanel")?.offsetParent),
+    opportunitiesHidden: Boolean(document.getElementById("opportunitiesPanel")?.hidden),
+    opportunitiesCount: document.getElementById("opportunitiesCount")?.textContent?.trim() || "",
+  }));
+  if (before.protectionSheetOpen || before.underlyingsSheetOpen) {
+    throw new Error(`sheets should start closed: ${JSON.stringify(before)}`);
+  }
+  if (before.protectionOnMonitor || before.underlyingsOnMonitor) {
+    throw new Error(`Protection and Underlyings depth should live in sheets, not on the Monitor face: ${JSON.stringify(before)}`);
+  }
+  const opportunityCount = Number.parseInt(before.opportunitiesCount, 10) || 0;
+  if (opportunityCount === 0 && !before.opportunitiesHidden) {
+    throw new Error(`Opportunities is exception-shaped: nothing may render at count 0: ${JSON.stringify(before)}`);
+  }
+  await page.locator("#protectionTile").click();
+  await page.waitForFunction(() => {
+    const sheet = document.getElementById("protectionSheet");
+    return Boolean(sheet?.open) && Boolean(document.getElementById("protectionPanel")?.offsetParent);
+  }, { timeout: 5000 });
+  const protectionSheet = await page.evaluate(() => ({
+    title: document.getElementById("protectionSheetTitle")?.textContent?.trim() || "",
+    // The trim control keeps its own hidden gate (it needs reduce-eligible
+    // holdings), so its presence in the sheet is what is asserted here, not
+    // that it is offered on this account.
+    deriskSeated: Boolean(document.querySelector("#protectionSheet #protectionDerisk")),
+    previewSeated: Boolean(document.querySelector("#protectionSheet #protectionDeriskPreview")),
+    rowsSeated: Boolean(document.querySelector("#protectionSheet #protectionRows")),
+    opportunitiesSeated: Boolean(document.querySelector("#protectionSheet #opportunitiesPanel")),
+    submitButtons: document.querySelectorAll("#protectionSheet #protectionDeriskSubmit").length,
+  }));
+  for (const key of ["deriskSeated", "previewSeated", "rowsSeated", "opportunitiesSeated"]) {
+    if (!protectionSheet[key]) {
+      throw new Error(`Protection sheet is missing a reseated surface (${key}): ${JSON.stringify(protectionSheet)}`);
+    }
+  }
+  if (protectionSheet.title !== "Protection") {
+    throw new Error(`Protection sheet should carry its engraved placard name: ${JSON.stringify(protectionSheet)}`);
+  }
+  // Reseating must not have loosened the two-gesture trim: Submit is minted
+  // by a preview that surfaced eligible legs, never by opening the sheet.
+  if (protectionSheet.submitButtons !== 0) {
+    throw new Error(`the trim basket must not offer Submit before a preview: ${JSON.stringify(protectionSheet)}`);
+  }
+  await page.locator("#protectionSheetClose").click();
+  await page.waitForFunction(() => !document.getElementById("protectionSheet")?.open, { timeout: 5000 });
+
+  const moversVisible = await page.locator("#moversRow").evaluate((el) => !el.hidden).catch(() => false);
+  let underlyingsSheet = { exercised: false, reason: "no movers row on this book" };
+  if (moversVisible) {
+    await page.locator("#moversRow").click();
+    await page.waitForFunction(() => {
+      const sheet = document.getElementById("underlyingsSheet");
+      return Boolean(sheet?.open) && Boolean(document.getElementById("underlyingPanel")?.offsetParent);
+    }, { timeout: 5000 });
+    underlyingsSheet = await page.evaluate(() => ({
+      exercised: true,
+      title: document.getElementById("underlyingsSheetTitle")?.textContent?.trim() || "",
+      bookExpanded: !document.getElementById("underlyingBookListPanel")?.hidden,
+      hardKeys: [...document.querySelectorAll("#underlyingsSheet .underlying-bulk-actions .pd-key")].map((key) => key.textContent?.trim() || ""),
+    }));
+    const expectedKeys = ["Purge all", "Restore all", "Rebuild all"];
+    if (JSON.stringify(underlyingsSheet.hardKeys) !== JSON.stringify(expectedKeys)) {
+      throw new Error(`Underlyings sheet should seat the bulk actions as hard keys: ${JSON.stringify(underlyingsSheet)}`);
+    }
+    if (!underlyingsSheet.bookExpanded || underlyingsSheet.title !== "Underlyings") {
+      throw new Error(`Underlyings sheet should open on the expanded book: ${JSON.stringify(underlyingsSheet)}`);
+    }
+    await page.locator("#underlyingsSheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("underlyingsSheet")?.open, { timeout: 5000 });
+  }
+  return { monitor: before, protection_sheet: protectionSheet, underlyings_sheet: underlyingsSheet };
 }
 
 async function exerciseMarketContext(page) {
@@ -1778,8 +1877,20 @@ async function assertBriefNarrative(page) {
   }
 
   const served = await page.evaluate(async () => {
-    const res = await fetch("/api/bootstrap", { credentials: "include" });
-    const body = await res.json();
+    // A freshly restarted app host can fail the first fetch at the network
+    // layer (WebKit reports a bare "Load failed"); one transient miss must
+    // not take down the whole smoke.
+    let body = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch("/api/bootstrap", { credentials: "include" });
+        body = await res.json();
+        break;
+      } catch (err) {
+        if (attempt === 2) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
     const brief = body?.snapshot?.brief || {};
     return {
       narrative: Boolean(brief.narrative),

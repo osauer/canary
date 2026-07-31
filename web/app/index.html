@@ -201,7 +201,7 @@
             </button>
           </div>
           <div class="pd-grid" id="deskGrid">
-            <div class="pd-tile stress-rules" id="stressRulesCard" hidden>
+            <div class="pd-tile pd-tile--sheet stress-rules" id="stressRulesCard" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Rules checklist" hidden>
               <span class="pd-tile__bar" aria-hidden="true"></span>
               <i class="pd-tile__dot" id="stressRulesInfoDot" hidden aria-hidden="true"></i>
               <div class="stress-rules__head">
@@ -210,7 +210,7 @@
               <b class="pd-tile__cap" id="stressRulesState">--</b>
               <div class="pd-tile__fig" id="stressRulesCounts">--</div>
             </div>
-            <div class="pd-tile" id="protectionTile" role="group" aria-label="Protection">
+            <div class="pd-tile pd-tile--sheet" id="protectionTile" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Protection">
               <span class="pd-tile__bar" aria-hidden="true"></span>
               <span class="pd-tile__legend">Protection</span>
               <b class="pd-tile__cap" id="protectionTileState">--</b>
@@ -233,32 +233,8 @@
               <div class="pd-tile__fig delta-tile__sub" id="deltaTileSub">--</div>
             </div>
           </div>
-          <div class="stress-rules__strip" id="stressRulesStrip" hidden>
-            <div class="stress-rules__brief" id="stressRulesBrief"></div>
-            <div class="stress-rules__strip-actions">
-              <button class="signal-half__toggle" id="stressRulesToggle" type="button" aria-expanded="false" aria-controls="stressRulesDetailPanel">Show rules</button>
-              <button class="stress-rules__notes-trigger" id="stressRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
-                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
-                  <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
-                  <circle cx="8" cy="4.7" r="0.95" fill="currentColor"></circle>
-                  <path d="M8 7.2v4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
-                </svg>
-                <span id="stressRulesNotesLabel">Data notes</span>
-              </button>
-            </div>
-          </div>
-          <div class="pd-placard" id="moversPlacard" hidden>Daily P/L by name</div>
-          <div class="pd-movers" id="moversRow" hidden></div>
-          <dialog class="app-dialog" id="stressRulesNotesDialog" aria-labelledby="stressRulesNotesTitle">
-            <div class="app-dialog__head">
-              <b id="stressRulesNotesTitle">Data notes</b>
-              <button class="app-dialog__close" id="stressRulesNotesClose" type="button">Close</button>
-            </div>
-            <div class="app-dialog__body" id="stressRulesNotesList"></div>
-          </dialog>
-          <div class="detail-panel detail-panel--dark stress-rules-detail" id="stressRulesDetailPanel" hidden>
-            <div class="detail-grid" id="stressRulesGrid"></div>
-          </div>
+          <div class="pd-placard pd-placard--sheet" id="moversPlacard" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden>Daily P/L by name</div>
+          <div class="pd-movers pd-movers--sheet" id="moversRow" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden></div>
           <div class="alert-focus" id="selectedAlertPanel" hidden>
             <div>
               <span>Selected alert</span>
@@ -287,123 +263,6 @@
                 <div class="held-stress__list" id="heldStressList"></div>
               </div>
               <div class="detail-list" id="stressDrivers"></div>
-            </div>
-          </div>
-        </article>
-
-        <article class="panel protection-panel" id="protectionPanel" data-open="false">
-          <div class="panel-head">
-            <span>Protection</span>
-            <span class="panel-time" id="protectionAsOf">--</span>
-            <button class="text-button protection-auto" id="protectionAutoButton" type="button" disabled>Auto</button>
-            <button class="panel-chevron" id="protectionToggle" type="button" aria-expanded="false" aria-controls="protectionDetailPanel">
-              Show proposals
-            </button>
-          </div>
-          <div class="protection-summary">
-            <div>
-              <span>Actionable theta/day</span>
-              <b id="protectionTheta">--</b>
-            </div>
-            <div>
-              <span>Risk over target</span>
-              <b id="protectionRiskExcess">--</b>
-            </div>
-            <div>
-              <span>No-stop exposure</span>
-              <b id="protectionNoStopExposure">--</b>
-            </div>
-            <div>
-              <span>Actions</span>
-              <b id="protectionActions">--</b>
-            </div>
-          </div>
-          <p class="protection-data-note" id="protectionDataNote" hidden></p>
-          <div class="protection-exposure-note" id="protectionExposure" hidden></div>
-          <div class="market-flag-rail" id="protectionFlagRail" hidden></div>
-          <section class="protection-derisk" id="protectionDerisk" hidden>
-            <div class="protection-derisk__controls">
-              <span class="protection-derisk__label" title="Hedges are never touched — trimming one would increase net risk, not reduce it.">Trim Δ-adjusted risk</span>
-              <select id="protectionDeriskPercent" aria-label="Trim percentage">
-                <option value="25">25%</option>
-                <option value="50">50%</option>
-                <option value="75">75%</option>
-                <option value="100">100%</option>
-              </select>
-              <button class="text-button" id="protectionDeriskPreview" type="button">Preview</button>
-              <button class="text-button protection-derisk__cancel" id="protectionDeriskCancel" type="button" hidden>Cancel</button>
-            </div>
-            <div class="protection-derisk__basket" id="protectionDeriskBasket" hidden></div>
-            <p class="protection-derisk__state" id="protectionDeriskState"></p>
-          </section>
-          <div class="detail-panel protection-detail" id="protectionDetailPanel" hidden>
-            <div class="source-inline" id="protectionReason" hidden></div>
-            <div class="protection-rows" id="protectionRows"></div>
-          </div>
-        </article>
-
-        <article class="panel opportunities-panel" id="opportunitiesPanel" data-open="false">
-          <div class="panel-head">
-            <span>Opportunities</span>
-            <span class="panel-time" id="opportunitiesAsOf">--</span>
-            <button class="panel-chevron" id="opportunitiesToggle" type="button" aria-expanded="false" aria-controls="opportunitiesDetailPanel">
-              Show opportunities
-            </button>
-          </div>
-          <div class="opportunities-summary">
-            <div>
-              <span>Exercises</span>
-              <b id="opportunitiesCount">--</b>
-            </div>
-            <div>
-              <span>Expected gain</span>
-              <b id="opportunitiesExpectedGain">--</b>
-            </div>
-            <button class="text-button opportunities-refresh" id="opportunitiesRefreshButton" type="button">Refresh</button>
-          </div>
-          <div class="source-inline" id="opportunitiesReason" hidden></div>
-          <div class="detail-panel opportunities-detail" id="opportunitiesDetailPanel" hidden>
-            <div class="opportunities-rows" id="opportunitiesRows"></div>
-          </div>
-        </article>
-
-        <article class="panel underlying-panel" id="underlyingPanel" data-open="false">
-          <div class="panel-head underlying-panel__head">
-            <span>Underlyings</span>
-            <span class="panel-time" id="underlyingBookFreshness">--</span>
-            <button class="panel-chevron" id="underlyingDetailToggle" type="button" aria-expanded="false" aria-controls="underlyingBookListPanel">
-              Show underlyings
-            </button>
-          </div>
-          <div class="underlying-book" id="underlyingBook">
-            <div class="underlying-pnl-summary" aria-label="Underlying daily profit and loss totals">
-              <div class="underlying-pnl-card underlying-pnl-card--winner">
-                <span>Winner daily P/L</span>
-                <b id="underlyingWinnerPnl">--</b>
-              </div>
-              <div class="underlying-pnl-card underlying-pnl-card--loser">
-                <span>Loser daily P/L</span>
-                <b id="underlyingLoserPnl">--</b>
-              </div>
-            </div>
-            <small class="underlying-pnl-basis" id="underlyingPnlBasis" hidden></small>
-            <div class="market-flag-rail" id="underlyingFlagRail" hidden></div>
-            <div class="underlying-bulk-actions" aria-label="Underlying bulk actions">
-              <button class="underlying-action underlying-action--purge" id="purgeAllUnderlyingsButton" type="button">Purge all</button>
-              <button class="underlying-action underlying-action--restore" id="restoreAllUnderlyingsButton" type="button">Restore all</button>
-              <button class="underlying-action underlying-action--build" id="buildAllUnderlyingsButton" type="button">Rebuild all</button>
-              <span class="underlying-bulk-note" id="underlyingBulkNote" hidden></span>
-            </div>
-            <div class="underlying-action-result" id="underlyingActionResult" hidden></div>
-            <div class="underlying-book__list-panel" id="underlyingBookListPanel" hidden>
-              <div class="underlying-book__head">
-                <div>
-                  <span>Held and purged</span>
-                  <b id="underlyingBookCount">No underlyings</b>
-                </div>
-                <small id="underlyingBookStatus">Held and virtual purge-book records</small>
-              </div>
-              <div class="underlying-book__list" id="underlyingBookList"></div>
             </div>
           </div>
         </article>
@@ -683,6 +542,178 @@
         <span class="sync-strip__auto">Auto</span>
       </footer>
       </div>
+
+      <!-- Sheet layer. Monitor is glance-only; depth lives behind these
+           full-height overlays, opened by tapping the instrument they
+           report on. Everything inside is reseated presentation: the ids,
+           listeners, and request flows are the ones the panels already
+           carried. The layer sits outside .app-scroll so a sheet is never
+           inside a tab panel the tab bar can hide underneath it. -->
+      <dialog class="app-dialog app-sheet" id="protectionSheet" aria-labelledby="protectionSheetTitle">
+        <div class="app-dialog__head app-sheet__head">
+          <b class="pd-placard" id="protectionSheetTitle">Protection</b>
+          <button class="app-dialog__close" id="protectionSheetClose" type="button">Close</button>
+        </div>
+        <div class="app-dialog__body app-sheet__body">
+          <article class="pd-tile pd-tile--info opportunities-panel" id="opportunitiesPanel" data-open="false" hidden>
+            <span class="pd-tile__bar" aria-hidden="true"></span>
+            <div class="opportunities-summary">
+              <span class="pd-tile__legend">Opportunities</span>
+              <span class="opportunities-summary__reading">
+                <b id="opportunitiesCount">--</b>
+                <span>exercises</span>
+                <span class="opportunities-summary__sep" aria-hidden="true">&middot;</span>
+                <span>expected gain</span>
+                <b id="opportunitiesExpectedGain">--</b>
+              </span>
+              <span class="panel-time" id="opportunitiesAsOf">--</span>
+              <button class="text-button opportunities-refresh" id="opportunitiesRefreshButton" type="button">Refresh</button>
+              <button class="panel-chevron" id="opportunitiesToggle" type="button" aria-expanded="false" aria-controls="opportunitiesDetailPanel">
+                Show opportunities
+              </button>
+            </div>
+            <div class="source-inline" id="opportunitiesReason" hidden></div>
+            <div class="detail-panel opportunities-detail" id="opportunitiesDetailPanel" hidden>
+              <div class="opportunities-rows" id="opportunitiesRows"></div>
+            </div>
+          </article>
+
+          <article class="panel protection-panel" id="protectionPanel" data-open="false">
+            <div class="panel-head">
+              <span class="panel-time" id="protectionAsOf">--</span>
+              <button class="text-button protection-auto" id="protectionAutoButton" type="button" disabled>Auto</button>
+              <button class="panel-chevron" id="protectionToggle" type="button" aria-expanded="false" aria-controls="protectionDetailPanel">
+                Show proposals
+              </button>
+            </div>
+            <div class="protection-summary">
+              <div>
+                <span>Actionable theta/day</span>
+                <b id="protectionTheta">--</b>
+              </div>
+              <div>
+                <span>Risk over target</span>
+                <b id="protectionRiskExcess">--</b>
+              </div>
+              <div>
+                <span>No-stop exposure</span>
+                <b id="protectionNoStopExposure">--</b>
+              </div>
+              <div>
+                <span>Actions</span>
+                <b id="protectionActions">--</b>
+              </div>
+            </div>
+            <p class="protection-data-note" id="protectionDataNote" hidden></p>
+            <div class="protection-exposure-note" id="protectionExposure" hidden></div>
+            <div class="market-flag-rail" id="protectionFlagRail" hidden></div>
+            <section class="protection-derisk" id="protectionDerisk" hidden>
+              <div class="protection-derisk__controls">
+                <span class="protection-derisk__label" title="Hedges are never touched — trimming one would increase net risk, not reduce it.">Trim Δ-adjusted risk</span>
+                <select id="protectionDeriskPercent" aria-label="Trim percentage">
+                  <option value="25">25%</option>
+                  <option value="50">50%</option>
+                  <option value="75">75%</option>
+                  <option value="100">100%</option>
+                </select>
+                <button class="text-button" id="protectionDeriskPreview" type="button">Preview</button>
+                <button class="text-button protection-derisk__cancel" id="protectionDeriskCancel" type="button" hidden>Cancel</button>
+              </div>
+              <div class="protection-derisk__basket" id="protectionDeriskBasket" hidden></div>
+              <p class="protection-derisk__state" id="protectionDeriskState"></p>
+            </section>
+            <div class="detail-panel protection-detail" id="protectionDetailPanel" hidden>
+              <div class="source-inline" id="protectionReason" hidden></div>
+              <div class="protection-rows" id="protectionRows"></div>
+            </div>
+          </article>
+        </div>
+      </dialog>
+
+      <dialog class="app-dialog app-sheet" id="rulesSheet" aria-labelledby="rulesSheetTitle">
+        <div class="app-dialog__head app-sheet__head">
+          <b class="pd-placard" id="rulesSheetTitle">Rules</b>
+          <button class="app-dialog__close" id="rulesSheetClose" type="button">Close</button>
+        </div>
+        <div class="app-dialog__body app-sheet__body">
+          <div class="pd-placard pd-placard--row">
+            <span>Checklist</span>
+            <b id="rulesSheetTally">--</b>
+          </div>
+          <div class="stress-rules__strip" id="stressRulesStrip" hidden>
+            <div class="stress-rules__brief" id="stressRulesBrief"></div>
+            <div class="stress-rules__strip-actions">
+              <button class="signal-half__toggle" id="stressRulesToggle" type="button" aria-expanded="false" aria-controls="stressRulesDetailPanel">Show rules</button>
+              <button class="stress-rules__notes-trigger" id="stressRulesNotesToggle" type="button" aria-haspopup="dialog" hidden>
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+                  <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+                  <circle cx="8" cy="4.7" r="0.95" fill="currentColor"></circle>
+                  <path d="M8 7.2v4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                </svg>
+                <span id="stressRulesNotesLabel">Data notes</span>
+              </button>
+            </div>
+          </div>
+          <div class="detail-panel detail-panel--dark stress-rules-detail" id="stressRulesDetailPanel" hidden>
+            <div class="detail-grid rules-checklist" id="stressRulesGrid"></div>
+          </div>
+          <dialog class="app-dialog" id="stressRulesNotesDialog" aria-labelledby="stressRulesNotesTitle">
+            <div class="app-dialog__head">
+              <b id="stressRulesNotesTitle">Data notes</b>
+              <button class="app-dialog__close" id="stressRulesNotesClose" type="button">Close</button>
+            </div>
+            <div class="app-dialog__body" id="stressRulesNotesList"></div>
+          </dialog>
+        </div>
+      </dialog>
+
+      <dialog class="app-dialog app-sheet" id="underlyingsSheet" aria-labelledby="underlyingsSheetTitle">
+        <div class="app-dialog__head app-sheet__head">
+          <b class="pd-placard" id="underlyingsSheetTitle">Underlyings</b>
+          <button class="app-dialog__close" id="underlyingsSheetClose" type="button">Close</button>
+        </div>
+        <div class="app-dialog__body app-sheet__body">
+          <article class="panel underlying-panel" id="underlyingPanel" data-open="false">
+            <div class="panel-head underlying-panel__head">
+              <span class="panel-time" id="underlyingBookFreshness">--</span>
+              <button class="panel-chevron" id="underlyingDetailToggle" type="button" aria-expanded="false" aria-controls="underlyingBookListPanel">
+                Show underlyings
+              </button>
+            </div>
+            <div class="underlying-book" id="underlyingBook">
+              <div class="underlying-pnl-summary" aria-label="Underlying daily profit and loss totals">
+                <div class="underlying-pnl-card underlying-pnl-card--winner">
+                  <span>Winner daily P/L</span>
+                  <b id="underlyingWinnerPnl">--</b>
+                </div>
+                <div class="underlying-pnl-card underlying-pnl-card--loser">
+                  <span>Loser daily P/L</span>
+                  <b id="underlyingLoserPnl">--</b>
+                </div>
+              </div>
+              <small class="underlying-pnl-basis" id="underlyingPnlBasis" hidden></small>
+              <div class="market-flag-rail" id="underlyingFlagRail" hidden></div>
+              <div class="underlying-bulk-actions" aria-label="Underlying bulk actions">
+                <button class="underlying-action underlying-action--purge pd-key" id="purgeAllUnderlyingsButton" type="button">Purge all</button>
+                <button class="underlying-action underlying-action--restore pd-key" id="restoreAllUnderlyingsButton" type="button">Restore all</button>
+                <button class="underlying-action underlying-action--build pd-key" id="buildAllUnderlyingsButton" type="button">Rebuild all</button>
+                <span class="underlying-bulk-note" id="underlyingBulkNote" hidden></span>
+              </div>
+              <div class="underlying-action-result" id="underlyingActionResult" hidden></div>
+              <div class="underlying-book__list-panel" id="underlyingBookListPanel" hidden>
+                <div class="underlying-book__head">
+                  <div>
+                    <span>Held and purged</span>
+                    <b id="underlyingBookCount">No underlyings</b>
+                  </div>
+                  <small id="underlyingBookStatus">Held and virtual purge-book records</small>
+                </div>
+                <div class="underlying-book__list" id="underlyingBookList"></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </dialog>
 
       <nav class="bottom-tabs" id="bottomTabs" aria-label="Primary" hidden>
         <button class="bottom-tab" id="tabMonitor" type="button" data-tab="monitor" aria-selected="true">

@@ -645,12 +645,25 @@ async function syncProtectionSnapshot() {
   }
 }
 
+// A staged proposal is an order bar: the Orders-screen tile shape, with an
+// engraved symbol/action plate over the served reading lines. The lamp is
+// the one the Protection window already derives — actionable work reads as
+// watch, a blocked proposal stays unlit — so no severity is invented here
+// that the daemon did not publish.
 function protectionRow(proposal) {
   const row = document.createElement("div");
-  row.className = "protection-row";
   const marketEvents = state.snapshot?.market_events || {};
   const effectiveBlockers = protectionEffectiveBlockers(proposal, marketEvents);
   const blocked = effectiveBlockers.length > 0;
+  // Lamp only. The gating below reads `blocked` exactly as it always did;
+  // the served state is what the Protection window counts as blocked, so
+  // the bar mirrors that and never lamps a proposal the daemon parked.
+  const stateBlocked = String(proposal.state || "").toLowerCase() === "blocked";
+  row.className = "protection-row pd-tile pd-order" + (blocked || stateBlocked ? "" : " pd-tile--watch");
+  const bar = document.createElement("span");
+  bar.className = "pd-tile__bar";
+  bar.setAttribute("aria-hidden", "true");
+  row.append(bar);
   const previewFlow = protectionUsesPreviewFlow(proposal);
   const tradability = previewFlow ? protectionPreviewGate(proposal) : protectionSubmitGate(proposal);
   const previewKey = protectionPreviewStateKey(proposal);
@@ -662,8 +675,11 @@ function protectionRow(proposal) {
   const copy = document.createElement("div");
   copy.className = "protection-row__copy";
   const bucket = document.createElement("span");
-  bucket.className = "protection-row__bucket";
-  bucket.textContent = protectionBucketLabel(proposal);
+  bucket.className = "protection-row__bucket pd-tile__legend";
+  // Identity plate, in the Orders register: instrument, the daemon's own
+  // action word (a reducing short BUY reads "Buy to cover"), and the bucket
+  // it was staged under.
+  bucket.textContent = [proposal.symbol || "--", protectionActionLabel(proposal), protectionBucketLabel(proposal)].filter(Boolean).join(" · ");
   const title = document.createElement("b");
   title.className = "protection-row__title";
   title.textContent = protectionProposalTitle(proposal);
