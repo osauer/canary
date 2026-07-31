@@ -496,13 +496,18 @@ func runRegimeFanoutOutcome(
 // deps struct because they already have a server-level seam.
 type regimeDeps struct {
 	// snapshot returns price + previous regular-session close (tick 9) +
-	// gateway data-type. PrevClose is the same anchor tick 9 emits
-	// alongside the price triple — surfacing it here lets the dashboard
-	// header carry day-over-day change for SPY and VIX without a second
-	// subscribe. PrevClose is 0 when the gateway didn't deliver tick 9 in
-	// the budget; callers must distinguish "not arrived" from "zero".
-	snapshot            func(ctx context.Context, sym string, timeout time.Duration) (price, prevClose float64, dataType string)
-	snapshotWith52WHigh func(ctx context.Context, sym string, timeout time.Duration) (price, prevClose, week52High float64, dataType string)
+	// gateway data-type + the tick observation instant. PrevClose is the same
+	// anchor tick 9 emits alongside the price triple — surfacing it here lets
+	// the dashboard header carry day-over-day change for SPY and VIX without a
+	// second subscribe. PrevClose is 0 when the gateway didn't deliver tick 9
+	// in the budget; callers must distinguish "not arrived" from "zero".
+	//
+	// The observation instant is what the per-scalar quality stamps carry, so
+	// a live subscription that has gone quiet reads as a growing age instead
+	// of snapshot-build time. Zero means no tick ever arrived, and stays a
+	// missing as_of rather than becoming a fresh one.
+	snapshot            func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote
+	snapshotWith52WHigh func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote
 	// history takes ctx instead of an explicit timeout so cancellation
 	// from handleRegimeSnapshot's outer deadline propagates into the
 	// HMDS fetch. The fetcher wraps each call in context.WithTimeout
@@ -540,10 +545,10 @@ func productionRegimeDeps(c *ibkrlib.Connector, logWarnf func(format string, arg
 		}
 	}
 	return &regimeDeps{
-		snapshot: func(ctx context.Context, sym string, timeout time.Duration) (float64, float64, string) {
+		snapshot: func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote {
 			return briefSnapshotPriceWithClose(ctx, c, sym, timeout, logWarnf)
 		},
-		snapshotWith52WHigh: func(ctx context.Context, sym string, timeout time.Duration) (float64, float64, float64, string) {
+		snapshotWith52WHigh: func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote {
 			return briefSnapshotPriceWith52WHigh(ctx, c, sym, timeout, logWarnf)
 		},
 		history: func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
@@ -597,50 +602,30 @@ func productionRegimeDeps(c *ibkrlib.Connector, logWarnf func(format string, arg
 // callers map zero values to a row-level "no spot tick" status.
 var boundedSnapshotSlack = time.Second
 
-func boundedSnapshot(ctx context.Context, deps *regimeDeps, sym string, budget time.Duration) (price, prevClose float64, dataType string) {
-	type r struct {
-		price, prevClose float64
-		dt               string
-	}
-	resCh := make(chan r, 1)
-	go func() {
-		p, pc, d := deps.snapshot(ctx, sym, budget)
-		resCh <- r{p, pc, d}
-	}()
-	// Slack over budget so deps.snapshot has a chance to
-	// return its own deadline error before we bail. The slack matters
-	// when the inner code DOES honour ctx — without it, we'd race the
-	// inner deadline and lose, returning zeros instead of the inner
-	// path's classified result.
-	select {
-	case got := <-resCh:
-		return got.price, got.prevClose, got.dt
-	case <-time.After(budget + boundedSnapshotSlack):
-		return 0, 0, ""
-	case <-ctx.Done():
-		return 0, 0, ""
-	}
+func boundedSnapshot(ctx context.Context, deps *regimeDeps, sym string, budget time.Duration) snapshotQuote {
+	return boundedSnapshotCall(ctx, budget, func() snapshotQuote { return deps.snapshot(ctx, sym, budget) })
 }
 
 // boundedSnapshotWith52WHigh is the boundedSnapshot wrapper for the
 // snapshotWith52WHigh dep variant. Same rationale and structure.
-func boundedSnapshotWith52WHigh(ctx context.Context, deps *regimeDeps, sym string, budget time.Duration) (price, prevClose, week52High float64, dataType string) {
-	type r struct {
-		price, prevClose, week52High float64
-		dt                           string
-	}
-	resCh := make(chan r, 1)
-	go func() {
-		p, pc, w, d := deps.snapshotWith52WHigh(ctx, sym, budget)
-		resCh <- r{p, pc, w, d}
-	}()
+func boundedSnapshotWith52WHigh(ctx context.Context, deps *regimeDeps, sym string, budget time.Duration) snapshotQuote {
+	return boundedSnapshotCall(ctx, budget, func() snapshotQuote { return deps.snapshotWith52WHigh(ctx, sym, budget) })
+}
+
+func boundedSnapshotCall(ctx context.Context, budget time.Duration, call func() snapshotQuote) snapshotQuote {
+	resCh := make(chan snapshotQuote, 1)
+	go func() { resCh <- call() }()
+	// Slack over budget so the dep has a chance to return its own deadline
+	// error before we bail. The slack matters when the inner code DOES
+	// honour ctx — without it, we'd race the inner deadline and lose,
+	// returning zeros instead of the inner path's classified result.
 	select {
 	case got := <-resCh:
-		return got.price, got.prevClose, got.week52High, got.dt
+		return got
 	case <-time.After(budget + boundedSnapshotSlack):
-		return 0, 0, 0, ""
+		return snapshotQuote{}
 	case <-ctx.Done():
-		return 0, 0, 0, ""
+		return snapshotQuote{}
 	}
 }
 
@@ -933,7 +918,7 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	// regular-session close (tick 9) so the ratio still ranks. The
 	// data-type field honestly reports "frozen" in that case so the
 	// renderer dims the row instead of pretending it's live.
-	vix, vixPrev, vixDT := boundedSnapshot(ctx, deps, "VIX", 5*time.Second)
+	vixQ := boundedSnapshot(ctx, deps, "VIX", 5*time.Second)
 	// VIX day-change anchor. Trading dates: populate as soon as tick 9
 	// lands alongside a live print — independent of whether VIX3M
 	// arrives, and ahead of the no-tick early return, so the dashboard
@@ -950,12 +935,12 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 		} else {
 			out.FieldsMissing = append(out.FieldsMissing, "vix_day_change")
 		}
-	} else if vix > 0 && vixPrev > 0 {
-		out.VIXPrevClose = new(vixPrev)
-		chg := (vix - vixPrev) / vixPrev * 100
+	} else if vixQ.price > 0 && vixQ.prevClose > 0 {
+		out.VIXPrevClose = new(vixQ.prevClose)
+		chg := (vixQ.price - vixQ.prevClose) / vixQ.prevClose * 100
 		out.VIXChangePct = &chg
 	}
-	if vix <= 0 {
+	if vixQ.price <= 0 {
 		out.Status = rpc.RegimeStatusError
 		out.ErrorMessage = "VIX: no spot tick"
 		return out
@@ -965,10 +950,10 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	// the VIX leg to push the close tick, and 5 s reliably lost it on
 	// cold-frozen-mode calls even with a warm contract cache. 8 s
 	// matches the SPY 52w-high budget for the same reason.
-	vix3m, _, vix3mDT := boundedSnapshot(ctx, deps, "VIX3M", 8*time.Second)
-	if vix3m > 0 {
-		out.VIX3M = new(vix3m)
-		out.VIX3MQuality = vix3mTickQuality(now, vix3mDT)
+	vix3mQ := boundedSnapshot(ctx, deps, "VIX3M", 8*time.Second)
+	if vix3mQ.price > 0 {
+		out.VIX3M = new(vix3mQ.price)
+		out.VIX3MQuality = vix3mTickQuality(vix3mQ.observedAt, regimeNow(deps), vix3mQ.dataType)
 		out.VIX3MSource = rpc.VIX3MSourceGateway
 	}
 	if offWindow {
@@ -979,13 +964,13 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 		resolveVIX3MOffWindow(&out, official, now)
 	}
 
-	out.VIX = new(vix)
-	out.VIXQuality = firmTickQuality(now, vixDT, "VIX tick")
+	out.VIX = new(vixQ.price)
+	out.VIXQuality = firmTickQuality(vixQ.observedAt, regimeNow(deps), vixQ.dataType, "VIX tick")
 	if out.VIX3M == nil {
 		// One arm of the pair is enough to be informative, but the
 		// ratio cannot be computed; surface VIX alone with an
 		// error_message so the consumer knows the ratio is missing.
-		out.DataType = vixDT
+		out.DataType = vixQ.dataType
 		out.Status = rpc.RegimeStatusError
 		out.ErrorMessage = "VIX3M: no tick within budget (thin CBOE index, common off-hours)"
 		if offWindow {
@@ -994,7 +979,7 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 		return out
 	}
 
-	r := vix / *out.VIX3M
+	r := vixQ.price / *out.VIX3M
 	out.Ratio = &r
 	if out.VIX3MSource == rpc.VIX3MSourceOfficial {
 		// An end-of-day close is frozen evidence by construction, whatever
@@ -1005,9 +990,9 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	}
 	// The ratio is only as fresh as the staler leg. Both must be live
 	// to call the whole row "live".
-	out.DataType = vixDT
-	if !rpc.IsLiveDataType(vix3mDT) {
-		out.DataType = vix3mDT
+	out.DataType = vixQ.dataType
+	if !rpc.IsLiveDataType(vix3mQ.dataType) {
+		out.DataType = vix3mQ.dataType
 	}
 	if rpc.IsLiveDataType(out.DataType) {
 		out.Status = rpc.RegimeStatusOK
@@ -1071,12 +1056,13 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 	out := rpc.RegimeHYGSPYDivergence{Notes: hygSpyNotes}
 	now := regimeNow(deps)
 
-	hyg, _, hygDT := boundedSnapshot(ctx, deps, "HYG", 5*time.Second)
+	hygQ := boundedSnapshot(ctx, deps, "HYG", 5*time.Second)
+	hyg := hygQ.price
 	hygSpotMissing := hyg <= 0
 	if !hygSpotMissing {
 		out.HYGPrice = new(hyg)
-		out.HYGDataType = hygDT
-		out.HYGQuality = firmTickQuality(now, hygDT, "HYG tick (ARCA)")
+		out.HYGDataType = hygQ.dataType
+		out.HYGQuality = firmTickQuality(hygQ.observedAt, regimeNow(deps), hygQ.dataType, "HYG tick (ARCA)")
 	}
 
 	// SPY: pull spot + 52-week high in one combined subscribe so tick
@@ -1086,10 +1072,11 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 	// surfaces what it had. 8s budget (vs 5s for plain snapshots)
 	// because the Misc-Stats tick reliably arrives later than the
 	// price triple in observed traces.
-	spy, spyPrev, spy52, spyDT := boundedSnapshotWith52WHigh(ctx, deps, "SPY", 8*time.Second)
+	spyQ := boundedSnapshotWith52WHigh(ctx, deps, "SPY", 8*time.Second)
+	spy, spyPrev, spy52 := spyQ.price, spyQ.prevClose, spyQ.week52High
 	if spy > 0 {
 		out.SPYPrice = new(spy)
-		out.SPYQuality = firmTickQuality(now, spyDT, "SPY tick")
+		out.SPYQuality = firmTickQuality(spyQ.observedAt, regimeNow(deps), spyQ.dataType, "SPY tick")
 	}
 	// SPY day-change anchor. Trading dates: the same tick-9 close the
 	// subscribe captures alongside the price triple, so the dashboard
@@ -1118,7 +1105,7 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 	}
 	if spy52 > 0 {
 		out.SPY52WHigh = new(spy52)
-		out.SPY52WHighQuality = firmTickQuality(now, spyDT, "SPY tick 165 (Misc Stats)")
+		out.SPY52WHighQuality = firmTickQuality(spyQ.observedAt, regimeNow(deps), spyQ.dataType, "SPY tick 165 (Misc Stats)")
 	} else {
 		// Frozen-mode fallback: in MarketDataType=2 the gateway sends
 		// the price triple as one static snapshot then goes silent —
@@ -1201,7 +1188,7 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		return out
 	}
 	out.Status = rpc.RegimeStatusOK
-	if hygSpotMissing || (out.HYGDataType != "close" && !rpc.IsLiveDataType(hygDT)) {
+	if hygSpotMissing || (out.HYGDataType != "close" && !rpc.IsLiveDataType(hygQ.dataType)) {
 		out.Status = rpc.RegimeStatusStale
 	}
 	// Advisory sub-field annotations — the row's primary measurements
@@ -1411,7 +1398,7 @@ func fetchRegimeUSDJPY(ctx context.Context, deps *regimeDeps) rpc.RegimeUSDJPY {
 		Symbol: "USD.JPY",
 		Notes:  usdJpyNotes,
 	}
-	now := time.Now()
+	now := regimeNow(deps)
 
 	// briefSnapshotPrice routes "USD.JPY" through pkg/ibkr.classifySymbol
 	// to CASH/IDEALPRO/JPY (see commit 6ac583c). A 0 result here means
@@ -1419,7 +1406,8 @@ func fetchRegimeUSDJPY(ctx context.Context, deps *regimeDeps) rpc.RegimeUSDJPY {
 	// is no frozen tick to fall back on. Do not fabricate a live value;
 	// if HMDS can provide daily MIDPOINT history below, rank from that as
 	// stale daily context instead.
-	last, _, dt := boundedSnapshot(ctx, deps, "USD.JPY", 5*time.Second)
+	fx := boundedSnapshot(ctx, deps, "USD.JPY", 5*time.Second)
+	last, dt := fx.price, fx.dataType
 
 	// Latest and 7-trading-days-ago close. FX history uses MIDPOINT bars
 	// (defaultHistoricalWhat for CASH). See USDJPYLookbackDays for
@@ -1454,7 +1442,7 @@ func fetchRegimeUSDJPY(ctx context.Context, deps *regimeDeps) rpc.RegimeUSDJPY {
 
 	if last > 0 {
 		out.Last = new(last)
-		out.LastQuality = firmTickQuality(now, dt, "USD.JPY CASH tick (IDEALPRO)")
+		out.LastQuality = firmTickQuality(fx.observedAt, regimeNow(deps), dt, "USD.JPY CASH tick (IDEALPRO)")
 		out.DataType = dt
 	} else if latestHistoryClose > 0 {
 		out.Last = new(latestHistoryClose)
@@ -1675,13 +1663,29 @@ func warnDeps(d *regimeDeps, format string, args ...any) {
 // data-type the gateway labelled the subscription with; Confidence is
 // "firm" because the value is a direct gateway measurement (not
 // computed from history or a model).
-func firmTickQuality(at time.Time, dataType, source string) *rpc.Quality {
+//
+// AsOf carries observedAt, the instant the tick arrived, so a live
+// subscription that has gone quiet reads as a growing age rather than as
+// snapshot-build time. Two inputs are refused rather than served: a zero
+// observedAt, which would otherwise have to be invented, and a stamp ahead of
+// the daemon clock, which is untrusted broker-adjacent data. Both leave AsOf
+// zero, which regimeTickQualityClass reads as unusable — absent provenance
+// keeps the conservative treatment instead of claiming a fresh observation.
+//
+// now must be read when the quality is built, not when the fetcher started: a
+// tick arrives during the several-second subscribe window that follows, so an
+// earlier clock makes every live observation look future-dated and every
+// served as_of collapses to zero.
+func firmTickQuality(observedAt, now time.Time, dataType, source string) *rpc.Quality {
 	cls := rpc.FreshnessLive
 	if !rpc.IsLiveDataType(dataType) {
 		cls = rpc.FreshnessFrozen
 	}
+	if observedAt.After(now) {
+		observedAt = time.Time{}
+	}
 	return &rpc.Quality{
-		AsOf:           at,
+		AsOf:           observedAt,
 		FreshnessClass: cls,
 		Confidence:     rpc.ConfidenceFirm,
 		Source:         source,

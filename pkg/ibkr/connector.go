@@ -285,7 +285,8 @@ type ConnectorConfig struct {
 // Subscription holds the latest values observed for one streaming market-data
 // request. Zero-valued fields may mean either an observed zero or data not yet
 // received; fields with an accompanying Observed flag distinguish those cases.
-// LastTime is the local time of the most recently observed tick.
+// LastTime is the subscription's liveness clock and LastTickAt is the tick
+// observation instant; the two differ and are documented on the fields.
 type Subscription struct {
 	Symbol string
 	// SessionEpoch is set for exact-session subscriptions. Zero identifies a
@@ -344,11 +345,29 @@ type Subscription struct {
 	// last trade/close print. It is distinct from LastTime, which records
 	// when this process observed any tick on the subscription.
 	LastTradeTime time.Time
+	// LastTickAt is when this process last received a tick message from the
+	// gateway on this subscription. Unlike LastTime it is never seeded at
+	// subscribe time and never advanced by subscription bookkeeping, so a
+	// zero value means "no tick has ever arrived" rather than "not observed
+	// recently". It is the only field here that can distinguish a live
+	// subscription that has gone quiet from one that is ticking.
+	//
+	// Two limits bind every reader. It records arrival, not the instant the
+	// value was struck: under frozen mode the gateway re-sends the last
+	// known value on request, so a frozen quote's LastTickAt is essentially
+	// read time however old the value is. And it advances on any tick,
+	// including size, volume and IV ticks, so a subscription delivering only
+	// size ticks looks alive while its price is frozen.
+	LastTickAt time.Time
 	// IV is the option implied volatility tick (generic tick 106), present
 	// only when the streaming subscribe requested it. Stored as a fraction
 	// (0.234 == 23.4%); the gateway sometimes emits the percent form, which
 	// the handler normalizes.
-	IV       float64
+	IV float64
+	// LastTime is the re-request staleness clock read by
+	// EnsureMarketDataSubscription. It is seeded at subscribe time and
+	// advanced by subscription bookkeeping as well as by ticks, so it is not
+	// an observation instant — use LastTickAt for that.
 	LastTime time.Time
 	Observed bool // true once we receive any tick for this reqID
 	// RejectCh receives a [SubscriptionRejection] when the gateway returns
@@ -1626,6 +1645,9 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 		delete(c.reqIDMap, e.oldReqID)
 		c.reqIDMap[newReqID] = e.key
 		e.sub.ReqID = newReqID
+		// LastTime only: re-issuing the request is not an observation, and
+		// LastTickAt must keep pointing at the last real tick so a replay that
+		// never resumes ticking stays visible as a growing gap.
 		e.sub.LastTime = time.Now()
 		c.subMu.Unlock()
 		replayed++
@@ -5133,6 +5155,7 @@ func (c *Connector) handleTickPrice(fields []string) {
 			c.subMu.Lock()
 			if sub, ok := c.subscriptions[symbol]; ok {
 				sub.LastTime = time.Now()
+				sub.LastTickAt = sub.LastTime
 			}
 			c.subMu.Unlock()
 		}
@@ -5234,6 +5257,7 @@ func (c *Connector) handleTickPrice(fields []string) {
 		c.subMu.Lock()
 		if sub, ok := c.subscriptions[optSym]; ok {
 			sub.LastTime = time.Now()
+			sub.LastTickAt = sub.LastTime
 			if price > 0 {
 				sub.Observed = true
 				switch tickType {
@@ -5291,6 +5315,7 @@ func (c *Connector) handleTickPrice(fields []string) {
 	if price <= 0 {
 		// Update LastTime to show we received a tick, but don't update the price
 		sub.LastTime = time.Now()
+		sub.LastTickAt = sub.LastTime
 		return
 	}
 
@@ -5341,6 +5366,7 @@ func (c *Connector) handleTickPrice(fields []string) {
 		sub.MarkPrice = price
 	}
 	sub.LastTime = time.Now()
+	sub.LastTickAt = sub.LastTime
 }
 
 // handleTickGeneric processes generic tick updates. The wire tick ids
@@ -5395,6 +5421,7 @@ func (c *Connector) handleTickGeneric(fields []string) {
 		if sub, ok := c.subscriptions[symbol]; ok {
 			sub.IV = iv
 			sub.LastTime = time.Now()
+			sub.LastTickAt = sub.LastTime
 		}
 		c.subMu.Unlock()
 	}
@@ -7374,6 +7401,7 @@ func (c *Connector) handleTickSize(fields []string) {
 		sub.ShortableObserved = true
 	}
 	sub.LastTime = time.Now()
+	sub.LastTickAt = sub.LastTime
 }
 
 // handleTickString processes IBKR tick-string updates. Tick type 45 carries
@@ -7435,6 +7463,7 @@ func (c *Connector) handleTickString(fields []string) {
 		return
 	}
 	sub.LastTime = time.Now()
+	sub.LastTickAt = sub.LastTime
 	sub.Observed = true
 }
 
@@ -7836,9 +7865,10 @@ func orderBrokerErrorMessage(code int, message, advancedRejectJSON string) strin
 
 // MarketDataSnapshot returns a detached point-in-time copy of all locally
 // tracked streaming subscriptions. The returned map and MarketData values may
-// be mutated by the caller. Zero fields can represent data not yet observed;
-// Timestamp is the local time of the latest tick for that subscription and does
-// not guarantee broker-source freshness.
+// be mutated by the caller. Zero fields can represent data not yet observed.
+// Timestamp carries the subscription's liveness clock, which is seeded at
+// subscribe time; LastTickAt is the tick observation instant and is zero until
+// a tick actually arrives. Neither guarantees broker-source freshness.
 func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 	c.subMu.RLock()
 	defer c.subMu.RUnlock()
@@ -7856,6 +7886,7 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 			AskSize:           int(sub.AskSize),
 			Volume:            sub.Volume,
 			AvgVolume:         sub.AvgVolume,
+			LastTickAt:        sub.LastTickAt,
 			LastTradeTime:     sub.LastTradeTime,
 			OpenInt:           sub.OpenInt,
 			OpenIntObserved:   sub.OpenIntObserved,

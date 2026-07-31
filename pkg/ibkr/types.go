@@ -43,8 +43,14 @@ type MarketData struct {
 	Week52Low  float64 `json:"week_52_low,omitempty"`
 	Week52High float64 `json:"week_52_high,omitempty"`
 
-	Volume            int64     `json:"volume"`
-	AvgVolume         int64     `json:"avg_volume,omitempty"`
+	Volume    int64 `json:"volume"`
+	AvgVolume int64 `json:"avg_volume,omitempty"`
+	// LastTickAt is when this process last received a tick on the
+	// subscription, or zero when none has ever arrived. See
+	// [Subscription.LastTickAt] for the two limits that bind every reader:
+	// it is an arrival instant rather than the instant the value was struck,
+	// and it advances on any tick, size and volume included.
+	LastTickAt        time.Time `json:"last_tick_at,omitzero"`
 	LastTradeTime     time.Time `json:"last_trade_time,omitzero"`
 	BidSize           int       `json:"bid_size"`
 	AskSize           int       `json:"ask_size"`

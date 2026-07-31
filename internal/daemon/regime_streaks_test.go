@@ -315,18 +315,22 @@ func TestStreakFreezesOnNonFreshCadence(t *testing.T) {
 	}
 }
 
-// The quality timestamp is taken when the snapshot is built, so before this a
-// frozen VIX3M always read about a second old however stale it really was.
+// The quality timestamp used to be taken when the snapshot is built, so a
+// frozen VIX3M always read about a second old however stale it really was, and
+// a live leg could not be told apart from one whose feed had gone quiet.
 func TestVIX3MFrozenLegStampsItsPublicationWindow(t *testing.T) {
 	ny := newYorkLocation()
 	// Monday pre-open; the last completed window ended Friday.
 	now := time.Date(2026, 7, 20, 8, 0, 0, 0, ny)
 	want := time.Date(2026, 7, 17, 16, 30, 0, 0, ny)
-	if got := vix3mTickQuality(now, rpc.MarketDataFrozen); !got.AsOf.Equal(want) {
+	// A frozen leg's arrival instant is read time whatever the value's age, so
+	// only the window end is honest about its vintage.
+	if got := vix3mTickQuality(now, now, rpc.MarketDataFrozen); !got.AsOf.Equal(want) {
 		t.Fatalf("frozen VIX3M stamp=%s, want %s", got.AsOf, want)
 	}
-	if got := vix3mTickQuality(now, rpc.MarketDataLive); !got.AsOf.Equal(now) {
-		t.Fatalf("live VIX3M stamp=%s, want read time %s", got.AsOf, now)
+	observed := now.Add(-90 * time.Second)
+	if got := vix3mTickQuality(observed, now, rpc.MarketDataLive); !got.AsOf.Equal(observed) {
+		t.Fatalf("live VIX3M stamp=%s, want tick arrival %s", got.AsOf, observed)
 	}
 }
 

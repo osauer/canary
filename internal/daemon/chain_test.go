@@ -70,7 +70,7 @@ func TestChainSpotFromSnapshotLabelsPreviousClose(t *testing.T) {
 	t.Parallel()
 	asOf := time.Date(2026, 5, 26, 8, 5, 0, 0, time.UTC)
 
-	got := chainSpotFromSnapshot(0, 0, 0, 0, 637.42, rpc.MarketDataFrozen, asOf)
+	got := chainSpotFromSnapshot(snapshotTicks{closePx: 637.42, dataType: rpc.MarketDataFrozen}, asOf)
 
 	if got.Price != 637.42 {
 		t.Fatalf("Price = %v, want 637.42", got.Price)

@@ -680,35 +680,34 @@ func (s *Server) chainSnapshotSpot(ctx context.Context, c *ibkrlib.Connector, sy
 		if s != nil {
 			warnf = s.warnf
 		}
-		bid, ask, last, mark, closePx, dt := briefSnapshotFull(ctx, c, symbol, timeout, warnf)
-		return chainSpotFromSnapshot(bid, ask, last, mark, closePx, dt, time.Now())
+		return chainSpotFromSnapshot(briefSnapshotFull(ctx, c, symbol, timeout, warnf), time.Now())
 	}
 	release, err := s.subs.Hold(ctx, symbol)
 	if err != nil {
 		return chainSpotSelection{}
 	}
 	defer release()
-	bid, ask, last, mark, closePx, dt := briefSnapshotFullHeld(ctx, c, symbol, timeout)
-	return chainSpotFromSnapshot(bid, ask, last, mark, closePx, dt, time.Now())
+	return chainSpotFromSnapshot(briefSnapshotFullHeld(ctx, c, symbol, timeout), time.Now())
 }
 
-func chainSpotFromSnapshot(bid, ask, last, mark, closePx float64, dataType string, asOf time.Time) chainSpotSelection {
+func chainSpotFromSnapshot(t snapshotTicks, asOf time.Time) chainSpotSelection {
+	dataType := t.dataType
 	if dataType == "" {
 		dataType = rpc.MarketDataLive
 	}
 	switch {
-	case last > 0:
-		return chainSpotSelection{Price: last, DataType: dataType, Source: "last", AsOf: asOf}
-	case bid > 0 && ask > 0:
-		return chainSpotSelection{Price: (bid + ask) / 2, DataType: dataType, Source: "mid", AsOf: asOf}
-	case bid > 0:
-		return chainSpotSelection{Price: bid, DataType: dataType, Source: "bid", AsOf: asOf}
-	case ask > 0:
-		return chainSpotSelection{Price: ask, DataType: dataType, Source: "ask", AsOf: asOf}
-	case mark > 0:
-		return chainSpotSelection{Price: mark, DataType: dataType, Source: "mark", AsOf: asOf}
-	case closePx > 0:
-		return chainSpotSelection{Price: closePx, DataType: rpc.MarketDataPrevClose, FeedType: dataType, Source: "prev_close", AsOf: asOf}
+	case t.last > 0:
+		return chainSpotSelection{Price: t.last, DataType: dataType, Source: "last", AsOf: asOf}
+	case t.bid > 0 && t.ask > 0:
+		return chainSpotSelection{Price: (t.bid + t.ask) / 2, DataType: dataType, Source: "mid", AsOf: asOf}
+	case t.bid > 0:
+		return chainSpotSelection{Price: t.bid, DataType: dataType, Source: "bid", AsOf: asOf}
+	case t.ask > 0:
+		return chainSpotSelection{Price: t.ask, DataType: dataType, Source: "ask", AsOf: asOf}
+	case t.mark > 0:
+		return chainSpotSelection{Price: t.mark, DataType: dataType, Source: "mark", AsOf: asOf}
+	case t.closePx > 0:
+		return chainSpotSelection{Price: t.closePx, DataType: rpc.MarketDataPrevClose, FeedType: dataType, Source: "prev_close", AsOf: asOf}
 	default:
 		return chainSpotSelection{}
 	}

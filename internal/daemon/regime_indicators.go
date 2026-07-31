@@ -296,13 +296,12 @@ func vix3mLastDisseminationWindow(now time.Time) (start, end time.Time, ok bool)
 	return start, end, true
 }
 
-// vix3mTickQuality stamps a live leg at read time and a frozen leg at the end
-// of the window that produced it. Without this every served VIX3M reads about a
-// second old whatever its true vintage, because the quality timestamp is taken
-// when the snapshot is built rather than when the print arrived — so nothing
-// downstream can tell a current value from a session-old one.
-func vix3mTickQuality(now time.Time, dataType string) *rpc.Quality {
-	q := firmTickQuality(now, dataType, "VIX3M tick (thin CBOE; off-hours typically frozen)")
+// vix3mTickQuality stamps a live leg when its tick arrived and a frozen leg at
+// the end of the window that produced it. A frozen quote's arrival instant is
+// essentially read time — the gateway re-sends the last known value on
+// request — so only the window end shows a frozen leg's true vintage.
+func vix3mTickQuality(observedAt, now time.Time, dataType string) *rpc.Quality {
+	q := firmTickQuality(observedAt, now, dataType, "VIX3M tick (thin CBOE; off-hours typically frozen)")
 	if rpc.IsLiveDataType(dataType) {
 		return q
 	}

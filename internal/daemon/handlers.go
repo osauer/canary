@@ -968,11 +968,11 @@ func resolveBasePerCurrencyFXRate(ctx context.Context, c *ibkrlib.Connector, bas
 }
 
 func snapshotFXPrice(ctx context.Context, c *ibkrlib.Connector, pair string, timeout time.Duration) (float64, bool) {
-	price, _, _ := briefSnapshotPriceWithClose(ctx, c, pair, timeout, nil)
-	if price <= 0 {
+	q := briefSnapshotPriceWithClose(ctx, c, pair, timeout, nil)
+	if q.price <= 0 {
 		return 0, false
 	}
-	return price, true
+	return q.price, true
 }
 
 func mergeCurrencyLedgers(primary, fallback map[string]ibkrlib.CurrencyLedger) map[string]ibkrlib.CurrencyLedger {

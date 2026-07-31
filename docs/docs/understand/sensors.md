@@ -183,6 +183,17 @@ seconds and starts a refresh about one minute before expiry, leaving the full
 45-second acquisition budget plus a cushion. A Gamma publication can also wake
 Regime. App polling and alert consumers do not own this schedule.
 
+A row's per-scalar `*_quality.as_of` is when the observation arrived, not when
+the snapshot was assembled, so a subscription the gateway still labels live but
+which has stopped delivering ticks reads as a growing age. Two limits bind that
+reading. A frozen quote's arrival instant is essentially read time, because the
+gateway re-sends the last known value on request; and the instant advances on
+any tick, size and volume included, so a name delivering only size ticks looks
+alive while its price is frozen. An absent instant, or one ahead of the daemon
+clock, is served as no `as_of` at all rather than as a fresh observation. No
+rule keys off that age today — it is measurement, and the market-data-type flag
+still reports the subscription's mode rather than whether data is flowing.
+
 Two slower inputs keep their own publication clocks. Outside VIX3M
 dissemination — before it opens as well as after it closes — the VIX term
 observation stays visible and reads `not_due` whichever subscription mode the

@@ -322,6 +322,56 @@ func TestHandleTickPrice_LastTimeUpdate(t *testing.T) {
 	}
 }
 
+// A subscription's LastTime is seeded when the subscription is created and
+// advanced by bookkeeping, so it cannot answer "when did a tick last arrive".
+// LastTickAt exists to answer exactly that: zero until a tick lands, and then
+// the arrival instant. Without the distinction a live subscription that has
+// gone quiet is indistinguishable from one that is ticking.
+func TestMarketDataSnapshot_LastTickAtIsTickArrivalNotSubscribeTime(t *testing.T) {
+	connector := NewConnector(&ConnectorConfig{})
+	subscribedAt := time.Now().Add(-time.Hour)
+	connector.subMu.Lock()
+	connector.reqIDMap[42] = "SPY"
+	connector.subscriptions["SPY"] = &Subscription{
+		Symbol:   "SPY",
+		ReqID:    42,
+		LastTime: subscribedAt,
+	}
+	connector.subMu.Unlock()
+
+	if got := connector.MarketDataSnapshot()["SPY"]; !got.LastTickAt.IsZero() {
+		t.Fatalf("LastTickAt = %s before any tick; want zero so absence cannot read as a fresh observation", got.LastTickAt)
+	}
+
+	before := time.Now()
+	connector.handleTickPrice([]string{"1", "2", "42", "1", "580.50"})
+
+	got := connector.MarketDataSnapshot()["SPY"]
+	if got.LastTickAt.Before(before) {
+		t.Fatalf("LastTickAt = %s; want the tick's arrival instant, at or after %s", got.LastTickAt, before)
+	}
+	if !got.LastTickAt.After(subscribedAt) {
+		t.Fatalf("LastTickAt = %s; want it to advance past the subscribe-time seed %s", got.LastTickAt, subscribedAt)
+	}
+}
+
+// A size tick with no price still advances LastTickAt: it is an "any tick"
+// arrival instant, so a subscription delivering only size ticks looks alive
+// while its price is frozen. Pinned because every reader has to know it.
+func TestMarketDataSnapshot_LastTickAtAdvancesOnNonPriceTicks(t *testing.T) {
+	connector := NewConnector(&ConnectorConfig{})
+	connector.subMu.Lock()
+	connector.reqIDMap[42] = "SPY"
+	connector.subscriptions["SPY"] = &Subscription{Symbol: "SPY", ReqID: 42, LastPrice: 580.51}
+	connector.subMu.Unlock()
+
+	connector.handleTickSize([]string{"2", "2", "42", "0", "300"})
+
+	if got := connector.MarketDataSnapshot()["SPY"]; got.LastTickAt.IsZero() {
+		t.Fatal("LastTickAt still zero after a bid-size tick; it tracks any tick arrival, not price arrival")
+	}
+}
+
 // TestHandleTickPrice_NegativePrice verifies negative prices are also validated.
 func TestHandleTickPrice_NegativePrice(t *testing.T) {
 	connector := NewConnector(&ConnectorConfig{})

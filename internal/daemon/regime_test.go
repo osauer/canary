@@ -63,6 +63,10 @@ type fakeQuote struct {
 	price     float64
 	prevClose float64 // tick 9 (previous regular-session close); 0 = "didn't arrive"
 	dataType  string
+	// observedAt is when the tick arrived. Zero means the fake's pinned
+	// clock — the ordinary "this just ticked" case — so only tests about a
+	// quiet or lagging feed have to set it.
+	observedAt time.Time
 }
 
 type fakeRichQuote struct {
@@ -70,6 +74,7 @@ type fakeRichQuote struct {
 	prevClose  float64 // tick 9 (previous regular-session close); 0 = "didn't arrive"
 	week52High float64
 	dataType   string
+	observedAt time.Time
 }
 
 type fakeHistory struct {
@@ -84,17 +89,23 @@ func (f *fakeDeps) build() *regimeDeps {
 	}
 	return &regimeDeps{
 		now: func() time.Time { return nw },
-		snapshot: func(_ context.Context, sym string, _ time.Duration) (float64, float64, string) {
+		snapshot: func(_ context.Context, sym string, _ time.Duration) snapshotQuote {
 			if f.snapshotCalls == nil {
 				f.snapshotCalls = make(map[string]int)
 			}
 			f.snapshotCalls[sym]++
 			q := f.snapshots[sym]
-			return q.price, q.prevClose, q.dataType
+			return snapshotQuote{
+				price: q.price, prevClose: q.prevClose, dataType: q.dataType,
+				observedAt: observedOr(q.observedAt, nw, q.price),
+			}
 		},
-		snapshotWith52WHigh: func(_ context.Context, sym string, _ time.Duration) (float64, float64, float64, string) {
+		snapshotWith52WHigh: func(_ context.Context, sym string, _ time.Duration) snapshotQuote {
 			r := f.rich[sym]
-			return r.price, r.prevClose, r.week52High, r.dataType
+			return snapshotQuote{
+				price: r.price, prevClose: r.prevClose, week52High: r.week52High, dataType: r.dataType,
+				observedAt: observedOr(r.observedAt, nw, r.price),
+			}
 		},
 		history: func(_ context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
 			if f.historyCalls == nil {
@@ -122,6 +133,16 @@ func (f *fakeDeps) build() *regimeDeps {
 			}
 		},
 	}
+}
+
+// observedOr resolves a fake quote's tick-arrival instant. An unset instant on
+// a quote that carries a price means "it just ticked"; a quote with no price
+// never ticked at all, so it keeps the zero instant real fetchers see.
+func observedOr(observedAt, fallback time.Time, price float64) time.Time {
+	if !observedAt.IsZero() || price <= 0 {
+		return observedAt
+	}
+	return fallback
 }
 
 // regimeTestNow pins fetcher clock reads to a mid-RTH Wednesday
@@ -1452,19 +1473,23 @@ func TestBoundedSnapshot_ReturnsWithinBudgetUnderInnerBlock(t *testing.T) {
 	// budget + slack, with zero values.
 	block := make(chan struct{})
 	defer close(block)
+	blocked := snapshotQuote{
+		price: 99.99, prevClose: 99.99, week52High: 99.99,
+		dataType: rpc.MarketDataLive, observedAt: regimeTestNow,
+	}
 	deps := &regimeDeps{
-		snapshot: func(_ context.Context, _ string, _ time.Duration) (float64, float64, string) {
+		snapshot: func(_ context.Context, _ string, _ time.Duration) snapshotQuote {
 			<-block
-			return 99.99, 99.99, rpc.MarketDataLive
+			return blocked
 		},
-		snapshotWith52WHigh: func(_ context.Context, _ string, _ time.Duration) (float64, float64, float64, string) {
+		snapshotWith52WHigh: func(_ context.Context, _ string, _ time.Duration) snapshotQuote {
 			<-block
-			return 99.99, 99.99, 99.99, rpc.MarketDataLive
+			return blocked
 		},
 	}
 
 	start := time.Now()
-	price, prev, dt := boundedSnapshot(context.Background(), deps, "VIX", 100*time.Millisecond)
+	got := boundedSnapshot(context.Background(), deps, "VIX", 100*time.Millisecond)
 	elapsed := time.Since(start)
 
 	// budget 100ms + test slack = 120ms; assert <500ms to leave room for
@@ -1473,20 +1498,22 @@ func TestBoundedSnapshot_ReturnsWithinBudgetUnderInnerBlock(t *testing.T) {
 	if elapsed > 500*time.Millisecond {
 		t.Errorf("boundedSnapshot took %v with inner block; want <500ms (the helper must bound regardless of inner-code behaviour)", elapsed)
 	}
-	// Zero values returned when budget fires before the inner returns.
-	if price != 0 || prev != 0 || dt != "" {
-		t.Errorf("boundedSnapshot returned (%v, %v, %q); want zeros on budget timeout", price, prev, dt)
+	// Zero values returned when budget fires before the inner returns —
+	// including the observation instant, so a timed-out leg cannot present
+	// itself as freshly observed.
+	if got != (snapshotQuote{}) {
+		t.Errorf("boundedSnapshot returned %+v; want zeros on budget timeout", got)
 	}
 
 	// Same contract for snapshotWith52WHigh.
 	start = time.Now()
-	p2, pc2, w52, dt2 := boundedSnapshotWith52WHigh(context.Background(), deps, "SPY", 100*time.Millisecond)
+	got52 := boundedSnapshotWith52WHigh(context.Background(), deps, "SPY", 100*time.Millisecond)
 	elapsed = time.Since(start)
 	if elapsed > 500*time.Millisecond {
 		t.Errorf("boundedSnapshotWith52WHigh took %v with inner block; want <500ms", elapsed)
 	}
-	if p2 != 0 || pc2 != 0 || w52 != 0 || dt2 != "" {
-		t.Errorf("boundedSnapshotWith52WHigh returned (%v, %v, %v, %q); want zeros on budget timeout", p2, pc2, w52, dt2)
+	if got52 != (snapshotQuote{}) {
+		t.Errorf("boundedSnapshotWith52WHigh returned %+v; want zeros on budget timeout", got52)
 	}
 }
 
@@ -1496,22 +1523,26 @@ func TestBoundedSnapshot_ReturnsWithinBudgetUnderInnerBlock(t *testing.T) {
 // budget-slack lag on the warm path.
 func TestBoundedSnapshot_PassesThroughOnFastReturn(t *testing.T) {
 	t.Parallel()
+	want := snapshotQuote{
+		price: 18.5, prevClose: 19.2,
+		dataType: rpc.MarketDataLive, observedAt: regimeTestNow.Add(-3 * time.Second),
+	}
 	deps := &regimeDeps{
-		snapshot: func(_ context.Context, sym string, _ time.Duration) (float64, float64, string) {
+		snapshot: func(_ context.Context, sym string, _ time.Duration) snapshotQuote {
 			if sym == "VIX" {
-				return 18.5, 19.2, rpc.MarketDataLive
+				return want
 			}
-			return 0, 0, ""
+			return snapshotQuote{}
 		},
 	}
 	start := time.Now()
-	price, prev, dt := boundedSnapshot(context.Background(), deps, "VIX", 5*time.Second)
+	got := boundedSnapshot(context.Background(), deps, "VIX", 5*time.Second)
 	elapsed := time.Since(start)
 	if elapsed > 100*time.Millisecond {
 		t.Errorf("fast snapshot took %v; want <100ms (the helper must not introduce slack on the warm path)", elapsed)
 	}
-	if price != 18.5 || prev != 19.2 || dt != rpc.MarketDataLive {
-		t.Errorf("boundedSnapshot returned (%v, %v, %q); want (18.5, 19.2, %q)", price, prev, dt, rpc.MarketDataLive)
+	if got != want {
+		t.Errorf("boundedSnapshot returned %+v; want %+v", got, want)
 	}
 }
 
