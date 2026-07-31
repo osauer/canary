@@ -183,7 +183,7 @@ $ canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 
 ### Mobile app
 
-`canary app` serves a paired PWA for iPhone-sized checks when you are away from the desk: daemon status, account and positions, market context, stress state, alerts, and settings. The app has Monitor, Alerts, and Settings tabs; Settings can toggle the purge/restore workflow preference, but broker submission remains unavailable and requires manual TWS action. Start it on the Mac running TWS or IB Gateway, then run `canary app pair` and scan the QR code.
+`canary app` serves a paired PWA for iPhone-sized checks when you are away from the desk. It has five tabs. Monitor is a fixed grid of instrument windows covering every regime cluster the daemon ranks plus the rulebook, protection, and stress, each printing its reading and the level it would trip at. Brief carries the daemon-composed daily briefing. Alerts is the annunciator log. Orders is a read-only view of the local order journal. Settings holds account and process state and can toggle the purge/restore workflow preference. Broker submission remains unavailable and requires manual TWS action. Start it on the Mac running TWS or IB Gateway, then run `canary app pair` and scan the QR code.
 
 For access away from the LAN without router setup, run `canary app --remote` to use the Cloudflare Worker relay at `remote.osauer.dev`, then run `canary app pair` as usual.
 
@@ -226,6 +226,8 @@ CLI or MCP host -> local canary daemon -> IB Gateway or TWS -> your account data
 ```
 
 Use `canary restart` after upgrading, changing daemon-loaded config, or when you want to clear stale gateway connection state. It sends SIGTERM, waits for cleanup, starts a fresh daemon, reports the new process, then refreshes any already-running `canary app` host while preserving app flags such as `--remote`. If no daemon was running, it starts one and says so; if no app host was running, it leaves the app stopped. `canary restart --force` escalates to SIGKILL only after the graceful timeout. This restarts the shared daemon used by CLI and MCP tool calls; it does not restart the `canary mcp` stdio process itself, which is owned by the MCP host. Fully relaunch the host when you need it to respawn MCP from a new binary or bundle.
+
+`canary stop` puts the local processes down without a kill command. It stops the app first and the daemon second, so a running app cannot start a replacement daemon mid-stop; `--app` or `--daemon` stops just one. Before stopping a daemon that still has work in flight it names that work and asks, and `--yes` answers for scripts. `--force` escalates a process that ignored SIGTERM to SIGKILL once `--timeout` has passed. An app supervised by launchd is unloaded rather than signalled, because KeepAlive would otherwise restart it, and the reply says how to bring it back. MCP servers are counted and named with their AI client but never signalled: each belongs to the client that started it and exits with it.
 
 This means your shell, Claude Desktop, Claude Code, Cursor, and other MCP clients can share one IBKR connection and one client ID. Tool calls stay fast because the gateway session is already open.
 

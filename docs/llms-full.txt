@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-07-31 21:12 CEST
 
 `Canary` is a local Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and paired app for Interactive Brokers. It exposes account and market context with typed source quality; the risk side stays advisory and operator-controlled through a regime dashboard, portfolio stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -115,7 +115,7 @@ canary mcp
 
 Important tools:
 
-- `canary_status`: daemon, gateway, account, and subsystem health for troubleshooting data freshness or connectivity.
+- `canary_status`: daemon, gateway, account, and subsystem health for troubleshooting data freshness or connectivity, including the `storage` subsystem whose fail-closed state stops reads and writes.
 - `canary_account`: account net liquidation, buying power, cash, margin, daily P&L, and currency exposure.
 - `canary_positions`: open positions, option legs, Greeks, quote context, and exposure grouped by underlying.
 - `canary_quote`: stock and ETF snapshot quotes with freshness, spread, session, and liquidity context. Not for options.
@@ -125,10 +125,10 @@ Important tools:
 - `canary_history`: daily equity or ETF OHLCV bars for lookback and moving-average analysis.
 - `canary_technical`: trend, moving average, relative strength, ATR, and liquidity screen for stocks and ETFs.
 - `canary_scan`: IBKR market scanners such as most active, top gainers, and top losers.
-- `canary_regime`: risk-regime dashboard across volatility, credit/funding, breadth, momentum, dealer gamma, currency stress, and freshness.
+- `canary_regime`: risk-regime dashboard across volatility, credit/funding, breadth, momentum, dealer gamma, currency stress, and freshness, with the trip level each indicator is measured against.
 - `canary_breadth`: S&P 500 breadth, moving-average participation, and new high/new low context.
 - `canary_gamma`: SPY and SPX dealer gamma context with zero-gamma estimates and cache provenance.
-- `canary_stress`: portfolio stress-check tool that combines account, positions, market, and regime context into one action: stand down, watch, defend, rebalance, deploy, or confirm inputs.
+- `canary_stress`: portfolio stress-check tool that combines account, positions, market, and regime context into one action: stand down, watch, defend, rebalance, deploy, or confirm inputs. It serves the margin-cushion watch floor, and a low cushion is urgent on its own authority even when the headline action reads stand down.
 - `canary_rules`: portfolio risk-rulebook check with per-rule pass/watch/act verdicts, named offenders, and disclosed data gaps.
 - `canary_size`: fixed-fractional position sizing from entry, stop, account equity, and configured risk rules.
 - `canary_scan_params`: scanner catalog discovery, listing every gateway-supported scan code, location code, and instrument type for composing ad-hoc scans.
@@ -159,7 +159,7 @@ Two command families added in v2.1 exist only in the terminal CLI and are not MC
 
 Both report. Neither blocks orders.
 
-The paired Canary app additionally opens on a daemon-composed daily desk brief (market, calendar, portfolio, risk, process). The brief is an app and CLI surface, not an MCP tool.
+The paired Canary app additionally opens on a daemon-composed daily desk brief (market, calendar, portfolio, risk, process), written as prose: a lead verdict, then Review for the last completed session and Ready for the next one. `canary brief` prints the same briefing in the terminal. The brief is an app and CLI surface, not an MCP tool.
 
 ## Common User Intents
 

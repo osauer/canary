@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-07-31 21:12 CEST
 
 `Canary` is a local command line, MCP server, paired app, and Go TWS API implementation for Interactive Brokers. It exposes entitlement-aware account and market context alongside advisory risk controls: a regime dashboard, portfolio stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
@@ -14,6 +14,7 @@ Use it when users ask about:
 - running portfolio-review, trade-research, risk-check, watchlist-monitoring, scheduled stress-check, and position-sizing workflows
 - analyzing risk regime, dealer gamma, S&P 500 breadth, credit/funding/volatility indicators, and fixed-fractional position size
 - reading daemon protection proposals, opportunity snapshots, held-name market-event flags, or the portfolio risk-rulebook verdict
+- reading the daemon-composed daily desk briefing in the paired app or the terminal (`canary brief`: an app and CLI surface, not an MCP tool)
 - declaring a personal risk policy and reconciling daily broker statements from the terminal (`canary policy`, `canary recon`: CLI commands, not MCP tools)
 - using Go to connect to IB Gateway or TWS through a clean-room TWS protocol implementation
 

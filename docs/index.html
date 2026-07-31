@@ -54,8 +54,8 @@
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
-        "softwareVersion": "2.5.0",
-        "dateModified": "2026-07-29T09:45:00+02:00",
+        "softwareVersion": "2.6.0",
+        "dateModified": "2026-07-31T21:12:00+02:00",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -80,7 +80,7 @@
           "Operator-authored risk policy with advisory drawdown reporting (CLI)",
           "Daily broker-statement ingestion and reconciliation (CLI)",
           "Daemon-owned protection proposals: trailing stops, theta hygiene, risk reduction (read-only via MCP)",
-          "Paired Canary app with Review and Ready daily-brief movements and an experimental remote relay beta",
+          "Paired Canary app with a written daily briefing, a monitor grid of regime and desk instruments, and an experimental remote relay beta",
           "Read-only builds by default with a preview-only MCP order surface in every variant"
         ]
       },
@@ -780,7 +780,7 @@ canary setup claude-desktop
         <article class="feature">
           <small>Desk brief</small>
           <h3>A daily brief on your phone</h3>
-          <p>The paired Canary app gives the daily brief its own tab: Review explains the last completed session, while Ready shows the evidence and risk capacity for the next one. The daemon builds both from the same typed results the tools use. Alerts count conditions rather than rows, and closed-market data stays visibly closed instead of masquerading as fresh. An experimental relay adds access away from home.</p>
+          <p>The paired Canary app gives the daily brief its own tab, and the daemon composes it as written prose: a lead verdict, then Review for the last completed session and Ready for the evidence and risk capacity of the next one. <code>canary brief</code> prints the same briefing in the terminal. Sources the daemon could not read are named rather than skipped, so unknown never reads as clean, and closed-market data stays visibly closed instead of masquerading as fresh. An experimental relay adds access away from home.</p>
         </article>
         <article class="feature">
           <small>Boundary</small>
@@ -871,12 +871,12 @@ canary setup claude-desktop
         <article class="proof">
           <img src="social/canary-app-mobile.png" width="780" height="1688" loading="lazy" alt="Canary mobile app monitor screen">
           <h3>Mobile monitor</h3>
-          <p>Daily brief, market regime, portfolio stress, protection, alerts, positions, and settings in the paired PWA.</p>
+          <p>The monitor is a fixed grid of instrument windows: every regime cluster the daemon ranks, plus the rulebook, protection, and stress. Each window prints its reading and, where the producer serves one, the level it would trip at.</p>
         </article>
         <article class="proof">
           <img src="social/canary-app-mobile-brief.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile app Daily brief tab">
           <h3>Review and Ready</h3>
-          <p>The Brief tab separates the last completed session from today's readiness, with source quality and exceptions kept visible.</p>
+          <p>The Brief tab reads as prose. A lead verdict, then the last completed session and today's readiness, with source quality and exceptions kept visible.</p>
         </article>
         <article class="feature">
           <small>Security</small>
