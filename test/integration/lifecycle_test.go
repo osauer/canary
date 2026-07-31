@@ -442,9 +442,13 @@ func TestLifecycle_StuckDaemonProducesActionableError(t *testing.T) {
 	}
 
 	// Run a CLI command — autospawn should detect the stuck daemon and
-	// surface the actionable error. The 10s test timeout covers the 5s
-	// autospawnTimeout plus a safety margin for the diagnostic plumbing.
-	out, code := runCLI(t, env, 10*time.Second, "status")
+	// surface the actionable error. A live PID that has not opened the socket
+	// is indistinguishable from one still verifying its database, so the CLI
+	// waits the whole readiness budget, which scales with the authority file
+	// and exceeds the old flat 5s even for the tiny hermetic one. This guard
+	// only has to sit comfortably above that; the assertions below are the
+	// actual contract.
+	out, code := runCLI(t, env, 60*time.Second, "status")
 	if code == 0 {
 		t.Fatalf("status should have failed against stuck daemon, got exit=0\n%s", out)
 	}
