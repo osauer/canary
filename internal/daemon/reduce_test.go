@@ -89,6 +89,10 @@ func TestReduceEligible(t *testing.T) {
 		{"long option", rpc.PositionView{SecType: "OPTION", Quantity: 10}, true},
 		{"short option out of scope", rpc.PositionView{SecType: "OPTION", Quantity: -10}, false},
 		{"flat stock", rpc.PositionView{SecType: "STOCK", Quantity: 0}, false},
+		{"bond out of scope", rpc.PositionView{SecType: "BOND", Quantity: 10}, false},
+		{"future out of scope", rpc.PositionView{SecType: rpc.SecTypeFuture, Quantity: 1}, false},
+		{"index out of scope", rpc.PositionView{SecType: rpc.SecTypeIndex, Quantity: 1}, false},
+		{"unknown security type fails closed", rpc.PositionView{Quantity: 10}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

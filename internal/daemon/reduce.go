@@ -46,11 +46,13 @@ func isProtectiveShort(row rpc.PositionView) bool {
 // and long options, matching the agreed feature scope. Short options are out of
 // scope; daemon-generated theta/trailing proposals cover them.
 func reduceEligible(row rpc.PositionView) bool {
-	switch positionWireSecType(row.SecType) {
-	case "OPT":
+	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
+	case rpc.SecTypeOption, "OPT":
 		return row.Quantity > 0
-	default:
+	case rpc.SecTypeStock, "STK", "ETF":
 		return row.Quantity != 0
+	default:
+		return false
 	}
 }
 
