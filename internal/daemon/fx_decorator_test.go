@@ -121,11 +121,11 @@ func TestGroupByUnderlyingAddsBaseExposure(t *testing.T) {
 	daily := 20.0
 	nlv := 100000.0
 	stocks := []rpc.PositionView{
-		{Symbol: "AAPL", Quantity: 100, Mark: 200, Currency: "USD", MarketValue: 20000, UnrealizedPnL: 1000, DailyPnL: &daily, FXRate: new(0.86)},
+		{Symbol: "AAPL", SecType: rpc.SecTypeStock, Quantity: 100, Mark: 200, Currency: "USD", MarketValue: 20000, UnrealizedPnL: 1000, DailyPnL: &daily, FXRate: new(0.86)},
 	}
 	options := []rpc.PositionView{
-		{Symbol: "AAPL", Currency: "USD", Quantity: 1, MarketValue: 500, UnrealizedPnL: -100, Delta: new(0.5), Underlying: new(float64(200)), FXRate: new(0.86)},
-		{Symbol: "SAP", Currency: "EUR", Quantity: 10, Mark: 150, MarketValue: 1500, UnrealizedPnL: 100},
+		{Symbol: "AAPL", SecType: rpc.SecTypeOption, Currency: "USD", Quantity: 1, MarketValue: 500, UnrealizedPnL: -100, Delta: new(0.5), Underlying: new(float64(200)), FXRate: new(0.86)},
+		{Symbol: "SAP", SecType: rpc.SecTypeOption, Currency: "EUR", Quantity: 10, Mark: 150, MarketValue: 1500, UnrealizedPnL: 100},
 	}
 	groups := groupByUnderlying(stocks, options, "EUR", &nlv)
 	if len(groups) != 2 {

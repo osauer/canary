@@ -871,12 +871,12 @@ func TestClosestStrike(t *testing.T) {
 func TestGroupByUnderlying(t *testing.T) {
 	t.Parallel()
 	stocks := []rpc.PositionView{
-		{Symbol: "AAPL", Quantity: 100, MarketValue: 20000, UnrealizedPnL: 1500},
-		{Symbol: "MSFT", Quantity: 50, MarketValue: 25000, UnrealizedPnL: -200},
+		{Symbol: "AAPL", SecType: rpc.SecTypeStock, Quantity: 100, MarketValue: 20000, UnrealizedPnL: 1500},
+		{Symbol: "MSFT", SecType: rpc.SecTypeStock, Quantity: 50, MarketValue: 25000, UnrealizedPnL: -200},
 	}
 	options := []rpc.PositionView{
-		{Symbol: "AAPL", Right: "C", Strike: 215, Expiry: "20260619", Quantity: 5, MarketValue: 4700, UnrealizedPnL: 1290},
-		{Symbol: "TSLA", Right: "P", Strike: 200, Expiry: "20260516", Quantity: 2, MarketValue: 800, UnrealizedPnL: -90},
+		{Symbol: "AAPL", SecType: rpc.SecTypeOption, Right: "C", Strike: 215, Expiry: "20260619", Quantity: 5, MarketValue: 4700, UnrealizedPnL: 1290},
+		{Symbol: "TSLA", SecType: rpc.SecTypeOption, Right: "P", Strike: 200, Expiry: "20260516", Quantity: 2, MarketValue: 800, UnrealizedPnL: -90},
 	}
 	groups := groupByUnderlying(stocks, options, "", nil)
 	if len(groups) != 3 {
@@ -912,28 +912,35 @@ func TestGroupByUnderlying(t *testing.T) {
 	}
 }
 
-// Exact contract identity must survive the grouped projection. IBKR can report
-// multiple non-option contracts under the same base symbol (for example,
-// different bonds or futures expiries); dropping one makes the flat position
-// list disagree with exposure, rulebook, proposal, and Brief consumers.
-func TestGroupByUnderlyingPreservesDistinctSameSymbolContracts(t *testing.T) {
+// Exact non-equity contract identity belongs to the flat positions authority,
+// not the ticker-level stock + options projection. IBKR can report several
+// bonds or futures under one base symbol; neither they nor an untyped row may
+// overwrite the actual equity stock leg or leak into the group's totals.
+func TestGroupByUnderlyingExcludesSameSymbolNonEquitiesAndUnknown(t *testing.T) {
 	t.Parallel()
 	stocks := []rpc.PositionView{
+		{Symbol: "T", SecType: rpc.SecTypeStock, ConID: 500000, Quantity: 10, MarketValue: 1000},
 		{Symbol: "T", SecType: "BOND", ConID: 500001, LocalSymbol: "T 4 1/8 11/15/32", Quantity: 2, MarketValue: 2000},
 		{Symbol: "T", SecType: "BOND", ConID: 500002, LocalSymbol: "T 4 5/8 02/15/35", Quantity: 3, MarketValue: 3000},
+		{Symbol: "T", ConID: 500004, Quantity: 4, MarketValue: 4000},
+	}
+	options := []rpc.PositionView{
+		{Symbol: "T", SecType: rpc.SecTypeOption, ConID: 500003, Quantity: 1, MarketValue: 500},
 	}
 
-	groups := groupByUnderlying(stocks, nil, "USD", nil)
-	visible := map[string]bool{}
-	for _, group := range groups {
-		if group.Stock != nil {
-			visible[positionViewKey(*group.Stock)] = true
-		}
+	groups := groupByUnderlying(stocks, options, "USD", nil)
+	if len(groups) != 1 {
+		t.Fatalf("groups=%d, want one ticker-level group", len(groups))
 	}
-	for _, position := range stocks {
-		if !visible[positionViewKey(position)] {
-			t.Errorf("grouped projection dropped held contract %s", positionViewKey(position))
-		}
+	group := groups[0]
+	if group.Underlying != "T" || group.Stock == nil || group.Stock.ConID != 500000 {
+		t.Fatalf("group stock=%+v underlying=%q, want exact equity stock", group.Stock, group.Underlying)
+	}
+	if len(group.Options) != 1 || group.Options[0].ConID != 500003 {
+		t.Fatalf("group options=%+v, want exact option leg", group.Options)
+	}
+	if group.GroupMarketValue != 1500 {
+		t.Fatalf("group market value=%.0f, want equity + option only", group.GroupMarketValue)
 	}
 }
 

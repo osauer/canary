@@ -425,6 +425,9 @@ func (e *opportunityEngine) generate(policy opportunityPolicy, status rpc.Opport
 	}
 	stocks := map[string]rpc.PositionView{}
 	for _, row := range pos.Stocks {
+		if !positionCanAnchorUnderlyingGroup(row) {
+			continue
+		}
 		stocks[strings.ToUpper(strings.TrimSpace(row.Symbol))] = row
 	}
 	coverage := opportunityCoverageByUnderlying(pos.ProtectionCoverage)

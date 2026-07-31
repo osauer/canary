@@ -1657,8 +1657,12 @@ func optionMultiplier(p rpc.PositionView) int {
 }
 
 // groupByUnderlying produces one PositionGroup per underlying symbol present
-// in either the stocks or options slice. Stock + option totals contribute to
-// GroupMarketValue / GroupUnrealizedPnL; the stock leg is optional.
+// in either the equity-stock or options projection. PositionsResult.Stocks is
+// the historical name of the flat non-option slice and can also contain bonds,
+// futures, and indices; those exact contracts remain authoritative there but
+// cannot masquerade as the singular equity leg in this ticker-level view.
+// Stock + option totals contribute to GroupMarketValue /
+// GroupUnrealizedPnL; the stock leg is optional.
 func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLiquidationBase *float64) []rpc.PositionGroup {
 	groups := map[string]*rpc.PositionGroup{}
 	getOrInit := func(under string) *rpc.PositionGroup {
@@ -1671,6 +1675,9 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 	}
 	for i := range stocks {
 		s := stocks[i]
+		if !positionCanAnchorUnderlyingGroup(s) {
+			continue
+		}
 		g := getOrInit(strings.ToUpper(s.Symbol))
 		stk := s
 		g.Stock = &stk
@@ -1691,6 +1698,18 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 	}
 	slices.SortStableFunc(out, func(a, b rpc.PositionGroup) int { return cmp.Compare(a.Underlying, b.Underlying) })
 	return out
+}
+
+// positionCanAnchorUnderlyingGroup accepts only the equity aliases carried by
+// current PositionView output. Unknown and explicit non-equity types always
+// remain flat-only; absence of a type is not stock authority.
+func positionCanAnchorUnderlyingGroup(row rpc.PositionView) bool {
+	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
+	case rpc.SecTypeStock, "STK", "ETF":
+		return true
+	default:
+		return false
+	}
 }
 
 type convertedSum struct {
