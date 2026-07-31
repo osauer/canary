@@ -55,10 +55,53 @@ func TestAutospawnExactExecutableHonorsCallerStartupTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("slow daemon unexpectedly opened a socket")
 	}
-	// Upper bound must stay well under AutospawnTimeout (5s) to keep proving
-	// the caller budget was honored, while tolerating loaded-gate scheduling.
+	// Upper bound must stay well under the derived StartupBudget (5s and up)
+	// to keep proving the caller budget was honored, while tolerating
+	// loaded-gate scheduling.
 	if elapsed < timeout || elapsed > 3*time.Second {
-		t.Fatalf("exact startup wait = %s, want caller budget near %s rather than ordinary %s", elapsed, timeout, AutospawnTimeout)
+		t.Fatalf("exact startup wait = %s, want caller budget near %s rather than ordinary %s", elapsed, timeout, StartupBudget())
+	}
+}
+
+func TestStartupBudgetScalesWithAuthoritySize(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	// A first start has no authority to verify.
+	if got := StartupBudget(); got != startupBudgetBase {
+		t.Fatalf("StartupBudget with no authority = %s, want %s", got, startupBudgetBase)
+	}
+
+	path, err := DefaultAuthorityPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sparse: the budget reads the file size, never its bytes.
+	truncateAuthority(t, path, 4*int64(startupBudgetFloorBytesPerSec))
+	if want, got := startupBudgetBase+4*time.Second, StartupBudget(); got != want {
+		t.Fatalf("StartupBudget for a 4-second authority = %s, want %s", got, want)
+	}
+
+	// An authority large enough to outrun the cap still fails eventually
+	// rather than hanging the caller.
+	truncateAuthority(t, path, int64(startupBudgetFloorBytesPerSec)*int64(startupBudgetMax/time.Second+60))
+	if got := StartupBudget(); got != startupBudgetMax {
+		t.Fatalf("StartupBudget for an oversized authority = %s, want the %s cap", got, startupBudgetMax)
+	}
+}
+
+func truncateAuthority(t *testing.T, path string, size int64) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -397,21 +440,32 @@ func TestCallDeadlineDoesNotLeakIntoStream(t *testing.T) {
 	}
 }
 
-// WaitForSocket retries on ErrSocketMissing — including the orphan-socket
-// case mapped above — and gives up with a "did not appear" error after the
-// deadline.
-func TestWaitForSocketRetriesOnOrphanThenTimesOut(t *testing.T) {
-	t.Parallel()
+// The startup wait retries on ErrSocketMissing — including the orphan-socket
+// case mapped above — and gives up once the budget expires, as long as the
+// watched daemon stays alive.
+func TestStartupWaitRetriesOnOrphanThenTimesOut(t *testing.T) {
 	path := shortSocketPath(t)
 	seedOrphanSocket(t, path)
 
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "sleeper")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nsleep 30\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CANARY_LOG", filepath.Join(dir, "daemon.log"))
+	pid, err := spawnDaemonFromExecutable(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+
 	start := time.Now()
-	_, err := WaitForSocket(path, 200*time.Millisecond)
+	_, ok := waitForSocketOrPIDDeath(context.Background(), path, pid, 200*time.Millisecond)
 	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
+	if ok {
+		t.Fatal("expected the orphan socket to stay unconnectable")
 	}
 	if elapsed < 150*time.Millisecond {
-		t.Fatalf("WaitForSocket gave up after %s — did not retry", elapsed)
+		t.Fatalf("startup wait gave up after %s — did not retry", elapsed)
 	}
 }

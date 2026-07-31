@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 func defaultTradingStatePath(filename string) (string, error) {
@@ -17,8 +19,11 @@ func defaultTradingStatePath(filename string) (string, error) {
 	return filepath.Join(home, ".local", "state", "ibkr", filename), nil
 }
 
+// defaultDaemonDatabasePath delegates to dial so the CLI, which sizes this
+// file to budget how long it waits for the daemon to publish its socket,
+// cannot drift from where the daemon actually opens it.
 func defaultDaemonDatabasePath() (string, error) {
-	return defaultTradingStatePath("daemon.db")
+	return dial.DefaultAuthorityPath()
 }
 
 func ensurePrivateStateDir(path string) error {

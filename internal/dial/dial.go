@@ -54,6 +54,20 @@ func SocketPathOverridden() bool {
 	return os.Getenv("CANARY_SOCKET") != ""
 }
 
+// DefaultAuthorityPath returns the canonical daemon authority database
+// location. The daemon verifies this file end to end before it publishes its
+// socket, so callers waiting on a daemon start size it to budget that wait.
+func DefaultAuthorityPath() (string, error) {
+	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
+		return filepath.Join(v, productidentity.PersistentNamespace, "daemon.db"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", productidentity.PersistentNamespace, "daemon.db"), nil
+}
+
 // DefaultLogPath returns the canonical daemon log location.
 func DefaultLogPath() string {
 	// docgen:env CANARY_LOG | Override the daemon log file path. Defaults to `$HOME/.local/state/ibkr/ibkr-daemon.log`.
@@ -111,38 +125,6 @@ func (c *Conn) DaemonVersion(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return h.DaemonVersion, nil
-}
-
-// WaitForSocket polls until the socket appears or the deadline expires, then
-// dials it.
-func WaitForSocket(path string, timeout time.Duration) (*Conn, error) {
-	return WaitForSocketContext(context.Background(), path, timeout)
-}
-
-// WaitForSocketContext polls until the socket appears, ctx is cancelled, or
-// the deadline expires, then dials it.
-func WaitForSocketContext(ctx context.Context, path string, timeout time.Duration) (*Conn, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		c, err := Connect(path)
-		if err == nil {
-			return c, nil
-		}
-		if !errors.Is(err, ErrSocketMissing) {
-			return nil, err
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("daemon socket did not appear within %s", timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(75 * time.Millisecond):
-		}
-	}
 }
 
 // Close releases the socket.

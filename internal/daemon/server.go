@@ -1255,11 +1255,21 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	s.lock = lock
+	// Authority verification (quick_check, foreign keys, a re-hash of every
+	// stored payload) runs before the socket exists and scales with desk
+	// history, so on a large authority it is effectively the whole pre-socket
+	// window. Unlogged it is a silent gap in which a reader — human or the
+	// waiting CLI — cannot tell a working daemon from a wedged one.
+	authorityStartedAt := time.Now()
+	if info, err := os.Stat(s.coreStorePath); err == nil {
+		s.logger.Infof("daemon authority: verifying %d MiB before opening the socket", info.Size()>>20)
+	}
 	if err := s.openCoreStore(ctx); err != nil {
 		s.lock.Release()
 		s.lock = nil
 		return err
 	}
+	s.logger.Infof("daemon authority: verified in %s", time.Since(authorityStartedAt).Round(time.Millisecond))
 	defer func() {
 		if err := s.closeCoreStore(); err != nil {
 			s.warnf("close daemon authority: %v", err)

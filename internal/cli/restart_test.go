@@ -709,10 +709,13 @@ func TestRunRestartAppCoreRejectsAmbiguousDiscoveryBeforeLaunchdMutation(t *test
 	}
 }
 
-func TestRestartDaemonStartUsesExplicitTimeoutBudget(t *testing.T) {
+// A --timeout above every derived readiness budget still governs the start:
+// the flag remains usable as an upward override.
+func TestRestartDaemonStartHonorsExplicitTimeoutAboveReadinessBudget(t *testing.T) {
 	t.Setenv("CANARY_SOCKET", t.TempDir()+"/ibkr.sock")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
-	timeout := 2300 * time.Millisecond
+	timeout := 30 * time.Minute
 	var out, errBuf bytes.Buffer
 	opts := &restartOptions{timeout: timeout, out: &out, err: &errBuf}
 	exit := runRestartCore(context.Background(), opts, restartDeps{
@@ -733,6 +736,59 @@ func TestRestartDaemonStartUsesExplicitTimeoutBudget(t *testing.T) {
 	})
 	if exit != 0 {
 		t.Fatalf("exit = %d, stderr=%s", exit, errBuf.String())
+	}
+}
+
+// A graceful-stop budget far below the authority's verification cost must not
+// become the readiness deadline: that is what reported a healthy 50s boot as
+// "start daemon: context deadline exceeded" and left the app stopped.
+func TestRestartDaemonStartOutlivesShortStopTimeout(t *testing.T) {
+	t.Setenv("CANARY_SOCKET", t.TempDir()+"/ibkr.sock")
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	writeSparseAuthority(t, filepath.Join(stateHome, "ibkr", "daemon.db"), 8<<30)
+
+	timeout := 15 * time.Second
+	var out, errBuf bytes.Buffer
+	opts := &restartOptions{timeout: timeout, out: &out, err: &errBuf}
+	exit := runRestartCore(context.Background(), opts, restartDeps{
+		find: func(context.Context, string) (update.DaemonProcess, error) {
+			return update.DaemonProcess{}, update.ErrDaemonNotRunning
+		},
+		startAndHealth: func(ctx context.Context, _ string, _ io.Writer, _ bool) (int, rpc.HealthResult, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("daemon start context has no restart timeout deadline")
+			}
+			if remaining := time.Until(deadline); remaining <= timeout {
+				t.Fatalf("daemon startup budget = %s, want more than the %s stop budget", remaining, timeout)
+			}
+			return 93, rpc.HealthResult{DaemonVersion: "test"}, nil
+		},
+	})
+	if exit != 0 {
+		t.Fatalf("exit = %d, stderr=%s", exit, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "waiting up to") {
+		t.Fatalf("restart output does not report the readiness budget:\n%s", out.String())
+	}
+}
+
+// writeSparseAuthority creates a daemon.db of the requested apparent size.
+// The readiness budget reads the file size, never its bytes, so a sparse file
+// is enough and costs no disk.
+func writeSparseAuthority(t *testing.T, path string, size int64) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
 	}
 }
 

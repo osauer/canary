@@ -495,6 +495,13 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 		LockPath:   lockPath,
 	}
 
+	// --timeout is the graceful-stop budget and stays tight; readiness is a
+	// different quantity that scales with the authority the daemon verifies
+	// before it serves. Taking the larger of the two keeps --timeout usable
+	// as an upward override without letting a 15s stop budget declare a
+	// healthy 50s boot dead.
+	startupBudget := max(dial.StartupBudget(), opts.timeout)
+
 	proc, err := deps.find(ctx, socketPath)
 	switch {
 	case err == nil:
@@ -531,7 +538,7 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 				mode = "with SIGKILL"
 			}
 			fmt.Fprintf(opts.out, "%s restart: stopped daemon pid %d %s\n", productidentity.Executable, proc.PID, mode)
-			fmt.Fprintf(opts.out, "%s restart: starting daemon\n", productidentity.Executable)
+			fmt.Fprintf(opts.out, "%s restart: starting daemon (waiting up to %s for readiness)\n", productidentity.Executable, startupBudget)
 		}
 	case errors.Is(err, update.ErrDaemonNotRunning):
 		if !startWhenMissing {
@@ -543,7 +550,7 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 			return res, 0
 		}
 		if !opts.jsonOut {
-			fmt.Fprintf(opts.out, "%s restart: no daemon was running; starting daemon\n", productidentity.Executable)
+			fmt.Fprintf(opts.out, "%s restart: no daemon was running; starting daemon (waiting up to %s for readiness)\n", productidentity.Executable, startupBudget)
 		}
 	default:
 		fmt.Fprintf(opts.err, "%s restart: %v\n", productidentity.Executable, err)
@@ -553,7 +560,7 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 	startCtx := ctx
 	cancel := func() {}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		startCtx, cancel = context.WithTimeout(ctx, opts.timeout)
+		startCtx, cancel = context.WithTimeout(ctx, startupBudget)
 	}
 	defer cancel()
 	newPID, health, err := deps.startAndHealth(startCtx, socketPath, opts.err, opts.jsonOut)
@@ -574,7 +581,7 @@ func restartStartupTimeout(ctx context.Context) time.Duration {
 			return remaining
 		}
 	}
-	return restartDefaultTimeout
+	return dial.StartupBudget()
 }
 
 func runRestartAppCore(ctx context.Context, opts *restartOptions, deps appRestartDeps) int {
