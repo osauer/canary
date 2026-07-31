@@ -752,87 +752,15 @@ p {
   align-content: start;
 }
 
+/* The back panel is a stack of engraved banks: a placard names the bank, the
+   bank carries its rows. No bank is a card with a shadow of its own. */
 .settings-stack {
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 
-.settings-row,
-.settings-cell {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-card);
-  background: var(--surface-soft);
-}
-
-.settings-row--toggle {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-}
-
-.settings-row--link {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  border-color: rgba(111, 179, 255, 0.2);
-  background: rgba(111, 179, 255, 0.08);
-  color: inherit;
-  text-decoration: none;
-}
-
-.settings-row--link svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  color: var(--blue);
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-}
-
-.settings-row span,
-.settings-cell span {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 760;
-  letter-spacing: 0.07em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.settings-row b,
-.settings-cell b {
-  display: block;
-  overflow: hidden;
-  margin-top: 3px;
-  color: var(--ink);
-  font-size: 16px;
-  font-weight: 720;
-  line-height: 1.18;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-row small,
-.settings-cell small {
-  display: block;
-  overflow-wrap: anywhere;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.25;
-}
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.settings-stack > .pd-placard:first-child {
+  margin-top: 0;
 }
 
 .toggle-switch {
@@ -882,8 +810,7 @@ p {
   opacity: 0.55;
 }
 
-.pairing button,
-.primary {
+.pairing button {
   min-height: 42px;
   border: 1px solid #323947;
   border-radius: var(--radius-control);
@@ -4257,49 +4184,52 @@ p {
   display: grid;
 }
 
+/* Nothing working is a state, not a blank: the journal says so in the same
+   engraved register it uses for everything else. */
+.orders-list .empty-row {
+  padding: 10px 2px;
+  color: var(--pd-engraved);
+  font-size: 12.5px;
+}
+
+/* The journal's engraved foot: what this surface is, and what it is not. */
+.orders-foot {
+  margin: 10px 2px 2px;
+}
+
+/* Order bar: one machined tile per working order. Identity engraved on top,
+   the served figures under it, the mitigation controls seated to the right. */
 .open-order-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(210px, 0.8fr) auto;
   gap: 10px;
   align-items: center;
   min-height: 58px;
-  padding: 8px 0;
-  border-top: 1px solid var(--line-soft);
+  margin: 8px 0;
+  padding: 10px 12px 11px;
 }
 
 .open-order-row:first-child {
-  border-top: 0;
+  margin-top: 0;
 }
 
 .open-order-row--critical {
+  padding-left: 9px;
   border-left: 3px solid var(--red);
-  padding-left: 8px;
-  background: var(--red-soft);
+  background: linear-gradient(180deg, rgba(255, 79, 68, 0.15), rgba(255, 79, 68, 0.045) 55%), #231c1b;
 }
 
 .open-order-row__risk {
   display: block;
-  color: var(--red);
+  margin-top: 4px;
+  color: var(--pd-act-tint);
   font-size: 12px;
+  line-height: 1.35;
   white-space: normal;
-}
-
-.open-order-row b {
-  color: var(--ink);
 }
 
 .open-order-row__main {
   min-width: 0;
-}
-
-.open-order-row span {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted-2);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .open-order-row__edit {
@@ -4342,14 +4272,6 @@ p {
 .open-order-row__edit input:disabled {
   background: var(--surface-soft);
   color: var(--muted-2);
-}
-
-.open-order-row__fixed {
-  flex: 1 1 auto;
-  align-self: center;
-  min-width: 0;
-  color: var(--muted-2);
-  font-size: 12px;
 }
 
 .open-order-row__controls {
@@ -4679,14 +4601,22 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
-/* Process evidence keeps its seat at the foot of the log until the Settings
-   back panel exists; the register is the same, the semantics unchanged. */
+/* Process evidence is the System bank on the back panel: the same bank
+   register as Notifications and Workflows, with the evidence blocks folded
+   inside it. The register moved; the semantics did not. */
 .governance-section {
   display: grid;
   gap: 0;
-  margin-top: 16px;
-  padding-top: 10px;
-  border-top: 1px solid var(--pd-hairline);
+}
+
+.governance-section > .governance-summary {
+  margin: 8px 0;
+}
+
+.governance-section > .governance-block,
+.governance-section > .governance-coverage,
+.governance-section > .governance-details {
+  margin-bottom: 8px;
 }
 
 .governance-delivery__head {
@@ -4893,68 +4823,58 @@ p {
   align-self: start;
 }
 
-.settings-notification-card {
-  display: grid;
-  gap: 10px;
-  padding: 13px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-soft);
+/* The notification bank's engraved copy: three fixed paragraphs stating what
+   each delivery level does, in the panel's own quiet register. */
+.settings-notification-copy {
+  margin-top: 9px;
+  color: var(--pd-engraved);
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
-.settings-notification-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.settings-notification-copy + .settings-notification-copy {
+  margin-top: 6px;
 }
 
-.settings-notification-card__head > div {
-  display: grid;
-  gap: 2px;
-}
-
-.settings-notification-card__head span,
-.settings-notification-card__head b {
-  display: block;
-}
-
-.settings-notification-card__head > div > span {
-  color: var(--muted-2);
-  font-size: 10px;
-  font-weight: 780;
+#pushState {
+  color: var(--pd-engraved);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.settings-notification-card__head b {
-  color: var(--ink);
-  font-size: 15px;
-}
-
-.settings-notification-copy {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.settings-notification-actions {
+/* Level segments: engraved chips in a row. The served level is seated — a
+   filled chip, not a colored lamp; a preference is not an annunciator. */
+.segments--settings {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 3px;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
 }
 
-#pushState {
-  justify-self: start;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 760;
-  letter-spacing: 0.08em;
+.segments--settings button {
+  min-height: 26px;
+  padding: 4px 7px;
+  border: 1px solid var(--pd-border);
+  border-radius: 4px;
+  color: var(--pd-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .segments--settings button.active {
-  background: var(--blue);
+  border-color: #323947;
+  background: var(--pd-border);
+  box-shadow: none;
+  color: var(--pd-readout);
 }
 
 /* Snapshot foot plate: an engraved stamp at the foot of the panel, not a
@@ -5073,10 +4993,6 @@ p {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
     padding: 9px 11px 10px;
-  }
-
-  .settings-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .account-risk-strip {
@@ -5200,8 +5116,8 @@ p {
 
   .open-order-row {
     grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-    padding: 9px 0;
+    gap: 6px;
+    padding: 9px 12px 10px;
   }
 
   .open-order-row__field {
@@ -5343,9 +5259,222 @@ p {
   text-transform: uppercase;
 }
 
+.pd-key:disabled {
+  color: var(--pd-dim);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* Order bar: the Orders-screen tile shape, reused for a staged proposal. */
 .pd-order .pd-tile__legend {
   margin-bottom: 2px;
+}
+
+/* Reading line: the order's served figures, time in force and status words,
+   set under the engraved identity. Nothing here is computed. */
+.pd-order .pd-tile__reading {
+  display: block;
+  min-width: 0;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--pd-engraved);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+/* ---- Back panel: the Settings banks ------------------------------------
+   Settings is the instrument's back panel: engraved banks of rows, hard keys
+   for the two delivery actions, slide switches that print their own state,
+   and a stamped type plate at the foot. Nothing here lamps — a preference is
+   not an annunciator, so severity ink never appears on this face. */
+
+/* Bank: a machined face holding a short column of rows. */
+.pd-bank {
+  display: grid;
+  gap: 0;
+  padding: 2px 12px 4px;
+}
+
+/* Row: engraved legend left, the control right, one hairline between rows. */
+.pd-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 0;
+  border-bottom: 1px solid #232833;
+}
+
+.pd-set-row:last-child {
+  border-bottom: 0;
+}
+
+.pd-set-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pd-set-val {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pd-set-copy .pd-set-val {
+  text-align: left;
+}
+
+.pd-set-note {
+  overflow-wrap: anywhere;
+  color: var(--pd-engraved);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.pd-set-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+/* Slide switch: the checkbox keeps every behavior it had; the face becomes a
+   machined window with a milled slider and the printed word beside it, so the
+   state is legible without relying on color. */
+.toggle-switch.pd-sw {
+  width: auto;
+  height: auto;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.pd-sw > span {
+  position: relative;
+  inset: auto;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 1px solid #323947;
+  border-radius: 3px;
+  background: var(--pd-readout-face);
+  transition: none;
+}
+
+.pd-sw > span::after {
+  top: 2px;
+  right: 2px;
+  left: auto;
+  width: 15px;
+  height: 14px;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(255, 255, 255, 0.22) calc(50% - 0.5px), rgba(255, 255, 255, 0.22) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    #2e3542;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  transform: none;
+  transition: none;
+}
+
+.pd-sw input:checked + span {
+  background: var(--pd-readout-face);
+}
+
+.pd-sw input:checked + span::after {
+  right: auto;
+  left: 2px;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(255, 255, 255, 0.22) calc(50% - 0.5px), rgba(255, 255, 255, 0.22) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    #3a4636;
+  transform: none;
+}
+
+/* The printed word is the switch's own legend: engraved, never a lamp. */
+.pd-sw__word {
+  color: var(--pd-caption);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pd-sw__word::after {
+  content: "Off";
+}
+
+.pd-sw input:checked ~ .pd-sw__word::after {
+  content: "On";
+}
+
+.pd-sw input:disabled ~ .pd-sw__word {
+  opacity: 0.55;
+}
+
+/* Status readouts: flush cells, two to a row, legend over served figure. */
+.pd-grid--status .pd-tile--cell {
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+.pd-grid--status .pd-tile--cell .pd-tile__fig {
+  display: block;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pd-cell__note {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+  color: var(--pd-engraved);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* Feedback: an engraved row that leaves the panel, marked by the glyph. */
+.pd-set-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 11px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.pd-set-link__glyph {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  color: var(--pd-engraved);
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+/* Type plate: the stamped identity of the one desk this build answers to. */
+.pd-plate {
+  padding: 14px 0 4px;
+  color: var(--pd-plate);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 /* ---- Rules checklist --------------------------------------------------- */

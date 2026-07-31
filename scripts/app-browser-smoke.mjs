@@ -186,29 +186,33 @@ async function runRound4SyntheticSmoke() {
     await page.locator("#tabAlerts").click();
     await page.waitForFunction(() => document.getElementById("alertUnreadBadge")?.hidden === true, { timeout: 5000 });
     const alertsView = await page.evaluate(() => ({
-      detailsOpen: document.getElementById("governanceEvidenceDetails")?.open,
-      cutoverVisible: document.getElementById("governanceCutoverReviewButton")?.hidden === false,
-      coverage: document.getElementById("governanceCoverage")?.textContent || "",
       activeAlerts: document.getElementById("currentSignalList")?.textContent || "",
       endedAlerts: document.getElementById("alertHistoryList")?.textContent || "",
       authority: document.getElementById("alertAuthorityState")?.textContent || "",
-      governanceHistory: document.getElementById("governanceHistoryList")?.textContent || "",
       litTiles: document.querySelectorAll("#currentSignalList .alert-row.pd-tile--watch").length,
       outTiles: document.querySelectorAll("#alertHistoryList .alert-row.pd-alert--out").length,
       authoritySeated: document.getElementById("lampTestDialog")?.contains(document.getElementById("alertAuthorityState")) === true,
+      processSeated: document.getElementById("alertsTab")?.contains(document.getElementById("governanceEvidenceDetails")) === false,
     }));
     await page.locator("#tabSettings").click();
     const settings = await page.evaluate(() => ({
       modes: [...document.querySelectorAll("#alertSegments button")].map((button) => button.textContent.trim()),
       copy: document.querySelector(".settings-notification-card")?.textContent || "",
       pushState: document.getElementById("pushState")?.textContent || "",
+      // Process evidence is the System bank on the back panel (WP5).
+      detailsOpen: document.getElementById("governanceEvidenceDetails")?.open,
+      cutoverVisible: document.getElementById("governanceCutoverReviewButton")?.hidden === false,
+      coverage: document.getElementById("governanceCoverage")?.textContent || "",
+      governanceHistory: document.getElementById("governanceHistoryList")?.textContent || "",
+      processSeated: document.getElementById("settingsTab")?.contains(document.getElementById("governanceEvidenceDetails")) === true,
     }));
     if (!monitor.active || monitor.badge !== "2" || monitor.label !== "Alerts, 2 unread") throw new Error(`synthetic unread monitor state failed: ${JSON.stringify(monitor)}`);
-    if (alertsView.detailsOpen !== false || !alertsView.cutoverVisible || !alertsView.coverage.includes("Older payments need a one-time review") || !alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active" || !alertsView.governanceHistory.includes("Synthetic process review")) throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
+    if (!alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active" || !alertsView.processSeated) throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     // The log renders as annunciator tiles (watch lit, ended unlit) and the
     // alert authority now reports from inside the lamp-test detail.
     if (alertsView.litTiles !== 1 || alertsView.outTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while your in-app history remains") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
+    if (!settings.processSeated || settings.detailsOpen !== false || !settings.cutoverVisible || !settings.coverage.includes("Older payments need a one-time review") || !settings.governanceHistory.includes("Synthetic process review")) throw new Error(`synthetic Settings process evidence failed: ${JSON.stringify(settings)}`);
     if (mutationRequests.length !== 1 || mutationRequests[0].method !== "POST" || mutationRequests[0].path !== "/api/alerts/attention/read" || JSON.parse(mutationRequests[0].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
     if (errors.length > 0) throw new Error(`synthetic browser errors: ${errors.join("\n")}`);
     console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, monitor, alerts: alertsView, settings, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
@@ -2252,13 +2256,25 @@ async function exerciseOpenOrders(page) {
       panelPresent: !!document.getElementById("ordersPanel"),
       countText: document.getElementById("ordersOpenCount")?.textContent?.trim() || "",
       rows: document.querySelectorAll("#ordersOpenList .open-order-row").length,
-      empty: document.getElementById("ordersOpenList")?.textContent?.includes("No open orders available for this view.") || false,
+      empty: document.getElementById("ordersOpenList")?.textContent?.includes("None working.") || false,
+      // Panel Dark order bars: every row is a machined tile carrying an
+      // engraved identity legend and a served reading line.
+      bars: document.querySelectorAll("#ordersOpenList .open-order-row.pd-tile.pd-order").length,
+      legends: [...document.querySelectorAll("#ordersOpenList .open-order-row .pd-tile__legend")].map((el) => el.textContent?.trim() || ""),
+      readings: [...document.querySelectorAll("#ordersOpenList .open-order-row .pd-tile__reading")].map((el) => el.textContent?.trim() || ""),
+      foot: document.querySelector("#ordersPanel .orders-foot")?.textContent?.trim() || "",
       buttons,
       oldLabels: buttons.map((button) => button.text).filter((label) => ["Modify", "Cancel", "Execute"].includes(label)),
     };
   });
   if (!info.panelPresent) {
     throw new Error("Orders panel should always be present once the Orders tab is active");
+  }
+  if (!info.foot.includes("Order journal") || !info.foot.includes("read-only") || !info.foot.includes("submission stays on the desk")) {
+    throw new Error(`orders journal must state its read-only authority at the foot: ${JSON.stringify(info.foot)}`);
+  }
+  if (info.bars !== info.rows || info.legends.length !== info.rows || info.legends.some((legend) => !legend) || info.readings.length !== info.rows || info.readings.some((reading) => !reading)) {
+    throw new Error(`open orders must render as engraved order bars: ${JSON.stringify({ rows: info.rows, bars: info.bars, legends: info.legends, readings: info.readings })}`);
   }
   if (info.oldLabels.length > 0) {
     throw new Error(`open-order controls still use old labels: ${info.oldLabels.join(", ")}`);
@@ -2288,6 +2304,9 @@ async function exerciseOpenOrders(page) {
     rows: info.rows,
     empty: info.empty,
     count_text: info.countText,
+    legends: info.legends,
+    readings: info.readings,
+    foot: info.foot,
     buttons: info.buttons.map((button) => ({ text: button.text, disabled: button.disabled, has_reason: !!button.title })),
   };
 }
@@ -2318,6 +2337,14 @@ async function exerciseSettingsTab(page) {
     "#enablePushButton",
     "#safeNotificationTestButton",
     "#safeNotificationTestStatus",
+    // Process evidence relocated from the Alerts log to the System bank.
+    "#governanceHeading",
+    "#governanceCurrentState",
+    "#governanceSummary",
+    "#governanceEvidenceDetails",
+    // The stamped type plate at the foot of the back panel.
+    "#settingsPlateAccount",
+    "#settingsPlateMode",
   ];
   const elements = await page.evaluate((expectedSelectors) => expectedSelectors.map((selector) => {
     const element = document.querySelector(selector);
@@ -2339,6 +2366,32 @@ async function exerciseSettingsTab(page) {
   if (JSON.stringify(notification.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !notification.copy.includes("global for this app host and all paired devices") || !notification.copy.includes("Off stops phone notifications while your in-app history remains") || !notification.copy.includes("Action required sends urgent items only") || !notification.copy.includes("Watch + action also sends review reminders") || !notification.copy.includes("not configured here") || !notification.copy.includes("shared across paired devices")) {
     throw new Error(`Settings notification card is incomplete: ${JSON.stringify(notification)}`);
   }
+  // The back panel: engraved banks, slide switches that print their state,
+  // process evidence seated here rather than under the log, and the stamped
+  // type plate. Presentation only — no control is exercised.
+  const backPanel = await page.evaluate(() => ({
+    banks: [...document.querySelectorAll("#settingsTab .pd-bank")].length,
+    placards: [...document.querySelectorAll("#settingsTab > .settings-panel .pd-placard")].map((el) => el.textContent?.trim() || ""),
+    switches: [...document.querySelectorAll("#settingsTab .pd-sw input")].length,
+    statusCells: [...document.querySelectorAll("#settingsTab .pd-grid--status .pd-tile--cell .pd-tile__legend")].map((el) => el.textContent?.trim() || ""),
+    processSeated: document.getElementById("settingsTab")?.contains(document.getElementById("governanceEvidenceDetails")) === true,
+    plate: document.querySelector("#settingsTab .pd-plate")?.textContent?.trim() || "",
+    plateMode: document.getElementById("settingsPlateMode")?.textContent?.trim() || "",
+  }));
+  for (const placard of ["Notifications", "Workflows", "System", "Status"]) {
+    if (!backPanel.placards.includes(placard)) {
+      throw new Error(`Settings back panel is missing the ${JSON.stringify(placard)} bank: ${JSON.stringify(backPanel.placards)}`);
+    }
+  }
+  if (backPanel.switches !== 2 || JSON.stringify(backPanel.statusCells) !== JSON.stringify(["Trading", "Limits", "Market data", "Build", "Protection", "Policy"])) {
+    throw new Error(`Settings back panel banks are incomplete: ${JSON.stringify(backPanel)}`);
+  }
+  if (!backPanel.processSeated) {
+    throw new Error("process evidence must be seated in the Settings back panel");
+  }
+  if (!backPanel.plate.startsWith("CANARY") || !backPanel.plate.endsWith("MADE FOR ONE DESK") || !backPanel.plateMode) {
+    throw new Error(`Settings type plate is incomplete: ${JSON.stringify(backPanel.plate)}`);
+  }
   const settingWritesAfter = await page.evaluate(() => globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/settings")).length);
   if (settingWritesAfter !== settingWritesBefore) throw new Error("rendered Settings smoke changed the alert delivery setting");
   await page.locator("#tabMonitor").click();
@@ -2346,6 +2399,7 @@ async function exerciseSettingsTab(page) {
   return {
     elements: elements.map((element) => element.selector),
     notification,
+    back_panel: backPanel,
   };
 }
 

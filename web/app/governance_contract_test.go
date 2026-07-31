@@ -50,10 +50,26 @@ func TestGovernanceSurfaceStaticContract(t *testing.T) {
 	if detailsAt < 0 || strings.Contains(html[detailsAt:strings.Index(html[detailsAt:], `>`)+detailsAt], " open") {
 		t.Fatal("governance evidence disclosure must use native details and start closed")
 	}
-	settingsAt := strings.Index(html, `class="settings-notification-card"`)
+	// Matched on the class token, not the whole attribute: the notification
+	// card is now a Panel Dark bank (pd-tile pd-bank settings-notification-card)
+	// and carries several classes. What is pinned is where the control lives.
+	settingsAt := strings.Index(html, `settings-notification-card`)
 	safeTestAt := strings.Index(html, `id="safeNotificationTestButton"`)
 	if settingsAt < 0 || safeTestAt < settingsAt {
 		t.Fatal("safe notification test must live in the visible Settings notification card")
+	}
+	// Process evidence moved to the Settings back panel (WP5): the governance
+	// block must sit inside the Settings tab panel, not the Alerts log.
+	settingsTabAt := strings.Index(html, `id="settingsTab"`)
+	for _, id := range []string{"governanceHeading", "governanceEvidenceDetails", "governanceCutoverReviewButton"} {
+		at := strings.Index(html, `id="`+id+`"`)
+		if at < 0 || at < settingsTabAt {
+			t.Errorf("%q must live in the Settings back panel, not the Alerts tab panel", id)
+		}
+	}
+	// The dwell-gated attention receipt stays with the log it acknowledges.
+	if attentionAt := strings.Index(html, `id="attentionStatus"`); attentionAt < alertsAt || attentionAt > ordersAt {
+		t.Error("attentionStatus must stay inside the Alerts tab panel")
 	}
 }
 

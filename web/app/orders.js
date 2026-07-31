@@ -1,5 +1,5 @@
 import { main } from "./app.js";
-import { $, labelize, protectionWriteConfirmation, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
+import { $, labelize, money, pct, protectionWriteConfirmation, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
 import { state } from "./state.js";
 
 function warningMessages(warnings = []) {
@@ -20,7 +20,7 @@ function renderOpenOrders() {
   if (orders.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-row";
-    empty.textContent = "No open orders available for this view.";
+    empty.textContent = "None working.";
     list.replaceChildren(empty);
     return;
   }
@@ -29,8 +29,18 @@ function renderOpenOrders() {
 
 function openOrderRowElement(order) {
   const row = document.createElement("div");
-  row.className = "open-order-row";
+  row.className = "open-order-row pd-tile pd-order";
   if (order.reconciliation_severity === "critical") row.classList.add("open-order-row--critical");
+  // A journal row the desk previewed and never transmitted is advisory, not a
+  // working order: it takes the advisory lamp, and nothing else on this face
+  // lamps at all. The lamp follows the served lifecycle word.
+  if (orderIsPreviewState(order)) {
+    row.classList.add("pd-tile--info");
+    const bar = document.createElement("span");
+    bar.className = "pd-tile__bar";
+    bar.setAttribute("aria-hidden", "true");
+    row.append(bar);
+  }
   const id = orderIdentity(order);
   const edit = openOrderEdit(order);
   const trading = state.snapshot?.trading || {};
@@ -52,12 +62,11 @@ function openOrderRowElement(order) {
   const main = document.createElement("div");
   main.className = "open-order-row__main";
   const title = document.createElement("b");
-  title.textContent = `${order.action || "--"} ${order.quantity || "--"} ${order.symbol || order.order_ref || "--"}`;
+  title.className = "pd-tile__legend";
+  title.textContent = orderIdentityLegend(order);
   const meta = document.createElement("span");
-  meta.textContent = [
-    orderLifecycleLabel(order.lifecycle_status),
-    orderSendStateLabel(order.send_state),
-  ].filter(Boolean).join(" · ") || "journal view";
+  meta.className = "pd-tile__reading";
+  meta.textContent = orderReadingLine(order);
   meta.title = [
     order.lifecycle_status,
     order.send_state,
@@ -106,10 +115,10 @@ function openOrderRowElement(order) {
       ]
     : [orderEditField("Limit", orderEditNumberInput(order, edit, modifyGate, "limit_price", "Limit price", "Limit"))];
 
-  const fixed = document.createElement("span");
-  fixed.className = "open-order-row__fixed";
-  fixed.textContent = `${order.order_type || "LMT"} / ${order.tif || "DAY"} / ${order.action || "--"}`;
-  editBox.append(orderEditField("Qty", qty), ...priceInputs, fixed);
+  // The order's fixed shape (type, time in force, side) now reads on the
+  // engraved identity legend and reading line above, so the edit box carries
+  // only the fields the desk can actually change.
+  editBox.append(orderEditField("Qty", qty), ...priceInputs);
 
   const controls = document.createElement("div");
   controls.className = "open-order-row__controls";
@@ -130,6 +139,50 @@ function openOrderRowElement(order) {
 
   row.append(main, editBox, controls, status);
   return row;
+}
+
+// The identity legend is engraved served fact and nothing else: the
+// instrument, the side and size the journal recorded, and the order type.
+function orderIdentityLegend(order = {}) {
+  const side = [order.action, order.quantity].filter((part) => part || part === 0).join(" ");
+  const parts = [order.symbol || order.order_ref, side, order.order_type]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean);
+  return parts.join(" · ") || "--";
+}
+
+
+// The reading line is the order's own figures: served price terms, served
+// time in force, served lifecycle words. No status is re-derived here.
+function orderReadingLine(order = {}) {
+  const parts = [
+    ...orderPriceFigures(order),
+    order.tif,
+    orderLifecycleLabel(order.lifecycle_status),
+    orderSendStateLabel(order.send_state),
+  ].map((part) => String(part ?? "").trim()).filter(Boolean);
+  return parts.join(" · ") || "journal view";
+}
+
+
+// Price figures carry the order's own currency; an order without a served
+// currency prints a bare amount rather than borrowing a label it never had.
+function orderPriceFigures(order = {}) {
+  const currency = order.currency || "";
+  const trail = order.trail || {};
+  const figures = [];
+  if (order.limit_price > 0) figures.push(`limit ${money(order.limit_price, currency)}`);
+  if (trail.trailing_amount > 0) figures.push(`trail ${money(trail.trailing_amount, currency)}`);
+  else if (trail.trailing_percent > 0) figures.push(`trail ${pct(trail.trailing_percent)}`);
+  if (trail.initial_stop_price > 0) figures.push(`stop ${money(trail.initial_stop_price, currency)}`);
+  if (trail.limit_offset > 0) figures.push(`offset ${money(trail.limit_offset, currency)}`);
+  return figures;
+}
+
+
+// Preview state is the served journal word: previewed, never transmitted.
+function orderIsPreviewState(order = {}) {
+  return String(order.lifecycle_status || "").trim().toLowerCase() === "previewed";
 }
 
 function orderEditField(labelText, input) {
@@ -490,4 +543,4 @@ function previewToken(preview) {
   return String(preview?.preview_token || "").trim();
 }
 
-export { ORDER_LIFECYCLE_LABELS, ORDER_SEND_STATE_LABELS, applyOrderModify, cancelOpenOrder, modifyApplyDisabledReason, modifyPreviewBody, modifyPreviewLine, modifyPreviewReady, openOrderEdit, openOrderRowElement, openOrderStatusLine, orderActionButton, orderCancelGate, orderEditField, orderEditNumberInput, orderIdentity, orderIsTrail, orderLifecycleLabel, orderModifyGate, orderReductionMax, orderSendStateLabel, previewOrderModify, previewToken, refreshOpenOrders, renderOpenOrders, tradingCancelAllowed };
+export { ORDER_LIFECYCLE_LABELS, ORDER_SEND_STATE_LABELS, applyOrderModify, cancelOpenOrder, modifyApplyDisabledReason, modifyPreviewBody, modifyPreviewLine, modifyPreviewReady, openOrderEdit, openOrderRowElement, openOrderStatusLine, orderActionButton, orderCancelGate, orderEditField, orderEditNumberInput, orderIdentity, orderIdentityLegend, orderIsPreviewState, orderIsTrail, orderLifecycleLabel, orderModifyGate, orderPriceFigures, orderReadingLine, orderReductionMax, orderSendStateLabel, previewOrderModify, previewToken, refreshOpenOrders, renderOpenOrders, tradingCancelAllowed };

@@ -347,9 +347,112 @@
               </div>
               <div class="alert-log" id="alertHistoryList"></div>
             </section>
-            <section class="governance-section" aria-labelledby="governanceHeading">
-              <div class="pd-placard pd-placard--row">
-                <span id="governanceHeading">Process evidence</span>
+            <p class="governance-action-status" id="attentionStatus" role="status"></p>
+          </div>
+        </details>
+      </section>
+
+      <section class="tab-panel tab-panel--orders" id="ordersTab" data-tab-panel="orders" role="tabpanel" aria-labelledby="tabOrders" hidden>
+        <article class="panel orders-panel" id="ordersPanel">
+          <div class="panel-head">
+            <span class="panel-title-with-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 7h14"></path>
+                <path d="M5 12h14"></path>
+                <path d="M5 17h8"></path>
+              </svg>
+              Open Orders
+            </span>
+            <span class="alert-active-count" id="ordersOpenCount">0 open</span>
+            <span class="panel-time" id="ordersAsOf">--</span>
+          </div>
+          <div class="orders-body">
+            <div class="orders-list" id="ordersOpenList"></div>
+            <!-- Engraved foot: the journal states its own authority. Canary
+                 reads and mitigates orders; it never becomes the place an
+                 order is born. -->
+            <div class="pd-lamptest orders-foot">
+              <span>Order journal &middot; read-only &middot; submission stays on the desk</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="tab-panel tab-panel--settings" id="settingsTab" data-tab-panel="settings" role="tabpanel" aria-labelledby="tabSettings" hidden>
+        <article class="panel settings-panel">
+          <div class="panel-head">
+            <span class="panel-title-with-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h7"></path>
+                <path d="M15 7h5"></path>
+                <circle cx="13" cy="7" r="2"></circle>
+                <path d="M4 17h5"></path>
+                <path d="M13 17h7"></path>
+                <circle cx="11" cy="17" r="2"></circle>
+              </svg>
+              Settings
+            </span>
+            <span class="panel-time" id="settingsAsOf">--</span>
+          </div>
+          <div class="settings-stack">
+            <div class="pd-placard">Notifications</div>
+            <section class="pd-tile pd-bank settings-notification-card" aria-labelledby="phoneNotificationsHeading">
+              <div class="pd-set-row">
+                <span class="pd-tile__legend" id="phoneNotificationsHeading">Phone alerts</span>
+                <div class="segments segments--settings" id="alertSegments" aria-label="App-host notification level">
+                  <button type="button" data-mode="none">Off</button>
+                  <button type="button" data-mode="act_only">Action required</button>
+                  <button type="button" data-mode="watch_and_act">Watch + action</button>
+                </div>
+              </div>
+              <div class="pd-set-row">
+                <span class="pd-tile__legend">Push</span>
+                <span class="pd-set-val" id="pushState">status unavailable</span>
+              </div>
+              <div class="pd-set-row">
+                <span class="pd-tile__legend">Delivery</span>
+                <span class="pd-set-keys">
+                  <button class="pd-key" id="enablePushButton" type="button" aria-label="Enable phone notifications">Enable</button>
+                  <button class="pd-key" id="safeNotificationTestButton" type="button" aria-label="Send safe test notification">Safe test</button>
+                </span>
+              </div>
+              <p class="settings-notification-copy">The delivery level is global for this app host and all paired devices. Browser permission and subscription belong only to this browser or installed PWA.</p>
+              <p class="settings-notification-copy">Off stops phone notifications while your in-app history remains. Action required sends urgent items only. Watch + action also sends review reminders.</p>
+              <p class="settings-notification-copy">Risk and process eligibility is not configured here. The unread badge and read state are shared across paired devices.</p>
+              <p class="governance-action-status" id="alertSettingsStatus" role="status"></p>
+              <p class="governance-action-status" id="safeNotificationTestStatus" role="status"></p>
+            </section>
+            <div class="pd-placard">Workflows</div>
+            <div class="pd-tile pd-bank">
+              <div class="pd-set-row">
+                <span class="pd-set-copy">
+                  <span class="pd-tile__legend">Purge / restore</span>
+                  <b class="pd-set-val" id="purgeRestoreSettingState">--</b>
+                  <small class="pd-set-note" id="purgeRestoreSettingMeta">Runtime preference</small>
+                </span>
+                <label class="toggle-switch pd-sw" title="Toggle the purge/restore workflow preference; broker submission remains unavailable">
+                  <input id="purgeRestoreToggle" type="checkbox">
+                  <span></span>
+                  <em class="pd-sw__word" aria-hidden="true"></em>
+                </label>
+              </div>
+              <div class="pd-set-row">
+                <span class="pd-set-copy">
+                  <span class="pd-tile__legend">Stock protection</span>
+                  <b class="pd-set-val" id="stockProtectionSettingState">--</b>
+                  <small class="pd-set-note" id="stockProtectionSettingMeta">Runtime preference</small>
+                </span>
+                <label class="toggle-switch pd-sw" title="Toggle stock and ETF protection proposals">
+                  <input id="stockProtectionToggle" type="checkbox">
+                  <span></span>
+                  <em class="pd-sw__word" aria-hidden="true"></em>
+                </label>
+              </div>
+            </div>
+            <div class="pd-placard">System</div>
+            <section class="pd-tile pd-bank governance-section" aria-labelledby="governanceHeading">
+              <div class="pd-set-row">
+                <span class="pd-tile__legend" id="governanceHeading">Process evidence</span>
                 <span class="pd-chip" id="governanceCurrentState">Unavailable</span>
               </div>
               <p class="governance-summary" id="governanceSummary">Process check status not observed yet.</p>
@@ -400,136 +503,53 @@
                 </section>
               </details>
             </section>
-            <p class="governance-action-status" id="attentionStatus" role="status"></p>
-          </div>
-        </details>
-      </section>
-
-      <section class="tab-panel tab-panel--orders" id="ordersTab" data-tab-panel="orders" role="tabpanel" aria-labelledby="tabOrders" hidden>
-        <article class="panel orders-panel" id="ordersPanel">
-          <div class="panel-head">
-            <span class="panel-title-with-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 7h14"></path>
-                <path d="M5 12h14"></path>
-                <path d="M5 17h8"></path>
-              </svg>
-              Open Orders
-            </span>
-            <span class="alert-active-count" id="ordersOpenCount">0 open</span>
-            <span class="panel-time" id="ordersAsOf">--</span>
-          </div>
-          <div class="orders-body">
-            <div class="orders-list" id="ordersOpenList"></div>
-          </div>
-        </article>
-      </section>
-
-      <section class="tab-panel tab-panel--settings" id="settingsTab" data-tab-panel="settings" role="tabpanel" aria-labelledby="tabSettings" hidden>
-        <article class="panel settings-panel">
-          <div class="panel-head">
-            <span class="panel-title-with-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 7h7"></path>
-                <path d="M15 7h5"></path>
-                <circle cx="13" cy="7" r="2"></circle>
-                <path d="M4 17h5"></path>
-                <path d="M13 17h7"></path>
-                <circle cx="11" cy="17" r="2"></circle>
-              </svg>
-              Settings
-            </span>
-            <span class="panel-time" id="settingsAsOf">--</span>
-          </div>
-          <div class="settings-stack">
-            <section class="settings-notification-card" aria-labelledby="phoneNotificationsHeading">
-              <div class="settings-notification-card__head">
-                <div>
-                  <span>Alerts</span>
-                  <b id="phoneNotificationsHeading">Phone notifications</b>
-                </div>
-                <span id="pushState">status unavailable</span>
+            <div class="pd-placard">Status</div>
+            <div class="pd-grid pd-grid--status">
+              <div class="pd-tile pd-tile--readout pd-tile--cell">
+                <span class="pd-tile__legend">Trading</span>
+                <b class="pd-tile__fig" id="settingsTradingStatus">--</b>
+                <small class="pd-cell__note" id="settingsTradingMeta">--</small>
               </div>
-              <div class="segments segments--settings" id="alertSegments" aria-label="App-host notification level">
-                <button type="button" data-mode="none">Off</button>
-                <button type="button" data-mode="act_only">Action required</button>
-                <button type="button" data-mode="watch_and_act">Watch + action</button>
+              <div class="pd-tile pd-tile--readout pd-tile--cell">
+                <span class="pd-tile__legend">Limits</span>
+                <b class="pd-tile__fig" id="settingsTradingLimits">--</b>
+                <small class="pd-cell__note" id="settingsTradingLimitsMeta">--</small>
               </div>
-              <p class="settings-notification-copy">The delivery level is global for this app host and all paired devices. Browser permission and subscription belong only to this browser or installed PWA.</p>
-              <p class="settings-notification-copy">Off stops phone notifications while your in-app history remains. Action required sends urgent items only. Watch + action also sends review reminders.</p>
-              <p class="settings-notification-copy">Risk and process eligibility is not configured here. The unread badge and read state are shared across paired devices.</p>
-              <p class="governance-action-status" id="alertSettingsStatus" role="status"></p>
-              <div class="settings-notification-actions">
-                <button class="primary" id="enablePushButton" type="button">Enable phone notifications</button>
-                <button class="text-button" id="safeNotificationTestButton" type="button">Send safe test notification</button>
+              <div class="pd-tile pd-tile--readout pd-tile--cell">
+                <span class="pd-tile__legend">Market data</span>
+                <b class="pd-tile__fig" id="settingsMarketDataStatus">--</b>
+                <small class="pd-cell__note" id="settingsMarketDataMeta">--</small>
               </div>
-              <p class="governance-action-status" id="safeNotificationTestStatus" role="status"></p>
-            </section>
-            <div class="settings-row settings-row--toggle">
-              <div>
-                <span>Purge/restore workflow</span>
-                <b id="purgeRestoreSettingState">--</b>
-                <small id="purgeRestoreSettingMeta">Runtime preference</small>
+              <div class="pd-tile pd-tile--readout pd-tile--cell">
+                <span class="pd-tile__legend">Build</span>
+                <b class="pd-tile__fig" id="settingsBuildStatus">--</b>
+                <small class="pd-cell__note" id="settingsBuildMeta">--</small>
               </div>
-              <label class="toggle-switch" title="Toggle the purge/restore workflow preference; broker submission remains unavailable">
-                <input id="purgeRestoreToggle" type="checkbox">
-                <span></span>
-              </label>
+              <div class="pd-tile pd-tile--readout pd-tile--cell">
+                <span class="pd-tile__legend">Protection</span>
+                <b class="pd-tile__fig" id="settingsProtectionStatus">--</b>
+                <small class="pd-cell__note" id="settingsProtectionMeta">--</small>
+              </div>
+              <div class="pd-tile pd-tile--readout pd-tile--cell">
+                <span class="pd-tile__legend">Policy</span>
+                <b class="pd-tile__fig" id="settingsPolicyStatus">--</b>
+                <small class="pd-cell__note" id="settingsPolicyMeta">--</small>
+              </div>
             </div>
-            <div class="settings-row settings-row--toggle">
-              <div>
-                <span>Stock protection</span>
-                <b id="stockProtectionSettingState">--</b>
-                <small id="stockProtectionSettingMeta">Runtime preference</small>
-              </div>
-              <label class="toggle-switch" title="Toggle stock and ETF protection proposals">
-                <input id="stockProtectionToggle" type="checkbox">
-                <span></span>
-              </label>
-            </div>
-            <a class="settings-row settings-row--link" href="https://osauer.dev/canary/feedback/?source=canary-app" target="_blank" rel="noopener">
-              <div>
-                <span>Feedback</span>
-                <b>Share feedback or report issues</b>
-                <small>Bug, feature request, private email, or app comment.</small>
-              </div>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+            <a class="pd-tile pd-bank pd-set-link" href="https://osauer.dev/canary/feedback/?source=canary-app" target="_blank" rel="noopener">
+              <span class="pd-set-copy">
+                <span class="pd-tile__legend">Feedback</span>
+                <b class="pd-set-val">Share feedback or report issues</b>
+                <small class="pd-set-note">Bug, feature request, private email, or app comment.</small>
+              </span>
+              <svg class="pd-set-link__glyph" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M7 17 17 7"></path>
                 <path d="M9 7h8v8"></path>
               </svg>
             </a>
-            <div class="settings-grid">
-              <div class="settings-cell">
-                <span>Trading</span>
-                <b id="settingsTradingStatus">--</b>
-                <small id="settingsTradingMeta">--</small>
-              </div>
-              <div class="settings-cell">
-                <span>Limits</span>
-                <b id="settingsTradingLimits">--</b>
-                <small id="settingsTradingLimitsMeta">--</small>
-              </div>
-              <div class="settings-cell">
-                <span>Market data</span>
-                <b id="settingsMarketDataStatus">--</b>
-                <small id="settingsMarketDataMeta">--</small>
-              </div>
-              <div class="settings-cell">
-                <span>Build</span>
-                <b id="settingsBuildStatus">--</b>
-                <small id="settingsBuildMeta">--</small>
-              </div>
-              <div class="settings-cell">
-                <span>Protection</span>
-                <b id="settingsProtectionStatus">--</b>
-                <small id="settingsProtectionMeta">--</small>
-              </div>
-              <div class="settings-cell">
-                <span>Policy</span>
-                <b id="settingsPolicyStatus">--</b>
-                <small id="settingsPolicyMeta">--</small>
-              </div>
-            </div>
+            <!-- Type plate: the served identity of the one desk this build
+                 answers to, masked by the same eye toggle as the header. -->
+            <div class="pd-plate">CANARY &middot; <span id="settingsPlateAccount">--</span> &middot; <span id="settingsPlateMode">--</span> &middot; MADE FOR ONE DESK</div>
           </div>
         </article>
       </section>

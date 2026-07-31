@@ -22,6 +22,17 @@ tags for affected symbols, including long holdings where borrow pressure is
 observational squeeze context. Stale or unknown sources stay visible with
 source/as-of detail instead of disappearing.
 
+Settings is the instrument's back panel: engraved banks for Notifications,
+Workflows, System (process evidence, moved here from the Alerts log), and
+Status, plus the stamped type plate at the foot. Orders is a read-only journal
+of order bars; submission stays on the desk.
+
+A Monitor window whose served source health is anything but `ok` goes dead
+rather than calm: no severity tint, the caption naming the served fault word,
+and the last-good figure kept with its served as-of. The lamp-test stamp names
+the same faults, so a dead window can never sit under a stamp that says every
+feed is fine.
+
 Start the app host on the Mac that runs TWS or IB Gateway:
 
 ```sh
@@ -41,7 +52,7 @@ require pairing again: the old session cookie is in-memory, but the browser can
 mint a new session from its saved device key/secret.
 
 The app host keeps one push-alert setting, `alert_settings.mode` — `none`,
-`act_only`, or `watch_and_act` — changed from the PWA's Alerts tab (`PUT
+`act_only`, or `watch_and_act` — changed from the PWA's Settings tab (`PUT
 /api/alerts/settings`) and stored with the paired-device state under
 `CANARY_APP_STATE_DIR`.
 

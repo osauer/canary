@@ -303,14 +303,53 @@ function stressExplanationCards(stress, snap = state.snapshot || {}) {
 // The Stress window: served severity as the caption, served action and the
 // portfolio cushion as the figure. The full served summary stays one hover
 // (and one tap into the detail panel) away rather than crowding the tile.
+//
+// When the served transport says the stress payload is stale or unavailable
+// the window goes dead instead of lamping a severity nobody measured: the
+// retained last-good reading stays, stamped with the served time it was last
+// good, and the caption names the fault in the daemon's own word.
 function renderStressStatus(stress, snap = state.snapshot || {}) {
-  applyTileSeverity($("stressHero"), String(stress.severity || "").toLowerCase());
-  $("stressSeverity").textContent = labelize(stress.severity || "--");
+  const fault = sourceTransportFault(snap, "stress");
+  applyTileSeverity($("stressHero"), fault ? "stale" : String(stress.severity || "").toLowerCase());
+  $("stressSeverity").textContent = fault ? faultCaption(fault) : labelize(stress.severity || "--");
   $("stressAction").textContent = stressStageLabel(stress);
   const summary = $("stressSummary");
   const full = stressSummaryText(stress, snap);
-  summary.textContent = stressCushionFigure(stress);
-  summary.title = full;
+  summary.textContent = fault ? staleFigure(stressCushionFigure(stress), fault.asOf) : stressCushionFigure(stress);
+  summary.title = fault ? `${full} (${fault.reason}; last good ${indicatorAsOfLabel(fault.asOf)})` : full;
+}
+
+
+// One fault vocabulary for every dead window: "Fault" plus the served word
+// that explains it, and never a word this renderer invented.
+function faultCaption(fault = null) {
+  const reason = cleanDetail(fault?.reason);
+  return reason === "--" ? "Fault" : `Fault · ${reason}`;
+}
+
+
+// A dead window keeps its last-good figure and stamps it with the served
+// as-of, so an old number can never be mistaken for a current one.
+function staleFigure(reading, asOf) {
+  const at = indicatorAsOfLabel(asOf);
+  if (!reading || reading === "--") return at === "--" ? "Reading pending" : `Last ${at}`;
+  return at === "--" ? reading : `${reading} · last ${at}`;
+}
+
+
+// sourceTransportFault reads the app snapshot's served per-source transport
+// record: state/reason say whether the retained payload is current, stale or
+// unavailable. The lamp-test stamp names exactly these faults, so a window
+// derived from this cannot contradict the stamp above it.
+function sourceTransportFault(snap = {}, name) {
+  const meta = snap.sources?.[name];
+  if (!meta) return null;
+  const transport = String(meta.state || "").trim().toLowerCase();
+  if (!meta.error && transport !== "stale" && transport !== "unavailable") return null;
+  return {
+    reason: cleanDetail(meta.reason || transport || "unavailable"),
+    asOf: meta.last_success_at || "",
+  };
 }
 
 
@@ -783,9 +822,14 @@ function lampTestSources(snap = {}, stress = {}) {
     }
     faults.push(`${clusterInputLabel(name)} ${status}`);
   }
+  // App-transport failures arrive two ways: a served error string, or a served
+  // state of stale/unavailable with no error at all (how stress, regime, rules
+  // and brief report a failed poll). Reading only the first left a dead window
+  // sitting under a silent stamp, so both are named here.
   for (const [name, meta] of Object.entries(snap.sources || {})) {
-    if (!meta?.error) continue;
-    faults.push(`${snapshotSourceName(name)} unavailable`);
+    const transport = String(meta?.state || "").trim().toLowerCase();
+    if (!meta?.error && transport !== "unavailable" && transport !== "stale") continue;
+    faults.push(`${snapshotSourceName(name)} ${meta?.error || transport === "unavailable" ? "unavailable" : "stale"}`);
   }
   return { ok, total: seen.size, faults: [...new Set(faults)] };
 }
@@ -814,6 +858,7 @@ function renderRegimeGrid(snap = {}, stress = {}) {
 
 function regimeClusterTile(cluster, snap = {}, stress = {}) {
   const band = regimeClusterBand(cluster, snap, stress);
+  const fault = band === "stale" ? clusterFault(cluster, snap, stress) : null;
   const lead = clusterLeadIndicator(cluster, stress);
   const tile = document.createElement("div");
   tile.className = "pd-tile";
@@ -826,19 +871,19 @@ function regimeClusterTile(cluster, snap = {}, stress = {}) {
   legend.textContent = cluster.legend;
   const cap = document.createElement("b");
   cap.className = "pd-tile__cap";
-  cap.textContent = clusterCaption(lead, band);
+  cap.textContent = clusterCaption(lead, band, fault);
   const fig = document.createElement("div");
   fig.className = "pd-tile__fig";
-  fig.textContent = clusterFigure(lead, band);
+  fig.textContent = clusterFigure(lead, band, fault);
   tile.append(bar, legend, cap, fig);
   // No trip anchor: the app snapshot's indicators carry no served threshold
   // bands, so the tile shows the reading the daemon did serve and keeps the
   // rest of that evidence in the title rather than inventing a cutoff.
-  tile.title = [lead.name, lead.reading, lead.comment, indicatorAsOfLabel(lead.as_of)]
+  tile.title = [lead.name, lead.reading, lead.comment, indicatorAsOfLabel(lead.as_of || fault?.asOf)]
     .map((part) => humanizeStalenessSeconds(cleanDetail(part)))
     .filter((part) => part && part !== "--")
     .join(" · ");
-  tile.setAttribute("aria-label", `${cluster.legend} ${clusterCaption(lead, band)}`);
+  tile.setAttribute("aria-label", `${cluster.legend} ${clusterCaption(lead, band, fault)}`);
   return tile;
 }
 
@@ -847,12 +892,17 @@ function regimeClusterTile(cluster, snap = {}, stress = {}) {
 // back to its reading and then to the served band word. Nothing is composed
 // from the numbers here — a caption this renderer wrote would be analysis
 // the daemon never published.
-function clusterCaption(lead = {}, band = "") {
+//
+// A dead window is the exception: a served comment describing a reading the
+// daemon no longer trusts would read as a live verdict, so the caption states
+// the fault and its served reason word instead.
+function clusterCaption(lead = {}, band = "", fault = null) {
+  if (band === "stale") return faultCaption(fault);
   for (const source of [lead.comment, lead.reading]) {
     const clause = leadingClause(source);
     if (clause) return clause;
   }
-  return band === "stale" ? "Fault" : labelize(band || "no read");
+  return labelize(band || "no read");
 }
 
 
@@ -863,27 +913,80 @@ function leadingClause(value) {
   return text === "--" ? "" : text;
 }
 
-function clusterFigure(lead = {}, band = "") {
+function clusterFigure(lead = {}, band = "", fault = null) {
   const reading = humanizeStalenessSeconds(cleanDetail(lead.reading));
+  // Dead window: keep the last-good figure and stamp it with the served
+  // as-of, so the number stays available without pretending to be current.
+  if (band === "stale") return staleFigure(reading, lead.as_of || fault?.asOf);
   if (reading !== "--") return reading;
-  const at = indicatorAsOfLabel(lead.as_of);
-  if (band === "stale" && at !== "--") return `Last ${at}`;
   return "Reading pending";
+}
+
+
+// The daemon's own data-quality cluster lists, each with the word it puts on
+// the window when the cluster is named in it. The word is the daemon's, never
+// this renderer's.
+const CLUSTER_FAULT_LISTS = [
+  ["stale_clusters", "stale"],
+  ["degraded_clusters", "degraded"],
+  ["partial_clusters", "partial"],
+  ["computing_clusters", "computing"],
+  ["ambiguous_clusters", "ambiguous"],
+];
+
+
+// clusterFault is the served reason a window cannot be read: the stress
+// market summary's data-quality lists first, then the per-cluster source
+// health the lamp-test stamp counts. Both are served; nothing is timed here,
+// so there is no client-side staleness threshold to drift from the daemon's.
+function clusterFault(cluster, snap = {}, stress = {}) {
+  const market = stress.market || {};
+  for (const [field, word] of CLUSTER_FAULT_LISTS) {
+    if (clusterNameListed(market[field], cluster)) return { reason: word, asOf: clusterSourceAsOf(cluster, snap, stress) };
+  }
+  return clusterSourceFault(cluster, snap, stress);
+}
+
+
+// The served source-health rows for this cluster's inputs, deduplicated the
+// same way the lamp-test stamp deduplicates them (first served row per source
+// name wins) so the window and the stamp read the same evidence.
+function clusterSourceRows(cluster, snap = {}, stress = {}) {
+  const rows = new Map();
+  for (const source of [...(snap.regime?.source_health || []), ...(stress.source_health || [])]) {
+    const name = String(source?.source || "").trim().toLowerCase();
+    if (!name || rows.has(name) || !cluster.sources.includes(name)) continue;
+    rows.set(name, source);
+  }
+  return [...rows.values()];
+}
+
+
+// A source is faulted whenever its served status is anything but ok — exactly
+// the predicate lampTestSources counts. Reading the same field twice is what
+// keeps a dead window from ever sitting under a stamp that says all lit.
+function clusterSourceFault(cluster, snap = {}, stress = {}) {
+  for (const source of clusterSourceRows(cluster, snap, stress)) {
+    const status = String(source?.status || "").trim().toLowerCase();
+    if (!status || status === "ok") continue;
+    return { reason: status, asOf: source.as_of || "" };
+  }
+  return null;
+}
+
+function clusterSourceAsOf(cluster, snap = {}, stress = {}) {
+  return clusterSourceRows(cluster, snap, stress).map((source) => source?.as_of).find(Boolean) || "";
 }
 
 
 // The band is the daemon's own cluster verdict, in served-authority order:
 // the regime lifecycle's per-cluster evidence, then the stress market
 // summary's cluster-name lists, and only then the worst served indicator
-// status inside the cluster. Data-quality cluster lists win over all of them
-// — a window whose input is stale must read as a dead window, not as calm.
+// status inside the cluster. Served data-quality wins over all of them — a
+// window whose input is stale must read as a dead window, not as calm.
 function regimeClusterBand(cluster, snap = {}, stress = {}) {
   const market = stress.market || {};
-  const degraded = [
-    market.stale_clusters, market.degraded_clusters, market.partial_clusters,
-    market.computing_clusters, market.ambiguous_clusters,
-  ];
-  if (degraded.some((names) => clusterNameListed(names, cluster))) return "stale";
+  if (clusterFault(cluster, snap, stress)) return "stale";
   for (const item of snap.regime?.lifecycle?.evidence || []) {
     if (String(item?.signal || "").toLowerCase() !== "cluster") continue;
     if (!cluster.sources.includes(String(item?.source || "").trim().toLowerCase())) continue;
@@ -1704,4 +1807,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { applyTileSeverity, bandRank, clusterCaption, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, detailCard, earningsApplicabilitySummary, earningsHealthNotes, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

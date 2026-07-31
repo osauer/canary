@@ -1,9 +1,12 @@
 import { renderProtectionPanel } from "./protection.js";
-import { $, currentSettings, labelize, money, purgeRestoreSettingEnabled, renderFreshnessTimestamp, stockProtectionSettingEnabled } from "./shared.js";
+import { $, currentSettings, labelize, money, purgeRestoreSettingEnabled, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
 import { state } from "./state.js";
-import { renderUnderlyings } from "./underlyings.js";
+import { currentAccountContext, renderUnderlyings } from "./underlyings.js";
 
 function renderSettings() {
+  // The type plate is identity, not preference: it stamps even when the
+  // settings payload has not been served yet.
+  renderSettingsPlate();
   const settings = currentSettings();
   if (!settings || !settings.kind) return;
   state.settings = settings;
@@ -35,6 +38,17 @@ function renderSettings() {
   $("settingsBuildStatus").textContent = settings.build?.channel?.value || "stable";
   $("settingsBuildMeta").textContent = settings.build?.experimental_trading_note || "Build-controlled capability";
   renderProtectionSettings(settings.auto_trade || {}, state.snapshot?.auto_trade || {});
+}
+
+// The stamped type plate at the foot of the back panel: the same served
+// identity the header carries, under the same privacy mask. It reads
+// "CANARY · <account> · <MODE> · MADE FOR ONE DESK" — a machine built for one
+// desk, and it says so.
+function renderSettingsPlate() {
+  const account = currentAccountContext(state.snapshot?.account || {});
+  renderSensitiveAccountId("settingsPlateAccount", account.accountId, account.accountLabel);
+  const mode = $("settingsPlateMode");
+  if (mode) mode.textContent = account.modeLabel;
 }
 
 function settingMeta(field = {}) {
@@ -197,4 +211,4 @@ async function setStockProtectionEnabled(enabled) {
   renderProtectionPanel(state.snapshot?.proposals || {}, state.snapshot?.auto_trade || {}, state.snapshot?.market_events || {});
 }
 
-export { renderProtectionSettings, renderSettings, setPurgeRestoreEnabled, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };
+export { renderProtectionSettings, renderSettings, renderSettingsPlate, setPurgeRestoreEnabled, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };
