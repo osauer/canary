@@ -1110,6 +1110,7 @@ var ExcludedCLI = map[string]string{
 	"setup":    "local configuration verb (writes claude_desktop_config.json); not a daemon RPC, no LLM should ever call it",
 	"update":   "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
 	"restart":  "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
+	"stop":     "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",
 	"backtest": "offline research harness over local JSONL fixtures; not a live broker/MCP operation",
 	"purge":    "emergency local-terminal purge-book workflow; deliberately withheld from MCP until execution/review safety is proven",
 	"policy":   "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence",

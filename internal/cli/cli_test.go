@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -181,6 +182,50 @@ func TestCommandRegistryConsistency(t *testing.T) {
 	// for the "run this first" UX.
 	if commands[0].Name != "status" {
 		t.Errorf("commands[0] = %q, want status", commands[0].Name)
+	}
+}
+
+// The help listing is the discovery surface: every command must appear
+// exactly once, under its own group, on a line that fits an 80-column
+// terminal without wrapping.
+func TestPrintUsageGroupsEveryCommandOnOneLine(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	PrintUsage(&buf)
+
+	group := ""
+	listed := map[string]string{}
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		for _, spec := range HelpGroups() {
+			if strings.HasPrefix(line, spec.Title+" — ") {
+				group = string(spec.Group)
+			}
+		}
+		fields := strings.Fields(line)
+		if !strings.HasPrefix(line, "  ") || len(fields) == 0 {
+			continue
+		}
+		if _, known := lookupCommand(fields[0]); !known {
+			continue
+		}
+		if width := utf8.RuneCountInString(line); width > 80 {
+			t.Errorf("%s wraps an 80-column terminal at %d columns: %q", fields[0], width, line)
+		}
+		if previous, dupe := listed[fields[0]]; dupe {
+			t.Errorf("%s is listed twice (%s and %s)", fields[0], previous, group)
+		}
+		listed[fields[0]] = group
+	}
+
+	for _, spec := range Catalog() {
+		got, ok := listed[spec.Name]
+		if !ok {
+			t.Errorf("%s is missing from the help listing", spec.Name)
+			continue
+		}
+		if got != string(spec.Group) {
+			t.Errorf("%s listed under %q, catalog says %q", spec.Name, got, spec.Group)
+		}
 	}
 }
 

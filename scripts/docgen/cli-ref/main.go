@@ -36,6 +36,10 @@ var commandNotes = map[string]string{
 		"Each needs an explicit human instruction for that exact order.",
 	"opportunities": "Opportunity detection is advisory. Only `exercise` reaches the broker, and it needs an explicit human instruction for that exact action.",
 	"trading":       "`status` reads the local gate. `paper-smoke` is a release check that places one far-off-market paper order and cancels it, so it needs a paper account and an explicit human instruction.",
+	"stop": "Stopping is local process management: it signals the daemon and the app on this machine and reaches no broker. Orders already working stay at the broker, but nothing local watches them until the daemon runs again — no fills or cancels in the journal, no protection proposals, no phone alerts. " +
+		"So `stop` asks before it stops a daemon that still has work in flight, the same work its own idle shutdown defers on, and `--yes` is how a script answers. " +
+		"`--force` only escalates a stuck process from SIGTERM to SIGKILL after `--timeout`; it never widens what is stopped. " +
+		"MCP servers belong to the AI client that started them and are reported, never signalled.",
 	"settings": "`show` reads. `set` writes a runtime preference, and the write path has its own gate: `trading.freeze` and the trading-limit keys are accepted only from an interactive human terminal, and agent and paired-device origins are rejected. " +
 		"The keys are listed in the [configuration reference](config.md).",
 }
@@ -81,16 +85,19 @@ func render(specs []cli.CommandSpec) string {
 	out.WriteString("Standard builds have no broker-write path compiled in at all. The separate trading build adds one, and it still requires a verified gateway session, a submit-eligible preview token where one applies, a local journal entry, daemon authorization, and `trading.freeze` set to false. ")
 	out.WriteString("Nothing on this page grants any of that.\n\n")
 
+	out.WriteString("The group column is the heading a command appears under in `canary --help`: Desk is the account, its positions, orders and risk; Markets is quotes, chains, screens and regime research; System is running Canary itself. ")
+	out.WriteString("It is a reading aid for a long command list and says nothing about what a command may do — that is the guard.\n\n")
+
 	out.WriteString("## Command summary\n\n")
-	out.WriteString("| Command | Summary | Guard | MCP tool |\n")
-	out.WriteString("|---------|---------|-------|----------|\n")
+	out.WriteString("| Command | Group | Summary | Guard | MCP tool |\n")
+	out.WriteString("|---------|-------|---------|-------|----------|\n")
 	for _, spec := range specs {
 		counterpart := "yes"
 		if _, cliOnly := mcp.ExcludedCLI[spec.Name]; cliOnly {
 			counterpart = "CLI only"
 		}
-		fmt.Fprintf(out, "| [`canary %s`](#canary-%s) | %s | `%s` | %s |\n",
-			spec.Name, spec.Name, escapeTable(spec.Summary), strictestGuard(spec), counterpart)
+		fmt.Fprintf(out, "| [`canary %s`](#canary-%s) | %s | %s | `%s` | %s |\n",
+			spec.Name, spec.Name, groupTitle(spec.Group), escapeTable(spec.Summary), strictestGuard(spec), counterpart)
 	}
 	out.WriteString("\n")
 
@@ -199,6 +206,16 @@ var guardRank = map[cli.GuardClass]int{
 	cli.GuardReadOnly: 0,
 	cli.GuardLocal:    1,
 	cli.GuardConfirm:  2,
+}
+
+// groupTitle renders a help group the way the terminal listing heads it.
+func groupTitle(group cli.HelpGroup) string {
+	for _, spec := range cli.HelpGroups() {
+		if spec.Group == group {
+			return spec.Title
+		}
+	}
+	return string(group)
 }
 
 func strictestGuard(spec cli.CommandSpec) cli.GuardClass {

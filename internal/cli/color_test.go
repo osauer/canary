@@ -379,8 +379,10 @@ func TestRunUnknownPrintsUsage(t *testing.T) {
 	if !strings.Contains(out, `unknown subcommand "quotee"`) {
 		t.Errorf("missing error line:\n%s", out)
 	}
-	if !strings.Contains(out, "Subcommands:") {
-		t.Errorf("expected full usage in stderr:\n%s", out)
+	for _, group := range HelpGroups() {
+		if !strings.Contains(out, group.Title+" — ") {
+			t.Errorf("expected the %s group in stderr:\n%s", group.Title, out)
+		}
 	}
 	if !strings.Contains(out, "canary <subcommand> --help") {
 		t.Errorf("expected --help hint in stderr:\n%s", out)

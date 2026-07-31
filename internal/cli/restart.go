@@ -54,6 +54,21 @@ type restartDeps struct {
 	startAndHealth func(context.Context, string, io.Writer, bool) (int, rpc.HealthResult, error)
 }
 
+// signalPolicy is the graceful-stop budget shared by `restart` and `stop`:
+// SIGTERM, wait up to timeout, and escalate to SIGKILL only when force is
+// set. quiet suppresses progress lines for the machine-readable modes.
+type signalPolicy struct {
+	force   bool
+	quiet   bool
+	timeout time.Duration
+	out     io.Writer
+	err     io.Writer
+}
+
+func (o *restartOptions) signalPolicy() signalPolicy {
+	return signalPolicy{force: o.force, quiet: o.jsonOut, timeout: o.timeout, out: o.out, err: o.err}
+}
+
 type restartResult struct {
 	Action     string            `json:"action"`
 	Target     string            `json:"target"`
@@ -376,7 +391,7 @@ func quiesceAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps 
 			plan.args = append([]string(nil), proc.Args...)
 		}
 		plan.result.Args = append([]string(nil), plan.args...)
-		forced, exit := stopAppWithPolicy(opts, deps, prefix, proc.PID)
+		forced, exit := stopAppWithPolicy(opts.signalPolicy(), deps, prefix, proc.PID)
 		if exit != 0 {
 			return plan, exit
 		}
@@ -419,7 +434,7 @@ func quiesceSupervisedAppForDaemonRestart(ctx context.Context, opts *restartOpti
 		plan.result.OldPID = proc.PID
 		plan.result.OldCommand = proc.Command
 		if proc.PID != sup.PID {
-			forced, exit := stopAppWithPolicy(opts, deps, prefix, proc.PID)
+			forced, exit := stopAppWithPolicy(opts.signalPolicy(), deps, prefix, proc.PID)
 			if exit != 0 {
 				return plan, exit
 			}
@@ -512,32 +527,13 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 		res.Foreground = proc.Foreground
 		res.SocketPath = proc.SocketPath
 		res.LockPath = proc.LockPath
-		stopErr := deps.stop(proc.PID, opts.timeout)
-		if stopErr != nil {
-			if !opts.force || !errors.Is(stopErr, update.ErrStopTimeout) {
-				fmt.Fprintf(opts.err, "%s restart: %v\n", productidentity.Executable, stopErr)
-				if !opts.force && errors.Is(stopErr, update.ErrStopTimeout) {
-					fmt.Fprintf(opts.err, "%s restart: re-run with --force to send SIGKILL after the graceful timeout\n", productidentity.Executable)
-				}
-				return res, 1
-			}
-			if !opts.jsonOut {
-				fmt.Fprintf(opts.out, "%s restart: daemon pid %d ignored SIGTERM; forcing SIGKILL\n", productidentity.Executable, proc.PID)
-			}
-			if err := deps.kill(proc.PID, opts.timeout); err != nil {
-				fmt.Fprintf(opts.err, "%s restart: %v\n", productidentity.Executable, err)
-				return res, 1
-			}
-			res.Forced = true
-		} else {
-			res.Graceful = true
+		forced, exit := stopDaemonWithPolicy(opts.signalPolicy(), deps, productidentity.Executable+" restart", proc.PID)
+		if exit != 0 {
+			return res, exit
 		}
+		res.Forced = forced
+		res.Graceful = !forced
 		if !opts.jsonOut {
-			mode := "gracefully"
-			if res.Forced {
-				mode = "with SIGKILL"
-			}
-			fmt.Fprintf(opts.out, "%s restart: stopped daemon pid %d %s\n", productidentity.Executable, proc.PID, mode)
 			fmt.Fprintf(opts.out, "%s restart: starting daemon (waiting up to %s for readiness)\n", productidentity.Executable, startupBudget)
 		}
 	case errors.Is(err, update.ErrDaemonNotRunning):
@@ -633,7 +629,7 @@ func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, 
 			args = append([]string(nil), proc.Args...)
 		}
 		finalizeArgs()
-		forced, exit := stopAppWithPolicy(opts, deps, prefix, proc.PID)
+		forced, exit := stopAppWithPolicy(opts.signalPolicy(), deps, prefix, proc.PID)
 		if exit != 0 {
 			return res, true, exit
 		}
@@ -694,31 +690,40 @@ func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, 
 // stopAppWithPolicy SIGTERMs pid with the graceful/force policy shared by
 // the supervised and unsupervised restart paths, reporting forced=true when
 // SIGKILL was needed. A non-zero exit means the stop failed.
-func stopAppWithPolicy(opts *restartOptions, deps appRestartDeps, prefix string, pid int) (forced bool, exit int) {
-	stopErr := deps.stop(pid, opts.timeout)
+func stopAppWithPolicy(policy signalPolicy, deps appRestartDeps, prefix string, pid int) (forced bool, exit int) {
+	return signalProcessWithPolicy(policy, deps.stop, deps.kill, errAppStopTimeout, prefix, "app", pid)
+}
+
+// stopDaemonWithPolicy is stopAppWithPolicy for the daemon process.
+func stopDaemonWithPolicy(policy signalPolicy, deps restartDeps, prefix string, pid int) (forced bool, exit int) {
+	return signalProcessWithPolicy(policy, deps.stop, deps.kill, update.ErrStopTimeout, prefix, "daemon", pid)
+}
+
+func signalProcessWithPolicy(policy signalPolicy, stop, kill func(int, time.Duration) error, timeoutErr error, prefix, target string, pid int) (forced bool, exit int) {
+	stopErr := stop(pid, policy.timeout)
 	if stopErr != nil {
-		if !opts.force || !errors.Is(stopErr, errAppStopTimeout) {
-			fmt.Fprintf(opts.err, "%s: %v\n", prefix, stopErr)
-			if !opts.force && errors.Is(stopErr, errAppStopTimeout) {
-				fmt.Fprintf(opts.err, "%s: re-run with --force to send SIGKILL after the graceful timeout\n", prefix)
+		if !policy.force || !errors.Is(stopErr, timeoutErr) {
+			fmt.Fprintf(policy.err, "%s: %v\n", prefix, stopErr)
+			if !policy.force && errors.Is(stopErr, timeoutErr) {
+				fmt.Fprintf(policy.err, "%s: re-run with --force to send SIGKILL after the graceful timeout\n", prefix)
 			}
 			return false, 1
 		}
-		if !opts.jsonOut {
-			fmt.Fprintf(opts.out, "%s: app pid %d ignored SIGTERM; forcing SIGKILL\n", prefix, pid)
+		if !policy.quiet {
+			fmt.Fprintf(policy.out, "%s: %s pid %d ignored SIGTERM; forcing SIGKILL\n", prefix, target, pid)
 		}
-		if err := deps.kill(pid, opts.timeout); err != nil {
-			fmt.Fprintf(opts.err, "%s: %v\n", prefix, err)
+		if err := kill(pid, policy.timeout); err != nil {
+			fmt.Fprintf(policy.err, "%s: %v\n", prefix, err)
 			return false, 1
 		}
 		forced = true
 	}
-	if !opts.jsonOut {
+	if !policy.quiet {
 		mode := "gracefully"
 		if forced {
 			mode = "with SIGKILL"
 		}
-		fmt.Fprintf(opts.out, "%s: stopped app pid %d %s\n", prefix, pid, mode)
+		fmt.Fprintf(policy.out, "%s: stopped %s pid %d %s\n", prefix, target, pid, mode)
 	}
 	return forced, 0
 }
@@ -788,7 +793,7 @@ func restartSupervisedApp(ctx context.Context, opts *restartOptions, deps appRes
 			if !opts.jsonOut {
 				fmt.Fprintf(opts.out, "%s: stopping unsupervised app pid %d so the launchd job can own the app again\n", prefix, proc.PID)
 			}
-			forced, exit := stopAppWithPolicy(opts, deps, prefix, proc.PID)
+			forced, exit := stopAppWithPolicy(opts.signalPolicy(), deps, prefix, proc.PID)
 			if exit != 0 {
 				return res, true, exit
 			}

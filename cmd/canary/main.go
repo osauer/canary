@@ -115,6 +115,15 @@ func main() {
 		os.Exit(cli.RunRestart(ctx, rest, os.Stdout, os.Stderr))
 	}
 
+	// `canary stop` is the same local process management, and must clear the
+	// autospawn path for a sharper reason: dialling first would start the
+	// daemon this command exists to stop.
+	if cmd == "stop" {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		os.Exit(cli.RunStop(ctx, rest, os.Stdin, os.Stdout, os.Stderr))
+	}
+
 	color := cli.ShouldColor(os.Stdout)
 
 	// `canary watch` defaults to the quote monitor, but add/remove/list/clear

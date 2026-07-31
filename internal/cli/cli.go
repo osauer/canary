@@ -216,6 +216,7 @@ func init() {
 		{"setup", "Wire Canary into a local AI client (default: claude-desktop)", "canary setup [claude-desktop]", nil},                                               // dispatched in cmd/canary/main.go — no daemon contact
 		{"update", "Self-update the Canary binary from the latest GitHub release", "canary update [--check] [--force] [--restart|--no-restart]", nil},                 // dispatched in cmd/canary/main.go — no daemon contact
 		{"restart", "Gracefully restart the daemon and any running app process", "canary restart [--app] [--force] [--timeout 15s] [--json]", nil},                    // dispatched in cmd/canary/main.go — process management
+		{"stop", "Stop the local daemon and app processes", "canary stop [--app] [--daemon] [--force] [--timeout 15s] [--yes] [--json]", nil},                         // dispatched in cmd/canary/main.go — process management
 		{"version", "Print version, commit, build date", "canary version", nil},                                                                                       // version is handled in cmd/canary/main.go before dispatch
 	}
 	for i := range commands {
@@ -254,18 +255,23 @@ func Commands() []Command {
 	return out
 }
 
-// PrintUsage writes the top-level help text. The subcommand list is
-// followed by global hints — most importantly the per-command --help
-// pointer, since users discovering the tool need to know that every
-// subcommand has its own flag list.
+// PrintUsage writes the top-level help text. Commands are listed under their
+// catalog group, in registry order inside each one, so `status` stays the
+// first line. The listing shows the catalog's short form and the full summary
+// stays in `canary <subcommand> --help` — a flat list of 36 long summaries
+// wraps into a wall on an 80-column terminal.
 func PrintUsage(w io.Writer) {
 	fmt.Fprintf(w, "%s — local trading harness (Interactive Brokers connectivity; broker writes are gated)\n", productidentity.ProductName)
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Usage: %s <subcommand> [flags] [args]\n", productidentity.Executable)
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Subcommands:")
-	for _, c := range commands {
-		fmt.Fprintf(w, "  %-10s  %s\n", c.Name, c.Summary)
+	specs := Catalog()
+	for _, group := range HelpGroups() {
+		fmt.Fprintf(w, "\n%s — %s\n", group.Title, group.Tagline)
+		for _, spec := range specs {
+			if spec.Group == group.Group {
+				fmt.Fprintf(w, "  %-13s  %s\n", spec.Name, spec.listing())
+			}
+		}
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Run `%s <subcommand> --help` to see the flags it supports.\n", productidentity.Executable)

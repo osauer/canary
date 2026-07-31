@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestCatalogCoversCommands(t *testing.T) {
 	t.Parallel()
@@ -30,6 +33,12 @@ func TestCatalogCoversCommands(t *testing.T) {
 		}
 		if spec.TUI == "" {
 			t.Fatalf("%s missing TUI support", cmd.Name)
+		}
+		if spec.Group == "" {
+			t.Fatalf("%s missing help group", cmd.Name)
+		}
+		if !slices.ContainsFunc(HelpGroups(), func(g HelpGroupSpec) bool { return g.Group == spec.Group }) {
+			t.Fatalf("%s has help group %q, which HelpGroups does not render", cmd.Name, spec.Group)
 		}
 	}
 }

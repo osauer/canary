@@ -24,6 +24,7 @@ var skillExcluded = map[string]string{
 	"setup":    "interactive first-run wizard",
 	"update":   "binary self-update is a human decision",
 	"purge":    "destructive emergency workflow, deliberately human-only",
+	"stop":     "stops the daemon and app other sessions and the paired phone are using; a human decision, not an agent step",
 	"backtest": "offline research harness; only the read-only research-opportunity subcommand is allowlisted explicitly",
 }
 
