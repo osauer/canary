@@ -1,7 +1,7 @@
 // Command test-shard runs one Go package's complete test inventory in a
-// deterministic set of sequential processes. It is intentionally package
-// scoped: packages are already Go's normal unit of isolation, and only an
-// oversized package should need another boundary.
+// deterministic set of bounded parallel processes. It is intentionally
+// package scoped: packages are already Go's normal unit of isolation, and only
+// an oversized package should need another boundary.
 package main
 
 import (
@@ -25,6 +25,7 @@ const inventoryPattern = `^(Test|Example|Fuzz)`
 type config struct {
 	packagePath string
 	shards      int
+	workers     int
 	race        bool
 	tags        string
 	timeout     time.Duration
@@ -58,7 +59,8 @@ func parseConfig(args []string, stderr io.Writer) (config, error) {
 	flags := flag.NewFlagSet("test-shard", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&cfg.packagePath, "package", "", "exact Go package to test")
-	flags.IntVar(&cfg.shards, "shards", 4, "number of sequential test processes")
+	flags.IntVar(&cfg.shards, "shards", 4, "number of test processes")
+	flags.IntVar(&cfg.workers, "workers", 1, "maximum test processes to run concurrently")
 	flags.BoolVar(&cfg.race, "race", false, "enable the Go race detector")
 	flags.StringVar(&cfg.tags, "tags", "", "comma-separated Go build tags")
 	flags.DurationVar(&cfg.timeout, "timeout", 240*time.Second, "timeout for each shard")
@@ -73,6 +75,12 @@ func parseConfig(args []string, stderr io.Writer) (config, error) {
 	}
 	if cfg.shards < 1 {
 		return config{}, errors.New("-shards must be at least 1")
+	}
+	if cfg.workers < 1 {
+		return config{}, errors.New("-workers must be at least 1")
+	}
+	if cfg.workers > cfg.shards {
+		return config{}, errors.New("-workers must not exceed -shards")
 	}
 	if cfg.timeout <= 0 {
 		return config{}, errors.New("-timeout must be positive")
@@ -109,25 +117,81 @@ func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(
 		stdout,
-		"test-shard: %s inventory=%d shards=%d sizes=%s\n",
+		"test-shard: %s inventory=%d shards=%d workers=%d sizes=%s\n",
 		cfg.packagePath,
 		len(inventory),
 		len(plan),
+		cfg.workers,
 		strings.Join(sizes, ","),
 	)
 
-	for index, shard := range plan {
+	type shardResult struct {
+		index  int
+		code   int
+		err    error
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	}
+	results := make(chan shardResult, cfg.workers)
+	next := 0
+	active := 0
+	failed := false
+	failureIndex := len(plan)
+	failureCode := 0
+
+	launch := func(index int) {
+		shard := plan[index]
 		pattern := shardPattern(shard)
-		fmt.Fprintf(stdout, "test-shard: running shard %d/%d (%d tests)\n", index+1, len(plan), len(shard))
-		code, err := driver.run(cfg, pattern, stdout, stderr)
-		if err != nil {
-			fmt.Fprintf(stderr, "test-shard: shard %d/%d failed: %v\n", index+1, len(plan), err)
-			return normalizedExitCode(code)
+		fmt.Fprintf(stdout, "test-shard: starting shard %d/%d (%d tests)\n", index+1, len(plan), len(shard))
+		active++
+		go func() {
+			var result shardResult
+			result.index = index
+			result.code, result.err = driver.run(cfg, pattern, &result.stdout, &result.stderr)
+			results <- result
+		}()
+	}
+
+	for next < len(plan) && active < cfg.workers {
+		launch(next)
+		next++
+	}
+	for active > 0 {
+		result := <-results
+		active--
+		if result.stdout.Len() > 0 {
+			fmt.Fprintf(stdout, "test-shard: stdout shard %d/%d\n", result.index+1, len(plan))
+			_, _ = io.Copy(stdout, &result.stdout)
 		}
-		if code != 0 {
-			fmt.Fprintf(stderr, "test-shard: shard %d/%d exited with status %d\n", index+1, len(plan), code)
-			return normalizedExitCode(code)
+		if result.stderr.Len() > 0 {
+			fmt.Fprintf(stderr, "test-shard: stderr shard %d/%d\n", result.index+1, len(plan))
+			_, _ = io.Copy(stderr, &result.stderr)
 		}
+		switch {
+		case result.err != nil:
+			fmt.Fprintf(stderr, "test-shard: shard %d/%d failed: %v\n", result.index+1, len(plan), result.err)
+			if result.index < failureIndex {
+				failureIndex = result.index
+				failureCode = normalizedExitCode(result.code)
+			}
+			failed = true
+		case result.code != 0:
+			fmt.Fprintf(stderr, "test-shard: shard %d/%d exited with status %d\n", result.index+1, len(plan), result.code)
+			if result.index < failureIndex {
+				failureIndex = result.index
+				failureCode = normalizedExitCode(result.code)
+			}
+			failed = true
+		default:
+			fmt.Fprintf(stdout, "test-shard: completed shard %d/%d\n", result.index+1, len(plan))
+		}
+		if !failed && next < len(plan) {
+			launch(next)
+			next++
+		}
+	}
+	if failed {
+		return failureCode
 	}
 	return 0
 }

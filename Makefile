@@ -40,6 +40,7 @@ GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
 # be installed at runtime.
 PREFIX ?= $(HOME)/.local
 RESTART_TIMEOUT ?= 15s
+DAEMON_SHARD_WORKERS ?= 2
 
 CLAUDE_DIR ?= $(HOME)/.claude
 CLAUDE_PLUGIN_ID ?= canary@canary
@@ -62,7 +63,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -584,8 +585,20 @@ test-integration-live: ## Require and exercise a live Gateway; absence or failed
 # single race-enabled test binary exhausted its 240-second package deadline
 # while newly started tests were still making progress. Keep the deadline and
 # full inventory binding, but split only that oversized package into four
-# sequential processes; subpackages continue to run as ordinary package legs.
-test-daemon: ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
+# processes with a bounded worker pool; subpackages remain ordinary package
+# legs. DAEMON_SHARD_WORKERS=1 is the low-memory fallback.
+trading-package-scope-check:
+	@set -eu; \
+		unexpected="$$(find internal/daemon -mindepth 2 -type f -name '*.go' -exec sh -c \
+			'for file do if grep -q "^//go:build .*trading" "$$file"; then printf "%s\n" "$$file"; fi; done; exit 0' sh {} +)"; \
+		if [ -n "$$unexpected" ]; then \
+			echo "trading-package-scope-check: a daemon subpackage now has trading-tagged source:" >&2; \
+			printf '%s\n' "$$unexpected" >&2; \
+			echo "add that exact package to the trading test matrix before proceeding" >&2; \
+			exit 1; \
+		fi
+
+test-daemon: trading-package-scope-check ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
 	@set -eu; \
 		daemon_pkg="$$(go list ./internal/daemon)"; \
 		all_internal="$$(go list ./internal/...)"; \
@@ -593,26 +606,19 @@ test-daemon: ## Run internal/... and test/integration/... under -race (daemon ro
 		if [ -n "$$internal_pkgs" ]; then \
 			go test -race -timeout=240s $$internal_pkgs; \
 		fi
-	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -race -timeout 240s
+	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -workers $(DAEMON_SHARD_WORKERS) -race -timeout 240s
 	$(MAKE) test-integration
-	@set -eu; \
-		daemon_pkg="$$(go list -tags trading ./internal/daemon)"; \
-		all_daemon="$$(go list -tags trading ./internal/daemon/...)"; \
-		daemon_subpkgs="$$(printf '%s\n' "$$all_daemon" | awk -v omit="$$daemon_pkg" '$$0 != omit')"; \
-		if [ -n "$$daemon_subpkgs" ]; then \
-			go test -race -timeout=240s -tags trading $$daemon_subpkgs; \
-		fi
-	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -race -tags trading -timeout 240s
+	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -workers $(DAEMON_SHARD_WORKERS) -race -tags trading -timeout 240s
 
 # One CI lane intentionally keeps the daemon package in a single race-enabled
 # process. Sharding is the reliable Linux gate, while this macOS diagnostic
 # retains visibility into package-global races between otherwise independent
 # tests that land in different shards. Its larger deadline is diagnostic
 # headroom, not the Linux timeout repair.
-test-daemon-unsharded: ## Run the daemon gate in one process per build mode (macOS CI race diagnostic)
+test-daemon-unsharded: trading-package-scope-check ## Run the daemon gate in one process per build mode (macOS CI race diagnostic)
 	go test -race -timeout=420s ./internal/...
 	$(MAKE) test-integration
-	go test -race -timeout=420s -tags trading ./internal/daemon/...
+	go test -race -timeout=420s -tags trading ./internal/daemon
 
 # Install the standalone skill bundle directly under global agent skill roots.
 # Dogfood path only — end users get the skill via `/plugin install canary`.

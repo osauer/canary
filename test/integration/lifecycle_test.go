@@ -47,9 +47,19 @@ func lifecycleEnv(t *testing.T) (env []string, socketPath, logPath string) {
 	}
 	socketPath = filepath.Join(dir, "ibkr.sock")
 	logPath = filepath.Join(dir, "ibkr-daemon.log")
+	configPath := filepath.Join(dir, "config.toml")
+	// Pin a closed loopback endpoint. A private socket and XDG roots isolate
+	// persistence, but an unpinned daemon would still auto-discover and connect
+	// to the developer's live Gateway, making the "hermetic" gate environmental.
+	configData := []byte("[gateway]\nhost = \"127.0.0.1\"\nport = 1\nclient_id = 199\ntls = false\n")
+	if err := os.WriteFile(configPath, configData, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		t.Fatal(err)
+	}
 	env = append(os.Environ(),
 		"CANARY_SOCKET="+socketPath,
 		"CANARY_LOG="+logPath,
+		"CANARY_CONFIG="+configPath,
 		"XDG_STATE_HOME="+filepath.Join(dir, "state"),
 		"XDG_CACHE_HOME="+filepath.Join(dir, "cache"),
 		"XDG_CONFIG_HOME="+filepath.Join(dir, "config"),
