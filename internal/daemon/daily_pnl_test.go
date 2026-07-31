@@ -14,24 +14,83 @@ import (
 // checks key off "AsOf != zero" pass deterministically.
 func timeNowForTest() time.Time { return time.Now().UTC() }
 
-// TestPositionViewKey covers the symbol/option key namespacing so
-// stock and option views with the same Symbol cannot collide.
+// TestPositionViewKey covers the key namespacing so views that share a
+// Symbol cannot collide: across security types, across treasury issues
+// (same base symbol, distinct conIds), and across futures expiries.
 func TestPositionViewKey(t *testing.T) {
 	t.Parallel()
-	stock := rpc.PositionView{Symbol: "AAPL", SecType: rpc.SecTypeStock}
-	opt := rpc.PositionView{Symbol: "AAPL", SecType: rpc.SecTypeOption, Expiry: "20260619", Strike: 195, Right: "C"}
+	stock := rpc.PositionView{Symbol: "AAPL", SecType: rpc.SecTypeStock, ConID: 265598}
+	opt := rpc.PositionView{Symbol: "AAPL", SecType: rpc.SecTypeOption, ConID: 700001, Expiry: "20260619", Strike: 195, Right: "C"}
 
-	if got := positionViewKey(stock); got != "STK|AAPL" {
-		t.Errorf("stock key = %q, want STK|AAPL", got)
-	}
-	if got := positionViewKey(opt); got == "STK|AAPL" {
-		t.Errorf("option key collides with stock key: %q", got)
+	if positionViewKey(stock) == positionViewKey(opt) {
+		t.Errorf("option key collides with stock key: %q", positionViewKey(opt))
 	}
 
 	opt2 := opt
 	opt2.Strike = 196
 	if positionViewKey(opt) == positionViewKey(opt2) {
 		t.Errorf("different strikes produced identical keys")
+	}
+
+	// IB reports treasuries with a repeated base symbol; only the conId
+	// (and the maturity behind it) separates the two holdings.
+	bondA := rpc.PositionView{Symbol: "T", SecType: "BOND", ConID: 500001, LocalSymbol: "T 4 1/8 11/15/32"}
+	bondB := rpc.PositionView{Symbol: "T", SecType: "BOND", ConID: 500002, LocalSymbol: "T 4 5/8 02/15/35"}
+	if positionViewKey(bondA) == positionViewKey(bondB) {
+		t.Errorf("same-symbol BOND rows with different conIds collided: %q", positionViewKey(bondA))
+	}
+
+	// Futures repeat the base symbol across expiries.
+	futA := rpc.PositionView{Symbol: "ES", SecType: rpc.SecTypeFuture, ConID: 600001, Expiry: "20260320"}
+	futB := rpc.PositionView{Symbol: "ES", SecType: rpc.SecTypeFuture, ConID: 600002, Expiry: "20260619"}
+	if positionViewKey(futA) == positionViewKey(futB) {
+		t.Errorf("same-symbol FUT rows with different expiries collided: %q", positionViewKey(futA))
+	}
+	futSameConID := futA
+	futSameConID.Expiry = futB.Expiry
+	if positionViewKey(futA) == positionViewKey(futSameConID) {
+		t.Errorf("expiry does not participate in the FUT key: %q", positionViewKey(futA))
+	}
+
+	// A stock and a bond on the same symbol are different holdings.
+	bondOnStockSymbol := rpc.PositionView{Symbol: "AAPL", SecType: "BOND", ConID: 265598}
+	if positionViewKey(stock) == positionViewKey(bondOnStockSymbol) {
+		t.Errorf("BOND key collides with STOCK key on the same symbol: %q", positionViewKey(stock))
+	}
+}
+
+// TestFillDailyPnL_SameSymbolBondRows is the behavioral half of the
+// namespacing: two treasury rows sharing a Symbol must each keep their
+// own conId through the map handlePositions builds, so each row gets its
+// own daily P&L rather than one row's value or none.
+func TestFillDailyPnL_SameSymbolBondRows(t *testing.T) {
+	t.Parallel()
+	c := ibkrlib.NewConnector(&ibkrlib.ConnectorConfig{})
+	firstPnL, secondPnL := 11.25, -3.75
+	c.SeedPositionDailyPnLForTest(500001, ibkrlib.PositionDailyPnL{DailyPnL: &firstPnL})
+	c.SeedPositionDailyPnLForTest(500002, ibkrlib.PositionDailyPnL{DailyPnL: &secondPnL})
+
+	rows := []rpc.PositionView{
+		{Symbol: "T", SecType: "BOND", ConID: 500001, LocalSymbol: "T 4 1/8 11/15/32"},
+		{Symbol: "T", SecType: "BOND", ConID: 500002, LocalSymbol: "T 4 5/8 02/15/35"},
+	}
+	// Built the way handlePositions builds it.
+	conIDs := map[string]int{}
+	for _, row := range rows {
+		conIDs[positionViewKey(row)] = row.ConID
+	}
+	if len(conIDs) != 2 {
+		t.Fatalf("conID map holds %d entries, want 2 — same-symbol rows collided", len(conIDs))
+	}
+
+	srv := newTestServer(t)
+	srv.fillDailyPnL(c, rows, conIDs)
+
+	if rows[0].DailyPnL == nil || *rows[0].DailyPnL != firstPnL {
+		t.Errorf("first bond DailyPnL = %v, want %v", rows[0].DailyPnL, firstPnL)
+	}
+	if rows[1].DailyPnL == nil || *rows[1].DailyPnL != secondPnL {
+		t.Errorf("second bond DailyPnL = %v, want %v", rows[1].DailyPnL, secondPnL)
 	}
 }
 

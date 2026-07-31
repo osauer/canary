@@ -679,13 +679,14 @@ func positionSecType(raw string) string {
 // positionViewKey produces a stable identifier for a PositionView,
 // usable as a map key to associate auxiliary state (conId, daily P&L
 // pointer) without threading those fields through the wire shape. Two
-// views built from the same underlying position produce the same key;
-// stock and option keys are namespaced so they cannot collide.
+// views built from the same underlying position produce the same key.
+//
+// Every identity field participates. SecType namespaces the security
+// types against each other, and ConID separates contracts that share a
+// Symbol: IB repeats a base symbol across treasury issues, and futures
+// repeat one across expiries, so Symbol alone is not an identity.
 func positionViewKey(v rpc.PositionView) string {
-	if v.SecType == rpc.SecTypeOption {
-		return fmt.Sprintf("OPT|%s|%s|%s|%.4f", v.Symbol, v.Expiry, v.Right, v.Strike)
-	}
-	return "STK|" + v.Symbol
+	return fmt.Sprintf("%s|%s|%d|%s|%s|%.4f", v.SecType, v.Symbol, v.ConID, v.Expiry, v.Right, v.Strike)
 }
 
 // maxDailyPnLSubscriptions caps the per-positions-call fan-out of
