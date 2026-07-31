@@ -264,6 +264,74 @@ func TestVIXTermCadenceDistinguishesNotDueFromOverdue(t *testing.T) {
 	}
 }
 
+// IDEALPRO trades one continuous weekly session, so a shut market is an
+// expected gap and not a source defect — including the whole weekend, which
+// previously read overdue and blocked the dashboard every Saturday.
+func TestUSDJPYCadenceFollowsIDEALPROSession(t *testing.T) {
+	ny := newYorkLocation()
+	last, weekly := 150.0, -2.4
+	result := &rpc.RegimeSnapshotResult{
+		USDJPY: rpc.RegimeUSDJPY{Last: &last, WeeklyChange: &weekly},
+	}
+	// 2026-07-31 is a Friday; 08-01 Saturday; 08-02 Sunday; 08-03 Monday.
+	for _, tc := range []struct {
+		name   string
+		at     time.Time
+		status string
+		want   string
+	}{
+		{"friday mid-session live tick", time.Date(2026, 7, 31, 12, 0, 0, 0, ny), rpc.RegimeStatusOK, rpc.RegimeFreshnessFresh},
+		{"friday mid-session frozen tick", time.Date(2026, 7, 31, 12, 0, 0, 0, ny), rpc.RegimeStatusStale, rpc.RegimeFreshnessOverdue},
+		{"friday weekly close", time.Date(2026, 7, 31, 17, 0, 0, 0, ny), rpc.RegimeStatusStale, rpc.RegimeFreshnessNotDue},
+		{"saturday", time.Date(2026, 8, 1, 12, 0, 0, 0, ny), rpc.RegimeStatusStale, rpc.RegimeFreshnessNotDue},
+		{"sunday before reopen", time.Date(2026, 8, 2, 17, 14, 59, 0, ny), rpc.RegimeStatusStale, rpc.RegimeFreshnessNotDue},
+		{"sunday reopen", time.Date(2026, 8, 2, 17, 15, 0, 0, ny), rpc.RegimeStatusOK, rpc.RegimeFreshnessFresh},
+		{"weekday changeover break", time.Date(2026, 8, 3, 17, 5, 0, 0, ny), rpc.RegimeStatusStale, rpc.RegimeFreshnessNotDue},
+		{"weekday after changeover", time.Date(2026, 8, 3, 17, 15, 0, 0, ny), rpc.RegimeStatusOK, rpc.RegimeFreshnessFresh},
+	} {
+		result.USDJPY.Status = tc.status
+		if got := usdJpyCadenceClass(result, tc.at); got != tc.want {
+			t.Fatalf("%s cadence=%q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	saturday := time.Date(2026, 8, 1, 12, 0, 0, 0, ny)
+	result.USDJPY.Status = rpc.RegimeStatusUnavailable
+	if got := usdJpyCadenceClass(result, saturday); got != rpc.RegimeFreshnessOverdue {
+		t.Fatalf("saturday unavailable row cadence=%q, want overdue", got)
+	}
+
+	// The red row stays visible over the weekend as context, and the cluster
+	// earns the expected-not-due exemption that keeps readiness off blocked.
+	result.USDJPY.Status = rpc.RegimeStatusStale
+	result.AsOf = saturday
+	policies := (&Server{}).populateStreaksWithStore(result, nil)
+	policy := policies[rpc.RegimeIndicatorUSDJPY]
+	if policy.band != "red" || policy.freshness == nil || policy.freshness.Class != rpc.RegimeFreshnessNotDue ||
+		policy.eligibility == nil || len(policy.eligibility.Reasons) != 1 || policy.eligibility.Reasons[0] != "data_not_due" {
+		t.Fatalf("saturday USD/JPY policy=%+v", policy)
+	}
+	annotateRegimeMetadata(result, policies)
+	if !rpc.RegimeClusterExpectedNotDue(*result, "fx") {
+		t.Fatalf("saturday fx cluster is not expected-not-due: %+v", result.USDJPY.RegimeIndicatorMeta)
+	}
+	for _, health := range rpc.BuildRegimeSourceHealth(result, saturday) {
+		if health.Source != "fx" {
+			continue
+		}
+		if health.Status != rpc.SourceStatusOK || health.RefreshState != rpc.SourceRefreshNotDue {
+			t.Fatalf("saturday fx source health=%+v", health)
+		}
+	}
+
+	// A frozen tick while IDEALPRO is trading is still a real defect.
+	result.AsOf = time.Date(2026, 7, 31, 12, 0, 0, 0, ny)
+	annotateRegimeMetadata(result, (&Server{}).populateStreaksWithStore(result, nil))
+	if rpc.RegimeClusterExpectedNotDue(*result, "fx") {
+		t.Fatal("mid-session frozen USD/JPY tick was exempted as expected-not-due")
+	}
+}
+
 // TestClassifyBands sanity-checks each classifier against the spec.
 func TestClassifyBands(t *testing.T) {
 	mkPtr := func(v float64) *float64 { return &v }

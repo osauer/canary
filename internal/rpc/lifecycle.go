@@ -920,6 +920,11 @@ func RegimeClusterExpectedNotDue(r RegimeSnapshotResult, name string) bool {
 			regimeLifecycleRowNotDue(rows[0]) &&
 			regimeLifecycleRowCurrent(rows[1]) &&
 			!regimeSourceMissingRequiredFields(r.VIXTermStructure.Status, r.VIXTermStructure.Band, r.VIXTermStructure.FieldsMissing)
+	case "fx":
+		return len(rows) == 1 &&
+			regimeLifecycleRowNotDue(rows[0]) &&
+			r.USDJPY.Last != nil &&
+			!regimeSourceMissingRequiredFields(r.USDJPY.Status, r.USDJPY.Band, r.USDJPY.FieldsMissing)
 	case "gamma":
 		return len(rows) == 1 &&
 			regimeLifecycleRowNotDue(rows[0]) &&

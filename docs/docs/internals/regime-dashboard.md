@@ -237,7 +237,7 @@ thresholds; values live in `internal/rpc/regime_policy.go`):
 | HYG/SPY | HYG >= 0.25% below 50DMA | >= 1.0% below | 2 | RTH tick or latest official close (off-hours banding input is the close, never a thin pre/post print; a missing spot tick falls back to the close and marks the row stale) | HYG closes back above 50DMA |
 | HY OAS | band is the gate | n/a | 1 | series <= 7d | < 5.25 and widening < 0.85 pp |
 | Funding | band is the gate | n/a | 1 | series <= 7d | < 65 bp |
-| USD/JPY | band is the gate (speed is depth) | n/a | 1 | same-day tick/close | yen move < 1.5% |
+| USD/JPY | band is the gate (speed is depth) | n/a | 1 | live tick while IDEALPRO trades (Sunday 17:15 to Friday 17:00 ET); the weekend and the daily 17:00-17:15 ET changeover are `not_due`, not overdue | yen move < 1.5% |
 | Dealer gamma | gap <= -0.5% below gamma-zero | gap <= -2.0% or wholly-short profile | 1 | compute within current NY trading date (prior-date cache = `stale`, warns only) | gap > +0.5% |
 | Breadth | <= 38% | <= 30% | 2 | last completed session's compute | > 45% |
 

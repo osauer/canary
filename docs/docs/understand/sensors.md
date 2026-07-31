@@ -194,6 +194,11 @@ last-good is healthy `not_due` context only while a refresh or retry remains
 inside the explicit 90-minute publication window, and stale at that deadline
 without a current-session result.
 
+The FX carry proxy follows its venue instead of a publication clock. IDEALPRO
+trades one continuous weekly session, so USD/JPY needs a live tick only while
+that session is open; the weekend and the daily 17:00-17:15 ET changeover are
+`not_due` context on the last tick, not a dead feed.
+
 Breadth counts only constituent windows whose last bar matches the requested
 trading session. Successful windows are checkpointed every ten names, so a
 restart resumes near its last completed work instead of repeating the fan-out.

@@ -221,13 +221,14 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 		if fresh {
 			freshnessClass = rpc.RegimeFreshnessFresh
 		}
-		if key == rpc.RegimeIndicatorVIXTerm {
+		switch key {
+		case rpc.RegimeIndicatorVIXTerm:
 			freshnessClass = vixTermCadenceClass(res, now)
-		}
-		if key == rpc.RegimeIndicatorGammaZero {
+		case rpc.RegimeIndicatorUSDJPY:
+			freshnessClass = usdJpyCadenceClass(res, now)
+		case rpc.RegimeIndicatorGammaZero:
 			freshnessClass = gammaCadenceClass(res, now)
-		}
-		if key == rpc.RegimeIndicatorBreadth {
+		case rpc.RegimeIndicatorBreadth:
 			freshnessClass = breadthCadenceClass(res, now)
 		}
 		freshness := &rpc.RegimeFreshness{

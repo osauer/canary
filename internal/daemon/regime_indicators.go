@@ -334,6 +334,53 @@ func breadthCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	return rpc.RegimeFreshnessOverdue
 }
 
+// idealproTrading reports whether IBKR's IDEALPRO FX session is trading at
+// nowET. IDEALPRO runs one continuous weekly session rather than daily ones:
+// the broker publishes 17:15-to-next-day-17:00 blocks with Saturday CLOSED
+// (USD.JPY contract-details tradingHours, timezone US/Eastern), so FX is shut
+// for a 15-minute daily changeover and from Friday 17:00 until Sunday 17:15.
+// Holiday closures are not modelled — on one the row reads overdue, which is
+// the conservative direction and no worse than treating every gap that way.
+func idealproTrading(nowET time.Time) bool {
+	const (
+		sessionEnd   = 17 * 60    // 17:00 ET
+		sessionStart = 17*60 + 15 // 17:15 ET
+	)
+	mins := nowET.Hour()*60 + nowET.Minute()
+	switch nowET.Weekday() {
+	case time.Saturday:
+		return false
+	case time.Sunday:
+		return mins >= sessionStart
+	case time.Friday:
+		return mins < sessionEnd
+	default:
+		return mins < sessionEnd || mins >= sessionStart
+	}
+}
+
+// USD/JPY freshness: the cadence question for a continuous market is simply
+// whether it is trading. While IDEALPRO is open only a live tick is current,
+// so a frozen one is a real gap. While it is shut the last tick — or the HMDS
+// midpoint close the row falls back to — is the newest observation that can
+// exist, exactly like an equity row off-hours.
+func usdJpyCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string {
+	if res == nil || nowNY.IsZero() {
+		return rpc.RegimeFreshnessOverdue
+	}
+	status := res.USDJPY.Status
+	if status != rpc.RegimeStatusOK && status != rpc.RegimeStatusStale {
+		return rpc.RegimeFreshnessOverdue
+	}
+	if !idealproTrading(nowNY) {
+		return rpc.RegimeFreshnessNotDue
+	}
+	if status == rpc.RegimeStatusOK {
+		return rpc.RegimeFreshnessFresh
+	}
+	return rpc.RegimeFreshnessOverdue
+}
+
 // Exit hysteresis: leave red only when the ratio falls below 0.98.
 func (vixTermStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 	return res.VIXTermStructure.Ratio != nil && *res.VIXTermStructure.Ratio >= 0.98
