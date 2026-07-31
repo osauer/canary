@@ -1,18 +1,15 @@
 package daemon
 
 import (
-	"encoding/json"
-	"fmt"
+	"context"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 const (
-	contractAuthorityScope    = "market/contracts"
-	contractStateKind         = "contract_cache.current.v3"
-	contractObservationKind   = "contract_cache.snapshot.v3"
-	contractObservationSource = "ibkr.tws.contract_details"
+	contractAuthorityScope = "market/contracts"
+	contractStateKind      = "contract_cache.current.v3"
 )
 
 type coreContractCacheAuthority struct {
@@ -23,29 +20,13 @@ func (a coreContractCacheAuthority) LoadContractCache() ([]byte, bool, error) {
 	return loadMarketState(a.store, contractAuthorityScope, contractStateKind)
 }
 
-func (a coreContractCacheAuthority) SaveContractCache(payload []byte, observedAt time.Time) error {
-	var envelope struct {
-		Version     int                        `json:"version"`
-		MembersHash string                     `json:"members_hash"`
-		Contracts   map[string]json.RawMessage `json:"contracts"`
-		Options     map[string]json.RawMessage `json:"options"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return fmt.Errorf("decode contract cache metadata: %w", err)
-	}
-	metadata, err := json.Marshal(struct {
-		Version       int    `json:"version"`
-		MembersHash   string `json:"members_hash,omitempty"`
-		ContractCount int    `json:"contract_count"`
-		OptionCount   int    `json:"option_count"`
-		Method        string `json:"method"`
-	}{envelope.Version, envelope.MembersHash, len(envelope.Contracts), len(envelope.Options), "IBKR contract details"})
-	if err != nil {
-		return fmt.Errorf("encode contract cache metadata: %w", err)
-	}
-	return saveMarketState(a.store, contractAuthorityScope, contractStateKind, corestore.ObservationInput{
-		ScopeKey: contractAuthorityScope, Source: contractObservationSource,
-		Kind: contractObservationKind, ObservedAt: observedAt,
-		ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: true,
-	})
+// SaveContractCache publishes the cache as current state only. It deliberately
+// appends no observation: the contract cache is a local copy of contract
+// details IBKR re-serves on request, nothing but the next boot reads it, and no
+// decision rests on it. Writing the whole cache into the immutable ledger once
+// a minute put 5.1 GB of unread snapshots in daemon.db, and because every boot
+// re-hashes the ledger before opening the socket, that cost was paid as startup
+// latency. See internal-docs/design/authority-contract-cache-bloat.md.
+func (a coreContractCacheAuthority) SaveContractCache(payload []byte, _ time.Time) error {
+	return saveMarketDocument(context.Background(), a.store, contractAuthorityScope, contractStateKind, payload)
 }

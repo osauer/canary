@@ -1,13 +1,15 @@
 # Internal docs index
 
-Updated: 2026-07-30 11:55 CEST
+Updated: 2026-07-31 11:42 CEST
 
 Reader's contract: **Current authority** binds today's behavior — read it before
 changing the surface it names. **Approved, not yet implemented** is operator-
-approved design with no code behind it. **Historical records** explain how we
-got here; Git history is their authority, and they must not be read as current
-instructions. Each design doc carries its own `Status:` line; when this index
-and a doc disagree, the doc wins and this index needs the fix.
+approved design with no code behind it. **Proposed, awaiting decision** has not
+been approved and binds nothing; do not implement from it without the operator's
+go-ahead. **Historical records** explain how we got here; Git history is their
+authority, and they must not be read as current instructions. Each design doc
+carries its own `Status:` line; when this index and a doc disagree, the doc wins
+and this index needs the fix.
 
 ## Current authority
 
@@ -33,6 +35,12 @@ and a doc disagree, the doc wins and this index needs the fix.
 | Doc | State |
 |---|---|
 | [design/risk-governance-nudges.md](design/risk-governance-nudges.md) | Approved 2026-07-18; no code yet |
+
+## Proposed, awaiting decision
+
+| Doc | State |
+|---|---|
+| [design/authority-contract-cache-bloat.md](design/authority-contract-cache-bloat.md) | Written 2026-07-31; 5.1 GB of unread contract-cache observations, prune plan not approved |
 
 ## Historical records
 

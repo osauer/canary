@@ -147,3 +147,34 @@ func saveMarketStateContext(ctx context.Context, store *corestore.Store, scopeKe
 	}
 	return fmt.Errorf("save market state %s/%s: %w after %d attempts", scopeKey, stateKind, corestore.ErrRevisionConflict, marketAuthorityWriteAttempts)
 }
+
+// saveMarketDocument publishes the current document without appending an
+// observation. It is for derived caches — state whose only reader is the
+// daemon's own next boot and which the broker will re-serve on request.
+// Everything a decision can rest on goes through saveMarketState instead, so
+// that its exact bytes stay in the immutable ledger.
+func saveMarketDocument(ctx context.Context, store *corestore.Store, scopeKey, stateKind string, payload []byte) error {
+	if store == nil {
+		return errors.New("market observation authority is not attached")
+	}
+	for range marketAuthorityWriteAttempts {
+		doc, ok, err := store.GetStateDocument(ctx, scopeKey, stateKind)
+		if err != nil {
+			return err
+		}
+		var revision int64
+		if ok {
+			revision = doc.Revision
+		}
+		_, err = store.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
+			ScopeKey:         scopeKey,
+			Kind:             stateKind,
+			ExpectedRevision: revision,
+			JSON:             payload,
+		})
+		if !errors.Is(err, corestore.ErrRevisionConflict) {
+			return err
+		}
+	}
+	return fmt.Errorf("save market document %s/%s: %w after %d attempts", scopeKey, stateKind, corestore.ErrRevisionConflict, marketAuthorityWriteAttempts)
+}

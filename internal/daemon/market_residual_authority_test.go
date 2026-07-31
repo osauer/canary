@@ -109,7 +109,19 @@ func TestContractCacheSQLiteColdStartContinuityAndNoLegacyWrite(t *testing.T) {
 	if err != nil || got["AAPL"].ConID != 265598 || hash != "current" {
 		t.Fatalf("SQLite restart load: got=%v hash=%q err=%v", got, hash, err)
 	}
-	assertStateAndObservation(t, authority, contractAuthorityScope, contractStateKind, contractObservationSource, contractObservationKind)
+	if _, ok, err := authority.GetStateDocument(context.Background(), contractAuthorityScope, contractStateKind); err != nil || !ok {
+		t.Fatalf("contract cache state document missing: ok=%v err=%v", ok, err)
+	}
+	// The contract cache is a refetchable cache, not evidence. Appending it to
+	// the immutable ledger once a minute is what put 5.1 GB of unread snapshots
+	// in daemon.db and made every boot re-hash them before opening the socket.
+	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{ScopeKey: contractAuthorityScope})
+	if err != nil {
+		t.Fatalf("list contract-scope observations: %v", err)
+	}
+	if len(observations) != 0 {
+		t.Fatalf("contract cache wrote %d observations; it must publish state only", len(observations))
+	}
 }
 
 func TestFXRateSQLiteReplacesLegacyAndSurvivesRestart(t *testing.T) {
