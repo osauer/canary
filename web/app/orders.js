@@ -1,4 +1,3 @@
-import { main } from "./app.js";
 import { $, labelize, money, pct, protectionWriteConfirmation, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
 import { state } from "./state.js";
 

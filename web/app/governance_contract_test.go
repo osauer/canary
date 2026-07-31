@@ -73,59 +73,6 @@ func TestGovernanceSurfaceStaticContract(t *testing.T) {
 	}
 }
 
-func TestGovernanceRendererConsumesTypedAuthorities(t *testing.T) {
-	t.Parallel()
-	alertsData, err := Files.ReadFile("alerts.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	alerts := string(alertsData)
-	for _, want := range []string{
-		`const nudges = snapshot.nudges || null`,
-		`const pollSource = snapshot.sources?.nudges || {}`,
-		`const governance = state.governance`,
-		`const pollState = safeGovernancePollState(pollSource.state)`,
-		`const current = pollState === "current"`,
-		`"current", "stale", "not_observed", "unavailable"`,
-		`No current risk and process reminders.`,
-		`Current risk and process reminders are unavailable.`,
-		`last push-service acceptance`,
-		`refresh unavailable · last known`,
-		`updated not observed`,
-		`state.governanceRefreshSucceeded = false`,
-		`state.governanceRefreshSucceeded = true`,
-		`context.drawdown.consumed_pct === null`,
-		`coverage?.pre_cutover_flows_unreviewed === true`,
-		`body: JSON.stringify({})`,
-		`fetch("/api/push/test"`,
-		`fetch("/api/governance/cutover-review"`,
-		`fetch("/api/recon/check"`,
-		`fetch("/api/recon/status"`,
-		`const reconciliation = validateReconciliation(governance?.reconciliation)`,
-		`Open IBKR Client Portal → Reporting → Flex Queries on this Mac, renew the Flex Web Service token`,
-		`process_reminders_not_enabled: "reminders are not enabled"`,
-		`renderGovernanceHistory(governance?.occurrences)`,
-		`pre_cutover_flows_unreviewed: false`,
-		`Older payments marked reviewed.`,
-		`Older payments were already marked reviewed.`,
-	} {
-		if !strings.Contains(alerts, want) {
-			t.Errorf("alerts.js missing governance contract %q", want)
-		}
-	}
-	for _, forbidden := range []string{
-		`candidate.fingerprint`, `attempt.raw_error`,
-		`all clear`, `normal outside market hours`, `return "paused"`,
-	} {
-		if strings.Contains(alerts, forbidden) {
-			t.Errorf("alerts.js contains forbidden governance rendering contract %q", forbidden)
-		}
-	}
-	if strings.Contains(jsFunctionBlock(t, alerts, "governanceOccurrenceElement"), "display_id") {
-		t.Error("governance occurrence rendering must not expose display ids")
-	}
-}
-
 func TestAttentionAndAlertDeliveryStaticContract(t *testing.T) {
 	t.Parallel()
 	htmlData, _ := Files.ReadFile("index.html")

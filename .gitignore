@@ -15,6 +15,9 @@ cloudflare/remote-relay/node_modules/
 cloudflare/remote-relay/.wrangler/
 cloudflare/remote-relay/.dev.vars
 
+# Embedded Canary app test dependencies
+web/app/node_modules/
+
 # OS / editor noise
 **/.DS_Store
 .idea/

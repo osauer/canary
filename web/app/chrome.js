@@ -1,9 +1,9 @@
-import { renderAll } from "./app.js";
 import { handleAttentionContextChange } from "./alert-inbox.js";
 import { renderRulesCard, renderStressDetail, renderRegimePanel } from "./stress.js";
 import { renderOpportunitiesPanel } from "./opportunities.js";
 import { setPortfolioExpansion } from "./portfolio.js";
 import { renderProtectionPanel } from "./protection.js";
+import { renderAll } from "./render-runtime.js";
 import { $ } from "./shared.js";
 import { normalizedTab, state } from "./state.js";
 import { renderAccountPanel, setUnderlyingExpansion } from "./underlyings.js";

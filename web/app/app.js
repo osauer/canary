@@ -9,12 +9,14 @@ import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.
 import { renderOpenOrders } from "./orders.js";
 import { renderPortfolioRisk, setPortfolioExpansion } from "./portfolio.js";
 import { cancelProtectionDerisk, previewProtectionDerisk, renderProtectionPanel } from "./protection.js";
+import { installRenderAll } from "./render-runtime.js";
 import { renderSettings, setPurgeRestoreEnabled, setStockProtectionEnabled } from "./settings.js";
 import { $, pct, renderFreshnessTimestamp, renderSensitiveText } from "./shared.js";
 import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect } from "./shell.js";
 import { state } from "./state.js";
 import { renderAccountPanel, renderUnderlyings, runUnderlyingAction, setUnderlyingExpansion } from "./underlyings.js";
 
+installRenderAll(renderAll);
 installSmokeHooks();
 
 function installSmokeHooks() {

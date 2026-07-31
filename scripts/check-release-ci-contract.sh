@@ -61,6 +61,19 @@ EXPECTED_CI_RUN_STEPS = {
             "run": "make test-daemon-unsharded",
         },
     },
+    "app-render": {
+        "npm ci": {
+            "working-directory": "web/app",
+            "run": "npm ci",
+        },
+        "install Chromium": {
+            "working-directory": "web/app",
+            "run": "npx playwright install --with-deps chromium",
+        },
+        "make app-render-check": {
+            "run": "make app-render-check",
+        },
+    },
 }
 EXPECTED_LEGACY_SHA = "3b548f6d63286448ac132ca4ade66484952612f5"
 CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
@@ -73,6 +86,7 @@ EXPECTED_WORKFLOWS = {
             "make check (lint + vet + vulncheck + parity)",
             "make test (ubuntu-latest)",
             "make test (macos-latest)",
+            "isolated Canary app render",
             "cross-compile release matrix",
         ),
     },

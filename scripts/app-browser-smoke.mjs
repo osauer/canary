@@ -40,12 +40,19 @@ if (channel) {
 }
 
 async function runRound4SyntheticSmoke() {
-  const syntheticURL = "http://canary-synthetic.invalid/";
+  const syntheticOrigin = "http://canary-synthetic.invalid";
+  const syntheticURL = "http://canary-synthetic.invalid/?pair=expired-synthetic&nonce=synthetic-nonce&remote=synthetic-route";
   const staticRoot = resolve(fileURLToPath(new URL("../web/app/", import.meta.url)));
   const staticTypes = { ".css": "text/css", ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json" };
   const launchedSynthetic = await launchBrowser(playwright[browserName], browserName, { headless: true, ...(channel ? { channel } : {}) });
   const browser = launchedSynthetic.browser;
   const mutationRequests = [];
+  let bootstrapRequests = 0;
+  let deviceCookieRecoveries = 0;
+  let deviceRecoveryRequired = false;
+  let successfulPairings = 0;
+  let pairingAttempts = 0;
+  const externalRequests = [];
   let attention = {
     unread_count: 2,
     high_water_seq: 4,
@@ -109,6 +116,18 @@ async function runRound4SyntheticSmoke() {
       account: {},
       positions: { stocks: [], options: [], portfolio: {} },
       stress: { portfolio_fit: "low", portfolio: {}, fingerprint: { key: "synthetic-stress" } },
+      brief: {
+        as_of: now,
+        brief_fingerprint: "sha256:synthetic-render",
+        narrative: {
+          lead: [{ text: "Synthetic desk ready.", role: "figure" }],
+          review: [{ runs: [{ text: "Review synthetic process evidence.", role: "watch" }] }],
+          ready: [{ runs: [{ text: "Act only on served synthetic evidence.", role: "act" }] }],
+          coda: [{ text: "No account-derived data was loaded.", role: "" }],
+        },
+        review: { one_tap: { signable: false }, rules_delta: { status: "ok" } },
+        ready: { stress: { severity: "watch" } },
+      },
       trading: { mode: "disabled", can_preview: false, can_write: false },
       proposals: {},
       opportunities: {},
@@ -131,21 +150,76 @@ async function runRound4SyntheticSmoke() {
     globalThis.__canarySmoke = { applySnapshotPatch: null };
     try { Object.defineProperty(globalThis, "Notification", { configurable: true, value: undefined }); } catch {}
     try { Object.defineProperty(globalThis, "EventSource", { configurable: true, value: undefined }); } catch {}
+    try { Object.defineProperty(globalThis.crypto, "subtle", { configurable: true, value: undefined }); } catch {}
   });
-  await context.route("http://canary-synthetic.invalid/**", async (route) => {
+  await context.route("**/*", async (route) => {
     const request = route.request();
     const requestURL = new URL(request.url());
+    if (requestURL.origin !== syntheticOrigin) {
+      externalRequests.push({ method: request.method(), origin: requestURL.origin, path: requestURL.pathname });
+      return route.abort("blockedbyclient");
+    }
     const requestPath = requestURL.pathname;
     const method = request.method();
     if (!['GET', 'HEAD'].includes(method)) {
       mutationRequests.push({ method, path: requestPath, body: request.postData() || "" });
     }
     const json = (body, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-    if (method === "GET" && requestPath === "/api/bootstrap") return json({ ...bootstrap, alerts });
+    if (method === "GET" && requestPath === "/api/bootstrap") {
+      bootstrapRequests += 1;
+      if (deviceRecoveryRequired) {
+        const cookie = request.headers().cookie || "";
+        if (!cookie.includes("ibkr_app_device=synthetic-device-cookie") || cookie.includes("ibkr_app_session=")) {
+          return json({ error: "synthetic device-cookie recovery unavailable" }, 401);
+        }
+        await context.addCookies([{
+          name: "ibkr_app_session",
+          value: "synthetic-recovered-session",
+          url: syntheticOrigin,
+          httpOnly: true,
+          sameSite: "Lax",
+        }]);
+        deviceCookieRecoveries += 1;
+        deviceRecoveryRequired = false;
+      }
+      return json({ ...bootstrap, alerts });
+    }
+    if (method === "POST" && requestPath === "/api/pairing/complete") {
+      pairingAttempts += 1;
+      const body = request.postDataJSON();
+      if (body.pairing_id === "expired-synthetic") {
+        return json({ error: "synthetic pairing link expired" }, 410);
+      }
+      if (body.pairing_id === "fresh-synthetic" && body.nonce === "fresh-synthetic-nonce") {
+        successfulPairings += 1;
+        await context.addCookies([
+          { name: "ibkr_app_device", value: "synthetic-device-cookie", url: syntheticOrigin, httpOnly: true, sameSite: "Lax" },
+          { name: "ibkr_app_session", value: "synthetic-session", url: syntheticOrigin, httpOnly: true, sameSite: "Lax" },
+        ]);
+        return json({ device_id: "synthetic-device" });
+      }
+      return json({ error: "unexpected synthetic pairing request" }, 400);
+    }
     if (method === "GET" && requestPath === "/api/alerts/attention") return json(attention);
     if (method === "GET" && requestPath === "/api/alerts") return json(alerts);
     if (method === "GET" && requestPath === "/api/governance") return json(governance);
-    if (method === "GET" && requestPath === "/api/orders/open") return json({ orders: [] });
+    if (method === "GET" && requestPath === "/api/orders/open") return json({
+      as_of: now,
+      orders: [{
+        order_ref: "synthetic-order",
+        symbol: "SYN",
+        action: "SELL",
+        quantity: 1,
+        remaining: 1,
+        order_type: "LMT",
+        limit_price: 123.45,
+        tif: "DAY",
+        open: true,
+        modify_eligible: false,
+        cancel_eligible: false,
+        lifecycle_state: "working",
+      }],
+    });
     if (method === "GET" && requestPath === "/api/purge/status") return json({ entries: [] });
     if (method === "POST" && requestPath === "/api/alerts/attention/read") {
       const body = request.postDataJSON();
@@ -167,8 +241,18 @@ async function runRound4SyntheticSmoke() {
   });
   const page = await context.newPage();
   const errors = [];
+  const expectedPairingErrors = [];
   page.on("pageerror", (error) => errors.push(String(error?.message || error)));
-  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const text = message.text();
+    const sourceURL = message.location()?.url || "";
+    if (/Failed to load resource: the server responded with a status of 410/.test(text) && sourceURL.endsWith("/api/pairing/complete")) {
+      expectedPairingErrors.push({ text, sourceURL });
+      return;
+    }
+    errors.push(text);
+  });
   try {
     await page.goto(syntheticURL, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
@@ -182,6 +266,8 @@ async function runRound4SyntheticSmoke() {
       active: document.getElementById("tabMonitor")?.classList.contains("active"),
       badge: document.getElementById("alertUnreadBadge")?.textContent || "",
       label: document.getElementById("tabAlerts")?.getAttribute("aria-label") || "",
+      route: location.pathname + location.search,
+      remote: localStorage.getItem("ibkrRemoteRoute") || "",
     }));
     await page.locator("#tabAlerts").click();
     await page.waitForFunction(() => document.getElementById("alertUnreadBadge")?.hidden === true, { timeout: 5000 });
@@ -206,16 +292,84 @@ async function runRound4SyntheticSmoke() {
       governanceHistory: document.getElementById("governanceHistoryList")?.textContent || "",
       processSeated: document.getElementById("settingsTab")?.contains(document.getElementById("governanceEvidenceDetails")) === true,
     }));
-    if (!monitor.active || monitor.badge !== "2" || monitor.label !== "Alerts, 2 unread") throw new Error(`synthetic unread monitor state failed: ${JSON.stringify(monitor)}`);
+    await page.locator("#tabBrief").click();
+    await page.waitForFunction(() => document.getElementById("briefTab")?.hidden === false, { timeout: 5000 });
+    const briefView = await page.evaluate(() => ({
+      narrative: document.getElementById("briefSections")?.classList.contains("brief-sections--narrative") === true,
+      text: document.getElementById("briefSections")?.textContent || "",
+      accountText: document.getElementById("accountLabel")?.textContent || "",
+    }));
+    await page.locator("#tabOrders").click();
+    await page.waitForFunction(() => document.getElementById("ordersOpenCount")?.textContent === "1 open", { timeout: 5000 });
+    const ordersView = await page.evaluate(() => ({
+      count: document.getElementById("ordersOpenCount")?.textContent || "",
+      text: document.getElementById("ordersOpenList")?.textContent || "",
+      active: document.getElementById("ordersTab")?.hidden === false,
+    }));
+    if (!monitor.active || monitor.badge !== "2" || monitor.label !== "Alerts, 2 unread" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
     if (!alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active" || !alertsView.processSeated) throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     // The log renders as annunciator tiles (watch lit, ended unlit) and the
     // alert authority now reports from inside the lamp-test detail.
     if (alertsView.litTiles !== 1 || alertsView.outTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while your in-app history remains") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
     if (!settings.processSeated || settings.detailsOpen !== false || !settings.cutoverVisible || !settings.coverage.includes("Older payments need a one-time review") || !settings.governanceHistory.includes("Synthetic process review")) throw new Error(`synthetic Settings process evidence failed: ${JSON.stringify(settings)}`);
-    if (mutationRequests.length !== 1 || mutationRequests[0].method !== "POST" || mutationRequests[0].path !== "/api/alerts/attention/read" || JSON.parse(mutationRequests[0].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
+    if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account pending") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
+    if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
+    const mutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
+    if (JSON.stringify(mutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read"]) || JSON.parse(mutationRequests[1].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
+    if (pairingAttempts !== 1 || expectedPairingErrors.length !== 1 || bootstrapRequests < 1) throw new Error(`synthetic pairing recovery did not execute exactly once: ${JSON.stringify({ pairingAttempts, expectedPairingErrors, bootstrapRequests })}`);
+
+    await page.evaluate(() => localStorage.setItem("canaryActiveTab", "monitor"));
+    const bootstrapBeforeReload = bootstrapRequests;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    const reload = await page.evaluate(() => ({
+      active: document.getElementById("tabMonitor")?.classList.contains("active") === true,
+      route: location.pathname + location.search,
+      remote: localStorage.getItem("ibkrRemoteRoute") || "",
+      pairingHidden: document.getElementById("pairingPanel")?.hidden === true,
+    }));
+    if (!reload.active || reload.route !== "/" || reload.remote !== "synthetic-route" || !reload.pairingHidden || pairingAttempts !== 1 || bootstrapRequests <= bootstrapBeforeReload) throw new Error(`synthetic reload/auth continuity failed: ${JSON.stringify({ reload, pairingAttempts, bootstrapRequests, bootstrapBeforeReload })}`);
+
+    await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(`${syntheticOrigin}/?pair=fresh-synthetic&nonce=fresh-synthetic-nonce`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    const freshPairing = await page.evaluate(() => ({
+      deviceStored: localStorage.getItem("ibkrDeviceID") === "synthetic-device",
+      route: location.pathname + location.search,
+      pairingHidden: document.getElementById("pairingPanel")?.hidden === true,
+    }));
+    const pairedCookieNames = new Set((await context.cookies(syntheticOrigin)).map((cookie) => cookie.name));
+    if (!freshPairing.deviceStored || freshPairing.route !== "/" || !freshPairing.pairingHidden || successfulPairings !== 1 || !pairedCookieNames.has("ibkr_app_device") || !pairedCookieNames.has("ibkr_app_session")) {
+      throw new Error(`synthetic fresh pairing failed: ${JSON.stringify({ freshPairing, successfulPairings, cookieCount: pairedCookieNames.size })}`);
+    }
+
+    await context.clearCookies({ name: "ibkr_app_session" });
+    const continuityCookies = new Set((await context.cookies(syntheticOrigin)).map((cookie) => cookie.name));
+    if (!continuityCookies.has("ibkr_app_device") || continuityCookies.has("ibkr_app_session")) {
+      throw new Error(`synthetic session clear did not preserve only the device credential: ${JSON.stringify({ cookieCount: continuityCookies.size })}`);
+    }
+    deviceRecoveryRequired = true;
+    const recoveryBootstrapBefore = bootstrapRequests;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    const recoveredCookieNames = new Set((await context.cookies(syntheticOrigin)).map((cookie) => cookie.name));
+    const authRecovery = await page.evaluate(() => ({
+      deviceStored: localStorage.getItem("ibkrDeviceID") === "synthetic-device",
+      route: location.pathname + location.search,
+      pairingHidden: document.getElementById("pairingPanel")?.hidden === true,
+    }));
+    if (!authRecovery.deviceStored || authRecovery.route !== "/" || !authRecovery.pairingHidden || deviceRecoveryRequired || deviceCookieRecoveries !== 1 || bootstrapRequests <= recoveryBootstrapBefore || !recoveredCookieNames.has("ibkr_app_session")) {
+      throw new Error(`synthetic device-cookie auth recovery failed: ${JSON.stringify({ authRecovery, deviceRecoveryRequired, deviceCookieRecoveries, bootstrapRequests, recoveryBootstrapBefore, cookieCount: recoveredCookieNames.size })}`);
+    }
+    const finalMutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
+    if (JSON.stringify(finalMutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read", "POST /api/pairing/complete"])) {
+      throw new Error(`unexpected synthetic mutations after fresh pairing: ${JSON.stringify(mutationRequests)}`);
+    }
+    if (externalRequests.length > 0) throw new Error(`synthetic browser attempted external requests: ${JSON.stringify(externalRequests)}`);
     if (errors.length > 0) throw new Error(`synthetic browser errors: ${errors.join("\n")}`);
-    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, monitor, alerts: alertsView, settings, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
+    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, brief: briefView, alerts: alertsView, orders: ordersView, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
   } finally {
     await browser.close();
   }

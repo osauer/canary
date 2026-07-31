@@ -23,7 +23,7 @@ func TestCommitCheckRemainsIntermediateOnly(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^commit-check:.*\n\tgo run \./scripts/commit-check\s*$`).MatchString(makefile) {
 		t.Fatal("Makefile commit-check target no longer invokes the staged-tree helper directly")
 	}
-	if !regexp.MustCompile(`(?m)^test:.*\n\t\$\(MAKE\) \$\(TEST_MAKEFLAGS\) check test-pkg test-support test-daemon\s*$`).MatchString(makefile) {
+	if !regexp.MustCompile(`(?m)^test:.*\n\t\$\(MAKE\) \$\(TEST_MAKEFLAGS\) check app-render-check test-pkg test-support test-daemon\s*$`).MatchString(makefile) {
 		t.Fatal("full test target no longer includes the binding check and complete test families")
 	}
 	releaseStart := strings.Index(makefile, "\n_release-run:")

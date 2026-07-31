@@ -52,6 +52,7 @@ write_manifest() {
         "make check (lint + vet + vulncheck + parity)",
         "make test (ubuntu-latest)",
         "make test (macos-latest)",
+        "isolated Canary app render",
         "cross-compile release matrix"
       ]
     },
@@ -129,6 +130,18 @@ jobs:
       - name: make test-daemon (macOS, unsharded -race)
         if: runner.os == 'macOS'
         run: make test-daemon-unsharded
+  app-render:
+    name: isolated Canary app render
+    runs-on: ubuntu-latest
+    steps:
+      - name: npm ci
+        working-directory: web/app
+        run: npm ci
+      - name: install Chromium
+        working-directory: web/app
+        run: npx playwright install --with-deps chromium
+      - name: make app-render-check
+        run: make app-render-check
   cross-compile:
     name: cross-compile release matrix
     runs-on: ubuntu-latest

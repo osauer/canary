@@ -1,8 +1,8 @@
 import { applyGovernanceCutoverOverlay, refreshGovernance, refreshPushState, scheduleGovernanceRefresh, validateGovernanceResponse } from "./alerts.js";
 import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, renderAlerts, renderSelectedAlert, scheduleAlertsRefresh } from "./alert-inbox.js";
-import { renderAll } from "./app.js";
 import { tryDeviceLogin } from "./auth.js";
 import { refreshOpenOrders } from "./orders.js";
+import { renderAll } from "./render-runtime.js";
 import { $ } from "./shared.js";
 import { refreshSelectedMarketCalendar, renderTopbar } from "./shell.js";
 import { state } from "./state.js";
@@ -27,13 +27,16 @@ async function bootstrap(options = {}) {
 // launchd respawn) exactly when the phone opens; a one-shot bootstrap that
 // dead-ends on "scan a fresh QR code" trains the user to re-pair devices
 // whose credentials are perfectly valid.
-async function bootstrapWithRetry() {
+async function bootstrapWithRetry(options = {}) {
+  const sleep = typeof options.sleep === "function"
+    ? options.sleep
+    : (delay) => new Promise((resolve) => setTimeout(resolve, delay));
   let delay = 2000;
   for (;;) {
     if (await bootstrap({ quiet: true })) return true;
     if (state.pairingRequired) return false;
     showPairing("Connecting to the Mac… retrying automatically.");
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await sleep(delay);
     delay = Math.min(delay * 2, 15000);
   }
 }

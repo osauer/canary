@@ -8,6 +8,7 @@
         "make check (lint + vet + vulncheck + parity)",
         "make test (ubuntu-latest)",
         "make test (macos-latest)",
+        "isolated Canary app render",
         "cross-compile release matrix"
       ]
     },

@@ -1,6 +1,6 @@
-import { renderAll } from "./app.js";
 import { protectionEmptyRow } from "./protection-coverage.js";
 import { goDurationMinutes, protectionContractLabel } from "./protection.js";
+import { renderAll } from "./render-runtime.js";
 import { $, blockerText, hasNumericValue, labelize, money, normalizeSymbol, numberRead, renderFreshnessTimestamp, shortPreviewMessage } from "./shared.js";
 import { state } from "./state.js";
 

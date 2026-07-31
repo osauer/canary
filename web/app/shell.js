@@ -375,4 +375,4 @@ function greeksMeaning(portfolio, positions) {
   return "Model Greeks unavailable for this option snapshot.";
 }
 
-export { closureWord, countdownLabel, currentMarketCalendar, gatewayIssueText, greeksCoverage, greeksMeaning, marketSessionLabel, marketSessionNow, marketStatusPhrase, refreshSelectedMarketCalendar, renderSourceBanners, renderSyncStrip, renderTopbar, setBanner, setupMarketSelect, snapshotIssueSummary, snapshotSourceLabel };
+export { closureWord, countdownLabel, currentMarketCalendar, gatewayIssueText, greeksCoverage, greeksMeaning, marketSessionLabel, marketSessionNow, marketStatusPhrase, refreshSelectedMarketCalendar, renderSourceBanners, renderSyncStrip, renderTopbar, setBanner, setupMarketSelect, snapshotIssueSummary, snapshotPayloadPresent, snapshotSourceLabel };
