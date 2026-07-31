@@ -173,7 +173,7 @@ func (s *Server) handleResourcesRead(ctx context.Context, id, params json.RawMes
 		TimeoutMs:        int(snapshotReadTimeout.Milliseconds()),
 		IncludeLiquidity: true,
 	}
-	daemonConn, closeConn, err := s.toolConn(readCtx)
+	daemonConn, closeConn, err := s.dialForRequest(ctx)
 	if err != nil {
 		s.writeError(id, codeInternalError, err.Error())
 		return

@@ -421,18 +421,18 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 		return
 	}
 	timeout := mcpToolCallTimeout(p.Name, p.Arguments)
+	conn, closeConn, err := s.dialForRequest(ctx)
+	if err != nil {
+		s.writeToolError(id, err)
+		return
+	}
+	defer closeConn()
 	callCtx := ctx
 	var cancel context.CancelFunc
 	if timeout > 0 {
 		callCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	conn, closeConn, err := s.toolConn(callCtx)
-	if err != nil {
-		s.writeToolError(id, err)
-		return
-	}
-	defer closeConn()
 	out, err := tool.Handler(callCtx, conn, p.Arguments)
 	if err != nil {
 		if toolCallTimedOut(callCtx, err) && timeout > 0 {
@@ -446,6 +446,25 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 	}
 	b, _ := json.Marshal(payload)
 	s.writeResult(id, b)
+}
+
+// dialForRequest opens the daemon connection a tool call or resource read
+// needs, under the daemon's own readiness budget instead of the caller's
+// per-call budget. A daemon that is starting verifies its database before it
+// publishes the socket, and that verification scales with the file, so
+// charging the wait to a 2-second tool budget reports a healthy boot as a
+// tool timeout. dial.StartupBudget tracks the same file, and autospawn
+// enforces it internally, so this deadline is a backstop for the paths that
+// never reach autospawn; ctx still aborts the wait when the MCP host exits.
+func (s *Server) dialForRequest(ctx context.Context) (*dial.Conn, func(), error) {
+	budget := dial.StartupBudget()
+	dialCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	conn, closeConn, err := s.toolConn(dialCtx)
+	if err != nil && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		return nil, closeConn, fmt.Errorf("the daemon did not start serving within %s; it verifies its database before it accepts connections, so a large one takes longer — check the daemon log", budget)
+	}
+	return conn, closeConn, err
 }
 
 func (s *Server) toolConn(ctx context.Context) (*dial.Conn, func(), error) {

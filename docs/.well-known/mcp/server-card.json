@@ -103,7 +103,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "order identifier to inspect: local order_ref such as canary-20260528-093000, IBKR order ID, or permanent ID"
+            "description": "order identifier to inspect: local order_ref such as canary-20260528-093000, IBKR order ID, or permanent ID. Orders journaled before the product was renamed carry an ibkr- prefix instead; pass those through unchanged"
           }
         },
         "required": [
@@ -694,7 +694,7 @@
               "detail",
               "monitor"
             ],
-            "description": "response shape: detail returns the existing compact regime snapshot (default); monitor returns posture, lifecycle, summary, source health, warnings, and compact indicator rows only"
+            "description": "response shape: detail returns the existing compact regime snapshot (default); monitor returns posture, lifecycle, summary, source health, warnings, and compact indicator rows only. Monitor rows carry the reading, its `cluster`, and the row's `thresholds` including `trip`, so a dashboard can print the trigger without the full snapshot"
           }
         }
       }
