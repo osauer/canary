@@ -73,6 +73,49 @@ func TestAccountSnapshotAuthoritySharesFlightAndCurrentResult(t *testing.T) {
 	}
 }
 
+func TestAccountSnapshotAuthorityExpiresAtFreshnessBoundary(t *testing.T) {
+	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
+	authority := accountSnapshotAuthority{now: func() time.Time { return now }}
+	source := accountSnapshotSource{scope: brokerStateScope{Account: "DU123", Mode: rpc.AccountModePaper}}
+	var calls atomic.Int32
+	fetch := func(context.Context) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error) {
+		call := calls.Add(1)
+		return testAccountSnapshot(now, float64(call)), ibkrlib.AccountSummaryProvenanceRequest, nil
+	}
+
+	first, err := authority.read(t.Context(), t.Context(), source, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *first.raw.NetLiquidation != 1 {
+		t.Fatalf("first value = %v, want broker fetch 1", *first.raw.NetLiquidation)
+	}
+
+	now = now.Add(accountSnapshotFreshFor - time.Nanosecond)
+	cached, err := authority.read(t.Context(), t.Context(), source, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("broker fetches just before expiry = %d, want cached snapshot", got)
+	}
+	if *cached.raw.NetLiquidation != 1 {
+		t.Fatalf("cached value = %v, want first broker snapshot", *cached.raw.NetLiquidation)
+	}
+
+	now = now.Add(time.Nanosecond)
+	refreshed, err := authority.read(t.Context(), t.Context(), source, fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("broker fetches exactly at expiry = %d, want a new request", got)
+	}
+	if *refreshed.raw.NetLiquidation != 2 || !refreshed.observedAt.Equal(now) {
+		t.Fatalf("refreshed snapshot = value %v observed %s, want request 2 at %s", *refreshed.raw.NetLiquidation, refreshed.observedAt, now)
+	}
+}
+
 func TestAccountSnapshotAuthorityNeverCachesUnstampedFallback(t *testing.T) {
 	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
 	authority := accountSnapshotAuthority{now: func() time.Time { return now }}

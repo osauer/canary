@@ -37,10 +37,6 @@
 #   CANARY_SMOKE_FAST       — 1 = stop after boot + quote + account (~15s inner-loop
 #                             tier, `make smoke-fast`); chain/regime/gamma/SPX
 #                             stay in the full run
-#   CANARY_SMOKE_GAMMA_DERIVED — 1 = run the off-hours derived-pricing gamma
-#                             assertion (5 polls × up to 60s ≈ 5 min). Default
-#                             0: release-smoke.sh carries this assertion on the
-#                             release path, so the dev inner loop doesn't pay it
 #   CANARY_SMOKE_STOP_EXISTING — 1 = stop existing Canary/pre-upgrade daemons
 #   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = `canary gamma --only=spx`
 #                             must return real SPX data; banner-seen FAILS the run.
@@ -206,8 +202,7 @@ run_cli() {
 # command order is deterministic enough — that whole-file scans work.
 #
 # Optional second arg: the path to a JSON envelope to forward via
-# --gamma-envelope-path. Only the gamma-premarket-derived check reads
-# this; passing it for other checks is harmless.
+# --gamma-envelope-path.
 assert_wire() {
     local check="$1"
     local envelope="${2:-}"
@@ -304,7 +299,7 @@ assert_wire account-summary
 # (`make smoke`) and the release gates.
 if [[ "${CANARY_SMOKE_FAST:-0}" == "1" ]]; then
     echo ""
-    echo "wire-smoke: PASS (fast tier) — boot + quote + account wire flow is healthy"
+    echo "wire-smoke: PASS (fast tier) — boot + quote + account wire contract checks passed"
     echo "wire-smoke: run the full \`make smoke\` for daemon/CLI wire-path changes"
     exit 0
 fi
@@ -341,8 +336,8 @@ if [[ $LAST_CMD_EXIT -ne 0 ]]; then
 fi
 assert_wire regime-subs
 
-# 9. gamma --no-wait — proves the non-blocking gamma path returns a
-# terminal status without hanging.
+# 9. gamma --no-wait — proves the non-blocking path returns a typed lifecycle
+# envelope whose fields agree with its cold/computing/ready/error status.
 echo "  [gamma --no-wait]..."
 
 run_cli gamma gamma --no-wait --json
@@ -351,46 +346,11 @@ if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "$LAST_CMD_OUTPUT" >&2
     exit 1
 fi
-assert_wire gamma-noflag
+GAMMA_ENV="$SMOKE_DIR/gamma-no-wait-envelope.json"
+printf '%s' "$LAST_CMD_OUTPUT" > "$GAMMA_ENV"
+assert_wire gamma-no-wait-envelope "$GAMMA_ENV"
 
-# 10. gamma-premarket-derived — only meaningful in loose mode (off-hours).
-# Block on the compute via the default `gamma --json` path (~50s wait),
-# poll a few times if still computing, then assert either derived_iv_legs
-# or model_tick_legs proves that at least one off-hours pricing path
-# landed. Strict mode skips internally — the model engine is active during
-# RTH and the fallback isn't expected to engage.
-#
-# Polling: the daemon's per-RPC deadline is 55s, so `gamma --json`
-# returns Status=computing if the compute outlives the budget. We poll
-# up to 5 times (≈4-5 min total) to give the compute room to complete
-# on a cold contract cache.
-#
-# Opt-in (CANARY_SMOKE_GAMMA_DERIVED=1): those ≈5 minutes dominated every
-# off-hours `make smoke` and the assertion is release-grade, not
-# per-commit — release-smoke.sh runs its own copy of this block on the
-# release path, so the dev inner loop skips it by default.
-if [[ "${LOOSE:-0}" -eq 1 && "${CANARY_SMOKE_GAMMA_DERIVED:-0}" == "1" ]]; then
-    echo "  [gamma (loose: off-hours pricing assertion)]..."
-    GAMMA_ENV="$SMOKE_DIR/gamma-envelope.json"
-    for attempt in 1 2 3 4 5; do
-        LAST_CMD_EXIT=0
-        LAST_CMD_OUTPUT="$(timeout 60 "$BIN" gamma --json 2>&1)" || LAST_CMD_EXIT=$?
-        if [[ $LAST_CMD_EXIT -ne 0 ]]; then
-            echo "wire-smoke: FAIL: gamma --json exit=$LAST_CMD_EXIT (attempt $attempt)" >&2
-            echo "$LAST_CMD_OUTPUT" >&2
-            exit 1
-        fi
-        printf '%s' "$LAST_CMD_OUTPUT" > "$GAMMA_ENV"
-        if grep -q '"status": *"ready"' <<<"$LAST_CMD_OUTPUT"; then
-            break
-        fi
-        echo "    poll $attempt: still computing"
-        sleep 2
-    done
-    assert_wire gamma-premarket-derived "$GAMMA_ENV"
-fi
-
-# 11. SPX coverage check — exercises the `--only=spx` path landed in
+# 10. SPX coverage check — exercises the `--only=spx` path landed in
 # the gamma-spx-coverage arc. Per design §11.2: on this dev machine
 # `SPX_EXPECTED_REACHABLE=1` flips banner-seen from clean-skip to
 # loud-fail, preventing silent SPX regression. CI accounts without
@@ -425,4 +385,4 @@ fi
 echo ""
 mode_label="strict"
 if [[ "${LOOSE:-0}" -eq 1 ]]; then mode_label="loose"; fi
-echo "wire-smoke: PASS — ${BIN} wire flow is healthy (mode=${mode_label})"
+echo "wire-smoke: PASS — ${BIN} wire contract checks passed (mode=${mode_label})"

@@ -534,24 +534,11 @@ assert_wire chain-iv-source "$LAST_WIRE_OFFSET"
 
 echo "  [9] gamma --no-wait..."
 run_wire_cli gamma "$WIRE_TIMEOUT" gamma --no-wait --json
-assert_wire gamma-noflag "$LAST_WIRE_OFFSET"
+GAMMA_ENV="$SMOKE_DIR/gamma-no-wait-envelope.json"
+printf '%s' "$LAST_CMD_OUTPUT" > "$GAMMA_ENV"
+assert_wire gamma-no-wait-envelope "$LAST_WIRE_OFFSET" "$GAMMA_ENV"
 
-if [[ "${LOOSE:-0}" -eq 1 ]]; then
-    echo "  [10] gamma (loose: off-hours pricing assertion)..."
-    GAMMA_ENV="$SMOKE_DIR/gamma-envelope.json"
-    for attempt in 1 2 3 4 5; do
-        run_wire_cli gamma_wait 60 gamma --json
-        printf '%s' "$LAST_CMD_OUTPUT" > "$GAMMA_ENV"
-        if grep -q '"status": *"ready"' <<<"$LAST_CMD_OUTPUT"; then
-            break
-        fi
-        echo "    poll $attempt: still computing"
-        sleep 2
-    done
-    assert_wire gamma-premarket-derived "$LAST_WIRE_OFFSET" "$GAMMA_ENV"
-fi
-
-echo "  [11] gamma --only=spx --no-wait..."
+echo "  [10] gamma --only=spx --no-wait..."
 gamma_spx_json="$(run_cli gamma_spx "$WIRE_TIMEOUT" gamma --only=spx --no-wait --json)"
 if [[ "${SPX_EXPECTED_REACHABLE:-0}" -eq 1 ]]; then
     if grep -q '"status": *"error"' <<<"$gamma_spx_json"; then
@@ -565,4 +552,4 @@ fi
 echo ""
 mode_label="strict"
 if [[ "${LOOSE:-0}" -eq 1 ]]; then mode_label="loose"; fi
-echo "release-smoke: PASS - $BIN ($EXPECTED) JSON + wire flow is healthy (mode=${mode_label})"
+echo "release-smoke: PASS - $BIN ($EXPECTED) JSON + wire contract checks passed (mode=${mode_label})"

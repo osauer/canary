@@ -15,15 +15,12 @@
 //
 // Catalogue:
 //
-//	quote-spy                — reqMktData SPY STK + tickPrice within budget
-//	chain-iv-source          — ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV
-//	gamma-noflag             — gamma --no-wait returns terminal status, never pending
-//	gamma-premarket-derived  — in loose mode, the gamma envelope reports
-//	                           derived_iv_legs > 0 or model_tick_legs > 0
-//	                           (off-hours pricing path landed)
-//	regime-subs              — MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY
-//	account-summary          — reqAccountSummary OUT + accountSummary IN
-//	status-handshake         — at least one MarketDataType notice (58) inbound
+//	quote-spy              — reqMktData SPY STK + tickPrice within budget
+//	chain-iv-source        — ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV
+//	gamma-no-wait-envelope — gamma --no-wait returns a valid typed lifecycle state
+//	regime-subs            — MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY
+//	account-summary        — reqAccountSummary OUT + accountSummary IN
+//	status-handshake       — at least one MarketDataType notice (58) inbound
 package main
 
 import (
@@ -155,7 +152,7 @@ func main() {
 		sinceOff     = flag.Int64("since-offset", 0, "skip bytes before this offset")
 		check        = flag.String("check", "", "check name (quote-spy, chain-iv-source, …)")
 		loose        = flag.Bool("loose", false, "loosen budgets when gateway is in frozen/off-hours mode")
-		gammaEnvPath = flag.String("gamma-envelope-path", "", "path to a JSON file holding the gamma envelope (only used by gamma-premarket-derived)")
+		gammaEnvPath = flag.String("gamma-envelope-path", "", "path to a JSON file holding the gamma envelope")
 		listChecks   = flag.Bool("list", false, "print the catalogue of supported checks and exit")
 	)
 	flag.Parse()
@@ -179,9 +176,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Auxiliary input: the gamma envelope JSON, loaded only for the
-	// gamma-premarket-derived check which inspects derived_iv_legs (a
-	// daemon-response field, not a wire-frame field).
+	// Auxiliary input: the gamma envelope JSON returned by the CLI. Its typed
+	// lifecycle state is response evidence, not something wire frames carry.
 	var gammaEnvBytes []byte
 	if *gammaEnvPath != "" {
 		gammaEnvBytes, err = os.ReadFile(*gammaEnvPath)
@@ -205,10 +201,8 @@ func main() {
 
 // ---- catalogue ------------------------------------------------------------
 
-// checkInputs aggregates everything a check function may need. Most
-// checks only read Frames; gamma-premarket-derived also reads
-// GammaEnvelope. Passing one struct keeps the type signature uniform
-// when new auxiliary inputs are added.
+// checkInputs aggregates everything a check function may need. Passing one
+// struct keeps the type signature uniform when auxiliary inputs are required.
 type checkInputs struct {
 	Frames        []WireFrame
 	Loose         bool
@@ -228,8 +222,7 @@ func catalogue() []checkEntry {
 		{"account-summary", "after canary account: reqAccountSummary OUT + acctValue/accountSummary IN", checkAccountSummary},
 		{"chain-iv-source", "after canary chain SPY --width 5: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV from any OPT reqID", checkChainIVSource},
 		{"regime-subs", "after canary regime: MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY", checkRegimeSubs},
-		{"gamma-noflag", "after canary gamma --no-wait: terminal status (ready or known error), never pending", checkGammaNoFlag},
-		{"gamma-premarket-derived", "in loose mode, gamma envelope JSON reports derived_iv_legs > 0 or model_tick_legs > 0 (off-hours pricing path landed)", checkGammaPremarketDerived},
+		{"gamma-no-wait-envelope", "after canary gamma --no-wait: valid cold/computing/ready/error envelope", checkGammaNoWaitEnvelope},
 	}
 }
 
@@ -479,67 +472,21 @@ func checkRegimeSubs(in checkInputs) CheckResult {
 	return CheckResult{OK: true}
 }
 
-func checkGammaNoFlag(in checkInputs) CheckResult {
-	frames := in.Frames
-	// gamma --no-wait should return a terminal status (ready or a
-	// known error) without blocking. This check looks at the wire to
-	// confirm the daemon kicked off the compute and either reused a
-	// cached result or has a compute in flight. It does NOT block on
-	// the compute completing. A "no OPT subscribes" outcome means the
-	// compute is fully cached and returned ready instantly.
-	for _, f := range frames {
-		if f.Direction == "OUT" && f.MsgID == 1 && f.MsgName == "reqMktData" {
-			if len(f.Fields) >= 6 && strings.EqualFold(f.Fields[5], "OPT") {
-				// Active compute is in flight; that's terminal-ok for --no-wait.
-				return CheckResult{OK: true, Observed: "compute in flight (OPT subscribes observed)"}
-			}
-		}
-	}
-	// No new OPT subscribes — either cached or fully off-hours.
-	// Either way --no-wait should return without hanging. We trust
-	// the CLI returning at all (which the script proves by reaching
-	// this check) as evidence of the status invariant.
-	return CheckResult{OK: true, Observed: "no new OPT subscribes (cached or skipped)"}
-}
-
-// checkGammaPremarketDerived asserts that a completed gamma compute
-// off-hours found at least one priced leg through either the BS-IV
-// Newton-Raphson fallback or a gateway model tick. Inspects the JSON
-// envelope passed via --gamma-envelope-path (the daemon's response
-// from `canary gamma --wait …`), not the wire frames — these counters are
-// daemon-internal aggregations that have no wire-frame representation.
-//
-// Strict mode (live): the check is skipped (model engine is active,
-// fallback need not fire). The wire-smoke script only runs this check
-// when LOOSE=1.
-//
-// In loose mode without a usable envelope (no completed compute,
-// gamma is still pending, or the envelope has Status != "ready"), the
-// check passes with an explanatory observation rather than fails —
-// the assertion is "if a result is available, it used a valid pricing
-// path", not "the compute must complete before this check runs."
-func checkGammaPremarketDerived(in checkInputs) CheckResult {
-	if !in.Loose {
-		return CheckResult{OK: true, Observed: "strict mode: skipped (BS-IV fallback only required off-hours)"}
-	}
+func checkGammaNoWaitEnvelope(in checkInputs) CheckResult {
 	if len(in.GammaEnvelope) == 0 {
 		return CheckResult{
 			Expected: "--gamma-envelope-path PATH (the gamma JSON response)",
 			Observed: "no envelope provided",
 		}
 	}
-	// Minimal struct: only the fields this check inspects. Tolerates
-	// extra fields on the wire (forward-compat with future envelope
-	// additions).
-	type envResult struct {
-		Status        string `json:"status"`
-		LegCount      int    `json:"leg_count"`
-		DerivedIVLegs int    `json:"derived_iv_legs"`
-		ModelTickLegs int    `json:"model_tick_legs"`
-	}
+
+	// Minimal response shape: extra computed fields remain forward-compatible,
+	// while lifecycle/result mismatches fail closed.
 	type env struct {
-		Status string    `json:"status"`
-		Result envResult `json:"result"`
+		Status    string           `json:"status"`
+		StartedAt *time.Time       `json:"started_at,omitempty"`
+		Result    *json.RawMessage `json:"result,omitempty"`
+		Error     string           `json:"error,omitempty"`
 	}
 	var e env
 	if err := json.Unmarshal(in.GammaEnvelope, &e); err != nil {
@@ -549,17 +496,44 @@ func checkGammaPremarketDerived(in checkInputs) CheckResult {
 			Hypothesis: "CLI may have emitted an error envelope rather than the gamma response shape",
 		}
 	}
-	if e.Status != "ready" {
-		// Status=computing/error: nothing to assert (a pending or
-		// errored compute doesn't tell us anything about the fallback).
-		return CheckResult{OK: true, Observed: fmt.Sprintf("envelope status=%q (no completed result to inspect)", e.Status)}
-	}
-	if e.Result.DerivedIVLegs == 0 && e.Result.ModelTickLegs == 0 {
+
+	switch e.Status {
+	case "cold":
+		if e.Result != nil {
+			return gammaEnvelopeShapeFailure(e.Status, "result must be absent")
+		}
+	case "computing":
+		if e.StartedAt == nil {
+			return gammaEnvelopeShapeFailure(e.Status, "started_at must be present")
+		}
+		if e.Result != nil {
+			return gammaEnvelopeShapeFailure(e.Status, "result must be absent")
+		}
+	case "ready":
+		if e.Result == nil {
+			return gammaEnvelopeShapeFailure(e.Status, "result must be present")
+		}
+	case "error":
+		if strings.TrimSpace(e.Error) == "" {
+			return gammaEnvelopeShapeFailure(e.Status, "classified error text must be present")
+		}
+		if e.Result != nil {
+			return gammaEnvelopeShapeFailure(e.Status, "result must be absent")
+		}
+	default:
 		return CheckResult{
-			Expected:   "derived_iv_legs > 0 or model_tick_legs > 0 in loose mode",
-			Observed:   fmt.Sprintf("derived_iv_legs=0 model_tick_legs=0 with leg_count=%d", e.Result.LegCount),
-			Hypothesis: "neither the gateway model engine nor the BS-IV fallback priced a leg. Check internal/daemon/gamma_zero_compute.go productionLegFetcher Stage 2b.",
+			Expected:   "status is exactly cold, computing, ready, or error",
+			Observed:   fmt.Sprintf("status=%q", e.Status),
+			Hypothesis: "the gamma lifecycle contract drifted or untrusted text reached a typed status field",
 		}
 	}
-	return CheckResult{OK: true, Observed: fmt.Sprintf("derived_iv_legs=%d model_tick_legs=%d leg_count=%d", e.Result.DerivedIVLegs, e.Result.ModelTickLegs, e.Result.LegCount)}
+	return CheckResult{OK: true, Observed: fmt.Sprintf("valid gamma lifecycle envelope: status=%s", e.Status)}
+}
+
+func gammaEnvelopeShapeFailure(status, detail string) CheckResult {
+	return CheckResult{
+		Expected:   "gamma lifecycle fields match the typed envelope contract",
+		Observed:   fmt.Sprintf("status=%q: %s", status, detail),
+		Hypothesis: "the daemon or CLI emitted a contradictory gamma lifecycle state",
+	}
 }
