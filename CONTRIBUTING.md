@@ -57,10 +57,16 @@ For anything touching Go or runtime behavior:
 make test
 ```
 
-`make test` includes `check` and adds unit and integration tests. Integration
-tests under `test/integration/` connect to a live IB Gateway on
-`127.0.0.1:4001` and skip cleanly when none is reachable, so they will not
-hang on a machine with no gateway. Override the port with `IBKR_TEST_PORT`.
+`make test` includes `check`, unit tests, and the hermetic daemon/CLI lifecycle
+integration inventory. Live Gateway evidence is explicit and strict:
+
+```bash
+IBKR_TEST_PORT=4002 make test-integration-live
+```
+
+That target fails when the Gateway is absent or cannot complete its handshake;
+it never turns missing live evidence into a green skip. Direct `go test ./...`
+retains optional-live behavior for ordinary Go tooling.
 
 `make help` lists every target.
 

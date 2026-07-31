@@ -5,9 +5,10 @@
 // IBKR; they prove the shipped multi-mode binary connects and talks to the real
 // gateway.
 //
-// Tests skip if the IB Gateway is not reachable on the configured port; this
-// matches the project's "no mock" stance: when the live gateway is down we
-// don't paper over the gap, we surface it.
+// Binding Make targets choose one meaning explicitly: hermetic mode selects
+// only daemon/CLI lifecycle tests and never probes a Gateway; live mode
+// requires a reachable, fully-handshaken Gateway and fails on absence. Direct
+// `go test` retains optional-live skips for ordinary Go tooling.
 //
 // Unix-only: launchSharedDaemon uses Setpgid + kill(-pgid) to ensure the
 // spawned daemon never orphans if go test is interrupted. Windows has no
@@ -55,14 +56,48 @@ const (
 	integrationCLIUnaryTimeout     = 2 * time.Second
 	integrationCLIUnaryTimeoutText = "2s"
 	integrationCLILongTimeoutText  = "3s"
+
+	integrationModeEnv = "INTEGRATION_TEST_MODE"
 )
 
-// TestMain probes the IB Gateway, builds the single canary binary, and
-// launches one daemon (`canary daemon --foreground`) shared by every test
-// in this package. Per-test daemons are too slow (each handshake is
-// multi-second) and risk overwhelming the gateway with rapid-fire
-// client-ID changes.
+type integrationTestMode string
+
+const (
+	// integrationModeOptional preserves direct `go test ./...` behavior:
+	// lifecycle tests run everywhere and live tests skip when no Gateway is
+	// reachable. Binding Make targets choose an explicit mode instead.
+	integrationModeOptional integrationTestMode = "optional"
+	// integrationModeHermetic runs only the lifecycle inventory selected by
+	// the caller and never probes or waits for a live Gateway.
+	integrationModeHermetic integrationTestMode = "hermetic"
+	// integrationModeLive requires a reachable, fully handshaken Gateway.
+	// Absence is a package failure, never a green skip.
+	integrationModeLive integrationTestMode = "live"
+)
+
+func parseIntegrationTestMode(raw string) (integrationTestMode, error) {
+	switch mode := integrationTestMode(strings.ToLower(strings.TrimSpace(raw))); mode {
+	case "":
+		return integrationModeOptional, nil
+	case integrationModeOptional, integrationModeHermetic, integrationModeLive:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%s must be optional, hermetic, or live (got %q)", integrationModeEnv, raw)
+	}
+}
+
+// TestMain builds the single canary binary, then either runs the hermetic
+// lifecycle inventory or launches one daemon (`canary daemon --foreground`)
+// shared by every selected live test. Per-test live daemons are too slow
+// (each handshake is multi-second) and risk overwhelming the gateway with
+// rapid-fire client-ID changes.
 func TestMain(m *testing.M) {
+	mode, err := parseIntegrationTestMode(os.Getenv(integrationModeEnv))
+	if err != nil {
+		_, _ = os.Stderr.WriteString("integration: " + err.Error() + "\n")
+		os.Exit(2)
+	}
+
 	// Always build the binary first — lifecycle tests (kill/respawn,
 	// non-responsive daemon) exercise the CLI's daemon-management path
 	// which doesn't need a live gateway.
@@ -81,13 +116,27 @@ func TestMain(m *testing.M) {
 	// that keeps daemons from accumulating and wedging TWS.
 	startReaper(cli)
 
+	if mode == integrationModeHermetic {
+		os.Exit(m.Run())
+	}
+
 	if !probeGatewayReachable() {
+		if mode == integrationModeLive {
+			_, _ = os.Stderr.WriteString("integration: live mode requires a reachable IB Gateway\n")
+			os.Exit(1)
+		}
 		sharedSkipped = true
 		os.Exit(m.Run())
 	}
 	socketPath, stop, err := launchSharedDaemon(cli)
 	if err != nil {
 		_, _ = os.Stderr.WriteString("integration: launch failed (gateway may be in degraded API-mute state — restart it and re-run): " + err.Error() + "\n")
+		if mode == integrationModeLive {
+			if stop != nil {
+				stop()
+			}
+			os.Exit(1)
+		}
 		sharedSkipped = true
 		if stop != nil {
 			stop()
@@ -103,7 +152,13 @@ func TestMain(m *testing.M) {
 	// before declaring the suite live; on a degraded gateway, every test
 	// skips cleanly instead of failing with cascading IBKR-unavailable errors.
 	if !daemonReachedGateway(socketPath) {
-		_, _ = os.Stderr.WriteString("integration: daemon started but failed to handshake with IB Gateway (likely in degraded API-mute state — restart it and re-run); skipping live tests.\n")
+		message := "integration: daemon started but failed to handshake with IB Gateway (likely in degraded API-mute state — restart it and re-run)"
+		if mode == integrationModeLive {
+			_, _ = os.Stderr.WriteString(message + "\n")
+			stop()
+			os.Exit(1)
+		}
+		_, _ = os.Stderr.WriteString(message + "; skipping optional live tests.\n")
 		sharedSkipped = true
 	}
 

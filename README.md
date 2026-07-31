@@ -324,12 +324,17 @@ Windows is not supported — the daemon uses Unix-only primitives (setsid, flock
 
 ```sh
 make check      # gofmt + go vet + staticcheck + govulncheck + plugin/parity checks
-make test       # check + unit tests + integration tests against a live gateway
+make test       # check + unit tests + hermetic daemon/CLI lifecycle integration
+make test-integration-live # strict live-Gateway integration; absence fails
 ```
 
 `make check` is the binding gate. It fails on stdlib vulnerabilities, so an outdated Go toolchain is a build failure. The lint/vuln tools are pinned in `go.mod` and run via `go tool`, so CI and local checks use the same versions. The gate also checks that MCP tools, streaming resources, generated references, and plugin metadata stay aligned with the CLI commands.
 
-Integration tests under `test/integration/` connect to the live IB Gateway on `127.0.0.1:4001` and skip cleanly when it isn't reachable, so `go test ./...` doesn't hang on a laptop with no gateway. Override the port with `IBKR_TEST_PORT=4002 make test`.
+`make test` runs the hermetic lifecycle inventory under `test/integration/`
+without probing a Gateway. The live inventory is deliberately separate:
+`IBKR_TEST_PORT=4002 make test-integration-live` requires a reachable,
+fully-handshaken Gateway and fails rather than reporting green skips. A direct
+`go test ./...` retains optional-live behavior for ordinary Go tooling.
 
 No mock daemons. `pkg/ibkr/protocoltest/` is a wire-level encoder/decoder spec used by unit tests. Behavioural verification runs against a real IB Gateway.
 

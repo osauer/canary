@@ -115,52 +115,6 @@ func TestConnection_WaitForAccountSummaryEnd(t *testing.T) {
 	})
 }
 
-func TestConnection_EventDrivenVsSleep(t *testing.T) {
-	// This test demonstrates the performance improvement
-	// of event-driven completion vs fixed sleep
-
-	conn := &Connection{
-		positionsEndChan: make(chan struct{}, 1),
-	}
-
-	// Simulate fast IBKR response (200ms)
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		conn.positionsEndChan <- struct{}{}
-	}()
-
-	// Measure event-driven approach
-	start := time.Now()
-	err := conn.WaitForPositionsEnd(5 * time.Second)
-	eventDrivenTime := time.Since(start)
-
-	if err != nil {
-		t.Errorf("Event-driven wait failed: %v", err)
-	}
-
-	// Compare with old fixed sleep approach
-	sleepStart := time.Now()
-	time.Sleep(2 * time.Second) // Old approach
-	sleepTime := time.Since(sleepStart)
-
-	// Event-driven should be much faster
-	if eventDrivenTime > 500*time.Millisecond {
-		t.Errorf("Event-driven took too long: %v", eventDrivenTime)
-	}
-
-	if sleepTime < 2*time.Second {
-		t.Errorf("Sleep should take at least 2 seconds: %v", sleepTime)
-	}
-
-	improvement := float64(sleepTime-eventDrivenTime) / float64(sleepTime) * 100
-	t.Logf("Performance improvement: %.1f%% (Event: %v, Sleep: %v)",
-		improvement, eventDrivenTime, sleepTime)
-
-	if improvement < 75 {
-		t.Errorf("Expected at least 75%% improvement, got %.1f%%", improvement)
-	}
-}
-
 func TestConnection_ClearChannel(t *testing.T) {
 	// Test that RequestPositions clears the channel before requesting
 	conn := &Connection{

@@ -112,6 +112,30 @@ func TestLifecycle_LeakedAppPatternExcludesParallelPgrep(t *testing.T) {
 	}
 }
 
+func TestLifecycle_IntegrationModeIsExplicitAndFailsClosed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		raw  string
+		want integrationTestMode
+	}{
+		{raw: "", want: integrationModeOptional},
+		{raw: " optional ", want: integrationModeOptional},
+		{raw: "HERMETIC", want: integrationModeHermetic},
+		{raw: "live", want: integrationModeLive},
+	} {
+		got, err := parseIntegrationTestMode(tc.raw)
+		if err != nil {
+			t.Fatalf("parseIntegrationTestMode(%q): %v", tc.raw, err)
+		}
+		if got != tc.want {
+			t.Fatalf("parseIntegrationTestMode(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+	if _, err := parseIntegrationTestMode("skip-live"); err == nil {
+		t.Fatal("unknown integration mode was accepted")
+	}
+}
+
 // killDaemonTree terminates a daemon and anything it spawned. Autospawned
 // daemons run under Setsid (internal/dial/autospawn.go), making the daemon
 // its own process-group leader, so kill(-pid) reaches the whole group;

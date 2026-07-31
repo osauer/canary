@@ -62,7 +62,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -566,10 +566,16 @@ test-support: ## Run command and CI/release support tests under -race
 	go test -race -timeout=60s ./scripts/release-ci-wait
 	go test -race -timeout=60s ./scripts/test-shard
 
+test-integration: ## Run hermetic CLI/daemon lifecycle integration tests; never probes a live Gateway
+	INTEGRATION_TEST_MODE=hermetic go test -race -count=1 -timeout=420s -run '^TestLifecycle_' ./test/integration/...
+
+test-integration-live: ## Require and exercise a live Gateway; absence or failed handshake is an error
+	./scripts/with-gateway-lock.sh env INTEGRATION_TEST_MODE=live go test -race -count=1 -timeout=420s -skip '^TestLifecycle_' ./test/integration/...
+
 # Daemon + CLI integration tests. -race is on for the daemon path because
 # this layer carries the goroutines (subscriptions, idle timer, signal
-# handlers); race detector earns its slot here. Integration tests skip
-# cleanly when no IBKR gateway is reachable.
+# handlers); race detector earns its slot here. Binding targets separate
+# hermetic lifecycle coverage from strict live-Gateway evidence.
 #
 # The integration leg is serialized across sessions via with-gateway-lock:
 # its client IDs and daemon spawns hit the shared TWS gateway, and two
@@ -588,7 +594,7 @@ test-daemon: ## Run internal/... and test/integration/... under -race (daemon ro
 			go test -race -timeout=240s $$internal_pkgs; \
 		fi
 	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -race -timeout 240s
-	./scripts/with-gateway-lock.sh go test -race -count=1 -timeout=420s ./test/integration/...
+	$(MAKE) test-integration
 	@set -eu; \
 		daemon_pkg="$$(go list -tags trading ./internal/daemon)"; \
 		all_daemon="$$(go list -tags trading ./internal/daemon/...)"; \
@@ -605,7 +611,7 @@ test-daemon: ## Run internal/... and test/integration/... under -race (daemon ro
 # headroom, not the Linux timeout repair.
 test-daemon-unsharded: ## Run the daemon gate in one process per build mode (macOS CI race diagnostic)
 	go test -race -timeout=420s ./internal/...
-	./scripts/with-gateway-lock.sh go test -race -count=1 -timeout=420s ./test/integration/...
+	$(MAKE) test-integration
 	go test -race -timeout=420s -tags trading ./internal/daemon/...
 
 # Install the standalone skill bundle directly under global agent skill roots.
