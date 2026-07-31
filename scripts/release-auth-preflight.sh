@@ -24,8 +24,8 @@ fail() { printf 'release-auth-preflight: %s\n' "$1" >&2; exit 1; }
 note() { printf 'release-auth-preflight: %s\n' "$1"; }
 
 command -v gh >/dev/null 2>&1 || fail "gh CLI not on PATH; brew install gh"
-if ! gh auth status >/dev/null 2>&1; then
-    fail "gh auth is invalid or expired — run 'gh auth login', then retry"
+if ! gh auth status --hostname github.com >/dev/null 2>&1; then
+    fail "gh auth for github.com is invalid or expired — run 'gh auth login --hostname github.com', then retry"
 fi
 note "gh auth OK"
 

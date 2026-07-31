@@ -17,12 +17,14 @@ on:
         required: true
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
 env:
   MCP_PUBLISHER_VERSION: v1.7.9
-  SERVER_NAME: io.github.osauer/canary
+  # modelcontextprotocol/registry v1.7.9 registry_1.7.9_checksums.txt
+  MCP_PUBLISHER_LINUX_AMD64_SHA256: ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac
 
 jobs:
   publish:
@@ -30,82 +32,85 @@ jobs:
     steps:
       - name: Resolve tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag }}"
-          case "$tag" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "unexpected tag '$tag'" >&2; exit 1 ;;
-          esac
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Skip if registry already has this version
-        id: guard
-        run: |
-          latest="$(curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=${SERVER_NAME}&version=latest" \
-            | jq -r '.servers[0].server.version // empty')"
-          echo "registry latest: '${latest:-none}'"
-          if [ "$latest" = "${{ steps.tag.outputs.version }}" ]; then
-            echo "already published — nothing to do"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "unexpected tag '$tag'" >&2
+            exit 1
           fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout tag
-        if: steps.guard.outputs.skip != 'true'
-        uses: actions/checkout@v4
+      - name: Checkout recovery controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          repository: osauer/canary
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Go
-        if: steps.guard.outputs.skip != 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
-      - name: Download release mcpb asset
-        if: steps.guard.outputs.skip != 'true'
+      - name: Hydrate and verify exact release asset set
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          mkdir -p dist
-          gh release download "${{ steps.tag.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "canary-${{ steps.tag.outputs.tag }}.mcpb" \
-            --dir dist
+          set -euo pipefail
+          make release-github-assets RELEASE_VERSION="$RELEASE_TAG"
+
+      - name: Verify exact release authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          contract="$(mktemp "${RUNNER_TEMP}/canary-release-ci-contract.XXXXXX")"
+          trap 'rm -f "$contract"' EXIT HUP INT TERM
+          ./scripts/check-release-source.sh --controller "$tag"
+          ./scripts/check-release-origin.sh
+          ./scripts/check-release-ci-contract.sh
+          python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract"
+          GOFLAGS= go run ./scripts/release-ci-wait \
+            -contract "$contract" -historical \
+            -sha "$release_sha" -branch main -event push \
+            -poll 15s -timeout 30m
+          ./scripts/check-release-tag.sh "$tag"
+          ./scripts/check-release-tag.sh --plugin "$tag"
+          ./scripts/check-github-release.sh "$tag" dist
 
       - name: Install mcp-publisher
-        if: steps.guard.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/mcp-publisher_linux_amd64.tar.gz"
           mkdir -p bin
           gh release download "$MCP_PUBLISHER_VERSION" \
-            --repo modelcontextprotocol/registry \
+            --repo github.com/modelcontextprotocol/registry \
             --pattern 'mcp-publisher_linux_amd64.tar.gz' \
-            --dir /tmp
-          tar -xzf /tmp/mcp-publisher_linux_amd64.tar.gz -C bin mcp-publisher
+            --dir "$RUNNER_TEMP"
+          printf '%s  %s\n' "$MCP_PUBLISHER_LINUX_AMD64_SHA256" "$archive" \
+            | sha256sum --check --strict -
+          tar -xzf "$archive" -C bin mcp-publisher
           bin/mcp-publisher --version
 
       - name: Generate and validate dist/server.json
-        if: steps.guard.outputs.skip != 'true'
-        run: make release-registry-server RELEASE_VERSION=${{ steps.tag.outputs.tag }}
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: make release-registry-server RELEASE_VERSION="$RELEASE_TAG"
 
       - name: Publish via OIDC
-        if: steps.guard.outputs.skip != 'true'
         run: |
+          set -euo pipefail
           bin/mcp-publisher login github-oidc
-          bin/mcp-publisher publish dist/server.json
-
-      - name: Verify registry
-        if: steps.guard.outputs.skip != 'true'
-        run: |
-          for i in 1 2 3; do
-            latest="$(curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=${SERVER_NAME}&version=latest" \
-              | jq -r '.servers[0].server.version // empty')"
-            [ "$latest" = "${{ steps.tag.outputs.version }}" ] && { echo "registry serves ${latest}"; exit 0; }
-            sleep 10
-          done
-          echo "registry still serves '${latest:-none}', expected ${{ steps.tag.outputs.version }}" >&2
-          exit 1
+          MCP_REGISTRY_AUTO_LOGIN=0 \
+            ./scripts/registry-publish-with-login.sh \
+            bin/mcp-publisher dist/server.json

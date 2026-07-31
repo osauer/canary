@@ -1,0 +1,22 @@
+{
+  "repository": "osauer/canary",
+  "workflows": [
+    {
+      "file": "ci.yml",
+      "name": "ci",
+      "jobs": [
+        "make check (lint + vet + vulncheck + parity)",
+        "make test (ubuntu-latest)",
+        "make test (macos-latest)",
+        "cross-compile release matrix"
+      ]
+    },
+    {
+      "file": "pages-check.yml",
+      "name": "pages check",
+      "jobs": [
+        "local page targets"
+      ]
+    }
+  ]
+}

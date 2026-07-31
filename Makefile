@@ -51,12 +51,18 @@ SKILL_SRC  ?= skills/canary
 
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 3
+RELEASE_CI_POLL ?= 15s
+RELEASE_CI_TIMEOUT ?= 30m
+RELEASE_CONTROLLER_CONTRACT = release-controller-v1
+override release_first_makeflag = $(firstword $(MAKEFLAGS))
+override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))
+override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))
 MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publisher)
 RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded clean install-plugin install-plugin-refresh install-skill uninstall-skill all check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -65,7 +71,7 @@ help: ## List available targets
 	@echo
 	@echo "Common flow:  make fmt && make test && make build   (test already runs check)"
 	@echo "Daemon flow:  make install restart-daemon   (FORCE=1 adds canary restart --force; refreshes any running app)"
-	@echo "Release flow: make release RELEASE_VERSION=vX.Y.Z   (clean tree + HEAD == origin/$(MAIN_BRANCH))"
+	@echo "Release flow: make release RELEASE_VERSION=vX.Y.Z   (clean committed HEAD; origin/$(MAIN_BRANCH) not ahead)"
 	@echo "              tags + pushes + cross-compiles + creates GitHub Release with binaries attached"
 
 build: ## Compile the canonical bin/canary executable
@@ -557,6 +563,7 @@ test-pkg: ## Run pkg/ibkr/... tests under -race (TWS protocol library; cached wh
 test-support: ## Run command and CI/release support tests under -race
 	go test -race -timeout=180s ./cmd/...
 	go test -race -timeout=60s ./scripts/release-registry-server
+	go test -race -timeout=60s ./scripts/release-ci-wait
 	go test -race -timeout=60s ./scripts/test-shard
 
 # Daemon + CLI integration tests. -race is on for the daemon path because
@@ -799,7 +806,13 @@ release-registry-server: ## Generate and validate dist/server.json for MCP Regis
 		echo "release-registry-server: missing $(DIST_DIR)/canary-$(RELEASE_VERSION).mcpb; run make release-mcpb" >&2; \
 		exit 1; \
 	fi
-	go run ./scripts/release-registry-server $(RELEASE_VERSION) "$(DIST_DIR)/canary-$(RELEASE_VERSION).mcpb" "$(DIST_DIR)/server.json"
+	@set -eu; \
+	template=$$(mktemp "$${TMPDIR:-/tmp}/canary-registry-template.XXXXXX") || exit 1; \
+	trap 'rm -f "$$template"' EXIT HUP INT TERM; \
+	python3 ./scripts/materialize-release-tag-file.py \
+		"$(RELEASE_VERSION)" server.json "$$template"; \
+	go run ./scripts/release-registry-server "$(RELEASE_VERSION)" "$$template" \
+		"$(DIST_DIR)/canary-$(RELEASE_VERSION).mcpb" "$(DIST_DIR)/server.json"; \
 	$(MCP_PUBLISHER) validate "$(DIST_DIR)/server.json"
 
 registry-login: ## Refresh MCP Registry auth token (default: GitHub device flow)
@@ -809,16 +822,137 @@ release-auth-preflight: ## Fail-fast gh auth + registry fallback preconditions (
 	MCP_REGISTRY_AUTO_LOGIN=$(MCP_REGISTRY_AUTO_LOGIN) \
 		./scripts/release-auth-preflight.sh "$(MCP_PUBLISHER)" "$(MCP_REGISTRY_LOGIN_METHOD)"
 
-registry-publish: release-registry-server ## Publish dist/server.json, refreshing expired Registry auth when needed
+release-origin-check:
+	@./scripts/check-release-origin.sh
+
+release-ci-wait: ## Require exact-HEAD success from every source-controlled push-to-main workflow
+	$(MAKE) release-origin-check
+	@command -v gh >/dev/null 2>&1 || { echo "release-ci-wait: gh CLI not on PATH" >&2; exit 1; }
+	@GOFLAGS= go run ./scripts/release-ci-wait \
+		-contract scripts/release-ci-contract.json \
+		-sha "$$(git rev-parse HEAD)" -branch "$(MAIN_BRANCH)" -event push \
+		-poll "$(RELEASE_CI_POLL)" -timeout "$(RELEASE_CI_TIMEOUT)"
+
+_release-ci-wait-historical:
+	$(if $(filter default,$(origin MAKE)),,$(error _release-ci-wait-historical: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-ci-wait-historical: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error _release-ci-wait-historical: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error _release-ci-wait-historical: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error _release-ci-wait-historical: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-ci-wait-historical: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-ci-wait-historical: only the canonical Makefile is allowed))
+	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then \
+		echo "_release-ci-wait-historical: internal resume helper; invoke 'make release-resume RELEASE_VERSION=vX.Y.Z'" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) release-origin-check
+	@command -v gh >/dev/null 2>&1 || { echo "_release-ci-wait-historical: gh CLI not on PATH" >&2; exit 1; }
+	@release_sha=$$(git rev-parse --verify "refs/tags/$(RELEASE_VERSION)^{commit}") || { \
+		echo "_release-ci-wait-historical: cannot resolve release tag $(RELEASE_VERSION)" >&2; \
+		exit 1; \
+	}; \
+	contract=$$(mktemp "$${TMPDIR:-/tmp}/canary-release-ci-contract.XXXXXX") || exit 1; \
+	trap 'rm -f "$$contract"' EXIT HUP INT TERM; \
+	python3 ./scripts/materialize-release-ci-contract.py \
+		"$(RELEASE_VERSION)" "$$contract"; \
+	GOFLAGS= go run ./scripts/release-ci-wait \
+		-contract "$$contract" -historical \
+		-sha "$$release_sha" -branch "$(MAIN_BRANCH)" -event push \
+		-poll "$(RELEASE_CI_POLL)" -timeout "$(RELEASE_CI_TIMEOUT)"
+
+# Keep the mutable main-ref assertion separate from exact-SHA Actions evidence:
+# release-resume must verify the tagged SHA even after origin/main advances.
+release-main-candidate-check:
+	$(MAKE) release-origin-check
+	@sha=$$(git rev-parse HEAD) || exit 1; \
+	remote_line=$$(git ls-remote --exit-code --refs origin "refs/heads/$(MAIN_BRANCH)") || { \
+		echo "release-main-candidate-check: cannot resolve origin/$(MAIN_BRANCH)" >&2; \
+		exit 1; \
+	}; \
+	set -- $$remote_line; \
+	if [ "$$#" -ne 2 ] || [ "$$2" != "refs/heads/$(MAIN_BRANCH)" ]; then \
+		echo "release-main-candidate-check: malformed origin/$(MAIN_BRANCH) response" >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$1" != "$$sha" ]; then \
+		echo "release-main-candidate-check: origin/$(MAIN_BRANCH) is $$1, expected release candidate $$sha" >&2; \
+		exit 1; \
+	fi
+
+release-source-candidate-check:
+	@./scripts/check-release-source.sh "$(RELEASE_VERSION)"
+
+release-controller-source-check:
+	$(MAKE) release-origin-check
+	@./scripts/check-release-source.sh --controller "$(RELEASE_VERSION)"
+
+release-tag-candidate-check:
+	$(MAKE) release-origin-check
+	@./scripts/check-release-tag.sh "$(RELEASE_VERSION)"
+
+release-plugin-tag-candidate-check:
+	$(MAKE) release-origin-check
+	@./scripts/check-release-tag.sh --plugin "$(RELEASE_VERSION)"
+
+release-github-candidate-check:
+	$(MAKE) release-origin-check
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)"
+
+release-github-assets: ## Hydrate and verify the exact signed asset set from an existing GitHub release
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "release-github-assets: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/hydrate-github-release-assets.sh "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))"
+	$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+
+registry-publish: ## Recover registry publication from an exact tagged release worktree
+	$(if $(filter default,$(origin MAKE)),,$(error registry-publish: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error registry-publish: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error registry-publish: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error registry-publish: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error registry-publish: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error registry-publish: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error registry-publish: only the canonical Makefile is allowed))
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "registry-publish: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/check-release-ci-contract.sh
+	$(MAKE) release-origin-check
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-registry-server RELEASE_VERSION=$(RELEASE_VERSION)
 	MCP_REGISTRY_AUTO_LOGIN=$(MCP_REGISTRY_AUTO_LOGIN) MCP_REGISTRY_LOGIN_METHOD=$(MCP_REGISTRY_LOGIN_METHOD) \
 		./scripts/registry-publish-with-login.sh "$(MCP_PUBLISHER)" "$(DIST_DIR)/server.json"
 
 registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall back to direct login + publish
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "registry-publish-verify-first: RELEASE_VERSION is required, e.g. make registry-publish-verify-first RELEASE_VERSION=v1.2.1" >&2; \
+	$(if $(filter default,$(origin MAKE)),,$(error registry-publish-verify-first: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error registry-publish-verify-first: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error registry-publish-verify-first: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error registry-publish-verify-first: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error registry-publish-verify-first: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error registry-publish-verify-first: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error registry-publish-verify-first: only the canonical Makefile is allowed))
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "registry-publish-verify-first: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
+	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/check-release-ci-contract.sh
+	$(MAKE) release-origin-check
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-registry-server RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/registry-publish-verify-first.sh "$(RELEASE_VERSION)" \
+		"$(DIST_DIR)/server.json" \
 		make --no-print-directory registry-publish \
 		RELEASE_VERSION="$(RELEASE_VERSION)" DIST_DIR="$(DIST_DIR)" \
 		MCP_PUBLISHER="$(MCP_PUBLISHER)" MCP_REGISTRY_AUTO_LOGIN="$(MCP_REGISTRY_AUTO_LOGIN)" \
@@ -831,14 +965,26 @@ registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall
 # derived from CHANGELOG — no second place to drift. Marks the new release
 # as latest.
 _release-publish:
-	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then \
+	$(if $(filter default,$(origin MAKE)),,$(error _release-publish: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-publish: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error _release-publish: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error _release-publish: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error _release-publish: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-publish: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-publish: only the canonical Makefile is allowed))
+	@if [ "$(MAKELEVEL)" -lt 1 ]; then \
 		echo "_release-publish: internal pipeline helper; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
 	fi
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "_release-publish: RELEASE_VERSION is required" >&2; \
+	@case "$(RELEASE_PIPELINE_ENTRY)" in \
+		release|release-resume) ;; \
+		*) echo "_release-publish: invalid internal pipeline entry" >&2; exit 1 ;; \
+	esac
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "_release-publish: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
+	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-ci-wait,$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume)
 	@if [ ! -d "$(DIST_DIR)" ] || [ ! -f "$(DIST_DIR)/SHA256SUMS" ]; then \
 		echo "_release-publish: $(DIST_DIR)/ missing or empty; release artifact assembly did not complete" >&2; \
 		exit 1; \
@@ -861,13 +1007,16 @@ _release-publish:
 	fi
 	@cd "$(DIST_DIR)" && shasum -a 256 -c SHA256SUMS
 	@command -v gh >/dev/null 2>&1 || { echo "_release-publish: gh CLI not on PATH; brew install gh" >&2; exit 1; }
-	$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
+	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION),$(MAKE) changelog-lint-historical RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_SOURCE_DIR="$(RELEASE_SOURCE_DIR)")
 	@notes=$$(mktemp -t canary-release-notes.XXXXXX) && \
-	highlights=$$(mktemp -t canary-release-highlights.XXXXXX) && \
-	trap 'rm -f $$notes $$highlights' EXIT && \
-	awk -v ver='$(RELEASE_VERSION)' '/^## v[0-9]/{ if(in_ver) exit; in_ver = ($$0 ~ "^## "ver" "); next } in_ver && /^### What.s new$$/{ in_new=1; next } in_ver && in_new && /^###/{ exit } in_new' CHANGELOG.md > $$highlights && \
-	awk -v ver='$(RELEASE_VERSION)' -v hf="$$highlights" '{ gsub(/__VERSION__/, ver) } /__HIGHLIGHTS__/{ while ((getline line < hf) > 0) print line; close(hf); next } { print }' .github/release-notes-template.md > $$notes && \
-	awk -v ver='$(RELEASE_VERSION)' '/^## v[0-9]/{ in_section = ($$0 ~ "^## " ver " "); skip=0; if(in_section){ next } } in_section && /^### What.s new$$/{ skip=1; next } in_section && skip && /^### /{ skip=0 } in_section && !skip' CHANGELOG.md >> $$notes && \
+	changelog=$$(mktemp -t canary-release-changelog.XXXXXX) && \
+	template=$$(mktemp -t canary-release-notes-template.XXXXXX) && \
+	trap 'rm -f $$notes $$changelog $$template' EXIT && \
+	python3 ./scripts/materialize-release-tag-file.py \
+		"$(RELEASE_VERSION)" CHANGELOG.md "$$changelog" && \
+	python3 ./scripts/materialize-release-tag-file.py \
+		"$(RELEASE_VERSION)" .github/release-notes-template.md "$$template" && \
+	./scripts/render-release-notes.sh "$(RELEASE_VERSION)" "$$changelog" "$$template" "$$notes" && \
 	assets=""; asset_count=0; \
 	while read -r digest asset; do \
 		case "$$asset" in ""|*/*|*[!A-Za-z0-9._-]*) echo "_release-publish: unsafe SHA256SUMS asset name: $$asset" >&2; exit 1 ;; esac; \
@@ -876,7 +1025,9 @@ _release-publish:
 	done < "$(DIST_DIR)/SHA256SUMS"; \
 	[ "$$asset_count" -eq 10 ] || { echo "_release-publish: expected 10 checksummed payloads, got $$asset_count" >&2; exit 1; }; \
 	title="$${MESSAGE:-$(RELEASE_VERSION)}" && \
-	gh release create $(RELEASE_VERSION) --notes-file $$notes --title "$$title" --latest $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc
+	./scripts/check-release-origin.sh && \
+	./scripts/check-release-tag.sh "$(RELEASE_VERSION)" && \
+	gh release create $(RELEASE_VERSION) --repo github.com/osauer/canary --verify-tag --notes-file $$notes --title "$$title" --latest $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc
 
 changelog-check: ## Verify CHANGELOG.md has no template or maintainer-process leakage
 	@./scripts/check-changelog-public.sh
@@ -895,7 +1046,20 @@ changelog-lint: ## Validate the topmost CHANGELOG.md entry matches RELEASE_VERSI
 		echo "changelog-lint: RELEASE_VERSION is required, e.g. make changelog-lint RELEASE_VERSION=v0.27.12" >&2; \
 		exit 1; \
 	fi
-	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/check-changelog-entry.sh
+	@RELEASE_VERSION=$(RELEASE_VERSION) \
+		CHANGELOG_PATH=CHANGELOG.md \
+		CHANGELOG_HISTORICAL=0 \
+		./scripts/check-changelog-entry.sh
+
+changelog-lint-historical:
+	@if [ -z "$(RELEASE_VERSION)" ] || [ -z "$(RELEASE_SOURCE_DIR)" ]; then \
+		echo "changelog-lint-historical: release version and immutable source are required" >&2; \
+		exit 1; \
+	fi
+	@RELEASE_VERSION=$(RELEASE_VERSION) \
+		CHANGELOG_PATH="$(RELEASE_SOURCE_DIR)/CHANGELOG.md" \
+		CHANGELOG_HISTORICAL=1 \
+		./scripts/check-changelog-entry.sh
 
 changelog-stub: ## Prepend a CHANGELOG.md entry skeleton for RELEASE_VERSION
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
@@ -918,18 +1082,27 @@ version: ## Print the version string the next build would embed
 # Guards against the foot-guns:
 # - missing RELEASE_VERSION arg
 # - dirty working tree (would bake "-dirty" into the binary)
-# - HEAD not synced with origin/<MAIN_BRANCH> (tag would point at a commit
-#   GitHub doesn't have)
+# - origin/<MAIN_BRANCH> contains commits HEAD lacks (release would omit
+#   already-landed work)
 # - tag already exists locally or on origin
-# Sequence: cheap gates → read-only paper preview → full tests → stamped build
-# → live/paper smoke → annotated tag → publish. The early preview exercises the
-# account-currency, FX, and broker WhatIf path before the expensive test suite.
-# The transmitting smoke still runs only after every test and before tagging.
+# Sequence: candidate push (starts Actions) → cheap gates → read-only paper
+# preview → full tests → stamped build → live/paper smoke → exact-SHA Actions
+# wait → recoverable local tag/artifact assembly → final Actions/main recheck
+# → atomic tag publish. The early preview exercises the
+# account-currency, FX, and broker WhatIf path before the expensive test suite;
+# the transmitting smoke and CI authority both stay before tagging.
 # The pipeline body (_release-run) executes in a detached worktree checked out
-# at origin/MAIN_BRANCH, so this checkout stays free for concurrent work and
-# local edits can never leak into release artifacts. Releases ship what is on
-# origin/MAIN_BRANCH — push stamp commits first.
-release: ## Cut a release from an isolated worktree of origin/main: make release RELEASE_VERSION=vX.Y.Z [MESSAGE="..."]
+# at the operator's committed HEAD, so this checkout stays free for concurrent
+# work and local edits can never leak into release artifacts. Its first step
+# fast-forward-pushes that candidate to origin/MAIN_BRANCH.
+release: ## Cut a release from an isolated worktree of committed HEAD: make release RELEASE_VERSION=vX.Y.Z [MESSAGE="..."]
+	$(if $(filter default,$(origin MAKE)),,$(error release: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error release: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error release: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error release: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error release: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release: only the canonical Makefile is allowed))
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release: RELEASE_VERSION is required, e.g. make release RELEASE_VERSION=v0.3.1" >&2; \
 		exit 1; \
@@ -938,6 +1111,7 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 		echo "release: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
+	$(MAKE) release-origin-check
 	@# Fetch so origin/MAIN_BRANCH means GitHub's state, not a stale local
 	@# remote-tracking ref. Releasing needs the network anyway.
 	@git fetch origin $(MAIN_BRANCH) --quiet || { \
@@ -981,22 +1155,37 @@ release: ## Cut a release from an isolated worktree of origin/main: make release
 # The primary tag push is the pipeline's irreversible boundary: plugin tag,
 # GitHub release, and registry publication follow it, and a failure in any of
 # them used to strand a pushed tag that `make release` then refuses. Resume
-# re-enters exactly at that boundary. The tag exists only because every
-# pre-tag gate (tests, live smoke, paper round-trip) already passed, so no
-# gate re-runs; every leg is pinned to the exact tagged commit via a detached
-# worktree, artifacts rebuild deterministically from the tag checkout, and
-# completed legs verify-and-skip. A partially uploaded GitHub release fails
-# loudly for a human decision instead of being clobbered.
+# re-enters exactly at that boundary. Local and broker gates do not re-run,
+# but the tagged SHA's immutable, tag-era Actions evidence is re-verified
+# before any publication leg; this rejects tags that were not produced from a
+# fully green candidate. Recovery executes the current committed origin/main
+# controller while keeping a second clean worktree as immutable tag source.
+# An existing GitHub release is staged from its published signed assets and
+# verified byte-for-byte; only an absent release gets a fresh local assembly.
+# Notes and Registry metadata are rendered from tag blobs. A partial or
+# mismatched GitHub release fails loudly instead of being clobbered.
 release-resume: ## Resume a release interrupted after its tag was pushed: make release-resume RELEASE_VERSION=vX.Y.Z
+	$(if $(filter default,$(origin MAKE)),,$(error release-resume: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error release-resume: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error release-resume: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error release-resume: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error release-resume: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release-resume: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release-resume: only the canonical Makefile is allowed))
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-resume: RELEASE_VERSION is required, e.g. make release-resume RELEASE_VERSION=v0.3.1" >&2; \
 		exit 1; \
 	fi
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "release-resume: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) release-origin-check
 	@git fetch origin --tags --quiet || { \
 		echo "release-resume: git fetch origin failed; resuming requires the network" >&2; \
 		exit 1; \
 	}
-	@sha=$$(git rev-parse --verify --quiet "refs/tags/$(RELEASE_VERSION)^{commit}") || { \
+	@release_sha=$$(git rev-parse --verify --quiet "refs/tags/$(RELEASE_VERSION)^{commit}") || { \
 		echo "release-resume: tag $(RELEASE_VERSION) does not exist locally; nothing to resume — run make release" >&2; \
 		exit 1; \
 	}; \
@@ -1008,64 +1197,143 @@ release-resume: ## Resume a release interrupted after its tag was pushed: make r
 		echo "        delete the local tag (git tag -d $(RELEASE_VERSION)) and re-run make release" >&2; \
 		exit 1; \
 	fi; \
-	if [ "$$remote_commit" != "$$sha" ]; then \
-		echo "release-resume: origin tag $(RELEASE_VERSION) points at $$remote_commit but the local tag at $$sha; refusing to resume a diverged tag" >&2; \
+	if [ "$$remote_commit" != "$$release_sha" ]; then \
+		echo "release-resume: origin tag $(RELEASE_VERSION) points at $$remote_commit but the local tag at $$release_sha; refusing to resume a diverged tag" >&2; \
 		exit 1; \
 	fi; \
-	wt="$(RELEASE_WORKTREE_ROOT)/canary-resume-$(RELEASE_VERSION)"; \
-	if [ -e "$$wt" ]; then \
-		echo "release-resume: $$wt already exists (previous failed resume?)." >&2; \
-		echo "        inspect it, then remove with: git worktree remove --force $$wt" >&2; \
+	controller_sha=$$(git rev-parse --verify "HEAD^{commit}") || exit 1; \
+	if ! git grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1' "$$controller_sha" -- Makefile; then \
+		echo "release-resume: committed HEAD lacks the current recovery-controller contract; update and commit main first" >&2; \
 		exit 1; \
 	fi; \
-	echo "==> resume worktree: $$wt (tag $(RELEASE_VERSION) @ $$sha)"; \
-	git worktree add --detach "$$wt" "$$sha" || exit 1; \
+	controller_wt="$(RELEASE_WORKTREE_ROOT)/canary-resume-$(RELEASE_VERSION)-controller"; \
+	source_wt="$(RELEASE_WORKTREE_ROOT)/canary-resume-$(RELEASE_VERSION)-source"; \
+	for wt in "$$controller_wt" "$$source_wt"; do \
+		if [ -e "$$wt" ]; then \
+			echo "release-resume: $$wt already exists (previous failed resume?)." >&2; \
+			echo "        inspect it, then remove with: git worktree remove --force $$wt" >&2; \
+			exit 1; \
+		fi; \
+	done; \
+	echo "==> resume controller: $$controller_wt (controller @ $$controller_sha)"; \
+	git worktree add --detach "$$controller_wt" "$$controller_sha" || exit 1; \
+	echo "==> immutable release source: $$source_wt (tag $(RELEASE_VERSION) @ $$release_sha)"; \
+	if ! git worktree add --detach "$$source_wt" "$$release_sha"; then \
+		git worktree remove --force "$$controller_wt" >/dev/null 2>&1 || true; \
+		exit 1; \
+	fi; \
 	msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
-	if MESSAGE="$$msg" $(MAKE) -C "$$wt" _release-resume-run RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION) $(if $(wildcard bin/mcp-publisher),MCP_PUBLISHER=$(CURDIR)/bin/mcp-publisher); then \
-		git worktree remove --force "$$wt"; \
+	if MESSAGE="$$msg" $(MAKE) -C "$$controller_wt" _release-resume-run RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_SOURCE_DIR="$$source_wt" $(if $(wildcard bin/mcp-publisher),MCP_PUBLISHER=$(CURDIR)/bin/mcp-publisher); then \
+		git worktree remove --force "$$source_wt" || exit 1; \
+		git worktree remove --force "$$controller_wt"; \
 	else \
-		echo "release-resume: resume failed; worktree kept for inspection: $$wt" >&2; \
-		echo "        when done: git worktree remove --force $$wt" >&2; \
+		echo "release-resume: resume failed; worktrees kept for inspection:" >&2; \
+		echo "        controller: $$controller_wt" >&2; \
+		echo "        source:     $$source_wt" >&2; \
+		echo "        when done, remove each with: git worktree remove --force <path>" >&2; \
 		exit 1; \
 	fi
 
 _release-resume-run:
+	$(if $(filter default,$(origin MAKE)),,$(error _release-resume-run: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-resume-run: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error _release-resume-run: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error _release-resume-run: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error _release-resume-run: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-resume-run: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-resume-run: only the canonical Makefile is allowed))
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then \
 		echo "_release-resume-run: internal pipeline body; invoke 'make release-resume RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
 	fi
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "_release-resume-run: RELEASE_VERSION is required" >&2; \
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "_release-resume-run: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(RELEASE_SOURCE_DIR)" ] || [ ! -d "$(RELEASE_SOURCE_DIR)" ] || [ -L "$(RELEASE_SOURCE_DIR)" ]; then \
+		echo "_release-resume-run: RELEASE_SOURCE_DIR must be the immutable tag worktree" >&2; \
+		exit 1; \
+	fi
+	@source_root=$$(git -C "$(RELEASE_SOURCE_DIR)" rev-parse --show-toplevel) || exit 1; \
+	source_root=$$(cd "$$source_root" && pwd -P) || exit 1; \
+	source_dir=$$(cd "$(RELEASE_SOURCE_DIR)" && pwd -P) || exit 1; \
+	release_sha=$$(git rev-parse --verify "refs/tags/$(RELEASE_VERSION)^{commit}") || exit 1; \
+	source_sha=$$(git -C "$$source_dir" rev-parse --verify "HEAD^{commit}") || exit 1; \
+	if [ "$$source_root" != "$$source_dir" ] || [ "$$source_sha" != "$$release_sha" ] \
+		|| [ -n "$$(git -C "$$source_dir" status --porcelain --untracked-files=normal)" ]; then \
+		echo "_release-resume-run: release source is not the clean exact tag worktree" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(RELEASE_SOURCE_DIR)/.claude-plugin/plugin.json" ] \
+		|| [ -L "$(RELEASE_SOURCE_DIR)/.claude-plugin/plugin.json" ]; then \
+		echo "_release-resume-run: tagged plugin manifest is missing or unsafe" >&2; \
 		exit 1; \
 	fi
 	@expected=$$(echo "$(RELEASE_VERSION)" | sed 's/^v//'); \
-	if ! grep -q "\"version\": \"$$expected\"" .claude-plugin/plugin.json; then \
-		echo "_release-resume-run: the tagged commit does not carry the $$expected version stamp — this tag was not minted by the release pipeline" >&2; \
+	python3 -c 'import json, sys; from pathlib import Path; document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); sys.exit(f"_release-resume-run: tagged plugin version is not exact {sys.argv[2]}") if type(document) is not dict or document.get("version") != sys.argv[2] else None' \
+		"$(RELEASE_SOURCE_DIR)/.claude-plugin/plugin.json" "$$expected"
+	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/check-release-ci-contract.sh
+	$(MAKE) release-auth-preflight
+	@# A matching version stamp is necessary but not release authority. Prove
+	@# that this exact tagged SHA completed every source-controlled
+	@# push-to-main workflow;
+	@# origin/main and the current workflow catalog may legitimately have
+	@# advanced since the tag was pushed.
+	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume
+	$(MAKE) release-origin-check
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@release_state=$$(./scripts/github-release-state.sh "$(RELEASE_VERSION)") || exit 1; \
+	if [ "$$release_state" = existing ]; then \
+		echo "release-resume: GitHub release exists; hydrating and verifying its signed asset set"; \
+		$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION); \
+		printf '%s\n' existing >"$(DIST_DIR)/.canary-resume-github-state"; \
+	elif [ "$$release_state" = absent ]; then \
+		echo "release-resume: GitHub release absent; assembling a fresh signed asset set"; \
+		$(MAKE) release-binaries RELEASE_VERSION=$(RELEASE_VERSION); \
+		printf '%s\n' absent >"$(DIST_DIR)/.canary-resume-github-state"; \
+	else \
+		echo "release-resume: internal GitHub release state is invalid" >&2; \
 		exit 1; \
 	fi
-	$(MAKE) release-auth-preflight
-	$(MAKE) release-binaries RELEASE_VERSION=$(RELEASE_VERSION)
-	@plugin_name=$$(sed -n 's/^[[:space:]]*"name":[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1); \
-	if git ls-remote --exit-code origin "refs/tags/$$plugin_name--$(RELEASE_VERSION)" >/dev/null 2>&1; then \
-		echo "release-resume: plugin tag $$plugin_name--$(RELEASE_VERSION) already on origin; skipping"; \
+	@plugin_ref=$$(./scripts/check-release-tag.sh --plugin-ref "$(RELEASE_VERSION)") || exit 1; \
+	if git ls-remote --exit-code origin "$$plugin_ref" >/dev/null 2>&1; then \
+		$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION); \
 	else \
-		msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
-		claude plugin tag . --push --message "$$msg"; \
-	fi
-	@if gh release view $(RELEASE_VERSION) >/dev/null 2>&1; then \
-		count=$$(gh release view $(RELEASE_VERSION) --json assets -q '.assets | length'); \
-		if [ "$$count" -eq 12 ]; then \
-			echo "release-resume: GitHub release exists with all 12 assets; skipping"; \
+		if git show-ref --verify --quiet "$$plugin_ref"; then \
+			./scripts/check-release-tag.sh --plugin-local "$(RELEASE_VERSION)" || exit 1; \
 		else \
-			echo "release-resume: GitHub release exists with $$count/12 assets — a partial upload needs a human decision:" >&2; \
-			echo "        upload the missing assets with 'gh release upload $(RELEASE_VERSION) <files>' or delete the release and re-run release-resume" >&2; \
-			exit 1; \
+			msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+			claude plugin tag "$(RELEASE_SOURCE_DIR)" --message "$$msg" && \
+			./scripts/check-release-tag.sh --plugin-local "$(RELEASE_VERSION)" || exit 1; \
 		fi; \
-	else \
-		msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
-		$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"; \
 	fi
-	$(MAKE) registry-publish-verify-first RELEASE_VERSION=$(RELEASE_VERSION)
+	@# Re-read the tagged SHA's latest attempts after all expensive recovery
+	@# work and immediately before a missing plugin tag can be published.
+	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume
+	$(MAKE) release-origin-check
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@plugin_ref=$$(./scripts/check-release-tag.sh --plugin-ref "$(RELEASE_VERSION)") || exit 1; \
+	if git ls-remote --exit-code origin "$$plugin_ref" >/dev/null 2>&1; then \
+		echo "release-resume: plugin tag $$plugin_ref already on origin; verifying"; \
+	else \
+		git push --no-follow-tags origin "$$plugin_ref"; \
+	fi
+	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@resume_state=$$(cat "$(DIST_DIR)/.canary-resume-github-state" 2>/dev/null || true); \
+	case "$$resume_state" in \
+	existing) echo "release-resume: existing GitHub release already verified" ;; \
+	absent) \
+		msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+		$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_SOURCE_DIR="$(RELEASE_SOURCE_DIR)" MESSAGE="$$msg" ;; \
+	*) \
+		echo "release-resume: internal GitHub release state is missing or invalid" >&2; \
+		exit 1 ;; \
+	esac
+	$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)
 	@echo
 	@echo "Resumed $(RELEASE_VERSION):"
 	@echo "  https://github.com/osauer/canary/releases/tag/$(RELEASE_VERSION)"
@@ -1073,12 +1341,19 @@ _release-resume-run:
 # Internal: release pipeline body; runs inside the worktree created by
 # `make release`. Deliberately not advertised in `make help`.
 _release-run:
+	$(if $(filter default,$(origin MAKE)),,$(error _release-run: MAKE must not be overridden))
+	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-run: MAKEFLAGS must not be overridden))
+	$(if $(release_unsafe_makeflags),$(error _release-run: unsafe Make flags are forbidden),)
+	$(if $(filter file,$(origin MAKEFILE_LIST)),,$(error _release-run: MAKEFILE_LIST must not be overridden))
+	$(if $(strip $(MAKEFILES)),$(error _release-run: MAKEFILES must be empty),)
+	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-run: exactly one makefile is required))
+	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-run: only the canonical Makefile is allowed))
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then \
 		echo "_release-run: internal pipeline body; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
 	fi
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "_release-run: RELEASE_VERSION is required" >&2; \
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
+		echo "_release-run: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
 	@expected=$$(echo "$(RELEASE_VERSION)" | sed 's/^v//'); \
@@ -1095,7 +1370,8 @@ _release-run:
 	@# Land the release commit before anything expensive: the release ships
 	@# exactly this commit, and origin/$(MAIN_BRANCH) must carry it. Plain
 	@# push refuses non-fast-forward, so origin moving since fire aborts here.
-	git push origin HEAD:$(MAIN_BRANCH)
+	$(MAKE) release-origin-check
+	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	@# Auth preflight before any expensive step: gh auth goes stale
 	@# between releases and used to surface only at the LAST pipeline
 	@# legs (v2.0.0 stranded twice on registry-publish). Actions OIDC is
@@ -1149,18 +1425,47 @@ _release-run:
 	@# local PAPER session. No SKIP: a missing paper login aborts the
 	@# release. This replaces the human-certified runtime live gate.
 	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh bin/canary
+	@# The push-triggered workflows have run in parallel with the local gates.
+	@# Before crossing the tag boundary, require the exact candidate SHA,
+	@# workflow identity, latest rerun state, and the complete source-controlled
+	@# CI + pages job inventory to be completed/success. Missing or unavailable
+	@# evidence fails closed. Then pin the mutable main ref immediately before
+	@# tagging; the later atomic tag push reasserts it at publication time.
+	$(MAKE) release-ci-wait
+	$(MAKE) release-main-candidate-check
 	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
 	git tag -a $(RELEASE_VERSION) -m "$$msg"
 	@$(MAKE) release-binaries RELEASE_VERSION=$(RELEASE_VERSION) || { \
 		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
 		exit 1; \
 	}
-	git push origin $(RELEASE_VERSION)
-	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
-	claude plugin tag . --push --message "$$msg"
+	@# Artifact assembly can take long enough for a manual Actions rerun to
+	@# start. Re-prove the latest attempts and mutable main ref immediately
+	@# before the atomic remote tag push; remove the recoverable local tag if
+	@# either final authority check fails.
+	@$(MAKE) release-ci-wait || { \
+		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
+		exit 1; \
+	}
+	@$(MAKE) release-main-candidate-check || { \
+		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
+		exit 1; \
+	}
+	$(MAKE) release-origin-check
+	git push --no-follow-tags --atomic origin HEAD:$(MAIN_BRANCH) $(RELEASE_VERSION)
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	@plugin_ref=$$(./scripts/check-release-tag.sh --plugin-ref "$(RELEASE_VERSION)") || exit 1; \
+	msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
+	claude plugin tag . --message "$$msg" && \
+	./scripts/check-release-tag.sh --plugin-local "$(RELEASE_VERSION)" && \
+	git push --no-follow-tags origin "$$plugin_ref"
+	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
 	$(MAKE) _release-publish RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"
-	$(MAKE) registry-publish-verify-first RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION)
 	@echo
 	@echo "Released $(RELEASE_VERSION):"
 	@echo "  https://github.com/osauer/canary/releases/tag/$(RELEASE_VERSION)"
@@ -1168,6 +1473,6 @@ _release-run:
 	@echo "Verify:"
 	@echo "  bin/canary version"
 	@echo "  test ! -e bin/ibkr && test ! -L bin/ibkr"
-	@echo "  gh release view $(RELEASE_VERSION) --json assets -q '.assets[].name'"
+	@echo "  gh release view $(RELEASE_VERSION) --repo github.com/osauer/canary --json assets -q '.assets[].name'"
 	@plugin_name=$$(sed -n 's/^[[:space:]]*\"name\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' .claude-plugin/plugin.json | head -n1); \
 	echo "  gh api repos/osauer/canary/git/refs/tags/$$plugin_name--$(RELEASE_VERSION) --jq '.object.sha'"

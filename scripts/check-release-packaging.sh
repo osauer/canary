@@ -8,11 +8,29 @@ cd "$(dirname "$0")/.."
 ./scripts/build-release-artifacts_test.sh
 ./scripts/build-mcpb_test.sh
 ./scripts/install_test.sh
+./scripts/check-changelog-entry_test.sh
+./scripts/registry-publish-with-login_test.sh
 ./scripts/registry-publish-verify-first_test.sh
+./scripts/check-release-origin_test.sh
+./scripts/check-release-source_test.sh
+./scripts/check-release-tag_test.sh
+./scripts/materialize-release-tag-file_test.sh
+./scripts/render-release-notes_test.sh
+./scripts/check-github-release_test.sh
+./scripts/github-release-state_test.sh
+./scripts/hydrate-github-release-assets_test.sh
+./scripts/check-release-ci-contract.sh
+./scripts/check-release-ci-contract_test.sh
+./scripts/materialize-release-ci-contract_test.sh
 ./scripts/check-release-boundary.sh
 ./scripts/check-release-boundary_test.sh
 ./scripts/lib-daemon-control_test.sh
 ./scripts/release-paper-smoke_test.sh
+
+grep -Fq 'gh auth status --hostname github.com' scripts/release-auth-preflight.sh || {
+	echo "check-release-packaging: release auth preflight does not pin github.com" >&2
+	exit 1
+}
 
 for path in SECURITY.md docs/docs/operate/orders.md; do
 	grep -Fq "blob/__VERSION__/$path" .github/release-notes-template.md || {

@@ -13,10 +13,18 @@ ver=${RELEASE_VERSION:-}
 
 cd "$(dirname "$0")/.."
 
-./scripts/check-changelog-public.sh
+path=${CHANGELOG_PATH:-CHANGELOG.md}
+historical=${CHANGELOG_HISTORICAL:-0}
+case "$historical" in 0|1) ;; *) echo "check-changelog-entry: CHANGELOG_HISTORICAL must be 0 or 1" >&2; exit 1 ;; esac
+[ -f "$path" ] && [ ! -L "$path" ] || {
+  echo "check-changelog-entry: changelog is missing or unsafe: $path" >&2
+  exit 1
+}
+
+CHANGELOG_PATH="$path" ./scripts/check-changelog-public.sh
 
 # 1) Topmost ## v entry must match RELEASE_VERSION with a timestamp suffix.
-head=$(grep -m1 '^## v' CHANGELOG.md || true)
+head=$(grep -m1 '^## v' "$path" || true)
 case "$head" in
   "## $ver — "*) ;;
   "")
@@ -33,12 +41,14 @@ esac
 # The heading is the release record, not the day the entry was first drafted.
 # Requiring today's local date makes a delayed cut update the public timestamp
 # instead of publishing a stale preparation date.
-entry_date=$(printf '%s\n' "$head" | sed -n 's/^## v[^ ]* — \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) .*/\1/p')
-today=$(date +%Y-%m-%d)
-if [ "$entry_date" != "$today" ]; then
-  echo "check-changelog-entry: $ver heading date is $entry_date; release date is $today" >&2
-  echo "                       update the top entry when the release is actually cut" >&2
-  exit 1
+if [ "$historical" = 0 ]; then
+  entry_date=$(printf '%s\n' "$head" | sed -n 's/^## v[^ ]* — \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) .*/\1/p')
+  today=$(date +%Y-%m-%d)
+  if [ "$entry_date" != "$today" ]; then
+    echo "check-changelog-entry: $ver heading date is $entry_date; release date is $today" >&2
+    echo "                       update the top entry when the release is actually cut" >&2
+    exit 1
+  fi
 fi
 
 # Storage changed from rebuildable side files to one authoritative daemon.db.
@@ -47,7 +57,7 @@ fi
 top_entry=$(awk -v ver="$ver" '
   /^## v[0-9]/ { if (in_ver) exit; in_ver = ($0 ~ "^## "ver" ") }
   in_ver { print }
-' CHANGELOG.md)
+' "$path")
 retired=$(printf '%s\n' "$top_entry" | grep -Ei 'history\.db|\.jsonl|history\.rotation|rotated/|history index|journal scan' || true)
 if [ -n "$retired" ]; then
   echo "check-changelog-entry: $ver still describes the retired history-file architecture" >&2
@@ -62,7 +72,7 @@ if ! awk -v ver="$ver" '
   in_ver && in_new && /^###/ { exit }
   in_new && NF { found = 1 }
   END { exit !found }
-' CHANGELOG.md; then
+' "$path"; then
   echo "check-changelog-entry: $ver has no non-empty '### What'\''s new' section" >&2
   echo "                       (must follow the version heading; describes user-visible change)" >&2
   exit 1
@@ -72,7 +82,7 @@ fi
 has_kac=$(awk -v ver="$ver" '
   /^## v[0-9]/ { if (in_ver) exit; in_ver = ($0 ~ "^## "ver" "); next }
   in_ver && /^### (Added|Changed|Deprecated|Removed|Fixed|Security)$/ { print "yes"; exit }
-' CHANGELOG.md)
+' "$path")
 [ "$has_kac" = yes ] || {
   echo "check-changelog-entry: $ver has no ### Added/Changed/Deprecated/Removed/Fixed/Security section" >&2
   exit 1
@@ -89,7 +99,7 @@ eng_lines=$(awk -v ver="$ver" '
   in_ver && in_eng && /^## v[0-9]/ { exit }
   in_eng { n++ }
   END { print n+0 }
-' CHANGELOG.md)
+' "$path")
 if [ "$eng_lines" -gt 15 ]; then
   echo "check-changelog-entry: $ver '### Engineering notes' has $eng_lines lines (limit 15)" >&2
   echo "                       trim it. If a fact fits a one-line bullet, move it to Changed/Fixed." >&2
@@ -105,7 +115,7 @@ finding=$(awk -v ver="$ver" '
   in_ver && /^### (Added|Changed|Deprecated|Removed|Fixed|Security)$/ { in_kac = 1; next }
   in_ver && in_kac && /^###/ { in_kac = 0 }
   in_ver && in_kac && /(\*\*F-[0-9]+|F#[0-9]+|finding-[0-9]+)/ { print "L"NR": "$0; exit }
-' CHANGELOG.md)
+' "$path")
 if [ -n "$finding" ]; then
   echo "check-changelog-entry: $ver KaC bullet references an internal finding ID" >&2
   echo "                       $finding" >&2

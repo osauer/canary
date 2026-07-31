@@ -13,6 +13,12 @@ func TestRunKeepsRegistryIdentityAndUsesCanonicalCanaryBundle(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 
+	if err := os.WriteFile("server.json", []byte(`{
+  "name": "io.github.attacker/controller",
+  "description": "Mutable controller metadata must not be used."
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	template := `{
   "name": "io.github.osauer/canary",
   "title": "Canary MCP",
@@ -24,7 +30,8 @@ func TestRunKeepsRegistryIdentityAndUsesCanonicalCanaryBundle(t *testing.T) {
     "id": "1234071553"
   }
 }`
-	if err := os.WriteFile("server.json", []byte(template), 0o644); err != nil {
+	templatePath := filepath.Join(root, "tagged-server.json")
+	if err := os.WriteFile(templatePath, []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(root, "canary-v2.4.0.mcpb")
@@ -33,7 +40,7 @@ func TestRunKeepsRegistryIdentityAndUsesCanonicalCanaryBundle(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := filepath.Join(root, "dist", "server.json")
-	if err := run([]string{"v2.4.0", bundle, output}); err != nil {
+	if err := run([]string{"v2.4.0", templatePath, bundle, output}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -61,5 +68,29 @@ func TestRunKeepsRegistryIdentityAndUsesCanonicalCanaryBundle(t *testing.T) {
 	sum := sha256.Sum256(payload)
 	if got.Packages[0].FileSHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("package digest = %q", got.Packages[0].FileSHA256)
+	}
+}
+
+func TestRunRejectsSymlinkTemplate(t *testing.T) {
+	root := t.TempDir()
+	templatePath := filepath.Join(root, "server.json")
+	realTemplatePath := filepath.Join(root, "real-server.json")
+	if err := os.WriteFile(realTemplatePath, []byte(`{
+  "name": "io.github.osauer/canary",
+  "description": "Canary tools for Interactive Brokers."
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realTemplatePath, templatePath); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(root, "canary-v2.4.0.mcpb")
+	if err := os.WriteFile(bundle, []byte("bundle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := run([]string{"v2.4.0", templatePath, bundle, filepath.Join(root, "dist", "server.json")})
+	if err == nil {
+		t.Fatal("run accepted a symlink release server template")
 	}
 }

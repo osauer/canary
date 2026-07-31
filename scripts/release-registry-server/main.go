@@ -1,5 +1,6 @@
 // Command release-registry-server derives a versioned MCP Registry document
-// from server.json and the release bundle's SHA-256 digest.
+// from an explicit release-tag server.json template and the release bundle's
+// SHA-256 digest.
 package main
 
 import (
@@ -7,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,30 +55,30 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) != 3 {
-		return fmt.Errorf("usage: go run ./scripts/release-registry-server vX.Y.Z dist/canary-vX.Y.Z.mcpb dist/server.json")
+	if len(args) != 4 {
+		return fmt.Errorf("usage: go run ./scripts/release-registry-server vX.Y.Z release-server.json dist/canary-vX.Y.Z.mcpb dist/server.json")
 	}
 
-	releaseVersion, mcpbPath, outputPath := args[0], args[1], args[2]
+	releaseVersion, templatePath, mcpbPath, outputPath := args[0], args[1], args[2], args[3]
 	if !releaseVersionPattern.MatchString(releaseVersion) {
 		return fmt.Errorf("RELEASE_VERSION must look like vX.Y.Z (got %q)", releaseVersion)
 	}
 	version := strings.TrimPrefix(releaseVersion, "v")
 
-	data, err := os.ReadFile("server.json")
+	data, err := readRegularFile(templatePath, "release server template")
 	if err != nil {
 		return err
 	}
 
 	var server registryServer
 	if err := json.Unmarshal(data, &server); err != nil {
-		return fmt.Errorf("read server.json: %w", err)
+		return fmt.Errorf("read release server template: %w", err)
 	}
 	if server.Name == "" || server.Description == "" {
-		return fmt.Errorf("server.json must define name and description")
+		return fmt.Errorf("release server template must define name and description")
 	}
 	if len(server.Description) > maxRegistryDescriptionLen {
-		return fmt.Errorf("server.json description must be <= %d characters for MCP Registry (got %d)", maxRegistryDescriptionLen, len(server.Description))
+		return fmt.Errorf("release server template description must be <= %d characters for MCP Registry (got %d)", maxRegistryDescriptionLen, len(server.Description))
 	}
 	server.Version = version
 
@@ -114,10 +116,39 @@ func run(args []string) error {
 }
 
 func fileSHA256(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := readRegularFile(path, "release MCPB")
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func readRegularFile(path, label string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", label, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s %q must be a regular file", label, path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", label, path, err)
+	}
+	defer file.Close()
+
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", label, path, err)
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return nil, fmt.Errorf("%s %q changed while opening", label, path)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", label, path, err)
+	}
+	return data, nil
 }
