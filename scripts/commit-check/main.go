@@ -308,8 +308,7 @@ func runCommandStreaming(dir string, env []string, name string, args ...string) 
 }
 
 func commandExitCode(err error) int {
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
+	if exitError, ok := errors.AsType[*exec.ExitError](err); ok {
 		return normalizedExitCode(exitError.ExitCode())
 	}
 	return 1
