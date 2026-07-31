@@ -78,8 +78,14 @@ make app-refresh-smoke APP_SMOKE_BROWSER=webkit
 canary restart --app --timeout 15s
 canary app restart --timeout 15s
 make app-smoke APP_SMOKE_BROWSER=webkit
-make app-lifecycle-smoke APP_SMOKE_BROWSER=webkit
+make app-render-check APP_SMOKE_BROWSER=webkit
 ```
+
+`app-render-check` is the binding browser gate for pairing, reload, device-cookie
+recovery, and production-SPA rendering. It is fully synthetic and blocks every
+external request, so it cannot attach to the desk daemon or read account data.
+App-process restart behavior is exercised separately by the CLI restart tests;
+do not combine it with a browser fixture that discovers the default daemon.
 
 For source edits, prefer `make app-refresh` before Browser verification because
 the SPA is embedded in the installed `canary` binary. The detailed development

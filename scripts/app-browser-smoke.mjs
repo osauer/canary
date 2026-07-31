@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +12,6 @@ const browserName = args.browser || "chromium";
 const channel = args.channel || process.env.PLAYWRIGHT_CHANNEL || "";
 const noNotification = args["no-notification"] !== "false";
 const noWebCrypto = args["no-webcrypto"] === "true";
-const lifecycle = args.lifecycle === "true";
-const restartCommand = args["restart-command"] || "";
-const stopRestartedApp = args["stop-restarted-app"] === "true";
 const mobile = args.mobile !== "false";
 const round4Synthetic = args["round4-synthetic"] === "true";
 const rawGatewayCopyPattern = /gateway_unavailable|ibkr connection unavailable|quote\.snapshot|account\.summary|positions\.list/i;
@@ -385,7 +381,6 @@ async function waitForAuthenticatedApp(page) {
 
 const launched = await launchBrowser(playwright[browserName], browserName, launchOptions);
 const browser = launched.browser;
-let cleanupPID = 0;
 const context = await browser.newContext({
   viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 },
   isMobile: mobile,
@@ -679,10 +674,6 @@ try {
   if (pageErrors.length > 0 || consoleMessages.length > 0) {
     throw new Error(`browser errors:\n${[...pageErrors, ...consoleMessages].join("\n")}`);
   }
-  let lifecycleResult = null;
-  if (lifecycle) {
-    lifecycleResult = await runLifecycleSmoke(page);
-  }
   const smokeState = await page.evaluate(() => globalThis.__canarySmoke);
   // The crypto-less pairing path used to mint a readable bearer secret here.
   // It no longer does — the HttpOnly device cookie is that path's only
@@ -730,50 +721,10 @@ try {
       event_counts: smokeState.eventCounts,
     },
     attention_read_intercepted: attentionReadIntercepted,
-    lifecycle: lifecycleResult,
     pair_expires_at: pairing.expires_at,
   }, null, 2));
 } finally {
   await browser.close();
-  if (stopRestartedApp && cleanupPID) {
-    try {
-      process.kill(cleanupPID, "SIGTERM");
-    } catch {
-      // Best effort cleanup for isolated lifecycle smoke.
-    }
-  }
-}
-
-async function runLifecycleSmoke(page) {
-  if (!restartCommand) {
-    throw new Error("--restart-command is required with --lifecycle=true");
-  }
-  const before = await page.evaluate(() => ({
-    snapshot: globalThis.__canarySmoke.eventCounts.snapshot || 0,
-    authSessions: globalThis.__canarySmoke.fetches.filter((f) => f.url.endsWith("/api/auth/session") && f.status === 200).length,
-  }));
-  const connectionBeforeRestart = await waitForHeader(page);
-  const restart = await runShellJSON(restartCommand);
-  const snapshotAfter = await waitForSnapshotEvent(page, before.snapshot);
-  const connectionAfterRestart = await waitForHeader(page);
-  const eventsAfter = await fetchEventsDiagnostics(page);
-  const after = await page.evaluate(() => ({
-    authSessions: globalThis.__canarySmoke.fetches.filter((f) => f.url.endsWith("/api/auth/session") && f.status === 200).length,
-  }));
-  if (eventsAfter.opened_event_streams < 1) {
-    throw new Error(`expected at least one SSE stream after restart, got ${eventsAfter.opened_event_streams}`);
-  }
-  return {
-    connection_before_restart: connectionBeforeRestart,
-    connection_after_restart: connectionAfterRestart,
-    reauth_after_restart: after.authSessions > before.authSessions,
-    snapshot_events_after_restart: snapshotAfter,
-    restart,
-    events: {
-      opened_event_streams: eventsAfter.opened_event_streams,
-      event_counts: eventsAfter.event_counts,
-    },
-  };
 }
 
 async function waitForSnapshotEvent(page, previousCount) {
@@ -1491,7 +1442,7 @@ async function exerciseSheetLayer(page) {
 
 async function exerciseMarketContext(page) {
   let before = await readMarketContext(page);
-  if ((!before.regime || before.regime === "--") && !lifecycle) {
+  if (!before.regime || before.regime === "--") {
     try {
       await page.waitForFunction(() => {
         const text = document.getElementById("marketRegime")?.textContent?.trim() || "";
@@ -2656,34 +2607,6 @@ async function assertDebugToolsRemoved(page, baseURL) {
     throw new Error(`debug tools endpoint still responds successfully: ${JSON.stringify(info)}`);
   }
   return info;
-}
-
-async function runShellJSON(command) {
-  const started = Date.now();
-  const { stdout, stderr } = await execFilePromise("/bin/sh", ["-lc", command]);
-  if (stderr.trim()) {
-    console.error(stderr.trim());
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch (err) {
-    throw new Error(`restart command did not emit JSON: ${String(err?.message || err)}\n${stdout}`);
-  }
-  cleanupPID = parsed.new_pid || 0;
-  return { ...parsed, smoke_elapsed_ms: Date.now() - started };
-}
-
-function execFilePromise(file, argv) {
-  return new Promise((resolve, reject) => {
-    execFile(file, argv, { timeout: 30000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(`${file} ${argv.join(" ")} failed: ${String(err?.message || err)}\n${stderr}`));
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
 }
 
 function trimRight(value, suffix) {

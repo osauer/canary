@@ -62,7 +62,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots app-lifecycle-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -224,34 +224,6 @@ cli-screenshots: ## Regenerate the published CLI screenshots from cmd/_preview f
 
 social-preview: cli-screenshots ## Regenerate the published social card from synthetic CLI fixtures
 	node scripts/social-preview.mjs
-
-APP_LIFECYCLE_ADDR ?= 127.0.0.1:18765
-APP_LIFECYCLE_URL ?= http://$(APP_LIFECYCLE_ADDR)
-app-lifecycle-smoke: build ## Start an isolated app, pair, restart it, and verify browser SSE/auth recovery
-	@tmpdir=$$(mktemp -d /tmp/canary-app-lifecycle-smoke.XXXXXX); \
-	app="$$(pwd)/bin/canary"; \
-	log="$$tmpdir/app.log"; \
-	cleanup() { \
-		kill -TERM "$$app_pid" >/dev/null 2>&1 || true; \
-		wait "$$app_pid" >/dev/null 2>&1 || true; \
-		rm -rf "$$tmpdir"; \
-	}; \
-	trap cleanup EXIT; \
-	"$$app" app --addr $(APP_LIFECYCLE_ADDR) --public-url $(APP_LIFECYCLE_URL) --state-dir "$$tmpdir" >"$$log" 2>&1 & \
-	app_pid=$$!; \
-	for i in $$(seq 1 80); do \
-		if curl -fsS "$(APP_LIFECYCLE_URL)/manifest.webmanifest" >/dev/null 2>&1; then break; fi; \
-		sleep 0.1; \
-	done; \
-	curl -fsS "$(APP_LIFECYCLE_URL)/manifest.webmanifest" >/dev/null; \
-	node scripts/app-browser-smoke.mjs \
-		--base-url $(APP_LIFECYCLE_URL) \
-		--browser $(APP_SMOKE_BROWSER) \
-		--no-notification \
-		--no-webcrypto=true \
-		--lifecycle=true \
-		--restart-command "$$app restart --app --json --timeout $(RESTART_TIMEOUT)" \
-		--stop-restarted-app=true
 
 app-render-check: ## Hermetic production-app render with synthetic pairing/reload/auth recovery; never reads desk account data
 	PLAYWRIGHT_NODE_MODULES="$(CURDIR)/web/app/node_modules" node scripts/app-browser-smoke.mjs \
