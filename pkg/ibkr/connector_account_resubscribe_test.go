@@ -217,6 +217,45 @@ func TestMaybeResubscribeAccountUpdatesRequiresConnection(t *testing.T) {
 	c.maybeResubscribeAccountUpdates()
 }
 
+// TestMaybeResubscribeAccountUpdatesKeepsPinnedAccount pins issue #14: the
+// heal must re-issue the subscription with the account the stream is already
+// bound to, never resolve one afresh. A multi-account login leaves the raw
+// managedAccounts list in the connection's account value, which is not itself
+// a usable code, so a fresh resolve reduces it to its positionally first
+// entry. That rebinds the stream to a sibling, the pinned account's own
+// frames then read as foreign, and positions stay empty for the session.
+func TestMaybeResubscribeAccountUpdatesKeepsPinnedAccount(t *testing.T) {
+	const (
+		pinned  = "DU7654321"
+		sibling = "DU1111111"
+	)
+
+	c, conn, out := newAcctResubscribeRig(t)
+	conn.accountMu.Lock()
+	conn.account = sibling + "," + pinned
+	conn.managedAccounts = []string{sibling, pinned}
+	conn.accountSummary["GrossPositionValue"] = "250000.00"
+	conn.accountMu.Unlock()
+
+	now := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	c.acctUpdatesNow = func() time.Time { return now }
+
+	if err := c.RequestAccountUpdates(pinned); err != nil {
+		t.Fatalf("RequestAccountUpdates(%q): %v", pinned, err)
+	}
+
+	now = now.Add(acctUpdatesResubscribeThrottle)
+	c.maybeResubscribeAccountUpdates()
+
+	frames := func(account string) int {
+		return bytes.Count(out.Bytes(), conn.encodeMsg(reqAcctData, "2", "1", account))
+	}
+	if got := frames(pinned); got != 2 {
+		t.Fatalf("pinned account subscribed %d times, want 2 (initial + heal); sibling=%d unscoped=%d",
+			got, frames(sibling), frames(""))
+	}
+}
+
 // TestMaybeResubscribeAccountUpdatesSkipsFlatAccount pins the
 // genuinely-flat case: with the throttle long expired (zero stamp), only
 // the absent gross position value stands between a constantly-polled empty
