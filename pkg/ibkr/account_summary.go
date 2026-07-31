@@ -210,7 +210,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	if conn == nil || !conn.IsConnected() {
 		return nil, "", ErrIBKRUnavailable
 	}
-	expectedAccount := strings.TrimSpace(conn.GetAccountCode())
+	expectedAccount := accountSummaryExpectedAccount(conn)
 	if !accountCodeConcrete(expectedAccount) {
 		return nil, "", ErrAccountSummaryScopeConflict
 	}
@@ -260,9 +260,45 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	// still consume a previously observed snapshot.
 	var fallback map[string]string
 	if len(raw) == 0 {
-		fallback = conn.GetAccountSummary()
+		// The shared streaming cache is unstamped, so admit it only when the
+		// connection says that cache is bound to this exact account. A
+		// multi-account session may have cached a sibling before the pinned
+		// account's one-shot request completed; relabeling those values with the
+		// pin would cross the account-authority boundary.
+		if strings.EqualFold(strings.TrimSpace(conn.GetAccountCode()), expectedAccount) {
+			fallback = conn.GetAccountSummary()
+		}
 	}
 	return accountSummaryFromRequestRows(raw, fallback, expectedAccount)
+}
+
+// accountSummaryExpectedAccount resolves the single account a one-shot
+// summary may represent. The configured pin is authoritative when the broker
+// session confirms it as a managed account; the aggregate managedAccounts
+// string itself is never a request scope. An unpinned session remains usable
+// only when the broker exposes one concrete account.
+func accountSummaryExpectedAccount(conn *Connection) string {
+	if conn == nil {
+		return ""
+	}
+	configured := ""
+	if conn.config != nil {
+		configured = strings.TrimSpace(conn.config.Account)
+	}
+	observed := strings.TrimSpace(conn.GetAccountCode())
+	if configured != "" {
+		if !accountCodeConcrete(configured) {
+			return ""
+		}
+		if strings.EqualFold(configured, observed) || conn.managedAccountMember(configured) {
+			return configured
+		}
+		return ""
+	}
+	if accountCodeConcrete(observed) {
+		return observed
+	}
+	return ""
 }
 
 func accountSummaryFromRequestRows(raw, fallback map[string]string, accountID string) (*RawAccountSummary, AccountSummaryProvenance, error) {

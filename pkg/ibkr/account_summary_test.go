@@ -347,6 +347,99 @@ func TestRequestAccountSummaryUsesPinnedAccountWithinManagedList(t *testing.T) {
 	}
 }
 
+func TestRequestAccountSummaryRejectsPinOutsideManagedAccounts(t *testing.T) {
+	cfg := &ConnectionConfig{
+		Host:     "127.0.0.1",
+		Port:     7497,
+		ClientID: 41,
+		Account:  "DU2222222",
+	}
+	c := NewConnector(&ConnectorConfig{BaseConfig: cfg})
+	conn := c.conn
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.status = StatusConnected
+	setServerVersionReady(conn, minServerVersionRequired)
+	wire := &accountSummaryWriteSignal{wrote: make(chan struct{})}
+	conn.writer = bufio.NewWriter(wire)
+	c.running = true
+	c.ready = true
+	conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", "DU1111111,DU3333333"))
+
+	_, _, err := c.RequestAccountSummaryWithProvenance(context.Background(), time.Second)
+	if !errors.Is(err, ErrAccountSummaryScopeConflict) {
+		t.Fatalf("error=%v, want ErrAccountSummaryScopeConflict", err)
+	}
+	select {
+	case <-wire.wrote:
+		t.Fatal("sent account-summary request for pin outside managed accounts")
+	default:
+	}
+}
+
+func TestRequestAccountSummaryDoesNotUseSiblingCacheFallback(t *testing.T) {
+	cfg := &ConnectionConfig{
+		Host:     "127.0.0.1",
+		Port:     7497,
+		ClientID: 41,
+		Account:  "DU2222222",
+	}
+	c := NewConnector(&ConnectorConfig{BaseConfig: cfg})
+	conn := c.conn
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.status = StatusConnected
+	setServerVersionReady(conn, minServerVersionRequired)
+	wire := &accountSummaryWriteSignal{wrote: make(chan struct{})}
+	conn.writer = bufio.NewWriter(wire)
+	c.running = true
+	c.ready = true
+	conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", "DU1111111,DU2222222"))
+
+	// Seed the unstamped streaming cache with a sibling account. The managed
+	// list still proves the configured pin is valid, but the cache does not.
+	conn.handleAccountSummary([]string{"63", "2", "99", "DU1111111", "NetLiquidation", "7654321", "USD"})
+
+	type result struct {
+		summary    *RawAccountSummary
+		provenance AccountSummaryProvenance
+		err        error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		summary, provenance, err := c.RequestAccountSummaryWithProvenance(context.Background(), time.Second)
+		resultCh <- result{summary: summary, provenance: provenance, err: err}
+	}()
+
+	select {
+	case <-wire.wrote:
+	case got := <-resultCh:
+		t.Fatalf("summary returned before request write: %+v", got)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for account-summary request")
+	}
+	conn.processMessage(conn.encodeMsg(msgAccountSummaryEnd, "1", 1))
+
+	select {
+	case got := <-resultCh:
+		if got.err != nil {
+			t.Fatalf("account summary failed: %v", got.err)
+		}
+		if got.provenance != AccountSummaryProvenanceCachedFallback {
+			t.Fatalf("provenance=%q, want %q", got.provenance, AccountSummaryProvenanceCachedFallback)
+		}
+		if got.summary == nil {
+			t.Fatal("summary is nil")
+		}
+		if got.summary.NetLiquidation != nil {
+			t.Fatalf("sibling NetLiquidation crossed scope: %v", *got.summary.NetLiquidation)
+		}
+		if got.summary.AccountID != cfg.Account {
+			t.Fatalf("summary account=%q, want pinned account %q", got.summary.AccountID, cfg.Account)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for account-summary result")
+	}
+}
+
 func TestRequestAccountSummary_TimeoutDoesNotLeakGoroutines(t *testing.T) {
 	// A real network failure means RequestAccountSummary will fail to send;
 	// we verify the connector returns an error promptly without leaking.
