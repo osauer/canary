@@ -120,13 +120,18 @@ try {
     );
     if (synthetic) {
       await assertSyntheticRender(page);
+      // The Panel Dark shell scrolls inside #appScroll — the sheet proof above
+      // auto-scrolled it to the movers row, and resetting only .shell/window
+      // would ship a frame that starts mid-page.
       await page.evaluate(() => {
+        document.getElementById("appScroll")?.scrollTo(0, 0);
         document.querySelector(".shell")?.scrollTo(0, 0);
         globalThis.scrollTo(0, 0);
       });
       await page.waitForFunction(() => {
+        const appScroll = document.getElementById("appScroll");
         const shell = document.querySelector(".shell");
-        return (!shell || shell.scrollTop === 0) && globalThis.scrollY === 0;
+        return (!appScroll || appScroll.scrollTop === 0) && (!shell || shell.scrollTop === 0) && globalThis.scrollY === 0;
       }, undefined, { timeout: 5000 });
     }
     const leaked = await page.evaluate(
@@ -976,6 +981,7 @@ function buildSyntheticSnapshot() {
         net_liquidation: FIXTURE.netLiquidation,
         cushion_pct: 76,
         look_ahead_cushion_pct: 75.6,
+        cushion_trip_pct: 35,
         gross_exposure_pct_nlv: 12.45,
         net_delta_pct_nlv: 8.65,
         gross_delta_pct_nlv: 8.65,
@@ -1002,7 +1008,7 @@ function buildSyntheticSnapshot() {
         eligible_red_clusters: 0,
         eligible_red_cluster_names: [],
         yellow_clusters: 0,
-        ranked_clusters: 4,
+        ranked_clusters: 6,
         unranked_clusters: 0,
         red_cluster_names: [],
         yellow_cluster_names: [],
@@ -1017,10 +1023,14 @@ function buildSyntheticSnapshot() {
         vix: 15.8,
         vix_change_pct: -0.94,
       },
-      market_indicators: [{ name: "Breadth", status: "green", as_of: asOf, reading: "62% above 50-DMA", comment: "Broad participation" },
-        { name: "Volatility", status: "green", as_of: asOf, reading: "VIX 15.8", comment: "Calm term structure" },
-        { name: "Credit", status: "green", as_of: asOf, reading: "Spreads stable", comment: "No funding stress" },
-        { name: "Dealer gamma", status: "green", as_of: asOf, reading: "Positive", comment: "Dampening posture" }],
+      // One indicator per cluster the daemon ranks, each with the served trip
+      // anchor its gauge face prints beneath the reading.
+      market_indicators: [{ name: "SPX breadth", status: "green", as_of: asOf, reading: "62% above 50-DMA", comment: "Broad participation", trip: "trips <40% (50d)" },
+        { name: "VIX/VIX3M", status: "green", as_of: asOf, reading: "VIX 15.8", comment: "Calm term structure", trip: "trips >=1.00" },
+        { name: "HY/IG OAS", status: "green", as_of: asOf, reading: "HY 3.10", comment: "Spreads stable", trip: "trips HY OAS >=5.5" },
+        { name: "γ-zero (SPY+SPX)", status: "green", as_of: asOf, reading: "long-γ (stabilizing)", comment: "Dampening posture", trip: "spot 620.00 · γ-zero 607.00" },
+        { name: "funding spread", status: "green", as_of: asOf, reading: "spread 14 bp", comment: "No funding stress", trip: "trips >=75 bp" },
+        { name: "USD/JPY", status: "green", as_of: asOf, reading: "148.20", comment: "Carry stable", trip: "trips yen +2%/week" }],
       warnings: [],
       not_execution: "Advisory only; no orders are placed.",
     },
@@ -1074,7 +1084,7 @@ function buildSyntheticSnapshot() {
             { text: "2.0%", role: "figure" },
             { text: " of the drawdown budget consumed. The drawdown latch is open. Premium at risk " },
             { text: "EUR 1,564", role: "figure" },
-            { text: " across 1 long option leg; hedge cost EUR -18.40 per day. Process folds clean: policy pins match, artefacts are current, the monthly pulse is not due, and no held-name events." },
+            { text: " across 1 long option leg; hedge cost EUR -18.40 per day. No protection proposals are staged. Process folds clean: policy pins match, artefacts are current, the monthly pulse is not due, and no held-name events." },
           ] },
         ],
         coda: [{ text: "Nothing owed before the bell." }],
@@ -1104,6 +1114,7 @@ function buildSyntheticSnapshot() {
         latch: { ...briefState("Drawdown latch is open."), latched: false },
         premium_at_risk: { ...briefState("Option premium at risk is contained."), amount_base: 1_564, base_currency: baseCurrency, included_legs: 1, excluded_legs: 0 },
         hedge_cost: { ...briefState("Hedge carry is modest."), amount_base: -18.4, base_currency: baseCurrency, included_legs: 1, excluded_legs: 0 },
+        proposals: { ...briefState("No protection proposals are staged."), actionable: 0, blocked: 0, total: 0 },
         policy_drift: { ...briefState("Policy pins match."), rows: [] },
         artefacts: { ...briefState("Scheduled artefacts are current."), rows: [{ ...briefState("Morning artefact complete."), kind: "morning", cadence: "daily", declared: true, completed: true, completed_at: asOf }] },
       },

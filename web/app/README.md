@@ -33,6 +33,19 @@ and the last-good figure kept with its served as-of. The lamp-test stamp names
 the same faults, so a dead window can never sit under a stamp that says every
 feed is fine.
 
+The regime grid gives every cluster the daemon ranks a window of its own —
+Breadth, Volatility, Credit, Dealer gamma, Funding, FX — in fixed positions.
+Each window's third line is the served trip anchor: the daemon's own compact
+trigger wording, or the served spot/γ-zero pair for dealer gamma. A window
+whose producer serves no trigger stays reading-only; the SPA never supplies a
+cutoff of its own. The master subline's "N red" clause now fires only for a
+red the panel genuinely cannot show.
+
+The account strip always states the mode. `LIVE` renders in the plate's
+engraved register; `PAPER` is a deliberate identity exception in the TWS
+simulated-trading convention (red field, white text) and uses its own modifier
+class rather than a severity lamp — paper is a different desk, not a warning.
+
 Start the app host on the Mac that runs TWS or IB Gateway:
 
 ```sh

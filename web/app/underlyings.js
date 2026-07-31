@@ -979,25 +979,31 @@ function currentAccountContext(account = {}) {
   };
 }
 
-// Operator decision: live mode renders NO pill (the safe default is silent);
-// paper mode renders a loud red PAPER pill ("portfolio data is fake"); an
-// unknown/unresolved mode renders a muted "mode?" pill — fail visible, never
-// silently resemble live.
+// Operator decision (supersedes the earlier hide-in-live stance): the account
+// strip ALWAYS states the mode. A plate that goes silent in live asks the
+// reader to infer the loudest fact on the panel from an absence.
+//
+// LIVE reads in the plate's own engraved register — it is the normal state,
+// and normal states do not shout. PAPER is the one deliberate identity
+// exception: red field, white text, the TWS simulated-trading convention a
+// trader already reads without thinking. It is a dedicated modifier, not a
+// severity lamp: nothing is wrong when the desk is on paper, the numbers are
+// simply not real money. An unresolved mode renders a muted "mode?" — fail
+// visible, never silently resemble live.
 function renderTradingEnvPill(modeClass) {
   const pill = $("tradingEnvPill");
   if (!pill) return;
-  if (modeClass === "live") {
-    pill.hidden = true;
-    pill.textContent = "";
-    pill.className = "trading-env-pill trading-env-pill--live";
-    pill.removeAttribute("title");
-    return;
-  }
   pill.hidden = false;
   if (modeClass === "paper") {
     pill.textContent = "PAPER";
     pill.className = "trading-env-pill trading-env-pill--paper";
     pill.title = "Paper trading — portfolio data is not real money.";
+    return;
+  }
+  if (modeClass === "live") {
+    pill.textContent = "LIVE";
+    pill.className = "trading-env-pill trading-env-pill--live";
+    pill.title = "Live trading — these are real positions and real money.";
     return;
   }
   pill.textContent = "mode?";

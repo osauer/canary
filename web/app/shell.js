@@ -108,8 +108,9 @@ function renderTopbar(snap) {
   }
   const phase = $("sessionPhase");
   phase.textContent = label.phase;
-  // The chip prints a countdown only; the session's own words (weekend,
-  // holiday, early close, calendar coverage) stay reachable as its title.
+  // The chip now prints the served closure word beside the countdown — a
+  // countdown alone cannot tell a weekend from a holiday from a coverage gap.
+  // The fuller sentence stays reachable as its title.
   phase.title = label.text || "";
   const marketDot = $("marketStateDot");
   if (marketDot) {
@@ -248,7 +249,7 @@ function marketSessionLabel(calendar) {
     return {
       text: session.reason || "Official market holiday",
       tone: "market-closed",
-      phase: marketStatusPhrase("", "opens", untilOpen),
+      phase: marketStatusPhrase(closureWord(session, "Holiday"), "opens", untilOpen),
       countdownVerb: "opens",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -261,7 +262,7 @@ function marketSessionLabel(calendar) {
     return {
       text: session.reason === "weekend" ? "Weekend closure" : `Outside regular cash session${reason}`,
       tone: "market-closed",
-      phase: marketStatusPhrase("", "opens", untilOpen),
+      phase: marketStatusPhrase(closureWord(session, "Closed"), "opens", untilOpen),
       countdownVerb: "opens",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -294,10 +295,24 @@ function marketSessionLabel(calendar) {
   };
 }
 
+// closureWord is the served reason a closed market is closed, in the chip's
+// short register: "Weekend", "Thanksgiving Day", "Outside Embedded Official
+// Calendar Coverage". A countdown alone cannot distinguish a weekend from a
+// holiday from a coverage gap, so the state word is chip text now rather than
+// title-only. The word is the calendar's; the fallback fires only when the
+// calendar served no reason at all. Long official reasons are truncated by
+// the chip's own ellipsis, and the full text stays in its title.
+function closureWord(session, fallback) {
+  const reason = cleanDetail(session?.reason);
+  return reason === "--" ? fallback : labelize(reason);
+}
+
+
 // Session chip register: "RTH · closes 3:59" while the market trades,
-// "opens 17:12" otherwise. The chip carries the market code itself (the
-// #marketSelect control), so the phrase never repeats it, and a missing
-// countdown degrades to the phase word rather than printing "opens --".
+// "Weekend · opens 17:12" or "opens 17:12" otherwise. The chip carries the
+// market code itself (the #marketSelect control), so the phrase never repeats
+// it, and a missing countdown degrades to the phase word rather than printing
+// "opens --".
 function marketStatusPhrase(phase, verb, countdown) {
   const timing = countdown ? `${verb} ${countdown}` : "";
   return [phase, timing].filter(Boolean).join(" · ") || "closed";
@@ -360,4 +375,4 @@ function greeksMeaning(portfolio, positions) {
   return "Model Greeks unavailable for this option snapshot.";
 }
 
-export { countdownLabel, currentMarketCalendar, gatewayIssueText, greeksCoverage, greeksMeaning, marketSessionLabel, marketSessionNow, marketStatusPhrase, refreshSelectedMarketCalendar, renderSourceBanners, renderSyncStrip, renderTopbar, setBanner, setupMarketSelect, snapshotIssueSummary, snapshotSourceLabel };
+export { closureWord, countdownLabel, currentMarketCalendar, gatewayIssueText, greeksCoverage, greeksMeaning, marketSessionLabel, marketSessionNow, marketStatusPhrase, refreshSelectedMarketCalendar, renderSourceBanners, renderSyncStrip, renderTopbar, setBanner, setupMarketSelect, snapshotIssueSummary, snapshotSourceLabel };

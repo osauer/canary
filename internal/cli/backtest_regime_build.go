@@ -217,7 +217,7 @@ func regimePointInTimeAsOf(row RegimePointInTimeRow) time.Time {
 func buildRegimePITVIX(in RegimePointInTimeVIXTerm, date string, asOf time.Time) rpc.RegimeVIXTerm {
 	out := rpc.RegimeVIXTerm{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("VIX/VIX3M", "<0.92", "0.92-1.00", ">1.00"),
+			Thresholds: rpc.HeuristicThresholds("VIX/VIX3M", "<0.92", "0.92-1.00", ">1.00", "trips >1.00"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:       regimePITStatus(in.RegimePointInTimeMeta, in.VIX != nil && in.VIX3M != nil),
@@ -246,7 +246,7 @@ func buildRegimePITVIX(in RegimePointInTimeVIXTerm, date string, asOf time.Time)
 func buildRegimePITVolOfVol(in RegimePointInTimeVolOfVol, date string, asOf time.Time) rpc.RegimeVolOfVol {
 	out := rpc.RegimeVolOfVol{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("VVIX", "<90", "90-110", ">110"),
+			Thresholds: rpc.HeuristicThresholds("VVIX", "<90", "90-110", ">110", "trips >110"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:    regimePITStatus(in.RegimePointInTimeMeta, in.Last != nil),
@@ -265,7 +265,7 @@ func buildRegimePITVolOfVol(in RegimePointInTimeVolOfVol, date string, asOf time
 func buildRegimePITHYGSPY(in RegimePointInTimeHYGSPY, date string, asOf time.Time) rpc.RegimeHYGSPYDivergence {
 	out := rpc.RegimeHYGSPYDivergence{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("HYG/SPY divergence", "HYG >= 50-DMA", "HYG < 50-DMA", "HYG < 50-DMA while SPY near 52w high"),
+			Thresholds: rpc.HeuristicThresholds("HYG/SPY divergence", "HYG >= 50-DMA", "HYG < 50-DMA", "HYG < 50-DMA while SPY near 52w high", "trips HYG <50dma near 52w high"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:       regimePITStatus(in.RegimePointInTimeMeta, in.HYGPrice != nil && in.HYG50DMA != nil),
@@ -301,7 +301,7 @@ func buildRegimePITHYGSPY(in RegimePointInTimeHYGSPY, date string, asOf time.Tim
 func buildRegimePITCredit(in RegimePointInTimeCredit, date string, asOf time.Time) rpc.RegimeCreditSpreads {
 	out := rpc.RegimeCreditSpreads{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("HY OAS", "<4.0 and not widening", "4.0-5.5 or +0.50pp/20d", ">5.5 or +1.00pp/20d"),
+			Thresholds: rpc.HeuristicThresholds("HY OAS", "<4.0 and not widening", "4.0-5.5 or +0.50pp/20d", ">5.5 or +1.00pp/20d", "trips >5.5"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:      regimePITStatus(in.RegimePointInTimeMeta, in.HYOAS != nil),
@@ -329,7 +329,7 @@ func buildRegimePITCredit(in RegimePointInTimeCredit, date string, asOf time.Tim
 func buildRegimePITFunding(in RegimePointInTimeFunding, date string, asOf time.Time) rpc.RegimeFundingStress {
 	out := rpc.RegimeFundingStress{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("CP 90d AA financial - 3m T-bill", "<25 bp", "25-75 bp", ">75 bp"),
+			Thresholds: rpc.HeuristicThresholds("CP 90d AA financial - 3m T-bill", "<25 bp", "25-75 bp", ">75 bp", "trips >75 bp"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:    regimePITStatus(in.RegimePointInTimeMeta, in.SpreadBps != nil || (in.CP3M != nil && in.TBill3M != nil)),
@@ -353,7 +353,7 @@ func buildRegimePITFunding(in RegimePointInTimeFunding, date string, asOf time.T
 func buildRegimePITUSDJPY(in RegimePointInTimeUSDJPY, date string, asOf time.Time) rpc.RegimeUSDJPY {
 	out := rpc.RegimeUSDJPY{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("USD/JPY weekly change", "yen move <1%", "yen strengthens 1-2%", "yen strengthens >2%"),
+			Thresholds: rpc.HeuristicThresholds("USD/JPY weekly change", "yen move <1%", "yen strengthens 1-2%", "yen strengthens >2%", "trips yen +2%/week"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:       regimePITStatus(in.RegimePointInTimeMeta, in.WeeklyChange != nil || (in.Last != nil && in.Close7DAgo != nil)),
@@ -381,7 +381,7 @@ func buildRegimePITUSDJPY(in RegimePointInTimeUSDJPY, date string, asOf time.Tim
 func buildRegimePITGamma(in *RegimePointInTimeGamma, date string, asOf time.Time) (rpc.RegimeGammaZero, []rpc.RegimeWarning, []rpc.DataQualityHealth) {
 	out := rpc.RegimeGammaZero{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("SPY+SPX zero gamma", "spot >2% above zero-gamma", "within +/-2%", "spot below zero-gamma"),
+			Thresholds: rpc.HeuristicThresholds("SPY+SPX zero gamma", "spot >2% above zero-gamma", "within +/-2%", "spot below zero-gamma", "trips spot below zero-gamma"),
 			AsOf:       regimePITAsOf(RegimePointInTimeMeta{Source: "gamma snapshot log"}, date, asOf),
 		},
 		Status: rpc.RegimeStatusUnavailable,
@@ -439,7 +439,7 @@ func buildRegimePITGamma(in *RegimePointInTimeGamma, date string, asOf time.Time
 func buildRegimePITBreadth(in RegimePointInTimeBreadth, date string, asOf time.Time) rpc.RegimeBreadth {
 	out := rpc.RegimeBreadth{
 		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Thresholds: rpc.HeuristicThresholds("S&P 500 % above 50-DMA", ">55", "40-55", "<40"),
+			Thresholds: rpc.HeuristicThresholds("S&P 500 % above 50-DMA", ">55", "40-55", "<40", "trips <40% (50d)"),
 			AsOf:       regimePITAsOf(in.RegimePointInTimeMeta, date, asOf),
 		},
 		Status:        regimePITStatus(in.RegimePointInTimeMeta, in.PctAbove50DMA != nil),

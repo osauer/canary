@@ -353,12 +353,16 @@ function sourceTransportFault(snap = {}, name) {
 }
 
 
-// No trip anchor: the stress payload serves the cushion reading but no
-// cushion threshold, so the figure states what was measured and stops there.
+// The cushion reading against its served trip: the stress policy's own watch
+// floor, the level at which the cushion row leaves observe. When the payload
+// serves no floor the figure states the measurement and stops there — a
+// threshold this renderer invented would be policy the daemon never published.
 function stressCushionFigure(stress = {}) {
   const cushion = stress.portfolio?.cushion_pct;
   if (typeof cushion !== "number") return "cushion pending";
-  return `cushion ${wholePct(cushion)}`;
+  const trip = stress.portfolio?.cushion_trip_pct;
+  const reading = `cushion ${wholePct(cushion)}`;
+  return typeof trip === "number" ? `${reading} · trips <${wholePct(trip)}` : reading;
 }
 
 function stressStageLabel(stress) {
@@ -760,10 +764,12 @@ function applyTileSeverity(el, severity) {
 function masterSubline(snap = {}, stress = {}) {
   const action = stressStageLabel(stress);
   const parts = [action === "--" ? "" : action, masterSeverity(snap, stress)];
-  // The daemon ranks more clusters than this panel gives windows to, so the
-  // reds are named, not just counted: a red cluster without a window of its
-  // own has nowhere else on the Monitor face to appear.
-  const reds = stress.market?.red_cluster_names || [];
+  // Every cluster the daemon ranks now has a window, so this clause fires
+  // only for a red the panel genuinely cannot show: a cluster name the served
+  // list carries that no window covers. The mechanism stays because the
+  // daemon's cluster set is its own to extend, and a red with nowhere to
+  // appear must still be named rather than silently dropped.
+  const reds = offPanelRedClusters(stress);
   if (reds.length > 0) parts.push(`${reds.length} red: ${reds.join(", ")}`);
   // A dead window under a quiet master is the same silent disagreement as a
   // lit one, so the master names the windows it cannot read.
@@ -775,6 +781,17 @@ function masterSubline(snap = {}, stress = {}) {
   const timing = cleanDetail(snap.regime?.lifecycle?.timing);
   if (timing !== "--") parts.push(labelize(timing).toLowerCase());
   return parts.filter(Boolean).join(" · ");
+}
+
+
+// offPanelRedClusters lists served red cluster names that no window on this
+// panel covers. Names matched by a window are already lit there; naming them
+// again in the subline would be the master repeating what the panel says.
+function offPanelRedClusters(stress = {}) {
+  return (stress.market?.red_cluster_names || []).filter((name) => {
+    const key = String(name || "").trim().toLowerCase();
+    return key && !REGIME_CLUSTERS.some((cluster) => cluster.sources.includes(key));
+  });
 }
 
 
@@ -840,14 +857,19 @@ function snapshotSourceName(name) {
 }
 
 
-// The four regime windows, in fixed positions. Nothing here is reordered by
-// severity: an instrument that moves cannot be read by muscle memory, and
-// the lamps already say which window needs attention.
+// The six regime windows, in fixed positions — one per cluster the daemon
+// ranks (rpc.RegimeClusterNames). Nothing here is reordered by severity: an
+// instrument that moves cannot be read by muscle memory, and the lamps
+// already say which window needs attention. The first four keep the positions
+// they have always had; Funding and FX are appended rather than interleaved so
+// no window a reader already knows changes seat.
 const REGIME_CLUSTERS = [
   { key: "breadth", legend: "Breadth", sources: ["breadth"], match: ["breadth"] },
   { key: "vol", legend: "Volatility", sources: ["vol", "volatility"], match: ["vix", "vol"] },
   { key: "credit", legend: "Credit", sources: ["credit"], match: ["credit", "hyg", "oas", "hy/ig"] },
   { key: "gamma", legend: "Dealer gamma", sources: ["gamma"], match: ["gamma", "γ-zero"] },
+  { key: "funding", legend: "Funding", sources: ["funding"], match: ["funding"] },
+  { key: "fx", legend: "FX", sources: ["fx"], match: ["usd/jpy", "jpy"] },
 ];
 
 function renderRegimeGrid(snap = {}, stress = {}) {
@@ -876,15 +898,33 @@ function regimeClusterTile(cluster, snap = {}, stress = {}) {
   fig.className = "pd-tile__fig";
   fig.textContent = clusterFigure(lead, band, fault);
   tile.append(bar, legend, cap, fig);
-  // No trip anchor: the app snapshot's indicators carry no served threshold
-  // bands, so the tile shows the reading the daemon did serve and keeps the
-  // rest of that evidence in the title rather than inventing a cutoff.
-  tile.title = [lead.name, lead.reading, lead.comment, indicatorAsOfLabel(lead.as_of || fault?.asOf)]
+  // Third line: the served trip anchor, engraved beneath the reading so the
+  // figure is read against its own trigger. A window whose lead indicator
+  // serves no trip stays figure-only — this renderer never supplies a cutoff.
+  const trip = clusterTrip(lead, band);
+  if (trip) {
+    const anchor = document.createElement("div");
+    anchor.className = "pd-tile__trip";
+    anchor.textContent = trip;
+    tile.append(anchor);
+  }
+  tile.title = [lead.name, lead.reading, trip, lead.comment, indicatorAsOfLabel(lead.as_of || fault?.asOf)]
     .map((part) => humanizeStalenessSeconds(cleanDetail(part)))
     .filter((part) => part && part !== "--")
     .join(" · ");
   tile.setAttribute("aria-label", `${cluster.legend} ${clusterCaption(lead, band, fault)}`);
   return tile;
+}
+
+
+// The trip anchor is served text: the daemon's own compact trigger wording
+// for this indicator, or — for dealer gamma, whose trigger is a crossing —
+// the served spot/γ-zero pair. A dead window shows none: a trigger printed
+// beside a reading nobody trusts would imply the comparison still holds.
+function clusterTrip(lead = {}, band = "") {
+  if (band === "stale") return "";
+  const trip = cleanDetail(lead.trip);
+  return trip === "--" ? "" : trip;
 }
 
 
@@ -1807,4 +1847,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

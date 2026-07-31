@@ -415,13 +415,16 @@ func GammaBucketRegime(spot float64, zero *float64, sign string) string {
 // HeuristicThresholds builds the heuristic/pending-backtest threshold
 // metadata shared by the daemon regime rows and the backtest builder. The
 // Heuristic and PendingBacktest bits are policy: they mark bands whose
-// values have not yet earned promotion through the decisions journal.
-func HeuristicThresholds(label, green, yellow, red string) *RegimeThresholds {
+// values have not yet earned promotion through the decisions journal. Trip is
+// the compact display form of red and is authored here beside it, so a gauge
+// face can print a trigger without any renderer parsing the worded band.
+func HeuristicThresholds(label, green, yellow, red, trip string) *RegimeThresholds {
 	return &RegimeThresholds{
 		Label:           label,
 		Green:           green,
 		Yellow:          yellow,
 		Red:             red,
+		Trip:            trip,
 		Heuristic:       true,
 		PendingBacktest: true,
 	}

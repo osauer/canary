@@ -277,6 +277,12 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 	if acct.NetLiquidation > 0 {
 		out.CushionPct = stressCurrentCushionPct(acct)
 		out.LookAheadCushionPct = stressLookAheadCushionPct(acct)
+		// The cushion trip is the policy's watch floor — the same number
+		// stressCushionSeverity leaves observe at — served beside the reading
+		// so no renderer keeps a twin of it.
+		if out.CushionPct != nil || out.LookAheadCushionPct != nil {
+			out.CushionTripPct = new(stressPolicy.MarginWatchPct)
+		}
 		if acct.GrossPositionValue > 0 {
 			pct := acct.GrossPositionValue / acct.NetLiquidation * 100
 			out.GrossExposurePctNLV = &pct
@@ -860,15 +866,16 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		asOf    *rpc.RegimeAsOfSummary
 		date    string
 		status  string
+		trip    string
 	}{
-		{cluster: "vol", row: regimerows.VIXTerm(now, r.VIXTermStructure), asOf: r.VIXTermStructure.AsOf, status: r.VIXTermStructure.Status},
-		{cluster: "vol", row: regimerows.VolOfVol(now, r.VolOfVol), asOf: r.VolOfVol.AsOf, date: r.VolOfVol.AsOfDate, status: r.VolOfVol.Status},
-		{cluster: "credit", row: regimerows.HYGSPY(now, r.HYGSPYDivergence), asOf: r.HYGSPYDivergence.AsOf, status: r.HYGSPYDivergence.Status},
-		{cluster: "credit", row: regimerows.CreditSpreads(now, r.CreditSpreads), asOf: r.CreditSpreads.AsOf, date: r.CreditSpreads.AsOfDate, status: r.CreditSpreads.Status},
-		{cluster: "funding", row: regimerows.FundingStress(now, r.FundingStress), asOf: r.FundingStress.AsOf, date: r.FundingStress.AsOfDate, status: r.FundingStress.Status},
-		{cluster: "fx", row: regimerows.USDJPY(now, r.USDJPY), asOf: r.USDJPY.AsOf, status: r.USDJPY.Status},
-		{cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status},
-		{cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status},
+		{cluster: "vol", row: regimerows.VIXTerm(now, r.VIXTermStructure), asOf: r.VIXTermStructure.AsOf, status: r.VIXTermStructure.Status, trip: stressIndicatorTrip(r.VIXTermStructure.Thresholds)},
+		{cluster: "vol", row: regimerows.VolOfVol(now, r.VolOfVol), asOf: r.VolOfVol.AsOf, date: r.VolOfVol.AsOfDate, status: r.VolOfVol.Status, trip: stressIndicatorTrip(r.VolOfVol.Thresholds)},
+		{cluster: "credit", row: regimerows.HYGSPY(now, r.HYGSPYDivergence), asOf: r.HYGSPYDivergence.AsOf, status: r.HYGSPYDivergence.Status, trip: stressIndicatorTrip(r.HYGSPYDivergence.Thresholds)},
+		{cluster: "credit", row: regimerows.CreditSpreads(now, r.CreditSpreads), asOf: r.CreditSpreads.AsOf, date: r.CreditSpreads.AsOfDate, status: r.CreditSpreads.Status, trip: stressIndicatorTrip(r.CreditSpreads.Thresholds)},
+		{cluster: "funding", row: regimerows.FundingStress(now, r.FundingStress), asOf: r.FundingStress.AsOf, date: r.FundingStress.AsOfDate, status: r.FundingStress.Status, trip: stressIndicatorTrip(r.FundingStress.Thresholds)},
+		{cluster: "fx", row: regimerows.USDJPY(now, r.USDJPY), asOf: r.USDJPY.AsOf, status: r.USDJPY.Status, trip: stressIndicatorTrip(r.USDJPY.Thresholds)},
+		{cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status, trip: stressGammaTrip(r.GammaZero)},
+		{cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status, trip: stressIndicatorTrip(r.Breadth.Thresholds)},
 	}
 	out := make([]StressMarketIndicator, 0, len(rows))
 	for _, item := range rows {
@@ -883,9 +890,30 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 			AsOf:    stressIndicatorAsOf(item.asOf, item.date, item.row.AsOf),
 			Reading: reading,
 			Comment: stressIndicatorComment(item.row, reading, contextOnly),
+			Trip:    item.trip,
 		})
 	}
 	return out
+}
+
+// stressIndicatorTrip passes the row's served compact trip through untouched.
+// A row whose producer serves no thresholds carries no trip, and the face it
+// feeds stays reading-only.
+func stressIndicatorTrip(t *rpc.RegimeThresholds) string {
+	if t == nil {
+		return ""
+	}
+	return t.Trip
+}
+
+// stressGammaTrip prefers the measured γ-zero/spot pair, because dealer
+// gamma's red band is a crossing rather than a fixed number. Without a usable
+// crossing it falls back to the row's worded trip.
+func stressGammaTrip(g rpc.RegimeGammaZero) string {
+	if anchor := regimerows.GammaTripAnchor(g); anchor != "" {
+		return anchor
+	}
+	return stressIndicatorTrip(g.Thresholds)
 }
 
 func stressIndicatorStatus(b regimerows.Band, status string, contextOnly bool) string {

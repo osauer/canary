@@ -214,6 +214,7 @@ func briefTopics(res *rpc.BriefResult) []briefTopic {
 		briefTopic{label: "drawdown latch", state: ready.Latch.BriefRowState, role: briefRole(ready.Latch.BriefRowState, ready.Latch.Latched)},
 		briefTopic{label: "premium at risk", state: ready.PremiumAtRisk.BriefRowState, role: briefRole(ready.PremiumAtRisk.BriefRowState, false)},
 		briefTopic{label: "hedge cost", state: ready.HedgeCost.BriefRowState, role: briefRole(ready.HedgeCost.BriefRowState, false)},
+		briefTopic{label: "protection proposals", state: ready.Proposals.BriefRowState, role: briefRole(ready.Proposals.BriefRowState, false)},
 		briefTopic{label: "policy drift", state: ready.PolicyDrift.BriefRowState, role: briefRole(ready.PolicyDrift.BriefRowState, false)},
 		briefTopic{label: "artefacts", state: ready.Artefacts.BriefRowState, role: briefRole(ready.Artefacts.BriefRowState, false)},
 	)
@@ -818,6 +819,31 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 			p.text(", with " + briefCountPhrase(hedge.ExcludedLegs, "candidate leg", "candidate legs") + " excluded for missing classification inputs")
 		}
 		p.text(".")
+	}
+
+	p.sentence()
+	briefReadyProposalsSentence(p, ready.Proposals)
+}
+
+// briefReadyProposalsSentence states how much protection work is staged for
+// the session ahead. It reports the served counts and nothing else: the prose
+// never says a proposal should be placed, and staging is not authority.
+func briefReadyProposalsSentence(p *briefProse, row rpc.BriefReadyProposalsRow) {
+	role := briefRole(row.BriefRowState, false)
+	switch {
+	case row.Status == rpc.BriefStatusUnavailable:
+		p.text("The protection proposal snapshot is unavailable, so staged work cannot be stated.")
+	case row.Actionable > 0:
+		p.tinted(role, briefUpperFirst(briefCountPhrase(row.Actionable, "protection proposal", "protection proposals"))+" "+
+			briefVerb(row.Actionable, "is", "are")+" ready to act")
+		if row.Blocked > 0 {
+			p.tinted(role, ", with "+briefCountPhrase(row.Blocked, "more blocked", "more blocked"))
+		}
+		p.tinted(role, ".")
+	case row.Blocked > 0:
+		p.text("No protection proposal is ready to act; " + briefCountPhrase(row.Blocked, "is blocked", "are blocked") + ".")
+	default:
+		p.text("No protection proposals are staged.")
 	}
 }
 

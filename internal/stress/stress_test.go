@@ -1429,6 +1429,61 @@ func TestComputeStressMarketIndicatorsCarryDecisionContext(t *testing.T) {
 	}
 }
 
+// TestComputeStressServesGaugeTriggers pins the trigger contract the Monitor
+// faces render: every regime indicator carries the SERVED compact trip from
+// its own threshold metadata, dealer gamma prefers the measured level pair
+// (naming the index, because a combined result blends no scales), and the
+// cushion reading is served beside the policy floor it trips at. A renderer
+// that has to invent any of these is inventing policy.
+func TestComputeStressServesGaugeTriggers(t *testing.T) {
+	t.Parallel()
+	r := healthyStressRegime()
+	r.Breadth.Thresholds = rpc.HeuristicThresholds("spx_breadth_50dma_v1", "> 55%", "40-55%", "< 40%", "trips <40% (50d)")
+	r.FundingStress.Thresholds = rpc.HeuristicThresholds("funding_cp_tbill_v1", "< 25 bp", "25-75 bp", ">= 75 bp", "trips >=75 bp")
+	r.GammaZero.Thresholds = rpc.HeuristicThresholds("dealer_gamma_v3", "above", "within", "below", "trips spot below gamma-zero")
+	r.GammaZero.Envelope.Result = &rpc.GammaZeroComputed{
+		Scope:   rpc.GammaZeroScopeCombined,
+		Quality: rankableStressGammaQuality(),
+		PerIndex: map[string]*rpc.GammaZeroComputed{
+			"SPX": {SpotUnderlying: 6135.2, ZeroGamma: new(6070.0)},
+		},
+	}
+
+	res := ComputeStress(StressInput{Now: stressTestNow, Account: baseStressAccount(), Regime: r})
+
+	breadth, ok := findStressIndicator(res.MarketIndicators, "SPX breadth")
+	if !ok || breadth.Trip != "trips <40% (50d)" {
+		t.Fatalf("breadth trip = %+v, want the served compact trip", breadth)
+	}
+	funding, ok := findStressIndicator(res.MarketIndicators, "funding spread")
+	if !ok || funding.Trip != "trips >=75 bp" {
+		t.Fatalf("funding trip = %+v, want the served compact trip", funding)
+	}
+	gamma, ok := findStressIndicator(res.MarketIndicators, "γ-zero (SPY+SPX)")
+	if !ok || gamma.Trip != "SPX spot 6135.20 · γ-zero 6070.00" {
+		t.Fatalf("gamma trip = %+v, want the served SPX level pair", gamma)
+	}
+
+	// No usable crossing anywhere: the face falls back to the worded rule
+	// rather than printing a level nobody measured.
+	r.GammaZero.Envelope.Result = &rpc.GammaZeroComputed{Scope: rpc.GammaZeroScopeCombined, Quality: rankableStressGammaQuality()}
+	res = ComputeStress(StressInput{Now: stressTestNow, Account: baseStressAccount(), Regime: r})
+	gamma, ok = findStressIndicator(res.MarketIndicators, "γ-zero (SPY+SPX)")
+	if !ok || gamma.Trip != "trips spot below gamma-zero" {
+		t.Fatalf("gamma trip without a crossing = %+v, want the worded fallback", gamma)
+	}
+
+	// A producer that serves no thresholds leaves the face reading-only.
+	vix, ok := findStressIndicator(res.MarketIndicators, "VIX/VIX3M")
+	if !ok || vix.Trip != "" {
+		t.Fatalf("VIX trip = %+v, want empty when no thresholds are served", vix)
+	}
+
+	if res.Portfolio.CushionTripPct == nil || *res.Portfolio.CushionTripPct != 35 {
+		t.Fatalf("cushion trip = %v, want the served margin watch floor", res.Portfolio.CushionTripPct)
+	}
+}
+
 func TestComputeStressMarketSummaryCarriesTapeLevels(t *testing.T) {
 	t.Parallel()
 	r := healthyStressRegime()

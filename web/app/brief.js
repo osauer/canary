@@ -274,6 +274,7 @@ function renderReadySection(section, sources = {}) {
     )),
     briefRow("Premium at risk", section.premium_at_risk, moneyCoverageValue(section.premium_at_risk)),
     briefRow("Hedge cost / day", section.hedge_cost, moneyCoverageValue(section.hedge_cost)),
+    briefRow("Protection proposals", section.proposals, readyProposalsValue(section.proposals || {})),
     briefRow("Policy drift", section.policy_drift, (section.policy_drift?.rows || []).map((row) => joinValues(row.policy, row.status, row.live_id, row.live_version)).join(" · ")),
   );
   if (Object.prototype.hasOwnProperty.call(section, "monthly_pulse") && section.monthly_pulse) {
@@ -306,6 +307,17 @@ function proposalsValue(row = {}) {
     integerValue(row, "offered", "Offered"),
     integerValue(row, "acted", "Acted"),
     row.day || "",
+  );
+}
+
+
+// Ready-side proposals: how much protection work is staged for the session
+// ahead. Counts only — the served facts, never an action affordance.
+function readyProposalsValue(row = {}) {
+  return joinValues(
+    integerValue(row, "actionable", "Ready to act"),
+    integerValue(row, "blocked", "Blocked"),
+    integerValue(row, "total", "Staged"),
   );
 }
 

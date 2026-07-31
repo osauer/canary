@@ -685,11 +685,12 @@ async function exerciseAccountPanel(page) {
   if (!panel.accountLabel || !panel.dailyPnlPct || panel.riskValues.some((value) => !value)) {
     throw new Error(`account panel is missing values: ${JSON.stringify(panel)}`);
   }
-  // Operator decision: the trading-env pill renders nothing in live mode (a
-  // hidden empty pill is correct), a loud PAPER in paper mode, and a muted
-  // "mode?" when the environment is unresolved. Anything else is a bug.
-  if (panel.pillHidden ? panel.pill : !["PAPER", "mode?"].includes(panel.pill)) {
-    throw new Error(`unexpected trading-env pill state: ${JSON.stringify(panel)}`);
+  // Operator decision: the plate ALWAYS states the mode — LIVE in the plate's
+  // engraved register, a loud red PAPER, or a muted "mode?" when the
+  // environment is unresolved. A hidden or empty plate is a bug: an absence
+  // is not a mode.
+  if (panel.pillHidden || !["LIVE", "PAPER", "mode?"].includes(panel.pill)) {
+    throw new Error(`unexpected trading-env plate state: ${JSON.stringify(panel)}`);
   }
   if (!panel.freshnessQuiet && !panel.freshness) {
     throw new Error(`account freshness badge is visible but empty: ${JSON.stringify(panel)}`);
@@ -789,8 +790,9 @@ async function assertVisibleRenameContract(page) {
 }
 
 async function exerciseMarketLayout(page) {
-  // Panel Dark session chip: "RTH · closes 3:59" while open, "opens 17:12"
-  // otherwise — a minutes-precision countdown in both directions.
+  // Panel Dark session chip: "RTH · closes 3:59" while open, and the served
+  // closure word beside the countdown when shut ("Weekend · opens 2d 14:30")
+  // — a minutes-precision countdown in both directions.
   await page.waitForFunction(() => {
     const text = document.getElementById("sessionPhase")?.textContent?.trim() || "";
     return /\b(closes|opens) \d+d? ?\d*:\d{2}\b/i.test(text);
@@ -806,6 +808,10 @@ async function exerciseMarketLayout(page) {
     const stressBeforeUnderlying = !!(signalPanel && underlyingPanel && (signalPanel.compareDocumentPosition(underlyingPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
     const accountAfterMarketStrip = !!(marketStrip && accountPanel && (marketStrip.compareDocumentPosition(accountPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
     const phase = document.getElementById("sessionPhase")?.textContent?.trim() || "";
+    // The market dot's title is the other rendering of the same served
+    // session state, so it is the oracle for whether the chip owes a closure
+    // word — no state this script invented enters the comparison.
+    const sessionDotTitle = document.getElementById("marketStateDot")?.getAttribute("title") || "";
     const strip = document.querySelector(".market-strip");
     const stripStyle = strip ? getComputedStyle(strip) : null;
     const quoteStrip = document.getElementById("marketQuoteStrip");
@@ -829,6 +835,7 @@ async function exerciseMarketLayout(page) {
       standaloneHasUnderlyingBook,
       quoteCells,
       underlyingOpen,
+      sessionDotTitle,
       marketStyle: {
         stripShadow: stripStyle?.boxShadow || "",
         quoteBorder: quoteStripStyle?.borderTopWidth || "",
@@ -878,6 +885,14 @@ async function exerciseMarketLayout(page) {
   if (/\b(Xetra|US market|US equities|US options)\b/i.test(layout.phase)) {
     throw new Error(`market line should not repeat the selected market label: ${JSON.stringify(layout.phase)}`);
   }
+  // A closed market states WHY in chip text, not only in the title: a
+  // countdown alone cannot tell a weekend from a holiday from a coverage gap.
+  if (/closed for (the weekend|a holiday)/i.test(layout.sessionDotTitle) && /^opens\b/i.test(layout.phase)) {
+    throw new Error(`closed session chip should lead with its served closure word: ${JSON.stringify(layout)}`);
+  }
+  if (/closed for the weekend/i.test(layout.sessionDotTitle) && !/^weekend\b/i.test(layout.phase)) {
+    throw new Error(`weekend chip should print the served weekend word: ${JSON.stringify(layout)}`);
+  }
   return layout;
 }
 
@@ -909,8 +924,8 @@ async function assertNoViewportOverflow(page) {
       const regimeGrid = document.getElementById("regimeSummaryCard")?.getBoundingClientRect();
       const stress = document.getElementById("stressHero")?.getBoundingClientRect();
       // Panel Dark: the master annunciator spans the panel above two fixed
-      // 2x2 instrument grids (regime clusters, then the desk windows), and
-      // signalPanel itself spans the full dashboard width.
+      // instrument grids (six regime clusters 3x2, then the desk windows
+      // 2xN), and signalPanel itself spans the full dashboard width.
       const signalLayout = regimeTiles.length > 0 ? {
         regimeTiles: regimeTiles.length,
         regimeColumns: columns(regimeTiles),
@@ -943,8 +958,8 @@ async function assertNoViewportOverflow(page) {
       throw new Error(`page overflows at ${size.width}px: ${JSON.stringify(info)}`);
     }
     const layout = info.signalLayout;
-    if (!layout || layout.regimeTiles !== 4 || layout.regimeColumns !== 2 || layout.deskTiles < 3 || layout.deskColumns !== 2) {
-      throw new Error(`Regime should render a fixed 2x2 cluster grid and Desk a two-column window grid at ${size.width}px: ${JSON.stringify(layout)}`);
+    if (!layout || layout.regimeTiles !== 6 || layout.regimeColumns !== 3 || layout.deskTiles < 3 || layout.deskColumns !== 2) {
+      throw new Error(`Regime should render a fixed 3x2 cluster grid (one window per daemon cluster) and Desk a two-column window grid at ${size.width}px: ${JSON.stringify(layout)}`);
     }
     if (!layout.masterFullWidth || !layout.masterAboveGrid || !layout.regimeBeforeDesk || !layout.signalPanelFullWidth) {
       throw new Error(`Master annunciator should span a full-width combined panel above the regime grid, with the desk grid beneath, at ${size.width}px: ${JSON.stringify(layout)}`);
@@ -1418,7 +1433,8 @@ async function assertPanelDarkInstruments(page) {
   // Declared inside the function: the smoke invokes itself through a
   // top-level await mid-file, so module-level consts below that line are
   // still in the temporal dead zone when assertions run.
-  const REGIME_WINDOW_LEGENDS = ["Breadth", "Volatility", "Credit", "Dealer gamma"];
+  // One window per cluster the daemon ranks, in fixed positions.
+  const REGIME_WINDOW_LEGENDS = ["Breadth", "Volatility", "Credit", "Dealer gamma", "Funding", "FX"];
   const instruments = await page.evaluate(() => {
     const litClass = (el) => [...(el?.classList || [])].find((name) => name.startsWith("pd-tile--")) || "";
     const readTile = (el) => (el ? {
@@ -1426,6 +1442,7 @@ async function assertPanelDarkInstruments(page) {
       legend: el.querySelector(".pd-tile__legend")?.textContent?.trim() || "",
       cap: el.querySelector(".pd-tile__cap")?.textContent?.trim() || "",
       fig: el.querySelector(".pd-tile__fig")?.textContent?.trim() || "",
+      trip: el.querySelector(".pd-tile__trip")?.textContent?.trim() || "",
     } : null);
     return {
       master: {
@@ -1451,6 +1468,13 @@ async function assertPanelDarkInstruments(page) {
       throw new Error(`regime window is missing its served caption or figure: ${JSON.stringify(cluster)}`);
     }
   }
+  // Trip anchors are SERVED or absent. A window may legitimately carry none
+  // (its producer served no trigger, or the window is dead), but a rendered
+  // anchor must never be an empty stub the reader has to interpret.
+  const blankTrip = instruments.clusters.find((cluster) => cluster.trip === "--");
+  if (blankTrip) {
+    throw new Error(`regime window renders a placeholder trip anchor instead of omitting it: ${JSON.stringify(blankTrip)}`);
+  }
   if (!instruments.deltaReadout || instruments.deltaHasLampBar) {
     throw new Error(`Net $ Delta must be a flush readout tile with no lamp slot: ${JSON.stringify(instruments)}`);
   }
@@ -1460,9 +1484,28 @@ async function assertPanelDarkInstruments(page) {
   if (!instruments.master.sub) {
     throw new Error("master annunciator should carry an action subline");
   }
+  // Master law, first half: an act-lit window under an unlit master must
+  // still be disclosed by the master itself — either the governor hold that
+  // kept its severity down ("severity held ...") or an explicit red clause.
+  // A quiet master over a red window with neither is the silent disagreement
+  // the law exists to ban.
   const redWindows = instruments.clusters.filter((cluster) => cluster.lit === "pd-tile--act").length;
-  if (redWindows > 0 && !instruments.master.lit && !/\b\d+ red:/i.test(instruments.master.sub)) {
+  if (redWindows > 0 && !instruments.master.lit && !/severity held|\b\d+ red:/i.test(instruments.master.sub)) {
     throw new Error(`master and panel disagree: ${redWindows} red window(s) under an unlit, undisclosed master: ${JSON.stringify(instruments.master)}`);
+  }
+  // Second half, after every daemon cluster got a window of its own: a lit red
+  // is disclosed BY its window, so the subline's "N red" clause is reserved
+  // for reds the panel genuinely cannot show. Naming a tiled cluster there
+  // would be the master repeating the panel back at the reader.
+  const namedReds = /\b\d+ red: ([^·]+)/i.exec(instruments.master.sub);
+  if (namedReds) {
+    const legendsLower = legends.map((legend) => legend.toLowerCase());
+    const onPanel = namedReds[1].split(",")
+      .map((name) => name.trim().toLowerCase())
+      .filter((name) => name && legendsLower.some((legend) => legend.includes(name)));
+    if (onPanel.length > 0) {
+      throw new Error(`master subline names reds the panel already tiles (${onPanel.join(", ")}): ${JSON.stringify(instruments.master.sub)}`);
+    }
   }
   return instruments;
 }

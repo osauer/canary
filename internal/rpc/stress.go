@@ -279,15 +279,26 @@ type StressMarketIndicator struct {
 	AsOf    string `json:"as_of,omitempty"`
 	Reading string `json:"reading,omitempty"`
 	Comment string `json:"comment,omitempty"`
+	// Trip is the served trigger anchor a gauge face prints beside Reading:
+	// the indicator's compact red-band wording, or — where the trigger is a
+	// measured level rather than a fixed band, as with dealer gamma — the
+	// served level itself. Empty means this indicator has no served trigger
+	// and its face stays reading-only; a renderer must never supply one.
+	Trip string `json:"trip,omitempty"`
 }
 
 // StressPortfolioSummary is a redacted portfolio-risk projection. Pointer
 // metrics distinguish unavailable observations from measured zero values.
 type StressPortfolioSummary struct {
-	BaseCurrency         string                     `json:"base_currency,omitempty"`
-	NetLiquidation       float64                    `json:"net_liquidation,omitempty"`
-	CushionPct           *float64                   `json:"cushion_pct,omitempty"`
-	LookAheadCushionPct  *float64                   `json:"look_ahead_cushion_pct,omitempty"`
+	BaseCurrency        string   `json:"base_currency,omitempty"`
+	NetLiquidation      float64  `json:"net_liquidation,omitempty"`
+	CushionPct          *float64 `json:"cushion_pct,omitempty"`
+	LookAheadCushionPct *float64 `json:"look_ahead_cushion_pct,omitempty"`
+	// CushionTripPct is the stress policy's margin-cushion watch floor: the
+	// level at which either cushion reading leaves observe. It is served so a
+	// gauge face can print "cushion 64% · trips <35%" without a renderer
+	// keeping a twin of the policy number. Nil when no cushion was observed.
+	CushionTripPct       *float64                   `json:"cushion_trip_pct,omitempty"`
 	GrossExposurePctNLV  *float64                   `json:"gross_exposure_pct_nlv,omitempty"`
 	NetDeltaPctNLV       *float64                   `json:"net_delta_pct_nlv,omitempty"`
 	GrossDeltaPctNLV     *float64                   `json:"gross_delta_pct_nlv,omitempty"`

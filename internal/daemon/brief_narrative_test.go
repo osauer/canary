@@ -102,6 +102,7 @@ func quietBriefResult() *rpc.BriefResult {
 			Latch:         rpc.BriefLatchRow{BriefRowState: briefOK("drawdown latch is not engaged")},
 			PremiumAtRisk: rpc.BriefMoneyCoverageRow{BriefRowState: briefOK("long-option market value"), AmountBase: &premium, BaseCurrency: "EUR", IncludedLegs: 1},
 			HedgeCost:     rpc.BriefMoneyCoverageRow{BriefRowState: briefOK("daily theta of hedge legs"), AmountBase: &hedge, BaseCurrency: "EUR", IncludedLegs: 1},
+			Proposals:     rpc.BriefReadyProposalsRow{BriefRowState: briefOK("no protection proposals are staged")},
 			PolicyDrift:   rpc.BriefPolicyDriftRow{BriefRowState: briefOK("all approval pins match")},
 			Artefacts: rpc.BriefArtefactsRow{BriefRowState: briefOK("declared cadence completion"), Rows: []rpc.BriefArtefact{
 				{BriefRowState: briefOK("completed"), Kind: rpc.BriefKindMorning, Cadence: "daily", Declared: true, Completed: true},
@@ -126,6 +127,12 @@ func watchBriefResult() *rpc.BriefResult {
 	res.Ready.MarketEvents[0] = rpc.BriefMarketEventRow{
 		BriefRowState: briefAttention("2 held earnings upcoming while the overwrite earnings rule reports unknown"),
 		Kind:          "earnings", Count: 2, Symbols: []string{"AAPL", "NVDA"},
+	}
+	// Staged protection work is a decision the desk owes before the bell, so
+	// the Ready-side proposal projection is an attention row, not a data one.
+	res.Ready.Proposals = rpc.BriefReadyProposalsRow{
+		BriefRowState: briefAttention("2 protection proposal(s) ready to act, 1 blocked"),
+		Actionable:    2, Blocked: 1, Total: 3,
 	}
 	return res
 }
@@ -170,6 +177,7 @@ func degradedBriefResult() *rpc.BriefResult {
 	res.Ready.PremiumAtRisk = rpc.BriefMoneyCoverageRow{BriefRowState: briefUnavailable("positions unavailable")}
 	res.Ready.HedgeCost = rpc.BriefMoneyCoverageRow{BriefRowState: briefUnavailable("positions unavailable")}
 	res.Ready.Capital = rpc.BriefCapitalRow{BriefRowState: briefUnavailable("risk constitution absent")}
+	res.Ready.Proposals = rpc.BriefReadyProposalsRow{BriefRowState: briefUnavailable("protection proposal snapshot is unavailable")}
 	res.Ready.MarketEvents = nil
 	return res
 }
@@ -209,6 +217,7 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 				"The drawdown latch is open.",
 				"Premium at risk EUR 1,564 across 1 long option leg.",
 				"Hedge cost EUR -18.40 per day across 1 classified hedge leg.",
+				"No protection proposals are staged.",
 				"Process folds clean: policy pins match, cadence artefacts are declared with 1 of 2 complete, the monthly pulse is not due, and no held-name events.",
 				"Nothing owed before the bell.",
 			},
@@ -222,7 +231,7 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 			result: watchBriefResult(),
 			wantLead: []string{
 				"Stress reads reduce risk at watch severity.",
-				"2 rows need a decision: overrides, held-name earnings.",
+				"3 rows need a decision: overrides, held-name earnings, protection proposals.",
 			},
 			wantText: []string{
 				"1 active override widens policy controls: hedge_coverage.",
@@ -231,12 +240,14 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 				// The unflagged kinds are stated as checked and clean, never
 				// left silent next to a flagged one.
 				"The remaining held-name event source is clean.",
-				"Owed before the bell: overrides, held-name earnings. Everything else holds.",
+				"2 protection proposals are ready to act, with 1 more blocked.",
+				"Owed before the bell: overrides, held-name earnings, protection proposals. Everything else holds.",
 			},
 			wantWatch: []string{
 				"reduce risk at watch severity",
 				"1 active override widens policy controls: hedge_coverage.",
 				"2 held names carry earnings context",
+				"2 protection proposals are ready to act",
 			},
 			wantAbsent: []string{"Process folds clean"},
 			wantReview: 2,
@@ -256,6 +267,9 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 				"Capital sits in the block tier under shadow enforcement with 118.0% of the drawdown budget consumed.",
 				"The drawdown latch is engaged, 2 days old, and remains so until a human reset.",
 				"It engaged at 30.4% consumed.",
+				// Act's proposal snapshot is clean: a loud brief still says so
+				// plainly rather than leaving staged work ambiguous.
+				"No protection proposals are staged.",
 			},
 			wantAct: []string{
 				"de-risk at act severity",
@@ -275,7 +289,7 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 			wantLead: []string{
 				"The regime read is unavailable.",
 				"Nothing across Review and Ready needs a decision.",
-				"11 inputs could not be read and are named below: session P/L, attribution, proposals, working orders, regime, breadth, dealer gamma, held-name events, capital, premium at risk, hedge cost.",
+				"12 inputs could not be read and are named below: session P/L, attribution, proposals, working orders, regime, breadth, dealer gamma, held-name events, capital, premium at risk, hedge cost, protection proposals.",
 			},
 			wantText: []string{
 				"The last completed session's account P/L is unavailable, so the session cannot be summarized.",
@@ -287,8 +301,9 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 				"The risk constitution is absent, so capital controls are unapproved and the drawdown budget cannot be stated.",
 				"Premium at risk is unavailable.",
 				"Hedge cost is unavailable.",
+				"The protection proposal snapshot is unavailable, so staged work cannot be stated.",
 				"Held-name event coverage is unavailable.",
-				"Nothing on the desk needs a decision, but 11 inputs could not be read: unknown is not clean.",
+				"Nothing on the desk needs a decision, but 12 inputs could not be read: unknown is not clean.",
 			},
 			// Nothing may be asserted about values the payload did not serve.
 			wantAbsent: []string{
@@ -459,6 +474,24 @@ func TestBriefNarrativeStaysOutsideBriefIdentity(t *testing.T) {
 	}
 }
 
+// TestBriefReadyProposalsAreInsideBriefIdentity is the counterpart to the
+// narrative's stamp-safety pin. The Ready-side proposal projection is a served
+// FACT, not prose, so it belongs inside the content identity: a brief stamped
+// while nothing was staged must not stay valid once work appears. The cost is
+// a one-time re-stamp when the field first ships, which is the correct trade.
+func TestBriefReadyProposalsAreInsideBriefIdentity(t *testing.T) {
+	t.Parallel()
+	res := quietBriefResult()
+	before := briefContentFingerprint(res)
+	res.Ready.Proposals = rpc.BriefReadyProposalsRow{
+		BriefRowState: briefAttention("1 protection proposal(s) ready to act, 0 blocked"),
+		Actionable:    1, Total: 1,
+	}
+	if after := briefContentFingerprint(res); after == before {
+		t.Fatalf("staged protection work must move the brief identity: %s", before)
+	}
+}
+
 // TestBriefNarrativeNeverInventsMissingFigures walks the payload's optional
 // money and percentage fields: with the value absent, the prose must state the
 // absence and must not print a number in its place.
@@ -565,6 +598,17 @@ func TestBriefNarrativeNeverInventsMissingFigures(t *testing.T) {
 			},
 			want:   "Stress is unavailable, so the desk posture cannot be stated.",
 			absent: []string{"Stress reads"},
+		},
+		{
+			name: "every staged proposal is blocked",
+			mutate: func(res *rpc.BriefResult) {
+				res.Ready.Proposals = rpc.BriefReadyProposalsRow{
+					BriefRowState: briefOK("no protection proposal is ready to act; 2 blocked"),
+					Blocked:       2, Total: 2,
+				}
+			},
+			want:   "No protection proposal is ready to act; 2 are blocked.",
+			absent: []string{"ready to act, with"},
 		},
 		{
 			name: "policy version serves no monthly pulse",

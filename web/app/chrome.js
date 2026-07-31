@@ -72,9 +72,13 @@ function syncAccountPrivacyState() {
 }
 
 function resetViewportScroll() {
-  const shell = document.querySelector(".shell");
-  if (shell && (shell.scrollTop !== 0 || shell.scrollLeft !== 0)) {
-    shell.scrollTo(0, 0);
+  // The Panel Dark shell scrolls inside #appScroll, not the window or the
+  // .shell wrapper — resetting only the latter two leaves the real container
+  // where it was.
+  for (const el of [document.getElementById("appScroll"), document.querySelector(".shell")]) {
+    if (el && (el.scrollTop !== 0 || el.scrollLeft !== 0)) {
+      el.scrollTo(0, 0);
+    }
   }
   if (window.scrollX !== 0 || window.scrollY !== 0) {
     window.scrollTo(0, 0);

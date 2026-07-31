@@ -1165,6 +1165,43 @@ func Breadth(now time.Time, row rpc.RegimeBreadth) Row {
 	return rowBreadth(now, row)
 }
 
+// GammaTripAnchor is the dealer-gamma trigger a gauge face prints beside its
+// reading. Gamma's red band is a crossing rather than a fixed number, so the
+// anchor is the SERVED pair the crossing is measured against — the spot the
+// sweep was anchored at and the γ-zero level it found.
+//
+// A combined SPY+SPX result deliberately carries no blended level (the two
+// underlyings live on different spot scales), so the anchor falls back to the
+// canonical per-index result and says which index it is. Nothing is
+// interpolated and no scale is mixed. Empty when no served result has a usable
+// crossing; callers then fall back to the row's worded trip, which states the
+// rule without pretending to a level.
+func GammaTripAnchor(row rpc.RegimeGammaZero) string {
+	c := row.Envelope.Result
+	if c == nil {
+		return ""
+	}
+	if anchor := gammaLevelAnchor(c, ""); anchor != "" {
+		return anchor
+	}
+	for _, index := range []string{"SPX", "SPY"} {
+		if anchor := gammaLevelAnchor(c.PerIndex[index], index); anchor != "" {
+			return anchor
+		}
+	}
+	return ""
+}
+
+func gammaLevelAnchor(c *rpc.GammaZeroComputed, index string) string {
+	if c == nil || c.ZeroGamma == nil || c.SpotUnderlying <= 0 {
+		return ""
+	}
+	if index != "" {
+		index += " "
+	}
+	return fmt.Sprintf("%sspot %.2f · γ-zero %.2f", index, c.SpotUnderlying, *c.ZeroGamma)
+}
+
 // IfNonEmpty returns value when non-empty and fallback otherwise.
 func IfNonEmpty(value, fallback string) string {
 	return ifNonEmpty(value, fallback)

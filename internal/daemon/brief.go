@@ -532,7 +532,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// rendered movements regroup their rows without changing any row's
 	// severity/status semantics or the worst-child rollup behavior.
 	res.Review = s.composeBriefReview(portfolio, riskLimits, process, now)
-	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process)
+	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process, s.briefReadyProposals())
 	res.StampTarget, res.StampTargetReason = s.briefStampTarget(policy, constitution, now)
 	res.BriefFingerprint = briefContentFingerprint(res)
 	// The narrative is a deterministic projection of the two movements above
@@ -645,9 +645,11 @@ func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLim
 }
 
 // composeBriefReady assembles the pre-trade Ready movement from the existing
-// market, calendar, risk, portfolio, and process intermediates.
+// market, calendar, risk, portfolio, and process intermediates plus the
+// read-only actionable-proposal projection.
 func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendarSection,
-	riskLimits rpc.BriefRiskSection, portfolio rpc.BriefPortfolioSection, process rpc.BriefProcessSection) rpc.BriefReadySection {
+	riskLimits rpc.BriefRiskSection, portfolio rpc.BriefPortfolioSection, process rpc.BriefProcessSection,
+	proposals rpc.BriefReadyProposalsRow) rpc.BriefReadySection {
 	out := rpc.BriefReadySection{
 		Regime:        market.Regime,
 		Breadth:       market.Breadth,
@@ -659,6 +661,7 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 		Latch:         riskLimits.Latch,
 		PremiumAtRisk: portfolio.PremiumAtRisk,
 		HedgeCost:     portfolio.HedgeCost,
+		Proposals:     proposals,
 		PolicyDrift:   riskLimits.PolicyDrift,
 		Artefacts:     process.Artefacts,
 		MonthlyPulse:  process.MonthlyPulse,
@@ -678,7 +681,7 @@ func briefReadySectionState(ready rpc.BriefReadySection) rpc.BriefRowState {
 	rows = append(rows,
 		ready.Capital.BriefRowState, ready.Latch.BriefRowState,
 		ready.PremiumAtRisk.BriefRowState, ready.HedgeCost.BriefRowState,
-		ready.PolicyDrift.BriefRowState, ready.Artefacts.BriefRowState)
+		ready.Proposals.BriefRowState, ready.PolicyDrift.BriefRowState, ready.Artefacts.BriefRowState)
 	if ready.MonthlyPulse != nil {
 		rows = append(rows, briefMonthlyPulseRollupState(ready.MonthlyPulse.Status))
 	}
@@ -727,6 +730,31 @@ func (s *Server) briefProposals(_ time.Time) rpc.BriefProposalsRow {
 		BriefRowState: briefOK(fmt.Sprintf("%d offered, %d acted in the last recorded session (%s)", offered, acted, day)),
 		Day:           day, Offered: offered, Acted: acted,
 	}
+}
+
+// briefReadyProposals projects the CURRENT protection-proposal snapshot into
+// the Ready movement: how much work is staged for the session ahead. It is a
+// pure read of the engine's last-installed snapshot (show=false, so it emits
+// no shown events and advances no clock) and it carries counts only. Staged
+// work is a decision the desk owes, so a non-zero actionable count is an
+// attention row — never an authorization: submission keeps every gate it has.
+func (s *Server) briefReadyProposals() rpc.BriefReadyProposalsRow {
+	if s == nil || s.tradeProposals == nil {
+		return rpc.BriefReadyProposalsRow{BriefRowState: briefUnavailable("protection proposal snapshot is unavailable")}
+	}
+	snap := s.tradeProposals.Snapshot(false)
+	total, actionable := snap.Counts.Total, snap.Counts.Actionable
+	blocked := max(total-actionable, 0)
+	row := rpc.BriefReadyProposalsRow{Actionable: actionable, Blocked: blocked, Total: total}
+	switch {
+	case actionable > 0:
+		row.BriefRowState = briefAttention(fmt.Sprintf("%d protection proposal(s) ready to act, %d blocked", actionable, blocked))
+	case blocked > 0:
+		row.BriefRowState = briefOK(fmt.Sprintf("no protection proposal is ready to act; %d blocked", blocked))
+	default:
+		row.BriefRowState = briefOK("no protection proposals are staged")
+	}
+	return row
 }
 
 // composeBriefMarket stays pure: it also returns the computed stress

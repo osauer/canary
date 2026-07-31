@@ -357,6 +357,23 @@ type BriefProposalsRow struct {
 	Acted   int    `json:"acted"`
 }
 
+// BriefReadyProposalsRow reports how many protection proposals the daemon
+// currently ranks as actionable for the session ahead, read-only from the
+// live proposal snapshot. It is the pre-trade twin of BriefProposalsRow's
+// post-trade journal counts, and it carries counts only: no proposal keys,
+// symbols, contracts, order references, or preview tokens reach the wire.
+// Stating that work is staged is not authority to place it — every submit
+// keeps its own gating.
+type BriefReadyProposalsRow struct {
+	BriefRowState
+	// Actionable is the served count of proposals with no blockers; Blocked
+	// is the remainder of Total. Zero is a measured zero only when the
+	// embedded row state is OK.
+	Actionable int `json:"actionable"`
+	Blocked    int `json:"blocked"`
+	Total      int `json:"total"`
+}
+
 // BriefCapitalEventsRow frames the drawdown latch and adjusted-peak provenance
 // as post-trade capital events for the Review movement. The fields mirror the
 // existing latch/peak facts; nothing new is invented.
@@ -393,19 +410,20 @@ type BriefReviewSection struct {
 // existing market, calendar, risk-capacity, and desk-readiness facts.
 type BriefReadySection struct {
 	BriefRowState
-	Regime        BriefRegimeRow        `json:"regime"`
-	Breadth       BriefBreadthRow       `json:"breadth"`
-	Gamma         BriefGammaRow         `json:"gamma"`
-	Stress        BriefStressRow        `json:"stress"`
-	Session       BriefSessionRow       `json:"session"`
-	MarketEvents  []BriefMarketEventRow `json:"market_events"`
-	Capital       BriefCapitalRow       `json:"capital"`
-	Latch         BriefLatchRow         `json:"latch"`
-	PremiumAtRisk BriefMoneyCoverageRow `json:"premium_at_risk"`
-	HedgeCost     BriefMoneyCoverageRow `json:"hedge_cost"`
-	PolicyDrift   BriefPolicyDriftRow   `json:"policy_drift"`
-	Artefacts     BriefArtefactsRow     `json:"artefacts"`
-	MonthlyPulse  *BriefMonthlyPulseRow `json:"monthly_pulse,omitempty"`
+	Regime        BriefRegimeRow         `json:"regime"`
+	Breadth       BriefBreadthRow        `json:"breadth"`
+	Gamma         BriefGammaRow          `json:"gamma"`
+	Stress        BriefStressRow         `json:"stress"`
+	Session       BriefSessionRow        `json:"session"`
+	MarketEvents  []BriefMarketEventRow  `json:"market_events"`
+	Capital       BriefCapitalRow        `json:"capital"`
+	Latch         BriefLatchRow          `json:"latch"`
+	PremiumAtRisk BriefMoneyCoverageRow  `json:"premium_at_risk"`
+	HedgeCost     BriefMoneyCoverageRow  `json:"hedge_cost"`
+	Proposals     BriefReadyProposalsRow `json:"proposals"`
+	PolicyDrift   BriefPolicyDriftRow    `json:"policy_drift"`
+	Artefacts     BriefArtefactsRow      `json:"artefacts"`
+	MonthlyPulse  *BriefMonthlyPulseRow  `json:"monthly_pulse,omitempty"`
 }
 
 // Brief narrative run roles. A run carries text plus at most one role, and a

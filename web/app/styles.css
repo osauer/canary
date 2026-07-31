@@ -920,7 +920,11 @@ p {
   color: var(--pd-act-tint);
 }
 
+/* Running prose is measured, not stretched: past roughly 70 characters a line
+   costs the eye its return sweep. The phone shell is already narrower than the
+   cap, so this changes nothing there and only bounds the wide desktop shell. */
 .pd-brf-lead {
+  max-width: 62ch;
   padding: 4px 2px 6px;
   overflow-wrap: anywhere;
   color: var(--pd-readout);
@@ -930,6 +934,7 @@ p {
 }
 
 .pd-brf-para {
+  max-width: 68ch;
   margin: 0 2px 11px;
   overflow-wrap: anywhere;
   color: var(--pd-prose);
@@ -953,6 +958,7 @@ p {
 }
 
 .pd-brf-coda {
+  max-width: 68ch;
   margin: 4px 2px 0;
   padding-top: 9px;
   border-top: 1px solid var(--pd-hairline);
@@ -1509,10 +1515,59 @@ p {
 /* The regime windows keep fixed positions and are tapped as one region: the
    grid is the toggle for the indicator detail below it. The weather-* class
    is the served regime tone marker (read by the browser smoke); the lamps
-   carry the ink, so it paints nothing of its own. */
+   carry the ink, so it paints nothing of its own.
+   Six clusters, three across: two rows of three cost less height than three
+   rows of two, and the narrower cell is what the trip line under each figure
+   is sized for. */
 .regime-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   cursor: pointer;
   touch-action: manipulation;
+}
+
+/* A cluster window carries four engraved lines in a narrower cell, so it
+   drops the 2x2 grid's floor height and clamps caption and figure to one line
+   each. Two tightened rows of three are slightly SHORTER than the two rows of
+   two they replace, which is what keeps the quiet Monitor inside one phone
+   screen with six windows instead of four. The full evidence — name, reading,
+   trip, comment, as-of — stays in the tile title. */
+.regime-grid .pd-tile {
+  min-height: 0;
+  padding: 9px 9px 8px;
+}
+
+.regime-grid .pd-tile__legend {
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+}
+
+.regime-grid .pd-tile__cap {
+  margin-top: 3px;
+  -webkit-line-clamp: 1;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.regime-grid .pd-tile__fig {
+  margin-top: 2px;
+  -webkit-line-clamp: 1;
+  font-size: 11px;
+}
+
+/* The trip anchor: the served trigger, engraved beneath the reading so the
+   figure is read against it. Engraved ink, never a lamp — a trigger is not a
+   severity. */
+.pd-tile__trip {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--pd-engraved);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .delta-tile__lead {
@@ -2212,6 +2267,8 @@ p {
   font-weight: 600;
 }
 
+/* The cushion line carries a reading and its served trip, so its digits align
+   like every other figure on the panel. */
 .stress-hero__copy p {
   display: -webkit-box;
   overflow: hidden;
@@ -2221,6 +2278,7 @@ p {
   color: var(--pd-caption);
   font-size: 12px;
   font-style: normal;
+  font-variant-numeric: tabular-nums;
   font-weight: 460;
   line-height: 1.3;
 }
@@ -2344,18 +2402,23 @@ p {
   text-transform: uppercase;
 }
 
-/* Live renders no pill at all (the renderer hides it); the class is kept for
-   any residual markup. Paper is loud red — portfolio data is fake. An
-   unresolved mode is a muted "mode?" that fails visible without resembling
-   live. */
+/* The plate always states the mode. LIVE is the normal state and stays in the
+   plate's engraved register. PAPER is a deliberate identity exception — a red
+   field with white text, the TWS simulated-trading convention — and is
+   therefore its own modifier, never a severity lamp class: paper is not a
+   warning, it is a different desk. An unresolved mode is a muted "mode?" that
+   fails visible without resembling live. */
 .trading-env-pill--paper {
-  background: transparent;
-  color: var(--pd-act-tint);
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--pd-warning);
+  color: #fff;
   font-weight: 700;
 }
 
 .trading-env-pill--live {
-  display: none;
+  background: transparent;
+  color: var(--pd-engraved);
 }
 
 .trading-env-pill--unknown {
@@ -5136,15 +5199,19 @@ p {
   }
 }
 
+/* On phone widths the mark carries the brand on its own: with the mode plate
+   always stating LIVE/PAPER beside the account id, the wordmark is the one
+   element in the header row that can yield — the id, the mode and the ticking
+   countdown are all contractual. The h1 keeps its aria-label. */
+@media (max-width: 430px) {
+  .brand-copy {
+    display: none;
+  }
+}
+
 @media (max-width: 374px) {
   .shell {
     --shell-pad-x: 11px;
-  }
-
-  /* Below 375 the mark carries the brand on its own so the session chip
-     keeps its countdown whole. */
-  .brand-copy {
-    display: none;
   }
 
   .market-strip__side {

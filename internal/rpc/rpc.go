@@ -1608,10 +1608,17 @@ type RegimeEligibility struct {
 // each row has different units, so a label plus per-band text is friendlier
 // than forcing everything into one numeric schema.
 type RegimeThresholds struct {
-	Label           string `json:"label,omitempty"`
-	Green           string `json:"green,omitempty"`
-	Yellow          string `json:"yellow,omitempty"`
-	Red             string `json:"red,omitempty"`
+	Label  string `json:"label,omitempty"`
+	Green  string `json:"green,omitempty"`
+	Yellow string `json:"yellow,omitempty"`
+	Red    string `json:"red,omitempty"`
+	// Trip is the compact display form of Red: the trigger a gauge face
+	// prints beside its reading ("trips <40% (50d)"). It restates Red's own
+	// threshold in fewer words and never introduces a second number — the
+	// two are authored together at the single call site that owns this
+	// indicator's bands, so a renderer never has to parse Red or invent a
+	// cutoff of its own.
+	Trip            string `json:"trip,omitempty"`
 	Heuristic       bool   `json:"heuristic,omitempty"`
 	PendingBacktest bool   `json:"pending_backtest,omitempty"`
 }

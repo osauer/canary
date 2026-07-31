@@ -300,7 +300,7 @@ func TestCompactRegimeMonitorDropsFullIndicatorObjects(t *testing.T) {
 		VIXTermStructure: RegimeVIXTerm{
 			RegimeIndicatorMeta: RegimeIndicatorMeta{
 				Band:       "green",
-				Thresholds: &RegimeThresholds{Label: "vix_term_structure_v1", Green: "<0.92"},
+				Thresholds: &RegimeThresholds{Label: "vix_term_structure_v1", Green: "<0.92", Red: "VIX/VIX3M >= 1.00", Trip: "trips >=1.00"},
 				AsOf:       &RegimeAsOfSummary{Label: "live", Time: now, Freshness: FreshnessLive},
 			},
 			Status: RegimeStatusOK,
@@ -326,12 +326,21 @@ func TestCompactRegimeMonitorDropsFullIndicatorObjects(t *testing.T) {
 	if out.Posture.Label != "Normal regime" || out.Posture.Tone != RegimeToneNormal {
 		t.Fatalf("posture = %+v, want Normal regime/normal", out.Posture)
 	}
+	// The monitor projection carries the served trigger: a gauge face prints
+	// the trip beside its reading, and the alternative is a renderer keeping
+	// a twin of the policy number.
+	if out.Indicators[0].Cluster != "vol" || out.Indicators[0].Thresholds == nil || out.Indicators[0].Thresholds.Trip != "trips >=1.00" {
+		t.Fatalf("first indicator must carry its cluster and served trip: %+v", out.Indicators[0])
+	}
+	if out.Indicators[7].Cluster != "breadth" {
+		t.Fatalf("last indicator cluster = %q, want breadth", out.Indicators[7].Cluster)
+	}
 	b, err := json.Marshal(out)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	wire := string(b)
-	for _, absent := range []string{`"vix_term_structure"`, `"thresholds"`, `"envelope"`, `"spec_doc"`} {
+	for _, absent := range []string{`"vix_term_structure"`, `"envelope"`, `"spec_doc"`} {
 		if strings.Contains(wire, absent) {
 			t.Fatalf("compact regime monitor should omit %s: %s", absent, wire)
 		}
