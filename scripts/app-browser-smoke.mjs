@@ -1763,8 +1763,11 @@ async function exerciseAlertHistory(page) {
   if (info.active.length === 0 && info.poster !== "ALL DARK." && !/coverage is incomplete or stale/.test(info.quiet)) {
     throw new Error(`a quiet annunciator log must state why it is quiet: ${JSON.stringify({ poster: info.poster, quiet: info.quiet })}`);
   }
-  if (!info.placards.includes("Active") || !info.placards.includes("Process evidence")) {
-    throw new Error(`alerts placards are incomplete: ${JSON.stringify(info.placards)}`);
+  // Process evidence lives on the Settings back panel since WP5; the log
+  // carries only its own placards, and the old one reappearing here would
+  // mean the relocation regressed.
+  if (!info.placards.includes("Active") || info.placards.includes("Process evidence")) {
+    throw new Error(`alerts placards are incomplete or carry relocated sections: ${JSON.stringify(info.placards)}`);
   }
   // The ALL DARK poster is the count; every other state keeps the legend.
   if (info.activeLegendHidden !== (info.poster === "ALL DARK.")) {
