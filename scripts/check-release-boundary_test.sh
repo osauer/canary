@@ -158,6 +158,8 @@ _release-run:
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then exit 1; fi
 	$(MAKE) release-origin-check
 	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
+	$(MAKE) plugin-check
+	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1
 	$(MAKE) release-ci-wait
 	$(MAKE) release-main-candidate-check
 	@msg=fixture; \
@@ -455,6 +457,28 @@ rm -f "$test_root/guard-leaked"
 # Origin and GitHub repository pins are structural release authority, not
 # best-effort helpers or overrideable CLI context.
 cp "$test_root/Makefile" "$test_root/Makefile.canonical"
+
+for local_gate_mutation in missing_plugin partial_commit duplicate_test; do
+	case "$local_gate_mutation" in
+	missing_plugin)
+		sed 's#	$(MAKE) plugin-check#	@true#' \
+			"$test_root/Makefile.canonical" >"$test_root/Makefile"
+		;;
+	partial_commit)
+		sed 's#	$(MAKE) plugin-check#	$(MAKE) commit-check#' \
+			"$test_root/Makefile.canonical" >"$test_root/Makefile"
+		;;
+	duplicate_test)
+		sed 's#	$(MAKE) plugin-check#	$(MAKE) plugin-check\
+	$(MAKE) test#' \
+			"$test_root/Makefile.canonical" >"$test_root/Makefile"
+		;;
+	esac
+	if "$checker" "$test_root" >/dev/null 2>&1; then
+		echo "check-release-boundary test: $local_gate_mutation local release gate passed" >&2
+		exit 1
+	fi
+done
 
 # Recovery must execute the current committed controller while keeping the
 # historical release commit as immutable source and CI authority.

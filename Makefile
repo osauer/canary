@@ -51,7 +51,6 @@ CODEX_SKILL_DIR ?= $(CODEX_DIR)/skills/canary
 SKILL_SRC  ?= skills/canary
 
 MAIN_BRANCH ?= main
-RELEASE_TEST_JOBS ?= 3
 RELEASE_CI_POLL ?= 15s
 RELEASE_CI_TIMEOUT ?= 30m
 RELEASE_CONTROLLER_CONTRACT = release-controller-v1
@@ -1113,12 +1112,12 @@ version: ## Print the version string the next build would embed
 # - origin/<MAIN_BRANCH> contains commits HEAD lacks (release would omit
 #   already-landed work)
 # - tag already exists locally or on origin
-# Sequence: candidate push (starts Actions) → cheap gates → read-only paper
-# preview → full tests → stamped build → live/paper smoke → exact-SHA Actions
-# wait → recoverable local tag/artifact assembly → final Actions/main recheck
-# → atomic tag publish. The early preview exercises the
-# account-currency, FX, and broker WhatIf path before the expensive test suite;
-# the transmitting smoke and CI authority both stay before tagging.
+# Sequence: candidate push (starts the exact full Actions matrix) → cheap
+# local/plugin gates → read-only paper preview → stamped build → live/paper
+# smoke → exact-SHA Actions wait → recoverable local tag/artifact assembly →
+# final Actions/main recheck → atomic tag publish. The early preview exercises
+# the account-currency, FX, and broker WhatIf path before the expensive local
+# smoke; the transmitting smoke and CI authority both stay before tagging.
 # The pipeline body (_release-run) executes in a detached worktree checked out
 # at the operator's committed HEAD, so this checkout stays free for concurrent
 # work and local edits can never leak into release artifacts. Its first step
@@ -1429,15 +1428,16 @@ _release-run:
 		git status --short >&2; \
 		exit 1; \
 	fi
+	@# Hosted exact-SHA CI owns the complete check and test matrix. Its static
+	@# contract pins every required command, so do not repeat that full work
+	@# locally here. Plugin validation remains local because hosted CI
+	@# intentionally has no Claude CLI.
+	$(MAKE) plugin-check
 	@# Exercise the paper account, cross-currency notional, and broker WhatIf
-	@# path before the ~10-minute full gate. This mints an isolated preview
+	@# path before the expensive smoke. This mints an isolated preview
 	@# token but never places an order; the binding place/ack/cancel smoke stays
-	@# below, after all tests. Late v2.3.0 preview failures motivated this gate.
+	@# below. Late v2.3.0 preview failures motivated this gate.
 	$(MAKE) release-paper-preflight VERSION=$(RELEASE_VERSION)
-	@# Run the existing full test gate with parallel prerequisites. This
-	@# keeps the same checks/tests but overlaps check, pkg, and daemon work.
-	@# GOVULN_FORCE=1: the release gate never takes the daily-stamp skip.
-	$(MAKE) -j$(RELEASE_TEST_JOBS) test GOVULN_FORCE=1
 	@# Build the release binary with the target version stamped BEFORE
 	@# tagging — pass VERSION explicitly so the build doesn't fall back
 	@# to `git describe` (which wouldn't see the tag yet). The smoke

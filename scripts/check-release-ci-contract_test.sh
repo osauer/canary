@@ -108,6 +108,9 @@ jobs:
   check:
     name: make check (lint + vet + vulncheck + parity)
     runs-on: ubuntu-latest
+    steps:
+      - name: make check
+        run: make check CHECK_DEPS=parity-check
   test:
     name: make test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -115,6 +118,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: make test-pkg
+        run: make test-pkg
+      - name: make test-support (-race; command and CI/release helpers)
+        run: make test-support
+      - name: make test-daemon (Linux, sharded -race)
+        if: runner.os == 'Linux'
+        run: make test-daemon
+      - name: make test-daemon (macOS, unsharded -race)
+        if: runner.os == 'macOS'
+        run: make test-daemon-unsharded
   cross-compile:
     name: cross-compile release matrix
     runs-on: ubuntu-latest
@@ -606,6 +620,66 @@ sed 's/os: \[ubuntu-latest, macos-latest\]/os: [ubuntu-latest]/' \
 mv "$fixture/.github/workflows/ci.yml.new" \
 	"$fixture/.github/workflows/ci.yml"
 expect_fail "changed job matrix expansion"
+
+reset_fixture
+sed 's/run: make check CHECK_DEPS=parity-check/run: make commit-check/' \
+	"$fixture/.github/workflows/ci.yml" \
+	>"$fixture/.github/workflows/ci.yml.new"
+mv "$fixture/.github/workflows/ci.yml.new" \
+	"$fixture/.github/workflows/ci.yml"
+expect_fail "partial gate substituted for exact CI check"
+
+reset_fixture
+sed '/run: make check CHECK_DEPS=parity-check/a\
+        continue-on-error: true' \
+	"$fixture/.github/workflows/ci.yml" \
+	>"$fixture/.github/workflows/ci.yml.new"
+mv "$fixture/.github/workflows/ci.yml.new" \
+	"$fixture/.github/workflows/ci.yml"
+expect_fail "CI check step made non-binding"
+
+for test_mutation in missing_pkg partial_support best_effort_daemon extra_run; do
+	reset_fixture
+	python3 - "$fixture/.github/workflows/ci.yml" "$test_mutation" <<'PY'
+import sys
+
+path, mutation = sys.argv[1:]
+replacements = {
+    "missing_pkg": (
+        "      - name: make test-pkg\n"
+        "        run: make test-pkg\n",
+        "",
+    ),
+    "partial_support": (
+        "        run: make test-support",
+        "        run: go test ./scripts/...",
+    ),
+    "best_effort_daemon": (
+        "      - name: make test-daemon (Linux, sharded -race)\n"
+        "        if: runner.os == 'Linux'\n"
+        "        run: make test-daemon",
+        "      - name: make test-daemon (Linux, sharded -race)\n"
+        "        if: runner.os == 'Linux'\n"
+        "        continue-on-error: true\n"
+        "        run: make test-daemon",
+    ),
+    "extra_run": (
+        "      - name: make test-pkg\n",
+        "      - name: partial shortcut\n"
+        "        run: make commit-check\n"
+        "      - name: make test-pkg\n",
+    ),
+}
+old, new = replacements[mutation]
+with open(path, encoding="utf-8") as source:
+    text = source.read()
+if old not in text:
+    raise SystemExit(f"fixture mutation target missing for {mutation}")
+with open(path, "w", encoding="utf-8") as destination:
+    destination.write(text.replace(old, new, 1))
+PY
+	expect_fail "$test_mutation exact CI test matrix"
+done
 
 reset_fixture
 cat >>"$fixture/.github/workflows/ci.yml" <<'EOF'

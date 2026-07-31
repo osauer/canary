@@ -19,7 +19,7 @@
 # --preview-only runs a production order preview through account-currency,
 # notional/FX, and broker WhatIf authority, then exits without placing an
 # order. The release target runs this inexpensive read-only mode before its
-# full test gate; the binding round-trip remains after every test.
+# local smoke; the binding round-trip remains after the build and live smoke.
 #
 # Environment hooks:
 #   IBKR_TEST_HOST        — gateway host (default 127.0.0.1)

@@ -39,6 +39,29 @@ CONTRACT_PATH = "scripts/release-ci-contract.json"
 LEGACY_CONTRACT_PATH = "scripts/release-ci-legacy-contracts.json"
 REGISTRY_WORKFLOW_PATH = ".github/workflows/registry-publish.yml"
 EXPECTED_REPOSITORY = "osauer/canary"
+EXPECTED_CI_RUN_STEPS = {
+    "check": {
+        "make check": {
+            "run": "make check CHECK_DEPS=parity-check",
+        },
+    },
+    "test": {
+        "make test-pkg": {
+            "run": "make test-pkg",
+        },
+        "make test-support (-race; command and CI/release helpers)": {
+            "run": "make test-support",
+        },
+        "make test-daemon (Linux, sharded -race)": {
+            "if": "runner.os == 'Linux'",
+            "run": "make test-daemon",
+        },
+        "make test-daemon (macOS, unsharded -race)": {
+            "if": "runner.os == 'macOS'",
+            "run": "make test-daemon-unsharded",
+        },
+    },
+}
 EXPECTED_LEGACY_SHA = "3b548f6d63286448ac132ca4ade66484952612f5"
 CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
 SETUP_GO_ACTION = "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
@@ -739,7 +762,132 @@ def workflow_pushes_main(path):
     return push_includes_main(path, number, value, nested)
 
 
-def validate_workflow_inventory(root, manifest_entries):
+def workflow_job_blocks(path):
+    lines = workflow_yaml_lines(path)
+    entries, order = top_level_yaml(path, lines)
+    jobs_index, _jobs_number, _jobs_value = entries["jobs"]
+    jobs_block = yaml_nested_block(lines, order, jobs_index)
+
+    current_job = None
+    job_children = {}
+    for number, indent, content in jobs_block:
+        if indent == 2:
+            current_job, value = yaml_mapping_entry(content, f"{path}:{number}")
+            if value:
+                fail(f"{path}:{number}: inline job definitions are unsupported")
+            job_children[current_job] = []
+        elif indent > 2:
+            if current_job is None:
+                fail(f"{path}:{number}: job child appears before a job id")
+            job_children[current_job].append((number, indent, content))
+    return job_children
+
+
+def workflow_step_blocks(path, job_name, job_block):
+    steps = []
+    current_step = None
+    in_steps = False
+    for number, indent, content in job_block:
+        if indent == 4:
+            key, value = yaml_mapping_entry(content, f"{path}:{number}")
+            in_steps = key == "steps"
+            if in_steps and value:
+                fail(
+                    f"{path}:{number}: inline {job_name} steps are unsupported"
+                )
+            current_step = None
+            continue
+        if not in_steps:
+            continue
+        if indent == 6:
+            match = re.fullmatch(r"-[ ]+(name|uses):[ ]*(.+)", content)
+            if not match:
+                fail(
+                    f"{path}:{number}: unsupported {job_name} step declaration"
+                )
+            current_step = {
+                "number": number,
+                match.group(1): yaml_scalar(
+                    match.group(2), f"{path}:{number} {job_name} step"
+                ),
+                "children": [],
+            }
+            steps.append(current_step)
+        elif indent > 6:
+            if current_step is None:
+                fail(
+                    f"{path}:{number}: {job_name} step child appears before a step"
+                )
+            current_step["children"].append((number, indent, content))
+    return steps
+
+
+def direct_step_mapping(path, job_name, step):
+    direct = {}
+    for number, indent, content in step["children"]:
+        if indent < 8:
+            fail(f"{path}:{number}: malformed {job_name} step indentation")
+        if indent > 8:
+            continue
+        key, value = yaml_mapping_entry(content, f"{path}:{number}")
+        if key in direct:
+            fail(
+                f"{path}:{number}: duplicate {job_name} step key {key!r}"
+            )
+        direct[key] = (
+            yaml_scalar(value, f"{path}:{number} {job_name}.{key}")
+            if value
+            else None
+        )
+    return direct
+
+
+def validate_ci_commands(path):
+    job_blocks = workflow_job_blocks(path)
+    for job_name, expected_steps in EXPECTED_CI_RUN_STEPS.items():
+        job_block = job_blocks.get(job_name)
+        if job_block is None:
+            fail(f"{path}: exact CI {job_name} job is missing")
+        for number, indent, content in job_block:
+            if indent == 4:
+                key, _value = yaml_mapping_entry(content, f"{path}:{number}")
+                if key in {"if", "continue-on-error"}:
+                    fail(f"{path}:{number}: CI {job_name} job may not use {key}")
+
+        steps = workflow_step_blocks(path, job_name, job_block)
+        actual_run_steps = {}
+        for step in steps:
+            direct = direct_step_mapping(path, job_name, step)
+            if "run" not in direct:
+                continue
+            step_name = step.get("name")
+            if step_name is None:
+                fail(
+                    f"{path}:{step['number']}: every {job_name} run step "
+                    "must have a name"
+                )
+            if step_name in actual_run_steps:
+                fail(
+                    f"{path}:{step['number']}: duplicate {job_name} run step "
+                    f"{step_name!r}"
+                )
+            actual_run_steps[step_name] = (step["number"], direct)
+
+        if set(actual_run_steps) != set(expected_steps):
+            fail(
+                f"{path}: {job_name} run-step names must be exactly "
+                f"{sorted(expected_steps)!r}, got {sorted(actual_run_steps)!r}"
+            )
+        for step_name, expected in expected_steps.items():
+            number, actual = actual_run_steps[step_name]
+            if actual != expected:
+                fail(
+                    f"{path}:{number}: {step_name} keys and values must be "
+                    f"exactly {expected!r}, got {actual!r}"
+                )
+
+
+def validate_workflow_inventory(root, manifest_entries, enforce_commands):
     directory = root / ".github" / "workflows"
     if not directory.is_dir():
         fail(f"{directory}: workflow directory is missing")
@@ -776,6 +924,8 @@ def validate_workflow_inventory(root, manifest_entries):
                 f"{by_name[workflow]}: rendered workflow contract mismatch; "
                 f"expected={expected!r}, got={actual!r}"
             )
+    if enforce_commands:
+        validate_ci_commands(by_name["ci.yml"])
 
 
 def direct_top_mapping(path, lines, entries, order, key):
@@ -1520,7 +1670,7 @@ def main():
     if not root.is_dir():
         fail(f"{root}: repository root is not a directory")
     manifest_entries = load_manifest(root, not authority_only)
-    validate_workflow_inventory(root, manifest_entries)
+    validate_workflow_inventory(root, manifest_entries, not authority_only)
     if not authority_only:
         validate_legacy_contract(root)
         validate_registry_workflow(root)

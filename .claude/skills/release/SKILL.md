@@ -144,8 +144,11 @@ questions go to the user. Never weaken a gate to reach GO.
 - Watch the log for leg progress, first failure, and "Enter code" (surface a
   device code to the user immediately; ~1-minute window).
 - The first fast-forward push starts the source-controlled `ci.yml` and
-  `pages-check.yml` workflows while local gates and smokes run. Immediately
-  before tagging, `release-ci-wait` requires the exact candidate SHA's push
+  `pages-check.yml` workflows while local plugin validation and smokes run.
+  The pipeline does not repeat Stage 3's full local suite: the static CI
+  contract pins the exact hosted check and test commands that replace that
+  duplicate work. Immediately before tagging, `release-ci-wait` requires the
+  exact candidate SHA's push
   runs and their complete, repo-owned job inventories to be
   `completed/success`, including the latest rerun attempts. Missing, renamed,
   skipped, cancelled, failed, ambiguous, or unavailable evidence blocks the

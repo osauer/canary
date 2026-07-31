@@ -303,6 +303,10 @@ run_github_publish_line=0
 run_github_check_count=0
 run_github_check_line=0
 run_registry_line=0
+run_plugin_check_count=0
+run_plugin_check_line=0
+run_release_smoke_line=0
+run_local_full_gate_count=0
 resume_ci_wait_count=0
 resume_ci_wait_line1=0
 resume_ci_wait_line2=0
@@ -568,6 +572,16 @@ while IFS= read -r line; do
 	if [ "$target" = "_release-run" ]; then
 		[[ "$code" == *'$(MAKELEVEL)'* ]] && run_guard_makelevel=1
 		[[ "$code" == *'$(RELEASE_PIPELINE_ENTRY)'* ]] && run_guard_entry=1
+		if [ "$code" = '$(MAKE) plugin-check' ]; then
+			run_plugin_check_count=$((run_plugin_check_count + 1))
+			run_plugin_check_line="$line_number"
+		fi
+		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(test|check|commit-check)([[:space:]]|$)'; then
+			run_local_full_gate_count=$((run_local_full_gate_count + 1))
+		fi
+		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-smoke([[:space:]]|$)'; then
+			run_release_smoke_line="$line_number"
+		fi
 		if printf '%s\n' "$code" | grep -Eq '^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]*$'; then
 			run_main_push_count=$((run_main_push_count + 1))
 			run_main_push_line="$line_number"
@@ -1131,6 +1145,16 @@ if [ "$run_target_seen" -eq 1 ]; then
 	if [ "$run_origin_check_count" -ne 2 ]; then
 		printf 'check-release-boundary: _release-run must contain exactly two canonical origin checks (found %s)\n' \
 			"$run_origin_check_count" >&2
+		failure=1
+	fi
+	if [ "$run_plugin_check_count" -ne 1 ] \
+		|| [ "$run_release_smoke_line" -eq 0 ] \
+		|| [ "$run_plugin_check_line" -ge "$run_release_smoke_line" ]; then
+		printf 'check-release-boundary: _release-run must run one exact local plugin-check before release-smoke\n' >&2
+		failure=1
+	fi
+	if [ "$run_local_full_gate_count" -ne 0 ]; then
+		printf 'check-release-boundary: _release-run must rely on pinned exact-SHA CI rather than repeat test, check, or commit-check locally\n' >&2
 		failure=1
 	fi
 	if [ "$run_tag_candidate_count" -ne 2 ] \
