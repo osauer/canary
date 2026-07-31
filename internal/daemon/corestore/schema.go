@@ -625,7 +625,7 @@ func canonicalSchemaManifestWithPlan(ctx context.Context, version int, plan []mi
 	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
-	if err := migrate(ctx, db, cloneMigrationPlan(plan[:version]), time.Unix(0, 0).UTC()); err != nil {
+	if _, err := migrate(ctx, db, cloneMigrationPlan(plan[:version]), time.Unix(0, 0).UTC()); err != nil {
 		return nil, err
 	}
 	return readSchemaManifest(ctx, db)
@@ -738,41 +738,45 @@ func normalizeSchemaSQL(input string) (string, error) {
 	return strings.Join(tokens, "\x1f"), nil
 }
 
-func migrate(ctx context.Context, db *sql.DB, plan []migration, now time.Time) error {
+// migrate brings db up to the plan's current version and reports how many
+// migrations it had to apply. Callers use that count to decide whether
+// post-migration work is warranted: on an ordinary open the database is already
+// current, nothing runs, and nothing downstream needs re-proving.
+func migrate(ctx context.Context, db *sql.DB, plan []migration, now time.Time) (int, error) {
 	if err := validateMigrationPlan(plan); err != nil {
-		return err
+		return 0, err
 	}
 	var userVersion, appID int
 	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&userVersion); err != nil {
-		return fmt.Errorf("read schema version: %w", err)
+		return 0, fmt.Errorf("read schema version: %w", err)
 	}
 	if err := db.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&appID); err != nil {
-		return fmt.Errorf("read application identity: %w", err)
+		return 0, fmt.Errorf("read application identity: %w", err)
 	}
 	current := plan[len(plan)-1].version
 	if userVersion > current {
-		return fmt.Errorf("future schema version %d exceeds supported %d", userVersion, current)
+		return 0, fmt.Errorf("future schema version %d exceeds supported %d", userVersion, current)
 	}
 
 	var tableCount int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&tableCount); err != nil {
-		return fmt.Errorf("inspect schema: %w", err)
+		return 0, fmt.Errorf("inspect schema: %w", err)
 	}
 	var migrationTable int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'`).Scan(&migrationTable); err != nil {
-		return fmt.Errorf("inspect migration ledger: %w", err)
+		return 0, fmt.Errorf("inspect migration ledger: %w", err)
 	}
 	if migrationTable == 0 {
 		if userVersion != 0 || tableCount != 0 || appID != 0 {
-			return fmt.Errorf("unmanaged or incomplete authority database")
+			return 0, fmt.Errorf("unmanaged or incomplete authority database")
 		}
 	} else {
 		if appID != applicationID {
-			return fmt.Errorf("application identity mismatch")
+			return 0, fmt.Errorf("application identity mismatch")
 		}
 		rows, err := db.QueryContext(ctx, `SELECT version, name, checksum FROM schema_migrations ORDER BY version`)
 		if err != nil {
-			return fmt.Errorf("read migration ledger: %w", err)
+			return 0, fmt.Errorf("read migration ledger: %w", err)
 		}
 		applied := 0
 		for rows.Next() {
@@ -780,37 +784,37 @@ func migrate(ctx context.Context, db *sql.DB, plan []migration, now time.Time) e
 			var name, checksum string
 			if err := rows.Scan(&version, &name, &checksum); err != nil {
 				rows.Close()
-				return fmt.Errorf("scan migration ledger: %w", err)
+				return 0, fmt.Errorf("scan migration ledger: %w", err)
 			}
 			if version != applied+1 || version > current {
 				rows.Close()
-				return fmt.Errorf("future or non-contiguous migration version %d", version)
+				return 0, fmt.Errorf("future or non-contiguous migration version %d", version)
 			}
 			want := plan[version-1]
 			if name != want.name || checksum != migrationChecksum(want) {
 				rows.Close()
-				return fmt.Errorf("migration checksum drift at version %d", version)
+				return 0, fmt.Errorf("migration checksum drift at version %d", version)
 			}
 			applied = version
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
-			return fmt.Errorf("read migration ledger: %w", err)
+			return 0, fmt.Errorf("read migration ledger: %w", err)
 		}
 		rows.Close()
 		if applied != userVersion {
-			return fmt.Errorf("schema version %d does not match migration ledger %d", userVersion, applied)
+			return 0, fmt.Errorf("schema version %d does not match migration ledger %d", userVersion, applied)
 		}
 	}
 
 	for version := userVersion + 1; version <= current; version++ {
 		m := plan[version-1]
 		if m.version != version {
-			return fmt.Errorf("invalid migration plan at version %d", version)
+			return 0, fmt.Errorf("invalid migration plan at version %d", version)
 		}
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			return fmt.Errorf("begin migration %d: %w", version, err)
+			return 0, fmt.Errorf("begin migration %d: %w", version, err)
 		}
 		failed := func() error {
 			defer tx.Rollback()
@@ -846,10 +850,10 @@ VALUES (1, ?, 0, 0, 1, ?, ?)`, epoch, stamp, stamp); err != nil {
 			return nil
 		}()
 		if failed != nil {
-			return failed
+			return 0, failed
 		}
 	}
-	return nil
+	return max(current-userVersion, 0), nil
 }
 
 func authorityEpoch() (string, error) {

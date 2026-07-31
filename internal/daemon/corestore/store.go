@@ -144,16 +144,23 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 		}
 		return fail(&UpgradeRequiredError{CurrentVersion: preMigrationVersion, TargetVersion: targetVersion})
 	}
-	if err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
+	applied, err := migrate(ctx, db, plan, time.Now().UTC())
+	if err != nil {
 		return fail(fmt.Errorf("open authority database: %w", err))
 	}
 	if err := validateSchemaLedgerWithPlan(ctx, db, targetVersion, plan); err != nil {
 		return fail(fmt.Errorf("validate authority schema: %w", err))
 	}
-	if report, err := checkIntegrityDB(ctx, db); err != nil {
-		return fail(fmt.Errorf("post-migration integrity check: %w", err))
-	} else if !report.OK() {
-		return fail(integrityFailure(report))
+	// Only re-verify what a migration could have changed. The startup check
+	// above already proved this file, and on an ordinary open no migration
+	// runs, so a second pass would re-read and re-hash bytes nothing touched —
+	// half the pre-socket wait on a large authority, buying no coverage.
+	if applied > 0 {
+		if report, err := checkIntegrityDB(ctx, db); err != nil {
+			return fail(fmt.Errorf("post-migration integrity check: %w", err))
+		} else if !report.OK() {
+			return fail(integrityFailure(report))
+		}
 	}
 	head, err := readAuthorityHead(ctx, db)
 	if err != nil {

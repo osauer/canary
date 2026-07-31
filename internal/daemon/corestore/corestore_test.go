@@ -231,7 +231,7 @@ func TestMigrationChecksumDriftAndFailureRefuse(t *testing.T) {
 		defer db.Close()
 		plan := append([]migration(nil), migrations...)
 		plan = append(plan, migration{version: len(plan) + 1, name: "failing", statements: []string{`CREATE TABLE migration_probe(id INTEGER) STRICT`, `this is not sql`}})
-		if err := migrate(t.Context(), db, plan, time.Now().UTC()); err == nil {
+		if _, err := migrate(t.Context(), db, plan, time.Now().UTC()); err == nil {
 			t.Fatal("failing migration succeeded")
 		}
 		var version int
@@ -715,6 +715,39 @@ func stageWithToken(t *testing.T, s *Store, scope BrokerScope, tokenID, eventKey
 	_, err = s.StagePreTransmit(t.Context(), PreTransmitRequest{Scope: scope, TokenDigest: HashPreviewTokenID(tokenID), AuthorityEpoch: head.AuthorityEpoch, SignerGeneration: head.SignerGeneration, RequestedOrderIDFloor: floor, ReservedOrderID: floor, Action: action, Origin: OriginAgentCLI, Events: []OrderEventRecord{event}})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Open skips its post-migration integrity pass when migrate applied nothing,
+// which is every ordinary restart. That skip is only sound while the count is
+// exact, so pin both ends of it.
+func TestMigrateReportsAppliedCount(t *testing.T) {
+	plan := append([]migration(nil), migrations...)
+
+	fresh, err := sql.Open("sqlite", sqliteDSN(filepath.Join(privateTempDir(t), "fresh.db"), defaultBusyTimeout, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	fresh.SetMaxOpenConns(1)
+	applied, err := migrate(t.Context(), fresh, plan, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("migrate a fresh authority: %v", err)
+	}
+	if applied != len(plan) {
+		t.Fatalf("fresh authority applied %d migrations, want %d", applied, len(plan))
+	}
+
+	s, path := openTestStore(t)
+	s.Close()
+	current := rawDB(t, path)
+	defer current.Close()
+	applied, err = migrate(t.Context(), current, plan, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("migrate a current authority: %v", err)
+	}
+	if applied != 0 {
+		t.Fatalf("current authority applied %d migrations, want 0", applied)
 	}
 }
 

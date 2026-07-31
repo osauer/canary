@@ -175,7 +175,7 @@ func TestStressRenameMigrationPreservesEvidence(t *testing.T) {
 		t.Fatalf("fixture rows: canary_transitions=%d event_log=%d", len(beforeTransitions), len(beforeEvents))
 	}
 
-	if err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
+	if _, err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
 		t.Fatalf("apply stress rename: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestStressRenameMigrationPreservesEvidence(t *testing.T) {
 	}
 
 	// Reopening a migrated authority applies nothing and rewrites nothing.
-	if err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
+	if _, err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
 		t.Fatalf("second migrate on a current database: %v", err)
 	}
 	if got := snapshotTable(t, db, "event_log"); !reflect.DeepEqual(wantEvents, got) {

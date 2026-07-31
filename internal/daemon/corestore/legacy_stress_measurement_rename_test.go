@@ -36,7 +36,7 @@ func TestLegacyStressMeasurementRenamePreservesEvidence(t *testing.T) {
 		t.Fatalf("fixture observations=%d want 4", len(before))
 	}
 
-	if err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
+	if _, err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
 		t.Fatalf("apply legacy stress measurement rename: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestLegacyStressMeasurementRenamePreservesEvidence(t *testing.T) {
 	}
 
 	// Re-running the migration plan changes nothing further.
-	if err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
+	if _, err := migrate(ctx, db, plan, time.Now().UTC()); err != nil {
 		t.Fatalf("second migrate on a current database: %v", err)
 	}
 	if got := snapshotTable(t, db, "observations"); !reflect.DeepEqual(want, got) {
