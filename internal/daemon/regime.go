@@ -202,20 +202,6 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 		if held || (display != "" && band == "red") {
 			display = "red"
 		}
-		var streak *rpc.StreakInfo
-		if streaks != nil {
-			streak = streaks.Tick(key, value, band, now)
-			if band == "" {
-				// Freeze the persisted counter internally, but do not attach a
-				// stale prior-band streak to today's unranked row. JSON/MCP
-				// consumers otherwise read "status:error" beside "streak:green",
-				// which looks like usable evidence when it is only historical
-				// memory.
-				ind.attachStreak(res, nil)
-			} else {
-				ind.attachStreak(res, streak)
-			}
-		}
 		fresh := ind.fresh(res, now)
 		freshnessClass := rpc.RegimeFreshnessOverdue
 		if fresh {
@@ -230,6 +216,31 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 			freshnessClass = gammaCadenceClass(res, now)
 		case rpc.RegimeIndicatorBreadth:
 			freshnessClass = breadthCadenceClass(res, now)
+		}
+		// A session may only be banked from evidence that is current under the
+		// indicator's own schedule. Persistence is the gate that stops one
+		// reading from confirming stress, so a row measured off its cadence —
+		// a mixed-vintage VIX/VIX3M ratio pre-open, a closed-venue FX tick —
+		// must not spend a session toward it. Freezing here rather than in
+		// bandAndValue keeps the band and its hysteresis hold on display;
+		// gammaZeroStreaks has always done the same thing one layer up.
+		tickBand := band
+		if freshnessClass != rpc.RegimeFreshnessFresh {
+			tickBand = ""
+		}
+		var streak *rpc.StreakInfo
+		if streaks != nil {
+			streak = streaks.Tick(key, value, tickBand, now)
+			if band == "" {
+				// Freeze the persisted counter internally, but do not attach a
+				// stale prior-band streak to today's unranked row. JSON/MCP
+				// consumers otherwise read "status:error" beside "streak:green",
+				// which looks like usable evidence when it is only historical
+				// memory.
+				ind.attachStreak(res, nil)
+			} else {
+				ind.attachStreak(res, streak)
+			}
 		}
 		freshness := &rpc.RegimeFreshness{
 			Class:         freshnessClass,

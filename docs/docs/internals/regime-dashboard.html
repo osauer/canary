@@ -542,6 +542,10 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 </tbody>
 </table>
 </div>
+<p>A session is banked only from evidence that is cadence-fresh under the row's own
+schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick
+still displays its band and its hysteresis hold, but the persistence counter
+freezes rather than spending one of the sessions the gate requires.</p>
 <p>Eligibility latches for the life of the red streak (a depth wobble back inside
 the floor does not flip it); freshness is never latched: overdue data drops
 eligibility immediately. Streaks count NY trading days; a weekend or holiday

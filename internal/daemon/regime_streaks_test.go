@@ -264,6 +264,52 @@ func TestVIXTermCadenceDistinguishesNotDueFromOverdue(t *testing.T) {
 	}
 }
 
+// Persistence is the gate that stops one reading from confirming stress, so a
+// session may only be banked from evidence current under the indicator's own
+// schedule. A pre-open VIX/VIX3M ratio is real-looking but mixed vintage — live
+// VIX over the prior session's VIX3M — and must not spend one of the two
+// sessions the gate requires.
+func TestStreakFreezesOnNonFreshCadence(t *testing.T) {
+	ny := newYorkLocation()
+	ratio := 1.06
+	store := NewStreakStore(t.TempDir())
+	quality := func(at time.Time, class string) *rpc.Quality {
+		return &rpc.Quality{AsOf: at, FreshnessClass: class, Confidence: rpc.ConfidenceFirm}
+	}
+
+	preOpen := time.Date(2026, 7, 20, 8, 0, 0, 0, ny)
+	res := &rpc.RegimeSnapshotResult{
+		AsOf: preOpen,
+		VIXTermStructure: rpc.RegimeVIXTerm{
+			Status: rpc.RegimeStatusStale, Ratio: &ratio,
+			VIXQuality:   quality(preOpen, rpc.FreshnessLive),
+			VIX3MQuality: quality(preOpen, rpc.FreshnessFrozen),
+		},
+	}
+	policy := (&Server{}).populateStreaksWithStore(res, store)[rpc.RegimeIndicatorVIXTerm]
+	if policy.freshness == nil || policy.freshness.Class != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("pre-open cadence=%+v, want not_due", policy.freshness)
+	}
+	if info := store.Get(StreakKeyVIXTerm); info != nil && info.Sessions != 0 {
+		t.Fatalf("pre-open banked a session: %+v", info)
+	}
+	if policy.band != "red" {
+		t.Fatalf("pre-open band=%q, want the row still displayed as red", policy.band)
+	}
+
+	// Same red inside the session with both legs live: now it banks.
+	rth := time.Date(2026, 7, 20, 10, 0, 0, 0, ny)
+	res.AsOf = rth
+	res.VIXTermStructure.Status = rpc.RegimeStatusOK
+	res.VIXTermStructure.VIXQuality = quality(rth, rpc.FreshnessLive)
+	res.VIXTermStructure.VIX3MQuality = quality(rth, rpc.FreshnessLive)
+	(&Server{}).populateStreaksWithStore(res, store)
+	info := store.Get(StreakKeyVIXTerm)
+	if info == nil || info.Sessions != 1 || info.Band != "red" {
+		t.Fatalf("live session did not bank exactly one red: %+v", info)
+	}
+}
+
 // IDEALPRO trades one continuous weekly session, so a shut market is an
 // expected gap and not a source defect — including the whole weekend, which
 // previously read overdue and blocked the dashboard every Saturday.

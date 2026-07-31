@@ -241,6 +241,11 @@ thresholds; values live in `internal/rpc/regime_policy.go`):
 | Dealer gamma | gap <= -0.5% below gamma-zero | gap <= -2.0% or wholly-short profile | 1 | compute within current NY trading date (prior-date cache = `stale`, warns only) | gap > +0.5% |
 | Breadth | <= 38% | <= 30% | 2 | last completed session's compute | > 45% |
 
+A session is banked only from evidence that is cadence-fresh under the row's own
+schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick
+still displays its band and its hysteresis hold, but the persistence counter
+freezes rather than spending one of the sessions the gate requires.
+
 Eligibility latches for the life of the red streak (a depth wobble back inside
 the floor does not flip it); freshness is never latched: overdue data drops
 eligibility immediately. Streaks count NY trading days; a weekend or holiday
