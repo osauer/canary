@@ -255,7 +255,7 @@ async function runRound4SyntheticSmoke() {
   });
   try {
     await page.goto(syntheticURL, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    await waitForAuthenticatedApp(page);
     await assertVisibleRenameContract(page);
     try {
       await page.waitForFunction(() => document.getElementById("alertUnreadBadge")?.textContent === "2", { timeout: 5000 });
@@ -322,7 +322,7 @@ async function runRound4SyntheticSmoke() {
     await page.evaluate(() => localStorage.setItem("canaryActiveTab", "monitor"));
     const bootstrapBeforeReload = bootstrapRequests;
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    await waitForAuthenticatedApp(page);
     const reload = await page.evaluate(() => ({
       active: document.getElementById("tabMonitor")?.classList.contains("active") === true,
       route: location.pathname + location.search,
@@ -334,7 +334,7 @@ async function runRound4SyntheticSmoke() {
     await context.clearCookies();
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${syntheticOrigin}/?pair=fresh-synthetic&nonce=fresh-synthetic-nonce`, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    await waitForAuthenticatedApp(page);
     const freshPairing = await page.evaluate(() => ({
       deviceStored: localStorage.getItem("ibkrDeviceID") === "synthetic-device",
       route: location.pathname + location.search,
@@ -353,7 +353,7 @@ async function runRound4SyntheticSmoke() {
     deviceRecoveryRequired = true;
     const recoveryBootstrapBefore = bootstrapRequests;
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 10000 });
+    await waitForAuthenticatedApp(page);
     const recoveredCookieNames = new Set((await context.cookies(syntheticOrigin)).map((cookie) => cookie.name));
     const authRecovery = await page.evaluate(() => ({
       deviceStored: localStorage.getItem("ibkrDeviceID") === "synthetic-device",
@@ -374,6 +374,15 @@ async function runRound4SyntheticSmoke() {
     await browser.close();
   }
 }
+
+async function waitForAuthenticatedApp(page) {
+  await page.waitForFunction(() => (
+    document.getElementById("pairingPanel")?.hidden === true
+      && document.getElementById("tabPanels")?.hidden === false
+      && document.getElementById("bottomTabs")?.hidden === false
+  ), { timeout: 10000 });
+}
+
 const launched = await launchBrowser(playwright[browserName], browserName, launchOptions);
 const browser = launched.browser;
 let cleanupPID = 0;
