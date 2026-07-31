@@ -33,6 +33,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Security
 
+- **A release can no longer be published from mixed or incomplete evidence.** Canary now binds publication and recovery to one exact commit, the complete required GitHub Actions job set, the canonical origin and annotated tags, the signed twelve-asset inventory, identical stable and versioned MCP bundle bytes, and matching MCP Registry metadata and digest. Recovery runs the current release controls against immutable tag-owned source, so a stale workflow, partial rerun, mismatched asset, or red historical CI run fails closed before anything is published.
 - **The app no longer keeps a readable login secret in browser storage.** Pairing over the plain-http LAN host used to hand the browser a long-lived secret that any script on the page could read, because that origin has no WebCrypto and so cannot hold a device key. It was never the credential that did the work — the browser already holds an HttpOnly device cookie it cannot read, and that is what authenticates the phone on every request. The secret is now gone from the client, from the request, and from stored device grants; a device that pairs without WebCrypto registers no readable credential at all. The cost is durability, deliberately: if that cookie is lost, the device re-pairs from a QR code instead of falling back to a secret worth stealing.
 ## v2.5.4 — 2026-07-30 15:39 CEST
 
