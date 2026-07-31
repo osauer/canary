@@ -4983,7 +4983,13 @@ func (c *Connector) registerHandlers(conn *Connection) {
 		return
 	}
 
-	c.logInfo("Registering message handlers")
+	// Debug, not info: this fires once per Connection object, and the daemon
+	// builds one per connect attempt — 4,191 of them on 2026-07-30 against 12
+	// connections that actually handshaked, which made this the largest single
+	// message in the log. A session that matters announces itself through
+	// "Starting handshake" and "Connection established"; count those, never
+	// this line.
+	c.logDebug("Registering message handlers")
 	conn.setOpenOrderSnapshotObserver(func(msgID int, fields []string, epoch uint64) {
 		switch msgID {
 		case msgOpenOrder:
