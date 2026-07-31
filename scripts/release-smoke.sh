@@ -15,6 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-daemon-control.sh"
+. "$SCRIPT_DIR/lib-release-smoke-wait.sh"
 
 BIN="${1:?usage: release-smoke.sh <bin/canary> <expected-version> <bin/wire-assert>}"
 EXPECTED="${2:?expected version required, e.g. v0.15.1}"
@@ -85,6 +86,15 @@ run_cli() {
         exit 1
     fi
     printf '%s' "$out"
+}
+
+release_status_provider() {
+    local output_var="$1"
+    local status_json=""
+    if ! status_json="$(timeout 5 "$BIN" status --json 2>/dev/null)"; then
+        return 1
+    fi
+    printf -v "$output_var" '%s' "$status_json"
 }
 
 wire_offset() {
@@ -422,24 +432,10 @@ echo "    $breadth_check"
 # has drained, i.e. against the settled gateway a real caller sees.
 echo "  [7] regime call-sequence (settled session, two scoped rounds, no downgrade)..."
 echo "    waiting up to 60s for the breadth fan-out to drain before regime..."
-for _ in $(seq 1 60); do
-    status_check="$(timeout 5 "$BIN" status --json 2>/dev/null || true)"
-    if printf '%s' "$status_check" | python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    tasks = d.get("background_tasks") or []
-    for t in tasks:
-        if isinstance(t, dict) and t.get("name") == "breadth-spx":
-            sys.exit(1)
-    sys.exit(0)
-except Exception:
-    sys.exit(1)
-' 2>/dev/null; then
-        break
-    fi
-    sleep 1
-done
+if ! release_smoke_wait_for_task_absent release_status_provider breadth-spx 60; then
+    echo "release-smoke: FAIL: breadth-spx remained active or status stayed malformed for 60 polls before regime" >&2
+    exit 1
+fi
 
 run_wire_cli regime_1 30 regime --json
 regime_json_1="$LAST_CMD_OUTPUT"
@@ -506,24 +502,10 @@ echo "    $shape_check"
 
 echo "  [8] chain SPY 1-wide (settled session)..."
 echo "    re-checking the fan-out drain for up to 45s before the chain read..."
-for _ in $(seq 1 45); do
-    status_check="$(timeout 5 "$BIN" status --json 2>/dev/null || true)"
-    if printf '%s' "$status_check" | python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    tasks = d.get("background_tasks") or []
-    for t in tasks:
-        if isinstance(t, dict) and t.get("name") == "breadth-spx":
-            sys.exit(1)
-    sys.exit(0)
-except Exception:
-    sys.exit(1)
-' 2>/dev/null; then
-        break
-    fi
-    sleep 1
-done
+if ! release_smoke_wait_for_task_absent release_status_provider breadth-spx 45; then
+    echo "release-smoke: FAIL: breadth-spx remained active or status stayed malformed for 45 polls before chain" >&2
+    exit 1
+fi
 expiries="$("$BIN" chain SPY 2>/dev/null | awk '/^[[:space:]]+20[0-9]{2}-[0-9]{2}-[0-9]{2}/ {print $1}' | head -3 | tail -1)"
 if [[ -z "$expiries" ]]; then
     echo "release-smoke: FAIL: could not list SPY expiries via 'canary chain SPY'" >&2
