@@ -175,14 +175,17 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 			},
 		},
 		{
-			name: "overdue same streak preserves prior latch",
+			// Overdue is a freeze: the live tick returned the stored entry
+			// untouched, so the projection must reproduce it whole — the value
+			// included — rather than bank the snapshot's newer ratio.
+			name: "overdue same streak reproduces the frozen entry",
 			prior: StreakEntry{
 				LastBand: "red", SinceDate: priorSince, LastSession: priorSince,
 				Sessions: 2, LastValue: 1.04, EligibleLatched: true,
 			},
 			configure: func(snapshot *rpc.RegimeSnapshotResult) {
 				snapshot.VIXTermStructure.Ratio = &redRatio
-				snapshot.VIXTermStructure.Streak = &rpc.StreakInfo{Band: "red", Sessions: 3, Since: priorSince}
+				snapshot.VIXTermStructure.Streak = &rpc.StreakInfo{Band: "red", Sessions: 2, Since: priorSince}
 				snapshot.VIXTermStructure.RegimeIndicatorMeta = rpc.RegimeIndicatorMeta{
 					Band:        "red",
 					Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue},
@@ -190,8 +193,8 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 				}
 			},
 			want: StreakEntry{
-				LastBand: "red", SinceDate: priorSince, LastSession: resetSince,
-				Sessions: 3, LastValue: redRatio, EligibleLatched: true,
+				LastBand: "red", SinceDate: priorSince, LastSession: priorSince,
+				Sessions: 2, LastValue: 1.04, EligibleLatched: true,
 			},
 		},
 		{
@@ -244,6 +247,96 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 				t.Fatalf("streak projection as_of=%s, want %s", gotAsOf, publishedAt)
 			}
 		})
+	}
+}
+
+// TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart pins the live
+// writer and the recovery re-derivation to one freeze rule. Tick returns the
+// stored entry untouched for a row measured off its own cadence, so the
+// committed value stays at the last fresh publication's while the snapshot's
+// moves on. Re-deriving that value from the snapshot instead made every
+// restart after such a publication refuse to start, with no repair path at the
+// current position — vix_term is not_due every evening and overnight while the
+// VIX leg keeps moving the ratio, so any graceful restart was a candidate.
+func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
+	ny := newYorkLocation()
+	// 01:05 ET is outside VIX3M's dissemination window.
+	asOf := time.Date(2026, 7, 20, 1, 5, 0, 0, ny)
+	frozenRatio, movedRatio := 0.8632345293811753, 0.8633766233766235
+	prior := StreakEntry{
+		LastBand: "green", SinceDate: "2026-07-15", LastSession: "2026-07-17",
+		Sessions: 3, LastValue: frozenRatio,
+	}
+	previous := regimeSnapshotPublication{
+		Revision: 1, PublishedAt: asOf.Add(-time.Hour).UTC(),
+		Fingerprint: rpc.Fingerprint{Version: "test", Key: "prior-publication"},
+	}
+
+	store := openRegimeSnapshotTestStore(t)
+	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "not-due-freeze")
+	snapshot.VIXTermStructure = rpc.RegimeVIXTerm{
+		Status: rpc.RegimeStatusStale, Ratio: &movedRatio,
+		VIX3MCrossCheck: rpc.VIX3MCrossCheckAgree,
+		VIXQuality:      &rpc.Quality{AsOf: asOf, FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm},
+		VIX3MQuality:    &rpc.Quality{AsOf: asOf, FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm},
+	}
+	streaks := projectionRecoverySeedStreakStore(t, store, previous, map[string]StreakEntry{StreakKeyVIXTerm: prior})
+
+	// The live publication path: classify onto a volatile clone, annotate what
+	// the snapshot serves, then commit the clone behind the publication barrier.
+	evaluated := streaks.cloneForRegimeEvaluation()
+	annotateRegimeMetadata(snapshot, (&Server{}).populateStreaksWithStore(snapshot, evaluated))
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
+	plan := regimeProjectionPlan{publication: publication, previous: &previous}
+
+	// Guard the fixture: the row must still be not_due and still serve a
+	// streak, or the frozen re-derivation is never reached.
+	if class := snapshot.VIXTermStructure.Freshness; class == nil || class.Class != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("vix_term freshness=%+v, want not_due", class)
+	}
+	if snapshot.VIXTermStructure.Streak == nil {
+		t.Fatal("vix_term served no streak; the frozen row cannot be reconciled")
+	}
+	if err := streaks.commitRegimeEvaluation(t.Context(), evaluated, plan); err != nil {
+		t.Fatalf("commit regime evaluation: %v", err)
+	}
+
+	// Restart: a fresh store over the same authority reloads the committed
+	// document, and startup reconciles it against the persisted snapshot.
+	restarted := NewStreakStore("")
+	if err := restarted.UseCoreStore(store); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.reconcileRegimeProjection(t.Context(), snapshot, plan); err != nil {
+		t.Fatalf("startup reconcile after a not_due freeze: %v", err)
+	}
+	restarted.mu.Lock()
+	got := restarted.entries[StreakKeyVIXTerm]
+	restarted.mu.Unlock()
+	if !reflect.DeepEqual(got, prior) {
+		t.Fatalf("frozen entry=%+v, want unchanged %+v", got, prior)
+	}
+
+	// The comparison is intact, not skipped. A frozen row's value has no
+	// witness in the snapshot — the writer did not write it — but a fresh row
+	// is still re-derived, so a stored value that disagrees with what the
+	// snapshot serves fails closed exactly as before.
+	fresh := regimeSnapshotCacheFixture(asOf.UTC(), "fresh-row")
+	fresh.VIXTermStructure = rpc.RegimeVIXTerm{
+		Status: rpc.RegimeStatusOK, Ratio: &movedRatio,
+		Streak: &rpc.StreakInfo{Band: prior.LastBand, Sessions: prior.Sessions, Since: prior.SinceDate},
+		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
+			Band: prior.LastBand, Freshness: &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
+		},
+	}
+	fresh.Fingerprint = rpc.BuildRegimeFingerprint(fresh)
+	freshPublication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: fresh.Fingerprint}
+	stale := projectionRecoverySeedStreakStore(t, openRegimeSnapshotTestStore(t), freshPublication,
+		map[string]StreakEntry{StreakKeyVIXTerm: prior})
+	err := stale.reconcileRegimeProjection(t.Context(), fresh, regimeProjectionPlan{publication: freshPublication})
+	if err == nil || !strings.Contains(err.Error(), "content mismatch at snapshot revision 2") {
+		t.Fatalf("fresh row with a stale stored value err=%v, want a content mismatch", err)
 	}
 }
 

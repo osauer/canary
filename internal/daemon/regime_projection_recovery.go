@@ -420,6 +420,16 @@ func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.
 		case streak.Sessions != 1:
 			return nil, fmt.Errorf("reconcile regime streak %s: reset state has session count %d", key, streak.Sessions)
 		}
+		// Tick freezes a row measured off its own cadence: it returns the stored
+		// entry untouched, so the persisted value is the last fresh
+		// publication's, not this snapshot's. Re-deriving it from the snapshot
+		// claims a write the live path never made — vix_term is not_due every
+		// evening while the VIX leg keeps moving the ratio — and the
+		// current-position compare then fails closed with no repair path.
+		lastValue := value
+		if existed && sameStreak && meta.Freshness != nil && meta.Freshness.Class != rpc.RegimeFreshnessFresh {
+			lastValue = prior.LastValue
+		}
 		latched := streak.Band == "red" && sameStreak && prior.EligibleLatched
 		// A newly earned latch is applied after eligibility is attached to the
 		// wire, so Eligibility.Latched can still be false on that publication.
@@ -431,7 +441,7 @@ func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.
 		}
 		next[key] = StreakEntry{
 			LastBand: streak.Band, SinceDate: streak.Since, LastSession: lastSessionForTarget,
-			Sessions: streak.Sessions, LastValue: value, EligibleLatched: latched,
+			Sessions: streak.Sessions, LastValue: lastValue, EligibleLatched: latched,
 		}
 	}
 	return next, nil
