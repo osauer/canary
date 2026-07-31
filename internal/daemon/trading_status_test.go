@@ -117,6 +117,9 @@ func TestAccountMismatchesConnectedAllowsAggregateManagedAccount(t *testing.T) {
 		{name: "blank connected account unknown", configured: "DU1234567", connected: "", want: false},
 		{name: "different concrete account", configured: "DU1234567", connected: "DU7654321", want: true},
 		{name: "configured account is absent from managed account list", configured: "DU1234567", connected: "DU7654321,DU9999999", want: true},
+		{name: "malformed managed account list fails closed", configured: "DU1234567", connected: "DU1234567,", want: true},
+		{name: "aggregate member in managed account list fails closed", configured: "DU1234567", connected: "DU1234567,All", want: true},
+		{name: "configured aggregate fails closed", configured: "DU1234567,DU7654321", connected: "DU1234567,DU7654321", want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

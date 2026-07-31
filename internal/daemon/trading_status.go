@@ -328,7 +328,28 @@ func accountMismatchesConnected(configured, connected string) bool {
 	if strings.EqualFold(connected, "All") {
 		return false
 	}
-	return !strings.EqualFold(configured, connected)
+	if !brokerScopeAccountConcrete(configured) {
+		return true
+	}
+	if !strings.Contains(connected, ",") {
+		return !strings.EqualFold(configured, connected)
+	}
+
+	matched := false
+	for account := range strings.SplitSeq(connected, ",") {
+		account = strings.TrimSpace(account)
+		// managedAccounts is broker authority only while every member is one
+		// concrete account. A matching member cannot rehabilitate a malformed
+		// aggregate because that would turn ambiguous session state into write
+		// readiness.
+		if !brokerScopeAccountConcrete(account) {
+			return true
+		}
+		if strings.EqualFold(configured, account) {
+			matched = true
+		}
+	}
+	return !matched
 }
 
 func endpointString(host string, port int) string {
