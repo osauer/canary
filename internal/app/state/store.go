@@ -140,10 +140,9 @@ type legacyGovernanceOccurrence struct {
 // DeviceGrant is an app-owned paired-device identity. RevokedAt is terminal:
 // re-pairing creates a new identity instead of reviving this one.
 type DeviceGrant struct {
-	ID               string `json:"id"`
-	Name             string `json:"name,omitempty"`
-	PublicKeyJWK     string `json:"public_key_jwk,omitempty"`
-	DeviceSecretHash string `json:"device_secret_hash,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	PublicKeyJWK string `json:"public_key_jwk,omitempty"`
 	// DeviceCookieHashes authenticate the long-lived HttpOnly device
 	// cookie. Cookies are the only client storage that provably survives
 	// the iOS home-screen web-app container split (localStorage/IndexedDB

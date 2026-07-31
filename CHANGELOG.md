@@ -30,6 +30,10 @@ All notable changes to this project are documented here. The project adheres to 
 - **Positions and account values survive a TWS login that holds several accounts.** Such a login streams every one of its accounts over the single account-updates subscription. Canary read the first sibling row as proof the stream was misrouted, latched a fault that rejected all later rows, and then resubscribed without the account pin — which rebound the stream to whichever account the gateway happened to list first, so the pinned account's own rows looked foreign and the fault latched again. Positions stayed empty, and the account summary showed the sibling's type and its zeroed balances while the P&L stream kept reporting the real ones. Sibling rows are now dropped quietly, a resubscribe keeps the account it was bound to, and the summary guard compares against that account instead of the raw account list — the case the earlier fix in this area could not see.
 - Stale freshness stamps no longer wear the alarm red: an aged timestamp reads as a dead feed in the fault tint, distinct from market severity.
 - On a held book with no daily movement, the underlyings book stayed reachable behind a hidden control; the movers row now keeps its opener with an honest "no daily movement" reading.
+
+### Security
+
+- **The app no longer keeps a readable login secret in browser storage.** Pairing over the plain-http LAN host used to hand the browser a long-lived secret that any script on the page could read, because that origin has no WebCrypto and so cannot hold a device key. It was never the credential that did the work — the browser already holds an HttpOnly device cookie it cannot read, and that is what authenticates the phone on every request. The secret is now gone from the client, from the request, and from stored device grants; a device that pairs without WebCrypto registers no readable credential at all. The cost is durability, deliberately: if that cookie is lost, the device re-pairs from a QR code instead of falling back to a secret worth stealing.
 ## v2.5.4 — 2026-07-30 15:39 CEST
 
 ### What's new

@@ -1,38 +1,47 @@
 import { showPairing } from "./lifecycle.js";
 import { state } from "./state.js";
 
+// A non-secure origin — the plain-http LAN host — has no crypto.subtle, so the
+// device cannot hold a key and registers no client-side credential at all. The
+// HttpOnly device cookie the server sets on this response is then its only
+// continuity credential. That trades durability for exposure deliberately:
+// losing the cookie costs a fresh QR pairing, where the readable bearer secret
+// this path used to keep in localStorage cost a stealable long-lived login.
 async function completePairing(pairingID, nonce) {
-  if (!hasWebCrypto()) {
-    return completeHTTPPairing(pairingID, nonce);
+  const req = {
+    pairing_id: pairingID,
+    nonce,
+    device_name: navigator.userAgent.includes("iPhone") ? "iPhone" : "Browser",
+  };
+  let privateKey = null;
+  if (hasWebCrypto()) {
+    showPairing("Generating a device key and proving QR possession.");
+    const keys = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"]
+    );
+    privateKey = keys.privateKey;
+    req.public_key_jwk = await crypto.subtle.exportKey("jwk", keys.publicKey);
+    req.signature = await sign(privateKey, nonce);
+  } else {
+    showPairing("Pairing this device; the Mac issues its cookie credential.");
   }
-  showPairing("Generating a device key and proving QR possession.");
-  const keys = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"]
-  );
-  const publicKeyJWK = await crypto.subtle.exportKey("jwk", keys.publicKey);
-  const signature = await sign(keys.privateKey, nonce);
   const res = await fetch("/api/pairing/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({
-      pairing_id: pairingID,
-      nonce,
-      device_name: navigator.userAgent.includes("iPhone") ? "iPhone" : "Browser",
-      public_key_jwk: publicKeyJWK,
-      signature,
-    }),
+    body: JSON.stringify(req),
   });
   if (!res.ok) {
     showPairing("Pairing failed: " + await res.text());
     throw new Error("pairing failed");
   }
-  const body = await res.json();
-  localStorage.setItem("ibkrDeviceID", body.device_id);
-  await savePrivateKey(keys.privateKey);
-  localStorage.removeItem("ibkrDeviceSecret");
+  const paired = await res.json();
+  localStorage.setItem("ibkrDeviceID", paired.device_id);
+  if (privateKey) {
+    await savePrivateKey(privateKey);
+  }
 }
 
 // The device key must survive for a year or more. iOS evicts IndexedDB
@@ -70,39 +79,6 @@ async function restorePrivateKeyFromBackup() {
   }
 }
 
-async function completeHTTPPairing(pairingID, nonce) {
-  showPairing("Completing local HTTP pairing.");
-  const secret = randomDeviceSecret();
-  const res = await fetch("/api/pairing/complete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({
-      pairing_id: pairingID,
-      nonce,
-      device_name: navigator.userAgent.includes("iPhone") ? "iPhone" : "Browser",
-      device_secret: secret,
-    }),
-  });
-  if (!res.ok) {
-    showPairing("Pairing failed: " + await res.text());
-    throw new Error("pairing failed");
-  }
-  const body = await res.json();
-  localStorage.setItem("ibkrDeviceID", body.device_id);
-  // Cleartext is the only option this path has, and it is the weakest of the
-  // three credentials rather than the one that matters. completeHTTPPairing
-  // runs only when crypto.subtle is absent — a non-secure-context origin, so
-  // the plain-http LAN host — where no client-side encryption exists to apply
-  // and this same secret has already crossed the wire in the clear above. The
-  // credential a scanner would tell us to use instead is already the primary
-  // one: ibkr_app_device is HttpOnly, JS-unreadable, and redeemed on every
-  // request by deviceCookieSession. The secret is the third-tier backstop for
-  // when cookie eviction leaves a crypto-less origin holding nothing at all,
-  // and dropping it turns every eviction into a forced re-pair.
-  localStorage.setItem("ibkrDeviceSecret", secret); // codeql[js/clear-text-storage-of-sensitive-data]
-}
-
 // tryDeviceLogin returns "ok" when a fresh session was minted, "repair" when
 // the app definitively rejected this device (only a new pairing can help),
 // and "retry" for everything transient: network failures, relay 503s while
@@ -112,8 +88,10 @@ async function completeHTTPPairing(pairingID, nonce) {
 async function tryDeviceLogin() {
   const deviceID = localStorage.getItem("ibkrDeviceID");
   const privateKey = hasWebCrypto() ? await loadPrivateKey() : null;
-  const deviceSecret = localStorage.getItem("ibkrDeviceSecret") || "";
-  if (!deviceID || (!privateKey && !deviceSecret)) return "repair";
+  // No key means no client-side credential exists — a cookie-only grant, or a
+  // crypto-less origin. Either way the device cookie already had its chance on
+  // the request that 401'd, so re-pairing is the only move left.
+  if (!deviceID || !privateKey) return "repair";
   let ch;
   try {
     ch = await fetch("/api/auth/challenge", {
@@ -130,9 +108,11 @@ async function tryDeviceLogin() {
     return ch.status === 401 ? "repair" : "retry";
   }
   const challenge = await ch.json();
-  const body = privateKey
-    ? { device_id: deviceID, challenge: challenge.challenge, signature: await sign(privateKey, challenge.challenge) }
-    : { device_id: deviceID, challenge: challenge.challenge, device_secret: deviceSecret };
+  const body = {
+    device_id: deviceID,
+    challenge: challenge.challenge,
+    signature: await sign(privateKey, challenge.challenge),
+  };
   let session;
   try {
     session = await fetch("/api/auth/session", {
@@ -151,9 +131,6 @@ async function tryDeviceLogin() {
     // The app restarted between challenge and session; the credential is fine.
     return "retry";
   }
-  if (deviceSecret) {
-    localStorage.removeItem("ibkrDeviceSecret");
-  }
   return "repair";
 }
 
@@ -171,15 +148,6 @@ async function sign(privateKey, value) {
 
 function hasWebCrypto() {
   return !!globalThis.crypto?.subtle;
-}
-
-function randomDeviceSecret() {
-  const bytes = new Uint8Array(32);
-  if (!globalThis.crypto?.getRandomValues) {
-    throw new Error("secure random is unavailable in this browser");
-  }
-  globalThis.crypto.getRandomValues(bytes);
-  return bytesToB64url(bytes);
 }
 
 async function savePrivateKey(key) {
@@ -231,4 +199,4 @@ function bytesToB64url(bytes) {
   return btoa(raw).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-export { b64urlToBytes, bytesToB64url, completeHTTPPairing, completePairing, hasWebCrypto, loadPrivateKey, openDB, randomDeviceSecret, savePrivateKey, sign, tryDeviceLogin };
+export { b64urlToBytes, bytesToB64url, completePairing, hasWebCrypto, loadPrivateKey, openDB, savePrivateKey, sign, tryDeviceLogin };

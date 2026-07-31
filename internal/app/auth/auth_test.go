@@ -99,19 +99,22 @@ func TestChallengeSessionUsesStoredDeviceKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartChallenge: %v", err)
 	}
-	sess, err := mgr.CompleteChallenge("device-1", challenge.Challenge, testDERSignature(t, key, challenge.Challenge), "")
+	sess, err := mgr.CompleteChallenge("device-1", challenge.Challenge, testDERSignature(t, key, challenge.Challenge))
 	if err != nil {
 		t.Fatalf("CompleteChallenge: %v", err)
 	}
 	if sess.Token == "" {
 		t.Fatalf("empty session token")
 	}
-	if _, err := mgr.CompleteChallenge("device-1", challenge.Challenge, testDERSignature(t, key, challenge.Challenge), ""); err == nil {
+	if _, err := mgr.CompleteChallenge("device-1", challenge.Challenge, testDERSignature(t, key, challenge.Challenge)); err == nil {
 		t.Fatalf("reused challenge unexpectedly succeeded")
 	}
 }
 
-func TestHTTPDeviceSecretPairingAndChallenge(t *testing.T) {
+// A crypto-less origin enrolls with no client-held credential at all. The
+// grant must store nothing, refuse the challenge path outright, and still be
+// reachable through the cookie that is now its only continuity credential.
+func TestCookieOnlyPairingHoldsNoClientCredential(t *testing.T) {
 	t.Parallel()
 	store, err := state.Open(t.TempDir())
 	if err != nil {
@@ -122,12 +125,10 @@ func TestHTTPDeviceSecretPairingAndChallenge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartPairing: %v", err)
 	}
-	secret := testDeviceSecret()
 	res, err := mgr.CompletePairing(CompletePairingRequest{
-		PairingID:    pairing.ID,
-		Nonce:        pairing.Nonce,
-		DeviceName:   "HTTP Browser",
-		DeviceSecret: secret,
+		PairingID:  pairing.ID,
+		Nonce:      pairing.Nonce,
+		DeviceName: "HTTP Browser",
 	})
 	if err != nil {
 		t.Fatalf("CompletePairing: %v", err)
@@ -137,49 +138,48 @@ func TestHTTPDeviceSecretPairingAndChallenge(t *testing.T) {
 		t.Fatalf("device grant was not stored")
 	}
 	if grant.PublicKeyJWK != "" {
-		t.Fatalf("HTTP fallback grant stored public key unexpectedly: %q", grant.PublicKeyJWK)
-	}
-	if grant.DeviceSecretHash == "" || grant.DeviceSecretHash == secret {
-		t.Fatalf("device secret hash not stored safely: %#v", grant)
+		t.Fatalf("cookie-only grant stored a key unexpectedly: %q", grant.PublicKeyJWK)
 	}
 	challenge, err := mgr.StartChallenge(res.DeviceID)
 	if err != nil {
 		t.Fatalf("StartChallenge: %v", err)
 	}
-	sess, err := mgr.CompleteChallenge(res.DeviceID, challenge.Challenge, "", secret)
+	if _, err := mgr.CompleteChallenge(res.DeviceID, challenge.Challenge, ""); err == nil {
+		t.Fatalf("keyless grant minted a session from a challenge")
+	}
+	cookie, err := mgr.IssueDeviceCookie(res.DeviceID)
 	if err != nil {
-		t.Fatalf("CompleteChallenge: %v", err)
+		t.Fatalf("IssueDeviceCookie: %v", err)
+	}
+	sess, err := mgr.AuthenticateDeviceCookie(cookie)
+	if err != nil {
+		t.Fatalf("AuthenticateDeviceCookie: %v", err)
 	}
 	if sess.Token == "" {
 		t.Fatalf("empty session token")
 	}
 }
 
-func TestHTTPDeviceSecretRejectsWrongSecret(t *testing.T) {
+// Omitting the key is how a crypto-less client enrolls, but supplying one and
+// failing to prove it stays a rejection: the signature still binds the grant.
+func TestPairingWithKeyStillRequiresProof(t *testing.T) {
 	t.Parallel()
 	store, err := state.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	secret := testDeviceSecret()
-	hash, err := hashDeviceSecret(secret)
-	if err != nil {
-		t.Fatalf("hashDeviceSecret: %v", err)
-	}
-	if err := store.AddDevice(state.DeviceGrant{
-		ID:               "device-1",
-		DeviceSecretHash: hash,
-		CreatedAt:        time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("AddDevice: %v", err)
-	}
 	mgr := NewManager(store, store, time.Minute)
-	challenge, err := mgr.StartChallenge("device-1")
+	pairing, err := mgr.StartPairing("https://relay.example")
 	if err != nil {
-		t.Fatalf("StartChallenge: %v", err)
+		t.Fatalf("StartPairing: %v", err)
 	}
-	if _, err := mgr.CompleteChallenge("device-1", challenge.Challenge, "", testDeviceSecret()); err == nil {
-		t.Fatalf("wrong HTTP device secret unexpectedly succeeded")
+	if _, err := mgr.CompletePairing(CompletePairingRequest{
+		PairingID:    pairing.ID,
+		Nonce:        pairing.Nonce,
+		PublicKeyJWK: testJWK(t, newTestKey(t)),
+		Signature:    testRawSignature(t, newTestKey(t), pairing.Nonce),
+	}); err == nil {
+		t.Fatalf("pairing proof signed by the wrong key unexpectedly succeeded")
 	}
 }
 
@@ -307,14 +307,6 @@ func testDERSignature(t *testing.T, key *ecdsa.PrivateKey, message string) strin
 		t.Fatalf("sign ASN.1: %v", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(sig)
-}
-
-func testDeviceSecret() string {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		panic(err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
 func signParts(t *testing.T, key *ecdsa.PrivateKey, message string) (*big.Int, *big.Int) {

@@ -204,7 +204,6 @@ type deviceSummary struct {
 	CreatedAt       time.Time `json:"created_at"`
 	LastSeenAt      time.Time `json:"last_seen_at,omitzero"`
 	HasKey          bool      `json:"has_key"`
-	HasSecret       bool      `json:"has_secret"`
 	CookieCredCount int       `json:"cookie_credentials"`
 }
 
@@ -226,7 +225,6 @@ func (h *handler) handleDevicesList(w nethttp.ResponseWriter, r *nethttp.Request
 			CreatedAt:       d.CreatedAt,
 			LastSeenAt:      d.LastSeenAt,
 			HasKey:          strings.TrimSpace(d.PublicKeyJWK) != "",
-			HasSecret:       strings.TrimSpace(d.DeviceSecretHash) != "",
 			CookieCredCount: len(d.DeviceCookieHashes),
 		})
 	}
@@ -319,16 +317,15 @@ func (h *handler) handleAuthChallenge(w nethttp.ResponseWriter, r *nethttp.Reque
 
 func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req struct {
-		DeviceID     string `json:"device_id"`
-		Challenge    string `json:"challenge"`
-		Signature    string `json:"signature"`
-		DeviceSecret string `json:"device_secret"`
+		DeviceID  string `json:"device_id"`
+		Challenge string `json:"challenge"`
+		Signature string `json:"signature"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, nethttp.StatusBadRequest, err.Error())
 		return
 	}
-	sess, err := h.deps.Auth.CompleteChallenge(req.DeviceID, req.Challenge, req.Signature, req.DeviceSecret)
+	sess, err := h.deps.Auth.CompleteChallenge(req.DeviceID, req.Challenge, req.Signature)
 	if err != nil {
 		log.Printf("canary app auth: session rejected for device %s: %v", req.DeviceID, err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())

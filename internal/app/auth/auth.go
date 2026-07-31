@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/ecdsa"
@@ -74,17 +75,16 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// CompletePairingRequest contains untrusted device enrollment proof. Nonce,
-// Signature, and DeviceSecret are sensitive. When DeviceSecret is present it is
-// validated and hashed; otherwise PublicKeyJWK and Signature prove possession
-// of the device key.
+// CompletePairingRequest contains untrusted device enrollment proof. Nonce and
+// Signature are sensitive. PublicKeyJWK and Signature prove possession of the
+// device key; a client with no WebCrypto omits both and enrolls a cookie-only
+// grant, whose continuity rests entirely on the HttpOnly device cookie.
 type CompletePairingRequest struct {
 	PairingID    string          `json:"pairing_id"`
 	Nonce        string          `json:"nonce"`
 	DeviceName   string          `json:"device_name"`
 	PublicKeyJWK json.RawMessage `json:"public_key_jwk"`
 	Signature    string          `json:"signature"`
-	DeviceSecret string          `json:"device_secret"`
 }
 
 // CompletePairingResult identifies the durable device grant and its initial
@@ -162,27 +162,26 @@ func (m *Manager) CompletePairing(req CompletePairingRequest) (CompletePairingRe
 	if subtle.ConstantTimeCompare([]byte(req.Nonce), []byte(s.Nonce)) != 1 {
 		return CompletePairingResult{}, errors.New("pairing nonce mismatch")
 	}
-	secretHash := ""
-	if strings.TrimSpace(req.DeviceSecret) != "" {
-		var err error
-		secretHash, err = hashDeviceSecret(req.DeviceSecret)
-		if err != nil {
-			return CompletePairingResult{}, fmt.Errorf("verify device secret: %w", err)
+	// An enrolling client either registers a key and proves it, or registers
+	// nothing at all. Consumed nonce possession is what gates both; the
+	// signature only binds the grant to the key it just registered, so its
+	// absence widens nothing an attacker holding the pairing URL could not
+	// already do by generating a key of their own.
+	if len(bytes.TrimSpace(req.PublicKeyJWK)) > 0 {
+		if err := VerifyJWKSignature(req.PublicKeyJWK, []byte(req.Nonce), req.Signature); err != nil {
+			return CompletePairingResult{}, fmt.Errorf("verify device proof: %w", err)
 		}
-	} else if err := VerifyJWKSignature(req.PublicKeyJWK, []byte(req.Nonce), req.Signature); err != nil {
-		return CompletePairingResult{}, fmt.Errorf("verify device proof: %w", err)
 	}
 	deviceID, err := randomToken(16)
 	if err != nil {
 		return CompletePairingResult{}, err
 	}
 	grant := state.DeviceGrant{
-		ID:               deviceID,
-		Name:             strings.TrimSpace(req.DeviceName),
-		PublicKeyJWK:     string(req.PublicKeyJWK),
-		DeviceSecretHash: secretHash,
-		CreatedAt:        now,
-		LastSeenAt:       now,
+		ID:           deviceID,
+		Name:         strings.TrimSpace(req.DeviceName),
+		PublicKeyJWK: string(req.PublicKeyJWK),
+		CreatedAt:    now,
+		LastSeenAt:   now,
 	}
 	if grant.Name == "" {
 		grant.Name = "iPhone"
@@ -218,11 +217,12 @@ func (m *Manager) StartChallenge(deviceID string) (Challenge, error) {
 	return ch, nil
 }
 
-// CompleteChallenge consumes challenge and verifies the paired device using
-// its stored device-secret hash when present, otherwise its P-256 public key.
-// A successful proof returns a new [SessionTTL] bearer session. A known
-// challenge is consumed even when device, expiry, or proof validation fails.
-func (m *Manager) CompleteChallenge(deviceID, challenge, signature, deviceSecret string) (Session, error) {
+// CompleteChallenge consumes challenge and verifies the paired device against
+// its stored P-256 public key. A successful proof returns a new [SessionTTL]
+// bearer session. A known challenge is consumed even when device, expiry, or
+// proof validation fails. A cookie-only grant holds no key and is rejected
+// here; its continuity path is the device cookie, not this challenge.
+func (m *Manager) CompleteChallenge(deviceID, challenge, signature string) (Session, error) {
 	now := m.now().UTC()
 	m.mu.Lock()
 	ch, ok := m.challenges[challenge]
@@ -240,11 +240,8 @@ func (m *Manager) CompleteChallenge(deviceID, challenge, signature, deviceSecret
 	if !ok {
 		return Session{}, errors.New("unknown device")
 	}
-	if strings.TrimSpace(grant.DeviceSecretHash) != "" {
-		if err := verifyDeviceSecret(deviceSecret, grant.DeviceSecretHash); err != nil {
-			return Session{}, err
-		}
-		return m.newSession(deviceID, now)
+	if strings.TrimSpace(grant.PublicKeyJWK) == "" {
+		return Session{}, errors.New("device has no key credential")
 	}
 	if err := VerifyJWKSignature(json.RawMessage(grant.PublicKeyJWK), []byte(challenge), signature); err != nil {
 		return Session{}, err
@@ -264,7 +261,7 @@ func (m *Manager) IssueDeviceCookie(deviceID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	hash, err := hashDeviceSecret(secret)
+	hash, err := hashCookieSecret(secret)
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +289,7 @@ func (m *Manager) AuthenticateDeviceCookie(value string) (Session, error) {
 	}
 	matched := false
 	for _, hash := range grant.DeviceCookieHashes {
-		if verifyDeviceSecret(secret, hash) == nil {
+		if verifyCookieSecret(secret, hash) == nil {
 			matched = true
 			break
 		}
@@ -378,26 +375,26 @@ func randomToken(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func hashDeviceSecret(secret string) (string, error) {
+func hashCookieSecret(secret string) (string, error) {
 	secret = strings.TrimSpace(secret)
 	raw, err := base64.RawURLEncoding.DecodeString(secret)
 	if err != nil {
 		return "", err
 	}
 	if len(raw) < 32 {
-		return "", errors.New("device secret must be at least 256 bits")
+		return "", errors.New("device cookie secret must be at least 256 bits")
 	}
 	sum := sha256.Sum256(raw)
 	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:]), nil
 }
 
-func verifyDeviceSecret(secret, wantHash string) error {
-	got, err := hashDeviceSecret(secret)
+func verifyCookieSecret(secret, wantHash string) error {
+	got, err := hashCookieSecret(secret)
 	if err != nil {
 		return err
 	}
 	if subtle.ConstantTimeCompare([]byte(got), []byte(strings.TrimSpace(wantHash))) != 1 {
-		return errors.New("invalid device secret")
+		return errors.New("invalid device cookie")
 	}
 	return nil
 }

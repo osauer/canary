@@ -273,13 +273,19 @@ func TestCleanSlateRenameUsesStressDOMAndRetainsSafetyContracts(t *testing.T) {
 		}
 	}
 	for _, identifier := range []string{
-		`"ibkrRemoteRoute"`, `"ibkrDeviceID"`, `"ibkrDeviceSecret"`,
+		`"ibkrRemoteRoute"`, `"ibkrDeviceID"`,
 		`"ibkrDeviceKeyJWK"`, `"ibkrPurgeBook"`, `"ibkrPurgeBooks"`,
 		`indexedDB.open("ibkr-app", 1)`,
 	} {
 		if !strings.Contains(js, identifier) {
 			t.Errorf("rename removed safety-critical persisted browser identifier %q", identifier)
 		}
+	}
+	// ibkrDeviceSecret was the plaintext bearer credential the crypto-less
+	// pairing path kept in localStorage. It is gone; the HttpOnly device
+	// cookie is that path's credential now, and no reader may come back.
+	if strings.Contains(js, "ibkrDeviceSecret") {
+		t.Error("plaintext device secret reappeared in SPA storage")
 	}
 	for _, identifier := range []string{
 		`"canaryAccountValueVisible"`, `"canarySelectedMarket"`, `"canaryActiveTab"`,

@@ -521,7 +521,14 @@ try {
     lifecycleResult = await runLifecycleSmoke(page);
   }
   const smokeState = await page.evaluate(() => globalThis.__canarySmoke);
-  const fallbackDeviceSecretStored = await page.evaluate(() => !!localStorage.getItem("ibkrDeviceSecret"));
+  // The crypto-less pairing path used to mint a readable bearer secret here.
+  // It no longer does — the HttpOnly device cookie is that path's only
+  // credential — so any value under this key means the fallback came back.
+  // The --no-webcrypto run is what makes this assertion worth anything.
+  const plaintextDeviceSecret = await page.evaluate(() => !!localStorage.getItem("ibkrDeviceSecret"));
+  if (plaintextDeviceSecret) {
+    throw new Error("ibkrDeviceSecret is set: the plaintext device-secret fallback was reintroduced");
+  }
   console.log(JSON.stringify({
     ok: true,
     browser: browserName,
@@ -530,7 +537,7 @@ try {
     mobile,
     notification_removed: noNotification,
     webcrypto_removed: noWebCrypto,
-    used_http_fallback: fallbackDeviceSecretStored,
+    plaintext_device_secret: plaintextDeviceSecret,
     title,
     visible_identity: visibleIdentity,
     connection,
