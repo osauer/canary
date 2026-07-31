@@ -110,6 +110,11 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 	if !outcome.Complete {
 		return res, false, nil, nil
 	}
+	if s.regimeSnapshots != nil {
+		if view, err := s.regimeSnapshots.current(); err == nil {
+			carryVIXTermFromLastGood(res, view.Snapshot, res.AsOf)
+		}
+	}
 	// Official-calendar tape session, stamped once from the snapshot clock so
 	// lifecycle gating, the decisions journal, and every serve surface read
 	// the same classification. Closed dates bar frozen SPY/VIX prints from
@@ -751,6 +756,46 @@ func regimeClosedDateTapePin(ctx context.Context, deps *regimeDeps, sym string, 
 
 const vixTermNotes = "VIX (30-day implied vol) divided by VIX3M (3-month implied vol). Spec thresholds: <0.92 green (healthy contango), 0.92-1.00 yellow (flattening), >1.00 red (backwardation — acute stress pricing). Signal requires sustained inversion over 2-3 sessions, not a single Fed-day spike. Confirmation gate: a red may confirm stress only after 2 consecutive NY trading sessions of inversion (or ratio >= 1.05 day one) on a fresh same-session tick; earlier or stale reds are provisional and warn only. On official non-trading dates the VIX day-change fields are pinned to the official daily closes of the last two completed sessions (vix_change_basis names them); frozen weekend prints and reset prev-close anchors never serve as day-change inputs."
 
+// carryVIXTermFromLastGood repairs a VIX term row that lost only its VIX3M leg
+// to a fetch timeout. Outside the publication window VIX3M cannot have changed,
+// so the previous snapshot's print is still the newest value that exists, and
+// blanking the row over one missed poll of a thin index costs the whole vol
+// cluster. Bounded to the most recently completed window: a value older than
+// that means a dead subscription rather than a slow one, and must stay
+// unavailable. A miss while VIX3M is actually publishing is a real gap and is
+// deliberately not carried here.
+func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time) bool {
+	if res == nil || prev == nil {
+		return false
+	}
+	row := &res.VIXTermStructure
+	if row.Status != rpc.RegimeStatusError || row.VIX == nil || row.VIX3M != nil {
+		return false
+	}
+	if vix3mDisseminating(nyTime(now)) {
+		return false
+	}
+	start, _, ok := vix3mLastDisseminationWindow(now)
+	if !ok {
+		return false
+	}
+	carried := prev.VIXTermStructure
+	if carried.VIX3M == nil || *carried.VIX3M <= 0 || carried.VIX3MQuality == nil ||
+		carried.VIX3MQuality.AsOf.Before(start) {
+		return false
+	}
+	quality := *carried.VIX3MQuality
+	quality.Source += " · carried, no tick within budget"
+	ratio := *row.VIX / *carried.VIX3M
+	row.VIX3M = carried.VIX3M
+	row.VIX3MQuality = &quality
+	row.Ratio = &ratio
+	row.DataType = rpc.MarketDataFrozen
+	row.Status = rpc.RegimeStatusStale
+	row.ErrorMessage = ""
+	return true
+}
+
 func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm {
 	out := rpc.RegimeVIXTerm{Notes: vixTermNotes}
 	now := regimeNow(deps)
@@ -810,7 +855,7 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	out.VIX = new(vix)
 	out.VIX3M = new(vix3m)
 	out.VIXQuality = firmTickQuality(now, vixDT, "VIX tick")
-	out.VIX3MQuality = firmTickQuality(now, vix3mDT, "VIX3M tick (thin CBOE; off-hours typically frozen)")
+	out.VIX3MQuality = vix3mTickQuality(now, vix3mDT)
 	r := vix / vix3m
 	out.Ratio = &r
 	// The ratio is only as fresh as the staler leg. Both must be live

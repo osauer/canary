@@ -239,6 +239,71 @@ func (vixTermStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.VIXTermStructure.Status == rpc.RegimeStatusOK
 }
 
+// Cboe keeps publishing VIX3M for a quarter hour past the equity close, so the
+// dissemination window runs 09:31 to close+15m.
+const vix3mDisseminationTail = 15 * time.Minute
+
+// vix3mWindow is the single definition of one session's VIX3M publication
+// window. Every VIX3M schedule question — cadence class, honest age, carry
+// bound — resolves through it.
+func vix3mWindow(session marketcal.Session) (start, end time.Time) {
+	open := session.Open
+	start = time.Date(open.Year(), open.Month(), open.Day(), 9, 31, 0, 0, open.Location())
+	return start, session.Close.Add(vix3mDisseminationTail)
+}
+
+// vix3mDisseminating reports whether VIX3M is being published at nowNY.
+func vix3mDisseminating(nowNY time.Time) bool {
+	cal := marketcal.NewWithClock(func() time.Time { return nowNY })
+	session, err := cal.SessionAt(marketcal.MarketUSOptions, nowNY)
+	if err != nil || (session.State != marketcal.StateRegular && session.State != marketcal.StateEarlyClose) {
+		return false
+	}
+	start, end := vix3mWindow(session)
+	return !nowNY.Before(start) && nowNY.Before(end)
+}
+
+// vix3mLastDisseminationWindow is the most recently completed publication
+// window. A frozen leg's value comes from it, and a carried value observed
+// before its start means a dead subscription rather than a slow one.
+func vix3mLastDisseminationWindow(now time.Time) (start, end time.Time, ok bool) {
+	date, _, found := lastCompletedOptionsSession(now)
+	if !found {
+		return time.Time{}, time.Time{}, false
+	}
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	day, err := time.ParseInLocation("2006-01-02", date, ny)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	cal := marketcal.NewWithClock(func() time.Time { return now })
+	session, err := cal.SessionAt(marketcal.MarketUSOptions, day.Add(12*time.Hour))
+	if err != nil || session.Close.IsZero() {
+		return time.Time{}, time.Time{}, false
+	}
+	start, end = vix3mWindow(session)
+	return start, end, true
+}
+
+// vix3mTickQuality stamps a live leg at read time and a frozen leg at the end
+// of the window that produced it. Without this every served VIX3M reads about a
+// second old whatever its true vintage, because the quality timestamp is taken
+// when the snapshot is built rather than when the print arrived — so nothing
+// downstream can tell a current value from a session-old one.
+func vix3mTickQuality(now time.Time, dataType string) *rpc.Quality {
+	q := firmTickQuality(now, dataType, "VIX3M tick (thin CBOE; off-hours typically frozen)")
+	if rpc.IsLiveDataType(dataType) {
+		return q
+	}
+	if _, end, ok := vix3mLastDisseminationWindow(now); ok && end.Before(now) {
+		q.AsOf = end
+	}
+	return q
+}
+
 func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string {
 	if res == nil || nowNY.IsZero() {
 		return rpc.RegimeFreshnessOverdue
@@ -260,8 +325,7 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 		// No dissemination window today; the tail rule decides.
 	case marketcal.StateRegular, marketcal.StateEarlyClose:
 		local := nowNY.In(session.Open.Location())
-		vix3mStart := time.Date(local.Year(), local.Month(), local.Day(), 9, 31, 0, 0, local.Location())
-		vix3mEnd := session.Close.Add(15 * time.Minute)
+		vix3mStart, vix3mEnd := vix3mWindow(session)
 		if !local.Before(vix3mStart) && local.Before(vix3mEnd) {
 			if row.Status == rpc.RegimeStatusOK && vixClass == rpc.FreshnessLive && vix3mClass == rpc.FreshnessLive {
 				return rpc.RegimeFreshnessFresh

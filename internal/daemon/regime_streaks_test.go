@@ -310,6 +310,74 @@ func TestStreakFreezesOnNonFreshCadence(t *testing.T) {
 	}
 }
 
+// The quality timestamp is taken when the snapshot is built, so before this a
+// frozen VIX3M always read about a second old however stale it really was.
+func TestVIX3MFrozenLegStampsItsPublicationWindow(t *testing.T) {
+	ny := newYorkLocation()
+	// Monday pre-open; the last completed window ended Friday.
+	now := time.Date(2026, 7, 20, 8, 0, 0, 0, ny)
+	want := time.Date(2026, 7, 17, 16, 30, 0, 0, ny)
+	if got := vix3mTickQuality(now, rpc.MarketDataFrozen); !got.AsOf.Equal(want) {
+		t.Fatalf("frozen VIX3M stamp=%s, want %s", got.AsOf, want)
+	}
+	if got := vix3mTickQuality(now, rpc.MarketDataLive); !got.AsOf.Equal(now) {
+		t.Fatalf("live VIX3M stamp=%s, want read time %s", got.AsOf, now)
+	}
+}
+
+// Outside the publication window VIX3M cannot have changed, so one missed poll
+// of a thin index must not blank the vol cluster — but a value older than the
+// last completed window is a dead subscription, not a slow one.
+func TestVIXTermCarriesPriorVIX3MOnlyWithinTheLastWindow(t *testing.T) {
+	ny := newYorkLocation()
+	vix, vix3m := 17.2, 19.5
+	preOpen := time.Date(2026, 7, 20, 8, 0, 0, 0, ny)
+	lastWindowEnd := time.Date(2026, 7, 17, 16, 30, 0, 0, ny)
+	prev := &rpc.RegimeSnapshotResult{VIXTermStructure: rpc.RegimeVIXTerm{
+		VIX3M:        &vix3m,
+		VIX3MQuality: &rpc.Quality{AsOf: lastWindowEnd, FreshnessClass: rpc.FreshnessFrozen, Source: "VIX3M tick"},
+	}}
+	// The real timeout path keeps the VIX leg and its quality; only VIX3M is lost.
+	timedOut := func() *rpc.RegimeSnapshotResult {
+		return &rpc.RegimeSnapshotResult{AsOf: preOpen, VIXTermStructure: rpc.RegimeVIXTerm{
+			Status: rpc.RegimeStatusError, VIX: &vix,
+			VIXQuality:   &rpc.Quality{AsOf: preOpen, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm},
+			ErrorMessage: "VIX3M: no tick within budget (thin CBOE index, common off-hours)",
+		}}
+	}
+
+	res := timedOut()
+	if !carryVIXTermFromLastGood(res, prev, preOpen) {
+		t.Fatal("refused a carry from the last completed window")
+	}
+	row := res.VIXTermStructure
+	if row.Status != rpc.RegimeStatusStale || row.Ratio == nil || row.ErrorMessage != "" {
+		t.Fatalf("carried row=%+v", row)
+	}
+	if got := *row.Ratio; got != vix/vix3m {
+		t.Fatalf("carried ratio=%v, want %v", got, vix/vix3m)
+	}
+	if row.VIX3MQuality == nil || !row.VIX3MQuality.AsOf.Equal(lastWindowEnd) {
+		t.Fatalf("carried leg lost its observation time: %+v", row.VIX3MQuality)
+	}
+	if got := vixTermCadenceClass(res, preOpen); got != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("carried row cadence=%q, want not_due", got)
+	}
+
+	tooOld := *prev
+	staleQuality := *prev.VIXTermStructure.VIX3MQuality
+	staleQuality.AsOf = lastWindowEnd.AddDate(0, 0, -3)
+	tooOld.VIXTermStructure.VIX3MQuality = &staleQuality
+	if res = timedOut(); carryVIXTermFromLastGood(res, &tooOld, preOpen) {
+		t.Fatal("carried a value observed before the last completed window")
+	}
+
+	rth := time.Date(2026, 7, 20, 10, 0, 0, 0, ny)
+	if res = timedOut(); carryVIXTermFromLastGood(res, prev, rth) {
+		t.Fatal("carried while VIX3M was publishing; that miss is a real gap")
+	}
+}
+
 // IDEALPRO trades one continuous weekly session, so a shut market is an
 // expected gap and not a source defect — including the whole weekend, which
 // previously read overdue and blocked the dashboard every Saturday.

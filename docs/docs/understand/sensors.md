@@ -187,7 +187,12 @@ Two slower inputs keep their own publication clocks. Outside VIX3M
 dissemination — before it opens as well as after it closes — the frozen VIX term
 observation stays visible and reads `not_due` whichever subscription mode the
 broker reports for either Cboe index leg; while VVIX is current the volatility
-source is healthy and `not_due`, not a stale-source warning. S&P 500
+source is healthy and `not_due`, not a stale-source warning. A frozen VIX3M leg
+is stamped with the end of the window that produced it rather than with read
+time, so its real vintage is visible; and when the thin index misses a poll
+while it is not publishing, the previous print is carried instead of blanking
+the row — bounded to the most recently completed window, since anything older
+is a dead subscription rather than a slow one. S&P 500
 breadth starts after the official equity close plus a 35-minute settlement
 delay. A full broker-paced pass can take about 74 minutes, so the prior
 last-good is healthy `not_due` context only while a refresh or retry remains
