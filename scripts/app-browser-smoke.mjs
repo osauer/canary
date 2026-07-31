@@ -1627,6 +1627,7 @@ async function exerciseAlertHistory(page) {
       // legend is the first span, so read that rather than the whole row.
       placards: [...document.querySelectorAll("#alertsTab .pd-placard")].map((el) => (el.querySelector("span") || el).textContent?.trim() || ""),
       historyHidden: document.getElementById("alertsHistorySection")?.hidden !== false,
+      activeLegendHidden: document.getElementById("currentSignalPlacard")?.hidden !== false,
     };
   });
   let selected = false;
@@ -1662,6 +1663,10 @@ async function exerciseAlertHistory(page) {
   if (!info.placards.includes("Active") || !info.placards.includes("Process evidence")) {
     throw new Error(`alerts placards are incomplete: ${JSON.stringify(info.placards)}`);
   }
+  // The ALL DARK poster is the count; every other state keeps the legend.
+  if (info.activeLegendHidden !== (info.poster === "ALL DARK.")) {
+    throw new Error(`the Active legend must yield to the poster and only to the poster: ${JSON.stringify({ poster: info.poster, activeLegendHidden: info.activeLegendHidden })}`);
+  }
   if (!info.historyHidden && !info.placards.some((placard) => /^Extinguished/.test(placard))) {
     throw new Error(`the extinguished register must carry its own placard: ${JSON.stringify(info.placards)}`);
   }
@@ -1680,6 +1685,7 @@ async function exerciseAlertHistory(page) {
     coverage: info.coverage,
     placards: info.placards,
     poster: info.poster,
+    active_legend_hidden: info.activeLegendHidden,
     active_tints: info.active.map((row) => row.tint),
     first_age: info.active[0]?.age || info.extinguished[0]?.age || "",
     selected,

@@ -373,14 +373,22 @@ function timeLabel(value) {
   return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 
-// Panel clock: the weekday and the minute, on the same 24-hour register the
-// lamp-test stamp already keeps. The annunciator log spans days, so the
-// weekday earns its place; the seconds never do.
+// Panel clock: the day and the minute, on the same 24-hour register the
+// lamp-test stamp already keeps. The annunciator log spans days, so the day
+// earns its place; the seconds never do. Inside the week the weekday reads
+// fastest, but the extinguished register runs to seven days and a retained
+// unread lamp can be far older, so anything beyond the week is dated —
+// "Thu" a week out names two different days and the operator cannot tell
+// which.
+const WEEKDAY_CLOCK_MS = 6 * 24 * 60 * 60 * 1000;
+
 function clockLabel(value) {
   if (!value) return "not observed";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "not observed";
-  const day = parsed.toLocaleDateString([], { weekday: "short" });
+  const day = Math.abs(Date.now() - parsed.getTime()) <= WEEKDAY_CLOCK_MS
+    ? parsed.toLocaleDateString([], { weekday: "short" })
+    : parsed.toLocaleDateString([], { day: "numeric", month: "short" });
   const time = parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   return `${day} ${time}`;
 }
@@ -614,8 +622,10 @@ function renderAlerts() {
   const valid = state.alertsFeedValid !== false;
   const currentList = $("currentSignalList");
   const historyList = $("alertHistoryList");
+  const placard = $("currentSignalPlacard");
   if (!value || !valid || !value.initialized) {
     state.renderedAlertAttention = null;
+    if (placard) placard.hidden = false;
     setText("alertCount", "Unknown");
     setText("currentSignalCount", "--");
     setText("alertAuthorityState", "Unknown");
@@ -643,10 +653,15 @@ function renderAlerts() {
   setText("alertAuthorityState", authorityState);
   setText("alertCoverageSummary", `${value.coverage.state} coverage · ${value.coverage.freshness} · ${value.coverage.covered_sources.length}/${value.coverage.expected_sources.length} sources · ${timeLabel(value.coverage.as_of)}`);
   const extinguished = extinguishedRegister(value, ended);
+  // The poster is the count: an engraved ALL DARK under an "ACTIVE 0" legend
+  // says the same thing twice and dilutes the one word that matters. Every
+  // other quiet state keeps the legend, because a sentence is not a poster.
+  const posted = active.length === 0 && clear;
+  if (placard) placard.hidden = posted;
   if (currentList) {
     currentList.replaceChildren(...(active.length > 0
       ? [...active].sort(bySeverity).map(alertRowElement)
-      : [clear ? allDarkPoster(value) : emptyRow("No active alert can be confirmed because source coverage is incomplete or stale.")]));
+      : [posted ? allDarkPoster(value) : emptyRow("No active alert can be confirmed because source coverage is incomplete or stale.")]));
   }
   if (historyList) historyList.replaceChildren(...extinguished.map(alertRowElement));
   const history = $("alertsHistorySection");

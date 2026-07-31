@@ -1511,14 +1511,21 @@ p {
 }
 
 /* The stamp is also the way in: the line that reports source health opens the
-   detail that explains it. It stays engraved — an affordance, not a control. */
+   detail that explains it. It stays engraved — an affordance, not a control.
+   A form control does not inherit letter-spacing, line-height or casing (the
+   UA resets them to initial), so the engraved register is restated here or
+   the stamp drops out of the panel's typography the moment it becomes a
+   button. */
 .pd-lamptest__stamp {
   min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
   text-align: left;
+  text-transform: inherit;
 }
 
 .pd-dimcount {

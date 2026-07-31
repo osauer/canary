@@ -28,7 +28,7 @@ class Element {
 }
 
 const ids = [
-  "alertCount", "currentSignalCount", "alertAuthorityState", "alertCoverageSummary", "currentSignalList",
+  "alertCount", "currentSignalCount", "currentSignalPlacard", "alertAuthorityState", "alertCoverageSummary", "currentSignalList",
   "alertHistoryList", "alertsHistorySection", "alertHistoryCount", "alertSourceList", "alertsDeliveryBanner",
   "alertDeliveryHealth", "alertDeliveryAcceptance", "alertUnreadBadge", "tabAlerts", "attentionStatus", "alertsTab",
   "selectedAlertPanel", "selectedAlertTitle", "selectedAlertBody", "selectedAlertTime",
@@ -271,6 +271,48 @@ test("the log lamps act above watch, and an extinguished row reads unlit with it
   assert.equal(elements.get("alertsHistorySection").hidden, false);
 });
 
+test("the age line names the weekday inside the week and the date beyond it", () => {
+  reset();
+  const nowMs = Date.now();
+  const nowISO = new Date(nowMs).toISOString();
+  const litAt = new Date(nowMs - 3 * 60 * 60 * 1000);
+  ingestAlerts(dto({
+    as_of: nowISO,
+    occurrences: [occurrence({ first_seen_at: litAt.toISOString(), last_seen_at: nowISO })],
+    attention: { unread_count: 0, high_water_seq: 4, read_through_seq: 4, unread_refs: [] },
+  }));
+  renderAlerts();
+  const recent = visibleText(elements.get("currentSignalList").children[0]);
+  assert.ok(recent.includes(`Lit ${litAt.toLocaleDateString([], { weekday: "short" })} `), recent);
+
+  reset();
+  const oldLit = new Date(nowMs - 20 * 24 * 60 * 60 * 1000);
+  const oldOut = new Date(oldLit.getTime() + 40 * 60 * 1000);
+  const dated = oldLit.toLocaleDateString([], { day: "numeric", month: "short" });
+  const stale = occurrence({
+    display_id: "alert-previous-abcdef0123456789", severity: "watch", state: "recovered", title: "Old lamp",
+    first_seen_at: oldLit.toISOString(), last_seen_at: oldOut.toISOString(),
+    ended_at: oldOut.toISOString(), end_reason: "recovered",
+  });
+  ingestAlerts(dto({
+    as_of: nowISO,
+    occurrences: [stale],
+    attention: {
+      unread_count: 1,
+      high_water_seq: 4,
+      read_through_seq: 3,
+      unread_refs: [{ display_id: stale.display_id, source: stale.source, kind: stale.kind }],
+    },
+  }));
+  renderAlerts();
+  // A weekday twenty days out names two different days and the operator
+  // cannot tell which, so a retained lamp states its date.
+  const old = visibleText(elements.get("alertHistoryList").children[0]);
+  assert.ok(old.includes(`Lit ${dated} `), old);
+  assert.ok(old.includes(`, out ${dated} `), old);
+  assert.ok(old.includes("40 min lit"), old);
+});
+
 test("a confirmed quiet desk posts ALL DARK, and an unconfirmed one keeps the honest sentence", () => {
   reset();
   const now = new Date();
@@ -291,6 +333,8 @@ test("a confirmed quiet desk posts ALL DARK, and an unconfirmed one keeps the ho
   assert.equal(poster.className, "pd-poster");
   assert.match(visibleText(poster), /ALL DARK\./);
   assert.match(visibleText(poster), new RegExp(`${sourceNames.length}/${sourceNames.length} sources current`));
+  // The poster is the count: no "ACTIVE 0" legend stands over it.
+  assert.equal(elements.get("currentSignalPlacard").hidden, true);
 
   reset();
   const unconfirmed = dto({
@@ -304,6 +348,9 @@ test("a confirmed quiet desk posts ALL DARK, and an unconfirmed one keeps the ho
   const empty = elements.get("currentSignalList").children[0];
   assert.equal(empty.className, "empty-row");
   assert.match(empty.textContent, /source coverage is incomplete or stale/);
+  // A sentence is not a poster: the legend and its count stay.
+  assert.equal(elements.get("currentSignalPlacard").hidden, false);
+  assert.equal(elements.get("currentSignalCount").textContent, "0");
 });
 
 test("an unread occurrence outside the seven-day window stays in the extinguished register", () => {
