@@ -552,3 +552,41 @@ func TestStartupWaitRetriesOnOrphanThenTimesOut(t *testing.T) {
 		t.Fatalf("startup wait gave up after %s — did not retry", elapsed)
 	}
 }
+
+// The daemon log belongs beside the database it describes: DefaultAuthorityPath
+// has always honored XDG_STATE_HOME, and a desk that moved its state directory
+// used to find the database in the new place and the log still in $HOME.
+func TestDefaultLogPathFollowsStateHome(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("CANARY_LOG", "")
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	authority, err := DefaultAuthorityPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := DefaultLogPath()
+	if filepath.Dir(log) != filepath.Dir(authority) {
+		t.Fatalf("log %s does not sit beside authority %s", log, authority)
+	}
+
+	t.Setenv("CANARY_LOG", filepath.Join(stateHome, "explicit.log"))
+	if got := DefaultLogPath(); got != filepath.Join(stateHome, "explicit.log") {
+		t.Fatalf("explicit CANARY_LOG = %s, want it to win over XDG_STATE_HOME", got)
+	}
+}
+
+func TestDisplayPathAbbreviatesHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory in this environment")
+	}
+	inside := filepath.Join(home, ".local", "state", "x.log")
+	if got := DisplayPath(inside); got != filepath.Join("~", ".local", "state", "x.log") {
+		t.Fatalf("DisplayPath(%s) = %s, want a ~-abbreviated path", inside, got)
+	}
+	outside := filepath.Join(t.TempDir(), "x.log")
+	if got := DisplayPath(outside); got != outside {
+		t.Fatalf("DisplayPath(%s) = %s, want it unchanged outside the home directory", outside, got)
+	}
+}

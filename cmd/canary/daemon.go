@@ -21,7 +21,7 @@ func runDaemon(args []string) {
 	fs := flag.NewFlagSet(productidentity.Executable+" daemon", flag.ExitOnError)
 	cfgPath := fs.String("config", "", "config file path (default $XDG_CONFIG_HOME/ibkr/config.toml)")
 	socket := fs.String("socket", "", "unix socket path (default $XDG_RUNTIME_DIR/ibkr/ibkr.sock)")
-	logPath := fs.String("log", "", "log file path (default ~/.local/state/ibkr/ibkr-daemon.log; 'stderr' for stderr)")
+	logPath := fs.String("log", "", fmt.Sprintf("log file path (default %s; 'stderr' for stderr)", dial.DisplayPath(dial.DefaultLogPath())))
 	foreground := fs.Bool("foreground", false, "run in foreground; do not idle-shutdown")
 	showVer := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {

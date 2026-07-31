@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/productidentity"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"golang.org/x/sys/unix"
@@ -340,7 +341,7 @@ func fail(env *Env, format string, args ...any) int {
 	if isGatewayUnavailable(msg) {
 		fmt.Fprintf(env.Stderr, "  hint: run `%s status` to see whether the daemon is still\n", productidentity.Executable)
 		fmt.Fprintln(env.Stderr, "        connecting (retry in a few seconds) or the gateway is")
-		fmt.Fprintln(env.Stderr, "        down (start IB Gateway; check ~/.local/state/ibkr/ibkr-daemon.log).")
+		fmt.Fprintf(env.Stderr, "        down (start IB Gateway; check %s).\n", dial.DisplayPath(dial.DefaultLogPath()))
 	}
 	return 1
 }

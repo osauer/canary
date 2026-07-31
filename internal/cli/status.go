@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -100,10 +101,10 @@ func renderStatusText(env *Env, res *rpc.HealthResult) {
 		fmt.Fprintln(out, "    Configure → Settings → API → Settings → 'Enable ActiveX and Socket Clients'")
 		fmt.Fprintln(out, "    Trusted IPs include 127.0.0.1 (or empty)")
 		fmt.Fprintln(out, "    Login fully completed (not paused at 2FA)")
-		fmt.Fprintln(out, env.dim("  Daemon log: ~/.local/state/ibkr/ibkr-daemon.log"))
+		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	} else if !res.Connected {
 		fmt.Fprintln(out)
-		fmt.Fprintln(out, env.dim("  Daemon log: ~/.local/state/ibkr/ibkr-daemon.log"))
+		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	}
 	fmt.Fprintln(out)
 }

@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -68,14 +69,35 @@ func DefaultAuthorityPath() (string, error) {
 	return filepath.Join(home, ".local", "state", productidentity.PersistentNamespace, "daemon.db"), nil
 }
 
-// DefaultLogPath returns the canonical daemon log location.
+// DefaultLogPath returns the canonical daemon log location. It reads
+// XDG_STATE_HOME the way DefaultAuthorityPath does, so a desk that moves its
+// state directory keeps the log beside the database it describes.
 func DefaultLogPath() string {
-	// docgen:env CANARY_LOG | Override the daemon log file path. Defaults to `$HOME/.local/state/ibkr/ibkr-daemon.log`.
+	// docgen:env CANARY_LOG | Override the daemon log file path. Defaults to `$XDG_STATE_HOME/ibkr/ibkr-daemon.log` or `$HOME/.local/state/ibkr/ibkr-daemon.log`.
 	if v := os.Getenv("CANARY_LOG"); v != "" {
 		return v
 	}
+	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
+		return filepath.Join(v, productidentity.PersistentNamespace, "ibkr-daemon.log")
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "state", productidentity.PersistentNamespace, "ibkr-daemon.log")
+}
+
+// DisplayPath renders p for a human-facing hint, abbreviating the home
+// directory to ~. Hints name the path Canary will actually use; spelling the
+// home directory out puts the account name into terminal output and
+// screenshots without telling the reader anything.
+func DisplayPath(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	rest, ok := strings.CutPrefix(p, home+string(os.PathSeparator))
+	if !ok {
+		return p
+	}
+	return "~" + string(os.PathSeparator) + rest
 }
 
 // Conn is a single client connection over the Unix socket.

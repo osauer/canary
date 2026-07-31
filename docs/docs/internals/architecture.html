@@ -457,7 +457,7 @@ durability and upgrade mechanics, and current recovery limits.</p>
 </tr>
 <tr>
 <td>Runtime IPC and logs</td>
-<td><code>$XDG_RUNTIME_DIR/ibkr/ibkr.sock</code>, falling back to <code>~/.cache/ibkr/ibkr.sock</code>; daemon log defaults to <code>~/.local/state/ibkr/ibkr-daemon.log</code></td>
+<td><code>$XDG_RUNTIME_DIR/ibkr/ibkr.sock</code>, falling back to <code>~/.cache/ibkr/ibkr.sock</code>; daemon log defaults to <code>$XDG_STATE_HOME/ibkr/ibkr-daemon.log</code>, falling back to <code>~/.local/state/ibkr/ibkr-daemon.log</code></td>
 <td>Unix socket, sibling lock/PID file, rotated daemon text log, and optional macOS LaunchAgent/app logs under <code>~/Library</code>.</td>
 </tr>
 <tr>
@@ -565,8 +565,9 @@ typed database evidence, and bounded alert lifecycle and delivery counters. Ther
 is no external metrics stack and no tracing.</p>
 <ul>
 <li>The daemon writes structured text logs through <code>log/slog</code>. The <code>log_level</code>
-config key sets the level; the default is <code>info</code>. The log lives at
-<code>~/.local/state/ibkr/ibkr-daemon.log</code> and rotates at boot once it passes
+config key sets the level; the default is <code>info</code>. The log lives beside the
+daemon database — <code>$XDG_STATE_HOME/ibkr/ibkr-daemon.log</code>, or
+<code>~/.local/state/ibkr/ibkr-daemon.log</code> — and rotates at boot once it passes
 64 MiB, keeping one older generation. The app logs to <code>ibkr-app.log</code>.</li>
 <li><code>canary status</code> renders the daemon's <code>status.health</code> report: gateway,
 session, and TLS state, uptime, background tasks, subsystem health, data

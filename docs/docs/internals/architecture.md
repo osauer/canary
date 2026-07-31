@@ -190,7 +190,7 @@ durability and upgrade mechanics, and current recovery limits.
 | App durable state | `$XDG_STATE_HOME/ibkr/app`, falling back to `~/.local/state/ibkr/app` | Private `state.json` with device grants, push subscriptions, VAPID material, the source-neutral alert inbox, unread cursor, delivery attempts and receipts, delivery health, and relay credentials; `app.lock` enforces one app process per state directory. |
 | Disposable scratch | `$XDG_CACHE_HOME/ibkr`, falling back to `~/.cache/ibkr` | Updater and transport scratch only; it is never daemon business-state authority. Contract, membership, regime, breadth, gamma, and decision data are SQLite projections/observations or refreshable in-memory views, not live files here. |
 | User data | `$XDG_DATA_HOME/ibkr`, falling back to `~/.local/share/ibkr` | `watchlist.json`; explicit research exports are separate operator-created files. |
-| Runtime IPC and logs | `$XDG_RUNTIME_DIR/ibkr/ibkr.sock`, falling back to `~/.cache/ibkr/ibkr.sock`; daemon log defaults to `~/.local/state/ibkr/ibkr-daemon.log` | Unix socket, sibling lock/PID file, rotated daemon text log, and optional macOS LaunchAgent/app logs under `~/Library`. |
+| Runtime IPC and logs | `$XDG_RUNTIME_DIR/ibkr/ibkr.sock`, falling back to `~/.cache/ibkr/ibkr.sock`; daemon log defaults to `$XDG_STATE_HOME/ibkr/ibkr-daemon.log`, falling back to `~/.local/state/ibkr/ibkr-daemon.log` | Unix socket, sibling lock/PID file, rotated daemon text log, and optional macOS LaunchAgent/app logs under `~/Library`. |
 | Browser / PWA state | Browser cookie jar, IndexedDB, and `localStorage` | Short-lived session, durable HttpOnly device continuity, P-256 device key, local recovery material, preferences, and a non-authorizing relay route identifier. |
 | Hosted relay state | Cloudflare Durable Object | Connector token and expiry for the optional route. It stores no device grants or broker state. |
 
@@ -305,8 +305,9 @@ typed database evidence, and bounded alert lifecycle and delivery counters. Ther
 is no external metrics stack and no tracing.
 
 - The daemon writes structured text logs through `log/slog`. The `log_level`
-  config key sets the level; the default is `info`. The log lives at
-  `~/.local/state/ibkr/ibkr-daemon.log` and rotates at boot once it passes
+  config key sets the level; the default is `info`. The log lives beside the
+  daemon database — `$XDG_STATE_HOME/ibkr/ibkr-daemon.log`, or
+  `~/.local/state/ibkr/ibkr-daemon.log` — and rotates at boot once it passes
   64 MiB, keeping one older generation. The app logs to `ibkr-app.log`.
 - `canary status` renders the daemon's `status.health` report: gateway,
   session, and TLS state, uptime, background tasks, subsystem health, data
