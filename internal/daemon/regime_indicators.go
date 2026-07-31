@@ -246,9 +246,7 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 	row := res.VIXTermStructure
 	vixClass, vixOK := regimeTickQualityClass(row.VIXQuality, nowNY)
 	vix3mClass, vix3mOK := regimeTickQualityClass(row.VIX3MQuality, nowNY)
-	// Only usable row states with both typed legs can participate. Schedule
-	// classification happens before the live/live fast path so an impossible
-	// pre-open VIX3M "live" label cannot become confirmable evidence.
+	// Only usable row states with both typed legs can participate.
 	if (row.Status != rpc.RegimeStatusOK && row.Status != rpc.RegimeStatusStale) || !vixOK || !vix3mOK {
 		return rpc.RegimeFreshnessOverdue
 	}
@@ -259,45 +257,29 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 	}
 	switch session.State {
 	case marketcal.StateClosed, marketcal.StateHoliday:
-		if vix3mClass == rpc.FreshnessFrozen && (vixClass == rpc.FreshnessFrozen || vixClass == rpc.FreshnessLive) {
-			return rpc.RegimeFreshnessNotDue
-		}
-		return rpc.RegimeFreshnessOverdue
+		// No dissemination window today; the tail rule decides.
 	case marketcal.StateRegular, marketcal.StateEarlyClose:
 		local := nowNY.In(session.Open.Location())
-		vixGTHStart := time.Date(local.Year(), local.Month(), local.Day(), 3, 15, 0, 0, local.Location())
-		vixGTHEnd := time.Date(local.Year(), local.Month(), local.Day(), 9, 25, 0, 0, local.Location())
 		vix3mStart := time.Date(local.Year(), local.Month(), local.Day(), 9, 31, 0, 0, local.Location())
 		vix3mEnd := session.Close.Add(15 * time.Minute)
-		switch {
-		case local.Before(vixGTHStart):
-			if vix3mClass == rpc.FreshnessFrozen && (vixClass == rpc.FreshnessFrozen || vixClass == rpc.FreshnessLive) {
-				return rpc.RegimeFreshnessNotDue
-			}
-		case local.Before(vixGTHEnd):
-			if vix3mClass == rpc.FreshnessFrozen && vixClass == rpc.FreshnessLive {
-				return rpc.RegimeFreshnessNotDue
-			}
-		case local.Before(vix3mStart):
-			// Cboe pauses VIX dissemination from 09:25 until the 09:31
-			// regular-hours calculation. The 09:25 print is still the
-			// newest possible VIX observation in this six-minute gap.
-			if vix3mClass == rpc.FreshnessFrozen && (vixClass == rpc.FreshnessFrozen || vixClass == rpc.FreshnessLive) {
-				return rpc.RegimeFreshnessNotDue
-			}
-		case local.Before(vix3mEnd):
+		if !local.Before(vix3mStart) && local.Before(vix3mEnd) {
 			if row.Status == rpc.RegimeStatusOK && vixClass == rpc.FreshnessLive && vix3mClass == rpc.FreshnessLive {
 				return rpc.RegimeFreshnessFresh
 			}
-		case !local.Before(vix3mEnd):
-			// The current session's final VIX3M value is frozen after its
-			// dissemination window closes; the next value is not due yet.
-			if vix3mClass == rpc.FreshnessFrozen && (vixClass == rpc.FreshnessFrozen || vixClass == rpc.FreshnessLive) {
-				return rpc.RegimeFreshnessNotDue
-			}
+			return rpc.RegimeFreshnessOverdue
 		}
+	default:
+		return rpc.RegimeFreshnessOverdue
 	}
-	return rpc.RegimeFreshnessOverdue
+	// Outside VIX3M's dissemination window no newer observation can exist, so
+	// the row is context, never a defect. Neither leg's class is consulted
+	// here: IBKR reports the subscription's mode, not an observation's age,
+	// and it flips both Cboe index legs between live and frozen off-window
+	// without anything going missing. Confirmable freshness is unreachable
+	// outside the window regardless, so an off-window "live" label still
+	// cannot become confirming evidence. A genuinely absent leg is already
+	// overdue above, via the row status and typed-quality checks.
+	return rpc.RegimeFreshnessNotDue
 }
 
 func regimeTickQualityClass(quality *rpc.Quality, now time.Time) (string, bool) {

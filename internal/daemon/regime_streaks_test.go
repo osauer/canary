@@ -172,20 +172,35 @@ func TestVIXTermCadenceDistinguishesNotDueFromOverdue(t *testing.T) {
 		t.Fatalf("Monday 01:05 ET VIX policy=%+v", policy)
 	}
 
+	// Pre-open, IBKR reports each Cboe index leg's subscription mode, which
+	// flips between live and frozen on its own. No combination means a VIX3M
+	// observation went missing, so none of them may raise a data-quality
+	// defect — and none can reach confirmable freshness either.
 	gth := time.Date(2026, 7, 20, 4, 0, 0, 0, ny)
 	result.VIXTermStructure.VIXQuality = quality(gth, rpc.FreshnessFrozen)
 	result.VIXTermStructure.VIX3MQuality = quality(gth, rpc.FreshnessFrozen)
-	if got := vixTermCadenceClass(result, gth); got != rpc.RegimeFreshnessOverdue {
-		t.Fatalf("Monday 04:00 ET frozen VIX cadence=%q, want overdue", got)
+	if got := vixTermCadenceClass(result, gth); got != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("Monday 04:00 ET frozen VIX cadence=%q, want not_due", got)
+	}
+	result.AsOf = gth
+	policy = (&Server{}).populateStreaksWithStore(result, nil)[rpc.RegimeIndicatorVIXTerm]
+	if policy.freshness == nil || policy.freshness.Class != rpc.RegimeFreshnessNotDue || policy.eligibility == nil ||
+		len(policy.eligibility.Reasons) != 1 || policy.eligibility.Reasons[0] != "data_not_due" {
+		t.Fatalf("Monday 04:00 ET frozen VIX policy=%+v", policy)
 	}
 	result.VIXTermStructure.VIXQuality = quality(gth, rpc.FreshnessLive)
 	if got := vixTermCadenceClass(result, gth); got != rpc.RegimeFreshnessNotDue {
 		t.Fatalf("Monday 04:00 ET live VIX/frozen VIX3M cadence=%q, want not_due", got)
 	}
 	result.VIXTermStructure.VIX3MQuality = quality(gth, rpc.FreshnessLive)
-	if got := vixTermCadenceClass(result, gth); got != rpc.RegimeFreshnessOverdue {
-		t.Fatalf("Monday 04:00 ET impossible live VIX3M cadence=%q, want overdue", got)
+	if got := vixTermCadenceClass(result, gth); got != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("Monday 04:00 ET off-window live VIX3M cadence=%q, want not_due", got)
 	}
+	result.VIXTermStructure.Status = rpc.RegimeStatusOK
+	if got := vixTermCadenceClass(result, gth); got != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("Monday 04:00 ET off-window live/live cadence=%q, want not_due (never fresh)", got)
+	}
+	result.VIXTermStructure.Status = rpc.RegimeStatusStale
 	result.VIXTermStructure.VIX3MQuality = quality(gth, rpc.FreshnessFrozen)
 	savedVIX3M := result.VIXTermStructure.VIX3MQuality
 	result.VIXTermStructure.VIX3MQuality = nil
@@ -197,8 +212,8 @@ func TestVIXTermCadenceDistinguishesNotDueFromOverdue(t *testing.T) {
 	beforePause := time.Date(2026, 7, 20, 9, 24, 59, 0, ny)
 	result.VIXTermStructure.VIXQuality = quality(beforePause, rpc.FreshnessFrozen)
 	result.VIXTermStructure.VIX3MQuality = quality(beforePause, rpc.FreshnessFrozen)
-	if got := vixTermCadenceClass(result, beforePause); got != rpc.RegimeFreshnessOverdue {
-		t.Fatalf("Monday 09:24 ET frozen VIX cadence=%q, want overdue", got)
+	if got := vixTermCadenceClass(result, beforePause); got != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("Monday 09:24 ET frozen VIX cadence=%q, want not_due", got)
 	}
 	pauseStart := time.Date(2026, 7, 20, 9, 25, 0, 0, ny)
 	result.VIXTermStructure.VIXQuality = quality(pauseStart, rpc.FreshnessFrozen)

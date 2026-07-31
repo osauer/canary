@@ -183,9 +183,11 @@ seconds and starts a refresh about one minute before expiry, leaving the full
 45-second acquisition budget plus a cushion. A Gamma publication can also wake
 Regime. App polling and alert consumers do not own this schedule.
 
-Two slower inputs keep their own publication clocks. After VIX3M dissemination
-closes, the frozen VIX term observation stays visible; while VVIX is current the
-volatility source is healthy and `not_due`, not a stale-source warning. S&P 500
+Two slower inputs keep their own publication clocks. Outside VIX3M
+dissemination — before it opens as well as after it closes — the frozen VIX term
+observation stays visible and reads `not_due` whichever subscription mode the
+broker reports for either Cboe index leg; while VVIX is current the volatility
+source is healthy and `not_due`, not a stale-source warning. S&P 500
 breadth starts after the official equity close plus a 35-minute settlement
 delay. A full broker-paced pass can take about 74 minutes, so the prior
 last-good is healthy `not_due` context only while a refresh or retry remains
