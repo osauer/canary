@@ -44,6 +44,7 @@ turns absence into zero.
 | `current` | The source refresh is complete and no newer observation is due. | Use the value subject to its quality and scope. |
 | `not_due` | The source's publication or trading window is closed, so no newer observation should exist yet. | Keep valid last-good context visible, but do not promote it to fresh confirmation. |
 | `partial` | Some expected fields, symbols, or child sources arrived and others did not. | Use only the explicitly complete part; absence elsewhere is unknown. |
+| `pending` | A refresh for the current publication period is in flight, evidenced by a typed marker, inside a bounded window anchored to the period start. | Keep the previous period's value visible as context; it never becomes fresh confirmation, and the state expires into `overdue` at the window's deadline. |
 | `stale` | A known value is older than its allowed evidence window or a due refresh failed. | Display as old context; dependent decisions normally degrade or block. |
 | `unavailable` | No usable value exists for the requested scope. | Do not infer a neutral, inactive, or passing result. |
 | `degraded` | The result exists, but source or model quality limits how it may be used. | Read the blocker and use only the permitted context. |
@@ -51,8 +52,13 @@ turns absence into zero.
 | `overdue` | The native cadence says a newer observation should already exist. | Treat required evidence as a data-quality failure, not a warning signal. |
 
 `not_due` and `overdue` are opposites: an expected schedule gap against a missed
-obligation. `partial` describes coverage and `stale` describes time. One source
-can be both incomplete and old at different layers of a result.
+obligation. `pending` sits between them — the observation is genuinely due and is
+being produced — and it is bounded, so a computation that never finishes still
+reaches `overdue`. `partial` describes coverage and `stale` describes time. One
+source can be both incomplete and old at different layers of a result.
+
+A failed refresh is `stale`, never `not_due`: the distinction is whether a newer
+observation could exist, not whether one arrived.
 
 ## Gamma
 
@@ -123,9 +129,11 @@ hours old.
 
 Regime treats that closed-session result differently. The latest
 completed-options-session value is typed `not_due` context before the next open
-and cannot confirm, then becomes overdue at the open unless a current-session
-compute replaces it. No last-good result, a missed completed session, or a due
-refresh gap is a data-quality condition.
+and cannot confirm. At the open it becomes `pending` while the session's first
+compute is actually in flight, for a bounded 30 minutes measured from the open,
+and `overdue` after that or as soon as no compute is running. Neither state can
+confirm. No last-good result, a missed completed session, or a due refresh gap
+is a data-quality condition.
 
 ### Safe check
 
@@ -163,12 +171,16 @@ reports raw and confirmed cluster counts, source health, posture, a semantic
 fingerprint, and one of `quiet`, `early_warning`, `confirmed_stress`, `panic`,
 `stabilization`, `opportunity`, or `data_quality`.
 
-Red does not automatically mean confirmed. Depth, persistence, freshness, and
-cluster independence decide whether a red row may confirm stress. A provisional
-red stays visible and may support `early_warning` only when the required
-evidence set is otherwise usable. Missing, broken, contradictory, or overdue
-required evidence instead produces `data_quality`, blocked readiness, and the
-label `Market state undefined — data incomplete`.
+Red does not automatically mean confirmed. Only a `fresh` observation may
+confirm, and the check is an allowlist: a state whose authority has not been
+decided cannot inherit confirmation. Depth, persistence, freshness, and cluster
+independence decide whether a red row may confirm stress. A provisional red
+stays visible and may support `early_warning` only when the required evidence
+set is otherwise usable. One cluster whose evidence has gone defective or stale
+degrades readiness and is named rather than discarding the other five; two of
+them, an unattributable defect, or a defect in the very evidence the current
+stage rests on produce `data_quality`, blocked readiness, and the label
+`Market state undefined — data incomplete`.
 
 Thresholds and severity governors labeled `heuristic` and `pending_backtest` are
 reviewed starting assumptions awaiting point-in-time calibration, not proven
@@ -207,17 +219,26 @@ re-sends its last known value on request: arrival time cannot tell a current
 value from a session-old one, and an index has no trade timestamp to date it
 with. Comparing the two independent readings is what makes a stuck or lapsed
 broker subscription visible, and `not_due` — which exempts a row from every age
-bound — is available only while that comparison vouches for the leg. A
-contradicted or uncorroborated leg reads `overdue` instead. Cboe publishes after
-the session, so for the evening between the close and publication the broker leg
-stands in, bounded to one session; a frozen leg is stamped with the end of the
-window that produced it, and a poll missed while the thin index is not
-publishing carries the previous print rather than blanking the row. S&P 500
-breadth starts after the official equity close plus a 35-minute settlement
-delay. A full broker-paced pass can take about 74 minutes, so the prior
-last-good is healthy `not_due` context only while a refresh or retry remains
-inside the explicit 90-minute publication window, and stale at that deadline
-without a current-session result.
+bound short of the cluster's served maximum — is available only while that
+comparison vouches for the leg. A contradicted or uncorroborated leg reads
+`overdue` instead. Cboe publishes after the session, so for the evening between
+the close and publication the broker leg stands in, bounded to one session; a
+frozen leg is stamped with the end of the window that produced it, and a poll
+missed while the thin index is not publishing carries the previous print rather
+than blanking the row.
+
+A poll missed while VIX3M *is* publishing is a different thing: the window is
+open, so it is a failed refresh, and the carried print reads `stale` rather than
+`not_due`. It bands and stays visible but can never confirm, and it is carried
+only while live VIX has moved less than 1% since that print was observed, and
+for at most 15 minutes. Past either bound the row is unavailable, because a
+stale denominator overstates backwardation — the false-positive direction.
+
+S&P 500 breadth starts after the official equity close plus a 35-minute
+settlement delay. A full broker-paced pass can take about 74 minutes, so the
+prior last-good is healthy `pending` context only while a refresh or retry
+remains inside the explicit 90-minute publication window, and stale at that
+deadline without a current-session result.
 
 The FX carry proxy follows its venue instead of a publication clock. IDEALPRO
 trades one continuous weekly session, so USD/JPY needs a live tick only while

@@ -411,6 +411,15 @@ evidence is still eligible.
 
 ## Part 3 — Staleness model: cadence-relative freshness, served on the wire
 
+> Superseded in part by `internal-docs/design/regime-input-currency.md`
+> (2026-07-31). The per-indicator cadence table below still holds. What changed
+> is the vocabulary and how it is consumed: five classes instead of two
+> (`fresh` / `not_due` / `pending` / `stale` / `overdue`), confirmation as an
+> allowlist on `fresh`, currency judged per evidence unit rather than per
+> cluster, and a defect degrading the read rather than blanking it until two
+> clusters are affected. Decision events carry `currency_policy` so the
+> calibration corpus stays partitionable across that cutover.
+
 ### The rule
 
 An observation is **cadence-fresh** when no newer observation *should* exist

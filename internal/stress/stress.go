@@ -847,7 +847,7 @@ func stressGammaContextOnly(g rpc.RegimeGammaZero) bool {
 	return g.Envelope.Result != nil &&
 		g.Envelope.Result.Quality != nil &&
 		g.Envelope.Result.Quality.Rankability == rpc.GammaRankabilityContextOnly &&
-		g.Freshness != nil && g.Freshness.Class == rpc.RegimeFreshnessNotDue
+		g.Freshness != nil && rpc.RegimeCurrencyScheduled(g.Freshness.Class)
 }
 
 func stressVolClosedSessionContext(r rpc.RegimeSnapshotResult, _ time.Time) bool {

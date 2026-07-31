@@ -110,10 +110,13 @@ func TestBreadthPublicationWindowNormalizesOnlyActivePriorLastGood(t *testing.T)
 	if before.Breadth.Status != rpc.RegimeStatusStale {
 		t.Fatalf("raw breadth status=%q, want stale evidence", before.Breadth.Status)
 	}
-	if before.Breadth.Freshness == nil || before.Breadth.Freshness.Class != rpc.RegimeFreshnessNotDue {
-		t.Fatalf("breadth freshness=%+v, want not_due before deadline", before.Breadth.Freshness)
+	// Inside the publication window the session's own observation is genuinely
+	// due — it is being computed — so the served prior last-good is pending,
+	// the same scheduled state gamma reaches at the options open.
+	if before.Breadth.Freshness == nil || before.Breadth.Freshness.Class != rpc.RegimeFreshnessPending {
+		t.Fatalf("breadth freshness=%+v, want pending before deadline", before.Breadth.Freshness)
 	}
-	assertRegimeClusterProjection(t, before, "breadth", rpc.SourceStatusOK, rpc.SourceRefreshNotDue, false, false)
+	assertRegimeClusterProjection(t, before, "breadth", rpc.SourceStatusOK, rpc.SourceRefreshPending, false, false)
 
 	deadline, ok := spx.PublicationDeadline("2026-06-01")
 	if !ok {

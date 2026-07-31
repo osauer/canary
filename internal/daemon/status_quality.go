@@ -647,7 +647,7 @@ func staleRegimeClusters(r *rpc.RegimeSnapshotResult) []string {
 	}
 	out := []string{}
 	for _, c := range candidates {
-		if rpc.RegimeClusterExpectedNotDue(*r, c.name) {
+		if regimeClusterScheduled(*r, c.name) {
 			continue
 		}
 		if clusterEvidenceIsStale(c.rows) {

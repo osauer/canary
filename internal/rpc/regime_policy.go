@@ -43,6 +43,14 @@ var RegimeClusterNames = []string{"vol", "credit", "funding", "fx", "gamma", "br
 // verdict above "insufficient signal".
 const RegimeVerdictFloor = 3
 
+// RegimeCurrencyPolicyVersion identifies the input-currency policy a decision
+// event was produced under (internal-docs/design/regime-input-currency.md).
+// Behaviour changes in how inputs report currency alter the daily fingerprint
+// sequence, so the calibration corpus has to be partitionable: a backtest must
+// never blend days either side of a cutover. Bump on every change to how a
+// class is assigned or consumed.
+const RegimeCurrencyPolicyVersion = "regime-currency-v1"
+
 // RegimeGate is one indicator's confirmation-eligibility policy. Depth units
 // are per-indicator (documented at each table entry). A zero MinDepth means
 // the red band threshold itself is the depth gate (already-deep bands).
@@ -176,12 +184,11 @@ func EvaluateRegimeEligibility(in RegimeEligibilityInput) *RegimeEligibility {
 	}
 	sessions := max(in.StreakSessions, 1)
 	out := &RegimeEligibility{}
-	if in.FreshnessClass == RegimeFreshnessNotDue {
-		out.Reasons = append(out.Reasons, "data_not_due")
-		return out
-	}
-	if !in.Fresh || in.FreshnessClass == RegimeFreshnessOverdue {
-		out.Reasons = append(out.Reasons, "data_overdue")
+	// Currency is an allowlist on fresh, never a denylist of known-bad classes:
+	// a class added later must fail closed until its authority is decided
+	// (internal-docs/design/regime-input-currency.md).
+	if !in.Fresh || !RegimeCurrencyMayConfirm(in.FreshnessClass) {
+		out.Reasons = append(out.Reasons, regimeEligibilityCurrencyReason(in.FreshnessClass))
 		return out
 	}
 	if in.Latched {
@@ -202,6 +209,23 @@ func EvaluateRegimeEligibility(in RegimeEligibilityInput) *RegimeEligibility {
 		out.Eligible = true
 	}
 	return out
+}
+
+// regimeEligibilityCurrencyReason names the currency that blocked confirmation.
+// The reason tokens are the stable vocabulary renderers and the decisions
+// journal already carry; a class with no token of its own reports data_overdue,
+// which is what it costs the row.
+func regimeEligibilityCurrencyReason(class string) string {
+	switch strings.ToLower(strings.TrimSpace(class)) {
+	case RegimeFreshnessNotDue:
+		return "data_not_due"
+	case RegimeFreshnessPending:
+		return "data_refresh_pending"
+	case RegimeFreshnessStale:
+		return "data_stale"
+	default:
+		return "data_overdue"
+	}
 }
 
 func streakReason(sessions, want int) string {

@@ -16,18 +16,23 @@ import (
 // positive through the full post-fanout pipeline: HYG 7 bps below its 50DMA
 // (one session, thin pre-open context) plus a prior-evening gamma cache
 // mutually confirmed "Broad stress regime / confirmed_stress / act" against a
-// green tape. Under the confirmation gates both reds are provisional, but
-// the gamma input is also overdue. The engine must therefore report an
-// explicit undefined data state and retain both reds only as unconfirmed
-// evidence — never confirm, never demand act.
+// green tape. Under the confirmation gates both reds are provisional and
+// neither may confirm — that is the incident invariant.
+//
+// The overdue gamma cache is one defective cluster beside five current ones,
+// so the read warns with degraded readiness and names the defect rather than
+// discarding the five (internal-docs/design/regime-input-currency.md). Break a
+// second input and the state goes undefined, as it always did.
 func TestRegimeIncident20260612Regression(t *testing.T) {
 	t.Parallel()
 	ratio := 18.84 / 21.42
 	spyChange := 0.3
 	vixChange := -3.45
 	vvix := 100.6
+	// The snapshot clock stays zero so regimeTestFinalize pins its weekday
+	// session clock; a wall-clock AsOf makes the vol cadence classifier
+	// weekend-dependent (a live VIX3M quality is impossible off-window).
 	r := &rpc.RegimeSnapshotResult{
-		AsOf: time.Now(),
 		VIXTermStructure: rpc.RegimeVIXTerm{
 			Status: rpc.RegimeStatusOK,
 			VIX:    new(18.84), VIX3M: new(21.42), Ratio: &ratio,
@@ -35,7 +40,8 @@ func TestRegimeIncident20260612Regression(t *testing.T) {
 		},
 		VolOfVol: rpc.RegimeVolOfVol{
 			Status: rpc.RegimeStatusOK, Last: &vvix,
-			AsOfDate: time.Now().AddDate(0, 0, -1).Format("2006-01-02"),
+			// Prior trading day relative to the pinned Monday clock.
+			AsOfDate: "2026-07-17",
 		},
 		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{
 			Status:   rpc.RegimeStatusOK,
@@ -65,8 +71,8 @@ func TestRegimeIncident20260612Regression(t *testing.T) {
 	}
 	c := regimeTestFinalize(t, r)
 
-	if r.Lifecycle.Stage != rpc.LifecycleDataQuality || r.Lifecycle.Severity != "watch" {
-		t.Fatalf("lifecycle = %s/%s, want data_quality/watch (incident produced confirmed_stress/act)", r.Lifecycle.Stage, r.Lifecycle.Severity)
+	if r.Lifecycle.Stage != rpc.LifecycleEarlyWarning || r.Lifecycle.Severity != "watch" {
+		t.Fatalf("lifecycle = %s/%s, want early_warning/watch (incident produced confirmed_stress/act)", r.Lifecycle.Stage, r.Lifecycle.Severity)
 	}
 	if len(r.Lifecycle.ConfirmedBy) != 0 {
 		t.Fatalf("confirmed_by = %v, want empty — marginal reds must not confirm", r.Lifecycle.ConfirmedBy)
@@ -76,8 +82,8 @@ func TestRegimeIncident20260612Regression(t *testing.T) {
 			t.Fatalf("unconfirmed = %v, want %s disclosed", r.Lifecycle.Unconfirmed, want)
 		}
 	}
-	if c.Verdict != "Market state undefined — data incomplete" {
-		t.Fatalf("verdict = %q, want explicit undefined data state", c.Verdict)
+	if c.Verdict != "Stress signal present" {
+		t.Fatalf("verdict = %q, want the provisional red disclosed without confirmation", c.Verdict)
 	}
 	if c.ClusterEligibleRedCount != 0 {
 		t.Fatalf("eligible reds = %d, want 0", c.ClusterEligibleRedCount)
@@ -91,8 +97,11 @@ func TestRegimeIncident20260612Regression(t *testing.T) {
 	if r.Posture.Tone != rpc.RegimeToneDataQuality || r.Posture.Severity != "watch" {
 		t.Fatalf("posture = %s/%s, want data_quality/watch", r.Posture.Tone, r.Posture.Severity)
 	}
-	if r.Lifecycle.Readiness != "blocked" {
-		t.Fatalf("readiness = %q, want blocked with an overdue required input", r.Lifecycle.Readiness)
+	if r.Lifecycle.Readiness != "degraded" {
+		t.Fatalf("readiness = %q, want degraded with one overdue required input", r.Lifecycle.Readiness)
+	}
+	if !regimeTestGovernorNames(r.Lifecycle, "readiness_degraded", "input_currency", "gamma") {
+		t.Fatalf("governors = %+v, want the overdue gamma cache named", r.Lifecycle.Governors)
 	}
 	// Row-level disclosures: the gamma red stays visible on the stale row,
 	// and HYG's eligibility names the failed depth gate.
@@ -105,6 +114,34 @@ func TestRegimeIncident20260612Regression(t *testing.T) {
 	if e := r.GammaZero.Eligibility; e == nil || e.Eligible || !slices.Contains(e.Reasons, "data_overdue") {
 		t.Fatalf("gamma eligibility = %+v, want provisional with data_overdue", e)
 	}
+
+	// A second broken input and the market state is undefined again.
+	second := *r
+	second.FundingStress.Status = rpc.RegimeStatusError
+	secondComposite := regimeTestFinalize(t, &second)
+	if second.Lifecycle.Stage != rpc.LifecycleDataQuality || second.Lifecycle.Readiness != "blocked" {
+		t.Fatalf("two broken inputs = %s/%s, want data_quality/blocked", second.Lifecycle.Stage, second.Lifecycle.Readiness)
+	}
+	if secondComposite.Verdict != "Market state undefined — data incomplete" {
+		t.Fatalf("verdict = %q, want explicit undefined data state", secondComposite.Verdict)
+	}
+	if secondComposite.ClusterEligibleRedCount != 0 {
+		t.Fatalf("eligible reds = %d, want 0", secondComposite.ClusterEligibleRedCount)
+	}
+}
+
+// regimeTestGovernorNames reports whether the disclosed governors carry the
+// action/reason and name the cluster.
+func regimeTestGovernorNames(state rpc.LifecycleState, action, reason, cluster string) bool {
+	for _, g := range state.Governors {
+		if g.Action != action || g.Reason != reason {
+			continue
+		}
+		if slices.Contains(g.Clusters, cluster) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestRegimeOffHoursGammaStaleAloneStaysNormal pins the 2026-07-01 pre-open
@@ -190,19 +227,29 @@ func TestRegimeOffHoursGammaStaleAloneStaysNormal(t *testing.T) {
 // ranked-cluster data problems.
 func TestRegimeRankedClusterStaleDegradesReadiness(t *testing.T) {
 	t.Parallel()
+	// Zero AsOf: regimeTestFinalize pins the weekday session clock, keeping
+	// the vol cadence classifier out of weekend scheduled-context states.
 	r := mkAllGreenRegime()
-	r.AsOf = time.Now()
 	r.FundingStress.Status = rpc.RegimeStatusStale
 	c := regimeTestFinalize(t, r)
 
 	if c.ClusterRankedCount != 6 || c.ClusterYellowCount != 0 || c.ClusterRedCount != 0 {
 		t.Fatalf("ranked=%d yellow=%d red=%d, want 6/0/0 (funding stays green — only its source status is stale)", c.ClusterRankedCount, c.ClusterYellowCount, c.ClusterRedCount)
 	}
-	if r.Lifecycle.Readiness != "blocked" || r.Lifecycle.Stage != rpc.LifecycleDataQuality {
-		t.Fatalf("state = %q/%q, want data_quality/blocked — ranked-cluster staleness is an undefined market state", r.Lifecycle.Stage, r.Lifecycle.Readiness)
+	if r.Lifecycle.Readiness != "degraded" || !regimeTestGovernorNames(r.Lifecycle, "readiness_degraded", "input_currency", "funding") {
+		t.Fatalf("state = %q/%q governors=%+v, want degraded readiness naming funding", r.Lifecycle.Stage, r.Lifecycle.Readiness, r.Lifecycle.Governors)
 	}
 	if r.Posture.Tone != rpc.RegimeToneDataQuality {
 		t.Fatalf("posture.tone = %q, want %q — ranked-cluster staleness must still flip amber", r.Posture.Tone, rpc.RegimeToneDataQuality)
+	}
+	// A second stale ranked cluster leaves too little current evidence to
+	// describe the market at all.
+	second := mkAllGreenRegime()
+	second.FundingStress.Status = rpc.RegimeStatusStale
+	second.CreditSpreads.Status = rpc.RegimeStatusStale
+	regimeTestFinalize(t, second)
+	if second.Lifecycle.Readiness != "blocked" || second.Lifecycle.Stage != rpc.LifecycleDataQuality {
+		t.Fatalf("state = %q/%q, want data_quality/blocked for two stale ranked clusters", second.Lifecycle.Stage, second.Lifecycle.Readiness)
 	}
 }
 
@@ -352,8 +399,12 @@ func TestRegimeDecisionJournalDedupesAndHeartbeats(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &decoded); err != nil {
 			t.Fatalf("line %d invalid JSON: %v", i, err)
 		}
-		if decoded.V != 1 || decoded.Stage == "" {
-			t.Fatalf("line %d = %+v, want v1 with stage", i, decoded)
+		if decoded.V != 2 || decoded.Stage == "" {
+			t.Fatalf("line %d = %+v, want v2 with stage", i, decoded)
+		}
+		// The calibration corpus must be partitionable across policy cutovers.
+		if decoded.CurrencyPolicy != rpc.RegimeCurrencyPolicyVersion {
+			t.Fatalf("line %d currency_policy = %q, want %q", i, decoded.CurrencyPolicy, rpc.RegimeCurrencyPolicyVersion)
 		}
 		if decoded.TapeSession != rpc.TapeSessionClosedDate {
 			t.Fatalf("line %d tape_session = %q, want the snapshot's session state journaled", i, decoded.TapeSession)

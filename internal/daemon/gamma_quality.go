@@ -112,7 +112,7 @@ func gammaQualityAuthorityProvenanceGate(q *rpc.GammaSignalQuality, c *rpc.Gamma
 
 func gammaQualityFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed, now time.Time) {
 	if c.AsOf.IsZero() {
-		gammaQualityAddGate(q, "freshness", rpc.GammaQualityGateBlock, "compute timestamp missing")
+		gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, "compute timestamp missing")
 		q.Freshness = "missing"
 		return
 	}
@@ -123,13 +123,13 @@ func gammaQualityFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComput
 		switch {
 		case now.Before(c.AsOf):
 			q.Freshness = "future"
-			gammaQualityAddGate(q, "freshness", rpc.GammaQualityGateBlock, "compute timestamp is in the future")
+			gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, "compute timestamp is in the future")
 		case now.Sub(c.AsOf) > gammaClosedSessionCacheMaxAge:
 			q.Freshness = "stale"
-			gammaQualityAddGate(q, "freshness", rpc.GammaQualityGateBlock, "closed-session cache is older than 24h")
+			gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, "closed-session cache is older than 24h")
 		default:
 			q.Freshness = "closed_session_cache"
-			gammaQualityAddGate(q, "freshness", rpc.GammaQualityGatePass, "closed-session cache inside 24h TTL")
+			gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGatePass, "closed-session cache inside 24h TTL")
 		}
 	default:
 		q.MaxAgeSeconds = int64(gammaRankableRTHMaxAge.Seconds())
@@ -140,16 +140,16 @@ func gammaQualityFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComput
 func gammaQualityActiveSessionFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed, now time.Time, maxAge time.Duration) {
 	switch {
 	case q.SessionKey != q.CurrentSessionKey:
-		q.Freshness = "session_mismatch"
-		gammaQualityAddGate(q, "freshness", rpc.GammaQualityGateBlock,
+		q.Freshness = rpc.GammaFreshnessSessionMismatch
+		gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock,
 			fmt.Sprintf("computed for session %s; current session is %s", q.SessionKey, q.CurrentSessionKey))
 	case now.Sub(c.AsOf) > maxAge:
 		q.Freshness = "stale"
-		gammaQualityAddGate(q, "freshness", rpc.GammaQualityGateBlock,
+		gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock,
 			fmt.Sprintf("cache age %s exceeds %s", formatGammaQualityDuration(now.Sub(c.AsOf)), formatGammaQualityDuration(maxAge)))
 	default:
 		q.Freshness = "fresh"
-		gammaQualityAddGate(q, "freshness", rpc.GammaQualityGatePass, "same session and inside freshness TTL")
+		gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGatePass, "same session and inside freshness TTL")
 	}
 }
 
@@ -169,15 +169,15 @@ func gammaQualityCombinedGates(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComput
 		spx.Quality.Rankability == rpc.GammaRankabilityRankable
 	switch {
 	case spx == nil:
-		gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGateBlock, "SPX slice missing; combined gamma cannot rank")
+		gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGateBlock, "SPX slice missing; combined gamma cannot rank")
 	case spx.Quality == nil:
-		gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGateBlock, "SPX quality missing")
+		gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGateBlock, "SPX quality missing")
 	case spx.Quality.Rankability == rpc.GammaRankabilityRankable:
-		gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGatePass, "SPX slice rankable")
+		gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGatePass, "SPX slice rankable")
 	case spx.Quality.Rankability == rpc.GammaRankabilityContextOnly:
-		gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGateContext, gammaCombinedSPXQualityReason(spx.Quality, "SPX slice is context only"))
+		gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGateContext, gammaCombinedSPXQualityReason(spx.Quality, "SPX slice is context only"))
 	default:
-		gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGateBlock, gammaCombinedSPXQualityReason(spx.Quality, "SPX slice is not rankable"))
+		gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGateBlock, gammaCombinedSPXQualityReason(spx.Quality, "SPX slice is not rankable"))
 	}
 	switch {
 	case spy == nil:
@@ -384,9 +384,9 @@ func gammaQualityWarningGates(q *rpc.GammaSignalQuality, c *rpc.GammaZeroCompute
 			gammaQualityAddGate(q, "refresh_state", rpc.GammaQualityGateBlock, "latest refresh failed: "+strings.TrimPrefix(code, "refresh_failed:"))
 		case strings.HasPrefix(code, "spx_unavailable:"):
 			if gammaQualityScope(c) == "SPY" {
-				gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGateContext, "SPX option chain unavailable; using SPY proxy: "+strings.TrimPrefix(code, "spx_unavailable:"))
+				gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGateContext, "SPX option chain unavailable; using SPY proxy: "+strings.TrimPrefix(code, "spx_unavailable:"))
 			} else {
-				gammaQualityAddGate(q, "spx_coverage", rpc.GammaQualityGateBlock, "SPX option chain unavailable: "+strings.TrimPrefix(code, "spx_unavailable:"))
+				gammaQualityAddGate(q, rpc.GammaQualityGateSPXCoverage, rpc.GammaQualityGateBlock, "SPX option chain unavailable: "+strings.TrimPrefix(code, "spx_unavailable:"))
 			}
 		case strings.HasPrefix(code, "spy_unavailable:"):
 			if gammaQualityScope(c) == "SPX" {

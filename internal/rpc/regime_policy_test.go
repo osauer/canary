@@ -21,24 +21,24 @@ func TestEvaluateRegimeEligibility(t *testing.T) {
 		{
 			// The 2026-06-12 incident HYG read: 0.07% below the DMA, day 1.
 			name:         "hyg incident depth fails floor",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.07), StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.07), StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: false,
 			wantReason:   "depth_below_min",
 		},
 		{
 			name:         "hyg deep break is fast-path eligible day one",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(1.3), StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(1.3), StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: true,
 		},
 		{
 			name:         "hyg moderate depth needs two sessions",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.4), StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.4), StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: false,
 			wantReason:   "streak_1_of_2",
 		},
 		{
 			name:         "hyg moderate depth second session confirms",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.4), StreakSessions: 2, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.4), StreakSessions: 2, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: true,
 		},
 		{
@@ -49,7 +49,7 @@ func TestEvaluateRegimeEligibility(t *testing.T) {
 		},
 		{
 			name:         "latch holds eligibility through depth wobble",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.1), StreakSessions: 3, Fresh: true, Latched: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", Depth: new(0.1), StreakSessions: 3, Fresh: true, FreshnessClass: RegimeFreshnessFresh, Latched: true},
 			wantEligible: true,
 		},
 		{
@@ -66,29 +66,56 @@ func TestEvaluateRegimeEligibility(t *testing.T) {
 		},
 		{
 			name:         "vix inversion needs two sessions",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorVIXTerm, Band: "red", Depth: new(1.01), StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorVIXTerm, Band: "red", Depth: new(1.01), StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: false,
 			wantReason:   "streak_1_of_2",
 		},
 		{
 			name:         "deep vix inversion is fast-path eligible day one",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorVIXTerm, Band: "red", Depth: new(1.06), StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorVIXTerm, Band: "red", Depth: new(1.06), StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: true,
 		},
 		{
 			name:         "fresh-install nil streak treated as one session",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorBreadth, Band: "red", Depth: new(3.0), StreakSessions: 0, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorBreadth, Band: "red", Depth: new(3.0), StreakSessions: 0, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: false,
 			wantReason:   "streak_1_of_2",
 		},
 		{
 			name:         "streak-one indicators confirm immediately",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorUSDJPY, Band: "red", StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorUSDJPY, Band: "red", StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: true,
 		},
 		{
+			// Currency is an allowlist on fresh: every other class, and any
+			// class the vocabulary does not know yet, fails closed even when
+			// the row's own status says fresh.
+			name:         "pending refresh never eligible",
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorGammaZero, Band: "red", Depth: new(3.0), StreakSessions: 5, Fresh: true, FreshnessClass: RegimeFreshnessPending},
+			wantEligible: false,
+			wantReason:   "data_refresh_pending",
+		},
+		{
+			name:         "carried-within-tolerance stale never eligible",
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorVIXTerm, Band: "red", Depth: new(1.06), StreakSessions: 3, Fresh: true, FreshnessClass: RegimeFreshnessStale},
+			wantEligible: false,
+			wantReason:   "data_stale",
+		},
+		{
+			name:         "unknown currency class fails closed",
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorUSDJPY, Band: "red", StreakSessions: 3, Fresh: true, FreshnessClass: "someday_maybe"},
+			wantEligible: false,
+			wantReason:   "data_overdue",
+		},
+		{
+			name:         "untyped currency class fails closed",
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorUSDJPY, Band: "red", StreakSessions: 3, Fresh: true},
+			wantEligible: false,
+			wantReason:   "data_overdue",
+		},
+		{
 			name:         "gamma shallow gap fails the transition floor",
-			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorGammaZero, Band: "red", Depth: new(0.2), StreakSessions: 1, Fresh: true},
+			in:           RegimeEligibilityInput{Indicator: RegimeIndicatorGammaZero, Band: "red", Depth: new(0.2), StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh},
 			wantEligible: false,
 			wantReason:   "depth_below_min",
 		},

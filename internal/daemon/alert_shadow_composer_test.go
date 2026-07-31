@@ -1716,9 +1716,15 @@ func alertShadowTestRegime(at time.Time, stage, readiness string) rpc.RegimeSnap
 		result.Breadth.RegimeIndicatorMeta = meta("red", true)
 		result.CreditSpreads.RegimeIndicatorMeta = meta("red", true)
 	case rpc.LifecycleDataQuality:
+		// Two defective clusters: one alone degrades readiness and names
+		// itself rather than blanking the whole read
+		// (internal-docs/design/regime-input-currency.md).
 		result.Breadth.Status = rpc.RegimeStatusUnavailable
 		result.Breadth.Band = ""
 		result.Breadth.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue, MaxAgeSeconds: rpc.RegimeSourceMaxAgeSeconds("breadth")}
+		result.FundingStress.Status = rpc.RegimeStatusUnavailable
+		result.FundingStress.Band = ""
+		result.FundingStress.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue, MaxAgeSeconds: rpc.RegimeSourceMaxAgeSeconds("funding")}
 	}
 	for _, source := range alertShadowRegimeRequiredSources {
 		result.SourceHealth = append(result.SourceHealth, rpc.SourceHealth{

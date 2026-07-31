@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="regime-dashboard-contract">Regime dashboard contract</h1>
-<p>Updated: 2026-07-25 20:23 CEST</p>
+<p>Updated: 2026-07-31 19:40 CEST</p>
 <p><code>canary regime</code> reports the broad-market stress lifecycle: <code>quiet</code>,
 <code>early_warning</code>, <code>confirmed_stress</code>, <code>panic</code>, <code>stabilization</code>, <code>opportunity</code>,
 or <code>data_quality</code>. It is an evidence-balance read, not a prediction, trading
@@ -449,6 +449,83 @@ trigger a 500-name fanout.</p>
 </tbody>
 </table>
 </div>
+<h2 id="how-inputs-report-currency">How inputs report currency</h2>
+<p>Every regime input reports one typed currency class, and one policy says what
+each class may do. The class is per evidence unit — the measurement a consumer
+actually reads — because consumers differ: the tape arms read the VIX
+day-change leg, while the term-structure ratio needs the VIX3M leg beside it.
+Cluster currency is the worst of its rows, never the primitive.</p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Meaning</th>
+<th>May confirm</th>
+<th>Visible / bands</th>
+<th>Cost to the read</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fresh</code></td>
+<td>current under the row's own cadence</td>
+<td>yes</td>
+<td>yes</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>not_due</code></td>
+<td>the publication window is closed, so no newer observation can exist</td>
+<td>no</td>
+<td>yes</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td>the current period's refresh is in flight, typed and inside a bounded window anchored to the period start</td>
+<td>no</td>
+<td>yes</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>stale</code></td>
+<td>a known value older than its window, or a due refresh that failed, inside an explicit tolerance</td>
+<td>no</td>
+<td>yes</td>
+<td>degrades readiness</td>
+</tr>
+<tr>
+<td><code>overdue</code></td>
+<td>a newer observation should exist and no bounded excuse applies; also the class for missing or untyped evidence</td>
+<td>no</td>
+<td>policy per row</td>
+<td>data-quality defect</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Confirmation is an allowlist on <code>fresh</code>, so a class added later cannot inherit
+authority. Both scheduled classes are bounded by the cluster's served
+<code>max_age_seconds</code>, so a dead subscription still serving its last value reaches
+<code>overdue</code> rather than reading healthy off-hours.</p>
+<p>The two bounded states each have one owner. Dealer gamma is <code>pending</code> for 30
+minutes from the options open while the session's first compute is in flight
+(measured compute ≈ 9 minutes; the window covers a slow open including a
+retry), and <code>overdue</code> the moment the typed in-flight marker or the window goes
+away — so a hung compute still surfaces. S&amp;P 500 breadth is <code>pending</code> inside
+its 90-minute post-close publication window. A VIX3M poll missed while the
+index is publishing carries the previous print as <code>stale</code>, only while live VIX
+has moved under 1% since that print and for at most 15 minutes: VIX3M is the
+slower leg, so a 1% VIX move bounds the printed-ratio distortion near 0.01,
+keeping a true 1.02 away from the 1.05 that would read as backwardation.</p>
+<p>A defect no longer discards the whole read. One cluster that is defective or
+impaired degrades readiness, caps confidence, and is named in
+<code>lifecycle.governors[]</code> as <code>readiness_degraded / input_currency</code>. The read goes
+to <code>data_quality</code> when two clusters are affected, when a defect cannot be
+attributed to one cluster (authority health, a surface-wide degradation), or
+when the defect is in the evidence the current stage itself rests on — a
+confirming cluster, or the only red carrying an <code>early_warning</code>.</p>
 <h2 id="confirmation-eligibility-and-severity-governance">Confirmation eligibility and severity governance</h2>
 <h3 id="eligibility-gates">Eligibility gates</h3>
 <p>A red row may CONFIRM stress only when its evidence is deep, persistent, and
@@ -603,8 +680,9 @@ disagreement also raises <code>vix3m_source_disagreement</code>.</p>
 thresholds. In session the gateway remains the source and the check does not
 run: Cboe publishes closes, not intraday values.</p>
 <p>Eligibility latches for the life of the red streak (a depth wobble back inside
-the floor does not flip it); freshness is never latched: overdue data drops
-eligibility immediately. Streaks count NY trading days; a weekend or holiday
+the floor does not flip it); freshness is never latched: any currency other
+than <code>fresh</code> drops eligibility immediately, disclosed as <code>data_not_due</code>,
+<code>data_refresh_pending</code>, <code>data_stale</code>, or <code>data_overdue</code>. Streaks count NY trading days; a weekend or holiday
 poll keys to the most recent trading day.</p>
 <h3 id="severity-governance">Severity governance</h3>
 <p>Applied after stage selection and disclosed in <code>lifecycle.governors[]</code>:</p>
@@ -770,9 +848,13 @@ metrics, streaks, freshness, eligibility, cluster tallies, lifecycle decision,
 and governor records. Events dedupe on the snapshot's semantic fingerprint with
 an hourly heartbeat. The append-only event corpus powers typed history queries
 and makes the <code>pending_backtest</code> thresholds calibratable; it is not a separate
-file or a delete-safe cache. A threshold set drops <code>pending_backtest</code> only with
-months of coverage, measured false-alarm/recall rates against labeled episodes,
-and a version-label bump documented here. Disable collection via
+file or a delete-safe cache. Each event also carries <code>currency_policy</code>, the input-currency policy version it
+was decided under (<code>regime-currency-v1</code> from 2026-07-31, when the model
+replaced four per-symptom freshness rules). Behaviour changes there move the
+daily fingerprint sequence, so a backtest partitions on this marker instead of
+blending days from either side of a cutover. A threshold set drops
+<code>pending_backtest</code> only with months of coverage, measured false-alarm/recall
+rates against labeled episodes, and a version-label bump documented here. Disable collection via
 <code>canary settings set regime.journal.enabled=false</code>.</p>
 <h2 id="backtesting">Backtesting</h2>
 <p>The active backtest sequence, tuning gates, and source-data backlog live in

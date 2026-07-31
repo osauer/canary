@@ -847,17 +847,21 @@ func previousVIX3MSessionDate(lastStart time.Time) string {
 }
 
 // carryVIXTermFromLastGood repairs a VIX term row that lost only its VIX3M leg
-// to a fetch timeout. Outside the publication window VIX3M cannot have changed,
-// so the previous snapshot's print is still the newest value that exists, and
-// blanking the row over one missed poll of a thin index costs the whole vol
-// cluster. Bounded to the most recently completed window: a value older than
-// that means a dead subscription rather than a slow one, and must stay
-// unavailable. A miss while VIX3M is actually publishing is a real gap and is
-// deliberately not carried here.
+// to a fetch timeout. Blanking the row over one missed poll of a thin index
+// costs the whole vol cluster, and the missed poll says nothing about the live
+// VIX leg beside it.
 //
-// This is now the third tier, reached only when Cboe has not published the last
-// completed window either — exactly the evening gap the official close cannot
-// cover. A carried leg is still uncorroborated, so it keeps whatever
+// Two bounds, one per side of the publication window. Outside it VIX3M cannot
+// have changed, so the previous print is still the newest value that exists,
+// bounded to the most recently completed window — anything older is a dead
+// subscription rather than a slow one. Inside it a missed poll is a failed
+// refresh, so the carry holds only while the print is from this window and
+// still inside the agreed tolerance, and the row is stale, not not_due: it
+// bands and stays visible but can never confirm.
+//
+// Off-window this is the third tier, reached only when Cboe has not published
+// the last completed window either — exactly the evening gap the official close
+// cannot cover. A carried leg is still uncorroborated, so it keeps whatever
 // cross-check verdict this snapshot's official evidence produced.
 func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time) bool {
 	if res == nil || prev == nil {
@@ -867,17 +871,23 @@ func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time
 	if row.Status != rpc.RegimeStatusError || row.VIX == nil || row.VIX3M != nil {
 		return false
 	}
-	if vix3mDisseminating(nyTime(now)) {
-		return false
-	}
-	start, _, ok := vix3mLastDisseminationWindow(now)
-	if !ok {
-		return false
-	}
 	carried := prev.VIXTermStructure
-	if carried.VIX3M == nil || *carried.VIX3M <= 0 || carried.VIX3MQuality == nil ||
-		carried.VIX3MQuality.AsOf.Before(start) {
+	if carried.VIX3M == nil || *carried.VIX3M <= 0 || carried.VIX3MQuality == nil {
 		return false
+	}
+	if vix3mDisseminating(nyTime(now)) {
+		candidate := *row
+		candidate.VIX3M = carried.VIX3M
+		candidate.VIX3MQuality = carried.VIX3MQuality
+		candidate.VIX3MAnchorVIX = carried.VIX3MAnchorVIX
+		if !vix3mCarryWithinTolerance(candidate, nyTime(now)) {
+			return false
+		}
+	} else {
+		start, _, ok := vix3mLastDisseminationWindow(now)
+		if !ok || carried.VIX3MQuality.AsOf.Before(start) {
+			return false
+		}
 	}
 	quality := *carried.VIX3MQuality
 	quality.Source += " · carried, no tick within budget"
@@ -885,6 +895,7 @@ func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time
 	row.VIX3M = carried.VIX3M
 	row.VIX3MQuality = &quality
 	row.VIX3MSource = rpc.VIX3MSourceGateway
+	row.VIX3MAnchorVIX = carried.VIX3MAnchorVIX
 	row.Ratio = &ratio
 	row.DataType = rpc.MarketDataFrozen
 	row.Status = rpc.RegimeStatusStale
@@ -977,6 +988,13 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 			out.ErrorMessage += " and no Cboe official close for the last completed session"
 		}
 		return out
+	}
+	// Anchor the pair only when both legs are live gateway observations: a
+	// frozen leg, or an official close standing in for one, was observed when
+	// this VIX print did not exist, so it anchors nothing.
+	if out.VIX3MSource == rpc.VIX3MSourceGateway &&
+		rpc.IsLiveDataType(vix3mQ.dataType) && rpc.IsLiveDataType(vixQ.dataType) {
+		out.VIX3MAnchorVIX = new(vixQ.price)
 	}
 
 	r := vixQ.price / *out.VIX3M

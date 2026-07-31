@@ -327,6 +327,15 @@ func joinHuman(parts []string) string {
 	}
 }
 
+// regimeClusterScheduled reports a cluster whose non-fresh currency is its own
+// publication schedule — window closed, or refresh in flight inside its bounded
+// window. Neither is a source warning: the row's freshness class and the
+// source's refresh state already carry the state.
+func regimeClusterScheduled(r rpc.RegimeSnapshotResult, cluster string) bool {
+	_, ok := rpc.RegimeClusterScheduledContext(r, cluster)
+	return ok
+}
+
 func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 	if r == nil {
 		return nil
@@ -334,7 +343,7 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 	rows := regimeEvidenceRows(r)
 	warnings := make([]rpc.RegimeWarning, 0, len(rows))
 	for _, row := range rows {
-		if cluster := regimeWarningCluster(row.scope); cluster != "" && rpc.RegimeClusterExpectedNotDue(*r, cluster) {
+		if cluster := regimeWarningCluster(row.scope); cluster != "" && regimeClusterScheduled(*r, cluster) {
 			continue
 		}
 		if row.status == rpc.RegimeStatusOK {
@@ -345,7 +354,7 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 			warnings = append(warnings, w)
 		}
 	}
-	if !rpc.RegimeClusterExpectedNotDue(*r, "gamma") {
+	if !regimeClusterScheduled(*r, "gamma") {
 		if w, ok := warningForGammaRankability(r.GammaZero); ok {
 			warnings = append(warnings, w)
 		}

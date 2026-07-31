@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"math"
 	"strings"
 	"time"
 
@@ -296,6 +297,55 @@ func vix3mLastDisseminationWindow(now time.Time) (start, end time.Time, ok bool)
 	return start, end, true
 }
 
+// In-session VIX3M carry tolerance. A carried leg distorts the printed ratio
+// by the VIX3M drift since its observation, which a VIX move bounds from above
+// because VIX3M is the slower leg: 1% keeps a true 1.02 ratio printing near
+// 1.03 rather than the 1.05 that would read as backwardation. The 15-minute
+// ceiling is three regime polls, past which a thin index that keeps missing is
+// a gap rather than a slow tick. Operator decision, 2026-07-31.
+const (
+	vix3mCarryMaxVIXMovePct = 1.0
+	vix3mCarryMaxAge        = 15 * time.Minute
+)
+
+// vix3mCurrentWindow returns the publication window nowNY sits inside.
+func vix3mCurrentWindow(nowNY time.Time) (start, end time.Time, ok bool) {
+	cal := marketcal.NewWithClock(func() time.Time { return nowNY })
+	session, err := cal.SessionAt(marketcal.MarketUSOptions, nowNY)
+	if err != nil || (session.State != marketcal.StateRegular && session.State != marketcal.StateEarlyClose) {
+		return time.Time{}, time.Time{}, false
+	}
+	start, end = vix3mWindow(session)
+	if nowNY.Before(start) || !nowNY.Before(end) {
+		return time.Time{}, time.Time{}, false
+	}
+	return start, end, true
+}
+
+// vix3mCarryWithinTolerance reports whether a VIX3M leg observed earlier in the
+// current publication window may still stand in for a missed poll. It is the
+// single authority for that question: the carry site applies it before keeping
+// a value, and the cadence classifier applies it again before typing the row,
+// so a row assembled anywhere else cannot slip past the gate.
+func vix3mCarryWithinTolerance(row rpc.RegimeVIXTerm, nowNY time.Time) bool {
+	if row.VIX == nil || row.VIX3M == nil || row.VIX3MQuality == nil || row.VIX3MAnchorVIX == nil {
+		return false
+	}
+	anchor := *row.VIX3MAnchorVIX
+	if anchor <= 0 || *row.VIX <= 0 || *row.VIX3M <= 0 {
+		return false
+	}
+	observed := row.VIX3MQuality.AsOf
+	start, _, ok := vix3mCurrentWindow(nowNY)
+	if !ok || observed.IsZero() || observed.Before(start) || observed.After(nowNY) {
+		return false
+	}
+	if nowNY.Sub(observed) > vix3mCarryMaxAge {
+		return false
+	}
+	return math.Abs(*row.VIX-anchor)/anchor*100 <= vix3mCarryMaxVIXMovePct
+}
+
 // vix3mTickQuality stamps a live leg when its tick arrived and a frozen leg at
 // the end of the window that produced it. A frozen quote's arrival instant is
 // essentially read time — the gateway re-sends the last known value on
@@ -336,6 +386,12 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 		if !local.Before(vix3mStart) && local.Before(vix3mEnd) {
 			if row.Status == rpc.RegimeStatusOK && vixClass == rpc.FreshnessLive && vix3mClass == rpc.FreshnessLive {
 				return rpc.RegimeFreshnessFresh
+			}
+			// A missed poll inside the window is a failed refresh: stale while
+			// the print is from this window and inside the carry tolerance,
+			// overdue past it. Never not_due — the window is open.
+			if vixClass == rpc.FreshnessLive && vix3mCarryWithinTolerance(row, local) {
+				return rpc.RegimeFreshnessStale
 			}
 			return rpc.RegimeFreshnessOverdue
 		}
@@ -382,14 +438,23 @@ func gammaCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	if res == nil || res.GammaZero.Envelope.Result == nil {
 		return rpc.RegimeFreshnessOverdue
 	}
+	served := res.GammaZero.Status == rpc.RegimeStatusOK || res.GammaZero.Status == rpc.RegimeStatusStale
 	switch gammaOperationalCadence(&res.GammaZero.Envelope, now) {
 	case rpc.DataCadenceCurrent:
 		if res.GammaZero.Status == rpc.RegimeStatusOK {
 			return rpc.RegimeFreshnessFresh
 		}
 	case rpc.DataCadenceNotDue:
-		if res.GammaZero.Status == rpc.RegimeStatusOK || res.GammaZero.Status == rpc.RegimeStatusStale {
+		if served {
 			return rpc.RegimeFreshnessNotDue
+		}
+	case rpc.DataCadenceMissedSession:
+		// The session's first compute is in flight inside its bounded window,
+		// so the last completed session's result is still the newest that
+		// exists. Non-confirming context, and overdue the moment the typed
+		// in-flight marker or the window goes away.
+		if served && gammaPublicationPending(&res.GammaZero.Envelope, now) {
+			return rpc.RegimeFreshnessPending
 		}
 	}
 	return rpc.RegimeFreshnessOverdue
@@ -397,8 +462,10 @@ func gammaCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 
 // breadthCadenceClass keeps the raw row honest (the served snapshot is stale
 // once CompletedSessionKey rolls) while identifying the one expected gap: the
-// immediately prior last-good is typed not_due while an active HMDS refresh is
-// still inside its bounded, calendar-based publication window.
+// immediately prior last-good is typed pending while an active HMDS refresh is
+// still inside its bounded, calendar-based publication window. Pending rather
+// than not_due since the session's own observation is genuinely due — it is
+// being computed — which is the same state gamma reaches at the options open.
 func breadthCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	if res == nil {
 		return rpc.RegimeFreshnessOverdue
@@ -409,7 +476,7 @@ func breadthCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	}
 	if spx.PublicationPending(row.Envelope.SessionKey, row.Envelope.Refreshing, now) &&
 		(row.Status == rpc.RegimeStatusOK || row.Status == rpc.RegimeStatusStale) {
-		return rpc.RegimeFreshnessNotDue
+		return rpc.RegimeFreshnessPending
 	}
 	if row.Status == rpc.RegimeStatusOK {
 		return rpc.RegimeFreshnessFresh

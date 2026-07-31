@@ -2428,12 +2428,17 @@ func backfillBacktestRegimeEligibility(r *rpc.RegimeSnapshotResult) {
 		}
 		fresh := strings.EqualFold(strings.TrimSpace(status), rpc.RegimeStatusOK) &&
 			meta.Freshness != nil && meta.Freshness.Class == rpc.RegimeFreshnessFresh
+		class := ""
+		if meta.Freshness != nil {
+			class = meta.Freshness.Class
+		}
 		meta.Eligibility = rpc.EvaluateRegimeEligibility(rpc.RegimeEligibilityInput{
 			Indicator:      indicator,
 			Band:           "red",
 			Depth:          depth,
 			StreakSessions: 1,
 			Fresh:          fresh,
+			FreshnessClass: class,
 		})
 	}
 	set(&r.VIXTermStructure.RegimeIndicatorMeta, rpc.RegimeIndicatorVIXTerm, r.VIXTermStructure.Status, r.VIXTermStructure.Ratio)

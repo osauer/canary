@@ -1024,6 +1024,28 @@ func (c *gammaZeroCache) snapshotCurrent(scope string, nowFn func() time.Time) r
 	return c.snapshotForScope(scope, job, nowFn)
 }
 
+// refreshInFlight reports whether a soft-TTL or session-rollover refresh is
+// running behind the result this scope currently serves.
+func (c *gammaZeroCache) refreshInFlight(scope string) bool {
+	if scope == "" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	slot, ok := c.slots[scope]
+	return ok && slot != nil && slot.refresh != nil && !slot.refresh.isDone()
+}
+
+func gammaSnapshotScope(scope string, g *gammaComputation) string {
+	if scope != "" {
+		return scope
+	}
+	if g == nil {
+		return ""
+	}
+	return g.scope
+}
+
 func (c *gammaZeroCache) snapshotForScope(scope string, g *gammaComputation, nowFn func() time.Time) rpc.GammaZeroSPXResult {
 	c.ensureLoaded()
 	if g == nil {
@@ -1052,6 +1074,11 @@ func (c *gammaZeroCache) snapshotForScope(scope string, g *gammaComputation, now
 		}
 		env.Status = rpc.GammaZeroStatusReady
 		env.Result = g.result
+		// A served last-good says nothing about whether its replacement is
+		// running: StartedAt belongs to the compute that produced Result. The
+		// typed flag is what lets a consumer tell a current-session compute in
+		// flight from one that never started.
+		env.Refreshing = c.refreshInFlight(gammaSnapshotScope(scope, g))
 		// Off-hours stale tag: when we're serving a cached result
 		// outside trading hours and it's more than 24h old, append
 		// the `cache_stale_off_hours` warning so the renderer can

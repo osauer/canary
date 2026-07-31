@@ -946,6 +946,14 @@ const (
 	GammaQualityGatePass    = "pass"
 	GammaQualityGateContext = "context"
 	GammaQualityGateBlock   = "block"
+
+	// GammaQualityGateFreshness, GammaQualityGateSPXCoverage, and
+	// GammaFreshnessSessionMismatch cross the package boundary: the regime
+	// input-currency model asks whether a non-rankable gamma result is blocked
+	// on its publication cadence alone.
+	GammaQualityGateFreshness     = "freshness"
+	GammaQualityGateSPXCoverage   = "spx_coverage"
+	GammaFreshnessSessionMismatch = "session_mismatch"
 )
 
 // GammaSignalQuality is the trading-grade gate for the gamma payload.
@@ -1387,6 +1395,12 @@ type GammaZeroComputed struct {
 type GammaZeroSPXResult struct {
 	// Status is one of GammaZeroStatusComputing / Ready / Error.
 	Status string `json:"status"`
+	// Refreshing is true when a newer compute is in flight while this
+	// envelope serves the last good result. Ready + StartedAt cannot express
+	// that: StartedAt describes the compute that produced Result, so without
+	// this field a consumer cannot tell a current-session compute in flight
+	// from one that never started. Mirrors BreadthSPXResult.Refreshing.
+	Refreshing bool `json:"refreshing,omitempty"`
 	// StartedAt is when the currently-relevant compute kicked off — for
 	// "computing", that's the in-flight job; for "ready", it's the
 	// compute that produced Result. Nil if no compute has ever started.
@@ -1602,11 +1616,24 @@ type RegimeFreshness struct {
 	MaxAgeSeconds int64  `json:"max_age_seconds,omitempty"`
 }
 
-// Regime freshness values compare a row with its native publication cadence;
-// not_due and overdue observations are not confirmation-eligible.
+// Regime freshness values compare a row with its native publication cadence.
+// Only fresh is confirmation-eligible; the rest are context or defect
+// (internal-docs/design/regime-input-currency.md).
+//
+//   - fresh    — a current observation under the row's own cadence.
+//   - not_due  — the source's publication window is closed, so no newer
+//     observation can exist yet.
+//   - pending  — the current period's refresh is in flight, evidenced by a
+//     typed marker, inside a bounded window anchored to the period start.
+//   - stale    — a known value older than its window, or a due refresh that
+//     failed, inside an explicit tolerance.
+//   - overdue  — a newer observation should exist and no bounded excuse
+//     applies; also the fail-closed class for missing or untyped evidence.
 const (
 	RegimeFreshnessFresh   = "fresh"
 	RegimeFreshnessNotDue  = "not_due"
+	RegimeFreshnessPending = "pending"
+	RegimeFreshnessStale   = "stale"
 	RegimeFreshnessOverdue = "overdue"
 )
 
@@ -1708,6 +1735,13 @@ type RegimeVIXTerm struct {
 	VIX3MOfficial     *float64 `json:"vix3m_official,omitempty"`
 	VIX3MOfficialDate string   `json:"vix3m_official_date,omitempty"`
 	VIX3MCrossCheck   string   `json:"vix3m_cross_check,omitempty"`
+	// VIX3MAnchorVIX is the VIX print observed together with the served VIX3M
+	// leg, and travels with it when the leg is carried across a missed poll.
+	// Without the anchor, "how far has VIX moved since this VIX3M was
+	// observed" is unanswerable after the first carry, and the in-session
+	// carry tolerance degrades to a bare timer. Nil unless both legs were
+	// observed live together.
+	VIX3MAnchorVIX *float64 `json:"vix3m_anchor_vix,omitempty"`
 	// Streak counts how many consecutive sessions this row's value has
 	// been in its current band. Persisted across daemon restarts in daemon.db.
 	// Nil when the band can't

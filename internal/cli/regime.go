@@ -854,6 +854,10 @@ func decorateRegimeRowPolicy(rows []regimeRow, r *rpc.RegimeSnapshotResult) {
 			switch meta.Freshness.Class {
 			case rpc.RegimeFreshnessNotDue:
 				rows[i].asOf = "not_due"
+			case rpc.RegimeFreshnessPending:
+				rows[i].asOf = "pending"
+			case rpc.RegimeFreshnessStale:
+				rows[i].asOf = "stale"
 			case rpc.RegimeFreshnessOverdue:
 				rows[i].asOf = "overdue"
 			}
@@ -888,6 +892,10 @@ func regimeEligibilityReasonText(reasons []string) string {
 			out = append(out, "data overdue")
 		case reason == "data_not_due":
 			out = append(out, "new session data not due yet")
+		case reason == "data_refresh_pending":
+			out = append(out, "current-period refresh still running")
+		case reason == "data_stale":
+			out = append(out, "carried within tolerance, not confirmable")
 		case strings.HasPrefix(reason, "streak_"):
 			if parts := strings.Split(reason, "_"); len(parts) == 4 {
 				out = append(out, "day "+parts[1]+" of "+parts[3])

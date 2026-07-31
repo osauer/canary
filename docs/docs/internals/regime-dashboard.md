@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-07-31 19:40 CEST
 
 `canary regime` reports the broad-market stress lifecycle: `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -213,6 +213,46 @@ trigger a 500-name fanout.
 | --- | --- | --- | --- |
 | S&P 500 breadth | > 55% above 50-DMA | 40-55%, or weakening near highs | < 40%, especially while SPX is near highs |
 
+## How inputs report currency
+
+Every regime input reports one typed currency class, and one policy says what
+each class may do. The class is per evidence unit — the measurement a consumer
+actually reads — because consumers differ: the tape arms read the VIX
+day-change leg, while the term-structure ratio needs the VIX3M leg beside it.
+Cluster currency is the worst of its rows, never the primitive.
+
+| Class | Meaning | May confirm | Visible / bands | Cost to the read |
+| --- | --- | --- | --- | --- |
+| `fresh` | current under the row's own cadence | yes | yes | none |
+| `not_due` | the publication window is closed, so no newer observation can exist | no | yes | none |
+| `pending` | the current period's refresh is in flight, typed and inside a bounded window anchored to the period start | no | yes | none |
+| `stale` | a known value older than its window, or a due refresh that failed, inside an explicit tolerance | no | yes | degrades readiness |
+| `overdue` | a newer observation should exist and no bounded excuse applies; also the class for missing or untyped evidence | no | policy per row | data-quality defect |
+
+Confirmation is an allowlist on `fresh`, so a class added later cannot inherit
+authority. Both scheduled classes are bounded by the cluster's served
+`max_age_seconds`, so a dead subscription still serving its last value reaches
+`overdue` rather than reading healthy off-hours.
+
+The two bounded states each have one owner. Dealer gamma is `pending` for 30
+minutes from the options open while the session's first compute is in flight
+(measured compute ≈ 9 minutes; the window covers a slow open including a
+retry), and `overdue` the moment the typed in-flight marker or the window goes
+away — so a hung compute still surfaces. S&P 500 breadth is `pending` inside
+its 90-minute post-close publication window. A VIX3M poll missed while the
+index is publishing carries the previous print as `stale`, only while live VIX
+has moved under 1% since that print and for at most 15 minutes: VIX3M is the
+slower leg, so a 1% VIX move bounds the printed-ratio distortion near 0.01,
+keeping a true 1.02 away from the 1.05 that would read as backwardation.
+
+A defect no longer discards the whole read. One cluster that is defective or
+impaired degrades readiness, caps confidence, and is named in
+`lifecycle.governors[]` as `readiness_degraded / input_currency`. The read goes
+to `data_quality` when two clusters are affected, when a defect cannot be
+attributed to one cluster (authority health, a surface-wide degradation), or
+when the defect is in the evidence the current stage itself rests on — a
+confirming cluster, or the only red carrying an `early_warning`.
+
 ## Confirmation eligibility and severity governance
 
 ### Eligibility gates
@@ -278,8 +318,9 @@ thresholds. In session the gateway remains the source and the check does not
 run: Cboe publishes closes, not intraday values.
 
 Eligibility latches for the life of the red streak (a depth wobble back inside
-the floor does not flip it); freshness is never latched: overdue data drops
-eligibility immediately. Streaks count NY trading days; a weekend or holiday
+the floor does not flip it); freshness is never latched: any currency other
+than `fresh` drops eligibility immediately, disclosed as `data_not_due`,
+`data_refresh_pending`, `data_stale`, or `data_overdue`. Streaks count NY trading days; a weekend or holiday
 poll keys to the most recent trading day.
 
 ### Severity governance
@@ -405,9 +446,13 @@ metrics, streaks, freshness, eligibility, cluster tallies, lifecycle decision,
 and governor records. Events dedupe on the snapshot's semantic fingerprint with
 an hourly heartbeat. The append-only event corpus powers typed history queries
 and makes the `pending_backtest` thresholds calibratable; it is not a separate
-file or a delete-safe cache. A threshold set drops `pending_backtest` only with
-months of coverage, measured false-alarm/recall rates against labeled episodes,
-and a version-label bump documented here. Disable collection via
+file or a delete-safe cache. Each event also carries `currency_policy`, the input-currency policy version it
+was decided under (`regime-currency-v1` from 2026-07-31, when the model
+replaced four per-symptom freshness rules). Behaviour changes there move the
+daily fingerprint sequence, so a backtest partitions on this marker instead of
+blending days from either side of a cutover. A threshold set drops
+`pending_backtest` only with months of coverage, measured false-alarm/recall
+rates against labeled episodes, and a version-label bump documented here. Disable collection via
 `canary settings set regime.journal.enabled=false`.
 
 ## Backtesting

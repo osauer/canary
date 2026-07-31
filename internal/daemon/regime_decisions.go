@@ -39,6 +39,10 @@ type regimeDecisionLine struct {
 	TS          time.Time `json:"ts"`
 	SessionKey  string    `json:"session_key"`
 	Fingerprint string    `json:"fingerprint"`
+	// CurrencyPolicy names the input-currency policy the decision ran under.
+	// v1 events predate the marker; a backtest partitions on it rather than
+	// blending pre- and post-cutover behaviour.
+	CurrencyPolicy string `json:"currency_policy,omitempty"`
 	// SnapshotRevision binds a due journal event to the authoritative Regime
 	// publication that produced it. Zero is retained only for legacy/import
 	// helpers; runtime events use a stable per-revision event key.
@@ -217,7 +221,8 @@ func (j *regimeDecisionJournal) appendPublicationContext(ctx context.Context, no
 
 func buildRegimeDecisionLine(now time.Time, res *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication) regimeDecisionLine {
 	line := regimeDecisionLine{
-		V:                1,
+		V:                2,
+		CurrencyPolicy:   rpc.RegimeCurrencyPolicyVersion,
 		TS:               now,
 		SessionKey:       nyTradingSessionKey(nyTime(now)),
 		Fingerprint:      res.Fingerprint.Key,

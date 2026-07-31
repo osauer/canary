@@ -342,8 +342,18 @@ func TestRegimeLifecycleSourceAgeAtLimitFailsClosed(t *testing.T) {
 		}
 	}
 	got := BuildRegimeLifecycle(&r)
-	if got.Stage != LifecycleDataQuality || got.Readiness != "blocked" || got.Confidence != "low" {
-		t.Fatalf("source at max age must fail closed: %+v", got)
+	if got.Readiness != "degraded" || !lifecycleGovernorNames(got, "readiness_degraded", "input_currency", "credit") {
+		t.Fatalf("source at max age must be detected as a defect: %+v", got)
+	}
+	for i := range r.SourceHealth {
+		if r.SourceHealth[i].Source == "fx" {
+			r.SourceHealth[i].MaxAgeSeconds = 60
+			r.SourceHealth[i].AgeSeconds = 60
+		}
+	}
+	blanked := BuildRegimeLifecycle(&r)
+	if blanked.Stage != LifecycleDataQuality || blanked.Readiness != "blocked" || blanked.Confidence != "low" {
+		t.Fatalf("two sources at max age must fail closed: %+v", blanked)
 	}
 }
 
@@ -405,8 +415,11 @@ func TestRegimeLifecycleProvisionalRedsDoNotConfirm(t *testing.T) {
 		},
 	}
 	got := buildRegimeLifecycleFixture(&r)
-	if got.Stage != LifecycleDataQuality || got.Severity != "watch" || got.Readiness != "blocked" {
-		t.Fatalf("lifecycle = stage %q severity %q readiness %q, want data_quality/watch/blocked", got.Stage, got.Severity, got.Readiness)
+	// The incident invariant is that neither red confirms. The credit red is
+	// visible on current evidence, so the read warns with degraded readiness
+	// instead of blanking five healthy clusters over the dead gamma cache.
+	if got.Stage != LifecycleEarlyWarning || got.Severity != "watch" || got.Readiness != "degraded" {
+		t.Fatalf("lifecycle = stage %q severity %q readiness %q, want early_warning/watch/degraded", got.Stage, got.Severity, got.Readiness)
 	}
 	if len(got.ConfirmedBy) != 0 {
 		t.Fatalf("confirmed_by = %+v, want empty for provisional reds", got.ConfirmedBy)
@@ -414,8 +427,24 @@ func TestRegimeLifecycleProvisionalRedsDoNotConfirm(t *testing.T) {
 	if len(got.Unconfirmed) == 0 {
 		t.Fatalf("unconfirmed = %+v, want the provisional reds disclosed", got.Unconfirmed)
 	}
+	if !lifecycleGovernorNames(got, "readiness_degraded", "input_currency", "gamma") {
+		t.Fatalf("governors: want the overdue gamma cache disclosed, got %+v", got.Governors)
+	}
+
+	// With the overdue gamma red as the only warning evidence, there is no
+	// current witness left and the state is undefined, not a market warning.
+	lone := r
+	lone.HYGSPYDivergence.RegimeIndicatorMeta = greenMeta()
+	loneGot := buildRegimeLifecycleFixture(&lone)
+	if loneGot.Stage != LifecycleDataQuality || loneGot.Readiness != "blocked" {
+		t.Fatalf("an overdue red as the only warning evidence must blank: %+v", loneGot)
+	}
 }
 
+// TestRegimeLifecycleDegradesReadinessForDataQuality pins the graded response
+// to impaired inputs: one impaired cluster degrades the read and names itself,
+// a second one blanks it. Before the input-currency model, the first one
+// discarded five healthy clusters.
 func TestRegimeLifecycleDegradesReadinessForDataQuality(t *testing.T) {
 	t.Parallel()
 	base := RegimeSnapshotResult{
@@ -430,15 +459,48 @@ func TestRegimeLifecycleDegradesReadinessForDataQuality(t *testing.T) {
 		},
 	}
 	got := buildRegimeLifecycleFixture(&base)
-	if got.Stage != LifecycleDataQuality {
-		t.Fatalf("stage: want data_quality, got %+v", got)
+	if got.Stage != LifecycleQuiet {
+		t.Fatalf("stage: want quiet beside one impaired cluster, got %+v", got)
 	}
-	if got.Readiness != "blocked" {
-		t.Fatalf("readiness: want blocked, got %+v", got)
+	if got.Readiness != "degraded" {
+		t.Fatalf("readiness: want degraded, got %+v", got)
 	}
-	if got.Confidence != "low" {
-		t.Fatalf("confidence: want low, got %+v", got)
+	if got.Confidence == "high" {
+		t.Fatalf("confidence: want capped below high, got %+v", got)
 	}
+	if !lifecycleGovernorNames(got, "readiness_degraded", "input_currency", "breadth") {
+		t.Fatalf("governors: want breadth disclosed, got %+v", got.Governors)
+	}
+
+	second := RegimeSnapshotResult{
+		Summary:          RegimeSummary{Confidence: "high"},
+		VIXTermStructure: RegimeVIXTerm{RegimeIndicatorMeta: greenMeta()},
+		HYGSPYDivergence: RegimeHYGSPYDivergence{RegimeIndicatorMeta: greenMeta()},
+		FundingStress:    RegimeFundingStress{RegimeIndicatorMeta: greenMeta()},
+		USDJPY:           RegimeUSDJPY{RegimeIndicatorMeta: greenMeta()},
+		Breadth:          RegimeBreadth{RegimeIndicatorMeta: greenMeta()},
+		DataQuality: []DataQualityHealth{
+			{Surface: "regime", Status: "stale", StaleClusters: []string{"breadth", "funding"}},
+		},
+	}
+	blanked := buildRegimeLifecycleFixture(&second)
+	if blanked.Stage != LifecycleDataQuality || blanked.Readiness != "blocked" || blanked.Confidence != "low" {
+		t.Fatalf("two impaired clusters must blank the read: %+v", blanked)
+	}
+}
+
+// lifecycleGovernorNames reports whether the disclosed governors carry the
+// given action/reason and name the cluster.
+func lifecycleGovernorNames(state LifecycleState, action, reason, cluster string) bool {
+	for _, g := range state.Governors {
+		if g.Action != action || g.Reason != reason {
+			continue
+		}
+		if slices.Contains(g.Clusters, cluster) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRegimeLifecycleDegradesReadinessForWeakRows(t *testing.T) {
@@ -453,14 +515,21 @@ func TestRegimeLifecycleDegradesReadinessForWeakRows(t *testing.T) {
 		GammaZero:        RegimeGammaZero{Status: RegimeStatusComputing},
 	}
 	got := buildRegimeLifecycleFixture(&base)
-	if got.Stage != LifecycleDataQuality {
-		t.Fatalf("stage: want data_quality, got %+v", got)
+	if got.Stage != LifecycleQuiet {
+		t.Fatalf("stage: want quiet beside one defective cluster, got %+v", got)
 	}
-	if got.Readiness != "blocked" {
-		t.Fatalf("readiness: want blocked for computing gamma, got %+v", got)
+	if got.Readiness != "degraded" {
+		t.Fatalf("readiness: want degraded for computing gamma, got %+v", got)
 	}
-	if got.Confidence != "low" {
-		t.Fatalf("confidence: want low, got %+v", got)
+	if !lifecycleGovernorNames(got, "readiness_degraded", "input_currency", "gamma") {
+		t.Fatalf("governors: want gamma disclosed as the defect, got %+v", got.Governors)
+	}
+	// A computing row is a defect, not a scheduled state: a second one blanks.
+	base.CreditSpreads.Status = RegimeStatusComputing
+	base.CreditSpreads.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+	blanked := BuildRegimeLifecycle(&base)
+	if blanked.Stage != LifecycleDataQuality || blanked.Readiness != "blocked" {
+		t.Fatalf("two defective clusters must blank the read: %+v", blanked)
 	}
 }
 
@@ -511,11 +580,19 @@ func TestRegimeLifecycleRequiredInputsFailClosed(t *testing.T) {
 			r := fullGreenLifecycleFixture()
 			test.mutate(&r)
 			got := BuildRegimeLifecycle(&r)
-			if got.Stage != LifecycleDataQuality || got.Readiness != "blocked" || got.Timing != LifecycleTimingDataQuality {
-				t.Fatalf("state=%+v, want explicit blocked data_quality", got)
+			// Detection first: none of these shapes may read healthy.
+			if got.Readiness != "degraded" || len(got.Governors) == 0 {
+				t.Fatalf("state=%+v, want the malformed input detected and disclosed", got)
 			}
-			ApplyRegimeClusterTallies(&r.Composite, BuildRegimeClusterBands(&r))
-			if label := RegimeHeadline(r.Composite, got.Stage); label != "Market state undefined — data incomplete" {
+			// Escalation: a second malformed cluster blanks the read.
+			second := r
+			second.VolOfVol.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+			blanked := BuildRegimeLifecycle(&second)
+			if blanked.Stage != LifecycleDataQuality || blanked.Readiness != "blocked" || blanked.Timing != LifecycleTimingDataQuality {
+				t.Fatalf("state=%+v, want explicit blocked data_quality", blanked)
+			}
+			ApplyRegimeClusterTallies(&second.Composite, BuildRegimeClusterBands(&second))
+			if label := RegimeHeadline(second.Composite, blanked.Stage); label != "Market state undefined — data incomplete" {
 				t.Fatalf("headline=%q, want explicit undefined state", label)
 			}
 		})

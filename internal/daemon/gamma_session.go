@@ -80,6 +80,39 @@ func gammaOperationalCadence(env *rpc.GammaZeroSPXResult, now time.Time) string 
 	}
 }
 
+// gammaPublicationWindow bounds how long after the options open a
+// last-completed-session gamma result may still be the newest that exists.
+// A current-session compute takes about nine minutes; 30 minutes covers a slow
+// open (contention, cold cache, pacing) including one retry, and the served
+// result cannot confirm anything for the whole window, so the only cost of the
+// bound is how long a hung or never-kicked compute stays invisible.
+// Operator decision, 2026-07-31.
+const gammaPublicationWindow = 30 * time.Minute
+
+// gammaPublicationPending reports whether the served result is the immediately
+// prior completed options session while a current-session compute is in flight
+// inside the bounded window that opens with the session. It mirrors
+// spx.PublicationPending: the typed in-flight marker is required, so a compute
+// that never started — or one that hung past the deadline — is overdue rather
+// than pending.
+func gammaPublicationPending(env *rpc.GammaZeroSPXResult, now time.Time) bool {
+	if env == nil || env.Result == nil || env.Result.AsOf.IsZero() || !env.Refreshing {
+		return false
+	}
+	completedDate, current, ok := lastCompletedOptionsSession(now)
+	if !ok || !current.IsOpen || current.Open.IsZero() {
+		return false
+	}
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return false
+	}
+	if env.Result.AsOf.In(ny).Format("2006-01-02") != completedDate {
+		return false
+	}
+	return !now.Before(current.Open) && now.Before(current.Open.Add(gammaPublicationWindow))
+}
+
 func lastCompletedOptionsSession(now time.Time) (string, marketcal.Session, bool) {
 	return lastCompletedMarketSession(now, marketcal.MarketUSOptions)
 }
