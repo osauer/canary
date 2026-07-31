@@ -149,7 +149,7 @@ sources; the row meaning should stay the same.</p>
 <tr>
 <td>VIX/VIX3M</td>
 <td><code>VIX</code> and <code>VIX3M</code>, Cboe equity-volatility indexes</td>
-<td>IBKR index market data; backtests use Cboe official historical CSVs.</td>
+<td>IBKR index market data in session; outside Cboe's VIX3M publication window the served VIX3M is Cboe's official dated daily close, which also cross-checks the broker leg. Backtests use Cboe official historical CSVs.</td>
 </tr>
 <tr>
 <td>VVIX</td>
@@ -480,7 +480,7 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 <td>ratio &gt;= 1.00</td>
 <td>ratio &gt;= 1.05</td>
 <td>2</td>
-<td>same-session tick</td>
+<td>same-session tick (off-window the row is <code>not_due</code> at best, and only while Cboe's dated close vouches for the VIX3M leg)</td>
 <td>ratio &lt; 0.98</td>
 </tr>
 <tr>
@@ -546,6 +546,62 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick
 still displays its band and its hysteresis hold, but the persistence counter
 freezes rather than spending one of the sessions the gate requires.</p>
+<h3 id="two-independent-vix3m-sources">Two independent VIX3M sources</h3>
+<p>In frozen mode the broker re-sends its last known value on request, and an index
+carries no trade timestamp, so off-window arrival time says nothing about a
+value's age. A gateway that keeps answering with a stale VIX3M — a lapsed
+market-data entitlement, a contract id that no longer resolves — is therefore
+indistinguishable from a quiet market on the broker leg alone.</p>
+<p>Cboe's published VIX3M daily close is read independently of the broker and
+carries a real session date. Outside the publication window it is the served
+VIX3M whenever it covers the last completed session, and <code>vix3m_cross_check</code>
+records what the two sources established:</p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Verdict</th>
+<th>Meaning</th>
+<th>Off-window cadence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agree</code></td>
+<td>Both described the last completed window and matched.</td>
+<td><code>not_due</code></td>
+</tr>
+<tr>
+<td><code>official_only</code></td>
+<td>The broker produced no VIX3M; the official close is the leg.</td>
+<td><code>not_due</code></td>
+</tr>
+<tr>
+<td><code>pending_publication</code></td>
+<td>Cboe has not published the last completed window yet (it lands after the session); the broker leg stands in, bounded to one session.</td>
+<td><code>not_due</code></td>
+</tr>
+<tr>
+<td><code>disagree</code></td>
+<td>Both described the same window and differed beyond the tolerance: the broker leg is not the close it claims to be.</td>
+<td><code>overdue</code></td>
+</tr>
+<tr>
+<td><code>unverified</code></td>
+<td>No usable official close within one session of the last completed window.</td>
+<td><code>overdue</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Only a vouched leg may read <code>not_due</code>, because <code>not_due</code> exempts a row from
+every age bound. The served row carries <code>vix3m_source</code>, <code>vix3m_official</code>,
+<code>vix3m_official_date</code>, and — on a disagreement — the broker's own
+<code>vix3m_gateway_last</code>, so the discrepancy is inspectable rather than asserted. A
+disagreement also raises <code>vix3m_source_disagreement</code>.</p>
+<p>The comparison tolerance is heuristic and operator-owned, like the band
+thresholds. In session the gateway remains the source and the check does not
+run: Cboe publishes closes, not intraday values.</p>
 <p>Eligibility latches for the life of the red streak (a depth wobble back inside
 the floor does not flip it); freshness is never latched: overdue data drops
 eligibility immediately. Streaks count NY trading days; a weekend or holiday

@@ -184,15 +184,24 @@ seconds and starts a refresh about one minute before expiry, leaving the full
 Regime. App polling and alert consumers do not own this schedule.
 
 Two slower inputs keep their own publication clocks. Outside VIX3M
-dissemination — before it opens as well as after it closes — the frozen VIX term
+dissemination — before it opens as well as after it closes — the VIX term
 observation stays visible and reads `not_due` whichever subscription mode the
 broker reports for either Cboe index leg; while VVIX is current the volatility
-source is healthy and `not_due`, not a stale-source warning. A frozen VIX3M leg
-is stamped with the end of the window that produced it rather than with read
-time, so its real vintage is visible; and when the thin index misses a poll
-while it is not publishing, the previous print is carried instead of blanking
-the row — bounded to the most recently completed window, since anything older
-is a dead subscription rather than a slow one. S&P 500
+source is healthy and `not_due`, not a stale-source warning.
+
+Off-window the served VIX3M is Cboe's own published daily close whenever one
+covers the last completed session, so the value carries a real observation date
+rather than an inferred one. That matters because in frozen mode the broker
+re-sends its last known value on request: arrival time cannot tell a current
+value from a session-old one, and an index has no trade timestamp to date it
+with. Comparing the two independent readings is what makes a stuck or lapsed
+broker subscription visible, and `not_due` — which exempts a row from every age
+bound — is available only while that comparison vouches for the leg. A
+contradicted or uncorroborated leg reads `overdue` instead. Cboe publishes after
+the session, so for the evening between the close and publication the broker leg
+stands in, bounded to one session; a frozen leg is stamped with the end of the
+window that produced it, and a poll missed while the thin index is not
+publishing carries the previous print rather than blanking the row. S&P 500
 breadth starts after the official equity close plus a 35-minute settlement
 delay. A full broker-paced pass can take about 74 minutes, so the prior
 last-good is healthy `not_due` context only while a refresh or retry remains

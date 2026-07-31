@@ -143,6 +143,7 @@ func TestVIXNotDueAggregateRequiresCurrentVVIX(t *testing.T) {
 		r.VIXTermStructure.Status = rpc.RegimeStatusStale
 		r.VIXTermStructure.VIXQuality = quality(now, rpc.FreshnessLive)
 		r.VIXTermStructure.VIX3MQuality = quality(now, rpc.FreshnessFrozen)
+		r.VIXTermStructure.VIX3MCrossCheck = rpc.VIX3MCrossCheckAgree
 		r.VolOfVol.Status = vvixStatus
 		r.VolOfVol.AsOfDate = now.Format("2006-01-02")
 		regimeTestFinalize(t, r)

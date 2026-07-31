@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -511,6 +512,7 @@ type regimeDeps struct {
 	history        func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error)
 	officialSeries func(ctx context.Context, seriesID string) ([]regimeSeriesPoint, error)
 	vvixSeries     func(ctx context.Context) ([]regimeSeriesPoint, error)
+	vix3mSeries    func(ctx context.Context) ([]regimeSeriesPoint, error)
 	logWarnf       func(format string, args ...any)
 	// now overrides the fetchers' clock reads. Tests pin it so
 	// calendar-keyed behavior (the closed-date day-change pin, the
@@ -555,6 +557,7 @@ func productionRegimeDeps(c *ibkrlib.Connector, logWarnf func(format string, arg
 		},
 		officialSeries: officialSeries,
 		vvixSeries:     fetchCBOEVVIXSeries,
+		vix3mSeries:    fetchCBOEVIX3MSeries,
 		logWarnf:       logWarnf,
 	}
 }
@@ -754,7 +757,109 @@ func regimeClosedDateTapePin(ctx context.Context, deps *regimeDeps, sym string, 
 	return pin, true
 }
 
-const vixTermNotes = "VIX (30-day implied vol) divided by VIX3M (3-month implied vol). Spec thresholds: <0.92 green (healthy contango), 0.92-1.00 yellow (flattening), >1.00 red (backwardation — acute stress pricing). Signal requires sustained inversion over 2-3 sessions, not a single Fed-day spike. Confirmation gate: a red may confirm stress only after 2 consecutive NY trading sessions of inversion (or ratio >= 1.05 day one) on a fresh same-session tick; earlier or stale reds are provisional and warn only. On official non-trading dates the VIX day-change fields are pinned to the official daily closes of the last two completed sessions (vix_change_basis names them); frozen weekend prints and reset prev-close anchors never serve as day-change inputs."
+const vixTermNotes = "VIX (30-day implied vol) divided by VIX3M (3-month implied vol). Spec thresholds: <0.92 green (healthy contango), 0.92-1.00 yellow (flattening), >1.00 red (backwardation — acute stress pricing). Signal requires sustained inversion over 2-3 sessions, not a single Fed-day spike. Confirmation gate: a red may confirm stress only after 2 consecutive NY trading sessions of inversion (or ratio >= 1.05 day one) on a fresh same-session tick; earlier or stale reds are provisional and warn only. In session VIX3M comes from the gateway; outside Cboe's publication window the served VIX3M is Cboe's official dated close, and comparing it against the gateway's own reading (vix3m_cross_check) is what makes a stuck or lapsed index subscription visible — an uncorroborated or contradicted leg reads overdue, never not_due. On official non-trading dates the VIX day-change fields are pinned to the official daily closes of the last two completed sessions (vix_change_basis names them); frozen weekend prints and reset prev-close anchors never serve as day-change inputs."
+
+// officialVIX3MClose is Cboe's latest published VIX3M daily close. problem
+// carries why there is none, for the caller to log — this value crosses a
+// goroutine boundary, and every other regimeDeps callback is invoked from the
+// fetcher's own goroutine.
+type officialVIX3MClose struct {
+	value   float64
+	date    time.Time
+	ok      bool
+	problem string
+}
+
+// fetchOfficialVIX3MClose reads Cboe's published VIX3M series. Failure is not
+// an error for the caller: the row still has the gateway leg, and the missing
+// corroboration is reported through the cross-check verdict instead.
+func fetchOfficialVIX3MClose(ctx context.Context, deps *regimeDeps) officialVIX3MClose {
+	if deps == nil || deps.vix3mSeries == nil {
+		return officialVIX3MClose{problem: "no Cboe official VIX3M series fetcher configured"}
+	}
+	cctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	points, err := deps.vix3mSeries(cctx)
+	if err != nil {
+		return officialVIX3MClose{problem: "Cboe official VIX3M close unavailable: " + err.Error()}
+	}
+	latest, ok := latestSeriesPoint(points)
+	if !ok || latest.Value <= 0 {
+		return officialVIX3MClose{problem: "Cboe official VIX3M file carried no usable observation"}
+	}
+	return officialVIX3MClose{value: latest.Value, date: latest.Date, ok: true}
+}
+
+// resolveVIX3MOffWindow settles the served VIX3M leg once dissemination has
+// stopped, and records what the two independent sources establish about it.
+//
+// The broker keeps answering off-window whatever the value's real age: in
+// frozen mode it re-sends its last known print on request, and an index carries
+// no trade timestamp to date it with. So a lapsed entitlement or a stale
+// contract id looks exactly like a healthy quiet market. Cboe's close is dated,
+// which makes it both the better leg and the only way to catch a broker leg
+// that has stopped tracking the index.
+//
+// Cboe publishes after the session, so between the close and publication the
+// official file still holds the previous session. There the broker leg stands
+// in — bounded to exactly one session, since a file more than one session
+// behind is a lapsed source, not a slow one.
+//
+// The row's status is deliberately untouched here: an official close is
+// end-of-day evidence and must never reach the confirmable freshness a live
+// same-session tick earns. The caller lands every off-window row on stale.
+func resolveVIX3MOffWindow(row *rpc.RegimeVIXTerm, official officialVIX3MClose, now time.Time) {
+	if row == nil {
+		return
+	}
+	lastStart, lastEnd, ok := vix3mLastDisseminationWindow(now)
+	if !ok {
+		// Outside embedded calendar coverage there is no window to date a
+		// close against; the cadence classifier already reads overdue.
+		return
+	}
+	if official.ok {
+		row.VIX3MOfficial = new(official.value)
+		row.VIX3MOfficialDate = official.date.Format("2006-01-02")
+	}
+	lastSession := lastStart.Format("2006-01-02")
+	switch {
+	case official.ok && row.VIX3MOfficialDate == lastSession:
+		gateway := row.VIX3M
+		row.VIX3MGatewayLast = gateway
+		row.VIX3M = new(official.value)
+		row.VIX3MSource = rpc.VIX3MSourceOfficial
+		row.VIX3MQuality = &rpc.Quality{
+			AsOf:           lastEnd,
+			FreshnessClass: rpc.FreshnessDerived,
+			Confidence:     rpc.ConfidenceFirm,
+			Source:         "Cboe official VIX3M close " + lastSession,
+		}
+		switch {
+		case gateway == nil:
+			row.VIX3MCrossCheck = rpc.VIX3MCrossCheckOfficialOnly
+		case math.Abs(*gateway-official.value) <= vix3mCrossSourceTolerance:
+			row.VIX3MCrossCheck = rpc.VIX3MCrossCheckAgree
+		default:
+			row.VIX3MCrossCheck = rpc.VIX3MCrossCheckDisagree
+		}
+	case official.ok && row.VIX3MOfficialDate == previousVIX3MSessionDate(lastStart):
+		row.VIX3MCrossCheck = rpc.VIX3MCrossCheckPendingPublication
+	default:
+		row.VIX3MCrossCheck = rpc.VIX3MCrossCheckUnverified
+	}
+}
+
+// previousVIX3MSessionDate is the session one publication window before the one
+// starting at lastStart. Reading the calendar a second before that start makes
+// the session before it the "last completed" one.
+func previousVIX3MSessionDate(lastStart time.Time) string {
+	start, _, ok := vix3mLastDisseminationWindow(lastStart.Add(-time.Second))
+	if !ok {
+		return ""
+	}
+	return start.Format("2006-01-02")
+}
 
 // carryVIXTermFromLastGood repairs a VIX term row that lost only its VIX3M leg
 // to a fetch timeout. Outside the publication window VIX3M cannot have changed,
@@ -764,6 +869,11 @@ const vixTermNotes = "VIX (30-day implied vol) divided by VIX3M (3-month implied
 // that means a dead subscription rather than a slow one, and must stay
 // unavailable. A miss while VIX3M is actually publishing is a real gap and is
 // deliberately not carried here.
+//
+// This is now the third tier, reached only when Cboe has not published the last
+// completed window either — exactly the evening gap the official close cannot
+// cover. A carried leg is still uncorroborated, so it keeps whatever
+// cross-check verdict this snapshot's official evidence produced.
 func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time) bool {
 	if res == nil || prev == nil {
 		return false
@@ -789,6 +899,7 @@ func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time
 	ratio := *row.VIX / *carried.VIX3M
 	row.VIX3M = carried.VIX3M
 	row.VIX3MQuality = &quality
+	row.VIX3MSource = rpc.VIX3MSourceGateway
 	row.Ratio = &ratio
 	row.DataType = rpc.MarketDataFrozen
 	row.Status = rpc.RegimeStatusStale
@@ -799,6 +910,21 @@ func carryVIXTermFromLastGood(res, prev *rpc.RegimeSnapshotResult, now time.Time
 func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm {
 	out := rpc.RegimeVIXTerm{Notes: vixTermNotes}
 	now := regimeNow(deps)
+
+	// Cboe publishes closes, so its file only settles the leg once dissemination
+	// has stopped; fetching it in session would be pure traffic and would log an
+	// unreachable source nothing was going to read. One evaluation of the window
+	// drives both the fetch and the resolution, so a snapshot spanning the
+	// boundary cannot decide the two halves differently. The read is plain HTTP
+	// with no bearing on the gateway legs, so it runs alongside them rather than
+	// after: serialising it would add its budget to a row that already spends 13s.
+	// The goroutine touches no other dep and does not log — a background failure
+	// is reported once, by this fetcher, after the join.
+	offWindow := !vix3mDisseminating(nyTime(now))
+	officialCh := make(chan officialVIX3MClose, 1)
+	if offWindow {
+		go func() { officialCh <- fetchOfficialVIX3MClose(ctx, deps) }()
+	}
 
 	// VIX itself usually delivers a live mark (tick 37) even off-hours.
 	// VIX3M is a thinner CBOE index whose calculation only updates with
@@ -840,24 +966,43 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	// cold-frozen-mode calls even with a warm contract cache. 8 s
 	// matches the SPY 52w-high budget for the same reason.
 	vix3m, _, vix3mDT := boundedSnapshot(ctx, deps, "VIX3M", 8*time.Second)
-	if vix3m <= 0 {
-		// One arm of the pair is enough to be informative, but the
-		// ratio cannot be computed; surface VIX alone with an
-		// error_message so the consumer knows the ratio is missing.
-		out.VIX = new(vix)
-		out.VIXQuality = firmTickQuality(now, vixDT, "VIX tick")
-		out.DataType = vixDT
-		out.Status = rpc.RegimeStatusError
-		out.ErrorMessage = "VIX3M: no tick within budget (thin CBOE index, common off-hours)"
-		return out
+	if vix3m > 0 {
+		out.VIX3M = new(vix3m)
+		out.VIX3MQuality = vix3mTickQuality(now, vix3mDT)
+		out.VIX3MSource = rpc.VIX3MSourceGateway
+	}
+	if offWindow {
+		official := <-officialCh
+		if official.problem != "" {
+			warnDeps(deps, "regime: %s", official.problem)
+		}
+		resolveVIX3MOffWindow(&out, official, now)
 	}
 
 	out.VIX = new(vix)
-	out.VIX3M = new(vix3m)
 	out.VIXQuality = firmTickQuality(now, vixDT, "VIX tick")
-	out.VIX3MQuality = vix3mTickQuality(now, vix3mDT)
-	r := vix / vix3m
+	if out.VIX3M == nil {
+		// One arm of the pair is enough to be informative, but the
+		// ratio cannot be computed; surface VIX alone with an
+		// error_message so the consumer knows the ratio is missing.
+		out.DataType = vixDT
+		out.Status = rpc.RegimeStatusError
+		out.ErrorMessage = "VIX3M: no tick within budget (thin CBOE index, common off-hours)"
+		if offWindow {
+			out.ErrorMessage += " and no Cboe official close for the last completed session"
+		}
+		return out
+	}
+
+	r := vix / *out.VIX3M
 	out.Ratio = &r
+	if out.VIX3MSource == rpc.VIX3MSourceOfficial {
+		// An end-of-day close is frozen evidence by construction, whatever
+		// mode the gateway happened to report for its own leg.
+		out.DataType = rpc.MarketDataFrozen
+		out.Status = rpc.RegimeStatusStale
+		return out
+	}
 	// The ratio is only as fresh as the staler leg. Both must be live
 	// to call the whole row "live".
 	out.DataType = vixDT

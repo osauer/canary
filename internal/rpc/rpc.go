@@ -1674,12 +1674,70 @@ type RegimeVIXTerm struct {
 	// "estimate · 18s" without re-deriving from DataType.
 	VIXQuality   *Quality `json:"vix_quality,omitempty"`
 	VIX3MQuality *Quality `json:"vix3m_quality,omitempty"`
+	// Cboe's published VIX3M daily close, read independently of the broker,
+	// and what comparing it against the broker leg established. VIX3MSource
+	// names which of the two observations the served VIX3M came from. The
+	// broker keeps answering with a value off-window whatever its real
+	// vintage; only a dated official close can settle that, so these fields
+	// are what an off-window age bound and a stuck-subscription check read.
+	// VIX3MGatewayLast retains the broker's own reading when the official close
+	// supersedes it, so a disagreement carries both numbers rather than an
+	// unevidenced claim.
+	VIX3MSource       string   `json:"vix3m_source,omitempty"`
+	VIX3MGatewayLast  *float64 `json:"vix3m_gateway_last,omitempty"`
+	VIX3MOfficial     *float64 `json:"vix3m_official,omitempty"`
+	VIX3MOfficialDate string   `json:"vix3m_official_date,omitempty"`
+	VIX3MCrossCheck   string   `json:"vix3m_cross_check,omitempty"`
 	// Streak counts how many consecutive sessions this row's value has
 	// been in its current band. Persisted across daemon restarts in daemon.db.
 	// Nil when the band can't
 	// be determined (computing / unavailable / error) — the streak
 	// freezes rather than resets.
 	Streak *StreakInfo `json:"streak,omitempty"`
+}
+
+// Provenance of the served VIX3M leg.
+const (
+	VIX3MSourceGateway  = "gateway"
+	VIX3MSourceOfficial = "cboe_official_close"
+)
+
+// VIX3M cross-source verdicts. In frozen mode the broker re-sends its last
+// known value on request, so arrival time says nothing about a value's age and
+// an index carries no trade timestamp. Cboe's dated close is therefore the only
+// thing that establishes an off-window leg's vintage, and these name what that
+// comparison found:
+//
+//   - agree: both sources described the last completed publication window and
+//     matched.
+//   - official_only: Cboe covered that window and the broker produced no VIX3M
+//     at all, so the official close IS the leg and nothing was compared.
+//   - pending_publication: Cboe has not published the last completed window's
+//     close yet — it lands after the session ends. The broker leg stands in,
+//     bounded to one session.
+//   - disagree: both described the same window and differed. The broker leg is
+//     not the close it claims to be: a stuck subscription, a lapsed market-data
+//     entitlement, or a contract id that no longer resolves to VIX3M.
+//   - unverified: no usable official close within one session of the last
+//     completed window, so nothing corroborates the broker leg.
+const (
+	VIX3MCrossCheckAgree              = "agree"
+	VIX3MCrossCheckOfficialOnly       = "official_only"
+	VIX3MCrossCheckPendingPublication = "pending_publication"
+	VIX3MCrossCheckDisagree           = "disagree"
+	VIX3MCrossCheckUnverified         = "unverified"
+)
+
+// VIX3MCrossCheckVouches reports whether the verdict established the served
+// off-window leg's vintage. Only a vouched leg may read not_due, because
+// not_due exempts a row from every age bound; everything else fails closed.
+func VIX3MCrossCheckVouches(verdict string) bool {
+	switch verdict {
+	case VIX3MCrossCheckAgree, VIX3MCrossCheckOfficialOnly, VIX3MCrossCheckPendingPublication:
+		return true
+	default:
+		return false
+	}
 }
 
 // RegimeHYGSPYDivergence is Indicator 2: HYG vs SPY context. The

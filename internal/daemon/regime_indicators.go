@@ -243,6 +243,14 @@ func (vixTermStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 // dissemination window runs 09:31 to close+15m.
 const vix3mDisseminationTail = 15 * time.Minute
 
+// vix3mCrossSourceTolerance is how far the broker's VIX3M may sit from Cboe's
+// published close for the same session before the leg is called stuck, in index
+// points (Cboe quotes the file to two decimals). Heuristic and operator-owned,
+// like the band thresholds: sized to clear any rounding or mark-versus-
+// settlement difference while still catching a leg serving another session's
+// value, which normally moves VIX3M by several tenths of a point.
+const vix3mCrossSourceTolerance = 0.25
+
 // vix3mWindow is the single definition of one session's VIX3M publication
 // window. Every VIX3M schedule question — cadence class, honest age, carry
 // bound — resolves through it.
@@ -343,6 +351,14 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 	// outside the window regardless, so an off-window "live" label still
 	// cannot become confirming evidence. A genuinely absent leg is already
 	// overdue above, via the row status and typed-quality checks.
+	//
+	// What the window alone cannot say is how old the value behind a frozen leg
+	// really is. not_due exempts the row from every age bound, so it is granted
+	// only once Cboe's dated close has established the leg's vintage; an
+	// uncorroborated or contradicted leg is overdue.
+	if !rpc.VIX3MCrossCheckVouches(row.VIX3MCrossCheck) {
+		return rpc.RegimeFreshnessOverdue
+	}
 	return rpc.RegimeFreshnessNotDue
 }
 
@@ -352,7 +368,11 @@ func regimeTickQualityClass(quality *rpc.Quality, now time.Time) (string, bool) 
 	}
 	class := strings.ToLower(strings.TrimSpace(quality.FreshnessClass))
 	switch class {
-	case rpc.FreshnessLive, rpc.FreshnessFrozen:
+	// Derived covers the official close serving as the off-window VIX3M leg.
+	// It is a typed dated observation, and since only a live class reaches
+	// confirmable freshness inside the window, accepting it here cannot let
+	// end-of-day evidence confirm anything.
+	case rpc.FreshnessLive, rpc.FreshnessFrozen, rpc.FreshnessDerived:
 		return class, true
 	default:
 		return "", false

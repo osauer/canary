@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -349,7 +350,47 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 			warnings = append(warnings, w)
 		}
 	}
+	if w, ok := warningForVIX3MCrossCheck(r.VIXTermStructure); ok {
+		warnings = append(warnings, w)
+	}
 	return warnings
+}
+
+// warningForVIX3MCrossCheck names what the two independent VIX3M sources
+// established. A stale row alone reads as ordinary off-hours context, so the
+// one case an operator must act on — a broker leg that has stopped tracking the
+// index — needs to say so in its own words.
+func warningForVIX3MCrossCheck(row rpc.RegimeVIXTerm) (rpc.RegimeWarning, bool) {
+	switch row.VIX3MCrossCheck {
+	case rpc.VIX3MCrossCheckDisagree:
+		return rpc.RegimeWarning{
+			Code:     "vix3m_source_disagreement",
+			Scope:    "vix_term_structure",
+			Severity: "error",
+			Message: fmt.Sprintf("gateway VIX3M %s differs from Cboe's published %s close %s",
+				formatVIX3MLevel(row.VIX3MGatewayLast), row.VIX3MOfficialDate, formatVIX3MLevel(row.VIX3MOfficial)),
+			Impact: "The gateway leg is not the close it claims to be, so the vol cluster is overdue rather than not_due and cannot confirm. The served VIX3M is Cboe's close.",
+			Action: "Check the VIX3M index market-data entitlement and the daemon's VIX3M contract id, then restart the daemon.",
+		}, true
+	case rpc.VIX3MCrossCheckUnverified:
+		return rpc.RegimeWarning{
+			Code:     "vix3m_official_close_unavailable",
+			Scope:    "vix_term_structure",
+			Severity: "warning",
+			Message:  "no Cboe VIX3M close within one session of the last completed window",
+			Impact:   "Nothing dates the off-window gateway leg, so the vol cluster is overdue rather than not_due.",
+			Action:   "Retry once Cboe's official VIX3M daily file is reachable.",
+		}, true
+	default:
+		return rpc.RegimeWarning{}, false
+	}
+}
+
+func formatVIX3MLevel(v *float64) string {
+	if v == nil {
+		return "(absent)"
+	}
+	return strconv.FormatFloat(*v, 'f', 2, 64)
 }
 
 func regimeWarningCluster(scope string) string {

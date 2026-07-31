@@ -1437,7 +1437,7 @@ func renderExplainBlock(env *Env, out io.Writer, r *rpc.RegimeSnapshotResult, di
 	entries := []regimeExplainEntry{
 		{"VIX/VIX3M", r.VIXTermStructure.Thresholds, r.VIXTermStructure.Band, r.VIXTermStructure.BandReason,
 			"VIX is Cboe's 30-day S&P 500 implied-volatility index; VIX3M is the roughly three-month version.",
-			"IBKR index market data for Cboe VIX and VIX3M; historical replay uses Cboe official CSVs.",
+			"IBKR index market data for Cboe VIX and VIX3M in session; off-window VIX3M is Cboe's official dated close, which also cross-checks the broker leg. Historical replay uses Cboe official CSVs.",
 			r.VIXTermStructure.FieldsMissing, []regimeExplainQuality{
 				{"VIX", r.VIXTermStructure.VIXQuality},
 				{"VIX3M", r.VIXTermStructure.VIX3MQuality},
@@ -1578,7 +1578,7 @@ func regimeGateExplainLine() string {
 func explainSourceSummary(name string) string {
 	switch name {
 	case "VIX/VIX3M":
-		return "IBKR Cboe index market data; historical replay uses official Cboe files."
+		return "IBKR Cboe index market data in session, Cboe's official dated VIX3M close off-window; historical replay uses official Cboe files."
 	case "VVIX":
 		return "Cboe official daily VVIX time series."
 	case "HYG vs SPY":

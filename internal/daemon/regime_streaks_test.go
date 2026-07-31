@@ -158,7 +158,11 @@ func TestVIXTermCadenceDistinguishesNotDueFromOverdue(t *testing.T) {
 	result := &rpc.RegimeSnapshotResult{
 		AsOf: time.Date(2026, 7, 20, 1, 5, 0, 0, ny),
 		VIXTermStructure: rpc.RegimeVIXTerm{
+			// Off-window not_due is available only to a leg Cboe's dated
+			// close has vouched for; TestVIX3MOffWindowLegRequiresOfficialCorroboration
+			// covers the verdicts that withhold it.
 			Status: rpc.RegimeStatusStale, Ratio: &ratio,
+			VIX3MCrossCheck: rpc.VIX3MCrossCheckAgree,
 		},
 	}
 	result.VIXTermStructure.VIXQuality = quality(result.AsOf, rpc.FreshnessFrozen)
@@ -282,8 +286,9 @@ func TestStreakFreezesOnNonFreshCadence(t *testing.T) {
 		AsOf: preOpen,
 		VIXTermStructure: rpc.RegimeVIXTerm{
 			Status: rpc.RegimeStatusStale, Ratio: &ratio,
-			VIXQuality:   quality(preOpen, rpc.FreshnessLive),
-			VIX3MQuality: quality(preOpen, rpc.FreshnessFrozen),
+			VIXQuality:      quality(preOpen, rpc.FreshnessLive),
+			VIX3MQuality:    quality(preOpen, rpc.FreshnessFrozen),
+			VIX3MCrossCheck: rpc.VIX3MCrossCheckAgree,
 		},
 	}
 	policy := (&Server{}).populateStreaksWithStore(res, store)[rpc.RegimeIndicatorVIXTerm]
@@ -337,12 +342,15 @@ func TestVIXTermCarriesPriorVIX3MOnlyWithinTheLastWindow(t *testing.T) {
 		VIX3M:        &vix3m,
 		VIX3MQuality: &rpc.Quality{AsOf: lastWindowEnd, FreshnessClass: rpc.FreshnessFrozen, Source: "VIX3M tick"},
 	}}
-	// The real timeout path keeps the VIX leg and its quality; only VIX3M is lost.
+	// The real timeout path keeps the VIX leg and its quality; only VIX3M is
+	// lost. Carry is now reached only when Cboe has not published the last
+	// completed window either, so the row arrives carrying that verdict.
 	timedOut := func() *rpc.RegimeSnapshotResult {
 		return &rpc.RegimeSnapshotResult{AsOf: preOpen, VIXTermStructure: rpc.RegimeVIXTerm{
 			Status: rpc.RegimeStatusError, VIX: &vix,
-			VIXQuality:   &rpc.Quality{AsOf: preOpen, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm},
-			ErrorMessage: "VIX3M: no tick within budget (thin CBOE index, common off-hours)",
+			VIXQuality:      &rpc.Quality{AsOf: preOpen, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm},
+			VIX3MCrossCheck: rpc.VIX3MCrossCheckPendingPublication,
+			ErrorMessage:    "VIX3M: no tick within budget (thin CBOE index, common off-hours)",
 		}}
 	}
 
@@ -362,6 +370,15 @@ func TestVIXTermCarriesPriorVIX3MOnlyWithinTheLastWindow(t *testing.T) {
 	}
 	if got := vixTermCadenceClass(res, preOpen); got != rpc.RegimeFreshnessNotDue {
 		t.Fatalf("carried row cadence=%q, want not_due", got)
+	}
+	if row.VIX3MSource != rpc.VIX3MSourceGateway {
+		t.Fatalf("carried leg source=%q, want the gateway it came from", row.VIX3MSource)
+	}
+	// A carried leg is still uncorroborated: once the official close is not
+	// merely late but missing, the same carry may no longer claim not_due.
+	res.VIXTermStructure.VIX3MCrossCheck = rpc.VIX3MCrossCheckUnverified
+	if got := vixTermCadenceClass(res, preOpen); got != rpc.RegimeFreshnessOverdue {
+		t.Fatalf("uncorroborated carried row cadence=%q, want overdue", got)
 	}
 
 	tooOld := *prev

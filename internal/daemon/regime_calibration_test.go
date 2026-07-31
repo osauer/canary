@@ -129,6 +129,7 @@ func TestRegimeOffHoursGammaStaleAloneStaysNormal(t *testing.T) {
 	r.VIXTermStructure.Status = rpc.RegimeStatusStale
 	r.VIXTermStructure.VIXQuality = &rpc.Quality{AsOf: r.AsOf, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm}
 	r.VIXTermStructure.VIX3MQuality = &rpc.Quality{AsOf: r.AsOf, FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm}
+	r.VIXTermStructure.VIX3MCrossCheck = rpc.VIX3MCrossCheckAgree
 	// Off-hours prior-trading-date compute: fetchRegimeGamma would map this
 	// to RegimeStatusStale (see gammaNotes) while Rankability degrades to
 	// context_only ("market is closed; cached gamma is context only").

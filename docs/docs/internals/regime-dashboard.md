@@ -44,7 +44,7 @@ sources; the row meaning should stay the same.
 
 | Row | Actual symbols or series | Live source |
 | --- | --- | --- |
-| VIX/VIX3M | `VIX` and `VIX3M`, Cboe equity-volatility indexes | IBKR index market data; backtests use Cboe official historical CSVs. |
+| VIX/VIX3M | `VIX` and `VIX3M`, Cboe equity-volatility indexes | IBKR index market data in session; outside Cboe's VIX3M publication window the served VIX3M is Cboe's official dated daily close, which also cross-checks the broker leg. Backtests use Cboe official historical CSVs. |
 | VVIX | `VVIX`, Cboe's VIX-of-VIX index | Cboe official daily VVIX time series. |
 | HYG/SPY | `HYG`, a high-yield corporate bond ETF, and `SPY`, an S&P 500 ETF | IBKR quotes plus HMDS daily bars; SPY 52-week high uses IBKR Misc Stats tick 165 when available, daily-bar fallback otherwise. Backtests use Nasdaq public ETF history. |
 | HY OAS | FRED `BAMLH0A0HYM2` for high-yield OAS and `BAMLC0A0CM` for investment-grade corporate OAS | FRED/St. Louis Fed CSVs for ICE BofA option-adjusted spread series. |
@@ -232,7 +232,7 @@ thresholds; values live in `internal/rpc/regime_policy.go`):
 
 | Indicator | Min depth for eligible red | Fast path (eligible day 1) | Min streak (NY trading sessions) | Cadence freshness | Exit hysteresis (leave red) |
 | --- | --- | --- | --- | --- | --- |
-| VIX/VIX3M | ratio >= 1.00 | ratio >= 1.05 | 2 | same-session tick | ratio < 0.98 |
+| VIX/VIX3M | ratio >= 1.00 | ratio >= 1.05 | 2 | same-session tick (off-window the row is `not_due` at best, and only while Cboe's dated close vouches for the VIX3M leg) | ratio < 0.98 |
 | VVIX | >= 110 | >= 120 | 2 | latest official daily close (<= 4d) | < 105 |
 | HYG/SPY | HYG >= 0.25% below 50DMA | >= 1.0% below | 2 | RTH tick or latest official close (off-hours banding input is the close, never a thin pre/post print; a missing spot tick falls back to the close and marks the row stale) | HYG closes back above 50DMA |
 | HY OAS | band is the gate | n/a | 1 | series <= 7d | < 5.25 and widening < 0.85 pp |
@@ -245,6 +245,37 @@ A session is banked only from evidence that is cadence-fresh under the row's own
 schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick
 still displays its band and its hysteresis hold, but the persistence counter
 freezes rather than spending one of the sessions the gate requires.
+
+### Two independent VIX3M sources
+
+In frozen mode the broker re-sends its last known value on request, and an index
+carries no trade timestamp, so off-window arrival time says nothing about a
+value's age. A gateway that keeps answering with a stale VIX3M — a lapsed
+market-data entitlement, a contract id that no longer resolves — is therefore
+indistinguishable from a quiet market on the broker leg alone.
+
+Cboe's published VIX3M daily close is read independently of the broker and
+carries a real session date. Outside the publication window it is the served
+VIX3M whenever it covers the last completed session, and `vix3m_cross_check`
+records what the two sources established:
+
+| Verdict | Meaning | Off-window cadence |
+| --- | --- | --- |
+| `agree` | Both described the last completed window and matched. | `not_due` |
+| `official_only` | The broker produced no VIX3M; the official close is the leg. | `not_due` |
+| `pending_publication` | Cboe has not published the last completed window yet (it lands after the session); the broker leg stands in, bounded to one session. | `not_due` |
+| `disagree` | Both described the same window and differed beyond the tolerance: the broker leg is not the close it claims to be. | `overdue` |
+| `unverified` | No usable official close within one session of the last completed window. | `overdue` |
+
+Only a vouched leg may read `not_due`, because `not_due` exempts a row from
+every age bound. The served row carries `vix3m_source`, `vix3m_official`,
+`vix3m_official_date`, and — on a disagreement — the broker's own
+`vix3m_gateway_last`, so the discrepancy is inspectable rather than asserted. A
+disagreement also raises `vix3m_source_disagreement`.
+
+The comparison tolerance is heuristic and operator-owned, like the band
+thresholds. In session the gateway remains the source and the check does not
+run: Cboe publishes closes, not intraday values.
 
 Eligibility latches for the life of the red streak (a depth wobble back inside
 the floor does not flip it); freshness is never latched: overdue data drops

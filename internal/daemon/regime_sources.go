@@ -42,6 +42,15 @@ func fetchCBOEVVIXSeries(ctx context.Context) ([]regimeSeriesPoint, error) {
 	return fetchCSVSeries(ctx, u, "VVIX", "01/02/2006")
 }
 
+// Cboe publishes VIX3M's official daily close at the same path as VVIX's, as
+// DATE,OPEN,HIGH,LOW,CLOSE. It is the daemon's second, broker-independent VIX3M
+// observation: unlike a gateway quote the value carries a real session date.
+var cboeVIX3MHistoryURL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv"
+
+func fetchCBOEVIX3MSeries(ctx context.Context) ([]regimeSeriesPoint, error) {
+	return fetchCSVSeries(ctx, cboeVIX3MHistoryURL, "CLOSE", "01/02/2006")
+}
+
 var fedCommercialPaperRatesURL = "https://www.federalreserve.gov/datadownload/Output.aspx?rel=CP&series=593ce926936cbd64b3c79b960a792b85&lastobs=270&from=&to=&filetype=csv&label=include&layout=seriescolumn&type=package"
 
 var treasuryBillRatesXMLURL = func(month string) string {
@@ -228,6 +237,10 @@ func fetchCSVSeries(ctx context.Context, endpoint, valueColumn, dateLayout strin
 	}
 
 	reader := csv.NewReader(resp.Body)
+	// Ragged rows are skipped per row below, as bad values and dates already
+	// are — without this the default field count locks to the header and one
+	// short line from a public file drops the entire series instead.
+	reader.FieldsPerRecord = -1
 	header, err := reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("read CSV header: %w", err)

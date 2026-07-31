@@ -52,6 +52,8 @@ type fakeDeps struct {
 	seriesErr     map[string]error
 	vvix          []regimeSeriesPoint
 	vvixErr       error
+	vix3m         []regimeSeriesPoint
+	vix3mErr      error
 	warnLog       *[]string
 	historyCalls  map[string][]int
 	snapshotCalls map[string]int
@@ -110,6 +112,9 @@ func (f *fakeDeps) build() *regimeDeps {
 		},
 		vvixSeries: func(_ context.Context) ([]regimeSeriesPoint, error) {
 			return f.vvix, f.vvixErr
+		},
+		vix3mSeries: func(_ context.Context) ([]regimeSeriesPoint, error) {
+			return f.vix3m, f.vix3mErr
 		},
 		logWarnf: func(format string, args ...any) {
 			if f.warnLog != nil {
