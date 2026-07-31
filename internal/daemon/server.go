@@ -2915,6 +2915,12 @@ func classifyError(err error) (string, string) {
 		return rpc.CodeSymbolInactive, err.Error()
 	case errors.Is(err, ibkrlib.ErrSymbolInactive):
 		return rpc.CodeSymbolInactive, err.Error()
+	case errors.Is(err, ibkrlib.ErrContractNoDefinition):
+		// The broker answered that no such contract exists. Same caller
+		// semantics as an inactive mark, and deliberately not the timeout
+		// below: that branch used to absorb this case because the rejection
+		// was invisible and the request ran out its budget instead.
+		return rpc.CodeSymbolInactive, err.Error()
 	case errors.Is(err, ibkrlib.ErrIBKRUnavailable):
 		return rpc.CodeGatewayUnavailable, err.Error()
 	case errors.Is(err, ErrTradingDisabled):

@@ -37,6 +37,15 @@ var ErrSymbolInactive = errors.New("symbol marked inactive")
 // may still contain details received before the timeout.
 var ErrContractDetailsTimeout = errors.New("timeout waiting for contract details")
 
+// ErrContractNoDefinition reports that IBKR answered a contract-details
+// request with a definition rejection rather than falling silent. It is the
+// broker's own verdict and must stay distinguishable from
+// [ErrContractDetailsTimeout]: a timeout is "no answer yet", this is "there is
+// no such contract". It alone is not proof a contract is dead — a wedged
+// gateway answers this for everything — so it feeds the guarded inactive
+// candidate rather than marking directly.
+var ErrContractNoDefinition = errors.New("no security definition for contract")
+
 // ErrBrokerIDNamespaceConflict reports that an explicit broker order/WhatIf
 // ID is still owned by an open read-only request. The broker-adjacent
 // operation is refused before local indexing or wire send and may be retried
@@ -192,6 +201,16 @@ type Connector struct {
 	optPrevClose    map[string]float64 // tick 9 on the option contract itself (NOT the underlying)
 	optGreeks       map[string]Greeks  // last observed model-computation greeks per option key
 	optUnderlyingPx map[string]float64 // model-computation underlying price per option key
+
+	// In-flight reqContractDetails requests, keyed by reqID. Without this the
+	// notice path cannot see them at all: recoverFromSystemNotice searches
+	// historicalReqs and subscriptionKeyForNotice searches reqIDMap, and a
+	// contract-details reqID is in neither. A code-200 answering one then
+	// failed to fail the pending wait (the caller burned its whole budget and
+	// reported a timeout, disguising the broker's definitive answer as a
+	// transient) and never reached inactive marking.
+	contractDetailsMu   sync.Mutex
+	contractDetailsReqs map[int]*contractDetailsRequest
 
 	// Historical data requests (HMDS)
 	historicalMu           sync.Mutex
@@ -704,6 +723,7 @@ func NewConnector(config *ConnectorConfig) *Connector {
 		optPrevClose:           make(map[string]float64),
 		optGreeks:              make(map[string]Greeks),
 		optUnderlyingPx:        make(map[string]float64),
+		contractDetailsReqs:    make(map[int]*contractDetailsRequest),
 		historicalReqs:         make(map[int]*historicalRequest),
 		historicalBackoff:      make(map[string]int),
 		historicalExactFlights: make(map[string]*historicalExactFlight),
@@ -1026,11 +1046,11 @@ func (c *Connector) processSystemNoticeFrom(origin ConnectorSessionBinding, alia
 			return
 		}
 		// Record the inactive candidate under the connector's own subscription
-		// key — exactly what SubscribeMarketData / SubscribeMarketDataWithContract
-		// check before re-requesting. The former alias-derived route key embedded
-		// gateway-hydrated localSymbol/tradingClass/primaryExch fields that no
-		// check-time key contains, so marks never suppressed anything.
-		key := c.subscriptionKeyForNotice(int(note.tickerID), alias)
+		// or contract-details key — exactly what the subscribe and resolve
+		// paths check before re-requesting. The former alias-derived route key
+		// embedded gateway-hydrated localSymbol/tradingClass/primaryExch fields
+		// that no check-time key contains, so marks never suppressed anything.
+		key := c.resolutionKeyForNotice(int(note.tickerID), alias)
 		if key == "" {
 			c.logDebug("Ignoring definition error code %d for unowned or derivative request %s (%s): %s", note.code, alias.symbol, alias.localSymbol, note.message)
 			return
@@ -1120,6 +1140,13 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 		return nil
 	}
 
+	// Contract-details requests hold no market-data slot and no subscription,
+	// so they exit here rather than falling through to the rejection and
+	// slot-release handling below.
+	if c.failPendingContractDetails(reqID, code, note.message) {
+		return nil
+	}
+
 	c.pushSubscriptionRejection(reqID, code, note.message)
 
 	switch code {
@@ -1144,6 +1171,72 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 		c.maybeRememberAbsenceForReqID(reqID, alias, code, note.message)
 	}
 	return postBarrier
+}
+
+// contractDetailsRequest tracks one in-flight reqContractDetails so a system
+// notice targeting its reqID can fail it immediately. resolutionKey is the
+// inactive-mark key a definition rejection should count against, empty for
+// derivative probes whose rejections are routine (option fan-outs request
+// strike supersets; FX resolution quotes both pair directions).
+type contractDetailsRequest struct {
+	resolutionKey string
+	fail          chan error
+}
+
+// registerContractDetailsRequest arms reqID for notice-driven failure and
+// returns the request plus a release func the caller must defer.
+func (c *Connector) registerContractDetailsRequest(reqID int, resolutionKey string) (*contractDetailsRequest, func()) {
+	req := &contractDetailsRequest{
+		resolutionKey: resolutionKey,
+		fail:          make(chan error, 1),
+	}
+	c.contractDetailsMu.Lock()
+	c.contractDetailsReqs[reqID] = req
+	c.contractDetailsMu.Unlock()
+	return req, func() {
+		c.contractDetailsMu.Lock()
+		delete(c.contractDetailsReqs, reqID)
+		c.contractDetailsMu.Unlock()
+	}
+}
+
+// pendingContractDetailsKey returns the inactive-mark key a definition
+// rejection for reqID should count against, or "" when reqID is not a live
+// contract-details request or is a derivative probe.
+func (c *Connector) pendingContractDetailsKey(reqID int) string {
+	c.contractDetailsMu.Lock()
+	req, ok := c.contractDetailsReqs[reqID]
+	c.contractDetailsMu.Unlock()
+	if !ok {
+		return ""
+	}
+	return req.resolutionKey
+}
+
+// failPendingContractDetails fails the contract-details request owning reqID,
+// if any, so the caller returns on the broker's answer instead of burning its
+// full budget and reporting a timeout. Informational codes leave the request
+// running, matching failPendingHistorical. Returns true when reqID belonged to
+// a pending contract-details request.
+func (c *Connector) failPendingContractDetails(reqID, code int, message string) bool {
+	if code == 0 || code == -1 || (code >= 2100 && code < 2200) {
+		return false
+	}
+	c.contractDetailsMu.Lock()
+	req, ok := c.contractDetailsReqs[reqID]
+	c.contractDetailsMu.Unlock()
+	if !ok {
+		return false
+	}
+	err := fmt.Errorf("contract details request failed (IBKR %d)", code)
+	if code == 200 && strings.Contains(strings.ToUpper(message), "NO SECURITY DEFINITION") {
+		err = ErrContractNoDefinition
+	}
+	select {
+	case req.fail <- err:
+	default:
+	}
+	return true
 }
 
 // failPendingHistorical fails the historical request owning reqID, if
@@ -1242,6 +1335,24 @@ func (c *Connector) subscriptionKeyForNotice(reqID int, alias reqAliasEntry) str
 		return ""
 	}
 	return key
+}
+
+// resolutionKeyForNotice returns the inactive-mark key a definition rejection
+// for reqID should count against: the subscription key when the connector owns
+// a live subscription, otherwise the key of a live contract-details request.
+// Contract-details rejections are the only evidence a name that can no longer
+// be resolved ever produces — it never reaches a market-data subscription — so
+// excluding them left such a name re-probing forever. Both branches keep the
+// farm-impaired guard: while any tracked farm is impaired the gateway's
+// definition errors are a session verdict, not a contract verdict.
+func (c *Connector) resolutionKeyForNotice(reqID int, alias reqAliasEntry) string {
+	if key := c.subscriptionKeyForNotice(reqID, alias); key != "" {
+		return key
+	}
+	if reqID <= 0 || c.marketDataFarmImpaired() {
+		return ""
+	}
+	return c.pendingContractDetailsKey(reqID)
 }
 
 func (c *Connector) recordDataFarmNotice(code int, message string, asOf time.Time) {
@@ -2471,6 +2582,9 @@ func (c *Connector) FetchContractDetails(symbol string, timeout time.Duration) (
 		}
 	})
 
+	req, releaseReq := c.registerContractDetailsRequest(reqID, resolutionKeyForSecType(symbol, secType))
+	defer releaseReq()
+
 	if err := c.conn.sendContractDetailsRequest(contract, reqID); err != nil {
 		c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 		c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
@@ -2508,12 +2622,30 @@ func (c *Connector) FetchContractDetails(symbol string, timeout time.Duration) (
 					reqID, symbol, len(results), first.ConID, first.Exchange, first.PrimaryExch, first.LocalSymbol, first.TradingClass)
 			}
 			return results, nil
+		case err := <-req.fail:
+			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
+			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+			c.logDebug("Contract details fetch rejected reqID=%d symbol=%s received=%d: %v", reqID, symbol, len(results), err)
+			return results, err
 		case <-deadline:
 			c.deferContractDetailsCleanup(symbol, reqID, detailsCh, doneCh, dataHandlerID, endHandlerID)
 			c.logDebug("Contract details fetch timeout reqID=%d symbol=%s received=%d", reqID, symbol, len(results))
 			return results, ErrContractDetailsTimeout
 		}
 	}
+}
+
+// resolutionKeyForSecType returns the key a definition rejection for this
+// request should count against, or "" for derivative probes whose rejections
+// are routine rather than evidence: option fan-outs request strike supersets
+// where some triples are unlisted, and FX resolution quotes both pair
+// directions when only one is listed.
+func resolutionKeyForSecType(key, secType string) string {
+	switch strings.ToUpper(strings.TrimSpace(secType)) {
+	case "OPT", "FOP", "WAR", "BAG", "CASH":
+		return ""
+	}
+	return key
 }
 
 func (c *Connector) fetchContractDetailsForContract(contract Contract, timeout time.Duration) ([]ContractDetailsLite, error) {
@@ -2569,6 +2701,9 @@ func (c *Connector) fetchContractDetailsForContract(contract Contract, timeout t
 		}
 	})
 
+	req, releaseReq := c.registerContractDetailsRequest(reqID, resolutionKeyForSecType(key, contract.SecType))
+	defer releaseReq()
+
 	if err := c.conn.sendContractDetailsRequest(lookup, reqID); err != nil {
 		c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 		c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
@@ -2589,6 +2724,11 @@ func (c *Connector) fetchContractDetailsForContract(contract Contract, timeout t
 			}
 			c.logDebug("Routed contract details fetch complete reqID=%d key=%s count=%d", reqID, key, len(results))
 			return results, nil
+		case err := <-req.fail:
+			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
+			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+			c.logDebug("Routed contract details fetch rejected reqID=%d key=%s received=%d: %v", reqID, key, len(results), err)
+			return results, err
 		case <-deadline:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
@@ -6670,7 +6810,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, co
 					symbol, contract.Exchange, contract.PrimaryExch, contract.Currency)
 			}
 		} else if err != nil {
-			c.logWarn("Routed contract details for %s unavailable (%v)", symbol, err)
+			c.logDebug("Routed contract details for %s unavailable (%v)", symbol, err)
 		}
 	}
 	return c.fetchHistoricalDailyBarsWithBase(ctx, symbol, contract, fallbackPrimary, lookbackDays, timeout, false, "")
@@ -6729,11 +6869,17 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 				}
 				c.logInfo("Contract details for %s arrived during grace window (conID=%d)", symbol, late.ConID)
 			} else if fetchErr != nil {
-				c.logWarn("Contract details for %s unavailable (%v); using static classification hints only", symbol, fetchErr)
+				c.logDebug("Contract details for %s unavailable (%v); using static classification hints only", symbol, fetchErr)
 			}
 		}
 	}
 
+	// The only WARN in this chain. A quote-history fallback runs the routed
+	// contract and then the bare symbol, and each leg used to warn on both its
+	// resolve step and its request step — one unresolvable name produced four
+	// identical-in-substance WARN lines per attempt. The intermediate steps are
+	// debug; this abort is the caller-visible outcome, and every other leg
+	// returns its error for the caller to report.
 	if requireConID && baseContract.ConID == 0 {
 		c.logWarn("Historical data request aborted for %s: contract ID unresolved (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
 		return nil, fmt.Errorf("contract details unresolved for %s (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
@@ -6914,7 +7060,7 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		return nil, err
 	}
 	if contract.ConID == 0 {
-		c.logWarn("Skipping historical data request for %s: unresolved contract ID (exchange=%s primary=%s)", symbol, contract.Exchange, contract.PrimaryExch)
+		c.logDebug("Skipping historical data request for %s: unresolved contract ID (exchange=%s primary=%s)", symbol, contract.Exchange, contract.PrimaryExch)
 		return nil, fmt.Errorf("contract ID unresolved for %s", symbol)
 	}
 	var req *historicalRequest

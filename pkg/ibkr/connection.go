@@ -3358,6 +3358,13 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	// The requester classifies the rejection either way, so the wire echo
 	// is debug-grade. STK and alias-less requests keep the WARN trail —
 	// that is the signal feeding inactive marking for dead symbols.
+	//
+	// 2129 is a fixed per-request disclaimer for indicative-valuation products,
+	// not an event: the gateway repeats it verbatim for every reqMktData on
+	// such a name, and one held defunct stock emitted 21,633 of them into a
+	// single log generation. What it reports is already on the position row as
+	// stale/zero-value warnings, so the wire echo is debug-grade.
+	indicativeDisclaimer := note.code == 2129
 	definitionProbe := note.code == 200 && (aliasEntry.secType == "OPT" || aliasEntry.secType == "CASH")
 	upperMsg := strings.ToUpper(note.message)
 	parserMisalign := strings.Contains(upperMsg, "MART") || strings.Contains(upperMsg, "'BOE") || strings.Contains(upperMsg, "\"BOE") || strings.Contains(upperMsg, " BOE")
@@ -3380,7 +3387,7 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 		switch {
 		case parserMisalign:
 			ibkrLogger.Errorf(format, args...)
-		case definitionProbe:
+		case definitionProbe, indicativeDisclaimer:
 			ibkrLogger.Debugf(format, args...)
 		case shouldWarn:
 			ibkrLogger.Warnf(format, args...)
