@@ -90,14 +90,30 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
 
 ## Verification and evidence
 
+Match the gate to what the change touches, and name the gates you ran.
+
+For Go or runtime behavior, `make test` is binding and already includes
+`check`; run it once, backgrounded or logged, rather than as a foreground pipe.
+
+Otherwise run the gates that actually read what you edited.
+`account-data-check` and `product-identity-check` scan every tracked file, so
+they apply to any change including Markdown. Beyond those the main ones are
+`docs-check` and `docs-html-check` for `docs/` and the `docgen:env` contracts,
+`changelog-check` for `CHANGELOG.md`, `app-check` for `web/app/`, and
+`agent-config-check` for `.claude/`, `.codex/`, and `hooks/`. `internal-docs/`
+is rendered by nothing, so the two whole-tree scanners are the only gates that
+read it. `make help` has the rest.
+
+`make check` is that whole set and stays the binding pre-commit gate: run it
+before committing and whenever a change spans several of the above. Running it
+over a change no gate inspects proves nothing — report the gates you chose and
+why, rather than a green check that examined none of your edits.
+
 For intermediate checkpoint commits, `make commit-check` may verify the exact
 staged tree with a conservative impact-aware plan. Its cache and partial plan
 are never final handoff, CI, or release evidence.
 
-For instructions, docs, or config-only changes, run the targeted check plus
-`make check`. For Go or runtime behavior, `make test` is binding and already
-includes `check`; run it once, backgrounded or logged, rather than as a
-foreground pipe. `make smoke-fast` is the default live-gateway gate; full
+`make smoke-fast` is the default live-gateway gate; full
 `make smoke` is required for daemon, CLI, or wire-path changes and for releases.
 Gateway tests serialize through `scripts/with-gateway-lock.sh`; a busy gateway
 is a wait, not a flake. Report skips and first failures explicitly.
