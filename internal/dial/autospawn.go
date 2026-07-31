@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,42 +22,140 @@ import (
 // detects a wedged daemon just as fast as it used to.
 const startupBudgetBase = 5 * time.Second
 
-// startupBudgetFloorBytesPerSec is the authority-verification throughput the
-// budget assumes. Measured end to end on a warm NVMe desk (SQLite quick_check
-// plus a full payload re-hash, twice) it is roughly 110 MiB/s; budgeting a
-// third of that keeps a healthy-but-slow boot inside the budget on a busy or
-// slower machine.
+// startupBudgetFloorBytesPerSec is the effective throughput the startup budget
+// assumes for one full-authority unit of work. Measured end to end on a warm
+// NVMe desk, ordinary validation (SQLite quick_check plus the payload re-hash)
+// is roughly 110 MiB/s; budgeting 40 MiB/s leaves room for a busy or slower
+// machine.
 const startupBudgetFloorBytesPerSec = 40 << 20
 
-// startupBudgetMax bounds the derived wait so an authority that has grown
-// pathologically large still surfaces as a failure rather than hanging the
-// caller indefinitely.
-const startupBudgetMax = 5 * time.Minute
+// startupBudgetAuthorityPasses is a conservative source-size work-amplification
+// allowance for an out-of-place schema upgrade. The v4 maintenance path may
+// validate the source, build a disposable migrated snapshot, compact it, create
+// the exact-source backup, fingerprint/reverify artifacts, and verify the
+// published authority before the socket exists. Some stages touch less after
+// pruning and raw copies are faster than integrity scans, so six full-size
+// units model the critical path without teaching this adapter schema details.
+const startupBudgetAuthorityPasses = 6
+
+// startupBudgetMax is still a hard upper bound for a live but genuinely wedged
+// daemon. At the conservative throughput above, a 50 GiB authority receives a
+// little over two hours; the four-hour ceiling covers roughly 90 GiB before it
+// saturates. A daemon that exits is detected independently and returns at once.
+const startupBudgetMax = 4 * time.Hour
 
 // StartupBudget returns how long to wait for a starting daemon to publish its
 // socket.
 //
 // A fixed constant is wrong by construction: before the daemon accepts
-// connections it verifies the whole authority database — SQLite quick_check,
-// the foreign-key check, and a re-hash of every stored payload — so the
-// pre-socket window scales linearly with how much history the desk has
-// accumulated. A 6 GB authority takes ~50s to verify, which a fixed 5s budget
-// reports as a dead daemon while it is in fact healthy.
+// connections it validates the whole authority and may perform a crash-safe
+// out-of-place schema upgrade. Both ordinary validation and upgrade work scale
+// with the authority size. The budget therefore prices a conservative number
+// of source-size work units rather than assuming one validation pass.
 //
-// An authority that cannot be sized falls back to the base: an absent file is
-// a first start with nothing to verify, and a stat error must not shorten the
-// wait below what a fresh install would get.
+// An existing daemon.db is the direct size input. When it is absent, the same
+// path can mean either a fresh install or a file-backed release that must first
+// import and seal its legacy state corpus. The latter is sized recursively
+// within the persistent namespace without following symbolic links. An
+// incomplete legacy walk receives the finite maximum budget; a daemon that
+// cannot start still reports promptly through the independent PID-death path.
 func StartupBudget() time.Duration {
 	path, err := DefaultAuthorityPath()
 	if err != nil {
 		return startupBudgetBase
 	}
 	info, err := os.Stat(path)
-	if err != nil {
+	if err == nil {
+		return startupBudgetForAuthorityBytes(info.Size())
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
 		return startupBudgetBase
 	}
-	budget := startupBudgetBase + time.Duration(info.Size()/startupBudgetFloorBytesPerSec)*time.Second
-	return min(budget, startupBudgetMax)
+	legacyBytes, err := legacyStateCorpusBytes(filepath.Dir(path))
+	if err != nil {
+		return startupBudgetMax
+	}
+	return startupBudgetForAuthorityBytes(legacyBytes)
+}
+
+// startupBudgetForAuthorityBytes applies the size model without overflowing
+// either the source-size multiplication or time.Duration. It rounds each
+// source-size work unit up to a whole second and saturates before multiplying.
+func startupBudgetForAuthorityBytes(authorityBytes int64) time.Duration {
+	if authorityBytes <= 0 {
+		return startupBudgetBase
+	}
+
+	maxWorkSeconds := uint64((startupBudgetMax - startupBudgetBase) / time.Second)
+	secondsPerPass := (uint64(authorityBytes) + startupBudgetFloorBytesPerSec - 1) / startupBudgetFloorBytesPerSec
+	if secondsPerPass > maxWorkSeconds/startupBudgetAuthorityPasses {
+		return startupBudgetMax
+	}
+	workSeconds := secondsPerPass * startupBudgetAuthorityPasses
+	return startupBudgetBase + time.Duration(workSeconds)*time.Second
+}
+
+// legacyStateCorpusBytes returns the apparent bytes in the pre-SQLite
+// persistent namespace. Apparent size matches the amount the cutover readers
+// must consume, including sparse journals. WalkDir deliberately does not
+// follow symbolic links; explicit checks make that boundary visible and also
+// cover a symbolic-link namespace root.
+func legacyStateCorpusBytes(root string) (int64, error) {
+	rootInfo, err := os.Lstat(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return 0, nil
+	}
+	if !rootInfo.IsDir() {
+		return 0, fmt.Errorf("legacy state namespace is not a directory")
+	}
+
+	var total int64
+	err = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrNotExist) {
+				// A source disappearing during sizing can only reduce the
+				// subsequent cutover workload.
+				return nil
+			}
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		total = saturatingAuthorityBytes(total, info.Size())
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func saturatingAuthorityBytes(total, additional int64) int64 {
+	const maxInt64 = int64(1<<63 - 1)
+	if additional <= 0 {
+		return total
+	}
+	if total >= maxInt64-additional {
+		return maxInt64
+	}
+	return total + additional
 }
 
 // AutospawnAndConnect spawns this binary's `daemon` mode (located via

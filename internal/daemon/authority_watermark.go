@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,8 +55,23 @@ func writeAuthorityWatermark(path string, head corestore.AuthorityHead) error {
 	if err != nil {
 		return fmt.Errorf("encode authority watermark: %w", err)
 	}
-	if err := writePrivateStateAtomic(path, append(raw, '\n')); err != nil {
-		return fmt.Errorf("write authority watermark: %w", err)
+	encoded := append(raw, '\n')
+	// A maintenance-only schema upgrade can publish a new physical database
+	// without changing the authority head. Preserve the already-durable
+	// watermark byte-for-byte in that case rather than physically re-stamping
+	// identical authority.
+	unchanged := false
+	if info, statErr := os.Lstat(path); statErr == nil &&
+		info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() &&
+		info.Mode().Perm()&0o077 == 0 {
+		if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, encoded) {
+			unchanged = true
+		}
+	}
+	if !unchanged {
+		if err := writePrivateStateAtomic(path, encoded); err != nil {
+			return fmt.Errorf("write authority watermark: %w", err)
+		}
 	}
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {

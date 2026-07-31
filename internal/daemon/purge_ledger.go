@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	purgeLedgerKind          = "ibkr.purge_ledger"
-	purgeLedgerSchemaVersion = "purge-ledger-v2"
+	purgeLedgerKind                = "ibkr.purge_ledger"
+	purgeLedgerSchemaVersion       = "purge-ledger-v2"
+	legacyPurgeLedgerSchemaVersion = "purge-ledger-v1"
 
 	purgeLedgerStatusActive   = "active"
 	purgeLedgerStatusRestored = "restored"
@@ -499,8 +500,11 @@ func sortPurgeLedgerRows(rows []rpc.PurgeLedgerRow) {
 }
 
 // loadLegacyPurgeImportSelection keeps only active restore authority and every
-// cumulative per-order fill cursor belonging to those rows. Old schema
-// mismatches fail cutover; they are never reset or deleted.
+// cumulative per-order fill cursor belonging to those rows. The one historical
+// v1 schema is accepted because its rows are a strict subset of v2: route
+// identity was not stored on the ledger and is therefore re-derived from the
+// complete legacy order evidence below. Unknown schema mismatches fail cutover;
+// they are never reset or deleted.
 func loadLegacyPurgeImportSelection(path string, orders legacyOrderImportSelection) (purgeLedgerFile, error) {
 	empty := purgeLedgerFile{Kind: purgeLedgerKind, SchemaVersion: purgeLedgerSchemaVersion}
 	if strings.TrimSpace(path) == "" {
@@ -517,8 +521,21 @@ func loadLegacyPurgeImportSelection(path string, orders legacyOrderImportSelecti
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return purgeLedgerFile{}, fmt.Errorf("decode legacy purge ledger: %w", err)
 	}
-	if legacy.Kind != purgeLedgerKind || legacy.SchemaVersion != purgeLedgerSchemaVersion {
-		return purgeLedgerFile{}, fmt.Errorf("purge ledger is %q/%q, want %q/%q", legacy.Kind, legacy.SchemaVersion, purgeLedgerKind, purgeLedgerSchemaVersion)
+	if legacy.Kind != purgeLedgerKind {
+		return purgeLedgerFile{}, fmt.Errorf("purge ledger kind is %q, want %q", legacy.Kind, purgeLedgerKind)
+	}
+	switch legacy.SchemaVersion {
+	case legacyPurgeLedgerSchemaVersion, purgeLedgerSchemaVersion:
+		// Both schemas carry the same restore quantities and cumulative fill
+		// cursors. v1 omitted broker-route fields; every retained row is bound
+		// from the order journal below before it becomes current v2 authority.
+	default:
+		return purgeLedgerFile{}, fmt.Errorf(
+			"purge ledger schema is %q, want %q or %q",
+			legacy.SchemaVersion,
+			legacyPurgeLedgerSchemaVersion,
+			purgeLedgerSchemaVersion,
+		)
 	}
 
 	routesByRef := map[string]legacyOrderRoute{}

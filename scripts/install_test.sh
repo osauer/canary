@@ -152,12 +152,23 @@ chmod 0755 "$fake_bin/uname" "$fake_bin/gpg" "$fake_bin/curl" "$fake_bin/mv"
 run_installer() {
 	local version="$1"
 	shift
-	PATH="$fake_bin:/usr/bin:/bin" \
+	PATH="${CANARY_INSTALL_TEST_PATH_PREFIX:-}$fake_bin:/usr/bin:/bin" \
 	CANARY_INSTALL_FIXTURE="$fixture" \
 	CANARY_INSTALL_FIXTURE_VERSION="$version" \
 	HOME="$test_root/home" \
 	SHELL=/bin/sh \
 	"$@" sh "$repo_root/install.sh" >/dev/null
+}
+
+run_installer_capture() {
+	local version="$1" output="$2"
+	shift 2
+	PATH="${CANARY_INSTALL_TEST_PATH_PREFIX:-}$fake_bin:/usr/bin:/bin" \
+	CANARY_INSTALL_FIXTURE="$fixture" \
+	CANARY_INSTALL_FIXTURE_VERSION="$version" \
+	HOME="$test_root/home" \
+	SHELL=/bin/sh \
+	"$@" sh "$repo_root/install.sh" >"$output"
 }
 
 assert_no_old_name() {
@@ -188,10 +199,90 @@ mkdir -p "$pre_upgrade"
 printf '%s\n' 'old executable' > "$pre_upgrade/ibkr"
 chmod 0755 "$pre_upgrade/ibkr"
 cp "$pre_upgrade/ibkr" "$test_root/expected-pre-upgrade-backup"
-run_installer v9.9.9 env CANARY_INSTALL_DIR="$pre_upgrade"
+CANARY_INSTALL_TEST_PATH_PREFIX="$pre_upgrade:" \
+	run_installer v9.9.9 env CANARY_INSTALL_DIR="$pre_upgrade"
 assert_no_old_name "$pre_upgrade"
 [ ! -e "$pre_upgrade/canary.bak" ] && [ ! -e "$pre_upgrade/ibkr.bak" ] || {
 	echo "install test: pre-upgrade migration retained a durable rollback executable" >&2
+	exit 1
+}
+
+# An old custom installation that remains on PATH must not survive beside a
+# default-location Canary install. The installer cannot delete an executable
+# outside its selected transaction root, so it fails with the exact safe
+# recovery: reuse the old directory through CANARY_INSTALL_DIR.
+custom_legacy="$test_root/custom-legacy/bin"
+split_target="$test_root/split-target/bin"
+split_output="$test_root/split-target.err"
+mkdir -p "$custom_legacy"
+printf '%s\n' 'old custom executable' > "$custom_legacy/ibkr"
+chmod 0755 "$custom_legacy/ibkr"
+custom_legacy_physical=$(cd "$custom_legacy" && pwd -P)
+if CANARY_INSTALL_TEST_PATH_PREFIX="$custom_legacy:" \
+	run_installer v9.9.9 env CANARY_INSTALL_DIR="$split_target" 2>"$split_output"; then
+	echo "install test: custom legacy executable allowed a split installation" >&2
+	exit 1
+fi
+grep -Fq "CANARY_INSTALL_DIR=$custom_legacy_physical" "$split_output" || {
+	echo "install test: custom legacy refusal omitted the safe target directory" >&2
+	exit 1
+}
+[ -x "$custom_legacy/ibkr" ] || {
+	echo "install test: custom legacy refusal mutated the old executable" >&2
+	exit 1
+}
+[ ! -e "$split_target/canary" ] || {
+	echo "install test: custom legacy refusal published a second executable" >&2
+	exit 1
+}
+unset CANARY_INSTALL_TEST_PATH_PREFIX
+
+# Relative PATH entries must resolve to the same physical comparison. Otherwise
+# a caller launched from beside an old custom installation could still publish
+# a second Canary binary elsewhere.
+relative_legacy="$test_root/relative-legacy/bin"
+relative_target="$test_root/relative-target/bin"
+relative_output="$test_root/relative-target.err"
+mkdir -p "$relative_legacy"
+printf '%s\n' 'old relative executable' > "$relative_legacy/ibkr"
+chmod 0755 "$relative_legacy/ibkr"
+relative_legacy_physical=$(cd "$relative_legacy" && pwd -P)
+if (
+	cd "$test_root"
+	CANARY_INSTALL_TEST_PATH_PREFIX="relative-legacy/bin:" \
+		run_installer v9.9.9 env CANARY_INSTALL_DIR="$relative_target"
+) 2>"$relative_output"; then
+	echo "install test: relative legacy PATH allowed a split installation" >&2
+	exit 1
+fi
+grep -Fq "CANARY_INSTALL_DIR=$relative_legacy_physical" "$relative_output" || {
+	echo "install test: relative legacy refusal omitted the resolved safe target directory" >&2
+	exit 1
+}
+[ -x "$relative_legacy/ibkr" ] || {
+	echo "install test: relative legacy refusal mutated the old executable" >&2
+	exit 1
+}
+[ ! -e "$relative_target/canary" ] || {
+	echo "install test: relative legacy refusal published a second executable" >&2
+	exit 1
+}
+
+# The one-time product-rename bridge tells an existing installation to restart
+# before using daemon-backed commands, so state migration happens under the
+# newly installed binary rather than leaving an unlinked old daemon running.
+bridge_hint="$test_root/bridge-hint/bin"
+bridge_output="$test_root/bridge-hint.out"
+mkdir -p "$bridge_hint"
+printf '%s\n' 'old executable' > "$bridge_hint/ibkr"
+chmod 0755 "$bridge_hint/ibkr"
+run_installer_capture v9.9.9 "$bridge_output" env CANARY_INSTALL_DIR="$bridge_hint"
+grep -Fq 'canary restart' "$bridge_output" || {
+	echo "install test: product-rename bridge omitted the restart step" >&2
+	exit 1
+}
+grep -Fq 'migrates supported existing state before broker connection' "$bridge_output" || {
+	echo "install test: product-rename bridge omitted the state-migration explanation" >&2
 	exit 1
 }
 

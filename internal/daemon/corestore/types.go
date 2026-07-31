@@ -77,42 +77,127 @@ const (
 
 // InspectOptions configures a non-mutating authority inspection. Path must
 // already exist. MinimumHead, when non-nil, enforces the external monotonic
-// watermark while the database is still opened read-only.
+// watermark while the database is still opened read-only. TargetVersion
+// selects one frozen migration-plan prefix; zero means the current version.
 type InspectOptions struct {
-	Path        string
-	MinimumHead *AuthorityHead
+	Path          string
+	MinimumHead   *AuthorityHead
+	TargetVersion int
 }
 
 // Inspection is the validated identity, version, and write head of an
-// authority database. TargetVersion is the version supported by this build.
+// authority database. TargetVersion is the selected frozen plan version.
 type Inspection struct {
-	Path          string
-	SchemaVersion int
-	TargetVersion int
-	Status        InspectionStatus
-	Head          AuthorityHead
-	Integrity     IntegrityReport
+	Path           string
+	SchemaVersion  int
+	TargetVersion  int
+	Status         InspectionStatus
+	Head           AuthorityHead
+	Integrity      IntegrityReport
+	HeadTransition UpgradeHeadTransition
 }
 
+// ObservationDiscardSelector identifies one exact class of derived
+// observations that a reviewed migration may discard. All three fields are
+// required; this is not a general retention or expiry surface.
+type ObservationDiscardSelector struct {
+	ScopeKey string
+	Source   string
+	Kind     string
+}
+
+// ObservationDiscardSummary is deterministic evidence of the rows one
+// maintenance migration removed from its disposable working snapshot.
+// OrderedDigestSHA256 uses the domain "canary.observation-discard.v1\x00",
+// then each selector string as an 8-byte big-endian length plus bytes, then
+// each observation ID as 8-byte big-endian plus its stored 32-byte payload
+// digest in ascending ID order. Payload bytes are never copied into
+// coordination state.
+type ObservationDiscardSummary struct {
+	MigrationVersion    int
+	MigrationName       string
+	Selector            ObservationDiscardSelector
+	RemovedRows         int64
+	PayloadBytes        int64
+	OrderedDigestSHA256 string
+}
+
+// UpgradeMaintenanceResult reports physical work required by pending
+// migration metadata and the exact discard evidence produced while building
+// the candidate. SourceBackupRetirementRequired is an instruction to the outer
+// crash-recovery coordinator: the large old-head backup may be retired only
+// after publication and independent target-head backup verification.
+type UpgradeMaintenanceResult struct {
+	Discards                       []ObservationDiscardSummary
+	Compacted                      bool
+	SourceBackupRetirementRequired bool
+}
+
+// UpgradeHeadTransition is the only authority-head effect an out-of-place
+// schema upgrade may report. Ordinary pending migrations advance exactly once.
+// A batch preserves the head only when every pending migration is an explicitly
+// reviewed maintenance operation that leaves store_meta and event_log alone.
+type UpgradeHeadTransition string
+
+// Supported upgrade head transitions.
+const (
+	UpgradeHeadTransitionAdvanceOnce UpgradeHeadTransition = "advance_once"
+	UpgradeHeadTransitionPreserve    UpgradeHeadTransition = "preserve"
+)
+
 // UpgradeOptions describes an out-of-place schema upgrade. BackupPath is an
-// immutable exact-head snapshot. CandidatePath is an unpublished, independent
-// database for the caller to atomically publish after any outer coordination
-// state is durable.
+// immutable exact-old-head snapshot. CandidatePath is an unpublished,
+// independent database for the caller to atomically publish after any outer
+// coordination state is durable. The target-head backup is deliberately a
+// post-publication operation so source backup plus candidate stays within the
+// large-authority space bound. TargetVersion zero means current.
+// ResetUnboundArtifacts is only for a preparing intent whose candidate has not
+// been durably fingerprint-bound: with ReplaceCandidate it revalidates the
+// exact source, durably removes all deterministic candidate and source-backup
+// artifacts, and rebuilds from the source.
 type UpgradeOptions struct {
-	SourcePath       string
-	BackupPath       string
-	CandidatePath    string
-	MinimumHead      *AuthorityHead
-	ReplaceCandidate bool
+	SourcePath            string
+	BackupPath            string
+	CandidatePath         string
+	MinimumHead           *AuthorityHead
+	TargetVersion         int
+	ReplaceCandidate      bool
+	ResetUnboundArtifacts bool
+}
+
+// RecomputeUpgradeMaintenanceOptions identifies an exact immutable source
+// backup and frozen target plan. RecomputeUpgradeMaintenance derives the same
+// discard evidence as candidate preparation without changing any file.
+type RecomputeUpgradeMaintenanceOptions struct {
+	SourcePath            string
+	ExpectedSchemaVersion int
+	TargetVersion         int
+	ExpectedHead          AuthorityHead
+}
+
+// UpgradeTargetBackupOptions binds the narrow post-publication recovery copy
+// to one exact frozen target schema and authority head. The source is opened
+// read-only and is never migrated, checkpointed, or otherwise modified.
+type UpgradeTargetBackupOptions struct {
+	SourcePath            string
+	BackupPath            string
+	ExpectedSchemaVersion int
+	ExpectedHead          AuthorityHead
 }
 
 // UpgradeResult contains independently verified artifacts. Source and Backup
-// remain at the old version and exact old head; Candidate is at TargetVersion
-// with HeadGeneration advanced exactly once.
+// remain at the old version and exact old head. HeadTransition says whether
+// Candidate preserves that head or advances HeadGeneration exactly once.
+// TargetBackup remains nil during preparation. A maintenance coordinator calls
+// PrepareUpgradeTargetBackup only after publishing and verifying Candidate;
+// this ordering keeps the promised two-source-footprint space bound honest.
 type UpgradeResult struct {
-	Source    Inspection
-	Backup    BackupInfo
-	Candidate Inspection
+	Source         Inspection
+	Backup         BackupInfo
+	Candidate      Inspection
+	TargetBackup   *BackupInfo
+	Maintenance    UpgradeMaintenanceResult
+	HeadTransition UpgradeHeadTransition
 }
 
 // QuiesceOptions identifies the exact old authority that may be physically

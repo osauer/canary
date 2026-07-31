@@ -1,0 +1,54 @@
+{
+  "kind": "ibkr.purge_ledger",
+  "schema_version": "purge-ledger-v1",
+  "updated_at": "2026-06-17T11:30:00Z",
+  "rows": [
+    {
+      "leg_id": "fixture-v171-leg",
+      "purge_id": "fixture-v171-purge-set",
+      "symbol": "AAPL",
+      "sec_type": "STK",
+      "contract": {
+        "con_id": 265598,
+        "symbol": "AAPL",
+        "sec_type": "STK",
+        "exchange": "SMART",
+        "primary_exchange": "NASDAQ",
+        "currency": "USD",
+        "multiplier": 1
+      },
+      "account": "SYNTHETIC-V171-PAPER",
+      "currency": "USD",
+      "original_side": "LONG",
+      "original_quantity": 5,
+      "purge_action": "SELL",
+      "restore_action": "BUY",
+      "multiplier": 1,
+      "purged_quantity": 4,
+      "restored_quantity": 1,
+      "remaining_quantity": 3,
+      "purge_value": 480,
+      "restore_value": 115,
+      "shadow_pnl": 5,
+      "status": "active",
+      "last_purge_order_ref": "fixture-v171-purge",
+      "last_restore_order_ref": "fixture-v171-restore",
+      "created_at": "2026-06-17T11:30:00Z",
+      "updated_at": "2026-06-17T11:30:00Z",
+      "order_fills": {
+        "fixture-v171-purge": {
+          "source": "purge",
+          "order_ref": "fixture-v171-purge",
+          "filled": 4,
+          "avg_fill_price": 120
+        },
+        "fixture-v171-restore": {
+          "source": "purge_restore",
+          "order_ref": "fixture-v171-restore",
+          "filled": 1,
+          "avg_fill_price": 115
+        }
+      }
+    }
+  ]
+}
