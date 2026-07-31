@@ -295,12 +295,26 @@ async function runRound4SyntheticSmoke() {
       text: document.getElementById("briefSections")?.textContent || "",
       accountText: document.getElementById("accountLabel")?.textContent || "",
     }));
+    await page.setViewportSize({ width: 591, height: 844 });
     await page.locator("#tabOrders").click();
     await page.waitForFunction(() => document.getElementById("ordersOpenCount")?.textContent === "1 open", { timeout: 5000 });
     const ordersView = await page.evaluate(() => ({
       count: document.getElementById("ordersOpenCount")?.textContent || "",
       text: document.getElementById("ordersOpenList")?.textContent || "",
       active: document.getElementById("ordersTab")?.hidden === false,
+      layout: (() => {
+        const row = document.querySelector("#ordersOpenList .open-order-row");
+        const identity = row?.querySelector(".open-order-row__main");
+        const rowRect = row?.getBoundingClientRect();
+        const identityRect = identity?.getBoundingClientRect();
+        return {
+          viewport_width: window.innerWidth,
+          grid_columns: row ? getComputedStyle(row).gridTemplateColumns.trim().split(/\s+/).filter(Boolean) : [],
+          row_width: rowRect?.width || 0,
+          identity_width: identityRect?.width || 0,
+          horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        };
+      })(),
     }));
     if (!monitor.active || monitor.badge !== "2" || monitor.label !== "Alerts, 2 unread" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
     if (!alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active" || !alertsView.processSeated) throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
@@ -311,6 +325,10 @@ async function runRound4SyntheticSmoke() {
     if (!settings.processSeated || settings.detailsOpen !== false || !settings.cutoverVisible || !settings.coverage.includes("Older payments need a one-time review") || !settings.governanceHistory.includes("Synthetic process review")) throw new Error(`synthetic Settings process evidence failed: ${JSON.stringify(settings)}`);
     if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account pending") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
+    if (ordersView.layout.viewport_width !== 591 || ordersView.layout.grid_columns.length !== 1 || ordersView.layout.identity_width < ordersView.layout.row_width * 0.8 || ordersView.layout.horizontal_overflow) {
+      throw new Error(`synthetic Orders compact layout collapsed or overflowed: ${JSON.stringify(ordersView.layout)}`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
     const mutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
     if (JSON.stringify(mutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read"]) || JSON.parse(mutationRequests[1].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
     if (pairingAttempts !== 1 || expectedPairingErrors.length !== 1 || bootstrapRequests < 1) throw new Error(`synthetic pairing recovery did not execute exactly once: ${JSON.stringify({ pairingAttempts, expectedPairingErrors, bootstrapRequests })}`);

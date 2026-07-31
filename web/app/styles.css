@@ -5051,6 +5051,19 @@ p {
     --shell-pad-x: 18px;
   }
 
+  /* The desktop journal needs at least the combined width of its edit and
+     control banks before identity gets any space. Stack the banks throughout
+     the compact shell instead of allowing the identity column to collapse to
+     zero between the phone and desktop breakpoints. */
+  .open-order-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .open-order-row__controls {
+    justify-content: flex-start;
+  }
+
   .governance-evidence {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -5181,8 +5194,6 @@ p {
   }
 
   .open-order-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
     padding: 9px 12px 10px;
   }
 
@@ -5194,9 +5205,6 @@ p {
     width: 72px;
   }
 
-  .open-order-row__controls {
-    justify-content: flex-start;
-  }
 }
 
 /* On phone widths the mark carries the brand on its own: with the mode plate
