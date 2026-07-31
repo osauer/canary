@@ -3,55 +3,25 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+import { createDOMHarness, FakeElement } from "./dom-harness.mjs";
+
 const alertsSource = await readFile(new URL("../alerts.js", import.meta.url), "utf8");
 const serviceWorkerSource = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 
-class FakeClassList {
-  constructor() { this.values = new Set(); }
-  add(...values) { values.forEach((value) => this.values.add(value)); }
-  remove(...values) { values.forEach((value) => this.values.delete(value)); }
-  toggle(value, force) {
-    const enabled = force === undefined ? !this.values.has(value) : Boolean(force);
-    if (enabled) this.values.add(value); else this.values.delete(value);
-    return enabled;
-  }
-  contains(value) { return this.values.has(value); }
-}
-
-class FakeElement {
-  constructor() {
-    this.attributes = new Map();
-    this.children = [];
-    this.classList = new FakeClassList();
-    this.className = "";
-    this.dataset = {};
-    this.disabled = false;
-    this.hidden = false;
-    this.open = false;
-    this.textContent = "";
-    this.title = "";
-  }
-  append(...children) { this.children.push(...children); }
-  appendChild(child) { this.children.push(child); return child; }
-  replaceChildren(...children) { this.children = children; }
-  addEventListener() {}
-  getAttribute(name) { return this.attributes.get(name) ?? null; }
-  setAttribute(name, value) { this.attributes.set(name, String(value)); }
-  scrollIntoView() {}
-}
-
 function loadAlerts({ visibility = "visible", alertsPanelHidden = false } = {}) {
-  const elements = new Map();
-  const element = (id) => {
-    if (!elements.has(id)) elements.set(id, new FakeElement());
-    return elements.get(id);
-  };
-  element("alertsTab").hidden = alertsPanelHidden;
   const modeButtons = ["none", "act_only", "watch_and_act"].map((mode) => {
     const button = new FakeElement();
     button.dataset.mode = mode;
     return button;
   });
+  const { document, element, elements } = createDOMHarness({
+    visibilityState: visibility,
+    querySelectorAll(selector) {
+      if (selector === "#alertSegments button") return modeButtons;
+      return [];
+    },
+  });
+  element("alertsTab").hidden = alertsPanelHidden;
   const storageWrites = [];
   const badgeCalls = [];
   const state = {
@@ -91,16 +61,6 @@ function loadAlerts({ visibility = "visible", alertsPanelHidden = false } = {}) 
       },
     },
     vapidPublicKey: "",
-  };
-  const document = {
-    visibilityState: visibility,
-    addEventListener() {},
-    createElement: () => new FakeElement(),
-    getElementById: element,
-    querySelectorAll(selector) {
-      if (selector === "#alertSegments button") return modeButtons;
-      return [];
-    },
   };
   const registration = { pushManager: { async getSubscription() { return null; } } };
   function Notification() {}

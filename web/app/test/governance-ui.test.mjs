@@ -3,33 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+import { createDOMHarness } from "./dom-harness.mjs";
+
 const alertsSource = await readFile(new URL("../alerts.js", import.meta.url), "utf8");
 const briefSource = await readFile(new URL("../brief.js", import.meta.url), "utf8");
 
-class FakeElement {
-  constructor() {
-    this.children = [];
-    this.className = "";
-    this.dataset = {};
-    this.disabled = false;
-    this.hidden = false;
-    this.textContent = "";
-    this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
-  }
-  append(...children) { this.children.push(...children); }
-  appendChild(child) { this.children.push(child); return child; }
-  replaceChildren(...children) { this.children = children; }
-  addEventListener() {}
-  setAttribute() {}
-  scrollIntoView() {}
-}
-
 function loadAlerts() {
-  const elements = new Map();
-  const element = (id) => {
-    if (!elements.has(id)) elements.set(id, new FakeElement());
-    return elements.get(id);
-  };
+  const { document, element, elements } = createDOMHarness();
   const state = {
     authenticated: true,
     governance: null,
@@ -57,11 +37,6 @@ function loadAlerts() {
       },
     },
   };
-  const document = {
-    createElement: () => new FakeElement(),
-    getElementById: element,
-    querySelectorAll: () => [],
-  };
   const context = vm.createContext({
     console,
     Date,
@@ -86,11 +61,7 @@ function loadAlerts() {
 }
 
 function loadBrief() {
-  const elements = new Map();
-  const element = (id) => {
-    if (!elements.has(id)) elements.set(id, new FakeElement());
-    return elements.get(id);
-  };
+  const { document, element, elements } = createDOMHarness();
   const state = {
     authenticated: true,
     activeTab: "brief",
@@ -102,12 +73,7 @@ function loadBrief() {
     clearTimeout,
     setTimeout,
     requestAnimationFrame: (callback) => setTimeout(callback, 0),
-    document: {
-      visibilityState: "visible",
-      addEventListener() {},
-      createElement: () => new FakeElement(),
-      createElementNS: () => new FakeElement(),
-    },
+    document,
     MutationObserver: undefined,
     state,
     $: element,
