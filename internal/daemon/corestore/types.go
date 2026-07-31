@@ -139,6 +139,7 @@ type UpgradeMaintenanceResult struct {
 // reviewed maintenance operation that leaves store_meta and event_log alone.
 type UpgradeHeadTransition string
 
+// Supported upgrade head transitions.
 const (
 	UpgradeHeadTransitionAdvanceOnce UpgradeHeadTransition = "advance_once"
 	UpgradeHeadTransitionPreserve    UpgradeHeadTransition = "preserve"
