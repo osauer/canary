@@ -102,15 +102,16 @@
     </details>
     <main class="doc">
 <h1 id="the-daily-desk">The daily desk</h1>
-<p>Updated: 2026-07-25 20:23 CEST</p>
+<p>Updated: 2026-07-31 08:56 CEST</p>
 <p>The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. <a href="../start/first-session.html">Your first session</a> explains what these screens contain; this page assumes you already know and only tells you when to look.</p>
 <h2 id="before-the-open">Before the open</h2>
 <pre><code class="language-sh">canary status
 canary brief
 </code></pre>
 <p><code>canary status</code> answers one question before anything else matters: which broker session am I attached to. It exits 1 when the gateway is not connected, so it also works as a guard in a script.</p>
-<p><code>canary brief</code> is the assembled read. It arrives as two movements: <strong>Review</strong> covers the last completed session (session P&amp;L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and <strong>Ready</strong> covers today (regime, breadth, dealer gamma, stress, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, policy drift, and the day's artefacts).</p>
-<p>Every row carries a status word, and the two families mean different things:</p>
+<p><code>canary brief</code> is the assembled read, and it arrives as a briefing rather than a table. A lead states the desk's posture and how many rows need a decision. Then two movements: <strong>Review</strong> covers the last completed session (session P&amp;L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and <strong>Ready</strong> covers today (regime, breadth, dealer gamma, stress, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, staged protection work, policy drift, and the day's artefacts). A closing line says what is owed before the bell.</p>
+<p>The daemon composes that prose from the same typed rows the JSON carries, and every surface renders it verbatim — the terminal writes no sentence of its own. Clean topics fold into one summary clause, the text grows only where something is flagged, and a source that could not be read is named rather than skipped. On a colour-capable terminal a watch-class clause reads amber and an act-class clause red; figures stay in the terminal's own ink. <code>CANARY_COLOR=never</code>, <code>NO_COLOR</code>, and any pipe or redirect give the same sentences in plain text.</p>
+<p>Behind the prose the row vocabulary is unchanged, and it is what the composition is made of:</p>
 <div class="tblwrap">
 <table>
 <thead>
@@ -144,7 +145,8 @@ canary brief
 </tbody>
 </table>
 </div>
-<p>The separation is deliberate: <code>degraded</code> and <code>unavailable</code> never signal a risk condition, and <code>attention</code> never signals a data problem. Each row prints its own reason on the line below it, so a degraded row tells you which source went cold. Stop and fix when the cold source is one the next decision rests on. Trade around it when it is not. <a href="../understand/sensors.html">Sensors</a> covers freshness states and the safe check for each source.</p>
+<p>The separation is deliberate: <code>degraded</code> and <code>unavailable</code> never signal a risk condition, and <code>attention</code> never signals a data problem. The prose names every input it could not read, and a <strong>Degraded inputs</strong> list under the briefing gives each of those rows its own reason, so a cold source is always traceable to what went cold. A brief whose inputs all read prints no such list. Stop and fix when the cold source is one the next decision rests on. Trade around it when it is not. <a href="../understand/sensors.html">Sensors</a> covers freshness states and the safe check for each source.</p>
+<p>When the daemon serves no narrative — an older daemon, or a payload whose movements did not compose — the brief falls back to the original row table: one line per row with its status word, and its reason on the line below it. <code>canary brief --json</code> is unchanged either way and carries both the typed rows and the composed prose.</p>
 <h2 id="where-the-stamp-comes-from">Where the stamp comes from</h2>
 <p>Rendering the brief from your terminal also stamps the day's artefact when one is due, and prints the stamp line. The stamp is the act of looking, not a second act on top of it, and there is no checklist to sign.</p>
 <p>The mechanics are worth knowing once. <code>canary brief --json</code> renders without stamping. An agent-origin invocation prints <code>agent-origin render — not stamped</code>, and the daemon refuses the stamp outright for any non-human origin, journaling nothing, so only a terminal or a paired device can stamp at all. The target is morning first, then end of day, then nothing; <code>--kind morning</code> or <code>--kind eod</code> overrides that choice.</p>

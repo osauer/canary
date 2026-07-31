@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-07-31 08:56 CEST
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -13,9 +13,11 @@ canary brief
 
 `canary status` answers one question before anything else matters: which broker session am I attached to. It exits 1 when the gateway is not connected, so it also works as a guard in a script.
 
-`canary brief` is the assembled read. It arrives as two movements: **Review** covers the last completed session (session P&L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and **Ready** covers today (regime, breadth, dealer gamma, stress, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, policy drift, and the day's artefacts).
+`canary brief` is the assembled read, and it arrives as a briefing rather than a table. A lead states the desk's posture and how many rows need a decision. Then two movements: **Review** covers the last completed session (session P&L, attribution by underlying, rules delta, proposals offered against acted, overrides used, capital events, the reconcile clock, working orders) and **Ready** covers today (regime, breadth, dealer gamma, stress, session state, held-name events, capital tier, drawdown latch, premium at risk, hedge cost per day, staged protection work, policy drift, and the day's artefacts). A closing line says what is owed before the bell.
 
-Every row carries a status word, and the two families mean different things:
+The daemon composes that prose from the same typed rows the JSON carries, and every surface renders it verbatim — the terminal writes no sentence of its own. Clean topics fold into one summary clause, the text grows only where something is flagged, and a source that could not be read is named rather than skipped. On a colour-capable terminal a watch-class clause reads amber and an act-class clause red; figures stay in the terminal's own ink. `CANARY_COLOR=never`, `NO_COLOR`, and any pipe or redirect give the same sentences in plain text.
+
+Behind the prose the row vocabulary is unchanged, and it is what the composition is made of:
 
 | Status | What it describes | What it asks of you |
 | --- | --- | --- |
@@ -24,7 +26,9 @@ Every row carries a status word, and the two families mean different things:
 | `degraded` | Input quality only. Some evidence behind the row is stale or partial. | Decide whether the decision you were about to make depends on that input. |
 | `unavailable` | No usable value for that row. | Do not read absence as a passing result. |
 
-The separation is deliberate: `degraded` and `unavailable` never signal a risk condition, and `attention` never signals a data problem. Each row prints its own reason on the line below it, so a degraded row tells you which source went cold. Stop and fix when the cold source is one the next decision rests on. Trade around it when it is not. [Sensors](../understand/sensors.md) covers freshness states and the safe check for each source.
+The separation is deliberate: `degraded` and `unavailable` never signal a risk condition, and `attention` never signals a data problem. The prose names every input it could not read, and a **Degraded inputs** list under the briefing gives each of those rows its own reason, so a cold source is always traceable to what went cold. A brief whose inputs all read prints no such list. Stop and fix when the cold source is one the next decision rests on. Trade around it when it is not. [Sensors](../understand/sensors.md) covers freshness states and the safe check for each source.
+
+When the daemon serves no narrative — an older daemon, or a payload whose movements did not compose — the brief falls back to the original row table: one line per row with its status word, and its reason on the line below it. `canary brief --json` is unchanged either way and carries both the typed rows and the composed prose.
 
 ## Where the stamp comes from
 

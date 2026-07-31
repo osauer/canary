@@ -161,7 +161,7 @@ simulate trade execution.
 | `canary gamma` | SPX-canonical dealer zero-gamma estimate with SPY context when usable (heavy compute; first call per NY trading day kicks a background job) | [schemas.md#gamma](schemas.md#gamma) |
 | `canary regime` | Broad-market stress lifecycle: equity vol, credit, funding, FX carry, SPX gamma with SPY context, and SPX breadth in one call | [schemas.md#regime](schemas.md#regime) |
 | `canary stress` | Portfolio-aware action/readiness snapshot, source health, fingerprints, and planner readiness | [schemas.md#stress](schemas.md#stress) |
-| `canary brief` | Typed five-section daily operator brief; agent renders and all JSON reads never stamp | — |
+| `canary brief` | Daily operator brief in two movements (Review, Ready), rendered as daemon-composed prose with a typed row fallback; agent renders and all JSON reads never stamp | — |
 | `canary rules` | Advisory compiled 14-rule discipline model, current evidence, and state-transition history | — |
 | `canary market-events` | Held or requested stock/ETF market-event flags: borrow inventory, extreme borrow fee, Nasdaq Reg SHO, LULD, and halt context | [schemas.md#market-events](schemas.md#market-events) |
 | `canary proposals status\|list\|refresh` | Daemon-owned protection proposals, read paths only (`preview`/`submit`/`ignore` are gated verbs outside this skill allowlist) | [schemas.md#proposals-status](schemas.md#proposals-status), [schemas.md#proposals-list](schemas.md#proposals-list) |
