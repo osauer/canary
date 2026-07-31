@@ -847,15 +847,18 @@ p {
   text-transform: none;
 }
 
+/* Staleness is a fault, not market severity: stale stamps carry the fault
+   register's watch tint (the lamp-test "dark" treatment), never the act-red
+   lamp color - an aged timestamp must read as a dead feed, not an alarm. */
 .panel-head .panel-time.stale {
-  color: var(--red);
+  color: var(--pd-watch-tint);
 }
 
 /* When the account freshness stamp goes stale it inherits the weight the
    account id used to carry (staleness outranks identity): a demoted 12px id
-   sits quiet while a red, heavier stamp pulls the eye. */
+   sits quiet while a heavier tinted stamp pulls the eye. */
 .account-panel__freshness.stale {
-  color: var(--red);
+  color: var(--pd-watch-tint);
   font-size: 12px;
   font-weight: 650;
 }

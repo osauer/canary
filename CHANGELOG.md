@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.6.0 — 2026-07-31 07:08 CEST
+
+### What's new
+
+- **The app wears its new design: Panel Dark.** The paired app is now a dark cockpit annunciator panel. The Monitor is a fixed grid of instrument windows — the four regime clusters and the desk's rules, protection and stress — each with an engraved legend, a state caption that lights amber or red only when its own condition does, and figures that always stay in plain readout ink. A master annunciator sums the panel and never disagrees with it: when a cluster is red that the overall severity does not yet reflect, the master's subline says so in words.
+- **The Brief is a real briefing.** The daemon now composes the morning brief as prose — a lead verdict, Review and Ready paragraphs, and a closing line — from the same facts the row view showed. Clean topics fold into summary clauses, the text grows exactly where something is flagged, and unread sources are named rather than skipped: unknown is not clean. The row view remains as the fallback when a narrative is not served.
+- **Depth moved into sheets.** Protection proposals with the trim controls, the full 14-rule checklist with its evidence, and the underlyings book with its bulk actions each open as a full-height sheet from their Monitor window; the Monitor itself stays a single calm glance. Option-exercise opportunities appear only when they exist, as an advisory bar on the Protection sheet.
+- **The lamp test.** The Monitor's stamp line counts live sources ("10/10 sources ok") and opens a detail dialog showing every wired feed with its state and evidence time, delivery health, and the daily broker-report check. A dead feed turns its Monitor window into a dead instrument — dimmed, keeping its last good figure with its timestamp — instead of pretending calm.
+- **Settings is the instrument's back panel.** Engraved banks for notifications (level segments, push state, safe test), workflow switches with printed state words, the process-evidence record (moved here from Alerts), a six-cell status grid, and a stamped type plate.
+
+### Changed
+
+- The Alerts tab is a pure annunciator log: active entries carry their source placard, severity-tinted title and a worded age line (weekday within the week, date beyond it), act entries sort above watch, and a seven-day extinguished register sits beneath; a confirmed-quiet desk shows the engraved ALL DARK poster. Source coverage and delivery health moved to the lamp-test dialog.
+- The header carries the canary mark, a minutes-precision session chip that counts down in both directions ("RTH · closes 3:59" / "opens 17:12"), and the account dataplate in mono; the market strip is fixed to SPY, VIX and QQQ with neutral delta ink — readouts never lamp.
+- Money renders in restrained tints rather than full alarm colors, and full saturation is reserved for lamp bars, the master wash and marks; the open-orders journal renders as engraved order bars with an explicit read-only foot line.
+
+### Fixed
+
+- Stale freshness stamps no longer wear the alarm red: an aged timestamp reads as a dead feed in the fault tint, distinct from market severity.
+- On a held book with no daily movement, the underlyings book stayed reachable behind a hidden control; the movers row now keeps its opener with an honest "no daily movement" reading.
 ## v2.5.4 — 2026-07-30 15:39 CEST
 
 ### What's new

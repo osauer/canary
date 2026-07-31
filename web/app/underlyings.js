@@ -265,10 +265,24 @@ function renderMovers(rows, baseCurrency) {
   const strip = $("moversRow");
   if (!placard || !strip) return;
   const movers = moverRows(rows);
-  placard.hidden = movers.length === 0;
-  strip.hidden = movers.length === 0;
+  // The movers row is also the Underlyings sheet's opener: on a flat or
+  // all-purged book the row would hide and strand the book behind no
+  // control at all, so a held book keeps the placard with an honest
+  // no-movement reading instead.
+  const heldBook = Array.isArray(rows) && rows.length > 0;
+  placard.hidden = movers.length === 0 && !heldBook;
+  strip.hidden = movers.length === 0 && !heldBook;
   if (movers.length === 0) {
-    strip.replaceChildren();
+    if (heldBook) {
+      placard.textContent = "Daily P/L by name";
+      const quietCell = document.createElement("b");
+      const label = document.createElement("span");
+      label.textContent = "no daily movement";
+      quietCell.append(label);
+      strip.replaceChildren(quietCell);
+    } else {
+      strip.replaceChildren();
+    }
     return;
   }
   const currency = normalizeCurrency(movers[0].pnlCurrency || baseCurrency);

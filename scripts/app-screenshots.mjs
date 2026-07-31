@@ -1041,12 +1041,44 @@ function buildSyntheticSnapshot() {
     brief: {
       as_of: asOf,
       brief_fingerprint: "synthetic-brief-quiet",
-      // Published frame: the daemon-composed narrative is prose over the
-      // OPERATOR's real figures, and the fixture patch merges shallowly, so
-      // live prose would survive into a synthetic screenshot. Pin it off; the
-      // synthetic brief frame shows the row render until this fixture carries
-      // a synthetic narrative of its own.
-      narrative: null,
+      // Published frame: the fixture patch merges shallowly, so without this
+      // block the daemon-composed narrative - prose over the OPERATOR's real
+      // figures - would survive into a synthetic screenshot. The synthetic
+      // narrative below mirrors the composer's quiet register over the
+      // fixture's own numbers, so the published Brief frame shows the design
+      // of record with no live prose underneath.
+      narrative: {
+        lead: [
+          { text: "Stress reads stand down at observe severity. Regime stage quiet, verdict Normal regime. Nothing across Review and Ready needs a decision." },
+        ],
+        review: [
+          { runs: [
+            { text: "The session closed with Daily P/L " },
+            { text: "EUR +2,340", role: "figure" },
+            { text: " on equity of " },
+            { text: "EUR 1,250,000", role: "figure" },
+            { text: ". By name in EUR: AAPL +900.00, NVDA +800.40, SPY +639.60. 2 protection proposals were offered and 1 acted in the last recorded session, with no overrides, no rule transitions, and no capital events." },
+          ] },
+          { runs: [
+            { text: "Admin is clean: reconcile clean and due in 5 days, auto-extend needs nothing, nothing waits for sign-off, and 1 order is working." },
+          ] },
+        ],
+        ready: [
+          { runs: [
+            { text: "Breadth has " },
+            { text: "62.0%", role: "figure" },
+            { text: " above the 50-DMA and 58.0% above the 200-DMA, net new highs +1.4%. Dealer gamma is positive with spot 620.00 against zero gamma 607.00, a gap of +2.1%. The US session is regular." },
+          ] },
+          { runs: [
+            { text: "Capital sits in the ok tier with " },
+            { text: "2.0%", role: "figure" },
+            { text: " of the drawdown budget consumed. The drawdown latch is open. Premium at risk " },
+            { text: "EUR 1,564", role: "figure" },
+            { text: " across 1 long option leg; hedge cost EUR -18.40 per day. Process folds clean: policy pins match, artefacts are current, the monthly pulse is not due, and no held-name events." },
+          ] },
+        ],
+        coda: [{ text: "Nothing owed before the bell." }],
+      },
       review: {
         ...briefState("Last session closed clean."),
         session_pnl: { ...briefState("Account snapshot is fresh."), equity_base: FIXTURE.netLiquidation, daily_pnl_base: FIXTURE.dailyPnl, base_currency: baseCurrency, as_of: asOf },
