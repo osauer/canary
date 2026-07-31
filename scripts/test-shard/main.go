@@ -90,6 +90,7 @@ func parseConfig(args []string, stderr io.Writer) (config, error) {
 }
 
 func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {
+	started := time.Now()
 	rawInventory, code, err := driver.list(cfg)
 	if err != nil {
 		fmt.Fprintf(stderr, "test-shard: inventory failed: %v\n", err)
@@ -126,11 +127,12 @@ func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {
 	)
 
 	type shardResult struct {
-		index  int
-		code   int
-		err    error
-		stdout bytes.Buffer
-		stderr bytes.Buffer
+		index   int
+		code    int
+		err     error
+		elapsed time.Duration
+		stdout  bytes.Buffer
+		stderr  bytes.Buffer
 	}
 	results := make(chan shardResult, cfg.workers)
 	next := 0
@@ -147,7 +149,9 @@ func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {
 		go func() {
 			var result shardResult
 			result.index = index
+			shardStarted := time.Now()
 			result.code, result.err = driver.run(cfg, pattern, &result.stdout, &result.stderr)
+			result.elapsed = time.Since(shardStarted)
 			results <- result
 		}()
 	}
@@ -183,7 +187,7 @@ func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {
 			}
 			failed = true
 		default:
-			fmt.Fprintf(stdout, "test-shard: completed shard %d/%d\n", result.index+1, len(plan))
+			fmt.Fprintf(stdout, "test-shard: completed shard %d/%d elapsed=%s\n", result.index+1, len(plan), result.elapsed.Round(time.Millisecond))
 		}
 		if !failed && next < len(plan) {
 			launch(next)
@@ -191,8 +195,10 @@ func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {
 		}
 	}
 	if failed {
+		fmt.Fprintf(stderr, "test-shard: failed elapsed=%s\n", time.Since(started).Round(time.Millisecond))
 		return failureCode
 	}
+	fmt.Fprintf(stdout, "test-shard: PASS elapsed=%s\n", time.Since(started).Round(time.Millisecond))
 	return 0
 }
 
@@ -318,12 +324,41 @@ func (goTestDriver) list(cfg config) ([]byte, int, error) {
 
 func (goTestDriver) run(cfg config, pattern string, stdout, stderr io.Writer) (int, error) {
 	args := commonGoTestArgs(cfg)
-	args = append(args, "-timeout="+cfg.timeout.String(), "-run="+pattern, cfg.packagePath)
+	args = append(args, "-json", "-timeout="+cfg.timeout.String(), "-run="+pattern, cfg.packagePath)
 	cmd := exec.Command("go", args...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
-		return commandExitCode(err), err
+	var rawStdout bytes.Buffer
+	var rawStderr bytes.Buffer
+	cmd.Stdout = &rawStdout
+	cmd.Stderr = &rawStderr
+	runErr := cmd.Run()
+	summary, parseErr := parseGoTestSummary(rawStdout.Bytes())
+	if runErr != nil || parseErr != nil {
+		if summary.output != "" {
+			_, _ = io.WriteString(stdout, summary.output)
+		} else {
+			_, _ = stdout.Write(rawStdout.Bytes())
+		}
+		_, _ = stderr.Write(rawStderr.Bytes())
+		if runErr != nil {
+			return commandExitCode(runErr), runErr
+		}
+		return 1, parseErr
+	}
+	if rawStderr.Len() > 0 {
+		_, _ = stderr.Write(rawStderr.Bytes())
+	}
+	fmt.Fprintf(stdout, "go test: %s\n", summary.telemetry())
+	if len(summary.skippedNames) > 0 {
+		const maxReportedSkips = 12
+		reported := summary.skippedNames
+		if len(reported) > maxReportedSkips {
+			reported = reported[:maxReportedSkips]
+		}
+		fmt.Fprintf(stdout, "go test: skipped=%s", strings.Join(reported, ","))
+		if len(summary.skippedNames) > len(reported) {
+			fmt.Fprintf(stdout, " (+%d more)", len(summary.skippedNames)-len(reported))
+		}
+		fmt.Fprintln(stdout)
 	}
 	return 0, nil
 }
