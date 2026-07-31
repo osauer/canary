@@ -63,7 +63,7 @@ wider industry uses a word differently, the entry says so.
   `canary size` computes shares as `NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|`,
   rounded down to the lot, and returns zero shares with status `tight_risk`
   when the budget will not cover one lot. See the
-  [CLI reference](../reference/cli.md#ibkr-size).
+  [CLI reference](../reference/cli.md#canary-size).
 - **Freeze:** `trading.freeze`, the runtime brake. Setting it true blocks every
   new broker write while cancels stay allowed. It is human-only: `canary settings
   set` from an interactive terminal, with missing, agent, and paired-device
@@ -80,7 +80,7 @@ wider industry uses a word differently, the entry says so.
   zero-substituted. See [Working with agents](../operate/agents.md).
 - **Implied move:** the 1-sigma expected dollar move by expiration,
   `spot × IV × √(DTE/365)`. Standard desk math, computed per expiry on the
-  chain surface. See the [CLI reference](../reference/cli.md#ibkr-chain).
+  chain surface. See the [CLI reference](../reference/cli.md#canary-chain).
 - **Journal:** the append-only local record of what `canary` attempted. Order
   journal rows bind each lifecycle event to the exact broker route, and policy,
   capital, and governance actions journal their own events. See
@@ -126,7 +126,7 @@ wider industry uses a word differently, the entry says so.
   [Order previews and the trading build](../operate/orders.md#required-pins).
 - **R-multiple:** the reward-to-risk ratio, `|target − entry| ÷ |entry − stop|`.
   `canary size` returns it alongside the breakeven win rate, `1 ÷ (1 + R)`. See
-  the [CLI reference](../reference/cli.md#ibkr-size).
+  the [CLI reference](../reference/cli.md#canary-size).
 - **Reg SHO:** the SEC short-sale rule whose threshold-securities list `canary`
   reads. Coverage is Nasdaq's file only, so a symbol's absence is not proof it
   is off every listing exchange's list. See

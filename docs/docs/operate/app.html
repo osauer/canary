@@ -194,7 +194,7 @@ the app stopped.</p>
 <p>The two stages are ordered but not atomic. An app-stage failure leaves the
 daemon untouched; a daemon-stage failure does not roll the already-restarted app
 back. Fix the reported stage and rerun <code>canary restart</code>.
-<a href="../start/updating.html#restarting-local-processes-ibkr-restart">Updating</a> has the
+<a href="../start/updating.html#restarting-local-processes-canary-restart">Updating</a> has the
 flags, JSON output, and socket-scope rules.</p>
 <p>When the <code>com.osauer.ibkr-app</code> LaunchAgent is loaded, the app is restarted
 through <code>launchctl kickstart -k</code>. Any unsupervised (orphaned) app process is

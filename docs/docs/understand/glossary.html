@@ -165,7 +165,7 @@ immutable versions. See <a href="policy.html">Trading policy</a>.</li>
 <code>canary size</code> computes shares as <code>NLV × risk-pct ÷ 100 × fx ÷ |entry − stop|</code>,
 rounded down to the lot, and returns zero shares with status <code>tight_risk</code>
 when the budget will not cover one lot. See the
-<a href="../reference/cli.html#ibkr-size">CLI reference</a>.</li>
+<a href="../reference/cli.html#canary-size">CLI reference</a>.</li>
 <li><strong>Freeze:</strong> <code>trading.freeze</code>, the runtime brake. Setting it true blocks every
 new broker write while cancels stay allowed. It is human-only: <code>canary settings set</code> from an interactive terminal, with missing, agent, and paired-device
 origins rejected. See the
@@ -181,7 +181,7 @@ over <code>greeks_total</code>. A Greek the gateway did not deliver is null, nev
 zero-substituted. See <a href="../operate/agents.html">Working with agents</a>.</li>
 <li><strong>Implied move:</strong> the 1-sigma expected dollar move by expiration,
 <code>spot × IV × √(DTE/365)</code>. Standard desk math, computed per expiry on the
-chain surface. See the <a href="../reference/cli.html#ibkr-chain">CLI reference</a>.</li>
+chain surface. See the <a href="../reference/cli.html#canary-chain">CLI reference</a>.</li>
 <li><strong>Journal:</strong> the append-only local record of what <code>canary</code> attempted. Order
 journal rows bind each lifecycle event to the exact broker route, and policy,
 capital, and governance actions journal their own events. See
@@ -227,7 +227,7 @@ to the broker. See
 <a href="../operate/orders.html#required-pins">Order previews and the trading build</a>.</li>
 <li><strong>R-multiple:</strong> the reward-to-risk ratio, <code>|target − entry| ÷ |entry − stop|</code>.
 <code>canary size</code> returns it alongside the breakeven win rate, <code>1 ÷ (1 + R)</code>. See
-the <a href="../reference/cli.html#ibkr-size">CLI reference</a>.</li>
+the <a href="../reference/cli.html#canary-size">CLI reference</a>.</li>
 <li><strong>Reg SHO:</strong> the SEC short-sale rule whose threshold-securities list <code>canary</code>
 reads. Coverage is Nasdaq's file only, so a symbol's absence is not proof it
 is off every listing exchange's list. See
