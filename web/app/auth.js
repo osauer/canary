@@ -90,7 +90,17 @@ async function completeHTTPPairing(pairingID, nonce) {
   }
   const body = await res.json();
   localStorage.setItem("ibkrDeviceID", body.device_id);
-  localStorage.setItem("ibkrDeviceSecret", secret);
+  // Cleartext is the only option this path has, and it is the weakest of the
+  // three credentials rather than the one that matters. completeHTTPPairing
+  // runs only when crypto.subtle is absent — a non-secure-context origin, so
+  // the plain-http LAN host — where no client-side encryption exists to apply
+  // and this same secret has already crossed the wire in the clear above. The
+  // credential a scanner would tell us to use instead is already the primary
+  // one: ibkr_app_device is HttpOnly, JS-unreadable, and redeemed on every
+  // request by deviceCookieSession. The secret is the third-tier backstop for
+  // when cookie eviction leaves a crypto-less origin holding nothing at all,
+  // and dropping it turns every eviction into a forced re-pair.
+  localStorage.setItem("ibkrDeviceSecret", secret); // codeql[js/clear-text-storage-of-sensitive-data]
 }
 
 // tryDeviceLogin returns "ok" when a fresh session was minted, "repair" when

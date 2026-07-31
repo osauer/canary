@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -223,16 +224,11 @@ func (s *Store) marshalStateForSave() ([]byte, error) {
 	if len(raw) == 0 || !json.Valid(raw) {
 		return nil, errors.New("encode app state: quarantined alert delivery value unavailable")
 	}
-	out := make([]byte, 0, len(b)+len(raw)+32)
-	out = append(out, b[:len(b)-1]...)
+	sep := []byte("\n")
 	if len(b) > 2 {
-		out = append(out, ',', '\n')
-	} else {
-		out = append(out, '\n')
+		sep = []byte(",\n")
 	}
-	out = append(out, []byte("  \"alert_delivery\": ")...)
-	out = append(out, raw...)
-	out = append(out, '\n', '}')
+	out := slices.Concat(b[:len(b)-1], sep, []byte("  \"alert_delivery\": "), raw, []byte("\n}"))
 	if !json.Valid(out) {
 		return nil, errors.New("encode app state: quarantined alert delivery reinsertion produced invalid JSON")
 	}
