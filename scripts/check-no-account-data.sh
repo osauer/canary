@@ -53,7 +53,7 @@ id_re='(^|[^[:alnum:]_])D?U[0-9]{6,9}([^[:alnum:]]|$)'
 # Repdigit IDs join the sequence dummies: a real account never reads as
 # seven identical digits, so they stay safe fixtures for tests that need
 # several distinct accounts at once.
-allow_re='D?U1234567|D?U7654321|DU123456|DU0000000|D?U1111111|D?U6666666|D?U9999999'
+allow_re='D?U1234567|D?U7654321|DU123456|DU0000000|D?U1111111|D?U2222222|D?U6666666|D?U9999999'
 candidates=$(git grep --cached -laEi "$id_re" -- ":!$self" || true)
 for f in $candidates; do
 	ids=$(git grep --cached -haoiE "$id_re" -- "$f" | grep -oiE 'D?U[0-9]{6,9}' |
