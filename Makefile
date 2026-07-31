@@ -326,9 +326,8 @@ staticcheck-check: ## Run staticcheck
 # vulnerability DB — not on local code edits — so re-running it on every
 # commit only pays cold-cache compile cost for the same answer. Skip when
 # go.mod/go.sum/toolchain are unchanged AND a scan already passed today
-# (the date bound keeps DB updates flowing in daily). The release path
-# forces a full run via GOVULN_FORCE=1; CI runners have no stamp cache
-# and always run.
+# (the date bound keeps DB updates flowing in daily). The exact-SHA release
+# authority runs on fresh CI runners with no stamp cache, so it always scans.
 GOVULN_STAMP ?= $(HOME)/.cache/ibkr/govulncheck.stamp
 govulncheck-check: ## Run govulncheck (skipped when deps unchanged and already scanned today; GOVULN_FORCE=1 forces)
 	@depshash=$$( (cat go.mod go.sum 2>/dev/null; go version) | shasum -a 256 | cut -d' ' -f1); \
