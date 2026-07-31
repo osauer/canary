@@ -1,0 +1,2 @@
+{"version":1,"at":"2026-06-30T10:15:00Z","type":"deposit","amount_base":1000,"effective_at":"2026-06-30T09:15:00Z","note":"synthetic historical fixture","origin":"human-tty"}
+{"version":1,"at":"2026-06-30T11:15:00Z","type":"reconcile","origin":"human-tty","report_id":"fixture-reconcile-v221","coverage_to":"2026-06-30T10:15:00Z"}

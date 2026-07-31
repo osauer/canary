@@ -102,10 +102,11 @@
     </details>
     <main class="doc">
 <h1 id="updating">Updating</h1>
-<p>Updated: 2026-07-25 09:40 CEST</p>
+<p>Updated: 2026-07-31</p>
 <p>Four things can affect data freshness: the <strong>binary</strong> (<code>canary</code> itself), the <strong>Claude Desktop MCPB</strong> when installed through Desktop Extensions, the <strong>S&amp;P 500 constituent list</strong> the breadth indicator uses, and the embedded <strong>official market calendars</strong>. They update independently because they have different sources and cadences.</p>
 <h2 id="updating-the-binary-canary-update">Updating the binary: <code>canary update</code></h2>
-<p>Once you're on v1.0.0 or later, the next upgrade is one command:</p>
+<p>Once you have a Canary-named release (v2.5.0 or later), the next binary
+upgrade is one command:</p>
 <pre><code class="language-sh">canary update            # fetch latest, prompt to restart the local app/daemon stack
 </code></pre>
 <p>The CLI then:</p>
@@ -139,8 +140,53 @@ recovery.</p>
 canary update --force          # re-install latest even if same version (corrupt-binary recovery)
 </code></pre>
 <p><code>--check</code> exits 0 whether or not an update is available; only fetch failures exit non-zero. So <code>canary update --check &amp;&amp; canary update</code> is the idiomatic confirm-then-install pattern.</p>
-<h3 id="pre-v100-binaries">Pre-v1.0.0 binaries</h3>
-<p><code>canary update</code> only exists from v1.0.0 onward. Earlier installs upgrade once manually (download the tarball from <a href="https://github.com/osauer/canary/releases">releases</a>, extract, run <code>make install</code>), then carry forward with <code>canary update</code>.</p>
+<h3 id="older-ibkr-named-installations">Older <code>ibkr</code>-named installations</h3>
+<p>Do not ask the old executable to update itself across the product rename. Those
+binaries cannot safely select and extract the current Canary archive. Run the
+current shell installer once instead; it verifies the signed release assets
+before installing them:</p>
+<pre><code class="language-sh">curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary restart
+</code></pre>
+<p>The installer publishes <code>~/.local/bin/canary</code> and retires a co-located
+pre-rename executable. If the old installer used a custom <code>IBKR_INSTALL_DIR</code>,
+reuse that same directory under its new name so the old binary is retired in
+the same transaction:</p>
+<pre><code class="language-sh">curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh |
+  CANARY_INSTALL_DIR=/your/previous/bin sh
+canary restart
+</code></pre>
+<p>When an <code>ibkr</code> executable is still on <code>PATH</code> somewhere else, the installer
+refuses a split installation and prints the directory to use. It does not
+remove the existing config or state directories. <code>canary restart</code> then starts
+the new daemon, which performs any required state migration before it connects
+to the broker.</p>
+<p>Direct state migration accepts file-backed installations from v1.7.1 through
+v2.2.1 when their retained order evidence carries a complete broker route,
+and SQLite-backed installations from v2.3.0. If a file-backed installation is
+still on v1.7.1, jump directly through the current installer above. Do not
+stage through any binary from v1.8 through v2.2.1: those historical releases
+could delete the v1 purge ledger when they opened it. The current migration
+preserves that ledger's restore quantities and fill cursors, but it cannot
+recover records an earlier upgrade already discarded. Installations already
+running v1.8 through v2.2.1 can migrate the supported file state that remains.
+Installations older than v1.7.1 remain outside the direct-migration boundary.</p>
+<p>A file-backed cutover imports the supported authority into a new, validated
+database, creates verified backups, seals the retired files, and never falls
+back to them. An existing older database is upgraded through an unpublished,
+validated candidate with an exact-head backup. Ambiguous safety-relevant order
+history stops startup instead of being guessed.</p>
+<p>The v2.6.0 upgrade also removes the defective contract-cache snapshots that
+made some <code>daemon.db</code> files unusually large. Before changing anything, startup
+requires free space equal to twice the database footprint plus the larger of
+1 GiB or 5%. If that space is unavailable, it leaves the published database
+unchanged and reports how much is required. The cleanup and compaction happen
+before broker connection, can take substantial time for a tens-of-gigabytes
+database, and may therefore make the first <code>canary restart</code> much longer than
+normal.</p>
+<p><code>canary update</code> did not exist before v1.0.0. Those installations also use the
+same release-verifying shell installer after first reaching the supported
+state-migration floor.</p>
 <h2 id="restarting-local-processes-canary-restart">Restarting local processes: <code>canary restart</code></h2>
 <p>Use <code>canary restart</code> when you changed daemon-loaded config, installed a new binary outside <code>canary update</code>, or want to clear stale gateway connection state:</p>
 <pre><code class="language-sh">canary restart

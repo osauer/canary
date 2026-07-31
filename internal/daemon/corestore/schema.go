@@ -23,6 +23,25 @@ type migration struct {
 	// one migration run the destructive statements it names. Nil for every
 	// migration that needs no exception, which is the normal case.
 	destructive *destructiveApproval
+	// maintenance is frozen execution metadata for a migration whose effect
+	// requires physical artifact work after its transaction commits. It is nil
+	// for ordinary migrations.
+	maintenance *migrationMaintenance
+}
+
+// migrationMaintenance binds one exact, typed observation discard to its
+// required physical follow-up. The selector is converted to one canonical
+// DELETE by validation and must be covered by the same migration's exact
+// destructive approval; it cannot become a general retention rule.
+type migrationMaintenance struct {
+	ObservationDiscard *ObservationDiscardSelector
+	CompactCandidate   bool
+	RetireSourceBackup bool
+	// PreserveAuthorityHead is an explicit exception to the normal out-of-place
+	// upgrade rule. It is valid only for a maintenance migration whose statements
+	// leave store_meta and event_log untouched. A pending batch preserves the head
+	// only when every pending migration carries this reviewed exception.
+	PreserveAuthorityHead bool
 }
 
 // destructiveApproval is a narrow, audited exception to the destructive
@@ -420,6 +439,48 @@ func legacyStressMeasurementRename() migration {
 	}
 }
 
+// contractCacheObservationPrune is migration 4. A defect copied the current
+// IBKR contract cache into the retained observation ledger on every refresh.
+// That row class is refetchable acceleration state, has no reader, is cited by
+// no decision, and is not referenced by a foreign key. The current cache stays
+// in state_documents under contract_cache.current.v3.
+//
+// The selector and three-statement shape are deliberately frozen here. This is
+// one reviewed repair, not a general observation-retention mechanism.
+func contractCacheObservationPrune() migration {
+	selector := ObservationDiscardSelector{
+		ScopeKey: "market/contracts",
+		Source:   "ibkr.tws.contract_details",
+		Kind:     "contract_cache.snapshot.v3",
+	}
+	dropDeleteGuard := `DROP TRIGGER observations_no_delete`
+	discard := observationDiscardDeleteStatement(selector)
+	return migration{
+		version: 4,
+		name:    "contract_cache_observation_prune",
+		statements: []string{
+			dropDeleteGuard,
+			discard,
+			appendOnlyDeleteTrigger("observations"),
+		},
+		destructive: &destructiveApproval{
+			reason: "A defect appended the full refetchable IBKR contract cache to the observation ledger on every refresh. " +
+				"No reader or decision uses this exact observation kind; the current cache remains in the market/contracts " +
+				"state document and can be refetched from IBKR. This exception drops only observations_no_delete, deletes " +
+				"only rows matching the exact scope_key/source/kind triple, and recreates the identical delete guard in the " +
+				"same transaction. It does not touch event_log, store_meta, current state, near-matching observations, or any " +
+				"other retained evidence.",
+			statements: []string{dropDeleteGuard, discard},
+		},
+		maintenance: &migrationMaintenance{
+			ObservationDiscard:    &selector,
+			CompactCandidate:      true,
+			RetireSourceBackup:    true,
+			PreserveAuthorityHead: true,
+		},
+	}
+}
+
 func init() {
 	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
@@ -439,20 +500,49 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 	)
 	// v1's trigger statements are generated, so the plan is completed here
 	// rather than in the composite literal above.
-	migrations = append(migrations, stressRenameMigration(), legacyStressMeasurementRename())
+	migrations = append(migrations,
+		stressRenameMigration(),
+		legacyStressMeasurementRename(),
+		contractCacheObservationPrune(),
+	)
 }
 
 // migrationChecksum is the ledger identity of an applied migration: version,
-// name, and every statement in order. A destructive approval is deliberately
-// not hashed — it constrains what the plan may contain, it is not part of what
-// the database had applied to it — so its prose can be clarified later without
-// making every existing authority database fail to open.
+// name, every statement in order, and non-nil maintenance metadata. A
+// destructive approval is deliberately not hashed — it constrains what the
+// plan may contain, it is not part of what the database had applied to it — so
+// its prose can be clarified later without making every existing authority
+// database fail to open. Maintenance is appended only when present, preserving
+// the already-shipped checksums of migrations that predate this field.
 func migrationChecksum(m migration) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%d\x00%s\x00", m.version, m.name)
 	for _, stmt := range m.statements {
 		h.Write([]byte(stmt))
 		h.Write([]byte{0})
+	}
+	if m.maintenance != nil {
+		h.Write([]byte("maintenance.v1"))
+		h.Write([]byte{0})
+		fmt.Fprintf(h, "compact=%t\x00retire_source_backup=%t\x00preserve_authority_head=%t\x00",
+			m.maintenance.CompactCandidate,
+			m.maintenance.RetireSourceBackup,
+			m.maintenance.PreserveAuthorityHead)
+		if m.maintenance.ObservationDiscard == nil {
+			h.Write([]byte("observation_discard=nil"))
+			h.Write([]byte{0})
+		} else {
+			h.Write([]byte("observation_discard"))
+			h.Write([]byte{0})
+			for _, value := range []string{
+				m.maintenance.ObservationDiscard.ScopeKey,
+				m.maintenance.ObservationDiscard.Source,
+				m.maintenance.ObservationDiscard.Kind,
+			} {
+				h.Write([]byte(value))
+				h.Write([]byte{0})
+			}
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -470,6 +560,14 @@ func cloneMigrationPlan(plan []migration) []migration {
 			approval := *m.destructive
 			approval.statements = append([]string(nil), m.destructive.statements...)
 			cloned[i].destructive = &approval
+		}
+		if m.maintenance != nil {
+			maintenance := *m.maintenance
+			if m.maintenance.ObservationDiscard != nil {
+				selector := *m.maintenance.ObservationDiscard
+				maintenance.ObservationDiscard = &selector
+			}
+			cloned[i].maintenance = &maintenance
 		}
 	}
 	return cloned
@@ -495,6 +593,9 @@ func validateMigrationStatements(m migration) error {
 	if err != nil {
 		return err
 	}
+	if err := validateMigrationMaintenance(m, approved); err != nil {
+		return err
+	}
 	for _, stmt := range m.statements {
 		if !isDestructiveStatement(stmt) {
 			continue
@@ -504,6 +605,62 @@ func validateMigrationStatements(m migration) error {
 		}
 	}
 	return nil
+}
+
+func validateMigrationMaintenance(m migration, approved map[string]struct{}) error {
+	if m.maintenance == nil {
+		return nil
+	}
+	maintenance := m.maintenance
+	if maintenance.ObservationDiscard == nil {
+		return fmt.Errorf("migration %d maintenance has no typed observation discard", m.version)
+	}
+	selector := *maintenance.ObservationDiscard
+	if strings.TrimSpace(selector.ScopeKey) == "" ||
+		strings.TrimSpace(selector.Source) == "" ||
+		strings.TrimSpace(selector.Kind) == "" {
+		return fmt.Errorf("migration %d maintenance has an incomplete observation discard selector", m.version)
+	}
+	if !maintenance.CompactCandidate {
+		return fmt.Errorf("migration %d observation discard does not require candidate compaction", m.version)
+	}
+	if !maintenance.RetireSourceBackup {
+		return fmt.Errorf("migration %d observation discard does not require eventual source-backup retirement", m.version)
+	}
+	if !maintenance.PreserveAuthorityHead {
+		return fmt.Errorf("migration %d observation discard does not explicitly preserve the authority head", m.version)
+	}
+
+	exactDelete := observationDiscardDeleteStatement(selector)
+	wantStatements := []string{
+		`DROP TRIGGER observations_no_delete`,
+		exactDelete,
+		appendOnlyDeleteTrigger("observations"),
+	}
+	if len(m.statements) != len(wantStatements) {
+		return fmt.Errorf("migration %d maintenance is not the exact guarded observation-discard transaction", m.version)
+	}
+	for i := range wantStatements {
+		if m.statements[i] != wantStatements[i] {
+			return fmt.Errorf("migration %d maintenance statement %d is not the exact guarded observation-discard statement", m.version, i+1)
+		}
+	}
+	for _, statement := range wantStatements[:2] {
+		if _, ok := approved[statement]; !ok {
+			return fmt.Errorf("migration %d maintenance destructive statement lacks exact approval", m.version)
+		}
+	}
+	return nil
+}
+
+func observationDiscardDeleteStatement(selector ObservationDiscardSelector) string {
+	quote := func(value string) string {
+		return strings.ReplaceAll(value, "'", "''")
+	}
+	return fmt.Sprintf(`DELETE FROM observations
+ WHERE scope_key = '%s'
+   AND source    = '%s'
+   AND kind      = '%s'`, quote(selector.ScopeKey), quote(selector.Source), quote(selector.Kind))
 }
 
 func isDestructiveStatement(stmt string) bool {

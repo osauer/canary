@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -171,22 +170,108 @@ func TestPurgeLedgerSnapshotFiltersByBrokerScopeMode(t *testing.T) {
 	}
 }
 
-func TestLegacyPurgeLedgerUnknownSchemaFailsWithoutDeletingSource(t *testing.T) {
+func TestLegacyPurgeLedgerV1ImportsThroughOrderRouteWithoutMutatingSource(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "purge-ledger.json")
-	if err := os.WriteFile(path, []byte(`{"kind":"ibkr.purge_ledger","schema_version":"purge-ledger-v1","rows":[{"leg_id":"old","symbol":"SAP"}]}`+"\n"), 0o600); err != nil {
-		t.Fatalf("write old ledger: %v", err)
+	original := []byte(`{
+  "kind": "ibkr.purge_ledger",
+  "schema_version": "purge-ledger-v1",
+  "updated_at": "2026-01-07T12:00:00Z",
+  "rows": [{
+    "leg_id": "legacy-active",
+    "purge_id": "purge-v1",
+    "symbol": "SAP",
+    "sec_type": "STK",
+    "contract": {"symbol":"SAP","sec_type":"STK","exchange":"SMART","currency":"EUR"},
+    "account": "DU123",
+    "currency": "EUR",
+    "original_side": "long",
+    "original_quantity": 4,
+    "purge_action": "SELL",
+    "restore_action": "BUY",
+    "multiplier": 1,
+    "purged_quantity": 4,
+    "restored_quantity": 1,
+    "remaining_quantity": 3,
+    "status": "active",
+    "last_purge_order_ref": "purge-order",
+    "last_restore_order_ref": "restore-order",
+    "created_at": "2026-01-07T10:00:00Z",
+    "updated_at": "2026-01-07T12:00:00Z",
+    "order_fills": {
+      "purge-order": {"source":"purge_execute","order_ref":"purge-order","filled":4,"avg_fill_price":120},
+      "restore-order": {"source":"purge_restore","order_ref":"restore-order","filled":1,"avg_fill_price":115}
+    }
+  }]
+}
+`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatalf("write v1 ledger: %v", err)
 	}
-	if _, err := loadLegacyPurgeImportSelection(path, legacyOrderImportSelection{}); err == nil {
-		t.Fatal("unknown purge schema must fail cutover")
+	routeEvent := func(ref string) orderJournalEvent {
+		return orderJournalEvent{
+			Version: 1, Type: orderJournalEventStatusUpdated, OrderRef: ref,
+			Endpoint: "127.0.0.1:4002", ClientID: 15, clientIDPresent: true,
+			Account: "DU123", Mode: "paper",
+		}
 	}
-	raw, err := os.ReadFile(path)
+	selection, err := loadLegacyPurgeImportSelection(path, legacyOrderImportSelection{
+		SourceEvents: []orderJournalEvent{routeEvent("purge-order"), routeEvent("restore-order")},
+	})
+	if err != nil {
+		t.Fatalf("load v1 purge ledger: %v", err)
+	}
+	if selection.Kind != purgeLedgerKind || selection.SchemaVersion != purgeLedgerSchemaVersion {
+		t.Fatalf("selection identity = %q/%q, want current v2", selection.Kind, selection.SchemaVersion)
+	}
+	if len(selection.Rows) != 1 {
+		t.Fatalf("selected rows = %d, want 1", len(selection.Rows))
+	}
+	row := selection.Rows[0]
+	if row.Endpoint != "127.0.0.1:4002" || row.ClientID != 15 || row.Account != "DU123" || row.Mode != "paper" {
+		t.Fatalf("derived route = endpoint=%q client=%d account=%q mode=%q", row.Endpoint, row.ClientID, row.Account, row.Mode)
+	}
+	if row.RemainingQuantity != 3 || len(row.OrderFills) != 2 {
+		t.Fatalf("v1 restore continuity = remaining=%v fills=%+v", row.RemainingQuantity, row.OrderFills)
+	}
+	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("legacy purge source was deleted: %v", err)
 	}
-	if !strings.Contains(string(raw), `"schema_version":"purge-ledger-v1"`) {
-		t.Fatalf("legacy purge source was mutated: %s", raw)
+	if string(after) != string(original) {
+		t.Fatal("legacy purge source was mutated")
+	}
+}
+
+func TestLegacyPurgeLedgerUnknownSchemaFailsWithoutMutatingSource(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "wrong kind", raw: `{"kind":"other","schema_version":"purge-ledger-v1","rows":[]}`},
+		{name: "future schema", raw: `{"kind":"ibkr.purge_ledger","schema_version":"purge-ledger-v3","rows":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "purge-ledger.json")
+			original := []byte(tc.raw + "\n")
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatalf("write unsupported ledger: %v", err)
+			}
+			if _, err := loadLegacyPurgeImportSelection(path, legacyOrderImportSelection{}); err == nil {
+				t.Fatal("unsupported purge schema must fail cutover")
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("legacy purge source was deleted: %v", err)
+			}
+			if string(after) != string(original) {
+				t.Fatal("legacy purge source was mutated")
+			}
+		})
 	}
 }
 

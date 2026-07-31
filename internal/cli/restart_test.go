@@ -739,14 +739,15 @@ func TestRestartDaemonStartHonorsExplicitTimeoutAboveReadinessBudget(t *testing.
 	}
 }
 
-// A graceful-stop budget far below the authority's verification cost must not
-// become the readiness deadline: that is what reported a healthy 50s boot as
-// "start daemon: context deadline exceeded" and left the app stopped.
+// A graceful-stop budget far below the authority's migration cost must not
+// become the readiness deadline. In particular, the authorized v4 maintenance
+// path can perform several source-sized operations on a 50+ GiB authority
+// before it publishes the socket.
 func TestRestartDaemonStartOutlivesShortStopTimeout(t *testing.T) {
 	t.Setenv("CANARY_SOCKET", t.TempDir()+"/ibkr.sock")
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	writeSparseAuthority(t, filepath.Join(stateHome, "ibkr", "daemon.db"), 8<<30)
+	writeSparseAuthority(t, filepath.Join(stateHome, "ibkr", "daemon.db"), 50<<30)
 
 	timeout := 15 * time.Second
 	var out, errBuf bytes.Buffer
@@ -760,8 +761,8 @@ func TestRestartDaemonStartOutlivesShortStopTimeout(t *testing.T) {
 			if !ok {
 				t.Fatal("daemon start context has no restart timeout deadline")
 			}
-			if remaining := time.Until(deadline); remaining <= timeout {
-				t.Fatalf("daemon startup budget = %s, want more than the %s stop budget", remaining, timeout)
+			if remaining := time.Until(deadline); remaining <= 2*time.Hour {
+				t.Fatalf("daemon startup budget = %s, want more than two hours for the modeled 50 GiB migration", remaining)
 			}
 			return 93, rpc.HealthResult{DaemonVersion: "test"}, nil
 		},

@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "digest_algorithm": "sha256(path NUL source_mode NUL file_sha256 LF)",
+  "fixtures": [
+    {
+      "id": "v1.7.1-file-authority",
+      "classification": "must_succeed",
+      "source": {
+        "tag": "v1.7.1",
+        "peeled_commit": "57e130a06381583730afcaff822e512d01395158",
+        "generator_paths": [
+          "scripts/upgrade-fixtures/generators/v1_7_1_fixture_test.go.txt"
+        ]
+      },
+      "artifact_sha256": "dd0de05b87a4dae7e56135a04a7ac3e375cee1c1e278fa46b66fff3e503777bc",
+      "files": [
+        {
+          "path": "v1.7.1-file-authority/state/ibkr/order-journal.jsonl",
+          "sha256": "7da3666f63e895886b86a6df2b92ca011ef007f7a58032bce14345bf018144ef",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v1.7.1-file-authority/state/ibkr/purge-ledger.json",
+          "sha256": "c445e6a54c60f729ca4bf5671d1b6f9d80d5ff9eaf2ab1de1fed6a5150b442ed",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        }
+      ],
+      "synthetic_expectations": {
+        "global_order_id_floor": 1702,
+        "purge_fill_cursor_count": 2,
+        "purge_leg_id": "fixture-v171-leg",
+        "purge_order_ref": "fixture-v171-purge",
+        "purge_remaining_quantity": 3,
+        "purged_quantity": 4,
+        "restore_order_ref": "fixture-v171-restore",
+        "restored_quantity": 1,
+        "route_account": "SYNTHETIC-V171-PAPER",
+        "route_client_id": 37,
+        "route_endpoint": "127.0.0.1:4002",
+        "route_mode": "paper"
+      }
+    },
+    {
+      "id": "v2.2.1-file-authority",
+      "classification": "must_succeed",
+      "source": {
+        "tag": "v2.2.1",
+        "peeled_commit": "f1b5647e39edef3a4bf88ba6bf0bb7a9cd4a1c4a",
+        "generator_paths": [
+          "scripts/upgrade-fixtures/generators/v2_2_1_fixture_test.go.txt"
+        ]
+      },
+      "artifact_sha256": "c41878dfd9db6f168c297dc92b9232711489c681396bdf7a9e3d1d1f1fd179a7",
+      "files": [
+        {
+          "path": "v2.2.1-file-authority/state/ibkr/capital-events.jsonl",
+          "sha256": "8b12a5e0077fba29268829d59183db025b515a3858e9cf84c75b3ad2e1108f44",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v2.2.1-file-authority/state/ibkr/order-journal.jsonl",
+          "sha256": "eff2883732724d1001690e137cf2bed56163a961abc1d80c2c4a68913b39c157",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v2.2.1-file-authority/state/ibkr/platform-settings.json",
+          "sha256": "875e6d945faf2a924193836f373309fb953d12933f6a8a5f585061adfffca728",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v2.2.1-file-authority/state/ibkr/purge-ledger.json",
+          "sha256": "0361f947b05e8c3bfa5a2828f2330a889c84a04bd497c9aee21e01083602f29d",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v2.2.1-file-authority/state/ibkr/risk-capital-state.json",
+          "sha256": "b90093fba57c1d8f2c1df066419dd70e603fd14449efafda4a1bd4f5b5fb6a4c",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        }
+      ],
+      "synthetic_expectations": {
+        "capital_adjusted_peak_base": 250000,
+        "declared_capital_flow_base": 1000,
+        "global_order_id_floor": 4201,
+        "purge_leg_id": "fixture-leg",
+        "purge_remaining_quantity": 2,
+        "retained_order_ref": "fixture-purge-active",
+        "trading_freeze": true
+      }
+    },
+    {
+      "id": "v2.3.0-schema-v1-authority",
+      "classification": "must_succeed",
+      "source": {
+        "tag": "v2.3.0",
+        "peeled_commit": "22375a798272130d476d25b1c66ab1c84cf55e99",
+        "generator_paths": [
+          "scripts/upgrade-fixtures/generators/v2_3_0_core_fixture_test.go.txt",
+          "scripts/upgrade-fixtures/generators/v2_3_0_head_fixture_test.go.txt"
+        ]
+      },
+      "artifact_sha256": "7d5bd26cf7feb63185a357206209eeb57d69816deb83f290b025c55185343545",
+      "files": [
+        {
+          "path": "v2.3.0-schema-v1-authority/daemon.db",
+          "sha256": "b2bac322d384b8ff43c39ea7c028d0b205d6183477c66821086f619acc7fb820",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v2.3.0-schema-v1-authority/daemon.db.head",
+          "sha256": "06ab344f486bd38b204495be00540e80f38b1d4f97c5e8826b9962c5ad055128",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        }
+      ],
+      "synthetic_expectations": {
+        "authority_epoch": "42424242424242424242424242424242",
+        "control_observation_kind": "contract_cache.snapshot.v3.control",
+        "control_observation_payload": "{\"fixture\":true,\"classification\":\"near-control-must-survive\"}",
+        "defective_observation_kind": "contract_cache.snapshot.v3",
+        "defective_observation_payload": "{\"fixture\":true,\"classification\":\"exact-defective-contract-cache\"}",
+        "defective_observation_scope": "market/contracts",
+        "defective_observation_source": "ibkr.tws.contract_details",
+        "head_generation": 1,
+        "schema_version": 1,
+        "state_json": "{\"fixture\":true,\"sentinel\":\"v2.3.0-state-survives-upgrade\",\"source_tag\":\"v2.3.0\"}",
+        "state_kind": "fixture.state.v1",
+        "state_scope": "fixture/history"
+      }
+    },
+    {
+      "id": "v2.5.4-schema-v3-authority",
+      "classification": "must_succeed",
+      "source": {
+        "tag": "v2.5.4",
+        "peeled_commit": "3b548f6d63286448ac132ca4ade66484952612f5",
+        "generator_paths": [
+          "scripts/upgrade-fixtures/generators/v2_5_4_core_fixture_test.go.txt",
+          "scripts/upgrade-fixtures/generators/v2_5_4_head_fixture_test.go.txt"
+        ]
+      },
+      "artifact_sha256": "86615b71e979cd44dfe97ccdccecf820008040e662c7084dd668e2e500f63009",
+      "files": [
+        {
+          "path": "v2.5.4-schema-v3-authority/daemon.db",
+          "sha256": "04aa42d63aa1d4965b069101feed2c180cd962d43395c4984957a3b0c06cd1f9",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        },
+        {
+          "path": "v2.5.4-schema-v3-authority/daemon.db.head",
+          "sha256": "ef12f871ab1ab666895a65b919fe0fbb96027c17045b389e1e97d2aae2ecc903",
+          "source_mode": "0600",
+          "install_mode": "0600"
+        }
+      ],
+      "synthetic_expectations": {
+        "authority_epoch": "54545454545454545454545454545454",
+        "control_observation_kind": "contract_cache.snapshot.v3.control",
+        "control_observation_payload": "{\"fixture\":true,\"classification\":\"near-control-v3-must-survive\"}",
+        "defective_observation_kind": "contract_cache.snapshot.v3",
+        "defective_observation_payload": "{\"fixture\":true,\"classification\":\"exact-defective-contract-cache-v3\"}",
+        "defective_observation_scope": "market/contracts",
+        "defective_observation_source": "ibkr.tws.contract_details",
+        "head_generation": 1,
+        "schema_version": 3,
+        "state_json": "{\"fixture\":true,\"sentinel\":\"v2.5.4-state-survives-maintenance\",\"source_tag\":\"v2.5.4\"}",
+        "state_kind": "fixture.state.v1",
+        "state_scope": "fixture/history"
+      }
+    }
+  ]
+}

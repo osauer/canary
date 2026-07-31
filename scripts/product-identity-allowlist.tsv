@@ -31,3 +31,6 @@ old-product-name	scripts/check-release-site-sync_test.sh	2	negative release-site
 old-cli-command	scripts/lib-daemon-control.sh	1	pre-upgrade process quiescence contract
 old-cli-command	web/app/app_compat_test.go	1	negative rendered identity assertion
 old-site	web/app/app_compat_test.go	1	negative rendered site assertion
+old-module-or-repository	scripts/upgrade-fixtures/generators/v1_7_1_fixture_test.go.txt	1	pinned historical writer import needed to reproduce migration fixture
+old-module-or-repository	scripts/upgrade-fixtures/generators/v2_2_1_fixture_test.go.txt	1	pinned historical writer import needed to reproduce migration fixture
+old-module-or-repository	scripts/upgrade-fixtures/generators/v2_3_0_head_fixture_test.go.txt	1	pinned historical writer import needed to reproduce migration fixture

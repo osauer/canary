@@ -1,0 +1,46 @@
+{
+  "kind": "ibkr.purge_ledger",
+  "schema_version": "purge-ledger-v2",
+  "updated_at": "2026-06-30T14:15:00Z",
+  "rows": [
+    {
+      "leg_id": "fixture-leg",
+      "purge_id": "fixture-purge",
+      "symbol": "FIXT",
+      "sec_type": "STK",
+      "contract": {
+        "con_id": 900001,
+        "symbol": "FIXT",
+        "sec_type": "STK",
+        "exchange": "SMART",
+        "primary_exchange": "SYNTH",
+        "currency": "USD",
+        "multiplier": 1
+      },
+      "account": "SYNTHETIC-PAPER",
+      "mode": "paper",
+      "currency": "USD",
+      "original_side": "LONG",
+      "original_quantity": 3,
+      "purge_action": "SELL",
+      "restore_action": "BUY",
+      "multiplier": 1,
+      "purged_quantity": 2,
+      "restored_quantity": 0,
+      "remaining_quantity": 2,
+      "purge_value": 200,
+      "status": "active",
+      "last_purge_order_ref": "fixture-purge-active",
+      "created_at": "2026-06-30T14:15:00Z",
+      "updated_at": "2026-06-30T14:15:00Z",
+      "order_fills": {
+        "fixture-purge-active": {
+          "source": "purge",
+          "order_ref": "fixture-purge-active",
+          "filled": 2,
+          "avg_fill_price": 100
+        }
+      }
+    }
+  ]
+}

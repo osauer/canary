@@ -62,7 +62,7 @@ func TestCoreSchemaUpgradeResumesEveryDurableBoundary(t *testing.T) {
 				t.Fatalf("resumed head=%+v want %+v", gotHead, wantHead)
 			}
 			published := readFakeSchemaFile(t, databasePath)
-			if published.Version != 2 || published.Head != wantHead || published.Evidence != source.Evidence {
+			if published.Version != contractCachePruneMigrationVersion || published.Head != wantHead || published.Evidence != source.Evidence {
 				t.Fatalf("published authority=%+v", published)
 			}
 			watermark, err := loadAuthorityWatermark(databasePath + ".head")
@@ -190,9 +190,11 @@ func TestCoreSchemaUpgradeManifestStrictAndPrivate(t *testing.T) {
 }
 
 type fakeSchemaFile struct {
-	Version  int                     `json:"version"`
-	Head     corestore.AuthorityHead `json:"head"`
-	Evidence string                  `json:"evidence"`
+	Version         int                     `json:"version"`
+	TargetVersion   int                     `json:"target_version,omitempty"`
+	Head            corestore.AuthorityHead `json:"head"`
+	Evidence        string                  `json:"evidence"`
+	MaintenanceRows int64                   `json:"maintenance_rows,omitempty"`
 }
 
 func newFakeSchemaAuthority(t *testing.T) (string, fakeSchemaFile) {
@@ -203,7 +205,8 @@ func newFakeSchemaAuthority(t *testing.T) (string, fakeSchemaFile) {
 	}
 	path := filepath.Join(root, "daemon.db")
 	source := fakeSchemaFile{
-		Version: 1,
+		Version:       1,
+		TargetVersion: contractCachePruneMigrationVersion,
 		Head: corestore.AuthorityHead{
 			AuthorityEpoch:   "00112233445566778899aabbccddeeff",
 			HeadGeneration:   7,
@@ -221,8 +224,10 @@ func newFakeSchemaAuthority(t *testing.T) (string, fakeSchemaFile) {
 
 func fakeCoreSchemaUpgradeOps() coreSchemaUpgradeOps {
 	return coreSchemaUpgradeOps{
-		inspect: fakeInspectSchema,
-		prepare: fakePrepareSchemaUpgrade,
+		inspect:      fakeInspectSchema,
+		prepare:      fakePrepareSchemaUpgrade,
+		recompute:    fakeRecomputeSchemaUpgradeMaintenance,
+		targetBackup: fakePrepareSchemaTargetBackup,
 		quiesce: func(ctx context.Context, opts corestore.QuiesceOptions) (corestore.Inspection, error) {
 			inspection, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.Path, MinimumHead: &opts.ExpectedHead})
 			if err != nil {
@@ -234,6 +239,40 @@ func fakeCoreSchemaUpgradeOps() coreSchemaUpgradeOps {
 			return inspection, nil
 		},
 	}
+}
+
+func fakeRecomputeSchemaUpgradeMaintenance(
+	ctx context.Context,
+	opts corestore.RecomputeUpgradeMaintenanceOptions,
+) (corestore.UpgradeMaintenanceResult, error) {
+	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.SourcePath, MinimumHead: &opts.ExpectedHead, TargetVersion: opts.TargetVersion,
+	})
+	if err != nil {
+		return corestore.UpgradeMaintenanceResult{}, err
+	}
+	if source.SchemaVersion != opts.ExpectedSchemaVersion || source.Head != opts.ExpectedHead {
+		return corestore.UpgradeMaintenanceResult{}, fmt.Errorf("fake maintenance-proof source mismatch")
+	}
+	if opts.TargetVersion != contractCachePruneMigrationVersion {
+		return corestore.UpgradeMaintenanceResult{}, nil
+	}
+	file, err := readFakeSchemaFileE(opts.SourcePath)
+	if err != nil {
+		return corestore.UpgradeMaintenanceResult{}, err
+	}
+	return corestore.UpgradeMaintenanceResult{
+		Discards: []corestore.ObservationDiscardSummary{{
+			MigrationVersion:    contractCachePruneMigrationVersion,
+			MigrationName:       contractCachePruneMigrationName,
+			Selector:            contractCachePruneSelector,
+			RemovedRows:         file.MaintenanceRows,
+			PayloadBytes:        file.MaintenanceRows * 100,
+			OrderedDigestSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		}},
+		Compacted:                      true,
+		SourceBackupRetirementRequired: file.MaintenanceRows > 0,
+	}, nil
 }
 
 func fakeInspectSchema(_ context.Context, opts corestore.InspectOptions) (corestore.Inspection, error) {
@@ -252,7 +291,17 @@ func fakeInspectSchema(_ context.Context, opts corestore.InspectOptions) (corest
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return corestore.Inspection{}, err
 	}
-	if file.Version < 1 || file.Version > 2 {
+	targetVersion := file.TargetVersion
+	if targetVersion == 0 {
+		targetVersion = contractCachePruneMigrationVersion
+	}
+	if opts.TargetVersion != 0 {
+		if opts.TargetVersion > targetVersion {
+			return corestore.Inspection{}, fmt.Errorf("unsupported fake target version %d", opts.TargetVersion)
+		}
+		targetVersion = opts.TargetVersion
+	}
+	if file.Version < 1 || file.Version > targetVersion {
 		return corestore.Inspection{}, fmt.Errorf("unsupported fake schema version %d", file.Version)
 	}
 	if opts.MinimumHead != nil {
@@ -262,23 +311,47 @@ func fakeInspectSchema(_ context.Context, opts corestore.InspectOptions) (corest
 		}
 	}
 	status := corestore.InspectionUpgradeRequired
-	if file.Version == 2 {
+	if file.Version == targetVersion {
 		status = corestore.InspectionCurrent
 	}
+	var transition corestore.UpgradeHeadTransition
+	if status == corestore.InspectionUpgradeRequired {
+		transition = corestore.UpgradeHeadTransitionAdvanceOnce
+		if file.Version == 3 && targetVersion == 4 {
+			transition = corestore.UpgradeHeadTransitionPreserve
+		}
+	}
 	return corestore.Inspection{
-		Path: opts.Path, SchemaVersion: file.Version, TargetVersion: 2,
+		Path: opts.Path, SchemaVersion: file.Version, TargetVersion: targetVersion,
 		Status: status, Head: file.Head,
-		Integrity: corestore.IntegrityReport{QuickCheckResults: []string{"ok"}},
+		Integrity:      corestore.IntegrityReport{QuickCheckResults: []string{"ok"}},
+		HeadTransition: transition,
 	}, nil
 }
 
 func fakePrepareSchemaUpgrade(ctx context.Context, opts corestore.UpgradeOptions) (corestore.UpgradeResult, error) {
-	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.SourcePath, MinimumHead: opts.MinimumHead})
+	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.SourcePath, MinimumHead: opts.MinimumHead, TargetVersion: opts.TargetVersion,
+	})
 	if err != nil {
 		return corestore.UpgradeResult{}, err
 	}
 	if source.Status != corestore.InspectionUpgradeRequired {
 		return corestore.UpgradeResult{}, fmt.Errorf("fake source is already current")
+	}
+	if opts.ResetUnboundArtifacts {
+		for _, path := range []string{opts.CandidatePath, opts.BackupPath} {
+			if info, err := os.Lstat(path); err == nil {
+				if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+					return corestore.UpgradeResult{}, fmt.Errorf("fake unbound artifact is invalid")
+				}
+				if err := os.Remove(path); err != nil {
+					return corestore.UpgradeResult{}, err
+				}
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return corestore.UpgradeResult{}, err
+			}
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(opts.BackupPath), 0o700); err != nil {
 		return corestore.UpgradeResult{}, err
@@ -294,7 +367,9 @@ func fakePrepareSchemaUpgrade(ctx context.Context, opts corestore.UpgradeOptions
 	} else if err != nil {
 		return corestore.UpgradeResult{}, err
 	}
-	backupInspection, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.BackupPath, MinimumHead: &source.Head})
+	backupInspection, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.BackupPath, MinimumHead: &source.Head, TargetVersion: opts.TargetVersion,
+	})
 	if err != nil || backupInspection.SchemaVersion != source.SchemaVersion || backupInspection.Head != source.Head {
 		return corestore.UpgradeResult{}, fmt.Errorf("fake backup mismatch: %w", err)
 	}
@@ -312,19 +387,87 @@ func fakePrepareSchemaUpgrade(ctx context.Context, opts corestore.UpgradeOptions
 	if err != nil {
 		return corestore.UpgradeResult{}, err
 	}
-	sourceFile.Version = 2
-	sourceFile.Head.HeadGeneration++
+	targetVersion := sourceFile.TargetVersion
+	if targetVersion == 0 {
+		targetVersion = contractCachePruneMigrationVersion
+	}
+	if opts.TargetVersion != 0 {
+		targetVersion = opts.TargetVersion
+	}
+	transition := corestore.UpgradeHeadTransitionAdvanceOnce
+	if sourceFile.Version == 3 && targetVersion == 4 {
+		transition = corestore.UpgradeHeadTransitionPreserve
+	} else {
+		sourceFile.Head.HeadGeneration++
+	}
+	sourceFile.Version = targetVersion
 	if err := writeFakeSchemaFileE(opts.CandidatePath, sourceFile); err != nil {
 		return corestore.UpgradeResult{}, err
 	}
-	candidate, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.CandidatePath, MinimumHead: &sourceFile.Head})
+	candidate, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.CandidatePath, MinimumHead: &sourceFile.Head, TargetVersion: targetVersion,
+	})
 	if err != nil {
 		return corestore.UpgradeResult{}, err
 	}
-	return corestore.UpgradeResult{
-		Source:    source,
-		Backup:    corestore.BackupInfo{Path: opts.BackupPath, SchemaVersion: source.SchemaVersion, Head: source.Head, Integrity: source.Integrity},
-		Candidate: candidate,
+	result := corestore.UpgradeResult{
+		Source:         source,
+		Backup:         corestore.BackupInfo{Path: opts.BackupPath, SchemaVersion: source.SchemaVersion, Head: source.Head, Integrity: source.Integrity},
+		Candidate:      candidate,
+		HeadTransition: transition,
+	}
+	if targetVersion == contractCachePruneMigrationVersion {
+		result.Maintenance = corestore.UpgradeMaintenanceResult{
+			Discards: []corestore.ObservationDiscardSummary{{
+				MigrationVersion:    contractCachePruneMigrationVersion,
+				MigrationName:       contractCachePruneMigrationName,
+				Selector:            contractCachePruneSelector,
+				RemovedRows:         sourceFile.MaintenanceRows,
+				PayloadBytes:        sourceFile.MaintenanceRows * 100,
+				OrderedDigestSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			}},
+			Compacted:                      true,
+			SourceBackupRetirementRequired: sourceFile.MaintenanceRows > 0,
+		}
+	}
+	return result, nil
+}
+
+func fakePrepareSchemaTargetBackup(ctx context.Context, opts corestore.UpgradeTargetBackupOptions) (corestore.BackupInfo, error) {
+	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.SourcePath, MinimumHead: &opts.ExpectedHead})
+	if err != nil {
+		return corestore.BackupInfo{}, err
+	}
+	if source.Status != corestore.InspectionCurrent ||
+		source.SchemaVersion != opts.ExpectedSchemaVersion ||
+		source.Head != opts.ExpectedHead {
+		return corestore.BackupInfo{}, fmt.Errorf("fake target-backup source mismatch")
+	}
+	if _, err := os.Lstat(opts.BackupPath); errors.Is(err, fs.ErrNotExist) {
+		file, readErr := readFakeSchemaFileE(opts.SourcePath)
+		if readErr != nil {
+			return corestore.BackupInfo{}, readErr
+		}
+		if err := writeFakeSchemaFileE(opts.BackupPath, file); err != nil {
+			return corestore.BackupInfo{}, err
+		}
+	} else if err != nil {
+		return corestore.BackupInfo{}, err
+	}
+	backup, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.BackupPath, MinimumHead: &opts.ExpectedHead})
+	if err != nil {
+		return corestore.BackupInfo{}, err
+	}
+	if backup.Status != corestore.InspectionCurrent ||
+		backup.SchemaVersion != opts.ExpectedSchemaVersion ||
+		backup.Head != opts.ExpectedHead {
+		return corestore.BackupInfo{}, fmt.Errorf("fake target backup mismatch")
+	}
+	return corestore.BackupInfo{
+		Path:          opts.BackupPath,
+		SchemaVersion: backup.SchemaVersion,
+		Head:          backup.Head,
+		Integrity:     backup.Integrity,
 	}, nil
 }
 

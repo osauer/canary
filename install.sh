@@ -265,12 +265,51 @@ mkdir -p "$INSTALL_DIR"
 
 canonical="$INSTALL_DIR/canary"
 pre_upgrade="$INSTALL_DIR/ibkr"
+# The pre-rename installer allowed an arbitrary IBKR_INSTALL_DIR. If that old
+# directory is still on PATH, silently installing Canary somewhere else would
+# leave two forward-incompatible binaries able to address the same daemon
+# state. Do not delete outside the caller's chosen target; require the caller
+# to reuse that directory so the transaction below can retire ibkr atomically.
+legacy_on_path=$(command -v ibkr 2>/dev/null || true)
+case "$legacy_on_path" in
+	"")
+		;;
+	/*)
+		legacy_dir=${legacy_on_path%/*}
+		[ -n "$legacy_dir" ] || legacy_dir=/
+		legacy_name=${legacy_on_path##*/}
+		;;
+	*/*)
+		legacy_dir=${legacy_on_path%/*}
+		legacy_name=${legacy_on_path##*/}
+		;;
+	*)
+		legacy_dir=.
+		legacy_name=$legacy_on_path
+		;;
+esac
+if [ -n "$legacy_on_path" ]; then
+	install_dir_physical=$(cd "$INSTALL_DIR" && pwd -P) || \
+		fail "could not resolve install directory $INSTALL_DIR"
+	legacy_dir_physical=$(cd "$legacy_dir" 2>/dev/null && pwd -P || true)
+	[ -n "$legacy_dir_physical" ] || \
+		fail "found the pre-upgrade executable at $legacy_on_path but could not resolve its directory safely"
+	if [ "$legacy_dir_physical/$legacy_name" != "$install_dir_physical/ibkr" ]; then
+		fail "found the pre-upgrade executable at $legacy_on_path; rerun with CANARY_INSTALL_DIR=$legacy_dir_physical so the installer can retire it safely"
+	fi
+fi
+upgrading_existing=0
+upgrading_legacy=0
 for path in "$canonical" "$pre_upgrade"; do
 	if [ -e "$path" ] || [ -L "$path" ]; then
 		[ -f "$path" ] && [ ! -L "$path" ] || \
 			fail "refusing executable path $path because it is not a regular file"
+		upgrading_existing=1
 	fi
 done
+if [ -e "$pre_upgrade" ]; then
+	upgrading_legacy=1
+fi
 rm -f "$INSTALL_DIR/canary.bak" "$INSTALL_DIR/ibkr.bak"
 
 # Stage the candidate in the destination directory. Existing public paths move
@@ -393,7 +432,14 @@ esac
 # --- next steps --------------------------------------------------------------
 printf '\n'
 printf '%sNext steps%s\n' "$BOLD" "$RESET"
-printf '  %s•%s Try the CLI:           %scanary account%s   (needs IB Gateway running)\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
+if [ "$upgrading_existing" = "1" ]; then
+	printf '  %s•%s Complete the upgrade: %scanary restart%s\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
+	if [ "$upgrading_legacy" = "1" ]; then
+		printf '    This starts the Canary-named daemon and migrates supported existing state before broker connection.\n'
+	fi
+else
+	printf '  %s•%s Try the CLI:           %scanary account%s   (needs IB Gateway running)\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
+fi
 printf '  %s•%s Wire Claude Desktop:   %scanary setup claude-desktop%s\n' "$GREEN" "$RESET" "$BOLD" "$RESET"
 printf '  %s•%s Full docs:             https://github.com/%s\n' "$GREEN" "$RESET" "$REPO"
 printf '\n'

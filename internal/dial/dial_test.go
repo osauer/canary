@@ -78,15 +78,98 @@ func TestStartupBudgetScalesWithAuthoritySize(t *testing.T) {
 	}
 	// Sparse: the budget reads the file size, never its bytes.
 	truncateAuthority(t, path, 4*int64(startupBudgetFloorBytesPerSec))
-	if want, got := startupBudgetBase+4*time.Second, StartupBudget(); got != want {
+	if want, got := startupBudgetBase+4*startupBudgetAuthorityPasses*time.Second, StartupBudget(); got != want {
 		t.Fatalf("StartupBudget for a 4-second authority = %s, want %s", got, want)
 	}
 
-	// An authority large enough to outrun the cap still fails eventually
-	// rather than hanging the caller.
-	truncateAuthority(t, path, int64(startupBudgetFloorBytesPerSec)*int64(startupBudgetMax/time.Second+60))
-	if got := StartupBudget(); got != startupBudgetMax {
-		t.Fatalf("StartupBudget for an oversized authority = %s, want the %s cap", got, startupBudgetMax)
+	// The authorized v4 repair can start from a 50+ GiB authority. Its
+	// pre-socket budget must include the modeled multi-pass work rather than
+	// saturating at the old five-minute single-pass cap.
+	const authority50GiB = int64(50 << 30)
+	truncateAuthority(t, path, authority50GiB)
+	secondsPerPass := time.Duration(authority50GiB/startupBudgetFloorBytesPerSec) * time.Second
+	want := startupBudgetBase + startupBudgetAuthorityPasses*secondsPerPass
+	if got := StartupBudget(); got != want {
+		t.Fatalf("StartupBudget for a 50 GiB authority = %s, want %s", got, want)
+	}
+}
+
+func TestStartupBudgetScalesWithLegacyStateCorpusWithoutFollowingSymlinks(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	authorityPath, err := DefaultAuthorityPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Dir(authorityPath)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Neither a linked file nor a linked directory is part of this namespace's
+	// legacy corpus, even when its target is pathologically large.
+	outside := t.TempDir()
+	const linkedBytes = int64(50 << 30)
+	linkedFile := filepath.Join(outside, "linked-order-journal.jsonl")
+	truncateAuthority(t, linkedFile, linkedBytes)
+	if err := os.Symlink(linkedFile, filepath.Join(stateDir, "linked-order-journal.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	linkedDir := filepath.Join(outside, "linked-state")
+	truncateAuthority(t, filepath.Join(linkedDir, "nested-journal.jsonl"), linkedBytes)
+	if err := os.Symlink(linkedDir, filepath.Join(stateDir, "linked-state")); err != nil {
+		t.Fatal(err)
+	}
+	if got := StartupBudget(); got != startupBudgetBase {
+		t.Fatalf("StartupBudget followed a legacy-state symlink: got %s, want %s", got, startupBudgetBase)
+	}
+
+	// A direct-upgrade install may have no daemon.db yet but still need to read,
+	// import, back up, and seal a very large old order journal before opening
+	// the socket. Sparse allocation keeps this fixture cheap while preserving
+	// the apparent byte count consumed by the budget.
+	const legacyJournalBytes = int64(50 << 30)
+	truncateAuthority(t, filepath.Join(stateDir, "order-journal.jsonl"), legacyJournalBytes)
+	if _, err := os.Lstat(authorityPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy fixture unexpectedly has daemon.db: %v", err)
+	}
+	want := startupBudgetForAuthorityBytes(legacyJournalBytes)
+	if got := StartupBudget(); got != want {
+		t.Fatalf("StartupBudget for a 50 GiB legacy journal = %s, want %s", got, want)
+	}
+}
+
+func TestStartupBudgetSaturatesWithoutOverflow(t *testing.T) {
+	tests := []struct {
+		name string
+		size int64
+		want time.Duration
+	}{
+		{name: "negative", size: -1, want: startupBudgetBase},
+		{name: "zero", size: 0, want: startupBudgetBase},
+		{name: "maximum int64", size: int64(1<<63 - 1), want: startupBudgetMax},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := startupBudgetForAuthorityBytes(tt.size); got != tt.want {
+				t.Fatalf("startupBudgetForAuthorityBytes(%d) = %s, want %s", tt.size, got, tt.want)
+			}
+		})
+	}
+
+	maxWorkSeconds := uint64((startupBudgetMax - startupBudgetBase) / time.Second)
+	maxSecondsPerPass := maxWorkSeconds / startupBudgetAuthorityPasses
+	firstCappedSize := int64(maxSecondsPerPass*startupBudgetFloorBytesPerSec + 1)
+	if got := startupBudgetForAuthorityBytes(firstCappedSize); got != startupBudgetMax {
+		t.Fatalf("first over-ceiling authority budget = %s, want %s", got, startupBudgetMax)
+	}
+
+	const maxInt64 = int64(1<<63 - 1)
+	if got := saturatingAuthorityBytes(maxInt64-4, 5); got != maxInt64 {
+		t.Fatalf("legacy corpus byte sum overflowed: got %d, want %d", got, maxInt64)
+	}
+	if got := saturatingAuthorityBytes(7, 11); got != 18 {
+		t.Fatalf("legacy corpus ordinary byte sum = %d, want 18", got)
 	}
 }
 

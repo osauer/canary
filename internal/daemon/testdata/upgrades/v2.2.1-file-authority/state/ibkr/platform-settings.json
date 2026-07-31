@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "features": {
+    "purge_restore": {},
+    "stock_protection": {},
+    "rulebook": {}
+  },
+  "trading": {
+    "max_notional": 125000,
+    "freeze": true
+  },
+  "regime": {
+    "journal": {
+      "enabled": false
+    }
+  }
+}

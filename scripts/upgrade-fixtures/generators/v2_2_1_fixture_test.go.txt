@@ -1,0 +1,146 @@
+package daemon
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/osauer/ibkr/v2/internal/rpc"
+)
+
+// TestGenerateHistoricalV221FileAuthority runs only in an isolated archive of
+// the immutable v2.2.1 source. The current tree copies this file into that
+// archive; normal tests consume the committed output and never compile old
+// source.
+func TestGenerateHistoricalV221FileAuthority(t *testing.T) {
+	output := os.Getenv("CANARY_UPGRADE_FIXTURE_OUTPUT")
+	if output == "" {
+		t.Skip("maintainer fixture generation only")
+	}
+	stateHome := filepath.Join(output, "state")
+	cacheHome := filepath.Join(output, "cache")
+	configHome := filepath.Join(output, "config")
+	for _, path := range []string{stateHome, cacheHome, configHome} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	base := time.Date(2026, 6, 30, 14, 15, 0, 0, time.UTC)
+	settingsPath, err := defaultPlatformSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := newPlatformSettingsStore(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.update(func(next *platformSettingsData) error {
+		freeze := true
+		maxNotional := 125000.0
+		regimeJournal := false
+		next.Trading.Freeze = &freeze
+		next.Trading.MaxNotional = &maxNotional
+		next.Regime.Journal.Enabled = &regimeJournal
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	capital := &riskCapitalStore{
+		now:                  func() time.Time { return base },
+		loaded:               true,
+		reconciledReportIDs:  map[string]struct{}{},
+		state: riskCapitalStateFileV1{
+			Version:          riskCapitalStateVer,
+			GenesisAt:        base.Add(-30 * 24 * time.Hour),
+			Seeded:           true,
+			AdjustedPeakBase: 250000,
+			PeakAsOf:         base.Add(-2 * time.Hour),
+			LastEquityBase:   240000,
+			LastEquityAsOf:   base.Add(-time.Hour),
+			DailyEquity: map[string]float64{
+				"2026-06-29": 241000,
+				"2026-06-30": 240000,
+			},
+			LastTier:        "warn",
+			BlockLatched:    true,
+			LatchedAt:       base.Add(-30 * time.Minute),
+			LatchEpisodeSeq: 2,
+			LatchConsumedPct: 83.5,
+		},
+	}
+	capital.persistLocked(true)
+	for _, event := range []capitalEventV1{
+		{
+			Version: 1, At: base.Add(-4 * time.Hour), Type: "deposit",
+			AmountBase: 1000, EffectiveAt: base.Add(-5 * time.Hour),
+			Note: "synthetic historical fixture", Origin: rpc.OrderOriginHumanTTY,
+		},
+		{
+			Version: 1, At: base.Add(-3 * time.Hour), Type: "reconcile",
+			ReportID: "fixture-reconcile-v221", CoverageTo: base.Add(-4 * time.Hour),
+			Origin: rpc.OrderOriginHumanTTY,
+		},
+	} {
+		if err := appendCapitalEvent(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	orderPath, err := defaultOrderJournalPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := orderJournalEvent{
+		At: base.Add(-2 * time.Hour), Type: orderJournalEventSendAttempted,
+		OrderRef: "fixture-purge-active", PreviewTokenID: "fixture-preview-consumed",
+		ReservedOrderID: 4201, ClientID: 41,
+		Account: "SYNTHETIC-PAPER", Endpoint: "127.0.0.1:4002", Mode: "paper",
+		Source: purgeExecuteSource, Origin: rpc.OrderOriginHumanTTY,
+		PurgeID: "fixture-purge", LegID: "fixture-leg",
+		Symbol: "FIXT", SecType: "STK", ConID: 900001,
+		Exchange: "SMART", PrimaryExch: "SYNTH", Currency: "USD", Multiplier: 1,
+		Action: rpc.OrderActionSell, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay,
+		Quantity: 3, LimitPrice: 101, SendState: orderSendStateUncertainSend,
+	}
+	fill := send
+	fill.At = base.Add(-90 * time.Minute)
+	fill.Type = orderJournalEventStatusUpdated
+	fill.Status = "Submitted"
+	fill.Filled = 2
+	fill.Remaining = 1
+	fill.AvgFillPrice = 100
+	fill.SendState = orderSendStateBrokerAcknowledged
+	if err := newOrderJournalStore(orderPath).AppendAll([]orderJournalEvent{send, fill}); err != nil {
+		t.Fatal(err)
+	}
+
+	purgePath, err := defaultPurgeLedgerPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := newPurgeLedgerStore(purgePath, func() time.Time { return base }).ApplyOrderFill(fill); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		settingsPath,
+		filepath.Join(stateHome, "ibkr", riskCapitalStateFile),
+		filepath.Join(stateHome, "ibkr", capitalEventsJournalFile),
+		orderPath,
+		purgePath,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("generated fixture %s: %v", path, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			t.Fatalf("generated fixture %s mode=%v", path, info.Mode())
+		}
+	}
+}

@@ -441,7 +441,7 @@ func TestReplaceCandidateRejectsUnsafeResidualSidecar(t *testing.T) {
 	if err := os.Symlink(target, candidate+"-wal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := prepareCandidateDestination(candidate, true); err == nil || !strings.Contains(err.Error(), "regular file") {
+	if err := prepareCandidateDestination(candidate, true, false); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("unsafe candidate cleanup error=%v", err)
 	}
 	got, err := os.ReadFile(target)
@@ -501,7 +501,8 @@ func assertStandaloneUpgradeArtifacts(t *testing.T, dir string, paths ...string)
 		assertNoSQLiteSidecars(t, path)
 	}
 	for _, name := range directoryNames(t, dir) {
-		if strings.Contains(name, ".tmp-") {
+		if strings.Contains(name, ".tmp-") || strings.HasSuffix(name, ".preparing") ||
+			strings.HasSuffix(name, ".maintenance-work") || strings.HasSuffix(name, ".maintenance-compact") {
 			t.Fatalf("unexpected upgrade temporary artifact %q", name)
 		}
 	}

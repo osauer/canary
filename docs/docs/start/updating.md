@@ -1,12 +1,13 @@
 # Updating
 
-Updated: 2026-07-25 09:40 CEST
+Updated: 2026-07-31
 
 Four things can affect data freshness: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
 
 ## Updating the binary: `canary update`
 
-Once you're on v1.0.0 or later, the next upgrade is one command:
+Once you have a Canary-named release (v2.5.0 or later), the next binary
+upgrade is one command:
 
 ```sh
 canary update            # fetch latest, prompt to restart the local app/daemon stack
@@ -59,9 +60,64 @@ canary update --force          # re-install latest even if same version (corrupt
 
 `--check` exits 0 whether or not an update is available; only fetch failures exit non-zero. So `canary update --check && canary update` is the idiomatic confirm-then-install pattern.
 
-### Pre-v1.0.0 binaries
+### Older `ibkr`-named installations
 
-`canary update` only exists from v1.0.0 onward. Earlier installs upgrade once manually (download the tarball from [releases](https://github.com/osauer/canary/releases), extract, run `make install`), then carry forward with `canary update`.
+Do not ask the old executable to update itself across the product rename. Those
+binaries cannot safely select and extract the current Canary archive. Run the
+current shell installer once instead; it verifies the signed release assets
+before installing them:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary restart
+```
+
+The installer publishes `~/.local/bin/canary` and retires a co-located
+pre-rename executable. If the old installer used a custom `IBKR_INSTALL_DIR`,
+reuse that same directory under its new name so the old binary is retired in
+the same transaction:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh |
+  CANARY_INSTALL_DIR=/your/previous/bin sh
+canary restart
+```
+
+When an `ibkr` executable is still on `PATH` somewhere else, the installer
+refuses a split installation and prints the directory to use. It does not
+remove the existing config or state directories. `canary restart` then starts
+the new daemon, which performs any required state migration before it connects
+to the broker.
+
+Direct state migration accepts file-backed installations from v1.7.1 through
+v2.2.1 when their retained order evidence carries a complete broker route,
+and SQLite-backed installations from v2.3.0. If a file-backed installation is
+still on v1.7.1, jump directly through the current installer above. Do not
+stage through any binary from v1.8 through v2.2.1: those historical releases
+could delete the v1 purge ledger when they opened it. The current migration
+preserves that ledger's restore quantities and fill cursors, but it cannot
+recover records an earlier upgrade already discarded. Installations already
+running v1.8 through v2.2.1 can migrate the supported file state that remains.
+Installations older than v1.7.1 remain outside the direct-migration boundary.
+
+A file-backed cutover imports the supported authority into a new, validated
+database, creates verified backups, seals the retired files, and never falls
+back to them. An existing older database is upgraded through an unpublished,
+validated candidate with an exact-head backup. Ambiguous safety-relevant order
+history stops startup instead of being guessed.
+
+The v2.6.0 upgrade also removes the defective contract-cache snapshots that
+made some `daemon.db` files unusually large. Before changing anything, startup
+requires free space equal to twice the database footprint plus the larger of
+1 GiB or 5%. If that space is unavailable, it leaves the published database
+unchanged and reports how much is required. The cleanup and compaction happen
+before broker connection, can take substantial time for a tens-of-gigabytes
+database, and may therefore make the first `canary restart` much longer than
+normal.
+
+`canary update` did not exist before v1.0.0. Those installations also use the
+same release-verifying shell installer after first reaching the supported
+state-migration floor.
 
 ## Restarting local processes: `canary restart`
 

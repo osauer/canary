@@ -21,6 +21,7 @@ var migrationChecksumPins = map[int]string{
 	1: "c24046b783d77f45b4609e23e677f581bca95af203ff5579803d7959259e811e",
 	2: "055e15432884b5ec2e914440438cdb94863724464d319e50dbbd59803eefc056",
 	3: "0d735df122fa40b41c2a74fe79560d5c4f865ff33b413a3bc69867bbb771419d",
+	4: "f5912938a8dd29c4499c55bbadeb70944fad012df39ce63cd5304cc0489eab85",
 }
 
 func TestShippedMigrationChecksumsAreFrozen(t *testing.T) {
