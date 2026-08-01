@@ -5,7 +5,7 @@
   "homepage": "https://osauer.dev/canary/",
   "repository": "https://github.com/osauer/canary",
   "license": "MIT",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "transport": {
     "type": "stdio",
     "command": "canary",
