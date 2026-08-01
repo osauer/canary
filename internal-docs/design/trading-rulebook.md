@@ -392,13 +392,19 @@ web/app/*                         rules card + drill-in
   requested through serialized metadata/event reads and requires the account's
   WSH research entitlement. Matching dates form consensus; differing dates or
   incompatible published session halves remain `conflicting_sources`.
-  Nasdaq accepts a semantic no-date only from the observed HTTP 200 envelope:
-  a `data` object with no `data.status`, a top-level numeric `status.rCode=200`,
-  and the exact symbol-bound announcement prefix followed by exactly one ASCII
-  space. Semantic unsupported requires explicit `data:null` plus top-level
+  Nasdaq accepts a date and a semantic no-date only from the same observed
+  HTTP 200 envelope: a `data` object with no `data.status`, a top-level numeric
+  `status.rCode=200`, and the exact symbol-bound announcement prefix followed by
+  exactly one ASCII space. A no-date ends there; a date follows with `Jan 2, 2006`
+  or `Jan 02, 2006` — the endpoint zero-pads a scheduled day and leaves a Zacks
+  estimate unpadded — round-tripping its own layout exactly and not yet elapsed.
+  A present `data.status` is a conflicting authority, not an alternative
+  envelope. Semantic unsupported requires explicit `data:null` plus top-level
   numeric `rCode=400`.
   Missing/null/empty announcements, `rCode=404`, and bare non-200 responses are
   typed format or protocol failures.
+  Parser contract v4 (2026-08-01) replaced v3's unserved nested-`data.status`
+  date envelope, which had made every published date a format change.
 - Persistence: daemon.db v4 current state plus immutable v3 provider-outcome and
   exact-contract identity observations. Each symbol stores aggregate resolution,
   per-provider latest attempt/next retry/typed redacted failure/last-good value,
