@@ -26,7 +26,7 @@ The cost is bounded coverage: the response carries `coverage_start` / `coverage_
 
 The eight-row risk-regime dashboard summarizes the market's current posture. Each row measures a different stress channel, which is what separates ordinary chop from a regime shift in progress. It also emits a broad-market lifecycle stage (`quiet`, `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`, or `data_quality`), source health, and semantic fingerprints for monitors.
 
-1. **VIX term structure** (VIX vs VIX3M). Backwardation, short-dated vol pricing above 3-month vol, is the stress fingerprint. The deeper and more sustained the inversion, the bigger the dislocation.
+1. **VIX term structure** (VIX vs VIX3M). Backwardation, short-dated vol pricing above 3-month vol, is the stress fingerprint. The deeper and more sustained the inversion, the bigger the dislocation. IBKR quotes drive the row in session; once Cboe's publication window shuts, the VIX3M leg is Cboe's own dated close, which also cross-checks what the broker is still reporting.
 2. **VVIX vol-of-vol**. Cboe's VIX-of-VIX reading catches convexity demand inside the equity-vol cluster.
 3. **HYG vs SPY divergence**. High-yield credit leads equity selloffs on the way down. A HYG breakdown while SPY is still near highs is the classic late-cycle warning.
 4. **HY/IG OAS**. Official ICE BofA cash-credit spreads via FRED: slower than HYG, harder to dismiss as ETF noise.

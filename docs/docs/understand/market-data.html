@@ -102,8 +102,8 @@
     </details>
     <main class="doc">
 <h1 id="market-data-and-entitlements">Market data and entitlements</h1>
-<p>Every price on every surface arrives through your own TWS or IB Gateway
-session. Nothing is resold, proxied, or fetched from a third-party feed. If a
+<p>Broker market data — quotes, option chains, Greeks, historical bars — arrives
+through your own TWS or IB Gateway session. Nothing is resold or proxied. If a
 symbol is real-time in TWS it is real-time here, and if TWS shows it delayed,
 so does <code>canary</code>. Market data is real-time wherever your IBKR market-data
 subscriptions cover it, delayed where they don't.</p>
@@ -112,18 +112,75 @@ delayed data into real-time data. The only place to change what you receive is
 IBKR's account management. What the project can do is tell you, per row, which
 kind of data you are looking at, and refuse to compute things that the data
 cannot support.</p>
+<p>A short list of regime inputs is the exception: they come from the institution
+that publishes them, not from your broker session.</p>
 <nav class="toc" aria-label="On this page">
 <span class="toc-label">On this page</span>
 <ul>
-<li><a href="#what-the-daemon-asks-for"><span class="n">01</span>What the daemon asks for</a></li>
-<li><a href="#what-each-type-is-good-enough-for"><span class="n">02</span>What each type is good enough for</a></li>
-<li><a href="#why-one-symbol-says-delayed"><span class="n">03</span>Why one symbol says delayed</a></li>
-<li><a href="#which-surfaces-need-which-entitlement"><span class="n">04</span>Which surfaces need which entitlement</a></li>
-<li><a href="#what-works-with-no-market-data-subscription-at-all"><span class="n">05</span>What works with no market-data subscription at all</a></li>
-<li><a href="#when-a-quote-looks-wrong-read-the-session"><span class="n">06</span>When a quote looks wrong, read the session</a></li>
+<li><a href="#series-the-daemon-reads-from-the-publisher"><span class="n">01</span>Series the daemon reads from the publisher</a></li>
+<li><a href="#what-the-daemon-asks-for"><span class="n">02</span>What the daemon asks for</a></li>
+<li><a href="#what-each-type-is-good-enough-for"><span class="n">03</span>What each type is good enough for</a></li>
+<li><a href="#why-one-symbol-says-delayed"><span class="n">04</span>Why one symbol says delayed</a></li>
+<li><a href="#which-surfaces-need-which-entitlement"><span class="n">05</span>Which surfaces need which entitlement</a></li>
+<li><a href="#what-works-with-no-market-data-subscription-at-all"><span class="n">06</span>What works with no market-data subscription at all</a></li>
+<li><a href="#when-a-quote-looks-wrong-read-the-session"><span class="n">07</span>When a quote looks wrong, read the session</a></li>
 </ul>
 </nav>
-<h2 id="what-the-daemon-asks-for"><span class="secno" aria-hidden="true">01</span>What the daemon asks for</h2>
+<h2 id="series-the-daemon-reads-from-the-publisher"><span class="secno" aria-hidden="true">01</span>Series the daemon reads from the publisher</h2>
+<p>These are official daily series fetched over HTTPS, straight from the source
+that computes them:</p>
+<div class="tblwrap">
+<table>
+<thead>
+<tr>
+<th>Series</th>
+<th>Publisher</th>
+<th>Feeds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VVIX daily close</td>
+<td>Cboe</td>
+<td>The vol-of-vol row.</td>
+</tr>
+<tr>
+<td>VIX3M daily close</td>
+<td>Cboe</td>
+<td>The off-window VIX3M leg of the VIX term-structure row, and the cross-check against the broker's own reading.</td>
+</tr>
+<tr>
+<td>ICE BofA high-yield and investment-grade OAS</td>
+<td>FRED / St. Louis Fed</td>
+<td>The cash-credit row.</td>
+</tr>
+<tr>
+<td>90-day AA financial commercial paper, 13-week T-bill</td>
+<td>Federal Reserve, US Treasury</td>
+<td>The funding-spread row.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Three things follow. No IBKR entitlement is involved, so these rows keep
+working on an account with no market-data subscription at all. They fail
+independently of the gateway: a broker outage leaves them current, and a
+publisher outage leaves them stale while your quotes stay live. And they are
+daily closes, so their age is counted in sessions rather than seconds —
+<a href="sensors.html">Sensors</a> has that vocabulary.</p>
+<p>VIX3M is the one row where both kinds of data meet. In session the broker's
+live tick is the source, because Cboe publishes closes and not intraday values.
+Once the publication window shuts, the served value is Cboe's dated close and
+the broker's own reading is compared against it.</p>
+<p>That comparison is there for a specific failure. A gateway that keeps answering
+with a stale value looks exactly like a quiet market: in frozen mode it
+re-sends its last known price on request, so the tick arrives new however old
+the value is, and an index carries no trade timestamp to date it with. A lapsed
+market-data entitlement fails this way rather than going silent. The published
+close is what settles it, and
+<a href="../internals/regime-dashboard.html#two-independent-vix3m-sources">Regime dashboard</a>
+has the verdicts and what each one does to the row.</p>
+<h2 id="what-the-daemon-asks-for"><span class="secno" aria-hidden="true">02</span>What the daemon asks for</h2>
 <p>On every successful connect the daemon sets market-data type 2, frozen-aware.
 The gateway then returns live ticks for symbols your subscriptions cover and
 the last-known price when it cannot. Type 1, pure live, can leave snapshot
@@ -131,7 +188,7 @@ requests hanging when the market is closed, so it is not used.</p>
 <p>Entitlements are never stored. The daemon reports the data type it observed on
 each request instead, which is why a <code>DATA</code> column appears beside a quote and
 why the same symbol can report differently in two sessions.</p>
-<h2 id="what-each-type-is-good-enough-for"><span class="secno" aria-hidden="true">02</span>What each type is good enough for</h2>
+<h2 id="what-each-type-is-good-enough-for"><span class="secno" aria-hidden="true">03</span>What each type is good enough for</h2>
 <div class="tblwrap">
 <table>
 <thead>
@@ -169,7 +226,7 @@ milliseconds after a fresh subscription; it is treated as live.</p>
 <p>Some computations refuse delayed input rather than producing a plausible wrong
 answer. Dealer gamma accepts <code>live</code> and <code>frozen</code> and rejects both delayed
 types, because a 15-minute-old spot biases every gamma in the chain.</p>
-<h2 id="why-one-symbol-says-delayed"><span class="secno" aria-hidden="true">03</span>Why one symbol says delayed</h2>
+<h2 id="why-one-symbol-says-delayed"><span class="secno" aria-hidden="true">04</span>Why one symbol says delayed</h2>
 <p>There are two distinct causes and they need different fixes.</p>
 <p><strong>No subscription for that instrument class.</strong> IBKR answers with error 354,
 &quot;Requested market data is not subscribed&quot;. That rejection is terminal for the
@@ -184,7 +241,7 @@ and the connection is forced into delayed mode as a whole. Closing the other
 session and reconnecting restores live data.</p>
 <p><a href="../start/troubleshooting.html">Troubleshooting</a> has the symptom-side version of
 this, including what each badge string says verbatim.</p>
-<h2 id="which-surfaces-need-which-entitlement"><span class="secno" aria-hidden="true">04</span>Which surfaces need which entitlement</h2>
+<h2 id="which-surfaces-need-which-entitlement"><span class="secno" aria-hidden="true">05</span>Which surfaces need which entitlement</h2>
 <div class="tblwrap">
 <table>
 <thead>
@@ -224,13 +281,15 @@ this, including what each badge string says verbatim.</p>
 <p>Live quotes also consume subscription slots, which retail accounts cap at
 around a hundred concurrent. That is why a wide chain or a large scan
 serializes rather than firing every request at once.</p>
-<h2 id="what-works-with-no-market-data-subscription-at-all"><span class="secno" aria-hidden="true">05</span>What works with no market-data subscription at all</h2>
+<h2 id="what-works-with-no-market-data-subscription-at-all"><span class="secno" aria-hidden="true">06</span>What works with no market-data subscription at all</h2>
 <p>More than you would expect. Account and position data is broker account state,
 not market data, so balances, holdings, cost basis, and order history are
 unaffected. A position whose quote is missing stays account truth; the daemon
 marks the missing quote as the expected state rather than a data-quality
 defect.</p>
-<p>Daily bars are a separate entitlement path from streaming quotes, so
+<p>The published series above need no broker session at all, so the vol-of-vol,
+cash-credit, and funding rows are unaffected. Daily bars are a separate
+entitlement path from streaming quotes, so
 <code>canary history</code>, <code>canary technical</code>, and the S&amp;P 500 breadth engine keep working.
 Breadth is computed from constituent daily bars precisely because the index
 itself is not redistributed on retail subscriptions. Its first build is slow
@@ -238,7 +297,7 @@ for pacing reasons covered in
 <a href="../start/troubleshooting.html">Troubleshooting</a>.</p>
 <p>Market calendars are embedded in the binary and read no broker data, so
 <code>canary calendar</code> answers whether a market is open even with the gateway down.</p>
-<h2 id="when-a-quote-looks-wrong-read-the-session"><span class="secno" aria-hidden="true">06</span>When a quote looks wrong, read the session</h2>
+<h2 id="when-a-quote-looks-wrong-read-the-session"><span class="secno" aria-hidden="true">07</span>When a quote looks wrong, read the session</h2>
 <p>A quote attaches a <code>session_context</code> block when the calendar state is needed to
 interpret it, and omits it on an ordinary live in-session row. The block names
 the market, its state (<code>regular</code>, <code>closed</code>, <code>holiday</code>, <code>early_close</code>, or

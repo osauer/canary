@@ -943,11 +943,11 @@ canary setup claude-desktop
         </article>
         <article class="feature">
           <h3>Is the market data real-time?</h3>
-          <p>Data comes through your own TWS or IB Gateway session, so entitlements match what you see in TWS: real-time where you hold IBKR market-data subscriptions, delayed otherwise. Stock and ETF quotes are also exposed as a streaming MCP resource.</p>
+          <p>Broker data comes through your own TWS or IB Gateway session, so entitlements match what you see in TWS: real-time where you hold IBKR market-data subscriptions, delayed otherwise. Stock and ETF quotes are also exposed as a streaming MCP resource.</p>
         </article>
         <article class="feature">
           <h3>Where does the market data come from?</h3>
-          <p>Canary reads through your local TWS or IB Gateway session. Coverage and delay status follow the connected account's subscriptions and the current market session.</p>
+          <p>Canary reads through your local TWS or IB Gateway session. Coverage and delay status follow the connected account's subscriptions and the current market session. A few regime rows are the exception and read straight from the institution that publishes them, needing no IBKR entitlement: VVIX and VIX3M closes from Cboe, credit spreads from FRED, and the funding series from the Federal Reserve and US Treasury.</p>
         </article>
       </div>
     </section>

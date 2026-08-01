@@ -1,7 +1,7 @@
 # Market data and entitlements
 
-Every price on every surface arrives through your own TWS or IB Gateway
-session. Nothing is resold, proxied, or fetched from a third-party feed. If a
+Broker market data — quotes, option chains, Greeks, historical bars — arrives
+through your own TWS or IB Gateway session. Nothing is resold or proxied. If a
 symbol is real-time in TWS it is real-time here, and if TWS shows it delayed,
 so does `canary`. Market data is real-time wherever your IBKR market-data
 subscriptions cover it, delayed where they don't.
@@ -11,6 +11,42 @@ delayed data into real-time data. The only place to change what you receive is
 IBKR's account management. What the project can do is tell you, per row, which
 kind of data you are looking at, and refuse to compute things that the data
 cannot support.
+
+A short list of regime inputs is the exception: they come from the institution
+that publishes them, not from your broker session.
+
+## Series the daemon reads from the publisher
+
+These are official daily series fetched over HTTPS, straight from the source
+that computes them:
+
+| Series | Publisher | Feeds |
+| --- | --- | --- |
+| VVIX daily close | Cboe | The vol-of-vol row. |
+| VIX3M daily close | Cboe | The off-window VIX3M leg of the VIX term-structure row, and the cross-check against the broker's own reading. |
+| ICE BofA high-yield and investment-grade OAS | FRED / St. Louis Fed | The cash-credit row. |
+| 90-day AA financial commercial paper, 13-week T-bill | Federal Reserve, US Treasury | The funding-spread row. |
+
+Three things follow. No IBKR entitlement is involved, so these rows keep
+working on an account with no market-data subscription at all. They fail
+independently of the gateway: a broker outage leaves them current, and a
+publisher outage leaves them stale while your quotes stay live. And they are
+daily closes, so their age is counted in sessions rather than seconds —
+[Sensors](sensors.md) has that vocabulary.
+
+VIX3M is the one row where both kinds of data meet. In session the broker's
+live tick is the source, because Cboe publishes closes and not intraday values.
+Once the publication window shuts, the served value is Cboe's dated close and
+the broker's own reading is compared against it.
+
+That comparison is there for a specific failure. A gateway that keeps answering
+with a stale value looks exactly like a quiet market: in frozen mode it
+re-sends its last known price on request, so the tick arrives new however old
+the value is, and an index carries no trade timestamp to date it with. A lapsed
+market-data entitlement fails this way rather than going silent. The published
+close is what settles it, and
+[Regime dashboard](../internals/regime-dashboard.md#two-independent-vix3m-sources)
+has the verdicts and what each one does to the row.
 
 ## What the daemon asks for
 
@@ -86,7 +122,9 @@ unaffected. A position whose quote is missing stays account truth; the daemon
 marks the missing quote as the expected state rather than a data-quality
 defect.
 
-Daily bars are a separate entitlement path from streaming quotes, so
+The published series above need no broker session at all, so the vol-of-vol,
+cash-credit, and funding rows are unaffected. Daily bars are a separate
+entitlement path from streaming quotes, so
 `canary history`, `canary technical`, and the S&P 500 breadth engine keep working.
 Breadth is computed from constituent daily bars precisely because the index
 itself is not redistributed on retail subscriptions. Its first build is slow
