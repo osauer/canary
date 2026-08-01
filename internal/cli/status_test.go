@@ -310,6 +310,29 @@ func TestRenderStatus_ConnectedAccountAndPaperBadge(t *testing.T) {
 	}
 }
 
+func TestStatusAccountIDPrefersPinOverManagedAccountsAggregate(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		pinned    string
+		connected string
+		want      string
+	}{
+		{name: "single account login", pinned: "DU2222222", connected: "DU2222222", want: "DU2222222"},
+		{name: "connected before the pin resolves", connected: "DU2222222", want: "DU2222222"},
+		{name: "multi-account login shows the pin", pinned: "DU2222222", connected: "DU1111111,DU2222222", want: "DU2222222"},
+		{name: "unpinned multi-account login names no sibling", connected: "DU1111111,DU2222222", want: "auto-detect"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := statusAccountID(rpc.HealthResult{Account: test.pinned, ConnectedAccount: test.connected})
+			if got != test.want {
+				t.Fatalf("statusAccountID = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestFormatStatusAccountMode(t *testing.T) {
 	t.Parallel()
 	if got := formatStatusAccountMode(&Env{Color: false}, rpc.AccountModePaper); got != "PAPER" {

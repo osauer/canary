@@ -37,8 +37,10 @@ func connectionSegment(snap live.Snapshot) string {
 		}
 		return styleDanger(msg)
 	}
+	// A multi-account login advertises the comma-joined managedAccounts list.
+	// That is a session inventory, not an account code: show the pin instead.
 	account := snap.Status.ConnectedAccount
-	if account == "" {
+	if account == "" || strings.ContainsAny(account, ", \t") {
 		account = snap.Status.Account
 	}
 	if account == "" {

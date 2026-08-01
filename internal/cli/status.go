@@ -266,7 +266,12 @@ func formatSessionValue(env *Env, res rpc.HealthResult) string {
 }
 
 func statusAccountID(res rpc.HealthResult) string {
-	if account := strings.TrimSpace(res.ConnectedAccount); account != "" {
+	// A login carrying several accounts advertises the comma-joined
+	// managedAccounts list, which is a session inventory rather than an account
+	// code. Printing it would name every sibling and claim the session is
+	// scoped to all of them; the configured pin is the account it is actually
+	// scoped to.
+	if account := strings.TrimSpace(res.ConnectedAccount); account != "" && !strings.ContainsAny(account, ", \t") {
 		return account
 	}
 	return nonEmpty(res.Account, "auto-detect")
