@@ -1,6 +1,6 @@
 # Internal docs index
 
-Updated: 2026-07-31 11:42 CEST
+Updated: 2026-08-01 22:20 CEST
 
 Reader's contract: **Current authority** binds today's behavior — read it before
 changing the surface it names. **Approved, not yet implemented** is operator-
@@ -41,6 +41,7 @@ and this index needs the fix.
 | Doc | State |
 |---|---|
 | [design/authority-contract-cache-bloat.md](design/authority-contract-cache-bloat.md) | Written 2026-07-31; 5.1 GB of unread contract-cache observations, prune plan not approved |
+| [design/account-identity-audit.md](design/account-identity-audit.md) | Written 2026-08-01; 20 findings on account identity and pin-change semantics after issue #14, n-account design position, four open operator questions |
 
 ## Historical records
 
