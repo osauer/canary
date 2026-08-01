@@ -425,6 +425,150 @@ func TestRequestAccountSummaryRejectsPinOutsideManagedAccounts(t *testing.T) {
 	}
 }
 
+// reqAccountSummary is issued with group "All", so a login carrying several
+// accounts answers with every one of them. Treating the sibling's rows as a
+// scope violation latched the conflict and threw away the whole snapshot, so
+// the one-shot failed on every evaluation for exactly the logins the pin exists
+// to serve, and the daemon fell back to the unstamped streaming cache forever.
+func TestRequestAccountSummaryIgnoresSiblingRowsOnMultiAccountLogin(t *testing.T) {
+	cfg := &ConnectionConfig{Host: "127.0.0.1", Port: 7497, ClientID: 41, Account: "DU2222222"}
+	c := NewConnector(&ConnectorConfig{BaseConfig: cfg})
+	conn := c.conn
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.status = StatusConnected
+	setServerVersionReady(conn, minServerVersionRequired)
+	wire := &accountSummaryWriteSignal{wrote: make(chan struct{})}
+	conn.writer = bufio.NewWriter(wire)
+	c.running = true
+	c.ready = true
+	conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", "DU1111111,DU2222222"))
+
+	type result struct {
+		summary    *RawAccountSummary
+		provenance AccountSummaryProvenance
+		err        error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		summary, provenance, err := c.RequestAccountSummaryWithProvenance(context.Background(), time.Second)
+		resultCh <- result{summary: summary, provenance: provenance, err: err}
+	}()
+
+	select {
+	case <-wire.wrote:
+	case got := <-resultCh:
+		t.Fatalf("summary returned before request write: %+v", got)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for account-summary request")
+	}
+
+	// The sibling answers the same group request; its rows must not poison the
+	// pinned account's snapshot, and must not enter it either.
+	conn.handleAccountSummary([]string{"63", "2", "1", "DU1111111", "NetLiquidation", "7654321", "USD"})
+	conn.handleAccountSummary([]string{"63", "2", "1", "DU1111111", "AccountType", "JOINT", ""})
+	conn.handleAccountSummary([]string{"63", "2", "1", cfg.Account, "NetLiquidation", "100000", "USD"})
+	conn.handleAccountSummary([]string{"63", "2", "1", cfg.Account, "TotalCashValue", "25000", "USD"})
+	conn.handleAccountSummary([]string{"63", "2", "1", cfg.Account, "AccountType", "INDIVIDUAL", ""})
+	conn.processMessage(conn.encodeMsg(msgAccountSummaryEnd, "1", 1))
+
+	select {
+	case got := <-resultCh:
+		if got.err != nil {
+			t.Fatalf("multi-account one-shot failed: %v", got.err)
+		}
+		if got.provenance != AccountSummaryProvenanceRequest {
+			t.Fatalf("provenance=%q, want %q", got.provenance, AccountSummaryProvenanceRequest)
+		}
+		if got.summary == nil {
+			t.Fatal("multi-account one-shot summary is nil")
+		}
+		if got.summary.AccountID != cfg.Account {
+			t.Fatalf("summary account=%q, want pinned account %q", got.summary.AccountID, cfg.Account)
+		}
+		if got.summary.NetLiquidation == nil || *got.summary.NetLiquidation != 100000 {
+			t.Fatalf("NetLiquidation=%v, want the pinned account's 100000", got.summary.NetLiquidation)
+		}
+		if got.summary.AccountType != "INDIVIDUAL" {
+			t.Fatalf("AccountType=%q, want the pinned account's INDIVIDUAL", got.summary.AccountType)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for multi-account summary")
+	}
+}
+
+func TestRequestAccountSummaryRejectsRowFromAccountOutsideLogin(t *testing.T) {
+	cfg := &ConnectionConfig{Host: "127.0.0.1", Port: 7497, ClientID: 41, Account: "DU2222222"}
+	c := NewConnector(&ConnectorConfig{BaseConfig: cfg})
+	conn := c.conn
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.status = StatusConnected
+	setServerVersionReady(conn, minServerVersionRequired)
+	wire := &accountSummaryWriteSignal{wrote: make(chan struct{})}
+	conn.writer = bufio.NewWriter(wire)
+	c.running = true
+	c.ready = true
+	conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", "DU1111111,DU2222222"))
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, _, err := c.RequestAccountSummaryWithProvenance(context.Background(), time.Second)
+		errCh <- err
+	}()
+
+	select {
+	case <-wire.wrote:
+	case err := <-errCh:
+		t.Fatalf("summary returned before request write: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for account-summary request")
+	}
+
+	conn.handleAccountSummary([]string{"63", "2", "1", "DU9999999", "NetLiquidation", "7654321", "USD"})
+	conn.handleAccountSummary([]string{"63", "2", "1", cfg.Account, "NetLiquidation", "100000", "USD"})
+	conn.processMessage(conn.encodeMsg(msgAccountSummaryEnd, "1", 1))
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, ErrAccountSummaryScopeConflict) {
+			t.Fatalf("error=%v, want ErrAccountSummaryScopeConflict for an account the login does not manage", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for scope-conflict result")
+	}
+}
+
+func TestAccountSummaryRequestRowDisposition(t *testing.T) {
+	const pinned, sibling = "DU2222222", "DU1111111"
+	multi := []string{sibling, pinned}
+	single := []string{pinned}
+
+	for _, test := range []struct {
+		name     string
+		account  string
+		tag      string
+		currency string
+		expected string
+		managed  []string
+		want     accountSummaryRowDisposition
+	}{
+		{name: "pinned account row", account: pinned, tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowAccept},
+		{name: "sibling row is expected group traffic", account: sibling, tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowIgnore},
+		{name: "account outside the login", account: "DU9999999", tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowReject},
+		{name: "non-concrete expected account", account: pinned, tag: "NetLiquidation", currency: "USD", expected: "DU1111111,DU2222222", managed: multi, want: accountSummaryRowReject},
+		{name: "aggregate ledger row on a single-account login", account: "All", tag: "CashBalance", currency: "EUR", expected: pinned, managed: single, want: accountSummaryRowAccept},
+		{name: "aggregate ledger row is unattributable on a multi-account login", account: "All", tag: "CashBalance", currency: "EUR", expected: pinned, managed: multi, want: accountSummaryRowIgnore},
+		{name: "aggregate non-ledger row", account: "All", tag: "NetLiquidation", currency: "USD", expected: pinned, managed: single, want: accountSummaryRowIgnore},
+		{name: "blank account row", account: "", tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowReject},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := accountSummaryRequestRowDisposition(test.account, test.tag, test.currency, test.expected, test.managed)
+			if got != test.want {
+				t.Fatalf("disposition = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRequestAccountSummaryDoesNotUseSiblingCacheFallback(t *testing.T) {
 	cfg := &ConnectionConfig{
 		Host:     "127.0.0.1",

@@ -2762,7 +2762,7 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 	}
 	if reqIDErr == nil {
 		if snap := c.summarySnapshots[reqID]; snap != nil {
-			disposition := accountSummaryRequestRowDisposition(account, tag, currency, snap.expectedAccount)
+			disposition := accountSummaryRequestRowDisposition(account, tag, currency, snap.expectedAccount, c.managedAccounts)
 			if snap.scopeConflict || disposition == accountSummaryRowReject {
 				snap.scopeConflict = true
 				c.accountMu.Unlock()
@@ -2808,10 +2808,12 @@ const (
 )
 
 // accountSummaryRequestRowDisposition admits ordinary rows only from the
-// expected concrete account. For Account=All, it accepts only typed ledger
-// fields and ignores every unmodeled aggregate field. Unregistered traffic
-// never calls this helper and cannot seed the streaming cache through it.
-func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount string) accountSummaryRowDisposition {
+// expected concrete account. managed is the login's managedAccounts list, which
+// decides what the other rows mean. For Account=All, it accepts only typed
+// ledger fields and ignores every unmodeled aggregate field. Unregistered
+// traffic never calls this helper and cannot seed the streaming cache through
+// it.
+func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount string, managed []string) accountSummaryRowDisposition {
 	expectedAccount = strings.TrimSpace(expectedAccount)
 	if !accountCodeConcrete(expectedAccount) {
 		return accountSummaryRowReject
@@ -2821,15 +2823,34 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 		if strings.EqualFold(account, expectedAccount) {
 			return accountSummaryRowAccept
 		}
+		// reqAccountSummary is issued with group "All", so a login carrying
+		// several accounts answers with every one of them. A recognized
+		// managedAccounts sibling is that expected traffic, not evidence the
+		// read was misrouted: drop the row and let the pinned account's own
+		// rows complete the snapshot. An account the login does not manage
+		// still rejects the whole set.
+		if accountSummaryLoginMember(account, managed) {
+			return accountSummaryRowIgnore
+		}
 		return accountSummaryRowReject
 	}
 	if !strings.EqualFold(account, "All") {
 		return accountSummaryRowReject
 	}
-	if currencyLedgerField(tag) && concreteAccountSummaryLedgerCurrency(currency) {
+	// An aggregate-labeled ledger row carries no account of its own. On a
+	// single-account login that is unambiguous; on a multi-account login it
+	// cannot be attributed to the pinned account, and admitting it would report
+	// a sibling's currency exposure as the pinned account's.
+	if currencyLedgerField(tag) && concreteAccountSummaryLedgerCurrency(currency) && len(managed) <= 1 {
 		return accountSummaryRowAccept
 	}
 	return accountSummaryRowIgnore
+}
+
+func accountSummaryLoginMember(account string, managed []string) bool {
+	return slices.ContainsFunc(managed, func(m string) bool {
+		return strings.EqualFold(strings.TrimSpace(m), account)
+	})
 }
 
 func concreteAccountSummaryLedgerCurrency(currency string) bool {
