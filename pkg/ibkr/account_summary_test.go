@@ -167,6 +167,55 @@ func TestCachedAccountSummaryEmptyOrNonCoreCacheReturnsNil(t *testing.T) {
 	}
 }
 
+// One TWS login can carry several unlinked accounts, and its managedAccounts
+// frame is then a comma-joined aggregate rather than an account code. Stamping
+// that aggregate on the snapshot made every account-scoped daemon consumer fail
+// closed (issue #14), and stamping the configured pin instead would publish the
+// shared cache's unattributed rows — possibly a sibling's — under the pinned
+// account. Both are refusals; only a login whose own identity is one concrete
+// account can label this cache.
+func TestCachedAccountSummaryLabelsOnlyAnAttributableCache(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		pin     string
+		managed string
+		want    string
+	}{
+		{name: "unpinned single account login", managed: "DU2222222", want: "DU2222222"},
+		{name: "pinned single account login", pin: "DU2222222", managed: "DU2222222", want: "DU2222222"},
+		{name: "pin within multi-account login", pin: "DU2222222", managed: "DU1111111,DU2222222"},
+		{name: "unpinned multi-account login", managed: "DU1111111,DU2222222"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &ConnectionConfig{Host: "127.0.0.1", Port: 7497, ClientID: 41, Account: test.pin}
+			c := NewConnector(&ConnectorConfig{BaseConfig: cfg})
+			conn := c.conn
+			t.Cleanup(conn.rateLimiter.Stop)
+			c.running = true
+			c.ready = true
+			conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", test.managed))
+			conn.accountMu.Lock()
+			conn.accountSummary["NetLiquidation_USD"] = "125000.00"
+			conn.accountSummary["TotalCashValue_USD"] = "25000.00"
+			conn.accountMu.Unlock()
+
+			got := c.CachedAccountSummary()
+			if test.want == "" {
+				if got != nil {
+					t.Fatalf("cached summary = %+v, want nil for an unattributable cache", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("cached summary is nil for a single-account session")
+			}
+			if got.AccountID != test.want {
+				t.Fatalf("cached summary account = %q, want %q", got.AccountID, test.want)
+			}
+		})
+	}
+}
+
 func TestAccountSummaryRequestProvenanceDistinguishesStreamingFallback(t *testing.T) {
 	requestRows := map[string]string{"NetLiquidation": "100000", "TotalCashValue": "25000"}
 	fallbackRows := map[string]string{"NetLiquidation": "90000", "TotalCashValue": "15000"}

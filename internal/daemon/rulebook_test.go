@@ -580,6 +580,41 @@ func TestRulebookAccountSourceHealthRequiresFreshCompleteOneShot(t *testing.T) {
 	}
 }
 
+// Issue #14: a multi-account login's snapshot was stamped with the comma-joined
+// managedAccounts aggregate. That is not a concrete account, so account health
+// failed closed on every evaluation — all account-dependent rules came back
+// unknown behind a note about another broker account, while the account surface
+// still answered. The aggregate must keep failing closed, and a snapshot
+// carrying the pinned account it actually describes must not.
+func TestRulebookAccountSourceHealthAcceptsPinnedMultiAccountLabel(t *testing.T) {
+	completedAt := time.Date(2026, 7, 21, 15, 0, 2, 0, time.UTC)
+	scope := brokerStateScope{Account: "DU2222222", Mode: rpc.AccountModePaper}
+	authority := accountSummaryAuthority{
+		Provenance: ibkrlib.AccountSummaryProvenanceRequest, AsOf: completedAt.Add(-time.Second),
+		NetLiquidationAvailable: true, TotalCashAvailable: true, BaseCurrencyAvailable: true,
+	}
+	account := func(id string) *rpc.AccountResult {
+		return &rpc.AccountResult{AccountID: id, BaseCurrency: "EUR", NetLiquidation: 100000, TotalCash: 0, DailyPnL: new(0.0)}
+	}
+
+	state, health := rulebookAccountSourceHealth(scope, account("DU1111111,DU2222222"), authority, true, completedAt)
+	if state.Healthy || state.Reason != "account_unavailable" || health.Status != "unavailable" {
+		t.Fatalf("managed-account aggregate state=%+v health=%+v, want fail-closed account authority", state, health)
+	}
+
+	state, health = rulebookAccountSourceHealth(scope, account(scope.Account), authority, true, completedAt)
+	if !state.Healthy || state.Reason != "" || health.Status != rpc.SourceStatusOK {
+		t.Fatalf("pinned account state=%+v health=%+v, want a healthy account source", state, health)
+	}
+
+	cached := authority
+	cached.Provenance = ibkrlib.AccountSummaryProvenanceCachedFallback
+	state, health = rulebookAccountSourceHealth(scope, account(scope.Account), cached, true, completedAt)
+	if state.Healthy || state.Reason != "account_cached_fallback" || health.Status != rpc.SourceStatusDegraded {
+		t.Fatalf("cached fallback state=%+v health=%+v, want the provenance note rather than a foreign-account refusal", state, health)
+	}
+}
+
 func TestRulebookAccountSourceHealthMissingDailyPnLPostCloseIsNotDue(t *testing.T) {
 	completedAt := time.Date(2026, 7, 21, 21, 0, 2, 0, time.UTC) // Tuesday 17:00 ET.
 	scope := brokerStateScope{Account: "DU123", Mode: rpc.AccountModePaper}

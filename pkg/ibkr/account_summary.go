@@ -259,17 +259,28 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	// end marker without rows falls back to the streaming cache so callers can
 	// still consume a previously observed snapshot.
 	var fallback map[string]string
-	if len(raw) == 0 {
-		// The shared streaming cache is unstamped, so admit it only when the
-		// connection says that cache is bound to this exact account. A
-		// multi-account session may have cached a sibling before the pinned
-		// account's one-shot request completed; relabeling those values with the
-		// pin would cross the account-authority boundary.
-		if strings.EqualFold(strings.TrimSpace(conn.GetAccountCode()), expectedAccount) {
-			fallback = conn.GetAccountSummary()
-		}
+	if len(raw) == 0 && accountSummaryCacheAdmissible(conn, expectedAccount) {
+		fallback = conn.GetAccountSummary()
 	}
 	return accountSummaryFromRequestRows(raw, fallback, expectedAccount)
+}
+
+// accountSummaryCacheAdmissible reports whether the connection's streaming
+// account cache may be read as expectedAccount's values.
+//
+// That cache is unstamped: one login's accounts share the map, no row keeps its
+// account attribution, and nothing clears it when the account-updates
+// subscription rebinds. So a read can never prove after the fact which account
+// its rows describe — only the session's own identity can. A login carrying one
+// account observes that concrete code and the cache can hold nothing else; a
+// multi-account login observes the managedAccounts aggregate and never
+// qualifies, because relabeling those rows with the configured pin would
+// publish a sibling's values under the pinned account (issue #14).
+func accountSummaryCacheAdmissible(conn *Connection, expectedAccount string) bool {
+	if conn == nil || !accountCodeConcrete(expectedAccount) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(conn.GetAccountCode()), expectedAccount)
 }
 
 // accountSummaryExpectedAccount resolves the single account a one-shot
@@ -439,15 +450,24 @@ func (c *Connector) AccountSummaryRaw() map[string]string {
 }
 
 // CachedAccountSummary returns a caller-owned typed snapshot of the connector's
-// streaming account-summary cache. It does not issue gateway traffic and
-// returns nil until at least one core account value has been observed. The
-// method is safe to call concurrently with streaming cache updates.
+// streaming account-summary cache, labeled with the account it belongs to. It
+// does not issue gateway traffic and returns nil until at least one core
+// account value has been observed, or whenever the cache is not admissible for
+// the session's expected account. The method is safe to call concurrently with
+// streaming cache updates.
 func (c *Connector) CachedAccountSummary() *RawAccountSummary {
-	raw := c.AccountSummaryRaw()
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+	account := accountSummaryExpectedAccount(conn)
+	if !accountSummaryCacheAdmissible(conn, account) {
+		return nil
+	}
+	raw := conn.GetAccountSummary()
 	if len(raw) == 0 {
 		return nil
 	}
-	summary := parseAccountSummary(raw, c.AccountID())
+	summary := parseAccountSummary(raw, account)
 	if summary.NetLiquidation == nil && summary.BuyingPower == nil &&
 		summary.AvailableFunds == nil && summary.TotalCashValue == nil {
 		return nil
