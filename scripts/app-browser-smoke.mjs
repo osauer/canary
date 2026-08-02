@@ -929,12 +929,12 @@ async function assertVisibleRenameContract(page) {
 }
 
 async function exerciseMarketLayout(page) {
-  // Panel Dark session chip: "RTH · closes 3:59" while open, and the served
-  // closure word beside the countdown when shut ("Weekend · opens 2d 14:30")
-  // — a minutes-precision countdown in both directions.
+  // Panel Dark session chip: "RTH · closes 3:59:04" while open, and the
+  // served closure word beside the countdown when shut ("Weekend · opens in
+  // 2d 14:30:07") — a seconds-precision countdown in both directions.
   await page.waitForFunction(() => {
     const text = document.getElementById("sessionPhase")?.textContent?.trim() || "";
-    return /\b(closes|opens) \d+d? ?\d*:\d{2}\b/i.test(text);
+    return /\b(closes|opens in) \d+d? ?\d*:\d{2}:\d{2}\b/i.test(text);
   }, { timeout: 10000 });
   const layout = await page.evaluate(() => {
     const regimeHalf = document.getElementById("regimeSummaryCard");
@@ -997,11 +997,11 @@ async function exerciseMarketLayout(page) {
   if (layout.marketOpen && !/\bcloses \d/i.test(layout.phase)) {
     throw new Error(`open market chip should count down to the close: ${JSON.stringify(layout.phase)}`);
   }
-  if (!layout.marketOpen && !/\bopens \d/i.test(layout.phase)) {
+  if (!layout.marketOpen && !/\bopens in \d/i.test(layout.phase)) {
     throw new Error(`closed market chip should count down to the open: ${JSON.stringify(layout.phase)}`);
   }
-  if (/:\d{2}:\d{2}\b/.test(layout.phase)) {
-    throw new Error(`session countdown should stop at minutes, not tick seconds: ${JSON.stringify(layout.phase)}`);
+  if (!/:\d{2}:\d{2}\b/.test(layout.phase)) {
+    throw new Error(`session countdown should tick seconds: ${JSON.stringify(layout.phase)}`);
   }
   if (layout.accountHasUnderlyingBook) {
     throw new Error("Account panel still contains the underlyings subledger");

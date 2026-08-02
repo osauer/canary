@@ -192,7 +192,7 @@ function marketSessionLabel(calendar) {
       text: state.connectionOK ? "Waiting for official market calendar" : "App connection offline",
       tone: state.connectionOK ? "market-warn" : "market-closed",
       phase: state.connectionOK ? "syncing" : "offline",
-      countdownVerb: "opens",
+      countdownVerb: "opens in",
       countdown: "--",
       side: state.connectionOK ? "Calendar pending" : "Offline",
       dotTitle: state.connectionOK ? "Market calendar is loading" : "App stream is reconnecting",
@@ -223,8 +223,8 @@ function marketSessionLabel(calendar) {
     return {
       text: session.state === "early_close" ? session.reason || "Shortened session ahead" : "Regular cash session",
       tone: "market-warn",
-      phase: marketStatusPhrase("", "opens", untilOpen),
-      countdownVerb: "opens",
+      phase: marketStatusPhrase("", "opens in", untilOpen),
+      countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
       dotTitle: "Selected market is pre-open",
@@ -236,8 +236,8 @@ function marketSessionLabel(calendar) {
     return {
       text: session.reason || "Next regular cash session",
       tone: "market-closed",
-      phase: marketStatusPhrase("", "opens", untilOpen),
-      countdownVerb: "opens",
+      phase: marketStatusPhrase("", "opens in", untilOpen),
+      countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
       dotTitle: stateText === "early_close" ? "Selected market has closed after an early-close session" : "Selected market is closed",
@@ -249,8 +249,8 @@ function marketSessionLabel(calendar) {
     return {
       text: session.reason || "Official market holiday",
       tone: "market-closed",
-      phase: marketStatusPhrase(closureWord(session, "Holiday"), "opens", untilOpen),
-      countdownVerb: "opens",
+      phase: marketStatusPhrase(closureWord(session, "Holiday"), "opens in", untilOpen),
+      countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
       dotTitle: "Selected market is closed for a holiday",
@@ -262,8 +262,8 @@ function marketSessionLabel(calendar) {
     return {
       text: session.reason === "weekend" ? "Weekend closure" : `Outside regular cash session${reason}`,
       tone: "market-closed",
-      phase: marketStatusPhrase(closureWord(session, "Closed"), "opens", untilOpen),
-      countdownVerb: "opens",
+      phase: marketStatusPhrase(closureWord(session, "Closed"), "opens in", untilOpen),
+      countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
       dotTitle: session.reason === "weekend" ? "Selected market is closed for the weekend" : "Selected market is closed",
@@ -275,8 +275,8 @@ function marketSessionLabel(calendar) {
     return {
       text: `Calendar coverage unavailable${reason}`,
       tone: "market-warn",
-      phase: marketStatusPhrase("unknown", "opens", untilOpen),
-      countdownVerb: "opens",
+      phase: marketStatusPhrase("unknown", "opens in", untilOpen),
+      countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
       dotTitle: "Selected market calendar status is unknown",
@@ -287,7 +287,7 @@ function marketSessionLabel(calendar) {
   return {
     text: session.reason || `Official calendar${reason}`,
     tone: "market-warn",
-    phase: marketStatusPhrase(cleanDetail(session.state), "opens", untilOpen),
+    phase: marketStatusPhrase(cleanDetail(session.state), "opens in", untilOpen),
     countdownVerb: "opens",
     countdown: untilOpen || "--",
     side: marketSessionNow(session),
@@ -308,11 +308,11 @@ function closureWord(session, fallback) {
 }
 
 
-// Session chip register: "RTH · closes 3:59" while the market trades,
-// "Weekend · opens 17:12" or "opens 17:12" otherwise. The chip carries the
-// market code itself (the #marketSelect control), so the phrase never repeats
-// it, and a missing countdown degrades to the phase word rather than printing
-// "opens --".
+// Session chip register: "RTH · closes 3:59:04" while the market trades,
+// "Weekend · opens in 1d 0:16:32" or "opens in 17:12:05" otherwise. The chip
+// carries the market code itself (the #marketSelect control), so the phrase
+// never repeats it, and a missing countdown degrades to the phase word rather
+// than printing "opens in --".
 function marketStatusPhrase(phase, verb, countdown) {
   const timing = countdown ? `${verb} ${countdown}` : "";
   return [phase, timing].filter(Boolean).join(" · ") || "closed";
@@ -336,17 +336,19 @@ function marketSessionNow(session) {
     .trim();
 }
 
-// Minutes precision: a ticking seconds digit is motion without information
-// on a session countdown, and the readout must not flicker.
+// Seconds precision: the ticking seconds digit is the proof the readout is
+// alive. The live refresh loop re-renders the topbar every second, so the
+// countdown advances visibly between snapshot updates.
 function countdownLabel(target) {
   if (!target) return "";
   const ms = target.getTime() - Date.now();
   if (ms <= 0) return "";
-  const totalMinutes = Math.ceil(ms / 60000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  const clock = `${hours}:${String(minutes).padStart(2, "0")}`;
+  const totalSeconds = Math.ceil(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const clock = `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   return days > 0 ? `${days}d ${clock}` : clock;
 }
 
