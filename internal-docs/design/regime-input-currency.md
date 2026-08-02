@@ -323,6 +323,13 @@ Regression tests, one per symptom plus the invariants:
    five classes); an unknown/empty class fails closed; a `not_due` value past its
    served max age reads `overdue`; the streak freeze holds.
 
+A decision line written before this cutover carries no `currency_policy` marker
+and legitimately differs from a recompute under the current policy. Boot-time
+reconciliation demands byte equality only within one policy version;
+`TestUpgradeBootReachesReadyOnPriorVersionStores` boots the daemon over such a
+line and requires it to reach ready. Bumping `RegimeCurrencyPolicyVersion` adds
+a fixture there — see `internal-docs/design/daemon-sqlite-authority.md`.
+
 Gates: `make test` (binding for Go behaviour, includes `check`), then `make check`
 before commit; `docs-check` / `docs-html-check` for the `docs/` edits.
 `make smoke` applies because the RPC contract gained fields

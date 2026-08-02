@@ -277,6 +277,23 @@ to old journals.
   restatements, and deterministic legacy downgrade blockers.
   Disk-full/read-only/I/O fault injection and an actual prior-binary isolation
   run remain release-hardening work, not claims made by this cutover.
+- Upgrade boot: `TestUpgradeBootReachesReadyOnPriorVersionStores`
+  (`internal/daemon/upgrade_boot_test.go`) runs the real `Start` twice against
+  one state root — once to let the daemon publish it, then again over retained
+  content a prior policy wrote — and requires the socket, which is published
+  only after schema validation and all three regime reconciliation guards have
+  accepted the store. A new cutover adds a fixture whose seeder renders the
+  retained content as the prior policy wrote it; each fixture asserts that
+  content still diverges from a current recompute, so a fixture cannot go
+  vacuous and stay green. It runs inside `make test`.
+
+  This covers the retained-content axis. The schema axis is covered separately
+  by the authentic tag-generated corpus (`testdata/upgrades`), which drives the
+  same `ensureCoreStoreSchemaCurrent` the boot path calls but is a corestore
+  artifact rather than a daemon state root, so it cannot be booted without
+  first being upgraded. No single test therefore spans migration and
+  reconciliation in one boot; closing that needs a generator emitting a
+  complete state root at a historical tag.
 - Repository gates: `make test` and full `make smoke`.
 - Installed runtime: `make restart-daemon`, redacted `canary status --json`,
   history reads, order open/history/status reads, and integrity/backup health.
