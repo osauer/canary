@@ -117,7 +117,14 @@ func TestAccountMismatchesConnectedAllowsAggregateManagedAccount(t *testing.T) {
 		{name: "blank connected account unknown", configured: "DU1234567", connected: "", want: false},
 		{name: "different concrete account", configured: "DU1234567", connected: "DU7654321", want: true},
 		{name: "configured account is absent from managed account list", configured: "DU1234567", connected: "DU7654321,DU9999999", want: true},
-		{name: "malformed managed account list fails closed", configured: "DU1234567", connected: "DU1234567,", want: true},
+		// IBKR terminates managedAccounts with a trailing comma; issue #14's
+		// reporter pasted "U…,U…,". Reading that empty final entry as malformed
+		// refused every broker write on the multi-account logins this check scopes.
+		{name: "broker trailing comma is list syntax, not a malformed member", configured: "DU1234567", connected: "DU1234567,", want: false},
+		{name: "trailing comma on a multi-account list still matches a member", configured: "DU1234567", connected: "DU7654321,DU1234567,", want: false},
+		{name: "trailing comma does not rescue an absent account", configured: "DU1234567", connected: "DU7654321,DU9999999,", want: true},
+		{name: "empty entries only still fails closed", configured: "DU1234567", connected: ",,", want: true},
+		{name: "aggregate member beside a trailing comma still fails closed", configured: "DU1234567", connected: "DU1234567,All,", want: true},
 		{name: "aggregate member in managed account list fails closed", configured: "DU1234567", connected: "DU1234567,All", want: true},
 		{name: "configured aggregate fails closed", configured: "DU1234567,DU7654321", connected: "DU1234567,DU7654321", want: true},
 	}

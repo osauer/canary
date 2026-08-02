@@ -338,6 +338,14 @@ func accountMismatchesConnected(configured, connected string) bool {
 	matched := false
 	for account := range strings.SplitSeq(connected, ",") {
 		account = strings.TrimSpace(account)
+		// IBKR terminates the managedAccounts list with a trailing comma, so its
+		// final entry is empty. That is the wire format's own syntax rather than
+		// an ambiguous member — parseManagedAccounts already drops it — and
+		// reading it as malformed refused every broker write on exactly the
+		// multi-account logins this check exists to scope.
+		if account == "" {
+			continue
+		}
 		// managedAccounts is broker authority only while every member is one
 		// concrete account. A matching member cannot rehabilitate a malformed
 		// aggregate because that would turn ambiguous session state into write
