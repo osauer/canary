@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.6.2 — 2026-08-02 15:53 CEST
+## v2.6.2 — 2026-08-02 17:29 CEST
 
 ### What's new
 
@@ -14,13 +14,15 @@ All notable changes to this project are documented here. The project adheres to 
 ### Changed
 
 - **The app's header shows motion.** The market-session line reads "opens in 1d 0:16:32" and counts seconds live instead of sitting on a still minutes figure; the canary mark, the header row and the eye toggle that masks account values are larger.
-- **The exposure-composition bar stopped dressing as an alert.** A composition split is a preference read, not an annunciator; it now renders on the panel's neutral plate ramp instead of green-and-blue lamps.
+- **The exposure-composition bar stopped dressing as an alert.** A composition split is a preference read, not an annunciator; it now renders on the panel's neutral plate ramp instead of green-and-blue lamps, and its neighbouring shares sit far enough apart on that ramp to separate at a glance rather than reading as one block.
 
 ### Fixed
 
 - **The theta-budget rule no longer adds a foreign option leg's extrinsic value to the base-currency budget unconverted.** A leg with no exchange rate is disclosed as uncomputable instead of entering the total wrong by the exchange rate.
 - **On a multi-currency account, unrealised and realised P&L no longer swap places with one currency's ledger slice depending on wire arrival order.** Account totals now always come from the account's own rows and the per-currency breakdown from the ledger rows, whichever arrives first.
 - **A bond sharing a stock's ticker no longer appears as that stock holding in `canary watch` and the AI-client watchlist.** Only equity rows join the watchlist now; with both actually held, the equity wins every call instead of flipping between reads. The daemon's own displays were fixed in v2.6.1; this closes the two adapters that kept their own copy of the join.
+- **The alerts panel no longer keeps saying "Alert refresh unavailable; retained state shown" after the feed is back.** Only a successful recovery fetch retired that line, so a delivered live event left it standing over a working feed, sometimes for hours on a closed session. A delivered event now retires it; a malformed one does not.
+- **Upgrading across this release no longer refuses to start on retained regime history.** The boot-time integrity check demanded that decision lines written before this release render byte-identically under the new currency model, so the daemon crash-looped on any store carrying that history. A line proven by its key, publication time and fingerprint now stands as history under its own policy version; divergence within one policy version still refuses to boot.
 - **The capital drawdown ladder no longer measures the connected account's equity against a peak adopted from a different account.** Repinning to a smaller sibling fabricated a block tier and repinning to a larger one collapsed a real drawdown to ok. A mismatched session now reads tier `unknown`, the report names the `bound_account` the ladder follows, and an engaged block stays visible across the repin. Re-keying capital state per account is deliberate follow-on work in the guardrail-scoping release.
 
 ### Known and deliberate
