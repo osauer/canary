@@ -112,7 +112,12 @@ func TestParseNasdaqEarningsTypedOutcomes(t *testing.T) {
 
 func requireNasdaqTypedOutcome(t testing.TB, body []byte, wantStatus, wantCode, wantStage string) {
 	t.Helper()
-	entry, err := parseNasdaqEarnings(body, "TESTQ", time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
+	requireNasdaqTypedOutcomeFor(t, body, "TESTQ", wantStatus, wantCode, wantStage)
+}
+
+func requireNasdaqTypedOutcomeFor(t testing.TB, body []byte, providerSymbol, wantStatus, wantCode, wantStage string) {
+	t.Helper()
+	entry, err := parseNasdaqEarnings(body, providerSymbol, time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
 	if err == nil || entry != (earningsEntry{}) {
 		t.Fatal("unresolved Nasdaq payload produced a usable entry")
 	}
@@ -203,6 +208,64 @@ func TestParseNasdaqEarningsObservedEnvelopeResolves(t *testing.T) {
 			if entry.Date != test.date || !entry.ObservedAt.Equal(now) || entry.TimeOfDay != "" || entry.Estimated {
 				t.Fatalf("typed entry = %+v, want date %s", entry, test.date)
 			}
+		})
+	}
+}
+
+// Nasdaq answers a dotted class-share request but echoes some issuers with a
+// slash. It is per-issuer, not a rule about dotted symbols, so both spellings
+// have to resolve while the announcement stays bound to the exact security
+// requested.
+func TestParseNasdaqEarningsAcceptsSlashEchoOnlyWhereRequestHadADot(t *testing.T) {
+	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	lead := nasdaqAnnouncementLead
+	for _, test := range []struct {
+		name         string
+		providerSym  string
+		announcement string
+		date         string
+	}{
+		{"slash echo with date", "BRK.B", lead + "BRK/B: Jul 30, 2026", "2026-07-30"},
+		{"dot echo with date", "BF.B", lead + "BF.B: Jul 30, 2026", "2026-07-30"},
+		{"multiple dots echoed as slashes", "A.B.C", lead + "A/B/C: Jul 30, 2026", "2026-07-30"},
+		{"only the second dot echoed", "A.B.C", lead + "A.B/C: Jul 30, 2026", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := nasdaqTestPayload(t, map[string]any{"announcement": test.announcement}, http.StatusOK)
+			entry, err := parseNasdaqEarnings(body, test.providerSym, now)
+			if test.date == "" {
+				if err == nil {
+					t.Fatalf("mixed separator spelling resolved to %+v", entry)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if entry.Date != test.date {
+				t.Fatalf("date = %q, want %q", entry.Date, test.date)
+			}
+		})
+	}
+
+	t.Run("slash echo with no date", func(t *testing.T) {
+		body := nasdaqTestPayload(t, map[string]any{"announcement": lead + "BRK/B: "}, http.StatusOK)
+		requireNasdaqTypedOutcomeFor(t, body, "BRK.B", rpc.EarningsStatusNoDatePublished, "", "")
+	})
+
+	// The prefix is what binds a payload to the security requested. Widening it
+	// must not let a different one through.
+	for _, test := range []struct{ name, providerSym, announcement string }{
+		{"different class", "BRK.B", lead + "BRK/A: Jul 30, 2026"},
+		{"separator dropped", "BRK.B", lead + "BRKB: Jul 30, 2026"},
+		{"separator added where none was requested", "BRKB", lead + "BRK/B: Jul 30, 2026"},
+		{"slash echoed for an undotted request", "AAPL", lead + "AAP/L: Jul 30, 2026"},
+		{"unrelated symbol", "BRK.B", lead + "OTHERQ: Jul 30, 2026"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := nasdaqTestPayload(t, map[string]any{"announcement": test.announcement}, http.StatusOK)
+			requireNasdaqTypedOutcomeFor(t, body, test.providerSym,
+				rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema)
 		})
 	}
 }

@@ -975,7 +975,6 @@ func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (ear
 	if !validNasdaqProviderSymbol(providerSymbol) {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq announcement format changed"))
 	}
-	prefix := nasdaqAnnouncementPrefix(providerSymbol)
 	if _, hasDataStatus := data["status"]; hasDataStatus {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq payload has conflicting status authority"))
 	}
@@ -983,6 +982,10 @@ func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (ear
 	rCode, ok := nasdaqStatusCode(topStatusRaw)
 	if !hasTopStatus || !ok || rCode != http.StatusOK {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq payload status is inconsistent with data"))
+	}
+	prefix, matched := matchNasdaqAnnouncementPrefix(announcement, providerSymbol)
+	if !matched {
+		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq announcement format changed"))
 	}
 	if announcement == prefix+" " {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusNoDatePublished, "", "", false, errors.New("nasdaq published no earnings date"))
@@ -999,6 +1002,29 @@ func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (ear
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq announcement date has elapsed"))
 	}
 	return earningsEntry{Date: t.Format(time.DateOnly), ObservedAt: now}, nil
+}
+
+// matchNasdaqAnnouncementPrefix returns the symbol-bound prefix the
+// announcement actually carries. Nasdaq answers a dotted class-share request
+// but echoes some issuers with a slash: `BRK.B` comes back as `BRK/B` while
+// `BF.B` and `LEN.B` keep the dot, so it is per-issuer and cannot be decided
+// from the symbol's shape. The slash is accepted only where the requested
+// symbol had a dot, position for position, which leaves the announcement
+// bound to the security that was asked for: every other byte must still match,
+// so a different class, a missing separator, or an unrelated symbol is a
+// refusal exactly as before.
+func matchNasdaqAnnouncementPrefix(announcement, providerSymbol string) (string, bool) {
+	spellings := []string{providerSymbol}
+	if slashed := strings.ReplaceAll(providerSymbol, ".", "/"); slashed != providerSymbol {
+		spellings = append(spellings, slashed)
+	}
+	for _, spelling := range spellings {
+		prefix := nasdaqAnnouncementPrefix(spelling)
+		if strings.HasPrefix(announcement, prefix+" ") {
+			return prefix, true
+		}
+	}
+	return "", false
 }
 
 // parseNasdaqAnnouncementDate reads the two spellings the endpoint publishes:

@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.6.2 — 2026-08-02 15:06 CEST
+
+### What's new
+
+- **Earnings dates resolve for `BRK.B` and `BRK.A`.** Nasdaq answers a dotted class-share request and then echoes the symbol back with a slash, so the announcement named `BRK/B` where `BRK.B` was asked for and the payload was refused as a format change. It is per-issuer rather than a rule about dotted symbols: `BF.B` and `LEN.B` keep the dot and always resolved. The slash is now accepted only where the request used a dot, position for position, so the announcement still has to name the security that was asked for. (#18)
+
+### Changed
+
+### Fixed
 ## v2.6.1 — 2026-08-02 10:05 CEST
 ### What's new
 
