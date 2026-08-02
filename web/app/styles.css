@@ -4010,8 +4010,12 @@ p {
   border-left: 1px solid var(--pd-hairline);
 }
 
+/* Neighbouring steps must survive a glance: adjacent ramp rungs differ by
+   about 15/255 and read as one block, so the faces skip a rung where the
+   split is widest. The residue sits above the third face rather than below
+   it, because nothing darker stays visible against the track. */
 .exposure-visual__segment:nth-child(1) {
-  background: var(--pd-plate);
+  background: var(--pd-dim);
 }
 
 .exposure-visual__segment:nth-child(2) {
@@ -4019,15 +4023,11 @@ p {
 }
 
 .exposure-visual__segment:nth-child(3) {
-  background: var(--pd-unlit);
-}
-
-.exposure-visual__segment:nth-child(4) {
   background: var(--pd-chip);
 }
 
 .exposure-visual__segment--other {
-  background: var(--pd-chip);
+  background: var(--pd-unlit);
 }
 
 .exposure-visual__legend {
@@ -4053,7 +4053,7 @@ p {
   margin-top: 3px;
   border: 1px solid var(--pd-border);
   border-radius: 50%;
-  background: var(--pd-plate);
+  background: var(--pd-dim);
 }
 
 .exposure-visual__item:nth-child(2) .exposure-visual__swatch {
@@ -4061,15 +4061,11 @@ p {
 }
 
 .exposure-visual__item:nth-child(3) .exposure-visual__swatch {
-  background: var(--pd-unlit);
-}
-
-.exposure-visual__item:nth-child(4) .exposure-visual__swatch {
   background: var(--pd-chip);
 }
 
 .exposure-visual__item--other .exposure-visual__swatch {
-  background: var(--pd-chip);
+  background: var(--pd-unlit);
 }
 
 .exposure-visual__label,
