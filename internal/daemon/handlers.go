@@ -360,13 +360,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		if wantSym != "" && wantSym != strings.ToUpper(sym) {
 			continue
 		}
-		multiplier := max(pos.Contract.Multiplier, 1)
-		// Stocks may carry a multiplier of 100 in the raw wire row; the
-		// wire-shape contract on PositionView reports per-share semantics
-		// for stocks (multiplier 1).
-		if !isOpt && multiplier == 100 {
-			multiplier = 1
-		}
+		multiplier := positionViewMultiplier(pos.Contract.SecType, pos.Contract.Multiplier)
 		view := rpc.PositionView{
 			Symbol:        sym,
 			SecType:       positionSecType(pos.Contract.SecType),
@@ -517,6 +511,15 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 	jobs := make([]job, 0, len(stocks))
 	seen := map[string]bool{}
 	for i := range stocks {
+		// The non-option slice carries every secType that is not OPT — bonds,
+		// bills, funds, futures, cash. They share the slice, not the
+		// semantics: probing one as STK on its bare symbol returns the
+		// same-ticker equity, and a treasury symbolled "T" would be decorated
+		// with, and day-changed against, AT&T. Those rows keep the broker's
+		// own mark and no quote context.
+		if !positionQuotesAsStock(stocks[i]) {
+			continue
+		}
 		sym := normSym(stocks[i].Symbol)
 		if sym == "" || seen[sym] {
 			continue
@@ -662,6 +665,21 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 
 // positionSecType maps IBKR's raw SecType codes ("STK", "OPT", "FUT", "IND")
 // to the canonical wire values carried on PositionView.SecType.
+// positionViewMultiplier normalises a raw wire multiplier to the per-row
+// semantics PositionView reports. Stocks may carry 100 on the wire where the
+// wire-shape contract is per-share, so that one case is coerced to 1. The
+// coercion is scoped to STK on purpose: a future's multiplier of exactly 100 is
+// contractual, and coercing it understates the position's notional by two
+// orders of magnitude. Absent or zero multipliers normalise to a single unit,
+// which is what the CLI and rulebook renderers already assumed.
+func positionViewMultiplier(secType string, raw int) int {
+	multiplier := max(raw, 1)
+	if secType == "STK" && multiplier == 100 {
+		return 1
+	}
+	return multiplier
+}
+
 func positionSecType(raw string) string {
 	switch raw {
 	case "STK":
@@ -1221,6 +1239,13 @@ func (s *Server) fillDailyChange(stocks []rpc.PositionView) {
 	now := time.Now()
 	for i := range stocks {
 		p := &stocks[i]
+		// prevCloses is keyed by bare symbol, so a held equity's close would
+		// reach a bond or future sharing its ticker even once the quote probe
+		// stops fetching one. Same rule as the probe: only equities carry a
+		// day change here.
+		if !positionQuotesAsStock(*p) {
+			continue
+		}
 		anchor := 0.0
 		if p.RegularClose != nil && *p.RegularClose > 0 {
 			anchor = *p.RegularClose
@@ -1673,14 +1698,23 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 		}
 		return g
 	}
+	// A symbol can arrive as more than one equity row — a dual-listed share
+	// held in two currencies is the reachable case. PositionGroup.Stock holds
+	// one of them for display, so the group's own rows are tracked here and
+	// handed to finalizePositionGroup whole: deriving the base-currency totals
+	// from Stock alone counted one row while the raw totals below counted every
+	// one, and the undercounted side is what feeds the concentration rule.
+	stockRows := map[string][]rpc.PositionView{}
 	for i := range stocks {
 		s := stocks[i]
 		if !positionCanAnchorUnderlyingGroup(s) {
 			continue
 		}
-		g := getOrInit(strings.ToUpper(s.Symbol))
+		under := strings.ToUpper(s.Symbol)
+		g := getOrInit(under)
 		stk := s
 		g.Stock = &stk
+		stockRows[under] = append(stockRows[under], s)
 		g.GroupMarketValue += s.MarketValue
 		g.GroupUnrealizedPnL += s.UnrealizedPnL
 	}
@@ -1692,8 +1726,8 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 		g.GroupUnrealizedPnL += o.UnrealizedPnL
 	}
 	out := make([]rpc.PositionGroup, 0, len(groups))
-	for _, g := range groups {
-		finalizePositionGroup(g, baseCcy, netLiquidationBase)
+	for under, g := range groups {
+		finalizePositionGroup(g, stockRows[under], baseCcy, netLiquidationBase)
 		out = append(out, *g)
 	}
 	slices.SortStableFunc(out, func(a, b rpc.PositionGroup) int { return cmp.Compare(a.Underlying, b.Underlying) })
@@ -1704,6 +1738,15 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 // current PositionView output. Unknown and explicit non-equity types always
 // remain flat-only; absence of a type is not stock authority.
 func positionCanAnchorUnderlyingGroup(row rpc.PositionView) bool {
+	return positionQuotesAsStock(row)
+}
+
+// positionQuotesAsStock reports whether a non-option row is an equity — the
+// only secType in that slice for which a SMART/USD stock quote on the bare
+// symbol describes the holding. Everything else there (BOND, BILL, FUND, FUT,
+// CASH) shares the slice because it is not an option, not because it is a
+// stock.
+func positionQuotesAsStock(row rpc.PositionView) bool {
 	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
 	case rpc.SecTypeStock, "STK", "ETF":
 		return true
@@ -1736,7 +1779,11 @@ func (s convertedSum) ptr() *float64 {
 	return &v
 }
 
-func finalizePositionGroup(g *rpc.PositionGroup, baseCcy string, netLiquidationBase *float64) {
+// finalizePositionGroup derives the group's base-currency totals and delta.
+// stockRows is every equity row the group represents, not g.Stock: that field
+// holds one row for display, and a symbol can arrive as several. The wire shape
+// still shows one of them, which is a display gap tracked separately.
+func finalizePositionGroup(g *rpc.PositionGroup, stockRows []rpc.PositionView, baseCcy string, netLiquidationBase *float64) {
 	if g == nil {
 		return
 	}
@@ -1777,8 +1824,8 @@ func finalizePositionGroup(g *rpc.PositionGroup, baseCcy string, netLiquidationB
 		}
 	}
 
-	if g.Stock != nil {
-		visit(*g.Stock, false)
+	for _, row := range stockRows {
+		visit(row, false)
 	}
 	for _, opt := range g.Options {
 		visit(opt, true)
