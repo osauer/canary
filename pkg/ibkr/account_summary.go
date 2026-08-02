@@ -127,6 +127,54 @@ type CurrencyLedger struct {
 	ExchangeRate             float64
 }
 
+// accountSummaryLedgerKeyPrefix namespaces $LEDGER rows admitted into a
+// one-shot summary snapshot apart from account-level rows. $LEDGER:ALL reuses
+// account-level tag names (UnrealizedPnL, RealizedPnL) for every held
+// currency, and the account-level tags themselves arrive suffixed with the
+// account's base currency — so in one flat `tag_currency` namespace the
+// account total and the base-currency ledger slice share a key and the last
+// writer wins, in wire-arrival order. With the namespace, lookupAccountValue
+// reads only account-level keys and the ledger extraction reads only ledger
+// keys. This is a storage namespace, not a wire form: since gateway 10.47,
+// wire tags themselves may begin with '$' ("$LEDGER-…"), so the '$' alone
+// guarantees nothing — the ':' separator is what keeps this prefix apart
+// from every wire tag, and admission canonicalizes wire-prefixed tags before
+// storing, so namespaced keys always carry the bare field name.
+const accountSummaryLedgerKeyPrefix = "$LEDGER:"
+
+// gatewayLedgerTagPrefix is the wire dialect Gateway/TWS 10.47 introduces: an
+// API setting, default-enabled for new users, prepends "$LEDGER-" to each
+// per-currency summary tag, so the gateway itself labels a row's ledger
+// origin. A prefixed tag is therefore stronger origin evidence than this
+// client's Account=All inference — both routes land the row in the same
+// internal ledger namespace on the one-shot path.
+const gatewayLedgerTagPrefix = "$LEDGER-"
+
+// splitGatewayLedgerTag strips the 10.47 wire prefix from a tag. It must run
+// BEFORE any currencyLedgerField allowlist check: checked the other way
+// round, every 10.47 ledger row fails the closed allowlist and vanishes
+// silently — the missing-ledger bug arriving by a new route.
+func splitGatewayLedgerTag(tag string) (field string, wirePrefixed bool) {
+	if rest, ok := strings.CutPrefix(tag, gatewayLedgerTagPrefix); ok {
+		return rest, true
+	}
+	return tag, false
+}
+
+// dualUseSummaryTag reports whether field is simultaneously an ordinary
+// account-level summary tag and a $LEDGER per-currency field. These are the
+// keys whose flat-map collision the one-shot namespace removed; in a
+// legacy-shaped map that speaks the 10.47 wire prefix, an unprefixed such
+// key is the account-level row — 10.47 finally disambiguates the two — and
+// must not be read as a ledger slice.
+func dualUseSummaryTag(field string) bool {
+	switch field {
+	case "UnrealizedPnL", "RealizedPnL":
+		return true
+	}
+	return false
+}
+
 // currencyLedgerField reports whether tag is one of the closed set of
 // $LEDGER:ALL fields represented by CurrencyLedger. Keep request-scope
 // admission and parsing on this same allowlist: an aggregate row that cannot
@@ -534,63 +582,187 @@ func (c *Connector) CachedAccountSummary() *RawAccountSummary {
 	return summary
 }
 
-// extractCurrencyLedger walks the raw map for `<field>_<CCY>` entries
-// matching the canonical IBKR $LEDGER fields and aggregates them by
-// currency. The "BASE" pseudo-currency entry IBKR also emits is
-// dropped — it duplicates the top-level totals.
+// extractCurrencyLedger aggregates the raw map's $LEDGER rows by currency.
+// The "BASE" pseudo-currency entry IBKR also emits is dropped — it duplicates
+// the top-level totals.
 //
-// Currencies appearing only in margin-related fields (with no
-// NetLiquidationByCurrency or CashBalance) are also dropped — they
-// represent zero-balance currencies the gateway happened to include.
+// Two key shapes exist. One-shot snapshots namespace every admitted ledger
+// row under accountSummaryLedgerKeyPrefix; in such a map the namespace is the
+// only ledger source, because every legacy-shaped `<field>_<CCY>` key left in
+// it is an account-level row (the base-suffixed UnrealizedPnL total, for one)
+// that must not be misread as a ledger slice. The streaming cache predates
+// the namespace and keeps the legacy flat shape, so a map carrying no
+// namespaced ledger key falls back to the legacy scan.
 func extractCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
-	ledger := map[string]*CurrencyLedger{}
-	assign := func(field, ccy, val string) {
-		if !currencyLedgerField(field) || ccy == "" || ccy == "BASE" {
-			return
-		}
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
-		if err != nil {
-			return
-		}
-		row, ok := ledger[ccy]
-		if !ok {
-			row = &CurrencyLedger{}
-			ledger[ccy] = row
-		}
-		switch field {
-		case "NetLiquidationByCurrency":
-			row.NetLiquidationByCurrency = parsed
-		case "CashBalance":
-			row.CashBalance = parsed
-		case "StockMarketValue":
-			row.StockMarketValue = parsed
-		case "OptionMarketValue":
-			row.OptionMarketValue = parsed
-		case "UnrealizedPnL":
-			row.UnrealizedPnL = parsed
-		case "RealizedPnL":
-			row.RealizedPnL = parsed
-		case "ExchangeRate":
-			row.ExchangeRate = parsed
-		}
+	if out, ok := namespacedCurrencyLedger(raw); ok {
+		return out
 	}
+	return legacyCurrencyLedger(raw)
+}
+
+// namespacedCurrencyLedger reads the internal one-shot ledger namespace. ok
+// reports whether the namespace held at least one recognizable ledger key —
+// distinct from the returned map being non-empty, because the zero-balance
+// filter may drop every recognized row and that must still count as "the
+// namespace answered" rather than falling back to a scan that would
+// misattribute account-level rows. Namespaced keys always carry the bare
+// canonical field name: admission strips the 10.47 wire prefix before
+// storing.
+func namespacedCurrencyLedger(raw map[string]string) (map[string]CurrencyLedger, bool) {
+	ledger := map[string]*CurrencyLedger{}
+	recognized := false
 	for k, v := range raw {
+		if !strings.HasPrefix(k, accountSummaryLedgerKeyPrefix) {
+			continue
+		}
+		field, ccy, ok := splitLedgerKey(strings.TrimPrefix(k, accountSummaryLedgerKeyPrefix))
+		if !ok {
+			continue
+		}
+		recognized = true
+		assignCurrencyLedgerValue(ledger, field, ccy, v)
+	}
+	return finishCurrencyLedger(ledger), recognized
+}
+
+// legacyCurrencyLedger parses a flat map with no internal namespace: the
+// streaming cache, and snapshots recorded before the namespace existed. Two
+// wire dialects meet here — bare tags (pre-10.47) and "$LEDGER-"-prefixed
+// tags (10.47) — and a mid-upgrade map may carry both. Resolution is by
+// evidence, never by map iteration order:
+//
+//   - A wire-prefixed key is the gateway's own statement of ledger origin and
+//     always serves.
+//   - A bare dual-use key (UnrealizedPnL, RealizedPnL) in a map that speaks
+//     the prefix anywhere is the account-level row, not a ledger slice, and
+//     never serves as ledger.
+//   - A bare ledger-only key still serves — a mixed mid-upgrade response must
+//     parse — unless its prefixed twin carries a different value, which is a
+//     contradiction: the duplicate is refused with a warning rather than
+//     letting either value win by arrival or iteration order.
+func legacyCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
+	type cell struct {
+		bare, prefixed       string
+		hasBare, hasPrefixed bool
+	}
+	cells := map[string]map[string]*cell{} // ccy → canonical field → forms seen
+	anyPrefixed := false
+	for k, v := range raw {
+		if strings.HasPrefix(k, accountSummaryLedgerKeyPrefix) {
+			// Defensive: the legacy scan must never re-read namespaced rows.
+			continue
+		}
 		idx := strings.LastIndexByte(k, '_')
 		if idx <= 0 || idx == len(k)-1 {
 			continue
 		}
-		field := k[:idx]
+		field, wirePrefixed := splitGatewayLedgerTag(k[:idx])
 		ccy := k[idx+1:]
-		assign(field, ccy, v)
+		if !currencyLedgerField(field) || ccy == "" || ccy == "BASE" {
+			continue
+		}
+		if wirePrefixed {
+			anyPrefixed = true
+		}
+		byField := cells[ccy]
+		if byField == nil {
+			byField = map[string]*cell{}
+			cells[ccy] = byField
+		}
+		cl := byField[field]
+		if cl == nil {
+			cl = &cell{}
+			byField[field] = cl
+		}
+		if wirePrefixed {
+			cl.prefixed, cl.hasPrefixed = v, true
+		} else {
+			cl.bare, cl.hasBare = v, true
+		}
 	}
+	ledger := map[string]*CurrencyLedger{}
+	for ccy, byField := range cells {
+		for field, cl := range byField {
+			switch {
+			case cl.hasPrefixed && cl.hasBare:
+				if dualUseSummaryTag(field) {
+					// Expected coexistence, not a duplicate: the bare form is
+					// the account-level total, the prefixed form the slice.
+					assignCurrencyLedgerValue(ledger, field, ccy, cl.prefixed)
+					continue
+				}
+				if cl.bare == cl.prefixed {
+					assignCurrencyLedgerValue(ledger, field, ccy, cl.prefixed)
+					continue
+				}
+				connectorLogger.Warnf("account summary ledger: %s_%s arrived in both the bare and %s form with different values; refusing the ambiguous duplicate", field, ccy, gatewayLedgerTagPrefix)
+			case cl.hasPrefixed:
+				assignCurrencyLedgerValue(ledger, field, ccy, cl.prefixed)
+			case dualUseSummaryTag(field) && anyPrefixed:
+				// In a prefixed-dialect map a bare dual-use key is the
+				// account-level row; reading it as ledger would resurrect the
+				// exact confusion the dialect exists to end.
+			default:
+				assignCurrencyLedgerValue(ledger, field, ccy, cl.bare)
+			}
+		}
+	}
+	return finishCurrencyLedger(ledger)
+}
+
+// splitLedgerKey parses a namespace-stripped `<field>_<CCY>` ledger key.
+func splitLedgerKey(k string) (field, ccy string, ok bool) {
+	idx := strings.LastIndexByte(k, '_')
+	if idx <= 0 || idx == len(k)-1 {
+		return "", "", false
+	}
+	field, ccy = k[:idx], k[idx+1:]
+	if !currencyLedgerField(field) || ccy == "" || ccy == "BASE" {
+		return "", "", false
+	}
+	return field, ccy, true
+}
+
+// assignCurrencyLedgerValue parses and stores one canonical ledger field.
+// Callers have already vetted the field against currencyLedgerField and the
+// currency against the BASE pseudo-row rule.
+func assignCurrencyLedgerValue(ledger map[string]*CurrencyLedger, field, ccy, val string) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+	if err != nil {
+		return
+	}
+	row, ok := ledger[ccy]
+	if !ok {
+		row = &CurrencyLedger{}
+		ledger[ccy] = row
+	}
+	switch field {
+	case "NetLiquidationByCurrency":
+		row.NetLiquidationByCurrency = parsed
+	case "CashBalance":
+		row.CashBalance = parsed
+	case "StockMarketValue":
+		row.StockMarketValue = parsed
+	case "OptionMarketValue":
+		row.OptionMarketValue = parsed
+	case "UnrealizedPnL":
+		row.UnrealizedPnL = parsed
+	case "RealizedPnL":
+		row.RealizedPnL = parsed
+	case "ExchangeRate":
+		row.ExchangeRate = parsed
+	}
+}
+
+// finishCurrencyLedger applies the zero-balance filter: currencies appearing
+// only in margin-related fields (no NetLiquidationByCurrency, cash, or
+// market value) are noise the gateway happened to include.
+func finishCurrencyLedger(ledger map[string]*CurrencyLedger) map[string]CurrencyLedger {
 	out := make(map[string]CurrencyLedger, len(ledger))
 	for ccy, row := range ledger {
 		if row == nil {
 			continue
 		}
-		// Keep only currencies the user actually holds value in. Without
-		// NetLiquidation OR a non-zero cash/market value, the row is
-		// noise (zero-balance currency the gateway included).
 		if row.NetLiquidationByCurrency == 0 && row.CashBalance == 0 &&
 			row.StockMarketValue == 0 && row.OptionMarketValue == 0 {
 			continue
@@ -606,13 +778,16 @@ func extractCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
 // currency when one is proven; then, only when the tag has exactly one
 // currency-suffixed row, that row.
 //
-// The base-currency preference is what keeps the account total apart from a
-// ledger slice. $LEDGER:ALL reuses UnrealizedPnL and RealizedPnL for every held
-// currency, and the flattened map cannot tell those rows from the account-level
-// tag — the same ambiguity accountBaseCurrencyValueTags already refuses to draw
-// base-currency evidence from. Picking the lexicographically smallest suffix
-// resolved a CHF/EUR/USD account's UnrealizedPnL to the CHF slice rather than
-// the account total.
+// This function reads only account-level keys: one-shot snapshots store every
+// admitted $LEDGER row under accountSummaryLedgerKeyPrefix, which no tag
+// prefix can match, so an account total can no longer be displaced by a
+// same-named ledger slice there. The preferences below still matter for the
+// legacy-shaped streaming cache, where $LEDGER:ALL's reuse of UnrealizedPnL
+// and RealizedPnL for every held currency remains flattened into one
+// namespace — the same ambiguity accountBaseCurrencyValueTags already refuses
+// to draw base-currency evidence from. Picking the lexicographically smallest
+// suffix resolved a CHF/EUR/USD account's UnrealizedPnL to the CHF slice
+// rather than the account total.
 func lookupAccountValue(raw map[string]string, tag, baseCcy string) (string, string, bool) {
 	if v, ok := raw[tag]; ok {
 		return v, "", true

@@ -2772,6 +2772,18 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 				c.accountMu.Unlock()
 				return
 			}
+			if disposition == accountSummaryRowAcceptLedger {
+				// Ledger rows live in their own key namespace so a base-currency
+				// slice can never overwrite the same-named account-level total
+				// (or be overwritten by it) depending on wire arrival order.
+				// One destination, two ways a row proves ledger origin — the
+				// Account=All inference and 10.47's own "$LEDGER-" wire label —
+				// and both store the canonical bare field name, so the parse
+				// side sees a single shape. Admission guarantees a concrete
+				// non-BASE ledger currency here, so the suffix always exists.
+				field, _ := splitGatewayLedgerTag(tag)
+				key = fmt.Sprintf("%s%s_%s", accountSummaryLedgerKeyPrefix, field, currency)
+			}
 			snap.observedRows++
 			snap.values[key] = value
 			c.accountMu.Unlock()
@@ -2822,6 +2834,13 @@ type accountSummaryRowDisposition uint8
 const (
 	accountSummaryRowReject accountSummaryRowDisposition = iota
 	accountSummaryRowAccept
+	// accountSummaryRowAcceptLedger admits a row through the Account=All
+	// $LEDGER arm. It is stored under the ledger key namespace: the gateway
+	// reuses account-level tag names (UnrealizedPnL, RealizedPnL) for every
+	// held currency's ledger slice, so under a shared key the account total
+	// and the base-currency slice would overwrite each other in wire-arrival
+	// order. The namespace keeps `tag_currency` single-origin.
+	accountSummaryRowAcceptLedger
 	accountSummaryRowIgnore
 )
 
@@ -2836,9 +2855,21 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 	if !accountCodeConcrete(expectedAccount) {
 		return accountSummaryRowReject
 	}
+	// Gateway 10.47's wire prefix is the gateway's own statement of ledger
+	// origin. Strip it BEFORE the closed-field check: matched the other way
+	// round, every prefixed ledger row fails the allowlist and is dropped
+	// silently, which on an affected desk erases the whole per-currency
+	// ledger with no error.
+	field, wirePrefixed := splitGatewayLedgerTag(tag)
+	ledgerRow := currencyLedgerField(field) && concreteAccountSummaryLedgerCurrency(currency)
 	account = strings.TrimSpace(account)
 	if accountCodeConcrete(account) {
 		if strings.EqualFold(account, expectedAccount) {
+			if wirePrefixed && ledgerRow {
+				// The gateway labeled the row a ledger slice and named the
+				// pinned account: ledger namespace, fully attributed.
+				return accountSummaryRowAcceptLedger
+			}
 			return accountSummaryRowAccept
 		}
 		// reqAccountSummary is issued with group "All", so a login carrying
@@ -2858,9 +2889,10 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 	// An aggregate-labeled ledger row carries no account of its own. On a
 	// single-account login that is unambiguous; on a multi-account login it
 	// cannot be attributed to the pinned account, and admitting it would report
-	// a sibling's currency exposure as the pinned account's.
-	if currencyLedgerField(tag) && concreteAccountSummaryLedgerCurrency(currency) && !newManagedAccountSet(managed).multiAccount() {
-		return accountSummaryRowAccept
+	// a sibling's currency exposure as the pinned account's — wire-prefixed
+	// rows are withheld exactly like their bare twins.
+	if ledgerRow && !newManagedAccountSet(managed).multiAccount() {
+		return accountSummaryRowAcceptLedger
 	}
 	return accountSummaryRowIgnore
 }

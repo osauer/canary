@@ -598,9 +598,17 @@ func TestAccountSummaryRequestRowDisposition(t *testing.T) {
 		{name: "sibling row is expected group traffic", account: sibling, tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowIgnore},
 		{name: "account outside the login", account: "DU9999999", tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowReject},
 		{name: "non-concrete expected account", account: pinned, tag: "NetLiquidation", currency: "USD", expected: "DU1111111,DU2222222", managed: multi, want: accountSummaryRowReject},
-		{name: "aggregate ledger row on a single-account login", account: "All", tag: "CashBalance", currency: "EUR", expected: pinned, managed: single, want: accountSummaryRowAccept},
+		{name: "aggregate ledger row on a single-account login", account: "All", tag: "CashBalance", currency: "EUR", expected: pinned, managed: single, want: accountSummaryRowAcceptLedger},
 		{name: "aggregate ledger row is unattributable on a multi-account login", account: "All", tag: "CashBalance", currency: "EUR", expected: pinned, managed: multi, want: accountSummaryRowIgnore},
 		{name: "aggregate non-ledger row", account: "All", tag: "NetLiquidation", currency: "USD", expected: pinned, managed: single, want: accountSummaryRowIgnore},
+		// Gateway 10.47 prepends "$LEDGER-" to per-currency tags; the prefix
+		// must be stripped before the closed-field check or the whole ledger
+		// silently vanishes, and it changes nothing else about admission.
+		{name: "10.47 prefixed ledger row on a single-account login", account: "All", tag: "$LEDGER-CashBalance", currency: "EUR", expected: pinned, managed: single, want: accountSummaryRowAcceptLedger},
+		{name: "10.47 prefixed ledger row withheld on a multi-account login", account: "All", tag: "$LEDGER-CashBalance", currency: "EUR", expected: pinned, managed: multi, want: accountSummaryRowIgnore},
+		{name: "10.47 prefixed ledger row named for the pinned account", account: pinned, tag: "$LEDGER-CashBalance", currency: "EUR", expected: pinned, managed: multi, want: accountSummaryRowAcceptLedger},
+		{name: "10.47 prefixed unknown field stays unmodeled", account: "All", tag: "$LEDGER-AccruedCash", currency: "EUR", expected: pinned, managed: single, want: accountSummaryRowIgnore},
+		{name: "10.47 prefixed ledger row with BASE currency stays ignored", account: "All", tag: "$LEDGER-CashBalance", currency: "BASE", expected: pinned, managed: single, want: accountSummaryRowIgnore},
 		{name: "blank account row", account: "", tag: "NetLiquidation", currency: "USD", expected: pinned, managed: multi, want: accountSummaryRowReject},
 	} {
 		t.Run(test.name, func(t *testing.T) {

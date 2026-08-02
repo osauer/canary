@@ -321,8 +321,13 @@ func TestAccountSummarySnapshotAcceptsAllCurrencyLedgerRows(t *testing.T) {
 	if got := rows["NetLiquidation_EUR"]; got != "100000" {
 		t.Fatalf("ordinary account row = %q, want 100000", got)
 	}
-	if got := rows["CashBalance_USD"]; got != "2500" {
-		t.Fatalf("aggregate ledger row = %q, want 2500", got)
+	// Admitted ledger rows are namespaced so they can never share a key with a
+	// same-named account-level tag; the bare key must stay account-only.
+	if got := rows[accountSummaryLedgerKeyPrefix+"CashBalance_USD"]; got != "2500" {
+		t.Fatalf("aggregate ledger row = %q, want 2500 under the ledger namespace", got)
+	}
+	if _, ok := rows["CashBalance_USD"]; ok {
+		t.Fatal("ledger row leaked into the account-level key namespace")
 	}
 
 	summary := parseAccountSummary(rows, "U111")
@@ -424,5 +429,127 @@ func TestConnectionPortfolioStreamScopeConflictStaysUnavailableUntilReset(t *tes
 	_, recovered := conn.GetPositionsWithPortfolioHealth()
 	if recovered.Account != "DU123" || recovered.RequestedAt.IsZero() || recovered.InitialCompletedAt.IsZero() || !recovered.ScopeConflictAt.IsZero() {
 		t.Fatalf("subscription reset did not recover current scope: %+v", recovered)
+	}
+}
+
+// The one-shot keys rows tag_currency, so before the ledger namespace the
+// account-level UnrealizedPnL total (currency = base) and the $LEDGER:ALL
+// base-currency slice wrote the same key and the last writer won — on a
+// single-account multi-currency desk `canary account` could serve the base
+// ledger slice as the account P&L total, dependent on wire arrival order.
+// Both orders must serve the account total, and the ledger must keep its own
+// slices, in both directions.
+func TestAccountSummaryServesAccountTotalRegardlessOfLedgerWireOrder(t *testing.T) {
+	accountRows := [][]string{
+		{"63", "2", "43", "U111", "NetLiquidation", "100000", "EUR"},
+		{"63", "2", "43", "U111", "UnrealizedPnL", "1200.50", "EUR"},
+		{"63", "2", "43", "U111", "RealizedPnL", "-80.25", "EUR"},
+	}
+	ledgerRows := [][]string{
+		// The base currency's own slice: identical tag names and currency
+		// suffix as the account-level totals above.
+		{"63", "2", "43", "All", "UnrealizedPnL", "999999", "EUR"},
+		{"63", "2", "43", "All", "RealizedPnL", "888888", "EUR"},
+		{"63", "2", "43", "All", "NetLiquidationByCurrency", "40000", "EUR"},
+		{"63", "2", "43", "All", "CashBalance", "2500", "USD"},
+		{"63", "2", "43", "All", "UnrealizedPnL", "-77", "USD"},
+		{"63", "2", "43", "All", "NetLiquidationByCurrency", "60000", "USD"},
+	}
+	for _, tc := range []struct {
+		name  string
+		order [][]string
+	}{
+		{name: "account rows first", order: append(append([][]string{}, accountRows...), ledgerRows...)},
+		{name: "ledger rows first", order: append(append([][]string{}, ledgerRows...), accountRows...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := NewConnection(DefaultConfig())
+			if conn == nil {
+				t.Fatal("NewConnection returned nil")
+			}
+			defer conn.rateLimiter.Stop()
+			conn.account = "U111"
+			conn.registerSummarySnapshot(43, "U111")
+			for _, row := range tc.order {
+				conn.handleAccountSummary(row)
+			}
+			conn.processMessage(conn.encodeMsg(msgAccountSummaryEnd, "1", 43))
+
+			rows, err := conn.awaitAccountSummarySnapshot(43, time.Second)
+			if err != nil {
+				t.Fatalf("awaitAccountSummarySnapshot: %v", err)
+			}
+			summary := parseAccountSummary(rows, "U111")
+			if summary.BaseCurrency != "EUR" {
+				t.Fatalf("base currency = %q, want EUR", summary.BaseCurrency)
+			}
+			if summary.UnrealizedPnL == nil || *summary.UnrealizedPnL != 1200.50 {
+				t.Fatalf("UnrealizedPnL = %v, want the account total 1200.50 — not a ledger slice", summary.UnrealizedPnL)
+			}
+			if summary.RealizedPnL == nil || *summary.RealizedPnL != -80.25 {
+				t.Fatalf("RealizedPnL = %v, want the account total -80.25", summary.RealizedPnL)
+			}
+			// The reverse direction: the ledger keeps the slice, and the
+			// account total must not overwrite it.
+			if got := summary.CurrencyLedger["EUR"].UnrealizedPnL; got != 999999 {
+				t.Fatalf("EUR ledger UnrealizedPnL = %v, want the slice 999999 — not the account total", got)
+			}
+			if got := summary.CurrencyLedger["USD"].UnrealizedPnL; got != -77 {
+				t.Fatalf("USD ledger UnrealizedPnL = %v, want -77", got)
+			}
+			if got := summary.CurrencyLedger["USD"].CashBalance; got != 2500 {
+				t.Fatalf("USD ledger CashBalance = %v, want 2500", got)
+			}
+		})
+	}
+}
+
+// Gateway/TWS 10.47 introduces an API setting, default-enabled for new users,
+// that prepends "$LEDGER-" to per-currency summary tags. The closed field
+// allowlist must match the canonical name behind the prefix — checked the
+// other way round, every 10.47 ledger row fails the allowlist and the entire
+// per-currency ledger vanishes silently. Prefixed rows land in the same
+// internal ledger namespace as inferred ones, under the canonical field name.
+func TestAccountSummaryAccepts1047PrefixedLedgerRows(t *testing.T) {
+	conn := NewConnection(DefaultConfig())
+	if conn == nil {
+		t.Fatal("NewConnection returned nil")
+	}
+	defer conn.rateLimiter.Stop()
+	conn.account = "U111"
+	conn.registerSummarySnapshot(44, "U111")
+
+	conn.handleAccountSummary([]string{"63", "2", "44", "U111", "NetLiquidation", "100000", "EUR"})
+	conn.handleAccountSummary([]string{"63", "2", "44", "U111", "UnrealizedPnL", "1200.50", "EUR"})
+	conn.handleAccountSummary([]string{"63", "2", "44", "All", "$LEDGER-CashBalance", "2500", "USD"})
+	conn.handleAccountSummary([]string{"63", "2", "44", "All", "$LEDGER-NetLiquidationByCurrency", "60000", "USD"})
+	conn.handleAccountSummary([]string{"63", "2", "44", "All", "$LEDGER-UnrealizedPnL", "-77", "USD"})
+	// An unmodeled prefixed aggregate stays ignored — the prefix widens
+	// nothing beyond the canonical closed set.
+	conn.handleAccountSummary([]string{"63", "2", "44", "All", "$LEDGER-AccruedCash", "12.34", "USD"})
+	conn.processMessage(conn.encodeMsg(msgAccountSummaryEnd, "1", 44))
+
+	rows, err := conn.awaitAccountSummarySnapshot(44, time.Second)
+	if err != nil {
+		t.Fatalf("awaitAccountSummarySnapshot: %v", err)
+	}
+	// Stored under the internal namespace with the canonical field name: one
+	// storage shape regardless of which route proved ledger origin.
+	if got := rows[accountSummaryLedgerKeyPrefix+"CashBalance_USD"]; got != "2500" {
+		t.Fatalf("prefixed ledger row = %q under canonical namespace key, want 2500 (rows: %v)", got, rows)
+	}
+	if _, ok := rows[accountSummaryLedgerKeyPrefix+"$LEDGER-CashBalance_USD"]; ok {
+		t.Fatal("wire prefix leaked into the stored namespace key")
+	}
+	summary := parseAccountSummary(rows, "U111")
+	usd, ok := summary.CurrencyLedger["USD"]
+	if !ok {
+		t.Fatalf("USD ledger row missing — the 10.47 dialect erased the ledger: %+v", summary.CurrencyLedger)
+	}
+	if usd.CashBalance != 2500 || usd.NetLiquidationByCurrency != 60000 || usd.UnrealizedPnL != -77 {
+		t.Fatalf("USD ledger = %+v, want 2500/60000/-77", usd)
+	}
+	if summary.UnrealizedPnL == nil || *summary.UnrealizedPnL != 1200.50 {
+		t.Fatalf("account UnrealizedPnL = %v, want 1200.50 untouched by prefixed rows", summary.UnrealizedPnL)
 	}
 }
