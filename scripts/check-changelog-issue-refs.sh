@@ -68,4 +68,4 @@ if [ -n "$missing" ]; then
 	exit 1
 fi
 
-echo "changelog-issue-refs: OK ($(printf '%s' "$referenced" | tr '\n' ' ')named in the $version entry)"
+echo "changelog-issue-refs: OK ($(printf '%s' "$referenced" | tr '\n' ' ') named in the $version entry)"
