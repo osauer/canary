@@ -79,9 +79,14 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 
 - Version stamps that must already equal the target: `.claude-plugin/plugin.json`
   (gate-enforced by `make release`), root `server.json` — `registry-version-check`
-  pins it to `.claude-plugin/plugin.json`, and that gate is outside `make check`,
-  so a stale stamp there surfaces as a late pipeline failure rather than a
-  checklist item — `docs/mcp-server.json` — the canonical
+  pins it to `.claude-plugin/plugin.json`. That gate runs on two of the three
+  surfaces: local `make check` reaches it through `plugin-check` in
+  `CHECK_DEPS`, and `_release-run` invokes `plugin-check` directly before the
+  irreversible steps — but hosted CI overrides `CHECK_DEPS=parity-check` and
+  drops it. A stale stamp therefore cannot reach a tag, and a green CI run says
+  nothing about it; only a local `make check`/`make test` catches it early.
+  Treat any gate beneath `plugin-check` the same way — `docs/mcp-server.json`
+  — the canonical
   MCP discovery file, whose two `docs/.well-known/mcp/` copies are generated;
   bump the canonical one and run `make docs-regen`, never hand-edit the copies
   (`docs-check` rejects that) — `bug_report.yml`, and the
