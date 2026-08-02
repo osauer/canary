@@ -2255,9 +2255,12 @@ type FrameError struct {
 // The daemon caches close anchors per underlying so the first call pre-warms
 // and subsequent ones are instant — no fabrication.
 //
-// MarketValue is serialized as market_value_ccy: the position value in the
-// contract currency (qty × mark × multiplier), matching the row's Mark and
-// Currency fields.
+// MarketValue is serialized as market_value_ccy: the broker's own market value
+// for the position, in the contract currency named by the row's Currency field.
+// It is NOT derived from Mark and Quantity. A bond quotes as a percentage of
+// par against a face-value quantity, so the product overstates such a row by
+// roughly 100×; the two agree only for equities and options, which is what made
+// the old identity look like a definition.
 // MarketValueBase / UnrealizedPnLBase / RealizedPnLBase / DailyPnLBase are
 // populated when the daemon knows the account base currency and either the row
 // is already in base currency or FXRate is available. nil = conversion

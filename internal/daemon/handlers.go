@@ -374,7 +374,15 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 			AvgCost:       pos.AverageCost,
 			Mark:          pos.MarketPrice,
 			ValuationMark: pos.MarketPrice,
-			MarketValue:   pos.MarketPrice * pos.Position * float64(multiplier),
+			// The broker's own market value, not price × quantity. IB quotes a
+			// bond as a percentage of par against a face-value quantity, so the
+			// product overstates such a row by roughly 100× — a bill at 98.5 on
+			// 10,000 face reads 985,000 instead of 9,850. Equities were unaffected
+			// because the two agree there, which is why it stayed hidden. The
+			// portfolio frame's own value is already parsed and validated: a row
+			// whose market value is missing or non-finite discards the whole
+			// generation, so there is nothing to fall back to and no fallback here.
+			MarketValue:   pos.MarketValue,
 			UnrealizedPnL: pos.UnrealizedPNL,
 			RealizedPnL:   pos.RealizedPNL,
 		}
