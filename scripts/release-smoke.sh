@@ -537,7 +537,23 @@ echo "    re-checking the fan-out drain for up to 45s before the chain read..."
 if ! release_smoke_settle_or_fail release_status_provider breadth-spx 45 chain; then
     exit 1
 fi
-expiries="$("$BIN" chain SPY 2>/dev/null | awk '/^[[:space:]]+20[0-9]{2}-[0-9]{2}-[0-9]{2}/ {print $1}' | head -3 | tail -1)"
+# The listing call gets its own loud, fatal guard. The previous shape —
+# CLI | awk | head | tail inside a set -euo pipefail substitution with stderr
+# discarded — died silently on a nonzero CLI exit (and could die on head's
+# SIGPIPE), before its own FAIL diagnostic was reachable: the v2.6.2 fire of
+# 2026-08-02 21:38 CEST ended exactly there, with nothing on the record but
+# the cleanup dump. Failure stays fatal in every case; it now says why.
+chain_listing_err="$SMOKE_DIR/chain-listing.err"
+chain_rc=0
+chain_listing="$("$BIN" chain SPY 2>"$chain_listing_err")" || chain_rc=$?
+if (( chain_rc != 0 )); then
+    echo "release-smoke: FAIL: 'canary chain SPY' exited $chain_rc while listing expiries:" >&2
+    cat "$chain_listing_err" >&2 || true
+    exit 1
+fi
+# Third-nearest expiry (or the last one when fewer exist), selected in one
+# awk pass so no pipe stage can be closed early.
+expiries="$(printf '%s\n' "$chain_listing" | awk '/^[[:space:]]+20[0-9]{2}-[0-9]{2}-[0-9]{2}/ { line[++n] = $1 } END { if (n > 3) n = 3; if (n) print line[n] }')"
 if [[ -z "$expiries" ]]; then
     echo "release-smoke: FAIL: could not list SPY expiries via 'canary chain SPY'" >&2
     exit 1
