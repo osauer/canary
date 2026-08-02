@@ -786,6 +786,15 @@ func validateRegimeDecisionProjectionEvent(event corestore.EventRecord, line reg
 	if line.SnapshotFingerprint != publication.Fingerprint || line.Fingerprint != publication.Fingerprint.Key {
 		return fmt.Errorf("regime decision projection fingerprint mismatch at snapshot revision %d", publication.Revision)
 	}
+	if line.CurrencyPolicy != rpc.RegimeCurrencyPolicyVersion {
+		// The line was rendered under a prior input-currency policy. Its key,
+		// publication time and fingerprint above prove it belongs to this
+		// publication; recomputing it under the current policy would produce
+		// legitimately different content, so byte equality is only demanded
+		// within one policy version. History partitions on the marker rather
+		// than blocking the upgrade boot.
+		return nil
+	}
 	expected := buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication)
 	actualJSON, err := json.Marshal(line)
 	if err != nil {

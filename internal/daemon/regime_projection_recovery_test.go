@@ -650,6 +650,62 @@ func TestRegimeDecisionProjectionRejectsWrongPublicationTimeAndFingerprintVersio
 	}
 }
 
+// TestRegimeDecisionProjectionToleratesPriorCurrencyPolicyLine pins the
+// upgrade boot: a retained decision line written before the input-currency
+// cutover carries no currency_policy marker and legitimately differs from a
+// recompute under the current policy. Its key, publication time and
+// fingerprint still bind it to the publication, so reconciliation must accept
+// it as prior-policy history instead of refusing to boot — while the same
+// content divergence under the current policy stays a hard failure.
+func TestRegimeDecisionProjectionToleratesPriorCurrencyPolicyLine(t *testing.T) {
+	publishedAt := time.Date(2026, 7, 20, 15, 10, 0, 0, time.UTC)
+	snapshot := regimeSnapshotCacheFixture(publishedAt, "prior-policy decision line")
+	snapshot.Lifecycle.Stage = rpc.LifecycleQuiet
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	publication := regimeSnapshotPublication{Revision: 1, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
+
+	tests := []struct {
+		name    string
+		mutate  func(*regimeDecisionLine)
+		wantErr bool
+	}{
+		{name: "prior policy with divergent content is history", mutate: func(line *regimeDecisionLine) {
+			line.CurrencyPolicy = ""
+			line.Stage = rpc.LifecycleEarlyWarning
+		}},
+		{name: "current policy with divergent content still fails", mutate: func(line *regimeDecisionLine) {
+			line.Stage = rpc.LifecycleEarlyWarning
+		}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := openRegimeSnapshotTestStore(t)
+			line := buildRegimeDecisionLine(publishedAt, snapshot, publication)
+			test.mutate(&line)
+			raw, err := json.Marshal(line)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := fmt.Sprintf("%s:snapshot:%020d", coreEventRegimeDecision, publication.Revision)
+			if _, err := store.AppendEvents(t.Context(), []corestore.EventInput{{
+				ScopeKey: daemonStateScope, EventKey: key, Type: coreEventRegimeDecision,
+				Action: coreEventActionRecord, Origin: coreEventOriginDaemon,
+				OccurredAt: publishedAt, PayloadJSON: raw,
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			server := &Server{coreStore: store, regimeDecisions: &regimeDecisionJournal{core: store}, logger: NewLogger(&bytes.Buffer{}, "error")}
+			_, err = server.reconcileRegimeDecisionProjection(t.Context(), snapshot, regimeProjectionPlan{publication: publication, initial: true})
+			if test.wantErr && err == nil {
+				t.Fatal("divergent content under the current policy was accepted")
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("prior-policy line refused: %v", err)
+			}
+		})
+	}
+}
+
 func TestRegimeReceiptMatchValidatesEveryProjection(t *testing.T) {
 	publishedAt := time.Date(2026, 7, 20, 15, 20, 0, 0, time.UTC)
 	snapshot := regimeSnapshotCacheFixture(publishedAt, "false completion receipt")
