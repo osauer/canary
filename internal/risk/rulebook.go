@@ -344,7 +344,7 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 	}
 	watch, act := c.pol.SingleNameWatchPct, c.pol.SingleNameActPct
 	row.Threshold = new(act)
-	var offenders, gaps, hedges []RuleOffender
+	var offenders, gaps, hedges, unmeasured []RuleOffender
 	worst, worstBound := 0.0, 0.0
 	for _, n := range c.in.Names {
 		if c.greeksGapMaterial(n) {
@@ -361,6 +361,17 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 			}
 			gaps = append(gaps, RuleOffender{Symbol: n.Symbol, Observed: pct(n.GreeksGapNotionalBase, c.nlv),
 				Note: "delta unavailable on material legs; exposure understated"})
+			continue
+		}
+		// A name whose base exposure could not be fully measured — missing FX
+		// on a leg, a markless stock, an unpaired delta, or a whole group the
+		// aggregator could not convert — degrades to a partial or zero sum. A
+		// fully-delta'd name carries no greeks gap, so the branch above never
+		// catches it, and comparing the degraded sum asserts "0.0% of NLV"
+		// over a book nobody measured. Disclosed unknown, never exposure 0.
+		if !n.ExposureBaseComplete {
+			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol,
+				Note: "exposure not fully measured (FX or price missing) — not compared against the cap"})
 			continue
 		}
 		// A policy-hedge index name carrying net-short delta is the hedge:
@@ -419,19 +430,34 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 	case effective >= watch:
 		row.Status = RuleStatusWatch
 		row.Evidence = fmt.Sprintf("%s at %.1f%%%s of NLV approaches the %.0f%% cap.", offenders[0].Symbol, offenders[0].Observed, bound, act)
-	case len(gaps) > 0:
+	case len(gaps) > 0 || len(unmeasured) > 0:
+		// No pass over an unmeasured book: a name that was never converted or
+		// never fully priced was never compared against the cap.
 		row.Status = RuleStatusUnknown
-		row.Reason = "greeks_gap"
 		row.ObservedIsLowerBound = false
-		row.Offenders = append(offenders, gaps...)
-		row.Evidence = fmt.Sprintf("%d name(s) missing delta on material legs — exposure not trustworthy.", len(gaps))
+		row.Offenders = append(append(offenders, gaps...), unmeasured...)
+		switch {
+		case len(gaps) == 0:
+			row.Reason = "exposure_incomplete"
+			row.Evidence = fmt.Sprintf("%d name(s) with exposure never fully measured (FX or price missing) — not asserting a pass.", len(unmeasured))
+		case len(unmeasured) == 0:
+			row.Reason = "greeks_gap"
+			row.Evidence = fmt.Sprintf("%d name(s) missing delta on material legs — exposure not trustworthy.", len(gaps))
+		default:
+			row.Reason = "greeks_gap"
+			row.Evidence = fmt.Sprintf("%d name(s) missing delta and %d with unmeasured exposure — exposure not trustworthy.", len(gaps), len(unmeasured))
+		}
 	default:
 		row.Status = RuleStatusPass
 		row.Evidence = fmt.Sprintf("Largest name %.1f%% of NLV, under the %.0f%% cap.", round1(worst), act)
 	}
-	if row.Status != RuleStatusUnknown && len(gaps) > 0 {
-		row.Offenders = append(row.Offenders, gaps...)
-		row.Notes = append(row.Notes, fmt.Sprintf("%d name(s) additionally not fully assessable (delta missing) — the breach above is proven regardless.", len(gaps)))
+	// Disclosure is unconditional: a measured breach stands, and the names
+	// that could not be measured ride the same row rather than vanishing
+	// under it. They carry no ImpactBase, so the impact sum below is
+	// unchanged and an unmeasured name claims no weight it cannot prove.
+	if row.Status != RuleStatusUnknown && len(gaps)+len(unmeasured) > 0 {
+		row.Offenders = append(append(row.Offenders, gaps...), unmeasured...)
+		row.Notes = append(row.Notes, fmt.Sprintf("%d name(s) additionally not fully assessable (delta or FX missing) — the breach above is proven regardless.", len(gaps)+len(unmeasured)))
 	}
 	for _, o := range row.Offenders {
 		row.ImpactBase += o.ImpactBase
@@ -1169,6 +1195,20 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 				Note: "size not assessable (delta missing) with earnings unknown or near — freeze window can't be ruled out"})
 			continue
 		}
+		// Same escape and same duty for a name whose exposure was never fully
+		// measured (missing FX or price): its degraded sum sits under the size
+		// floor by construction, so comparing it silently skips exactly the
+		// oversized-into-earnings name this rule exists to freeze. Earnings
+		// provably outside the window still clear it — size is then moot.
+		if !n.ExposureBaseComplete {
+			if e, ok := c.earningsFor(n.Symbol); ok && e.SessionsUntil != nil &&
+				(*e.SessionsUntil < 0 || *e.SessionsUntil > freeze) {
+				continue
+			}
+			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol,
+				Note: "size not assessable (exposure not fully measured) with earnings unknown or near — freeze window can't be ruled out"})
+			continue
+		}
 		p := pct(math.Abs(n.ExposureBase), c.nlv)
 		if p < c.pol.SingleNameWatchPct {
 			continue
@@ -1204,7 +1244,9 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		row.Status = RuleStatusUnknown
 		row.Reason = "earnings_unknown"
 		row.Offenders = unknowns
-		row.Evidence = fmt.Sprintf("%d name(s) have no usable earnings date for the pre-earnings size check.", len(unknowns))
+		// Each offender note names what failed — the earnings date, the delta,
+		// or the exposure measurement — so the sentence stays neutral.
+		row.Evidence = fmt.Sprintf("%d name(s) could not complete the pre-earnings size check.", len(unknowns))
 	case assessed == 0 && len(exempt) > 0:
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = earningsExemptionReason(terminalExempt, brokerExempt)
@@ -1285,28 +1327,52 @@ func (c *ruleContext) winnerTrim() RuleRow {
 		return *g
 	}
 	row.Threshold = new(c.pol.WinnerTrimDayUpPct)
-	var offenders []RuleOffender
+	var offenders, unmeasured []RuleOffender
 	for _, n := range c.in.Names {
 		if n.StockDayChangePct == nil {
 			continue
 		}
+		if *n.StockDayChangePct < c.pol.WinnerTrimDayUpPct {
+			// Not up past the trigger — a true negative on the measured tape,
+			// whatever the name's size.
+			continue
+		}
+		// The name is up past the trigger, so the size floor decides. A name
+		// whose exposure was never fully measured (missing FX or price, no
+		// greeks gap to catch it) degrades to a sum under the floor by
+		// construction — comparing it silently skips a winner the rule may
+		// exist to trim. Disclosed unknown, never exposure 0.
+		if !n.ExposureBaseComplete && !c.greeksGapMaterial(n) {
+			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Observed: round1(*n.StockDayChangePct),
+				Note: fmt.Sprintf("+%.1f%% today with exposure not fully measured — the %.0f%% NLV trim floor can't be ruled out", round1(*n.StockDayChangePct), c.pol.WinnerTrimMinExpoPct)})
+			continue
+		}
 		expo := pct(math.Abs(n.ExposureBase), c.nlv)
-		if *n.StockDayChangePct >= c.pol.WinnerTrimDayUpPct && expo >= c.pol.WinnerTrimMinExpoPct {
+		if expo >= c.pol.WinnerTrimMinExpoPct {
 			offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: round1(*n.StockDayChangePct),
 				ImpactBase: math.Abs(n.ExposureBase),
 				Note:       fmt.Sprintf("+%.1f%% today at %.1f%% of NLV — someone is paying up", round1(*n.StockDayChangePct), round1(expo))})
 		}
 	}
 	sortOffenders(offenders)
-	row.Offenders = offenders
-	if len(offenders) > 0 {
+	switch {
+	case len(offenders) > 0:
 		row.Status = RuleStatusWatch
+		// A measured breach stands; the unmeasured winners stay disclosed on
+		// the same row with no ImpactBase — no weight they cannot prove.
+		row.Offenders = append(offenders, unmeasured...)
 		row.Evidence = fmt.Sprintf("%d oversized name(s) up hard today — sell strength while the bid is there.", len(offenders))
 		for _, o := range offenders {
 			row.ImpactBase += o.ImpactBase
 		}
-	} else {
+	case len(unmeasured) > 0:
+		row.Status = RuleStatusUnknown
+		row.Reason = "exposure_incomplete"
+		row.Offenders = unmeasured
+		row.Evidence = fmt.Sprintf("%d name(s) up past the trim trigger with unmeasured exposure — the %.0f%% NLV floor can't be ruled out.", len(unmeasured), c.pol.WinnerTrimMinExpoPct)
+	default:
 		row.Status = RuleStatusPass
+		row.Offenders = offenders
 		row.Evidence = "No oversized name up past the trim trigger today."
 	}
 	return row
@@ -1363,11 +1429,21 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 		return *g
 	}
 	grossLong, hedgeShort := 0.0, 0.0
-	var gaps []RuleOffender
+	var gaps, unmeasured []RuleOffender
 	var hedgeLegs []RuleOffender
 	for _, n := range c.in.Names {
 		if c.greeksGapMaterial(n) {
 			gaps = append(gaps, RuleOffender{Symbol: n.Symbol, Note: "delta unavailable on material legs"})
+			continue
+		}
+		// A name whose base exposure was never fully measured (missing FX or
+		// price, no greeks gap to catch it) contributes a degraded or zero
+		// sum. Dropping it from grossLong shrinks the ratio's denominator, so
+		// an under-hedged book reads adequately hedged — the quiet direction.
+		// Like a delta gap, it poisons the ratio itself: whole row unknown.
+		if !n.ExposureBaseComplete {
+			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol,
+				Note: "exposure not fully measured (FX or price missing) — gross long exposure cannot be trusted"})
 			continue
 		}
 		if n.ExposureBase > 0 {
@@ -1381,11 +1457,20 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 			}
 		}
 	}
-	if len(gaps) > 0 {
+	if len(gaps) > 0 || len(unmeasured) > 0 {
 		row.Status = RuleStatusUnknown
-		row.Reason = "greeks_gap"
-		row.Offenders = gaps
-		row.Evidence = "Delta gaps make the hedge ratio untrustworthy."
+		row.Offenders = append(gaps, unmeasured...)
+		switch {
+		case len(gaps) == 0:
+			row.Reason = "exposure_incomplete"
+			row.Evidence = "Unmeasured exposure makes the hedge ratio untrustworthy."
+		case len(unmeasured) == 0:
+			row.Reason = "greeks_gap"
+			row.Evidence = "Delta gaps make the hedge ratio untrustworthy."
+		default:
+			row.Reason = "greeks_gap"
+			row.Evidence = "Delta gaps and unmeasured exposure make the hedge ratio untrustworthy."
+		}
 		return row
 	}
 	if grossLong <= 0 {

@@ -64,7 +64,10 @@ func healthyInputs() RuleInputs {
 				},
 			},
 			{
-				Symbol: "SPY", ExposureBase: -80000, MarketValueBase: 38000, HasStockLeg: false,
+				// ExposureBaseComplete matches production: the daemon marks a
+				// group complete whenever its base conversion succeeded, which
+				// a healthy fixture's did.
+				Symbol: "SPY", ExposureBase: -80000, MarketValueBase: 38000, HasStockLeg: false, ExposureBaseComplete: true,
 				Legs: []LegInput{
 					{Desc: "SPY 20261016 P 710", Right: "P", Strike: 710, Expiry: etDate(2026, 10, 16), DTE: 101,
 						Quantity: 40, Multiplier: 100, Mark: 10.4, Underlying: new(752.0), Delta: new(-0.24),
@@ -238,6 +241,24 @@ func TestNeverFalsePass(t *testing.T) {
 		}
 		ev := EvaluateRulebook(in, pol)
 		assertNoPass(t, ev, RuleSingleNameExposure, RuleExtrinsicBudget, RuleHedgeIntegrity)
+	})
+
+	t.Run("exposure unmeasured", func(t *testing.T) {
+		// Every delta is present, so no greeks gap fires — the multi-account
+		// ledger-withheld shape, where only the FX conversion is missing and
+		// ExposureBaseComplete is the sole trace of it.
+		in := healthyInputs()
+		for i := range in.Names {
+			in.Names[i].ExposureBaseComplete = false
+		}
+		// Arm the two rules whose size read hides behind another trigger: a
+		// name up past the trim trigger, and earnings inside the freeze window.
+		in.Names[2].StockDayChangePct = new(5.0)
+		e := in.Earnings["MSFT"]
+		e.SessionsUntil = new(2)
+		in.Earnings["MSFT"] = e
+		ev := EvaluateRulebook(in, pol)
+		assertNoPass(t, ev, RuleSingleNameExposure, RuleEarningsSizeFreeze, RuleWinnerTrim, RuleHedgeIntegrity)
 	})
 
 	t.Run("earnings unknown", func(t *testing.T) {
@@ -1275,5 +1296,198 @@ func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
 		if o.Leg == "FX-less" && o.ImpactBase != 0 {
 			t.Errorf("unmeasurable leg claimed ImpactBase %v, want 0", o.ImpactBase)
 		}
+	}
+}
+
+// A name whose base exposure was never fully measured — nil group sum or an
+// excluded leg — degrades to a partial or zero ExposureBase, and a fully
+// delta'd name carries no greeks gap to catch it. Rule 1 comparing that
+// number asserted pass "0.0% of NLV" over a book nobody measured. The marker
+// is ExposureBaseComplete, not the magnitude, so these tests flip only that.
+func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
+	pol := DefaultRulebookPolicy()
+	quiet := func() RuleInputs {
+		in := healthyInputs()
+		in.Names = []NameInput{{Symbol: "AAA", ExposureBase: 10000, ExposureBaseComplete: true, HasStockLeg: true}}
+		return in
+	}
+
+	if got := rowByID(t, EvaluateRulebook(quiet(), pol), RuleSingleNameExposure); got.Status != RuleStatusPass {
+		t.Fatalf("baseline = %s, want pass (fixture must pass before the marker matters)", got.Status)
+	}
+
+	// The armed shape: exposure never FX-converted, all deltas present.
+	in := quiet()
+	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBase: 0, ExposureBaseComplete: false, HasStockLeg: true})
+	r := rowByID(t, EvaluateRulebook(in, pol), RuleSingleNameExposure)
+	if r.Status != RuleStatusUnknown {
+		t.Fatalf("unmeasured name = %s, want unknown — 0.0%% is absence of data, not a measurement (evidence: %s)", r.Status, r.Evidence)
+	}
+	if r.Reason != "exposure_incomplete" {
+		t.Errorf("reason = %q, want exposure_incomplete", r.Reason)
+	}
+	var named bool
+	for _, o := range r.Offenders {
+		if o.Symbol == "FXLESS" && strings.Contains(o.Note, "not fully measured") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the unmeasured name must be disclosed as an offender, got %+v", r.Offenders)
+	}
+
+	// A measured breach stands: unknown may not downgrade an act earned by
+	// converted numbers, and the unmeasured sibling stays disclosed with no
+	// impact weight it cannot prove.
+	in = quiet()
+	in.Names[0].ExposureBase = 120000 // ~49% of the 245k NLV — past the 40% act cap
+	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true})
+	r = rowByID(t, EvaluateRulebook(in, pol), RuleSingleNameExposure)
+	if r.Status != RuleStatusAct {
+		t.Errorf("measured breach beside an unmeasured name = %s, want act (breach not downgraded)", r.Status)
+	}
+	var disclosed bool
+	for _, o := range r.Offenders {
+		if o.Symbol == "FXLESS" {
+			disclosed = true
+			if o.ImpactBase != 0 {
+				t.Errorf("unmeasured name claimed ImpactBase %v, want 0", o.ImpactBase)
+			}
+		}
+	}
+	if !disclosed {
+		t.Errorf("unmeasured name must stay disclosed on an act row, offenders = %+v", r.Offenders)
+	}
+}
+
+// Rule 8 sizes a name against the pre-earnings freeze floor. A name whose
+// exposure was never fully measured sits under that floor by construction, so
+// the silent skip passed exactly the oversized-into-earnings case the rule
+// exists to freeze. Earnings provably outside the window still clear it.
+func TestEarningsSizeFreezeUnmeasuredNameBlocksPass(t *testing.T) {
+	pol := DefaultRulebookPolicy()
+	base := func(sessions int, complete bool) RuleInputs {
+		in := healthyInputs()
+		in.Names = []NameInput{{Symbol: "ERN", ExposureBase: 1000, ExposureBaseComplete: complete, HasStockLeg: true}}
+		in.Earnings = map[string]EarningsInput{"ERN": {Known: true, Date: etDate(2026, 7, 9), SessionsUntil: new(sessions), Source: "fetched"}}
+		return in
+	}
+
+	if got := rowByID(t, EvaluateRulebook(base(2, true), pol), RuleEarningsSizeFreeze); got.Status != RuleStatusPass {
+		t.Fatalf("baseline = %s, want pass (small measured name inside the window)", got.Status)
+	}
+
+	r := rowByID(t, EvaluateRulebook(base(2, false), pol), RuleEarningsSizeFreeze)
+	if r.Status != RuleStatusUnknown {
+		t.Fatalf("unmeasured size inside the freeze window = %s, want unknown (evidence: %s)", r.Status, r.Evidence)
+	}
+	var named bool
+	for _, o := range r.Offenders {
+		if o.Symbol == "ERN" && strings.Contains(o.Note, "exposure not fully measured") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the unmeasured name must be disclosed, got %+v", r.Offenders)
+	}
+
+	// Nine sessions out is provably beyond the 3-session freeze: size is moot
+	// and the escape must keep working, or every FX gap would flag this rule.
+	if got := rowByID(t, EvaluateRulebook(base(9, false), pol), RuleEarningsSizeFreeze); got.Status != RuleStatusPass {
+		t.Errorf("unmeasured size with earnings provably outside the window = %s, want pass", got.Status)
+	}
+}
+
+// Rule 10 fires on a name up past the day trigger at ≥15% of NLV. With
+// unmeasured exposure the size test read 0 and the winner silently vanished.
+// The day-change half stays a true negative: a name not up past the trigger
+// cannot trip whatever its size.
+func TestWinnerTrimUnmeasuredNameBlocksPass(t *testing.T) {
+	pol := DefaultRulebookPolicy()
+	book := func(names ...NameInput) RuleInputs {
+		in := healthyInputs()
+		in.Names = names
+		return in
+	}
+	measured := func(sym string, day, exposure float64) NameInput {
+		return NameInput{Symbol: sym, ExposureBase: exposure, ExposureBaseComplete: true, HasStockLeg: true, StockDayChangePct: new(day)}
+	}
+	unmeasured := func(sym string, day float64) NameInput {
+		return NameInput{Symbol: sym, ExposureBaseComplete: false, HasStockLeg: true, StockDayChangePct: new(day)}
+	}
+
+	if got := rowByID(t, EvaluateRulebook(book(measured("AAA", 5, 1000)), pol), RuleWinnerTrim); got.Status != RuleStatusPass {
+		t.Fatalf("baseline = %s, want pass (measured winner under the floor)", got.Status)
+	}
+
+	r := rowByID(t, EvaluateRulebook(book(unmeasured("WIN", 5)), pol), RuleWinnerTrim)
+	if r.Status != RuleStatusUnknown {
+		t.Fatalf("winner up hard with unmeasured exposure = %s, want unknown (evidence: %s)", r.Status, r.Evidence)
+	}
+	if r.Reason != "exposure_incomplete" {
+		t.Errorf("reason = %q, want exposure_incomplete", r.Reason)
+	}
+
+	// Below the trigger, unmeasured size is moot: the tape half was measured.
+	if got := rowByID(t, EvaluateRulebook(book(unmeasured("FLAT", 1)), pol), RuleWinnerTrim); got.Status != RuleStatusPass {
+		t.Errorf("unmeasured name below the day trigger = %s, want pass (true negative)", got.Status)
+	}
+
+	// A measured breach stands beside an unmeasured winner, which stays
+	// disclosed with no impact weight.
+	r = rowByID(t, EvaluateRulebook(book(measured("BIG", 6, 40000), unmeasured("WIN", 5)), pol), RuleWinnerTrim)
+	if r.Status != RuleStatusWatch {
+		t.Errorf("measured breach beside an unmeasured winner = %s, want watch (breach not downgraded)", r.Status)
+	}
+	var disclosed bool
+	for _, o := range r.Offenders {
+		if o.Symbol == "WIN" {
+			disclosed = true
+			if o.ImpactBase != 0 {
+				t.Errorf("unmeasured winner claimed ImpactBase %v, want 0", o.ImpactBase)
+			}
+		}
+	}
+	if !disclosed {
+		t.Errorf("unmeasured winner must stay disclosed on a watch row, offenders = %+v", r.Offenders)
+	}
+}
+
+// Rule 12's ratio divides hedge short-delta by gross long exposure. A name
+// with unmeasured exposure silently left the denominator, inflating the
+// ratio — an under-hedged book reading adequately hedged is the quiet
+// direction. Like a delta gap, it poisons the ratio itself: row unknown.
+func TestHedgeIntegrityUnmeasuredNameBlocksVerdict(t *testing.T) {
+	pol := DefaultRulebookPolicy()
+	long := NameInput{Symbol: "LNG", ExposureBase: 100000, ExposureBaseComplete: true, HasStockLeg: true}
+	hedge := NameInput{Symbol: "SPY", ExposureBase: -30000, ExposureBaseComplete: true, Legs: []LegInput{
+		{Desc: "SPY 20261016 P 710", Right: "P", Quantity: 40, Multiplier: 100, Mark: 10,
+			Underlying: new(750.0), Delta: new(-0.01), HedgeListed: true, MarketValueBase: 38000},
+	}}
+
+	in := healthyInputs()
+	in.Names = []NameInput{long, hedge}
+	if got := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity); got.Status != RuleStatusPass {
+		t.Fatalf("baseline = %s, want pass (30%% ratio inside the calm 25-35 band)", got.Status)
+	}
+
+	// Pre-fix, this name contributes nothing to gross long and the same 30%
+	// still passes — over a denominator that is missing a book.
+	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true})
+	r := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity)
+	if r.Status != RuleStatusUnknown {
+		t.Fatalf("unmeasured name in the book = %s, want unknown (evidence: %s)", r.Status, r.Evidence)
+	}
+	if r.Reason != "exposure_incomplete" {
+		t.Errorf("reason = %q, want exposure_incomplete", r.Reason)
+	}
+	var named bool
+	for _, o := range r.Offenders {
+		if o.Symbol == "FXLESS" && strings.Contains(o.Note, "not fully measured") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the unmeasured name must be disclosed, got %+v", r.Offenders)
 	}
 }
