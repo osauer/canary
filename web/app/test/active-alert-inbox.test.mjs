@@ -508,6 +508,31 @@ test("a failed recovery GET keeps the retained unread authority instead of clear
   reset();
 });
 
+test("a delivered alerts event clears the failure note the recovery GET set", async () => {
+  reset();
+  ingestAlerts(dto());
+  globalThis.fetch = async () => { throw new Error("network down"); };
+  assert.equal(await refreshAlerts(), false);
+  assert.match(state.attentionStatus.state, /retained state/i);
+  // The feed itself comes back before any recovery GET succeeds — on a closed
+  // session the other clear-triggers can stay silent for hours.
+  assert.equal(ingestAlertsEvent(JSON.stringify(dto({ generation: 11 }))).status, "applied");
+  assert.equal(state.attentionStatus.state, "", "a delivered event must retire the failure note");
+  assert.equal(state.attentionStatus.error, false);
+  reset();
+});
+
+test("a malformed alerts event leaves the failure note standing", async () => {
+  reset();
+  ingestAlerts(dto());
+  globalThis.fetch = async () => { throw new Error("network down"); };
+  assert.equal(await refreshAlerts(), false);
+  assert.match(state.attentionStatus.state, /retained state/i);
+  assert.equal(ingestAlertsEvent("{not json").status, "rejected");
+  assert.match(state.attentionStatus.state, /retained state/i, "a rejected event proves nothing about the feed");
+  reset();
+});
+
 test("a hung GET aborts at the deadline and later refreshes are not wedged", async () => {
   reset();
   state.alertsFetchDeadlineMs = 25;

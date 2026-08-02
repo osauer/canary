@@ -342,7 +342,17 @@ function ingestAlerts(value) {
 
 function ingestAlertsEvent(raw) {
   try {
-    return ingestAlerts(JSON.parse(raw));
+    const result = ingestAlerts(JSON.parse(raw));
+    // An accepted push is the same evidence the recovery GET provides, so it
+    // must retire the failure copy too. Without this the line outlives the
+    // outage that set it: the feed reconnects and keeps delivering while the
+    // panel still reads "retained state shown", and the only other clears —
+    // a stress event or an attention-context change — can stay silent for
+    // hours on a closed session.
+    if (result.status !== "rejected" && state.attentionStatus.state === ALERTS_REFRESH_FAILED_COPY) {
+      setAttentionStatus("");
+    }
+    return result;
   } catch {
     markInvalid("malformed alerts event");
     return { status: "rejected", value: state.alerts };
