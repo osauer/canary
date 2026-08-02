@@ -147,6 +147,42 @@ For long sessions, compact or hand off at phase boundaries and preserve gateway
 pins, freeze state, and committed versus in-flight work. See
 `.agents/docs/agent-session-hygiene.md` for rationale.
 
+## Public issue tracker
+
+The tracker is a user-facing surface, not a work list. File a GitHub issue only
+when all three hold: a user can see the wrong behaviour without reading source;
+it is present in a published version rather than introduced and fixed inside one
+unreleased cycle; and it still reproduces on the latest release when you file.
+Everything failing the first condition — gates, hint text, test harnesses,
+release tooling — is internal work and belongs in a task chip or `internal-docs/`.
+Severity is deliberately not a criterion: it decides what gets fixed next, not
+whether the artifact should exist, and a cosmetic defect a user hits and searches
+for still wants an issue.
+
+Label every one `bug`, which by that rule means "user-facing defect in a released
+version", so `label:bug is:open` is the whole known-broken list. Title it with the
+symptom in the user's words, not the cause: someone arrives searching what they
+saw. Write the body from the redacted artifact — this repository has leaked
+account data three times, and bug reports are the natural carrier for logs, held
+symbols, and order references.
+
+File at the moment you confirm it, not in batches. Two shapes:
+
+- Leave open when you are not fixing it now. This is the only place a user can
+  learn something is broken with no fix available; the changelog cannot say it.
+- File and close together when you fix it in the same session and the symptom is
+  one a user would search: silent wrong output, silently missing data, or a
+  misleading error. Skip when the symptom is unmistakable and self-explaining.
+
+Filing history retroactively is a one-time seeding exception, not the pattern.
+
+Close through the commit: a `Fixes #N` trailer closes the issue when it lands on
+main. `changelog-lint` then requires the release entry to name every issue the
+range closes, because a closed issue tells the reporter nothing about which
+release carries the fix. The reverse direction — a fix that closed something
+without ever referencing it — is judgement, and the release skill reconciles it
+once per cut rather than anyone tracking it continuously.
+
 ## Releases and public surfaces
 
 Use only `make release RELEASE_VERSION=vX.Y.Z`; never create tags, push tags, or

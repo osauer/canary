@@ -129,12 +129,36 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 - Nothing staged, no commit message, and no report may contain raw account
   ids, balances, or order references.
 
+## Stage 4b — Issue reconciliation (autonomous)
+
+`changelog-lint` already fails when a commit in the release range closes an
+issue the changelog entry does not name, so the forward direction is a gate and
+needs nothing here. This stage covers the direction a gate cannot: a fix that
+closed something without ever referencing it.
+
+Read `gh issue list --repo osauer/canary --state open --label bug` and the range
+`git log --oneline <previous-tag>..HEAD`. For each open issue, judge whether
+anything in the range plausibly addresses its symptom. Report only the ones that
+look addressed, each with the commit that suggests it, and let the user decide
+whether to close it against this version. Say "no open issue looks addressed by
+this range" and move on when nothing does; silence on the clean case is the
+point, so this never becomes a per-release chore.
+
+The list stays short only because AGENTS.md keeps the tracker to user-facing
+defects in released versions. If this sweep starts feeling expensive, the filing
+criterion has drifted, not the sweep.
+
+This is judgement over a diff, so it will miss things. It bounds the window in
+which a fixed issue sits open to one release rather than indefinitely, which is
+most of the value at a fraction of the cost of watching continuously.
+
 ## Stage 5 — GO/NO-GO (the single stop)
 
 Present a findings-first, redacted brief: target version and semver rationale;
 the rendered changelog entry; the stamp matrix; auth preflight result and
 expected interactivity; every gate's exit code and log path; hygiene verdicts;
-TWS session state; shared-tree state. Then ask GO or NO-GO and wait.
+TWS session state; shared-tree state; the issue-reconciliation result from
+Stage 4b. Then ask GO or NO-GO and wait.
 NO-GO items route by shape — code fixes land and re-gate first, policy
 questions go to the user. Never weaken a gate to reach GO.
 

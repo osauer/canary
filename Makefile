@@ -1075,6 +1075,12 @@ changelog-lint: ## Validate the topmost CHANGELOG.md entry matches RELEASE_VERSI
 		CHANGELOG_PATH=CHANGELOG.md \
 		CHANGELOG_HISTORICAL=0 \
 		./scripts/check-changelog-entry.sh
+	@# Local only: reads git and the changelog, never GitHub. Kept out of
+	@# changelog-lint-historical, whose immutable source has no release range.
+	@RELEASE_VERSION=$(RELEASE_VERSION) \
+		CHANGELOG_PATH=CHANGELOG.md \
+		./scripts/check-changelog-issue-refs.sh
+	@./scripts/check-changelog-issue-refs_test.sh
 
 changelog-lint-historical:
 	@if [ -z "$(RELEASE_VERSION)" ] || [ -z "$(RELEASE_SOURCE_DIR)" ]; then \
