@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -211,7 +212,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 		return nil, "", ErrIBKRUnavailable
 	}
 	expectedAccount := accountSummaryExpectedAccount(conn)
-	if !accountCodeConcrete(expectedAccount) {
+	if !expectedAccount.valid() {
 		return nil, "", ErrAccountSummaryScopeConflict
 	}
 	reqID, err := conn.nextRequestIDForForwarding()
@@ -220,7 +221,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	}
 	defer conn.discardRequestIDReservation(reqID)
 
-	if err := conn.RequestAccountSummaryForAccount(reqID, accountSummaryTags, expectedAccount); err != nil {
+	if err := conn.RequestAccountSummaryForAccount(reqID, accountSummaryTags, string(expectedAccount)); err != nil {
 		return nil, "", fmt.Errorf("request account summary: %w", err)
 	}
 
@@ -262,8 +263,62 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	if len(raw) == 0 && accountSummaryCacheAdmissible(conn, expectedAccount) {
 		fallback = conn.GetAccountSummary()
 	}
-	return accountSummaryFromRequestRows(raw, fallback, expectedAccount)
+	return accountSummaryFromRequestRows(raw, fallback, string(expectedAccount))
 }
+
+// accountCode is one concrete broker account code — the only identity an
+// account-scoped request may carry or a snapshot may be stamped with. The zero
+// value means "no account". newAccountCode is the only way to obtain a non-zero
+// one, so the aggregates that keep being mistaken for an account — a
+// comma-joined managedAccounts list, "All", a blank field — cannot reach a
+// consumer that asked for one account. The underlying type stays string, so
+// config, daemon.db and the JSON contract are unchanged.
+type accountCode string
+
+// newAccountCode returns the concrete account named by raw, and whether raw
+// named one at all. It is accountCodeConcrete's validation with a value
+// attached: a caller that forgets to check ok gets the zero accountCode rather
+// than an aggregate wearing an account's type.
+func newAccountCode(raw string) (accountCode, bool) {
+	raw = strings.TrimSpace(raw)
+	if !accountCodeConcrete(raw) {
+		return "", false
+	}
+	return accountCode(raw), true
+}
+
+func (a accountCode) valid() bool { return a != "" }
+
+// equal compares two account codes the way the broker does — IBKR echoes codes
+// back with inconsistent case across message families.
+func (a accountCode) equal(other accountCode) bool {
+	return a.valid() && other.valid() && strings.EqualFold(string(a), string(other))
+}
+
+// managedAccountSet is the inventory of accounts one login carries, as
+// announced by msgManagedAccts. It is deliberately a different type from
+// accountCode: every bug in this family came from one field being asked to mean
+// both "the account" and "the accounts this login can reach".
+type managedAccountSet []accountCode
+
+func newManagedAccountSet(codes []string) managedAccountSet {
+	out := make(managedAccountSet, 0, len(codes))
+	for _, raw := range codes {
+		if code, ok := newAccountCode(raw); ok {
+			out = append(out, code)
+		}
+	}
+	return out
+}
+
+func (m managedAccountSet) contains(a accountCode) bool {
+	return slices.ContainsFunc(m, a.equal)
+}
+
+// multiAccount reports whether the login carries more than one account, which
+// is the condition under which an unattributed value cannot be assigned to the
+// pinned account.
+func (m managedAccountSet) multiAccount() bool { return len(m) > 1 }
 
 // accountSummaryCacheAdmissible reports whether the connection's streaming
 // account cache may be read as expectedAccount's values.
@@ -276,11 +331,12 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 // multi-account login observes the managedAccounts aggregate and never
 // qualifies, because relabeling those rows with the configured pin would
 // publish a sibling's values under the pinned account (issue #14).
-func accountSummaryCacheAdmissible(conn *Connection, expectedAccount string) bool {
-	if conn == nil || !accountCodeConcrete(expectedAccount) {
+func accountSummaryCacheAdmissible(conn *Connection, expectedAccount accountCode) bool {
+	if conn == nil || !expectedAccount.valid() {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(conn.GetAccountCode()), expectedAccount)
+	observed, ok := newAccountCode(conn.GetAccountCode())
+	return ok && observed.equal(expectedAccount)
 }
 
 // accountSummaryExpectedAccount resolves the single account a one-shot
@@ -288,25 +344,22 @@ func accountSummaryCacheAdmissible(conn *Connection, expectedAccount string) boo
 // session confirms it as a managed account; the aggregate managedAccounts
 // string itself is never a request scope. An unpinned session remains usable
 // only when the broker exposes one concrete account.
-func accountSummaryExpectedAccount(conn *Connection) string {
+func accountSummaryExpectedAccount(conn *Connection) accountCode {
 	if conn == nil {
 		return ""
 	}
-	configured := ""
-	if conn.config != nil {
-		configured = strings.TrimSpace(conn.config.Account)
-	}
-	observed := strings.TrimSpace(conn.GetAccountCode())
-	if configured != "" {
-		if !accountCodeConcrete(configured) {
+	observed, observedOK := newAccountCode(conn.GetAccountCode())
+	if conn.config != nil && strings.TrimSpace(conn.config.Account) != "" {
+		configured, ok := newAccountCode(conn.config.Account)
+		if !ok {
 			return ""
 		}
-		if strings.EqualFold(configured, observed) || conn.managedAccountMember(configured) {
+		if configured.equal(observed) || conn.managedAccountMember(string(configured)) {
 			return configured
 		}
 		return ""
 	}
-	if accountCodeConcrete(observed) {
+	if observedOK {
 		return observed
 	}
 	return ""
@@ -331,6 +384,9 @@ func accountSummaryFromRequestRows(raw, fallback map[string]string, accountID st
 // emit per-currency rows — those are aggregated into CurrencyLedger so
 // callers can attribute currency exposure without re-fetching.
 func parseAccountSummary(raw map[string]string, accountID string) *RawAccountSummary {
+	// Resolve the base currency before the value bindings: it is what tells an
+	// account-level tag apart from a same-named $LEDGER row.
+	baseCurrency, baseProvenance := accountBaseCurrencyEvidence(raw)
 	summary := &RawAccountSummary{
 		AccountID:      accountID,
 		AsOf:           time.Now().UTC(),
@@ -367,7 +423,7 @@ func parseAccountSummary(raw map[string]string, accountID string) *RawAccountSum
 
 	for _, b := range tagBindings {
 		for _, tag := range b.tags {
-			val, currency, ok := lookupAccountValue(raw, tag)
+			val, currency, ok := lookupAccountValue(raw, tag, baseCurrency)
 			if !ok {
 				continue
 			}
@@ -386,12 +442,12 @@ func parseAccountSummary(raw map[string]string, accountID string) *RawAccountSum
 	// AccountType is a string tag (e.g. "INDIVIDUAL", "IB-MARGIN") rather
 	// than a numeric value, so it does not pass through the float-bindings
 	// loop. The gateway emits it with an empty currency field.
-	if v, _, ok := lookupAccountValue(raw, "AccountType"); ok {
+	if v, _, ok := lookupAccountValue(raw, "AccountType", baseCurrency); ok {
 		summary.AccountType = strings.TrimSpace(v)
 	}
 
 	summary.CurrencyLedger = extractCurrencyLedger(raw)
-	summary.BaseCurrency, summary.BaseCurrencyProvenance = accountBaseCurrencyEvidence(raw)
+	summary.BaseCurrency, summary.BaseCurrencyProvenance = baseCurrency, baseProvenance
 
 	return summary
 }
@@ -435,15 +491,18 @@ func (c *Connector) CurrencyLedgerSnapshot() map[string]CurrencyLedger {
 
 // AccountSummaryRaw returns a defensive copy of the connector's current raw
 // account-summary cache. The map uses IBKR keys: bare tags for base-currency
-// values and `<tag>_<currency>` for currency-specific values. It is empty when
-// no connection or observations are available; emptiness alone does not
-// describe connection state. The method is safe to call concurrently with
-// streaming cache updates.
+// values and `<tag>_<currency>` for currency-specific values.
+//
+// It is empty when no connection or observations are available, and also
+// whenever the cache cannot be attributed to the session's expected account —
+// the same admissibility rule CachedAccountSummary applies, because it is the
+// same unstamped map. Emptiness alone does not describe connection state. The
+// method is safe to call concurrently with streaming cache updates.
 func (c *Connector) AccountSummaryRaw() map[string]string {
 	c.mu.RLock()
 	conn := c.conn
 	c.mu.RUnlock()
-	if conn == nil {
+	if !accountSummaryCacheAdmissible(conn, accountSummaryExpectedAccount(conn)) {
 		return map[string]string{}
 	}
 	return conn.GetAccountSummary()
@@ -467,7 +526,7 @@ func (c *Connector) CachedAccountSummary() *RawAccountSummary {
 	if len(raw) == 0 {
 		return nil
 	}
-	summary := parseAccountSummary(raw, account)
+	summary := parseAccountSummary(raw, string(account))
 	if summary.NetLiquidation == nil && summary.BuyingPower == nil &&
 		summary.AvailableFunds == nil && summary.TotalCashValue == nil {
 		return nil
@@ -543,23 +602,47 @@ func extractCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
 
 // lookupAccountValue returns the value, currency, and ok flag for a tag.
 // IBKR encodes BASE-currency values under the bare tag and non-BASE values
-// under `<tag>_<currency>`. We prefer the bare form; otherwise we accept the
-// first currency-suffixed entry deterministically (sorted by suffix).
-func lookupAccountValue(raw map[string]string, tag string) (string, string, bool) {
+// under `<tag>_<currency>`. The bare form wins; then the account's own base
+// currency when one is proven; then, only when the tag has exactly one
+// currency-suffixed row, that row.
+//
+// The base-currency preference is what keeps the account total apart from a
+// ledger slice. $LEDGER:ALL reuses UnrealizedPnL and RealizedPnL for every held
+// currency, and the flattened map cannot tell those rows from the account-level
+// tag — the same ambiguity accountBaseCurrencyValueTags already refuses to draw
+// base-currency evidence from. Picking the lexicographically smallest suffix
+// resolved a CHF/EUR/USD account's UnrealizedPnL to the CHF slice rather than
+// the account total.
+func lookupAccountValue(raw map[string]string, tag, baseCcy string) (string, string, bool) {
 	if v, ok := raw[tag]; ok {
 		return v, "", true
 	}
 	prefix := tag + "_"
-	var bestKey string
+	baseCcy = strings.ToUpper(strings.TrimSpace(baseCcy))
+	var bestKey, baseKey string
+	matches := 0
 	for k := range raw {
 		if !strings.HasPrefix(k, prefix) {
 			continue
 		}
+		matches++
 		if bestKey == "" || k < bestKey {
 			bestKey = k
 		}
+		if baseCcy != "" && strings.EqualFold(strings.TrimPrefix(k, prefix), baseCcy) {
+			baseKey = k
+		}
+	}
+	if baseKey != "" {
+		return raw[baseKey], strings.TrimPrefix(baseKey, prefix), true
 	}
 	if bestKey == "" {
+		return "", "", false
+	}
+	// Several currency rows and no base-currency one to choose among them: for
+	// a tag the ledger family reuses, any pick is a guess. Report nothing
+	// rather than one currency's slice as the account total.
+	if matches > 1 && currencyLedgerField(tag) {
 		return "", "", false
 	}
 	return raw[bestKey], strings.TrimPrefix(bestKey, prefix), true

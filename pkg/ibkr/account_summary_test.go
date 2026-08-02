@@ -285,13 +285,56 @@ func TestLookupAccountValue_OrderingDeterministic(t *testing.T) {
 		"NetLiquidation_USD": "100000.00",
 		"NetLiquidation_GBP": "75000.00",
 	}
-	val, currency, ok := lookupAccountValue(raw, "NetLiquidation")
+	val, currency, ok := lookupAccountValue(raw, "NetLiquidation", "")
 	if !ok {
 		t.Fatalf("expected lookup to succeed")
 	}
 	// Sort by suffix → EUR is first lexicographically
 	if currency != "EUR" || val != "90000.00" {
 		t.Fatalf("got currency=%q val=%q, want EUR/90000.00 (deterministic by sort)", currency, val)
+	}
+}
+
+// $LEDGER:ALL reuses UnrealizedPnL and RealizedPnL for every held currency, and
+// the flattened map cannot tell those rows from the account-level tag. Taking
+// the lexicographically smallest suffix reported one currency's ledger slice as
+// the account total on any multi-currency desk.
+func TestLookupAccountValuePrefersBaseCurrencyOverLedgerSlices(t *testing.T) {
+	// A CHF/EUR/USD account whose base is EUR: the ledger emits a slice per
+	// held currency under the same tag the account total uses.
+	raw := map[string]string{
+		"UnrealizedPnL_CHF": "-400.00",
+		"UnrealizedPnL_EUR": "1200.00",
+		"UnrealizedPnL_USD": "800.00",
+	}
+	val, currency, ok := lookupAccountValue(raw, "UnrealizedPnL", "EUR")
+	if !ok || currency != "EUR" || val != "1200.00" {
+		t.Fatalf("got (%q, %q, %v), want the account's own EUR row", val, currency, ok)
+	}
+
+	// Lower-case suffixes are the same rows; the broker's casing is not evidence.
+	lower := map[string]string{"UnrealizedPnL_chf": "-400.00", "UnrealizedPnL_eur": "1200.00"}
+	if val, currency, ok := lookupAccountValue(lower, "UnrealizedPnL", "EUR"); !ok || val != "1200.00" || currency != "eur" {
+		t.Fatalf("got (%q, %q, %v), want the EUR row regardless of suffix case", val, currency, ok)
+	}
+
+	// No base currency proven and several ledger-family candidates: any pick is
+	// a guess, so report nothing rather than one slice as the total.
+	if val, currency, ok := lookupAccountValue(raw, "UnrealizedPnL", ""); ok {
+		t.Fatalf("got (%q, %q, true), want no value for an unresolvable ledger-family tag", val, currency)
+	}
+
+	// One candidate is unambiguous even without a base currency.
+	single := map[string]string{"RealizedPnL_USD": "250.00"}
+	if val, currency, ok := lookupAccountValue(single, "RealizedPnL", ""); !ok || val != "250.00" || currency != "USD" {
+		t.Fatalf("got (%q, %q, %v), want the sole currency row", val, currency, ok)
+	}
+
+	// A tag the ledger family does not reuse keeps the deterministic fallback.
+	if val, _, ok := lookupAccountValue(map[string]string{
+		"BuyingPower_EUR": "10.00", "BuyingPower_USD": "20.00",
+	}, "BuyingPower", ""); !ok || val != "10.00" {
+		t.Fatalf("got (%q, %v), want the deterministic fallback for a non-ledger tag", val, ok)
 	}
 }
 
@@ -566,6 +609,51 @@ func TestAccountSummaryRequestRowDisposition(t *testing.T) {
 				t.Fatalf("disposition = %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+// reqAccountSummary is issued with group "All" and awaitAccountSummarySnapshot
+// deregisters on its own timeout while the reply is still outstanding, so a
+// sibling's row routinely arrives unregistered. It used to be adopted as the
+// session identity, because a multi-account login's c.account is the aggregate
+// and therefore not concrete — after which accountMismatchesConnected read a
+// configured-vs-connected divergence and refused every broker write for the
+// rest of the socket generation.
+func TestUnregisteredRowDoesNotRebindMultiAccountIdentity(t *testing.T) {
+	conn := NewConnection(DefaultConfig())
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", "DU1111111,DU2222222"))
+
+	// No snapshot is registered for this reqID: the request it belonged to has
+	// already timed out and been dropped.
+	conn.handleAccountSummary([]string{"63", "2", "77", "DU1111111", "NetLiquidation", "7654321", "USD"})
+
+	if got := conn.GetAccountCode(); got != "DU1111111,DU2222222" {
+		t.Fatalf("session identity = %q, want the managedAccounts aggregate left in place", got)
+	}
+	if shared := conn.GetAccountSummary(); len(shared) != 0 {
+		t.Fatalf("unattributable row entered the shared cache: %+v", shared)
+	}
+}
+
+// A genuinely single-account login still seeds its identity from unregistered
+// traffic — that is the case the seed exists for, and the case where the row
+// cannot belong to anyone else.
+func TestUnregisteredRowStillSeedsSingleAccountIdentity(t *testing.T) {
+	conn := NewConnection(DefaultConfig())
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.processMessage(conn.encodeMsg(msgManagedAccts, "1", "DU2222222"))
+	conn.accountMu.Lock()
+	conn.account = ""
+	conn.accountMu.Unlock()
+
+	conn.handleAccountSummary([]string{"63", "2", "77", "DU2222222", "NetLiquidation", "100000", "USD"})
+
+	if got := conn.GetAccountCode(); got != "DU2222222" {
+		t.Fatalf("session identity = %q, want the sole managed account", got)
+	}
+	if got := conn.GetAccountSummary()["NetLiquidation_USD"]; got != "100000" {
+		t.Fatalf("single-account row = %q, want 100000", got)
 	}
 }
 

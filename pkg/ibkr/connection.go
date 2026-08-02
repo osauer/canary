@@ -2782,11 +2782,29 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 	// Unregistered account-summary traffic is context only. It may seed a
 	// single-account session, but a foreign concrete row can never overwrite
 	// the account-bound shared cache.
-	if !accountCodeConcrete(account) || (accountCodeConcrete(c.account) && !strings.EqualFold(account, c.account)) {
+	//
+	// A login carrying several accounts is never seeded from this path. Its
+	// c.account is the managedAccounts aggregate, which is not a concrete code,
+	// so the guard below used to fall through and adopt whichever account the
+	// row named — routinely the unpinned sibling, because reqAccountSummary is
+	// issued with group "All" and awaitAccountSummarySnapshot deregisters on
+	// timeout while the reply is still outstanding. One such row rebound the
+	// session identity for the rest of the socket generation, which
+	// accountMismatchesConnected then read as a configured-vs-connected
+	// divergence and refused every broker write. The aggregate is the state
+	// that check is designed for; leaving it in place is what keeps the pin
+	// recognized as one of its members.
+	incoming, incomingOK := newAccountCode(account)
+	bound, boundOK := newAccountCode(c.account)
+	if !incomingOK || (boundOK && !bound.equal(incoming)) {
 		c.accountMu.Unlock()
 		return
 	}
-	if !accountCodeConcrete(c.account) {
+	if !boundOK {
+		if newManagedAccountSet(c.managedAccounts).multiAccount() {
+			c.accountMu.Unlock()
+			return
+		}
 		c.account = account
 	}
 	c.accountSummary[key] = value
@@ -2829,7 +2847,7 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 		// read was misrouted: drop the row and let the pinned account's own
 		// rows complete the snapshot. An account the login does not manage
 		// still rejects the whole set.
-		if accountSummaryLoginMember(account, managed) {
+		if code, ok := newAccountCode(account); ok && newManagedAccountSet(managed).contains(code) {
 			return accountSummaryRowIgnore
 		}
 		return accountSummaryRowReject
@@ -2841,16 +2859,10 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 	// single-account login that is unambiguous; on a multi-account login it
 	// cannot be attributed to the pinned account, and admitting it would report
 	// a sibling's currency exposure as the pinned account's.
-	if currencyLedgerField(tag) && concreteAccountSummaryLedgerCurrency(currency) && len(managed) <= 1 {
+	if currencyLedgerField(tag) && concreteAccountSummaryLedgerCurrency(currency) && !newManagedAccountSet(managed).multiAccount() {
 		return accountSummaryRowAccept
 	}
 	return accountSummaryRowIgnore
-}
-
-func accountSummaryLoginMember(account string, managed []string) bool {
-	return slices.ContainsFunc(managed, func(m string) bool {
-		return strings.EqualFold(strings.TrimSpace(m), account)
-	})
 }
 
 func concreteAccountSummaryLedgerCurrency(currency string) bool {
