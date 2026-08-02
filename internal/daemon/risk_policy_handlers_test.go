@@ -154,7 +154,7 @@ func TestCapitalStateReportV3DualComputeWire(t *testing.T) {
 	s.riskCapital.cumFlowsBase = 1000
 	s.riskCapital.lastReconciledAt = now
 	s.riskCapital.mu.Unlock()
-	rep := s.riskCapital.Report(s.riskPolicies.snapshot().policy, nil)
+	rep := s.riskCapital.Report(s.riskPolicies.snapshot().policy, nil, testLiveObserveScope)
 	raw, err := json.Marshal(rep)
 	if err != nil {
 		t.Fatal(err)

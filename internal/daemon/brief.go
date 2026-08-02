@@ -612,7 +612,7 @@ func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr 
 		(authority.policy == nil || authority.policy.Capital.BaseCurrency == "" || acct.BaseCurrency == "" || strings.EqualFold(authority.policy.Capital.BaseCurrency, acct.BaseCurrency)) {
 		obs = &risk.CapitalObservation{EquityBase: acct.NetLiquidation, AsOf: acct.AsOf}
 	}
-	res.Capital = s.riskCapital.Report(authority.policy, obs)
+	res.Capital = s.riskCapital.Report(authority.policy, obs, s.currentBrokerStateScope())
 	res.Limits = risk.ConstitutionLimits(authority.policy)
 	res.Overrides = s.riskCapital.OverridesSnapshot()
 	res.Cadence = s.riskCapital.Artefacts()

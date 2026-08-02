@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -100,5 +101,93 @@ func TestCorrectPeakLowersOnlyAndKeepsLatch(t *testing.T) {
 	fresh := newTestRiskCapitalStore(t)
 	if _, err := fresh.CorrectPeak(100, time.Time{}, "manual", "r", nil); err == nil || !strings.Contains(err.Error(), "not seeded") {
 		t.Fatalf("unseeded correction must refuse: %v", err)
+	}
+}
+
+// Audit A1's read side: the ladder is welded to the first live account it
+// saw, and Report used to evaluate whatever fresh equity the caller handed
+// in against that document's peak. Repinned to a smaller sibling account
+// that fabricated a block tier; to a larger one it collapsed a real
+// drawdown to ok. A mismatched session now reads Tier unknown with the
+// binding disclosed, and never a tier computed across accounts.
+func TestReportRefusesMismatchedScope(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitution()
+	reconcileNow(t, st)
+	now := time.Now()
+	st.Observe(260000, now.Add(-time.Minute), c, testLiveObserveScope) // binds U111, peak 260k
+
+	// Matched scope: the normal report, with the binding disclosed.
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("matched-scope tier = %s (%v), want ok", rep.Tier, rep.Reasons)
+	}
+	if rep.BoundAccount != testLiveObserveScope.Account {
+		t.Fatalf("bound account not disclosed on the normal report: %+v", rep)
+	}
+
+	// Mismatched account, no fresh equity: unknown, named, attributed.
+	other := brokerStateScope{Account: "U222", Mode: rpc.AccountModeLive}
+	rep = st.Report(c, nil, other)
+	if rep.Tier != risk.CapitalTierUnknown {
+		t.Fatalf("mismatched-scope tier = %s, want unknown", rep.Tier)
+	}
+	if rep.BoundAccount != testLiveObserveScope.Account {
+		t.Fatalf("mismatched-scope report must name the binding: %+v", rep)
+	}
+	var named bool
+	for _, r := range rep.Reasons {
+		if strings.Contains(r, "bound to another account") {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("mismatched-scope report must carry the named reason, got %v", rep.Reasons)
+	}
+	if rep.ConsumedPct != nil || rep.DrawdownBase != nil || rep.EquityBase != nil || rep.AdjustedPeakBase != nil {
+		t.Fatalf("mismatched-scope report leaked computed magnitudes: %+v", rep)
+	}
+
+	// The wrong-number scenario: peak adopted from U111, equity handed in
+	// from U222. A 200k sibling equity against the 260k peak is a 120%%
+	// consumed drawdown — a fabricated block pre-fix; a 400k sibling equity
+	// collapsed the tier to ok. Both must now be unknown.
+	small := &risk.CapitalObservation{EquityBase: 200000, AsOf: now}
+	if rep := st.Report(c, small, other); rep.Tier != risk.CapitalTierUnknown {
+		t.Fatalf("sibling equity below peak fabricated tier %s, want unknown", rep.Tier)
+	}
+	large := &risk.CapitalObservation{EquityBase: 400000, AsOf: now}
+	if rep := st.Report(c, large, other); rep.Tier != risk.CapitalTierUnknown {
+		t.Fatalf("sibling equity above peak collapsed tier to %s, want unknown", rep.Tier)
+	}
+
+	// Same account, different mode: refused the same way.
+	paper := brokerStateScope{Account: testLiveObserveScope.Account, Mode: rpc.AccountModePaper}
+	if rep := st.Report(c, nil, paper); rep.Tier != risk.CapitalTierUnknown {
+		t.Fatalf("mode-mismatched tier = %s, want unknown", rep.Tier)
+	}
+
+	// An unresolved scope still serves: with no session identity the report
+	// pairs the document's own persisted equity with its own peak. Offline
+	// reads stay honest rather than going dark.
+	if rep := st.Report(c, nil, brokerStateScope{}); rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("unresolved-scope tier = %s (%v), want ok from persisted self-consistent state", rep.Tier, rep.Reasons)
+	}
+	// But a fresh observation without a resolvable identity is unattributable
+	// and must not be evaluated against the peak; the persisted equity serves.
+	if rep := st.Report(c, small, brokerStateScope{}); rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("unattributable fresh equity moved the tier to %s, want ok from persisted state", rep.Tier)
+	}
+
+	// A latched block stays visible across a repin, attributed to its owner —
+	// hiding an engaged latch behind a pin change would be the quiet failure.
+	st.mu.Lock()
+	st.state.BlockLatched = true
+	st.state.LatchedAt = now
+	st.state.LatchConsumedPct = 31.5
+	st.mu.Unlock()
+	rep = st.Report(c, nil, other)
+	if rep.Tier != risk.CapitalTierUnknown || !rep.BlockLatched || rep.BoundAccount != testLiveObserveScope.Account {
+		t.Fatalf("latch visibility across a repin: %+v", rep)
 	}
 }

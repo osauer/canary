@@ -61,7 +61,7 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 		health = append(health, rpc.SourceHealth{Source: "account", Status: "ok", AsOf: acct.AsOf})
 	}
 
-	res.Capital = s.riskCapital.Report(mgr.policy, obs)
+	res.Capital = s.riskCapital.Report(mgr.policy, obs, s.currentBrokerStateScope())
 	res.Limits = risk.ConstitutionLimits(mgr.policy)
 	res.Overrides = s.riskCapital.ActiveOverrides()
 	res.Cadence = s.riskCapital.Artefacts()

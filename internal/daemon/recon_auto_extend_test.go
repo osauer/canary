@@ -92,7 +92,7 @@ func TestRiskPolicyV3AutoExtendSuccessAndExactlyOnce(t *testing.T) {
 	if rep.LastAutoExtendReportID != rep.ReportID || !rep.LastAutoExtendedAt.Equal(now) {
 		t.Fatalf("auto disclosure report=%s/%s at=%s", rep.LastAutoExtendReportID, rep.ReportID, rep.LastAutoExtendedAt)
 	}
-	capital := s.riskCapital.Report(s.riskPolicies.snapshot().policy, nil)
+	capital := s.riskCapital.Report(s.riskPolicies.snapshot().policy, nil, testLiveObserveScope)
 	if !capital.LastReconciledAt.Equal(now) || capital.LastReconcileReportID != rep.ReportID || capital.LastReconcileSource != rpc.ReconcileSourceAutomatic || capital.ReconcileStale {
 		t.Fatalf("capital auto evidence = %+v", capital)
 	}

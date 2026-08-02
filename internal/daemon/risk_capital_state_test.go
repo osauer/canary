@@ -68,7 +68,7 @@ func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
 	now := time.Now()
 
 	st.Observe(260000, now.Add(-2*time.Minute), c, testLiveObserveScope)
-	rep := st.Report(c, nil)
+	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierOK {
 		t.Fatalf("tier = %s (%v), want ok", rep.Tier, rep.Reasons)
 	}
@@ -77,7 +77,7 @@ func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
 	}
 
 	st.Observe(252000, now.Add(-time.Minute), c, testLiveObserveScope) // −8k = 16% of 50k declared
-	rep = st.Report(c, nil)
+	rep = st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierWarn {
 		t.Fatalf("tier = %s, want warn", rep.Tier)
 	}
@@ -86,7 +86,7 @@ func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
 	}
 
 	st.Observe(258000, now, c, testLiveObserveScope) // recovery: warn self-clears (decision 5)
-	if rep = st.Report(c, nil); rep.Tier != risk.CapitalTierOK {
+	if rep = st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierOK {
 		t.Fatalf("tier after recovery = %s, want ok (warn is self-clearing)", rep.Tier)
 	}
 }
@@ -146,7 +146,7 @@ func TestRiskCapitalExternalFlowsDoNotMoveDrawdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Observe(280000, now.Add(-2*time.Minute), c, testLiveObserveScope)
-	rep := st.Report(c, nil)
+	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 260000 {
 		t.Fatalf("peak after deposit = %v, want unchanged 260000", rep.AdjustedPeakBase)
 	}
@@ -158,7 +158,7 @@ func TestRiskCapitalExternalFlowsDoNotMoveDrawdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Observe(250000, now.Add(-time.Minute), c, testLiveObserveScope)
-	rep = st.Report(c, nil)
+	rep = st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierOK {
 		t.Fatalf("tier after withdrawal = %s (consumed %v), want ok — a withdrawal is not a loss", rep.Tier, rep.ConsumedPct)
 	}
@@ -178,7 +178,7 @@ func TestRiskCapitalLateDepositCorrectsPeak(t *testing.T) {
 	}, rpc.OrderOriginHumanTTY, nil); err != nil {
 		t.Fatal(err)
 	}
-	rep := st.Report(c, nil)
+	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 260000 {
 		t.Fatalf("peak = %v, want corrected to 260000", rep.AdjustedPeakBase)
 	}
@@ -194,7 +194,7 @@ func TestRiskCapitalV3NoStatementsTreatsDeclarationsAsBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Observe(280000, now, c, testLiveObserveScope)
-	rep := st.Report(c, nil)
+	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.FlowSource != rpc.CapitalFlowSourceStatement || rep.DeclaredCumFlowsBase == nil || *rep.DeclaredCumFlowsBase != 20000 ||
 		rep.StatementCumFlowsBase == nil || *rep.StatementCumFlowsBase != 20000 || rep.CumExternalFlowsBase == nil || *rep.CumExternalFlowsBase != 20000 {
 		t.Fatalf("v3 no-statement bridge report = %+v", rep)
@@ -217,11 +217,11 @@ func TestRiskCapitalDualComputeFieldsAreVersionGated(t *testing.T) {
 	st.state.StatementCoverageTo = now
 	st.lastReconciledAt = now
 	st.mu.Unlock()
-	v2 := st.Report(testConstitution(), nil)
+	v2 := st.Report(testConstitution(), nil, testLiveObserveScope)
 	if v2.FlowSource != rpc.CapitalFlowSourceDeclared || v2.DeclaredCumFlowsBase == nil || *v2.DeclaredCumFlowsBase != 500 || v2.StatementCumFlowsBase != nil {
 		t.Fatalf("v2 dual fields = %+v", v2)
 	}
-	v3 := st.Report(testV3Constitution(), nil)
+	v3 := st.Report(testV3Constitution(), nil, testLiveObserveScope)
 	if v3.FlowSource != rpc.CapitalFlowSourceStatement || v3.DeclaredCumFlowsBase == nil || *v3.DeclaredCumFlowsBase != 500 ||
 		v3.StatementCumFlowsBase == nil || *v3.StatementCumFlowsBase != 700 ||
 		v3.CumExternalFlowsBase == nil || *v3.CumExternalFlowsBase != 500 {
@@ -308,10 +308,10 @@ func TestRiskCapitalV3ActivationSafetyWhenFlowSumsEqual(t *testing.T) {
 	st.declaredEvents = []capitalEventV1{{Version: 1, Type: "deposit", AmountBase: 1000, At: now.Add(-24 * time.Hour), EffectiveAt: now.Add(-24 * time.Hour)}}
 	st.lastReconciledAt = now
 	st.mu.Unlock()
-	before := st.Report(v2, nil)
+	before := st.Report(v2, nil, testLiveObserveScope)
 	flow := reconFlow{id: "existing", valueDate: now.Add(-24 * time.Hour), amountBase: 1000}
 	st.IncorporateStatementSnapshot(statementCapitalSnapshot{FlowsBase: 1000, CoverageTo: now, Flows: []reconFlow{flow}})
-	after := st.Report(v3, nil)
+	after := st.Report(v3, nil, testLiveObserveScope)
 	if derefFloat(before.AdjustedPeakBase) != derefFloat(after.AdjustedPeakBase) || before.BlockLatched != after.BlockLatched ||
 		before.Tier != after.Tier || derefFloat(before.ConsumedPct) != derefFloat(after.ConsumedPct) {
 		t.Fatalf("activation mutated capital state: before=%+v after=%+v", before, after)
@@ -331,9 +331,9 @@ func TestRiskCapitalV3ActivationSafetyWithZeroFlows(t *testing.T) {
 	st.state.LastEquityAsOf = now
 	st.lastReconciledAt = now
 	st.mu.Unlock()
-	before := st.Report(v2, nil)
+	before := st.Report(v2, nil, testLiveObserveScope)
 	st.IncorporateStatementSnapshot(statementCapitalSnapshot{CoverageTo: now})
-	after := st.Report(v3, nil)
+	after := st.Report(v3, nil, testLiveObserveScope)
 	if derefFloat(before.AdjustedPeakBase) != derefFloat(after.AdjustedPeakBase) || before.BlockLatched != after.BlockLatched ||
 		before.Tier != after.Tier || derefFloat(before.ConsumedPct) != derefFloat(after.ConsumedPct) {
 		t.Fatalf("zero-flow activation mutated capital state: before=%+v after=%+v", before, after)
@@ -355,20 +355,20 @@ func TestRiskCapitalBlockLatchPersistsAndResets(t *testing.T) {
 
 	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
 	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope) // −20k = 40% ≥ block 30%
-	rep := st.Report(c, nil)
+	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierBlock || !rep.BlockLatched {
 		t.Fatalf("tier = %s latched = %v, want block/true", rep.Tier, rep.BlockLatched)
 	}
 
 	// Mark recovery does not clear the latch (decision 5)…
 	st.Observe(262000, now.Add(-time.Minute), c, testLiveObserveScope)
-	if rep = st.Report(c, nil); rep.Tier != risk.CapitalTierBlock {
+	if rep = st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierBlock {
 		t.Fatalf("tier after recovery = %s, want block (latched)", rep.Tier)
 	}
 
 	// …and neither does a daemon restart: a fresh store reads it back.
 	st2 := &riskCapitalStore{now: time.Now}
-	if rep = st2.Report(c, nil); !rep.BlockLatched {
+	if rep = st2.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
 		t.Fatal("latch must survive a restart via risk-capital-state.json")
 	}
 
@@ -379,7 +379,7 @@ func TestRiskCapitalBlockLatchPersistsAndResets(t *testing.T) {
 	if err := st2.ResetDrawdown("weekly review 2026-07-12: de-risked, resuming at reduced size", c); err != nil {
 		t.Fatal(err)
 	}
-	rep = st2.Report(c, nil)
+	rep = st2.Report(c, nil, testLiveObserveScope)
 	if rep.BlockLatched || rep.Tier == risk.CapitalTierBlock {
 		t.Fatalf("after reset: tier = %s latched = %v, want unlatched", rep.Tier, rep.BlockLatched)
 	}
@@ -492,7 +492,7 @@ func TestRiskCapitalUnreconciledOverrideConsumptionIsControlSpecific(t *testing.
 			st.state.LastEquityBase = 260000
 			st.state.LastEquityAsOf = st.now()
 			st.mu.Unlock()
-			rep := st.Report(c, nil)
+			rep := st.Report(c, nil, testLiveObserveScope)
 			if rep.ReconcileStale != tc.stale {
 				t.Fatalf("reconcile stale = %v, want %v (override %+v)", rep.ReconcileStale, tc.stale, rec)
 			}

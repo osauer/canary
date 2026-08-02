@@ -141,7 +141,14 @@ type CapitalStateReport struct {
 	Tier string `json:"tier"` // ok | warn | block | unknown | unapproved
 	// Enforcement echoes the block tier's class so a "block" tier is
 	// legible as shadow/advisory until promotion.
-	Enforcement              string    `json:"enforcement"`
+	Enforcement string `json:"enforcement"`
+	// BoundAccount is the broker account this capital document adopted at its
+	// first live observation. The drawdown ladder follows this account, not
+	// the session pin: a session connected to a different account or mode
+	// reads Tier "unknown" with this field naming the binding, rather than a
+	// drawdown computed from one account's equity against another account's
+	// peak. Empty until first adoption.
+	BoundAccount             string    `json:"bound_account,omitempty"`
 	EquityBase               *float64  `json:"equity_base,omitempty"`
 	EquityAsOf               time.Time `json:"equity_as_of,omitzero"`
 	EquityStale              bool      `json:"equity_stale,omitempty"`

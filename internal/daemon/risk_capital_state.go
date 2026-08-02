@@ -987,12 +987,16 @@ func (st *riskCapitalStore) RecordArtefact(p rpc.ArtefactParams, c *risk.Constit
 
 // Report evaluates the current state under the active constitution for the
 // snapshot surface. obs may be nil (no fresh reading): the persisted last
-// equity serves with its own timestamp so staleness is honest.
-func (st *riskCapitalStore) Report(c *risk.Constitution, obs *risk.CapitalObservation) rpc.CapitalStateReport {
+// equity serves with its own timestamp so staleness is honest. scope is the
+// caller's connected broker identity, the same one Observe takes: a session
+// whose account or mode differs from the document's adopted binding is served
+// Tier unknown with the binding disclosed, never a drawdown computed from one
+// account's equity against another account's peak (audit A1).
+func (st *riskCapitalStore) Report(c *risk.Constitution, obs *risk.CapitalObservation, scope brokerStateScope) rpc.CapitalStateReport {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.loadLocked()
-	return st.reportLocked(c, obs)
+	return st.reportLocked(c, obs, scope)
 }
 
 type riskCapitalNudgeSnapshot struct {
@@ -1015,13 +1019,45 @@ func (st *riskCapitalStore) NudgeSnapshot(c *risk.Constitution, obs *risk.Capita
 	if st.nudgeCaptureHook != nil {
 		st.nudgeCaptureHook()
 	}
-	report := st.reportLocked(c, obs)
+	// The nudge path passes no fresh observation, so the report pairs the
+	// document's own persisted equity with its own peak — self-consistent for
+	// the bound account regardless of the current session. An empty scope is
+	// therefore correct here, not an oversight.
+	report := st.reportLocked(c, obs, brokerStateScope{})
 	open, episode, occurredAt := st.nudgeLatchLocked()
 	return riskCapitalNudgeSnapshot{Report: report, LatchOpen: open, Episode: episode, OccurredAt: occurredAt}
 }
 
-func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.CapitalObservation) rpc.CapitalStateReport {
+func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.CapitalObservation, scope brokerStateScope) rpc.CapitalStateReport {
 	now := st.now()
+
+	if reason := st.reportScopeMismatchLocked(scope); reason != "" {
+		// No drawdown across accounts: computing this document's peak against
+		// a mismatched session's equity fabricates a tier in either direction
+		// (a smaller sibling equity manufactures a block, a larger one
+		// collapses it to ok). The document facts stay visible and attributed
+		// — a latched block must not vanish from view behind a repin — but
+		// the computed magnitudes do not cross the binding.
+		rep := rpc.CapitalStateReport{
+			Tier:             risk.CapitalTierUnknown,
+			Enforcement:      constitutionEnforcement(c),
+			BoundAccount:     st.state.AccountID,
+			BlockLatched:     st.state.BlockLatched,
+			LatchedAt:        st.state.LatchedAt,
+			LatchConsumedPct: latchConsumedPct(st.state),
+			Reasons:          []string{reason},
+		}
+		if c != nil {
+			rep.BaseCurrency = c.Capital.BaseCurrency
+		}
+		return rep
+	}
+	// A fresh observation with no resolvable session identity cannot be
+	// attributed to the bound account; the persisted last equity below is
+	// self-consistent with the document and serves instead, staleness honest.
+	if obs != nil && st.state.AccountID != "" && !brokerScopeConcrete(scope) {
+		obs = nil
+	}
 
 	if obs == nil && st.state.LastEquityBase > 0 {
 		obs = &risk.CapitalObservation{EquityBase: st.state.LastEquityBase, AsOf: st.state.LastEquityAsOf}
@@ -1032,6 +1068,7 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 	rep := rpc.CapitalStateReport{
 		Tier:                     v.Tier,
 		Enforcement:              constitutionEnforcement(c),
+		BoundAccount:             st.state.AccountID,
 		EquityStale:              v.EquityStale,
 		EffectiveRiskCapitalBase: v.EffectiveRiskCapitalBase,
 		DrawdownBase:             v.DrawdownBase,
@@ -1069,6 +1106,25 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 		rep.CumExternalFlowsBase = &flows
 	}
 	return rep
+}
+
+// reportScopeMismatchLocked names why the calling session may not read this
+// capital document as its own, or "" when it may. Unlike observation
+// rejection, an unresolved scope serves: with no session identity the report
+// pairs the bound account's persisted equity with its own peak, which is
+// self-consistent. The hazard this guards is a resolved session handing a
+// different account's fresh equity to this document's peak (audit A1).
+func (st *riskCapitalStore) reportScopeMismatchLocked(scope brokerStateScope) string {
+	if st.state.AccountID == "" || !brokerScopeConcrete(scope) {
+		return ""
+	}
+	if !strings.EqualFold(st.state.AccountID, scope.Account) {
+		return "the capital ladder is bound to another account; its drawdown is not computed against this session's equity"
+	}
+	if st.state.AccountMode != "" && !strings.EqualFold(st.state.AccountMode, scope.Mode) {
+		return "the capital ladder is bound to another account mode; its drawdown is not computed against this session's equity"
+	}
+	return ""
 }
 
 // latchConsumedPct discloses the consumed share recorded at latch engagement,
