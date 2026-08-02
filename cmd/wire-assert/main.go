@@ -16,7 +16,9 @@
 // Catalogue:
 //
 //	quote-spy              — reqMktData SPY STK + tickPrice within budget
-//	chain-iv-source        — ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV
+//	chain-iv-source        — ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV,
+//	                         or a chain response carrying per-leg IV when the
+//	                         board was already subscribed
 //	gamma-no-wait-envelope — gamma --no-wait returns a valid typed lifecycle state
 //	regime-subs            — MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY
 //	account-summary        — reqAccountSummary OUT + accountSummary IN
@@ -148,12 +150,12 @@ func parseFrames(br *bufio.Reader) ([]WireFrame, error) {
 
 func main() {
 	var (
-		jsonlPath    = flag.String("jsonl", "", "path to wire JSONL log")
-		sinceOff     = flag.Int64("since-offset", 0, "skip bytes before this offset")
-		check        = flag.String("check", "", "check name (quote-spy, chain-iv-source, …)")
-		loose        = flag.Bool("loose", false, "loosen budgets when gateway is in frozen/off-hours mode")
-		gammaEnvPath = flag.String("gamma-envelope-path", "", "path to a JSON file holding the gamma envelope")
-		listChecks   = flag.Bool("list", false, "print the catalogue of supported checks and exit")
+		jsonlPath  = flag.String("jsonl", "", "path to wire JSONL log")
+		sinceOff   = flag.Int64("since-offset", 0, "skip bytes before this offset")
+		check      = flag.String("check", "", "check name (quote-spy, chain-iv-source, …)")
+		loose      = flag.Bool("loose", false, "loosen budgets when gateway is in frozen/off-hours mode")
+		envPath    = flag.String("envelope-path", "", "path to a JSON file holding the command's response envelope")
+		listChecks = flag.Bool("list", false, "print the catalogue of supported checks and exit")
 	)
 	flag.Parse()
 
@@ -165,7 +167,7 @@ func main() {
 	}
 
 	if *jsonlPath == "" || *check == "" {
-		fmt.Fprintln(os.Stderr, "usage: wire-assert --jsonl PATH --check NAME [--since-offset N] [--loose] [--gamma-envelope-path PATH]")
+		fmt.Fprintln(os.Stderr, "usage: wire-assert --jsonl PATH --check NAME [--since-offset N] [--loose] [--envelope-path PATH]")
 		fmt.Fprintln(os.Stderr, "       wire-assert --list")
 		os.Exit(2)
 	}
@@ -176,21 +178,22 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Auxiliary input: the gamma envelope JSON returned by the CLI. Its typed
-	// lifecycle state is response evidence, not something wire frames carry.
-	var gammaEnvBytes []byte
-	if *gammaEnvPath != "" {
-		gammaEnvBytes, err = os.ReadFile(*gammaEnvPath)
+	// Auxiliary input: the JSON response the CLI printed. Typed daemon
+	// state — a gamma lifecycle status, a chain's per-leg IV — is response
+	// evidence that wire frames do not carry.
+	var envBytes []byte
+	if *envPath != "" {
+		envBytes, err = os.ReadFile(*envPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wire-assert: read gamma envelope %s: %v\n", *gammaEnvPath, err)
+			fmt.Fprintf(os.Stderr, "wire-assert: read envelope %s: %v\n", *envPath, err)
 			os.Exit(2)
 		}
 	}
 
 	result := dispatch(*check, checkInputs{
-		Frames:        frames,
-		Loose:         *loose,
-		GammaEnvelope: gammaEnvBytes,
+		Frames:   frames,
+		Loose:    *loose,
+		Envelope: envBytes,
 	})
 	if result.OK {
 		return
@@ -204,9 +207,9 @@ func main() {
 // checkInputs aggregates everything a check function may need. Passing one
 // struct keeps the type signature uniform when auxiliary inputs are required.
 type checkInputs struct {
-	Frames        []WireFrame
-	Loose         bool
-	GammaEnvelope []byte // raw JSON; nil when --gamma-envelope-path wasn't passed
+	Frames   []WireFrame
+	Loose    bool
+	Envelope []byte // raw JSON response; nil when --envelope-path wasn't passed
 }
 
 type checkEntry struct {
@@ -220,7 +223,7 @@ func catalogue() []checkEntry {
 		{"status-handshake", "after canary status: at least one MarketDataType notice inbound", checkStatusHandshake},
 		{"quote-spy", "after canary quote SPY: reqMktData OUT + tickPrice IN within budget", checkQuoteSPY},
 		{"account-summary", "after canary account: reqAccountSummary OUT + acctValue/accountSummary IN", checkAccountSummary},
-		{"chain-iv-source", "after canary chain SPY --width 5: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV from any OPT reqID", checkChainIVSource},
+		{"chain-iv-source", "after canary chain SPY --width 5: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV, or per-leg IV in the chain response when no new subscribe was needed", checkChainIVSource},
 		{"regime-subs", "after canary regime: MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY", checkRegimeSubs},
 		{"gamma-no-wait-envelope", "after canary gamma --no-wait: valid cold/computing/ready/error envelope", checkGammaNoWaitEnvelope},
 	}
@@ -417,10 +420,15 @@ func checkChainIVSource(in checkInputs) CheckResult {
 		}
 	}
 	if !anyOPTOut {
-		return CheckResult{
-			Expected: "≥1 reqMktData OUT with SecType=OPT after canary chain",
-			Observed: "0 OPT subscribes",
-		}
+		// Zero OPT subscribes is not evidence of a broken chain on its own.
+		// Connector.SubscribeOption returns the existing key without sending
+		// reqMktData when the contract is already subscribed, and a gamma
+		// prewarm running beside the smoke has typically taken the whole SPY
+		// board. Inbound model ticks cannot settle it either: nothing
+		// correlates them to this read's contracts, so a prewarm's own stream
+		// would answer for a chain that returned nothing. Only the chain
+		// response speaks about this read.
+		return checkChainResponseIV(in)
 	}
 	if !anyModelTick {
 		if loose {
@@ -435,6 +443,76 @@ func checkChainIVSource(in checkInputs) CheckResult {
 		}
 	}
 	return CheckResult{OK: true}
+}
+
+// checkChainResponseIV adjudicates a chain read that issued no new OPT
+// subscribe. "Already subscribed" and "cannot subscribe" are identical on the
+// wire — neither sends reqMktData — and differ in the response: a leg the
+// daemon could not reach comes back with data_status=subscribe_error and no
+// values at all, while a leg served from a live subscription carries the same
+// IV and prices it would have carried had this read opened the subscription.
+func checkChainResponseIV(in checkInputs) CheckResult {
+	if len(in.Envelope) == 0 {
+		return CheckResult{
+			Expected:   "≥1 reqMktData OUT with SecType=OPT after canary chain, or --envelope-path holding the chain response",
+			Observed:   "0 OPT subscribes and no chain response to adjudicate",
+			Hypothesis: "pass the chain --json output via --envelope-path so an already-subscribed board can be told apart from an unreachable one",
+		}
+	}
+	// Only the fields this check reads; extra response fields stay
+	// forward-compatible, and the status strings are matched against an
+	// allowlist rather than parsed.
+	type strike struct {
+		CallIV         *float64 `json:"call_iv"`
+		PutIV          *float64 `json:"put_iv"`
+		CallDataStatus string   `json:"call_data_status"`
+		PutDataStatus  string   `json:"put_data_status"`
+	}
+	var res struct {
+		Strikes []strike `json:"strikes"`
+	}
+	if err := json.Unmarshal(in.Envelope, &res); err != nil {
+		return CheckResult{
+			Expected:   "JSON envelope parseable as the chain response",
+			Observed:   fmt.Sprintf("unmarshal failed: %v", err),
+			Hypothesis: "CLI may have emitted an error envelope rather than the chain result shape",
+		}
+	}
+	// A leg that reached an option line, whether or not the model engine
+	// priced it. subscribe_error, unavailable and no_quote are all excluded:
+	// the first two are the failure this check exists to catch, and the third
+	// is a subscription that delivered nothing within the leg's budget.
+	reached := map[string]bool{"quoted": true, "prev_close": true, "model_only": true}
+	var withIV, withData int
+	for _, s := range res.Strikes {
+		// Same plausibility bound as the msg-21 path above.
+		if (s.CallIV != nil && *s.CallIV > 0 && *s.CallIV < 5) || (s.PutIV != nil && *s.PutIV > 0 && *s.PutIV < 5) {
+			withIV++
+		}
+		if reached[s.CallDataStatus] || reached[s.PutDataStatus] {
+			withData++
+		}
+	}
+	total := len(res.Strikes)
+	if withIV > 0 {
+		return CheckResult{OK: true, Observed: fmt.Sprintf(
+			"0 new OPT subscribes; chain response carries IV on %d of %d strikes (board already subscribed)", withIV, total)}
+	}
+	if in.Loose && withData > 0 {
+		// Off-hours the model engine is idle, so priced legs without IV are
+		// the same tolerance the model-tick branch already grants.
+		return CheckResult{OK: true, Observed: fmt.Sprintf(
+			"loose-mode: 0 new OPT subscribes and 0 IVs, but %d of %d strikes carry option data", withData, total)}
+	}
+	expected := "≥1 chain strike carrying an option IV when no new OPT subscribe was issued"
+	if in.Loose {
+		expected = "≥1 chain strike carrying an option IV or a priced leg when no new OPT subscribe was issued"
+	}
+	return CheckResult{
+		Expected:   expected,
+		Observed:   fmt.Sprintf("0 OPT subscribes, %d of %d strikes with IV, %d with option data", withIV, total, withData),
+		Hypothesis: "the chain could not reach an option line at all — check the gateway's option market-data lines and contract resolution (pkg/ibkr/connector.go SubscribeOption); a full TWS restart clears an exhausted line pool",
+	}
 }
 
 func checkRegimeSubs(in checkInputs) CheckResult {
@@ -473,9 +551,9 @@ func checkRegimeSubs(in checkInputs) CheckResult {
 }
 
 func checkGammaNoWaitEnvelope(in checkInputs) CheckResult {
-	if len(in.GammaEnvelope) == 0 {
+	if len(in.Envelope) == 0 {
 		return CheckResult{
-			Expected: "--gamma-envelope-path PATH (the gamma JSON response)",
+			Expected: "--envelope-path PATH (the gamma JSON response)",
 			Observed: "no envelope provided",
 		}
 	}
@@ -489,7 +567,7 @@ func checkGammaNoWaitEnvelope(in checkInputs) CheckResult {
 		Error     string           `json:"error,omitempty"`
 	}
 	var e env
-	if err := json.Unmarshal(in.GammaEnvelope, &e); err != nil {
+	if err := json.Unmarshal(in.Envelope, &e); err != nil {
 		return CheckResult{
 			Expected:   "JSON envelope parseable as the gamma response",
 			Observed:   fmt.Sprintf("unmarshal failed: %v", err),

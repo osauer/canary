@@ -201,8 +201,8 @@ run_cli() {
 # isolated tmp daemon's wire log is small enough — and the per-command
 # command order is deterministic enough — that whole-file scans work.
 #
-# Optional second arg: the path to a JSON envelope to forward via
-# --gamma-envelope-path.
+# Optional second arg: the path to the command's JSON response, forwarded
+# via --envelope-path.
 assert_wire() {
     local check="$1"
     local envelope="${2:-}"
@@ -211,7 +211,7 @@ assert_wire() {
         args+=(--loose)
     fi
     if [[ -n "$envelope" ]]; then
-        args+=(--gamma-envelope-path "$envelope")
+        args+=(--envelope-path "$envelope")
     fi
     if ! "$ASSERT" "${args[@]}"; then
         echo "" >&2
@@ -322,7 +322,9 @@ if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "$LAST_CMD_OUTPUT" >&2
     exit 1
 fi
-assert_wire chain-iv-source
+CHAIN_ENV="$SMOKE_DIR/chain-iv-envelope.json"
+printf '%s' "$LAST_CMD_OUTPUT" > "$CHAIN_ENV"
+assert_wire chain-iv-source "$CHAIN_ENV"
 
 # 8. regime — the dashboard's fan-out. Asserts all 5 indicator
 # subscribes go out.

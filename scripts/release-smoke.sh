@@ -122,7 +122,7 @@ assert_wire() {
         args+=(--loose)
     fi
     if [[ -n "$envelope" ]]; then
-        args+=(--gamma-envelope-path "$envelope")
+        args+=(--envelope-path "$envelope")
     fi
     if ! "$ASSERT" "${args[@]}"; then
         echo "" >&2
@@ -513,7 +513,11 @@ if [[ -z "$expiries" ]]; then
     exit 1
 fi
 run_wire_cli chain-iv "$WIRE_TIMEOUT" chain SPY --expiry "$expiries" --width 1 --side both --json
-assert_wire chain-iv-source "$LAST_WIRE_OFFSET"
+# The response decides the check when the daemon needed no new subscribe
+# because a concurrent gamma prewarm already holds the board.
+CHAIN_ENV="$SMOKE_DIR/chain-iv-envelope.json"
+printf '%s' "$LAST_CMD_OUTPUT" > "$CHAIN_ENV"
+assert_wire chain-iv-source "$LAST_WIRE_OFFSET" "$CHAIN_ENV"
 
 echo "  [9] gamma --no-wait..."
 run_wire_cli gamma "$WIRE_TIMEOUT" gamma --no-wait --json
