@@ -1,10 +1,14 @@
 # Account Identity: Audit of the v2.6.0 Blast Radius and Pin-Change Semantics
 
-Updated: 2026-08-01 22:20 CEST
+Updated: 2026-08-02 09:15 CEST
 Status: proposed, awaiting decision. This document binds nothing. It is the
 finding record for a multi-agent audit run after issue #14, and the input to a
-decision about n-account logins. The three fixes listed under *Landed* are the
-only code changes it describes that already exist.
+decision about n-account logins. Only the commits listed under *Landed* exist as
+code; every finding below them is a claim awaiting a decision.
+
+The findings sections describe the tree as audited on 2026-08-01. Several have
+since been fixed — see *Update 2026-08-02* at the end, which is authoritative
+where it and an earlier section disagree.
 
 ## Why this exists
 
@@ -31,6 +35,8 @@ to live, an entity migration, or a mistyped pin corrected an hour later.
 | `7601128` | `CachedAccountSummary` stamped the snapshot `AccountID` with the aggregate, so every account-scoped consumer failed closed on it |
 | `cd6a98d` | `reqAccountSummary` is issued with group `"All"`, so a multi-account login answers with every account's rows; a sibling row was classified as a scope violation and discarded the whole snapshot, failing the one-shot deterministically on every evaluation |
 | `39e905f` | `canary status` and the TUI printed the aggregate as the session account, naming a sibling the operator never pinned |
+| `c673af4` | every non-option position row was quote-probed as `STK` on its bare symbol, so a treasury symbolled `T` was priced and day-changed against AT&T; the `100`-to-`1` multiplier coercion applied to futures; group base totals counted one of several same-symbol equity rows |
+| `ba8f9d8` | an unregistered summary row rebound the session identity to a sibling and blocked every broker write; `AccountSummaryRaw` read the unstamped cache unguarded; `lookupAccountValue` resolved `UnrealizedPnL` to a ledger slice |
 
 `cd6a98d` is the root cause of the reporter's symptom; `7601128` is why the
 fallback that masked it was mislabelled. Neither works alone.
@@ -295,6 +301,97 @@ collection skipped the decision silently.
    refused while orders are working?** The recommendation is yes to both.
 4. **Should `canary account list` show sibling balances** — a read-only awareness
    view, with no risk semantics attached — or stay strictly single-account?
+
+## Update 2026-08-02 — third audit, ledger research, and what landed
+
+Two more audits finished after the sections above were written, and five fixes
+landed. Totals across all three audits: **57 hazards filed, 21 refuted, 44
+survived**. This section is authoritative where it and an earlier section
+disagree.
+
+### The strongest signal in the whole exercise
+
+Five independent lenses, given different briefs, converged on one defect:
+`connection.go:2785`. On a multi-account login `c.account` is the aggregate,
+which is not concrete, so an unregistered summary row was adopted as the session
+identity. The reachable window was not the obvious one — it is the **timeout
+path**, where `awaitAccountSummarySnapshot` deregisters while the reply is still
+outstanding and the cancel goes out afterward, and `handlers.go:441` runs a 3s
+request on every positions read and discards the error.
+
+`accountMismatchesConnected` then read the rebind as a configured-versus-
+connected divergence and refused **every broker write for the rest of the socket
+generation**. Fixed in `ba8f9d8`.
+
+Two properties of that defect are worth recording, because both were asked and
+both needed tracing rather than assumption:
+
+- **It denied writes; it never misrouted one.** `accountMismatchesConnected`
+  returns true when the configured account is not concrete, so an *unpinned*
+  multi-account login was blocked too. `order_whatif.go:354` does default
+  `order.Account` from the poisoned field, but the only poisoning rebind is to a
+  sibling — exactly the case the refusal catches first.
+- **Any reconnect cleared it.** `c.account` has three writers only, and the
+  clear at `connection.go:5048` runs from `resetOrderIDReadiness` before every
+  connect attempt. Nothing persisted it.
+
+**Still open after `ba8f9d8`:** the timeout window itself. A late row still
+arrives unregistered; it can no longer rebind the identity.
+
+### Why IBKR labels ledger rows `Account=All`
+
+It looked senseless. It is not: **`:ALL` means all accounts as well as all
+currencies.** IBKR's Account Summary page states the `$LEDGER:ALL` values are
+"summed up values for ALL accounts and currencies", with an example row reading
+`Account = All`.
+
+IBKR contradicts itself — the `EClient` class reference describes the same tag as
+currencies only, and the cross-account sentence survives only on the page IBKR
+marks deprecated. What settles it is a third-party capture from a live
+six-account advisor login: plain `$LEDGER` returned 138 ledger rows (six accounts
+× 23 fields) while `$LEDGER:ALL` returned 66 — more currencies, fewer than half
+the rows, so the account axis collapses. In that same capture plain `$LEDGER`
+rows carry **concrete account codes**, so the `All` label belongs to the `:ALL`
+variant, not to the ledger family.
+
+This vindicates refusing those rows on a multi-account login (`cd6a98d`): booking
+a cross-account sum against the pin overstates its cash and market value by the
+siblings' holdings. ib_async filters the same rows away.
+
+Two consequences that are **not** yet acted on:
+
+- **A better fix exists.** `reqAccountUpdatesMulti(reqId, account, modelCode,
+  ledgerAndNLV=true)` returns the same per-currency breakdown with the account
+  explicit on every row. Canary implements none of it. That is how multi-account
+  logins get currency exposure back.
+- **A forward-compat hazard.** TWS/Gateway **10.47** adds an API setting that
+  prepends `$LEDGER-` to every per-currency key, **default enabled for new
+  users**. `extractCurrencyLedger` splits on the last underscore and matches the
+  prefix against `currencyLedgerField`, so `$LEDGER-CashBalance_USD` fails the
+  match and the row **vanishes with no error**. This will land on new installs as
+  they adopt 10.47.
+
+### Corrected status of the findings above
+
+Closed by `c673af4` / `ba8f9d8`: **C4** (the unstamped cache is now refused at
+both doors, so nothing clears-on-rebind is needed for correctness), and the
+`AccountSummaryRaw` half of the same problem. The identity rebind and the
+`UnrealizedPnL` ledger collision were found by the third audit and are closed
+too.
+
+Unchanged and still open: **A1** and **A2** — the two wrong-number defects
+reachable on today's restart-only pin change — plus **A3**, **A4**, **A5**,
+**A6**, the whole **B** and **C** groups except C4, and all of **D**.
+
+### Deliberate gaps, recorded so they do not look fixed
+
+- `rpc.PositionGroup.Stock` still shows one of several same-symbol rows. The
+  arithmetic is correct as of `c673af4`; the display is not. Making it a slice
+  touches the SPA, CLI and MCP.
+- `accountCodeConcrete` remains a free function at roughly 40 call sites. The
+  `accountCode` / `managedAccountSet` types introduced in `ba8f9d8` are used only
+  where those fixes already edited. Sweeping the rest is its own change and does
+  not belong in a correctness release.
 
 ## Related
 
