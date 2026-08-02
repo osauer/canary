@@ -57,12 +57,27 @@ RELEASE_CONTROLLER_CONTRACT = release-controller-v1
 override release_first_makeflag = $(firstword $(MAKEFLAGS))
 override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))
 override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))
+# Variables that are constants of the release contract, not caller knobs. A
+# command-line or environment assignment beats a makefile one and propagates
+# into every sub-make, so each of these can narrow what a release proves while
+# every downstream gate still reports success: RELEASE_TARGETS shrinks the
+# artifact matrix that assembly then treats as complete, SPX_EXPECTED_REACHABLE
+# and SMOKE_STRICT disarm the binding live smoke, MAIN_BRANCH retargets the ref
+# the candidate lands on and that exact-SHA CI evidence is read for, GO_TAGS
+# decides whether the smoked binary can reach the broker write path at all, and
+# STRIP_LDFLAGS is injected verbatim into the published binaries' link flags.
+# GO_BUILD_TAGS and LDFLAGS are pinned with them because a derived variable
+# that can be overridden directly is a way around the source it derives from.
+# Guarded release targets therefore reject any origin but this makefile, the
+# same expansion-time treatment MAKE and MAKEFLAGS already get.
+override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS
+override release_overridden_vars = $(strip $(foreach release_pinned_var,$(release_pinned_vars),$(if $(filter file,$(origin $(release_pinned_var))),,$(release_pinned_var))))
 MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publisher)
 RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -813,6 +828,15 @@ release-checksums: ## Sign SHA256SUMS for tarballs and MCPB assets
 		"$(CURDIR)/scripts/build-release-artifacts.sh" checksums "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))" \
 		"$(RELEASE_TARGETS)" "$(RELEASE_BUILD_JOBS)" "$(STRIP_LDFLAGS)"
 
+# The published payload set is fixed by the release contract — four targets
+# x read-only/trading tarballs plus the versioned and floating MCPB — and is
+# never a function of what matrix the caller asked for. Counting assets is not
+# enough: six correct files plus four duplicates also counts to ten, so the
+# gate compares exact names. Both the pre-tag proof in _release-run and the
+# pre-publication proof in _release-publish run this one authority.
+release-payload-inventory-check:
+	@./scripts/check-release-payload-inventory.sh "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))"
+
 release-registry-server: ## Generate and validate dist/server.json for MCP Registry publishing
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-registry-server: RELEASE_VERSION is required, e.g. make release-registry-server RELEASE_VERSION=v1.2.1" >&2; \
@@ -857,6 +881,7 @@ _release-ci-wait-historical:
 	$(if $(strip $(MAKEFILES)),$(error _release-ci-wait-historical: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-ci-wait-historical: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-ci-wait-historical: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-ci-wait-historical: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then \
 		echo "_release-ci-wait-historical: internal resume helper; invoke 'make release-resume RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
@@ -932,6 +957,7 @@ registry-publish: ## Recover registry publication from an exact tagged release w
 	$(if $(strip $(MAKEFILES)),$(error registry-publish: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error registry-publish: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error registry-publish: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error registry-publish: release variables must not be overridden: $(release_overridden_vars)),)
 	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
 		echo "registry-publish: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
@@ -955,6 +981,7 @@ registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall
 	$(if $(strip $(MAKEFILES)),$(error registry-publish-verify-first: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error registry-publish-verify-first: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error registry-publish-verify-first: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error registry-publish-verify-first: release variables must not be overridden: $(release_overridden_vars)),)
 	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
 		echo "registry-publish-verify-first: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
@@ -988,6 +1015,7 @@ _release-publish:
 	$(if $(strip $(MAKEFILES)),$(error _release-publish: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-publish: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-publish: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-publish: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ]; then \
 		echo "_release-publish: internal pipeline helper; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
@@ -1001,26 +1029,7 @@ _release-publish:
 		exit 1; \
 	fi
 	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-ci-wait,$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume)
-	@if [ ! -d "$(DIST_DIR)" ] || [ ! -f "$(DIST_DIR)/SHA256SUMS" ]; then \
-		echo "_release-publish: $(DIST_DIR)/ missing or empty; release artifact assembly did not complete" >&2; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(DIST_DIR)/SHA256SUMS.asc" ]; then \
-		echo "_release-publish: $(DIST_DIR)/SHA256SUMS.asc missing — Canary updater requires the signature" >&2; \
-		exit 1; \
-	fi
-	@for asset in "canary-$(RELEASE_VERSION).mcpb" canary.mcpb; do \
-		if [ ! -f "$(DIST_DIR)/$$asset" ]; then \
-			echo "_release-publish: $(DIST_DIR)/$$asset missing — release artifact assembly did not complete" >&2; \
-			exit 1; \
-		fi; \
-	done
-	@sum_count=$$(wc -l < "$(DIST_DIR)/SHA256SUMS" | tr -d '[:space:]'); \
-	payload_count=$$(find "$(DIST_DIR)" -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.mcpb' \) | wc -l | tr -d '[:space:]'); \
-	if [ "$$sum_count" != 10 ] || [ "$$payload_count" != 10 ]; then \
-		echo "_release-publish: expected 10 checksummed payloads (8 tarballs + 2 MCPB; 12 published assets including checksums/signature), got sums=$$sum_count files=$$payload_count" >&2; \
-		exit 1; \
-	fi
+	$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@cd "$(DIST_DIR)" && shasum -a 256 -c SHA256SUMS
 	@command -v gh >/dev/null 2>&1 || { echo "_release-publish: gh CLI not on PATH; brew install gh" >&2; exit 1; }
 	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION),$(MAKE) changelog-lint-historical RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_SOURCE_DIR="$(RELEASE_SOURCE_DIR)")
@@ -1119,6 +1128,7 @@ release: ## Cut a release from an isolated worktree of committed HEAD: make rele
 	$(if $(strip $(MAKEFILES)),$(error release: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error release: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release: RELEASE_VERSION is required, e.g. make release RELEASE_VERSION=v0.3.1" >&2; \
 		exit 1; \
@@ -1188,6 +1198,7 @@ release-resume: ## Resume a release interrupted after its tag was pushed: make r
 	$(if $(strip $(MAKEFILES)),$(error release-resume: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release-resume: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release-resume: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error release-resume: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-resume: RELEASE_VERSION is required, e.g. make release-resume RELEASE_VERSION=v0.3.1" >&2; \
 		exit 1; \
@@ -1258,6 +1269,7 @@ _release-resume-run:
 	$(if $(strip $(MAKEFILES)),$(error _release-resume-run: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-resume-run: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-resume-run: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-resume-run: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then \
 		echo "_release-resume-run: internal pipeline body; invoke 'make release-resume RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
@@ -1364,6 +1376,7 @@ _release-run:
 	$(if $(strip $(MAKEFILES)),$(error _release-run: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-run: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-run: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-run: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then \
 		echo "_release-run: internal pipeline body; invoke 'make release RELEASE_VERSION=vX.Y.Z'" >&2; \
 		exit 1; \
@@ -1434,8 +1447,11 @@ _release-run:
 	@# stamp has to match.
 	$(MAKE) build VERSION=$(RELEASE_VERSION)
 	@# Binding TWS/Gateway JSON + wire smoke against the freshly-stamped
-	@# binary. Runs one isolated daemon session and fails on no gateway.
-	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1
+	@# binary. Runs one isolated daemon session and fails on no gateway, and
+	@# on the SPX entitlement banner: this desk has OPRA, so a skipped SPX
+	@# read is a bug, not a licence gap. Both postures are passed explicitly
+	@# so the release smoke never inherits a weaker caller default.
+	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1
 	@# Binding paper-trading smoke (2026-06-10 decision): the order
 	@# pipeline is verified automatically per release — place/ack/cancel
 	@# a 1-share paper round-trip via an isolated daemon pinned to the
@@ -1453,6 +1469,14 @@ _release-run:
 	@msg="$${MESSAGE:-$(RELEASE_VERSION)}"; \
 	git tag -a $(RELEASE_VERSION) -m "$$msg"
 	@$(MAKE) release-binaries RELEASE_VERSION=$(RELEASE_VERSION) || { \
+		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
+		exit 1; \
+	}
+	@# Assembly proves only that it built what it was asked for. Prove the
+	@# fixed published inventory BEFORE the irreversible tag push, so a
+	@# narrowed matrix fails while the tag is still a deletable local ref
+	@# rather than stranding a public tag in the resume lane.
+	@$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION) || { \
 		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
 		exit 1; \
 	}

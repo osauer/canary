@@ -38,6 +38,17 @@ fixture_make_with_makefiles() {
 		make -s -C "$test_root" -f Makefile "$@"
 }
 
+# A release variable set in the environment beats a makefile `?=` assignment
+# just as a command-line one does, so both origins get exercised.
+fixture_make_with_env() {
+	assignment=$1
+	shift
+	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u MAKEFILES -u GNUMAKEFLAGS \
+		RELEASE_PIPELINE_ENTRY= "$assignment" \
+		PATH="$test_root/bin:$PATH" \
+		make -s -C "$test_root" -f Makefile "$@"
+}
+
 mkdir -p "$test_root/bin" "$test_root/scripts" "$test_root/.github/workflows"
 for command in git gh claude; do
 	cat > "$test_root/bin/$command" <<'EOF'
@@ -48,12 +59,23 @@ EOF
 	chmod 0755 "$test_root/bin/$command"
 done
 cat > "$test_root/Makefile" <<'EOF'
-.PHONY: release release-resume _release-run _release-resume-run _release-publish release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets release-registry-server registry-publish registry-publish-verify-first
+.PHONY: release release-resume _release-run _release-resume-run _release-publish release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets release-payload-inventory-check release-registry-server registry-publish registry-publish-verify-first
 override release_first_makeflag = $(firstword $(MAKEFLAGS))
 override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))
 override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))
+override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS
+override release_overridden_vars = $(strip $(foreach release_pinned_var,$(release_pinned_vars),$(if $(filter file,$(origin $(release_pinned_var))),,$(release_pinned_var))))
 RELEASE_TARGETS = darwin-arm64 darwin-amd64 linux-amd64 linux-arm64
+SPX_EXPECTED_REACHABLE ?= 1
+SMOKE_STRICT ?= 0
+MAIN_BRANCH ?= main
+GO_TAGS ?= trading
+GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
+STRIP_LDFLAGS = -s -w
+LDFLAGS = $(STRIP_LDFLAGS)
 RELEASE_CONTROLLER_CONTRACT = release-controller-v1
+release-payload-inventory-check:
+	@./scripts/check-release-payload-inventory.sh "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))"
 release-origin-check:
 	@./scripts/check-release-origin.sh
 release-source-candidate-check:
@@ -92,6 +114,7 @@ registry-publish:
 	$(if $(strip $(MAKEFILES)),$(error registry-publish: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error registry-publish: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error registry-publish: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error registry-publish: release variables must not be overridden: $(release_overridden_vars)),)
 	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/check-release-ci-contract.sh
 	$(MAKE) release-origin-check
@@ -109,6 +132,7 @@ registry-publish-verify-first:
 	$(if $(strip $(MAKEFILES)),$(error registry-publish-verify-first: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error registry-publish-verify-first: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error registry-publish-verify-first: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error registry-publish-verify-first: release variables must not be overridden: $(release_overridden_vars)),)
 	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/check-release-ci-contract.sh
 	$(MAKE) release-origin-check
@@ -131,8 +155,10 @@ _release-publish:
 	$(if $(strip $(MAKEFILES)),$(error _release-publish: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-publish: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-publish: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-publish: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ]; then exit 1; fi
 	@case "$(RELEASE_PIPELINE_ENTRY)" in release|release-resume) ;; *) exit 1 ;; esac
+	$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-ci-wait,$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume)
 	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION),$(MAKE) changelog-lint-historical RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_SOURCE_DIR="$(RELEASE_SOURCE_DIR)")
 	@notes=$$(mktemp -t canary-release-notes.XXXXXX) && \
@@ -155,15 +181,20 @@ _release-run:
 	$(if $(strip $(MAKEFILES)),$(error _release-run: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-run: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-run: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-run: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release" ]; then exit 1; fi
 	$(MAKE) release-origin-check
 	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	$(MAKE) plugin-check
-	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1
+	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1
 	$(MAKE) release-ci-wait
 	$(MAKE) release-main-candidate-check
 	@msg=fixture; \
 	git tag -a $(RELEASE_VERSION) -m "$$msg"
+	@$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION) || { \
+		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
+		exit 1; \
+	}
 	@$(MAKE) release-ci-wait || { \
 		git tag -d $(RELEASE_VERSION) >/dev/null 2>&1; \
 		exit 1; \
@@ -193,6 +224,7 @@ release:
 	$(if $(strip $(MAKEFILES)),$(error release: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error release: release variables must not be overridden: $(release_overridden_vars)),)
 	$(MAKE) -C . _release-run RELEASE_PIPELINE_ENTRY=release
 _release-ci-wait-historical:
 	$(if $(filter default,$(origin MAKE)),,$(error _release-ci-wait-historical: MAKE must not be overridden))
@@ -202,6 +234,7 @@ _release-ci-wait-historical:
 	$(if $(strip $(MAKEFILES)),$(error _release-ci-wait-historical: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-ci-wait-historical: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-ci-wait-historical: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-ci-wait-historical: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then exit 1; fi
 	@release_sha=$$(git rev-parse --verify "refs/tags/$(RELEASE_VERSION)^{commit}") || { \
 		exit 1; \
@@ -218,6 +251,7 @@ _release-resume-run:
 	$(if $(strip $(MAKEFILES)),$(error _release-resume-run: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error _release-resume-run: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error _release-resume-run: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error _release-resume-run: release variables must not be overridden: $(release_overridden_vars)),)
 	@if [ "$(MAKELEVEL)" -lt 1 ] || [ "$(RELEASE_PIPELINE_ENTRY)" != "release-resume" ]; then exit 1; fi
 	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/check-release-ci-contract.sh
@@ -277,6 +311,7 @@ release-resume:
 	$(if $(strip $(MAKEFILES)),$(error release-resume: MAKEFILES must be empty),)
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release-resume: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release-resume: only the canonical Makefile is allowed))
+	$(if $(release_overridden_vars),$(error release-resume: release variables must not be overridden: $(release_overridden_vars)),)
 	@release_sha=$$(git rev-parse --verify "refs/tags/$(RELEASE_VERSION)^{commit}") || exit 1; \
 	controller_sha=$$(git rev-parse --verify "HEAD^{commit}") || exit 1; \
 	if ! git grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1' "$$controller_sha" -- Makefile; then \
@@ -299,6 +334,12 @@ cat > "$test_root/scripts/package.sh" <<'EOF'
 printf '%s\n' package
 EOF
 chmod 0755 "$test_root/scripts/package.sh"
+cat > "$test_root/scripts/check-release-payload-inventory.sh" <<'EOF'
+#!/bin/sh
+CANONICAL_RELEASE_TARGETS="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"
+printf '%s\n' "$CANONICAL_RELEASE_TARGETS"
+EOF
+chmod 0755 "$test_root/scripts/check-release-payload-inventory.sh"
 
 "$checker" "$test_root" >/dev/null
 
@@ -360,6 +401,64 @@ do
 		exit 1
 	fi
 done
+
+# Release variables that are constants of the contract, not caller knobs. A
+# narrowed RELEASE_TARGETS used to assemble a partial artifact set that every
+# later step then reported as complete, and SPX_EXPECTED_REACHABLE=0 /
+# SMOKE_STRICT=0 disarm the binding live smoke. Each attempt must be refused by
+# the expansion-time guard — proved by its exact diagnostic, not merely by the
+# fixture failing later for some unrelated reason — and must reach no external
+# command on the way.
+assert_pinned_var_refused() {
+	description=$1
+	shift
+	rm -f "$test_root/guard-leaked"
+	if output="$("$@" 2>&1)"; then
+		echo "check-release-boundary test: $description was accepted" >&2
+		exit 1
+	fi
+	case "$output" in
+		*"release variables must not be overridden"*) ;;
+		*)
+			echo "check-release-boundary test: $description was not refused by the pinned-variable guard" >&2
+			exit 1
+			;;
+	esac
+	if [ -e "$test_root/guard-leaked" ]; then
+		echo "check-release-boundary test: $description reached an external command" >&2
+		exit 1
+	fi
+}
+
+for pinned_target in release release-resume registry-publish registry-publish-verify-first; do
+	for pinned_case in \
+		RELEASE_TARGETS=linux-amd64 \
+		RELEASE_TARGETS= \
+		SPX_EXPECTED_REACHABLE=0 \
+		SMOKE_STRICT=0 \
+		MAIN_BRANCH=scratch \
+		GO_TAGS= \
+		GO_BUILD_TAGS= \
+		STRIP_LDFLAGS= \
+		LDFLAGS=-X=main.version=spoofed
+	do
+		assert_pinned_var_refused "command-line $pinned_case on $pinned_target" \
+			fixture_make "$pinned_case" "$pinned_target" RELEASE_VERSION=v1.2.3
+	done
+	# `?=` defaults also lose to the environment, so that origin is release
+	# authority too. `=` assignments (RELEASE_TARGETS, STRIP_LDFLAGS) are
+	# immune to the environment and are covered by the command-line cases.
+	for pinned_env_case in \
+		SPX_EXPECTED_REACHABLE=0 \
+		SMOKE_STRICT=0 \
+		MAIN_BRANCH=scratch \
+		GO_TAGS=
+	do
+		assert_pinned_var_refused "environment $pinned_env_case on $pinned_target" \
+			fixture_make_with_env "$pinned_env_case" "$pinned_target" RELEASE_VERSION=v1.2.3
+	done
+done
+rm -f "$test_root/guard-leaked"
 
 for recursive_mode in -n -t; do
 	rm -f "$test_root/guard-leaked"
@@ -479,6 +578,126 @@ for local_gate_mutation in missing_plugin partial_commit duplicate_test; do
 		exit 1
 	fi
 done
+
+# The pinned-variable guard is authority only while it is present on every
+# guarded target and the machinery behind it is exact.
+for pinned_guard_mutation in \
+	'$(if $(release_overridden_vars),$(error release: release variables must not be overridden: $(release_overridden_vars)),)' \
+	'$(if $(release_overridden_vars),$(error _release-run: release variables must not be overridden: $(release_overridden_vars)),)'
+do
+	grep -Fvx "	$pinned_guard_mutation" "$test_root/Makefile.canonical" >"$test_root/Makefile"
+	if "$checker" "$test_root" >/dev/null 2>&1; then
+		echo "check-release-boundary test: dropped pinned-variable guard passed: $pinned_guard_mutation" >&2
+		exit 1
+	fi
+done
+
+for pinned_machinery_mutation in release_pinned_vars release_overridden_vars; do
+	grep -v "^override $pinned_machinery_mutation = " \
+		"$test_root/Makefile.canonical" >"$test_root/Makefile"
+	if "$checker" "$test_root" >/dev/null 2>&1; then
+		echo "check-release-boundary test: missing $pinned_machinery_mutation authority passed" >&2
+		exit 1
+	fi
+done
+
+sed 's#^override release_pinned_vars = .*#override release_pinned_vars = RELEASE_TARGETS#' \
+	"$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: a narrowed pinned-variable list passed" >&2
+	exit 1
+fi
+
+# The live smoke's strictness must be passed explicitly, never inherited.
+for smoke_pin_mutation in \
+	's# SPX_EXPECTED_REACHABLE=1##' \
+	's#SPX_EXPECTED_REACHABLE=1#SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE)#'
+do
+	sed "$smoke_pin_mutation" "$test_root/Makefile.canonical" >"$test_root/Makefile"
+	if "$checker" "$test_root" >/dev/null 2>&1; then
+		echo "check-release-boundary test: unpinned release smoke passed: $smoke_pin_mutation" >&2
+		exit 1
+	fi
+done
+
+# The published inventory must be proved before the tag is public and again
+# before the GitHub release is created.
+awk '
+	$0 == "\t@$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION) || { \\" {
+		for (i = 0; i < 3; i++) {
+			getline discarded
+		}
+		next
+	}
+	{ print }
+' "$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: release body without a pre-tag inventory proof passed" >&2
+	exit 1
+fi
+
+awk '
+	$0 == "\t@$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION) || { \\" {
+		in_inventory = 1
+	}
+	in_inventory && $0 == "\t\texit 1; \\" {
+		print "\t\ttrue; \\"
+		in_inventory = 0
+		next
+	}
+	{ print }
+' "$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: best-effort inventory cleanup block passed" >&2
+	exit 1
+fi
+
+# Moving the proof after the atomic push restores exactly the defect: the tag
+# is public before the artifact set is known to be complete.
+awk '
+	$0 == "\t@$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION) || { \\" {
+		held = $0
+		for (i = 0; i < 3; i++) {
+			getline extra
+			held = held "\n" extra
+		}
+		next
+	}
+	{ print }
+	$0 == "\tgit push --no-follow-tags --atomic origin HEAD:$(MAIN_BRANCH) $(RELEASE_VERSION)" && held != "" {
+		print held
+		held = ""
+	}
+' "$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: inventory proof after the atomic tag push passed" >&2
+	exit 1
+fi
+
+grep -Fvx '	$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION)' \
+	"$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: publication without an inventory proof passed" >&2
+	exit 1
+fi
+
+# The gate's matrix and the Makefile's must be one decision, not two.
+cp "$test_root/Makefile.canonical" "$test_root/Makefile"
+cp "$test_root/scripts/check-release-payload-inventory.sh" "$test_root/inventory.canonical"
+sed 's#^CANONICAL_RELEASE_TARGETS=.*#CANONICAL_RELEASE_TARGETS="linux-amd64"#' \
+	"$test_root/inventory.canonical" >"$test_root/scripts/check-release-payload-inventory.sh"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: inventory matrix drifted from RELEASE_TARGETS and passed" >&2
+	exit 1
+fi
+rm -f "$test_root/scripts/check-release-payload-inventory.sh"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: missing published-inventory gate passed" >&2
+	exit 1
+fi
+cp "$test_root/inventory.canonical" "$test_root/scripts/check-release-payload-inventory.sh"
+chmod 0755 "$test_root/scripts/check-release-payload-inventory.sh"
+rm -f "$test_root/inventory.canonical"
 
 # Recovery must execute the current committed controller while keeping the
 # historical release commit as immutable source and CI authority.

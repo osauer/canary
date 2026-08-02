@@ -54,6 +54,7 @@ validate_make_context_guards() {
 	local makeflags_position unsafe_count unsafe_position makefile_list_count
 	local makefile_list_position makefiles_count makefiles_position
 	local singleton_count singleton_position canonical_count canonical_position
+	local pinned_count pinned_position
 	data="$(
 		awk -v target="$guarded_target" '
 			$0 ~ ("^" target "[[:space:]]*:") {
@@ -98,31 +99,37 @@ validate_make_context_guards() {
 					canonical_count++
 					canonical_position = position
 				}
+				if (line == "$(if $(release_overridden_vars),$(error " target ": release variables must not be overridden: $(release_overridden_vars)),)") {
+					pinned_count++
+					pinned_position = position
+				}
 			}
 			END {
-				printf "%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d\n",
+				printf "%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d\n",
 					make_count + 0, make_position + 0,
 					makeflags_count + 0, makeflags_position + 0,
 					unsafe_count + 0, unsafe_position + 0,
 					makefile_list_count + 0, makefile_list_position + 0,
 					makefiles_count + 0, makefiles_position + 0,
 					singleton_count + 0, singleton_position + 0,
-					canonical_count + 0, canonical_position + 0
+					canonical_count + 0, canonical_position + 0,
+					pinned_count + 0, pinned_position + 0
 			}
 		' "$root/Makefile"
 	)"
 	IFS=: read -r make_count make_position makeflags_count makeflags_position \
 		unsafe_count unsafe_position makefile_list_count makefile_list_position \
 		makefiles_count makefiles_position singleton_count singleton_position \
-		canonical_count canonical_position <<< "$data"
+		canonical_count canonical_position pinned_count pinned_position <<< "$data"
 	if [ "$make_count" -ne 1 ] || [ "$make_position" -ne 1 ] \
 		|| [ "$makeflags_count" -ne 1 ] || [ "$makeflags_position" -ne 2 ] \
 		|| [ "$unsafe_count" -ne 1 ] || [ "$unsafe_position" -ne 3 ] \
 		|| [ "$makefile_list_count" -ne 1 ] || [ "$makefile_list_position" -ne 4 ] \
 		|| [ "$makefiles_count" -ne 1 ] || [ "$makefiles_position" -ne 5 ] \
 		|| [ "$singleton_count" -ne 1 ] || [ "$singleton_position" -ne 6 ] \
-		|| [ "$canonical_count" -ne 1 ] || [ "$canonical_position" -ne 7 ]; then
-		printf 'check-release-boundary: %s Make-context guards must be its first seven executable recipe lines\n' \
+		|| [ "$canonical_count" -ne 1 ] || [ "$canonical_position" -ne 7 ] \
+		|| [ "$pinned_count" -ne 1 ] || [ "$pinned_position" -ne 8 ]; then
+		printf 'check-release-boundary: %s Make-context guards must be its first eight executable recipe lines\n' \
 			"$guarded_target" >&2
 		failure=1
 	fi
@@ -138,7 +145,7 @@ for required_phony in \
 	release-origin-check release-ci-wait _release-ci-wait-historical \
 	release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check \
 	release-plugin-tag-candidate-check release-github-candidate-check release-github-assets \
-	release-registry-server registry-publish registry-publish-verify-first
+	release-payload-inventory-check release-registry-server registry-publish registry-publish-verify-first
 do
 	if ! grep -Eq "^\\.PHONY:.*(^|[[:space:]])${required_phony}([[:space:]]|$)" "$root/Makefile"; then
 		printf 'check-release-boundary: release authority target %s must be literal .PHONY\n' \
@@ -159,7 +166,9 @@ fi
 for required_make_context in \
 	'override release_first_makeflag = $(firstword $(MAKEFLAGS))' \
 	'override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))' \
-	'override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))'
+	'override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))' \
+	'override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS' \
+	'override release_overridden_vars = $(strip $(foreach release_pinned_var,$(release_pinned_vars),$(if $(filter file,$(origin $(release_pinned_var))),,$(release_pinned_var))))'
 do
 	if ! grep -Fqx "$required_make_context" "$root/Makefile"; then
 		printf 'check-release-boundary: missing exact release Make-context authority: %s\n' \
@@ -172,6 +181,26 @@ if ! grep -Fqx \
 	"$root/Makefile"; then
 	echo "check-release-boundary: release asset target inventory must stay exact" >&2
 	failure=1
+fi
+
+# The published-inventory gate must not be able to drift away from the matrix
+# it is proving. Both literals are exact, and this is where they are compared.
+inventory_checker="$root/scripts/check-release-payload-inventory.sh"
+if [ ! -x "$inventory_checker" ]; then
+	echo "check-release-boundary: scripts/check-release-payload-inventory.sh must exist and be executable" >&2
+	failure=1
+else
+	makefile_matrix="$(
+		sed -n 's/^RELEASE_TARGETS = \(.*\)$/\1/p' "$root/Makefile"
+	)"
+	inventory_matrix="$(
+		sed -n 's/^CANONICAL_RELEASE_TARGETS="\(.*\)"$/\1/p' "$inventory_checker"
+	)"
+	if [ -z "$inventory_matrix" ] || [ "$makefile_matrix" != "$inventory_matrix" ]; then
+		printf 'check-release-boundary: published-inventory matrix [%s] must equal RELEASE_TARGETS [%s]\n' \
+			"$inventory_matrix" "$makefile_matrix" >&2
+		failure=1
+	fi
 fi
 if ! grep -Fqx \
 	'RELEASE_CONTROLLER_CONTRACT = release-controller-v1' \
@@ -306,6 +335,10 @@ run_registry_line=0
 run_plugin_check_count=0
 run_plugin_check_line=0
 run_release_smoke_line=0
+run_release_smoke_count=0
+run_release_smoke_pinned_count=0
+run_payload_inventory_count=0
+run_payload_inventory_line=0
 run_local_full_gate_count=0
 resume_ci_wait_count=0
 resume_ci_wait_line1=0
@@ -339,6 +372,8 @@ resume_state_dispatch_count=0
 resume_github_check_count=0
 resume_github_check_line=0
 resume_registry_line=0
+publish_payload_inventory_count=0
+publish_payload_inventory_line=0
 publish_ci_authority_count=0
 publish_ci_authority_line=0
 publish_tag_check_count=0
@@ -497,6 +532,10 @@ while IFS= read -r line; do
 			publish_direct_origin_count=$((publish_direct_origin_count + 1))
 			publish_direct_origin_line="$line_number"
 		fi
+		if [ "$code" = '$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION)' ]; then
+			publish_payload_inventory_count=$((publish_payload_inventory_count + 1))
+			publish_payload_inventory_line="$line_number"
+		fi
 		if [ "$code" = '$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-ci-wait,$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume)' ]; then
 			publish_ci_authority_count=$((publish_ci_authority_count + 1))
 			publish_ci_authority_line="$line_number"
@@ -581,6 +620,14 @@ while IFS= read -r line; do
 		fi
 		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-smoke([[:space:]]|$)'; then
 			run_release_smoke_line="$line_number"
+			run_release_smoke_count=$((run_release_smoke_count + 1))
+		fi
+		if [ "$code" = '$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1' ]; then
+			run_release_smoke_pinned_count=$((run_release_smoke_pinned_count + 1))
+		fi
+		if [ "$code" = '@$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION) || { \' ]; then
+			run_payload_inventory_count=$((run_payload_inventory_count + 1))
+			run_payload_inventory_line="$line_number"
 		fi
 		if printf '%s\n' "$code" | grep -Eq '^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]*$'; then
 			run_main_push_count=$((run_main_push_count + 1))
@@ -1009,6 +1056,9 @@ final_ci_block_line="${final_ci_block_data#*:}"
 final_main_block_data="$(inspect_fail_closed_final_gate release-main-candidate-check)"
 final_main_block_count="${final_main_block_data%%:*}"
 final_main_block_line="${final_main_block_data#*:}"
+inventory_block_data="$(inspect_fail_closed_final_gate 'release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VERSION)')"
+inventory_block_count="${inventory_block_data%%:*}"
+inventory_block_line="${inventory_block_data#*:}"
 
 if [ "$run_seen" -eq 1 ]; then
 	if [ "$run_guard_makelevel" -ne 1 ] || [ "$run_guard_entry" -ne 1 ]; then
@@ -1153,6 +1203,26 @@ if [ "$run_target_seen" -eq 1 ]; then
 		printf 'check-release-boundary: _release-run must run one exact local plugin-check before release-smoke\n' >&2
 		failure=1
 	fi
+	# The live smoke's strictness is release authority, not a caller default:
+	# SMOKE_STRICT=0 turns a vanished gateway into a clean skip and
+	# SPX_EXPECTED_REACHABLE=0 drops the SPX entitlement-error rejection.
+	if [ "$run_release_smoke_count" -ne 1 ] \
+		|| [ "$run_release_smoke_pinned_count" -ne 1 ]; then
+		printf 'check-release-boundary: _release-run must invoke release-smoke exactly once with SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1\n' >&2
+		failure=1
+	fi
+	# The fixed published inventory must be proved while the release tag is
+	# still a deletable local ref, not only after it is public.
+	if [ "$run_payload_inventory_count" -ne 1 ] \
+		|| [ "$inventory_block_count" -ne 1 ] \
+		|| [ "$inventory_block_line" -ne "$run_payload_inventory_line" ] \
+		|| [ "$run_tag_line" -eq 0 ] \
+		|| [ "$run_atomic_tag_push_line" -eq 0 ] \
+		|| [ "$run_tag_line" -ge "$run_payload_inventory_line" ] \
+		|| [ "$run_payload_inventory_line" -ge "$run_atomic_tag_push_line" ]; then
+		printf 'check-release-boundary: _release-run must prove the published payload inventory in one fail-closed local-tag cleanup block between the annotated tag and the atomic tag push\n' >&2
+		failure=1
+	fi
 	if [ "$run_local_full_gate_count" -ne 0 ]; then
 		printf 'check-release-boundary: _release-run must rely on pinned exact-SHA CI rather than repeat test, check, or commit-check locally\n' >&2
 		failure=1
@@ -1222,6 +1292,12 @@ if [ "$publish_seen" -eq 1 ]; then
 	if [ "$publish_direct_origin_count" -ne 1 ] || [ "$publish_create_line" -eq 0 ] \
 		|| [ "$publish_direct_origin_line" -ge "$publish_create_line" ]; then
 		printf 'check-release-boundary: _release-publish must directly check canonical origin before gh release create\n' >&2
+		failure=1
+	fi
+	if [ "$publish_payload_inventory_count" -ne 1 ] \
+		|| [ "$publish_create_line" -eq 0 ] \
+		|| [ "$publish_payload_inventory_line" -ge "$publish_create_line" ]; then
+		printf 'check-release-boundary: _release-publish must prove the published payload inventory before gh release create\n' >&2
 		failure=1
 	fi
 	if [ "$publish_ci_authority_count" -ne 1 ] \

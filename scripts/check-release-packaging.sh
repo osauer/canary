@@ -22,6 +22,7 @@ cd "$(dirname "$0")/.."
 ./scripts/check-release-ci-contract.sh
 ./scripts/check-release-ci-contract_test.sh
 ./scripts/materialize-release-ci-contract_test.sh
+./scripts/check-release-payload-inventory_test.sh
 ./scripts/check-release-boundary.sh
 ./scripts/check-release-boundary_test.sh
 ./scripts/lib-daemon-control_test.sh
