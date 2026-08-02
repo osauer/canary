@@ -102,6 +102,24 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   `make changelog-lint RELEASE_VERSION=vX.Y.Z`. Give `### What's new` a voice
   pass: plain English, consumer-visible effects, no AI tells — the GitHub
   release body is derived from it mechanically.
+- Density pass, same edit. Entries drifted to narrating the investigation:
+  symptom, mechanism, forensic quantity, consequence, then a pre-empted
+  objection, four jobs in one bullet where the reader wants one. v2.6.1 was
+  2,628 words before this rule and 1,087 after, with nothing a reader needs
+  removed. Budgets: a `### Fixed` bullet is one sentence naming the symptom in
+  the user's own words, plus a second only when they must act or behaviour
+  visibly changed, around 40 words. `### Changed` is one sentence on the new
+  behaviour and one on what it replaces. `### What's new` may run longer
+  because it is selling something.
+  Mechanism, measurements and forensics belong in the commit message and the
+  issue, which now exist for exactly this (AGENTS.md, public issue tracker);
+  link `(#N)` and stop. Two things stay long on purpose: security and
+  data-safety entries, where the reader has to judge their own exposure, and
+  the explicit "nothing you relied on changed" line when a fix touches money,
+  positions or order paths, because its absence reads as an unanswered
+  question. Em-dashes are the tell to grep for. They attach another clause to
+  a sentence that had already finished, so cutting them is most of the
+  compression by itself and matches the voice rule above.
 
 ## Stage 3 — Gates (hard, fail-fast)
 
