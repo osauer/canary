@@ -140,16 +140,36 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["make", ["help", "commit-check", "check", "app-check", "app-refresh", "app-refresh-smoke", "app-smoke", "app-lifecycle-smoke", "docs-check", "docs-regen", "test"]],
+    pattern = ["make", ["help", "commit-check", "check", "app-check", "app-refresh", "docs-check", "docs-regen"]],
     decision = "allow",
-    justification = "Offline verification and local app refresh commands.",
+    justification = "Offline verification and local app refresh commands that do not launch macOS browser processes.",
     match = [
         "make help",
         "make commit-check",
         "make check",
-        "make test",
         "make docs-check",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", ["test", "app-refresh-smoke", "app-smoke", "app-lifecycle-smoke", "app-render-check", "app-screenshots", "cli-screenshots", "social-preview"]],
+    decision = "prompt",
+    justification = "These targets launch a macOS browser and must run outside the Codex sandbox, where AppKit otherwise aborts the process.",
+    match = [
+        "make test",
         "make app-refresh-smoke APP_SMOKE_BROWSER=webkit",
+        "make app-render-check",
+        "make app-screenshots",
+    ],
+)
+
+prefix_rule(
+    pattern = ["node", ["scripts/app-browser-smoke.mjs", "scripts/app-screenshots.mjs", "scripts/cli-screenshots.mjs", "scripts/social-preview.mjs"]],
+    decision = "prompt",
+    justification = "These scripts launch a macOS browser and must run outside the Codex sandbox, where AppKit otherwise aborts the process.",
+    match = [
+        "node scripts/app-browser-smoke.mjs --browser chromium --round4-synthetic=true",
+        "node scripts/app-screenshots.mjs --browser chromium --synthetic",
     ],
 )
 

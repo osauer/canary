@@ -62,7 +62,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -125,7 +125,7 @@ restart-daemon: build ## Install + restart daemon, skipped when the binary is un
 
 APP_SMOKE_URL ?= http://127.0.0.1:8765
 APP_SMOKE_BROWSER ?= chromium
-app-check: app-contract-check app-syntax-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check ## Fast SPA gate: syntax + executable browser-module contracts
+app-check: app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check ## Fast SPA gate: syntax + executable browser-module contracts
 
 # Go embedding accepts arbitrary bytes: a syntax error in app.js or
 # service-worker.js still compiles, passes the substring-based contract
@@ -143,6 +143,10 @@ app-syntax-check: ## Embedded PWA assets parse: all web/app/*.js (node --check) 
 	[ "$$found" -eq 1 ] || { echo "app-syntax-check: no web/app/*.js files found" >&2; exit 1; }
 	@node -e 'JSON.parse(require("fs").readFileSync("web/app/manifest.webmanifest","utf8"))'
 	@node scripts/check-app-icons.mjs
+
+app-browser-helper-check: ## Browser launcher fails safely inside the macOS Codex sandbox
+	@command -v node >/dev/null 2>&1 || { echo "app-browser-helper-check: node not found — this gate is binding, install Node.js" >&2; exit 1; }
+	node --test scripts/lib-app-browser_test.mjs
 
 app-auth-check: ## Execute browser credential-storage and crypto-less pairing contracts
 	@command -v node >/dev/null 2>&1 || { echo "app-auth-check: node not found — this gate is binding, install Node.js" >&2; exit 1; }
@@ -263,7 +267,7 @@ commit-check-contract-check: ## Keep the fast staged gate additive and out of CI
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check commit-check-contract-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-contract-check app-syntax-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check commit-check-contract-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -369,14 +373,19 @@ agent-config-check: hook-behavior-check ## Validate project agent config, hooks,
 		human_only_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary settings set trading.freeze=true | jq -r .decision); \
 		commit_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make commit-check | jq -r .decision); \
 		offline_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make check | jq -r .decision); \
+		browser_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make app-render-check | jq -r .decision); \
+		browser_script_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- node scripts/app-browser-smoke.mjs --browser chromium --round4-synthetic=true | jq -r .decision); \
+		full_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make test | jq -r .decision); \
 		live_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make restart-daemon | jq -r .decision); \
 		smoke_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make smoke | jq -r .decision); \
 		release_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make release RELEASE_VERSION=v2.3.1 | jq -r .decision); \
 		release_preflight_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make release-paper-preflight VERSION=v2.3.1 | jq -r .decision); \
 		[ "$$read_decision" = allow ] && [ "$$write_decision" = prompt ] && [ "$$human_only_decision" = forbidden ] \
-			&& [ "$$commit_gate_decision" = allow ] && [ "$$offline_gate_decision" = allow ] && [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
+			&& [ "$$commit_gate_decision" = allow ] && [ "$$offline_gate_decision" = allow ] \
+			&& [ "$$browser_gate_decision" = prompt ] && [ "$$browser_script_decision" = prompt ] && [ "$$full_gate_decision" = prompt ] \
+			&& [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
 			&& [ "$$release_decision" = prompt ] && [ "$$release_preflight_decision" = prompt ] || { \
-			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision commit-gate=$$commit_gate_decision offline-gate=$$offline_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision release=$$release_decision release-preflight=$$release_preflight_decision" >&2; exit 1; \
+			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision commit-gate=$$commit_gate_decision offline-gate=$$offline_gate_decision browser-gate=$$browser_gate_decision browser-script=$$browser_script_decision full-gate=$$full_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision release=$$release_decision release-preflight=$$release_preflight_decision" >&2; exit 1; \
 		}; \
 	fi
 

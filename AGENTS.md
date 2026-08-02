@@ -130,6 +130,19 @@ on the physical device — a desktop browser is not the iPhone TWA. When only an
 internal surface was exercised, say so and name exactly what the user should
 check, instead of reporting the fix as working.
 
+On macOS, launch Playwright and other browser binaries outside the Codex
+sandbox. AppKit aborts sandboxed browser processes during application
+registration instead of returning a usable permission error. Use sandbox
+escalation for browser-launching `make` targets, direct app-browser scripts,
+and the Playwright CLI; the project execpolicy prompts at the known target and
+script boundaries. `scripts/lib-app-browser.mjs` intentionally fails fast when
+`CODEX_SANDBOX` is present, so do not retry the same launch inside the sandbox.
+Use the Playwright API or CLI wrapper; never invoke WebKit's
+`Playwright.app/Contents/MacOS/Playwright` executable directly because that
+bypasses the framework environment established by `pw_run.sh`.
+This is execution permission only: paired-browser QA remains read-only and
+never grants broker-write authority.
+
 For long sessions, compact or hand off at phase boundaries and preserve gateway
 pins, freeze state, and committed versus in-flight work. See
 `.agents/docs/agent-session-hygiene.md` for rationale.

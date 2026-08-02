@@ -50,6 +50,22 @@ export function loadPlaywright(toolName) {
   process.exit(2);
 }
 
+export function assertBrowserLaunchAllowed({
+  platform = process.platform,
+  codexSandbox = process.env.CODEX_SANDBOX,
+} = {}) {
+  if (platform !== "darwin" || !codexSandbox) {
+    return;
+  }
+
+  throw new Error([
+    "Playwright cannot launch a macOS browser inside the Codex sandbox.",
+    "AppKit aborts the browser during application registration instead of returning a normal permission error.",
+    "Re-run this browser-launching command with sandbox escalation; the project execpolicy will request approval.",
+    "Do not retry it inside the sandbox.",
+  ].join(" "));
+}
+
 function candidateModuleRoots() {
   const roots = [];
   if (process.env.PLAYWRIGHT_NODE_MODULES) {
@@ -68,6 +84,7 @@ function candidateModuleRoots() {
 // (Playwright installed without `npx playwright install`), fall back to
 // the locally installed Chrome via the "chrome" channel.
 export async function launchBrowser(browserType, browserName, launchOptions) {
+  assertBrowserLaunchAllowed();
   try {
     return {
       browser: await browserType.launch(launchOptions),
