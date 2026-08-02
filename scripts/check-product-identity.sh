@@ -80,6 +80,19 @@ scan_line() {
 	done
 }
 
+# `ls-files --cached` below lists an unmerged path once per stage, so a
+# conflicted index scans the same file up to three times and spends a
+# count-bounded allowance three times over — then blames the file's content,
+# which was never wrong. Refuse the tree instead of reporting on it: mid-merge
+# content is not what will be committed, so a pass here would attest to
+# something indeterminate. The index is the finding.
+unmerged="$(git -C "$root" ls-files --unmerged | cut -f2 | sort -u)"
+if [ -n "$unmerged" ]; then
+	echo "check-product-identity: refusing to scan an unmerged index; resolve and stage these paths, then re-run:" >&2
+	printf '%s\n' "$unmerged" | sed 's/^/  /' >&2
+	exit 1
+fi
+
 while IFS= read -r -d '' path; do
 	[ -f "$root/$path" ] || continue
 	case "$path" in

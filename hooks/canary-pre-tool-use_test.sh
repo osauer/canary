@@ -161,6 +161,9 @@ run_case retired-subshell 2 "$live_ready" none 'echo $(ibkr status)'
 run_case path-arg-git 0 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status --short'
 run_case path-arg-nested 0 "$live_ready" none 'ls /Users/osauer/dev/ibkr/.claude/worktrees'
 run_case path-arg-grep 0 "$live_ready" none 'grep -n ibkr hooks/canary-pre-tool-use.sh'
+# Quote normalization strips the pattern's quotes before tokenizing, so a
+# retired spelling inside a search pattern must still read as an argument.
+run_case pattern-arg-quoted 0 "$live_ready" none "grep -cE 'legacy/ibkr' Makefile"
 run_case path-arg-canary 0 "$live_ready" none 'git -C /srv/canary log --oneline -3'
 run_case path-arg-then-write 2 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status; canary settings set trading.freeze=true'
 

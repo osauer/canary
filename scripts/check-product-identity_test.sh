@@ -70,4 +70,38 @@ if "$checker" "$test_root" >/dev/null 2>&1; then
 	exit 1
 fi
 
+git -C "$test_root" rm -q -f internal/update/daemon_test.go
+"$checker" "$test_root" >/dev/null
+
+# An unmerged index must be named as the cause. `ls-files --cached` repeats a
+# conflicted path once per stage, which previously multiplied its allowlisted
+# hits past the reviewed bound and reported the file's content as stale.
+git -C "$test_root" -c user.email=test@example.com -c user.name=test commit -q -m base
+base_branch="$(git -C "$test_root" rev-parse --abbrev-ref HEAD)"
+git -C "$test_root" checkout -q -b conflicting
+printf 'const namespace = "canary"\n' > "$test_root/pins.go"
+git -C "$test_root" -c user.email=test@example.com -c user.name=test commit -q -am "branch spelling"
+git -C "$test_root" checkout -q "$base_branch"
+printf 'const namespace = "canary-desk"\n' > "$test_root/pins.go"
+git -C "$test_root" -c user.email=test@example.com -c user.name=test commit -q -am "trunk spelling"
+git -C "$test_root" merge conflicting >/dev/null 2>&1 || true
+if [ -z "$(git -C "$test_root" ls-files --unmerged)" ]; then
+	echo "check-product-identity test: fixture did not produce an unmerged index" >&2
+	exit 1
+fi
+if "$checker" "$test_root" >/dev/null 2>"$test_root/.git/check-error"; then
+	echo "check-product-identity test: unmerged index passed" >&2
+	exit 1
+fi
+if ! grep -q "unmerged index" "$test_root/.git/check-error"; then
+	echo "check-product-identity test: unmerged index blamed the wrong cause" >&2
+	cat "$test_root/.git/check-error" >&2
+	exit 1
+fi
+if ! grep -q "pins.go" "$test_root/.git/check-error"; then
+	echo "check-product-identity test: unmerged index did not name the path" >&2
+	exit 1
+fi
+git -C "$test_root" merge --abort
+
 echo "check-product-identity test: OK"
