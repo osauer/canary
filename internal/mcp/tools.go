@@ -938,6 +938,13 @@ func buildWatchlistQuoteResult(ctx context.Context, conn *dial.Conn, snap *watch
 		var pos rpc.PositionsResult
 		if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{Type: "stk"}, &pos); err == nil {
 			for _, p := range pos.Stocks {
+				// The non-option slice carries every secType that is not OPT.
+				// Same filter as the CLI join: a bond sharing an equity's
+				// ticker must not masquerade as that stock holding nor steer
+				// the quote contract's currency and exchange.
+				if !rpc.PositionQuotesAsStock(p) {
+					continue
+				}
 				holdings[strings.ToUpper(p.Symbol)] = &rpc.WatchlistHolding{
 					Quantity:      p.Quantity,
 					AvgCost:       p.AvgCost,

@@ -1753,14 +1753,10 @@ func positionCanAnchorUnderlyingGroup(row rpc.PositionView) bool {
 // only secType in that slice for which a SMART/USD stock quote on the bare
 // symbol describes the holding. Everything else there (BOND, BILL, FUND, FUT,
 // CASH) shares the slice because it is not an option, not because it is a
-// stock.
+// stock. The classification itself lives in rpc so the CLI and MCP watchlist
+// holdings joins apply the identical rule instead of re-deriving it.
 func positionQuotesAsStock(row rpc.PositionView) bool {
-	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
-	case rpc.SecTypeStock, "STK", "ETF":
-		return true
-	default:
-		return false
-	}
+	return rpc.PositionQuotesAsStock(row)
 }
 
 type convertedSum struct {

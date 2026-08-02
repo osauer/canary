@@ -10,6 +10,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -228,6 +229,25 @@ const (
 	SecTypeFuture = "FUTURE"
 	SecTypeIndex  = "INDEX"
 )
+
+// PositionQuotesAsStock reports whether a non-option position row is an
+// equity — the only secType for which a stock quote on the bare symbol
+// describes the holding. The non-option slice of PositionsResult carries
+// every secType that is not OPT (BOND, BILL, FUND, FUT, CASH); those rows
+// share the slice because they are not options, not because they are stocks,
+// and joining one to an equity surface by symbol decorates a treasury
+// symbolled "T" with AT&T's quote. This is the one shared classification for
+// that join — daemon, CLI, and MCP must all use it rather than re-deriving
+// it from the slice name. Unknown and absent secTypes classify false: absence
+// of a type is not stock authority.
+func PositionQuotesAsStock(row PositionView) bool {
+	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
+	case SecTypeStock, "STK", "ETF":
+		return true
+	default:
+		return false
+	}
+}
 
 // Request is one custom daemon-protocol request. Params contains the typed
 // method payload; an absent Params value is distinct only where that method's

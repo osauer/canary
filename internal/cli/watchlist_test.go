@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -227,4 +228,46 @@ func mustTestLocation(t *testing.T, name string) *time.Location {
 		t.Fatalf("LoadLocation(%q): %v", name, err)
 	}
 	return loc
+}
+
+type watchlistFakePositionsConn struct {
+	pos rpc.PositionsResult
+}
+
+func (f *watchlistFakePositionsConn) Call(ctx context.Context, method string, params any, out any) error {
+	if method == rpc.MethodPositionsList {
+		*(out.(*rpc.PositionsResult)) = f.pos
+		return nil
+	}
+	return fmt.Errorf("unexpected method %s", method)
+}
+
+func (f *watchlistFakePositionsConn) Stream(ctx context.Context, method string, params any, fn func(json.RawMessage) error) error {
+	return fmt.Errorf("unexpected stream %s", method)
+}
+
+// The positions "Stocks" slice carries every secType that is not OPT — bonds,
+// bills, funds, futures, cash. Keyed by bare symbol with no filter, the
+// desk's own T-bond shape rendered as an AT&T holding in `canary watch`, its
+// currency and exchange steering the quote contract, and with the equity also
+// held the winner flipped per call. Only equity rows may join.
+func TestFetchWatchlistStockHoldingsFiltersNonEquityRows(t *testing.T) {
+	t.Parallel()
+	bond := rpc.PositionView{Symbol: "T", SecType: "BOND", Quantity: 10000, Mark: 98.5, Currency: "USD", Exchange: "SMART"}
+	stock := rpc.PositionView{Symbol: "T", SecType: rpc.SecTypeStock, Quantity: 100, Mark: 27.1, AvgCost: 25, Currency: "USD", Exchange: "NYSE"}
+
+	env := &Env{Conn: &watchlistFakePositionsConn{pos: rpc.PositionsResult{Stocks: []rpc.PositionView{bond}}}}
+	if got := fetchWatchlistStockHoldings(context.Background(), env); got["T"] != nil {
+		t.Fatalf("a bond row joined the watchlist as a stock holding: %+v", got["T"])
+	}
+
+	// With the equity also held, the equity's values must win in either slice
+	// order — the pre-fix winner depended on iteration order.
+	for _, rows := range [][]rpc.PositionView{{bond, stock}, {stock, bond}} {
+		env := &Env{Conn: &watchlistFakePositionsConn{pos: rpc.PositionsResult{Stocks: rows}}}
+		h := fetchWatchlistStockHoldings(context.Background(), env)["T"]
+		if h == nil || h.Quantity != 100 || h.Exchange != "NYSE" || h.Mark != 27.1 {
+			t.Fatalf("holding for T = %+v, want the equity row (qty 100, NYSE) regardless of row order", h)
+		}
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/watchlist"
 )
 
 // TestParity is the binding drift gate: every CLI subcommand from
@@ -1108,5 +1109,87 @@ func TestSanitizeOrderJournalProseForMCP(t *testing.T) {
 	sanitizeOrdersOpenForMCP(&clean)
 	if clean.Orders[0].LastMessage != "" {
 		t.Fatalf("an absent last_message must not be invented, got %q", clean.Orders[0].LastMessage)
+	}
+}
+
+// startMCPWatchlistFakeConn serves positions.list from the fixture and
+// answers every quote.snapshot with a bare quote, over one accepted socket
+// connection, until the client closes.
+func startMCPWatchlistFakeConn(t *testing.T, pos rpc.PositionsResult) *dial.Conn {
+	t.Helper()
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("canary-mcp-watchlist-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() { _ = os.Remove(socketPath) })
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen fake daemon: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		dec := json.NewDecoder(c)
+		enc := json.NewEncoder(c)
+		for {
+			var req rpc.Request
+			if err := dec.Decode(&req); err != nil {
+				return
+			}
+			var raw json.RawMessage
+			switch req.Method {
+			case rpc.MethodPositionsList:
+				raw, _ = json.Marshal(pos)
+			case rpc.MethodQuoteSnapshot:
+				var p rpc.QuoteSnapshotParams
+				_ = json.Unmarshal(req.Params, &p)
+				raw, _ = json.Marshal(rpc.Quote{Symbol: p.Contract.Symbol, Contract: p.Contract})
+			default:
+				raw, _ = json.Marshal(struct{}{})
+			}
+			if err := enc.Encode(rpc.Response{ID: req.ID, Ok: true, Result: raw}); err != nil {
+				return
+			}
+		}
+	}()
+
+	conn, err := dial.Connect(socketPath)
+	if err != nil {
+		t.Fatalf("connect fake daemon: %v", err)
+	}
+	return conn
+}
+
+// Same defect and same filter as the CLI watchlist join: the non-option
+// positions slice carries bonds, bills, funds, futures and cash, and an
+// unfiltered symbol join rendered a T-bond as an AT&T holding in the
+// canary_watch tool, steering the quote contract's currency and exchange.
+func TestBuildWatchlistQuoteResultFiltersNonEquityHoldings(t *testing.T) {
+	t.Parallel()
+	bond := rpc.PositionView{Symbol: "T", SecType: "BOND", Quantity: 10000, Mark: 98.5, Currency: "USD", Exchange: "SMART"}
+	stock := rpc.PositionView{Symbol: "T", SecType: rpc.SecTypeStock, Quantity: 100, Mark: 27.1, Currency: "USD", Exchange: "NYSE"}
+	snap := &watchlist.Snapshot{Name: "default", Symbols: []string{"T"}}
+
+	conn := startMCPWatchlistFakeConn(t, rpc.PositionsResult{Stocks: []rpc.PositionView{bond}})
+	defer conn.Close()
+	res, err := buildWatchlistQuoteResult(context.Background(), conn, snap, 1000, true)
+	if err != nil {
+		t.Fatalf("buildWatchlistQuoteResult: %v", err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0].Holding != nil {
+		t.Fatalf("bond-only fixture produced a stock holding: %+v", res.Rows)
+	}
+
+	conn2 := startMCPWatchlistFakeConn(t, rpc.PositionsResult{Stocks: []rpc.PositionView{bond, stock}})
+	defer conn2.Close()
+	res, err = buildWatchlistQuoteResult(context.Background(), conn2, snap, 1000, true)
+	if err != nil {
+		t.Fatalf("buildWatchlistQuoteResult with equity: %v", err)
+	}
+	h := res.Rows[0].Holding
+	if h == nil || h.Quantity != 100 || h.Exchange != "NYSE" {
+		t.Fatalf("holding = %+v, want the equity row (qty 100, NYSE), never the bond", h)
 	}
 }

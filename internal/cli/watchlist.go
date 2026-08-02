@@ -195,6 +195,14 @@ func fetchWatchlistStockHoldings(ctx context.Context, env *Env) map[string]*rpc.
 		return out
 	}
 	for _, p := range pos.Stocks {
+		// The non-option slice carries every secType that is not OPT — bonds,
+		// bills, funds, futures, cash. Keyed by bare symbol, a treasury
+		// symbolled "T" would render as an AT&T holding and feed its currency
+		// and exchange into the quote contract. Only rows a bare-symbol stock
+		// quote actually describes may join the watchlist.
+		if !rpc.PositionQuotesAsStock(p) {
+			continue
+		}
 		out[strings.ToUpper(p.Symbol)] = &rpc.WatchlistHolding{
 			Quantity:      p.Quantity,
 			AvgCost:       p.AvgCost,
