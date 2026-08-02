@@ -365,6 +365,20 @@ if [[ -z "$account_fresh_secs" ]]; then
     echo "    warning: could not read accountSnapshotFreshFor; assuming ${account_fresh_secs}s" >&2
 fi
 account_wait=$((account_fresh_secs + 3))
+# The daemon's account P&L monitor refreshes the snapshot on its own cadence
+# (accountPnLMonitorEvery, 15s — the same length as the freshness window), so
+# a read issued after the expiry wait is routinely served by a periodic
+# refresh that landed moments before it, and emits no request of its own.
+# Anchoring the assertion window after the wait therefore starves it against
+# perfectly healthy wire traffic — both v2.6.2 fire aborts (2026-08-02) died
+# here, and a preserved-scratch reproduction showed reqAccountSummary every
+# ~30s with a serve-time as_of and zero frames after the post-wait offset.
+# The window now opens BEFORE the wait: the wait exceeds the freshness bound,
+# so serving fresh at the read requires at least one reqAccountSummary inside
+# the window. A wedged one-shot path and a cache serving forever both still
+# fail, and the response's own as_of is bounded below so stale data cannot
+# ride an unrelated frame through the window.
+account_window_offset="$(wire_offset)"
 echo "    waiting ${account_wait}s for the shared account snapshot to expire..."
 sleep "$account_wait"
 run_wire_cli account "$JSON_TIMEOUT" account --json
@@ -380,7 +394,23 @@ if json_has_key data_type "$account_json"; then
     echo "$account_json" >&2
     exit 1
 fi
-assert_wire account-summary "$LAST_WIRE_OFFSET"
+account_as_of="$(json_field as_of "$account_json")"
+if [[ -z "$account_as_of" ]]; then
+    echo "release-smoke: FAIL: as_of missing from account.summary response" >&2
+    echo "$account_json" >&2
+    exit 1
+fi
+account_as_of_bound=$((account_fresh_secs + 5))
+if ! python3 -c '
+import datetime, sys
+t = datetime.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+age = (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds()
+sys.exit(0 if -5 <= age <= float(sys.argv[2]) else 1)
+' "$account_as_of" "$account_as_of_bound"; then
+    echo "release-smoke: FAIL: account.summary as_of is outside the ${account_as_of_bound}s freshness bound (served stale)" >&2
+    exit 1
+fi
+assert_wire account-summary "$account_window_offset"
 
 echo "  [5] positions.list..."
 positions_json="$(run_cli positions "$JSON_TIMEOUT" positions --json)"
