@@ -2977,10 +2977,15 @@ type HealthResult struct {
 	DaemonStarted time.Time `json:"daemon_started"`
 	UptimeSeconds int64     `json:"uptime_seconds"`
 	Account       string    `json:"account,omitempty"`
-	// ConnectedAccount is the account code advertised by the connected
-	// TWS/Gateway session via managedAccounts / accountSummary. It differs
-	// from Account when [gateway].account is empty and the daemon
-	// auto-detected the account after handshake.
+	// ConnectedAccount is the one account the connected TWS/Gateway session is
+	// scoped to, never a list. It is the code the session advertises via
+	// managedAccounts / accountSummary when that is a single account, and the
+	// configured [gateway].account pin when the login holds several and the
+	// advertised value is the comma-joined inventory. It is empty when neither
+	// is one concrete account — an unpinned multi-account login has no account
+	// to name. It differs from Account when [gateway].account is empty and the
+	// daemon auto-detected the account after handshake. The session's full
+	// inventory is not served here.
 	ConnectedAccount string `json:"connected_account,omitempty"`
 	// AccountMode is the daemon's best classification of the connected
 	// endpoint/account: "paper", "live", or "unknown".

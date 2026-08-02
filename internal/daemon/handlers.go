@@ -3810,10 +3810,15 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	accountForMode := ep.Account
 	var farmStatuses []ibkrlib.DataFarmStatus
 	setupComplete := s.postConnectSetupDone.Load()
+	// The raw advertised value, kept local. Scope resolution below reasons about
+	// the session's whole inventory and must keep seeing it; only the serialized
+	// field is projected to one account, further down where the pin is known.
+	advertisedAccount := ""
 	if c != nil {
-		res.ConnectedAccount = strings.TrimSpace(c.AccountID())
-		if res.ConnectedAccount != "" {
-			accountForMode = res.ConnectedAccount
+		advertisedAccount = strings.TrimSpace(c.AccountID())
+		res.ConnectedAccount = advertisedAccount
+		if advertisedAccount != "" {
+			accountForMode = advertisedAccount
 		}
 		// Report IsReady, not IsConnected: the gateway being TCP-reachable
 		// is not enough — handlers must be armed (post-handshake) for any
@@ -3863,7 +3868,25 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 			port = *s.cfg.Gateway.Port
 		}
 	}
-	shadowScope := brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, res.ConnectedAccount)
+	shadowScope := brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, advertisedAccount)
+	// connected_account names one account or nothing. A login holding several
+	// advertises the comma-joined managedAccounts list, which is a session
+	// inventory rather than an account code, and every consumer that reads this
+	// field wants the account the session is scoped to: the CLI and TUI already
+	// guarded their rendering, but the SPA and the MCP status tool served the
+	// list through unchanged. Guarding those two instead would have left the
+	// same key carrying different values in `canary status --json` and in
+	// canary_status, from one daemon. The pin is served instead, and scope
+	// resolution above keeps the raw value. A single-account login is
+	// byte-identical; an unpinned multi-account login serves nothing, which is
+	// honest — there is no account to name. Naming the inventory as well needs a
+	// second field, and nothing on the wire wants one yet.
+	if !brokerScopeAccountConcrete(res.ConnectedAccount) {
+		res.ConnectedAccount = ""
+		if pin := strings.TrimSpace(configuredAccount); brokerScopeAccountConcrete(pin) {
+			res.ConnectedAccount = pin
+		}
+	}
 	gatewayPhase := alertShadowGatewayPhaseForHealth(res.Connected, setupComplete, connectInFlight, lastErr, time.Since(s.startedAt))
 	observedAt := time.Now().UTC()
 	if s.now != nil {

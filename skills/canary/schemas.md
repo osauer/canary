@@ -1047,8 +1047,10 @@ Action-relevant fields:
 - `data_type` — `live`, `delayed`, `frozen`, or `delayed-frozen`. If a
   user asks about a quote and `data_type != "live"`, mention it.
 
-- `connected_account` / `account_mode` — the account the gateway session
-  actually advertises and its `paper`/`live`/`unknown` classification.
+- `connected_account` / `account_mode` — the one account the gateway session is
+  scoped to, and its `paper`/`live`/`unknown` classification. Never a list: a
+  login holding several accounts advertises all of them, and this field then
+  carries the configured pin instead, or nothing at all when no pin is set.
   When `account_mode` disagrees with what the user expects, say so before
   discussing anything order-related.
 - `background_tasks` — always present, `[]` means idle; non-empty lists
