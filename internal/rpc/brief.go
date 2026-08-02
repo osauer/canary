@@ -465,7 +465,7 @@ type BriefNarrative struct {
 }
 
 // BriefResult is the complete typed daily brief, composed as two process
-// movements: Review (post-trade of the last completed session) and Ready
+// movements: Review (post-trade since the last regular close) and Ready
 // (pre-trade for today). BriefFingerprint hashes the two composed movements
 // only; AsOf, Narrative, and stamp-target state are deliberately outside the
 // content identity. The daemon composes both movements; surfaces render them

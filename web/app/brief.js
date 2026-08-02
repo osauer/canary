@@ -92,7 +92,7 @@ function paragraphList(paragraphs) {
 function renderNarrative(narrative, brief) {
   const nodes = [briefPlacardRow(brief)];
   if (narrative.lead.length > 0) nodes.push(runsElement("div", "pd-brf-lead", narrative.lead));
-  nodes.push(briefPlacard("Review \u00b7 last session"));
+  nodes.push(briefPlacard("Review \u00b7 since last close"));
   for (const runs of narrative.review) nodes.push(runsElement("p", "pd-brf-para", runs));
   const signoff = renderNarrativeSignoff(brief);
   if (signoff) nodes.push(signoff);
@@ -195,7 +195,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const REVIEW_ICON = ["M12 7v5l3 2", "M5.2 8.5A7.5 7.5 0 1 1 4.5 12", "M4.5 7.5v3.2h3.2"];
 const READY_ICON = ["M4 17h16", "M8.5 17a3.5 3.5 0 0 1 7 0", "M12 10V7", "M6.8 11.8 5 10", "M17.2 11.8 19 10"];
 
-// Review — post-trade of the last completed session. Rows are rendered
+// Review — post-trade since the last regular close. Rows are rendered
 // verbatim from the daemon-composed movement.
 function renderReviewSection(section, brief) {
   const account = section.session_pnl || {};

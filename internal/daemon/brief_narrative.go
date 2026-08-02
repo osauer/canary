@@ -169,7 +169,7 @@ func composeBriefNarrative(res *rpc.BriefResult) *rpc.BriefNarrative {
 	topics := briefTopics(res)
 	return &rpc.BriefNarrative{
 		Lead:   briefNarrativeLead(res, topics),
-		Review: briefNarrativeReview(res.Review),
+		Review: briefNarrativeReview(res.Review, res.Ready.Session),
 		Ready:  briefNarrativeReady(res.Ready),
 		Coda:   briefNarrativeCoda(topics),
 	}
@@ -347,24 +347,36 @@ func briefNarrativeCoda(topics []briefTopic) []rpc.BriefRun {
 
 // ---- review movement --------------------------------------------------
 
-func briefNarrativeReview(review rpc.BriefReviewSection) []rpc.BriefParagraph {
+func briefNarrativeReview(review rpc.BriefReviewSection, session rpc.BriefSessionRow) []rpc.BriefParagraph {
 	p := &briefProse{}
-	briefReviewSession(p, review)
+	briefReviewSession(p, review, session)
 	briefReviewDeskEvents(p, review)
 	briefReviewAdmin(p, review)
 	return p.done()
 }
 
-// briefReviewSession opens the movement with the closed session's money.
-func briefReviewSession(p *briefProse, review rpc.BriefReviewSection) {
+// briefReviewSession opens the movement with the account's money. The broker's
+// daily P/L is a running recomputation — off-session it keeps moving on
+// extended/overnight marks and rolls to the next trading day — so the prose
+// states the since-close basis when the served calendar says closed and never
+// claims a completed-session result it cannot verify.
+func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rpc.BriefSessionRow) {
 	account := review.SessionPnL
 	currency := account.BaseCurrency
+	sessionClosed := session.Status == rpc.BriefStatusOK && !session.IsOpen
 	switch {
 	case account.Status == rpc.BriefStatusUnavailable:
-		p.text("The last completed session's account P/L is unavailable, so the session cannot be summarized.")
+		p.text("Account P/L is unavailable, so the session cannot be summarized.")
 	case account.DailyPnLBase != nil:
-		p.text("The session closed with Daily P/L ")
+		if sessionClosed {
+			p.text("Since the last regular close, Daily P/L stands at ")
+		} else {
+			p.text("Daily P/L stands at ")
+		}
 		p.figure(briefMoney(*account.DailyPnLBase, currency, true))
+		if sessionClosed {
+			p.text(" at off-session marks")
+		}
 		if account.EquityBase != nil {
 			p.text(" on equity of ")
 			p.figure(briefMoney(*account.EquityBase, currency, false))
@@ -373,11 +385,11 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection) {
 			p.text("; account equity is unavailable.")
 		}
 	case account.EquityBase != nil:
-		p.text("Daily P/L for the last completed session is unavailable; account equity stands at ")
+		p.text("Daily P/L is unavailable; account equity stands at ")
 		p.figure(briefMoney(*account.EquityBase, currency, false))
 		p.text(".")
 	default:
-		p.text("Neither Daily P/L nor account equity is available for the last completed session.")
+		p.text("Neither Daily P/L nor account equity is available.")
 	}
 
 	attribution := review.Attribution

@@ -156,7 +156,7 @@ SPX members    cache:2026-05-22, 503 names
 <h2 id="5-let-one-command-assemble-the-rest">5. Let one command assemble the rest</h2>
 <pre><code class="language-sh">canary brief
 </code></pre>
-<p><code>canary brief</code> is the assembled read. <code>Review</code> covers the last completed session: session P&amp;L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. <code>Ready</code> covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.</p>
+<p><code>canary brief</code> is the assembled read. <code>Review</code> covers the desk since the last regular close: session P&amp;L and per-underlying attribution (the broker's running daily values — off-session they keep moving on extended and overnight marks), rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. <code>Ready</code> covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.</p>
 <p>Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. <code>canary brief --json</code> renders without stamping, and an agent-origin invocation prints <code>agent-origin render — not stamped</code>. There is no MCP tool for <code>brief</code>; it is a CLI surface.</p>
 <h2 id="6-read-the-market-context">6. Read the market context</h2>
 <pre><code class="language-sh">canary regime

@@ -83,7 +83,7 @@ func renderBrief(env *Env, res rpc.BriefResult) {
 }
 
 func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
-	fmt.Fprintln(env.Stdout, "\nReview  (last completed session)")
+	fmt.Fprintln(env.Stdout, "\nReview  (since the last close)")
 	acct := "—"
 	if review.SessionPnL.EquityBase != nil {
 		acct = formatMoneyCcy(*review.SessionPnL.EquityBase, review.SessionPnL.BaseCurrency)
@@ -361,7 +361,7 @@ func renderBriefNarrative(env *Env, narrative *briefNarrativeView, res rpc.Brief
 		fmt.Fprintln(env.Stdout)
 		briefProseParagraph(env, narrative.lead, width)
 	}
-	fmt.Fprintln(env.Stdout, "\nReview  (last completed session)")
+	fmt.Fprintln(env.Stdout, "\nReview  (since the last close)")
 	briefProseParagraphs(env, narrative.review, width)
 	if res.Review.OneTap.Signable {
 		// The row view is the only place the CLI names the sign-off command;

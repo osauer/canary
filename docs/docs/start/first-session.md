@@ -91,7 +91,7 @@ A dash in the NVDA row marks a field that never arrived. The daemon leaves an ab
 canary brief
 ```
 
-`canary brief` is the assembled read. `Review` covers the last completed session: session P&L, per-underlying attribution, rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.
+`canary brief` is the assembled read. `Review` covers the desk since the last regular close: session P&L and per-underlying attribution (the broker's running daily values — off-session they keep moving on extended and overnight marks), rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.
 
 Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. `canary brief --json` renders without stamping, and an agent-origin invocation prints `agent-origin render — not stamped`. There is no MCP tool for `brief`; it is a CLI surface.
 

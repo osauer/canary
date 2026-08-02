@@ -46,7 +46,7 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 	}
 	renderBrief(env, res)
 	got := stdout.String()
-	for _, want := range []string{"Review  (last completed session)", "Ready  (today)", "session P&L", "by underlying", "proposals", "capital events", "gateway unavailable", "nil greeks excluded", "no delta baseline yet", "attention", "tier block · enforcement shadow", "2 offered · 1 acted"} {
+	for _, want := range []string{"Review  (since the last close)", "Ready  (today)", "session P&L", "by underlying", "proposals", "capital events", "gateway unavailable", "nil greeks excluded", "no delta baseline yet", "attention", "tier block · enforcement shadow", "2 offered · 1 acted"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("brief render missing %q:\n%s", want, got)
 		}
@@ -245,7 +245,7 @@ func briefQuietCase() briefNarrativeCase {
 		Narrative: &rpc.BriefNarrative{
 			Lead: []rpc.BriefRun{briefText("Stress reads stand down at observe severity. Regime stage quiet, verdict Normal regime. Nothing across Review and Ready needs a decision.")},
 			Review: []rpc.BriefParagraph{briefPara(
-				briefText("The session closed with Daily P/L "), briefFig("EUR +2,340"),
+				briefText("Daily P/L stands at "), briefFig("EUR +2,340"),
 				briefText(" on equity of "), briefFig("EUR 1,250,000"),
 				briefText(". By name in EUR: AAPL "), briefFig("+900.00"),
 				briefText(", NVDA "), briefFig("+800.40"),
@@ -342,7 +342,7 @@ func briefDegradedCase() briefNarrativeCase {
 		Narrative: &rpc.BriefNarrative{
 			Lead: []rpc.BriefRun{briefText("The regime read is unavailable. Nothing across Review and Ready needs a decision. 12 inputs could not be read and are named below: session P/L, attribution, proposals, working orders, regime, breadth, dealer gamma, held-name events, capital, premium at risk, hedge cost, protection proposals.")},
 			Review: []rpc.BriefParagraph{
-				briefPara(briefText("The last completed session's account P/L is unavailable, so the session cannot be summarized. Per-name attribution is unavailable.")),
+				briefPara(briefText("Account P/L is unavailable, so the session cannot be summarized. Per-name attribution is unavailable.")),
 				briefPara(briefText("The proposal outcome journal is unavailable. The open-orders journal is unavailable.")),
 			},
 			Ready: []rpc.BriefParagraph{
@@ -666,7 +666,7 @@ func TestRenderBriefFallsBackToRows(t *testing.T) {
 			res.Review.SessionPnL.BriefRowState = rpc.BriefRowState{Status: rpc.BriefStatusUnavailable, Detail: "account summary unavailable: broker down"}
 			renderBrief(env, res)
 			got := stdout.String()
-			for _, want := range []string{"Review  (last completed session)", "Ready  (today)", "session P&L", "account summary unavailable: broker down", "drawdown latch"} {
+			for _, want := range []string{"Review  (since the last close)", "Ready  (today)", "session P&L", "account summary unavailable: broker down", "drawdown latch"} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("row fallback missing %q:\n%s", want, got)
 				}
@@ -703,7 +703,7 @@ func TestRenderBriefServesNarrativeInsteadOfRows(t *testing.T) {
 			t.Fatalf("prose replaces the row table, but %q survived:\n%s", absent, got)
 		}
 	}
-	if !strings.Contains(got, "The session closed with Daily P/L EUR +2,340") {
+	if !strings.Contains(got, "Daily P/L stands at EUR +2,340") {
 		t.Fatalf("prose missing:\n%s", got)
 	}
 }
@@ -868,10 +868,9 @@ func TestRenderBriefNarrativeGoldens(t *testing.T) {
   Stress reads stand down at observe severity. Regime stage quiet, verdict
   Normal regime. Nothing across Review and Ready needs a decision.
 
-Review  (last completed session)
-  The session closed with Daily P/L EUR +2,340 on equity of EUR 1,250,000. By
-  name in EUR: AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at
-  -120.00.
+Review  (since the last close)
+  Daily P/L stands at EUR +2,340 on equity of EUR 1,250,000. By name in EUR:
+  AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at -120.00.
 
 Ready  (today)
   Breadth has 62.0% above the 50-DMA and 58.0% above the 200-DMA, net new highs
@@ -886,7 +885,7 @@ Ready  (today)
   Stress reads reduce risk at watch severity. 3 rows need a decision: overrides,
   held-name earnings, protection proposals.
 
-Review  (last completed session)
+Review  (since the last close)
   1 active override widens policy controls: hedge_coverage. No rule transitions.
 
 Ready  (today)
@@ -903,7 +902,7 @@ Ready  (today)
   capital events, capital, drawdown latch. Regime stage quiet, verdict Normal
   regime.
 
-Review  (last completed session)
+Review  (since the last close)
   1 rule worsened to act since the last stamped brief: hedge coverage.
 
   The drawdown latch engaged this episode and remains open until a human reset.
@@ -925,9 +924,9 @@ Ready  (today)
   attribution, proposals, working orders, regime, breadth, dealer gamma,
   held-name events, capital, premium at risk, hedge cost, protection proposals.
 
-Review  (last completed session)
-  The last completed session's account P/L is unavailable, so the session cannot
-  be summarized. Per-name attribution is unavailable.
+Review  (since the last close)
+  Account P/L is unavailable, so the session cannot be summarized. Per-name
+  attribution is unavailable.
 
   The proposal outcome journal is unavailable. The open-orders journal is
   unavailable.
@@ -960,10 +959,9 @@ Degraded inputs
   Stress reads stand down at observe severity. Regime stage quiet, verdict
   Normal regime. Nothing across Review and Ready needs a decision.
 
-Review  (last completed session)
-  The session closed with Daily P/L EUR +2,340 on equity of EUR 1,250,000. By
-  name in EUR: AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at
-  -120.00.
+Review  (since the last close)
+  Daily P/L stands at EUR +2,340 on equity of EUR 1,250,000. By name in EUR:
+  AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at -120.00.
 
   one-tap sign-off: signable · canary policy capital-event reconcile
 

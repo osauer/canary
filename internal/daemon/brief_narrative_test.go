@@ -113,6 +113,15 @@ func quietBriefResult() *rpc.BriefResult {
 	}
 }
 
+// closedSessionBriefResult is quiet with the official session closed: the
+// broker's daily P/L keeps moving off-session, so the narrative must state the
+// since-close basis instead of asserting a completed-session result.
+func closedSessionBriefResult() *rpc.BriefResult {
+	res := quietBriefResult()
+	res.Ready.Session = rpc.BriefSessionRow{BriefRowState: briefOK("weekend"), Market: "US", State: "closed", IsOpen: false}
+	return res
+}
+
 // watchBriefResult flags exactly the attention-class rows a watch morning
 // carries: an active override, a held-name earnings escalation, and a stress
 // row the daemon severity vocabulary calls watch.
@@ -204,7 +213,7 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 				"Nothing across Review and Ready needs a decision.",
 			},
 			wantText: []string{
-				"The session closed with Daily P/L EUR +2,340 on equity of EUR 1,250,000.",
+				"Daily P/L stands at EUR +2,340 on equity of EUR 1,250,000.",
 				"By name in EUR: AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at -120.00.",
 				"2 protection proposals were offered and 1 acted in the last recorded session (2026-07-29), with no overrides, no rule transitions, and no capital events.",
 				"The adjusted peak holds at EUR 1,275,000.",
@@ -223,6 +232,17 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 			},
 			// Quiet has nothing to tint and nothing to disclose as unread.
 			wantAbsent: []string{"could not be read", "unknown is not clean"},
+			wantReview: 1,
+			wantReady:  2,
+		},
+		{
+			name:   "closed session states the since-close basis, not a completed-session result",
+			result: closedSessionBriefResult(),
+			wantText: []string{
+				"Since the last regular close, Daily P/L stands at EUR +2,340 at off-session marks on equity of EUR 1,250,000.",
+				"The US session is closed.",
+			},
+			wantAbsent: []string{"The session closed with"},
 			wantReview: 1,
 			wantReady:  2,
 		},
@@ -292,7 +312,7 @@ func TestComposeBriefNarrativeCompositions(t *testing.T) {
 				"12 inputs could not be read and are named below: session P/L, attribution, proposals, working orders, regime, breadth, dealer gamma, held-name events, capital, premium at risk, hedge cost, protection proposals.",
 			},
 			wantText: []string{
-				"The last completed session's account P/L is unavailable, so the session cannot be summarized.",
+				"Account P/L is unavailable, so the session cannot be summarized.",
 				"Per-name attribution is unavailable.",
 				"The proposal outcome journal is unavailable.",
 				"The open-orders journal is unavailable.",

@@ -1282,10 +1282,10 @@ func TestBriefMoversAggregateByUnderlyingWithResidual(t *testing.T) {
 	if diff := *row.OtherPnLBase - (800.10 - 750.40); diff < -0.001 || diff > 0.001 {
 		t.Fatalf("residual sum=%v", *row.OtherPnLBase)
 	}
-	if !strings.Contains(row.Detail, "by underlying") || !strings.Contains(row.Detail, "last session") {
+	if !strings.Contains(row.Detail, "by underlying") || !strings.Contains(row.Detail, "off-session marks") {
 		t.Fatalf("detail=%q", row.Detail)
 	}
-	if open := briefMovers(pos, true); strings.Contains(open.Detail, "last session") {
+	if open := briefMovers(pos, true); strings.Contains(open.Detail, "off-session") {
 		t.Fatalf("open-session detail=%q", open.Detail)
 	}
 	if got := briefMovers(&rpc.PositionsResult{}, true); got.Status != rpc.BriefStatusDegraded {

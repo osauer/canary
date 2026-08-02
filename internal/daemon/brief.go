@@ -1185,7 +1185,7 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 	} else {
 		detail := "account summary in base currency"
 		if !sessionOpen {
-			detail = "account summary in base currency; market closed — daily P&L is from the last completed session"
+			detail = "account summary in base currency; market closed — daily P&L is the broker's running since-close value at off-session marks, not a completed-session result"
 		}
 		out.Account = rpc.BriefAccountRow{BriefRowState: briefOK(detail),
 			DailyPnLBase: acct.DailyPnL, BaseCurrency: acct.BaseCurrency, AsOf: acct.AsOf}
@@ -1230,7 +1230,7 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 func briefMovers(pos *rpc.PositionsResult, sessionOpen bool) rpc.BriefMoversRow {
 	detail := "daily P&L by underlying, largest absolute first; position-level sums can differ from the account row by fees and FX"
 	if !sessionOpen {
-		detail += " (market closed — last session)"
+		detail += " (market closed — broker running values at off-session marks)"
 	}
 	row := rpc.BriefMoversRow{BriefRowState: briefOK(detail)}
 	for _, group := range pos.ByUnderlying {

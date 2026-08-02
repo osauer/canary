@@ -403,7 +403,7 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
   brief.renderBriefCard(state.snapshot);
   const sections = dom.element("briefSections");
   assert.equal(sections.classList.contains("brief-sections--narrative"), true);
-  assert.equal(byClass(sections, "pd-placard").some((node) => node.textContent === "Review · last session"), true);
+  assert.equal(byClass(sections, "pd-placard").some((node) => node.textContent === "Review · since last close"), true);
   assert.equal(byClass(sections, "pd-placard").some((node) => node.textContent === "Ready · next open"), true);
   assert.equal(byClass(sections, "pd-fig")[0].textContent, "€12K");
   assert.equal(byClass(sections, "pd-wtint")[0].textContent, " <img src=x onerror=boom>");

@@ -1,6 +1,6 @@
 import { heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
-import { $, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, pct, privacyMask, purgeRestoreSettingEnabled, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
+import { $, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, pct, privacyMask, purgeRestoreSettingEnabled, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
 import { state } from "./state.js";
 
 function renderAccountPanel(account = {}, positions = {}, stress = {}) {
@@ -89,9 +89,11 @@ function renderAccountDailyPnlPct(account = {}) {
   const value = accountDailyPnlPct(account);
   const closed = marketSessionClosed();
   el.className = "account-pnl-pct " + signedClass(value);
-  el.textContent = typeof value === "number" ? `${signedPct(value)} ${closed ? "last session" : "today"}` : "--";
+  el.textContent = typeof value === "number" ? `${signedPct(value)} ${closed ? "since close" : "today"}` : "--";
+  const frameAt = account.daily_pnl_observation?.as_of;
   el.title = closed
-    ? "Daily P/L of the last completed session as a percentage of estimated start-of-day net liquidation; the market is closed."
+    ? "The broker's running daily P/L since its prior close, at off-session marks — not a completed-session result — as a percentage of estimated start-of-day net liquidation; the market is closed."
+      + (frameAt ? ` P/L frame ${shortTime(frameAt)}.` : "")
     : "Daily P/L as a percentage of estimated start-of-day net liquidation";
 }
 
@@ -252,7 +254,7 @@ function renderUnderlyingPnlSummary(totals) {
   if (basis) {
     const hasTotals = hasNumericValue(totals.winner) || hasNumericValue(totals.loser);
     basis.hidden = !hasTotals;
-    basis.textContent = `Daily P/L by underlying · all held names${marketSessionClosed() ? " · last session" : ""}`;
+    basis.textContent = `Daily P/L by underlying · all held names${marketSessionClosed() ? " · since last close" : ""}`;
   }
 }
 
@@ -317,8 +319,10 @@ function moverCell(label, value, currency) {
 
 
 // marketSessionClosed reads the served official us-equity calendar (never the
-// market-strip selection override): held-book daily P/L freezes when the
-// primary session closes, and that is the honest stamp for these totals.
+// market-strip selection override). The broker's daily P/L does NOT freeze at
+// the close — it keeps moving on extended/overnight marks and rolls to the
+// next trading day — so closed-session totals are labeled since-close, never
+// as a completed-session result.
 function marketSessionClosed() {
   const session = state.snapshot?.market_calendar?.session;
   return Boolean(session && session.is_open === false);
