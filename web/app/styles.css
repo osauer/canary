@@ -3988,7 +3988,7 @@ p {
   min-height: 28px;
   border: 1px solid var(--line-soft);
   border-radius: 7px;
-  background: #22262e;
+  background: var(--pd-readout-face);
 }
 
 .exposure-visual__segment {
@@ -3996,31 +3996,38 @@ p {
   align-items: center;
   min-width: 0;
   padding-left: 8px;
-  color: #fff;
+  color: var(--pd-readout);
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
+/* Composition is a split, not a severity: the segments are graded plate
+   faces in the settings-chip register, never lamps. A hairline seam keeps
+   neighbouring steps of the ramp separable. */
+.exposure-visual__segment + .exposure-visual__segment {
+  border-left: 1px solid var(--pd-hairline);
+}
+
 .exposure-visual__segment:nth-child(1) {
-  background: #2368dc;
+  background: var(--pd-plate);
 }
 
 .exposure-visual__segment:nth-child(2) {
-  background: #2ea856;
+  background: var(--pd-plate-quiet);
 }
 
 .exposure-visual__segment:nth-child(3) {
-  background: #ffb521;
+  background: var(--pd-unlit);
 }
 
 .exposure-visual__segment:nth-child(4) {
-  background: #ff6b2c;
+  background: var(--pd-chip);
 }
 
 .exposure-visual__segment--other {
-  background: #aab0bb;
+  background: var(--pd-chip);
 }
 
 .exposure-visual__legend {
@@ -4044,24 +4051,25 @@ p {
   width: 8px;
   height: 8px;
   margin-top: 3px;
+  border: 1px solid var(--pd-border);
   border-radius: 50%;
-  background: #2368dc;
+  background: var(--pd-plate);
 }
 
 .exposure-visual__item:nth-child(2) .exposure-visual__swatch {
-  background: #2ea856;
+  background: var(--pd-plate-quiet);
 }
 
 .exposure-visual__item:nth-child(3) .exposure-visual__swatch {
-  background: #ffb521;
+  background: var(--pd-unlit);
 }
 
 .exposure-visual__item:nth-child(4) .exposure-visual__swatch {
-  background: #ff6b2c;
+  background: var(--pd-chip);
 }
 
 .exposure-visual__item--other .exposure-visual__swatch {
-  background: #aab0bb;
+  background: var(--pd-chip);
 }
 
 .exposure-visual__label,
