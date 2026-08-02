@@ -146,6 +146,33 @@ run_case retired-help 2 "$live_ready" none 'ibkr order --help'
 run_case retired-write 2 "$live_ready" none 'ibkr order place --preview-token tok'
 run_case retired-mixed 2 "$live_ready" none 'canary order status 42; ibkr order place --preview-token tok'
 
+# The retired name is rejected at command position, however it is reached.
+run_case retired-abs-path 2 "$live_ready" none '/opt/legacy/ibkr status'
+run_case retired-rel-path 2 "$live_ready" none './tools/ibkr status'
+run_case retired-env-prefix 2 "$live_ready" none 'CANARY_LOG=/tmp/x ibkr status'
+run_case retired-wrapper 2 "$live_ready" none 'env ibkr status'
+run_case retired-sh-c 2 "$live_ready" none 'bash -c "ibkr order place --preview-token tok"'
+run_case retired-piped 2 "$live_ready" none 'echo x | ibkr status'
+run_case retired-subshell 2 "$live_ready" none 'echo $(ibkr status)'
+
+# A path or argument that merely ends in a CLI name is not an invocation. The
+# repo itself lives under a directory named ibkr, so substring matching here
+# blocked ordinary read-only tooling.
+run_case path-arg-git 0 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status --short'
+run_case path-arg-nested 0 "$live_ready" none 'ls /Users/osauer/dev/ibkr/.claude/worktrees'
+run_case path-arg-grep 0 "$live_ready" none 'grep -n ibkr hooks/canary-pre-tool-use.sh'
+run_case path-arg-canary 0 "$live_ready" none 'git -C /srv/canary log --oneline -3'
+run_case path-arg-then-write 2 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status; canary settings set trading.freeze=true'
+
+# A bare `cd` into the primary working directory must pass. Substring matching
+# blocked it, `cd <path>/` slipped through on the trailing slash, and a blocked
+# cd is worse than a retry: the shell silently stays in the wrong tree, so the
+# next command reads another worktree's state.
+run_case cd-primary-tree 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr'
+run_case cd-trailing-slash 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr/'
+run_case cd-then-read 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary status --json'
+run_case cd-then-write 2 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary settings set trading.freeze=true'
+
 # Only the canonical release target carries the fixed paper round-trip
 # exception. The project hook leaves that make invocation to execpolicy and
 # the release target's own gates; direct paper-smoke remains a broker write.

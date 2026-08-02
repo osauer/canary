@@ -57,11 +57,66 @@ has_re() {
   printf '%s' "$command_line" | grep -Eq "$1"
 }
 
-if [[ -z "$command_line" ]] || ! has_re '(^|[[:space:]/])(ibkr|canary)([[:space:]]|$)'; then
+# A CLI name is an invocation only where a segment actually runs it. A path
+# argument that merely ends in the name — `git -C /Users/osauer/dev/ibkr status`
+# — is not, and blocking it broke read-only tooling. Segments begin at the head
+# and after every shell separator; environment prefixes, leading flags, and
+# wrapper words do not consume the position, so neither `FOO=1 canary …` nor a
+# `sh -c` payload can hide an invocation.
+cli_command_names() {
+  local line="$command_line" token sep
+  local -a tokens=()
+  line="${line//$'\n'/ ; }"
+  for sep in ';' '&' '|' '(' ')' '`' '{' '}'; do
+    line="${line//"$sep"/ $sep }"
+  done
+  read -r -a tokens <<<"$line"
+  if [[ "${#tokens[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  local expect_command=1
+  for token in "${tokens[@]}"; do
+    case "$token" in
+    ';' | '&' | '|' | '(' | ')' | '`' | '{' | '}')
+      expect_command=1
+      continue
+      ;;
+    esac
+    if [[ "$expect_command" -ne 1 ]]; then
+      continue
+    fi
+    if [[ "$token" == [[:alpha:]_]*=* || "$token" == -* ]]; then
+      continue
+    fi
+    case "${token##*/}" in
+    command | builtin | exec | env | time | nohup | nice | ionice | stdbuf | sudo | doas | xargs | sh | bash | zsh | dash)
+      continue
+      ;;
+    ibkr | canary)
+      printf '%s\n' "${token##*/}"
+      ;;
+    esac
+    expect_command=0
+  done
+}
+
+# The write gates below stay deliberately broad: a name anywhere on the line
+# still reaches them, because a false block costs a retry and a false allow
+# reaches a broker. Only the retired-name rejection and the executable this
+# hook itself runs are narrowed to command position.
+#
+# The word regex alone misses a name opening a substitution or subshell, where
+# the preceding character is `(` rather than space or slash, so command
+# position is a second way in — never a way out.
+cli_mentioned() {
+  has_re '(^|[[:space:]/])(ibkr|canary)([[:space:]]|$)' || [[ -n "$(cli_command_names)" ]]
+}
+
+if [[ -z "$command_line" ]] || ! cli_mentioned; then
   exit 0
 fi
 
-if has_re '(^|[[:space:]/])ibkr([[:space:]]|$)'; then
+if cli_command_names | grep -qx 'ibkr'; then
   block "The retired ibkr executable is not callable. Use canary; old command spellings are rejected instead of treated as compatibility aliases."
 fi
 
@@ -92,11 +147,12 @@ read_only_help_command() {
 }
 
 command_cli() {
-  if [[ "$command_line" =~ (^|[[:space:]/])(ibkr|canary)([[:space:]]|$) ]]; then
-    printf '%s' "${BASH_REMATCH[2]}"
-    return 0
+  local name
+  name="$(cli_command_names | head -1)"
+  if [[ -z "$name" ]]; then
+    return 1
   fi
-  return 1
+  printf '%s' "$name"
 }
 
 trading_status_json() {
