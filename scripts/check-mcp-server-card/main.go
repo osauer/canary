@@ -32,8 +32,45 @@ type cardTool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
+type versionOnly struct {
+	Version string `json:"version"`
+}
+
+// checkServerInfoVersion holds the card's stamp to the canonical discovery
+// file. -write round-trips serverInfo as opaque bytes, so no generator run
+// produces this value and nothing caught it drifting until the release gate —
+// which could only offer a hint naming a generator that never writes it.
+// Comparing here moves the catch to every `make check`, where the edit that
+// caused it is still in hand.
+func checkServerInfoVersion(cardPath, canonicalPath string, serverInfo json.RawMessage) int {
+	raw, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		fail("read %s: %v", canonicalPath, err)
+	}
+	var want versionOnly
+	if err := json.Unmarshal(raw, &want); err != nil {
+		fail("parse %s: %v", canonicalPath, err)
+	}
+	var got versionOnly
+	if err := json.Unmarshal(serverInfo, &got); err != nil {
+		fail("parse %s serverInfo: %v", cardPath, err)
+	}
+	if want.Version == "" {
+		fmt.Fprintf(os.Stderr, "mcp-server-card-check: %s: no version to track\n", canonicalPath)
+		return 1
+	}
+	if got.Version == want.Version {
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "mcp-server-card-check: %s: serverInfo.version is %q, but %s is %q\n",
+		cardPath, got.Version, canonicalPath, want.Version)
+	fmt.Fprintf(os.Stderr, "                       edit serverInfo.version in %s by hand; no generator writes it\n", cardPath)
+	return 1
+}
+
 func main() {
 	path := flag.String("card", "docs/.well-known/mcp/server-card.json", "server card path")
+	canonical := flag.String("canonical", "docs/mcp-server.json", "canonical MCP discovery file the card's serverInfo.version must track")
 	write := flag.Bool("write", false, "rewrite the card tool array from the runtime registry")
 	flag.Parse()
 	raw, err := os.ReadFile(*path)
@@ -71,6 +108,7 @@ func main() {
 	}
 	actual := make(map[string]json.RawMessage, len(card.Tools))
 	problems := 0
+	problems += checkServerInfoVersion(*path, *canonical, card.ServerInfo)
 	for _, tool := range card.Tools {
 		if _, exists := actual[tool.Name]; exists {
 			fmt.Fprintf(os.Stderr, "mcp-server-card-check: %s: duplicate tool %q\n", *path, tool.Name)

@@ -52,10 +52,25 @@ plain=${version#v}
 # included, so it is gated before the patch short-circuit below. v2.3.1 cut
 # with all three files lagging at 2.3.0 because this loop used to sit after
 # the early return, where no patch release ever reached it.
+# One hint per file, because they are not fixed the same way. server.json is a
+# copy the generator makes; the card's serverInfo.version is hand-maintained and
+# written by nothing — `-write` round-trips serverInfo as opaque bytes — so the
+# old shared hint sent whoever hit the card to run a generator that could not
+# produce the stamp, and the gate failed again with the identical message.
 for f in docs/mcp-server.json docs/.well-known/mcp/server.json docs/.well-known/mcp/server-card.json; do
   if ! grep -q "\"version\": \"$plain\"" "$f"; then
     echo "release-site-check: $f version is not $plain" >&2
-    echo "                    bump docs/mcp-server.json, then run \`make docs-regen\`" >&2
+    case "$f" in
+    docs/mcp-server.json)
+      echo "                    bump \"version\" in $f — it is the canonical stamp the others follow" >&2
+      ;;
+    docs/.well-known/mcp/server-card.json)
+      echo "                    edit \"serverInfo\".\"version\" in $f by hand; no generator writes it" >&2
+      ;;
+    *)
+      echo "                    bump docs/mcp-server.json, then run \`make docs-regen\` to refresh this copy" >&2
+      ;;
+    esac
     exit 1
   fi
 done

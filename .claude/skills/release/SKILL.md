@@ -78,7 +78,10 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 ## Stage 2 — Tree readiness
 
 - Version stamps that must already equal the target: `.claude-plugin/plugin.json`
-  (gate-enforced by `make release`), `docs/mcp-server.json` — the canonical
+  (gate-enforced by `make release`), root `server.json` — `registry-version-check`
+  pins it to `.claude-plugin/plugin.json`, and that gate is outside `make check`,
+  so a stale stamp there surfaces as a late pipeline failure rather than a
+  checklist item — `docs/mcp-server.json` — the canonical
   MCP discovery file, whose two `docs/.well-known/mcp/` copies are generated;
   bump the canonical one and run `make docs-regen`, never hand-edit the copies
   (`docs-check` rejects that) — `bug_report.yml`, and the

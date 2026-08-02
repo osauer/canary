@@ -59,6 +59,28 @@ for stale_file in canonical wellknown card; do
 	if (cd "$stale" && "$script" v2.3.1 >/dev/null 2>&1); then
 		fail "a patch release passed with a stale $stale_file discovery stamp"
 	fi
+	# The hint has to fix the file it names. A shared "run make docs-regen"
+	# survived several cuts here because only pass/fail was ever asserted:
+	# the card's serverInfo.version is written by no generator, so following
+	# it left the gate failing with the identical message.
+	(cd "$stale" && "$script" v2.3.1 >/dev/null 2>"$test_root/hint-$stale_file") || true
+	case "$stale_file" in
+		card)
+			grep -q 'serverInfo' "$test_root/hint-$stale_file" \
+				|| fail "a stale card hint does not name serverInfo"
+			if grep -q 'docs-regen' "$test_root/hint-$stale_file"; then
+				fail "a stale card hint still points at a generator that never writes it"
+			fi
+			;;
+		wellknown)
+			grep -q 'docs-regen' "$test_root/hint-$stale_file" \
+				|| fail "a stale generated copy should be fixed by docs-regen"
+			;;
+		canonical)
+			grep -q 'canonical' "$test_root/hint-$stale_file" \
+				|| fail "a stale canonical stamp should say it is the canonical one"
+			;;
+	esac
 done
 
 # A missing docs/ tree is a hard error, not a silent skip.
