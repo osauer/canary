@@ -2,15 +2,25 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.6.2 — 2026-08-02 15:06 CEST
+## v2.6.2 — 2026-08-02 15:53 CEST
 
 ### What's new
 
+- **Risk rules say "unknown" instead of passing a book they could not measure.** When a name's exposure cannot be converted to your base currency, the per-name cap could pass "0.0% of NLV" over an unmeasured book, the pre-earnings freeze and winner-trim rules skipped the same names, and the hedge ratio lost them from its denominator. All four now show such names as a named unknown; a breach measured on other names still stands, and a partially measured sum that used to read as a breach reads unknown too, because a partial sum cannot prove one.
+- **TWS and IB Gateway 10.47's renamed currency rows are understood.** 10.47 can prefix each per-currency balance row with `$LEDGER-`, which failed the old field check and silently erased the whole breakdown, taking exchange rates and the FX-exposure rule with it. Both spellings now parse, a mid-upgrade mix parses, and a row arriving in both spellings with different values is refused with a warning rather than resolved by arrival order.
 - **Earnings dates resolve for `BRK.B` and `BRK.A`.** Nasdaq answers a dotted class-share request and then echoes the symbol back with a slash, so the announcement named `BRK/B` where `BRK.B` was asked for and the payload was refused as a format change. It is per-issuer rather than a rule about dotted symbols: `BF.B` and `LEN.B` keep the dot and always resolved. The slash is now accepted only where the request used a dot, position for position, so the announcement still has to name the security that was asked for. (#18)
 
-### Changed
-
 ### Fixed
+
+- **The theta-budget rule no longer adds a foreign option leg's extrinsic value to the base-currency budget unconverted.** A leg with no exchange rate is disclosed as uncomputable instead of entering the total wrong by the exchange rate.
+- **On a multi-currency account, unrealised and realised P&L no longer swap places with one currency's ledger slice depending on wire arrival order.** Account totals now always come from the account's own rows and the per-currency breakdown from the ledger rows, whichever arrives first.
+- **A bond sharing a stock's ticker no longer appears as that stock holding in `canary watch` and the AI-client watchlist.** Only equity rows join the watchlist now; with both actually held, the equity wins every call instead of flipping between reads. The daemon's own displays were fixed in v2.6.1; this closes the two adapters that kept their own copy of the join.
+- **The capital drawdown ladder no longer measures the connected account's equity against a peak adopted from a different account.** Repinning to a smaller sibling fabricated a block tier and repinning to a larger one collapsed a real drawdown to ok. A mismatched session now reads tier `unknown`, the report names the `bound_account` the ladder follows, and an engaged block stays visible across the repin. Re-keying capital state per account is deliberate follow-on work in the guardrail-scoping release.
+
+### Known and deliberate
+
+- Two v2.6.1-sweep findings ride v2.7.0 with the per-account ledger work rather than this patch: the FX-exposure rule can still corroborate a clean 0% over settled foreign cash on a multi-account login, and the disclosure floor for delta-less legs still sums unconverted figures, which an understating pair just under the floor can mute. Neither gets worse with this release, and the common desk shape errs loud rather than quiet.
+
 ## v2.6.1 — 2026-08-02 10:05 CEST
 ### What's new
 
