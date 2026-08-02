@@ -120,6 +120,17 @@ if [[ -z "$ACCOUNT" ]]; then
     echo "release-paper-smoke: FAIL — could not resolve the connected account on ${HOST}:${PORT} after 25s" >&2
     exit 1
 fi
+# Concreteness first. DU* is a prefix glob, so a comma-joined managedAccounts
+# value such as "DU1234567,DU7654321," matches it and would pass the very check
+# that exists to refuse transmission — then phase 2 pins the isolated daemon to
+# that list. The daemon rejects a non-concrete pin downstream, so it failed
+# closed, but at the wrong layer and with an error that names neither cause.
+case "$ACCOUNT" in
+    *,*|*[[:space:]]*)
+        echo "release-paper-smoke: FAIL — connected account on ${HOST}:${PORT} is a managed-account list, not one account; refusing to transmit" >&2
+        exit 1
+        ;;
+esac
 case "$ACCOUNT" in
     DU*|du*) ;;
     *)
