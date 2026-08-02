@@ -58,6 +58,16 @@ const (
 	UnderlyingSourceStockLegMark = "stock_leg_mark"
 )
 
+// MarketValueBaseSourceSubstituted marks a leg whose MarketValueBase is the
+// raw contract-currency figure rather than a converted one, because no FX rate
+// was available. The number is only meaningful when the leg's currency IS the
+// base currency; otherwise it is wrong by the exchange rate, in whichever
+// direction the pair happens to run. Every threshold that reads MarketValueBase
+// must therefore treat such a leg as unmeasured rather than compare it, because
+// an understating pair silences the comparison instead of failing it. The empty
+// value means the figure was converted and may be compared.
+const MarketValueBaseSourceSubstituted = "substituted_unconverted"
+
 // RuleOffender is one name or leg contributing to a breach, worst first.
 type RuleOffender struct {
 	Symbol     string  `json:"symbol"`
@@ -130,6 +140,11 @@ type LegInput struct {
 	Delta      *float64
 	// MarketValueBase is the signed base-currency mark value of the leg.
 	MarketValueBase float64
+	// MarketValueBaseSource discloses whether MarketValueBase was converted or
+	// substituted: empty for a converted figure,
+	// MarketValueBaseSourceSubstituted when no FX rate existed and the raw
+	// contract-currency value stands in. Follows UnderlyingSource's shape.
+	MarketValueBaseSource string
 	// ExtrinsicBase is the base-currency extrinsic value for long legs;
 	// nil when uncomputable (missing underlying or mark) — never zero it.
 	ExtrinsicBase *float64
@@ -483,11 +498,22 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 	watch, act := c.pol.OptionLineWatchPct, c.pol.OptionLineActPct
 	hWatch, hAct := c.pol.HedgeLineWatchPct, c.pol.HedgeLineActPct
 	row.Threshold = new(watch)
-	var normalOff, hedgeOff []RuleOffender
+	var normalOff, hedgeOff, unmeasured []RuleOffender
 	worst, hedgeWorst := 0.0, 0.0
 	for _, n := range c.in.Names {
 		for _, l := range n.Legs {
 			if l.Quantity <= 0 {
+				continue
+			}
+			// A substituted base value is wrong by the exchange rate, and an
+			// understating pair would simply keep the leg under the tier and
+			// report a quiet pass on a line that breaches. This rule has no
+			// unknown tier of its own — tierStatus returns pass, watch or act —
+			// so an unmeasurable leg is collected and forces the row to unknown
+			// below rather than being compared or silently skipped.
+			if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted {
+				unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
+					Note: "premium not convertible to base — no FX rate for the leg's currency"})
 				continue
 			}
 			p := pct(math.Abs(l.MarketValueBase), c.nlv)
@@ -530,12 +556,32 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 		row.Observed = new(round1(hedgeWorst))
 		row.Threshold = new(hWatch)
 	}
+	// No input condition may produce a pass by absence of data. A leg whose
+	// premium could not be converted was never compared against either tier, so
+	// a pass here would be asserted over a line nobody measured. Watch and act
+	// stand: those were earned by legs that were measured, and a real breach
+	// must not be downgraded to unknown by an unrelated leg's missing rate.
+	// Disclosure is unconditional; only the status is conditional. Appending
+	// these inside the pass branch would drop them on watch or act, so a row
+	// naming a measured breach would silently omit a leg nobody could measure —
+	// the same suppression as the floor above, reached through a conditional
+	// instead of a threshold. They carry no ImpactBase, so the impact sum below
+	// is unchanged and an unmeasurable leg claims no weight it cannot prove.
+	row.Offenders = append(offenders, unmeasured...)
+	if len(unmeasured) > 0 && status == RuleStatusPass {
+		status = RuleStatusUnknown
+		row.Reason = "premium_unconvertible"
+	}
 	row.Status = status
 	// The headline names the offender of the tier that produced the status,
 	// with that tier's cap — an impact-sorted offenders[0] could caption the
 	// hedge line with the speculative 5% cap, misdirecting the operator to
 	// cut the hedge (the exact confusion the tier split exists to end).
 	switch {
+	case status == RuleStatusUnknown:
+		// Must precede the tier cases: with every leg unconvertible both
+		// offender slices are empty, and they are what those cases index.
+		row.Evidence = fmt.Sprintf("%d option leg(s) have no FX rate to base — their premium was not measured, so no pass is asserted.", len(unmeasured))
 	case status == RuleStatusPass:
 		row.Evidence = fmt.Sprintf("Largest option line %.1f%% of NLV, under the %.0f%% cap.", round1(worst), watch)
 	case hedgeWins:
@@ -603,7 +649,13 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 				continue
 			}
 			if l.ExtrinsicBase == nil {
-				if pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
+				// The materiality floor decides whether an uncomputable leg is
+				// disclosed at all. A substituted base value cannot be measured
+				// against it: an understating currency pair drops the leg below
+				// the floor and suppresses the very disclosure this branch
+				// exists to make. Such a leg is therefore always listed.
+				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
+					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
 					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
 						Note: "extrinsic uncomputable (missing underlying or mark)"})
 				}
@@ -1393,7 +1445,11 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 				continue
 			}
 			if l.CostBasisBase == nil || *l.CostBasisBase <= 0 {
-				if pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
+				// Same materiality floor, same reason it cannot be trusted on a
+				// substituted base value: an understating pair would drop the leg
+				// below the floor and hide an unassessable position.
+				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
+					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
 					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
 						Note: "cost basis unavailable — loss not assessable"})
 				}

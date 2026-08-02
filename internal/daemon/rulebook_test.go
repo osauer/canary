@@ -873,15 +873,38 @@ func TestNonBaseExposure(t *testing.T) {
 	acct := func(rows ...rpc.CurrencyExposure) *rpc.AccountResult {
 		return &rpc.AccountResult{BaseCurrency: "EUR", CurrencyExposure: rows}
 	}
+	// Production shape: ByUnderlying is derived from Stocks by
+	// groupByUnderlying, so a leg is never in the group view and absent from the
+	// flat list. Populating both is what the daemon actually serves.
 	posWith := func(ccy string) *rpc.PositionsResult {
-		return &rpc.PositionsResult{ByUnderlying: []rpc.PositionGroup{{
-			Underlying: "AAA",
-			Stock:      &rpc.PositionView{Symbol: "AAA", Quantity: 1, Currency: ccy},
-		}}}
+		stock := rpc.PositionView{Symbol: "AAA", SecType: "STK", Quantity: 1, Currency: ccy}
+		return &rpc.PositionsResult{
+			Stocks: []rpc.PositionView{stock},
+			ByUnderlying: []rpc.PositionGroup{{
+				Underlying: "AAA",
+				Stock:      &stock,
+			}},
+		}
+	}
+	// A bond is held in the Stocks slice but cannot anchor an underlying group,
+	// so it never reaches ByUnderlying at all.
+	posWithBond := func(ccy string) *rpc.PositionsResult {
+		return &rpc.PositionsResult{
+			Stocks: []rpc.PositionView{{Symbol: "T", SecType: "BOND", Quantity: 10000, Currency: ccy}},
+		}
 	}
 
 	if got, _ := nonBaseExposure(acct(), nil); got != nil {
 		t.Errorf("empty report with no corroborating snapshot = %v, want nil (unknown)", *got)
+	}
+	// The finding this pins: a foreign bond is invisible to the grouped view, so
+	// corroborating from ByUnderlying alone asserted a clean 0.0% on a book that
+	// was never measured — a false pass on a risk rule.
+	if got, _ := nonBaseExposure(acct(), posWithBond("USD")); got != nil {
+		t.Errorf("empty report with a non-base BOND leg = %v, want nil (ungrouped legs still contradict)", *got)
+	}
+	if got, _ := nonBaseExposure(acct(), posWithBond("EUR")); got == nil || *got != 0 {
+		t.Errorf("empty report with a base-currency BOND leg = %v, want 0 (corroborated)", got)
 	}
 	if got, _ := nonBaseExposure(acct(), posWith("USD")); got != nil {
 		t.Errorf("empty report with a USD leg = %v, want nil (report contradicted)", *got)

@@ -1203,3 +1203,77 @@ func TestRulebookDesignDocDiscoverable(t *testing.T) {
 		}
 	}
 }
+
+// A leg whose premium could not be converted to base was never measured, so
+// rule 2 must not report a pass over it. The substitution is silent by
+// construction — the raw contract-currency figure is a plausible number, and an
+// understating currency pair keeps the leg under both tiers — so the marker,
+// not the magnitude, is what has to drive this.
+func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
+	pol := DefaultRulebookPolicy()
+
+	quiet := func() RuleInputs {
+		in := healthyInputs()
+		// Leave one small, measured leg so the row would otherwise pass.
+		in.Names[0].Legs = in.Names[0].Legs[:1]
+		in.Names[0].Legs[0].MarketValueBase = 100
+		in.Names[0].Legs[0].Delta = nil
+		for i := 1; i < len(in.Names); i++ {
+			in.Names[i].Legs = nil
+		}
+		return in
+	}
+
+	in := quiet()
+	if got := rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium).Status; got != RuleStatusPass {
+		t.Fatalf("baseline with only measured legs = %s, want pass (fixture must pass before the marker matters)", got)
+	}
+
+	in = quiet()
+	in.Names[0].Legs[0].MarketValueBaseSource = MarketValueBaseSourceSubstituted
+	r := rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium)
+	if r.Status != RuleStatusUnknown {
+		t.Fatalf("unconvertible leg = %s, want unknown — no pass by absence of data (evidence: %s)", r.Status, r.Evidence)
+	}
+	if r.Reason != "premium_unconvertible" {
+		t.Errorf("reason = %q, want premium_unconvertible", r.Reason)
+	}
+	var named bool
+	for _, o := range r.Offenders {
+		if strings.Contains(o.Note, "no FX rate") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the unmeasured leg must be disclosed as an offender, got %+v", r.Offenders)
+	}
+
+	// A real breach must not be downgraded to unknown by an unrelated leg's
+	// missing rate: act is earned by legs that WERE measured.
+	in = quiet()
+	in.Names[0].Legs[0].MarketValueBase = 40000 // well past the normal act tier
+	in.Names[1].Legs = []LegInput{{Desc: "FX-less", Quantity: 1, MarketValueBase: 100,
+		MarketValueBaseSource: MarketValueBaseSourceSubstituted}}
+	r = rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium)
+	if r.Status != RuleStatusAct {
+		t.Errorf("measured breach beside an unconvertible leg = %s, want act (breach not downgraded)", r.Status)
+	}
+	// Disclosure is unconditional. Attaching the unmeasured legs only on the
+	// pass branch would let an act row name a measured breach while silently
+	// dropping a leg nobody could measure — status honest, evidence not.
+	var disclosed bool
+	for _, o := range r.Offenders {
+		if o.Leg == "FX-less" {
+			disclosed = true
+		}
+	}
+	if !disclosed {
+		t.Errorf("unconvertible leg must stay disclosed on an act row, offenders = %+v", r.Offenders)
+	}
+	// It must claim no impact it cannot prove: rule 2 ranks by ImpactBase.
+	for _, o := range r.Offenders {
+		if o.Leg == "FX-less" && o.ImpactBase != 0 {
+			t.Errorf("unmeasurable leg claimed ImpactBase %v, want 0", o.ImpactBase)
+		}
+	}
+}

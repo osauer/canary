@@ -863,7 +863,15 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 			if o.MarketValueBase != nil {
 				leg.MarketValueBase = *o.MarketValueBase
 			} else {
+				// No FX rate for this leg, so the raw contract-currency figure
+				// stands in. It is only right when the leg's currency is already
+				// the base, and otherwise wrong by the exchange rate — in either
+				// direction. Marked so the thresholds that read it can refuse to
+				// compare rather than let an understating pair silence them, and
+				// no lower bound may be built on it.
 				leg.MarketValueBase = o.MarketValue
+				leg.MarketValueBaseSource = risk.MarketValueBaseSourceSubstituted
+				n.ExposureBaseComplete = false
 			}
 			// FX path: same-currency is implicitly 1 and non-base uses the
 			// gateway rate (positionBaseRate) — the MV ratio is only a
@@ -998,14 +1006,21 @@ func positionsCarryNonBase(pos *rpc.PositionsResult, base string) bool {
 	if pos == nil {
 		return true // can't corroborate — stay unknown
 	}
-	for _, g := range pos.ByUnderlying {
-		if g.Stock != nil && g.Stock.Currency != "" && !strings.EqualFold(g.Stock.Currency, base) {
+	// Walk the flat lists, not ByUnderlying. Only equities anchor a group, so a
+	// bond, bill, fund, future or cash leg never appears there — and this
+	// function decides whether an absent currency report may be read as a
+	// corroborated base-only book. Missing those rows meant a desk holding a
+	// foreign bond looked same-currency, and rule 14 asserted a clean 0.0% on a
+	// book it had not measured. A false pass is the one direction the rulebook
+	// must never take, so every held leg is inspected regardless of grouping.
+	for _, p := range pos.Stocks {
+		if p.Currency != "" && !strings.EqualFold(p.Currency, base) {
 			return true
 		}
-		for _, o := range g.Options {
-			if o.Currency != "" && !strings.EqualFold(o.Currency, base) {
-				return true
-			}
+	}
+	for _, o := range pos.Options {
+		if o.Currency != "" && !strings.EqualFold(o.Currency, base) {
+			return true
 		}
 	}
 	if pos.Portfolio != nil && pos.Portfolio.FXSensitivityPerPct != nil {
