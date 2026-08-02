@@ -1395,3 +1395,71 @@ func TestRulebookSettingsPatch(t *testing.T) {
 		t.Fatal("null map must clear all overrides")
 	}
 }
+
+// A substituted leg (no FX rate, MarketValueBase nil) can still have a
+// computable extrinsic — mark and spot need no conversion — but that figure
+// is in the leg's own currency. Serving it as ExtrinsicBase fed rule 4's
+// base budget a number wrong by the exchange rate, and the rule's
+// substitution guard sits inside its ExtrinsicBase == nil branch, unreachable
+// for such a leg. The daemon must leave ExtrinsicBase nil so the leg routes
+// into that guarded branch and is disclosed, not summed.
+func TestMapRuleNamesSubstitutedLegLeavesExtrinsicNil(t *testing.T) {
+	pos := &rpc.PositionsResult{
+		ByUnderlying: []rpc.PositionGroup{{
+			Underlying: "CHFY",
+			// No GroupDollarDeltaBase: the aggregator had no FX rate either.
+			Options: []rpc.PositionView{{
+				Symbol: "CHFY", SecType: "OPTION", Quantity: 1, Multiplier: 100,
+				Expiry: "20260918", Strike: 55, Right: "C", Mark: 5,
+				Underlying: new(50.0), Delta: new(0.4), Currency: "CHF",
+				MarketValue: 500, // raw contract currency; MarketValueBase deliberately nil
+			}},
+		}},
+	}
+	names := mapRuleNames(pos, risk.DefaultRulebookPolicy(), "EUR")
+	if len(names) != 1 || len(names[0].Legs) != 1 {
+		t.Fatalf("names = %+v, want one name with one leg", names)
+	}
+	leg := names[0].Legs[0]
+	if leg.MarketValueBaseSource != risk.MarketValueBaseSourceSubstituted {
+		t.Fatalf("leg source = %q, want substituted", leg.MarketValueBaseSource)
+	}
+	if leg.ExtrinsicBase != nil {
+		t.Fatalf("substituted leg ExtrinsicBase = %v, want nil — a raw contract-currency extrinsic must not enter the base budget", *leg.ExtrinsicBase)
+	}
+
+	// End to end: the leg lands in rule 4's unknowns, not its measured total.
+	in := risk.RuleInputs{
+		AsOf:      time.Now(),
+		Positions: risk.SourceState{Healthy: true},
+		Account:   risk.SourceState{Healthy: true},
+		NLVBase:   new(100000.0),
+		Names:     names,
+	}
+	ev := risk.EvaluateRulebook(in, risk.DefaultRulebookPolicy())
+	var row risk.RuleRow
+	found := false
+	for _, r := range ev.Rows {
+		if r.ID == risk.RuleExtrinsicBudget {
+			row, found = r, true
+		}
+	}
+	if !found {
+		t.Fatal("extrinsic_budget row missing")
+	}
+	if row.Status != risk.RuleStatusUnknown {
+		t.Fatalf("rule 4 = %s, want unknown (evidence: %s)", row.Status, row.Evidence)
+	}
+	var disclosed bool
+	for _, o := range row.Offenders {
+		if o.Symbol == "CHFY" && strings.Contains(o.Note, "extrinsic uncomputable") {
+			disclosed = true
+		}
+	}
+	if !disclosed {
+		t.Fatalf("substituted leg must be disclosed in rule 4's unknowns, offenders = %+v", row.Offenders)
+	}
+	if row.Observed == nil || *row.Observed != 0 || row.ImpactBase != 0 {
+		t.Fatalf("rule 4 observed/impact = %v/%v, want 0/0 — the unconverted figure may not enter the measured total", row.Observed, row.ImpactBase)
+	}
+}

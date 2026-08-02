@@ -891,9 +891,16 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				leg.Expiry = exp
 				leg.DTE = int(exp.Sub(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)).Hours() / 24)
 			}
-			if extPerShare, ok := risk.OptionExtrinsicPerShare(o.Right, leg.Underlying, o.Strike, o.Mark); ok && o.Quantity > 0 {
+			// A substituted leg (MarketValueBase nil) has no FX path, so its
+			// extrinsic cannot be converted either: serving the raw
+			// contract-currency figure here would feed rule 4's base-currency
+			// budget a number wrong by the exchange rate, while the rule's
+			// substitution guard sits inside its ExtrinsicBase == nil branch —
+			// unreachable for a leg this line filled. Nil routes the leg into
+			// that guarded branch, where it is disclosed as uncomputable.
+			if extPerShare, ok := risk.OptionExtrinsicPerShare(o.Right, leg.Underlying, o.Strike, o.Mark); ok && o.Quantity > 0 && o.MarketValueBase != nil {
 				ext := extPerShare * o.Quantity * leg.Multiplier
-				if o.MarketValueBase != nil && o.MarketValue != 0 {
+				if o.MarketValue != 0 {
 					ext *= *o.MarketValueBase / o.MarketValue
 				}
 				leg.ExtrinsicBase = &ext
