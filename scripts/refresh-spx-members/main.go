@@ -28,6 +28,7 @@ import (
 	"go/format"
 	"log"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,6 +66,19 @@ func main() {
 			fmt.Println(s)
 		}
 		fmt.Fprintf(os.Stderr, "\n%d symbols (would write to %s)\n", len(symbols), outputPath)
+		return
+	}
+
+	// The file records a membership list; asOf is metadata about that list.
+	// asOf moves with the calendar, so rewriting on every run made the output
+	// differ whenever the day had changed even though membership had not — and
+	// the release aborts on any diff here, so a cut on a later day than the last
+	// refresh failed on a timestamp carrying no information. Leaving the file
+	// alone when the symbol set is unchanged is what the render function's own
+	// contract already claims: re-running when nothing has changed leaves the
+	// tree clean.
+	if current, _ := spx.MemberList(); slices.Equal(current, symbols) {
+		fmt.Fprintf(os.Stderr, "Membership unchanged (%d symbols); leaving %s and its as-of stamp alone\n", len(symbols), outputPath)
 		return
 	}
 
