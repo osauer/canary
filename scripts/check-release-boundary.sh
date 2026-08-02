@@ -209,6 +209,41 @@ if ! grep -Fqx \
 	failure=1
 fi
 
+# Every check below this point runs once per line of the Makefile and of every
+# scanned script and workflow, so the matcher is the gate's hot loop. It is
+# bash's built-in `[[ =~ ]]` rather than a `printf | grep -Eq` pipeline, which
+# cost two processes per test. Both engines are POSIX ERE and every pattern
+# string here is byte-identical to the one grep -E was handed, so only the
+# engine changed. Anchors keep grep's meaning too: the subject is always a
+# single `read -r` line and therefore newline-free, so `^` and `$` mean the same
+# thing whether they anchor a line or a string.
+#
+# THE RIGHT-HAND SIDE OF `=~` MUST STAY AN UNQUOTED VARIABLE REFERENCE. Writing
+# `=~ "$re_..."` makes bash match the pattern as a literal string. Nothing
+# fails, nothing warns: every check below silently stops matching and the
+# release boundary reports OK while verifying nothing.
+re_publication_command='(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+create|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'
+re_local_full_gate='^@?\$\(MAKE\)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(test|check|commit-check)([[:space:]]|$)'
+re_release_smoke='^@?\$\(MAKE\)[[:space:]]+release-smoke([[:space:]]|$)'
+re_main_push='^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]*$'
+re_ci_wait='^@?\$\(MAKE\)[[:space:]]+release-ci-wait[[:space:]]*$'
+re_main_candidate_check='^@?\$\(MAKE\)[[:space:]]+release-main-candidate-check[[:space:]]*$'
+re_annotated_tag='^@?git[[:space:]]+tag[[:space:]]+-a[[:space:]]+\$\(RELEASE_VERSION\)[[:space:]]+-m[[:space:]]+"\$\$msg"[[:space:]]*$'
+re_atomic_tag_push='^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+--atomic[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]+\$\(RELEASE_VERSION\)[[:space:]]*$'
+re_origin_check='^@?\$\(MAKE\)[[:space:]]+release-origin-check[[:space:]]*$'
+re_tag_candidate_check='^@?\$\(MAKE\)[[:space:]]+release-tag-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'
+re_plugin_tag_candidate_check='^@?\$\(MAKE\)[[:space:]]+release-plugin-tag-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'
+re_plugin_push='^git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+"\$\$plugin_ref"[[:space:]]*$'
+re_github_candidate_check='^@?\$\(MAKE\)[[:space:]]+release-github-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'
+re_registry_verify_fresh='^@?\$\(MAKE\)[[:space:]]+registry-publish-verify-first[[:space:]]+RELEASE_PIPELINE_ENTRY=release[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'
+re_ci_wait_historical_call='^@?\$\(MAKE\)[[:space:]]+_release-ci-wait-historical[[:space:]]+RELEASE_PIPELINE_ENTRY=release-resume[[:space:]]*$'
+re_registry_verify_resume='^@?\$\(MAKE\)[[:space:]]+registry-publish-verify-first[[:space:]]+RELEASE_PIPELINE_ENTRY=release-resume[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'
+re_origin_script='^@?\./scripts/check-release-origin\.sh[[:space:]]*$'
+re_invokes_release_publish='(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-publish([;&|[:space:]]|$)'
+re_invokes_release_run='(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-run([;&|[:space:]]|$)'
+re_invokes_release_resume_run='(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-resume-run([;&|[:space:]]|$)'
+re_invokes_ci_wait_historical='(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-ci-wait-historical([;&|[:space:]]|$)'
+
 check_file() {
 	local file="$1" line_number=0 text trimmed code
 	while IFS= read -r text || [ -n "$text" ]; do
@@ -217,8 +252,7 @@ check_file() {
 		code="${trimmed%%#*}"
 		code="${code%"${code##*[![:space:]]}"}"
 		[ -n "$code" ] || continue
-		if ! printf '%s\n' "$code" | grep -Eq \
-			'(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+create|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'; then
+		if ! [[ "$code" =~ $re_publication_command ]]; then
 			continue
 		fi
 		printf 'check-release-boundary: forbidden publication command in %s:%s: %s\n' \
@@ -615,10 +649,10 @@ while IFS= read -r line; do
 			run_plugin_check_count=$((run_plugin_check_count + 1))
 			run_plugin_check_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(test|check|commit-check)([[:space:]]|$)'; then
+		if [[ "$code" =~ $re_local_full_gate ]]; then
 			run_local_full_gate_count=$((run_local_full_gate_count + 1))
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-smoke([[:space:]]|$)'; then
+		if [[ "$code" =~ $re_release_smoke ]]; then
 			run_release_smoke_line="$line_number"
 			run_release_smoke_count=$((run_release_smoke_count + 1))
 		fi
@@ -629,11 +663,11 @@ while IFS= read -r line; do
 			run_payload_inventory_count=$((run_payload_inventory_count + 1))
 			run_payload_inventory_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_main_push ]]; then
 			run_main_push_count=$((run_main_push_count + 1))
 			run_main_push_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-ci-wait[[:space:]]*$' \
+		if [[ "$code" =~ $re_ci_wait ]] \
 			|| [ "$code" = '@$(MAKE) release-ci-wait || { \' ]; then
 			run_ci_wait_count=$((run_ci_wait_count + 1))
 			if [ "$run_ci_wait_count" -eq 1 ]; then
@@ -642,7 +676,7 @@ while IFS= read -r line; do
 				run_ci_wait_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-main-candidate-check[[:space:]]*$' \
+		if [[ "$code" =~ $re_main_candidate_check ]] \
 			|| [ "$code" = '@$(MAKE) release-main-candidate-check || { \' ]; then
 			run_main_check_count=$((run_main_check_count + 1))
 			if [ "$run_main_check_count" -eq 1 ]; then
@@ -651,15 +685,15 @@ while IFS= read -r line; do
 				run_main_check_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?git[[:space:]]+tag[[:space:]]+-a[[:space:]]+\$\(RELEASE_VERSION\)[[:space:]]+-m[[:space:]]+"\$\$msg"[[:space:]]*$'; then
+		if [[ "$code" =~ $re_annotated_tag ]]; then
 			run_tag_count=$((run_tag_count + 1))
 			run_tag_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+--atomic[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]+\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_atomic_tag_push ]]; then
 			run_atomic_tag_push_count=$((run_atomic_tag_push_count + 1))
 			run_atomic_tag_push_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-origin-check[[:space:]]*$'; then
+		if [[ "$code" =~ $re_origin_check ]]; then
 			run_origin_check_count=$((run_origin_check_count + 1))
 			if [ "$run_origin_check_count" -eq 1 ]; then
 				run_origin_check_line1="$line_number"
@@ -667,7 +701,7 @@ while IFS= read -r line; do
 				run_origin_check_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-tag-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_tag_candidate_check ]]; then
 			run_tag_candidate_count=$((run_tag_candidate_count + 1))
 			if [ "$run_tag_candidate_count" -eq 1 ]; then
 				run_tag_candidate_line1="$line_number"
@@ -675,7 +709,7 @@ while IFS= read -r line; do
 				run_tag_candidate_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-plugin-tag-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_plugin_tag_candidate_check ]]; then
 			run_plugin_tag_candidate_count=$((run_plugin_tag_candidate_count + 1))
 			if [ "$run_plugin_tag_candidate_count" -eq 1 ]; then
 				run_plugin_tag_candidate_line1="$line_number"
@@ -683,7 +717,7 @@ while IFS= read -r line; do
 				run_plugin_tag_candidate_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+"\$\$plugin_ref"[[:space:]]*$'; then
+		if [[ "$code" =~ $re_plugin_push ]]; then
 			run_plugin_push_count=$((run_plugin_push_count + 1))
 			run_plugin_push_line="$line_number"
 		fi
@@ -694,11 +728,11 @@ while IFS= read -r line; do
 		if [[ "$code" == "claude plugin tag ."* ]]; then
 			run_claude_plugin_tag_count=$((run_claude_plugin_tag_count + 1))
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-github-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_github_candidate_check ]]; then
 			run_github_check_count=$((run_github_check_count + 1))
 			run_github_check_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+registry-publish-verify-first[[:space:]]+RELEASE_PIPELINE_ENTRY=release[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_registry_verify_fresh ]]; then
 			run_registry_line="$line_number"
 		fi
 		if [[ "$code" == *"claude plugin tag"* ]] && [ "$run_first_publication_line" -eq 0 ]; then
@@ -708,7 +742,7 @@ while IFS= read -r line; do
 	if [ "$target" = "_release-resume-run" ]; then
 		[[ "$code" == *'$(MAKELEVEL)'* ]] && resume_guard_makelevel=1
 		[[ "$code" == *'$(RELEASE_PIPELINE_ENTRY)'* ]] && resume_guard_entry=1
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+_release-ci-wait-historical[[:space:]]+RELEASE_PIPELINE_ENTRY=release-resume[[:space:]]*$'; then
+		if [[ "$code" =~ $re_ci_wait_historical_call ]]; then
 			resume_ci_wait_count=$((resume_ci_wait_count + 1))
 			if [ "$resume_ci_wait_count" -eq 1 ]; then
 				resume_ci_wait_line1="$line_number"
@@ -749,7 +783,7 @@ while IFS= read -r line; do
 			resume_plugin_push_count=$((resume_plugin_push_count + 1))
 			resume_plugin_push_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-origin-check[[:space:]]*$'; then
+		if [[ "$code" =~ $re_origin_check ]]; then
 			resume_origin_check_count=$((resume_origin_check_count + 1))
 			if [ "$resume_origin_check_count" -eq 1 ]; then
 				resume_origin_check_line1="$line_number"
@@ -757,7 +791,7 @@ while IFS= read -r line; do
 				resume_origin_check_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-tag-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_tag_candidate_check ]]; then
 			resume_tag_candidate_count=$((resume_tag_candidate_count + 1))
 			if [ "$resume_tag_candidate_count" -eq 1 ]; then
 				resume_tag_candidate_line1="$line_number"
@@ -767,7 +801,7 @@ while IFS= read -r line; do
 				resume_tag_candidate_line3="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-plugin-tag-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_plugin_tag_candidate_check ]]; then
 			resume_plugin_tag_candidate_count=$((resume_plugin_tag_candidate_count + 1))
 			if [ "$resume_plugin_tag_candidate_count" -eq 1 ]; then
 				resume_plugin_tag_candidate_line1="$line_number"
@@ -775,11 +809,11 @@ while IFS= read -r line; do
 				resume_plugin_tag_candidate_line2="$line_number"
 			fi
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-github-candidate-check[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_github_candidate_check ]]; then
 			resume_github_check_count=$((resume_github_check_count + 1))
 			resume_github_check_line="$line_number"
 		fi
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+registry-publish-verify-first[[:space:]]+RELEASE_PIPELINE_ENTRY=release-resume[[:space:]]+RELEASE_VERSION=\$\(RELEASE_VERSION\)[[:space:]]*$'; then
+		if [[ "$code" =~ $re_registry_verify_resume ]]; then
 			resume_registry_line="$line_number"
 		fi
 	fi
@@ -795,13 +829,13 @@ while IFS= read -r line; do
 	fi
 	if [ "$target" = "release-origin-check" ]; then
 		origin_target_recipe_count=$((origin_target_recipe_count + 1))
-		if printf '%s\n' "$code" | grep -Eq '^@?\./scripts/check-release-origin\.sh[[:space:]]*$'; then
+		if [[ "$code" =~ $re_origin_script ]]; then
 			origin_target_command_count=$((origin_target_command_count + 1))
 		fi
 	fi
 	if [ "$target" = "release-tag-candidate-check" ]; then
 		tag_target_recipe_count=$((tag_target_recipe_count + 1))
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-origin-check[[:space:]]*$'; then
+		if [[ "$code" =~ $re_origin_check ]]; then
 			tag_target_origin_count=$((tag_target_origin_count + 1))
 		fi
 		if [ "$code" = '@./scripts/check-release-tag.sh "$(RELEASE_VERSION)"' ] \
@@ -828,7 +862,7 @@ while IFS= read -r line; do
 	fi
 	if [ "$target" = "release-plugin-tag-candidate-check" ]; then
 		plugin_tag_target_recipe_count=$((plugin_tag_target_recipe_count + 1))
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-origin-check[[:space:]]*$'; then
+		if [[ "$code" =~ $re_origin_check ]]; then
 			plugin_tag_target_origin_count=$((plugin_tag_target_origin_count + 1))
 		fi
 		if [ "$code" = '@./scripts/check-release-tag.sh --plugin "$(RELEASE_VERSION)"' ] \
@@ -838,7 +872,7 @@ while IFS= read -r line; do
 	fi
 	if [ "$target" = "release-github-candidate-check" ]; then
 		github_target_recipe_count=$((github_target_recipe_count + 1))
-		if printf '%s\n' "$code" | grep -Eq '^@?\$\(MAKE\)[[:space:]]+release-origin-check[[:space:]]*$'; then
+		if [[ "$code" =~ $re_origin_check ]]; then
 			github_target_origin_count=$((github_target_origin_count + 1))
 		fi
 		if [ "$code" = '$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)' ]; then
@@ -973,7 +1007,7 @@ while IFS= read -r line; do
 		printf 'check-release-boundary: registry fallback publisher must be called only by guarded registry-publish\n' >&2
 		failure=1
 	fi
-	if printf '%s\n' "$code" | grep -Eq '(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-publish([;&|[:space:]]|$)'; then
+	if [[ "$code" =~ $re_invokes_release_publish ]]; then
 		if [ "$target" = "_release-run" ] || [ "$target" = "_release-resume-run" ]; then
 			publish_called_from_run=1
 			if [ "$target" = "_release-run" ] \
@@ -996,7 +1030,7 @@ while IFS= read -r line; do
 			failure=1
 		fi
 	fi
-	if printf '%s\n' "$code" | grep -Eq '(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-run([;&|[:space:]]|$)'; then
+	if [[ "$code" =~ $re_invokes_release_run ]]; then
 		if [ "$target" = "release" ]; then
 			run_called_from_release=1
 			release_dispatch_line="$line_number"
@@ -1005,7 +1039,7 @@ while IFS= read -r line; do
 			failure=1
 		fi
 	fi
-	if printf '%s\n' "$code" | grep -Eq '(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-resume-run([;&|[:space:]]|$)'; then
+	if [[ "$code" =~ $re_invokes_release_resume_run ]]; then
 		if [ "$target" = "release-resume" ]; then
 			resume_called_from_release_resume=1
 			resume_dispatch_line="$line_number"
@@ -1014,7 +1048,7 @@ while IFS= read -r line; do
 			failure=1
 		fi
 	fi
-	if printf '%s\n' "$code" | grep -Eq '(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^[:space:]]+)*[[:space:]]_release-ci-wait-historical([;&|[:space:]]|$)' \
+	if [[ "$code" =~ $re_invokes_ci_wait_historical ]] \
 		&& [ "$target" != "_release-resume-run" ] \
 		&& ! { [ "$target" = "_release-publish" ] \
 			&& [ "$code" = '$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-ci-wait,$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume)' ]; } \
@@ -1023,7 +1057,7 @@ while IFS= read -r line; do
 		printf 'check-release-boundary: target %q may not invoke _release-ci-wait-historical\n' "$target" >&2
 		failure=1
 	fi
-	if printf '%s\n' "$code" | grep -Eq '(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+create|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'; then
+	if [[ "$code" =~ $re_publication_command ]]; then
 		case "$target" in
 			_release-run)
 				run_seen=1
