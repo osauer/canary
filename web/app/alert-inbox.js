@@ -36,7 +36,7 @@ const DELIVERY_STATES = new Set(["healthy", "degraded", "unavailable", "overflow
 const DELIVERY_CLASSES = new Set([
   "", "retry_pending", "transport_rejected", "interrupted_uncertain", "state_write_failure",
   "capacity_overflow", "no_active_subscription", "signing_keys_unavailable", "sender_unavailable",
-  "invalid_persisted_state", "retry_exhausted", "not_initialized",
+  "invalid_persisted_state", "retry_exhausted", "not_initialized", "producer_observation_rejected",
 ]);
 const TOP_KEYS = [
   "schema_version", "version", "initialized", "generation", "as_of", "current_state",

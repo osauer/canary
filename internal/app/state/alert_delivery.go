@@ -44,6 +44,7 @@ const (
 
 	AlertDeliveryHealthClassRetry          = "retry_pending"
 	AlertDeliveryHealthClassRejected       = "transport_rejected"
+	AlertDeliveryHealthClassObservation    = "producer_observation_rejected"
 	AlertDeliveryHealthClassInterrupted    = "interrupted_uncertain"
 	AlertDeliveryHealthClassStateWrite     = "state_write_failure"
 	AlertDeliveryHealthClassOverflow       = "capacity_overflow"
@@ -120,8 +121,13 @@ type alertDeliveryData struct {
 	RetiredTargets           map[string]time.Time                     `json:"retired_targets"`
 	Baselines                map[string]alertDeliveryBaseline         `json:"baselines"`
 	Health                   AlertDeliveryHealth                      `json:"delivery_health"`
-	AttentionHighWaterSeq    uint64                                   `json:"attention_high_water_seq"`
-	AttentionReadThroughSeq  uint64                                   `json:"attention_read_through_seq"`
+	// ObservationRejectedAt stamps the first producer snapshot refused since the
+	// last accepted one. Transport health cannot express this: nothing is ever
+	// attempted while intake is refused, so an empty attempt ledger would
+	// otherwise read as healthy for as long as the refusal lasts.
+	ObservationRejectedAt   time.Time `json:"observation_rejected_at,omitzero"`
+	AttentionHighWaterSeq   uint64    `json:"attention_high_water_seq"`
+	AttentionReadThroughSeq uint64    `json:"attention_read_through_seq"`
 	// legacyUnscopedRaw is populated only while opening a structurally valid
 	// pre-scope v1 ledger. It is archived byte-for-byte and never serialized as
 	// a live v2 authority.
@@ -640,6 +646,28 @@ func (s *Store) bumpAlertDeliveryGenerationLocked(data *alertDeliveryData) error
 	return nil
 }
 
+// noteAlertObservationRejectedLocked stamps the first producer snapshot refused
+// since the last accepted one. Repeat refusals in the same episode carry no new
+// information, so they are not persisted and cannot amplify writes.
+func (s *Store) noteAlertObservationRejectedLocked(prior *alertDeliveryData, at time.Time) {
+	if prior == nil || !prior.ObservationRejectedAt.IsZero() {
+		return
+	}
+	next := cloneAlertDeliveryData(prior)
+	next.ObservationRejectedAt = at.UTC()
+	s.recomputeAlertDeliveryHealthLocked(next, at)
+	if err := s.bumpAlertDeliveryGenerationLocked(next); err != nil {
+		return
+	}
+	s.data.AlertDelivery = next
+	if err := s.save(); err != nil {
+		s.data.AlertDelivery = prior
+		s.noteAlertDeliverySaveFailureLocked(at)
+		return
+	}
+	s.clearAlertDeliveryVolatileLocked()
+}
+
 func (s *Store) noteAlertDeliverySaveFailureLocked(at time.Time) {
 	// Preserve one stable public outage generation until a successful write
 	// proves recovery. Re-stamping the same persisted generation with a new
@@ -750,7 +778,17 @@ func (s *Store) ObserveAlertSnapshot(snapshot rpc.AlertCandidateSnapshot) (Alert
 			}
 			return AlertDeliveryView{}, s.setAlertDeliveryOverflowLocked(overflowBase, snapshot.AsOf)
 		}
+		if errors.Is(err, ErrAlertDeliveryInvalidTransition) {
+			s.noteAlertObservationRejectedLocked(prior, snapshot.AsOf)
+		}
 		return AlertDeliveryView{}, err
+	}
+	// Only a snapshot carrying producer coverage can attest that intake works
+	// again. The app answers its own refusals with an unavailable-coverage
+	// snapshot, and letting that clear the mark would erase the evidence on the
+	// very next poll.
+	if snapshot.Coverage.State != rpc.AlertCoverageUnavailable {
+		next.ObservationRejectedAt = time.Time{}
 	}
 	if alertSnapshotCanEstablishBaseline(snapshot) && !alertDeliveryBaselineEstablished(next, snapshot.AuthorityScope) {
 		if next.Baselines == nil {
@@ -1099,7 +1137,17 @@ func (s *Store) applyAlertCandidate(occurrence *alertDeliveryOccurrence, candida
 }
 
 func validateAlertCandidateAdvance(current alertDeliveryOccurrence, candidate rpc.AlertCandidate) error {
-	if candidate.ObservedAt.Before(current.ObservedAt) || candidate.EvidenceAsOf.Before(current.EvidenceAsOf) || candidate.StateChangedAt.Before(current.StateChangedAt) {
+	if candidate.ObservedAt.Before(current.ObservedAt) || candidate.StateChangedAt.Before(current.StateChangedAt) {
+		return fmt.Errorf("%w: occurrence timestamps regressed", ErrAlertDeliveryInvalidTransition)
+	}
+	// A cutover occurrence carries evidence times seeded from the retired
+	// pre-baseline producer, which stamped evaluation time where the current
+	// contract stamps the condition's own start. The two scales are not
+	// comparable, so an earlier evidence time on a row that can never be
+	// delivered reads as a re-statement rather than a replay. Observation and
+	// lifecycle order still bind here, and every post-baseline occurrence keeps
+	// the full rule.
+	if candidate.EvidenceAsOf.Before(current.EvidenceAsOf) && current.Disposition != AlertDispositionCutoverExisting {
 		return fmt.Errorf("%w: occurrence timestamps regressed", ErrAlertDeliveryInvalidTransition)
 	}
 	if candidate.State == current.State {
@@ -2345,6 +2393,9 @@ func (s *Store) recomputeAlertDeliveryHealthLocked(data *alertDeliveryData, now 
 			}
 		}
 	}
+	if class == "" && !data.ObservationRejectedAt.IsZero() {
+		class = AlertDeliveryHealthClassObservation
+	}
 	if class != "" {
 		data.Health = AlertDeliveryHealth{State: AlertDeliveryHealthDegraded, Class: class, UpdatedAt: now, LastAcceptedAt: lastAccepted}
 		return
@@ -2931,7 +2982,7 @@ func validAlertDeliveryHealth(health AlertDeliveryHealth) bool {
 		return health.Class == ""
 	case AlertDeliveryHealthDegraded:
 		switch health.Class {
-		case AlertDeliveryHealthClassRetry, AlertDeliveryHealthClassRejected, AlertDeliveryHealthClassInterrupted, AlertDeliveryAttemptExhausted:
+		case AlertDeliveryHealthClassRetry, AlertDeliveryHealthClassRejected, AlertDeliveryHealthClassInterrupted, AlertDeliveryHealthClassObservation, AlertDeliveryAttemptExhausted:
 			return true
 		default:
 			return false

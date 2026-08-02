@@ -156,6 +156,7 @@ const governanceTransportClasses = new Set([
   "sender_unavailable", "attempt_reserved", "interrupted_uncertain", "target_retired", "deadline_retry",
   "canceled_retry", "transport_retry", "http_retry", "http_rejected", "timeout_retry", "rejected",
   "dead_subscription", "state_write_failure", "recovery", "suppressed", "overflow",
+  "producer_observation_rejected",
 ]);
 
 function renderGovernance() {

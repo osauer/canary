@@ -577,6 +577,23 @@ test("a context change away from the alerts view schedules a coalesced refresh i
   reset();
 });
 
+test("a refused producer observation is accepted by the contract and named in delivery health", () => {
+  reset();
+  const refused = dto({
+    delivery_health: {
+      state: "degraded",
+      class: "producer_observation_rejected",
+      updated_at: at,
+      last_push_service_acceptance_at: at,
+    },
+  });
+  assert.equal(validateAlerts(refused), refused);
+  assert.equal(ingestAlerts(refused).status, "applied");
+  renderAlerts();
+  assert.equal(elements.get("alertDeliveryHealth").textContent, "degraded · producer_observation_rejected");
+  reset();
+});
+
 test("an invalidated feed quarantines delivery health and the selected-alert panel", () => {
   reset();
   const value = dto();

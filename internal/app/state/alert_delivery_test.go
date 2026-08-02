@@ -440,8 +440,18 @@ func TestAlertDeliveryAuthorityRecoveryReopenAndEscalation(t *testing.T) {
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base.Add(8*time.Minute), expected, expected, rpc.AlertCoverageCurrent, mismatchedRecovery)); !errors.Is(err, ErrAlertDeliveryInvalidTransition) {
 		t.Fatalf("non-exact recovery was accepted: %v", err)
 	}
-	if got := store.AlertDelivery(base.Add(8 * time.Minute)).Generation; got != stableGeneration {
-		t.Fatalf("rejected snapshots changed generation: got %d want %d", got, stableGeneration)
+	refused := store.AlertDelivery(base.Add(8 * time.Minute))
+	if refused.Generation != stableGeneration+1 {
+		t.Fatalf("refused producer snapshot did not publish one health edge: got %d want %d", refused.Generation, stableGeneration+1)
+	}
+	if refused.DeliveryHealth.State != AlertDeliveryHealthDegraded || refused.DeliveryHealth.Class != AlertDeliveryHealthClassObservation {
+		t.Fatalf("refused intake stayed invisible in delivery health: %+v", refused.DeliveryHealth)
+	}
+	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base.Add(9*time.Minute), expected, expected, rpc.AlertCoverageCurrent, mismatchedRecovery)); !errors.Is(err, ErrAlertDeliveryInvalidTransition) {
+		t.Fatalf("repeated non-exact recovery was accepted: %v", err)
+	}
+	if got := store.AlertDelivery(base.Add(9 * time.Minute)).Generation; got != refused.Generation {
+		t.Fatalf("repeated refusal republished the same health: got %d want %d", got, refused.Generation)
 	}
 }
 
@@ -450,6 +460,10 @@ func TestAlertDeliveryEqualAuthorityAndLifecycleMonotonicity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Monotonicity is the rule for delivery-bearing occurrences. The baseline
+	// makes these rows exactly that; the pre-baseline cutover exemption is
+	// pinned by TestAlertDeliveryCutoverEvidenceRestatementUnblocksBaseline.
+	enableTestAlertDelivery(t, store)
 	base := time.Date(2026, 7, 20, 14, 30, 0, 0, time.UTC)
 	candidate := testAlertCandidate(t, rpc.AlertSourceRegime, rpc.AlertKindMarketState, "market", "open-1", base)
 	snapshot := testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)
@@ -501,6 +515,87 @@ func TestAlertDeliveryEqualAuthorityAndLifecycleMonotonicity(t *testing.T) {
 	downgrade := reviseAlertCandidate(escalated, base.Add(5*time.Minute), "f", rpc.AlertEpisodeOpen, rpc.AlertSeverityAct)
 	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base.Add(5*time.Minute), []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, downgrade)); !errors.Is(err, ErrAlertDeliveryInvalidTransition) {
 		t.Fatalf("escalated occurrence downgraded to open: %v", err)
+	}
+}
+
+// TestAlertDeliveryCutoverEvidenceRestatementUnblocksBaseline reproduces the
+// production wedge: a cutover row seeded by the retired producer held a later
+// evidence time than the current contract reports for the same condition, and
+// the resulting refusal blocked every snapshot — including the one that would
+// have established the delivery baseline.
+func TestAlertDeliveryCutoverEvidenceRestatementUnblocksBaseline(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAlertMode(AlertModeWatchAndAct); err != nil {
+		t.Fatal(err)
+	}
+	both := []rpc.AlertSource{rpc.AlertSourceRegime, rpc.AlertSourceRiskPolicy}
+	policyOnly := []rpc.AlertSource{rpc.AlertSourceRiskPolicy}
+	seededAt := time.Date(2026, 7, 22, 15, 15, 0, 0, time.UTC)
+	seeded := testAlertCandidate(t, rpc.AlertSourceRiskPolicy, rpc.AlertKindDrawdown, "policy", "latched-1", seededAt)
+	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(seededAt, both, policyOnly, rpc.AlertCoverageCurrent, seeded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if occurrenceBySource(t, view, rpc.AlertSourceRiskPolicy).Disposition != AlertDispositionCutoverExisting {
+		t.Fatalf("fixture did not seed a pre-baseline cutover row: %+v", view.Occurrences)
+	}
+
+	// The current producer stamps the condition's own start, which predates the
+	// retired producer's evaluation-time stamp.
+	restated := seeded
+	restated.EvidenceAsOf = seededAt.Add(-48 * time.Hour)
+	restated.ObservedAt = seededAt.Add(time.Hour)
+	// The latched condition keeps re-observing at the current poll while its
+	// evidence time stays put.
+	policyAt := func(at time.Time) rpc.AlertCandidate {
+		out := restated
+		out.ObservedAt = at
+		return out
+	}
+	complete := testAlertSnapshot(seededAt.Add(time.Hour), both, both, rpc.AlertCoverageCurrent, restated)
+	view, err = store.ObserveAlertSnapshot(complete)
+	if err != nil {
+		t.Fatalf("restated cutover evidence was refused: %v", err)
+	}
+	if !alertDeliveryBaselineEstablished(store.data.AlertDelivery, complete.AuthorityScope) {
+		t.Fatal("complete coverage did not establish the delivery baseline")
+	}
+	if view.DeliveryHealth.State != AlertDeliveryHealthHealthy || view.DeliveryHealth.Class != "" {
+		t.Fatalf("accepted producer snapshot left delivery health degraded: %+v", view.DeliveryHealth)
+	}
+
+	// Past the baseline the row can page a device, so the full rule returns.
+	deliverable := testAlertCandidate(t, rpc.AlertSourceRegime, rpc.AlertKindMarketState, "market", "open-1", seededAt.Add(2*time.Hour))
+	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(seededAt.Add(2*time.Hour), both, both, rpc.AlertCoverageCurrent, policyAt(seededAt.Add(2*time.Hour)), deliverable)); err != nil {
+		t.Fatal(err)
+	}
+	regressed := reviseAlertCandidate(deliverable, seededAt.Add(3*time.Hour), "c", rpc.AlertEpisodeOpen, deliverable.Severity)
+	regressed.EvidenceAsOf = seededAt
+	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(seededAt.Add(3*time.Hour), both, both, rpc.AlertCoverageCurrent, policyAt(seededAt.Add(3*time.Hour)), regressed)); !errors.Is(err, ErrAlertDeliveryInvalidTransition) {
+		t.Fatalf("post-baseline evidence regression was accepted: %v", err)
+	}
+	refused := store.AlertDelivery(seededAt.Add(3 * time.Hour))
+	if refused.DeliveryHealth.State != AlertDeliveryHealthDegraded || refused.DeliveryHealth.Class != AlertDeliveryHealthClassObservation {
+		t.Fatalf("refused intake stayed invisible in delivery health: %+v", refused.DeliveryHealth)
+	}
+
+	// The app answers its own refusal with an unavailable-coverage snapshot; that
+	// carries no producer evidence and must not clear the mark.
+	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(seededAt.Add(4*time.Hour), both, nil, rpc.AlertCoverageUnknown)); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.AlertDelivery(seededAt.Add(4 * time.Hour)).DeliveryHealth; got.Class != AlertDeliveryHealthClassObservation {
+		t.Fatalf("synthetic unavailable snapshot cleared refused intake: %+v", got)
+	}
+	recovered := reviseAlertCandidate(deliverable, seededAt.Add(5*time.Hour), "d", rpc.AlertEpisodeOpen, deliverable.Severity)
+	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(seededAt.Add(5*time.Hour), both, both, rpc.AlertCoverageCurrent, policyAt(seededAt.Add(5*time.Hour)), recovered)); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.AlertDelivery(seededAt.Add(5 * time.Hour)).DeliveryHealth; got.State != AlertDeliveryHealthHealthy || got.Class != "" {
+		t.Fatalf("recovered intake stayed degraded: %+v", got)
 	}
 }
 
