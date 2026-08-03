@@ -43,7 +43,13 @@ func runStatus(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, res)
 	}
-	renderStatusText(env, &res)
+	// Best-effort: an older daemon without the method just loses the row.
+	var alerts *rpc.AlertCandidateSnapshot
+	var snapshot rpc.AlertCandidateSnapshot
+	if err := env.Conn.Call(ctx, rpc.MethodAlertCandidates, rpc.AlertCandidatesParams{}, &snapshot); err == nil {
+		alerts = &snapshot
+	}
+	renderStatusText(env, &res, alerts)
 	if !res.Connected {
 		return 1
 	}
@@ -53,7 +59,7 @@ func runStatus(ctx context.Context, env *Env, args []string) int {
 // renderStatusText prints the health snapshot as the user-facing status
 // screen. Split out from runStatus so the preview tool and future tests
 // can exercise the rendering without a live socket.
-func renderStatusText(env *Env, res *rpc.HealthResult) {
+func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidateSnapshot) {
 	out := env.Stdout
 	cliVersion := env.Version
 
@@ -84,6 +90,11 @@ func renderStatusText(env *Env, res *rpc.HealthResult) {
 	if res.Trading.Mode != "" {
 		statusRow(env, out, "Trading", formatTradingStatusValue(env, res.Trading))
 	}
+	if alerts != nil {
+		if value := formatAlertCoverageValue(env, alerts.Coverage); value != "" {
+			statusRow(env, out, "Alerts", value)
+		}
+	}
 	if len(res.DataQuality) > 0 {
 		statusRow(env, out, "Data quality", env.yellow(formatDataQualityValue(res.DataQuality)))
 	}
@@ -107,6 +118,38 @@ func renderStatusText(env *Env, res *rpc.HealthResult) {
 		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	}
 	fmt.Fprintln(out)
+}
+
+// formatAlertCoverageValue is the push-delivery readiness headline: delivery
+// waits on every expected alert source claiming coverage at once, so the row
+// names the stragglers instead of a bare fraction. `canary alerts` has the
+// per-source and per-rule detail.
+func formatAlertCoverageValue(env *Env, coverage rpc.AlertCoverage) string {
+	total := len(coverage.ExpectedSources)
+	if total == 0 {
+		return ""
+	}
+	covered := make(map[rpc.AlertSource]struct{}, len(coverage.CoveredSources))
+	for _, source := range coverage.CoveredSources {
+		covered[source] = struct{}{}
+	}
+	missing := make([]string, 0, total)
+	for _, source := range coverage.ExpectedSources {
+		if _, ok := covered[source]; !ok {
+			missing = append(missing, string(source))
+		}
+	}
+	if len(missing) == 0 && coverage.Freshness == rpc.AlertCoverageCurrent {
+		return env.green(fmt.Sprintf("%d/%d sources covered", total, total))
+	}
+	value := fmt.Sprintf("%d/%d sources covered", total-len(missing), total)
+	if coverage.Freshness != rpc.AlertCoverageCurrent && coverage.Freshness != "" {
+		value += fmt.Sprintf(" (%s)", coverage.Freshness)
+	}
+	if len(missing) > 0 {
+		value += " — missing: " + strings.Join(missing, ", ")
+	}
+	return env.yellow(value)
 }
 
 func statusRow(env *Env, out io.Writer, label, value string) {
@@ -397,15 +440,20 @@ func formatMembersValue(m rpc.MembersHealth) string {
 }
 
 func formatSubsystemsValue(env *Env, subs []rpc.SubsystemHealth) string {
+	// Ten "name:ready" entries carry no information; only the exceptions do.
+	// Collapse the healthy majority and keep every non-ready entry verbatim.
+	ready := 0
 	parts := make([]string, 0, len(subs))
 	for _, s := range subs {
 		if s.Name == "" || s.Status == "" {
 			continue
 		}
+		if s.Status == "ready" {
+			ready++
+			continue
+		}
 		status := s.Status
 		switch s.Status {
-		case "ready":
-			status = env.green(status)
 		case "computing", "degraded":
 			status = env.yellow(status)
 		case "unavailable", "error":
@@ -418,6 +466,15 @@ func formatSubsystemsValue(env *Env, subs []rpc.SubsystemHealth) string {
 			part += fmt.Sprintf(" %d%%", s.Progress)
 		}
 		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		if ready == 0 {
+			return ""
+		}
+		return env.green(fmt.Sprintf("all %d ready", ready))
+	}
+	if ready > 0 {
+		parts = append(parts, env.dim(fmt.Sprintf("+%d ready", ready)))
 	}
 	return strings.Join(parts, ", ")
 }

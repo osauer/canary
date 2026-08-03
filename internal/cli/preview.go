@@ -62,7 +62,7 @@ func PreviewRenderSize(env *Env, r *risk.SizeResult) {
 // PreviewRenderStatus renders synthetic daemon health with the production text
 // renderer.
 func PreviewRenderStatus(env *Env, h *rpc.HealthResult) {
-	renderStatusText(env, h)
+	renderStatusText(env, h, nil)
 }
 
 // PreviewRenderRegime renders a synthetic regime snapshot with the production

@@ -59,7 +59,7 @@ func TestRenderStatus_BackgroundLine(t *testing.T) {
 				ServerVersion:   200,
 				BackgroundTasks: tc.tasks,
 			}
-			renderStatusText(env, res)
+			renderStatusText(env, res, nil)
 			got := stdout.String()
 			if tc.want != "" && !strings.Contains(got, tc.want) {
 				t.Errorf("status missing expected substring %q:\n%s", tc.want, got)
@@ -264,7 +264,7 @@ func TestRenderStatus_FlightDeckShape(t *testing.T) {
 			RefreshState: "healthy",
 		},
 	}
-	renderStatusText(env, res)
+	renderStatusText(env, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
 		"IBKR Gateway  READY",
@@ -299,7 +299,7 @@ func TestRenderStatus_ConnectedAccountAndPaperBadge(t *testing.T) {
 		Connected:        true,
 		ServerVersion:    203,
 	}
-	renderStatusText(env, res)
+	renderStatusText(env, res, nil)
 	got := stdout.String()
 	wantBadge := ansiYellow + ansiBold + "PAPER" + ansiReset + ansiReset
 	if !strings.Contains(got, "Session") || !strings.Contains(got, "DU1234567 ("+wantBadge+") via 127.0.0.1:4002") {
@@ -359,7 +359,7 @@ func TestRenderStatus_VersionDrift(t *testing.T) {
 		Connected:     true,
 		ServerVersion: 203,
 	}
-	renderStatusText(env, res)
+	renderStatusText(env, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
 		"IBKR Gateway  ATTENTION",
@@ -389,7 +389,7 @@ func TestRenderStatus_DataQualityKeepsGatewayReady(t *testing.T) {
 			{Surface: "regime", Status: "stale", Summary: "stale: vol, credit", StaleClusters: []string{"vol", "credit"}},
 		},
 	}
-	renderStatusText(env, res)
+	renderStatusText(env, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
 		"IBKR Gateway  READY",
@@ -425,7 +425,7 @@ func TestRenderStatus_DataFarmsIssueGetsAttention(t *testing.T) {
 			Code:   2103,
 		}},
 	}
-	renderStatusText(env, res)
+	renderStatusText(env, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
 		"IBKR Gateway  ATTENTION",
@@ -456,7 +456,7 @@ func TestRenderStatus_SubsystemIssueGetsAttention(t *testing.T) {
 			Message: "no market-data farm connection notice observed; quotes may time out",
 		}},
 	}
-	renderStatusText(env, res)
+	renderStatusText(env, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
 		"IBKR Gateway  ATTENTION",
@@ -823,5 +823,59 @@ func TestFormatMembersValue(t *testing.T) {
 				t.Errorf("missing substring %q:\n%s", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestFormatSubsystemsValueCollapsesTheHealthyMajority(t *testing.T) {
+	t.Parallel()
+	env := &Env{Color: false}
+	allReady := []rpc.SubsystemHealth{{Name: "storage", Status: "ready"}, {Name: "quote", Status: "ready"}, {Name: "gamma", Status: "ready"}}
+	if got := formatSubsystemsValue(env, allReady); got != "all 3 ready" {
+		t.Fatalf("all-ready subsystems = %q, want the collapsed count", got)
+	}
+	mixed := []rpc.SubsystemHealth{{Name: "storage", Status: "ready"}, {Name: "quote", Status: "degraded"}, {Name: "gamma", Status: "ready"}}
+	if got := formatSubsystemsValue(env, mixed); got != "quote:degraded, +2 ready" {
+		t.Fatalf("mixed subsystems = %q, want the exception plus the ready count", got)
+	}
+	// A lone exception keeps the exact legacy shape.
+	one := []rpc.SubsystemHealth{{Name: "quote", Status: "degraded"}}
+	if got := formatSubsystemsValue(env, one); got != "quote:degraded" {
+		t.Fatalf("single degraded subsystem = %q", got)
+	}
+}
+
+func TestRenderStatusAlertCoverageRow(t *testing.T) {
+	t.Parallel()
+	base := func() *rpc.HealthResult {
+		return &rpc.HealthResult{DaemonVersion: "v1.0.0", Account: "DU0000000", AccountMode: rpc.AccountModePaper,
+			GatewayHost: "127.0.0.1", GatewayPort: 4002, PortOrigin: "discovered", ClientID: 17, Connected: true, ServerVersion: 178}
+	}
+	partial := &rpc.AlertCandidateSnapshot{Coverage: rpc.AlertCoverage{
+		State: rpc.AlertCoveragePartial, Freshness: rpc.AlertCoverageCurrent,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceRulebook, rpc.AlertSourceRegime, rpc.AlertSourceProtection},
+		CoveredSources:  []rpc.AlertSource{rpc.AlertSourceRulebook, rpc.AlertSourceProtection},
+	}}
+	var stdout bytes.Buffer
+	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, base(), partial)
+	if !strings.Contains(stdout.String(), "Alerts         2/3 sources covered — missing: regime") {
+		t.Fatalf("partial alert coverage row missing:\n%s", stdout.String())
+	}
+
+	complete := &rpc.AlertCandidateSnapshot{Coverage: rpc.AlertCoverage{
+		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceRulebook},
+		CoveredSources:  []rpc.AlertSource{rpc.AlertSourceRulebook},
+	}}
+	stdout.Reset()
+	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, base(), complete)
+	if !strings.Contains(stdout.String(), "Alerts         1/1 sources covered") {
+		t.Fatalf("complete alert coverage row missing:\n%s", stdout.String())
+	}
+
+	// No snapshot (older daemon): the row is simply absent.
+	stdout.Reset()
+	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, base(), nil)
+	if strings.Contains(stdout.String(), "Alerts ") {
+		t.Fatalf("alerts row rendered without a snapshot:\n%s", stdout.String())
 	}
 }
