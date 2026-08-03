@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -197,9 +198,20 @@ func (s *Server) observeProtectionAlertShadow(ctx context.Context, input alertSh
 	if s == nil || s.alertShadow == nil {
 		return
 	}
+	s.noteProtectionEvidenceArm(input)
 	if err := s.commitProtectionAlertShadow(ctx, input); err != nil {
 		s.warnf("alert producer: Protection observation failed: %v", err)
 	}
+}
+
+// noteProtectionEvidenceArm routes every protection observation, whichever
+// path built it, through the shared transition log.
+func (s *Server) noteProtectionEvidenceArm(input alertShadowProtectionInput) {
+	arm := ""
+	if input.Status == orderIntegrityHealthUnavailable {
+		arm = cmp.Or(input.StatusArm, "unspecified")
+	}
+	s.noteAlertEvidenceArm(rpc.AlertSourceProtection, arm)
 }
 
 func (s *Server) commitProtectionAlertShadow(ctx context.Context, input alertShadowProtectionInput) error {
@@ -218,6 +230,7 @@ func (s *Server) observeProtectionAlertShadowStable(ctx context.Context, binding
 	if s == nil || s.alertShadow == nil {
 		return true
 	}
+	s.noteProtectionEvidenceArm(input)
 	if s.protectionBeforeCommit != nil {
 		s.protectionBeforeCommit()
 	}
@@ -243,6 +256,11 @@ func (s *Server) observeOrderIntegrityAlertShadow(ctx context.Context, input ord
 	if s == nil || s.alertShadow == nil {
 		return true
 	}
+	arm := ""
+	if input.Status == orderIntegrityHealthUnavailable {
+		arm = cmp.Or(input.StatusArm, "unspecified")
+	}
+	s.noteAlertEvidenceArm(rpc.AlertSourceOrderIntegrity, arm)
 	scope, err := newAlertShadowBrokerScope(input.Scope)
 	if err != nil {
 		s.warnf("alert producer: Order Integrity observation skipped: %v", err)

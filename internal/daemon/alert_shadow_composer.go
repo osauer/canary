@@ -207,9 +207,12 @@ type alertShadowNudgeInput struct {
 // General partial or unprotected rows are context only under the v1 producer
 // policy; only orphaned and reconciliation-required facts are active.
 type alertShadowProtectionInput struct {
-	AsOf                  time.Time
-	EvidenceAsOf          time.Time
-	Status                string
+	AsOf         time.Time
+	EvidenceAsOf time.Time
+	Status       string
+	// StatusArm names the first condition behind an unavailable Status, for
+	// transition logging only; it never reaches the mapper or a wire contract.
+	StatusArm             string
 	Summary               rpc.ProtectionCoverageSummary
 	Scope                 alertShadowBrokerScope
 	OrderSnapshotAsOf     time.Time

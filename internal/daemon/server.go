@@ -194,6 +194,11 @@ type Server struct {
 	orderLifecyclePersistenceFailures  atomic.Uint64
 	orderLifecyclePersistenceUncertain atomic.Bool
 
+	// alertEvidenceArms tracks, per alert source, the last unavailable arm the
+	// evidence heartbeat logged, so transitions log once rather than per tick.
+	alertEvidenceArmMu sync.Mutex
+	alertEvidenceArms  map[rpc.AlertSource]alertEvidenceArmState
+
 	idleTimer   *time.Timer
 	idleStop    chan struct{}
 	activeConns int

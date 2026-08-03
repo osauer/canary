@@ -283,7 +283,7 @@ func TestAlertShadowOrderIntegrityHeartbeatRetainsOnFailureAndClearsOnlyCurrentN
 
 	observe := func(status string, views []rpc.OrderView, readErr error) {
 		t.Helper()
-		server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+		server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), true, func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
 			return views, orderIntegrityEvaluation{
 				AsOf: inputAt, EvidenceAsOf: inputAt, Status: status, Scope: brokerScope,
 			}, readErr
@@ -330,6 +330,63 @@ func TestAlertShadowOrderIntegrityHeartbeatRetainsOnFailureAndClearsOnlyCurrentN
 	cleared := alertShadowTestSourceStatus(t, server.alertShadow.Status(shadowScope), rpc.AlertSourceOrderIntegrity)
 	if cleared.Active != 0 || !cleared.Covered || cleared.Status != alertShadowStatusCurrent || cleared.Measurements.EpisodesRecovered != 1 {
 		t.Fatalf("current scoped empty read did not recover the mismatch: %+v", cleared)
+	}
+}
+
+// A journal head moving under the heartbeat's reload is a liveness race, not
+// missing evidence. A non-final attempt must rebuild instead of opening a
+// 30-second unavailable window; only the final attempt may observe it, and
+// then with the arm named.
+func TestAlertShadowOrderIntegrityHeartbeatRetriesTransientJournalRead(t *testing.T) {
+	inputAt := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	observedAt := inputAt.Add(time.Second)
+	server := &Server{}
+	attachAlertShadowCadenceTestAuthority(t, server, func() time.Time { return observedAt })
+	brokerScope := server.currentBrokerStateScope()
+	shadowScope, err := newAlertShadowBrokerScope(brokerScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settled := server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), false, func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+		return nil, orderIntegrityEvaluation{}, errOrderJournalHeadUnstable
+	})
+	if settled {
+		t.Fatal("non-final transient journal read failure was observed instead of retried")
+	}
+
+	reads := 0
+	settled = server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), false, func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+		reads++
+		return nil, orderIntegrityEvaluation{
+			AsOf: inputAt, EvidenceAsOf: inputAt, Status: orderIntegrityHealthCurrent, Scope: brokerScope,
+		}, nil
+	})
+	if !settled || reads != 1 {
+		t.Fatalf("rebuilt read did not settle (settled=%v reads=%d)", settled, reads)
+	}
+	covered := alertShadowTestSourceStatus(t, server.alertShadow.Status(shadowScope), rpc.AlertSourceOrderIntegrity)
+	if !covered.Covered || covered.Status != alertShadowStatusCurrent {
+		t.Fatalf("transient-then-clean tick did not end covered: %+v", covered)
+	}
+
+	inputAt = inputAt.Add(30 * time.Second)
+	observedAt = inputAt.Add(time.Second)
+	settled = server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), true, func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+		return nil, orderIntegrityEvaluation{}, errOrderJournalHeadUnstable
+	})
+	if !settled {
+		t.Fatal("final transient journal read failure must be observed, not dropped")
+	}
+	unavailable := alertShadowTestSourceStatus(t, server.alertShadow.Status(shadowScope), rpc.AlertSourceOrderIntegrity)
+	if unavailable.Covered || unavailable.Status != alertShadowStatusUnavailable {
+		t.Fatalf("final transient failure did not observe unavailable: %+v", unavailable)
+	}
+	server.alertEvidenceArmMu.Lock()
+	arm := server.alertEvidenceArms[rpc.AlertSourceOrderIntegrity].arm
+	server.alertEvidenceArmMu.Unlock()
+	if arm != "order_journal_head_unstable" {
+		t.Fatalf("final transient failure logged arm %q, want order_journal_head_unstable", arm)
 	}
 }
 
@@ -435,7 +492,7 @@ func TestAlertShadowReadHeartbeatsFailClosedWhenChildDeadlineExpires(t *testing.
 		server := &Server{}
 		attachAlertShadowCadenceTestAuthority(t, server, time.Now)
 		scope := server.currentBrokerStateScope()
-		server.observeOrderIntegrityAlertShadowHeartbeatWithReadContext(t.Context(), func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+		server.observeOrderIntegrityAlertShadowHeartbeatWithReadContext(t.Context(), true, func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
 			return nil, orderIntegrityEvaluation{
 				AsOf: now, EvidenceAsOf: now, Status: orderIntegrityHealthCurrent, Scope: scope,
 			}, nil
@@ -524,7 +581,7 @@ func TestAlertShadowReadHeartbeatsDropEvaluationAcrossReconnectScopeChange(t *te
 		server.cfg.Gateway.Account = ""
 		before := server.currentBrokerStateScope()
 
-		server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+		server.observeOrderIntegrityAlertShadowHeartbeatWith(t.Context(), true, func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
 			switchAlertShadowCadenceTestToLive(server)
 			now := time.Now().UTC()
 			return nil, orderIntegrityEvaluation{

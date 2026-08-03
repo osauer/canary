@@ -26,8 +26,11 @@ const (
 )
 
 type orderIntegrityEvaluation struct {
-	AsOf                  time.Time
-	Status                string
+	AsOf   time.Time
+	Status string
+	// StatusArm names the first condition that forced an unavailable Status,
+	// for transition logging only; it never reaches a wire contract.
+	StatusArm             string
 	EvidenceAsOf          time.Time
 	Scope                 brokerStateScope
 	Orders                []rpc.OrderView
@@ -391,6 +394,7 @@ func (s *Server) loadOrderViewsReconciledWithHealth(ctx context.Context) ([]rpc.
 	evaluation := s.reconcileOrderViewsFromCachedPositionsBound(ctx, views, s.readOrderIntegrityCachedPositions, binding, bindingOK)
 	if !bindingOK {
 		evaluation.Status = orderIntegrityHealthUnavailable
+		evaluation.StatusArm = "broker_evidence_binding_unavailable"
 	}
 	evaluation.orderJournal = s.orderJournal
 	evaluation.orderAuthorityHeadSeq = head
@@ -440,7 +444,7 @@ func (s *Server) reconcileOrderViewsFromCachedPositionsBound(ctx context.Context
 	if !bindingOK {
 		scope = s.currentBrokerStateScope()
 	}
-	evaluation := orderIntegrityEvaluation{Status: orderIntegrityHealthUnavailable, Scope: scope, Orders: []rpc.OrderView{}}
+	evaluation := orderIntegrityEvaluation{Status: orderIntegrityHealthUnavailable, StatusArm: "request_context_or_scope_unavailable", Scope: scope, Orders: []rpc.OrderView{}}
 	if bindingOK {
 		evaluation.connector = binding.connector
 		evaluation.connectorEpoch = binding.connectorEpoch
@@ -455,6 +459,7 @@ func (s *Server) reconcileOrderViewsFromCachedPositionsBound(ctx context.Context
 	completedAt := s.orderNow().UTC()
 	evaluation.AsOf = completedAt
 	if err != nil || ctx.Err() != nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
+		evaluation.StatusArm = "portfolio_read_failed_or_scope_moved"
 		return evaluation
 	}
 	evaluation.EvidenceAsOf = portfolioStreamEvidenceAsOf(health)
@@ -463,10 +468,11 @@ func (s *Server) reconcileOrderViewsFromCachedPositionsBound(ctx context.Context
 	}
 	positions, scoped := orderIntegrityPositionsFromCache(raw, scope, completedAt)
 	if !scoped {
+		evaluation.StatusArm = "cached_rows_outside_scope"
 		return evaluation
 	}
 	reconcileFlatPositionProtectiveOrders(views, positions, completedAt)
-	evaluation.Status = classifyOrderIntegrityPortfolioHealth(scope, health, completedAt)
+	evaluation.Status, evaluation.StatusArm = classifyPortfolioStreamHealthArm(scope, health, completedAt)
 	return evaluation
 }
 
@@ -530,23 +536,38 @@ func classifyOrderIntegrityPortfolioHealth(scope brokerStateScope, health ibkrli
 // completion, broker-account match, freshness, and non-future time are all
 // required; cached rows alone are never proof of a current negative.
 func classifyPortfolioStreamHealth(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, now time.Time) string {
+	status, _ := classifyPortfolioStreamHealthArm(scope, health, now)
+	return status
+}
+
+// classifyPortfolioStreamHealthArm is classifyPortfolioStreamHealth plus the
+// name of the first failing condition (empty when current) so heartbeat
+// transition logs can say which arm opened an unavailable window; the arm
+// carries no account identity and never reaches a wire contract.
+func classifyPortfolioStreamHealthArm(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, now time.Time) (string, string) {
 	evidenceAt := health.InitialCompletedAt.UTC()
 	if health.LastUpdateAt.After(evidenceAt) {
 		evidenceAt = health.LastUpdateAt.UTC()
 	}
 	switch {
 	case !health.ScopeConflictAt.IsZero():
-		return orderIntegrityHealthUnavailable
+		return orderIntegrityHealthUnavailable, "stream_scope_conflict_latched"
 	case !health.InvalidPayloadAt.IsZero():
-		return orderIntegrityHealthUnavailable
-	case !brokerScopeConcrete(scope) || !brokerScopeAccountConcrete(health.Account) || !strings.EqualFold(health.Account, scope.Account) || health.InitialCompletedAt.IsZero():
-		return orderIntegrityHealthUnavailable
+		return orderIntegrityHealthUnavailable, "stream_invalid_payload"
+	case !brokerScopeConcrete(scope):
+		return orderIntegrityHealthUnavailable, "daemon_scope_not_concrete"
+	case !brokerScopeAccountConcrete(health.Account):
+		return orderIntegrityHealthUnavailable, "stream_account_unbound"
+	case !strings.EqualFold(health.Account, scope.Account):
+		return orderIntegrityHealthUnavailable, "stream_account_mismatch"
+	case health.InitialCompletedAt.IsZero():
+		return orderIntegrityHealthUnavailable, "initial_download_incomplete"
 	case evidenceAt.After(now.UTC()):
-		return orderIntegrityHealthUnavailable
+		return orderIntegrityHealthUnavailable, "evidence_time_in_future"
 	case now.UTC().Sub(evidenceAt) > portfolioStreamReceiptMaxAge:
-		return orderIntegrityHealthStale
+		return orderIntegrityHealthStale, "receipt_stale"
 	default:
-		return orderIntegrityHealthCurrent
+		return orderIntegrityHealthCurrent, ""
 	}
 }
 

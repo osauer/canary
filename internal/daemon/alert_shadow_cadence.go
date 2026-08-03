@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -278,9 +279,12 @@ type alertShadowOrderIntegrityRead func(context.Context) ([]rpc.OrderView, order
 func (s *Server) observeOrderIntegrityAlertShadowHeartbeat(ctx context.Context) {
 	// Same bounded rebuild-on-drop as the protection heartbeat: a stable
 	// commit dropped for advancing broker or journal evidence starves the
-	// silence horizon if the only retry is the next 30s tick.
-	for range protectionHeartbeatStableAttempts {
-		settled := s.observeOrderIntegrityAlertShadowHeartbeatWith(ctx, func(readCtx context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+	// silence horizon if the only retry is the next 30s tick. The final
+	// attempt is marked so a still-failing transient read is observed as
+	// honestly unavailable instead of silently dropped.
+	for attempt := range protectionHeartbeatStableAttempts {
+		final := attempt == protectionHeartbeatStableAttempts-1
+		settled := s.observeOrderIntegrityAlertShadowHeartbeatWith(ctx, final, func(readCtx context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
 			views, _, evaluation, err := s.loadOrderViewsReconciledWithHealth(readCtx)
 			return views, evaluation, err
 		})
@@ -290,15 +294,17 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeat(ctx context.Context) 
 	}
 }
 
-func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWith(ctx context.Context, read alertShadowOrderIntegrityRead) bool {
-	return s.observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx, read, func(parent context.Context) (context.Context, context.CancelFunc) {
+func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWith(ctx context.Context, final bool, read alertShadowOrderIntegrityRead) bool {
+	return s.observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx, final, read, func(parent context.Context) (context.Context, context.CancelFunc) {
 		return requestCtx(parent, rpc.MethodOrdersOpen)
 	})
 }
 
-// The false return means the stable-evidence commit dropped the observation
-// because evidence advanced mid-flight; every other outcome reports true.
-func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx context.Context, read alertShadowOrderIntegrityRead, derive alertShadowReadContext) bool {
+// The false return means nothing was observed this pass — the stable-evidence
+// commit dropped the observation because evidence advanced mid-flight, or a
+// non-final transient read failure is being retried; every other outcome
+// reports true.
+func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx context.Context, final bool, read alertShadowOrderIntegrityRead, derive alertShadowReadContext) bool {
 	if s == nil || s.alertShadow == nil || ctx == nil || ctx.Err() != nil || read == nil || derive == nil {
 		return true
 	}
@@ -320,12 +326,22 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 		err = readErr
 	}
 	if err != nil {
+		if !final && orderViewReadTransient(err) && ctx.Err() == nil {
+			s.debugf("alert producer: Order Integrity heartbeat read transient (%v); rebuilding", err)
+			return false
+		}
+		arm := orderViewReadArm(err, "order_view_read_failed")
 		evaluation = orderIntegrityEvaluation{
 			AsOf: s.orderNow().UTC(), Status: orderIntegrityHealthUnavailable,
-			Scope: scope, Orders: []rpc.OrderView{},
+			StatusArm: arm,
+			Scope:     scope, Orders: []rpc.OrderView{},
+		}
+		if s.noteAlertEvidenceArm(rpc.AlertSourceOrderIntegrity, arm) {
+			s.infof("alert producer: Order Integrity heartbeat unavailable: %v", err)
+		} else {
+			s.debugf("alert producer: Order Integrity heartbeat unavailable: %v", err)
 		}
 		s.observeOrderIntegrityAlertShadow(ctx, evaluation)
-		s.debugf("alert producer: Order Integrity heartbeat unavailable: %v", err)
 		return true
 	}
 	if !sameBrokerScope(scope, evaluation.Scope) {
@@ -342,8 +358,72 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 	evaluation.Orders = orders
 	if s.orderLifecyclePersistenceUncertain.Load() {
 		evaluation.Status = orderIntegrityHealthUnavailable
+		evaluation.StatusArm = "order_lifecycle_persistence_uncertain"
 	}
 	return s.observeOrderIntegrityAlertShadow(ctx, evaluation)
+}
+
+type alertEvidenceArmState struct {
+	arm   string
+	since time.Time
+}
+
+// orderViewReadArm names the failure class of an order-view/journal read for
+// the transition log; fallback labels the unclassified case per call site.
+func orderViewReadArm(err error, fallback string) string {
+	switch {
+	case errors.Is(err, errOrderJournalHeadUnstable):
+		return "order_journal_head_unstable"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "order_view_read_deadline"
+	case errors.Is(err, context.Canceled):
+		return "order_view_read_canceled"
+	default:
+		return fallback
+	}
+}
+
+// orderViewReadTransient reports whether a failed order-view read is a
+// liveness race worth one in-tick rebuild: the journal head moving under the
+// reload, or the read budget expiring under machine load. Anything else is
+// treated as real and observed immediately.
+func orderViewReadTransient(err error) bool {
+	return errors.Is(err, errOrderJournalHeadUnstable) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled)
+}
+
+// noteAlertEvidenceArm logs one line per unavailable-window transition on an
+// alert source's evidence heartbeat: which arm opened the window, when the arm
+// changes, and how long the window lasted on recovery. Arm names describe
+// conditions, never account identities, so the lines are safe in a shared log.
+// It reports whether this call was a transition, so callers can attach one
+// Info-level detail line per window instead of per tick.
+func (s *Server) noteAlertEvidenceArm(source rpc.AlertSource, arm string) bool {
+	if s == nil {
+		return false
+	}
+	now := s.orderNow().UTC()
+	s.alertEvidenceArmMu.Lock()
+	prev := s.alertEvidenceArms[source]
+	if prev.arm == arm {
+		s.alertEvidenceArmMu.Unlock()
+		return false
+	}
+	if s.alertEvidenceArms == nil {
+		s.alertEvidenceArms = make(map[rpc.AlertSource]alertEvidenceArmState)
+	}
+	s.alertEvidenceArms[source] = alertEvidenceArmState{arm: arm, since: now}
+	s.alertEvidenceArmMu.Unlock()
+	switch {
+	case arm == "":
+		s.infof("alert evidence recovered: source=%s after=%s (arm was %s)", source, now.Sub(prev.since).Round(time.Second), prev.arm)
+	case prev.arm == "":
+		s.infof("alert evidence unavailable: source=%s arm=%s", source, arm)
+	default:
+		s.infof("alert evidence arm changed: source=%s arm=%s (was %s for %s)", source, arm, prev.arm, now.Sub(prev.since).Round(time.Second))
+	}
+	return true
 }
 
 type suppressProtectionAlertShadowObservationKey struct{}
@@ -362,8 +442,9 @@ func suppressProtectionAlertShadowObservation(ctx context.Context) context.Conte
 const protectionHeartbeatStableAttempts = 3
 
 func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
-	for range protectionHeartbeatStableAttempts {
-		if s.observeProtectionAlertShadowHeartbeatOnce(ctx) {
+	for attempt := range protectionHeartbeatStableAttempts {
+		final := attempt == protectionHeartbeatStableAttempts-1
+		if s.observeProtectionAlertShadowHeartbeatOnce(ctx, final) {
 			return
 		}
 		if ctx == nil || ctx.Err() != nil {
@@ -378,9 +459,11 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 // writes. The canonical cache read may exercise the connector's existing,
 // throttled account-updates re-subscription when a held account has no cached
 // rows. That is a read-side stream repair, not an order or account mutation.
-// The false return means the stable-evidence commit dropped the observation
-// because evidence advanced mid-flight; every other outcome reports true.
-func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) bool {
+// The false return means nothing was observed this pass — the stable-evidence
+// commit dropped the observation because evidence advanced mid-flight, or a
+// non-final transient journal read failure is being retried; every other
+// outcome reports true.
+func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context, final bool) bool {
 	if s == nil || s.alertShadow == nil {
 		return true
 	}
@@ -406,7 +489,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) 
 		return true
 	}
 	input := alertShadowProtectionInput{
-		AsOf: now, Status: orderIntegrityHealthUnavailable, Scope: shadowScope,
+		AsOf: now, Status: orderIntegrityHealthUnavailable, StatusArm: "connector_not_ready", Scope: shadowScope,
 		Summary: rpc.ProtectionCoverageSummary{AsOf: now, Status: rpc.ProtectionCoverageStateUnknown},
 	}
 	if c == nil || !c.IsReady() {
@@ -418,14 +501,16 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) 
 	if health.LastUpdateAt.After(input.EvidenceAsOf) {
 		input.EvidenceAsOf = health.LastUpdateAt.UTC()
 	}
-	input.Status = classifyOrderIntegrityPortfolioHealth(scope, health, now)
+	input.Status, input.StatusArm = classifyPortfolioStreamHealthArm(scope, health, now)
 	if positionsErr != nil {
+		input.StatusArm = "portfolio_read_failed"
 		s.observeProtectionAlertShadow(ctx, input)
 		return true
 	}
 	positions, scoped := protectionHeartbeatPositions(rawPositions, scope, now)
 	if !scoped {
 		input.Status = orderIntegrityHealthUnavailable
+		input.StatusArm = "cached_rows_outside_scope"
 		input.Summary = rpc.ProtectionCoverageSummary{
 			AsOf: now, Status: rpc.ProtectionCoverageStateUnknown,
 			WarningCodes: []string{"portfolio_scope_conflict"},
@@ -449,6 +534,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) 
 	}
 	if snapshotErr != nil || !snapshot.Complete || snapshot.AsOf.IsZero() || snapshot.AsOf.After(now) {
 		input.Status = orderIntegrityHealthUnavailable
+		input.StatusArm = "order_snapshot_unavailable"
 		input.Summary = rpc.ProtectionCoverageSummary{
 			AsOf: now, Status: rpc.ProtectionCoverageStateUnknown,
 			WarningCodes: []string{"api_order_snapshot_unavailable", "manual_tws_orders_uncovered", "unmatched_api_orders_uncovered"},
@@ -471,7 +557,12 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) 
 
 	views, _, orderHead, orderErr := s.loadOrderViewsAtStableHead()
 	if orderErr != nil {
+		if !final && orderViewReadTransient(orderErr) && ctx != nil && ctx.Err() == nil {
+			s.debugf("alert producer: Protection heartbeat journal read transient (%v); rebuilding", orderErr)
+			return false
+		}
 		input.Status = orderIntegrityHealthUnavailable
+		input.StatusArm = orderViewReadArm(orderErr, "order_journal_unavailable")
 		input.Summary = *buildProtectionCoverage(positions, nil, false, "order journal unavailable", now)
 		s.observeProtectionAlertShadow(ctx, input)
 		return true
@@ -497,6 +588,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) 
 	}
 	if protectionHeartbeatIdentityAmbiguous(positions, orders) {
 		input.Status = orderIntegrityHealthUnavailable
+		input.StatusArm = "contract_identity_ambiguous"
 		input.Summary = rpc.ProtectionCoverageSummary{
 			AsOf: now, Status: rpc.ProtectionCoverageStateUnknown,
 			WarningCodes: []string{"contract_identity_ambiguous", "manual_tws_orders_uncovered"},

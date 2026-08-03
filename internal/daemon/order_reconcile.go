@@ -2,12 +2,18 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
+
+// errOrderJournalHeadUnstable distinguishes "the journal kept advancing under
+// the reload" from real read failures: the former is a liveness race worth a
+// bounded retry, never evidence the journal is unreadable.
+var errOrderJournalHeadUnstable = errors.New("order journal changed during reconciliation reload")
 
 const (
 	// orderReconcileGrace keeps the sweep away from rows with recent journal
@@ -194,8 +200,18 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 	s.infof("order reconcile: closed %d journal row(s) absent from a complete broker open-order snapshot (%d snapshot orders, %d candidates)", len(events), len(snap.Orders), len(candidates))
 }
 
+// orderJournalHeadSettle is how long a stable-head reload waits before
+// rereading after it caught the journal mid-write. Back-to-back rereads race
+// the same event burst they just observed; one beat of patience makes the
+// second attempt meaningful while staying negligible against every caller's
+// request budget.
+const orderJournalHeadSettle = 25 * time.Millisecond
+
 func (s *Server) loadOrderViewsAtStableHead() ([]rpc.OrderView, map[string][]rpc.OrderEvent, int64, error) {
-	for range 3 {
+	for attempt := range 3 {
+		if attempt > 0 {
+			time.Sleep(orderJournalHeadSettle)
+		}
 		before, err := s.orderJournal.AuthorityHead()
 		if err != nil {
 			return nil, nil, 0, err
@@ -212,7 +228,7 @@ func (s *Server) loadOrderViewsAtStableHead() ([]rpc.OrderView, map[string][]rpc
 			return views, eventsByKey, after.LastEventSeq, nil
 		}
 	}
-	return nil, nil, 0, fmt.Errorf("order journal changed during reconciliation reload")
+	return nil, nil, 0, errOrderJournalHeadUnstable
 }
 
 func (s *Server) snapshotOpenOrdersFrom(ctx context.Context, c *ibkrlib.Connector) (ibkrlib.OpenOrderSnapshot, error) {
