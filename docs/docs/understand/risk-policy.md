@@ -108,9 +108,13 @@ rejected.
 
 Raising `policy_version` past certain points enlarges the decision set.
 `recon.max_equity_divergence_pct` is accepted only at version 3 or above and
-becomes material there; `[cadence.nudges]` and `[cadence.monthly]` behave the
-same way at version 4. A version bump made for an unrelated edit can therefore
-move a complete policy to `unapproved`.
+becomes material there. The version-4 `[cadence.nudges]` and `[cadence.monthly]`
+tables are different: every cadence value has a built-in default — the nudge
+clock is the machine's own timezone, the reconcile warning starts 2 days out,
+and the monthly pulse falls on the first working day at 09:00 — so the keys
+are optional overrides, never approval material. A version bump made for an
+unrelated edit can therefore move a complete policy to `unapproved` only
+through the non-cadence keys it newly requires.
 
 Evaluation is account-wide: the ladder measures current equity against the
 cash-flow-adjusted peak, so a revision changes the answer for everything you

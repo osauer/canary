@@ -165,6 +165,41 @@ func TestNudgeCandidateIdentitiesAndResolution(t *testing.T) {
 	}
 }
 
+func TestNthWorkingDayOfMonth(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		year  int
+		month time.Month
+		n     int
+		want  int
+	}{
+		{2026, time.November, 1, 2},   // the 1st is a Sunday
+		{2026, time.August, 1, 3},     // the 1st is a Saturday
+		{2026, time.April, 1, 1},      // the 1st is a Wednesday
+		{2027, time.February, 20, 26}, // 28-day month starting Monday has exactly 20
+		{2026, time.November, 20, 27},
+	} {
+		if got := nthWorkingDayOfMonth(tc.year, tc.month, tc.n); got != tc.want {
+			t.Errorf("nthWorkingDayOfMonth(%d, %s, %d) = %d, want %d", tc.year, tc.month, tc.n, got, tc.want)
+		}
+	}
+}
+
+func TestCadenceDefaultsResolveWithoutAuthoredKeys(t *testing.T) {
+	t.Parallel()
+	var cadence ConstitutionCadence
+	zone, err := cadence.NudgeLocation()
+	if err != nil || zone != time.Local {
+		t.Fatalf("NudgeLocation() = %v, %v; want the machine's local zone", zone, err)
+	}
+	if got := cadence.ResolvedReconcileWarningDays(); got != DefaultReconcileWarningDays {
+		t.Fatalf("ResolvedReconcileWarningDays() = %d, want %d", got, DefaultReconcileWarningDays)
+	}
+	if _, day, hour, minute, ok := monthlySchedule(cadence); !ok || day != DefaultMonthlyPulseWorkingDay || hour != 9 || minute != 0 {
+		t.Fatalf("bare cadence schedule = day %d %02d:%02d ok=%v, want the code defaults", day, hour, minute, ok)
+	}
+}
+
 func TestEvaluateMonthlyPulseLocalMonthDSTAndReopen(t *testing.T) {
 	cadence := approvedV4Constitution().Cadence
 	policyFingerprint := "policy-fingerprint-secret"
@@ -184,8 +219,9 @@ func TestEvaluateMonthlyPulseLocalMonthDSTAndReopen(t *testing.T) {
 		t.Fatal("wall-clock movement changed local-month identity")
 	}
 
-	// Berlin is back on CET: the same 09:00 local policy is 08:00Z.
-	novemberDue := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	// Berlin is back on CET: the same 09:00 local policy is 08:00Z. The 1st
+	// is a Sunday, so working day 1 of November is Monday the 2nd.
+	novemberDue := time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
 	november := EvaluateMonthlyPulse(MonthlyPulseInput{Now: novemberDue, Cadence: cadence, PolicyFingerprint: policyFingerprint, PolicyEvidenceReady: true})
 	if november.Status != MonthlyPulseStatusDue || !november.DueAt.Equal(novemberDue) || november.Month != "2026-11" {
 		t.Fatalf("November due across DST = %#v", november)
@@ -204,11 +240,15 @@ func TestEvaluateMonthlyPulseLocalMonthDSTAndReopen(t *testing.T) {
 		t.Fatalf("policy change did not reopen month: %#v", reopened)
 	}
 
+	// An absent key is a default now, so only an invalid authored override
+	// blocks the schedule. Clone Monthly: the field is a shared pointer.
+	blockedMonthly := *cadence.Monthly
+	blockedMonthly.NudgeAtLocal = new("9:00")
 	blockedCadence := cadence
-	blockedCadence.Monthly.NudgeAtLocal = nil
+	blockedCadence.Monthly = &blockedMonthly
 	blocked := EvaluateMonthlyPulse(MonthlyPulseInput{Now: novemberDue, Cadence: blockedCadence, PolicyFingerprint: policyFingerprint})
 	if blocked.Status != MonthlyPulseStatusBlocked || blocked.Candidate != nil {
-		t.Fatalf("unapproved cadence = %#v, want blocked without candidate", blocked)
+		t.Fatalf("invalid authored override = %#v, want blocked without candidate", blocked)
 	}
 }
 
@@ -256,7 +296,8 @@ func TestEvaluateMonthlyPulseRejectsAmbiguousClocksAndHostTimezone(t *testing.T)
 
 func TestEvaluateMonthlyPulseCompletionEvidenceBoundaries(t *testing.T) {
 	cadence := approvedV4Constitution().Cadence
-	dueAt := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	// 2026-11-01 is a Sunday; working day 1 of November is Monday the 2nd.
+	dueAt := time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
 	now := dueAt.Add(time.Hour)
 	base := MonthlyPulseInput{
 		Now: now, Cadence: cadence, PolicyFingerprint: "policy", PolicyEvidenceReady: true,

@@ -298,7 +298,8 @@ func EvaluateMonthlyPulse(input MonthlyPulseInput) MonthlyPulseEvaluation {
 	}
 	localNow := input.Now.In(zone)
 	month := localNow.Format("2006-01")
-	dueAt, unique := resolveUniqueLocalInstant(zone, localNow.Year(), localNow.Month(), day, hour, minute)
+	dueAt, unique := resolveUniqueLocalInstant(zone, localNow.Year(), localNow.Month(),
+		nthWorkingDayOfMonth(localNow.Year(), localNow.Month(), day), hour, minute)
 	if !unique {
 		return MonthlyPulseEvaluation{Status: MonthlyPulseStatusBlocked, Month: month}
 	}
@@ -323,22 +324,50 @@ func EvaluateMonthlyPulse(input MonthlyPulseInput) MonthlyPulseEvaluation {
 	return result
 }
 
+// monthlySchedule returns the pulse clock, the working-day index (not a
+// calendar day — see nthWorkingDayOfMonth), and the local wall time. Every
+// value defaults in code; an authored override that is invalid fails the
+// schedule closed rather than falling back silently.
 func monthlySchedule(cadence ConstitutionCadence) (*time.Location, int, int, int, bool) {
-	if cadence.Nudges == nil || cadence.Monthly == nil || cadence.Nudges.Timezone == nil || cadence.Monthly.Class == nil || cadence.Monthly.DayOfMonth == nil || cadence.Monthly.NudgeAtLocal == nil {
+	if cadence.Monthly != nil && cadence.Monthly.Class != nil && *cadence.Monthly.Class != EnforcementAdvisory {
 		return nil, 0, 0, 0, false
 	}
-	if *cadence.Monthly.Class != EnforcementAdvisory || *cadence.Monthly.DayOfMonth < 1 || *cadence.Monthly.DayOfMonth > 28 {
+	day := cadence.ResolvedMonthlyWorkingDay()
+	if day < 1 || day > 20 {
 		return nil, 0, 0, 0, false
 	}
-	zone, err := loadConstitutionLocation(*cadence.Nudges.Timezone)
+	zone, err := cadence.NudgeLocation()
 	if err != nil {
 		return nil, 0, 0, 0, false
 	}
-	parsed, err := time.Parse("15:04", *cadence.Monthly.NudgeAtLocal)
-	if err != nil || parsed.Format("15:04") != *cadence.Monthly.NudgeAtLocal {
+	atLocal := cadence.ResolvedMonthlyNudgeAtLocal()
+	parsed, err := time.Parse("15:04", atLocal)
+	if err != nil || parsed.Format("15:04") != atLocal {
 		return nil, 0, 0, 0, false
 	}
-	return zone, *cadence.Monthly.DayOfMonth, parsed.Hour(), parsed.Minute(), true
+	return zone, day, parsed.Hour(), parsed.Minute(), true
+}
+
+// nthWorkingDayOfMonth maps a working-day index to its calendar day. Working
+// days are Monday through Friday — the operator's weeks start on Monday —
+// and every month has at least 20 of them, which is why monthlySchedule caps
+// the index at 20. Zero means the index does not exist in the month, which
+// resolveUniqueLocalInstant then fails closed on.
+func nthWorkingDayOfMonth(year int, month time.Month, n int) int {
+	count := 0
+	for day := 1; day <= 31; day++ {
+		t := time.Date(year, month, day, 12, 0, 0, 0, time.UTC)
+		if t.Month() != month {
+			break
+		}
+		if wd := t.Weekday(); wd != time.Saturday && wd != time.Sunday {
+			count++
+			if count == n {
+				return day
+			}
+		}
+	}
+	return 0
 }
 
 func monthlyCompletionQualifies(completion *MonthlyPulseCompletion, month, policyFingerprint string, dueAt, now time.Time) bool {

@@ -642,7 +642,8 @@ func stateContents(t *testing.T, root string) map[string]string {
 }
 
 func TestNudgesMonthlyRequiresMatchingPinsWhileReadableDriftStillTriggers(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// 2026-08-01 is a Saturday; working day 1 of August is Monday the 3rd.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	matching := s.composeNudgesSnapshot()
 	if !candidateKindPresent(matching.Candidates, rpc.NudgeKindMonthlyPulse) {
@@ -665,7 +666,9 @@ func TestNudgesMonthlyRequiresMatchingPinsWhileReadableDriftStillTriggers(t *tes
 }
 
 func TestNudgePinOutagePreservesIndependentCandidates(t *testing.T) {
-	now := time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC)
+	// Monday the 3rd, past the monthly due instant, so the absent monthly
+	// pulse below is proven suppressed by the pin outage, not by not-due.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	primeNudgeBlockEpisode(s, now, true)
 	policyIdentity := nudgePolicyIdentity(s.riskPolicies.snapshot().policy)

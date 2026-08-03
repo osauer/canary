@@ -117,6 +117,18 @@ rejected. Missing v4 material values are reported through `UnapprovedKeys` and
 disable only the dependent timed nudges; they are never filled from host time,
 environment, or code constants.
 
+**Amendment 2026-08-03 (operator decision, supersedes the paragraph above for
+`cadence.*` only):** the cadence keys are operating schedule, not risk policy,
+and users cannot be expected to know the exact key phrases. Every cadence value
+now defaults in code — the nudge clock is the machine's local timezone,
+`reconcile_warning_days` defaults to 2, and the monthly pulse defaults to the
+first working day (Monday-started weeks, so Monday through Friday) at 09:00
+local. `day_of_month` is now the Nth working day, capped at 20. Authored keys
+are overrides validated at load; an invalid override fails the schedule
+closed. `UnapprovedKeys` no longer lists any `cadence.*` key, so a bare v4
+policy is cadence-eligible. Non-cadence material values keep the
+never-filled-from-code rule unchanged.
+
 Morning/EOD records may remain in the schema for backward-compatible passive
 measurement. A v4 policy does not interpret them as notification duties.
 

@@ -935,10 +935,10 @@ func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
 	setHealth(rpc.NudgeInputStatusOK, rpc.NudgeHealthReasonNone)
 	state.eligible = true
 	state.confirmedFlowEligible = mgr.policy.PolicyVersion == 4
-	state.cadenceEligible = state.confirmedFlowEligible && len(state.report.Unapproved) == 0 &&
-		mgr.policy.Cadence.Nudges != nil && mgr.policy.Cadence.Monthly != nil &&
-		mgr.policy.Cadence.Nudges.Timezone != nil && mgr.policy.Cadence.Nudges.ReconcileWarningDays != nil &&
-		mgr.policy.Cadence.Monthly.Class != nil && mgr.policy.Cadence.Monthly.DayOfMonth != nil && mgr.policy.Cadence.Monthly.NudgeAtLocal != nil
+	// Cadence keys all default in code (machine timezone, code schedule);
+	// authored overrides are validated at load, so a healthy v4 policy is
+	// always cadence-eligible.
+	state.cadenceEligible = state.confirmedFlowEligible && len(state.report.Unapproved) == 0
 	return state
 }
 
@@ -1302,10 +1302,10 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 			}
 		}
 		clock := s.riskCapital.UnreconciledClock(policy, now)
-		if authority.cadenceEligible && clock.Approved && !clock.Deadline.IsZero() && policy.Cadence.Nudges != nil {
+		if authority.cadenceEligible && clock.Approved && !clock.Deadline.IsZero() {
 			if candidate := risk.EvaluateReconcileDue(risk.ReconcileDueInput{
 				Now: now, Deadline: clock.Deadline,
-				WarningDays: policy.Cadence.Nudges.ReconcileWarningDays,
+				WarningDays: new(policy.Cadence.ResolvedReconcileWarningDays()),
 			}); candidate != nil {
 				result.Candidates = append(result.Candidates, rpcNudgeCandidate(candidate))
 			}
@@ -1457,10 +1457,7 @@ func rpcNudgeCandidate(candidate *risk.NudgeCandidate) rpc.NudgeCandidate {
 }
 
 func nudgeMonth(cadence risk.ConstitutionCadence, now time.Time) string {
-	if cadence.Nudges == nil || cadence.Nudges.Timezone == nil {
-		return ""
-	}
-	location, err := time.LoadLocation(strings.TrimSpace(*cadence.Nudges.Timezone))
+	location, err := cadence.NudgeLocation()
 	if err != nil {
 		return ""
 	}
@@ -1468,10 +1465,7 @@ func nudgeMonth(cadence risk.ConstitutionCadence, now time.Time) string {
 }
 
 func nudgeLocalDay(cadence risk.ConstitutionCadence, now time.Time) string {
-	if cadence.Nudges == nil || cadence.Nudges.Timezone == nil {
-		return ""
-	}
-	location, err := time.LoadLocation(strings.TrimSpace(*cadence.Nudges.Timezone))
+	location, err := cadence.NudgeLocation()
 	if err != nil {
 		return ""
 	}

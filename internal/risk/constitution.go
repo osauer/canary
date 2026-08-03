@@ -119,20 +119,72 @@ type ConstitutionCadence struct {
 	Monthly *ConstitutionMonthlyCadence `toml:"monthly" json:"monthly,omitempty"`
 }
 
-// ConstitutionNudgeCadence owns the local clock used by cadence-driven
-// nudges and the rolling warning horizon for reconciliation. Neither field
-// has a code default.
+// ConstitutionNudgeCadence carries optional overrides for cadence-driven
+// nudges. Both fields default in code (operator decision 2026-08-03: the
+// desk clock and warning horizon are operating cadence, not risk policy):
+// an absent Timezone means the machine's local timezone, an absent
+// ReconcileWarningDays means DefaultReconcileWarningDays.
 type ConstitutionNudgeCadence struct {
 	Timezone             *string `toml:"timezone" json:"timezone"`
 	ReconcileWarningDays *int    `toml:"reconcile_warning_days" json:"reconcile_warning_days"`
 }
 
 // ConstitutionMonthlyCadence declares the one standing monthly touchpoint.
-// DayOfMonth is limited to 1..28 so every configured month has the day.
+// DayOfMonth is the Nth working day of the month — Monday through Friday,
+// weeks starting Monday — limited to 1..20 so every month has the day.
 type ConstitutionMonthlyCadence struct {
 	Class        *string `toml:"class" json:"class"`
 	DayOfMonth   *int    `toml:"day_of_month" json:"day_of_month"`
 	NudgeAtLocal *string `toml:"nudge_at_local" json:"nudge_at_local"`
+}
+
+// Cadence defaults (operator-accepted 2026-08-03): every cadence key
+// defaults in code so a policy file never needs the exact key phrases; an
+// authored key is an override, never approval material.
+const (
+	// DefaultReconcileWarningDays is the rolling reconcile warning horizon.
+	DefaultReconcileWarningDays = 2
+	// DefaultMonthlyPulseWorkingDay is the Nth working day of the month the
+	// monthly pulse becomes due (Monday through Friday, weeks start Monday).
+	DefaultMonthlyPulseWorkingDay = 1
+	// DefaultMonthlyPulseAtLocal is the local wall time the pulse fires.
+	DefaultMonthlyPulseAtLocal = "09:00"
+)
+
+// NudgeLocation resolves the clock cadence-driven nudges run on: the
+// machine's local timezone unless the policy authors an explicit override.
+func (c ConstitutionCadence) NudgeLocation() (*time.Location, error) {
+	if c.Nudges != nil && c.Nudges.Timezone != nil {
+		return loadConstitutionLocation(*c.Nudges.Timezone)
+	}
+	return time.Local, nil
+}
+
+// ResolvedReconcileWarningDays returns the authored override when present,
+// else the code default.
+func (c ConstitutionCadence) ResolvedReconcileWarningDays() int {
+	if c.Nudges != nil && c.Nudges.ReconcileWarningDays != nil {
+		return *c.Nudges.ReconcileWarningDays
+	}
+	return DefaultReconcileWarningDays
+}
+
+// ResolvedMonthlyWorkingDay returns the authored override when present, else
+// the code default.
+func (c ConstitutionCadence) ResolvedMonthlyWorkingDay() int {
+	if c.Monthly != nil && c.Monthly.DayOfMonth != nil {
+		return *c.Monthly.DayOfMonth
+	}
+	return DefaultMonthlyPulseWorkingDay
+}
+
+// ResolvedMonthlyNudgeAtLocal returns the authored override when present,
+// else the code default.
+func (c ConstitutionCadence) ResolvedMonthlyNudgeAtLocal() string {
+	if c.Monthly != nil && c.Monthly.NudgeAtLocal != nil {
+		return *c.Monthly.NudgeAtLocal
+	}
+	return DefaultMonthlyPulseAtLocal
 }
 
 // ConstitutionArtefact declares one cadence artefact. An empty Class means the
@@ -262,8 +314,8 @@ func (c Constitution) Validate() error {
 			if cadence.Class != nil && *cadence.Class != EnforcementAdvisory {
 				return fmt.Errorf("cadence.monthly.class %q is invalid; only advisory is accepted", *cadence.Class)
 			}
-			if day := cadence.DayOfMonth; day != nil && (*day < 1 || *day > 28) {
-				return fmt.Errorf("cadence.monthly.day_of_month must be in [1, 28]")
+			if day := cadence.DayOfMonth; day != nil && (*day < 1 || *day > 20) {
+				return fmt.Errorf("cadence.monthly.day_of_month is the Nth working day of the month and must be in [1, 20]")
 			}
 			if local := cadence.NudgeAtLocal; local != nil {
 				parsed, err := time.Parse("15:04", *local)
@@ -361,23 +413,10 @@ func (c Constitution) UnapprovedKeys() []string {
 	if (c.PolicyVersion == 0 || c.PolicyVersion >= 3) && c.Recon.MaxEquityDivergencePct == nil {
 		out = append(out, "recon.max_equity_divergence_pct")
 	}
-	if c.PolicyVersion == 0 || c.PolicyVersion >= 4 {
-		if c.Cadence.Nudges == nil || c.Cadence.Nudges.Timezone == nil {
-			out = append(out, "cadence.nudges.timezone")
-		}
-		if c.Cadence.Nudges == nil || c.Cadence.Nudges.ReconcileWarningDays == nil {
-			out = append(out, "cadence.nudges.reconcile_warning_days")
-		}
-		if c.Cadence.Monthly == nil || c.Cadence.Monthly.Class == nil {
-			out = append(out, "cadence.monthly.class")
-		}
-		if c.Cadence.Monthly == nil || c.Cadence.Monthly.DayOfMonth == nil {
-			out = append(out, "cadence.monthly.day_of_month")
-		}
-		if c.Cadence.Monthly == nil || c.Cadence.Monthly.NudgeAtLocal == nil {
-			out = append(out, "cadence.monthly.nudge_at_local")
-		}
-	}
+	// cadence.* keys are deliberately not approval material: the timezone
+	// reads from the machine and every other cadence value defaults in code;
+	// authored keys are overrides (operator decision, 2026-08-03). Invalid
+	// overrides fail Validate, never this list.
 	return out
 }
 

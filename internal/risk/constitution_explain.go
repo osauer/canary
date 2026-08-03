@@ -3,6 +3,7 @@ package risk
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // ConstitutionLimit is one row of the generated human view (`canary policy
@@ -166,21 +167,36 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 			return str(value != nil, func() string { return *value })
 		}
 		timezoneValue, timezoneSource := stringValue(timezone)
+		if timezone == nil {
+			timezoneValue, timezoneSource = time.Local.String(), "machine"
+		}
 		warningValue, warningSource := num(warningDays, "days")
+		if warningDays == nil {
+			warningValue, warningSource = fmt.Sprintf("%d days", DefaultReconcileWarningDays), "default"
+		}
 		classValue, classSource := stringValue(monthlyClass)
-		dayValue, daySource := num(monthlyDay, "day of month")
+		if monthlyClass == nil {
+			classValue, classSource = EnforcementAdvisory, "default"
+		}
+		dayValue, daySource := num(monthlyDay, "working day of month")
+		if monthlyDay == nil {
+			dayValue, daySource = fmt.Sprintf("%d working day of month", DefaultMonthlyPulseWorkingDay), "default"
+		}
 		timeValue, timeSource := stringValue(monthlyTime)
+		if monthlyTime == nil {
+			timeValue, timeSource = DefaultMonthlyPulseAtLocal, "default"
+		}
 		rows = append(rows,
 			get("cadence.nudges.timezone", timezoneValue, timezoneSource,
-				"IANA timezone used to derive local cadence months and scheduled nudge instants. It has no code default.", "structural"),
+				"Clock cadence months and scheduled nudge instants are derived in. The machine's local timezone unless the file authors an override.", "structural"),
 			get("cadence.nudges.reconcile_warning_days", warningValue, warningSource,
-				"Rolling 24-hour days before the reconciliation deadline when the due-soon advisory begins. Overdue begins only after the deadline.", "advisory"),
+				"Rolling 24-hour days before the reconciliation deadline when the due-soon advisory begins. Overdue begins only after the deadline. Defaults in code; the file key overrides.", "advisory"),
 			get("cadence.monthly.class", classValue, classSource,
 				"Enforcement class of the monthly pulse. Policy version 4 accepts advisory only.", "structural"),
 			get("cadence.monthly.day_of_month", dayValue, daySource,
-				"Local calendar day when the monthly pulse becomes due; limited to days present in every month.", "advisory"),
+				"Nth working day of the month (Monday through Friday, weeks starting Monday) when the monthly pulse becomes due; limited to [1, 20] so the day exists in every month.", "advisory"),
 			get("cadence.monthly.nudge_at_local", timeValue, timeSource,
-				"Local HH:MM when the monthly pulse becomes due in the configured timezone.", "advisory"),
+				"Local HH:MM when the monthly pulse becomes due.", "advisory"),
 		)
 	}
 	return rows

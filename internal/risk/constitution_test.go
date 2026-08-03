@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -238,11 +237,14 @@ nudge_at_local = "09:00"
 		t.Fatalf("v3 parsed v4 cadence without targeted rejection: %v", err)
 	}
 
+	// Absent cadence keys are defaults, never approval material.
 	missing := decode(t, 4, `[cadence.nudges]
 timezone = "Europe/Berlin"
 `)
-	if got := missing.UnapprovedKeys(); !slices.Contains(got, "cadence.nudges.reconcile_warning_days") || !slices.Contains(got, "cadence.monthly.nudge_at_local") {
-		t.Fatalf("missing v4 material keys = %v", got)
+	for _, key := range missing.UnapprovedKeys() {
+		if strings.HasPrefix(key, "cadence.") {
+			t.Fatalf("absent v4 cadence key reported unapproved: %s", key)
+		}
 	}
 }
 
@@ -307,8 +309,8 @@ func TestConstitutionUnapprovedKeys(t *testing.T) {
 	v4 := approvedV4Constitution()
 	v4.Cadence.Nudges.Timezone = nil
 	v4.Cadence.Monthly.DayOfMonth = nil
-	if got := v4.UnapprovedKeys(); !slices.Equal(got, []string{"cadence.nudges.timezone", "cadence.monthly.day_of_month"}) {
-		t.Fatalf("v4 missing cadence keys = %v, want exact unapproved keys", got)
+	if got := v4.UnapprovedKeys(); len(got) != 0 {
+		t.Fatalf("v4 absent cadence keys reported unapproved: %v — cadence defaults in code", got)
 	}
 }
 
@@ -633,11 +635,33 @@ func TestConstitutionLimitsAreVersionAware(t *testing.T) {
 		"cadence.nudges.timezone":               "Europe/Berlin",
 		"cadence.nudges.reconcile_warning_days": "2 days",
 		"cadence.monthly.class":                 "advisory",
-		"cadence.monthly.day_of_month":          "1 day of month",
+		"cadence.monthly.day_of_month":          "1 working day of month",
 		"cadence.monthly.nudge_at_local":        "09:00",
 	} {
 		if row := v4Rows[key]; row.Source != "file" || row.Value != value {
 			t.Errorf("v4 explain %s = %+v, want file/%s", key, row, value)
+		}
+	}
+	// Un-authored cadence keys resolve to defaults with honest sources: the
+	// clock is the machine's, everything else is the code default.
+	bare := approvedV4Constitution()
+	bare.Cadence.Nudges = nil
+	bare.Cadence.Monthly = nil
+	bareRows := make(map[string]ConstitutionLimit)
+	for _, row := range ConstitutionLimits(&bare) {
+		bareRows[row.Key] = row
+	}
+	if row := bareRows["cadence.nudges.timezone"]; row.Source != "machine" || row.Value == "" {
+		t.Errorf("default timezone explain = %+v, want machine source with a value", row)
+	}
+	for key, value := range map[string]string{
+		"cadence.nudges.reconcile_warning_days": "2 days",
+		"cadence.monthly.class":                 "advisory",
+		"cadence.monthly.day_of_month":          "1 working day of month",
+		"cadence.monthly.nudge_at_local":        "09:00",
+	} {
+		if row := bareRows[key]; row.Source != "default" || row.Value != value {
+			t.Errorf("default explain %s = %+v, want default/%s", key, row, value)
 		}
 	}
 }

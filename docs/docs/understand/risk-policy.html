@@ -228,9 +228,13 @@ it.</li>
 </ol>
 <p>Raising <code>policy_version</code> past certain points enlarges the decision set.
 <code>recon.max_equity_divergence_pct</code> is accepted only at version 3 or above and
-becomes material there; <code>[cadence.nudges]</code> and <code>[cadence.monthly]</code> behave the
-same way at version 4. A version bump made for an unrelated edit can therefore
-move a complete policy to <code>unapproved</code>.</p>
+becomes material there. The version-4 <code>[cadence.nudges]</code> and <code>[cadence.monthly]</code>
+tables are different: every cadence value has a built-in default — the nudge
+clock is the machine's own timezone, the reconcile warning starts 2 days out,
+and the monthly pulse falls on the first working day at 09:00 — so the keys
+are optional overrides, never approval material. A version bump made for an
+unrelated edit can therefore move a complete policy to <code>unapproved</code> only
+through the non-cadence keys it newly requires.</p>
 <p>Evaluation is account-wide: the ladder measures current equity against the
 cash-flow-adjusted peak, so a revision changes the answer for everything you
 hold at once. No position carries the policy that was in force when it was
