@@ -21,7 +21,17 @@
     "@type": "TechArticle",
     "headline": "Canary Remote App Beta",
     "description": "Experimental remote access for the Canary mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.",
-    "dateModified": "2026-07-18T21:05:00+02:00",
+    "dateModified": "2026-08-03T10:58:00+02:00",
+    "video": {
+      "@type": "VideoObject",
+      "name": "Poolside",
+      "description": "A 21-second silent cartoon loop: the trader is on vacation, the canary keeps watch, and one phone alert arrives. All account data shown is synthetic.",
+      "thumbnailUrl": "https://osauer.dev/canary/media/canary-poolside-poster.jpg",
+      "contentUrl": "https://osauer.dev/canary/media/canary-poolside.mp4",
+      "uploadDate": "2026-08-03",
+      "duration": "PT21S",
+      "inLanguage": "en"
+    },
     "author": {
       "@type": "Person",
       "name": "Oliver Sauer",
@@ -191,6 +201,13 @@
       border: 1px solid var(--terminal-line);
       border-radius: 28px;
       box-shadow: 0 20px 48px rgba(16, 24, 39, 0.22);
+    }
+
+    video.phone-shot {
+      height: auto;
+      align-self: center;
+      aspect-ratio: 9 / 16;
+      object-fit: cover;
     }
 
     section {
@@ -408,7 +425,9 @@
           <a class="button" href="../feedback/">Give feedback</a>
         </div>
       </div>
-      <img class="phone-shot" src="../social/canary-app-mobile.png" width="780" height="1688" alt="Canary mobile app monitor screen showing market regime and portfolio stress cards">
+      <video class="phone-shot" autoplay muted loop playsinline preload="metadata" poster="../media/canary-poolside-poster.jpg" width="720" height="1280" aria-label="Silent cartoon loop: a trader floats in a pool while the canary keeps watch, and one phone alert arrives">
+        <source src="../media/canary-poolside.mp4" type="video/mp4">
+      </video>
     </section>
 
     <section class="wrap" aria-labelledby="what-title">
@@ -523,5 +542,14 @@ canary app pair</code></pre>
       </div>
     </div>
   </footer>
+  <script>
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('video[autoplay]').forEach(function (v) {
+        v.removeAttribute('autoplay');
+        v.pause();
+        v.setAttribute('controls', '');
+      });
+    }
+  </script>
 </body>
 </html>

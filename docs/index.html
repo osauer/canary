@@ -55,7 +55,7 @@
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
         "softwareVersion": "2.6.0",
-        "dateModified": "2026-07-31T21:12:00+02:00",
+        "dateModified": "2026-08-03T10:58:00+02:00",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -92,6 +92,36 @@
         "runtimePlatform": "macOS, Linux, Unix",
         "license": "https://github.com/osauer/canary/blob/main/LICENSE",
         "about": "Clean-room Go implementation of the Interactive Brokers TWS read-side protocol with CLI and MCP interfaces."
+      },
+      {
+        "@type": "VideoObject",
+        "name": "The Status Meeting",
+        "description": "A 53-second animated short about the moment a portfolio limit gets crossed while the trader is in a meeting, and the small yellow bird that watches. All account data shown is synthetic.",
+        "thumbnailUrl": "https://osauer.dev/canary/media/canary-status-meeting-poster.jpg",
+        "contentUrl": "https://osauer.dev/canary/media/canary-status-meeting.mp4",
+        "uploadDate": "2026-08-03",
+        "duration": "PT53S",
+        "inLanguage": "en",
+        "creator": {
+          "@type": "Person",
+          "name": "Oliver Sauer",
+          "url": "https://github.com/osauer"
+        }
+      },
+      {
+        "@type": "VideoObject",
+        "name": "Poolside",
+        "description": "A 21-second silent cartoon loop: the trader is on vacation, the canary keeps watch, and one phone alert arrives. All account data shown is synthetic.",
+        "thumbnailUrl": "https://osauer.dev/canary/media/canary-poolside-poster.jpg",
+        "contentUrl": "https://osauer.dev/canary/media/canary-poolside.mp4",
+        "uploadDate": "2026-08-03",
+        "duration": "PT21S",
+        "inLanguage": "en",
+        "creator": {
+          "@type": "Person",
+          "name": "Oliver Sauer",
+          "url": "https://github.com/osauer"
+        }
       },
       {
         "@type": "FAQPage",
@@ -358,6 +388,35 @@
       aspect-ratio: 4 / 3;
       object-fit: cover;
       object-position: top;
+    }
+
+    .film {
+      margin: 0;
+      max-width: 880px;
+    }
+
+    .film video {
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--terminal-line);
+      border-radius: 8px;
+      box-shadow: 0 18px 42px rgba(16, 24, 39, 0.18);
+      background: #101827;
+    }
+
+    .film figcaption {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .remote-grid video {
+      width: min(340px, 100%);
+      aspect-ratio: 9 / 16;
+      height: auto;
+      border: 1px solid var(--terminal-line);
+      border-radius: 8px;
+      box-shadow: 0 18px 42px rgba(16, 24, 39, 0.18);
     }
 
     .trust {
@@ -708,6 +767,20 @@
       </div>
     </div>
 
+    <section class="wrap" aria-labelledby="story-title">
+      <div class="section-head">
+        <h2 id="story-title">Why there is a bird.</h2>
+        <p>Canary exists because a portfolio does not pause while you are in a meeting. The short film below tells that story as a cartoon. The bird's job is the real product: watch the account against your own written limits, and buzz your phone in time to act.</p>
+      </div>
+      <figure class="film">
+        <video controls playsinline preload="none" poster="media/canary-status-meeting-poster.jpg" width="1920" height="1080" aria-label="The Status Meeting, an animated short film about a trader saved by a canary alert">
+          <source src="media/canary-status-meeting.mp4" type="video/mp4">
+          Your browser does not play MP4 video. <a href="media/canary-status-meeting.mp4">Download the film.</a>
+        </video>
+        <figcaption>The Status Meeting. 53 seconds, with sound.</figcaption>
+      </figure>
+    </section>
+
     <section class="wrap install" id="install" aria-labelledby="install-title">
       <div>
         <div class="section-head">
@@ -869,9 +942,11 @@ canary setup claude-desktop
       </div>
       <div class="proof-grid remote-grid">
         <article class="proof">
-          <img src="social/canary-app-mobile.png" width="780" height="1688" loading="lazy" alt="Canary mobile app monitor screen">
-          <h3>Mobile monitor</h3>
-          <p>The monitor is a fixed grid of instrument windows: every regime cluster the daemon ranks, plus the rulebook, protection, and stress. Each window prints its reading and, where the producer serves one, the level it would trip at.</p>
+          <video autoplay muted loop playsinline preload="metadata" poster="media/canary-poolside-poster.jpg" width="720" height="1280" aria-label="Silent cartoon loop: a trader floats in a pool while the canary keeps watch, and one phone alert arrives">
+            <source src="media/canary-poolside.mp4" type="video/mp4">
+          </video>
+          <h3>Away from the screen</h3>
+          <p>The pairing exists for exactly this. The desk stays on your Mac, and one buzz reaches you when a written limit is crossed. The loop above is the pitch in 21 seconds, muted on purpose.</p>
         </article>
         <article class="proof">
           <img src="social/canary-app-mobile-brief.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile app Daily brief tab">
@@ -1013,5 +1088,14 @@ canary setup claude-desktop
       </div>
     </div>
   </footer>
+  <script>
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('video[autoplay]').forEach(function (v) {
+        v.removeAttribute('autoplay');
+        v.pause();
+        v.setAttribute('controls', '');
+      });
+    }
+  </script>
 </body>
 </html>
