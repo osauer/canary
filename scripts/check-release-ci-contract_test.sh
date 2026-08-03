@@ -51,7 +51,6 @@ write_manifest() {
       "jobs": [
         "make check (lint + vet + vulncheck + parity)",
         "make test (ubuntu-latest)",
-        "make test (macos-latest)",
         "isolated Canary app render",
         "cross-compile release matrix"
       ]
@@ -118,18 +117,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     steps:
       - name: make test-pkg
         run: make test-pkg
       - name: make test-support (-race; command and CI/release helpers)
         run: make test-support
-      - name: make test-daemon (Linux, sharded -race)
-        if: runner.os == 'Linux'
+      - name: make test-daemon (sharded -race)
         run: make test-daemon
-      - name: make test-daemon (macOS, unsharded -race)
-        if: runner.os == 'macOS'
-        run: make test-daemon-unsharded
   app-render:
     name: isolated Canary app render
     runs-on: ubuntu-latest
@@ -601,7 +596,7 @@ expect_pass "tag-only push workflow"
 
 # The manifest is the only workflow/name/job authority and must stay exact.
 reset_fixture
-sed '/"make test (macos-latest)",/d' \
+sed '/"make test (ubuntu-latest)",/d' \
 	"$fixture/scripts/release-ci-contract.json" \
 	>"$fixture/scripts/release-ci-contract.json.new"
 mv "$fixture/scripts/release-ci-contract.json.new" \
@@ -627,7 +622,7 @@ mv "$fixture/.github/workflows/ci.yml.new" \
 expect_fail "renamed rendered job"
 
 reset_fixture
-sed 's/os: \[ubuntu-latest, macos-latest\]/os: [ubuntu-latest]/' \
+sed 's/os: \[ubuntu-latest\]/os: [ubuntu-latest, macos-latest]/' \
 	"$fixture/.github/workflows/ci.yml" \
 	>"$fixture/.github/workflows/ci.yml.new"
 mv "$fixture/.github/workflows/ci.yml.new" \
@@ -668,11 +663,9 @@ replacements = {
         "        run: go test ./scripts/...",
     ),
     "best_effort_daemon": (
-        "      - name: make test-daemon (Linux, sharded -race)\n"
-        "        if: runner.os == 'Linux'\n"
+        "      - name: make test-daemon (sharded -race)\n"
         "        run: make test-daemon",
-        "      - name: make test-daemon (Linux, sharded -race)\n"
-        "        if: runner.os == 'Linux'\n"
+        "      - name: make test-daemon (sharded -race)\n"
         "        continue-on-error: true\n"
         "        run: make test-daemon",
     ),

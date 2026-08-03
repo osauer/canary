@@ -52,13 +52,8 @@ EXPECTED_CI_RUN_STEPS = {
         "make test-support (-race; command and CI/release helpers)": {
             "run": "make test-support",
         },
-        "make test-daemon (Linux, sharded -race)": {
-            "if": "runner.os == 'Linux'",
+        "make test-daemon (sharded -race)": {
             "run": "make test-daemon",
-        },
-        "make test-daemon (macOS, unsharded -race)": {
-            "if": "runner.os == 'macOS'",
-            "run": "make test-daemon-unsharded",
         },
     },
     "app-render": {
@@ -85,7 +80,6 @@ EXPECTED_WORKFLOWS = {
         "jobs": (
             "make check (lint + vet + vulncheck + parity)",
             "make test (ubuntu-latest)",
-            "make test (macos-latest)",
             "isolated Canary app render",
             "cross-compile release matrix",
         ),

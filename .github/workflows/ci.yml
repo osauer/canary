@@ -35,12 +35,16 @@ jobs:
         run: make check CHECK_DEPS=parity-check
 
   test:
+    # ubuntu only since 2026-08-03 (operator decision): the macOS job ran the
+    # same suite ~2.5 min slower and was the release pipeline's pre-tag
+    # critical path. darwin-specific coverage now comes from the operator's
+    # local runs and the release smoke exercising the real darwin binary.
     name: make test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -56,13 +60,8 @@ jobs:
       - name: make test-support (-race; command and CI/release helpers)
         run: make test-support
 
-      - name: make test-daemon (Linux, sharded -race)
-        if: runner.os == 'Linux'
+      - name: make test-daemon (sharded -race)
         run: make test-daemon
-
-      - name: make test-daemon (macOS, unsharded -race)
-        if: runner.os == 'macOS'
-        run: make test-daemon-unsharded
 
   app-render:
     name: isolated Canary app render
