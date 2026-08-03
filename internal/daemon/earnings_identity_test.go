@@ -607,6 +607,11 @@ func TestAssembleEarningsBrokerNonIssuerAndOverrideConflict(t *testing.T) {
 	}
 }
 
+// TestAssembleEarningsCommonIssuerWithoutDateRemainsUnknown pins the operator
+// policy of 2026-08-03: even a broker-proven common issuer in the post-report
+// gap is a disclosed vendor-definitive state, never a degraded source. The
+// name's own rules keep reading unknown — the row, not the source health,
+// carries the missing-date truth, and exemption stays impossible.
 func TestAssembleEarningsCommonIssuerWithoutDateRemainsUnknown(t *testing.T) {
 	now := time.Date(2026, 7, 23, 8, 0, 0, 0, time.UTC)
 	const conID = 7001
@@ -629,8 +634,9 @@ func TestAssembleEarningsCommonIssuerWithoutDateRemainsUnknown(t *testing.T) {
 	if got := earnings["SYNTH1"]; got.Known || got.NotApplicable || got.TerminalNonReporting || got.Reason != rpc.EarningsStatusNoDatePublished {
 		t.Fatal("COMMON issuer without a date became usable or exempt")
 	}
-	if _, degraded := rulesEarningsSourceHealth(infos, now); !degraded {
-		t.Fatal("COMMON issuer without a date did not remain degraded")
+	health, degraded := rulesEarningsSourceHealth(infos, now)
+	if degraded || health.Status != rpc.SourceStatusOK || len(health.Notes) != 1 || !strings.Contains(health.Notes[0], "vendor definitive") {
+		t.Fatalf("COMMON issuer gap was not disclosed as vendor-definitive: %+v degraded=%v", health, degraded)
 	}
 }
 

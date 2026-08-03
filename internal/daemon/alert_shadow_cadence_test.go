@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -206,9 +207,16 @@ func TestAlertShadowRulebookStaleReceiptHoldsAndCurrentEmptyRecovers(t *testing.
 		}
 	}
 	observe(stale)
+	// Per-rule coverage (operator decision 2026-08-03): a declared-stale
+	// portfolio no longer marks the whole source stale — every rule resting on
+	// positions is disclosed as uncovered instead, and the open episode must
+	// hold because its rule's absence proves nothing.
 	held := alertShadowTestSourceStatus(t, server.alertShadow.Status(scope), rpc.AlertSourceRulebook)
-	if held.Active != 1 || held.Covered || held.Status != alertShadowStatusStale || held.Measurements.EpisodesRecovered != 0 {
-		t.Fatalf("stale cached portfolio cleared or covered the rulebook episode: %+v", held)
+	if held.Active != 1 || held.Measurements.EpisodesRecovered != 0 {
+		t.Fatalf("stale cached portfolio cleared the rulebook episode: %+v", held)
+	}
+	if !held.Covered || held.Reason != alertShadowReasonRuleGapDisclosed || !slices.Contains(held.UncoveredRules, risk.RuleSingleNameExposure) {
+		t.Fatalf("stale portfolio was not disclosed as per-rule gaps: %+v", held)
 	}
 
 	inputAt = inputAt.Add(time.Minute)

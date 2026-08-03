@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -249,10 +250,18 @@ func TestAlertShadowRulebookRequiresCanonicalUniverseAndReasons(t *testing.T) {
 		result.InputHealth = append(result.InputHealth, rpc.SourceHealth{Source: "future_source", Status: rpc.SourceStatusOK, AsOf: base})
 		assertUncovered(t, result)
 	})
-	t.Run("unknown row", func(t *testing.T) {
+	t.Run("unknown row becomes a disclosed per-rule gap", func(t *testing.T) {
+		// Operator decision 2026-08-03: an honest unknown row un-covers its own
+		// rule and holds its own episode; it no longer silences the source.
 		result := alertShadowTestRulebook(base, risk.RuleStatusPass)
 		result.Rules[0].Status = risk.RuleStatusUnknown
-		assertUncovered(t, result)
+		batch := alertShadowMapRulebook(alertShadowTestBrokerScope(t), result, base.Add(time.Second))
+		if !batch.Covered || batch.Status != alertShadowStatusCurrent || batch.Reason != alertShadowReasonRuleGapDisclosed {
+			t.Fatalf("unknown row was not disclosed as a per-rule gap: %+v", batch)
+		}
+		if len(batch.UncoveredRules) != 1 || batch.UncoveredRules[0] != result.Rules[0].ID || len(batch.NegativeHold) != 1 {
+			t.Fatalf("gap disclosure is wrong: %+v", batch.UncoveredRules)
+		}
 	})
 	t.Run("unapproved not evaluated reason", func(t *testing.T) {
 		result := alertShadowTestRulebook(base, risk.RuleStatusPass)
@@ -260,13 +269,35 @@ func TestAlertShadowRulebookRequiresCanonicalUniverseAndReasons(t *testing.T) {
 		result.Rules[0].Reason = "future_reason"
 		assertUncovered(t, result)
 	})
-	t.Run("P&L unavailable requires exact degraded pair", func(t *testing.T) {
+	t.Run("P&L unavailable discloses account-dependent gaps", func(t *testing.T) {
+		// Operator decision 2026-08-03: rule 11 is coverage-neutral (its status
+		// ceiling is info, so it can never alert), and a degraded account
+		// un-covers exactly the rules that rest on it — disclosed, not fatal.
 		result := alertShadowTestRulebook(base, risk.RuleStatusPass)
 		alertShadowTestRulebookPnLUnavailable(&result)
 		batch := alertShadowMapRulebook(alertShadowTestBrokerScope(t), result, base.Add(time.Second))
-		if batch.Covered || batch.Status != alertShadowStatusPartial || batch.EvidenceHealth != rpc.AlertEvidencePartial ||
-			batch.Reason != alertShadowReasonSourceHealthIncomplete {
-			t.Fatalf("canonical missing-P&L result was not retained as partial evidence: %+v", batch)
+		if !batch.Covered || batch.Status != alertShadowStatusCurrent || batch.Reason != alertShadowReasonRuleGapDisclosed {
+			t.Fatalf("canonical missing-P&L result was not retained as disclosed gaps: %+v", batch)
+		}
+		if len(batch.UncoveredRules) != 13 || len(batch.NegativeHold) != 13 ||
+			slices.Contains(batch.UncoveredRules, risk.RuleGreenDayAction) {
+			t.Fatalf("account-degraded gap set is wrong or includes the neutral rule: %+v", batch.UncoveredRules)
+		}
+	})
+	t.Run("off-session P&L not due is coverage-neutral", func(t *testing.T) {
+		// The routine off-session state: account ok with P&L legitimately not
+		// due, rule 11 not_evaluated/pnl_unavailable. This used to fabricate
+		// candidate_invalid — the flapping reason in issue #19's diagnosis.
+		result := alertShadowTestRulebook(base, risk.RuleStatusPass)
+		for i := range result.Rules {
+			if result.Rules[i].ID == risk.RuleGreenDayAction {
+				result.Rules[i].Status = risk.RuleStatusNotEvaluated
+				result.Rules[i].Reason = risk.RuleReasonPnLUnavailable
+			}
+		}
+		batch := alertShadowMapRulebook(alertShadowTestBrokerScope(t), result, base.Add(time.Second))
+		if !batch.Covered || batch.Status != alertShadowStatusCurrent || batch.Reason != alertShadowReasonCurrent || len(batch.UncoveredRules) != 0 {
+			t.Fatalf("neutral rule 11 blocked coverage: %+v", batch)
 		}
 	})
 
@@ -275,12 +306,14 @@ func TestAlertShadowRulebookRequiresCanonicalUniverseAndReasons(t *testing.T) {
 		envelope      string
 		accountHealth string
 	}{
-		{name: "healthy envelope and account", envelope: "ok", accountHealth: rpc.SourceStatusOK},
-		{name: "degraded envelope with healthy account", envelope: "degraded", accountHealth: rpc.SourceStatusOK},
+		{name: "degraded envelope with healthy inputs", envelope: "degraded", accountHealth: rpc.SourceStatusOK},
 		{name: "healthy envelope with degraded account", envelope: "ok", accountHealth: rpc.SourceStatusDegraded},
-		{name: "degraded envelope with unavailable account", envelope: "degraded", accountHealth: "unavailable"},
 	} {
-		t.Run("reject P&L mismatch "+tc.name, func(t *testing.T) {
+		t.Run("reject inconsistent snapshot "+tc.name, func(t *testing.T) {
+			// The real producer stamps "degraded" exactly when an input health
+			// is not ok. Either direction of disagreement is a snapshot the
+			// producer cannot emit — the deliberately uncovered unbound clone
+			// or a forgery — and must stay unable to claim any coverage.
 			result := alertShadowTestRulebook(base, risk.RuleStatusPass)
 			result.Status = tc.envelope
 			for i := range result.InputHealth {
@@ -288,16 +321,10 @@ func TestAlertShadowRulebookRequiresCanonicalUniverseAndReasons(t *testing.T) {
 					result.InputHealth[i].Status = tc.accountHealth
 				}
 			}
-			for i := range result.Rules {
-				if result.Rules[i].ID == risk.RuleGreenDayAction {
-					result.Rules[i].Status = risk.RuleStatusNotEvaluated
-					result.Rules[i].Reason = risk.RuleReasonPnLUnavailable
-				}
-			}
 			batch := alertShadowMapRulebook(alertShadowTestBrokerScope(t), result, base.Add(time.Second))
 			if batch.Covered || batch.Status != alertShadowStatusError || batch.EvidenceHealth != rpc.AlertEvidenceError ||
-				batch.Reason != alertShadowReasonCandidateInvalid {
-				t.Fatalf("mismatched missing-P&L result was trusted: %+v", batch)
+				batch.Reason != alertShadowReasonSnapshotInconsistent {
+				t.Fatalf("inconsistent snapshot was trusted: %+v", batch)
 			}
 		})
 	}

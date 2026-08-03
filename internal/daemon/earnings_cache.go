@@ -40,12 +40,14 @@ const (
 	// need re-reading under a stricter grammar. v3 additionally demanded a
 	// nested data.status for a dated announcement, an envelope the endpoint
 	// does not serve; v4 reads the top-level status as the one authority for
-	// dated and no-date announcements alike. Previous is the due rule's "re-read
+	// dated and no-date announcements alike. v5 reads an elapsed announcement
+	// date as no-date-published rather than a grammar break, so every v4
+	// format_change is re-read at once. Previous is the due rule's "re-read
 	// this" mark; FirstExact is the oldest label a persisted attempt may still
-	// carry. They coincide today and move independently.
+	// carry. They move independently.
 	earningsNasdaqParserContractPrevious   = 2
 	earningsNasdaqParserContractFirstExact = 2
-	earningsNasdaqParserContract           = 4
+	earningsNasdaqParserContract           = 5
 	earningsFreshWindow                    = 24 * time.Hour
 	earningsTTL                            = 45 * 24 * time.Hour
 	earningsFetchTimeout                   = 8 * time.Second
@@ -999,7 +1001,12 @@ func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (ear
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq announcement date is invalid"))
 	}
 	if t.Format(time.DateOnly) < earningsCalendarDate(now) {
-		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema, false, errors.New("nasdaq announcement date has elapsed"))
+		// The vendor still carries last quarter's date. That is the ordinary gap
+		// between a report and the next date being published — the same fact the
+		// resolution ladder already reads as date_elapsed on a cached entry, not
+		// a grammar break. Calling it a format change cost the name a 24-hour
+		// non-retryable lockout and degraded the whole earnings source with it.
+		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusNoDatePublished, "", "", false, errors.New("nasdaq announcement date has elapsed"))
 	}
 	return earningsEntry{Date: t.Format(time.DateOnly), ObservedAt: now}, nil
 }
@@ -1243,7 +1250,7 @@ func resolveEarningsProviders(providers map[string]earningsProviderState, now ti
 		}
 		return earningsResolution{Status: rpc.EarningsStatusDate, Reason: reason, Entry: &chosen, Stale: stale}
 	}
-	if status, ok := earningsNasdaqObservedWithWSHNotEntitled(providers); ok {
+	if status, ok := earningsNasdaqObservedWithoutSecondOpinion(providers); ok {
 		return earningsResolution{Status: status, Reason: status}
 	}
 
@@ -1265,21 +1272,38 @@ func resolveEarningsProviders(providers map[string]earningsProviderState, now ti
 	return earningsResolution{Status: rpc.EarningsStatusTransportFailure, Reason: rpc.EarningsStatusTransportFailure}
 }
 
-func earningsNasdaqObservedWithWSHNotEntitled(providers map[string]earningsProviderState) (string, bool) {
-	if len(providers) != 2 {
-		return "", false
-	}
+// earningsNasdaqObservedWithoutSecondOpinion accepts Nasdaq's definitive
+// no-date or unsupported verdict when nothing can contradict it: either no
+// second provider is configured, or the configured one is permanently unusable
+// because the entitlement is not held. Operator policy (2026-08-03): an
+// unentitled provider is nonexistent and must not influence any decision. A
+// second source that is merely down still withholds the verdict — a temporary
+// outage of an entitled feed must not be laundered into a definitive answer.
+func earningsNasdaqObservedWithoutSecondOpinion(providers map[string]earningsProviderState) (string, bool) {
 	nasdaq, hasNasdaq := providers[earningsNasdaqProvider]
-	wsh, hasWSH := providers[earningsWSHProvider]
-	if !hasNasdaq || !hasWSH || (nasdaq.LastAttempt.Status != rpc.EarningsStatusNoDatePublished && nasdaq.LastAttempt.Status != rpc.EarningsStatusUnsupportedSecurity) || wsh.LastAttempt.Status != rpc.EarningsStatusTransportFailure {
+	if !hasNasdaq || (nasdaq.LastAttempt.Status != rpc.EarningsStatusNoDatePublished &&
+		nasdaq.LastAttempt.Status != rpc.EarningsStatusUnsupportedSecurity) {
 		return "", false
 	}
-	failure := wsh.LastAttempt.LastFailure
-	if failure == nil || failure.Code != rpc.SourceFailureNotEntitled || failure.Retryable ||
-		(failure.Stage != rpc.SourceFailureStageWSHMetadata && failure.Stage != rpc.SourceFailureStageWSHEvent) {
-		return "", false
+	for name, state := range providers {
+		if name == earningsNasdaqProvider {
+			continue
+		}
+		if !earningsProviderUnentitled(state.LastAttempt.Status, state.LastAttempt.LastFailure) {
+			return "", false
+		}
 	}
 	return nasdaq.LastAttempt.Status, true
+}
+
+// earningsProviderUnentitled reports the one permanently-unusable provider
+// state: a non-retryable entitlement refusal. This is the single shared
+// definition — the daemon's resolution ladder and the rulebook's source health
+// must agree on what "we do not hold this feed" looks like.
+func earningsProviderUnentitled(status string, failure *rpc.SourceFailure) bool {
+	return status == rpc.EarningsStatusTransportFailure && failure != nil &&
+		failure.Code == rpc.SourceFailureNotEntitled && !failure.Retryable &&
+		(failure.Stage == rpc.SourceFailureStageWSHMetadata || failure.Stage == rpc.SourceFailureStageWSHEvent)
 }
 
 func resolveEarningsState(providers map[string]earningsProviderState, identity *earningsIdentityState, now time.Time) earningsResolution {
@@ -1872,7 +1896,7 @@ func validateEarningsSymbols(symbols map[string]earningsSymbolState, now time.Ti
 }
 
 func legacyWSHNotEntitledAggregate(stored earningsResolution, providers map[string]earningsProviderState, recomputed earningsResolution) bool {
-	observed, exact := earningsNasdaqObservedWithWSHNotEntitled(providers)
+	observed, exact := earningsNasdaqObservedWithoutSecondOpinion(providers)
 	return stored.Status == rpc.EarningsStatusTransportFailure && stored.Reason == rpc.EarningsStatusTransportFailure &&
 		stored.Entry == nil && !stored.Stale && exact && recomputed.Status == observed &&
 		(observed == rpc.EarningsStatusNoDatePublished || observed == rpc.EarningsStatusUnsupportedSecurity)

@@ -79,7 +79,11 @@ func TestParseNasdaqEarningsTypedOutcomes(t *testing.T) {
 		{"unsupported bad request", nasdaqTestPayload(t, nil, http.StatusBadRequest), providerSymbol, rpc.EarningsStatusUnsupportedSecurity, "", ""},
 		{"not found is not semantic unsupported", nasdaqTestPayload(t, nil, http.StatusNotFound), providerSymbol, rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema},
 		{"unsupported ignores prose", []byte(`{"data":null,"status":{"rCode":400,"bCodeMessage":"untrusted provider prose"}}`), providerSymbol, rpc.EarningsStatusUnsupportedSecurity, "", ""},
-		{"elapsed date", nasdaqTestPayload(t, map[string]any{"announcement": prefix + " Jul 20, 2026"}, http.StatusOK), providerSymbol, rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqSchema},
+		// An elapsed date is the vendor still carrying last quarter's
+		// announcement — the ordinary gap after a report, not a grammar break.
+		// Calling it a format change spent a non-retryable 24-hour lockout and
+		// degraded the whole earnings source behind one name.
+		{"elapsed date", nasdaqTestPayload(t, map[string]any{"announcement": prefix + " Jul 20, 2026"}, http.StatusOK), providerSymbol, rpc.EarningsStatusNoDatePublished, "", ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

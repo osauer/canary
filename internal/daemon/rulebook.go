@@ -714,12 +714,21 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 	informational := map[string]struct{}{}
 	for _, info := range infos {
 		resolved := info.Status == rpc.EarningsStatusDate || info.Status == rpc.EarningsStatusTerminalNonReporting || info.Status == rpc.EarningsStatusNotApplicable
-		wshEntitlementOnly := earningsWSHNotEntitledOnly(info)
-		if info.Source == "unknown" || info.Stale || (!resolved && !((info.Status == rpc.EarningsStatusNoDatePublished || info.Status == rpc.EarningsStatusUnsupportedSecurity) && wshEntitlementOnly)) {
+		definitive := earningsSingleSourceDefinitive(info)
+		if info.Source == "unknown" || info.Stale || (!resolved && !((info.Status == rpc.EarningsStatusNoDatePublished || info.Status == rpc.EarningsStatusUnsupportedSecurity) && definitive)) {
 			status = rpc.SourceStatusDegraded
 			degraded = true
 			notes = append(notes, info.Symbol+": "+nonEmptyString(info.Reason, nonEmptyString(info.Status, "not_observed")))
-		} else if info.Reason == earningsReasonSingleSource && !wshEntitlementOnly && status == rpc.SourceStatusOK {
+		} else if !resolved && definitive {
+			// Operator policy (2026-08-03): the primary vendor's definitive
+			// no-date or unsupported verdict is accepted, and an unentitled
+			// secondary provider is nonexistent for this decision. The gap is
+			// disclosed per name in the notes; the health status stays ok so a
+			// routine post-report gap cannot relabel the whole rulebook result
+			// degraded. The affected name's rules still read unknown — the
+			// row, not the source, carries the missing-date truth.
+			notes = append(notes, info.Symbol+": "+nonEmptyString(info.Reason, info.Status)+" (vendor definitive; disclosed gap)")
+		} else if info.Reason == earningsReasonSingleSource && !definitive && status == rpc.SourceStatusOK {
 			status = rpc.SourceStatusPartial
 		}
 		for _, provider := range info.Providers {
@@ -759,11 +768,18 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 	return rpc.SourceHealth{Source: "earnings", Status: status, AsOf: now, NextAttempt: nextAttempt, LastFailure: lastFailure, Notes: notes}, degraded
 }
 
-func earningsWSHNotEntitledOnly(info rpc.EarningsInfo) bool {
+// earningsSingleSourceDefinitive reports that the primary provider answered
+// definitively and no second opinion exists to contradict it: either no
+// secondary provider is configured, or the configured one is permanently
+// unentitled — which operator policy (2026-08-03) treats as nonexistent. A
+// secondary source that is merely down still withholds the verdict, so a
+// temporary outage of an entitled feed cannot be laundered into a definitive
+// answer.
+func earningsSingleSourceDefinitive(info rpc.EarningsInfo) bool {
 	if info.Status != rpc.EarningsStatusDate && info.Status != rpc.EarningsStatusNoDatePublished && info.Status != rpc.EarningsStatusUnsupportedSecurity {
 		return false
 	}
-	seenNasdaq, seenWSH := false, false
+	seenNasdaq := false
 	for _, provider := range info.Providers {
 		switch provider.Provider {
 		case earningsNasdaqProvider:
@@ -772,17 +788,14 @@ func earningsWSHNotEntitledOnly(info rpc.EarningsInfo) bool {
 			}
 			seenNasdaq = true
 		case earningsWSHProvider:
-			failure := provider.LastFailure
-			if provider.Status != rpc.EarningsStatusTransportFailure || failure == nil || failure.Code != rpc.SourceFailureNotEntitled || failure.Retryable ||
-				(failure.Stage != rpc.SourceFailureStageWSHMetadata && failure.Stage != rpc.SourceFailureStageWSHEvent) {
+			if !earningsProviderUnentitled(provider.Status, provider.LastFailure) {
 				return false
 			}
-			seenWSH = true
 		default:
 			return false
 		}
 	}
-	return seenNasdaq && seenWSH
+	return seenNasdaq
 }
 
 // mapRuleNames converts the positions snapshot into pure rule inputs. The
@@ -805,6 +818,11 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 		} else if g.Stock != nil {
 			n.StockConID = g.Stock.ConID
 			n.StockSecType = g.Stock.SecType
+		}
+		if g.Stock != nil {
+			// Deliberately outside the equity-identity gate above: this field
+			// exists to recognize the non-equity types, which that gate rejects.
+			n.UnderlyingSecType = g.Stock.SecType
 		}
 		// ExposureBaseComplete guards rule 1's lower bound: the group sum
 		// excludes legs the aggregator couldn't price (delta without spot,
@@ -959,6 +977,23 @@ func rulebookExactStocksBySymbol(pos *rpc.PositionsResult) (map[string]rulebookE
 		identities[symbol] = rulebookExactStockIdentity{conID: stock.ConID, secType: secType}
 	}
 	return identities, true
+}
+
+// nonIssuerEarningsSecurityType is the closed vocabulary of held security types
+// that have no issuer earnings event at all, returning the canonical spelling so
+// the classification is auditable downstream. Equities and anything unrecognized
+// are excluded: an unknown type is not evidence that earnings do not apply.
+func nonIssuerEarningsSecurityType(secType string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(secType)) {
+	case rpc.SecTypeIndex, "IND":
+		return rpc.SecTypeIndex, true
+	case rpc.SecTypeFuture, "FUT":
+		return rpc.SecTypeFuture, true
+	case "FUND", "BOND", "BILL", "CASH", "CMDTY":
+		return strings.ToUpper(strings.TrimSpace(secType)), true
+	default:
+		return "", false
+	}
 }
 
 func isRulebookStockSecurityType(secType string) bool {
@@ -1126,6 +1161,20 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 			info.Reason = "override"
 			info.Date = override.Date.Format("2006-01-02")
 			info.TimeOfDay = override.TimeOfDay
+			infos = append(infos, info)
+			continue
+		}
+
+		// A security type with no issuer cannot have an issuer earnings date, so
+		// no provider is asked and no absence is held against the source. An
+		// operator override still wins: it is handled above.
+		if secType, nonIssuer := nonIssuerEarningsSecurityType(n.UnderlyingSecType); nonIssuer {
+			earnings[sym] = risk.EarningsInput{NonIssuerSecurity: true, Source: "security_type",
+				Reason: risk.EarningsReasonNonIssuerSecurity}
+			info.Source = "security_type"
+			info.Status = rpc.EarningsStatusNotApplicable
+			info.Reason = risk.EarningsReasonNonIssuerSecurity
+			info.SecurityType = secType
 			infos = append(infos, info)
 			continue
 		}

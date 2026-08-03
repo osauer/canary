@@ -1491,3 +1491,61 @@ func TestHedgeIntegrityUnmeasuredNameBlocksVerdict(t *testing.T) {
 		t.Errorf("the unmeasured name must be disclosed, got %+v", r.Offenders)
 	}
 }
+
+func TestNonIssuerSecurityIsExemptedNotUnknown(t *testing.T) {
+	in := healthyInputs()
+	in.Names = []NameInput{{
+		Symbol: "IDXQ", UnderlyingSecType: "INDEX", ExposureBase: 150000, ExposureBaseComplete: true,
+	}}
+	in.Earnings = map[string]EarningsInput{"IDXQ": {
+		NonIssuerSecurity: true, Source: "security_type", Reason: EarningsReasonNonIssuerSecurity,
+	}}
+	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
+	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
+		row := rowByID(t, ev, id)
+		// unknown was the old outcome, and one such row took the whole rulebook
+		// alert source out of coverage.
+		if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonNonIssuerSecurity {
+			t.Errorf("%s = %s/%s, want not_evaluated/nonissuer_security", id, row.Status, row.Reason)
+		}
+		if len(row.Exempt) != 1 || row.Exempt[0].Symbol != "IDXQ" || !strings.Contains(row.Exempt[0].Note, "security type") {
+			t.Errorf("%s did not disclose the security-type exemption: %+v", id, row.Exempt)
+		}
+	}
+}
+
+func TestNonIssuerSecurityRequiresTheTypedSource(t *testing.T) {
+	for name, earnings := range map[string]EarningsInput{
+		"flag without source":  {NonIssuerSecurity: true, Reason: EarningsReasonNonIssuerSecurity},
+		"source without flag":  {Source: "security_type", Reason: EarningsReasonNonIssuerSecurity},
+		"stale classification": {NonIssuerSecurity: true, Source: "security_type", Stale: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := healthyInputs()
+			in.Names = []NameInput{{Symbol: "IDXQ", ExposureBase: 150000, ExposureBaseComplete: true}}
+			in.Earnings = map[string]EarningsInput{"IDXQ": earnings}
+			ev := EvaluateRulebook(in, DefaultRulebookPolicy())
+			row := rowByID(t, ev, RuleCatalystCoverage)
+			if row.Status == RuleStatusNotEvaluated {
+				t.Fatalf("%s exempted a name without a typed classification", name)
+			}
+		})
+	}
+}
+
+func TestMixedExemptionKindsReportTheGenericReason(t *testing.T) {
+	in := healthyInputs()
+	in.Names = []NameInput{
+		{Symbol: "IDXQ", UnderlyingSecType: "INDEX", ExposureBase: 50000, ExposureBaseComplete: true},
+		{Symbol: "ACMEQ", ExposureBase: 50000, ExposureBaseComplete: true},
+	}
+	in.Earnings = map[string]EarningsInput{
+		"IDXQ":  {NonIssuerSecurity: true, Source: "security_type", Reason: EarningsReasonNonIssuerSecurity},
+		"ACMEQ": {TerminalNonReporting: true, Source: "verified_terminal", Reason: earningsTerminalClassForTest},
+	}
+	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
+	row := rowByID(t, ev, RuleCatalystCoverage)
+	if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonNotApplicable {
+		t.Fatalf("mixed exemption kinds = %s/%s, want not_evaluated/earnings_not_applicable", row.Status, row.Reason)
+	}
+}

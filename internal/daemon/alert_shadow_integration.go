@@ -111,7 +111,8 @@ func (s *Server) handleAlertStatus(ctx context.Context, req *rpc.Request) (*rpc.
 		result.Sources = append(result.Sources, rpc.AlertSourceStatus{
 			Source: source.Source, Status: source.Status, Reason: source.Reason,
 			AuthorityUniverse: source.AuthorityUniverse,
-			InputAsOf:         source.InputAsOf, ObservedAt: source.ObservedAt, Covered: source.Covered, Active: source.Active,
+			InputAsOf:         source.InputAsOf, ObservedAt: source.ObservedAt, Covered: source.Covered,
+			UncoveredRules: append([]string(nil), source.UncoveredRules...), Active: source.Active,
 			Measurements: rpc.AlertMeasurements{
 				Evaluations: m.Evaluations, CoveredEvaluations: m.CoveredEvaluations,
 				ActiveEvaluations: m.ActiveEvaluations, ActiveObservations: m.ActiveObservations,

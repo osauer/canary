@@ -40,6 +40,8 @@ const (
 	alertShadowReasonPolicyFingerprintInvalid      = "policy_fingerprint_invalid"
 	alertShadowReasonCandidateInvalid              = "candidate_invalid"
 	alertShadowReasonSnapshotInvalid               = "snapshot_invalid"
+	alertShadowReasonSnapshotInconsistent          = "snapshot_inconsistent"
+	alertShadowReasonRuleGapDisclosed              = "rule_gap_disclosed"
 	alertShadowReasonHealthUnapproved              = "health_unapproved"
 	alertShadowReasonHealthStale                   = "health_stale"
 	alertShadowReasonHealthUnavailable             = "health_unavailable"
@@ -262,6 +264,16 @@ type alertShadowSourceBatch struct {
 	MarginEvidenceObserved bool
 	DuplicateCandidates    uint64
 	Observations           []alertEpisodeObservation
+	// UncoveredRules lists canonical rulebook rule IDs whose per-rule coverage
+	// failed this cycle (unknown row, or an evaluated row resting on a not-ok
+	// relevant input). The source stays covered with these gaps disclosed;
+	// rule IDs are policy vocabulary, never account or candidate identity.
+	UncoveredRules []string
+	// NegativeHold carries the episode keys whose absence-of-observation proves
+	// nothing this cycle because their rule is uncovered. The negative for a
+	// held episode is emitted with non-current evidence so the registry retains
+	// it instead of recovering on ignorance.
+	NegativeHold map[string]struct{}
 }
 
 // alertShadowStatusReport is the producer operational view. Counts are
@@ -287,6 +299,7 @@ type alertShadowSourceStatus struct {
 	InputAsOf         time.Time                  `json:"input_as_of,omitzero"`
 	ObservedAt        time.Time                  `json:"observed_at,omitzero"`
 	Covered           bool                       `json:"covered"`
+	UncoveredRules    []string                   `json:"uncovered_rules,omitempty"`
 	Active            int                        `json:"active_candidates"`
 	Measurements      alertShadowSourceMetrics   `json:"measurements"`
 }
@@ -796,7 +809,8 @@ func (c *alertShadowComposer) Status(scope alertShadowBrokerScope) alertShadowSt
 		}
 		report.Sources = append(report.Sources, alertShadowSourceStatus{
 			Source: source, Status: batch.Status, Reason: batch.Reason, AuthorityUniverse: batch.AuthorityUniverse, InputAsOf: batch.InputAsOf,
-			ObservedAt: batch.ObservedAt, Covered: covered, Active: activeBySource[source], Measurements: metricsBySource[source],
+			ObservedAt: batch.ObservedAt, Covered: covered, UncoveredRules: append([]string(nil), batch.UncoveredRules...),
+			Active: activeBySource[source], Measurements: metricsBySource[source],
 		})
 	}
 	return report
@@ -1058,8 +1072,16 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 				continue
 			}
 			reason := alertShadowDecisionClassifiedNegativeUntrusted
+			negativeHealth := batch.EvidenceHealth
 			if batch.Covered && batch.EvidenceHealth == rpc.AlertEvidenceCurrent {
-				reason = alertShadowDecisionClassifiedClear
+				if _, held := batch.NegativeHold[candidate.EpisodeKey]; held {
+					// This episode's rule is uncovered this cycle, so its
+					// absence proves nothing: the negative stays untrusted and
+					// non-current, and the registry retains the episode.
+					negativeHealth = rpc.AlertEvidencePartial
+				} else {
+					reason = alertShadowDecisionClassifiedClear
+				}
 			}
 			evidenceFingerprint := batch.NegativeEvidenceFingerprint
 			if evidenceFingerprint == "" && !batch.Covered {
@@ -1090,7 +1112,7 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 			observations = append(observations, alertEpisodeObservation{
 				EpisodeKey: candidate.EpisodeKey, Source: candidate.Source, Kind: candidate.Kind,
 				PresentationCode: candidate.PresentationCode, Active: false, Severity: severity,
-				EvidenceFingerprint: evidenceFingerprint, EvidenceHealth: batch.EvidenceHealth,
+				EvidenceFingerprint: evidenceFingerprint, EvidenceHealth: negativeHealth,
 				Destination: destination, EvidenceAsOf: batch.EvidenceAsOf, ObservedAt: evaluationAt,
 				PolicyFingerprint: batch.PolicyFingerprint, ProducerDecisionReason: reason,
 			})
@@ -2241,46 +2263,57 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 	}
 	batch.PolicyFingerprint = result.PolicyFingerprint.Key
 	batch.NegativeReady = true
-	covered := result.Status == "ok"
-	worst := rpc.AlertEvidenceCurrent
-	reason := alertShadowReasonCurrent
 	if result.Status != "ok" && result.Status != "degraded" {
 		batch.Status, batch.Reason, batch.EvidenceHealth = alertShadowStatusError, alertShadowReasonSnapshotInvalid, rpc.AlertEvidenceError
 		return batch
 	}
-	if result.Status == "degraded" {
-		covered, worst, reason = false, rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete
+	// worst tracks only source-fatal conditions: a malformed shape, a forged
+	// vocabulary, or evidence already expired when observed. Honest per-source
+	// degradations no longer poison the batch — they become per-rule coverage
+	// gaps through the relevance map below (operator decision 2026-08-03:
+	// an alert is held back only when its own rule is broken).
+	worst := rpc.AlertEvidenceCurrent
+	reason := alertShadowReasonCurrent
+	fatal := func(evidence rpc.AlertEvidenceHealth, why string) {
+		if alertShadowEvidenceRank(evidence) > alertShadowEvidenceRank(worst) {
+			worst, reason = evidence, why
+		}
 	}
 	required := make(map[string]bool, len(alertShadowCanonicalRulebookHealth))
 	for _, source := range alertShadowCanonicalRulebookHealth {
 		required[source] = false
 	}
-	accountHealthStatus := ""
+	healthOK := make(map[string]bool, len(alertShadowCanonicalRulebookHealth))
+	declaredNotOK := false
+	declaredWorst := rpc.AlertEvidenceCurrent
+	declaredReason := alertShadowReasonCurrent
+	declared := func(evidence rpc.AlertEvidenceHealth, why string) {
+		declaredNotOK = true
+		if alertShadowEvidenceRank(evidence) > alertShadowEvidenceRank(declaredWorst) {
+			declaredWorst, declaredReason = evidence, why
+		}
+	}
 	seenHealth := make(map[string]struct{}, len(result.InputHealth))
 	for _, health := range result.InputHealth {
 		name := strings.TrimSpace(health.Source)
 		if name == "" || name != health.Source {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonSourceHealthError
+			fatal(rpc.AlertEvidenceError, alertShadowReasonSourceHealthError)
 			continue
 		}
 		if _, duplicate := seenHealth[name]; duplicate {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonSourceHealthError
+			fatal(rpc.AlertEvidenceError, alertShadowReasonSourceHealthError)
 			continue
 		}
 		seenHealth[name] = struct{}{}
 		if _, ok := required[name]; !ok {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonSourceHealthError
+			fatal(rpc.AlertEvidenceError, alertShadowReasonSourceHealthError)
 			continue
 		}
 		required[name] = true
-		healthStatus := strings.ToLower(strings.TrimSpace(health.Status))
-		if name == "account" {
-			accountHealthStatus = healthStatus
-		}
-		switch healthStatus {
+		switch strings.ToLower(strings.TrimSpace(health.Status)) {
 		case rpc.SourceStatusOK:
 			if health.AsOf.IsZero() || health.AsOf.After(result.AsOf) {
-				covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonSourceTimeInvalid
+				fatal(rpc.AlertEvidenceError, alertShadowReasonSourceTimeInvalid)
 				continue
 			}
 			if health.MaxAgeSeconds > 0 {
@@ -2289,78 +2322,92 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 					batch.FreshUntil = expiresAt
 				}
 				if observedAt.UTC().After(expiresAt) {
-					covered = false
-					if alertShadowEvidenceRank(rpc.AlertEvidenceStale) > alertShadowEvidenceRank(worst) {
-						worst, reason = rpc.AlertEvidenceStale, alertShadowReasonSourceHealthStale
-					}
+					// Expired at observation time is whole-snapshot staleness,
+					// not a scoped gap: nothing downstream may trust it.
+					fatal(rpc.AlertEvidenceStale, alertShadowReasonSourceHealthStale)
+					continue
 				}
 			}
+			healthOK[name] = true
 		case rpc.SourceStatusStale:
-			covered = false
-			if alertShadowEvidenceRank(rpc.AlertEvidenceStale) > alertShadowEvidenceRank(worst) {
-				worst, reason = rpc.AlertEvidenceStale, alertShadowReasonSourceHealthStale
-			}
+			declared(rpc.AlertEvidenceStale, alertShadowReasonSourceHealthStale)
 		case rpc.SourceStatusPartial, rpc.SourceStatusDegraded, "pending":
-			covered = false
-			if alertShadowEvidenceRank(rpc.AlertEvidencePartial) > alertShadowEvidenceRank(worst) {
-				worst, reason = rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete
-			}
+			declared(rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete)
 		case rpc.SourceStatusUnknown, "unavailable":
-			covered = false
-			if alertShadowEvidenceRank(rpc.AlertEvidenceUnavailable) > alertShadowEvidenceRank(worst) {
-				worst, reason = rpc.AlertEvidenceUnavailable, alertShadowReasonSourceHealthUnavailable
-			}
+			declared(rpc.AlertEvidenceUnavailable, alertShadowReasonSourceHealthUnavailable)
 		default:
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonSourceHealthError
+			fatal(rpc.AlertEvidenceError, alertShadowReasonSourceHealthError)
 		}
 	}
 	for _, present := range required {
 		if !present {
-			covered = false
-			if alertShadowEvidenceRank(rpc.AlertEvidencePartial) > alertShadowEvidenceRank(worst) {
-				worst, reason = rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete
-			}
+			fatal(rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete)
 		}
 	}
+	// The producer stamps "degraded" exactly when some input health is not ok,
+	// so each direction of disagreement identifies a snapshot the real producer
+	// cannot emit: a forged all-ok "degraded" (including the deliberately
+	// uncovered unbound-evaluation clone) or an "ok" hiding a bad input.
+	// Neither may recover an episode or claim any coverage.
+	if worst == rpc.AlertEvidenceCurrent && (result.Status == "ok") == declaredNotOK {
+		batch.Status, batch.Reason, batch.EvidenceHealth = alertShadowStatusError, alertShadowReasonSnapshotInconsistent, rpc.AlertEvidenceError
+		return batch
+	}
+	uncovered := make(map[string]struct{})
+	obsRule := make(map[string]string, len(result.Rules))
 	seenRules := make(map[string]struct{}, len(result.Rules))
 	for _, row := range result.Rules {
 		id := strings.TrimSpace(row.ID)
 		number, canonical := alertShadowCanonicalRulebookRow(id)
 		if id == "" || id != row.ID || !canonical || row.Number != number {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid
+			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
 			continue
 		}
 		if _, duplicate := seenRules[id]; duplicate {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid
+			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
 			continue
 		}
 		seenRules[id] = struct{}{}
+		if id == risk.RuleGreenDayAction {
+			// Coverage-neutral by operator decision (2026-08-03): the nudge's
+			// status ceiling is info, so it can never alert; a row that cannot
+			// alert must not be able to silence the source either.
+			continue
+		}
 		var severity rpc.AlertSeverity
+		emit := false
 		switch row.Status {
 		case risk.RuleStatusWatch:
-			severity = rpc.AlertSeverityWatch
+			severity, emit = rpc.AlertSeverityWatch, true
 		case risk.RuleStatusAct:
-			severity = rpc.AlertSeverityAct
+			severity, emit = rpc.AlertSeverityAct, true
 		case risk.RuleStatusUnknown:
-			covered = false
-			if alertShadowEvidenceRank(rpc.AlertEvidencePartial) > alertShadowEvidenceRank(worst) {
-				worst, reason = rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete
-			}
+			uncovered[id] = struct{}{}
 			continue
 		case risk.RuleStatusPass, risk.RuleStatusInfo:
-			continue
 		case risk.RuleStatusNotEvaluated:
-			if !alertShadowRulebookSafeNotEvaluated(row, result, accountHealthStatus) {
-				covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid
+			if !alertShadowRulebookSafeNotEvaluated(row, result) {
+				fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
 			}
+			// A safely-not-evaluated claim rests on in-result typed authority
+			// (session calendar, book shape, earnings proofs), not on the
+			// input healths — the rule stays covered.
 			continue
 		default:
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid
+			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
+			continue
+		}
+		for _, dependency := range alertShadowRulebookHealthRelevance[id] {
+			if !healthOK[dependency] {
+				uncovered[id] = struct{}{}
+			}
+		}
+		if !emit {
 			continue
 		}
 		episodeKey, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceRulebook, rpc.AlertKindGovernance, scope.account, scope.mode, id)
 		if err != nil {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid
+			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
 			continue
 		}
 		evidenceFingerprint, err := alertShadowFingerprint(struct {
@@ -2368,33 +2415,83 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 			Rule   risk.RuleRow `json:"rule"`
 		}{result.PolicyFingerprint.Key, row})
 		if err != nil {
-			covered, worst, reason = false, rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid
+			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
 			continue
 		}
+		obsRule[episodeKey] = id
 		batch.Observations = append(batch.Observations, alertEpisodeObservation{
 			EpisodeKey: episodeKey, Source: rpc.AlertSourceRulebook, Kind: rpc.AlertKindGovernance,
 			PresentationCode: alertRulebookPresentationCode(id), Active: true, Severity: severity,
-			EvidenceFingerprint: evidenceFingerprint, EvidenceHealth: worst, Destination: rpc.AlertDestinationMonitor,
+			EvidenceFingerprint: evidenceFingerprint, EvidenceHealth: rpc.AlertEvidenceCurrent, Destination: rpc.AlertDestinationMonitor,
 			EvidenceAsOf: result.AsOf.UTC(), ObservedAt: observedAt.UTC(), PolicyFingerprint: result.PolicyFingerprint.Key,
 			ProducerDecisionReason: alertShadowDecisionRulebookActive,
 		})
 	}
 	if len(seenRules) != len(alertShadowCanonicalRulebookRows) {
-		covered = false
-		if alertShadowEvidenceRank(rpc.AlertEvidencePartial) > alertShadowEvidenceRank(worst) {
-			worst, reason = rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete
-		}
+		fatal(rpc.AlertEvidencePartial, alertShadowReasonSourceHealthIncomplete)
 	}
-	batch.Covered, batch.EvidenceHealth, batch.Reason = covered && worst == rpc.AlertEvidenceCurrent, worst, reason
-	batch.Status = alertShadowStatusForEvidence(worst)
-	if batch.Covered {
-		batch.Status, batch.Reason = alertShadowStatusCurrent, alertShadowReasonCurrent
+	if worst != rpc.AlertEvidenceCurrent {
+		// A fatally malformed snapshot reports the worst of everything it
+		// declared: the shape defect and the declared input degradations rank
+		// together, exactly as the scalar model did.
+		if alertShadowEvidenceRank(declaredWorst) > alertShadowEvidenceRank(worst) {
+			worst, reason = declaredWorst, declaredReason
+		}
+		batch.Covered, batch.EvidenceHealth, batch.Reason = false, worst, reason
+		batch.Status = alertShadowStatusForEvidence(worst)
+		for i := range batch.Observations {
+			batch.Observations[i].EvidenceHealth = worst
+		}
+		sort.Slice(batch.Observations, func(i, j int) bool { return batch.Observations[i].EpisodeKey < batch.Observations[j].EpisodeKey })
+		return batch
+	}
+	batch.Covered, batch.EvidenceHealth = true, rpc.AlertEvidenceCurrent
+	batch.Status, batch.Reason = alertShadowStatusCurrent, alertShadowReasonCurrent
+	if len(uncovered) > 0 {
+		batch.Reason = alertShadowReasonRuleGapDisclosed
+		batch.UncoveredRules = make([]string, 0, len(uncovered))
+		batch.NegativeHold = make(map[string]struct{}, len(uncovered))
+		for id := range uncovered {
+			batch.UncoveredRules = append(batch.UncoveredRules, id)
+			episodeKey, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceRulebook, rpc.AlertKindGovernance, scope.account, scope.mode, id)
+			if err != nil {
+				batch.Covered, batch.Status, batch.Reason, batch.EvidenceHealth = false, alertShadowStatusError, alertShadowReasonCandidateInvalid, rpc.AlertEvidenceError
+				return batch
+			}
+			batch.NegativeHold[episodeKey] = struct{}{}
+		}
+		sort.Strings(batch.UncoveredRules)
 	}
 	for i := range batch.Observations {
-		batch.Observations[i].EvidenceHealth = batch.EvidenceHealth
+		if _, gapped := uncovered[obsRule[batch.Observations[i].EpisodeKey]]; gapped {
+			// The row indicts on degraded inputs (indict, never acquit), but
+			// its evidence must say so rather than claim currency.
+			batch.Observations[i].EvidenceHealth = rpc.AlertEvidencePartial
+		}
 	}
 	sort.Slice(batch.Observations, func(i, j int) bool { return batch.Observations[i].EpisodeKey < batch.Observations[j].EpisodeKey })
 	return batch
+}
+
+// alertShadowRulebookHealthRelevance is the conservative operator-approved map
+// (2026-08-03) from canonical input healths to the rules whose evaluated
+// verdicts rest on them. Safely-not-evaluated rows bypass it, and rule 11 is
+// deliberately absent: it is coverage-neutral. Regime staleness un-covers only
+// the regime-conditional rules, which evaluate against carried thresholds.
+var alertShadowRulebookHealthRelevance = map[string][]string{
+	risk.RuleSingleNameExposure: {"account", "positions"},
+	risk.RuleOptionLinePremium:  {"account", "positions"},
+	risk.RuleCashSellOnly:       {"account", "positions", "regime_stage"},
+	risk.RuleExtrinsicBudget:    {"account", "positions", "regime_stage"},
+	risk.RuleExpiryRunway:       {"account", "positions"},
+	risk.RuleCatalystCoverage:   {"account", "positions", "earnings"},
+	risk.RuleOverwriteEarnings:  {"account", "positions", "earnings"},
+	risk.RuleEarningsSizeFreeze: {"account", "positions", "earnings"},
+	risk.RuleRedOnGreen:         {"account", "positions", "tape"},
+	risk.RuleWinnerTrim:         {"account", "positions", "tape"},
+	risk.RuleHedgeIntegrity:     {"account", "positions", "regime_stage"},
+	risk.RuleExitDiscipline:     {"account", "positions"},
+	risk.RuleFXExposure:         {"account", "positions"},
 }
 
 func alertShadowCanonicalRulebookRow(id string) (int, bool) {
@@ -2441,18 +2538,17 @@ func alertRulebookPresentationCode(id string) rpc.AlertPresentationCode {
 	}
 }
 
-func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResult, accountHealthStatus string) bool {
+func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResult) bool {
 	switch row.ID {
 	case risk.RuleCatalystCoverage, risk.RuleOverwriteEarnings, risk.RuleEarningsSizeFreeze:
 		return alertShadowRulebookSafeEarningsNotEvaluated(row, result)
 	case risk.RuleRedOnGreen, risk.RuleWinnerTrim:
 		return row.Reason == risk.RuleReasonOffSession
-	case risk.RuleGreenDayAction:
-		return row.Reason == risk.RuleReasonPnLUnavailable &&
-			result.Status == "degraded" && accountHealthStatus == rpc.SourceStatusDegraded
 	case risk.RuleHedgeIntegrity:
 		return row.Reason == risk.RuleReasonNoLongBook
 	default:
+		// Rule 11 never reaches here: it is coverage-neutral and skipped
+		// before status inspection.
 		return false
 	}
 }
@@ -2463,6 +2559,7 @@ const (
 	alertShadowEarningsAuthorityInvalid alertShadowEarningsAuthority = iota
 	alertShadowEarningsAuthorityTerminal
 	alertShadowEarningsAuthorityBroker
+	alertShadowEarningsAuthoritySecurityType
 )
 
 // alertShadowRulebookSafeEarningsNotEvaluated verifies the same-result typed
@@ -2489,7 +2586,7 @@ func alertShadowRulebookSafeEarningsNotEvaluated(row risk.RuleRow, result rpc.Ru
 	seen := make(map[string]struct{}, len(row.Exempt))
 	seenBrokerReceipts := make(map[string]struct{})
 	seenTerminalContracts := make(map[int]struct{})
-	hasTerminal, hasBroker := false, false
+	hasTerminal, hasBroker, hasSecurityType := false, false, false
 	for _, exempt := range row.Exempt {
 		symbol := strings.TrimSpace(exempt.Symbol)
 		if symbol == "" || symbol != exempt.Symbol {
@@ -2527,8 +2624,12 @@ func alertShadowRulebookSafeEarningsNotEvaluated(row risk.RuleRow, result rpc.Ru
 			if authority != alertShadowEarningsAuthorityBroker {
 				return false
 			}
+		case risk.EarningsReasonNonIssuerSecurity:
+			if authority != alertShadowEarningsAuthoritySecurityType {
+				return false
+			}
 		case risk.EarningsReasonNotApplicable:
-			if authority != alertShadowEarningsAuthorityTerminal && authority != alertShadowEarningsAuthorityBroker {
+			if authority == alertShadowEarningsAuthorityInvalid {
 				return false
 			}
 		default:
@@ -2536,15 +2637,24 @@ func alertShadowRulebookSafeEarningsNotEvaluated(row risk.RuleRow, result rpc.Ru
 		}
 		hasTerminal = hasTerminal || authority == alertShadowEarningsAuthorityTerminal
 		hasBroker = hasBroker || authority == alertShadowEarningsAuthorityBroker
+		hasSecurityType = hasSecurityType || authority == alertShadowEarningsAuthoritySecurityType
 	}
 
+	kinds := 0
+	for _, present := range []bool{hasTerminal, hasBroker, hasSecurityType} {
+		if present {
+			kinds++
+		}
+	}
 	switch row.Reason {
 	case risk.EarningsReasonTerminalNonReporting:
-		return hasTerminal && !hasBroker
+		return hasTerminal && kinds == 1
 	case risk.EarningsReasonBrokerNonIssuer:
-		return hasBroker && !hasTerminal
+		return hasBroker && kinds == 1
+	case risk.EarningsReasonNonIssuerSecurity:
+		return hasSecurityType && kinds == 1
 	case risk.EarningsReasonNotApplicable:
-		return hasTerminal && hasBroker
+		return kinds > 1
 	default:
 		return false
 	}
@@ -2560,7 +2670,25 @@ func alertShadowRulebookEarningsAuthorityFor(info rpc.EarningsInfo, asOf time.Ti
 	if validRulebookBrokerEarningsAuthority(info, asOf) {
 		return alertShadowEarningsAuthorityBroker
 	}
+	if validRulebookSecurityTypeEarningsAuthority(info) {
+		return alertShadowEarningsAuthoritySecurityType
+	}
 	return alertShadowEarningsAuthorityInvalid
+}
+
+// validRulebookSecurityTypeEarningsAuthority accepts the typed classification
+// the daemon emits for a security with no issuer. It carries no timestamps
+// because it depends on nothing that expires: an index does not acquire an
+// issuer later. The security type itself is the whole authority, so it must be
+// present and inside the closed vocabulary — Source alone proves nothing.
+func validRulebookSecurityTypeEarningsAuthority(info rpc.EarningsInfo) bool {
+	if strings.TrimSpace(info.Symbol) == "" || strings.TrimSpace(info.Symbol) != info.Symbol || info.Stale ||
+		info.Source != "security_type" || info.Status != rpc.EarningsStatusNotApplicable ||
+		info.Reason != risk.EarningsReasonNonIssuerSecurity || info.Date != "" {
+		return false
+	}
+	canonical, nonIssuer := nonIssuerEarningsSecurityType(info.SecurityType)
+	return nonIssuer && canonical == info.SecurityType
 }
 
 func alertShadowMapOrderIntegrity(scope alertShadowBrokerScope, input orderIntegrityEvaluation, observedAt time.Time, previous map[string]struct{}) (alertShadowSourceBatch, map[string]struct{}) {

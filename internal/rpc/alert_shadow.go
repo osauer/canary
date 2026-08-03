@@ -42,8 +42,12 @@ type AlertSourceStatus struct {
 	InputAsOf         time.Time              `json:"input_as_of,omitzero"`
 	ObservedAt        time.Time              `json:"observed_at,omitzero"`
 	Covered           bool                   `json:"covered"`
-	Active            int                    `json:"active_candidates"`
-	Measurements      AlertMeasurements      `json:"measurements"`
+	// UncoveredRules lists canonical rule IDs whose per-rule coverage failed in
+	// the source's latest evaluation while the source itself stayed covered.
+	// Rule IDs are policy vocabulary — never candidate or account identity.
+	UncoveredRules []string          `json:"uncovered_rules,omitempty"`
+	Active         int               `json:"active_candidates"`
+	Measurements   AlertMeasurements `json:"measurements"`
 }
 
 // AlertAuthorityUniverse names the exact evidence population over which a

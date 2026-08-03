@@ -39,10 +39,16 @@ type EarningsInfo struct {
 	TimeOfDay string `json:"time_of_day,omitempty"`
 	// Estimated marks provider-flagged estimated (unconfirmed) dates.
 	Estimated bool `json:"estimated,omitempty"`
-	// Source is fetched | override | broker_identity | verified_terminal | unknown.
-	// Provider-level provenance lives in Providers; Terminal carries the
-	// exact-contract evidence when no future issuer earnings event applies.
+	// Source is fetched | override | broker_identity | security_type |
+	// verified_terminal | unknown. Provider-level provenance lives in Providers;
+	// Terminal carries the exact-contract evidence when no future issuer earnings
+	// event applies.
 	Source string `json:"source"`
+	// SecurityType names the held security type when Source is security_type —
+	// the canonical spelling of a type that has no issuer earnings at all. It is
+	// the whole authority behind that classification, so consumers re-derive the
+	// exemption from this field rather than trusting Source alone.
+	SecurityType string `json:"security_type,omitempty"`
 	// Status is date or a typed unresolved outcome. Conflicting provider
 	// dates never populate Date.
 	Status string `json:"status,omitempty"`

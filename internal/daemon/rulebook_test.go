@@ -135,8 +135,12 @@ func TestAssembleEarningsPropagatesTypedUnknownAndSourceHealth(t *testing.T) {
 	if got := earnings["NOW"]; got.Known || got.Reason != rpc.EarningsStatusNoDatePublished {
 		t.Fatalf("risk earnings input = %+v", got)
 	}
+	// Operator policy (2026-08-03): the sole configured vendor's definitive
+	// no-date verdict is accepted — the gap is disclosed in the notes and the
+	// name's own rules stay unknown, but the source is not degraded.
 	health, degraded := rulesEarningsSourceHealth(infos, now)
-	if !degraded || health.Status != rpc.SourceStatusDegraded || len(health.Notes) != 1 || !strings.Contains(health.Notes[0], rpc.EarningsStatusNoDatePublished) {
+	if degraded || health.Status != rpc.SourceStatusOK || len(health.Notes) != 1 ||
+		!strings.Contains(health.Notes[0], rpc.EarningsStatusNoDatePublished) || !strings.Contains(health.Notes[0], "vendor definitive") {
 		t.Fatalf("earnings source health = %+v degraded=%v", health, degraded)
 	}
 }
