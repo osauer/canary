@@ -1,6 +1,7 @@
 //go:build ignore
 
-// Read-only probe: prints the nudges snapshot per-input source health.
+// Command nudgeprobe is a read-only probe that prints the nudges snapshot
+// per-input source health.
 package main
 
 import (
