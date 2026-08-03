@@ -887,20 +887,25 @@ func liveMarketEventSymbols(positions *rpc.PositionsResult) []string {
 	return out
 }
 
+// publishSnapshot commits one mid-poll snapshot and returns a separate working
+// copy for the rest of the poll. The published value must not share map fields
+// with that working copy: the caller keeps writing source metadata while SSE
+// subscribers marshal what was already published.
 func (s *Service) publishSnapshot(now time.Time, snap Snapshot, errors []SourceError, events []Event) Snapshot {
 	s.mu.Lock()
 	snap.UpdatedAt = now
 	snap.Errors = errors
 	snap.Version++
 	s.snapshot = snap
-	out := cloneSnapshot(s.snapshot)
+	published := cloneSnapshot(s.snapshot)
+	working := cloneSnapshot(s.snapshot)
 	s.mu.Unlock()
 
-	events = append(events, Event{Type: "snapshot", Data: out})
+	events = append(events, Event{Type: "snapshot", Data: published})
 	for _, ev := range events {
 		s.publish(ev)
 	}
-	return out
+	return working
 }
 
 type marketQuoteContract struct {

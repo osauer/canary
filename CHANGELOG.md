@@ -18,6 +18,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- **The `canary app` host no longer dies mid-refresh while a device is streaming updates.** The snapshot handed to the live event stream partway through a refresh shared its source-freshness map with the refresh still writing to it, so serialising that snapshot while the same cycle recorded its next source aborted the whole process on a concurrent map access; every paired device lost the host at once. A published snapshot now carries its own copy.
 - **The theta-budget rule no longer adds a foreign option leg's extrinsic value to the base-currency budget unconverted.** A leg with no exchange rate is disclosed as uncomputable instead of entering the total wrong by the exchange rate.
 - **On a multi-currency account, unrealised and realised P&L no longer swap places with one currency's ledger slice depending on wire arrival order.** Account totals now always come from the account's own rows and the per-currency breakdown from the ledger rows, whichever arrives first.
 - **A bond sharing a stock's ticker no longer appears as that stock holding in `canary watch` and the AI-client watchlist.** Only equity rows join the watchlist now; with both actually held, the equity wins every call instead of flipping between reads. The daemon's own displays were fixed in v2.6.1; this closes the two adapters that kept their own copy of the join.

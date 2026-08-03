@@ -105,6 +105,105 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 	}
 }
 
+func TestPublishedSnapshotDoesNotAliasLaterPollWrites(t *testing.T) {
+	t.Parallel()
+	svc := New(midPollFakeClient(nil), time.Minute, time.Minute)
+	ch, release := svc.Subscribe()
+	defer release()
+
+	svc.PollOnce(context.Background())
+
+	published, ok := firstPublishedSnapshot(ch)
+	if !ok {
+		t.Fatal("no snapshot event published")
+	}
+	if _, ok := published.Sources["status"]; !ok {
+		t.Fatalf("mid-poll snapshot is missing an already-observed source: %+v", published.Sources)
+	}
+	for _, name := range []string{"market_quotes", "trading", "settings"} {
+		if _, ok := published.Sources[name]; ok {
+			t.Fatalf("mid-poll snapshot carries %q, written only after publication: %+v", name, published.Sources)
+		}
+	}
+}
+
+// A published snapshot is handed to SSE subscribers that marshal it while the
+// same poll keeps recording source metadata. Sharing either side's maps is a
+// fatal concurrent map access, not a stale read.
+func TestPublishedSnapshotIsSafeToMarshalDuringPoll(t *testing.T) {
+	t.Parallel()
+	quoteRelease := make(chan struct{})
+	svc := New(midPollFakeClient(quoteRelease), time.Minute, time.Minute)
+	ch, release := svc.Subscribe()
+	defer release()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.PollOnce(context.Background())
+	}()
+
+	published := waitForPublishedSnapshot(t, ch)
+	close(quoteRelease)
+	for range 500 {
+		if _, err := json.Marshal(published); err != nil {
+			t.Fatalf("marshal published snapshot: %v", err)
+		}
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the poll to finish")
+	}
+}
+
+func midPollFakeClient(quoteBlock <-chan struct{}) *fakeClient {
+	return &fakeClient{
+		status:     &rpc.HealthResult{Connected: true},
+		calendar:   &rpc.MarketCalendarResult{Market: "us_equity", Session: rpc.MarketSession{State: "regular", IsOpen: true}},
+		account:    &rpc.AccountResult{BaseCurrency: "USD", NetLiquidation: 100000},
+		positions:  &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "XYZ", SecType: "STK"}}},
+		trading:    &rpc.TradingStatus{CanPreview: true},
+		quoteBlock: quoteBlock,
+	}
+}
+
+func firstPublishedSnapshot(ch <-chan Event) (Snapshot, bool) {
+	for {
+		select {
+		case ev := <-ch:
+			if snap, ok := ev.Data.(Snapshot); ok && ev.Type == "snapshot" {
+				return snap, true
+			}
+		default:
+			return Snapshot{}, false
+		}
+	}
+}
+
+func waitForPublishedSnapshot(t *testing.T, ch <-chan Event) Snapshot {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				t.Fatal("live event channel closed before a snapshot event")
+			}
+			if ev.Type != "snapshot" {
+				continue
+			}
+			snap, ok := ev.Data.(Snapshot)
+			if !ok {
+				t.Fatalf("snapshot event carries %T", ev.Data)
+			}
+			return snap
+		case <-deadline:
+			t.Fatal("timed out waiting for a snapshot event")
+		}
+	}
+}
+
 func TestBriefPollsOnStressCadenceWithoutAcknowledging(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC)
