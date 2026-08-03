@@ -103,6 +103,28 @@ func TestParseNasdaqTradeHaltsClassifiesActiveAndRecent(t *testing.T) {
 	}
 }
 
+func TestHaltsOKHealthAgesTheFetchNotTheFeedStamp(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 5, 16, 0, 0, 0, time.UTC)
+	entry := marketEventHaltsEntry{
+		AsOf:      now.Add(-91 * time.Second), // quiet-feed pubDate lag past the 60s cadence
+		FetchedAt: now.Add(-5 * time.Second),
+	}
+	health := haltsOKHealth(entry, now, marketEventsHaltsFreshFor)
+	if health.Status != rpc.SourceStatusOK {
+		t.Fatalf("status = %q, want ok", health.Status)
+	}
+	if health.AgeSeconds != 5 {
+		t.Fatalf("age_seconds = %d, want the 5s fetch age, not the 91s feed lag", health.AgeSeconds)
+	}
+	if health.AgeSeconds >= health.MaxAgeSeconds {
+		t.Fatalf("ok row reads stale to consumers: age %d >= max %d", health.AgeSeconds, health.MaxAgeSeconds)
+	}
+	if !health.AsOf.Equal(entry.AsOf) {
+		t.Fatalf("as_of = %v, want the feed stamp preserved for display", health.AsOf)
+	}
+}
+
 func TestMarketEventBorrowInventoryFlagThresholds(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)

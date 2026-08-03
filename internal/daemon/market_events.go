@@ -423,7 +423,7 @@ func (c *marketEventCache) loadHalts(ctx context.Context, now time.Time) (market
 	if !c.halts.FetchedAt.IsZero() && now.Sub(c.halts.FetchedAt) <= c.haltsFreshFor {
 		entry := cloneHaltsEntry(c.halts)
 		c.mu.Unlock()
-		return entry, marketEventSourceHealth("trading_halts", rpc.SourceStatusOK, entry.AsOf, now, c.haltsFreshFor, "high", nil), nil
+		return entry, haltsOKHealth(entry, now, c.haltsFreshFor), nil
 	}
 	if !c.haltsFailedAt.IsZero() && now.Sub(c.haltsFailedAt) <= marketEventsHaltsRetryAfter {
 		cached := cloneHaltsEntry(c.halts)
@@ -452,7 +452,21 @@ func (c *marketEventCache) loadHalts(ctx context.Context, now time.Time) (market
 	c.halts = cloneHaltsEntry(entry)
 	c.haltsFailedAt = time.Time{}
 	c.mu.Unlock()
-	return entry, marketEventSourceHealth("trading_halts", rpc.SourceStatusOK, entry.AsOf, now, c.haltsFreshFor, "high", nil), nil
+	return entry, haltsOKHealth(entry, now, c.haltsFreshFor), nil
+}
+
+// haltsOKHealth ages the successful row by the fetch, not the feed's own
+// pubDate: MaxAgeSeconds describes the fetch cadence, and the RSS channel
+// stamp routinely lags it by a minute or more on a quiet tape, which read as
+// a stale flap downstream. AsOf keeps the feed stamp for display; AgeSeconds
+// is the authoritative scale consumers compare against MaxAgeSeconds, the
+// same convention the fallback paths already use.
+func haltsOKHealth(entry marketEventHaltsEntry, now time.Time, freshFor time.Duration) rpc.SourceHealth {
+	health := marketEventSourceHealth("trading_halts", rpc.SourceStatusOK, entry.AsOf, now, freshFor, "high", nil)
+	if !entry.FetchedAt.IsZero() {
+		health.AgeSeconds = int64(now.Sub(entry.FetchedAt).Seconds())
+	}
+	return health
 }
 
 // haltsFallback mirrors regSHOFallback for the trade-halts feed.
