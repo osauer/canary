@@ -69,6 +69,20 @@ func main() {
 		fmt.Printf("coverage state=%s freshness=%s covered_sources=%d/%d active_candidates=%d\n",
 			candidates.Coverage.State, candidates.Coverage.Freshness,
 			len(candidates.Coverage.CoveredSources), len(candidates.Coverage.ExpectedSources), active)
+		coveredSet := make(map[rpc.AlertSource]struct{}, len(candidates.Coverage.CoveredSources))
+		for _, source := range candidates.Coverage.CoveredSources {
+			coveredSet[source] = struct{}{}
+		}
+		missing := make([]string, 0, len(candidates.Coverage.ExpectedSources))
+		for _, source := range candidates.Coverage.ExpectedSources {
+			if _, ok := coveredSet[source]; !ok {
+				missing = append(missing, string(source))
+			}
+		}
+		if len(missing) > 0 {
+			sort.Strings(missing)
+			fmt.Printf("  uncovered_sources=%s\n", strings.Join(missing, ","))
+		}
 	}
 
 	fmt.Printf("rules status=%q enabled=%v as_of=%s\n", rules.Status, rules.Enabled, rules.AsOf.UTC().Format(time.RFC3339))
