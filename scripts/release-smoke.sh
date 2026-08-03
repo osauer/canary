@@ -80,8 +80,17 @@ run_cli() {
     local label="$1"
     local timeout_seconds="$2"
     shift 2
-    if ! out="$(timeout "$timeout_seconds" "$BIN" "$@" 2>&1)"; then
-        echo "release-smoke: FAIL [$label]: '$BIN $*' exited non-zero (or timed out at ${timeout_seconds}s)" >&2
+    local rc=0
+    out="$(timeout "$timeout_seconds" "$BIN" "$@" 2>&1)" || rc=$?
+    if (( rc != 0 )); then
+        # timeout(1) reports 124 for a deadline kill; keep that distinct from
+        # the command's own failure — the two have different remedies and the
+        # merged wording sent the 2026-08-02/03 fire forensics chasing both.
+        local why="exited rc=$rc"
+        if (( rc == 124 )); then
+            why="timed out at ${timeout_seconds}s"
+        fi
+        echo "release-smoke: FAIL [$label]: '$BIN $*' $why" >&2
         echo "$out" >&2
         exit 1
     fi
@@ -458,14 +467,22 @@ echo "    $breadth_check"
 
 # Steps [7]/[8] restore the regime and chain coverage that 73cf1e4 removed,
 # without the deliberate mid-fan-out contention repro that made them flaky:
-# both reads prefer this isolated daemon session after the breadth fan-out has
-# drained, i.e. the settled gateway a real caller sees. This daemon starts
-# cold, so a full 503-name fan-out can outlast the budget; that is a slow
-# session rather than a failed artifact, and the reads go ahead. Only a status
-# surface we cannot read stops the release here.
+# both reads prefer this isolated daemon session after the cold-boot fan-out
+# has drained, i.e. the settled gateway a real caller sees. The settle covers
+# every startup compute that contends on the primary client's request queue —
+# breadth's 503-name sweep, gamma-zero's option-board fan-out, and the regime
+# prewarm — because a small interactive read (one reqSecDefOptParams) queues
+# FIFO behind all of them and starves: three fire aborts (2026-08-02 21:38,
+# 2026-08-03 21:01 and 21:17 CEST) died exactly there while the old wait
+# watched breadth alone with a 60s budget against a fan-out measured at 3+
+# minutes. The budget below covers the measured drain with headroom; a session
+# still draining past it is slow rather than broken, and the reads go ahead
+# with the remaining tasks named. Only a status surface we cannot read stops
+# the release here.
+SETTLE_TASKS="breadth-spx gamma-zero regime-prewarm"
 echo "  [7] regime call-sequence (settled session, two scoped rounds, no downgrade)..."
-echo "    waiting up to 60s for the breadth fan-out to drain before regime..."
-if ! release_smoke_settle_or_fail release_status_provider breadth-spx 60 regime; then
+echo "    waiting up to 480s for the cold-boot fan-out ($SETTLE_TASKS) to drain before regime..."
+if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 480 regime; then
     exit 1
 fi
 
@@ -533,8 +550,8 @@ fi
 echo "    $shape_check"
 
 echo "  [8] chain SPY 1-wide (settled session)..."
-echo "    re-checking the fan-out drain for up to 45s before the chain read..."
-if ! release_smoke_settle_or_fail release_status_provider breadth-spx 45 chain; then
+echo "    re-checking the fan-out drain for up to 60s before the chain read..."
+if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 60 chain; then
     exit 1
 fi
 # The listing call gets its own loud, fatal guard. The previous shape —

@@ -103,4 +103,42 @@ release_smoke_settle_or_fail sequence_provider breadth-spx 5 regime no_sleep ||
 [[ "$provider_calls" -eq 2 ]] ||
     fail "drained provider calls=$provider_calls, want 2 (no readability probe)"
 
+# Multi-task settle: one remaining watched task must hold the wait, and only
+# the joint absence of every watched task settles it. Unwatched tasks
+# (open-orders here) never hold anything.
+payloads=(
+    '{"background_tasks":[{"name":"breadth-spx"},{"name":"gamma-zero"}]}'
+    '{"background_tasks":[{"name":"gamma-zero"},{"name":"open-orders"}]}'
+    '{"background_tasks":[{"name":"open-orders"}]}'
+)
+payload_index=0
+provider_calls=0
+sleep_calls=0
+release_smoke_wait_for_task_absent sequence_provider "breadth-spx gamma-zero" 5 no_sleep ||
+    fail "joint absence of both watched tasks did not settle"
+[[ "$provider_calls" -eq 3 && "$sleep_calls" -eq 2 ]] ||
+    fail "multi-task calls provider=$provider_calls sleep=$sleep_calls, want 3/2"
+
+payloads=(
+    '{"background_tasks":[{"name":"gamma-zero"}]}'
+    '{"background_tasks":[{"name":"gamma-zero"}]}'
+    '{"background_tasks":[{"name":"gamma-zero"}]}'
+)
+payload_index=0
+provider_calls=0
+sleep_calls=0
+release_smoke_settle_or_fail sequence_provider "breadth-spx gamma-zero" 2 chain no_sleep ||
+    fail "a still-draining multi-task fan-out blocked the release"
+[[ "$provider_calls" -eq 3 ]] ||
+    fail "multi-task still-draining provider calls=$provider_calls, want 3 (2 polls + 1 readability probe)"
+
+present="$(release_smoke_status_tasks_present "breadth-spx gamma-zero regime-prewarm" \
+    '{"background_tasks":[{"name":"gamma-zero"},{"name":"open-orders"}]}')"
+[[ "$present" == "gamma-zero" ]] ||
+    fail "tasks-present reported '$present', want 'gamma-zero'"
+
+if release_smoke_status_tasks_present "breadth-spx" 'not-json' >/dev/null; then
+    fail "tasks-present accepted malformed status"
+fi
+
 echo "release-smoke_test: OK"
