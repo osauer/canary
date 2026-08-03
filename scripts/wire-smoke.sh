@@ -305,17 +305,19 @@ if [[ "${CANARY_SMOKE_FAST:-0}" == "1" ]]; then
     exit 0
 fi
 
-# Settle the cold-boot fan-out before the heavy interactive reads — the
-# posture release-smoke adopted after the 2026-08-03 v2.7.0 fire aborts.
-# The chain/regime/gamma steps below read against the gateway the fan-out
-# is still warming, and on a sluggish sec-def farm the FARM-side
-# contention alone can push them past their budgets: the daemon's
-# background pacing lane keeps the interactive send prompt on the client,
-# but the farm still serves the outstanding bulk grids first (observed
-# 2026-08-03 on paper: chain expiries+strikes 628ms, spot 10.7s,
-# iv-fanout 38.7s → 50s unary budget exceeded). Still-draining after the
-# budget proceeds against the unsettled session and names what remains;
-# an unreadable status surface stays fatal.
+# Settle the primary-client startup computes before the heavy interactive
+# reads — the posture release-smoke adopted after the 2026-08-03 v2.7.0
+# fire aborts, scoped to the tasks that actually share the primary
+# client's request queue (gamma-zero, regime-prewarm). breadth-spx is not
+# watched: it runs on its own gateway client (breadth_client_id) and its
+# 503-name sweep outlasts any budget — the 2026-08-03 22:31 CEST green
+# release fire burned 480s+60s waiting on it and every read then passed
+# unsettled, because the interactive-priority fix (9b5ad15) stops small
+# reads starving behind background work. Farm-side contention from the
+# sweep remains possible (observed 2026-08-03 on paper: iv-fanout 38.7s
+# against a 50s unary budget) but is bounded by the reads' own budgets.
+# Still-draining after the budget proceeds against the unsettled session
+# and names what remains; an unreadable status surface stays fatal.
 wire_smoke_status_provider() {
     local output_var="$1"
     local status_json=""
@@ -325,9 +327,9 @@ wire_smoke_status_provider() {
     printf -v "$output_var" '%s' "$status_json"
 }
 
-SETTLE_TASKS="breadth-spx gamma-zero regime-prewarm"
-echo "  [settle] waiting up to 480s for the cold-boot fan-out ($SETTLE_TASKS) to drain..."
-if ! release_smoke_settle_or_fail wire_smoke_status_provider "$SETTLE_TASKS" 480 chain; then
+SETTLE_TASKS="gamma-zero regime-prewarm"
+echo "  [settle] waiting up to 180s for the primary-client startup tasks ($SETTLE_TASKS) to drain..."
+if ! release_smoke_settle_or_fail wire_smoke_status_provider "$SETTLE_TASKS" 180 chain; then
     exit 1
 fi
 

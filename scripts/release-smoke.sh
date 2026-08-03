@@ -467,22 +467,23 @@ echo "    $breadth_check"
 
 # Steps [7]/[8] restore the regime and chain coverage that 73cf1e4 removed,
 # without the deliberate mid-fan-out contention repro that made them flaky:
-# both reads prefer this isolated daemon session after the cold-boot fan-out
-# has drained, i.e. the settled gateway a real caller sees. The settle covers
-# every startup compute that contends on the primary client's request queue —
-# breadth's 503-name sweep, gamma-zero's option-board fan-out, and the regime
-# prewarm — because a small interactive read (one reqSecDefOptParams) queues
-# FIFO behind all of them and starves: three fire aborts (2026-08-02 21:38,
-# 2026-08-03 21:01 and 21:17 CEST) died exactly there while the old wait
-# watched breadth alone with a 60s budget against a fan-out measured at 3+
-# minutes. The budget below covers the measured drain with headroom; a session
-# still draining past it is slow rather than broken, and the reads go ahead
-# with the remaining tasks named. Only a status surface we cannot read stops
-# the release here.
-SETTLE_TASKS="breadth-spx gamma-zero regime-prewarm"
+# both reads prefer a session whose primary-client startup computes have
+# drained. The settle watches only the tasks that share the primary client's
+# request queue — gamma-zero's option-board fan-out and the regime prewarm.
+# breadth-spx is deliberately NOT watched: it runs on its own gateway client
+# (breadth_client_id), so it never queues ahead of an interactive read, and
+# its 503-name sweep outlasts any budget a release should sit on — the
+# 2026-08-03 22:31 CEST green fire burned the full 480s+60s budgets against
+# it and every read then passed unsettled, because the interactive-priority
+# fix (9b5ad15) stops small reads starving behind background work anyway.
+# The wait is event-driven: it returns the moment the watched tasks drain,
+# and a session still draining past the budget is slow rather than broken —
+# the reads go ahead with the remaining tasks named. Only a status surface
+# we cannot read stops the release here.
+SETTLE_TASKS="gamma-zero regime-prewarm"
 echo "  [7] regime call-sequence (settled session, two scoped rounds, no downgrade)..."
-echo "    waiting up to 480s for the cold-boot fan-out ($SETTLE_TASKS) to drain before regime..."
-if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 480 regime; then
+echo "    waiting up to 180s for the primary-client startup tasks ($SETTLE_TASKS) to drain before regime..."
+if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 180 regime; then
     exit 1
 fi
 
@@ -550,8 +551,8 @@ fi
 echo "    $shape_check"
 
 echo "  [8] chain SPY 1-wide (settled session)..."
-echo "    re-checking the fan-out drain for up to 60s before the chain read..."
-if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 60 chain; then
+echo "    re-checking the primary-client task drain for up to 30s before the chain read..."
+if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 30 chain; then
     exit 1
 fi
 # The listing call gets its own loud, fatal guard. The previous shape —
