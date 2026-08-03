@@ -120,9 +120,15 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 
 - `make commit-check` and its exact-tree cache are intermediate development
   aids only. They are never release evidence.
-- `make check` first, then the binding `make test`, backgrounded to a log with
-  the exit recorded (Stage 6 pattern). `make smoke-fast` as the gateway sanity
-  check. Do **not** run a standalone full `make smoke` immediately before
+- `make check` first, then `make smoke-fast` as the gateway sanity check. Do
+  not run the full local `make test` before firing (operator decision
+  2026-08-03): hosted CI's exact-SHA run is the binding test authority, pinned
+  by the static contract, and it runs in parallel with the pipeline's local
+  legs — a red suite aborts at the pre-tag `release-ci-wait` leg instead.
+  `make check` stays local because it reaches the stamp gates hosted CI drops
+  (see Stage 2). Note the CI matrix tests on ubuntu only (same decision):
+  darwin -race coverage has no routine runner, so a suspected darwin-specific
+  regression warrants a deliberate local `make test` before firing. Do **not** run a standalone full `make smoke` immediately before
   firing — back-to-back full matrices on one paper session have produced a
   known "0 OPT subscribes" pacing artifact; the pipeline's own
   `release-smoke SMOKE_STRICT=1` leg is the binding full pass.
