@@ -68,8 +68,11 @@ Row outcomes are `pass`, `info`, `watch`, `act`, `unknown`, and
 `not_evaluated`. The last two differ. `unknown` means the rule applies but its
 inputs are not trustworthy: an unresolved earnings date, a missing delta, an
 absent currency report. `not_evaluated` means the rule does not apply right
-now, as with the tape rules outside the US regular session or the hedge rule
-with no long book. Neither is a pass, and the summary line counts them
+now, as with the tape rules outside the US regular session, the hedge rule
+with no long book, or the earnings rules when every held name is a security
+that has no issuer earnings by nature — an index, future, fund, bond, bill,
+cash, or commodity position is disclosed as exempt rather than left unknown.
+Neither is a pass, and the summary line counts them
 separately from passes for that reason.
 
 Read `input_health` before you count passes. It is the result-level gate, with

@@ -202,7 +202,16 @@ Delivery health is a downstream result, not a producer in that universe.
   `not_due` claims cannot open or recover an episode.
 - **[Rulebook](trading-rulebook.md)** uses the complete unfiltered rules
   snapshot. Watch and act rows open episodes; only current
-  account-and-positions-backed evidence may clear them.
+  account-and-positions-backed evidence may clear them. Coverage is per rule
+  (operator decision 2026-08-03 11:24 CEST): an honest unknown row or a
+  declared input degradation un-covers only the rules resting on that input
+  through a conservative relevance map, holds exactly those rules' episodes on
+  non-current negatives, and is disclosed as `uncovered_rules`; every other
+  rule alerts and recovers normally. Rule 11 (green-day nudge, status ceiling
+  info) is coverage-neutral because it can never alert. Shape violations,
+  forged or internally inconsistent snapshots, and evidence already expired at
+  observation stay source-fatal, so the source-level trustworthy-negative
+  requirement above is unchanged for them.
 - **Protection and order integrity** operate only inside their declared
   journal and complete open-order/portfolio coverage. Manual TWS orders and
   unmatched non-journaled API orders are detected as outside authority, not

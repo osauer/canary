@@ -124,6 +124,19 @@ contradiction:
    negative for rules 6-8. It does not exempt option-bearing groups, and an
    ordinary issuer without a usable date remains `unknown` regardless of option
    or size relevance.
+8. Amendment (2026-08-03 11:24 CEST, operator decisions): (a) a held security
+   type with no issuer earnings by nature — index, future, fund, bond, bill,
+   cash, commodity, from the closed canonical vocabulary — is classified
+   before any provider poll and yields the `nonissuer_security` exemption for
+   rules 6-8; equities and unrecognized types never qualify, and option-only
+   groups carry no such row and stay on ordinary evidence. (b) An unentitled
+   WSH subscription is nonexistent for every decision: the primary vendor's
+   definitive no-date or unsupported verdict stands as a disclosed per-name
+   note without degrading the earnings source, while the affected name's rows
+   stay `unknown` — the row, never the source health, carries the missing-date
+   truth. (c) A freshly fetched elapsed date is `no_date_published`, not a
+   format change (Nasdaq parser contract v5). Alert-side, rulebook coverage
+   became per-rule the same day; see alert-regime-production.md.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
