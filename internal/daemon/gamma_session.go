@@ -117,18 +117,48 @@ func lastCompletedOptionsSession(now time.Time) (string, marketcal.Session, bool
 	return lastCompletedMarketSession(now, marketcal.MarketUSOptions)
 }
 
+func lastCompletedOptionsSessionWindow(now time.Time) (marketcal.Session, marketcal.Session, bool) {
+	return lastCompletedMarketSessionWindow(now, marketcal.MarketUSOptions)
+}
+
+// gammaClosedSessionCacheStale is the single authority on whether a cached
+// gamma compute served during a closed options session is genuinely stale: it
+// predates the last completed session's open, so a newer session's evidence
+// should exist. A weekend or holiday gap is a schedule, not staleness. While
+// the calendar cannot vouch for the window, the 24h wall clock is the
+// fallback bound.
+func gammaClosedSessionCacheStale(asOf, now time.Time) bool {
+	completed, _, ok := lastCompletedOptionsSessionWindow(now)
+	return gammaClosedSessionCacheStaleAt(asOf, now, completed, ok && !completed.Open.IsZero())
+}
+
+func gammaClosedSessionCacheStaleAt(asOf, now time.Time, completed marketcal.Session, calendarVouched bool) bool {
+	if !calendarVouched {
+		return now.Sub(asOf) > gammaClosedSessionCacheMaxAge
+	}
+	return asOf.Before(completed.Open)
+}
+
 func lastCompletedMarketSession(now time.Time, market marketcal.Market) (string, marketcal.Session, bool) {
+	completed, current, ok := lastCompletedMarketSessionWindow(now, market)
+	return completed.Date, current, ok
+}
+
+// lastCompletedMarketSessionWindow is lastCompletedMarketSession with the
+// completed session's own open/close window, for callers that must compare
+// against the session boundary rather than the calendar date.
+func lastCompletedMarketSessionWindow(now time.Time, market marketcal.Market) (marketcal.Session, marketcal.Session, bool) {
 	if now.IsZero() {
 		now = time.Now()
 	}
 	cal := marketcal.NewWithClock(func() time.Time { return now })
 	current, err := cal.SessionAt(market, now)
 	if err != nil || current.State == marketcal.StateUnknown {
-		return "", current, false
+		return marketcal.Session{}, current, false
 	}
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {
-		return "", current, false
+		return marketcal.Session{}, current, false
 	}
 	local := now.In(ny)
 	for offset := range 10 {
@@ -136,12 +166,12 @@ func lastCompletedMarketSession(now time.Time, market marketcal.Market) (string,
 		at := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, ny)
 		session, sessionErr := cal.SessionAt(market, at)
 		if sessionErr != nil || session.State == marketcal.StateUnknown {
-			return "", current, false
+			return marketcal.Session{}, current, false
 		}
 		if (session.State == marketcal.StateRegular || session.State == marketcal.StateEarlyClose) &&
 			!session.Close.IsZero() && !session.Close.After(now) {
-			return session.Date, current, true
+			return session, current, true
 		}
 	}
-	return "", current, false
+	return marketcal.Session{}, current, false
 }

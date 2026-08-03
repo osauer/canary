@@ -119,22 +119,48 @@ func gammaQualityFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComput
 	session := gammaClassifySession(now)
 	switch session {
 	case rpc.SessionClosed:
-		q.MaxAgeSeconds = int64(gammaClosedSessionCacheMaxAge.Seconds())
-		switch {
-		case now.Before(c.AsOf):
-			q.Freshness = "future"
-			gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, "compute timestamp is in the future")
-		case now.Sub(c.AsOf) > gammaClosedSessionCacheMaxAge:
-			q.Freshness = "stale"
-			gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, "closed-session cache is older than 24h")
-		default:
-			q.Freshness = "closed_session_cache"
-			gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGatePass, "closed-session cache inside 24h TTL")
-		}
+		gammaQualityClosedSessionFreshnessGate(q, c, now)
 	default:
 		q.MaxAgeSeconds = int64(gammaRankableRTHMaxAge.Seconds())
 		gammaQualityActiveSessionFreshnessGate(q, c, now, gammaRankableRTHMaxAge)
 	}
+}
+
+// gammaQualityClosedSessionFreshnessGate anchors closed-session cache
+// validity to the options calendar: a compute from inside the last completed
+// session (or after its close) is the expected evidence for as long as the
+// market stays closed — a weekend or holiday gap is a schedule, not
+// staleness. A compute from before that session's open carries the prior
+// session's state at date granularity and blocks. The 24h wall-clock TTL
+// survives only as the fallback when the calendar cannot vouch for the
+// window.
+func gammaQualityClosedSessionFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed, now time.Time) {
+	q.MaxAgeSeconds = int64(gammaClosedSessionCacheMaxAge.Seconds())
+	if now.Before(c.AsOf) {
+		q.Freshness = "future"
+		gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, "compute timestamp is in the future")
+		return
+	}
+	completed, current, ok := lastCompletedOptionsSessionWindow(now)
+	calendarVouched := ok && !completed.Open.IsZero()
+	if calendarVouched && current.NextOpen != nil && current.NextOpen.After(c.AsOf) {
+		q.MaxAgeSeconds = int64(current.NextOpen.Sub(c.AsOf).Seconds())
+	}
+	if gammaClosedSessionCacheStaleAt(c.AsOf, now, completed, calendarVouched) {
+		q.Freshness = "stale"
+		reason := "closed-session cache is older than 24h"
+		if calendarVouched {
+			reason = "closed-session cache predates the last completed options session"
+		}
+		gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGateBlock, reason)
+		return
+	}
+	q.Freshness = "closed_session_cache"
+	reason := "closed-session cache inside 24h TTL"
+	if calendarVouched {
+		reason = "closed-session cache from the last completed options session"
+	}
+	gammaQualityAddGate(q, rpc.GammaQualityGateFreshness, rpc.GammaQualityGatePass, reason)
 }
 
 func gammaQualityActiveSessionFreshnessGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed, now time.Time, maxAge time.Duration) {

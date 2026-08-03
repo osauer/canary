@@ -28,7 +28,7 @@ func TestGammaQualityRankableCombinedSPYSPX(t *testing.T) {
 	}
 }
 
-func TestGammaQualityClosedSessionCacheUnder24hRemainsRankable(t *testing.T) {
+func TestGammaQualityClosedSessionCacheFromLastCompletedSessionRemainsRankable(t *testing.T) {
 	t.Parallel()
 	asOf := time.Date(2026, 6, 2, 19, 20, 0, 0, time.UTC) // 15:20 ET, options RTH
 	now := time.Date(2026, 6, 3, 11, 55, 0, 0, time.UTC)  // 07:55 ET, options closed
@@ -55,9 +55,11 @@ func TestGammaQualityClosedSessionCacheUnder24hRemainsRankable(t *testing.T) {
 	}
 }
 
-func TestGammaQualityClosedSessionCacheOver24hBlocksRanking(t *testing.T) {
+func TestGammaQualityClosedSessionCachePredatingLastCompletedSessionBlocksRanking(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 3, 11, 55, 0, 0, time.UTC) // 07:55 ET, options closed
+	// 25h back is 06:55 ET the prior day — before that session's open, so the
+	// cache carries the session before it and must not rank.
 	combined := rankableCombinedGammaFixture(now.Add(-25 * time.Hour))
 
 	annotateGammaQuality(combined, now)
@@ -69,6 +71,32 @@ func TestGammaQualityClosedSessionCacheOver24hBlocksRanking(t *testing.T) {
 	row := rpc.RegimeGammaZero{Status: rpc.RegimeStatusOK, Envelope: rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusReady, Result: combined}}
 	if got := bandForGamma(row); got != "" {
 		t.Fatalf("bandForGamma = %q, want unranked for stale closed-session cache", got)
+	}
+}
+
+func TestGammaQualityWeekendCacheFromFridayCloseRemainsRankable(t *testing.T) {
+	t.Parallel()
+	asOf := time.Date(2026, 6, 5, 20, 10, 0, 0, time.UTC) // Fri 16:10 ET, options RTH
+	now := time.Date(2026, 6, 7, 18, 0, 0, 0, time.UTC)   // Sun 14:00 ET, ~46h later
+	if cls := gammaClassifySession(asOf); cls != rpc.SessionRTH {
+		t.Fatalf("asOf fixture should be RTH, got %s", cls)
+	}
+	if cls := gammaClassifySession(now); cls != rpc.SessionClosed {
+		t.Fatalf("now fixture should be closed, got %s", cls)
+	}
+	combined := rankableCombinedGammaFixture(asOf)
+
+	annotateGammaQuality(combined, now)
+	refreshGammaSummaries(combined)
+
+	if got := combined.Quality.Rankability; got != rpc.GammaRankabilityRankable {
+		t.Fatalf("rankability = %q, want rankable for Friday-close cache on the weekend: %+v", got, combined.Quality)
+	}
+	if got := combined.Quality.Freshness; got != "closed_session_cache" {
+		t.Fatalf("freshness = %q, want closed_session_cache: %+v", got, combined.Quality)
+	}
+	if got := combined.Quality.MaxAgeSeconds; got <= int64(24*3600) {
+		t.Fatalf("max_age_seconds = %d, want a horizon past 24h reaching the next session open", got)
 	}
 }
 

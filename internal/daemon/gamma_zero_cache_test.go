@@ -1525,11 +1525,13 @@ func TestValidateGammaComputedAllowsLegsWithMagnitude(t *testing.T) {
 	}
 }
 
-// TestGammaZeroCache_OffHoursStaleCacheGetsWarning proves the
-// >24h-old branch of the SessionClosed serve path stamps the
-// cache_stale_off_hours warning on the served envelope (via copy-on-
-// write — the underlying cached pointer's Warnings must not be
-// mutated, so concurrent snapshots don't see drift).
+// TestGammaZeroCache_OffHoursStaleCacheGetsWarning proves the genuinely-
+// stale branch of the SessionClosed serve path — a cache predating the
+// last completed options session — stamps the cache_stale_off_hours
+// warning on the served envelope (via copy-on-write — the underlying
+// cached pointer's Warnings must not be mutated, so concurrent snapshots
+// don't see drift). A Friday-close cache on this Sunday is NOT stale;
+// see TestGammaZeroCache_OffHoursWeekendCacheFromLastSessionStaysClean.
 func TestGammaZeroCache_OffHoursStaleCacheGetsWarning(t *testing.T) {
 	c := newGammaZeroCache()
 	now := time.Date(2026, 5, 24, 14, 0, 0, 0, time.UTC) // Sunday 10:00 EDT, SessionClosed
@@ -1537,10 +1539,11 @@ func TestGammaZeroCache_OffHoursStaleCacheGetsWarning(t *testing.T) {
 		t.Fatalf("test fixture sanity check: expected SessionClosed, got %v", cls)
 	}
 
-	// Cache result is 36h old — past the 24h stale gate.
+	// Cache result is from pre-open Thursday — it predates Friday's
+	// completed session, so a newer session's evidence should exist.
 	cached := &rpc.GammaZeroComputed{
 		SpotUnderlying: 5001,
-		AsOf:           now.Add(-36 * time.Hour),
+		AsOf:           time.Date(2026, 5, 21, 6, 0, 0, 0, time.UTC),
 		Warnings:       []string{"all_iv_derived"},
 	}
 	c.slots = map[string]*gammaSlot{
@@ -1576,6 +1579,35 @@ func TestGammaZeroCache_OffHoursStaleCacheGetsWarning(t *testing.T) {
 	for _, w := range cached.Warnings {
 		if w == "cache_stale_off_hours" {
 			t.Errorf("snapshot mutated the cached Warnings slice: %v", cached.Warnings)
+		}
+	}
+}
+
+// TestGammaZeroCache_OffHoursWeekendCacheFromLastSessionStaysClean pins the
+// weekend regression that kept the regime and stress alert sources
+// uncovered from Saturday evening to Monday's first compute: a Friday-RTH
+// compute served on Sunday is the expected evidence for the last completed
+// session — however many wall-clock hours old — and must NOT be stamped
+// cache_stale_off_hours, which the quality gates treat as a rankability
+// block.
+func TestGammaZeroCache_OffHoursWeekendCacheFromLastSessionStaysClean(t *testing.T) {
+	c := newGammaZeroCache()
+	now := time.Date(2026, 5, 24, 14, 0, 0, 0, time.UTC) // Sunday 10:00 EDT, SessionClosed
+	// Friday 2026-05-22 16:10 ET, inside the completed session, ~46h back.
+	cached := &rpc.GammaZeroComputed{
+		SpotUnderlying: 5001,
+		AsOf:           time.Date(2026, 5, 22, 20, 10, 0, 0, time.UTC),
+	}
+	c.slots = map[string]*gammaSlot{
+		rpc.GammaZeroScopeCombined: {current: newPersistedComputation(cached, rpc.GammaZeroScopeCombined, now)},
+	}
+	env := c.snapshot(c.slots[rpc.GammaZeroScopeCombined].current, func() time.Time { return now })
+	if env.Status != rpc.GammaZeroStatusReady {
+		t.Fatalf("snapshot status = %q, want ready", env.Status)
+	}
+	for _, w := range env.Result.Warnings {
+		if w == "cache_stale_off_hours" {
+			t.Errorf("Friday-close cache on Sunday stamped stale: %v", env.Result.Warnings)
 		}
 	}
 }

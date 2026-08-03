@@ -1079,15 +1079,18 @@ func (c *gammaZeroCache) snapshotForScope(scope string, g *gammaComputation, now
 		// typed flag is what lets a consumer tell a current-session compute in
 		// flight from one that never started.
 		env.Refreshing = c.refreshInFlight(gammaSnapshotScope(scope, g))
-		// Off-hours stale tag: when we're serving a cached result
-		// outside trading hours and it's more than 24h old, append
-		// the `cache_stale_off_hours` warning so the renderer can
-		// say "computed Nh ago" loudly instead of presenting an
-		// overnight-old reading as if it were fresh. Copy-on-write
+		// Off-hours stale tag: when we're serving a cached result outside
+		// trading hours that predates the last completed options session,
+		// append the `cache_stale_off_hours` warning so the renderer can
+		// say "computed Nh ago" loudly instead of presenting a
+		// missed-session reading as if it were fresh. The quality gates
+		// treat this tag as a rankability block, so it must not fire on a
+		// weekend serving Friday's close — that cache is the expected
+		// evidence, however many wall-clock hours old. Copy-on-write
 		// to avoid mutating the shared cache pointer that other
 		// concurrent snapshots may still be reading.
 		now := nowFn()
-		if g.result != nil && gammaClassifySession(now) == rpc.SessionClosed && now.Sub(g.result.AsOf) > 24*time.Hour {
+		if g.result != nil && gammaClassifySession(now) == rpc.SessionClosed && gammaClosedSessionCacheStale(g.result.AsOf, now) {
 			r := *g.result
 			r.Warnings = dedupeStrings(append(append([]string{}, g.result.Warnings...), "cache_stale_off_hours"))
 			hydrateGammaComputed(&r)
