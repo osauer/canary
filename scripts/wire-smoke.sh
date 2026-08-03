@@ -49,6 +49,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib-daemon-control.sh"
+. "$SCRIPT_DIR/lib-release-smoke-wait.sh"
 
 BIN="${1:?usage: wire-smoke.sh <bin/canary> <bin/wire-assert>}"
 ASSERT="${2:?usage: wire-smoke.sh <bin/canary> <bin/wire-assert>}"
@@ -302,6 +303,32 @@ if [[ "${CANARY_SMOKE_FAST:-0}" == "1" ]]; then
     echo "wire-smoke: PASS (fast tier) — boot + quote + account wire contract checks passed"
     echo "wire-smoke: run the full \`make smoke\` for daemon/CLI wire-path changes"
     exit 0
+fi
+
+# Settle the cold-boot fan-out before the heavy interactive reads — the
+# posture release-smoke adopted after the 2026-08-03 v2.7.0 fire aborts.
+# The chain/regime/gamma steps below read against the gateway the fan-out
+# is still warming, and on a sluggish sec-def farm the FARM-side
+# contention alone can push them past their budgets: the daemon's
+# background pacing lane keeps the interactive send prompt on the client,
+# but the farm still serves the outstanding bulk grids first (observed
+# 2026-08-03 on paper: chain expiries+strikes 628ms, spot 10.7s,
+# iv-fanout 38.7s → 50s unary budget exceeded). Still-draining after the
+# budget proceeds against the unsettled session and names what remains;
+# an unreadable status surface stays fatal.
+wire_smoke_status_provider() {
+    local output_var="$1"
+    local status_json=""
+    if ! status_json="$(timeout 5 "$BIN" status --json 2>/dev/null)"; then
+        return 1
+    fi
+    printf -v "$output_var" '%s' "$status_json"
+}
+
+SETTLE_TASKS="breadth-spx gamma-zero regime-prewarm"
+echo "  [settle] waiting up to 480s for the cold-boot fan-out ($SETTLE_TASKS) to drain..."
+if ! release_smoke_settle_or_fail wire_smoke_status_provider "$SETTLE_TASKS" 480 chain; then
+    exit 1
 fi
 
 # 7. chain with a near expiry — pins the IV-source path that the
