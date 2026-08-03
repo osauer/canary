@@ -154,11 +154,32 @@ func TestProtectionSharedCommitRejectsJournalAdvanceAfterRead(t *testing.T) {
 			ByUnderlying: []rpc.ProtectionCoverageRow{{Underlying: "AAA", State: rpc.ProtectionCoverageStateCovered}}},
 		orderJournal: server.orderJournal, orderAuthorityHeadSeq: head.LastEventSeq,
 	}
-	server.observeProtectionAlertShadowStable(t.Context(), daemonBrokerEvidenceBinding{
+	settled := server.observeProtectionAlertShadowStable(t.Context(), daemonBrokerEvidenceBinding{
 		scope: brokerStateScope{Account: scope.account, Mode: scope.mode}, connector: connector,
 	}, clear)
+	if settled {
+		t.Fatalf("raced commit reported settled; the heartbeat retry would never fire")
+	}
 	if status := alertShadowTestSourceStatus(t, server.alertShadow.Status(scope), rpc.AlertSourceProtection); status.Active != 1 || status.Measurements.EpisodesRecovered != 0 {
 		t.Fatalf("late journal append recovered Protection: %+v", status)
+	}
+
+	// The heartbeat's bounded retry rebuilds from the advanced journal head.
+	// That rebuilt observation must settle and may recover the episode.
+	server.protectionBeforeCommit = nil
+	head, err = server.orderJournal.AuthorityHead()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear.orderAuthorityHeadSeq = head.LastEventSeq
+	settled = server.observeProtectionAlertShadowStable(t.Context(), daemonBrokerEvidenceBinding{
+		scope: brokerStateScope{Account: scope.account, Mode: scope.mode}, connector: connector,
+	}, clear)
+	if !settled {
+		t.Fatalf("stable commit against the current head did not settle")
+	}
+	if status := alertShadowTestSourceStatus(t, server.alertShadow.Status(scope), rpc.AlertSourceProtection); status.Measurements.EpisodesRecovered != 1 {
+		t.Fatalf("rebuilt observation did not recover Protection: %+v", status)
 	}
 }
 

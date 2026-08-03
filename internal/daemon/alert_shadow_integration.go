@@ -210,9 +210,13 @@ func (s *Server) commitProtectionAlertShadow(ctx context.Context, input alertSha
 	return err
 }
 
-func (s *Server) observeProtectionAlertShadowStable(ctx context.Context, binding daemonBrokerEvidenceBinding, input alertShadowProtectionInput) {
+// observeProtectionAlertShadowStable reports whether the observation settled:
+// it was either committed or failed terminally. False means the broker,
+// portfolio, or journal evidence advanced between read and commit and the
+// observation was dropped — a rebuild against the new evidence may land.
+func (s *Server) observeProtectionAlertShadowStable(ctx context.Context, binding daemonBrokerEvidenceBinding, input alertShadowProtectionInput) bool {
 	if s == nil || s.alertShadow == nil {
-		return
+		return true
 	}
 	if s.protectionBeforeCommit != nil {
 		s.protectionBeforeCommit()
@@ -222,21 +226,27 @@ func (s *Server) observeProtectionAlertShadowStable(ctx context.Context, binding
 	})
 	if err != nil {
 		s.warnf("alert producer: Protection observation failed: %v", err)
-		return
+		return true
 	}
 	if !committed {
 		s.debugf("alert producer: Protection broker, portfolio, or journal evidence changed before final commit")
+		return false
 	}
+	return true
 }
 
-func (s *Server) observeOrderIntegrityAlertShadow(ctx context.Context, input orderIntegrityEvaluation) {
+// observeOrderIntegrityAlertShadow reports whether the observation settled:
+// committed, or failed terminally. False means broker or journal evidence
+// advanced between read and commit and the observation was dropped — a
+// rebuild against the new evidence may land.
+func (s *Server) observeOrderIntegrityAlertShadow(ctx context.Context, input orderIntegrityEvaluation) bool {
 	if s == nil || s.alertShadow == nil {
-		return
+		return true
 	}
 	scope, err := newAlertShadowBrokerScope(input.Scope)
 	if err != nil {
 		s.warnf("alert producer: Order Integrity observation skipped: %v", err)
-		return
+		return true
 	}
 	if input.connector == nil {
 		// Injected heartbeat seams use unbound evaluations to exercise mapper
@@ -245,7 +255,7 @@ func (s *Server) observeOrderIntegrityAlertShadow(ctx context.Context, input ord
 		if err := s.commitOrderIntegrityAlertShadow(ctx, scope, input); err != nil {
 			s.warnf("alert producer: Order Integrity observation failed: %v", err)
 		}
-		return
+		return true
 	}
 	if s.orderIntegrityBeforeCommit != nil {
 		s.orderIntegrityBeforeCommit()
@@ -258,11 +268,13 @@ func (s *Server) observeOrderIntegrityAlertShadow(ctx context.Context, input ord
 	})
 	if err != nil {
 		s.warnf("alert producer: Order Integrity observation failed: %v", err)
-		return
+		return true
 	}
 	if !committed {
 		s.debugf("alert producer: Order Integrity broker or journal evidence changed before final commit")
+		return false
 	}
+	return true
 }
 
 func (s *Server) commitOrderIntegrityAlertShadow(ctx context.Context, scope alertShadowBrokerScope, input orderIntegrityEvaluation) error {

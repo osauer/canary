@@ -276,25 +276,35 @@ func (s *Server) runAlertShadowOrderIntegrityLoop(ctx context.Context) {
 type alertShadowOrderIntegrityRead func(context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error)
 
 func (s *Server) observeOrderIntegrityAlertShadowHeartbeat(ctx context.Context) {
-	s.observeOrderIntegrityAlertShadowHeartbeatWith(ctx, func(readCtx context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
-		views, _, evaluation, err := s.loadOrderViewsReconciledWithHealth(readCtx)
-		return views, evaluation, err
-	})
+	// Same bounded rebuild-on-drop as the protection heartbeat: a stable
+	// commit dropped for advancing broker or journal evidence starves the
+	// silence horizon if the only retry is the next 30s tick.
+	for range protectionHeartbeatStableAttempts {
+		settled := s.observeOrderIntegrityAlertShadowHeartbeatWith(ctx, func(readCtx context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
+			views, _, evaluation, err := s.loadOrderViewsReconciledWithHealth(readCtx)
+			return views, evaluation, err
+		})
+		if settled || ctx == nil || ctx.Err() != nil {
+			return
+		}
+	}
 }
 
-func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWith(ctx context.Context, read alertShadowOrderIntegrityRead) {
-	s.observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx, read, func(parent context.Context) (context.Context, context.CancelFunc) {
+func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWith(ctx context.Context, read alertShadowOrderIntegrityRead) bool {
+	return s.observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx, read, func(parent context.Context) (context.Context, context.CancelFunc) {
 		return requestCtx(parent, rpc.MethodOrdersOpen)
 	})
 }
 
-func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx context.Context, read alertShadowOrderIntegrityRead, derive alertShadowReadContext) {
+// The false return means the stable-evidence commit dropped the observation
+// because evidence advanced mid-flight; every other outcome reports true.
+func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx context.Context, read alertShadowOrderIntegrityRead, derive alertShadowReadContext) bool {
 	if s == nil || s.alertShadow == nil || ctx == nil || ctx.Err() != nil || read == nil || derive == nil {
-		return
+		return true
 	}
 	scope := s.currentBrokerStateScope()
 	if !brokerScopeConcrete(scope) {
-		return
+		return true
 	}
 	readCtx, cancel := derive(ctx)
 	readCtx = suppressProtectionAlertShadowObservation(readCtx)
@@ -302,7 +312,9 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 	readErr := readCtx.Err()
 	cancel()
 	if ctx.Err() != nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
-		return
+		// Same starvation shape as a commit drop: nothing was observed this
+		// pass. Let the bounded retry rebuild against the current scope.
+		return false
 	}
 	if readErr != nil {
 		err = readErr
@@ -314,10 +326,10 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 		}
 		s.observeOrderIntegrityAlertShadow(ctx, evaluation)
 		s.debugf("alert producer: Order Integrity heartbeat unavailable: %v", err)
-		return
+		return true
 	}
 	if !sameBrokerScope(scope, evaluation.Scope) {
-		return
+		return false
 	}
 
 	orders := make([]rpc.OrderView, 0, len(views))
@@ -331,7 +343,7 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 	if s.orderLifecyclePersistenceUncertain.Load() {
 		evaluation.Status = orderIntegrityHealthUnavailable
 	}
-	s.observeOrderIntegrityAlertShadow(ctx, evaluation)
+	return s.observeOrderIntegrityAlertShadow(ctx, evaluation)
 }
 
 type suppressProtectionAlertShadowObservationKey struct{}
@@ -340,15 +352,37 @@ func suppressProtectionAlertShadowObservation(ctx context.Context) context.Conte
 	return context.WithValue(ctx, suppressProtectionAlertShadowObservationKey{}, true)
 }
 
-// observeProtectionAlertShadowHeartbeat rebuilds only the protection facts
+// protectionHeartbeatStableAttempts bounds the immediate rebuilds after a
+// stable-evidence commit drop. A busy portfolio stream can advance its
+// generation inside every read-to-commit window; with only the 30s tick to
+// retry, consecutive drops starve the one-minute silence horizon and the
+// composer reports producer_silent for a healthy producer. Retrying rebuilds
+// from the advanced evidence — never re-submitting the dropped observation —
+// and the bound keeps a hot stream from pinning the loop.
+const protectionHeartbeatStableAttempts = 3
+
+func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
+	for range protectionHeartbeatStableAttempts {
+		if s.observeProtectionAlertShadowHeartbeatOnce(ctx) {
+			return
+		}
+		if ctx == nil || ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+// observeProtectionAlertShadowHeartbeatOnce rebuilds only the protection facts
 // needed by the alert producer. It reads the portfolio cache and SQLite order
 // journal; it never requests quotes, Greeks, account summaries, or broker
 // writes. The canonical cache read may exercise the connector's existing,
 // throttled account-updates re-subscription when a held account has no cached
 // rows. That is a read-side stream repair, not an order or account mutation.
-func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
+// The false return means the stable-evidence commit dropped the observation
+// because evidence advanced mid-flight; every other outcome reports true.
+func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context) bool {
 	if s == nil || s.alertShadow == nil {
-		return
+		return true
 	}
 	now := s.orderNow().UTC()
 	s.mu.Lock()
@@ -369,7 +403,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 	scope := brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount)
 	shadowScope, err := newAlertShadowBrokerScope(scope)
 	if err != nil {
-		return
+		return true
 	}
 	input := alertShadowProtectionInput{
 		AsOf: now, Status: orderIntegrityHealthUnavailable, Scope: shadowScope,
@@ -377,7 +411,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 	}
 	if c == nil || !c.IsReady() {
 		s.observeProtectionAlertShadow(ctx, input)
-		return
+		return true
 	}
 	rawPositions, health, positionsErr := c.CachedPositionsWithHealth()
 	input.EvidenceAsOf = health.InitialCompletedAt.UTC()
@@ -387,7 +421,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 	input.Status = classifyOrderIntegrityPortfolioHealth(scope, health, now)
 	if positionsErr != nil {
 		s.observeProtectionAlertShadow(ctx, input)
-		return
+		return true
 	}
 	positions, scoped := protectionHeartbeatPositions(rawPositions, scope, now)
 	if !scoped {
@@ -397,7 +431,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 			WarningCodes: []string{"portfolio_scope_conflict"},
 		}
 		s.observeProtectionAlertShadow(ctx, input)
-		return
+		return true
 	}
 	snapshotBinding := protectionOrderSnapshotBinding{
 		scope: scope, connector: c, connectorEpoch: connectorEpoch, generation: c.OrderLifecycleGeneration(),
@@ -408,7 +442,10 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 	input.AsOf = now
 	input.Summary.AsOf = now
 	if ctx == nil || ctx.Err() != nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
-		return
+		// A mid-heartbeat scope move is the same starvation shape as a commit
+		// drop: nothing was observed this pass. Let the bounded retry rebuild
+		// against whatever scope is current now.
+		return false
 	}
 	if snapshotErr != nil || !snapshot.Complete || snapshot.AsOf.IsZero() || snapshot.AsOf.After(now) {
 		input.Status = orderIntegrityHealthUnavailable
@@ -418,7 +455,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 			Message:      "complete all-client API open-order inventory unavailable; manual TWS and non-journaled API orders are outside this producer's authority",
 		}
 		s.observeProtectionAlertShadow(ctx, input)
-		return
+		return true
 	}
 	input.OrderSnapshotComplete = true
 	input.OrderSnapshotAsOf = snapshot.AsOf.UTC()
@@ -437,7 +474,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 		input.Status = orderIntegrityHealthUnavailable
 		input.Summary = *buildProtectionCoverage(positions, nil, false, "order journal unavailable", now)
 		s.observeProtectionAlertShadow(ctx, input)
-		return
+		return true
 	}
 	input.orderJournal = s.orderJournal
 	input.orderAuthorityHeadSeq = orderHead
@@ -465,7 +502,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 			WarningCodes: []string{"contract_identity_ambiguous", "manual_tws_orders_uncovered"},
 		}
 		s.observeProtectionAlertShadow(ctx, input)
-		return
+		return true
 	}
 	reconcileFlatPositionProtectiveOrders(orders, positions, now)
 	input.Summary = *buildProtectionCoverage(positions, orders, true, "", now)
@@ -487,7 +524,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 		Session: receiptBinding.session, OrderLifecycleGeneration: receiptBinding.generation,
 		PortfolioProjectionGeneration: health.ProjectionGeneration,
 	}
-	s.observeProtectionAlertShadowStable(ctx, daemonBrokerEvidenceBinding{
+	return s.observeProtectionAlertShadowStable(ctx, daemonBrokerEvidenceBinding{
 		scope: scope, connector: c, connectorEpoch: connectorEpoch, broker: brokerBinding,
 	}, input)
 }
