@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-08-03 10:58 CEST
+Updated: 2026-08-03 13:13 CEST
 
 `Canary` is a local Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and paired app for Interactive Brokers. It exposes account and market context with typed source quality; the risk side stays advisory and operator-controlled through a regime dashboard, portfolio stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
