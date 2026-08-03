@@ -69,6 +69,13 @@ For the Underlyings hero, daily winner/loser buckets should be daily P/L
 attribution by underlying, not open/unrealized P/L and not a client-estimated
 quote-marked value.
 
+## Copy And Rendering Conventions
+
+- Daemon severity vocabulary is verbatim in UI copy: `observe`/`watch`/`act`,
+  `quiet`/`building`/`confirmed`, `stand down`. Do not invent synonyms.
+- Use `font-variant-numeric: tabular-nums` wherever digits align in columns or
+  tick over in place.
+
 ## Gates
 
 Use the narrow loop while iterating:
