@@ -92,6 +92,7 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 		acct += " · day " + formatMoneyCcy(*review.SessionPnL.DailyPnLBase, review.SessionPnL.BaseCurrency)
 	}
 	briefLine(env, "session P&L", review.SessionPnL.BriefRowState, acct)
+	briefLine(env, "last session close", review.LastSession.BriefRowState, briefLastSessionValue(review.LastSession))
 	movers := make([]string, 0, len(review.Attribution.Rows)+1)
 	for _, mover := range review.Attribution.Rows {
 		movers = append(movers, fmt.Sprintf("%s %s", mover.Symbol, formatMoneyCcy(mover.DailyPnLBase, review.SessionPnL.BaseCurrency)))
@@ -157,6 +158,23 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 		orders = fmt.Sprintf("%d", *review.WorkingOrders.Count)
 	}
 	briefLine(env, "working orders", review.WorkingOrders.BriefRowState, orders)
+}
+
+// briefLastSessionValue renders the close-captured last-session P&L. The
+// capture instant prints on the local clock like every other CLI timestamp;
+// a resolved session without a capture says so instead of showing a number.
+func briefLastSessionValue(row rpc.BriefLastSessionRow) string {
+	if row.SessionDate == "" {
+		return "—"
+	}
+	if row.DailyPnLBase == nil {
+		return row.SessionDate + " · not captured"
+	}
+	out := row.SessionDate + " " + formatMoneyCcy(*row.DailyPnLBase, row.BaseCurrency)
+	if !row.CapturedAt.IsZero() {
+		out += " · captured " + row.CapturedAt.Local().Format("15:04:05")
+	}
+	return out
 }
 
 func renderBriefReady(env *Env, ready rpc.BriefReadySection) {

@@ -189,7 +189,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		pnlSessionKey = session.Date
 	}
 	scope := s.currentBrokerStateScope()
-	pnlSource := string(scope.Mode) + "|" + strings.TrimSpace(scope.Account)
+	pnlSource := dailyPnLScopeSource(scope)
 	pnlObservation, pnlObservationErr := s.dailyPnLObservations.observe(context.Background(), pnlSource, pnlSessionKey, pnlNow, pnlDue, snap, ok || !snap.AsOf.IsZero())
 	if pnlObservationErr != nil {
 		s.logger.Warnf("Daily P&L observation authority degraded: %v", pnlObservationErr)

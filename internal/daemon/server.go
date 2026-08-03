@@ -119,6 +119,10 @@ type Server struct {
 	// dailyPnLObservations keeps an observed same-session feed failure visible
 	// after the close until a newer valid frame proves recovery.
 	dailyPnLObservations dailyPnLObservationAuthority
+	// dailyPnLCloseCaptures pins each scope's account Daily P&L at the
+	// official close, the only figure that may serve as the last completed
+	// session's result.
+	dailyPnLCloseCaptures dailyPnLCloseCaptureAuthority
 
 	listener net.Listener
 

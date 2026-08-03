@@ -205,6 +205,11 @@ function renderReviewSection(section, brief) {
       moneyValue(account, "equity_base", currency, "Equity"),
       moneyValue(account, "daily_pnl_base", currency, "Daily P/L"),
     )),
+    // Older daemons serve no last_session field; a labeled empty row would
+    // read as a data gap, so the row renders only once the daemon serves it.
+    ...(section.last_session
+      ? [briefRow("Last session close", section.last_session, lastSessionValue(section.last_session))]
+      : []),
     briefRow("By underlying", section.attribution, moversValue(section.attribution, currency)),
     briefRow("Rules delta", section.rules_delta, rulesDeltaValue(section.rules_delta || {})),
     briefRow("Proposals", section.proposals, proposalsValue(section.proposals || {})),
@@ -670,6 +675,20 @@ function dateValue(value) {
   const at = new Date(value);
   if (Number.isNaN(at.getTime())) return String(value);
   return `${at.getFullYear()}-${padDatePart(at.getMonth() + 1)}-${padDatePart(at.getDate())}`;
+}
+
+// Close-captured last-session Daily P/L. A populated session date without a
+// value is an explicit "not captured", never a substituted running number.
+function lastSessionValue(row) {
+  if (!row.session_date) return "";
+  if (typeof row.daily_pnl_base !== "number") {
+    return joinValues(row.session_date, "not captured");
+  }
+  return joinValues(
+    row.session_date,
+    moneyValue(row, "daily_pnl_base", row.base_currency || "", "Daily P/L"),
+    row.captured_at ? `captured ${timeValue(row.captured_at)}` : "",
+  );
 }
 
 function dateTimeValue(value) {

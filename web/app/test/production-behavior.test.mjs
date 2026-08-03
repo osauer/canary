@@ -427,3 +427,44 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
     kind: "monthly", brief_fingerprint: "sha256:ack", month: "2026-07", evidence: "render",
   });
 });
+
+test("brief review row path serves the close capture and names a missing one", () => {
+  reset();
+  state.authenticated = true;
+  state.activeTab = "monitor";
+  const snapshot = {
+    as_of: "2026-08-01T08:30:00Z",
+    brief_fingerprint: "sha256:synthetic-capture",
+    review: {
+      status: "ok",
+      one_tap: { signable: false },
+      session_pnl: { daily_pnl_base: 5, base_currency: "EUR" },
+      last_session: {
+        status: "ok", detail: "close capture",
+        session_date: "2026-07-31", daily_pnl_base: -433.7, base_currency: "EUR",
+        session_close: "2026-07-31T20:00:00Z", captured_at: "2026-07-31T20:00:09Z",
+      },
+    },
+    ready: { status: "ok", artefacts: { rows: [] } },
+  };
+  state.snapshot = { brief: snapshot, sources: {} };
+  brief.renderBriefCard(state.snapshot);
+  const captureRow = () => byClass(dom.element("briefSections"), "brief-row")
+    .find((node) => (byClass(node, "brief-row__head")[0]?.textContent || "").startsWith("Last session close"));
+  let row = captureRow();
+  assert.ok(row, "close-capture row must render when the daemon serves it");
+  const value = byClass(row, "brief-row__value")[0]?.textContent || "";
+  assert.match(value, /2026-07-31/);
+  assert.match(value, /Daily P\/L/);
+  assert.match(value, /captured/);
+
+  snapshot.review.last_session = { status: "unavailable", detail: "not captured", session_date: "2026-07-31" };
+  brief.renderBriefCard(state.snapshot);
+  row = captureRow();
+  assert.match(byClass(row, "brief-row__value")[0]?.textContent || "", /not captured/);
+  assert.doesNotMatch(byClass(row, "brief-row__value")[0]?.textContent || "", /Daily P\/L/);
+
+  delete snapshot.review.last_session;
+  brief.renderBriefCard(state.snapshot);
+  assert.equal(captureRow(), undefined, "older daemons serve no last_session and must not grow an empty row");
+});

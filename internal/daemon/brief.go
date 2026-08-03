@@ -626,6 +626,7 @@ func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr 
 func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLimits rpc.BriefRiskSection, process rpc.BriefProcessSection, now time.Time) rpc.BriefReviewSection {
 	out := rpc.BriefReviewSection{
 		SessionPnL:    portfolio.Account,
+		LastSession:   s.composeBriefLastSession(now),
 		Attribution:   portfolio.Movers,
 		RulesDelta:    process.RulesDelta,
 		Proposals:     s.briefProposals(now),
@@ -637,11 +638,42 @@ func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLim
 		WorkingOrders: portfolio.WorkingOrders,
 	}
 	out.BriefRowState = briefSectionState("review",
-		out.SessionPnL.BriefRowState, out.Attribution.BriefRowState, out.RulesDelta.BriefRowState,
+		out.SessionPnL.BriefRowState, out.LastSession.BriefRowState, out.Attribution.BriefRowState, out.RulesDelta.BriefRowState,
 		out.Proposals.BriefRowState, out.Overrides.BriefRowState, out.CapitalEvents.BriefRowState,
 		out.Reconcile.BriefRowState, out.AutoExtend.BriefRowState, out.OneTap.BriefRowState,
 		out.WorkingOrders.BriefRowState)
 	return out
+}
+
+// composeBriefLastSession serves the daemon's close capture as the last
+// completed session's Daily P&L. It never substitutes: a retained capture for
+// any other session date, a non-concrete broker scope, or an unresolvable
+// calendar all read as not captured, because everything the broker serves off
+// the close is a running value at off-session marks.
+func (s *Server) composeBriefLastSession(now time.Time) rpc.BriefLastSessionRow {
+	row := rpc.BriefLastSessionRow{}
+	date, ok := lastCompletedUSEquitySessionDate(now)
+	if !ok {
+		row.BriefRowState = briefUnavailable("the served calendar cannot resolve the last completed session")
+		return row
+	}
+	row.SessionDate = date
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		row.BriefRowState = briefUnavailable("close captures bind to one concrete account and mode; the current broker scope names neither")
+		return row
+	}
+	capture, ok := s.dailyPnLCloseCaptures.captureFor(dailyPnLScopeSource(scope))
+	if !ok || capture.SessionKey != date {
+		row.BriefRowState = briefUnavailable(fmt.Sprintf("not captured for %s — the daemon records this figure only while running and connected at the official close", date))
+		return row
+	}
+	row.BriefRowState = briefOK("account Daily P&L pinned at the official close; unlike the live row it does not move on off-session marks")
+	row.DailyPnLBase = new(capture.DailyPnL)
+	row.BaseCurrency = capture.BaseCurrency
+	row.SessionClose = capture.SessionClose
+	row.CapturedAt = capture.CapturedAt
+	return row
 }
 
 // composeBriefReady assembles the pre-trade Ready movement from the existing

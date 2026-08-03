@@ -262,11 +262,12 @@ func (s *Server) runAccountPnLAuthorityLoopWith(ctx context.Context, cadence tim
 			if s.now != nil {
 				now = s.now()
 			}
-			marketOpen := false
-			if session, err := marketcal.New().SessionAt(marketcal.MarketUSEquity, now); err == nil {
-				marketOpen = session.IsOpen
+			var session marketcal.Session
+			if current, err := marketcal.New().SessionAt(marketcal.MarketUSEquity, now); err == nil {
+				session = current
 			}
-			maintainDailyPnLAuthority(connector, s.currentBrokerStateScope().Account, marketOpen)
+			maintainDailyPnLAuthority(connector, s.currentBrokerStateScope().Account, session.IsOpen)
+			s.maybeCaptureDailyPnLClose(ctx, connector, session, now)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package daemon
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -355,12 +356,44 @@ func briefNarrativeReview(review rpc.BriefReviewSection, session rpc.BriefSessio
 	return p.done()
 }
 
-// briefReviewSession opens the movement with the account's money. The broker's
-// daily P/L is a running recomputation — off-session it keeps moving on
-// extended/overnight marks and rolls to the next trading day — so the prose
-// states the since-close basis when the served calendar says closed and never
-// claims a completed-session result it cannot verify.
+// briefReviewLastSession states the close capture when one exists for the
+// last completed session. Silence would hide a gap, so a resolved session
+// without a capture is named as not captured; when even the session date is
+// unresolved the live sentence's own neutral basis already says everything
+// provable.
+func briefReviewLastSession(p *briefProse, row rpc.BriefLastSessionRow) {
+	if row.SessionDate == "" {
+		return
+	}
+	if row.DailyPnLBase == nil {
+		p.text("The last completed session (" + row.SessionDate + ") has no close-time Daily P/L capture; the daemon records that figure only while observing the official close.")
+		return
+	}
+	p.text("The last completed session (" + row.SessionDate + ") closed with Daily P/L ")
+	p.figure(briefMoney(*row.DailyPnLBase, row.BaseCurrency, true))
+	p.text(", captured " + briefCloseCaptureClock(row.CapturedAt) + ".")
+}
+
+// briefCloseCaptureClock renders the capture instant on the session's own
+// exchange clock: the close is a New York fact, and the daemon-side prose
+// cannot know the reader's timezone.
+func briefCloseCaptureClock(capturedAt time.Time) string {
+	if loc, err := time.LoadLocation("America/New_York"); err == nil {
+		return "at " + capturedAt.In(loc).Format("15:04:05") + " ET"
+	}
+	return "at " + capturedAt.UTC().Format("15:04:05") + " UTC"
+}
+
+// briefReviewSession opens the movement with the account's money: first the
+// last completed session's close-captured Daily P/L when the daemon holds one,
+// then the broker's running value. The broker's daily P/L is a running
+// recomputation — off-session it keeps moving on extended/overnight marks and
+// rolls to the next trading day — so the prose states the since-close basis
+// when the served calendar says closed and never claims a completed-session
+// result it cannot verify.
 func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rpc.BriefSessionRow) {
+	briefReviewLastSession(p, review.LastSession)
+	p.sentence()
 	account := review.SessionPnL
 	currency := account.BaseCurrency
 	sessionClosed := session.Status == rpc.BriefStatusOK && !session.IsOpen

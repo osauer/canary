@@ -20,6 +20,7 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 		AsOf: time.Date(2026, 7, 18, 8, 0, 0, 0, time.Local), BriefFingerprint: "sha256:abcdef",
 		Review: rpc.BriefReviewSection{
 			SessionPnL:    rpc.BriefAccountRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "account down"}},
+			LastSession:   rpc.BriefLastSessionRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "not captured for 2026-07-17"}, SessionDate: "2026-07-17"},
 			Attribution:   rpc.BriefMoversRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "positions down"}},
 			RulesDelta:    rpc.BriefRulesDeltaRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "no delta baseline yet"}},
 			Proposals:     rpc.BriefProposalsRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "no proposals"}, Offered: 2, Acted: 1},
@@ -46,7 +47,7 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 	}
 	renderBrief(env, res)
 	got := stdout.String()
-	for _, want := range []string{"Review  (since the last close)", "Ready  (today)", "session P&L", "by underlying", "proposals", "capital events", "gateway unavailable", "nil greeks excluded", "no delta baseline yet", "attention", "tier block · enforcement shadow", "2 offered · 1 acted"} {
+	for _, want := range []string{"Review  (since the last close)", "Ready  (today)", "session P&L", "by underlying", "proposals", "capital events", "gateway unavailable", "nil greeks excluded", "no delta baseline yet", "attention", "tier block · enforcement shadow", "2 offered · 1 acted", "last session close", "2026-07-17 · not captured"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("brief render missing %q:\n%s", want, got)
 		}
@@ -988,5 +989,22 @@ Ready  (today)
 				}
 			}
 		})
+	}
+}
+
+func TestBriefLastSessionValueRendersCaptureAndAbsence(t *testing.T) {
+	capturedAt := time.Date(2026, 7, 31, 20, 0, 9, 0, time.UTC)
+	row := rpc.BriefLastSessionRow{
+		SessionDate: "2026-07-31", DailyPnLBase: new(-433.7), BaseCurrency: "EUR", CapturedAt: capturedAt,
+	}
+	want := "2026-07-31 " + formatMoneyCcy(-433.7, "EUR") + " · captured " + capturedAt.Local().Format("15:04:05")
+	if got := briefLastSessionValue(row); got != want {
+		t.Fatalf("captured value = %q, want %q", got, want)
+	}
+	if got := briefLastSessionValue(rpc.BriefLastSessionRow{SessionDate: "2026-07-31"}); got != "2026-07-31 · not captured" {
+		t.Fatalf("absent value = %q", got)
+	}
+	if got := briefLastSessionValue(rpc.BriefLastSessionRow{}); got != "—" {
+		t.Fatalf("unresolved value = %q", got)
 	}
 }

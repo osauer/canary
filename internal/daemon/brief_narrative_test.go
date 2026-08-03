@@ -191,6 +191,35 @@ func degradedBriefResult() *rpc.BriefResult {
 	return res
 }
 
+func TestBriefNarrativeStatesTheCloseCapture(t *testing.T) {
+	t.Parallel()
+	res := closedSessionBriefResult()
+	res.Review.LastSession = rpc.BriefLastSessionRow{
+		BriefRowState: briefOK("close capture"),
+		SessionDate:   "2026-07-31", DailyPnLBase: new(-433.7), BaseCurrency: "EUR",
+		SessionClose: time.Date(2026, 7, 31, 20, 0, 0, 0, time.UTC),
+		CapturedAt:   time.Date(2026, 7, 31, 20, 0, 9, 0, time.UTC),
+	}
+	review := strings.Join(narrativeParagraphs(composeBriefNarrative(res).Review), "\n")
+	captured := "The last completed session (2026-07-31) closed with Daily P/L EUR -433.70, captured at 16:00:09 ET."
+	if !strings.Contains(review, captured) {
+		t.Fatalf("review narrative missing the close capture: %q", review)
+	}
+	// The pinned close print leads; the running since-close value follows with
+	// its own basis.
+	if capturedAt, liveAt := strings.Index(review, captured), strings.Index(review, "Since the last regular close"); capturedAt > liveAt {
+		t.Fatalf("close capture must precede the running value: %q", review)
+	}
+
+	res.Review.LastSession = rpc.BriefLastSessionRow{
+		BriefRowState: briefUnavailable("not captured for 2026-07-31"), SessionDate: "2026-07-31",
+	}
+	review = strings.Join(narrativeParagraphs(composeBriefNarrative(res).Review), "\n")
+	if !strings.Contains(review, "The last completed session (2026-07-31) has no close-time Daily P/L capture") {
+		t.Fatalf("review narrative must name the missing capture: %q", review)
+	}
+}
+
 func TestComposeBriefNarrativeCompositions(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

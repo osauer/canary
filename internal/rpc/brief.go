@@ -388,13 +388,30 @@ type BriefCapitalEventsRow struct {
 	BaseCurrency       string    `json:"base_currency,omitempty"`
 }
 
-// BriefReviewSection is the post-trade movement over the last completed
-// session. Its rows are a regrouping of existing brief facts (plus the
-// read-only proposals-offered-vs-acted derivation); the section rolls up its
-// worst child exactly like every other brief section.
+// BriefLastSessionRow is the daemon's close capture of the last completed
+// session's account Daily P&L: the reqPnL account frame observed at (or on
+// the first frame after) that session's official close, keyed by session
+// date. Unlike SessionPnL it never moves on off-session marks. Nil
+// DailyPnLBase with a populated SessionDate means that close was not captured
+// — the daemon was not running and connected inside the capture window — and
+// surfaces must say so rather than substitute a drifted running value.
+type BriefLastSessionRow struct {
+	BriefRowState
+	SessionDate  string    `json:"session_date,omitempty"`
+	DailyPnLBase *float64  `json:"daily_pnl_base,omitempty"`
+	BaseCurrency string    `json:"base_currency,omitempty"`
+	SessionClose time.Time `json:"session_close,omitzero"`
+	CapturedAt   time.Time `json:"captured_at,omitzero"`
+}
+
+// BriefReviewSection is the post-trade movement since the last regular close.
+// Its rows are a regrouping of existing brief facts (plus the read-only
+// proposals-offered-vs-acted derivation and the last-session close capture);
+// the section rolls up its worst child exactly like every other brief section.
 type BriefReviewSection struct {
 	BriefRowState
 	SessionPnL    BriefAccountRow       `json:"session_pnl"`
+	LastSession   BriefLastSessionRow   `json:"last_session"`
 	Attribution   BriefMoversRow        `json:"attribution"`
 	RulesDelta    BriefRulesDeltaRow    `json:"rules_delta"`
 	Proposals     BriefProposalsRow     `json:"proposals"`
