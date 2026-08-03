@@ -6,11 +6,12 @@ description: Bring up the Canary SPA in the Claude Code preview pane. Use when a
 Bring up the Canary SPA in an isolated preview-pane instance — never the shared LAN host.
 
 1. `preview_start` the `canary-app` launch config (`.claude/launch.json`): an
-   isolated instance on `127.0.0.1:8766` with its own `/tmp` state dir.
-2. Mint a pairing URL:
-   `canary app pair --addr 127.0.0.1:8766 --public-url http://127.0.0.1:8766 --json`
-3. `preview_eval` navigation to the returned `.url`
-   (e.g. `window.location.href = "<url>"`).
+   isolated instance with its own `/tmp` state dir. The config is `autoPort`,
+   so the harness assigns the port — read the actual `127.0.0.1:<port>` from
+   the preview result; it is 8766 only when that base port is free.
+2. Mint a pairing URL against the assigned port:
+   `canary app pair --addr 127.0.0.1:<port> --public-url http://127.0.0.1:<port> --json`
+3. `navigate` the preview tab to the returned `.url`.
 
 Success = redirect to `/` with title `Canary`.
 
