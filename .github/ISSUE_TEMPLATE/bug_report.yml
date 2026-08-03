@@ -26,7 +26,7 @@ body:
     attributes:
       label: Canary version
       description: Run `canary version` if available.
-      placeholder: "v2.6.2"
+      placeholder: "v2.7.0"
   - type: textarea
     id: summary
     attributes:
