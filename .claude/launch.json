@@ -13,6 +13,13 @@
       "runtimeArgs": [".claude/preview-canary-app.sh"],
       "port": 8766,
       "autoPort": true
+    },
+    {
+      "name": "canary-app-candidate",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [".claude/preview-canary-app-candidate.sh"],
+      "port": 8768,
+      "autoPort": true
     }
   ]
 }
