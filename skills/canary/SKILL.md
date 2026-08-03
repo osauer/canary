@@ -12,7 +12,7 @@ description: Use Canary through the local `canary` CLI. Use when the user asks
 allowed-tools: Bash(canary account*) Bash(canary positions*) Bash(canary quote*)
   Bash(canary calendar*) Bash(canary watch --json*) Bash(canary watch --list*) Bash(canary watch --quotes*) Bash(canary watch --watch*) Bash(canary watch --timeout*) Bash(canary chain*) Bash(canary history*) Bash(canary scan*) Bash(canary size*)
   Bash(canary technical*) Bash(canary breadth*) Bash(canary gamma*) Bash(canary regime*)
-  Bash(canary stress*) Bash(canary brief*) Bash(canary rules*) Bash(canary market-events*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary backtest research-opportunity*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*) Bash(canary order preview*)
+  Bash(canary stress*) Bash(canary brief*) Bash(canary rules*) Bash(canary alerts*) Bash(canary market-events*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary backtest research-opportunity*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*) Bash(canary order preview*)
   Bash(canary status*) Bash(canary version*)
 ---
 
@@ -163,6 +163,7 @@ simulate trade execution.
 | `canary stress` | Portfolio-aware action/readiness snapshot, source health, fingerprints, and planner readiness | [schemas.md#stress](schemas.md#stress) |
 | `canary brief` | Daily operator brief in two movements (Review, Ready), rendered as daemon-composed prose with a typed row fallback; agent renders and all JSON reads never stamp | — |
 | `canary rules` | Advisory compiled 14-rule discipline model, current evidence, and state-transition history | — |
+| `canary alerts` | Alert-source coverage: which expected producers claim coverage, disclosed per-rule gaps, and the aggregate snapshot state push delivery waits on; redacted by contract | — |
 | `canary market-events` | Held or requested stock/ETF market-event flags: borrow inventory, extreme borrow fee, Nasdaq Reg SHO, LULD, and halt context | [schemas.md#market-events](schemas.md#market-events) |
 | `canary proposals status\|list\|refresh` | Daemon-owned protection proposals, read paths only (`preview`/`submit`/`ignore` are gated verbs outside this skill allowlist) | [schemas.md#proposals-status](schemas.md#proposals-status), [schemas.md#proposals-list](schemas.md#proposals-list) |
 | `canary backtest research-opportunity` | Offline scored opportunity research diagnostics; not a daemon opportunity feed or broker-action surface | — |

@@ -21,6 +21,7 @@
       "Bash(canary stress*)",
       "Bash(canary brief*)",
       "Bash(canary rules*)",
+      "Bash(canary alerts*)",
       "Bash(canary market-events*)",
       "Bash(canary proposals status*)",
       "Bash(canary proposals list*)",
