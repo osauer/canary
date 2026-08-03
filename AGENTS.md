@@ -77,7 +77,7 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   `.agents/docs/daemon-cli-trading-contract.md`.
 - Canary SPA semantic or rendered-flow change: read `web/app/AGENTS.md` and use
   `.agents/docs/spa-authority-matrix.md`.
-- Cutting, shipping, or verifying a release: read `.claude/skills/release/SKILL.md`
+- Cutting, shipping, or verifying a release: read `.agents/docs/release-procedure.md`
   as the procedure of record in every lane, Codex included. It holds the stage
   order, the shared-tree and hygiene checks, and the exact push/tag boundary that
   the release section below only summarizes; read it rather than inferring policy

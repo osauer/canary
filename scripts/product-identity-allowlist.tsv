@@ -16,8 +16,8 @@ old-product-path	scripts/canary-mcp_test.sh	2	negative launcher fallback asserti
 old-product-path	scripts/lib-daemon-control_test.sh	1	pre-upgrade process quiescence fixture
 old-cli-command	scripts/lib-daemon-control_test.sh	1	pre-upgrade process quiescence fixture
 old-mcp-server	scripts/registry-publish-verify-first_test.sh	2	immutable retired registry entry fixture
-old-mcp-server	.claude/skills/release/SKILL.md	1	immutable retired registry entry exclusion
-old-product-path	.claude/skills/release/SKILL.md	1	post-release absence assertion
+old-mcp-server	.agents/docs/release-procedure.md	1	immutable retired registry entry exclusion
+old-product-path	.agents/docs/release-procedure.md	1	post-release absence assertion
 old-product-path	Makefile	5	pre-upgrade executable cleanup and absence assertions
 old-mcp-tool	internal/cli/backtest_test.go	2	untrusted source identifier cases
 old-cli-command	internal/cli/hook_policy_test.go	1	retired command rejection case
