@@ -9,7 +9,9 @@
 #   canary app pair --addr 127.0.0.1:$PORT --public-url http://127.0.0.1:$PORT --json
 set -eu
 port="${PORT:-8766}"
-exec /Users/osauer/.local/bin/canary app \
+bin="${CANARY_BIN:-$(command -v canary || true)}"
+[ -n "$bin" ] || bin="$HOME/.local/bin/canary"
+exec "$bin" app \
   --addr "127.0.0.1:${port}" \
   --public-url "http://127.0.0.1:${port}" \
   --state-dir "/tmp/ibkr-preview-app-state-${port}"
