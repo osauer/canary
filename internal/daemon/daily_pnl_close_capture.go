@@ -218,7 +218,7 @@ func dailyPnLCloseFrameUsable(snap ibkrlib.AccountDailyPnL, hasFrame bool, sessi
 }
 
 // dailyPnLCloseCaptureSource is the connector slice the capture needs: the
-// newest account reqPnL frame and the streaming account cache that names the
+// newest account reqPnL frame and the streaming account cache that proves the
 // base currency the frame is denominated in.
 type dailyPnLCloseCaptureSource interface {
 	AccountDailyPnL() (ibkrlib.AccountDailyPnL, bool)
@@ -228,7 +228,7 @@ type dailyPnLCloseCaptureSource interface {
 // maybeCaptureDailyPnLClose runs on the account P&L monitor cadence and pins
 // the account Daily P&L to sess's official close, once per scope and session.
 // Every guard fails toward absence: no concrete scope, no eligible window, no
-// usable frame, or no named base currency leaves the session uncaptured
+// usable frame, or no proven base currency leaves the session uncaptured
 // rather than recording a value that cannot be proven to be the close print.
 func (s *Server) maybeCaptureDailyPnLClose(ctx context.Context, source dailyPnLCloseCaptureSource, sess marketcal.Session, now time.Time) {
 	if s == nil || source == nil || !dailyPnLCloseCaptureEligible(sess, now) {
@@ -246,14 +246,18 @@ func (s *Server) maybeCaptureDailyPnLClose(ctx context.Context, source dailyPnLC
 	if !dailyPnLCloseFrameUsable(snap, hasFrame, sess.Close, now) {
 		return
 	}
+	// The capture is durable, so its currency label must be proven rather than
+	// inferred: RawAccountSummary.Currency is the legacy numeric-row fallback,
+	// and on the flat streaming map this reads it can name a currency no broker
+	// field established.
 	summary := source.CachedAccountSummary()
-	if summary == nil || strings.TrimSpace(summary.Currency) == "" {
+	if summary == nil || !summary.BaseCurrencyProvenance.Proven() {
 		return
 	}
 	record := persistedDailyPnLCloseCapture{
 		SessionKey:   sess.Date,
 		DailyPnL:     *snap.DailyPnL,
-		BaseCurrency: strings.TrimSpace(summary.Currency),
+		BaseCurrency: summary.BaseCurrency,
 		SessionClose: sess.Close.UTC(),
 		CapturedAt:   snap.AsOf.UTC(),
 	}

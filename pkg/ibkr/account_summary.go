@@ -87,6 +87,15 @@ const (
 	AccountBaseCurrencyUnitExchangeRate AccountBaseCurrencyProvenance = "unit_exchange_rate"
 )
 
+// Proven reports whether a broker field established the base currency. Only
+// these two provenances stand as evidence. Any consumer that publishes, stores,
+// or trades on a base-currency label must gate on this rather than on a
+// non-empty currency string: RawAccountSummary.Currency is the legacy numeric-row
+// fallback and can name a currency nothing established.
+func (p AccountBaseCurrencyProvenance) Proven() bool {
+	return p == AccountBaseCurrencyExplicitTag || p == AccountBaseCurrencyValueSuffix
+}
+
 // accountBaseCurrencyValueTags is the closed allowlist of ordinary aggregate
 // account-summary values whose three-letter suffix may prove the account base
 // currency. Ledger-family keys are deliberately absent: $LEDGER:ALL rows

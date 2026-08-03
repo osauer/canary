@@ -235,7 +235,7 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 		return orderPositionAuthority{}, fmt.Errorf("%w: current exact-account base-currency evidence unavailable", ErrTradingDisabled)
 	}
 	base, ok := rulebookBaseCurrency(account.BaseCurrency)
-	if !ok || (account.BaseCurrencyProvenance != ibkrlib.AccountBaseCurrencyExplicitTag && account.BaseCurrencyProvenance != ibkrlib.AccountBaseCurrencyValueSuffix) {
+	if !ok || !account.BaseCurrencyProvenance.Proven() {
 		return orderPositionAuthority{}, fmt.Errorf("%w: explicit account base-currency evidence is unavailable (provenance %q)", ErrTradingDisabled, account.BaseCurrencyProvenance)
 	}
 	if !connector.SessionCurrent(session) {

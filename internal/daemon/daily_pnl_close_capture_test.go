@@ -233,6 +233,17 @@ func newCloseCaptureTestServer(account string) *Server {
 	}
 }
 
+// provenBaseSummary is the shape parseAccountSummary produces for an account
+// whose base currency an eligible broker field established: the typed base and
+// its provenance, beside the legacy numeric-row fallback that agrees with them.
+func provenBaseSummary(ccy string) *ibkrlib.RawAccountSummary {
+	return &ibkrlib.RawAccountSummary{
+		Currency:               ccy,
+		BaseCurrency:           ccy,
+		BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyValueSuffix,
+	}
+}
+
 func TestMaybeCaptureDailyPnLCloseCapturesOncePerScopeAndSession(t *testing.T) {
 	closeUTC := time.Date(2026, 7, 31, 20, 0, 0, 0, time.UTC)
 	now := closeUTC.Add(12 * time.Second)
@@ -241,7 +252,7 @@ func TestMaybeCaptureDailyPnLCloseCapturesOncePerScopeAndSession(t *testing.T) {
 	source := &fakeDailyPnLCloseSource{
 		snap:     ibkrlib.AccountDailyPnL{DailyPnL: &value, DailyPnLStatus: ibkrlib.DailyPnLFrameAvailable, AsOf: closeUTC.Add(3 * time.Second)},
 		hasFrame: true,
-		summary:  &ibkrlib.RawAccountSummary{Currency: "EUR"},
+		summary:  provenBaseSummary("EUR"),
 	}
 
 	s := newCloseCaptureTestServer("DU123")
@@ -290,18 +301,25 @@ func TestMaybeCaptureDailyPnLCloseFailsTowardAbsence(t *testing.T) {
 	}{
 		{name: "open session", account: "DU123", at: closeUTC.Add(-2 * time.Hour),
 			session: usEquitySessionAt(t, closeUTC.Add(-2*time.Hour)),
-			source:  &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: &ibkrlib.RawAccountSummary{Currency: "EUR"}}},
+			source:  &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: provenBaseSummary("EUR")}},
 		{name: "window expired", account: "DU123", at: closeUTC.Add(dailyPnLCloseCaptureWindow),
 			session: sess,
-			source:  &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: &ibkrlib.RawAccountSummary{Currency: "EUR"}}},
+			source:  &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: provenBaseSummary("EUR")}},
 		{name: "non-concrete scope", account: "All", at: now, session: sess,
-			source: &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: &ibkrlib.RawAccountSummary{Currency: "EUR"}}},
+			source: &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: provenBaseSummary("EUR")}},
 		{name: "stale frame", account: "DU123", at: now, session: sess,
-			source: &fakeDailyPnLCloseSource{snap: ibkrlib.AccountDailyPnL{DailyPnL: &value, AsOf: closeUTC.Add(-3 * time.Minute)}, hasFrame: true, summary: &ibkrlib.RawAccountSummary{Currency: "EUR"}}},
+			source: &fakeDailyPnLCloseSource{snap: ibkrlib.AccountDailyPnL{DailyPnL: &value, AsOf: closeUTC.Add(-3 * time.Minute)}, hasFrame: true, summary: provenBaseSummary("EUR")}},
 		{name: "no summary", account: "DU123", at: now, session: sess,
 			source: &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true}},
-		{name: "blank currency", account: "DU123", at: now, session: sess,
-			source: &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: &ibkrlib.RawAccountSummary{Currency: " "}}},
+		// The legacy numeric-row currency is a deterministic fallback, not proof
+		// of the account's base unit, and a unit exchange rate never was proof
+		// either. Neither may be stored as the capture's denomination.
+		{name: "legacy currency without provenance", account: "DU123", at: now, session: sess,
+			source: &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true,
+				summary: &ibkrlib.RawAccountSummary{Currency: "CHF"}}},
+		{name: "unit exchange rate provenance", account: "DU123", at: now, session: sess,
+			source: &fakeDailyPnLCloseSource{snap: goodFrame, hasFrame: true, summary: &ibkrlib.RawAccountSummary{
+				Currency: "CHF", BaseCurrency: "CHF", BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyUnitExchangeRate}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -313,6 +331,31 @@ func TestMaybeCaptureDailyPnLCloseFailsTowardAbsence(t *testing.T) {
 				t.Fatalf("capture recorded: %+v", s.dailyPnLCloseCaptures.captures)
 			}
 		})
+	}
+}
+
+// A conflicting legacy fallback must never displace the proven base currency:
+// the two fields diverge whenever one numeric row's suffix disagrees with the
+// evidence that actually established the account's base unit.
+func TestMaybeCaptureDailyPnLCloseStoresProvenBaseOverLegacyCurrency(t *testing.T) {
+	closeUTC := time.Date(2026, 7, 31, 20, 0, 0, 0, time.UTC)
+	now := closeUTC.Add(12 * time.Second)
+	value := -12.5
+	source := &fakeDailyPnLCloseSource{
+		snap:     ibkrlib.AccountDailyPnL{DailyPnL: &value, DailyPnLStatus: ibkrlib.DailyPnLFrameAvailable, AsOf: closeUTC.Add(2 * time.Second)},
+		hasFrame: true,
+		summary: &ibkrlib.RawAccountSummary{
+			Currency:               "CHF",
+			BaseCurrency:           "EUR",
+			BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyExplicitTag,
+		},
+	}
+
+	s := newCloseCaptureTestServer("DU123")
+	s.maybeCaptureDailyPnLClose(t.Context(), source, usEquitySessionAt(t, now), now)
+	capture, ok := s.dailyPnLCloseCaptures.captureFor("paper|DU123")
+	if !ok || capture.BaseCurrency != "EUR" {
+		t.Fatalf("capture base currency = %q ok=%v, want EUR", capture.BaseCurrency, ok)
 	}
 }
 
