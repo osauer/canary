@@ -1,5 +1,5 @@
 # detector	path	max_hits	reason
-old-cli-command	.claude_memory.md	3	historical pre-rename incident evidence
+old-cli-command	internal-docs/history/agent-lessons.md	3	historical pre-rename incident evidence
 old-cli-argv	.codex/rules/canary.rules	9	retired command anti-bypass patterns
 old-cli-command	.codex/rules/canary.rules	14	retired command anti-bypass examples
 old-mcp-resource	cmd/canary/mcp_test.go	1	negative MCP identity assertion

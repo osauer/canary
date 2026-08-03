@@ -27,8 +27,8 @@ web/app/node_modules/
 /test/integration/run-*/
 
 # Personal Claude Code state (project-shared settings would go in settings.json).
-# CLAUDE.md shims and .claude_memory.md are deliberately tracked: worktree
-# agents check out commits, so untracked instruction files never reach them.
+# CLAUDE.md shims are deliberately tracked: worktree agents check out
+# commits, so untracked instruction files never reach them.
 .claude/settings.local.json
 .claude/worktrees/
 .claude/scheduled_tasks.lock

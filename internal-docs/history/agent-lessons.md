@@ -2,7 +2,8 @@
 
 Generated 2026-06-11 06:44 CEST by reflecting over ~115 Claude Code sessions
 (2026-05-12 → 2026-06-11) plus the structured memory notes in
-`~/.claude/projects/-Users-osauer-dev-ibkr/memory/`.
+`~/.claude/projects/-Users-osauer-dev-ibkr/memory/`. Relocated from the repo
+root (`.claude_memory.md`) 2026-08-03 21:44 CEST; frozen as of that date.
 
 **How to use this file:** historical reference only; search it by topic when a
 current task points to an older incident. Do not load it wholesale at session
@@ -14,7 +15,9 @@ background and failure stories that are still useful during diagnosis.
 
 ## Working constitution — how Oliver wants work done
 
-These were each learned from an explicit correction. Treat them as standing.
+These were each learned from an explicit correction. The durable versions live
+in `AGENTS.md` and the private auto-memory store; this list is the historical
+record of how they were learned.
 
 1. **Verify empirically before theorising.** Run the actual binary against
    live TWS (`canary chain SPY`, `canary status`, check the TWS UI) before
@@ -373,5 +376,5 @@ binding rules in `AGENTS.md` (this entry records the why):
 
 Finer-grained, frequently-updated notes (one fact per file) live in Claude's
 auto-memory: `~/.claude/projects/-Users-osauer-dev-ibkr/memory/` — see its
-`MEMORY.md` index. That store and this file should agree; this file is the
-human-readable synthesis, that store is Claude's working index.
+`MEMORY.md` index. That store is the living index; this file is a frozen
+synthesis and is not updated.
