@@ -768,6 +768,68 @@ func TestAlertShadowComposerRegimeEscalatesAndDataQualityCannotWarnOrRecover(t *
 	}
 }
 
+// The first live morning grace (2026-08-03 09:33 ET) uncovered Regime for the
+// whole compute window: the gamma cluster's producer-authored pending state —
+// refresh in flight inside the bounded grace, readiness deliberately ready —
+// was unrecognized composer vocabulary and read as source_health_error.
+func TestAlertShadowComposerRegimeAcceptsMorningGracePendingGamma(t *testing.T) {
+	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
+	defer store.Close()
+	registry, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	composer := newAlertShadowComposer(registry)
+	scope := alertShadowTestBrokerScope(t)
+	base := time.Date(2026, 8, 3, 13, 35, 0, 0, time.UTC) // Monday 09:35 ET, inside the options-open grace
+	now := base.Add(time.Second)
+	composer.now = func() time.Time { return now }
+
+	grace := alertShadowTestRegime(base, rpc.LifecycleQuiet, "ready")
+	// The raw gamma row keeps evidence honesty (prior-session compute is
+	// stale) while the typed class plus the in-flight marker corroborate a
+	// bounded pending window; the aggregate source row is normalized to
+	// ok+pending exactly as BuildRegimeSourceHealth serves it.
+	grace.GammaZero.Status = rpc.RegimeStatusStale
+	grace.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessPending, MaxAgeSeconds: rpc.RegimeSourceMaxAgeSeconds("gamma")}
+	grace.GammaZero.Envelope.Refreshing = true
+	for i := range grace.SourceHealth {
+		if grace.SourceHealth[i].Source == "gamma" {
+			grace.SourceHealth[i].RefreshState = rpc.SourceRefreshPending
+		}
+	}
+	if class, scheduled := rpc.RegimeClusterScheduledContext(grace, "gamma"); !scheduled || class != rpc.RegimeFreshnessPending {
+		t.Fatalf("fixture sanity: gamma scheduled context = %q/%v, want corroborated pending", class, scheduled)
+	}
+	grace.Lifecycle = rpc.BuildRegimeLifecycle(&grace)
+	grace.Fingerprint = rpc.BuildRegimeFingerprint(&grace)
+	if _, err := composer.ObserveRegime(t.Context(), scope, grace); err != nil {
+		t.Fatalf("observe grace snapshot: %v", err)
+	}
+	status := alertShadowTestSourceStatus(t, composer.Status(scope), rpc.AlertSourceRegime)
+	if !status.Covered {
+		t.Fatalf("morning-grace pending gamma left Regime uncovered: %+v", status)
+	}
+
+	// A pending stamp the currency model does not corroborate stays
+	// unrecognized vocabulary.
+	now = base.Add(time.Minute + time.Second)
+	forged := alertShadowTestRegime(base.Add(time.Minute), rpc.LifecycleQuiet, "ready")
+	for i := range forged.SourceHealth {
+		if forged.SourceHealth[i].Source == "credit" {
+			forged.SourceHealth[i].RefreshState = rpc.SourceRefreshPending
+		}
+	}
+	forged.Fingerprint = rpc.BuildRegimeFingerprint(&forged)
+	if _, err := composer.ObserveRegime(t.Context(), scope, forged); err != nil {
+		t.Fatalf("observe forged snapshot: %v", err)
+	}
+	status = alertShadowTestSourceStatus(t, composer.Status(scope), rpc.AlertSourceRegime)
+	if status.Covered || status.Status != alertShadowStatusError {
+		t.Fatalf("uncorroborated pending stamp accepted: %+v", status)
+	}
+}
+
 func TestAlertShadowComposerRegimeHonorsGovernorsAndRejectsStaleWarningEvidence(t *testing.T) {
 	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
 	defer store.Close()

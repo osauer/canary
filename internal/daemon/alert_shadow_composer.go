@@ -1327,7 +1327,7 @@ func alertShadowRegimeEvidence(result rpc.RegimeSnapshotResult, observedAt time.
 		if source.AsOf.Before(evidenceAsOf) {
 			evidenceAsOf = source.AsOf.UTC()
 		}
-		candidateHealth, candidateReason, ok := alertShadowRegimeSourceEvidence(name, source, observedAt)
+		candidateHealth, candidateReason, ok := alertShadowRegimeSourceEvidence(result, name, source, observedAt)
 		if !ok {
 			return false, false, rpc.AlertEvidenceError, alertShadowReasonSourceHealthError, evidenceAsOf, rpc.LifecycleState{}
 		}
@@ -1364,15 +1364,29 @@ func alertShadowRegimeEvidence(result rpc.RegimeSnapshotResult, observedAt time.
 	return true, covered, health, reason, evidenceAsOf, lifecycle
 }
 
-func alertShadowRegimeSourceEvidence(name string, source rpc.SourceHealth, observedAt time.Time) (rpc.AlertEvidenceHealth, string, bool) {
+func alertShadowRegimeSourceEvidence(result rpc.RegimeSnapshotResult, name string, source rpc.SourceHealth, observedAt time.Time) (rpc.AlertEvidenceHealth, string, bool) {
 	switch source.RefreshState {
 	case "", rpc.SourceRefreshCurrent:
-	case rpc.SourceRefreshNotDue:
-		if name == "vol" || name == "gamma" {
+	case rpc.SourceRefreshNotDue, rpc.SourceRefreshPending:
+		// Producer-authored scheduled window: closed (not_due) or refresh in
+		// flight inside a bounded grace (pending). Accepted as current
+		// evidence only when the currency model re-derives the same class
+		// from the snapshot's own typed rows — RegimeClusterScheduledContext
+		// is the single authority on which clusters may sit in a scheduled
+		// window, so a stamp it does not corroborate is untrusted input: an
+		// uncorroborated not_due keeps the raw age/status evaluation below,
+		// an uncorroborated pending stays unrecognized vocabulary.
+		class := rpc.RegimeFreshnessNotDue
+		if source.RefreshState == rpc.SourceRefreshPending {
+			class = rpc.RegimeFreshnessPending
+		}
+		if derived, scheduled := rpc.RegimeClusterScheduledContext(result, name); scheduled && derived == class {
 			switch source.Status {
 			case rpc.SourceStatusOK, rpc.SourceStatusStale:
 				return rpc.AlertEvidenceCurrent, alertShadowReasonCurrent, true
 			}
+		} else if source.RefreshState == rpc.SourceRefreshPending {
+			return rpc.AlertEvidenceError, alertShadowReasonSourceHealthError, false
 		}
 	case rpc.SourceRefreshFetchFailed, rpc.SourceRefreshFetchFailedBackoff:
 		// A failed due refresh is a data-health fact. The retained source row
