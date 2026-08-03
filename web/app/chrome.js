@@ -108,6 +108,14 @@ function setRegimeStressExpansion(which, open) {
   }
   renderRegimePanel(state.snapshot || {});
   renderStressDetail(state.snapshot?.stress || {});
+  if (open) {
+    // The shared deck sits below the whole Desk grid, so on a phone the
+    // opened panel can land entirely below the fold and the toggle reads as
+    // dead. Bring the panel to its toggle instead. Instant scroll on
+    // purpose: WebKit (incl. iOS) silently ignores behavior:"smooth" on
+    // this nested scroll container.
+    $(which === "regime" ? "regimeDetailPanel" : "stressDetailPanel")?.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function panelTapIgnored(target) {

@@ -521,6 +521,120 @@ func TestComputeStressProvisionalRedsDoNotCreateShortConvexityActSignal(t *testi
 	}
 }
 
+// governedConfirmedStressRegime is the 2026-08-03 desk shape: two eligible
+// heuristic reds (credit + fx) whose lifecycle stage is confirmed_stress with
+// the given governed severity — "watch" models the governor's pending-backtest
+// no-tape-cosign cap.
+func governedConfirmedStressRegime(severity string) rpc.RegimeSnapshotResult {
+	r := healthyStressRegime()
+	r.Composite = rpc.RegimeComposite{ClusterRedCount: 2, ClusterEligibleRedCount: 2, ClusterGreenCount: 4, ClusterRankedCount: 6}
+	r.HYGSPYDivergence.Band = "red"
+	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Eligible: true}
+	r.USDJPY.Band = "red"
+	r.USDJPY.Eligibility = &rpc.RegimeEligibility{Eligible: true}
+	r.Posture = rpc.RegimePosture{Label: "Confirmed stress regime", Tone: "watch", Stage: rpc.LifecycleConfirmedStress, Severity: severity}
+	return r
+}
+
+func concentratedStressPositions() rpc.PositionsResult {
+	return rpc.PositionsResult{AsOf: stressTestNow, Portfolio: &rpc.PositionsPortfolio{
+		ExposureBase: []rpc.UnderlyingExposure{
+			{Underlying: "AAPL", DollarDeltaBase: new(45_000.0)},
+		},
+	}}
+}
+
+// TestComputeStressGovernedRegimeSeverityHoldsDeskAtWatch replays the
+// 2026-08-03 desk contradiction: the regime governor held confirmed_stress at
+// watch while the desk escalated to urgent off the raw eligible count. The
+// desk must consume the governed grade.
+func TestComputeStressGovernedRegimeSeverityHoldsDeskAtWatch(t *testing.T) {
+	t.Parallel()
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account:   baseStressAccount(),
+		Positions: concentratedStressPositions(),
+		Regime:    governedConfirmedStressRegime("watch"),
+	})
+	if res.MarketConfirmation != stressMarketPartial {
+		t.Fatalf("market_confirmation = %s, want partial under governed watch", res.MarketConfirmation)
+	}
+	if res.Direction != risk.DirectionDefensive || res.Severity != risk.SeverityWatch || res.Action != stressActionWatch {
+		t.Fatalf("decision = %s/%s action %s, want defensive/watch/watch under governed severity", res.Direction, res.Severity, res.Action)
+	}
+	for _, row := range res.Rows {
+		if row.Title == "Confirmed market stress" {
+			t.Fatalf("act-grade market row must not fire under governed watch: %+v", row)
+		}
+		if row.Severity == risk.SeverityAct || row.Severity == risk.SeverityUrgent {
+			t.Fatalf("act/urgent row under governed watch: %+v", row)
+		}
+	}
+	if !rowContains(res.Rows, "Confirmed stress held at watch", "holds this confirmed stage at watch") {
+		t.Fatalf("expected governed watch row, rows: %+v", res.Rows)
+	}
+	sig, ok := findSignal(res.Signals, risk.SignalRegimeStressConfirmed)
+	if !ok || sig.Severity != risk.SeverityWatch {
+		t.Fatalf("regime signal = %+v ok=%v, want watch-grade confirmed-stage signal", sig, ok)
+	}
+	if !strings.Contains(res.Summary, "held at watch") {
+		t.Fatalf("summary = %q, want governed hold disclosed", res.Summary)
+	}
+}
+
+func TestComputeStressActGradeGovernedSeverityStillConfirms(t *testing.T) {
+	t.Parallel()
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account:   baseStressAccount(),
+		Positions: concentratedStressPositions(),
+		Regime:    governedConfirmedStressRegime("act"),
+	})
+	if res.MarketConfirmation != stressMarketConfirmed {
+		t.Fatalf("market_confirmation = %s, want confirmed at act-grade governed severity", res.MarketConfirmation)
+	}
+	if res.Action != stressActionDefend || res.Severity != risk.SeverityAct {
+		t.Fatalf("decision = action %s severity %s, want defend/act", res.Action, res.Severity)
+	}
+	if !rowContains(res.Rows, "Confirmed market stress", "Cut marginal longs") {
+		t.Fatalf("expected act-grade confirmed row, rows: %+v", res.Rows)
+	}
+}
+
+func TestComputeStressTapeConfirmationExemptFromGovernedSeverity(t *testing.T) {
+	t.Parallel()
+	spyChange := -8.0
+	vixChange := 28.0
+	r := governedConfirmedStressRegime("watch")
+	r.HYGSPYDivergence.SPYChangePct = &spyChange
+	r.VIXTermStructure.VIXChangePct = &vixChange
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account: baseStressAccount(),
+		Regime:  r,
+	})
+	if res.MarketConfirmation != stressMarketConfirmed {
+		t.Fatalf("market_confirmation = %s, want confirmed from live tape regardless of governed cluster severity", res.MarketConfirmation)
+	}
+}
+
+func TestComputeStressGovernedPanicSeverityCapsUrgentEscalation(t *testing.T) {
+	t.Parallel()
+	r := governedConfirmedStressRegime("act")
+	r.Composite = rpc.RegimeComposite{ClusterRedCount: 3, ClusterEligibleRedCount: 3, ClusterGreenCount: 3, ClusterRankedCount: 6}
+	r.FundingStress.Band = "red"
+	r.FundingStress.Eligibility = &rpc.RegimeEligibility{Eligible: true}
+	r.Posture.Stage = rpc.LifecyclePanic
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account:   baseStressAccount(),
+		Positions: concentratedStressPositions(),
+		Regime:    r,
+	})
+	if res.MarketConfirmation != stressMarketConfirmed {
+		t.Fatalf("market_confirmation = %s, want confirmed at governed act", res.MarketConfirmation)
+	}
+	if res.Severity != risk.SeverityAct || res.Action != stressActionDefend {
+		t.Fatalf("decision = %s/%s, want act/defend — urgent needs governed urgent, not raw 3-red panic", res.Severity, res.Action)
+	}
+}
+
 func TestComputeStressHeldUnderlyingPnLShockRebalancesWithoutMarketConfirmation(t *testing.T) {
 	t.Parallel()
 	dailyLoss := -2_500.0

@@ -315,8 +315,50 @@ function renderStressStatus(stress, snap = state.snapshot || {}) {
   $("stressAction").textContent = stressStageLabel(stress);
   const summary = $("stressSummary");
   const full = stressSummaryText(stress, snap);
-  summary.textContent = fault ? staleFigure(stressCushionFigure(stress), fault.asOf) : stressCushionFigure(stress);
-  summary.title = fault ? `${full} (${fault.reason}; last good ${indicatorAsOfLabel(fault.asOf)})` : full;
+  if (fault) {
+    summary.textContent = staleFigure(stressCushionFigure(stress), fault.asOf);
+    summary.title = `${full} (${fault.reason}; last good ${indicatorAsOfLabel(fault.asOf)})`;
+    return;
+  }
+  const figure = stressHeroFigure(stress);
+  const cushion = stressCushionFigure(stress);
+  summary.textContent = figure;
+  summary.title = figure === cushion ? full : `${full} — ${cushion}`;
+}
+
+
+// The figure names the served binding driver: primary_drivers is the daemon's
+// own severity-ranked list, and the first driver with a typed reading in the
+// portfolio summary wins. A driver this map cannot read (market-side, or one
+// the payload serves no number for) falls through to the margin cushion, the
+// tile's long-standing default — so an exposure-driven verdict is no longer
+// captioned by the healthiest metric on the book. Exposure readings carry no
+// trip point because the payload serves none.
+function stressHeroFigure(stress = {}) {
+  return stressLeadDriverFigure(stress) || stressCushionFigure(stress);
+}
+
+function stressLeadDriverFigure(stress = {}) {
+  const p = stress.portfolio || {};
+  const readings = {
+    gross_delta_high: () => stressDriverReading("gross delta", p.gross_delta_pct_nlv),
+    net_delta_high: () => stressDriverReading("net delta", p.net_delta_pct_nlv),
+    gross_exposure_high: () => stressDriverReading("gross", p.gross_exposure_pct_nlv),
+    single_name_delta_high: () => stressDriverReading(`${normalizeSymbol(p.largest_delta_exposure) || "top name"} delta`, p.largest_delta_pct_nlv),
+    single_name_exposure_high: () => stressDriverReading(normalizeSymbol(p.largest_exposure) || "top name", p.largest_exposure_pct_nlv),
+    margin_cushion_low: () => stressCushionFigure(stress),
+    lookahead_cushion_low: () => stressCushionFigure(stress),
+  };
+  for (const id of stress.primary_drivers || []) {
+    const reading = readings[String(id || "").trim().toLowerCase()]?.();
+    if (reading) return reading;
+  }
+  return "";
+}
+
+function stressDriverReading(label, value) {
+  if (typeof value !== "number") return "";
+  return `${label} ${wholePct(value)} NLV`;
 }
 
 
@@ -408,6 +450,12 @@ function stressSummaryText(stress, snap = {}) {
   return `${prefix}; ${issueLine} before treating the stress read as a market signal; ${actionLine}`;
 }
 
+function stressGovernedHold(stress = {}) {
+  const posture = stress.market?.regime_posture || {};
+  return String(posture.stage || "").toLowerCase() === "confirmed_stress" &&
+    String(posture.severity || "").toLowerCase() === "watch";
+}
+
 function stressHasProvisionalOnlyMarketWarning(stress) {
   const market = stress.market || {};
   return String(stress.market_confirmation || "").toLowerCase() === "partial" &&
@@ -450,6 +498,17 @@ function marketExplanation(stress) {
         label: "Market",
         title: "Provisional warning",
         body: `${names || "One market signal"} needs confirmation or fresher data. Treat this as watch context, not confirmed stress.`,
+        tone: "warn",
+      };
+    }
+    if (stressGovernedHold(stress)) {
+      // Served fact, not reinterpretation: stage confirmed_stress with
+      // governed severity watch is the governor's own verdict, and this card
+      // must agree with the amber Regime panel above it.
+      return {
+        label: "Market",
+        title: cleanDetail(stress.market?.regime_posture?.label) !== "--" ? stress.market.regime_posture.label : "Confirmed stress held at watch",
+        body: "Regime policy holds this confirmed stage at watch; treat it as watch-grade pressure, not act-grade stress.",
         tone: "warn",
       };
     }

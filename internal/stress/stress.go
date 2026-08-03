@@ -1084,11 +1084,14 @@ func stressPnLShockRow(p StressPortfolioSummary) StressRow {
 
 func stressMarketRow(m StressMarketSummary) StressRow {
 	evidence := stressMarketEvidence(m)
+	actConfirmable := stressGovernedSeverityAllows(m, risk.SeverityAct)
 	switch {
-	case m.EligibleRedClusters >= 3 && m.RankedClusters >= 4:
+	case m.EligibleRedClusters >= 3 && m.RankedClusters >= 4 && actConfirmable:
 		return stressRow("Confirmed market stress", risk.DirectionDefensive, risk.SeverityAct, "Reduce equity beta materially; reserve urgent action for margin or exposure rows.", evidence)
-	case m.EligibleRedClusters >= 2 && m.RankedClusters >= 3:
+	case m.EligibleRedClusters >= 2 && m.RankedClusters >= 3 && actConfirmable:
 		return stressRow("Confirmed market stress", risk.DirectionDefensive, risk.SeverityAct, "Cut marginal longs and short-convexity exposure; keep only intentional hedged risk.", evidence)
+	case m.EligibleRedClusters >= 2 && m.RankedClusters >= 3:
+		return stressRow("Confirmed stress held at watch", risk.DirectionDefensive, risk.SeverityWatch, "Regime policy holds this confirmed stage at watch; freeze new risk and stage reductions — no act-grade de-risking from this signal alone.", evidence)
 	case stressFastCarryUnwind(m):
 		return stressRow("Fast carry unwind", risk.DirectionDefensive, risk.SeverityAct, "Reduce fragile beta and short-vol exposure; FX stress is confirmed by tape or breadth.", evidence)
 	case m.RedClusters >= 2:
@@ -1146,7 +1149,7 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 	grossDelta := derefPct(p.GrossDeltaPctNLV)
 	evidence := fmt.Sprintf("gross %.0f%% NLV (watch %.0f%%); net delta %.0f%% NLV (watch %.0f%%); gross delta %.0f%% NLV (watch %.0f%%)",
 		gross, stressPolicy.GrossExposureWatchPct, delta, stressPolicy.NetDeltaWatchPct, grossDelta, stressPolicy.GrossDeltaWatchPct)
-	stressed := m.EligibleRedClusters >= 2 || confirmedTapeStress(m)
+	stressed := stressClusterStressed(m)
 	switch {
 	case (gross >= stressPolicy.GrossExposureStressUrgentPct || delta >= stressPolicy.NetDeltaStressUrgentPct || grossDelta >= stressPolicy.GrossDeltaStressUrgentPct) && stressed:
 		return stressRow("US equity/options exposure", risk.DirectionDefensive, risk.SeverityUrgent, "Go near-flat on broad equity beta; close or hedge option delta first.", evidence)
@@ -1166,7 +1169,7 @@ func stressConcentrationRow(p StressPortfolioSummary, m StressMarketSummary) Str
 	pct := math.Abs(derefPct(p.LargestExposurePct))
 	deltaPct := derefPct(p.LargestDeltaPctNLV)
 	evidence := stressConcentrationEvidence(p)
-	if (pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct) && (m.EligibleRedClusters >= 2 || confirmedTapeStress(m)) {
+	if (pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct) && stressClusterStressed(m) {
 		return stressRow("Largest concentration", risk.DirectionDefensive, risk.SeverityAct, fmt.Sprintf("Trim this concentration before smaller positions; cap it below %.0f%% NLV in stress.", stressPolicy.SingleNameTargetPct), evidence)
 	}
 	if pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct {
@@ -1254,7 +1257,7 @@ func stressOptionsRow(p StressPortfolioSummary, pos rpc.PositionsResult, m Stres
 	if coverage < stressPolicy.OptionGreeksMinCoveragePct {
 		return stressRow("Options convexity", risk.DirectionDataQuality, risk.SeverityWatch, fmt.Sprintf("Do not escalate options-specific actions until greeks coverage is at least %.0f%%.", stressPolicy.OptionGreeksMinCoveragePct), evidence)
 	}
-	if pos.Portfolio.Gamma != nil && *pos.Portfolio.Gamma < 0 && m.EligibleRedClusters >= 2 {
+	if pos.Portfolio.Gamma != nil && *pos.Portfolio.Gamma < 0 && m.EligibleRedClusters >= 2 && stressGovernedSeverityAllows(m, risk.SeverityAct) {
 		return stressRow("Options convexity", risk.DirectionDefensive, risk.SeverityAct, "Reduce negative-gamma structures first; prefer defined-risk or hedged residuals.", evidence)
 	}
 	return stressRow("Options convexity", "", risk.SeverityObserve, "No option-convexity de-risking trigger.", evidence)
@@ -1317,8 +1320,35 @@ func stressMarketConfirmation(m StressMarketSummary) string {
 	return stressMarketNone
 }
 
+// stressGovernedSeverityAllows reports whether cluster-count evidence may
+// carry want-grade weight given the regime lifecycle's governed severity.
+// The lifecycle is the authority on heuristic cluster severity: its governor
+// holds confirmed_stress at watch (and panic at act) while confirming
+// thresholds are pending backtest with no tape co-sign, or while confirming
+// clusters are quality-impaired. Consuming that governed grade here keeps the
+// desk from re-deriving act/urgent off raw eligible counts — the last policy
+// copy left after 2026-06-12 moved cluster bands onto the shared rpc
+// combination. Tape-driven arms never route through this gate: the tape is
+// its own co-signature, mirroring the governor's own exemption. Snapshots
+// without a ranked stress lifecycle stage fail open to the raw counts.
+func stressGovernedSeverityAllows(m StressMarketSummary, want risk.SignalSeverity) bool {
+	switch m.RegimePosture.Stage {
+	case rpc.LifecycleConfirmedStress, rpc.LifecyclePanic:
+		severity := risk.SignalSeverity(strings.ToLower(strings.TrimSpace(m.RegimePosture.Severity)))
+		return severityRankAtLeast(severity, want)
+	}
+	return true
+}
+
+// stressClusterStressed is the act-grade market-stress context used by
+// portfolio-side escalation: governed-confirmable eligible reds, or tape
+// confirmation.
+func stressClusterStressed(m StressMarketSummary) bool {
+	return (m.EligibleRedClusters >= 2 && stressGovernedSeverityAllows(m, risk.SeverityAct)) || confirmedTapeStress(m)
+}
+
 func confirmedMarketStress(m StressMarketSummary) bool {
-	return (m.EligibleRedClusters >= 2 && len(unhealthyConfirmingClusters(m)) == 0) || confirmedTapeStress(m)
+	return (m.EligibleRedClusters >= 2 && len(unhealthyConfirmingClusters(m)) == 0 && stressGovernedSeverityAllows(m, risk.SeverityAct)) || confirmedTapeStress(m)
 }
 
 func partialMarketPressure(m StressMarketSummary) bool {
@@ -1511,7 +1541,7 @@ func stressHasConfirmedConstructiveSignal(signals []risk.Signal) bool {
 }
 
 func stressPanicMarket(m StressMarketSummary) bool {
-	return m.EligibleRedClusters >= 3 ||
+	return (m.EligibleRedClusters >= 3 && stressGovernedSeverityAllows(m, risk.SeverityUrgent)) ||
 		(stressTapeConfirmable(m) &&
 			(pctAtMost(m.SPYChangePct, stressPolicy.SPYCrashPct) ||
 				(pctAtLeast(m.VIXChangePct, stressPolicy.VIXHardSpikePct) && m.EligibleRedClusters >= 1)))
@@ -1622,6 +1652,9 @@ func stressDecisionSummary(r StressResult) string {
 func stressPartialMarketSummary(m StressMarketSummary) string {
 	if m.EligibleRedClusters == 0 && len(m.UnconfirmedRedClusterNames) > 0 {
 		return "An early market warning is flashing (" + stressClusterList(m.UnconfirmedRedClusterNames) + " red, not confirmed yet)"
+	}
+	if m.EligibleRedClusters >= 2 && !stressGovernedSeverityAllows(m, risk.SeverityAct) {
+		return "Confirmed market stress is held at watch by regime policy"
 	}
 	return "Market pressure is building"
 }
@@ -1811,6 +1844,10 @@ func stressRegimeSignals(m StressMarketSummary) []risk.Signal {
 		observed := float64(m.EligibleRedClusters)
 		threshold := 2.0
 		sig := risk.Signal{ID: risk.SignalRegimeStressConfirmed, Direction: risk.DirectionDefensive, Severity: risk.SeverityAct, Metric: "eligible_red_clusters", Observed: &observed, Threshold: &threshold, Evidence: stressMarketEvidence(m), Confidence: "medium"}
+		if !stressGovernedSeverityAllows(m, risk.SeverityAct) {
+			sig.Severity = risk.SeverityWatch
+			sig.ConfidenceImpact = "regime governor holds confirmed-stage severity at watch; not act-grade until validated or tape co-signs"
+		}
 		if unhealthy := unhealthyConfirmingClusters(m); len(unhealthy) > 0 {
 			sig.BlockedBy = unhealthy
 			sig.ConfidenceImpact = "confirmed stress includes unhealthy cluster input; verify before severe market-only action"
@@ -1845,7 +1882,7 @@ func unhealthyConfirmingClusters(m StressMarketSummary) []string {
 }
 
 func stressExposureSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.Signal {
-	stressed := m.EligibleRedClusters >= 2 || confirmedTapeStress(m)
+	stressed := stressClusterStressed(m)
 	out := []risk.Signal{}
 	out = appendExposureSignal(out, risk.SignalGrossExposureHigh, "gross_exposure_pct_nlv", p.GrossExposurePctNLV, stressPolicy.GrossExposureWatchPct, stressPolicy.GrossExposureStressActPct, stressPolicy.GrossExposureStressUrgentPct, stressed)
 	out = appendExposureSignal(out, risk.SignalNetDeltaHigh, "net_delta_pct_nlv", p.NetDeltaPctNLV, stressPolicy.NetDeltaWatchPct, stressPolicy.NetDeltaStressActPct, stressPolicy.NetDeltaStressUrgentPct, stressed)
@@ -1891,7 +1928,7 @@ func appendExposureSignal(out []risk.Signal, id risk.SignalID, metric string, ob
 }
 
 func stressConcentrationSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.Signal {
-	stressed := m.EligibleRedClusters >= 2 || confirmedTapeStress(m)
+	stressed := stressClusterStressed(m)
 	severity := risk.SeverityWatch
 	direction := risk.DirectionRebalance
 	if stressed {
@@ -2014,7 +2051,7 @@ func stressOptionSignals(pos rpc.PositionsResult, m StressMarketSummary) []risk.
 	if coverage < stressPolicy.OptionGreeksMinCoveragePct {
 		out = append(out, risk.Signal{ID: risk.SignalOptionGreeksDegraded, Direction: risk.DirectionDataQuality, Severity: risk.SeverityWatch, Metric: "option_greeks_coverage_pct", Observed: new(coverage), Threshold: new(stressPolicy.OptionGreeksMinCoveragePct), Unit: "pct", Evidence: fmt.Sprintf("greeks %.0f%% covered", coverage), Confidence: "medium-low", ConfidenceImpact: "blocks option-specific planning"})
 	}
-	if pos.Portfolio.Gamma != nil && *pos.Portfolio.Gamma < 0 && m.EligibleRedClusters >= 2 {
+	if pos.Portfolio.Gamma != nil && *pos.Portfolio.Gamma < 0 && m.EligibleRedClusters >= 2 && stressGovernedSeverityAllows(m, risk.SeverityAct) {
 		out = append(out, risk.Signal{ID: risk.SignalShortConvexityHigh, Direction: risk.DirectionDefensive, Severity: risk.SeverityAct, Metric: "portfolio_gamma", Observed: pos.Portfolio.Gamma, Evidence: "negative portfolio gamma in confirmed market stress", Confidence: "medium"})
 	}
 	return out
