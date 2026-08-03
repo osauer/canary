@@ -159,8 +159,10 @@ func TestNudgeIndependentFactsSurviveV3AndIncompleteV4(t *testing.T) {
 			wantAggregate: rpc.NudgeAggregateReady,
 		},
 		{
+			// Cadence keys default in code, so an incompletely authored
+			// cadence stays healthy; only the unreviewed cutover degrades.
 			name: "incomplete v4 cadence", policyTOML: incompleteCadenceRiskPolicyV4TOML(),
-			wantCadenceStatus: rpc.NudgeInputStatusUnapproved, wantConfirmedStatus: rpc.NudgeInputStatusUnapproved,
+			wantCadenceStatus: rpc.NudgeInputStatusOK, wantConfirmedStatus: rpc.NudgeInputStatusUnapproved,
 			wantAggregate:  rpc.NudgeAggregateDegraded,
 			observeCutover: true,
 		},
@@ -279,8 +281,8 @@ func TestConfirmedFlowCutoverIsIndependentOfIncompleteTimedCadence(t *testing.T)
 	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s, _ := newCutoverReviewTestServerWithPolicy(t, now, incompleteCadenceRiskPolicyV4TOML())
 	authority := s.currentNudgeAuthority(now)
-	if !authority.eligible || !authority.confirmedFlowEligible || authority.cadenceEligible {
-		t.Fatalf("dependency split authority=%+v", authority)
+	if !authority.eligible || !authority.confirmedFlowEligible || !authority.cadenceEligible {
+		t.Fatalf("cadence defaults left authority ineligible=%+v", authority)
 	}
 	result, err := s.handleNudgesCutoverReview(context.Background(), cutoverReviewRequest(t))
 	if err != nil || result == nil || !result.OK {
@@ -290,13 +292,15 @@ func TestConfirmedFlowCutoverIsIndependentOfIncompleteTimedCadence(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.SourceHealth.Cadence.Status != rpc.NudgeInputStatusUnapproved || snapshot.SourceHealth.ConfirmedFlow.Status != rpc.NudgeInputStatusOK {
+	if snapshot.SourceHealth.Cadence.Status != rpc.NudgeInputStatusOK || snapshot.SourceHealth.ConfirmedFlow.Status != rpc.NudgeInputStatusOK {
 		t.Fatalf("cutover/cadence source isolation=%+v", snapshot.SourceHealth)
 	}
 }
 
 func TestGovernanceAuthorityGatesCandidatesShadowAndMonthly(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant,
+	// so wantMonthly asserts presence gating rather than not-due absence.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name            string
 		policyTOML      string
@@ -309,10 +313,10 @@ func TestGovernanceAuthorityGatesCandidatesShadowAndMonthly(t *testing.T) {
 		{name: "active approved v4", policyTOML: validRiskPolicyV4TOML(), wantStatus: rpc.NudgeInputStatusOK, wantIndependent: true, wantMonthly: true},
 		{name: "v3", policyTOML: validRiskPolicyV3TOML(), wantStatus: rpc.NudgeInputStatusOK, wantIndependent: true},
 		{name: "inactive", policyTOML: validRiskPolicyV4TOML(), mutate: func(s *Server) { s.riskPolicies.status = rpc.RiskPolicyStatusAbsent }, wantStatus: rpc.NudgeInputStatusUnavailable, wantReason: rpc.NudgeHealthReasonSourceUnavailable},
-		{name: "cadence unapproved", policyTOML: validRiskPolicyV4TOML(), mutate: func(s *Server) {
+		{name: "cadence defaults absorb missing keys", policyTOML: validRiskPolicyV4TOML(), mutate: func(s *Server) {
 			s.riskPolicies.active.Cadence.Monthly.DayOfMonth = nil
 			s.riskPolicies.lastFingerprint = s.riskPolicies.active.FingerprintKey()
-		}, wantStatus: rpc.NudgeInputStatusOK, wantIndependent: true},
+		}, wantStatus: rpc.NudgeInputStatusOK, wantIndependent: true, wantMonthly: true},
 		{name: "error", policyTOML: validRiskPolicyV4TOML(), mutate: func(s *Server) { s.riskPolicies.status = rpc.RiskPolicyStatusError }, wantStatus: rpc.NudgeInputStatusError, wantReason: rpc.NudgeHealthReasonEvaluationError},
 		{name: "unavailable", policyTOML: validRiskPolicyV4TOML(), mutate: func(s *Server) { s.riskPolicies.source = "" }, wantStatus: rpc.NudgeInputStatusUnavailable, wantReason: rpc.NudgeHealthReasonSourceUnavailable},
 		{name: "stale", policyTOML: validRiskPolicyV4TOML(), mutate: func(s *Server) { s.riskPolicies.lastCheckedAt = now.Add(-2 * time.Minute) }, wantStatus: rpc.NudgeInputStatusStale, wantReason: rpc.NudgeHealthReasonEvidenceStale},
@@ -357,8 +361,8 @@ func TestGovernanceAuthorityGatesCandidatesShadowAndMonthly(t *testing.T) {
 						t.Fatalf("v3 reminder sources=%+v, want explicitly inactive", result.SourceHealth)
 					}
 				}
-				if tt.name == "cadence unapproved" && result.SourceHealth.Cadence.Status != rpc.NudgeInputStatusUnapproved {
-					t.Fatalf("cadence health=%+v, want only cadence unapproved", result.SourceHealth.Cadence)
+				if tt.name == "cadence defaults absorb missing keys" && result.SourceHealth.Cadence.Status != rpc.NudgeInputStatusOK {
+					t.Fatalf("cadence health=%+v, want ok under code defaults", result.SourceHealth.Cadence)
 				}
 				return
 			}

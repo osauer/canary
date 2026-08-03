@@ -160,7 +160,7 @@ func TestBriefFirstIncompleteAndExplicitKind(t *testing.T) {
 }
 
 func TestMonthlyBriefAckOriginPinsFingerprintIdempotencyAndRollover(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC) // 12:00 Europe/Berlin, after 09:00 due.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC) // Monday, August's first working day; 12:00 Europe/Berlin, after 09:00 due.
 	s := newV4NudgeTestServer(t, now)
 	policy := s.riskPolicies.snapshot().policy
 	month := "2026-08"
@@ -276,7 +276,8 @@ func TestMonthlyBriefAckOriginPinsFingerprintIdempotencyAndRollover(t *testing.T
 }
 
 func TestMonthlyBriefAckUsesIssuedRenderNotVolatileRecomposition(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	rendered, _ := s.composeBrief(context.Background())
 	if rendered.BriefFingerprint == "" {
@@ -304,7 +305,8 @@ func TestMonthlyBriefAckUsesIssuedRenderNotVolatileRecomposition(t *testing.T) {
 }
 
 func TestMonthlyRenderReceiptsIssueExpireRestartAndBound(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	t.Run("unissued and expired fail closed", func(t *testing.T) {
 		s := newV4NudgeTestServer(t, now)
 		unissued := opaqueIdentity("brief", "never-rendered")
@@ -331,7 +333,7 @@ func TestMonthlyRenderReceiptsIssueExpireRestartAndBound(t *testing.T) {
 	})
 
 	t.Run("restart requires rerender", func(t *testing.T) {
-		now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+		now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 		s := newV4NudgeTestServer(t, now)
 		rendered, _ := s.composeBrief(context.Background())
 		// Receipts are intentionally memory-only; a daemon restart loses them
@@ -366,7 +368,8 @@ func TestMonthlyRenderReceiptsIssueExpireRestartAndBound(t *testing.T) {
 }
 
 func TestMonthlyReceiptSurvivesMutationAtFormerSecondRead(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	rendered, _ := s.composeBrief(context.Background())
 	s.nudgeBeforeCommit = func(kind string) {
@@ -388,7 +391,8 @@ func TestMonthlyReceiptSurvivesMutationAtFormerSecondRead(t *testing.T) {
 }
 
 func TestMonthlyRenderReceiptRequiresSameRenderedAuthority(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	for _, tt := range []struct {
 		name   string
 		mutate func(*Server)
@@ -447,7 +451,8 @@ func TestMonthlyRenderReceiptRequiresSameRenderedAuthority(t *testing.T) {
 }
 
 func TestMonthlyCompletionRecoversWithFreshReceiptAfterExpiry(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	firstRender, _ := s.composeBrief(context.Background())
 	params := rpc.BriefAckParams{Kind: rpc.BriefKindMonthly, Month: "2026-08", Evidence: rpc.BriefAckEvidenceRender,
@@ -504,7 +509,9 @@ func TestMonthlyCompletionRecoversWithFreshReceiptAfterExpiry(t *testing.T) {
 }
 
 func TestCorruptNudgeStoreCannotIssueMonthlyRecoveryReceipt(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day: the pulse is due, so the absent
+	// receipt below is proven withheld by the corrupt store, not by not-due.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	path := filepath.Join(t.TempDir(), governanceNudgeStateFile)
 	if err := os.WriteFile(path, []byte("not-json"), 0o600); err != nil {
@@ -522,7 +529,9 @@ func TestCorruptNudgeStoreCannotIssueMonthlyRecoveryReceipt(t *testing.T) {
 }
 
 func TestCanceledBriefCompositionNeverMintsMonthlyReceipt(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day: the pulse is due, so an uncanceled
+	// render would mint — cancellation is what must withhold the receipt.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	activeReceipts := func(s *Server, at time.Time) int {
 		s.monthlyRenderMu.Lock()
 		defer s.monthlyRenderMu.Unlock()
@@ -635,7 +644,7 @@ func TestCanceledBriefCompositionNeverMintsMonthlyReceipt(t *testing.T) {
 
 func TestConcurrentIdenticalMonthlyAcknowledgementsAreIdempotent(t *testing.T) {
 	for iteration := range 10 {
-		now := time.Date(2026, 8, 1, 10, 0, iteration, 0, time.UTC)
+		now := time.Date(2026, 8, 3, 10, 0, iteration, 0, time.UTC)
 		s := newV4NudgeTestServer(t, now)
 		rendered, _ := s.composeBrief(context.Background())
 		params := rpc.BriefAckParams{Kind: rpc.BriefKindMonthly, Month: "2026-08", Evidence: rpc.BriefAckEvidenceRender,
@@ -705,7 +714,8 @@ func TestV3BriefMonthlyExtensionIsBehaviorCompatible(t *testing.T) {
 }
 
 func TestBriefAndNudgeMonthlyParityDueBlockedAndComplete(t *testing.T) {
-	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	// Monday, August's first working day, past the 09:00 Berlin due instant.
+	now := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	s := newV4NudgeTestServer(t, now)
 	constitution := s.riskPolicies.snapshot().policy
 	policy := &rpc.RiskPolicyResult{Status: rpc.RiskPolicyStatusActive, Inventory: s.riskPolicyInventory(constitution)}
