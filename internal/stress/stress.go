@@ -300,6 +300,10 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 		if pos.Portfolio.GreeksTotal > 0 {
 			out.OptionGreeks = fmt.Sprintf("%d/%d legs", pos.Portfolio.GreeksCoverage, pos.Portfolio.GreeksTotal)
 		}
+		// Names the aggregator could not value in base at all carry no row here;
+		// the daemon names them separately, and they belong in the same gap as
+		// the delta-less rows skipped below.
+		unmeasured := slices.Clone(pos.Portfolio.ExposureUnmeasured)
 		for _, e := range pos.Portfolio.ExposureBase {
 			if e.MarketValuePctNLV != nil {
 				if out.LargestExposurePct == nil || math.Abs(*e.MarketValuePctNLV) > math.Abs(*out.LargestExposurePct) {
@@ -309,6 +313,9 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 				}
 			}
 			if e.DollarDeltaBase == nil || acct.NetLiquidation <= 0 {
+				if e.DollarDeltaBase == nil {
+					unmeasured = append(unmeasured, e.Underlying)
+				}
 				continue
 			}
 			pct := math.Abs(*e.DollarDeltaBase) / acct.NetLiquidation * 100
@@ -322,10 +329,42 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 				out.LargestDeltaExposure = strings.ToUpper(e.Underlying)
 			}
 		}
+		out.ExposureUnmeasured = stressUpperSorted(unmeasured)
 	}
 	out.ProtectionCoverage = pos.ProtectionCoverage
 	out.HeldStress = heldStressSummaries(acct, pos, marketEvents, now)
 	return out
+}
+
+// stressUpperSorted normalizes a disclosure name list: upper-cased, sorted, and
+// free of blanks and duplicates. Nil for an empty list, so a fully measured book
+// carries no field at all.
+func stressUpperSorted(names []string) []string {
+	var out []string
+	for _, n := range names {
+		if n = strings.ToUpper(strings.TrimSpace(n)); n != "" {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// stressUnmeasuredNames renders the exposure gap for one row's evidence,
+// bounded so a wide book does not turn a row into a list.
+func stressUnmeasuredNames(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	noun := "names"
+	if len(names) == 1 {
+		noun = "name"
+	}
+	shown, extra := names, ""
+	if len(shown) > 3 {
+		shown, extra = shown[:3], fmt.Sprintf(" +%d more", len(names)-3)
+	}
+	return fmt.Sprintf("%d %s unmeasured (%s%s)", len(names), noun, strings.Join(shown, ", "), extra)
 }
 
 func heldStressSummaries(acct rpc.AccountResult, pos rpc.PositionsResult, marketEvents rpc.MarketEventsResult, now time.Time) []rpc.HeldStress {
@@ -1149,6 +1188,12 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 	grossDelta := derefPct(p.GrossDeltaPctNLV)
 	evidence := fmt.Sprintf("gross %.0f%% NLV (watch %.0f%%); net delta %.0f%% NLV (watch %.0f%%); gross delta %.0f%% NLV (watch %.0f%%)",
 		gross, stressPolicy.GrossExposureWatchPct, delta, stressPolicy.NetDeltaWatchPct, grossDelta, stressPolicy.GrossDeltaWatchPct)
+	// Disclosure is unconditional; only the pass verdict below is conditional.
+	// A breach earned by the measured names is still a breach.
+	gap := stressUnmeasuredNames(p.ExposureUnmeasured)
+	if gap != "" {
+		evidence += "; " + gap
+	}
 	stressed := stressClusterStressed(m)
 	switch {
 	case (gross >= stressPolicy.GrossExposureStressUrgentPct || delta >= stressPolicy.NetDeltaStressUrgentPct || grossDelta >= stressPolicy.GrossDeltaStressUrgentPct) && stressed:
@@ -1158,22 +1203,35 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 	case gross >= stressPolicy.GrossExposureWatchPct || delta >= stressPolicy.NetDeltaWatchPct || grossDelta >= stressPolicy.GrossDeltaWatchPct:
 		return stressRow("US equity/options exposure", risk.DirectionRebalance, risk.SeverityWatch, "Exposure is high; rebalance toward risk limits without treating this as confirmed market stress.", evidence)
 	default:
+		if gap != "" {
+			return stressRow("US equity/options exposure", risk.DirectionDataQuality, risk.SeverityWatch, "These readings are a subtotal over the names that could be measured; measure the rest before treating the book as within exposure limits.", evidence)
+		}
 		return stressRow("US equity/options exposure", "", risk.SeverityObserve, "No exposure-based de-risking trigger.", evidence)
 	}
 }
 
 func stressConcentrationRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
+	gap := stressUnmeasuredNames(p.ExposureUnmeasured)
 	if (p.LargestExposurePct == nil || p.LargestExposure == "") && (p.LargestDeltaPctNLV == nil || p.LargestDeltaExposure == "") {
+		if gap != "" {
+			return stressRow("Largest concentration", risk.DirectionDataQuality, risk.SeverityWatch, "No concentration verdict is possible: no held name could be measured in the base currency.", gap)
+		}
 		return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration action from available base-currency exposure map.", "no dominant exposure")
 	}
 	pct := math.Abs(derefPct(p.LargestExposurePct))
 	deltaPct := derefPct(p.LargestDeltaPctNLV)
 	evidence := stressConcentrationEvidence(p)
+	if gap != "" {
+		evidence += "; " + gap
+	}
 	if (pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct) && stressClusterStressed(m) {
 		return stressRow("Largest concentration", risk.DirectionDefensive, risk.SeverityAct, fmt.Sprintf("Trim this concentration before smaller positions; cap it below %.0f%% NLV in stress.", stressPolicy.SingleNameTargetPct), evidence)
 	}
 	if pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct {
 		return stressRow("Largest concentration", risk.DirectionRebalance, risk.SeverityWatch, "Concentration is above risk limits; rebalance this position without treating it as confirmed market stress.", evidence)
+	}
+	if gap != "" {
+		return stressRow("Largest concentration", risk.DirectionDataQuality, risk.SeverityWatch, "The largest position may be one of the names that could not be measured; this is not a clean concentration pass.", evidence)
 	}
 	return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration trim required by the stress policy.", evidence)
 }
@@ -1887,6 +1945,17 @@ func stressExposureSignals(p StressPortfolioSummary, m StressMarketSummary) []ri
 	out = appendExposureSignal(out, risk.SignalGrossExposureHigh, "gross_exposure_pct_nlv", p.GrossExposurePctNLV, stressPolicy.GrossExposureWatchPct, stressPolicy.GrossExposureStressActPct, stressPolicy.GrossExposureStressUrgentPct, stressed)
 	out = appendExposureSignal(out, risk.SignalNetDeltaHigh, "net_delta_pct_nlv", p.NetDeltaPctNLV, stressPolicy.NetDeltaWatchPct, stressPolicy.NetDeltaStressActPct, stressPolicy.NetDeltaStressUrgentPct, stressed)
 	out = appendExposureSignal(out, risk.SignalGrossDeltaHigh, "gross_delta_pct_nlv", p.GrossDeltaPctNLV, stressPolicy.GrossDeltaWatchPct, stressPolicy.GrossDeltaStressActPct, stressPolicy.GrossDeltaStressUrgentPct, stressed)
+	// Every reading above is a subtotal when a held name went unmeasured, so the
+	// overall verdict must not read healthy off them alone.
+	if len(p.ExposureUnmeasured) > 0 {
+		observed := float64(len(p.ExposureUnmeasured))
+		out = append(out, risk.Signal{
+			ID: risk.SignalRiskDataDegraded, Direction: risk.DirectionDataQuality, Severity: risk.SeverityWatch,
+			Subject: "exposure_base", Metric: "exposure_unmeasured_names", Observed: &observed,
+			Evidence: stressUnmeasuredNames(p.ExposureUnmeasured), Confidence: "medium-low",
+			ConfidenceImpact: "exposure and concentration readings are subtotals", BlockedBy: []string{"exposure_base"},
+		})
+	}
 	return out
 }
 

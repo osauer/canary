@@ -1889,14 +1889,20 @@ func addPortfolioBaseContext(p *rpc.PositionsPortfolio, groups []rpc.PositionGro
 	baseCcy = normCcy(baseCcy)
 	p.BaseCurrency = baseCcy
 	p.NetLiquidationBase = netLiquidationBase
-	p.ExposureBase = buildUnderlyingExposureBase(groups, baseCcy)
+	p.ExposureBase, p.ExposureUnmeasured = buildUnderlyingExposureBase(groups, baseCcy)
 }
 
-func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) []rpc.UnderlyingExposure {
+// buildUnderlyingExposureBase projects the groups the aggregator could value in
+// the account base currency, and names the ones it could not. A group with no
+// base market value is dropped rather than zeroed, so the names are the only
+// evidence a consumer has that the returned rows are not the whole book.
+func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) ([]rpc.UnderlyingExposure, []string) {
 	baseCcy = normCcy(baseCcy)
 	out := make([]rpc.UnderlyingExposure, 0, len(groups))
+	var unmeasured []string
 	for _, g := range groups {
 		if g.GroupMarketValueBase == nil {
+			unmeasured = append(unmeasured, g.Underlying)
 			continue
 		}
 		out = append(out, rpc.UnderlyingExposure{
@@ -1916,7 +1922,8 @@ func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) []r
 		}
 		return cmp.Compare(a.Underlying, b.Underlying)
 	})
-	return out
+	slices.Sort(unmeasured)
+	return out, unmeasured
 }
 
 // handleQuoteSnapshot resolves a contract, briefly subscribes to streaming

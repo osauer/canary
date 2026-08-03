@@ -494,6 +494,95 @@ func TestComputeStressLargestDeltaConcentrationWatchesWithoutMarketStress(t *tes
 	}
 }
 
+// A name the aggregator could not value in the base currency carries no
+// ExposureBase row at all. Reading the remaining rows as the whole book turns a
+// large unmeasured position into a clean pass — the quiet direction.
+func TestComputeStressUnmeasuredExposureRefusesACleanPass(t *testing.T) {
+	t.Parallel()
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account: baseStressAccount(),
+		Positions: rpc.PositionsResult{AsOf: stressTestNow, Portfolio: &rpc.PositionsPortfolio{
+			ExposureBase: []rpc.UnderlyingExposure{
+				{Underlying: "AAPL", DollarDeltaBase: new(4_000.0), MarketValuePctNLV: new(4.0)},
+			},
+			ExposureUnmeasured: []string{"NESN"},
+		}},
+		Regime: healthyStressRegime(),
+	})
+	if got := res.Portfolio.ExposureUnmeasured; len(got) != 1 || got[0] != "NESN" {
+		t.Fatalf("portfolio.exposure_unmeasured = %v, want [NESN]", got)
+	}
+	for _, title := range []string{"US equity/options exposure", "Largest concentration"} {
+		row := stressRowByTitle(res.Rows, title)
+		if row == nil {
+			t.Fatalf("missing row %q, rows: %+v", title, res.Rows)
+		}
+		if row.Severity == risk.SeverityObserve || row.Direction != risk.DirectionDataQuality {
+			t.Fatalf("%s = %s/%s, want a data-quality watch over a partial book", title, row.Direction, row.Severity)
+		}
+		if !strings.Contains(row.Evidence, "NESN") {
+			t.Fatalf("%s evidence does not name the gap: %q", title, row.Evidence)
+		}
+	}
+	sig, ok := findSignal(res.Signals, risk.SignalRiskDataDegraded)
+	if !ok || sig.Subject != "exposure_base" || sig.Severity != risk.SeverityWatch {
+		t.Fatalf("exposure completeness signal = %+v, want a watch on exposure_base", sig)
+	}
+}
+
+// A row that reached the wire but carries no base-currency delta is dropped from
+// the gross-delta sum just as completely, so it belongs in the same gap.
+func TestComputeStressDeltaLessExposureRowCountsAsUnmeasured(t *testing.T) {
+	t.Parallel()
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account: baseStressAccount(),
+		Positions: rpc.PositionsResult{AsOf: stressTestNow, Portfolio: &rpc.PositionsPortfolio{
+			ExposureBase: []rpc.UnderlyingExposure{
+				{Underlying: "AAPL", DollarDeltaBase: new(4_000.0), MarketValuePctNLV: new(4.0)},
+				{Underlying: "roche", MarketValuePctNLV: new(3.0)},
+			},
+		}},
+		Regime: healthyStressRegime(),
+	})
+	if got := res.Portfolio.ExposureUnmeasured; len(got) != 1 || got[0] != "ROCHE" {
+		t.Fatalf("portfolio.exposure_unmeasured = %v, want [ROCHE]", got)
+	}
+	row := stressRowByTitle(res.Rows, "US equity/options exposure")
+	if row == nil || row.Severity == risk.SeverityObserve {
+		t.Fatalf("exposure row = %+v, want a non-pass over a partial delta sum", row)
+	}
+}
+
+// The completeness gate may only turn a pass into a data-quality watch. A breach
+// the measured names earned on their own is never softened by it.
+func TestComputeStressUnmeasuredExposureNeverDowngradesAMeasuredBreach(t *testing.T) {
+	t.Parallel()
+	res := ComputeStress(StressInput{Now: stressTestNow,
+		Account: baseStressAccount(),
+		Positions: rpc.PositionsResult{AsOf: stressTestNow, Portfolio: &rpc.PositionsPortfolio{
+			// 160% NLV of measured gross delta is past the exposure watch band
+			// on its own, and past the single-name band too.
+			ExposureBase: []rpc.UnderlyingExposure{
+				{Underlying: "AAPL", DollarDeltaBase: new(160_000.0), MarketValuePctNLV: new(45.0)},
+			},
+			ExposureUnmeasured: []string{"NESN"},
+		}},
+		Regime: healthyStressRegime(),
+	})
+	for _, title := range []string{"US equity/options exposure", "Largest concentration"} {
+		row := stressRowByTitle(res.Rows, title)
+		if row == nil {
+			t.Fatalf("missing row %q", title)
+		}
+		if row.Direction != risk.DirectionRebalance {
+			t.Fatalf("%s = %s/%s, want the measured breach to stand", title, row.Direction, row.Severity)
+		}
+		if !strings.Contains(row.Evidence, "NESN") {
+			t.Fatalf("%s must still disclose the gap: %q", title, row.Evidence)
+		}
+	}
+}
+
 func TestComputeStressProvisionalRedsDoNotCreateShortConvexityActSignal(t *testing.T) {
 	t.Parallel()
 	gamma := -1.0

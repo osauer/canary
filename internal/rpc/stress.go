@@ -310,6 +310,14 @@ type StressPortfolioSummary struct {
 	OptionGreeks         string                     `json:"option_greeks,omitempty"`
 	ProtectionCoverage   *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
 	HeldStress           []HeldStress               `json:"held_stress,omitempty"`
+
+	// ExposureUnmeasured names the held underlyings that contributed nothing to
+	// the exposure and concentration readings above: either the aggregator could
+	// not value the group in the base currency at all, or it carried no
+	// base-currency delta. Every figure beside it is a subtotal over the rest of
+	// the book, so a threshold comparison against them can only prove a breach,
+	// never a clean pass. Empty on a fully measured book.
+	ExposureUnmeasured []string `json:"exposure_unmeasured,omitempty"`
 }
 
 // HeldStress is a bounded, positions-only explanation of stress inside

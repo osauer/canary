@@ -2526,6 +2526,14 @@ type PositionsPortfolio struct {
 	NetLiquidationBase      *float64             `json:"net_liquidation_base,omitempty"`
 	ExposureBase            []UnderlyingExposure `json:"exposure_base,omitempty"`
 
+	// ExposureUnmeasured names the held underlyings absent from ExposureBase:
+	// no base-currency market value could be computed for the group, so it
+	// carries no row at all rather than a zero one. A consumer that compares an
+	// ExposureBase subtotal against a threshold must read a non-empty list as
+	// proof the subtotal is partial — the sum understates, and understatement
+	// is the quiet direction. Empty on a fully measured book.
+	ExposureUnmeasured []string `json:"exposure_unmeasured,omitempty"`
+
 	// FXSensitivityPerPct estimates the change in base-currency P&L for a 1%
 	// move in the non-base contract currency, holding everything else
 	// constant. Computed as Σ (non-base market value in base) × 0.01.
