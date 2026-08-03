@@ -2178,6 +2178,44 @@ func TestComputeStressMarketEventHealthRequiresCurrentTimestamps(t *testing.T) {
 	}
 }
 
+func TestStressClusterStaleNotDue(t *testing.T) {
+	t.Parallel()
+	notDue := &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
+	overdue := &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+	for _, test := range []struct {
+		name     string
+		statuses []string
+		meta     []rpc.RegimeIndicatorMeta
+		want     bool
+	}{
+		// The Monday pre-open shape: gamma's prior-session compute is
+		// status stale (never confirmation-eligible) while its typed
+		// class says the publication window has not opened — a schedule
+		// gap, not broken data.
+		{"stale row with not_due class is excused", []string{rpc.RegimeStatusStale},
+			[]rpc.RegimeIndicatorMeta{{Freshness: notDue}}, true},
+		{"stale row without typed class stays stale", []string{rpc.RegimeStatusStale},
+			[]rpc.RegimeIndicatorMeta{{}}, false},
+		{"stale row with overdue class stays stale", []string{rpc.RegimeStatusStale},
+			[]rpc.RegimeIndicatorMeta{{Freshness: overdue}}, false},
+		{"mixed cluster excused only when every stale row is not_due",
+			[]string{rpc.RegimeStatusOK, rpc.RegimeStatusStale},
+			[]rpc.RegimeIndicatorMeta{{}, {Freshness: notDue}}, true},
+		{"one undisclosed stale row poisons the excuse",
+			[]string{rpc.RegimeStatusStale, rpc.RegimeStatusStale},
+			[]rpc.RegimeIndicatorMeta{{Freshness: notDue}, {}}, false},
+		{"no stale rows means nothing to excuse", []string{rpc.RegimeStatusOK},
+			[]rpc.RegimeIndicatorMeta{{}}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := stressClusterStaleNotDue(test.statuses, test.meta); got != test.want {
+				t.Fatalf("stressClusterStaleNotDue = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestStressMarketEventSourceHealthUsesOwnCadence(t *testing.T) {
 	t.Parallel()
 	positions := rpc.PositionsResult{

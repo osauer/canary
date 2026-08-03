@@ -787,6 +787,14 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 		"gamma":   {r.GammaZero.Status},
 		"breadth": {r.Breadth.Status},
 	}
+	rowMeta := map[string][]rpc.RegimeIndicatorMeta{
+		"vol":     {r.VIXTermStructure.RegimeIndicatorMeta, r.VolOfVol.RegimeIndicatorMeta},
+		"credit":  {r.HYGSPYDivergence.RegimeIndicatorMeta, r.CreditSpreads.RegimeIndicatorMeta},
+		"funding": {r.FundingStress.RegimeIndicatorMeta},
+		"fx":      {r.USDJPY.RegimeIndicatorMeta},
+		"gamma":   {r.GammaZero.RegimeIndicatorMeta},
+		"breadth": {r.Breadth.RegimeIndicatorMeta},
+	}
 	for name, clusterBand := range clusterBands {
 		switch clusterBand {
 		case "red":
@@ -803,7 +811,8 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 		if status == rpc.RegimeStatusComputing {
 			out.ComputingClusters = append(out.ComputingClusters, name)
 		}
-		if status == rpc.RegimeStatusStale && !contextClusters[name] {
+		if status == rpc.RegimeStatusStale && !contextClusters[name] &&
+			!stressClusterStaleNotDue(statuses[name], rowMeta[name]) {
 			out.StaleClusters = append(out.StaleClusters, name)
 		}
 		if clusterBand == "" {
@@ -3165,6 +3174,30 @@ func largestUnprotectedPhrase(c *rpc.ProtectionCoverageSummary) string {
 		return row.Underlying
 	}
 	return ""
+}
+
+// stressClusterStaleNotDue reports whether every stale row in a cluster
+// declares typed freshness class not_due: the source's publication window is
+// closed, so no newer observation can exist and the staleness is a schedule
+// gap, not broken market data. The row status itself stays stale and remains
+// confirmation-ineligible (the 2026-06-12 prior-evening-gamma protection);
+// this only keeps a closed publication window from paging the desk as a data
+// issue. A stale row without the typed class keeps the cluster stale.
+func stressClusterStaleNotDue(statuses []string, meta []rpc.RegimeIndicatorMeta) bool {
+	if len(statuses) != len(meta) {
+		return false
+	}
+	sawStale := false
+	for i, status := range statuses {
+		if status != rpc.RegimeStatusStale {
+			continue
+		}
+		sawStale = true
+		if meta[i].Freshness == nil || meta[i].Freshness.Class != rpc.RegimeFreshnessNotDue {
+			return false
+		}
+	}
+	return sawStale
 }
 
 func stressHasMarketDataIssue(m StressMarketSummary) bool {
