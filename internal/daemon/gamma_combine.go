@@ -516,6 +516,12 @@ func runUnderlyingPhase(
 	if s == nil {
 		return nil, fmt.Errorf("server is nil")
 	}
+	// Every gamma compute — startup prewarm, scheduler refresh, and
+	// RPC-kicked — funnels its per-underlying fan-out through here, and
+	// that fan-out is hundreds of contract-detail and subscription sends.
+	// Ride the connector's background pacing lane so an interactive read
+	// arriving mid-fan-out is not queued behind it.
+	bgCtx = ibkrlib.WithRequestPriority(bgCtx, ibkrlib.PriorityBackground)
 	release, err := s.subs.Hold(bgCtx, underlying)
 	if err != nil {
 		return nil, fmt.Errorf("hold %s underlying: %w", underlying, err)

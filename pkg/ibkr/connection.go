@@ -4467,6 +4467,15 @@ func (c *Connection) sendContractDetailsRequest(contract Contract, reqID int) er
 	return c.sendMessage(c.contractDetailsRequestMessage(contract, reqID))
 }
 
+// sendContractDetailsRequestContext is sendContractDetailsRequest with
+// caller-owned cancellation and pacing priority while queued in the rate
+// limiter. The chain prewarm and per-leg option resolution use it so a
+// background-tagged fan-out rides the limiter's background lane instead of
+// pre-booking the message bucket ahead of interactive reads.
+func (c *Connection) sendContractDetailsRequestContext(ctx context.Context, contract Contract, reqID int) error {
+	return c.sendMessageWithTypeContext(ctx, c.contractDetailsRequestMessage(contract, reqID), RequestTypeGeneral)
+}
+
 func (c *Connection) sendContractDetailsRequestForEpoch(ctx context.Context, contract Contract, reqID int, epoch uint64) error {
 	return c.sendMessageWithTypeContextForEpoch(ctx, c.contractDetailsRequestMessage(contract, reqID), RequestTypeGeneral, epoch, true)
 }
@@ -5343,7 +5352,7 @@ func (c *Connection) requestMarketDataWithContract(ctx context.Context, contract
 	marketLogger.Debugf("Requesting market data for %s (ReqID: %d, SecType: %s, Exchange: %s, Primary: %s, ConID: %d)",
 		contractCopy.Symbol, reqID, contractCopy.SecType, contractCopy.Exchange, contractCopy.PrimaryExch, contractCopy.ConID)
 
-	if err := c.sendMessageWithType(msg, RequestTypeMarketData); err != nil {
+	if err := c.sendMessageWithTypeContext(ctx, msg, RequestTypeMarketData); err != nil {
 		if cleanup != nil {
 			cleanup()
 		}
@@ -6043,7 +6052,7 @@ func (c *Connection) fetchOptionContractDetail(ctx context.Context, contract Con
 		}
 	})
 
-	err = c.sendContractDetailsRequest(contract, reqID)
+	err = c.sendContractDetailsRequestContext(ctx, contract, reqID)
 	if err != nil {
 		c.UnregisterHandler(msgContractData, dataHandlerID)
 		c.UnregisterHandler(msgContractDataEnd, endHandlerID)
@@ -6260,7 +6269,7 @@ func (c *Connection) prewarmOneExpiryAttempt(ctx context.Context, contract Contr
 	defer c.UnregisterHandler(msgContractData, dataHandlerID)
 	defer c.UnregisterHandler(msgContractDataEnd, endHandlerID)
 
-	if err := c.sendContractDetailsRequest(contract, reqID); err != nil {
+	if err := c.sendContractDetailsRequestContext(ctx, contract, reqID); err != nil {
 		return 0, int(dropped.Load()), fmt.Errorf("send reqContractDetails: %w", err)
 	}
 

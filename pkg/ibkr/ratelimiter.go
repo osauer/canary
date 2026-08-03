@@ -24,6 +24,11 @@ type RateLimiter struct {
 	historicalConcurrent *Semaphore // Max 50 concurrent historical requests
 	marketDataSubs       *Semaphore // Max 100 concurrent market data subscriptions (retail)
 
+	// Background-lane admission pools (see backgroundMessageSlots). One per
+	// token bucket a background request can pre-book.
+	backgroundMessage    *Semaphore
+	backgroundHistorical *Semaphore
+
 	// Queue for pacing requests
 	requestQueue chan *RateLimitedRequest
 
@@ -66,6 +71,7 @@ type RateLimiterMetrics struct {
 // version.
 type RateLimitedRequest struct {
 	Type       RequestType
+	Priority   RequestPriority
 	Context    context.Context
 	SendFunc   func(context.Context) error
 	ResultChan chan error
@@ -85,6 +91,71 @@ const (
 	RequestTypeOrder
 	RequestTypeHeartbeat
 )
+
+// RequestPriority selects the pacing lane for a submitted request. The
+// default (PriorityInteractive) is right for caller-facing work; bulk
+// prewarm/fan-out traffic opts into PriorityBackground via
+// WithRequestPriority so a cold-boot fan-out cannot starve an interactive
+// read that arrives mid-flight.
+type RequestPriority int
+
+const (
+	// PriorityInteractive requests reserve pacing tokens immediately, in
+	// arrival order. This is the default for any context without an
+	// explicit priority.
+	PriorityInteractive RequestPriority = iota
+	// PriorityBackground requests must hold one of a small pool of
+	// in-flight slots before reserving pacing tokens. The pool bounds how
+	// many token reservations a fan-out can book ahead of an interactive
+	// arrival, so the interactive request waits behind at most the pool,
+	// not the whole fan-out. Token reservations stay FIFO across lanes and
+	// slots release as sends complete, so background work keeps the full
+	// bucket rate whenever no interactive request is competing — bounded
+	// interactive delay, no starvation in either direction.
+	PriorityBackground
+)
+
+// Background-lane pool sizes. A background request's token debt is capped
+// at the pool size, so the worst-case interactive wait becomes
+// (pool+1)/refill — ~225 ms on the 40/s message bucket and ~30 s on the
+// 0.1/s historical bucket — instead of the fan-out's full drain time.
+// The pools are sized to keep each bucket's refill rate saturated by
+// background work alone (slots turn over as fast as tokens refill).
+const (
+	backgroundMessageSlots    = 8
+	backgroundHistoricalSlots = 2
+)
+
+type requestPriorityContextKey struct{}
+
+// WithRequestPriority returns a context whose connector requests submit on
+// the given pacing lane. The priority travels with ctx through the
+// connector's send paths; contexts without it submit as PriorityInteractive.
+func WithRequestPriority(ctx context.Context, p RequestPriority) context.Context {
+	return context.WithValue(ctx, requestPriorityContextKey{}, p)
+}
+
+func requestPriorityFrom(ctx context.Context) RequestPriority {
+	if ctx == nil {
+		return PriorityInteractive
+	}
+	if p, ok := ctx.Value(requestPriorityContextKey{}).(RequestPriority); ok {
+		return p
+	}
+	return PriorityInteractive
+}
+
+// effectivePriority reads the context's pacing lane. Broker writes and
+// heartbeats never queue behind the background pool, whatever their
+// context says: orders because interactive latency is part of the write
+// contract, heartbeats because they keep the session alive.
+func effectivePriority(ctx context.Context, reqType RequestType) RequestPriority {
+	switch reqType {
+	case RequestTypeOrder, RequestTypeHeartbeat:
+		return PriorityInteractive
+	}
+	return requestPriorityFrom(ctx)
+}
 
 // TokenBucket implements token bucket algorithm for rate limiting
 type TokenBucket struct {
@@ -258,6 +329,10 @@ func NewRateLimiter(ctx context.Context) *RateLimiter {
 		historicalConcurrent: NewSemaphore(50),  // Max 50 concurrent historical
 		marketDataSubs:       NewSemaphore(100), // Max 100 market data subscriptions
 
+		// Background pacing lane
+		backgroundMessage:    NewSemaphore(backgroundMessageSlots),
+		backgroundHistorical: NewSemaphore(backgroundHistoricalSlots),
+
 		// Request queue with buffer
 		requestQueue: make(chan *RateLimitedRequest, 1000),
 
@@ -327,10 +402,12 @@ func submitTimeout(reqType RequestType) time.Duration {
 	}
 }
 
-// SubmitWithRetries submits a request with a custom retry count. The queue
-// is strictly FIFO — a higher-priority "queue jump" parameter existed
-// before v0.16.0 but processRequests never read it (no priority queue was
-// ever wired); removing it killed the dead API in favour of an honest one.
+// SubmitWithRetries submits a request with a custom retry count. Requests
+// dispatch in arrival order; the only scheduling distinction is the
+// context-carried pacing lane (see WithRequestPriority), which bounds how
+// many token reservations PriorityBackground work may hold at once. A
+// "queue jump" parameter existed before v0.16.0 but was never wired and
+// was removed; the background lane is the deliberate replacement.
 func (rl *RateLimiter) SubmitWithRetries(reqType RequestType, sendFunc func() error, maxRetries int) error {
 	return rl.SubmitWithRetriesContext(context.Background(), reqType, sendFunc, maxRetries)
 }
@@ -362,6 +439,7 @@ func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType
 	defer cancelRequest()
 	req := &RateLimitedRequest{
 		Type:       reqType,
+		Priority:   effectivePriority(ctx, reqType),
 		Context:    requestCtx,
 		SendFunc:   sendFunc,
 		ResultChan: make(chan error, 1),
@@ -500,6 +578,23 @@ func (rl *RateLimiter) executeRequest(req *RateLimitedRequest) error {
 
 	ctx, cancel := rl.executionContext(req)
 	defer cancel()
+
+	// Background-lane admission: hold a pool slot before booking any
+	// tokens, so a fan-out's pending reservations can never queue more
+	// than the pool ahead of an interactive arrival. Held through the
+	// send (the send is a socket write, not the response wait), released
+	// between retry attempts.
+	if req.Priority == PriorityBackground {
+		pool := rl.backgroundMessage
+		if req.Type == RequestTypeHistorical {
+			pool = rl.backgroundHistorical
+		}
+		if err := pool.Acquire(ctx); err != nil {
+			rl.incrementThrottled()
+			return fmt.Errorf("background pacing lane: %w", err)
+		}
+		defer pool.Release()
+	}
 
 	// Wait for general message rate limit (all requests)
 	if err := rl.messageRate.WaitForTokens(ctx, 1); err != nil {

@@ -58,6 +58,10 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 	if c == nil {
 		return nil, fmt.Errorf("breadth fetcher: no gateway connector")
 	}
+	// Breadth refresh is background fan-out by definition; ride the
+	// connector's background pacing lane so interactive reads on the
+	// same client are not queued behind the 500-name history sweep.
+	ctx = ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground)
 	raw, err := c.FetchHistoricalDailyBars(ctx, symbol, lookbackDays, f.defaultTimeout)
 	if err != nil {
 		return nil, err

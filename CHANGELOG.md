@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.7.1 — 2026-08-03 21:48 CEST
+
+### Fixed
+
+- **Reads on a freshly started daemon no longer time out behind the startup warm-up.** A cold boot fans out hundreds of contract and history lookups to warm the S&P 500 breadth and dealer-gamma views, and every request on the shared broker client queued strictly first-come-first-served behind them — `canary chain SPY` during the warm-up could starve for minutes and fail with "timeout: context deadline exceeded". Warm-up traffic now books only a few pacing slots at a time, so an interactive read arriving mid-warm-up waits behind at most that handful of requests instead of the whole fan-out, while the warm-up keeps its full pace whenever nothing interactive is waiting. Broker-write pacing is untouched: order traffic never rides the background lane. (#24)
+
 ## v2.7.0 — 2026-08-03 20:47 CEST
 
 ### What's new
