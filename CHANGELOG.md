@@ -2,13 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.7.1 — 2026-08-03 21:48 CEST
-
-### Fixed
-
-- **Reads on a freshly started daemon no longer time out behind the startup warm-up.** A cold boot fans out hundreds of contract and history lookups to warm the S&P 500 breadth and dealer-gamma views, and every request on the shared broker client queued strictly first-come-first-served behind them — `canary chain SPY` during the warm-up could starve for minutes and fail with "timeout: context deadline exceeded". Warm-up traffic now books only a few pacing slots at a time, so an interactive read arriving mid-warm-up waits behind at most that handful of requests instead of the whole fan-out, while the warm-up keeps its full pace whenever nothing interactive is waiting. Broker-write pacing is untouched: order traffic never rides the background lane. (#24)
-
-## v2.7.0 — 2026-08-03 20:47 CEST
+## v2.7.0 — 2026-08-03 22:31 CEST
 
 ### What's new
 
@@ -29,6 +23,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- **Reads on a freshly started daemon no longer time out behind the startup warm-up.** A cold boot fans out hundreds of contract and history lookups to warm the S&P 500 breadth and dealer-gamma views, and every request on the shared broker client queued strictly first-come-first-served behind them — `canary chain SPY` during the warm-up could starve for minutes and fail with "timeout: context deadline exceeded". Warm-up traffic now books only a few pacing slots at a time, so an interactive read arriving mid-warm-up waits behind at most that handful of requests instead of the whole fan-out, while the warm-up keeps its full pace whenever nothing interactive is waiting. Broker-write pacing is untouched: order traffic never rides the background lane. (#24)
 - **Protection and order-integrity alert coverage stopped flapping on a busy desk.** Both sources' 30-second heartbeats read open orders through a reload that demands a quiet journal head; a burst of journal writes or a loaded machine could fail that read for one tick, and every failed tick was a 30-to-60-second covered→unavailable→covered flap, alternating between the two sources. The reload now waits out a mid-write burst, a heartbeat retries a transient read within its own tick, and only a read that still fails is reported unavailable — with the condition that opened each window now named in the daemon log. Coverage semantics are unchanged: nothing cached ever proves a current negative. (#21)
 - **The `canary app` host no longer dies mid-refresh while a device is streaming updates.** The snapshot handed to the live event stream partway through a refresh shared its source-freshness map with the refresh still writing to it, so serialising that snapshot while the same cycle recorded its next source aborted the whole process on a concurrent map access; every paired device lost the host at once. A published snapshot now carries its own copy.
 - **The Desk stress verdict no longer reports a clean exposure pass over a book it could not fully measure.** A held name the aggregator cannot value in your base currency — no FX rate, an unpriced stock leg — is dropped from the exposure map entirely rather than zeroed, and the exposure and concentration rows compared what was left against their limits as if it were the whole book. A large unmeasured position could therefore read as "No exposure-based de-risking trigger". Both rows now name what is missing and refuse the clean pass; a breach the measured names earned on their own still stands at full grade. This is the same rule the risk engine adopted above, applied to the desk. (#23)
