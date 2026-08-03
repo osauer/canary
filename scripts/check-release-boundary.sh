@@ -978,7 +978,12 @@ while IFS= read -r line; do
 			registry_verify_plugin_tag_count=$((registry_verify_plugin_tag_count + 1))
 			registry_verify_plugin_tag_line="$line_number"
 		fi
-		if [ "$code" = '$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION)' ]; then
+		# The GitHub-asset proof is entry-conditional by design (2026-08-03):
+		# the primary release path digest-verifies the just-uploaded local set
+		# via release-github-candidate-check, while resume/recovery entries
+		# must byte-hydrate because their local dist/ is untrusted. Only this
+		# exact conditional line satisfies the proof slot.
+		if [ "$code" = '$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION),$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION))' ]; then
 			registry_verify_github_count=$((registry_verify_github_count + 1))
 			registry_verify_github_line="$line_number"
 		fi

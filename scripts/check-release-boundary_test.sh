@@ -138,7 +138,7 @@ registry-publish-verify-first:
 	$(MAKE) release-origin-check
 	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
-	$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION)
+	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION),$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION))
 	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-registry-server RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/registry-publish-verify-first.sh "$(RELEASE_VERSION)" \

@@ -636,7 +636,7 @@ test-daemon: trading-package-scope-check ## Run internal/... and test/integratio
 # retains visibility into package-global races between otherwise independent
 # tests that land in different shards. Its larger deadline is diagnostic
 # headroom, not the Linux timeout repair.
-test-daemon-unsharded: trading-package-scope-check ## Run the daemon gate in one process per build mode (macOS CI race diagnostic)
+test-daemon-unsharded: trading-package-scope-check ## Run the daemon gate in one process per build mode (cross-shard race diagnostic; ex-macOS CI job)
 	go test -race -timeout=420s ./internal/...
 	$(MAKE) test-integration
 	go test -race -timeout=420s -tags trading ./internal/daemon
@@ -993,7 +993,14 @@ registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall
 	$(MAKE) release-origin-check
 	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
-	$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION)
+	@# Primary path (entry=release): dist/ holds the set this pipeline just
+	@# built, checksummed, signed, and uploaded; release-github-candidate-check
+	@# proves GitHub's asset inventory, per-asset sha256 digests, signed
+	@# SHA256SUMS bytes, and release body all equal that local set, so byte
+	@# re-hydration of ~130MB adds no evidence and ~3 min (operator decision
+	@# 2026-08-03). Resume/recovery entries keep full hydration because their
+	@# local dist/ cannot be trusted to match the published release.
+	$(if $(filter release,$(RELEASE_PIPELINE_ENTRY)),$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION),$(MAKE) release-github-assets RELEASE_VERSION=$(RELEASE_VERSION))
 	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-registry-server RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/registry-publish-verify-first.sh "$(RELEASE_VERSION)" \
