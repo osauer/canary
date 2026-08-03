@@ -84,9 +84,9 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   from that summary. In Codex the execpolicy `prompt` on `make release` is the
   single human stop — present findings, then fire; do not ask for the same
   authority a second time in prose.
-- `internal/mcp/**`: read `.claude/rules/mcp-tool-descriptions.md`.
+- `internal/mcp/**`: read `.agents/docs/mcp-tool-descriptions.md`.
 - Any new `CANARY_*` or broker-specific `IBKR_*` environment read: add its `// docgen:env` contract and run
-  `make docs-regen`; `.claude/rules/env-var-docgen.md` has the exact convention.
+  `make docs-regen`; `.agents/docs/env-var-docgen.md` has the exact convention.
 
 ## Verification and evidence
 

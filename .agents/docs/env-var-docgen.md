@@ -1,14 +1,3 @@
----
-paths:
-  - "internal/app/**"
-  - "internal/cli/**"
-  - "internal/config/**"
-  - "internal/dial/**"
-  - "internal/update/**"
-  - "pkg/ibkr/**"
-  - "scripts/docgen/config-ref/**"
----
-
 # Adding or removing documented environment variables
 
 Every production read of a product-owned `CANARY_*` environment variable or a

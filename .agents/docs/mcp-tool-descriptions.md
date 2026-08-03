@@ -1,8 +1,3 @@
----
-paths:
-  - "internal/mcp/**"
----
-
 # MCP tool descriptions are documentation
 
 Adding or changing an entry in `internal/mcp/tools.go`: every `Description` string and every parameter `description` in the JSON schema is what an LLM reads to decide whether to invoke the tool. Hold them to documentation standard, not implementation comment standard:
