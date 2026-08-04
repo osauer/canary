@@ -222,7 +222,12 @@ fi
 # `=~ "$re_..."` makes bash match the pattern as a literal string. Nothing
 # fails, nothing warns: every check below silently stops matching and the
 # release boundary reports OK while verifying nothing.
-re_publication_command='(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+(create|edit)|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'
+re_publication_command='(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+(create|edit|upload)|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'
+# The sole sanctioned asset upload. It lives in a script because the uploads
+# run in parallel, and it is safe there only because it refuses any release
+# that is not a staged draft — see scripts/upload-release-assets.sh.
+upload_asset_command='gh release upload "$version" "$asset" --repo github.com/osauer/canary &'
+upload_asset_script='upload-release-assets.sh'
 re_local_full_gate='^@?\$\(MAKE\)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(test|check|commit-check)([[:space:]]|$)'
 re_release_smoke='^@?\$\(MAKE\)[[:space:]]+release-smoke([[:space:]]|$)'
 re_main_push='^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]*$'
@@ -246,6 +251,10 @@ re_invokes_ci_wait_historical='(^|[;&|[:space:]])(\$\(MAKE\)|make)([[:space:]][^
 
 check_file() {
 	local file="$1" line_number=0 text trimmed code
+	local is_uploader=0 uploader_command_count=0
+	if [ "${file##*/}" = "$upload_asset_script" ]; then
+		is_uploader=1
+	fi
 	while IFS= read -r text || [ -n "$text" ]; do
 		line_number=$((line_number + 1))
 		trimmed="${text#"${text%%[![:space:]]*}"}"
@@ -255,10 +264,30 @@ check_file() {
 		if ! [[ "$code" =~ $re_publication_command ]]; then
 			continue
 		fi
+		if [ "$is_uploader" -eq 1 ] && [ "$code" = "$upload_asset_command" ]; then
+			uploader_command_count=$((uploader_command_count + 1))
+			continue
+		fi
 		printf 'check-release-boundary: forbidden publication command in %s:%s: %s\n' \
 			"$file" "$line_number" "$code" >&2
 		failure=1
 	done < "$file"
+	if [ "$is_uploader" -eq 1 ]; then
+		if [ "$uploader_command_count" -ne 1 ]; then
+			printf 'check-release-boundary: %s must contain exactly one sanctioned asset upload (found %s)\n' \
+				"$file" "$uploader_command_count" >&2
+			failure=1
+		fi
+		# The uploader's whole safety case is that it cannot touch a
+		# published release. Pin the draft resolution and its exactly-one
+		# guard so a refactor cannot quietly widen its reach.
+		if ! grep -Fq 'select(.draft == true and .tag_name == \"$version\")' "$file" \
+			|| ! grep -Fq 'expected exactly one staged draft' "$file"; then
+			printf 'check-release-boundary: %s must resolve exactly one staged draft before uploading\n' \
+				"$file" >&2
+			failure=1
+		fi
+	fi
 }
 
 while IFS= read -r file; do
@@ -336,6 +365,8 @@ registry_server_validate_line=0
 registry_publish_target_seen=0
 registry_verify_target_seen=0
 release_early_push_count=0
+publish_upload_count=0
+publish_upload_line=0
 publish_draft_verify_count=0
 publish_draft_verify_line=0
 publish_flip_count=0
@@ -574,6 +605,10 @@ while IFS= read -r line; do
 		fi
 		if [[ "$code" == *"gh release create"* ]]; then
 			publish_create_line="$line_number"
+		fi
+		if [ "$code" = './scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \' ]; then
+			publish_upload_count=$((publish_upload_count + 1))
+			publish_upload_line="$line_number"
 		fi
 		if [ "$code" = 'CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \' ]; then
 			publish_draft_verify_count=$((publish_draft_verify_count + 1))
@@ -1387,11 +1422,13 @@ if [ "$publish_seen" -eq 1 ]; then
 		printf 'check-release-boundary: _release-publish must re-prove exact-SHA CI, then directly pin origin and the remote tag immediately before gh release create\n' >&2
 		failure=1
 	fi
-	if [ "$publish_draft_verify_count" -ne 1 ] \
+	if [ "$publish_upload_count" -ne 1 ] \
+		|| [ "$publish_draft_verify_count" -ne 1 ] \
 		|| [ "$publish_flip_count" -ne 1 ] \
-		|| [ $((publish_create_line + 1)) -ne "$publish_draft_verify_line" ] \
+		|| [ $((publish_create_line + 1)) -ne "$publish_upload_line" ] \
+		|| [ $((publish_upload_line + 1)) -ne "$publish_draft_verify_line" ] \
 		|| [ $((publish_draft_verify_line + 1)) -ne "$publish_flip_line" ]; then
-		printf 'check-release-boundary: _release-publish must verify the staged draft immediately after create and publish it only via the pinned flip\n' >&2
+		printf 'check-release-boundary: _release-publish must upload assets to the staged draft, verify it, and publish it only via the pinned flip, in that order\n' >&2
 		failure=1
 	fi
 fi

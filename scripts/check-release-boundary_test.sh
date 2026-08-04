@@ -173,6 +173,7 @@ _release-publish:
 	./scripts/check-release-origin.sh && \
 	./scripts/check-release-tag.sh "$(RELEASE_VERSION)" && \
 	gh release create v1.2.3 --repo github.com/osauer/canary --verify-tag --draft && \
+	./scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \
 	CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \
 	gh release edit $(RELEASE_VERSION) --repo github.com/osauer/canary --draft=false --latest
 _release-run:
@@ -911,6 +912,68 @@ if "$checker" "$test_root" >/dev/null 2>&1; then
 	exit 1
 fi
 rm "$test_root/scripts/rogue.sh"
+
+# Asset upload is sanctioned only inside the uploader, and only because that
+# script refuses anything but a staged draft. Both halves must bite.
+cat > "$test_root/scripts/rogue-upload.sh" <<'EOF'
+#!/bin/sh
+gh release upload "$version" "$asset" --repo github.com/osauer/canary &
+EOF
+chmod 0755 "$test_root/scripts/rogue-upload.sh"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: asset upload outside the sanctioned uploader passed" >&2
+	exit 1
+fi
+rm "$test_root/scripts/rogue-upload.sh"
+
+write_uploader_fixture() {
+	cat > "$test_root/scripts/upload-release-assets.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+draft_ids="$(
+	gh api --hostname github.com "repos/osauer/canary/releases?per_page=100" \
+		--jq ".[] | select(.draft == true and .tag_name == \"$version\") | .id"
+)"
+if [ "$draft_count" -ne 1 ]; then
+	echo "upload-release-assets: expected exactly one staged draft for $version" >&2
+	exit 1
+fi
+for asset in "$@"; do
+	gh release upload "$version" "$asset" --repo github.com/osauer/canary &
+done
+EOF
+	chmod 0755 "$test_root/scripts/upload-release-assets.sh"
+}
+
+write_uploader_fixture
+if ! "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: canonical uploader unexpectedly failed" >&2
+	exit 1
+fi
+
+# Drop the draft-only guard: the uploader could then reach a published release.
+cat > "$test_root/scripts/upload-release-assets.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+for asset in "$@"; do
+	gh release upload "$version" "$asset" --repo github.com/osauer/canary &
+done
+EOF
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: uploader without a draft-only guard passed" >&2
+	exit 1
+fi
+
+# A second, unpinned upload shape inside the sanctioned script.
+write_uploader_fixture
+cat >> "$test_root/scripts/upload-release-assets.sh" <<'EOF'
+gh release upload "$version" extra.tar.gz --repo other/canary
+EOF
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: extra non-canonical upload in the uploader passed" >&2
+	exit 1
+fi
+write_uploader_fixture
 
 cat >> "$test_root/Makefile" <<'EOF'
 release-helper:

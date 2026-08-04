@@ -220,11 +220,14 @@ questions go to the user. Never weaken a gate to reach GO.
   `github.com/osauer/canary`; GitHub API and release commands pin that
   host/repository explicitly rather than trusting ambient `GH_HOST` or
   `GH_REPO`.
-- The GitHub release is created as a staged draft, its complete asset set is
-  verified in place, and only then is it flipped to published+latest — the
-  publication event (and the registry OIDC workflow it triggers) never sees a
-  release with a partial upload. Stale drafts from an interrupted attempt are
-  pruned before creation; published releases are never touched by the prune.
+- The GitHub release is created as an empty staged draft, its assets are
+  uploaded in parallel, the complete set is verified in place, and only then
+  is it flipped to published+latest — the publication event (and the registry
+  OIDC workflow it triggers) never sees a release with a partial upload, which
+  is also what makes the parallel upload safe. The uploader refuses any
+  release that is not a staged draft, so it can never mutate a published one.
+  Stale drafts from an interrupted attempt are pruned before creation;
+  published releases are never touched by the prune.
 - Artifact assembly happens behind a recoverable local tag. Immediately before
   the atomic remote tag push, the pipeline repeats both exact-SHA Actions and
   current-main checks; a rerun started during assembly therefore blocks

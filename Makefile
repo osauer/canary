@@ -1027,11 +1027,12 @@ registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall
 # matching CHANGELOG.md entry. __HIGHLIGHTS__ is pulled from the entry's
 # `### What's new` section, so the release body's top stanza is mechanically
 # derived from CHANGELOG — no second place to drift. The release is created
-# as a staged draft, its complete asset set verified in place, and only then
-# flipped to published+latest (2026-08-04): the publication event — and the
-# registry OIDC workflow it triggers — never sees a partial upload. Stale
-# drafts from an interrupted attempt are pruned first; published releases
-# are never touched by the prune.
+# as an empty staged draft, its assets uploaded in parallel, the complete set
+# verified in place, and only then flipped to published+latest (2026-08-04):
+# the publication event — and the registry OIDC workflow it triggers — never
+# sees a partial upload, which is also what makes the parallel upload safe.
+# Stale drafts from an interrupted attempt are pruned first; published
+# releases are never touched by the prune.
 _release-publish:
 	$(if $(filter default,$(origin MAKE)),,$(error _release-publish: MAKE must not be overridden))
 	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-publish: MAKEFLAGS must not be overridden))
@@ -1078,7 +1079,8 @@ _release-publish:
 	./scripts/prune-github-release-drafts.sh "$(RELEASE_VERSION)" && \
 	./scripts/check-release-origin.sh && \
 	./scripts/check-release-tag.sh "$(RELEASE_VERSION)" && \
-	gh release create $(RELEASE_VERSION) --repo github.com/osauer/canary --verify-tag --draft --notes-file $$notes --title "$$title" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \
+	gh release create $(RELEASE_VERSION) --repo github.com/osauer/canary --verify-tag --draft --notes-file $$notes --title "$$title" && \
+	./scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \
 	CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \
 	gh release edit $(RELEASE_VERSION) --repo github.com/osauer/canary --draft=false --latest
 
