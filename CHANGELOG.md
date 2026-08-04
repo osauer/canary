@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.7.1 — 2026-08-04 07:36 CEST
+
+### Fixed
+
+- **Market breadth no longer stops updating for the rest of the day after a brief gateway drop.** Breadth reads the S&P 500's daily bars over a second broker connection, deliberately separate from the one serving your commands — and that second connection was built once when the daemon started and never again. When TWS closed its sockets on a mid-session blip, the main connection came back within half a minute while the breadth one stayed dead: every constituent fetch failed, coverage froze below the threshold breadth publishes at, and the market-state read reported stale breadth with no way back short of restarting the daemon. The connection is now rebuilt whenever it is found dead — on the main connection's recovery, and from the refresh itself, so a breadth-only socket death recovers too — using the same widening retry delay the main connection uses, so a gateway that stays down is retried rather than hammered. (#25)
+- **The daemon log says what breadth is actually doing.** A whole-universe fetch failure wrote one warning per S&P name — 3,002 lines across the outage above, which is how a seven-hour stall stayed invisible — and now collapses to one line per distinct cause with a sample of the names. Breadth also announces when it leaves its 12-minute retry cadence for the next daily tick, instead of simply going quiet in a way that read as a crashed scheduler.
+
 ## v2.7.0 — 2026-08-03 22:31 CEST
 
 ### What's new

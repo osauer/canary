@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -381,11 +382,38 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	for sym, err := range fetchErrs {
-		e.warnf("breadth: fetch %s: %v", sym, err)
-	}
+	e.logFetchErrors(fetchErrs)
 
 	return e.finalise(members, cached)
+}
+
+// fetchErrorSampleSize bounds how many symbols one cause names before
+// the line switches to a count plus an example set.
+const fetchErrorSampleSize = 5
+
+// logFetchErrors collapses per-symbol fetch failures into one line per
+// distinct cause. A single dead bulk connector fails every planned name
+// with the identical error, and logging that per symbol produced 188
+// WARN lines per tick — 3002 across the 2026-08-03 outage, which is how
+// a seven-hour breadth stall stayed invisible in the daemon log. The
+// bounded sample keeps genuinely per-symbol causes (a delisted ticker,
+// one pacing violation) diagnosable without the fan-out.
+func (e *Engine) logFetchErrors(fetchErrs map[string]error) {
+	byCause := make(map[string][]string, len(fetchErrs))
+	for sym, err := range fetchErrs {
+		cause := err.Error()
+		byCause[cause] = append(byCause[cause], sym)
+	}
+	for _, cause := range slices.Sorted(maps.Keys(byCause)) {
+		names := byCause[cause]
+		slices.Sort(names)
+		if len(names) <= fetchErrorSampleSize {
+			e.warnf("breadth: fetch %s: %s", strings.Join(names, ", "), cause)
+			continue
+		}
+		e.warnf("breadth: fetch failed for %d names (e.g. %s): %s",
+			len(names), strings.Join(names[:fetchErrorSampleSize], ", "), cause)
+	}
 }
 
 // fetchPlan is the per-symbol decision the refresh planner makes.

@@ -295,6 +295,14 @@ func (e *Engine) Run(ctx context.Context) {
 			// Reset and fall back to the daily cadence — the
 			// operator should investigate (the warnf in finalise
 			// already logged each below-threshold result).
+			//
+			// Say so explicitly: every below-threshold pass logs an
+			// identical line, so without this the transition from
+			// "retrying every 12 min" to "idle until tomorrow" is
+			// invisible — the log simply stops, which reads like a
+			// crashed scheduler rather than a documented give-up.
+			e.warnf("breadth: %d consecutive refreshes stayed below the coverage threshold (last pass %d/%d); leaving the %s retry cadence and waiting for the next daily tick",
+				maxBelowThresholdRetries, cov, mc, belowThresholdRetryDelay)
 			retries = 0
 			e.setRetryPending(false)
 		}

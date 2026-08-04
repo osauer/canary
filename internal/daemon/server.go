@@ -281,14 +281,27 @@ type Server struct {
 	// the primary connector so breadth's ~503 historical requests don't
 	// compete with interactive RPCs and the gamma option-leg fan-out
 	// for the primary's 40-msg/sec and 60-historical/10-min budgets.
-	// nil before postConnectSetup completes the bulk handshake (or if
-	// the bulk handshake fails — breadth gracefully reports
-	// "no gateway" for that refresh and retries next tick).
+	// nil before postConnectSetup completes the bulk handshake, and
+	// non-nil-but-dead after a gateway drop until the redial lands —
+	// breadth reports "no gateway" for the affected fetches either way.
+	// Read through breadthGatewayConnector, never directly: that
+	// accessor is what turns a dead lane back into a live one.
 	breadthConnector *ibkrlib.Connector
-	// breadthClientStarted guards bulk-connector startup the same way
-	// breadthStarted guards Run() — exactly once per Server lifetime
-	// across the postConnectSetup re-runs that follow each reconnect.
-	breadthClientStarted sync.Once
+	// breadthConnectInFlight / breadthConnectFailStreak /
+	// lastBreadthConnectAttemptAt mirror the primary lane's
+	// connectInFlight / reconnectFailStreak / lastReconnectAttemptAt,
+	// and exist for the same reason: the bulk lane is dialled from two
+	// places that can both fire while an attempt is already running —
+	// postConnectSetup on every primary (re)connect, and
+	// breadthGatewayConnector on each of the ~503 fetches in a refresh
+	// tick. A sync.Once used to stand in for this, which made the bulk
+	// connector a once-per-PROCESS resource: the 2026-08-03 23:45 TWS
+	// socket drop killed cid=16, the primary reconnected 26 s later,
+	// and breadth then served "no gateway connector" for every name
+	// until the daemon was restarted 7 h later. Guarded by s.mu.
+	breadthConnectInFlight      bool
+	breadthConnectFailStreak    int
+	lastBreadthConnectAttemptAt time.Time
 
 	// membersRefresher runs the daemon-internal SPX-constituent
 	// refresh: daily 02:30 ET fetch from Wikipedia, startup catchup,
@@ -973,40 +986,145 @@ func (s *Server) installMembersRefresher() {
 // its handshake yet. Snapshot under s.mu mirrors gatewayConnector's
 // read pattern so handlers reading the pointer never see it mid-Stop.
 //
-// Distinct from gatewayConnector: this one does NOT trigger a
-// reconnect on nil. Bulk-connector failure is non-fatal — breadth
-// surfaces "no gateway" for the affected refresh and the next 16:35
-// ET tick retries from scratch. Auto-reconnect machinery for the
-// bulk lane would double the lifecycle surface without changing the
-// observable outcome (breadth still retries).
+// Like gatewayConnector, a nil/dead result kicks off a rebuild in the
+// background and returns nil for THIS call: the caller is one leg of a
+// fan-out that has 502 siblings and a 12-minute retry cadence behind
+// it, so blocking here to wait out a handshake would buy nothing.
+// triggerBreadthConnect throttles itself, so the remaining legs of the
+// same tick cost a mutex each.
+//
+// This deliberately does not fall through to the primary connector.
+// Breadth's whole reason for a second clientID is to keep a 503-name
+// historical sweep off the lane that serves interactive RPCs; failing
+// the tick is the correct outcome when the bulk lane is down.
 func (s *Server) breadthGatewayConnector() *ibkrlib.Connector {
 	s.mu.Lock()
 	c := s.breadthConnector
 	s.mu.Unlock()
 	if c == nil || !c.IsReady() {
+		s.triggerBreadthConnect()
 		return nil
 	}
 	return c
 }
 
-// startBreadthConnector launches the bulk-historical IBKR client and
-// blocks until handshake completes or breadthClientStartBudget elapses.
-// Called once per Server lifetime from postConnectSetup — gated by
-// breadthClientStarted so a reconnect-driven second postConnectSetup
-// doesn't spin up a duplicate bulk connection.
+// claimBreadthConnect reserves the bulk lane's single dial slot,
+// returning true iff the caller now owns it and must run
+// breadthConnectFlow (which releases it). Mirrors the gate inside
+// triggerReconnect, including the ordering: the cheap refusals come
+// first so a zero-value Server — the shape used by unit tests and by
+// autospawn race losers that never reach Start — returns before
+// touching s.now.
+func (s *Server) claimBreadthConnect() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.breadthConnectInFlight {
+		return false
+	}
+	// IsReady, not a nil check: a connector whose socket died still
+	// holds a non-nil pointer, and that state is exactly the one that
+	// stranded breadth for 7 h.
+	if s.breadthConnector != nil && s.breadthConnector.IsReady() {
+		return false
+	}
+	if s.serverCtx == nil || s.serverCtx.Err() != nil {
+		return false
+	}
+	now := s.now()
+	if s.breadthConnectFailStreak > 0 &&
+		now.Sub(s.lastBreadthConnectAttemptAt) < reconnectBackoff(s.breadthConnectFailStreak) {
+		return false
+	}
+	s.breadthConnectInFlight = true
+	s.lastBreadthConnectAttemptAt = now
+	return true
+}
+
+// releaseBreadthConnect hands the dial slot back and folds the outcome
+// into the backoff streak. Success resets it so the next genuine drop
+// reconnects immediately; failure widens the quiet period 1s→15s, the
+// same curve the primary lane uses.
+func (s *Server) releaseBreadthConnect(ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.breadthConnectInFlight = false
+	if ok {
+		s.breadthConnectFailStreak = 0
+		return
+	}
+	s.breadthConnectFailStreak++
+}
+
+// breadthConnectWarnf surfaces the first failure of a streak at Warn and
+// drops the repeats to Debug. A gateway that stays down re-triggers this
+// lane on every breadth tick (30 s after a transport error, 12 min after
+// a below-threshold pass), and the primary lane has already learned what
+// an unthrottled per-attempt WARN does to this log: ~50k identical lines
+// over one 13.5 h overnight outage.
+func (s *Server) breadthConnectWarnf(format string, args ...any) {
+	s.mu.Lock()
+	first := s.breadthConnectFailStreak == 0
+	s.mu.Unlock()
+	if first {
+		s.warnf(format, args...)
+		return
+	}
+	s.debugf(format, args...)
+}
+
+// triggerBreadthConnect starts a background rebuild of the bulk lane if
+// the slot is free, dialling whatever endpoint the primary most recently
+// resolved. Returns true iff a fresh attempt was started. Never blocks:
+// it runs on the breadth fetch hot path.
 //
-// The handshake is intentionally synchronous: breadth.Run() launches
-// shortly after on a sibling goroutine and would otherwise race a
-// not-yet-ready bulk connector, dropping all 503 fetches against nil
-// on the first refresh. 12 s mirrors the primary's per-candidate
-// budget — long enough for a healthy local gateway, short enough to
-// surface a misconfigured second cid promptly.
+// Reading s.endpoint rather than a remembered one matters for AUTO
+// discovery — when the primary migrates from IB Gateway on 4001 to TWS
+// on 7496, the bulk lane has to follow it or it dials a dead port
+// forever.
+func (s *Server) triggerBreadthConnect() bool {
+	if s.breadth == nil {
+		return false
+	}
+	if !s.claimBreadthConnect() {
+		return false
+	}
+	s.mu.Lock()
+	ctx, ep := s.serverCtx, s.endpoint
+	s.mu.Unlock()
+	go s.breadthConnectFlow(ctx, ep)
+	return true
+}
+
+// breadthConnectFlow dials the bulk-historical IBKR client and blocks
+// until the handshake completes or breadthClientStartBudget elapses.
+// The caller must already own the dial slot via claimBreadthConnect;
+// this function releases it. postConnectSetup calls it inline (so
+// breadth.Run() starts against a settled view of the lane) and
+// triggerBreadthConnect calls it on a goroutine.
+//
+// Any previous connector is torn down first. On a mid-session gateway
+// drop the old pointer is non-nil but dead, and leaving it in place
+// would leak both the object and its clientID registration — the next
+// dial would then collide with itself on cid=16.
+//
+// The handshake is intentionally synchronous: on the postConnectSetup
+// path breadth.Run() launches shortly after on a sibling goroutine and
+// would otherwise race a not-yet-ready bulk connector, dropping all 503
+// fetches against nil on the first refresh. 12 s mirrors the primary's
+// per-candidate budget — long enough for a healthy local gateway, short
+// enough to surface a misconfigured second cid promptly.
 //
 // On failure (collision past MaxClientIDRetries, gateway unreachable,
 // handshake timeout) the function logs and returns without setting
-// s.breadthConnector. Breadth's refresh sees a nil bulk connector
-// and aborts gracefully; the daemon as a whole continues running.
-func (s *Server) startBreadthConnector(ctx context.Context, primaryEp discover.Endpoint) {
+// s.breadthConnector. Breadth's refresh sees a nil bulk connector, the
+// fetch path re-triggers behind the backoff, and the daemon as a whole
+// continues running.
+func (s *Server) breadthConnectFlow(ctx context.Context, primaryEp discover.Endpoint) {
+	ok := false
+	defer func() { s.releaseBreadthConnect(ok) }()
+
+	s.stopBreadthConnector()
+
 	bulkEp := primaryEp
 	bulkEp.ClientID = s.cfg.Gateway.BreadthClientIDOrDefault()
 
@@ -1016,14 +1134,14 @@ func (s *Server) startBreadthConnector(ctx context.Context, primaryEp discover.E
 	go func() {
 		defer close(startDone)
 		if err := attempter.Start(ctx); err != nil {
-			s.logger.Warnf("breadth bulk connector start: %v", err)
+			s.breadthConnectWarnf("breadth bulk connector start: %v", err)
 		}
 	}()
 
 	select {
 	case <-startDone:
 	case <-time.After(breadthClientStartBudget):
-		s.logger.Warnf("breadth bulk connector: handshake timeout after %s (cid=%d); refresh will use 'no gateway' fallback until next tick", breadthClientStartBudget, bulkEp.ClientID)
+		s.breadthConnectWarnf("breadth bulk connector: handshake timeout after %s (cid=%d); refresh will use 'no gateway' fallback until next tick", breadthClientStartBudget, bulkEp.ClientID)
 		_ = attempter.Stop()
 		return
 	case <-ctx.Done():
@@ -1032,11 +1150,12 @@ func (s *Server) startBreadthConnector(ctx context.Context, primaryEp discover.E
 	}
 
 	if !attempter.IsReady() {
-		s.logger.Warnf("breadth bulk connector: not ready after Start (cid=%d); skipping", bulkEp.ClientID)
+		s.breadthConnectWarnf("breadth bulk connector: not ready after Start (cid=%d); skipping", bulkEp.ClientID)
 		_ = attempter.Stop()
 		return
 	}
 
+	ok = true
 	s.mu.Lock()
 	s.breadthConnector = attempter
 	s.mu.Unlock()
@@ -1938,10 +2057,20 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// handshake lands. Synchronous start (12-s ceiling) blocks
 	// postConnectSetup briefly; in exchange, breadth.Run() launches
 	// with a guaranteed-or-nil view of the bulk connector.
-	if s.breadth != nil && s.serverCtx != nil {
-		s.breadthClientStarted.Do(func() {
-			s.startBreadthConnector(s.serverCtx, ep)
-		})
+	//
+	// Runs on EVERY successful primary handshake, not once per process.
+	// A reconnect is the moment the bulk lane most needs rebuilding:
+	// whatever killed the primary's socket almost always killed cid=16
+	// alongside it. claimBreadthConnect makes the repeat a no-op when
+	// the lane is already healthy, which is what the old sync.Once was
+	// really there to guarantee.
+	//
+	// The 12-s ceiling therefore now bounds reconnects too, not just
+	// the first connect. It only binds when the second cid cannot be
+	// seated at all; a healthy local gateway seats it in about a
+	// second, which is what the reconnect path actually costs.
+	if s.breadth != nil && s.serverCtx != nil && s.claimBreadthConnect() {
+		s.breadthConnectFlow(s.serverCtx, ep)
 	}
 
 	// Launch the breadth scheduler now that the gateway has handshaken.
