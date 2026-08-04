@@ -133,3 +133,67 @@ func TestBreadthResultDatesAStaleSnapshot(t *testing.T) {
 		})
 	}
 }
+
+// The brief is what the paired app renders, and it marked breadth OK on
+// State == ready — which a stale snapshot satisfies. Every row now names its
+// session, and an overdue one degrades. The ordinary post-close window does
+// not: the newer session's fan-out takes ~75 min, and degrading through it
+// would light the row on the phone after every close.
+func TestBriefBreadthRowNamesItsSessionAndDegradesOnlyWhenOverdue(t *testing.T) {
+	t.Parallel()
+	// 2026-08-03 Mon and 2026-08-04 Tue are both regular US-equity sessions.
+	// Tuesday's breadth refresh is due at its 16:00 ET close plus the 35 min
+	// settlement pad — 20:35 UTC — and is allowed 90 min to publish.
+	const monday, tuesday = "2026-08-03", "2026-08-04"
+	insideWindow := time.Date(2026, 8, 4, 21, 0, 0, 0, time.UTC)
+	pastWindow := time.Date(2026, 8, 4, 23, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name       string
+		now        time.Time
+		breadth    rpc.BreadthSPXResult
+		wantStatus string
+		wantDetail string
+	}{
+		{
+			name:       "current session reads ok and says which one",
+			now:        insideWindow,
+			breadth:    rpc.BreadthSPXResult{State: rpc.BreadthStateReady, SessionKey: tuesday, PctAbove50DMA: 61.2},
+			wantStatus: rpc.BriefStatusOK,
+			wantDetail: tuesday,
+		},
+		{
+			name:       "stale inside the publication window is not a fault",
+			now:        insideWindow,
+			breadth:    rpc.BreadthSPXResult{State: rpc.BreadthStateReady, SessionKey: monday, Stale: true, Refreshing: true, PctAbove50DMA: 61.2},
+			wantStatus: rpc.BriefStatusOK,
+			wantDetail: "still computing",
+		},
+		{
+			name:       "stale past the window is overdue",
+			now:        pastWindow,
+			breadth:    rpc.BreadthSPXResult{State: rpc.BreadthStateReady, SessionKey: monday, Stale: true, PctAbove50DMA: 61.2},
+			wantStatus: rpc.BriefStatusDegraded,
+			wantDetail: "overdue",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			market, _ := composeBriefMarket(tc.now, nil, nil, nil, &tc.breadth, nil, nil, nil, nil, nil, nil, nil, false)
+			row := market.Breadth
+			if row.Status != tc.wantStatus {
+				t.Errorf("Status = %q, want %q (detail %q)", row.Status, tc.wantStatus, row.Detail)
+			}
+			if !strings.Contains(row.Detail, tc.wantDetail) {
+				t.Errorf("Detail = %q, want it to mention %q", row.Detail, tc.wantDetail)
+			}
+			if !strings.Contains(row.Detail, tc.breadth.SessionKey) {
+				t.Errorf("Detail = %q, want it to name session %q", row.Detail, tc.breadth.SessionKey)
+			}
+			// A stale close is still a real close. Losing the numbers would
+			// trade one wrong reading for no reading.
+			if row.PctAbove50DMA == nil || *row.PctAbove50DMA != tc.breadth.PctAbove50DMA {
+				t.Errorf("PctAbove50DMA = %v, want the served reading %v", row.PctAbove50DMA, tc.breadth.PctAbove50DMA)
+			}
+		})
+	}
+}

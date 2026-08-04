@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -828,7 +829,22 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 	} else if breadth.State != rpc.BreadthStateReady {
 		out.Breadth.BriefRowState = briefDegraded("breadth source is " + string(breadth.State))
 	} else {
-		out.Breadth.BriefRowState = briefOK("S&P 500 constituent breadth")
+		// Name the session on every row. A reading is one trading day's close
+		// and the engine keeps serving the last converged one rather than
+		// publishing below its coverage threshold, so an undated row shows a
+		// stalled lane's numbers as if they were today's.
+		detail := "S&P 500 constituent breadth · " + breadth.SessionKey + " session"
+		switch {
+		case !breadth.Stale:
+			out.Breadth.BriefRowState = briefOK(detail)
+		case spx.PublicationPending(breadth.SessionKey, breadth.Refreshing, now):
+			// The ordinary post-close window: the newer session's fan-out is
+			// running and still inside its bounded deadline. Degrading here
+			// would light the row for ~90 min after every close.
+			out.Breadth.BriefRowState = briefOK(detail + "; the newer session is still computing")
+		default:
+			out.Breadth.BriefRowState = briefDegraded(detail + "; a newer session is overdue")
+		}
 		out.Breadth.PctAbove50DMA = new(breadth.PctAbove50DMA)
 		out.Breadth.PctAbove200DMA = new(breadth.PctAbove200DMA)
 		out.Breadth.NetNewHighsPct = new(breadth.NetNewHighsPct)

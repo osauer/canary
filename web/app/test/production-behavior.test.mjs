@@ -428,6 +428,51 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
   });
 });
 
+// Breadth is a specific trading session's close, and the daemon keeps serving
+// the last converged one when a refresh cannot reach its coverage threshold.
+// The row rendered the percentages with nothing saying which day they came
+// from, so a lane that had stopped producing looked current on the phone.
+test("brief breadth row shows the session it is reading and flags an overdue one", () => {
+  reset();
+  state.authenticated = true;
+  state.activeTab = "monitor";
+  const snapshot = {
+    as_of: "2026-08-04T21:00:00Z",
+    brief_fingerprint: "sha256:synthetic-breadth",
+    review: { status: "ok", one_tap: { signable: false } },
+    ready: {
+      status: "ok",
+      breadth: {
+        status: "ok",
+        detail: "S&P 500 constituent breadth · 2026-08-04 session",
+        pct_above_50dma: 61.2, pct_above_200dma: 55, net_new_highs_pct: 0.8,
+      },
+    },
+  };
+  state.snapshot = { brief: snapshot, sources: {} };
+  brief.renderBriefCard(state.snapshot);
+  const breadthRow = () => byClass(dom.element("briefSections"), "brief-row")
+    .find((node) => (byClass(node, "brief-row__head")[0]?.textContent || "").startsWith("Breadth"));
+
+  let row = breadthRow();
+  assert.ok(row, "breadth row must render");
+  assert.match(byClass(row, "brief-row__detail")[0]?.textContent || "", /2026-08-04 session/);
+  assert.match(byClass(row, "brief-row__head")[0]?.textContent || "", /ok$/);
+
+  snapshot.ready.breadth = {
+    status: "degraded",
+    detail: "S&P 500 constituent breadth · 2026-08-03 session; a newer session is overdue",
+    pct_above_50dma: 61.2, pct_above_200dma: 55, net_new_highs_pct: 0.8,
+  };
+  brief.renderBriefCard(state.snapshot);
+  row = breadthRow();
+  assert.match(byClass(row, "brief-row__detail")[0]?.textContent || "", /2026-08-03 session/);
+  assert.match(byClass(row, "brief-row__detail")[0]?.textContent || "", /overdue/);
+  assert.match(byClass(row, "brief-row__head")[0]?.textContent || "", /degraded$/);
+  // An old close is still a real close: the badge changes, the reading stays.
+  assert.match(byClass(row, "brief-row__value")[0]?.textContent || "", /61\.2/);
+});
+
 test("brief review row path serves the close capture and names a missing one", () => {
   reset();
   state.authenticated = true;
