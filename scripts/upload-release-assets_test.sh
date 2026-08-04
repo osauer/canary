@@ -23,6 +23,11 @@ cat >"$bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "$1" = "api" ]; then
+	printf 'x\n' >>"$TEST_API_CALLS"
+	calls="$(wc -l <"$TEST_API_CALLS" | tr -d '[:space:]')"
+	if [ "$calls" -lt "${TEST_DRAFT_APPEARS_ON:-1}" ]; then
+		exit 0
+	fi
 	cat "$TEST_DRAFT_IDS"
 	exit 0
 fi
@@ -45,6 +50,8 @@ run_uploader() {
 		TEST_VERSION="$version" \
 		TEST_DRAFT_IDS="$test_root/draft-ids" \
 		TEST_UPLOADED="$test_root/uploaded" \
+		TEST_API_CALLS="$test_root/api-calls" \
+		TEST_DRAFT_APPEARS_ON="${TEST_DRAFT_APPEARS_ON:-1}" \
 		TEST_FAIL_ASSET="${TEST_FAIL_ASSET:-}" \
 		RELEASE_UPLOAD_JOBS="${RELEASE_UPLOAD_JOBS:-2}" \
 		"$uploader" "$version" \
@@ -82,6 +89,17 @@ if TEST_FAIL_ASSET=SHA256SUMS.asc run_uploader >/dev/null 2>&1; then
 	fail "a failed final upload did not fail the batch"
 fi
 
+# The list endpoint can lag the create that staged the draft. An empty read is
+# retried until it appears; anything else is decided on the first read.
+: >"$test_root/uploaded"
+: >"$test_root/api-calls"
+printf '%s\n' 4242 >"$test_root/draft-ids"
+TEST_DRAFT_APPEARS_ON=3 run_uploader >/dev/null || fail "a lagging draft read was not retried"
+[ "$(sort "$test_root/uploaded" | tr '\n' ' ')" = "SHA256SUMS SHA256SUMS.asc one.tar.gz three.tar.gz two.tar.gz " ] ||
+	fail "retried draft read did not upload the exact asset set"
+[ "$(wc -l <"$test_root/api-calls" | tr -d '[:space:]')" -eq 3 ] ||
+	fail "retry did not poll until the draft appeared"
+
 # Fail-closed on the draft: no draft, or more than one, must never upload.
 : >"$test_root/uploaded"
 : >"$test_root/draft-ids"
@@ -91,11 +109,14 @@ fi
 [ ! -s "$test_root/uploaded" ] || fail "absent-draft case uploaded something"
 
 : >"$test_root/uploaded"
+: >"$test_root/api-calls"
 printf '%s\n' 4242 4343 >"$test_root/draft-ids"
 if run_uploader >/dev/null 2>&1; then
 	fail "ambiguous drafts passed"
 fi
 [ ! -s "$test_root/uploaded" ] || fail "ambiguous-draft case uploaded something"
+[ "$(wc -l <"$test_root/api-calls" | tr -d '[:space:]')" -eq 1 ] ||
+	fail "ambiguous drafts were retried instead of failing on the first read"
 
 printf '%s\n' 4242 >"$test_root/draft-ids"
 : >"$test_root/uploaded"
@@ -110,6 +131,7 @@ fi
 ln -s "$dist/one.tar.gz" "$dist/link.tar.gz"
 if PATH="$bin:/usr/bin:/bin" TEST_VERSION="$version" \
 	TEST_DRAFT_IDS="$test_root/draft-ids" TEST_UPLOADED="$test_root/uploaded" \
+	TEST_API_CALLS="$test_root/api-calls" \
 	"$uploader" "$version" "$dist/link.tar.gz" >/dev/null 2>&1; then
 	fail "symlinked asset passed"
 fi

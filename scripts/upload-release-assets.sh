@@ -49,11 +49,21 @@ for asset in "$@"; do
 	esac
 done
 
-draft_ids="$(
-	gh api --hostname github.com "repos/osauer/canary/releases?per_page=100" \
-		--jq ".[] | select(.draft == true and .tag_name == \"$version\") | .id"
-)"
-draft_count="$(printf '%s' "$draft_ids" | grep -c . || true)"
+# The release list is eventually consistent with the `gh release create` that
+# staged this draft moments earlier: v2.7.1's first publication attempt read
+# back zero drafts and aborted with the tag already pushed. Only an empty read
+# waits — one draft proceeds and two still fail closed, both immediately.
+draft_ids=""
+draft_count=0
+for delay in 0 1 2 3 4; do
+	[ "$delay" -eq 0 ] || sleep "$delay"
+	draft_ids="$(
+		gh api --hostname github.com "repos/osauer/canary/releases?per_page=100" \
+			--jq ".[] | select(.draft == true and .tag_name == \"$version\") | .id"
+	)"
+	draft_count="$(printf '%s' "$draft_ids" | grep -c . || true)"
+	[ "$draft_count" -eq 0 ] || break
+done
 if [ "$draft_count" -ne 1 ]; then
 	echo "upload-release-assets: expected exactly one staged draft for $version, found $draft_count" >&2
 	exit 1
