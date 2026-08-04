@@ -37,6 +37,16 @@ func annotateRegimeMetadata(r *rpc.RegimeSnapshotResult, policies map[string]reg
 	}
 	reason := func(key, raw, text string) string {
 		p, ok := policies[key]
+		if ok && p.held {
+			// The band is memory, not measurement. Say so on the row itself:
+			// a consumer reading band beside an error status must not take
+			// the band for a current reading.
+			if p.heldAt.IsZero() {
+				return text + " · held from the last measured reading; banding input unavailable"
+			}
+			return text + " · held from the last measured reading (" +
+				p.heldAt.UTC().Format("2006-01-02 15:04Z") + "); banding input unavailable"
+		}
 		if !ok || p.band != "red" || raw == "red" {
 			return text
 		}

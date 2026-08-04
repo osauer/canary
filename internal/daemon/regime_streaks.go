@@ -37,6 +37,12 @@ type StreakEntry struct {
 	// Cleared on any band change. Freshness is NOT latched: overdue data
 	// drops eligibility regardless.
 	EligibleLatched bool `json:"eligible_latched,omitempty"`
+	// LastBandAt is when LastBand was last measured from live inputs. It
+	// dates a band held across an input outage so the row can say how old
+	// its reading is instead of implying it is current. Entries written
+	// before the field existed decode to the zero value, which means the age
+	// is unknown — the row says that rather than inventing one.
+	LastBandAt time.Time `json:"last_band_at"`
 }
 
 // streakStoreFile is the on-disk shape. Version field for future
@@ -387,6 +393,9 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 			LastValue:   value,
 		}
 	}
+	// Reached only for a non-empty band (the freeze path returned above), so
+	// this dates the last LIVE measurement, never a frozen carry.
+	entry.LastBandAt = nowNY
 	s.entries[indicatorKey] = entry
 	// Legacy direct Tick callers retain best-effort persistence. Production
 	// evaluates on a volatile clone and commits through the exact publication
@@ -416,6 +425,15 @@ func (s *StreakStore) PrevBand(indicatorKey string) string {
 	defer s.mu.Unlock()
 	s.loadLocked()
 	return s.entries[indicatorKey].LastBand
+}
+
+// PrevBandAt returns when PrevBand was last measured from live inputs. Zero
+// when the indicator has no entry or the entry predates the field.
+func (s *StreakStore) PrevBandAt(indicatorKey string) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loadLocked()
+	return s.entries[indicatorKey].LastBandAt
 }
 
 // Latched reports the eligibility latch for an indicator's current streak.

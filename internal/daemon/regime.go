@@ -171,6 +171,11 @@ type regimeRowPolicy struct {
 	band        string
 	eligibility *rpc.RegimeEligibility
 	freshness   *rpc.RegimeFreshness
+	// heldAt dates a band carried across an input outage; zero when the
+	// band was computed from this pass's own inputs. A held band is served
+	// for awareness only — it never confirms.
+	heldAt time.Time
+	held   bool
 }
 
 // populateStreaks runs classification (with red-exit hysteresis), ticks the
@@ -252,8 +257,27 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 			Class:         freshnessClass,
 			MaxAgeSeconds: rpc.RegimeSourceMaxAgeSeconds(rpc.RegimeIndicatorCluster(key)),
 		}
+		// A reading may change only because the measured thing changed. When
+		// the row's banding inputs are absent — the market is shut, or TWS
+		// has lost its link to IBKR — nothing about the market is known to
+		// have moved, and recomputing from whichever partial inputs survived
+		// turns a known unknown into a false reading. Measured over the
+		// fortnight to 2026-08-04, substituting daily closes for a missing
+		// SPY tick would have banded yellow where the live tape read red in
+		// 94 of 131 cycles, always understating credit stress. So hold the
+		// last measured band instead. The row keeps its own error status, so
+		// data_quality still names the lane and the outage stays visible.
+		var (
+			heldAt   time.Time
+			bandHeld bool
+		)
+		if display == "" && streaks != nil {
+			if prev := streaks.PrevBand(key); prev != "" {
+				display, bandHeld, heldAt = prev, true, streaks.PrevBandAt(key)
+			}
+		}
 		var elig *rpc.RegimeEligibility
-		if display == "red" {
+		if display == "red" && !bandHeld {
 			sessions := 1
 			latched := false
 			if streak != nil && streak.Band == "red" {
@@ -279,7 +303,7 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 				streaks.Latch(key)
 			}
 		}
-		policies[key] = regimeRowPolicy{band: display, eligibility: elig, freshness: freshness}
+		policies[key] = regimeRowPolicy{band: display, eligibility: elig, freshness: freshness, heldAt: heldAt, held: bandHeld}
 	}
 	return policies
 }
