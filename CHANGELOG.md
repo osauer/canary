@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.7.2 — 2026-08-04 21:23 CEST
+## v2.8.0 — 2026-08-04 22:42 CEST
 
 ### What's new
 
