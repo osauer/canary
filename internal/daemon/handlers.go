@@ -3848,6 +3848,7 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		res.NegotiatedTLS = c.UsingTLS()
 		farmStatuses = c.DataFarmStatuses()
 		res.DataFarms = statusDataFarms(farmStatuses)
+		res.MarketDataAccess = statusMarketDataAccess(c.MarketDataAbsences())
 	}
 	res.AccountMode = accountModeForStatus(ep.Port, accountForMode)
 

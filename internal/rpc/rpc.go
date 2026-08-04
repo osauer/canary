@@ -3032,6 +3032,50 @@ type DataFarmHealth struct {
 	AsOf    time.Time `json:"as_of,omitzero"`
 }
 
+// MarketDataAccessHealth reports one route key the gateway is currently
+// refusing market data for, so a missing subscription is legible in one place
+// instead of being re-diagnosed per feature.
+//
+// This is an observation of a time-windowed rejection, never an entitlement
+// record: nothing persists it, nothing may gate on it, and it can be wrong in
+// both directions (a delayed-data fallback or a farm outage can produce a
+// rejection for a name the account does hold, and a name never requested during
+// the window produces no row at all). Consumers degrade loudly and keep serving
+// — a cached result stays valid while a fresh fetch for the same key would be
+// refused.
+//
+// Reason is derived from Code through MarketDataAccessReason. Message is
+// deliberately absent: broker free text is untrusted and never reaches a typed
+// field or a classification input.
+type MarketDataAccessHealth struct {
+	// RouteKey is the connector's own subscription key — a bare symbol, or
+	// the pipe-joined contract route for an explicitly routed request.
+	RouteKey string `json:"route_key"`
+	// Symbol is RouteKey's leading symbol component, for display.
+	Symbol     string    `json:"symbol,omitempty"`
+	Code       int       `json:"code"`
+	Reason     string    `json:"reason"`
+	ObservedAt time.Time `json:"observed_at,omitzero"`
+	// RetryAt is when the suppression window lifts and the next request for
+	// this key reaches the gateway again.
+	RetryAt time.Time `json:"retry_at,omitzero"`
+}
+
+// Market-data access reasons classify a rejection by IBKR code alone.
+const (
+	MarketDataAccessNotSubscribed = "not_subscribed"
+	MarketDataAccessRejected      = "rejected"
+)
+
+// MarketDataAccessReason maps an IBKR rejection code to its typed reason.
+// Unknown codes classify as MarketDataAccessRejected rather than guessing.
+func MarketDataAccessReason(code int) string {
+	if code == 354 {
+		return MarketDataAccessNotSubscribed
+	}
+	return MarketDataAccessRejected
+}
+
 // Account modes classify the connected broker account; they do not describe
 // market-data freshness or grant broker-write authority.
 const (
@@ -3086,6 +3130,11 @@ type HealthResult struct {
 	Subsystems      []SubsystemHealth      `json:"subsystems,omitempty"`
 	DataQuality     []DataQualityHealth    `json:"data_quality,omitempty"`
 	DataFarms       []DataFarmHealth       `json:"data_farms,omitempty"`
+	// MarketDataAccess lists route keys the gateway is currently refusing
+	// market data for. Empty is the normal case and the only claim absence
+	// makes is that nothing was refused inside the window — not that every
+	// name is entitled.
+	MarketDataAccess []MarketDataAccessHealth `json:"market_data_access,omitempty"`
 	// Members carries the runtime SPX-membership state: source
 	// (cache vs embedded), count, as-of timestamp, refresh health.
 	// Populated unconditionally — even when the daemon falls back

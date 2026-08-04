@@ -61,7 +61,15 @@ TWS            API server 178
 SPX members    cache:2026-05-22, 503 names
 ```
 
-The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. `discovered` on the Session row means the port came from the probe; `pinned` means it came from your config file. Rows for data farms, background work, subsystems, trading, and data quality appear only when they have something to say, and a `Next concern` row appears only when there is one.
+The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. `discovered` on the Session row means the port came from the probe; `pinned` means it came from your config file. Rows for data farms, market access, background work, subsystems, trading, and data quality appear only when they have something to say, and a `Next concern` row appears only when there is one.
+
+The `Market access` row is the one place a missing IBKR market-data subscription shows up by name, instead of surfacing separately in each feature that needed the data:
+
+```text
+Market access  SPX not subscribed (IBKR 354, seen 14:03, retry 14:33)
+```
+
+It lists what the gateway refused, when, and when Canary will ask again — IBKR code 354 means the account is not subscribed to that data. Nothing is switched off because of it: a listed symbol only means a fresh fetch would be refused right now, and features holding a cached result keep serving it. The row is an observation with a 30-minute window, not a record of your entitlements, so a symbol nothing asked for during the window never appears, and a farm outage can put a symbol there that your account does hold. Subscriptions are managed in IBKR Client Portal, not in Canary.
 
 When the daemon has no verdict from the gateway yet, `status` polls every 500 ms for up to 25 seconds before giving up, then prints the API checklist and the daemon log path. When the gateway is not connected, the command exits 1 and the `Next concern` row carries the underlying error, which makes it usable in a script.
 

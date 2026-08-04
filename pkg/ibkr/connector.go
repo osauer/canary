@@ -520,6 +520,37 @@ func (c *Connector) marketDataAbsenceFor(key string) *MarketDataAbsenceError {
 	}
 }
 
+// MarketDataAbsences snapshots every route key whose terminal entitlement
+// rejection is still inside its retry window, ordered by key. Expired records
+// are dropped on read exactly as marketDataAbsenceFor drops them, so an
+// observation surface can never name a key the subscribe paths would already
+// let through. Message stays untrusted broker text; callers that classify must
+// read Code.
+func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
+	if c == nil {
+		return nil
+	}
+	now := c.absenceClock()
+	c.absenceMu.Lock()
+	out := make([]MarketDataAbsenceError, 0, len(c.mktDataAbsent))
+	for key, entry := range c.mktDataAbsent {
+		if now.Sub(entry.at) >= marketDataAbsenceRetry {
+			delete(c.mktDataAbsent, key)
+			continue
+		}
+		out = append(out, MarketDataAbsenceError{
+			Key:        key,
+			Code:       entry.code,
+			Message:    entry.message,
+			ObservedAt: entry.at,
+			RetryAt:    entry.at.Add(marketDataAbsenceRetry),
+		})
+	}
+	c.absenceMu.Unlock()
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
 // farmRecoverySettleWindow keeps the impairment verdict standing after a
 // farm reports OK. TWS flushes answers to requests queued during an outage
 // as a burst around the status transition, and those answers carry

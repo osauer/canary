@@ -72,6 +72,9 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	if len(res.DataFarms) > 0 {
 		statusRow(env, out, "Data farms", env.yellow(formatDataFarmsValue(res.DataFarms)))
 	}
+	if len(res.MarketDataAccess) > 0 {
+		statusRow(env, out, "Market access", env.yellow(formatMarketDataAccessValue(res.MarketDataAccess)))
+	}
 	statusRow(env, out, "Daemon", formatDaemonValue(*res))
 	switch {
 	case res.Connected:
@@ -224,6 +227,11 @@ func nextConcern(res rpc.HealthResult, cliVersion string) statusConcern {
 		}
 	case len(res.DataFarms) > 0:
 		return statusConcern{Text: "Data farm issue: " + formatDataFarmsValue(res.DataFarms), Level: statusConcernWarn}
+	// Ranked below the farms it can be an artifact of: while a market-data
+	// farm is down, "the gateway refused this name" is a symptom of the
+	// outage, not of the account's subscriptions.
+	case len(res.MarketDataAccess) > 0:
+		return statusConcern{Text: "Market data access: " + formatMarketDataAccessValue(res.MarketDataAccess), Level: statusConcernWarn}
 	case firstSubsystemConcernText(res.Subsystems) != "":
 		return statusConcern{Text: "Subsystem issue: " + firstSubsystemConcernText(res.Subsystems), Level: statusConcernWarn}
 	case res.Connected && !rpc.IsLiveDataType(res.DataType):
@@ -376,6 +384,61 @@ func formatDataFarmsValue(farms []rpc.DataFarmHealth) string {
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// marketDataAccessNamed bounds how many refused route keys the one-line
+// status row names before collapsing the rest into a count.
+const marketDataAccessNamed = 3
+
+// formatMarketDataAccessValue renders the route keys the gateway is currently
+// refusing market data for. It reports the observation and the window, never a
+// verdict about the account's entitlements: a name absent from this list was
+// not necessarily requested, and features holding cached results keep serving
+// while their key is listed.
+func formatMarketDataAccessValue(items []rpc.MarketDataAccessHealth) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		if len(parts) == marketDataAccessNamed && len(items) > marketDataAccessNamed {
+			parts = append(parts, fmt.Sprintf("+%d more", len(items)-marketDataAccessNamed))
+			break
+		}
+		parts = append(parts, formatMarketDataAccessItem(item))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatMarketDataAccessItem(item rpc.MarketDataAccessHealth) string {
+	name := strings.TrimSpace(item.Symbol)
+	if name == "" {
+		name = strings.TrimSpace(item.RouteKey)
+	}
+	if name == "" {
+		name = "unknown"
+	}
+	part := name + " " + marketDataAccessReasonLabel(item.Reason)
+	detail := make([]string, 0, 3)
+	if item.Code != 0 {
+		detail = append(detail, fmt.Sprintf("IBKR %d", item.Code))
+	}
+	if !item.ObservedAt.IsZero() {
+		detail = append(detail, "seen "+item.ObservedAt.Local().Format("15:04"))
+	}
+	if !item.RetryAt.IsZero() {
+		detail = append(detail, "retry "+item.RetryAt.Local().Format("15:04"))
+	}
+	if len(detail) == 0 {
+		return part
+	}
+	return part + " (" + strings.Join(detail, ", ") + ")"
+}
+
+func marketDataAccessReasonLabel(reason string) string {
+	switch reason {
+	case rpc.MarketDataAccessNotSubscribed:
+		return "not subscribed"
+	default:
+		return "refused"
+	}
 }
 
 func dataTypeLabel(dt string) string {

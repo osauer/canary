@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 ## v2.7.2 — 2026-08-04 21:23 CEST
 
+### What's new
+
+- **`canary status` has a `Market access` row, so a missing market-data subscription is visible in one place.** Until now every feature discovered an entitlement gap on its own and described it in its own words, which is how a missing subscription could read as "no live spot tick from the gateway" on one card and as something else entirely on the next. The row names what the gateway refused, the IBKR code, when it happened, and when Canary will ask again — code 354 means the account is not subscribed to that data, which is the one cause the account holder can act on. It is an observation with a thirty-minute window, not a record of your entitlements: nothing is switched off because of it, features holding a cached result keep serving it, a symbol nothing asked for never appears, and a data-farm outage can list a symbol your account does hold. The row is absent on a desk with nothing refused.
+
 ### Fixed
 
 - **Dealer gamma no longer presents an old failure as if it were happening right now.** When a compute fails and the options session then closes, the daemon deliberately does not retry until the next open — but the surface kept quoting the original gateway error, so a Friday-afternoon failure read as a broken gateway all weekend. The failure is still reported, now with the time it happened and when the next attempt is due. A desk that has never computed gamma at all now says that too, instead of rendering a blank card with no reason. (#26)

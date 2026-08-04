@@ -469,6 +469,77 @@ func TestRenderStatus_SubsystemIssueGetsAttention(t *testing.T) {
 	}
 }
 
+// TestRenderStatus_MarketAccessRow pins the surface issue #26 was missing: a
+// route key the gateway is refusing shows up once, in `canary status`, naming
+// the symbol, the IBKR code, and when the suppression window lifts. The desk
+// with nothing refused shows no row at all.
+func TestRenderStatus_MarketAccessRow(t *testing.T) {
+	t.Parallel()
+	observed := time.Date(2026, 8, 4, 14, 3, 0, 0, time.UTC).Local()
+	base := func(access []rpc.MarketDataAccessHealth) *rpc.HealthResult {
+		return &rpc.HealthResult{
+			DaemonVersion:    "v1.0.0",
+			UptimeSeconds:    1842,
+			GatewayHost:      "127.0.0.1",
+			GatewayPort:      7496,
+			ClientID:         15,
+			Connected:        true,
+			ServerVersion:    203,
+			MarketDataAccess: access,
+		}
+	}
+
+	var quiet bytes.Buffer
+	renderStatusText(&Env{Stdout: &quiet, Stderr: &bytes.Buffer{}}, base(nil), nil)
+	if strings.Contains(quiet.String(), "Market access") {
+		t.Fatalf("desk with no rejection must not render the row:\n%s", quiet.String())
+	}
+
+	var stdout bytes.Buffer
+	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, base([]rpc.MarketDataAccessHealth{{
+		RouteKey:   "SPX|IND|CBOE",
+		Symbol:     "SPX",
+		Code:       354,
+		Reason:     rpc.MarketDataAccessNotSubscribed,
+		ObservedAt: observed,
+		RetryAt:    observed.Add(30 * time.Minute),
+	}}), nil)
+	got := stdout.String()
+	want := "SPX not subscribed (IBKR 354, seen " + observed.Format("15:04") + ", retry " + observed.Add(30*time.Minute).Format("15:04") + ")"
+	for _, substr := range []string{
+		"IBKR Gateway  ATTENTION",
+		"Market access  " + want,
+		"Next concern   Market data access: " + want,
+	} {
+		if !strings.Contains(got, substr) {
+			t.Fatalf("status missing %q:\n%s", substr, got)
+		}
+	}
+}
+
+// TestFormatMarketDataAccessValueCollapsesTail keeps the one-line row readable
+// when a whole watchlist is refused: the first few keys are named and the rest
+// become a count, rather than a row that wraps off the screen.
+func TestFormatMarketDataAccessValueCollapsesTail(t *testing.T) {
+	t.Parallel()
+	items := make([]rpc.MarketDataAccessHealth, 0, 5)
+	for _, symbol := range []string{"AAPL", "MSFT", "NVDA", "SPX", "ZVZZT"} {
+		items = append(items, rpc.MarketDataAccessHealth{
+			RouteKey: symbol, Symbol: symbol, Code: 354, Reason: rpc.MarketDataAccessNotSubscribed,
+		})
+	}
+	got := formatMarketDataAccessValue(items)
+	want := "AAPL not subscribed (IBKR 354); MSFT not subscribed (IBKR 354); NVDA not subscribed (IBKR 354); +2 more"
+	if got != want {
+		t.Fatalf("formatMarketDataAccessValue =\n%s\nwant\n%s", got, want)
+	}
+	if unknown := formatMarketDataAccessValue([]rpc.MarketDataAccessHealth{{
+		RouteKey: "ZVZZT", Symbol: "ZVZZT", Code: 322, Reason: rpc.MarketDataAccessRejected,
+	}}); unknown != "ZVZZT refused (IBKR 322)" {
+		t.Fatalf("non-354 rejection = %q, want %q", unknown, "ZVZZT refused (IBKR 322)")
+	}
+}
+
 func TestNextConcernPriority(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -529,6 +600,42 @@ func TestNextConcernPriority(t *testing.T) {
 				}},
 			},
 			want: "Data farm issue: market:usfarm disconnected (IBKR 2103)",
+		},
+		{
+			name: "data farm before market access",
+			in: rpc.HealthResult{
+				Connected: true,
+				DataFarms: []rpc.DataFarmHealth{{
+					Name:   "usfarm",
+					Type:   "market",
+					Status: "disconnected",
+					Code:   2103,
+				}},
+				MarketDataAccess: []rpc.MarketDataAccessHealth{{
+					RouteKey: "SPX",
+					Symbol:   "SPX",
+					Code:     354,
+					Reason:   rpc.MarketDataAccessNotSubscribed,
+				}},
+			},
+			want: "Data farm issue: market:usfarm disconnected (IBKR 2103)",
+		},
+		{
+			name: "market access before subsystem",
+			in: rpc.HealthResult{
+				Connected: true,
+				MarketDataAccess: []rpc.MarketDataAccessHealth{{
+					RouteKey: "SPX",
+					Symbol:   "SPX",
+					Code:     354,
+					Reason:   rpc.MarketDataAccessNotSubscribed,
+				}},
+				Subsystems: []rpc.SubsystemHealth{{
+					Name:   "quote",
+					Status: "degraded",
+				}},
+			},
+			want: "Market data access: SPX not subscribed (IBKR 354)",
 		},
 		{
 			name: "subsystem before market data",
