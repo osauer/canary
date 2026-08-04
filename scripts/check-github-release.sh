@@ -87,10 +87,78 @@ if [ "$imported_fingerprints" != "$expected_signing_fingerprint" ]; then
 	exit 1
 fi
 
-gh api --hostname github.com -X GET \
-	"repos/osauer/canary/releases/tags/$version" >"$release_json"
-gh release download "$version" --repo github.com/osauer/canary \
-	--dir "$download_dir" --pattern SHA256SUMS --pattern SHA256SUMS.asc
+# stage=published (default) verifies the live release at the tag endpoint.
+# stage=draft verifies the staged draft BEFORE the publish flip: drafts are
+# invisible to the tags endpoint, so resolve the exactly-one draft carrying
+# this tag name from the release list and fetch its checksum assets through
+# the asset API rather than trusting gh's draft-name fallback.
+stage="${CHECK_GITHUB_RELEASE_STAGE:-published}"
+case "$stage" in
+published | draft) ;;
+*)
+	echo "check-github-release: CHECK_GITHUB_RELEASE_STAGE must be published or draft (got $stage)" >&2
+	exit 2
+	;;
+esac
+if [ "$stage" = draft ]; then
+	release_list="$work/releases.json"
+	gh api --hostname github.com -X GET \
+		"repos/osauer/canary/releases?per_page=100" >"$release_list"
+	python3 - "$version" "$release_list" "$release_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+version, list_arg, json_arg = sys.argv[1:]
+try:
+    releases = json.loads(Path(list_arg).read_text(encoding="utf-8"))
+except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+    raise SystemExit(f"check-github-release: malformed release list: {error}")
+if type(releases) is not list:
+    raise SystemExit("check-github-release: release list must be an array")
+drafts = [
+    release
+    for release in releases
+    if type(release) is dict
+    and release.get("draft") is True
+    and release.get("tag_name") == version
+]
+if len(drafts) != 1:
+    raise SystemExit(
+        f"check-github-release: expected exactly one staged draft for {version}, found {len(drafts)}"
+    )
+Path(json_arg).write_text(json.dumps(drafts[0]), encoding="utf-8")
+PY
+	for checksum_asset in SHA256SUMS SHA256SUMS.asc; do
+		asset_id="$(python3 - "$release_json" "$checksum_asset" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+wanted = sys.argv[2]
+for asset in release.get("assets", []):
+    if type(asset) is dict and asset.get("name") == wanted:
+        identifier = asset.get("id")
+        if type(identifier) is not int:
+            raise SystemExit(f"check-github-release: draft asset {wanted} has no id")
+        print(identifier)
+        break
+else:
+    raise SystemExit(f"check-github-release: draft lacks asset {wanted}")
+PY
+		)" || exit 1
+		gh api --hostname github.com \
+			-H "Accept: application/octet-stream" \
+			"repos/osauer/canary/releases/assets/$asset_id" \
+			>"$download_dir/$checksum_asset"
+	done
+else
+	gh api --hostname github.com -X GET \
+		"repos/osauer/canary/releases/tags/$version" >"$release_json"
+	gh release download "$version" --repo github.com/osauer/canary \
+		--dir "$download_dir" --pattern SHA256SUMS --pattern SHA256SUMS.asc
+fi
 
 python3 "$script_dir/materialize-release-tag-file.py" \
 	"$version" CHANGELOG.md "$notes_source/CHANGELOG.md"
@@ -101,14 +169,14 @@ python3 "$script_dir/materialize-release-tag-file.py" \
 	"$notes_source/CHANGELOG.md" "$notes_source/release-notes-template.md" \
 	"$expected_notes"
 
-python3 - "$version" "$dist_dir" "$download_dir" "$release_json" "$expected_notes" <<'PY'
+python3 - "$version" "$dist_dir" "$download_dir" "$release_json" "$expected_notes" "$stage" <<'PY'
 import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 
-version, dist_arg, download_arg, json_arg, expected_notes_arg = sys.argv[1:]
+version, dist_arg, download_arg, json_arg, expected_notes_arg, stage = sys.argv[1:]
 dist = Path(dist_arg)
 download = Path(download_arg)
 release_path = Path(json_arg)
@@ -130,7 +198,10 @@ if type(release) is not dict:
     raise SystemExit("check-github-release: release JSON must be an object")
 if release.get("tag_name") != version:
     raise SystemExit("check-github-release: release tag_name mismatch")
-if release.get("draft") is not False:
+if stage == "draft":
+    if release.get("draft") is not True:
+        raise SystemExit("check-github-release: staged release is not a draft")
+elif release.get("draft") is not False:
     raise SystemExit("check-github-release: release is draft or lacks draft=false")
 if release.get("prerelease") is not False:
     raise SystemExit("check-github-release: release is prerelease or lacks prerelease=false")
@@ -142,7 +213,9 @@ except (OSError, UnicodeDecodeError) as error:
     raise SystemExit(f"check-github-release: cannot read expected release notes: {error}")
 if release.get("body") != expected_body:
     raise SystemExit("check-github-release: release body differs from the immutable tag")
-if not isinstance(release.get("published_at"), str) or not release["published_at"]:
+if stage == "published" and (
+    not isinstance(release.get("published_at"), str) or not release["published_at"]
+):
     raise SystemExit("check-github-release: release is not published")
 
 assets = release.get("assets")

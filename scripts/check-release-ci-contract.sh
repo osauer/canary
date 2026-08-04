@@ -52,8 +52,18 @@ EXPECTED_CI_RUN_STEPS = {
         "make test-support (-race; command and CI/release helpers)": {
             "run": "make test-support",
         },
-        "make test-daemon (sharded -race)": {
-            "run": "make test-daemon",
+        "make test-internal (-race; internal minus daemon root)": {
+            "run": "make test-internal",
+        },
+    },
+    "test-daemon-default": {
+        "make test-daemon-default (shards + hermetic integration)": {
+            "run": "make test-daemon-default",
+        },
+    },
+    "test-daemon-trading": {
+        "make test-daemon-trading (trading shards)": {
+            "run": "make test-daemon-trading",
         },
     },
     "app-render": {
@@ -80,6 +90,8 @@ EXPECTED_WORKFLOWS = {
         "jobs": (
             "make check (lint + vet + vulncheck + parity)",
             "make test (ubuntu-latest)",
+            "make test-daemon-default (sharded -race)",
+            "make test-daemon-trading (sharded -race)",
             "isolated Canary app render",
             "cross-compile release matrix",
         ),

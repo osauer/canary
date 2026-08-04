@@ -7,6 +7,8 @@
       "jobs": [
         "make check (lint + vet + vulncheck + parity)",
         "make test (ubuntu-latest)",
+        "make test-daemon-default (sharded -race)",
+        "make test-daemon-trading (sharded -race)",
         "isolated Canary app render",
         "cross-compile release matrix"
       ]

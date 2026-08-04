@@ -133,9 +133,27 @@ cat >"$bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "$1" = "api" ]; then
-	[ "$*" = "api --hostname github.com -X GET repos/osauer/canary/releases/tags/$TEST_VERSION" ] || exit 96
-	cat "$TEST_RELEASE_JSON"
-	exit 0
+	case "$*" in
+	"api --hostname github.com -X GET repos/osauer/canary/releases/tags/$TEST_VERSION")
+		cat "$TEST_RELEASE_JSON"
+		exit 0
+		;;
+	"api --hostname github.com -X GET repos/osauer/canary/releases?per_page=100")
+		cat "${TEST_RELEASE_LIST:?draft stage needs TEST_RELEASE_LIST}"
+		exit 0
+		;;
+	"api --hostname github.com -H Accept: application/octet-stream repos/osauer/canary/releases/assets/9101")
+		cat "$TEST_REMOTE_ASSETS/SHA256SUMS"
+		exit 0
+		;;
+	"api --hostname github.com -H Accept: application/octet-stream repos/osauer/canary/releases/assets/9102")
+		cat "$TEST_REMOTE_ASSETS/SHA256SUMS.asc"
+		exit 0
+		;;
+	*)
+		exit 96
+		;;
+	esac
 fi
 if [ "$1" = "release" ] && [ "$2" = "download" ]; then
 	[ "$3" = "$TEST_VERSION" ] || exit 95
@@ -216,6 +234,57 @@ run_checker >/dev/null
 cp "$test_root/release.json" "$test_root/release.canonical.json"
 cp "$dist/canary.mcpb" "$test_root/stable-mcpb.canonical"
 cp "$dist/SHA256SUMS" "$test_root/SHA256SUMS.canonical"
+
+# Draft stage: the staged pre-publish draft must verify from the release
+# list (drafts are invisible to the tags endpoint) with checksum assets
+# fetched through the asset API by id.
+python3 - "$test_root/release.canonical.json" "$test_root/release-list.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+release["draft"] = True
+release["published_at"] = None
+for asset in release["assets"]:
+    if asset["name"] == "SHA256SUMS":
+        asset["id"] = 9101
+    elif asset["name"] == "SHA256SUMS.asc":
+        asset["id"] = 9102
+Path(sys.argv[2]).write_text(json.dumps([release]), encoding="utf-8")
+PY
+if ! CHECK_GITHUB_RELEASE_STAGE=draft \
+	TEST_RELEASE_LIST="$test_root/release-list.json" run_checker >/dev/null; then
+	echo "check-github-release test: canonical draft stage unexpectedly failed" >&2
+	exit 1
+fi
+python3 - "$test_root/release-list.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+releases = json.loads(path.read_text(encoding="utf-8"))
+path.write_text(json.dumps(releases + releases), encoding="utf-8")
+PY
+if CHECK_GITHUB_RELEASE_STAGE=draft \
+	TEST_RELEASE_LIST="$test_root/release-list.json" run_checker >/dev/null 2>&1; then
+	echo "check-github-release test: duplicate staged drafts passed" >&2
+	exit 1
+fi
+python3 - "$test_root/release.canonical.json" "$test_root/release-list.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+Path(sys.argv[2]).write_text(json.dumps([release]), encoding="utf-8")
+PY
+if CHECK_GITHUB_RELEASE_STAGE=draft \
+	TEST_RELEASE_LIST="$test_root/release-list.json" run_checker >/dev/null 2>&1; then
+	echo "check-github-release test: published release passed the draft stage" >&2
+	exit 1
+fi
 
 for mutation in draft wrong_tag empty_title missing_body wrong_body missing_asset wrong_digest; do
 	cp "$test_root/release.canonical.json" "$test_root/release.json"

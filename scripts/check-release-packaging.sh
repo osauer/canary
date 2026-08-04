@@ -17,6 +17,7 @@ cd "$(dirname "$0")/.."
 ./scripts/materialize-release-tag-file_test.sh
 ./scripts/render-release-notes_test.sh
 ./scripts/check-github-release_test.sh
+./scripts/prune-github-release-drafts_test.sh
 ./scripts/github-release-state_test.sh
 ./scripts/hydrate-github-release-assets_test.sh
 ./scripts/check-release-ci-contract.sh

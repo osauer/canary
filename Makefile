@@ -77,7 +77,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-daemon test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -619,7 +619,7 @@ trading-package-scope-check:
 			exit 1; \
 		fi
 
-test-daemon: trading-package-scope-check ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
+test-internal: ## Run internal/... under -race excluding the sharded daemon root
 	@set -eu; \
 		daemon_pkg="$$(go list ./internal/daemon)"; \
 		all_internal="$$(go list ./internal/...)"; \
@@ -627,9 +627,21 @@ test-daemon: trading-package-scope-check ## Run internal/... and test/integratio
 		if [ -n "$$internal_pkgs" ]; then \
 			go test -race -timeout=240s $$internal_pkgs; \
 		fi
+
+# The daemon root's two build modes are separate CI jobs since 2026-08-04:
+# together they were the ubuntu test job's 7.5-minute tail, and they share
+# nothing but the scope check, so they parallelize cleanly.
+test-daemon-default: trading-package-scope-check ## Daemon root default-build shards + hermetic lifecycle integration
 	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -workers $(DAEMON_SHARD_WORKERS) -race -timeout 240s
 	$(MAKE) test-integration
+
+test-daemon-trading: trading-package-scope-check ## Daemon root trading-build shards (write path)
 	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -workers $(DAEMON_SHARD_WORKERS) -race -tags trading -timeout 240s
+
+test-daemon: trading-package-scope-check ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
+	$(MAKE) test-internal
+	$(MAKE) test-daemon-default
+	$(MAKE) test-daemon-trading
 
 # One CI lane intentionally keeps the daemon package in a single race-enabled
 # process. Sharding is the reliable Linux gate, while this macOS diagnostic
@@ -1014,8 +1026,12 @@ registry-publish-verify-first: ## Release-only: wait for Actions OIDC, then fall
 # __HIGHLIGHTS__ in the install-header template, then appending the
 # matching CHANGELOG.md entry. __HIGHLIGHTS__ is pulled from the entry's
 # `### What's new` section, so the release body's top stanza is mechanically
-# derived from CHANGELOG — no second place to drift. Marks the new release
-# as latest.
+# derived from CHANGELOG — no second place to drift. The release is created
+# as a staged draft, its complete asset set verified in place, and only then
+# flipped to published+latest (2026-08-04): the publication event — and the
+# registry OIDC workflow it triggers — never sees a partial upload. Stale
+# drafts from an interrupted attempt are pruned first; published releases
+# are never touched by the prune.
 _release-publish:
 	$(if $(filter default,$(origin MAKE)),,$(error _release-publish: MAKE must not be overridden))
 	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-publish: MAKEFLAGS must not be overridden))
@@ -1059,9 +1075,12 @@ _release-publish:
 	done < "$(DIST_DIR)/SHA256SUMS"; \
 	[ "$$asset_count" -eq 10 ] || { echo "_release-publish: expected 10 checksummed payloads, got $$asset_count" >&2; exit 1; }; \
 	title="$${MESSAGE:-$(RELEASE_VERSION)}" && \
+	./scripts/prune-github-release-drafts.sh "$(RELEASE_VERSION)" && \
 	./scripts/check-release-origin.sh && \
 	./scripts/check-release-tag.sh "$(RELEASE_VERSION)" && \
-	gh release create $(RELEASE_VERSION) --repo github.com/osauer/canary --verify-tag --notes-file $$notes --title "$$title" --latest $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc
+	gh release create $(RELEASE_VERSION) --repo github.com/osauer/canary --verify-tag --draft --notes-file $$notes --title "$$title" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \
+	CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \
+	gh release edit $(RELEASE_VERSION) --repo github.com/osauer/canary --draft=false --latest
 
 changelog-check: ## Verify CHANGELOG.md has no template or maintainer-process leakage
 	@./scripts/check-changelog-public.sh
@@ -1175,6 +1194,12 @@ release: ## Cut a release from an isolated worktree of committed HEAD: make rele
 		echo "release: tag $(RELEASE_VERSION) already exists on origin" >&2; \
 		exit 1; \
 	fi
+	@# Land the candidate BEFORE worktree prep: the push starts hosted CI,
+	@# which is the pre-tag critical path, and worktree creation costs ~1
+	@# min that the exact-SHA CI wait would otherwise absorb at the end.
+	@# Plain push refuses non-fast-forward, and _release-run re-asserts the
+	@# same ref from the worktree (a no-op here), so ordering loses nothing.
+	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	@wt="$(RELEASE_WORKTREE_ROOT)/canary-release-$(RELEASE_VERSION)"; \
 	sha=$$(git rev-parse HEAD); \
 	if [ -e "$$wt" ]; then \

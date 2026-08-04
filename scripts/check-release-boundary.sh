@@ -222,7 +222,7 @@ fi
 # `=~ "$re_..."` makes bash match the pattern as a literal string. Nothing
 # fails, nothing warns: every check below silently stops matching and the
 # release boundary reports OK while verifying nothing.
-re_publication_command='(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+create|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'
+re_publication_command='(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+(create|edit)|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'
 re_local_full_gate='^@?\$\(MAKE\)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(test|check|commit-check)([[:space:]]|$)'
 re_release_smoke='^@?\$\(MAKE\)[[:space:]]+release-smoke([[:space:]]|$)'
 re_main_push='^@?git[[:space:]]+push[[:space:]]+--no-follow-tags[[:space:]]+origin[[:space:]]+HEAD:\$\(MAIN_BRANCH\)[[:space:]]*$'
@@ -335,6 +335,11 @@ registry_server_payload_line=0
 registry_server_validate_line=0
 registry_publish_target_seen=0
 registry_verify_target_seen=0
+release_early_push_count=0
+publish_draft_verify_count=0
+publish_draft_verify_line=0
+publish_flip_count=0
+publish_flip_line=0
 run_main_push_count=0
 run_ci_wait_count=0
 run_main_check_count=0
@@ -549,6 +554,7 @@ while IFS= read -r line; do
 		if [[ "$code" == *"gh release create"* ]]; then
 			repo_count=$(count_literal "$code" "--repo")
 			verify_tag_count=$(count_literal "$code" "--verify-tag")
+			draft_count=$(count_literal "$code" "--draft")
 			if [ "$repo_count" -ne 1 ] \
 				|| ! [[ "$code" =~ --repo[[:space:]]+github\.com/osauer/canary([[:space:]]|$) ]]; then
 				printf 'check-release-boundary: _release-publish must use exactly one canonical --repo github.com/osauer/canary\n' >&2
@@ -558,9 +564,24 @@ while IFS= read -r line; do
 				printf 'check-release-boundary: _release-publish must use exactly one gh --verify-tag pin\n' >&2
 				failure=1
 			fi
+			# Draft-then-publish (2026-08-04): the create must stage a
+			# draft so the release is never public with a partial asset
+			# set; the verified flip below is the publication moment.
+			if [ "$draft_count" -ne 1 ]; then
+				printf 'check-release-boundary: _release-publish must create the release as a staged --draft\n' >&2
+				failure=1
+			fi
 		fi
 		if [[ "$code" == *"gh release create"* ]]; then
 			publish_create_line="$line_number"
+		fi
+		if [ "$code" = 'CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \' ]; then
+			publish_draft_verify_count=$((publish_draft_verify_count + 1))
+			publish_draft_verify_line="$line_number"
+		fi
+		if [ "$code" = 'gh release edit $(RELEASE_VERSION) --repo github.com/osauer/canary --draft=false --latest' ]; then
+			publish_flip_count=$((publish_flip_count + 1))
+			publish_flip_line="$line_number"
 		fi
 		if [ "$code" = './scripts/check-release-origin.sh && \' ]; then
 			publish_direct_origin_count=$((publish_direct_origin_count + 1))
@@ -1064,6 +1085,20 @@ while IFS= read -r line; do
 	fi
 	if [[ "$code" =~ $re_publication_command ]]; then
 		case "$target" in
+			release)
+				# The release front door may land the candidate on
+				# origin/MAIN_BRANCH before worktree prep (2026-08-04:
+				# starts hosted CI ~90s earlier) — exactly that one push
+				# shape and nothing else. Tags, releases, and plugin tags
+				# stay confined to the pipeline bodies below.
+				if [[ "$code" =~ $re_main_push ]]; then
+					release_early_push_count=$((release_early_push_count + 1))
+				else
+					printf 'check-release-boundary: Makefile target %q owns a forbidden publication command: %s\n' \
+						"$target" "$code" >&2
+					failure=1
+				fi
+				;;
 			_release-run)
 				run_seen=1
 				;;
@@ -1199,6 +1234,11 @@ if [ "$run_target_seen" -eq 1 ]; then
 	if [ "$run_main_push_count" -ne 1 ]; then
 		printf 'check-release-boundary: _release-run must contain exactly one candidate push to origin before CI verification (found %s)\n' \
 			"$run_main_push_count" >&2
+		failure=1
+	fi
+	if [ "$release_early_push_count" -ne 1 ]; then
+		printf 'check-release-boundary: release must land the candidate on origin exactly once before worktree prep (found %s)\n' \
+			"$release_early_push_count" >&2
 		failure=1
 	fi
 	if [ "$run_ci_wait_count" -ne 2 ]; then
@@ -1345,6 +1385,13 @@ if [ "$publish_seen" -eq 1 ]; then
 		|| [ $((publish_direct_origin_line + 1)) -ne "$publish_tag_check_line" ] \
 		|| [ $((publish_tag_check_line + 1)) -ne "$publish_create_line" ]; then
 		printf 'check-release-boundary: _release-publish must re-prove exact-SHA CI, then directly pin origin and the remote tag immediately before gh release create\n' >&2
+		failure=1
+	fi
+	if [ "$publish_draft_verify_count" -ne 1 ] \
+		|| [ "$publish_flip_count" -ne 1 ] \
+		|| [ $((publish_create_line + 1)) -ne "$publish_draft_verify_line" ] \
+		|| [ $((publish_draft_verify_line + 1)) -ne "$publish_flip_line" ]; then
+		printf 'check-release-boundary: _release-publish must verify the staged draft immediately after create and publish it only via the pinned flip\n' >&2
 		failure=1
 	fi
 fi

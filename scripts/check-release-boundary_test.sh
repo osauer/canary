@@ -172,7 +172,9 @@ _release-publish:
 	true
 	./scripts/check-release-origin.sh && \
 	./scripts/check-release-tag.sh "$(RELEASE_VERSION)" && \
-	gh release create v1.2.3 --repo github.com/osauer/canary --verify-tag
+	gh release create v1.2.3 --repo github.com/osauer/canary --verify-tag --draft && \
+	CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \
+	gh release edit $(RELEASE_VERSION) --repo github.com/osauer/canary --draft=false --latest
 _release-run:
 	$(if $(filter default,$(origin MAKE)),,$(error _release-run: MAKE must not be overridden))
 	$(if $(filter file,$(origin MAKEFLAGS)),,$(error _release-run: MAKEFLAGS must not be overridden))
@@ -225,6 +227,7 @@ release:
 	$(if $(filter 1,$(words $(MAKEFILE_LIST))),,$(error release: exactly one makefile is required))
 	$(if $(filter Makefile,$(MAKEFILE_LIST)),,$(error release: only the canonical Makefile is allowed))
 	$(if $(release_overridden_vars),$(error release: release variables must not be overridden: $(release_overridden_vars)),)
+	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	$(MAKE) -C . _release-run RELEASE_PIPELINE_ENTRY=release
 _release-ci-wait-historical:
 	$(if $(filter default,$(origin MAKE)),,$(error _release-ci-wait-historical: MAKE must not be overridden))
