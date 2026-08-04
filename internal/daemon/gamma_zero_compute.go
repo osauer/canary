@@ -699,9 +699,9 @@ func computeGammaZeroFor(
 
 	// 1. Underlying spot snapshot.
 	progress.Store(2)
-	spot, dataType := snapshotUnderlyingForGamma(ctx, c, sym, 5*time.Second)
+	spot, dataType, spotErr := snapshotUnderlyingForGamma(ctx, c, sym, 5*time.Second)
 	if spot <= 0 {
-		return nil, fmt.Errorf("zero-gamma: no %s spot available (gateway returned no live tick)", sym)
+		return nil, gammaSpotUnavailableError(sym, spotErr)
 	}
 	if !isAcceptableDataType(dataType) {
 		return nil, fmt.Errorf("zero-gamma: %s spot is %s; refusing to compute on stale data", sym, dataType)
@@ -1474,13 +1474,17 @@ func normalizeGammaParams(p rpc.GammaZeroParams) rpc.GammaZeroParams {
 // Acquire via subManager.Hold at the call site so refcounting is honest
 // and the briefSnapshotFull subscribe/unsubscribe race that previously
 // tore the line down mid-fan-out is structurally excluded.
-func snapshotUnderlyingForGamma(ctx context.Context, c *ibkrlib.Connector, sym string, timeout time.Duration) (spot float64, dataType string) {
+//
+// pollErr is the poll's own reason for stopping and is only meaningful
+// when spot is 0 — a close-only tick satisfies the caller while the
+// predicate never fires, so a usable spot can accompany a deadline error.
+func snapshotUnderlyingForGamma(ctx context.Context, c *ibkrlib.Connector, sym string, timeout time.Duration) (spot float64, dataType string, pollErr error) {
 	if c == nil {
-		return 0, ""
+		return 0, "", ibkrlib.ErrIBKRUnavailable
 	}
 	sym = normSym(sym)
 	var bid, ask, last, mark, closePx float64
-	_ = pollMarketData(ctx, c, sym, time.Now().Add(timeout), func(d *ibkrlib.MarketData) bool {
+	pollErr = pollMarketData(ctx, c, sym, time.Now().Add(timeout), func(d *ibkrlib.MarketData) bool {
 		bid, ask, last, mark, closePx = d.Bid, d.Ask, d.Last, d.MarkPrice, d.Close
 		if dataType == "" && (bid > 0 || ask > 0 || last > 0 || mark > 0 || closePx > 0) {
 			dataType = marketDataTypeName(c.MarketDataTypeForSymbol(sym))
@@ -1504,7 +1508,35 @@ func snapshotUnderlyingForGamma(ctx context.Context, c *ibkrlib.Connector, sym s
 	if dataType == "" && spot > 0 {
 		dataType = "live"
 	}
-	return spot, dataType
+	return spot, dataType, pollErr
+}
+
+// gammaSpotUnavailableError explains why the underlying spot step found no
+// usable price. The generic "no live tick" wording is true of a budget
+// timeout and equally true of an account that is simply not subscribed to
+// the index — and only the second one is the user's to fix. pollMarketData
+// already aborts within milliseconds on a terminal gateway rejection
+// (200/321/354/10197), so when that is what happened the code belongs in
+// the phase error instead of being discarded.
+//
+// The broker's rejection text is deliberately not interpolated: it is
+// untrusted free text that would reach both the wire error and
+// summarizeGammaPhaseFailure, whose digit matching a foreign message could
+// silently retarget. The typed code carries the meaning on its own.
+func gammaSpotUnavailableError(sym string, pollErr error) error {
+	if rejected, ok := errors.AsType[*SubscriptionRejectedError](pollErr); ok {
+		// 354 — "Requested market data is not subscribed", the one
+		// terminal code the account holder can act on directly.
+		if rejected.Rejection.Code == 354 {
+			return fmt.Errorf("zero-gamma: no %s spot available: this account is not subscribed to %s market data (IBKR 354)", sym, sym)
+		}
+		return fmt.Errorf("zero-gamma: no %s spot available: gateway rejected the %s market-data subscription (IBKR %d)",
+			sym, sym, rejected.Rejection.Code)
+	}
+	if absent, ok := errors.AsType[*ibkrlib.MarketDataAbsenceError](pollErr); ok {
+		return fmt.Errorf("zero-gamma: no %s spot available: %w", sym, absent)
+	}
+	return fmt.Errorf("zero-gamma: no %s spot available (gateway returned no live tick)", sym)
 }
 
 // throttleDetected reports whether the fan-out's observed

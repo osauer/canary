@@ -1430,11 +1430,15 @@ type GammaZeroSPXResult struct {
 	DiagnosticResult *GammaZeroComputed `json:"diagnostic_result,omitempty"`
 	// Error is populated when Status == "error".
 	Error string `json:"error,omitempty"`
-	// ColdReasonCode / ColdReason / ColdAction are populated when
-	// Status == "cold" and the daemon knows why no result can be
-	// served. This distinguishes a true first-run cold cache from a
-	// persisted snapshot that existed but was rejected by schema,
-	// methodology, or data-quality gates.
+	// ColdReasonCode / ColdReason / ColdAction are populated when the
+	// daemon knows why no fresh result can be served, and say when the
+	// next attempt is due. On Status == "cold" they distinguish a
+	// first-run cache from a persisted snapshot that existed but was
+	// rejected by schema, methodology, or data-quality gates. They are
+	// also populated on Status == "error" when the failed attempt is
+	// being retained across a closed options session, where no automatic
+	// retry runs until the next regular session — Error still carries the
+	// failure itself and is not softened.
 	ColdReasonCode string `json:"cold_reason_code,omitempty"`
 	ColdReason     string `json:"cold_reason,omitempty"`
 	ColdAction     string `json:"cold_action,omitempty"`

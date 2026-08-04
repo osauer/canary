@@ -860,6 +860,35 @@ func TestRenderGamma_ColdRendersDaemonReason(t *testing.T) {
 	}
 }
 
+// Off-hours the daemon retains a failed attempt without retrying it, so the
+// reason line can be hours old and reads as a live fault without the
+// retention context (github.com/osauer/canary#26).
+func TestRenderGamma_ErrorRendersRetentionContext(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	res := &rpc.GammaZeroSPXResult{
+		Status:     rpc.GammaZeroStatusError,
+		Error:      "zero-gamma: SPY phase: zero-gamma: no SPY spot available (gateway returned no live tick)",
+		ColdReason: "the last gamma attempt failed at 2026-05-22 15:42 EDT and the regular U.S. options session is closed, so no automatic retry runs until it reopens",
+		ColdAction: "Run `canary gamma --force` for a diagnostic off-hours recompute.",
+	}
+	if code := renderGammaText(env, res, false); code != 1 {
+		t.Fatalf("error should exit 1, got %d", code)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"Status      error",
+		"Reason      zero-gamma: SPY phase",
+		"Retained    the last gamma attempt failed at 2026-05-22 15:42 EDT",
+		"diagnostic off-hours recompute",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("error render missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 // TestRenderGamma_ExplainIsConcise pins the default --explain contract:
 // interpretation and methodology stay visible, while source diagnostics,
 // citations, and raw gate dumps move behind --diagnostics.

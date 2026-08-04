@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.7.2 — 2026-08-04 21:23 CEST
+
+### Fixed
+
+- **Dealer gamma no longer presents an old failure as if it were happening right now.** When a compute fails and the options session then closes, the daemon deliberately does not retry until the next open — but the surface kept quoting the original gateway error, so a Friday-afternoon failure read as a broken gateway all weekend. The failure is still reported, now with the time it happened and when the next attempt is due. A desk that has never computed gamma at all now says that too, instead of rendering a blank card with no reason. (#26)
+- **A missing market-data subscription no longer hides behind "no live tick".** The underlying spot step discarded the gateway's own rejection, so an account not subscribed to SPY or SPX data got the same wording as a gateway that was merely quiet. The rejection code is now named in the reason — IBKR 354 says the subscription is missing, which is the one cause the account holder can act on directly.
+
 ## v2.7.1 — 2026-08-04 07:36 CEST
 
 ### What's new

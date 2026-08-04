@@ -1673,6 +1673,98 @@ func TestGammaZeroCache_OffHoursForceErrorStaysVisible(t *testing.T) {
 	}
 }
 
+// A failed attempt retained across a closed session must say so. The
+// SessionClosed gate serves it without kicking a replacement, so the bare
+// phase error would otherwise read as a live gateway fault from Friday's
+// close until Monday's open (github.com/osauer/canary#26).
+func TestGammaZeroCache_ClosedSessionErrorExplainsRetention(t *testing.T) {
+	c := newGammaZeroCache()
+	now := time.Date(2026, 5, 23, 14, 0, 0, 0, time.UTC) // Saturday, SessionClosed
+	computeErr := errors.New("zero-gamma: no SPY spot available (gateway returned no live tick)")
+	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
+		return nil, computeErr
+	}
+
+	forced := c.force(context.Background(), rpc.GammaZeroScopeCombined, now, 300, compute)
+	<-forced.done
+
+	env := c.snapshotForScope(rpc.GammaZeroScopeCombined, forced, func() time.Time { return now })
+	if env.Status != rpc.GammaZeroStatusError {
+		t.Fatalf("status = %q, want error — retention framing must not soften the failure", env.Status)
+	}
+	if !strings.Contains(env.Error, computeErr.Error()) {
+		t.Fatalf("error = %q, want the original failure %q", env.Error, computeErr.Error())
+	}
+	if env.ColdReasonCode != "closed_session_last_attempt_failed" {
+		t.Fatalf("cold reason code = %q, want closed_session_last_attempt_failed", env.ColdReasonCode)
+	}
+	// The failure time must be datable by the reader: an undated "last
+	// attempt failed" is the same dead end as the raw phase error.
+	if want := nyTime(forced.startedAt).Format("2006-01-02 15:04 MST"); !strings.Contains(env.ColdReason, want) {
+		t.Fatalf("cold reason %q missing the attempt time %q", env.ColdReason, want)
+	}
+	if !strings.Contains(env.ColdAction, "next regular U.S. options session") {
+		t.Fatalf("cold action = %q, want the next-session pointer", env.ColdAction)
+	}
+}
+
+// During the regular session the same errored current DOES retry on its own
+// past the backoff gate, so claiming "no retry until the next open" there
+// would be a lie.
+func TestGammaZeroCache_OpenSessionErrorHasNoRetentionFraming(t *testing.T) {
+	c := newGammaZeroCache()
+	now := time.Date(2026, 5, 20, 14, 0, 0, 0, time.UTC) // Wednesday 10:00 EDT
+	if cls := gammaClassifySession(now); cls != rpc.SessionRTH {
+		t.Fatalf("test fixture sanity check: expected SessionRTH, got %v", cls)
+	}
+	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
+		return nil, errors.New("zero-gamma: no usable GEX legs")
+	}
+
+	forced := c.force(context.Background(), rpc.GammaZeroScopeCombined, now, 300, compute)
+	<-forced.done
+
+	env := c.snapshotForScope(rpc.GammaZeroScopeCombined, forced, func() time.Time { return now })
+	if env.Status != rpc.GammaZeroStatusError {
+		t.Fatalf("status = %q, want error", env.Status)
+	}
+	if env.ColdReasonCode != "" || env.ColdReason != "" || env.ColdAction != "" {
+		t.Fatalf("in-session error must carry no retention framing, got code=%q reason=%q action=%q",
+			env.ColdReasonCode, env.ColdReason, env.ColdAction)
+	}
+}
+
+// The commonest cold of all — a desk that has never computed gamma — was the
+// only one that rendered without a reason.
+func TestGammaZeroCache_FirstRunColdReportsNoPersistedCache(t *testing.T) {
+	store := newGammaZeroStore(t.TempDir())
+	now := time.Date(2026, 5, 24, 14, 0, 0, 0, time.UTC) // Sunday 10:00 EDT, SessionClosed
+	c := newGammaZeroCacheWithStore(store, now, nil)
+
+	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
+		t.Fatal("first-run cold must not kick an off-hours compute")
+		return nil, nil
+	}
+	job, fresh := c.kickOrJoin(context.Background(), rpc.GammaZeroScopeCombined, now, 300, compute)
+	if job != nil || fresh {
+		t.Fatalf("got job=%p fresh=%v, want no kick", job, fresh)
+	}
+
+	env := c.snapshotForScope(rpc.GammaZeroScopeCombined, job, func() time.Time { return now })
+	if env.Status != rpc.GammaZeroStatusCold {
+		t.Fatalf("status = %q, want cold", env.Status)
+	}
+	if env.ColdReasonCode != "no_persisted_cache" {
+		t.Fatalf("cold reason code = %q, want no_persisted_cache", env.ColdReasonCode)
+	}
+	if !strings.Contains(env.ColdReason, "no gamma computation has completed") {
+		t.Fatalf("cold reason = %q, want the never-computed explanation", env.ColdReason)
+	}
+	if !strings.Contains(env.ColdAction, "--force") {
+		t.Fatalf("cold action = %q, want the --force pointer", env.ColdAction)
+	}
+}
+
 func TestGammaZeroCache_ForceFailureDoesNotPoisonCachedSuccess(t *testing.T) {
 	c := newGammaZeroCache()
 	now := time.Date(2026, 5, 23, 14, 0, 0, 0, time.UTC) // Saturday, SessionClosed

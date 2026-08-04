@@ -148,7 +148,16 @@ func renderGammaTextWithOptions(env *Env, r *rpc.GammaZeroSPXResult, opts gammaR
 		if r.Error != "" {
 			fmt.Fprintf(out, "  Reason      %s\n", r.Error)
 		}
+		// Off-hours the daemon retains the failed attempt without retrying,
+		// so the reason above can be hours old. ColdReason says so.
+		if r.ColdReason != "" {
+			fmt.Fprintf(out, "  Retained    %s\n", r.ColdReason)
+		}
 		fmt.Fprintln(out)
+		if r.ColdAction != "" {
+			fmt.Fprintln(out, env.dim("  "+r.ColdAction))
+			fmt.Fprintln(out)
+		}
 		return 1
 	}
 

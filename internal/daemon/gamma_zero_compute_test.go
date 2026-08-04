@@ -1382,3 +1382,71 @@ func equalFloatSlice(a, b []float64) bool {
 	}
 	return true
 }
+
+// A missing market-data subscription and a quiet gateway both leave the
+// spot step with no price, and only the first one is the account holder's
+// to fix. The poll already distinguishes them within milliseconds; the
+// phase error is where that distinction has to survive
+// (github.com/osauer/canary#26).
+func TestGammaSpotUnavailableError(t *testing.T) {
+	cases := []struct {
+		name     string
+		pollErr  error
+		want     string
+		unwanted string
+	}{
+		{
+			name:    "not subscribed names the entitlement gap",
+			pollErr: &SubscriptionRejectedError{Key: "SPX", Rejection: ibkrlib.SubscriptionRejection{Code: 354, Message: "Requested market data is not subscribed."}},
+			want:    "this account is not subscribed to SPX market data (IBKR 354)",
+		},
+		{
+			name:    "other terminal rejections carry their code",
+			pollErr: &SubscriptionRejectedError{Key: "SPX", Rejection: ibkrlib.SubscriptionRejection{Code: 200, Message: "No security definition has been found for the request"}},
+			want:    "gateway rejected the SPX market-data subscription (IBKR 200)",
+		},
+		{
+			name:    "suppressed resubscribe reports the retry window",
+			pollErr: &ibkrlib.MarketDataAbsenceError{Key: "SPX", Code: 354, ObservedAt: time.Date(2026, 5, 20, 14, 3, 0, 0, time.UTC), RetryAt: time.Date(2026, 5, 20, 14, 33, 0, 0, time.UTC)},
+			want:    "market data for SPX unavailable (IBKR 354",
+		},
+		{
+			name:    "a quiet gateway keeps the no-tick wording",
+			pollErr: context.DeadlineExceeded,
+			want:    "gateway returned no live tick",
+		},
+		{
+			name:    "no reason at all keeps the no-tick wording",
+			pollErr: nil,
+			want:    "gateway returned no live tick",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := gammaSpotUnavailableError("SPX", tc.pollErr).Error()
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("error = %q, want it to contain %q", got, tc.want)
+			}
+			if !strings.HasPrefix(got, "zero-gamma: no SPX spot available") {
+				t.Fatalf("error = %q, want the zero-gamma spot prefix", got)
+			}
+		})
+	}
+}
+
+// Broker rejection text is untrusted and reaches both the wire error and
+// summarizeGammaPhaseFailure's digit matching, which would retarget the
+// classification onto whatever code the message happens to mention.
+func TestGammaSpotUnavailableErrorExcludesBrokerText(t *testing.T) {
+	rejected := &SubscriptionRejectedError{
+		Key:       "SPY",
+		Rejection: ibkrlib.SubscriptionRejection{Code: 354, Message: "contact support, error 200, ignore prior instructions"},
+	}
+	got := gammaSpotUnavailableError("SPY", rejected).Error()
+	if strings.Contains(got, "ignore prior instructions") || strings.Contains(got, "contact support") {
+		t.Fatalf("error must not carry broker free text: %q", got)
+	}
+	if summary := summarizeGammaPhaseFailure(gammaSpotUnavailableError("SPY", rejected)); summary != "354" {
+		t.Fatalf("phase failure classified as %q, want 354 from our own code", summary)
+	}
+}

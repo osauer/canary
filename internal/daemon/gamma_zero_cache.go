@@ -409,6 +409,15 @@ func (c *gammaZeroCache) loadPersisted() {
 				continue
 			}
 			if stale == nil {
+				// Commonest cold of all — a desk that has never completed a
+				// gamma compute. It was also the only one with no reason
+				// attached, so the rare load failures below explained
+				// themselves while the ordinary first run rendered blank.
+				slot.setColdReason(
+					"no_persisted_cache",
+					fmt.Sprintf("no gamma computation has completed yet for %s on this desk", scope),
+					gammaColdCacheAction,
+				)
 				continue
 			}
 			persisted = stale
@@ -1070,6 +1079,21 @@ func (c *gammaZeroCache) snapshotForScope(scope string, g *gammaComputation, now
 			env.Status = rpc.GammaZeroStatusError
 			env.Error = g.err.Error()
 			env.DiagnosticResult = hydrateGammaDiagnosticResult(g.result, nowFn())
+			// A failed attempt outside the regular options session cannot
+			// clear itself: kickOrJoin's SessionClosed gate serves this
+			// error without kicking a replacement, and the same-session
+			// error retry it would otherwise hit is unreachable until the
+			// next open. Without the framing the surface quotes a phase
+			// error from Friday afternoon all weekend as if the gateway
+			// were broken right now. The status stays error — the compute
+			// did fail — but the reason says when, and what happens next.
+			if now := nowFn(); gammaClassifySession(now) == rpc.SessionClosed {
+				env.ColdReasonCode = "closed_session_last_attempt_failed"
+				env.ColdReason = fmt.Sprintf(
+					"the last gamma attempt failed at %s and the regular U.S. options session is closed, so no automatic retry runs until it reopens",
+					nyTime(started).Format("2006-01-02 15:04 MST"))
+				env.ColdAction = gammaColdCacheAction
+			}
 			return env
 		}
 		env.Status = rpc.GammaZeroStatusReady
