@@ -59,16 +59,17 @@ EOF
 	chmod 0755 "$test_root/bin/$command"
 done
 cat > "$test_root/Makefile" <<'EOF'
-.PHONY: release release-resume _release-run _release-resume-run _release-publish release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets release-payload-inventory-check release-registry-server registry-publish registry-publish-verify-first
+.PHONY: release release-resume _release-run _release-resume-run _release-publish release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets release-payload-inventory-check release-registry-server registry-publish registry-publish-verify-first
 override release_first_makeflag = $(firstword $(MAKEFLAGS))
 override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))
 override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))
-override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS
+override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS RELEASE_SOURCE_MODE
 override release_overridden_vars = $(strip $(foreach release_pinned_var,$(release_pinned_vars),$(if $(filter file,$(origin $(release_pinned_var))),,$(release_pinned_var))))
 RELEASE_TARGETS = darwin-arm64 darwin-amd64 linux-amd64 linux-arm64
 SPX_EXPECTED_REACHABLE ?= 1
 SMOKE_STRICT ?= 0
 MAIN_BRANCH ?= main
+RELEASE_SOURCE_MODE ?= controller
 GO_TAGS ?= trading
 GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
 STRIP_LDFLAGS = -s -w
@@ -79,10 +80,13 @@ release-payload-inventory-check:
 release-origin-check:
 	@./scripts/check-release-origin.sh
 release-source-candidate-check:
-	@./scripts/check-release-source.sh "$(RELEASE_VERSION)"
+	@./scripts/check-release-source.sh --mode tag "$(RELEASE_VERSION)"
 release-controller-source-check:
 	$(MAKE) release-origin-check
-	@./scripts/check-release-source.sh --controller "$(RELEASE_VERSION)"
+	@./scripts/check-release-source.sh --mode controller "$(RELEASE_VERSION)"
+release-source-mode-check:
+	$(MAKE) release-origin-check
+	@./scripts/check-release-source.sh --mode "$(RELEASE_SOURCE_MODE)" "$(RELEASE_VERSION)"
 release-tag-candidate-check:
 	$(MAKE) release-origin-check
 	@./scripts/check-release-tag.sh "$(RELEASE_VERSION)"
@@ -94,7 +98,7 @@ release-github-candidate-check:
 	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)"
 release-github-assets:
-	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-source-mode-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/hydrate-github-release-assets.sh "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))"
 	$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 release-registry-server:
@@ -408,8 +412,9 @@ done
 
 # Release variables that are constants of the contract, not caller knobs. A
 # narrowed RELEASE_TARGETS used to assemble a partial artifact set that every
-# later step then reported as complete, and SPX_EXPECTED_REACHABLE=0 /
-# SMOKE_STRICT=0 disarm the binding live smoke. Each attempt must be refused by
+# later step then reported as complete, SPX_EXPECTED_REACHABLE=0 /
+# SMOKE_STRICT=0 disarm the binding live smoke, and RELEASE_SOURCE_MODE picks
+# which commit a publication helper proves it runs from. Each attempt must be refused by
 # the expansion-time guard — proved by its exact diagnostic, not merely by the
 # fixture failing later for some unrelated reason — and must reach no external
 # command on the way.
@@ -444,7 +449,8 @@ for pinned_target in release release-resume registry-publish registry-publish-ve
 		GO_TAGS= \
 		GO_BUILD_TAGS= \
 		STRIP_LDFLAGS= \
-		LDFLAGS=-X=main.version=spoofed
+		LDFLAGS=-X=main.version=spoofed \
+		RELEASE_SOURCE_MODE=tag
 	do
 		assert_pinned_var_refused "command-line $pinned_case on $pinned_target" \
 			fixture_make "$pinned_case" "$pinned_target" RELEASE_VERSION=v1.2.3
@@ -456,7 +462,8 @@ for pinned_target in release release-resume registry-publish registry-publish-ve
 		SPX_EXPECTED_REACHABLE=0 \
 		SMOKE_STRICT=0 \
 		MAIN_BRANCH=scratch \
-		GO_TAGS=
+		GO_TAGS= \
+		RELEASE_SOURCE_MODE=tag
 	do
 		assert_pinned_var_refused "environment $pinned_env_case on $pinned_target" \
 			fixture_make_with_env "$pinned_env_case" "$pinned_target" RELEASE_VERSION=v1.2.3
@@ -682,6 +689,30 @@ grep -Fvx '	$(MAKE) release-payload-inventory-check RELEASE_VERSION=$(RELEASE_VE
 	"$test_root/Makefile.canonical" >"$test_root/Makefile"
 if "$checker" "$test_root" >/dev/null 2>&1; then
 	echo "check-release-boundary test: publication without an inventory proof passed" >&2
+	exit 1
+fi
+
+# Asset hydration must prove an exact source anchor, and that anchor must be
+# the caller's: the registry workflow's release publication runs from the tag,
+# where a hardcoded controller assertion can only fail once main moves on.
+grep -Fvx '	$(MAKE) release-source-mode-check RELEASE_VERSION=$(RELEASE_VERSION)' \
+	"$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: asset hydration without a source proof passed" >&2
+	exit 1
+fi
+
+sed 's#$(MAKE) release-source-mode-check RELEASE_VERSION#$(MAKE) release-controller-source-check RELEASE_VERSION#' \
+	"$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: asset hydration pinned to the controller anchor passed" >&2
+	exit 1
+fi
+
+sed 's#--mode "$(RELEASE_SOURCE_MODE)"#--mode tag#' \
+	"$test_root/Makefile.canonical" >"$test_root/Makefile"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: source mode ignoring its caller passed" >&2
 	exit 1
 fi
 

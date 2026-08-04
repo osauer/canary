@@ -5,6 +5,11 @@
 # this workflow and uses device-code publishing only as a delayed fallback.
 #
 # Manual heal for an older tag: Actions → registry-publish → Run workflow.
+#
+# github.workflow_sha is the tag commit on a release publication and the
+# dispatch ref head on a manual heal, so the source proof follows the trigger:
+# a publication proves it runs the tagged commit's own verifiers, a heal proves
+# it runs current origin/main against an older tag.
 name: registry-publish
 
 on:
@@ -34,6 +39,7 @@ jobs:
         id: tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
@@ -41,9 +47,15 @@ jobs:
             echo "unexpected tag '$tag'" >&2
             exit 1
           fi
+          case "$RELEASE_EVENT" in
+            release) source_mode=tag ;;
+            workflow_dispatch) source_mode=controller ;;
+            *) echo "unexpected event '$RELEASE_EVENT'" >&2; exit 1 ;;
+          esac
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'source_mode=%s\n' "$source_mode" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout recovery controller
+      - name: Checkout release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: osauer/canary
@@ -60,21 +72,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_MODE: ${{ steps.tag.outputs.source_mode }}
         run: |
           set -euo pipefail
-          make release-github-assets RELEASE_VERSION="$RELEASE_TAG"
+          make release-github-assets RELEASE_VERSION="$RELEASE_TAG" RELEASE_SOURCE_MODE="$RELEASE_SOURCE_MODE"
 
       - name: Verify exact release authority
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_MODE: ${{ steps.tag.outputs.source_mode }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
           release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
           contract="$(mktemp "${RUNNER_TEMP}/canary-release-ci-contract.XXXXXX")"
           trap 'rm -f "$contract"' EXIT HUP INT TERM
-          ./scripts/check-release-source.sh --controller "$tag"
+          ./scripts/check-release-source.sh --mode "$RELEASE_SOURCE_MODE" "$tag"
           ./scripts/check-release-origin.sh
           ./scripts/check-release-ci-contract.sh
           python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract"

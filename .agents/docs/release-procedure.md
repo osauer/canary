@@ -69,6 +69,11 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 - Report expected interactivity: none on the happy path; if the OIDC fallback
   fires near pipeline end, the operator must enter a device code in a browser
   within ~1 minute.
+- The OIDC workflow's source anchor follows its trigger, because it checks out
+  `github.workflow_sha`: a release publication proves it runs the tagged
+  commit's own verifiers, a manual heal proves it runs current origin/main
+  against the older tag. A publication is therefore unaffected by origin/main
+  moving past the tag between the tag push and publication.
 
 ## Stage 2 — Tree readiness
 

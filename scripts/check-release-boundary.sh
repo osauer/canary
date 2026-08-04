@@ -143,7 +143,7 @@ fi
 for required_phony in \
 	release release-resume _release-run _release-resume-run _release-publish \
 	release-origin-check release-ci-wait _release-ci-wait-historical \
-	release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check \
+	release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check \
 	release-plugin-tag-candidate-check release-github-candidate-check release-github-assets \
 	release-payload-inventory-check release-registry-server registry-publish registry-publish-verify-first
 do
@@ -167,7 +167,7 @@ for required_make_context in \
 	'override release_first_makeflag = $(firstword $(MAKEFLAGS))' \
 	'override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))' \
 	'override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --keep-going,$(MAKEFLAGS)) $(if $(findstring i,$(release_compact_makeflags)),i) $(if $(findstring k,$(release_compact_makeflags)),k) $(if $(findstring n,$(release_compact_makeflags)),n) $(if $(findstring t,$(release_compact_makeflags)),t))' \
-	'override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS' \
+	'override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS RELEASE_SOURCE_MODE' \
 	'override release_overridden_vars = $(strip $(foreach release_pinned_var,$(release_pinned_vars),$(if $(filter file,$(origin $(release_pinned_var))),,$(release_pinned_var))))'
 do
 	if ! grep -Fqx "$required_make_context" "$root/Makefile"; then
@@ -338,6 +338,10 @@ controller_source_target_seen=0
 controller_source_target_recipe_count=0
 controller_source_target_origin_count=0
 controller_source_target_command_count=0
+mode_source_target_seen=0
+mode_source_target_recipe_count=0
+mode_source_target_origin_count=0
+mode_source_target_command_count=0
 plugin_tag_target_seen=0
 plugin_tag_target_recipe_count=0
 plugin_tag_target_origin_count=0
@@ -542,6 +546,9 @@ while IFS= read -r line; do
 		fi
 		if [ "$target" = "release-controller-source-check" ]; then
 			controller_source_target_seen=$((controller_source_target_seen + 1))
+		fi
+		if [ "$target" = "release-source-mode-check" ]; then
+			mode_source_target_seen=$((mode_source_target_seen + 1))
 		fi
 		if [ "$target" = "release-plugin-tag-candidate-check" ]; then
 			plugin_tag_target_seen=$((plugin_tag_target_seen + 1))
@@ -902,8 +909,8 @@ while IFS= read -r line; do
 	fi
 	if [ "$target" = "release-source-candidate-check" ]; then
 		source_target_recipe_count=$((source_target_recipe_count + 1))
-		if [ "$code" = '@./scripts/check-release-source.sh "$(RELEASE_VERSION)"' ] \
-			|| [ "$code" = './scripts/check-release-source.sh "$(RELEASE_VERSION)"' ]; then
+		if [ "$code" = '@./scripts/check-release-source.sh --mode tag "$(RELEASE_VERSION)"' ] \
+			|| [ "$code" = './scripts/check-release-source.sh --mode tag "$(RELEASE_VERSION)"' ]; then
 			source_target_command_count=$((source_target_command_count + 1))
 		fi
 	fi
@@ -912,9 +919,19 @@ while IFS= read -r line; do
 		if [ "$code" = '$(MAKE) release-origin-check' ]; then
 			controller_source_target_origin_count=$((controller_source_target_origin_count + 1))
 		fi
-		if [ "$code" = '@./scripts/check-release-source.sh --controller "$(RELEASE_VERSION)"' ] \
-			|| [ "$code" = './scripts/check-release-source.sh --controller "$(RELEASE_VERSION)"' ]; then
+		if [ "$code" = '@./scripts/check-release-source.sh --mode controller "$(RELEASE_VERSION)"' ] \
+			|| [ "$code" = './scripts/check-release-source.sh --mode controller "$(RELEASE_VERSION)"' ]; then
 			controller_source_target_command_count=$((controller_source_target_command_count + 1))
+		fi
+	fi
+	if [ "$target" = "release-source-mode-check" ]; then
+		mode_source_target_recipe_count=$((mode_source_target_recipe_count + 1))
+		if [ "$code" = '$(MAKE) release-origin-check' ]; then
+			mode_source_target_origin_count=$((mode_source_target_origin_count + 1))
+		fi
+		if [ "$code" = '@./scripts/check-release-source.sh --mode "$(RELEASE_SOURCE_MODE)" "$(RELEASE_VERSION)"' ] \
+			|| [ "$code" = './scripts/check-release-source.sh --mode "$(RELEASE_SOURCE_MODE)" "$(RELEASE_VERSION)"' ]; then
+			mode_source_target_command_count=$((mode_source_target_command_count + 1))
 		fi
 	fi
 	if [ "$target" = "release-plugin-tag-candidate-check" ]; then
@@ -941,7 +958,7 @@ while IFS= read -r line; do
 		fi
 	fi
 	if [ "$target" = "release-github-assets" ]; then
-		[ "$code" = '$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)' ] \
+		[ "$code" = '$(MAKE) release-source-mode-check RELEASE_VERSION=$(RELEASE_VERSION)' ] \
 			&& github_assets_source_count=$((github_assets_source_count + 1))
 		[ "$code" = '@./scripts/hydrate-github-release-assets.sh "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))"' ] \
 			&& github_assets_hydrator_count=$((github_assets_hydrator_count + 1))
@@ -1234,6 +1251,13 @@ if [ "$run_target_seen" -eq 1 ]; then
 		|| [ "$controller_source_target_origin_count" -ne 1 ] \
 		|| [ "$controller_source_target_command_count" -ne 1 ]; then
 		printf 'check-release-boundary: release-controller-source-check must pin origin and exact clean origin/main controller state\n' >&2
+		failure=1
+	fi
+	if [ "$mode_source_target_seen" -ne 1 ] \
+		|| [ "$mode_source_target_recipe_count" -ne 2 ] \
+		|| [ "$mode_source_target_origin_count" -ne 1 ] \
+		|| [ "$mode_source_target_command_count" -ne 1 ]; then
+		printf 'check-release-boundary: release-source-mode-check must pin origin and prove the caller-named exact source anchor\n' >&2
 		failure=1
 	fi
 	if [ "$plugin_tag_target_seen" -ne 1 ] || [ "$plugin_tag_target_recipe_count" -ne 2 ] \

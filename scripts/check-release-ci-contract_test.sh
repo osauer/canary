@@ -198,6 +198,7 @@ jobs:
         id: tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
@@ -205,9 +206,15 @@ jobs:
             echo "unexpected tag '$tag'" >&2
             exit 1
           fi
+          case "$RELEASE_EVENT" in
+            release) source_mode=tag ;;
+            workflow_dispatch) source_mode=controller ;;
+            *) echo "unexpected event '$RELEASE_EVENT'" >&2; exit 1 ;;
+          esac
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'source_mode=%s\n' "$source_mode" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout recovery controller
+      - name: Checkout release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: osauer/canary
@@ -224,21 +231,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_MODE: ${{ steps.tag.outputs.source_mode }}
         run: |
           set -euo pipefail
-          make release-github-assets RELEASE_VERSION="$RELEASE_TAG"
+          make release-github-assets RELEASE_VERSION="$RELEASE_TAG" RELEASE_SOURCE_MODE="$RELEASE_SOURCE_MODE"
 
       - name: Verify exact release authority
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_SOURCE_MODE: ${{ steps.tag.outputs.source_mode }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
           release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
           contract="$(mktemp "${RUNNER_TEMP}/canary-release-ci-contract.XXXXXX")"
           trap 'rm -f "$contract"' EXIT HUP INT TERM
-          ./scripts/check-release-source.sh --controller "$tag"
+          ./scripts/check-release-source.sh --mode "$RELEASE_SOURCE_MODE" "$tag"
           ./scripts/check-release-origin.sh
           ./scripts/check-release-ci-contract.sh
           python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract"
@@ -372,7 +381,11 @@ for registry_mutation in \
 	direct_registry_query \
 	direct_run_expression \
 	publish_env_injection \
-	source_without_controller \
+	source_without_mode \
+	source_pinned_mode \
+	assets_without_mode \
+	swapped_event_modes \
+	open_event_mode \
 	head_release_sha_resolution \
 	head_historical_waiter
 do
@@ -454,9 +467,28 @@ replacements = {
         "          BASH_ENV: ./untrusted.sh\n"
         "        run: |\n",
     ),
-    "source_without_controller": (
-        './scripts/check-release-source.sh --controller "$tag"',
+    "source_without_mode": (
+        './scripts/check-release-source.sh --mode "$RELEASE_SOURCE_MODE" "$tag"',
         './scripts/check-release-source.sh "$tag"',
+    ),
+    "source_pinned_mode": (
+        './scripts/check-release-source.sh --mode "$RELEASE_SOURCE_MODE" "$tag"',
+        './scripts/check-release-source.sh --mode tag "$tag"',
+    ),
+    "assets_without_mode": (
+        'make release-github-assets RELEASE_VERSION="$RELEASE_TAG" '
+        'RELEASE_SOURCE_MODE="$RELEASE_SOURCE_MODE"',
+        'make release-github-assets RELEASE_VERSION="$RELEASE_TAG"',
+    ),
+    "swapped_event_modes": (
+        "            release) source_mode=tag ;;\n"
+        "            workflow_dispatch) source_mode=controller ;;\n",
+        "            release) source_mode=controller ;;\n"
+        "            workflow_dispatch) source_mode=tag ;;\n",
+    ),
+    "open_event_mode": (
+        '            *) echo "unexpected event \'$RELEASE_EVENT\'" >&2; exit 1 ;;\n',
+        "",
     ),
     "head_release_sha_resolution": (
         'release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"',

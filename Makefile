@@ -51,6 +51,7 @@ CODEX_SKILL_DIR ?= $(CODEX_DIR)/skills/canary
 SKILL_SRC  ?= skills/canary
 
 MAIN_BRANCH ?= main
+RELEASE_SOURCE_MODE ?= controller
 RELEASE_CI_POLL ?= 15s
 RELEASE_CI_TIMEOUT ?= 30m
 RELEASE_CONTROLLER_CONTRACT = release-controller-v1
@@ -67,17 +68,19 @@ override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --kee
 # decides whether the smoked binary can reach the broker write path at all, and
 # STRIP_LDFLAGS is injected verbatim into the published binaries' link flags.
 # GO_BUILD_TAGS and LDFLAGS are pinned with them because a derived variable
-# that can be overridden directly is a way around the source it derives from.
-# Guarded release targets therefore reject any origin but this makefile, the
-# same expansion-time treatment MAKE and MAKEFLAGS already get.
-override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS
+# that can be overridden directly is a way around the source it derives from,
+# and RELEASE_SOURCE_MODE because it selects which commit a publication helper
+# proves it is running from. Guarded release targets therefore reject any origin
+# but this makefile, the same expansion-time treatment MAKE and MAKEFLAGS
+# already get.
+override release_pinned_vars = RELEASE_TARGETS SPX_EXPECTED_REACHABLE SMOKE_STRICT MAIN_BRANCH GO_TAGS GO_BUILD_TAGS STRIP_LDFLAGS LDFLAGS RELEASE_SOURCE_MODE
 override release_overridden_vars = $(strip $(foreach release_pinned_var,$(release_pinned_vars),$(if $(filter file,$(origin $(release_pinned_var))),,$(release_pinned_var))))
 MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publisher)
 RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -935,11 +938,19 @@ release-main-candidate-check:
 	fi
 
 release-source-candidate-check:
-	@./scripts/check-release-source.sh "$(RELEASE_VERSION)"
+	@./scripts/check-release-source.sh --mode tag "$(RELEASE_VERSION)"
 
 release-controller-source-check:
 	$(MAKE) release-origin-check
-	@./scripts/check-release-source.sh --controller "$(RELEASE_VERSION)"
+	@./scripts/check-release-source.sh --mode controller "$(RELEASE_VERSION)"
+
+# The registry workflow checks out github.workflow_sha, which is the tag commit
+# on a release publication and the dispatch ref head on a manual heal. Its
+# anchor therefore follows the trigger, and only this target takes it from the
+# caller; every other source proof names one fixed mode.
+release-source-mode-check:
+	$(MAKE) release-origin-check
+	@./scripts/check-release-source.sh --mode "$(RELEASE_SOURCE_MODE)" "$(RELEASE_VERSION)"
 
 release-tag-candidate-check:
 	$(MAKE) release-origin-check
@@ -959,7 +970,7 @@ release-github-assets: ## Hydrate and verify the exact signed asset set from an 
 		echo "release-github-assets: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
-	$(MAKE) release-controller-source-check RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-source-mode-check RELEASE_VERSION=$(RELEASE_VERSION)
 	@./scripts/hydrate-github-release-assets.sh "$(RELEASE_VERSION)" "$(abspath $(DIST_DIR))"
 	$(MAKE) release-github-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 

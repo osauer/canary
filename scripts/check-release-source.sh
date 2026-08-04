@@ -3,18 +3,24 @@
 # Require publication helpers to run from either the clean exact release tag
 # or a clean, current origin/main recovery controller. The latter keeps current
 # safety code in authority while treating an older tag only as immutable input.
+# The mode is always explicit: a caller that cannot name its anchor does not
+# know which commit it is trusting.
 
 set -euo pipefail
 
-mode="tag"
-if [ "$#" -eq 2 ] && [ "$1" = "--controller" ]; then
-	mode="controller"
-	shift
-fi
-if [ "$#" -ne 1 ]; then
-	echo "usage: $0 [--controller] vX.Y.Z" >&2
+if [ "$#" -ne 3 ] || [ "$1" != "--mode" ]; then
+	echo "usage: $0 --mode tag|controller vX.Y.Z" >&2
 	exit 2
 fi
+mode="$2"
+shift 2
+case "$mode" in
+	tag | controller) ;;
+	*)
+		echo "check-release-source: mode must be tag or controller (got $mode)" >&2
+		exit 2
+		;;
+esac
 
 version="$1"
 if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then

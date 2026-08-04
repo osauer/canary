@@ -131,7 +131,7 @@ PUSH_FILTER_KEYS = {
 }
 EXPECTED_REGISTRY_STEPS = (
     "Resolve tag",
-    "Checkout recovery controller",
+    "Checkout release source",
     "Set up Go",
     "Hydrate and verify exact release asset set",
     "Verify exact release authority",
@@ -148,11 +148,19 @@ EXPECTED_REGISTRY_COMMANDS = {
         'echo "unexpected tag \'$tag\'" >&2 '
         "exit 1 "
         "fi "
-        "printf 'tag=%s\\n' \"$tag\" >> \"$GITHUB_OUTPUT\""
+        'case "$RELEASE_EVENT" in '
+        "release) source_mode=tag ;; "
+        "workflow_dispatch) source_mode=controller ;; "
+        '*) echo "unexpected event \'$RELEASE_EVENT\'" >&2; exit 1 ;; '
+        "esac "
+        "printf 'tag=%s\\n' \"$tag\" >> \"$GITHUB_OUTPUT\" "
+        "printf 'source_mode=%s\\n' \"$source_mode\" >> \"$GITHUB_OUTPUT\""
     ),
     "Hydrate and verify exact release asset set": (
         "set -euo pipefail "
-        'make release-github-assets RELEASE_VERSION="$RELEASE_TAG"'
+        "make release-github-assets "
+        'RELEASE_VERSION="$RELEASE_TAG" '
+        'RELEASE_SOURCE_MODE="$RELEASE_SOURCE_MODE"'
     ),
     "Verify exact release authority": (
         "set -euo pipefail "
@@ -160,7 +168,7 @@ EXPECTED_REGISTRY_COMMANDS = {
         'release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")" '
         'contract="$(mktemp "${RUNNER_TEMP}/canary-release-ci-contract.XXXXXX")" '
         "trap 'rm -f \"$contract\"' EXIT HUP INT TERM "
-        './scripts/check-release-source.sh --controller "$tag" '
+        './scripts/check-release-source.sh --mode "$RELEASE_SOURCE_MODE" "$tag" '
         "./scripts/check-release-origin.sh "
         "./scripts/check-release-ci-contract.sh "
         'python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract" '
@@ -1279,7 +1287,7 @@ def validate_registry_workflow(root):
     steps = registry_steps(path, raw)
     expected_step_keys = {
         "Resolve tag": ("id", "env", "run"),
-        "Checkout recovery controller": ("uses", "with"),
+        "Checkout release source": ("uses", "with"),
         "Set up Go": ("uses", "with"),
         "Hydrate and verify exact release asset set": ("env", "run"),
         "Verify exact release authority": ("env", "run"),
@@ -1298,7 +1306,7 @@ def validate_registry_workflow(root):
         line == "        id: tag" for line in steps["Resolve tag"]["lines"]
     ) != 1:
         fail(f"{path}:{steps['Resolve tag']['number']}: tag step id is not exact")
-    checkout = steps["Checkout recovery controller"]
+    checkout = steps["Checkout release source"]
     checkout_text = "\n".join(checkout["lines"])
     if checkout_text.count(f"uses: {CHECKOUT_ACTION}") != 1:
         fail(f"{path}:{checkout['number']}: checkout action pin is not exact")
@@ -1328,14 +1336,17 @@ def validate_registry_workflow(root):
     expected_step_environments = {
         "Resolve tag": {
             "RELEASE_TAG": "${{ github.event.release.tag_name || inputs.tag }}",
+            "RELEASE_EVENT": "${{ github.event_name }}",
         },
         "Hydrate and verify exact release asset set": {
             "GH_TOKEN": "${{ github.token }}",
             "RELEASE_TAG": "${{ steps.tag.outputs.tag }}",
+            "RELEASE_SOURCE_MODE": "${{ steps.tag.outputs.source_mode }}",
         },
         "Verify exact release authority": {
             "GH_TOKEN": "${{ github.token }}",
             "RELEASE_TAG": "${{ steps.tag.outputs.tag }}",
+            "RELEASE_SOURCE_MODE": "${{ steps.tag.outputs.source_mode }}",
         },
         "Install mcp-publisher": {
             "GH_TOKEN": "${{ github.token }}",
@@ -1365,6 +1376,9 @@ def validate_registry_workflow(root):
             'tag="$RELEASE_TAG"',
             '[[ "$tag" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+'
             "(-[A-Za-z0-9.-]+)?$ ]]",
+            'case "$RELEASE_EVENT" in',
+            "release) source_mode=tag ;;",
+            "workflow_dispatch) source_mode=controller ;;",
             "GITHUB_OUTPUT",
         ),
     )
@@ -1381,7 +1395,8 @@ def validate_registry_workflow(root):
         assets,
         (
             "set -euo pipefail",
-            'make release-github-assets RELEASE_VERSION="$RELEASE_TAG"',
+            'make release-github-assets RELEASE_VERSION="$RELEASE_TAG" '
+            'RELEASE_SOURCE_MODE="$RELEASE_SOURCE_MODE"',
         ),
     )
 
@@ -1405,7 +1420,7 @@ def validate_registry_workflow(root):
             'release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"',
             'contract="$(mktemp "${RUNNER_TEMP}/canary-release-ci-contract.XXXXXX")"',
             "trap 'rm -f \"$contract\"' EXIT HUP INT TERM",
-            './scripts/check-release-source.sh --controller "$tag"',
+            './scripts/check-release-source.sh --mode "$RELEASE_SOURCE_MODE" "$tag"',
             "./scripts/check-release-origin.sh",
             "./scripts/check-release-ci-contract.sh",
             'python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract"',

@@ -32,19 +32,19 @@ git -C "$repo" push -q origin main v1.2.3
 
 (
 	cd "$repo"
-	"$checker" v1.2.3 >/dev/null
-	"$checker" --controller v1.2.3 >/dev/null
+	"$checker" --mode tag v1.2.3 >/dev/null
+	"$checker" --mode controller v1.2.3 >/dev/null
 	mkdir -p dist
 	printf '%s\n' ignored >dist/server.json
-	"$checker" v1.2.3 >/dev/null
-	"$checker" --controller v1.2.3 >/dev/null
+	"$checker" --mode tag v1.2.3 >/dev/null
+	"$checker" --mode controller v1.2.3 >/dev/null
 )
 
 expect_dirty_rejection() {
 	local label="$1"
 	if (
 		cd "$repo"
-		"$checker" v1.2.3 >/dev/null 2>&1
+		"$checker" --mode tag v1.2.3 >/dev/null 2>&1
 	); then
 		echo "check-release-source test: $label source passed" >&2
 		exit 1
@@ -70,21 +70,37 @@ git -C "$repo" commit -q -am next
 git -C "$repo" push -q origin main
 if (
 	cd "$repo"
-	"$checker" v1.2.3 >/dev/null 2>&1
+	"$checker" --mode tag v1.2.3 >/dev/null 2>&1
 ); then
 	echo "check-release-source test: HEAD away from tag passed" >&2
 	exit 1
 fi
 (
 	cd "$repo"
-	"$checker" --controller v1.2.3 >/dev/null
+	"$checker" --mode controller v1.2.3 >/dev/null
 )
+
+# The registry workflow's release-publication checkout: HEAD is the tag while
+# origin/main has already moved on. Tag mode is the only anchor that holds.
+git -C "$repo" checkout -q --detach v1.2.3
+(
+	cd "$repo"
+	"$checker" --mode tag v1.2.3 >/dev/null
+)
+if (
+	cd "$repo"
+	"$checker" --mode controller v1.2.3 >/dev/null 2>&1
+); then
+	echo "check-release-source test: tag checkout passed as controller" >&2
+	exit 1
+fi
+git -C "$repo" checkout -q main
 
 printf '%s\n' unpushed >>"$repo/tracked.txt"
 git -C "$repo" commit -q -am unpushed
 if (
 	cd "$repo"
-	"$checker" --controller v1.2.3 >/dev/null 2>&1
+	"$checker" --mode controller v1.2.3 >/dev/null 2>&1
 ); then
 	echo "check-release-source test: unpushed controller passed" >&2
 	exit 1
@@ -92,10 +108,30 @@ fi
 
 if (
 	cd "$repo"
-	"$checker" 'v1.2.3/../../unsafe' >/dev/null 2>&1
+	"$checker" --mode tag 'v1.2.3/../../unsafe' >/dev/null 2>&1
 ); then
 	echo "check-release-source test: unsafe version passed" >&2
 	exit 1
 fi
+
+# An anchor nobody named is an anchor nobody proved: every malformed mode
+# argument must fail rather than fall back to a default.
+expect_usage_rejection() {
+	local label="$1"
+	shift
+	if (
+		cd "$repo"
+		"$checker" "$@" >/dev/null 2>&1
+	); then
+		echo "check-release-source test: $label passed" >&2
+		exit 1
+	fi
+}
+
+expect_usage_rejection "bare version" v1.2.3
+expect_usage_rejection "legacy --controller" --controller v1.2.3
+expect_usage_rejection "unknown mode" --mode origin v1.2.3
+expect_usage_rejection "empty mode" --mode "" v1.2.3
+expect_usage_rejection "missing version" --mode tag
 
 echo "check-release-source test: OK"
