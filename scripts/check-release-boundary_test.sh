@@ -318,7 +318,7 @@ release-resume:
 	$(if $(release_overridden_vars),$(error release-resume: release variables must not be overridden: $(release_overridden_vars)),)
 	@release_sha=$$(git rev-parse --verify "refs/tags/$(RELEASE_VERSION)^{commit}") || exit 1; \
 	controller_sha=$$(git rev-parse --verify "HEAD^{commit}") || exit 1; \
-	if ! git grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1' "$$controller_sha" -- Makefile; then \
+	if ! git cat-file blob "$$controller_sha:Makefile" | grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1'; then \
 		exit 1; \
 	fi; \
 	controller_wt="controller"; \

@@ -1271,7 +1271,7 @@ release-resume: ## Resume a release interrupted after its tag was pushed: make r
 		exit 1; \
 	fi; \
 	controller_sha=$$(git rev-parse --verify "HEAD^{commit}") || exit 1; \
-	if ! git grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1' "$$controller_sha" -- Makefile; then \
+	if ! git cat-file blob "$$controller_sha:Makefile" | grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1'; then \
 		echo "release-resume: committed HEAD lacks the current recovery-controller contract; update and commit main first" >&2; \
 		exit 1; \
 	fi; \

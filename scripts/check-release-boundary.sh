@@ -687,7 +687,8 @@ while IFS= read -r line; do
 				resume_unsafe_flags_guard_count=$((resume_unsafe_flags_guard_count + 1))
 				resume_unsafe_flags_guard_position="$resume_recipe_code_index"
 			}
-		[[ "$code" == *"git grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1'"* ]] \
+		[[ "$code" == *'git cat-file blob "$$controller_sha:Makefile"'* ]] \
+			&& [[ "$code" == *"grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1'"* ]] \
 			&& resume_controller_marker_count=$((resume_controller_marker_count + 1))
 		[ "$code" = 'git worktree add --detach "$$controller_wt" "$$controller_sha" || exit 1; \' ] \
 			&& resume_controller_worktree_count=$((resume_controller_worktree_count + 1))
