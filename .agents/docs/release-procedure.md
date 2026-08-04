@@ -80,15 +80,19 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   irreversible steps — but hosted CI overrides `CHECK_DEPS=parity-check` and
   drops it. A stale stamp therefore cannot reach a tag, and a green CI run says
   nothing about it; only a local `make check`/`make test` catches it early.
-  Treat any gate beneath `plugin-check` the same way — `docs/mcp-server.json`
-  — the canonical
-  MCP discovery file, whose two `docs/.well-known/mcp/` copies are generated;
-  bump the canonical one and run `make docs-regen`, never hand-edit the copies
-  (`docs-check` rejects that) — `bug_report.yml`, and the
+  Treat any gate beneath `plugin-check` the same way, and the
   `hooks/session-start.sh` fallback semver
   (major.minor only — unchanged for patch releases; a real bump there is a
-  code edit, see hard policy). `release-site-check` gates the three MCP
-  discovery stamps on every release, patch included. Non-patch releases
+  code edit, see hard policy).
+  There are five version stamps, and the two `docs/.well-known/mcp/` files are
+  not both generated. Bump canonical `docs/mcp-server.json` and run
+  `make docs-regen`: that refreshes the `server.json` copy — never hand-edit
+  that one, `docs-check` rejects it — but leaves `server-card.json` alone,
+  because its `serverInfo.version` is written by no generator and has to be
+  edited by hand. `bug_report.yml`'s placeholder is hand-edited too.
+  `release-site-check` gates those four on every release, patch included, each
+  with a hint naming its own fix; `.claude-plugin/plugin.json` and root
+  `server.json` are the two gated elsewhere. Non-patch releases
   additionally need the two landing/spoke-page `softwareVersion` stamps —
   authoritative list in `scripts/check-release-site-sync.sh` — committed
   AND pushed.

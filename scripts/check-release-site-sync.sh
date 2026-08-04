@@ -75,8 +75,21 @@ for f in docs/mcp-server.json docs/.well-known/mcp/server.json docs/.well-known/
   fi
 done
 
+# The issue-template placeholder is the version a bug reporter sees as the
+# example to overwrite, so it ships on every release too. It has tracked the
+# tag at every release since v2.3.0, but nothing gated it: `make check` has no
+# view of this file at all, and a stale placeholder invites reports filed
+# against a version that is no longer current. A missing file fails here the
+# same way the discovery stamps above do.
+template=.github/ISSUE_TEMPLATE/bug_report.yml
+if ! grep -q "placeholder: \"$version\"" "$template"; then
+  echo "release-site-check: $template placeholder is not $version" >&2
+  echo "                    bump the \"Canary version\" placeholder by hand; no generator writes it" >&2
+  exit 1
+fi
+
 if [ "$patch" -ne 0 ]; then
-  echo "release-site-check: $version is a patch release; MCP discovery stamps OK, static site push not required"
+  echo "release-site-check: $version is a patch release; MCP discovery and issue-template stamps OK, static site push not required"
   exit 0
 fi
 
