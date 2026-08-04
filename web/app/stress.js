@@ -1316,14 +1316,24 @@ function marketSourceIssueLabels(snap = {}) {
     if (label && !labels.includes(label)) labels.push(label);
   };
 
+  // A refused subscription is the cause behind the vaguer per-symbol quote
+  // error, so it is named first and the symbol's "quote unavailable" line is
+  // dropped: two lines about one symbol read as two separate faults.
+  const refused = marketAccessBySymbol(snap);
+  for (const label of refused.values()) add(label);
+
   for (const [symbol, error] of Object.entries(snap.market_quotes?.errors || {})) {
-    add(`${normalizeSymbol(symbol)} ${marketQuoteErrorLabel(error)}`);
+    const name = normalizeSymbol(symbol);
+    if (refused.has(name)) continue;
+    add(`${name} ${marketQuoteErrorLabel(error)}`);
   }
 
   const marketSourceError = String(snap.sources?.market_quotes?.error || "").trim();
   if (marketSourceError) {
     for (const part of marketSourceError.split("|")) {
-      add(marketSourceErrorLabel(part));
+      const label = marketSourceErrorLabel(part);
+      if (refused.has(label.split(" ")[0])) continue;
+      add(label);
     }
   }
 
@@ -1333,6 +1343,34 @@ function marketSourceIssueLabels(snap = {}) {
   }
 
   return labels;
+}
+
+// marketAccessBySymbol maps each symbol the gateway is currently refusing
+// market data for to its display label, from status.market_data_access.
+//
+// This is an observation with a retry window, not a record of the account's
+// entitlements: nothing here disables a panel or hides a value, a symbol
+// nothing asked for never appears, and a data-farm outage can list a symbol
+// the account does hold. Panels holding a cached result keep rendering it.
+function marketAccessBySymbol(snap = {}) {
+  const out = new Map();
+  for (const row of snap.status?.market_data_access || []) {
+    const name = normalizeSymbol(row.symbol || row.route_key);
+    if (!name || out.has(name)) continue;
+    out.set(name, `${name} ${marketAccessReasonLabel(row)}`);
+  }
+  return out;
+}
+
+// marketAccessReasonLabel renders the daemon's typed reason. The broker's own
+// free text never reaches the wire, so the code is the only classification
+// input, and 354 — the account is not subscribed — is the one a user can act
+// on directly.
+function marketAccessReasonLabel(row = {}) {
+  const reason = String(row.reason || "").toLowerCase();
+  const phrase = reason === "not_subscribed" ? "not subscribed" : "market data refused";
+  const code = Number(row.code || 0);
+  return code > 0 ? `${phrase} (IBKR ${code})` : phrase;
 }
 
 function marketSourceErrorLabel(error) {
@@ -1636,9 +1674,15 @@ function gatewayDataStatus(snap = {}) {
     String(subsystem.name || "").toLowerCase() === "quote" &&
     String(subsystem.status || "").toLowerCase() === "ready"
   );
-  if (status.connected && quoteReady && mode.includes("paper")) return "Paper gateway live quotes OK";
-  if (status.connected && quoteReady) return "Gateway live quotes OK";
-  if (status.connected) return "Gateway connected";
+  // A refused subscription leaves the socket connected and the quote
+  // subsystem ready, so the unqualified "live quotes OK" was true of the
+  // link and wrong about the data. Name the symbols instead of dropping
+  // the reading — everything else on the feed is still fine.
+  const refused = [...marketAccessBySymbol(snap).values()];
+  const qualify = (reading) => refused.length === 0 ? reading : `${reading}; ${humanList(refused, 2)}`;
+  if (status.connected && quoteReady && mode.includes("paper")) return qualify("Paper gateway live quotes OK");
+  if (status.connected && quoteReady) return qualify("Gateway live quotes OK");
+  if (status.connected) return qualify("Gateway connected");
   return "Gateway status pending";
 }
 
@@ -1906,4 +1950,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

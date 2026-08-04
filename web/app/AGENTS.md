@@ -76,6 +76,22 @@ quote-marked value.
 - Use `font-variant-numeric: tabular-nums` wherever digits align in columns or
   tick over in place.
 
+## Market Data Access
+
+`status.market_data_access[]` names the route keys the gateway is currently
+refusing market data for. It is a time-windowed observation, never an
+entitlement model: do not gate, disable, hide, or blank any panel on it. A
+refusal is route-keyed and expires, delayed-data fallbacks and farm outages
+make the inference wrong in both directions, and a panel holding a cached
+result serves it correctly while a fresh fetch for the same key would be
+refused. Degrade loudly — name the symbol and the IBKR code, and keep
+rendering. An empty list means nothing was refused inside the window, not
+that every symbol is entitled.
+
+Prefer naming the refusal over the symptom it causes: a symbol with an
+active refusal should not also render a vaguer per-symbol quote fault, or
+one cause reads as two.
+
 ## Gates
 
 Use the narrow loop while iterating:

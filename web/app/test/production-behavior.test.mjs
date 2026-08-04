@@ -432,6 +432,52 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
 // the last converged one when a refresh cannot reach its coverage threshold.
 // The row rendered the percentages with nothing saying which day they came
 // from, so a lane that had stopped producing looked current on the phone.
+test("a refused market-data subscription is named on the app instead of reading as a vague quote fault", () => {
+  reset();
+  const snap = {
+    status: {
+      connected: true,
+      subsystems: [{ name: "quote", status: "ready" }],
+      market_data_access: [{ route_key: "SPX|IND|CBOE", symbol: "SPX", code: 354, reason: "not_subscribed" }],
+    },
+    market_quotes: { errors: { SPX: "quote.snapshot: symbol_inactive" } },
+    sources: {},
+  };
+
+  // The cause is named, and the symbol's vaguer "quote unavailable" line is
+  // dropped so one fault does not read as two.
+  const labels = stress.marketSourceIssueLabels(snap);
+  assert.deepEqual(labels, ["SPX not subscribed (IBKR 354)"]);
+
+  // The gateway reading stays true about the link and stops being wrong
+  // about the data.
+  assert.equal(stress.gatewayDataStatus(snap), "Gateway live quotes OK; SPX not subscribed (IBKR 354)");
+
+  // The Data quality remark surfaces it without any other source degrading.
+  stress.renderRegimeQualityRemarks(snap, {});
+  assert.equal(dom.element("regimeQualityRemarks").hidden, false);
+  assert.equal(dom.element("regimeQualityText").textContent, "SPX not subscribed (IBKR 354)");
+
+  // An unknown rejection code stays honest rather than claiming the
+  // subscription is the cause.
+  assert.equal(
+    stress.marketAccessReasonLabel({ reason: "rejected", code: 322 }),
+    "market data refused (IBKR 322)",
+  );
+
+  // A desk with nothing refused is unchanged: no label, no qualifier, and
+  // an unrelated quote error still reports itself.
+  const quiet = {
+    status: { connected: true, subsystems: [{ name: "quote", status: "ready" }] },
+    market_quotes: { errors: { SPY: "quote.snapshot: timeout" } },
+    sources: {},
+  };
+  assert.deepEqual(stress.marketSourceIssueLabels(quiet), ["SPY quote timeout"]);
+  assert.equal(stress.gatewayDataStatus(quiet), "Gateway live quotes OK");
+  stress.renderRegimeQualityRemarks({ status: { connected: true }, sources: {} }, {});
+  assert.equal(dom.element("regimeQualityRemarks").hidden, true);
+});
+
 test("brief breadth row shows the session it is reading and flags an overdue one", () => {
   reset();
   state.authenticated = true;
