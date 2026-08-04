@@ -60,6 +60,20 @@ func renderBreadthText(env *Env, r *rpc.BreadthSPXResult) int {
 	// NetNewHighsPct ≈ 0 (or negative).
 	fmt.Fprintf(out, "  52w highs/lows %d / %d  (net %+.1f %%)\n",
 		r.NewHighsToday, r.NewLowsToday, r.NetNewHighsPct)
+	// The reading above is a specific trading session's close, and the daemon
+	// keeps serving the last good one when a refresh cannot converge. Without
+	// a date on screen there was no way to tell today's breadth from a
+	// snapshot the lane stopped updating days ago.
+	if r.SessionKey != "" {
+		session := r.SessionKey
+		if r.Stale {
+			session += env.yellow("  (stale — not the latest completed session)")
+		}
+		fmt.Fprintf(out, "  Session        %s\n", session)
+	}
+	if !r.AsOf.IsZero() {
+		fmt.Fprintf(out, "  Computed       %s\n", r.AsOf.Format("2006-01-02 15:04 MST"))
+	}
 	if !r.SpotAt.IsZero() {
 		fmt.Fprintf(out, "  Observed       %s\n", r.SpotAt.Format("2006-01-02 15:04 MST"))
 	}

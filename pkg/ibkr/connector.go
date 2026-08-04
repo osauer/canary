@@ -1383,15 +1383,15 @@ func (c *Connector) recordDataFarmNotice(code int, message string, asOf time.Tim
 	if c.dataFarms == nil {
 		c.dataFarms = make(map[string]DataFarmStatus)
 	}
-	if farm.Status == "ok" {
-		// Any OK notice implies the TWS<->IBKR link is up again; if it was
-		// marked broken, this delete is itself an impaired->ok transition.
-		connKey := dataFarmKey("connectivity", "tws-server")
-		if prev, had := c.dataFarms[connKey]; had && farmStatusImpaired(prev.Status) {
-			c.farmRecoveryAt = time.Now()
-		}
-		delete(c.dataFarms, connKey)
-	}
+	// A farm-level OK says nothing about the TWS<->IBKR link. This used to
+	// clear the connectivity mark on ANY ok notice, so a routine 2104
+	// ("market data farm connection is OK:usfarm") erased a 1100/2110 break
+	// — and because an impaired connectivity row short-circuits every farm
+	// type to unavailable in the status surface, that turned a real outage
+	// green. Only a connectivity notice writes the connectivity key now,
+	// which 1101/1102 already do through the generic path below: they carry
+	// type "connectivity" and the same forced "tws-server" name, so the
+	// overwrite and its impaired->ok stamp land there.
 	key := dataFarmKey(farm.Type, farm.Name)
 	if prev, had := c.dataFarms[key]; had && farmStatusImpaired(prev.Status) && farm.Status == "ok" {
 		c.farmRecoveryAt = time.Now()

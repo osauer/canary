@@ -734,6 +734,15 @@ type BreadthSPXResult struct {
 	// computed daily bars. It may differ from AsOf on weekends,
 	// holidays, and before the current session's close is settled.
 	SessionKey string `json:"session_key,omitempty"`
+	// Stale reports that SessionKey is not the latest completed US-equity
+	// session — the reading is a real past close, not the current one.
+	// The engine withholds a below-coverage refresh and keeps serving the
+	// previous snapshot, so a lane that stops producing serves plausible
+	// numbers indefinitely; this is the field that dates them. It is
+	// deliberately separate from State, which stays "ready" for a stale
+	// snapshot: State gates whether regime, composite, and the brief
+	// consume breadth at all, and a stale close is still evidence there.
+	Stale bool `json:"stale,omitempty"`
 	// SpotAt is the gateway-observation timestamp for the headline,
 	// distinct from AsOf which covers history + headline.
 	SpotAt time.Time `json:"spot_at,omitzero"`

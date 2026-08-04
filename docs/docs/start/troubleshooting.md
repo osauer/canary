@@ -97,9 +97,9 @@ So the fix is a reconnect. `canary restart` gets you one immediately instead of 
 
 ## Breadth shows `0.0 %`, or stays `computing`
 
-`canary breadth` renders the snapshot fields without checking the state first, so a cold or still-computing engine prints `0.0 %` for both moving-average rows rather than saying it has no data yet. That is an unset field, not a market reading.
+A cold or still-computing engine has no reading yet, and `canary breadth` says so instead of printing the unset `0.0 %` for both moving-average rows. Use `canary breadth --json` and check `state`, which is one of `cold`, `computing`, `ready`, or `degraded`.
 
-Use `canary breadth --json` and check `state`, which is one of `cold`, `computing`, `ready`, or `degraded`. `canary status` also carries a breadth subsystem row that reports `S&P 500 breadth refresh is running or waiting to retry` while a refresh is live.
+A `ready` reading is one specific session's close. `canary breadth` prints that session date, and marks it stale when it is no longer the latest completed session — the daemon keeps serving the last converged snapshot rather than publishing a partial one, so a lane that has stopped producing shows plausible numbers until you look at the date. `canary status` carries a breadth subsystem row for the cause: it reports `S&P 500 breadth refresh is running or waiting to retry` while a refresh is live, and `degraded` when the second broker connection breadth uses is down while the main one is up.
 
 Computing for a long time is expected on a fresh daemon. IBKR's historical-data pacing caps the 503-name fan-out at about 6 names a minute, so the first build takes about 74 minutes. A pass that lands below 80% constituent coverage publishes nothing and retries every 12 minutes, up to 15 times, which can stretch the wait considerably. After that the state falls back to `cold` and the normal once-daily refresh takes over, 35 minutes after the official session close.
 

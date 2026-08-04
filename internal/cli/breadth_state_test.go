@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -41,4 +42,45 @@ func TestBreadthTextShowsReadyNumbers(t *testing.T) {
 	if !strings.Contains(stdout.String(), "61.2") {
 		t.Errorf("ready state must print its reading:\n%s", stdout.String())
 	}
+}
+
+// The reading is one trading session's close and the daemon keeps serving
+// the last good one when a refresh cannot converge. Without the date on
+// screen there was no way to tell today's breadth from a snapshot the lane
+// stopped updating days ago.
+func TestBreadthTextDatesTheReading(t *testing.T) {
+	t.Parallel()
+	computed := time.Date(2026, 7, 20, 22, 35, 0, 0, time.UTC)
+
+	t.Run("current session", func(t *testing.T) {
+		var stdout bytes.Buffer
+		env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+		renderBreadthText(env, &rpc.BreadthSPXResult{
+			State: rpc.BreadthStateReady, PctAbove50DMA: 61.2,
+			SessionKey: "2026-07-20", AsOf: computed,
+		})
+		got := stdout.String()
+		if !strings.Contains(got, "2026-07-20") {
+			t.Errorf("session date missing:\n%s", got)
+		}
+		if strings.Contains(got, "stale") {
+			t.Errorf("a current session must not be marked stale:\n%s", got)
+		}
+	})
+
+	t.Run("stale session", func(t *testing.T) {
+		var stdout bytes.Buffer
+		env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+		renderBreadthText(env, &rpc.BreadthSPXResult{
+			State: rpc.BreadthStateReady, PctAbove50DMA: 61.2,
+			SessionKey: "2026-07-20", AsOf: computed, Stale: true,
+		})
+		got := stdout.String()
+		if !strings.Contains(got, "stale") {
+			t.Errorf("stale reading rendered as current:\n%s", got)
+		}
+		if !strings.Contains(got, "61.2") {
+			t.Errorf("a stale close is still a real close and must still print:\n%s", got)
+		}
+	})
 }

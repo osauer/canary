@@ -1213,10 +1213,11 @@ func assertGatewayUnavailable(t *testing.T, err error) {
 
 // TestClassifyBreadthState pins the breadth-handler state-classification
 // contract end-to-end. Three of the four wire states are produced from
-// the (snapshot-exists, refreshing) pair; "degraded" is reserved on the
-// enum but the v0.27.3 engine doesn't emit it (it refuses to persist
-// below the coverage threshold instead), so the table deliberately
-// does not exercise that case.
+// the (snapshot-exists, refreshing) pair; "degraded" stays reserved and
+// unproduced by design — a snapshot whose session is no longer current is
+// reported on BreadthSPXResult.Stale, because State gates whether regime,
+// the composite and the brief consume breadth at all (see the helper's
+// doc comment), and a stale close is still evidence there.
 //
 // The classification was a v0.27.3 fix: prior versions side-channelled
 // "refreshing" via fetchRegimeBreadth, which was prone to drift between

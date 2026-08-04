@@ -3918,12 +3918,7 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 		gamma.Message = "dealer gamma compute is fanning out option legs"
 	}
 	out = append(out, gamma)
-	breadth := rpc.SubsystemHealth{Name: "breadth", Status: gatewayStatus}
-	if s.breadth != nil && s.breadth.IsBusy() {
-		breadth.Status = "computing"
-		breadth.Message = "S&P 500 breadth refresh is running or waiting to retry"
-	}
-	out = append(out, breadth)
+	out = append(out, s.breadthSubsystemHealth(gatewayStatus))
 	if sub, ok := s.proposalSubsystemHealth(); ok {
 		out = append(out, sub)
 	}
@@ -3931,6 +3926,39 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 		out = append(out, sub)
 	}
 	return out
+}
+
+// breadthSubsystemHealth reports the breadth lane against the connection
+// breadth actually uses. The gateway-derived status this row used to carry
+// came from the PRIMARY connector, and breadth's ~503-name fan-out rides a
+// second one (see Server.breadthConnector): on 2026-08-03 the bulk socket
+// died, the primary recovered 26 s later, and this row read "ready" for the
+// seven hours breadth published nothing. gatewayStatus still wins when the
+// primary is down — a dead primary is the larger fact and the bulk lane
+// cannot outlive it.
+func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealth {
+	sub := rpc.SubsystemHealth{Name: "breadth", Status: gatewayStatus}
+	if gatewayStatus == "ready" {
+		if down, streak, lastAttempt := s.breadthLaneDown(); down {
+			sub.Status = "degraded"
+			sub.Message = "S&P 500 breadth runs on a second gateway connection and that connection is down; the primary connection is unaffected"
+			if streak > 0 {
+				sub.Message += fmt.Sprintf(" (%d redial attempts failed)", streak)
+			}
+			sub.LastError = "breadth_bulk_connector_down"
+			// The dial attempt, never the next-retry time: a LastErrorAt
+			// ahead of the health snapshot's as_of fails the whole
+			// data-health alert source closed (alertShadowDataHealthFacts
+			// checks every row before it filters down to its three roots).
+			sub.LastErrorAt = lastAttempt
+			return sub
+		}
+	}
+	if s.breadth != nil && s.breadth.IsBusy() {
+		sub.Status = "computing"
+		sub.Message = "S&P 500 breadth refresh is running or waiting to retry"
+	}
+	return sub
 }
 
 // proposalSubsystemHealth reports the protection-proposal engine's refresh
@@ -4250,6 +4278,7 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 		res.NetNewHighsPct = snap.NetNewHighsPct
 		res.AsOf = snap.AsOf
 		res.SessionKey = snap.SessionKey
+		res.Stale = breadthEnvelopeStale(res, time.Now())
 
 		history := s.breadth.History(historyDays)
 		res.History = make([]rpc.BreadthDailyValue, 0, len(history))
@@ -4279,10 +4308,14 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 //     briefly between daemon Start and postConnectSetup launching the
 //     engine, or after a coverage-threshold-failed refresh exhausts
 //     its retry budget
-//   - degraded: reserved; v0.27.3 engine refuses to persist below
-//     threshold so this state isn't currently produced. The enum
-//     defines it so a future schema can adopt it without a contract
-//     bump.
+//   - degraded: reserved, and staying that way. The obvious use — a
+//     snapshot whose session is no longer the current one — belongs on
+//     BreadthSPXResult.Stale instead, because every downstream consumer
+//     gates on State == ready — regime's envelope map, the regime
+//     indicators, the composite, the brief, backtest — and would silently
+//     drop a stale-but-real close from the market read. regime.go also
+//     maps this value to RegimeStatusUnavailable, which is stricter than
+//     the RegimeStatusStale a stale envelope earns today.
 func classifyBreadthState(snapshotExists, active bool) rpc.BreadthState {
 	switch {
 	case snapshotExists:

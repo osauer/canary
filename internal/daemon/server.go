@@ -1040,6 +1040,27 @@ func (s *Server) claimBreadthConnect() bool {
 	return true
 }
 
+// breadthLaneDown reports whether the bulk lane is known dead, plus the
+// failure streak and the last dial attempt so a status row can describe it
+// without inventing a timestamp.
+//
+// The zero lastBreadthConnectAttemptAt is the gate that keeps daemon
+// start-up out of the "down" state: before postConnectSetup has dialled the
+// bulk lane once, a nil connector is the expected shape, not a fault. After
+// that first attempt a non-ready connector is exactly the state that
+// stranded breadth for 7 h, and saying so is the point.
+func (s *Server) breadthLaneDown() (down bool, failStreak int, lastAttempt time.Time) {
+	s.mu.Lock()
+	c := s.breadthConnector
+	failStreak = s.breadthConnectFailStreak
+	lastAttempt = s.lastBreadthConnectAttemptAt
+	s.mu.Unlock()
+	if lastAttempt.IsZero() {
+		return false, failStreak, lastAttempt
+	}
+	return c == nil || !c.IsReady(), failStreak, lastAttempt
+}
+
 // releaseBreadthConnect hands the dial slot back and folds the outcome
 // into the backoff streak. Success resets it so the next genuine drop
 // reconnects immediately; failure widens the quiet period 1s→15s, the
