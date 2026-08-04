@@ -84,7 +84,12 @@ func renderPositionsText(env *Env, r *rpc.PositionsResult) int {
 
 func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quoteDetails bool) int {
 	fmt.Fprintln(out)
+	unavailable := renderPositionsAuthority(env, out, r)
 	if len(r.Stocks) == 0 && len(r.Options) == 0 {
+		if unavailable {
+			fmt.Fprintf(out, "Positions unavailable%s\n\n", env.suffixBadge(r.DataType))
+			return 0
+		}
 		fmt.Fprintf(out, "No open positions%s\n\n", env.suffixBadge(r.DataType))
 		return 0
 	}
@@ -100,8 +105,34 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 		renderOptionsTable(env, out, r.Options, r.DataType, showRealized)
 	}
 	fmt.Fprintf(out, "  %d positions  ·  as of %s\n",
-		len(r.Stocks)+len(r.Options), formatTimeShort(r.AsOf))
+		len(r.Stocks)+len(r.Options), formatTimeShort(positionsDisplayAsOf(r)))
 	return 0
+}
+
+func renderPositionsAuthority(env *Env, out io.Writer, r *rpc.PositionsResult) bool {
+	if r == nil || r.Authority == nil {
+		return false
+	}
+	scope := r.Authority.Scope
+	if scope.AccountID != "" || scope.AccountMode != "" {
+		fmt.Fprintf(out, "Positions  %s", nonEmpty(scope.AccountID, "—"))
+		if scope.AccountMode != "" {
+			fmt.Fprintf(out, " · %s", scope.AccountMode)
+		}
+		fmt.Fprintln(out)
+	}
+	writeAccountAuthorityNotice(env, out, r.Authority)
+	return r.Authority.Availability != rpc.AccountDataAvailable
+}
+
+func positionsDisplayAsOf(r *rpc.PositionsResult) time.Time {
+	if r == nil {
+		return time.Time{}
+	}
+	if r.Authority != nil && !r.Authority.AsOf.IsZero() {
+		return r.Authority.AsOf
+	}
+	return r.AsOf
 }
 
 // renderStocksTable prints the stocks block. The DAY column carries IBKR's
@@ -548,7 +579,12 @@ func renderPositionsByUnderlying(env *Env, r *rpc.PositionsResult) int {
 // widths stay correct under ANSI escapes.
 func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResult) int {
 	fmt.Fprintln(out)
+	unavailable := renderPositionsAuthority(env, out, r)
 	if len(r.ByUnderlying) == 0 {
+		if unavailable {
+			fmt.Fprintf(out, "Positions unavailable%s\n\n", env.suffixBadge(r.DataType))
+			return 0
+		}
 		fmt.Fprintf(out, "No open positions%s\n\n", env.suffixBadge(r.DataType))
 		return 0
 	}
@@ -648,7 +684,7 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 	fmt.Fprintln(out)
 	renderPortfolioSummaryTo(env, out, r)
 	fmt.Fprintf(out, "  %d underlyings  ·  as of %s\n",
-		len(r.ByUnderlying), formatTimeShort(r.AsOf))
+		len(r.ByUnderlying), formatTimeShort(positionsDisplayAsOf(r)))
 	return 0
 }
 

@@ -162,6 +162,30 @@ func TestOpportunitiesToolIsReadOnlyDiscovery(t *testing.T) {
 	}
 }
 
+func TestAccountAndPositionsToolsDescribeAuthority(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		want []string
+	}{
+		{name: "canary_account", want: []string{"`authority`", "one concrete account and mode", "availability", "freshness", "typed reason", "`fields`", "missing is never zero"}},
+		{name: "canary_positions", want: []string{"`authority`", "one concrete account and mode", "availability", "freshness", "typed reason", "empty position lists do not prove an empty book"}},
+	}
+	for _, tc := range cases {
+		tool, ok := lookupTool(tc.name)
+		if !ok {
+			t.Errorf("missing %s", tc.name)
+			continue
+		}
+		desc := strings.ToLower(tool.Description)
+		for _, want := range tc.want {
+			if !strings.Contains(desc, want) {
+				t.Errorf("%s description missing %q", tc.name, want)
+			}
+		}
+	}
+}
+
 func TestRulesToolDescribesPolicyAndTerminalProvenance(t *testing.T) {
 	t.Parallel()
 	tool, ok := lookupTool("canary_rules")

@@ -1,11 +1,17 @@
 import { protectionCoverageDetailFact } from "./protection-coverage.js";
-import { $, cleanDetail, hasNumericValue, labelize, money, pct, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, signedClass, signedTone, wholePct } from "./shared.js";
+import { $, accountBaseCurrency, accountFieldValue, cleanDetail, hasNumericValue, labelize, money, pct, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, signedClass, signedTone, wholePct } from "./shared.js";
 import { greeksCoverage, greeksMeaning } from "./shell.js";
 import { state } from "./state.js";
+import { positionsAuthorityView } from "./underlyings.js";
 
 function renderPortfolioRisk(positions, account) {
+  const authority = positionsAuthorityView(positions, state.snapshot?.sources?.positions || {});
+  if (!authority.available) {
+    renderPortfolioUnavailable(authority);
+    return;
+  }
   const portfolio = positions.portfolio || {};
-  const baseCurrency = portfolio.base_currency || account.base_currency || "";
+  const baseCurrency = portfolio.base_currency || accountBaseCurrency(account);
   renderPortfolioDeltaPosture(portfolio, account);
   // These two spans are screen-reader-only; without a spoken label the bare
   // money values read as unlabeled numbers, so the label travels inside.
@@ -47,6 +53,44 @@ function renderPortfolioRisk(positions, account) {
   }));
 }
 
+function renderPortfolioUnavailable(authority = {}) {
+  const detail = authority.detail || "Current portfolio data is unavailable.";
+  const stale = /stale|last good|retained/i.test(detail);
+  const value = $("portfolioDollarDelta");
+  value.textContent = stale ? "Portfolio stale" : "Portfolio unavailable";
+  value.className = "portfolio-delta-posture neutral";
+  $("portfolioDeltaMeaning").textContent = detail;
+  renderSensitiveText("portfolioDailyTheta", "--", false);
+  renderSensitiveText("portfolioFxSensitivity", "--", false);
+  $("portfolioGreeksCoverage").textContent = "--";
+  $("portfolioGreeksMeaning").textContent = "Current portfolio Greeks are unavailable.";
+  $("portfolioDetailSummary").textContent = stale ? "Portfolio data stale" : "Portfolio data unavailable";
+
+  const visual = $("portfolioExposureVisual");
+  visual.hidden = true;
+  visual.replaceChildren();
+  const exposures = $("portfolioExposureList");
+  exposures.hidden = true;
+  exposures.replaceChildren();
+
+  const panel = $("portfolioDetailPanel");
+  const button = $("portfolioDetailToggle");
+  const wrapper = $("portfolioPanel");
+  wrapper.dataset.open = String(state.portfolioDetailOpen);
+  panel.hidden = !state.portfolioDetailOpen;
+  button.setAttribute("aria-expanded", String(state.portfolioDetailOpen));
+  button.textContent = state.portfolioDetailOpen ? "Hide detail" : "Detail";
+  const list = $("portfolioDetailList");
+  if (!state.portfolioDetailOpen) {
+    list.replaceChildren();
+    return;
+  }
+  const row = document.createElement("div");
+  row.className = "empty-row";
+  row.textContent = detail;
+  list.replaceChildren(row);
+}
+
 function renderPortfolioDeltaPosture(portfolio, account) {
   const posture = portfolioDeltaPosture(portfolio, account);
   const value = $("portfolioDollarDelta");
@@ -61,7 +105,7 @@ function renderPortfolioDeltaPosture(portfolio, account) {
 
 function portfolioDeltaPosture(portfolio = {}, account = {}) {
   const delta = portfolio.dollar_delta_base ?? portfolio.dollar_delta_ccy;
-  const nlv = portfolio.net_liquidation_base ?? account.net_liquidation;
+  const nlv = portfolio.net_liquidation_base ?? accountFieldValue(account, "net_liquidation");
   if (typeof delta !== "number") {
     return {
       label: "Delta unavailable",
@@ -100,10 +144,11 @@ function portfolioDeltaPosture(portfolio = {}, account = {}) {
 }
 
 function exposureComposition(positions, account, portfolio, baseCurrency) {
-  const netLiquidation = portfolio.net_liquidation_base ?? account.net_liquidation;
+  const netLiquidation = portfolio.net_liquidation_base ?? accountFieldValue(account, "net_liquidation");
   const stocks = sumAbsBase(positions.stocks || [], baseCurrency);
   const options = sumAbsBase(positions.options || [], baseCurrency);
-  const cash = typeof account.total_cash === "number" ? Math.max(0, account.total_cash) : 0;
+  const accountCash = accountFieldValue(account, "total_cash");
+  const cash = typeof accountCash === "number" ? Math.max(0, accountCash) : 0;
   if (typeof netLiquidation === "number" && netLiquidation > 0) {
     const raw = [
       { label: "Equity", pct: stocks / netLiquidation * 100 },
@@ -218,11 +263,7 @@ function renderPortfolioDetail(portfolio, positions, baseCurrency) {
 
 function setPortfolioExpansion(open) {
   state.portfolioDetailOpen = Boolean(open);
-  renderPortfolioDetail(
-    state.snapshot?.positions?.portfolio || {},
-    state.snapshot?.positions || {},
-    state.snapshot?.positions?.portfolio?.base_currency || state.snapshot?.account?.base_currency || "",
-  );
+  renderPortfolioRisk(state.snapshot?.positions || {}, state.snapshot?.account || {});
 }
 
 function portfolioDetailRows(portfolio, positions, baseCurrency) {
@@ -316,4 +357,4 @@ function detailFact(fact) {
   return row;
 }
 
-export { detailFact, exposureComposition, exposureLegendItem, normalizeComposition, portfolioDeltaPosture, portfolioDetailRows, portfolioDetailSummary, renderExposureVisual, renderPortfolioDeltaPosture, renderPortfolioDetail, renderPortfolioRisk, setPortfolioExpansion, sumAbsBase };
+export { detailFact, exposureComposition, exposureLegendItem, normalizeComposition, portfolioDeltaPosture, portfolioDetailRows, portfolioDetailSummary, renderExposureVisual, renderPortfolioDeltaPosture, renderPortfolioDetail, renderPortfolioRisk, renderPortfolioUnavailable, setPortfolioExpansion, sumAbsBase };

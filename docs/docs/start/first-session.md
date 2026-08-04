@@ -1,6 +1,6 @@
 # Your first session
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-08-04 22:57 CEST
 
 Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; [Install and first run](install.md) covers getting there.
 
@@ -37,6 +37,12 @@ canary account
 ```
 
 You get net liquidation and daily P&L on top, then balances, session P&L, margin, look-ahead margin, and the total P&L that IBKR's `reqPnL` stream reports. A multi-currency account gets a currency-exposure table underneath with the FX rate used for each leg.
+
+Each result belongs to one selected account. Canary now keeps a real zero apart
+from a value the broker did not send: the terminal prints the missing value as
+unavailable, and JSON includes the account, source, freshness, and a list of
+fields the broker actually supplied. If a login exposes several accounts and
+none is selected, Canary refuses the account read instead of combining them.
 
 One figure carries into everything else: net liquidation. `canary size` reads it from this same account snapshot and expresses risk as a percentage of it, so an NLV that looks wrong makes every later sizing wrong in the same direction.
 

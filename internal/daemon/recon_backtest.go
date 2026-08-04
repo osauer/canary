@@ -39,13 +39,21 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 		res.InputHealth = append(health, rpc.SourceHealth{Source: "risk_policy", Status: "unapproved"})
 		return res
 	}
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		res.Status = rpc.ReconStatusUnavailable
+		res.Message = "reconciliation needs one selected broker account"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "account_scope", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
+		return res
+	}
 
 	statements, problems, err := loadRetainedFlexStatements()
 	switch {
 	case err != nil:
+		s.warnf("reconciliation backtest: retained Flex statement read failed: %v", err)
 		res.Status = rpc.ReconStatusUnavailable
-		res.Message = "cannot read retained statements: " + err.Error()
-		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable", Notes: []string{err.Error()}})
+		res.Message = "retained statements are temporarily unavailable"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable", Notes: []string{rpc.ReconReportReasonStorageFailed}})
 		return res
 	case len(statements) == 0:
 		res.Status = rpc.ReconStatusUnavailable
@@ -53,12 +61,32 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable"})
 		return res
 	}
+	statements, skipped := retainedStatementsForScope(statements, scope)
+	res.FlowCounts[reconSkippedSiblingStatementsCount] = skipped
+	if len(statements) == 0 {
+		res.Status = rpc.ReconStatusUnavailable
+		res.Message = "no retained Flex statements belong to the selected account"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable", Notes: []string{
+			rpc.ReconReportReasonReportInvalid,
+			fmt.Sprintf("%s=%d", reconSkippedSiblingStatementsCount, skipped),
+		}})
+		return res
+	}
 	res.Status = rpc.ReconStatusActive
 	if len(problems) > 0 {
+		for _, problem := range problems {
+			s.warnf("reconciliation backtest: retained Flex statement rejected: %s", problem)
+		}
 		res.Status = rpc.ReconStatusDegraded
-		health = append(health, rpc.SourceHealth{Source: "statements", Status: "degraded", Notes: problems})
+		health = append(health, rpc.SourceHealth{Source: "statements", Status: "degraded", Notes: []string{
+			rpc.ReconReportReasonResponseInvalid,
+			fmt.Sprintf("invalid_retained_statements=%d", len(problems)),
+			fmt.Sprintf("%s=%d", reconSkippedSiblingStatementsCount, skipped),
+		}})
 	} else {
-		health = append(health, rpc.SourceHealth{Source: "statements", Status: "ok"})
+		health = append(health, rpc.SourceHealth{Source: "statements", Status: "ok", Notes: []string{
+			fmt.Sprintf("%s=%d", reconSkippedSiblingStatementsCount, skipped),
+		}})
 	}
 
 	merged := mergeRetainedStatements(statements)
@@ -69,17 +97,25 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 	res.EquityDays = len(merged.equityByDay)
 	res.PolicyFingerprint = &rpc.Fingerprint{Version: rpc.RiskConstitutionFingerprintVersion, Key: pol.FingerprintKey()}
 
-	ctx := s.riskCapital.ReplayContext()
+	ctx, err := s.riskCapital.ReplayContextForScope(scope)
+	if err != nil {
+		res.Status = rpc.ReconStatusUnavailable
+		res.Message = "capital state is unavailable for the selected account"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "capital_state", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
+		return res
+	}
 	res.GenesisAt = ctx.GenesisAt
 	matchableFlows, baseline := partitionReconBaselineFlows(merged.flows, ctx)
 	baselineByLine := make(map[string]bool, len(baseline))
 	for _, row := range baseline {
 		baselineByLine[row.LineID] = true
 	}
-	events, err := s.riskCapital.CapitalFlowEventsContext(context.Background(), nil)
+	events, err := s.riskCapital.CapitalFlowEventsContextForScope(context.Background(), nil, scope)
 	if err != nil {
+		s.warnf("reconciliation backtest: capital event authority unavailable: %v", err)
 		res.Status = rpc.ReconStatusUnavailable
-		res.Message = "capital event authority unavailable: " + err.Error()
+		res.Message = "capital events are temporarily unavailable"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "capital_events", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
 		return res
 	}
 	if pol.PolicyVersion >= 3 {
@@ -94,9 +130,11 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 		}
 	}
 	exceptions := append(merged.exceptions, matchedExceptions...)
-	if err := s.applyReconDismissalsContext(context.Background(), exceptions, nil); err != nil {
+	if err := s.applyReconDismissalsContext(context.Background(), exceptions, nil, scope); err != nil {
+		s.warnf("reconciliation backtest: risk governance authority unavailable: %v", err)
 		res.Status = rpc.ReconStatusUnavailable
-		res.Message = "risk governance authority unavailable: " + err.Error()
+		res.Message = "reconciliation decisions are temporarily unavailable"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "risk_governance", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
 		return res
 	}
 	exceptionByLine := make(map[string]rpc.ReconException, len(exceptions))
@@ -142,9 +180,9 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 	if len(missing) > 0 {
 		res.Message = "equity replay unavailable: missing " + strings.Join(missing, ", ")
 	} else {
-		res.Replay = buildCapitalReplay(merged, ctx, *pol.Drawdown.WarnConsumedPct, *pol.Drawdown.BlockConsumedPct, *pol.Capital.DeclaredRiskCapital, s.earliestCapitalWarnAt())
+		res.Replay = buildCapitalReplay(merged, ctx, *pol.Drawdown.WarnConsumedPct, *pol.Drawdown.BlockConsumedPct, *pol.Capital.DeclaredRiskCapital, s.earliestCapitalWarnAt(scope))
 	}
-	res.ReportID = reconBacktestReportID(res, pol.FingerprintKey())
+	res.ReportID = reconBacktestReportID(res, pol.FingerprintKey(), reconScopeIdentity(scope))
 	res.InputHealth = health
 	return res
 }
@@ -275,12 +313,12 @@ func earliestCapitalWarnAt() time.Time {
 	return earliest
 }
 
-func (s *Server) earliestCapitalWarnAt() time.Time {
+func (s *Server) earliestCapitalWarnAt(scope brokerStateScope) time.Time {
 	if s == nil || s.riskCapital == nil || s.riskCapital.core == nil {
 		// Legacy unit/import helper only; Start binds core before runtime.
 		return earliestCapitalWarnAt()
 	}
-	payloads, err := s.riskCapital.GovernanceEventPayloads(context.Background())
+	payloads, err := s.riskCapital.GovernanceEventPayloadsForScope(context.Background(), scope)
 	if err != nil {
 		return time.Time{}
 	}
@@ -301,9 +339,9 @@ func (s *Server) earliestCapitalWarnAt() time.Time {
 	return earliest
 }
 
-func reconBacktestReportID(res *rpc.ReconBacktestResult, fingerprintKey string) string {
+func reconBacktestReportID(res *rpc.ReconBacktestResult, fingerprintKey, scopeIdentity string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|%s|", res.CoverageFrom.UTC().Format(time.RFC3339), res.CoverageTo.UTC().Format(time.RFC3339),
+	fmt.Fprintf(h, "%s|%s|%s|%s|%s|", scopeIdentity, res.CoverageFrom.UTC().Format(time.RFC3339), res.CoverageTo.UTC().Format(time.RFC3339),
 		res.StatementAsOf.UTC().Format(time.RFC3339), fingerprintKey)
 	for _, flow := range res.Flows {
 		fmt.Fprintf(h, "%s|%s|%t\n", flow.LineID, flow.Status, flow.Dismissed)

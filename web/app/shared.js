@@ -39,6 +39,30 @@ function mergeCurrency(left, right) {
   return "MIX";
 }
 
+// AccountResult keeps legacy scalar keys for wire compatibility, so a bare 0
+// cannot say whether the broker reported zero or never sent the field. The
+// daemon-authored authority envelope is the only presence signal the app uses.
+function accountAuthority(account = {}) {
+  const authority = account?.authority;
+  return authority && typeof authority === "object" ? authority : null;
+}
+
+function accountFieldAvailable(account = {}, field = "") {
+  const authority = accountAuthority(account);
+  if (!authority || authority.availability !== "available" || !authority.fields) return false;
+  return authority.fields[field] === true;
+}
+
+function accountFieldValue(account = {}, field = "") {
+  const value = account?.[field];
+  return accountFieldAvailable(account, field) && hasNumericValue(value) ? value : null;
+}
+
+function accountBaseCurrency(account = {}) {
+  if (!accountFieldAvailable(account, "base_currency")) return "";
+  return normalizeCurrency(account.base_currency);
+}
+
 function displayMoney(value, currency) {
   return money(value, currency);
 }
@@ -214,7 +238,7 @@ function maskAccountId(id) {
 
 // renderSensitiveAccountId mirrors renderSensitiveText, but hides the account id
 // with the id-preserving mask instead of the full money mask. A placeholder
-// (e.g. "Aggregate account") is not a sensitive id and renders as-is.
+// (e.g. "Account unresolved") is not a sensitive id and renders as-is.
 function renderSensitiveAccountId(elementId, accountId, placeholder = "--") {
   const el = $(elementId);
   if (!el) return;
@@ -388,4 +412,4 @@ function shortTimeWithZone(value) {
   });
 }
 
-export { $, ageLabel, blockerText, cleanDetail, compactMoney, compactWholeMoney, currentSettings, displayMoney, firstNumber, hasNumericValue, labelize, maskAccountId, mergeCurrency, money, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, purgeRestoreSettingEnabled, quoteTimestamp, readJSONOrText, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTime, shortTimeWithZone, signedClass, signedDisplayMoney, signedMoneyRead, signedPct, signedTone, stockProtectionSettingEnabled, wholePct };
+export { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, blockerText, cleanDetail, compactMoney, compactWholeMoney, currentSettings, displayMoney, firstNumber, hasNumericValue, labelize, maskAccountId, mergeCurrency, money, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, purgeRestoreSettingEnabled, quoteTimestamp, readJSONOrText, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTime, shortTimeWithZone, signedClass, signedDisplayMoney, signedMoneyRead, signedPct, signedTone, stockProtectionSettingEnabled, wholePct };

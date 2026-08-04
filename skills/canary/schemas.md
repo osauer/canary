@@ -1,6 +1,6 @@
 # `canary` JSON schemas
 
-Updated: 2026-07-30 11:49 CEST
+Updated: 2026-08-04
 
 This document describes the `--json` outputs agents most often read. It is
 NOT complete: the typed structs in `internal/rpc` are the wire truth for
@@ -49,18 +49,53 @@ file overrides the daemon's typed contract.
     }
   ],
   "data_type": "live",
-  "as_of": "2026-05-09T14:32:08+02:00"
+  "as_of": "2026-05-09T14:32:08+02:00",
+  "authority": {
+    "scope": {"account_id": "U1234567", "account_mode": "live"},
+    "source": "account_summary_request",
+    "availability": "available",
+    "freshness": "current",
+    "as_of": "2026-05-09T14:32:08+02:00",
+    "fields": {
+      "account_type": true,
+      "base_currency": true,
+      "net_liquidation": true,
+      "buying_power": true,
+      "available_funds": true,
+      "excess_liquidity": true,
+      "total_cash": true,
+      "maintenance_margin": true,
+      "initial_margin": true,
+      "gross_position_value": true,
+      "unrealized_pnl": true,
+      "realized_pnl": true,
+      "cushion": true,
+      "look_ahead_init_margin": true,
+      "look_ahead_maint_margin": true,
+      "look_ahead_available_funds": true,
+      "look_ahead_excess_liquidity": true,
+      "daily_pnl": true,
+      "pnl_unrealized_total": true,
+      "pnl_realized_total": true,
+      "currency_exposure": true
+    }
+  }
 }
 ```
 
 Field meanings:
+- `authority` — the one account and paper/live mode the result belongs to, its
+  source, whether it is usable, and whether it is current. Check
+  `authority.fields` before using a number: `true` means the broker supplied
+  the field, so zero is a real zero; `false` means the legacy numeric field is
+  only a compatibility placeholder and must be treated as unavailable.
 - `net_liquidation` — total account value in `base_currency`.
 - `buying_power` — funds available for new positions.
 - `available_funds` — cash net of margin requirements.
 - `excess_liquidity` — buffer above maintenance margin.
 - `currency_exposure[]` — one row per non-base currency the gateway
   reported via `$LEDGER:ALL`. Empty / omitted on a single-currency
-  account or pre-handshake. Rows reconcile within ~0.5%:
+    account. Rows reconcile within ~0.5%:
   `net_liquidation_ccy × exchange_rate ≈ net_liquidation_base`.
   - `exchange_rate` is BASE per CCY (how many base-currency units 1
     unit of the named currency converts to — matches IBKR's `$LEDGER`
@@ -80,6 +115,13 @@ Field meanings:
   "data_type": "live",
   "as_of": "2026-05-09T14:32:09Z",
   "account_id": "U1234567",
+  "authority": {
+    "scope": {"account_id": "U1234567", "account_mode": "live"},
+    "source": "portfolio_stream",
+    "availability": "available",
+    "freshness": "current",
+    "as_of": "2026-05-09T14:32:09Z"
+  },
   "stocks": [
     {
       "symbol": "NVDA",
@@ -185,6 +227,11 @@ Field meanings:
   ]
 }
 ```
+
+Read `authority` before interpreting an empty position list. Only
+`availability:"available"` on one concrete account can prove that the book is
+genuinely empty. A stale or unavailable result may retain rows as context, but
+it cannot prove a clean or empty book.
 
 The `stocks`, `options`, and `by_underlying` arrays are always present
 (possibly empty). For options, the `symbol` is the underlying (e.g. `AAPL`),

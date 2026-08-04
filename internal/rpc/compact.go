@@ -128,6 +128,7 @@ type PositionsRiskResult struct {
 	ProtectionCoverage *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
 	SPYHedgeOffsetPct  *float64                   `json:"spy_hedge_offset_pct,omitempty"`
 	FlaggedOptionLegs  []OptionRiskLegSummary     `json:"flagged_option_legs,omitempty"`
+	Authority          *AccountDataAuthority      `json:"authority,omitempty"`
 }
 
 // OptionHealthSummary summarizes availability and concentration of option risk.
@@ -268,6 +269,7 @@ func CompactPositionsRisk(p *PositionsResult, topN int) PositionsRiskResult {
 		ProtectionCoverage: p.ProtectionCoverage,
 		SPYHedgeOffsetPct:  spyHedgeOffsetPct(*p),
 		FlaggedOptionLegs:  legs,
+		Authority:          p.Authority,
 	}
 	if p.Portfolio != nil {
 		out.TopExposure = append([]UnderlyingExposure(nil), p.Portfolio.ExposureBase...)

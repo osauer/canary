@@ -1,6 +1,6 @@
 import { heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
-import { $, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, pct, privacyMask, purgeRestoreSettingEnabled, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
+import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, parseDate, pct, privacyMask, purgeRestoreSettingEnabled, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
 import { state } from "./state.js";
 
 function renderAccountPanel(account = {}, positions = {}, stress = {}) {
@@ -11,23 +11,29 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
   detailToggle.setAttribute("aria-expanded", String(state.accountOverviewOpen));
   $("accountPanel").dataset.open = String(state.accountOverviewOpen);
 
-  const hasSnapshot = Boolean(account.as_of || account.account_id || account.base_currency);
-  const hasValue = hasSnapshot && hasNumericValue(account.net_liquidation);
+  const currency = accountBaseCurrency(account);
+  const netLiquidation = accountFieldValue(account, "net_liquidation");
+  const buyingPower = accountFieldValue(account, "buying_power");
+  const dailyPnL = accountDailyPnlValue(account);
+  const hasValue = hasNumericValue(netLiquidation);
   const accountContext = currentAccountContext(account);
   const value = $("netLiquidation");
   value.textContent = state.accountValueVisible || !hasValue
-    ? compactMoney(account.net_liquidation, account.base_currency)
+    ? compactMoney(netLiquidation, currency)
     : privacyMask();
   value.classList.toggle("is-private", !state.accountValueVisible && hasValue);
-  renderSensitiveText("buyingPower", compactMoney(account.buying_power, account.base_currency), hasSnapshot && hasNumericValue(account.buying_power));
-  renderSensitiveSignedMoney("dailyPnl", account.daily_pnl, account.base_currency);
+  renderSensitiveText("buyingPower", compactMoney(buyingPower, currency), hasNumericValue(buyingPower));
+  renderSensitiveText("dailyPnl", signedDisplayMoney(dailyPnL, currency), hasNumericValue(dailyPnL));
+  $("dailyPnl").className = hasNumericValue(dailyPnL)
+    ? `${signedClass(dailyPnL)}${!state.accountValueVisible ? " is-private" : ""}`
+    : "signed";
   renderAccountDailyPnlPct(account);
   // The account id is demoted to a quiet subtitle and masked by the eye toggle;
-  // money values are the headline. A placeholder (aggregate/pending) renders
+  // money values are the headline. An unresolved placeholder renders
   // plainly since it is not a sensitive id.
   renderSensitiveAccountId("accountLabel", accountContext.accountId, accountContext.accountLabel);
   renderTradingEnvPill(accountContext.modeClass);
-  renderFreshnessTimestamp("accountAsOf", account.as_of, { staleMinutes: 15, quietWhenFresh: true });
+  renderAccountFreshness(account, state.snapshot?.sources?.account || {});
 
   const button = $("accountPrivacyToggle");
   button.classList.toggle("is-visible", state.accountValueVisible);
@@ -36,8 +42,9 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
   button.setAttribute("aria-label", label);
   button.title = label;
 
-  const portfolio = positions.portfolio || {};
-  const baseCurrency = portfolio.base_currency || account.base_currency || "";
+  const positionsAvailable = positionsAuthorityView(positions, state.snapshot?.sources?.positions || {}).available;
+  const portfolio = positionsAvailable ? positions.portfolio || {} : {};
+  const baseCurrency = portfolio.base_currency || currency;
   renderSensitiveText("accountRiskDelta", riskMoney(
     portfolio.dollar_delta_base ?? portfolio.dollar_delta_ccy,
     portfolio.dollar_delta_base_currency || portfolio.dollar_delta_ccy_currency || baseCurrency,
@@ -87,9 +94,19 @@ function renderAccountDailyPnlPct(account = {}) {
   const el = $("dailyPnlPct");
   if (!el) return;
   const value = accountDailyPnlPct(account);
+  const observation = String(account.daily_pnl_observation?.status || "").toLowerCase();
   const closed = marketSessionClosed();
   el.className = "account-pnl-pct " + signedClass(value);
-  el.textContent = typeof value === "number" ? `${signedPct(value)} ${closed ? "since close" : "today"}` : "--";
+  if (typeof value === "number") {
+    const suffix = observation === "stale" ? "stale" : closed || observation === "not_due" ? "since close" : "today";
+    el.textContent = `${signedPct(value)} ${suffix}`;
+  } else if (["missing", "invalid", "stale"].includes(observation)) {
+    el.textContent = observation === "stale" ? "Daily P/L stale" : "Daily P/L unavailable";
+  } else if (observation === "not_due") {
+    el.textContent = "Daily P/L not due";
+  } else {
+    el.textContent = "--";
+  }
   const frameAt = account.daily_pnl_observation?.as_of;
   el.title = closed
     ? "The broker's running daily P/L since its prior close, at off-session marks — not a completed-session result — as a percentage of estimated start-of-day net liquidation; the market is closed."
@@ -98,17 +115,86 @@ function renderAccountDailyPnlPct(account = {}) {
 }
 
 function accountDailyPnlPct(account = {}) {
-  if (typeof account.daily_pnl !== "number") return null;
+  const dailyPnL = accountDailyPnlValue(account);
+  if (typeof dailyPnL !== "number") return null;
   const startOfDay = firstNumber(
     account.net_liquidation_start_of_day,
     account.previous_net_liquidation,
-    typeof account.net_liquidation === "number" ? account.net_liquidation - account.daily_pnl : null,
+    accountFieldAvailable(account, "net_liquidation") && typeof account.net_liquidation === "number"
+      ? account.net_liquidation - dailyPnL
+      : null,
   );
   const denominator = typeof startOfDay === "number" && startOfDay > 0
     ? startOfDay
-    : account.net_liquidation;
+    : accountFieldValue(account, "net_liquidation");
   if (typeof denominator !== "number" || denominator <= 0) return null;
-  return (account.daily_pnl / denominator) * 100;
+  return (dailyPnL / denominator) * 100;
+}
+
+function accountDailyPnlValue(account = {}) {
+  const observation = String(account.daily_pnl_observation?.status || "").toLowerCase();
+  if (!["ok", "stale", "not_due"].includes(observation)) return null;
+  return accountFieldValue(account, "daily_pnl");
+}
+
+function accountAuthorityReason(reason = "") {
+  switch (String(reason || "").toLowerCase()) {
+    case "unstamped_cache": return "Canary has a cached account update, but cannot prove when it was observed.";
+    case "scope_unresolved": return "No single account is selected.";
+    case "scope_conflict": return "The account response conflicts with the selected account.";
+    case "account_unbound": return "The account response could not be tied to the selected account.";
+    case "account_mismatch": return "The account response names a different account.";
+    case "unprimed": return "No account snapshot has arrived yet.";
+    case "invalid_payload": return "The account response was incomplete or invalid.";
+    case "clock_invalid": return "The account timestamp is ahead of this machine's clock.";
+    case "receipt_stale": return "The account receipt is older than the current session.";
+    case "session_changed": return "The broker session changed while the account snapshot was loading.";
+    default: return "";
+  }
+}
+
+function renderAccountFreshness(account = {}, source = {}) {
+  const el = $("accountAsOf");
+  if (!el) return;
+  const authority = accountAuthority(account);
+  const sourceState = String(source.state || "").toLowerCase();
+  const lastSuccess = parseDate(source.last_success_at);
+  if (el.dataset.freshnessLabel === undefined) el.dataset.freshnessLabel = "";
+  el.hidden = false;
+  el.classList.add("stale");
+
+  if (sourceState === "unavailable") {
+    el.textContent = lastSuccess ? `Account unavailable · last good ${shortTime(lastSuccess.toISOString())}` : "Account unavailable";
+    el.title = "The app could not refresh account data. Values shown are the last snapshot received.";
+    return;
+  }
+  if (!authority) {
+    el.textContent = sourceState === "not_observed" ? "Account data pending" : "Account data cannot be verified";
+    el.title = "Canary cannot tell whether account values are present, so it will not show them.";
+    return;
+  }
+
+  const reason = accountAuthorityReason(authority.reason);
+  if (authority.availability !== "available") {
+    el.textContent = "Account unavailable";
+    el.title = reason || "The daemon did not publish an available account snapshot.";
+    return;
+  }
+  if (authority.freshness === "unknown") {
+    el.textContent = authority.source === "account_updates_cache" ? "Cached · time unknown" : "Account time unknown";
+    el.title = reason || "Canary cannot prove when this account snapshot was observed.";
+    return;
+  }
+  if (authority.freshness === "stale") {
+    const at = parseDate(authority.as_of || account.as_of);
+    const minutes = at ? Math.max(0, Math.floor((Date.now() - at.getTime()) / 60000)) : null;
+    el.textContent = minutes === null ? "Account data stale" : `Account data stale · ${ageLabel(minutes)}`;
+    el.title = reason || "The daemon marked this account snapshot stale.";
+    return;
+  }
+
+  el.classList.remove("stale");
+  renderFreshnessTimestamp(el, authority.as_of || account.as_of, { staleMinutes: 15, quietWhenFresh: true, fallback: "Account time unavailable" });
 }
 
 function renderAccountLargestExposure(portfolio = {}, stress = {}, baseCurrency = "") {
@@ -170,31 +256,35 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
   const list = $("underlyingBookList");
   if (!list) return;
 
-  const baseCurrency = normalizeCurrency(account.base_currency || positions.portfolio?.base_currency || "");
+  const baseCurrency = normalizeCurrency(accountBaseCurrency(account) || positions.portfolio?.base_currency || "");
   const rows = underlyingBookRows(positions, baseCurrency, marketEvents);
   const heldCount = rows.filter((row) => !row.virtual).length;
   const virtualCount = rows.length - heldCount;
   const count = $("underlyingBookCount");
   const status = $("underlyingBookStatus");
   const freshness = $("underlyingBookFreshness");
+  const authorityView = positionsAuthorityView(positions, state.snapshot?.sources?.positions || {});
   const heldSymbols = rows.filter((row) => !row.virtual).slice(0, 3).map((row) => row.symbol);
   const heldLabel = heldSymbols.length > 0 ? ` · ${heldSymbols.join(", ")}${heldCount > heldSymbols.length ? ` +${heldCount - heldSymbols.length}` : ""}` : "";
   const quoteSummary = underlyingQuoteSummary(rows);
-  renderUnderlyingPnlSummary(underlyingHeldDailyPnlTotals(rows, baseCurrency));
-  renderMovers(rows, baseCurrency);
+  renderUnderlyingPnlSummary(authorityView.available ? underlyingHeldDailyPnlTotals(rows, baseCurrency) : {});
+  renderMovers(authorityView.available ? rows : [], baseCurrency);
   renderMarketFlagRail("underlyingFlagRail", underlyingHeroMarketFlags(rows, marketEvents));
   if (count) {
-    count.textContent = rows.length === 0
+    count.textContent = !authorityView.available
+      ? rows.length === 0 ? "Positions unavailable" : `${heldCount} last known / ${virtualCount} purged${heldLabel}`
+      : rows.length === 0
       ? "No underlyings"
       : `${heldCount} held / ${virtualCount} purged${heldLabel}`;
   }
   if (status) {
     status.textContent = state.underlyingNotice
+      || (!authorityView.available ? authorityView.detail : "")
       || quoteSummary
       || (virtualCount > 0 ? "Includes virtual purge-book records" : heldCount > 0 ? "Current held underlyings" : "Waiting for positions or purge book");
   }
   if (freshness) {
-    renderFreshnessTimestamp(freshness, positions.as_of, { staleMinutes: 15, quietWhenFresh: true });
+    renderPositionsFreshness(freshness, positions, state.snapshot?.sources?.positions || {});
   }
   const panel = $("underlyingPanel");
   if (panel && (state.underlyingBusy || state.underlyingNotice)) {
@@ -205,7 +295,7 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
   if (rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "underlying-book__empty";
-    empty.textContent = "No held or virtual underlyings.";
+    empty.textContent = authorityView.available ? "No held or virtual underlyings." : "Position data unavailable.";
     list.replaceChildren(empty);
     renderUnderlyingExpansion();
     return;
@@ -213,6 +303,58 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
 
   list.replaceChildren(...rows.map((row) => underlyingBookRow(row, baseCurrency)));
   renderUnderlyingExpansion();
+}
+
+function positionsAuthorityView(positions = {}, source = {}) {
+  const authority = positions.authority;
+  const sourceState = String(source.state || "").toLowerCase();
+  if (sourceState === "unavailable") {
+    return { available: false, detail: "Position refresh unavailable; showing last good data." };
+  }
+  if (!authority || typeof authority !== "object") {
+    return { available: false, detail: "Position data cannot be verified." };
+  }
+  if (authority.availability === "available") {
+    return { available: true, detail: "Current held underlyings" };
+  }
+  const reason = String(authority.reason || "").toLowerCase();
+  switch (reason) {
+    case "scope_unresolved": return { available: false, detail: "Positions unavailable because no single account is selected." };
+    case "scope_conflict":
+    case "account_mismatch": return { available: false, detail: "Positions unavailable because the account does not match." };
+    case "account_unbound": return { available: false, detail: "Positions could not be tied to the selected account." };
+    case "unprimed": return { available: false, detail: "Positions are still loading; an empty result is not a clean book." };
+    case "receipt_stale": return { available: false, detail: "Position data is stale; old rows remain visible for reference." };
+    case "clock_invalid": return { available: false, detail: "Position data time could not be verified." };
+    case "session_changed": return { available: false, detail: "The broker session changed while positions were loading." };
+    default: return { available: false, detail: authority.freshness === "stale" ? "Position data is stale; old rows remain visible for reference." : "Position data unavailable." };
+  }
+}
+
+function renderPositionsFreshness(el, positions = {}, source = {}) {
+  if (!el) return;
+  const authority = positions.authority;
+  const sourceState = String(source.state || "").toLowerCase();
+  const lastSuccess = parseDate(source.last_success_at);
+  if (el.dataset.freshnessLabel === undefined) el.dataset.freshnessLabel = "";
+  el.hidden = false;
+  el.classList.add("stale");
+  if (sourceState === "unavailable") {
+    el.textContent = lastSuccess ? `Positions unavailable · last good ${shortTime(lastSuccess.toISOString())}` : "Positions unavailable";
+    el.title = "The app could not refresh positions. Old rows remain visible for reference.";
+    return;
+  }
+  if (!authority || authority.availability !== "available") {
+    const at = parseDate(authority?.as_of || positions.as_of);
+    const minutes = at ? Math.max(0, Math.floor((Date.now() - at.getTime()) / 60000)) : null;
+    el.textContent = authority?.freshness === "stale"
+      ? minutes === null ? "Positions stale" : `Positions stale · ${ageLabel(minutes)}`
+      : "Positions unavailable";
+    el.title = positionsAuthorityView(positions, source).detail;
+    return;
+  }
+  el.classList.remove("stale");
+  renderFreshnessTimestamp(el, authority.as_of || positions.as_of, { staleMinutes: 15, quietWhenFresh: true, fallback: "Position time unavailable" });
 }
 
 function renderUnderlyingBulkActions(rows) {
@@ -947,39 +1089,43 @@ function underlyingPositionDetail(stockCount, optionCount) {
 function currentAccountContext(account = {}) {
   const trading = state.snapshot?.trading || {};
   const status = state.snapshot?.status || {};
-  const rawTradingAccount = String(trading.account || "").trim();
-  const rawAccount = String(account.account_id || "").trim();
-  const rawPositionsAccount = String(state.snapshot?.positions?.account_id || "").trim();
-  const rawStatusAccount = String(status.connected_account || status.account || "").trim();
-  const concreteTradingAccount = rawTradingAccount && rawTradingAccount.toLowerCase() !== "all" ? rawTradingAccount : "";
-  const concreteAccount = rawAccount && rawAccount.toLowerCase() !== "all" ? rawAccount : "";
-  const concretePositionsAccount = rawPositionsAccount && rawPositionsAccount.toLowerCase() !== "all" ? rawPositionsAccount : "";
-  const concreteStatusAccount = rawStatusAccount && rawStatusAccount.toLowerCase() !== "all" ? rawStatusAccount : "";
-  const accountLabel = concreteTradingAccount || concreteAccount || concretePositionsAccount || concreteStatusAccount || "";
+  const positions = state.snapshot?.positions || {};
+  const accountScope = accountAuthority(account)?.scope || {};
+  const positionsScope = positions.authority?.scope || {};
+  const concrete = (value) => {
+    const text = String(value || "").trim();
+    return text && text.toLowerCase() !== "all" ? text : "";
+  };
+  const scopedAccount = concrete(accountScope.account_id);
+  const scopedPositionsAccount = concrete(positionsScope.account_id);
+  const accountMode = String(accountScope.account_mode || "").trim().toLowerCase();
+  const positionsMode = String(positionsScope.account_mode || "").trim().toLowerCase();
+  const scopesConflict = Boolean(
+    (scopedAccount && scopedPositionsAccount && scopedAccount.toLowerCase() !== scopedPositionsAccount.toLowerCase()) ||
+    (accountMode && positionsMode && accountMode !== positionsMode),
+  );
+  const hasTypedScope = Boolean(accountAuthority(account) || positions.authority);
+  const connectedAccount = hasTypedScope ? "" : concrete(status.connected_account);
+  const accountLabel = scopesConflict ? "" : scopedAccount || scopedPositionsAccount || connectedAccount;
   const modeSource = [
+    accountScope.account_mode,
+    positionsScope.account_mode,
     status.account_mode,
-    account.account_mode,
-    account.mode,
-    account.environment,
     trading.mode,
     status.trading?.mode,
   ].map((value) => String(value || "").trim()).find((value) => /paper|live/i.test(value));
   const modeLabel = modeSource
     ? modeSource.toLowerCase().includes("paper") ? "Paper" : "Live"
     : "IBKR";
-  const aggregate = rawTradingAccount.toLowerCase() === "all" ||
-    rawAccount.toLowerCase() === "all" ||
-    rawPositionsAccount.toLowerCase() === "all" ||
-    rawStatusAccount.toLowerCase() === "all";
-  const visibleAccountLabel = accountLabel || (aggregate ? "Aggregate account" : "Account pending");
+  const visibleAccountLabel = accountLabel || (scopesConflict ? "Account mismatch" : "Account unresolved");
   return {
     // accountId is the concrete broker id (masked by the eye toggle); it is
-    // empty for an aggregate/pending placeholder, which is not sensitive.
+    // empty for an unresolved/mismatch placeholder, which is not sensitive.
     accountId: accountLabel,
     accountLabel: visibleAccountLabel,
     modeClass: String(modeLabel).toLowerCase().includes("paper") ? "paper" : String(modeLabel).toLowerCase().includes("live") ? "live" : "neutral",
     modeLabel,
-    hasAccount: Boolean(accountLabel || aggregate),
+    hasAccount: Boolean(accountLabel),
   };
 }
 
@@ -1082,4 +1228,4 @@ function renderUnderlyingActionResult(result = {}) {
   panel.textContent = lines.join(" / ") || purgeResultSummary(result);
 }
 
-export { accountDailyPnlPct, canWriteUnderlyings, collectPurgeEntries, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, purgeBookEntries, purgeEntryPnl, purgeResultSummary, purgedUnderlyingRows, quoteErrorBySymbol, quoteSourceLabel, readLocalPurgeBook, refreshPurgeStatus, renderAccountDailyPnlPct, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderUnderlyingActionResult, renderUnderlyingBulkActions, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, runUnderlyingAction, setUnderlyingActionButtonState, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingActionButton, underlyingActionEndpoint, underlyingActionLabel, underlyingActionTitle, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarker, underlyingMarkers, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl, underlyingWriteConfirmation, underlyingWriteReason };
+export { accountAuthorityReason, accountDailyPnlPct, accountDailyPnlValue, canWriteUnderlyings, collectPurgeEntries, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, positionsAuthorityView, purgeBookEntries, purgeEntryPnl, purgeResultSummary, purgedUnderlyingRows, quoteErrorBySymbol, quoteSourceLabel, readLocalPurgeBook, refreshPurgeStatus, renderAccountDailyPnlPct, renderAccountFreshness, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderPositionsFreshness, renderUnderlyingActionResult, renderUnderlyingBulkActions, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, runUnderlyingAction, setUnderlyingActionButtonState, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingActionButton, underlyingActionEndpoint, underlyingActionLabel, underlyingActionTitle, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarker, underlyingMarkers, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl, underlyingWriteConfirmation, underlyingWriteReason };

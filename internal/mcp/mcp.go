@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // ProtocolVersion is the MCP spec revision we advertise. 2025-03-26 is the
@@ -530,42 +531,114 @@ func (s *Server) writeToolError(id json.RawMessage, err error) {
 }
 
 const (
-	mcpFastToolTimeout    = 2 * time.Second
-	mcpDefaultToolTimeout = 35 * time.Second
-	mcpLongToolTimeout    = 60 * time.Second
-	mcpScannerToolTimeout = 90 * time.Second
-	mcpWatchQuoteTimeout  = 45 * time.Second
-	mcpScanParamsTimeout  = 20 * time.Second
-	mcpRegimeToolTimeout  = 50 * time.Second
+	mcpFastToolHeadroom = 1 * time.Second
+	mcpDefaultHeadroom  = 5 * time.Second
+	mcpDefaultToolFloor = 35 * time.Second
+	mcpLongToolFloor    = 60 * time.Second
+	mcpScannerToolFloor = 90 * time.Second
+	mcpWatchQuoteFloor  = 45 * time.Second
+	mcpScanParamsFloor  = 20 * time.Second
 )
 
 func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
+	methods := mcpToolMethodsForCall(name, args)
+	headroom := mcpDefaultHeadroom
+	floor := mcpDefaultToolFloor
 	switch name {
 	case "canary_status", "canary_calendar", "canary_breadth":
-		return mcpFastToolTimeout
+		headroom = mcpFastToolHeadroom
+		floor = 0
 	case "canary_scan":
 		if scanListModeArgs(args) {
-			return mcpFastToolTimeout
+			headroom = mcpFastToolHeadroom
+			floor = 0
+		} else {
+			floor = mcpScannerToolFloor
 		}
-		return mcpScannerToolTimeout
 	case "canary_scan_params":
-		return mcpScanParamsTimeout
+		floor = mcpScanParamsFloor
 	case "canary_watch":
 		if watchListOnlyArgs(args) {
-			return mcpFastToolTimeout
+			headroom = mcpFastToolHeadroom
+			floor = 0
+		} else {
+			floor = mcpWatchQuoteFloor
 		}
-		return mcpWatchQuoteTimeout
 	case "canary_chain", "canary_gamma":
-		return mcpLongToolTimeout
+		floor = mcpLongToolFloor
 	case "canary_technical":
-		return mcpScannerToolTimeout
-	case "canary_regime":
-		return mcpRegimeToolTimeout
+		floor = mcpScannerToolFloor
 	case "canary_stress":
-		return mcpScannerToolTimeout
-	default:
-		return mcpDefaultToolTimeout
+		floor = mcpScannerToolFloor
 	}
+	return mcpMethodBudget(methods, headroom, floor)
+}
+
+func mcpMethodBudget(methods []string, headroom, floor time.Duration) time.Duration {
+	budget := floor
+	for _, method := range methods {
+		timing, ok := rpc.LookupMethodTiming(method)
+		if !ok {
+			continue
+		}
+		if candidate := timing.ClientTimeout(headroom); candidate > budget {
+			budget = candidate
+		}
+	}
+	return budget
+}
+
+// mcpToolMethodsForCall narrows handlers with more than one possible daemon
+// route to the route selected by this call. All possible methods remain
+// declared on Tool.RPCMethods for parity checks.
+func mcpToolMethodsForCall(name string, args json.RawMessage) []string {
+	tool, ok := lookupTool(name)
+	if !ok {
+		return nil
+	}
+	switch name {
+	case "canary_scan":
+		if scanListModeArgs(args) {
+			return []string{rpc.MethodScanList}
+		}
+		return []string{rpc.MethodScanRun}
+	case "canary_chain":
+		var in struct {
+			Expiry string `json:"expiry"`
+		}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args, &in)
+		}
+		if in.Expiry == "" {
+			return []string{rpc.MethodChainExpiries}
+		}
+		return []string{rpc.MethodChainFetch}
+	case "canary_watch":
+		if watchListOnlyArgs(args) {
+			return []string{rpc.MethodStatusHealth}
+		}
+	case "canary_proposals":
+		if refreshRequested(args) {
+			return []string{rpc.MethodTradeProposalsRefresh}
+		}
+		return []string{rpc.MethodTradeProposalsSnapshot}
+	case "canary_opportunities":
+		if refreshRequested(args) {
+			return []string{rpc.MethodOpportunitiesRefresh}
+		}
+		return []string{rpc.MethodOpportunitiesSnapshot}
+	}
+	return tool.RPCMethods
+}
+
+func refreshRequested(args json.RawMessage) bool {
+	var in struct {
+		Refresh bool `json:"refresh"`
+	}
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &in)
+	}
+	return in.Refresh
 }
 
 func scanListModeArgs(args json.RawMessage) bool {

@@ -84,7 +84,7 @@ func TestFillDailyPnL_SameSymbolBondRows(t *testing.T) {
 	}
 
 	srv := newTestServer(t)
-	srv.fillDailyPnL(c, rows, conIDs)
+	srv.fillDailyPnL(c, rows, conIDs, "")
 
 	if rows[0].DailyPnL == nil || *rows[0].DailyPnL != firstPnL {
 		t.Errorf("first bond DailyPnL = %v, want %v", rows[0].DailyPnL, firstPnL)
@@ -112,7 +112,7 @@ func TestFillDailyPnL_PopulatesFromConnectorCache(t *testing.T) {
 	}
 
 	srv := newTestServer(t)
-	srv.fillDailyPnL(c, rows, conIDs)
+	srv.fillDailyPnL(c, rows, conIDs, "")
 
 	if rows[0].DailyPnL == nil {
 		t.Fatalf("DailyPnL still nil after fillDailyPnL")
@@ -136,7 +136,7 @@ func TestFillDailyPnL_NilWhenNoSubscription(t *testing.T) {
 	conIDs := map[string]int{positionViewKey(rows[0]): 999999}
 
 	srv := newTestServer(t)
-	srv.fillDailyPnL(c, rows, conIDs)
+	srv.fillDailyPnL(c, rows, conIDs, "")
 	if rows[0].DailyPnL != nil {
 		t.Errorf("DailyPnL = %v, want nil for unsubscribed conId", *rows[0].DailyPnL)
 	}
@@ -150,8 +150,8 @@ func TestFillDailyPnL_EmptyRows(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t)
 	c := ibkrlib.NewConnector(&ibkrlib.ConnectorConfig{})
-	srv.fillDailyPnL(c, nil, nil)
-	srv.fillDailyPnL(c, []rpc.PositionView{}, map[string]int{})
+	srv.fillDailyPnL(c, nil, nil, "")
+	srv.fillDailyPnL(c, []rpc.PositionView{}, map[string]int{}, "")
 }
 
 // TestFillDailyPnL_RespectsMaxSubscriptionCap pins the soft cap. Real

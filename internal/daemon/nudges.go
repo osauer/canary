@@ -771,6 +771,7 @@ func nudgePolicyIdentity(c *risk.Constitution) string {
 
 type nudgeAuthorityState struct {
 	policy         *risk.Constitution
+	scope          brokerStateScope
 	report         rpc.RiskPolicyResult
 	policyIdentity string
 	policyHealth   rpc.NudgeInputHealth
@@ -848,6 +849,7 @@ func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
 	if s == nil || s.riskPolicies == nil {
 		return state
 	}
+	state.scope = s.currentBrokerStateScope()
 
 	m := s.riskPolicies
 	m.mu.Lock()
@@ -870,7 +872,7 @@ func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
 		state.report.Unapproved = mgr.policy.UnapprovedKeys()
 		state.report.Inventory = s.riskPolicyInventory(mgr.policy)
 		if s.riskCapital != nil {
-			state.capitalNudge = s.riskCapital.NudgeSnapshot(mgr.policy, nil)
+			state.capitalNudge = s.riskCapital.NudgeSnapshotForScope(mgr.policy, nil, state.scope)
 			state.report.Capital = state.capitalNudge.Report
 		}
 		state.report.PolicyFingerprint = &rpc.Fingerprint{Version: rpc.RiskConstitutionFingerprintVersion, Key: mgr.policy.FingerprintKey()}
@@ -1301,7 +1303,7 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 				result.Context.Shadow = &rpc.NudgeShadowSummary{Count: count}
 			}
 		}
-		clock := s.riskCapital.UnreconciledClock(policy, now)
+		clock := s.riskCapital.UnreconciledClockForScope(policy, now, authority.scope)
 		if authority.cadenceEligible && clock.Approved && !clock.Deadline.IsZero() {
 			if candidate := risk.EvaluateReconcileDue(risk.ReconcileDueInput{
 				Now: now, Deadline: clock.Deadline,

@@ -5,34 +5,53 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestMCPToolCallTimeoutBudgets(t *testing.T) {
 	t.Parallel()
 
+	clientBudget := func(method string, headroom time.Duration) time.Duration {
+		timing, ok := rpc.LookupMethodTiming(method)
+		if !ok {
+			t.Fatalf("missing timing for %s", method)
+		}
+		return timing.ClientTimeout(headroom)
+	}
 	cases := []struct {
 		name string
 		args json.RawMessage
 		want time.Duration
 	}{
-		{name: "canary_status", want: mcpFastToolTimeout},
-		{name: "canary_scan", args: json.RawMessage(`{}`), want: mcpFastToolTimeout},
-		{name: "canary_scan", args: json.RawMessage(`{"preset":"top-movers"}`), want: mcpScannerToolTimeout},
-		{name: "canary_watch", args: json.RawMessage(`{"include_quotes":false}`), want: mcpFastToolTimeout},
-		{name: "canary_watch", args: json.RawMessage(`{}`), want: mcpWatchQuoteTimeout},
-		{name: "canary_chain", args: json.RawMessage(`{"symbol":"AAPL","expiry":"2026-07-17"}`), want: mcpLongToolTimeout},
-		{name: "canary_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpScannerToolTimeout},
-		{name: "canary_regime", want: mcpRegimeToolTimeout},
-		{name: "canary_stress", want: mcpScannerToolTimeout},
+		{name: "canary_status", want: clientBudget(rpc.MethodStatusHealth, mcpFastToolHeadroom)},
+		{name: "canary_scan", args: json.RawMessage(`{}`), want: clientBudget(rpc.MethodScanList, mcpFastToolHeadroom)},
+		{name: "canary_scan", args: json.RawMessage(`{"preset":"top-movers"}`), want: mcpScannerToolFloor},
+		{name: "canary_scan_params", args: json.RawMessage(`{}`), want: mcpScanParamsFloor},
+		{name: "canary_watch", args: json.RawMessage(`{"include_quotes":false}`), want: clientBudget(rpc.MethodStatusHealth, mcpFastToolHeadroom)},
+		{name: "canary_watch", args: json.RawMessage(`{}`), want: mcpWatchQuoteFloor},
+		{name: "canary_chain", args: json.RawMessage(`{"symbol":"AAPL","expiry":"2026-07-17"}`), want: mcpLongToolFloor},
+		{name: "canary_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpScannerToolFloor},
+		{name: "canary_regime", want: clientBudget(rpc.MethodRegimeSnapshot, mcpDefaultHeadroom)},
+		{name: "canary_stress", want: mcpScannerToolFloor},
+		{name: "canary_history", args: json.RawMessage(`{"symbol":"SPY"}`), want: clientBudget(rpc.MethodHistoryDaily, mcpDefaultHeadroom)},
+		{name: "canary_order_preview", args: json.RawMessage(`{"action":"sell","symbol":"SPY","quantity":1}`), want: clientBudget(rpc.MethodOrderPreview, mcpDefaultHeadroom)},
+		{name: "canary_proposals", args: json.RawMessage(`{}`), want: mcpDefaultToolFloor},
+		{name: "canary_proposals", args: json.RawMessage(`{"refresh":true}`), want: clientBudget(rpc.MethodTradeProposalsRefresh, mcpDefaultHeadroom)},
+		{name: "canary_opportunities", args: json.RawMessage(`{"refresh":true}`), want: clientBudget(rpc.MethodOpportunitiesRefresh, mcpDefaultHeadroom)},
+		{name: "canary_brief", args: json.RawMessage(`{}`), want: clientBudget(rpc.MethodBriefSnapshot, mcpDefaultHeadroom)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name+" "+string(tc.args), func(t *testing.T) {
@@ -42,6 +61,154 @@ func TestMCPToolCallTimeoutBudgets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMCPToolsDeclareCataloguedMethodsAndHeadroom(t *testing.T) {
+	t.Parallel()
+	for _, tool := range Tools {
+		if len(tool.RPCMethods) == 0 {
+			t.Errorf("tool %s declares no daemon methods", tool.Name)
+			continue
+		}
+		for _, method := range tool.RPCMethods {
+			timing, ok := rpc.LookupMethodTiming(method)
+			if !ok {
+				t.Errorf("tool %s declares uncatalogued method %q", tool.Name, method)
+				continue
+			}
+			if timing.Lifetime != rpc.MethodLifetimeUnary {
+				t.Errorf("tool %s declares streaming method %q; streams belong in MCP resources", tool.Name, method)
+			}
+		}
+		budget := mcpToolCallTimeout(tool.Name, nil)
+		for _, method := range mcpToolMethodsForCall(tool.Name, nil) {
+			timing, ok := rpc.LookupMethodTiming(method)
+			if ok && budget <= timing.DaemonTimeout {
+				t.Errorf("tool %s budget %s does not outlive %q daemon timeout %s", tool.Name, budget, method, timing.DaemonTimeout)
+			}
+		}
+	}
+}
+
+// Tool.RPCMethods is an executable declaration, not commentary. Compare each
+// tool's literal declaration with the conn.Call methods in its own handler;
+// the two composed helper paths list their calls explicitly below.
+func TestMCPToolMethodDeclarationsMatchHandlers(t *testing.T) {
+	t.Parallel()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "tools.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse tools.go: %v", err)
+	}
+	indirect := map[string][]string{
+		"canary_watch":  {"MethodStatusHealth", "MethodQuoteSnapshot", "MethodPositionsList"},
+		"canary_stress": {"MethodAccountSummary", "MethodPositionsList", "MethodRegimeSnapshot", "MethodMarketEventsSnapshot"},
+	}
+	var toolsLiteral *ast.CompositeLit
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			values, ok := spec.(*ast.ValueSpec)
+			if !ok || len(values.Names) != 1 || values.Names[0].Name != "Tools" || len(values.Values) != 1 {
+				continue
+			}
+			toolsLiteral, _ = values.Values[0].(*ast.CompositeLit)
+		}
+	}
+	if toolsLiteral == nil {
+		t.Fatal("Tools composite literal not found")
+	}
+	for _, element := range toolsLiteral.Elts {
+		tool, ok := element.(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		name := toolLiteralName(tool)
+		declared := toolLiteralMethods(tool, "RPCMethods")
+		called := toolLiteralMethods(tool, "Handler")
+		for _, method := range indirect[name] {
+			called[method] = true
+		}
+		for method := range called {
+			if !declared[method] {
+				t.Errorf("tool %s calls rpc.%s but does not declare it", name, method)
+			}
+		}
+		for method := range declared {
+			if !called[method] {
+				t.Errorf("tool %s declares unused rpc.%s", name, method)
+			}
+		}
+	}
+}
+
+func toolLiteralName(tool *ast.CompositeLit) string {
+	for _, element := range tool.Elts {
+		field, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := field.Key.(*ast.Ident)
+		if !ok || key.Name != "Name" {
+			continue
+		}
+		lit, ok := field.Value.(*ast.BasicLit)
+		if !ok {
+			return ""
+		}
+		name, _ := strconv.Unquote(lit.Value)
+		return name
+	}
+	return ""
+}
+
+func toolLiteralMethods(tool *ast.CompositeLit, fieldName string) map[string]bool {
+	out := map[string]bool{}
+	for _, element := range tool.Elts {
+		field, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := field.Key.(*ast.Ident)
+		if !ok || key.Name != fieldName {
+			continue
+		}
+		ast.Inspect(field.Value, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || len(call.Args) < 2 {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name != "Call" {
+				return true
+			}
+			method, ok := call.Args[1].(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := method.X.(*ast.Ident)
+			if ok && pkg.Name == "rpc" && strings.HasPrefix(method.Sel.Name, "Method") {
+				out[method.Sel.Name] = true
+			}
+			return true
+		})
+		if methods, ok := field.Value.(*ast.CompositeLit); ok {
+			for _, item := range methods.Elts {
+				selector, ok := item.(*ast.SelectorExpr)
+				if !ok {
+					continue
+				}
+				pkg, ok := selector.X.(*ast.Ident)
+				if ok && pkg.Name == "rpc" && strings.HasPrefix(selector.Sel.Name, "Method") {
+					out[selector.Sel.Name] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // A starting daemon verifies its database before it publishes its socket, and
@@ -64,8 +231,9 @@ func TestMCPToolDialGetsStartupBudgetNotToolBudget(t *testing.T) {
 		t.Fatalf("Serve: %v", err)
 	}
 	startup := dial.StartupBudget()
-	if dialBudget <= mcpFastToolTimeout || dialBudget > startup {
-		t.Fatalf("dial budget = %s, want more than the %s tool budget and at most the %s startup budget", dialBudget, mcpFastToolTimeout, startup)
+	toolBudget := mcpToolCallTimeout("canary_status", nil)
+	if dialBudget <= toolBudget || dialBudget > startup {
+		t.Fatalf("dial budget = %s, want more than the %s tool budget and at most the %s startup budget", dialBudget, toolBudget, startup)
 	}
 }
 
@@ -74,7 +242,7 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 	defer stop()
 
 	in := &bytes.Buffer{}
-	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"canary_status","arguments":{}}}` + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"canary_calendar","arguments":{}}}` + "\n")
 	out := &bytes.Buffer{}
 	srv := NewServer(nil, "test")
 	srv.SetDialer(dialer)
@@ -84,7 +252,7 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 		t.Fatalf("Serve: %v", err)
 	}
 	elapsed := time.Since(start)
-	if elapsed > 4*time.Second {
+	if elapsed > 5*time.Second {
 		t.Fatalf("hung daemon response took %s, want bounded below MCP host timeout", elapsed)
 	}
 
@@ -102,7 +270,7 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 	if !resp.Result.IsError {
 		t.Fatalf("expected isError=true, got: %s", out.String())
 	}
-	if len(resp.Result.Content) != 1 || !strings.Contains(resp.Result.Content[0].Text, "canary_status timed out after 2s") {
+	if len(resp.Result.Content) != 1 || !strings.Contains(resp.Result.Content[0].Text, "canary_calendar timed out after 3s") {
 		t.Fatalf("timeout message = %+v", resp.Result.Content)
 	}
 }

@@ -19,6 +19,10 @@ import (
 // writeFlexFixture drops one raw statement into the retained-statements
 // dir, the same way the fetcher would.
 func writeFlexFixture(t *testing.T, name, whenGenerated, from, to, body string) {
+	writeFlexFixtureForAccount(t, name, "U1234567", whenGenerated, from, to, body)
+}
+
+func writeFlexFixtureForAccount(t *testing.T, name, account, whenGenerated, from, to, body string) {
 	t.Helper()
 	dir, err := flexStatementsDirPath()
 	if err != nil {
@@ -29,11 +33,11 @@ func writeFlexFixture(t *testing.T, name, whenGenerated, from, to, body string) 
 	}
 	doc := fmt.Sprintf(`<FlexQueryResponse queryName="recon" type="AF">
  <FlexStatements count="1">
-  <FlexStatement accountId="U1234567" fromDate="%s" toDate="%s" whenGenerated="%s">
+  <FlexStatement accountId="%s" fromDate="%s" toDate="%s" whenGenerated="%s">
 %s
   </FlexStatement>
  </FlexStatements>
-</FlexQueryResponse>`, from, to, whenGenerated, body)
+</FlexQueryResponse>`, account, from, to, whenGenerated, body)
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +55,14 @@ func equityRow(date string, total float64) string {
 // approved), an isolated state dir, and no gateway.
 func newReconTestServer(t *testing.T) *Server {
 	t.Helper()
-	return newRiskPolicyTestServer(t, validRiskPolicyTOML)
+	s := newRiskPolicyTestServer(t, validRiskPolicyTOML)
+	return s
 }
 
 func newReconV3TestServer(t *testing.T) *Server {
 	t.Helper()
-	return newRiskPolicyTestServer(t, validRiskPolicyV3TOML())
+	s := newRiskPolicyTestServer(t, validRiskPolicyV3TOML())
+	return s
 }
 
 func TestReconNudgeAccessorUsesOpaqueBrokerBackedContentIdentity(t *testing.T) {
@@ -148,6 +154,104 @@ func TestReconMatchAndCategories(t *testing.T) {
 	// Deterministic: same inputs, same id.
 	if again := s.buildReconReport(); again.ReportID != rep.ReportID {
 		t.Fatalf("report id not deterministic: %s vs %s", again.ReportID, rep.ReportID)
+	}
+}
+
+func TestReconFiltersSiblingAccountsBeforeMerge(t *testing.T) {
+	s := newReconV3TestServer(t)
+	generated := recentGenerated()
+	writeFlexFixtureForAccount(t, "flex-selected.xml", "U1234567", generated, "20260708", "20260708",
+		cashLine("selected-flow", "Deposits/Withdrawals", 100, "20260708")+"\n"+equityRow("20260708", 1000))
+	writeFlexFixtureForAccount(t, "flex-sibling.xml", "SIBLING-SECRET", generated, "20260708", "20260708",
+		cashLine("sibling-flow", "Deposits/Withdrawals", 900, "20260708")+"\n"+equityRow("20260708", 9000))
+
+	report := s.buildReconReport()
+	if report.Status != rpc.ReconStatusActive || report.Counts[reconSkippedSiblingStatementsCount] != 1 {
+		t.Fatalf("account-scoped report status=%s counts=%v", report.Status, report.Counts)
+	}
+	if report.StatementCumFlowsBase == nil || *report.StatementCumFlowsBase != 100 || len(report.Confirmed) != 1 || report.Confirmed[0].LineID != "cash-selected-flow" {
+		t.Fatalf("sibling statement participated in reconciliation: %+v", report)
+	}
+	if report.Equity == nil || report.Equity.StatementTotalBase != 1000 {
+		t.Fatalf("sibling equity won the selected account's day: %+v", report.Equity)
+	}
+
+	backtest := s.buildReconBacktest()
+	if backtest.Status != rpc.ReconStatusActive || backtest.FlowCounts[reconSkippedSiblingStatementsCount] != 1 || len(backtest.Flows) != 1 || backtest.Flows[0].LineID != "cash-selected-flow" || backtest.EquityDays != 1 {
+		t.Fatalf("account-scoped backtest = %+v", backtest)
+	}
+	raw, err := json.Marshal(struct {
+		Report   *rpc.ReconResult
+		Backtest *rpc.ReconBacktestResult
+	}{report, backtest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"SIBLING-SECRET", "sibling-flow", "9000"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("account-scoped result leaked sibling detail %q: %s", forbidden, raw)
+		}
+	}
+}
+
+func TestMergeRetainedStatementsKeysEquityWinnerByAccountAndDay(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	generated := recentGenerated()
+	writeFlexFixtureForAccount(t, "flex-account-a.xml", "U1234567", generated, "20260708", "20260708", equityRow("20260708", 1000))
+	writeFlexFixtureForAccount(t, "flex-account-b.xml", "U7654321", generated, "20260708", "20260708", equityRow("20260708", 2000))
+	statements, problems, err := loadRetainedFlexStatements()
+	if err != nil || len(problems) != 0 {
+		t.Fatalf("load retained statements: problems=%v err=%v", problems, err)
+	}
+	merged := mergeRetainedStatements(statements)
+	if len(merged.equityByDay) != 2 {
+		t.Fatalf("same-day account equity rows collapsed: %+v", merged.equityByDay)
+	}
+}
+
+func TestReconRefusesUnresolvedAccountScope(t *testing.T) {
+	s := newReconTestServer(t)
+	s.endpoint.Account = ""
+	s.endpoint.Port = 0
+	writeFlexFixture(t, "flex-unscoped.xml", recentGenerated(), "20260708", "20260708", equityRow("20260708", 1000))
+
+	report := s.buildReconReport()
+	if report.Status != rpc.ReconStatusUnavailable || report.Fetch.Reason != rpc.ReconReportReasonAuthorityUnavailable || !strings.Contains(report.Message, "one selected broker account") {
+		t.Fatalf("unresolved account report = %+v", report)
+	}
+	backtest := s.buildReconBacktest()
+	if backtest.Status != rpc.ReconStatusUnavailable || !strings.Contains(backtest.Message, "one selected broker account") {
+		t.Fatalf("unresolved account backtest = %+v", backtest)
+	}
+}
+
+func TestReconKeepsRetainedFileAndParserDetailsDaemonLocal(t *testing.T) {
+	s := newReconTestServer(t)
+	writeFlexFixture(t, "flex-valid.xml", recentGenerated(), "20260708", "20260708", equityRow("20260708", 1000))
+	dir, err := flexStatementsDirPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const privateName = "private-host-path-and-account.xml"
+	if err := os.WriteFile(filepath.Join(dir, privateName), []byte(`<not-flex private="broker prose">`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := s.buildReconReport()
+	if report.Status != rpc.ReconStatusDegraded {
+		t.Fatalf("status=%s health=%+v", report.Status, report.InputHealth)
+	}
+	raw, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{privateName, "not-flex", "broker prose", "XML syntax error"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("reconciliation response leaked private parser detail %q: %s", forbidden, raw)
+		}
+	}
+	if !strings.Contains(string(raw), rpc.ReconReportReasonResponseInvalid) {
+		t.Fatalf("reconciliation response lacks typed failure code: %s", raw)
 	}
 }
 
@@ -452,6 +556,42 @@ func TestReconDismissResolvesAndChangesReportID(t *testing.T) {
 	// Double dismissal is refused.
 	if _, err := s.handleReconDismiss(ctx, rawParams(t, rpc.ReconDismissParams{LineID: "cash-x1", Reason: "again", Origin: rpc.OrderOriginHumanTTY})); err == nil {
 		t.Fatal("double dismiss must fail")
+	}
+}
+
+func TestReconDismissRefusesAccountChangeBeforeGovernanceWrite(t *testing.T) {
+	s := newReconTestServer(t)
+	writeFlexFixture(t, "flex-scope-race.xml", recentGenerated(), "20260706", "20260712",
+		cashLine("scope-race", "Deposits/Withdrawals", -500, "20260708"))
+	before := s.buildReconReport()
+	if before.Unresolved != 1 || len(before.Exceptions) != 1 {
+		t.Fatalf("fixture report = %+v", before)
+	}
+
+	switched := false
+	s.nudgeScanCheckpoint = func(stage string) {
+		if stage != "recon_complete" || switched {
+			return
+		}
+		switched = true
+		s.mu.Lock()
+		s.endpoint.Account = "U-CHANGED-DURING-REVIEW"
+		s.mu.Unlock()
+	}
+	_, err := s.handleReconDismiss(context.Background(), rawParams(t, rpc.ReconDismissParams{
+		LineID: before.Exceptions[0].LineID, Reason: "reviewed", Origin: rpc.OrderOriginHumanTTY,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "selected broker account changed") {
+		t.Fatalf("scope-changing dismissal error = %v", err)
+	}
+	path, pathErr := defaultTradingStatePath(riskPolicyJournalFile)
+	if pathErr != nil {
+		t.Fatal(pathErr)
+	}
+	if raw, readErr := os.ReadFile(path); readErr == nil && strings.Contains(string(raw), "recon_dismiss") {
+		t.Fatalf("scope-changing dismissal reached the governance journal: %s", raw)
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatal(readErr)
 	}
 }
 

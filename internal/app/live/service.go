@@ -165,6 +165,8 @@ const (
 )
 
 var (
+	errAccountResultUnavailable   = errors.New("account result unavailable")
+	errPositionsResultUnavailable = errors.New("positions result unavailable")
 	errStressResultUnavailable    = errors.New("stress result unavailable")
 	errRegimeResultUnavailable    = errors.New("regime result unavailable")
 	errRulesResultUnavailable     = errors.New("rules result unavailable")
@@ -206,6 +208,8 @@ func New(client daemonclient.Client, pollEvery, stressEvery time.Duration) *Serv
 		lastEventAt: map[string]time.Time{},
 		subs:        map[chan Event]struct{}{},
 		snapshot: Snapshot{Sources: map[string]SourceMeta{
+			"account":          {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
+			"positions":        {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
 			"nudges":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
 			"stress":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
 			"regime":           {State: SourceStateNotObserved, Reason: SourceReasonNotObserved},
@@ -397,20 +401,26 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 	}
 	if account, err := s.client.Account(ctx); err != nil {
 		errors = append(errors, sourceErr("account", err, now))
-		snap.Sources["account"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["account"] = sourceUnavailable(snap.Sources["account"], now)
+	} else if account == nil {
+		errors = append(errors, sourceErr("account", errAccountResultUnavailable, now))
+		snap.Sources["account"] = sourceUnavailableWithReason(snap.Sources["account"], now, SourceReasonProducerUnavailable)
 	} else {
 		snap.Account = account
-		snap.Sources["account"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["account"] = sourceCurrent(now)
 		if s.changed("account", account) {
 			events = append(events, Event{Type: "account", Data: account})
 		}
 	}
 	if positions, err := s.client.Positions(ctx); err != nil {
 		errors = append(errors, sourceErr("positions", err, now))
-		snap.Sources["positions"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["positions"] = sourceUnavailable(snap.Sources["positions"], now)
+	} else if positions == nil {
+		errors = append(errors, sourceErr("positions", errPositionsResultUnavailable, now))
+		snap.Sources["positions"] = sourceUnavailableWithReason(snap.Sources["positions"], now, SourceReasonProducerUnavailable)
 	} else {
 		snap.Positions = positions
-		snap.Sources["positions"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["positions"] = sourceCurrent(now)
 		if s.changed("positions", positions) {
 			events = append(events, Event{Type: "positions", Data: positions})
 		}
@@ -1531,6 +1541,12 @@ func cloneSnapshot(in Snapshot) Snapshot {
 	out := in
 	out.Errors = append([]SourceError(nil), in.Errors...)
 	out.Sources = maps.Clone(in.Sources)
+	out.Account = cloneAccountResult(in.Account)
+	if in.Positions != nil {
+		positions := *in.Positions
+		positions.Authority = cloneAccountDataAuthority(in.Positions.Authority)
+		out.Positions = &positions
+	}
 	out.Quotes = cloneMarketQuotes(in.Quotes)
 	if in.MarketEvents != nil {
 		events := *in.MarketEvents
@@ -1581,6 +1597,35 @@ func cloneSnapshot(in Snapshot) Snapshot {
 		out.Proposals = &proposals
 	}
 	return out
+}
+
+func cloneAccountResult(in *rpc.AccountResult) *rpc.AccountResult {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Authority = cloneAccountDataAuthority(in.Authority)
+	out.DailyPnL = cloneValue(in.DailyPnL)
+	out.PnLUnrealizedTotal = cloneValue(in.PnLUnrealizedTotal)
+	out.PnLRealizedTotal = cloneValue(in.PnLRealizedTotal)
+	out.CurrencyExposure = append([]rpc.CurrencyExposure(nil), in.CurrencyExposure...)
+	if in.DailyPnLObservation != nil {
+		observation := *in.DailyPnLObservation
+		out.DailyPnLObservation = &observation
+	}
+	return &out
+}
+
+func cloneAccountDataAuthority(in *rpc.AccountDataAuthority) *rpc.AccountDataAuthority {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Fields != nil {
+		fields := *in.Fields
+		out.Fields = &fields
+	}
+	return &out
 }
 
 func cloneAlertCandidateSnapshot(in *rpc.AlertCandidateSnapshot) *rpc.AlertCandidateSnapshot {

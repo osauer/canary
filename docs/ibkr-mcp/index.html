@@ -50,10 +50,10 @@
   </header>
   <main class="wrap doc">
 <h1 id="ibkr-mcp-server">IBKR MCP server</h1>
-<p>Updated: 2026-07-29 09:45 CEST</p>
+<p>Updated: 2026-08-04 22:57 CEST</p>
 <p><code>canary mcp</code> is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed, Continue, and other stdio MCP hosts to the machine already running IB Gateway or Trader Workstation (TWS).</p>
 <p>Canary adds a local daemon, a command line, and a small risk desk — regime dashboard, stress checks, a discipline rulebook, an operator-written risk policy — around that MCP connection. The available data depends on the trader's IBKR subscriptions and the current market session; unavailable or stale inputs stay visible instead of being presented as current.</p>
-<p>Install the Claude Desktop MCP Bundle or the <code>canary</code> binary, run it beside the local IBKR session, and use the typed tools for account, positions, quotes, calendars, options, scanners, breadth, gamma, regime, stress, and sizing context. The bundled MCP surface has no order-entry tools.</p>
+<p>Install the Claude Desktop MCP Bundle or the <code>canary</code> binary, run it beside the local IBKR session, and use the typed tools for the daily brief, account, positions, quotes, calendars, options, scanners, breadth, gamma, regime, stress, and sizing context. The bundled MCP surface has no order-entry tools.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
 <li>You want an IBKR MCP server that works locally through stdio.</li>
@@ -82,6 +82,7 @@ canary setup claude-desktop</code></pre>
 }</code></pre>
 <h2 id="what-the-mcp-server-exposes">What the MCP server exposes</h2>
 <ul>
+<li>Canary's assembled daily brief through <code>canary_brief</code>, without signing off or changing process state.</li>
 <li>Account summary, buying power, cash, margin, daily P&amp;L, positions, option legs, and Greek coverage.</li>
 <li>Snapshot stock and ETF quotes, daily history, previous close, and quote freshness.</li>
 <li>Official market calendars for US equities, US listed options, and Xetra.</li>

@@ -237,7 +237,8 @@ func (s *Server) handleBriefAck(ctx context.Context, req *rpc.Request) (*rpc.Bri
 	}
 	now := s.briefNow()
 	day := localDay(now)
-	if rec, ok := artefactCompletedInPeriod(s.riskCapital.Artefacts(), kind, now); ok {
+	scope := s.currentBrokerStateScope()
+	if rec, ok := artefactCompletedInPeriod(s.riskCapital.ArtefactsForScope(scope), kind, now); ok {
 		return &rpc.BriefAckResult{OK: true, Kind: kind, Day: day, At: rec.CompletedAt,
 			AlreadyStamped: true, BriefFingerprint: rec.BriefFingerprint,
 			Message: fmt.Sprintf("%s artefact already complete for %s", kind, day)}, nil
@@ -253,9 +254,9 @@ func (s *Server) handleBriefAck(ctx context.Context, req *rpc.Request) (*rpc.Bri
 	// there is no second full brief fan-out on the write path.
 	rules := s.evaluateRulesMode(ctx, false, false)
 	mgr := s.riskPolicies.snapshot()
-	rec, err := s.riskCapital.RecordArtefact(rpc.ArtefactParams{
+	rec, err := s.riskCapital.RecordArtefactForScope(rpc.ArtefactParams{
 		Artefact: kind, Origin: normalizedWriteOrigin(p.Origin), BriefFingerprint: fingerprint,
-	}, mgr.policy)
+	}, mgr.policy, scope)
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
@@ -610,13 +611,15 @@ func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr 
 	}
 	var obs *risk.CapitalObservation
 	if acctErr == nil && acct != nil && acct.NetLiquidation > 0 &&
+		brokerScopeConcrete(authority.scope) && strings.EqualFold(strings.TrimSpace(acct.AccountID), strings.TrimSpace(authority.scope.Account)) &&
 		(authority.policy == nil || authority.policy.Capital.BaseCurrency == "" || acct.BaseCurrency == "" || strings.EqualFold(authority.policy.Capital.BaseCurrency, acct.BaseCurrency)) {
 		obs = &risk.CapitalObservation{EquityBase: acct.NetLiquidation, AsOf: acct.AsOf}
 	}
-	res.Capital = s.riskCapital.Report(authority.policy, obs, s.currentBrokerStateScope())
+	scope := authority.scope
+	res.Capital = s.riskCapital.Report(authority.policy, obs, scope)
 	res.Limits = risk.ConstitutionLimits(authority.policy)
-	res.Overrides = s.riskCapital.OverridesSnapshot()
-	res.Cadence = s.riskCapital.Artefacts()
+	res.Overrides = s.riskCapital.OverridesSnapshotForScope(scope)
+	res.Cadence = s.riskCapital.ArtefactsForScope(scope)
 	return res
 }
 
@@ -1462,7 +1465,7 @@ func (s *Server) composeBriefProcessForAuthority(policy *rpc.RiskPolicyResult, c
 		capital := policy.Capital
 		out.Reconcile = rpc.BriefReconcileRow{BriefRowState: briefOK("reconcile evidence and shared constitution clock"),
 			LastReconciledAt: capital.LastReconciledAt, Source: capital.LastReconcileSource}
-		clock := s.riskCapital.UnreconciledClock(constitution, now)
+		clock := s.riskCapital.UnreconciledClockForScope(constitution, now, authority.scope)
 		if !clock.Approved {
 			out.Reconcile.BriefRowState = briefDegraded("capital.max_unreconciled_days is unapproved")
 		} else if capital.LastReconciledAt.IsZero() {
@@ -1483,7 +1486,7 @@ func (s *Server) composeBriefProcessForAuthority(policy *rpc.RiskPolicyResult, c
 		if recon.LastAutoExtendReportID != "" {
 			out.AutoExtend.Detail = "latest clean-report automatic extension"
 		}
-		_, blockers := s.reconcileReportAssessment(recon.ReportID)
+		_, blockers := s.reconcileReportAssessmentForScope(recon.ReportID, authority.scope)
 		out.OneTap = rpc.BriefOneTapRow{BriefRowState: briefOK("current report is signable"), ReportID: recon.ReportID,
 			Signable: len(blockers) == 0, Blockers: blockers}
 		if len(blockers) > 0 {

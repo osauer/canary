@@ -1,5 +1,5 @@
 import { protectionEffectiveBlockers } from "./market-events.js";
-import { cleanDetail, compactWholeMoney, firstNumber, hasNumericValue, labelize, normalizeCurrency, normalizeSymbol, numberRead, sensitiveDisplayMoney } from "./shared.js";
+import { accountBaseCurrency, cleanDetail, compactWholeMoney, firstNumber, hasNumericValue, labelize, normalizeCurrency, normalizeSymbol, numberRead, sensitiveDisplayMoney } from "./shared.js";
 import { state } from "./state.js";
 
 function protectionVisibleRows(rows = [], marketEvents = {}) {
@@ -83,7 +83,7 @@ function protectionCoverageBaseCurrency(coverage = {}, fallback = "") {
     coverage.unprotected_notional_base_currency ||
     fallback ||
     state.snapshot?.positions?.portfolio?.base_currency ||
-    state.snapshot?.account?.base_currency ||
+    accountBaseCurrency(state.snapshot?.account || {}) ||
     "",
   );
 }

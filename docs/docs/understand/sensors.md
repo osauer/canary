@@ -302,6 +302,13 @@ closed. Daily P&L is required during the US equity regular session. Silence
 outside the session is `not_due`, leaves otherwise current account evidence
 healthy, and keeps the P&L-specific observation explicitly unavailable.
 
+Account and positions JSON also carry an `authority` block. It names the one
+account and paper/live mode, the source, whether the result is available, and
+whether it is current, stale, or of unknown age. Account summary fields each
+have an availability flag, so `0` means zero only when that field was actually
+received. An unresolved or conflicting account scope stays unavailable; a list
+of managed accounts is never treated as one combined account.
+
 Missing, stale, partial, or failed required inputs produce degraded/failed input
 health and normally `confirm_inputs` with blocked readiness. Reg SHO and halt
 health are required for a held book. Borrow inventory and fee health become

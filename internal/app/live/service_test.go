@@ -127,6 +127,145 @@ func TestPublishedSnapshotDoesNotAliasLaterPollWrites(t *testing.T) {
 	}
 }
 
+func TestAccountSourceRetainsLastGoodAndNamesTransportState(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	client := &fakeClient{account: &rpc.AccountResult{AccountID: "SYNTHETIC", BaseCurrency: "EUR", NetLiquidation: 0}}
+	service := New(client, 5*time.Second, time.Minute)
+	service.now = func() time.Time { return now }
+
+	first := service.PollOnce(t.Context())
+	if first.Account == nil || first.Account.AccountID != "SYNTHETIC" {
+		t.Fatalf("initial account snapshot=%+v", first.Account)
+	}
+	if source := first.Sources["account"]; source.State != SourceStateCurrent || source.Reason != SourceReasonNone || !source.LastSuccessAt.Equal(now) || source.Error != "" {
+		t.Fatalf("initial account source=%+v, want current", source)
+	}
+
+	client.accountErr = errors.New("private account transport sentinel")
+	now = now.Add(time.Minute)
+	failed := service.PollOnce(t.Context())
+	if failed.Account == nil || failed.Account.AccountID != "SYNTHETIC" {
+		t.Fatalf("transport failure discarded last-good account: %+v", failed.Account)
+	}
+	if source := failed.Sources["account"]; source.State != SourceStateUnavailable || source.Reason != SourceReasonTransportUnavailable || !source.LastSuccessAt.Equal(now.Add(-time.Minute)) || source.Error != "" {
+		t.Fatalf("failed account source=%+v, want allowlisted unavailable state", source)
+	}
+	for _, item := range failed.Errors {
+		if strings.Contains(item.Message, "private account transport sentinel") {
+			t.Fatalf("raw account error leaked into public snapshot: %+v", item)
+		}
+	}
+
+	client.accountErr = nil
+	client.account = nil
+	now = now.Add(time.Minute)
+	nilResult := service.PollOnce(t.Context())
+	if nilResult.Account == nil || nilResult.Account.AccountID != "SYNTHETIC" {
+		t.Fatalf("nil success discarded last-good account: %+v", nilResult.Account)
+	}
+	if source := nilResult.Sources["account"]; source.State != SourceStateUnavailable || source.Reason != SourceReasonProducerUnavailable || !source.LastSuccessAt.Equal(now.Add(-2*time.Minute)) {
+		t.Fatalf("nil account source=%+v, want producer unavailable", source)
+	}
+}
+
+func TestPositionsSourceRetainsLastGoodAndDoesNotTurnFailureIntoAnEmptyBook(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 4, 10, 15, 0, 0, time.UTC)
+	client := &fakeClient{positions: &rpc.PositionsResult{
+		AccountID: "SYNTHETIC", Stocks: []rpc.PositionView{{Symbol: "SYN", SecType: "STK"}},
+	}}
+	service := New(client, 5*time.Second, time.Minute)
+	service.now = func() time.Time { return now }
+	first := service.PollOnce(t.Context())
+	if first.Positions == nil || len(first.Positions.Stocks) != 1 || first.Sources["positions"].State != SourceStateCurrent {
+		t.Fatalf("initial positions snapshot=%+v source=%+v", first.Positions, first.Sources["positions"])
+	}
+
+	client.positionsErr = errors.New("private positions transport sentinel")
+	now = now.Add(time.Minute)
+	failed := service.PollOnce(t.Context())
+	if failed.Positions == nil || len(failed.Positions.Stocks) != 1 {
+		t.Fatalf("positions failure became an empty book: %+v", failed.Positions)
+	}
+	if source := failed.Sources["positions"]; source.State != SourceStateUnavailable || source.Reason != SourceReasonTransportUnavailable || !source.LastSuccessAt.Equal(now.Add(-time.Minute)) || source.Error != "" {
+		t.Fatalf("failed positions source=%+v", source)
+	}
+}
+
+func TestPublicSnapshotCarriesAccountAuthorityAndKeepsItImmutable(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 4, 10, 30, 0, 0, time.UTC)
+	daily := 0.0
+	client := &fakeClient{account: &rpc.AccountResult{
+		AccountID: "SYNTHETIC", BaseCurrency: "EUR", NetLiquidation: 0, DailyPnL: &daily, AsOf: now,
+		Authority: &rpc.AccountDataAuthority{
+			Scope:  rpc.AccountDataScope{AccountID: "SYNTHETIC", AccountMode: rpc.AccountModePaper},
+			Source: rpc.AccountDataSourceAccountSummaryRequest, Availability: rpc.AccountDataAvailable,
+			Freshness: rpc.AccountDataFreshnessCurrent, AsOf: now,
+			Fields: &rpc.AccountFieldAvailability{BaseCurrency: true, NetLiquidation: true, DailyPnL: true},
+		},
+	}, positions: &rpc.PositionsResult{
+		AccountID: "SYNTHETIC", Authority: &rpc.AccountDataAuthority{
+			Scope:  rpc.AccountDataScope{AccountID: "SYNTHETIC", AccountMode: rpc.AccountModePaper},
+			Source: rpc.AccountDataSourcePortfolioStream, Availability: rpc.AccountDataAvailable,
+			Freshness: rpc.AccountDataFreshnessCurrent, AsOf: now,
+		},
+	}}
+	service := New(client, 5*time.Second, time.Minute)
+	service.now = func() time.Time { return now }
+	got := service.PollOnce(t.Context())
+
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var public struct {
+		Account struct {
+			Authority struct {
+				Scope        rpc.AccountDataScope        `json:"scope"`
+				Availability rpc.AccountDataAvailability `json:"availability"`
+				Freshness    rpc.AccountDataFreshness    `json:"freshness"`
+				Fields       map[string]bool             `json:"fields"`
+			} `json:"authority"`
+		} `json:"account"`
+		Positions struct {
+			Authority struct {
+				Scope        rpc.AccountDataScope        `json:"scope"`
+				Availability rpc.AccountDataAvailability `json:"availability"`
+				Freshness    rpc.AccountDataFreshness    `json:"freshness"`
+			} `json:"authority"`
+		} `json:"positions"`
+	}
+	if err := json.Unmarshal(encoded, &public); err != nil {
+		t.Fatal(err)
+	}
+	if public.Account.Authority.Scope.AccountID != "SYNTHETIC" ||
+		public.Account.Authority.Availability != rpc.AccountDataAvailable ||
+		public.Account.Authority.Freshness != rpc.AccountDataFreshnessCurrent {
+		t.Fatalf("public account authority=%+v", public.Account.Authority)
+	}
+	if !public.Account.Authority.Fields["net_liquidation"] || public.Account.Authority.Fields["buying_power"] {
+		t.Fatalf("public account field presence=%+v, want true zero and explicit missing zero", public.Account.Authority.Fields)
+	}
+	if public.Positions.Authority.Scope.AccountID != "SYNTHETIC" ||
+		public.Positions.Authority.Availability != rpc.AccountDataAvailable ||
+		public.Positions.Authority.Freshness != rpc.AccountDataFreshnessCurrent {
+		t.Fatalf("public positions authority=%+v", public.Positions.Authority)
+	}
+
+	got.Account.Authority.Scope.AccountID = "MUTATED"
+	got.Account.Authority.Fields.NetLiquidation = false
+	got.Positions.Authority.Scope.AccountID = "MUTATED"
+	current := service.Snapshot()
+	if current.Account.Authority.Scope.AccountID != "SYNTHETIC" || !current.Account.Authority.Fields.NetLiquidation {
+		t.Fatalf("returned snapshot aliased service account authority: %+v", current.Account.Authority)
+	}
+	if current.Positions.Authority.Scope.AccountID != "SYNTHETIC" {
+		t.Fatalf("returned snapshot aliased service positions authority: %+v", current.Positions.Authority)
+	}
+}
+
 // A published snapshot is handed to SSE subscribers that marshal it while the
 // same poll keeps recording source metadata. Sharing either side's maps is a
 // fatal concurrent map access, not a stale read.
@@ -1574,7 +1713,9 @@ type fakeClient struct {
 	status       *rpc.HealthResult
 	calendar     *rpc.MarketCalendarResult
 	account      *rpc.AccountResult
+	accountErr   error
 	positions    *rpc.PositionsResult
+	positionsErr error
 	quotes       map[string]rpc.Quote
 	quoteErrs    map[string]error
 	regime       *rpc.RegimeMonitorResult
@@ -1752,11 +1893,11 @@ func (c *fakeClient) MarketCalendarFor(context.Context, string) (*rpc.MarketCale
 }
 
 func (c *fakeClient) Account(context.Context) (*rpc.AccountResult, error) {
-	return c.account, nil
+	return c.account, c.accountErr
 }
 
 func (c *fakeClient) Positions(context.Context) (*rpc.PositionsResult, error) {
-	return c.positions, nil
+	return c.positions, c.positionsErr
 }
 
 func (c *fakeClient) Quote(_ context.Context, contract rpc.ContractParams) (*rpc.Quote, error) {

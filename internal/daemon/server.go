@@ -2752,12 +2752,13 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	// gets a clean error.
 	defer recoverHandler(s.logger, enc, req)
 	// Per-request deadline. Streaming methods get no deadline (the stream
-	// itself owns its lifetime). Unary deadlines are bounded below the
-	// CLI's 60s per-invocation budget so the daemon errors first with a
-	// classified message instead of the CLI surfacing a generic socket
-	// timeout. Without this, a slow handler (e.g. chain.fetch's
-	// per-strike contract resolution) could outlive the CLI cancellation
-	// and leak gateway market-data slots.
+	// itself owns its lifetime). Unary handlers and adapters read the same RPC
+	// timing entry, with each adapter adding explicit response headroom. That
+	// lets the daemon return a classified timeout before its caller gives up.
+	if _, ok := rpc.LookupMethodTiming(req.Method); !ok {
+		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
+		return false
+	}
 	var cancel context.CancelFunc
 	ctx, cancel = requestCtx(ctx, req.Method)
 	defer cancel()
@@ -2922,116 +2923,16 @@ func requestCtx(parent context.Context, method string) (context.Context, context
 	return parent, func() {}
 }
 
-// unaryDeadline returns the per-request deadline for a method, or 0 for
-// methods that own their own lifetime (streaming). Values are picked to
-// stay below the CLI's 60s per-invocation budget in cmd/canary/main.go so
-// the daemon's classified error reaches the user instead of a raw socket
-// timeout, while still being generous enough for the slowest legitimate
-// path: chain.fetch's sequential per-strike contract resolution.
-//
-// MethodPositionsList gets a long budget because the first call after
-// daemon start has to resolve every held option's contract details
-// (cold cache, 4-way parallel × up to 5 s per leg) before the Greeks
-// model-computation tick can be polled. After the option-contract
-// cache is warm, subsequent positions calls return in under 5 s; the
-// 30 s ceiling is for the first-call worst case.
+// unaryDeadline reads the shared RPC timing authority. Adapters add their own
+// explicit headroom to the same entry, so the daemon's classified timeout can
+// cross the socket before the caller gives up. Streaming and unknown methods
+// have no handler deadline; dispatch rejects unknown methods before this point.
 func unaryDeadline(method string) time.Duration {
-	switch method {
-	case rpc.MethodChainFetch, rpc.MethodChainExpiries:
-		// 50 s = 5 s spot snapshot + 4 waves × ~10 s/wave cold-start. The
-		// cold path on a fresh-client-ID TWS session pays per-leg contract-
-		// details warmup (2-3 s × first-wave timeouts → retries) on top of
-		// the per-leg market-data tick window; observed cold cost on a
-		// 14-leg AAPL fetch is 25-30 s and at 25 s the handler is cut off
-		// mid-leg-fanout. CLI ceiling is 60 s ([cmd/canary/main.go:125]) so
-		// 50 s leaves room for the classified daemon error to surface
-		// before the socket times out.
-		return 50 * time.Second
-	case rpc.MethodHistoryDaily:
-		// 55 s — interactive daily-history reads may need a cold
-		// contract-details round trip plus an HMDS request admitted through
-		// the paced historical bucket. Keep this below the default 60 s CLI
-		// ceiling so timeout errors remain daemon-classified.
-		return 55 * time.Second
-	case rpc.MethodPositionsList:
-		return 30 * time.Second
-	case rpc.MethodTechnical:
-		return 75 * time.Second
-	case rpc.MethodMarketCalendar, rpc.MethodBreadthSPX, rpc.MethodAlertCandidates, rpc.MethodAlertStatus:
-		// 2 s — both handlers are pure projections of in-process data.
-		// handleMarketCalendar reads embedded official schedules;
-		// handleBreadthSPX reads in-memory engine state (Get() +
-		// History()) while the long-running compute sits on the engine
-		// scheduler goroutine. A handler taking >2 s here is a sign of
-		// mutex contention or a stuck scheduler, not legitimate work.
-		return 2 * time.Second
-	case rpc.MethodGammaZeroSPX:
-		// 55 s — under the CLI's 60 s ceiling but generous enough to
-		// support meaningful WaitMs values. The actual compute runs
-		// on a daemon-internal goroutine outside this budget; the
-		// only thing under the deadline is the snapshot + (optional)
-		// wait for the cached result. A caller that sets WaitMs >
-		// 50000 ms will get a clean "computing" envelope back once
-		// the deadline ticks, not a socket timeout.
-		return 55 * time.Second
-	case rpc.MethodRegimeSnapshot:
-		// 50 s — the daemon-owned acquisition retains its established 45 s
-		// upper bound. Five seconds of response headroom lets a cold caller
-		// receive the cache's typed regime_unavailable classification after a
-		// timed-out/incomplete refresh instead of racing into a generic socket
-		// timeout. Still below the CLI's 60 s ceiling.
-		return 50 * time.Second
-	case rpc.MethodBriefSnapshot, rpc.MethodBriefAck:
-		// Brief composition fans out across the same gateway-heavy account,
-		// positions, regime, market-event, and rulebook reads as Stress.
-		return 75 * time.Second
-	case rpc.MethodNudgesSnapshot, rpc.MethodNudgesCutoverReview, rpc.MethodReconStatus, rpc.MethodReconCheck:
-		// Local policy, retained statements, and daemon state only.
-		return 5 * time.Second
-	case rpc.MethodMarketEventsSnapshot:
-		return 20 * time.Second
-	case rpc.MethodScanRun:
-		// Up to 35 s scanner-subscription budget (off-hours cold-start
-		// for HIGH_OPEN_GAP / TOP_PERC_GAIN / HIGH_OPT_IMP_VOLAT_OVER_HIST
-		// can take 25-45 s) + per-row enrichment in waves of
-		// scanEnrichConcurrency × scanEnrichWindow each. Typical RTH scan:
-		// ~15 s. Worst case off-hours: 35 s scan + 20 s enrichment + slack.
-		// The CLI per-invocation deadline at cmd/canary/main.go is bumped to
-		// 90 s in lockstep so the daemon's classified error reaches the
-		// user instead of a raw socket timeout.
-		return 75 * time.Second
-	case rpc.MethodScanParams:
-		// ~200 KB XML payload, single round trip — usually <2 s. Generous
-		// budget to absorb a degraded gateway without timing out before
-		// the connection error surfaces.
-		return 15 * time.Second
-	case rpc.MethodOrderPreview:
-		// 55 s — order preview does a quote snapshot, position-impact
-		// read, then broker WhatIf. The WhatIf leg can take longer than
-		// a fast quote path on a v203 TWS session; leave enough room for
-		// it while still beating the CLI's default 60 s unary ceiling.
-		return 55 * time.Second
-	case rpc.MethodPurgeExecute, rpc.MethodPurgeRestorePreview, rpc.MethodPurgeRestoreExecute, rpc.MethodTradeProposalsRefresh, rpc.MethodTradeProposalsPreview, rpc.MethodTradeProposalsSubmit, rpc.MethodTradeProposalsReducePreview, rpc.MethodTradeProposalsReduceSubmit, rpc.MethodOpportunitiesRefresh, rpc.MethodOpportunitiesPreviewExercise, rpc.MethodOpportunitiesSubmitExercise:
-		return 55 * time.Second
-	case rpc.MethodTradeProposalsReducePortfolioPreview, rpc.MethodTradeProposalsReducePortfolioSubmit:
-		// A sweep previews/places each eligible leg sequentially; the budget
-		// scales past the single-order 55s bucket. Per-leg deadlines (legContext)
-		// keep one stuck leg from consuming the whole window.
-		return 120 * time.Second
-	case rpc.MethodTradingPaperSmoke:
-		// Quote + WhatIf preview, place, ≤60 s ack wait, 15 s detached
-		// cancel budget. The CLI's paper-smoke budget is 120 s in lockstep
-		// so the daemon's classified error reaches the user.
-		return 100 * time.Second
-	case rpc.MethodAccountSummary, rpc.MethodQuoteSnapshot:
-		return 10 * time.Second
-	case rpc.MethodStatusHealth, rpc.MethodTradingStatus, rpc.MethodAutoTradeStatus, rpc.MethodOpportunitiesStatus, rpc.MethodSettingsGet, rpc.MethodSettingsUpdate, rpc.MethodOrdersOpen, rpc.MethodOrdersHistory, rpc.MethodOrderStatus, rpc.MethodPurgeStatus, rpc.MethodTradeProposalsSnapshot, rpc.MethodTradeProposalsIgnore, rpc.MethodOpportunitiesSnapshot, rpc.MethodOpportunitiesIgnore, rpc.MethodScanList:
-		return 5 * time.Second
-	case rpc.MethodQuoteSubscribe:
+	timing, ok := rpc.LookupMethodTiming(method)
+	if !ok || timing.Lifetime == rpc.MethodLifetimeStreaming {
 		return 0
-	default:
-		return 15 * time.Second
 	}
+	return timing.DaemonTimeout
 }
 
 // unary wraps a handler so result/error envelopes are uniform.

@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestIsWatchDaemonInvocation(t *testing.T) {
@@ -62,6 +65,82 @@ func TestRetiredCanaryDoesNotUseStressUnaryBudget(t *testing.T) {
 	ordinary := unaryInvocationBudget("unknown", nil)
 	if retired != ordinary || retired == current {
 		t.Fatalf("retired canary budget=%s ordinary=%s stress=%s", retired, ordinary, current)
+	}
+}
+
+func TestUnaryInvocationBudgetsOutliveDaemonMethods(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		cmd    string
+		args   []string
+		method string
+		want   time.Duration
+	}{
+		{name: "history cold HMDS", cmd: "history", method: rpc.MethodHistoryDaily, want: 60 * time.Second},
+		{name: "order WhatIf preview", cmd: "order", args: []string{"preview"}, method: rpc.MethodOrderPreview, want: 60 * time.Second},
+		{name: "proposal refresh", cmd: "proposals", args: []string{"refresh"}, method: rpc.MethodTradeProposalsRefresh, want: 60 * time.Second},
+		{name: "opportunity refresh", cmd: "opportunities", args: []string{"refresh"}, method: rpc.MethodOpportunitiesRefresh, want: 60 * time.Second},
+		{name: "brief composition", cmd: "brief", method: rpc.MethodBriefSnapshot, want: 90 * time.Second},
+		{name: "paper smoke", cmd: "trading", args: []string{"paper-smoke"}, method: rpc.MethodTradingPaperSmoke, want: 120 * time.Second},
+		{name: "portfolio reduce", cmd: "proposals", args: []string{"reduce", "--portfolio"}, method: rpc.MethodTradeProposalsReducePortfolioPreview, want: 150 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := unaryInvocationBudget(tc.cmd, tc.args)
+			if got != tc.want {
+				t.Fatalf("unaryInvocationBudget(%q, %v) = %s, want %s", tc.cmd, tc.args, got, tc.want)
+			}
+			timing, ok := rpc.LookupMethodTiming(tc.method)
+			if !ok {
+				t.Fatalf("missing timing for %s", tc.method)
+			}
+			if got <= timing.DaemonTimeout {
+				t.Fatalf("CLI budget %s must outlive %s daemon timeout %s", got, tc.method, timing.DaemonTimeout)
+			}
+		})
+	}
+}
+
+func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
+	t.Parallel()
+	for _, cmd := range []struct {
+		name string
+		args []string
+	}{
+		{name: "status"}, {name: "account"}, {name: "positions"}, {name: "quote"},
+		{name: "watch"}, {name: "calendar"}, {name: "chain"}, {name: "history"},
+		{name: "technical"}, {name: "market-events"}, {name: "breadth"}, {name: "gamma"},
+		{name: "regime"}, {name: "stress"}, {name: "brief"}, {name: "rules"},
+		{name: "alerts"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
+		{name: "proposals", args: []string{"reduce", "--portfolio"}},
+		{name: "opportunities"}, {name: "purge"}, {name: "backtest", args: []string{"capture-opportunity"}},
+		{name: "scan"}, {name: "scan", args: []string{"list"}}, {name: "scan", args: []string{"params"}},
+		{name: "size"}, {name: "trading"}, {name: "trading", args: []string{"paper-smoke"}}, {name: "settings"},
+		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"preview"}},
+		{name: "order", args: []string{"place"}}, {name: "order", args: []string{"modify"}}, {name: "order", args: []string{"cancel"}},
+	} {
+		methods, headroom, floor := cliInvocationTiming(cmd.name, cmd.args)
+		if len(methods) == 0 {
+			t.Errorf("daemon-backed command %q declares no RPC methods", cmd.name)
+			continue
+		}
+		if headroom <= 0 {
+			t.Errorf("daemon-backed command %q has non-positive headroom %s", cmd.name, headroom)
+		}
+		budget := cliMethodBudget(methods, headroom, floor)
+		for _, method := range methods {
+			timing, ok := rpc.LookupMethodTiming(method)
+			if !ok {
+				t.Errorf("command %q declares uncatalogued method %q", cmd.name, method)
+				continue
+			}
+			if timing.Lifetime == rpc.MethodLifetimeUnary && budget <= timing.DaemonTimeout {
+				t.Errorf("command %q budget %s does not outlive %q daemon timeout %s", cmd.name, budget, method, timing.DaemonTimeout)
+			}
+		}
 	}
 }
 

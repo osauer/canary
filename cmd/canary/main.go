@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/osauer/canary/v2/internal/cli"
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/tui"
 )
 
@@ -233,33 +235,136 @@ func retiredProductEnvError(lookup func(string) (string, bool)) error {
 }
 
 func unaryInvocationBudget(cmd string, rest []string) time.Duration {
-	if cmd == "scan" || cmd == "technical" || cmd == "stress" || cmd == "brief" || (cmd == "backtest" && isBacktestDaemonInvocation(rest)) {
-		return parseDurationOr(cliLongUnaryTimeout, 90*time.Second)
-	}
-	// The daemon-side MethodTradingPaperSmoke deadline is 100 s (preview,
-	// place, ack wait, detached cancel budget); the CLI ceiling must exceed
-	// it so the classified daemon error reaches the user.
-	if cmd == "trading" && len(rest) > 0 && rest[0] == "paper-smoke" {
-		return 120 * time.Second
-	}
-	// `proposals reduce --portfolio` previews/places each eligible leg
-	// sequentially; the daemon-side bucket is 120 s, so the CLI ceiling must
-	// exceed it for a classified basket error to reach the user.
-	if cmd == "proposals" {
-		reduce, portfolio := false, false
-		for _, a := range rest {
-			switch a {
-			case "reduce":
-				reduce = true
-			case "--portfolio", "-portfolio":
-				portfolio = true
-			}
+	// Integration builds deliberately override these strings with tiny values
+	// to exercise cancellation paths. Preserve that test seam exactly; normal
+	// production defaults derive from the shared RPC timing catalog below.
+	longClass := cmd == "scan" || cmd == "technical" || cmd == "stress" || cmd == "brief" || (cmd == "backtest" && isBacktestDaemonInvocation(rest))
+	if cliUnaryTimeout != "60s" || cliLongUnaryTimeout != "90s" {
+		if longClass {
+			return parseDurationOr(cliLongUnaryTimeout, 90*time.Second)
 		}
-		if reduce && portfolio {
-			return 150 * time.Second
+		return parseDurationOr(cliUnaryTimeout, 60*time.Second)
+	}
+
+	methods, headroom, floor := cliInvocationTiming(cmd, rest)
+	return cliMethodBudget(methods, headroom, floor)
+}
+
+// cliInvocationTiming declares the RPC methods a one-shot command may call
+// and the extra time its adapter needs for composed reads and rendering. The
+// daemon budget itself stays in internal/rpc. A command may list more than one
+// method when it composes several daemon reads under one invocation context.
+func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, time.Duration) {
+	const ordinaryFloor = 60 * time.Second
+	const longFloor = 90 * time.Second
+	const ordinaryHeadroom = 5 * time.Second
+
+	switch cmd {
+	case "status":
+		return []string{rpc.MethodStatusHealth, rpc.MethodAlertCandidates}, ordinaryHeadroom, ordinaryFloor
+	case "account", "size":
+		return []string{rpc.MethodAccountSummary}, ordinaryHeadroom, ordinaryFloor
+	case "positions":
+		return []string{rpc.MethodPositionsList}, ordinaryHeadroom, ordinaryFloor
+	case "quote":
+		return []string{rpc.MethodQuoteSnapshot}, ordinaryHeadroom, ordinaryFloor
+	case "watch":
+		return []string{rpc.MethodQuoteSnapshot, rpc.MethodPositionsList}, 30 * time.Second, ordinaryFloor
+	case "calendar":
+		return []string{rpc.MethodMarketCalendar}, ordinaryHeadroom, ordinaryFloor
+	case "chain":
+		return []string{rpc.MethodChainFetch, rpc.MethodChainExpiries}, ordinaryHeadroom, ordinaryFloor
+	case "history":
+		return []string{rpc.MethodHistoryDaily}, ordinaryHeadroom, ordinaryFloor
+	case "technical":
+		return []string{rpc.MethodTechnical}, 15 * time.Second, longFloor
+	case "market-events":
+		return []string{rpc.MethodMarketEventsSnapshot}, ordinaryHeadroom, ordinaryFloor
+	case "breadth":
+		return []string{rpc.MethodBreadthSPX}, ordinaryHeadroom, ordinaryFloor
+	case "gamma":
+		return []string{rpc.MethodGammaZeroSPX}, ordinaryHeadroom, ordinaryFloor
+	case "regime":
+		return []string{rpc.MethodRegimeSnapshot, rpc.MethodRegimeHistory}, ordinaryHeadroom, ordinaryFloor
+	case "stress":
+		return []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodStressHistory}, 40 * time.Second, longFloor
+	case "brief":
+		return []string{rpc.MethodBriefSnapshot, rpc.MethodBriefAck}, 15 * time.Second, longFloor
+	case "rules":
+		return []string{rpc.MethodRulesSnapshot, rpc.MethodRulesHistory}, ordinaryHeadroom, ordinaryFloor
+	case "alerts":
+		return []string{rpc.MethodAlertStatus, rpc.MethodAlertCandidates}, ordinaryHeadroom, ordinaryFloor
+	case "policy":
+		return []string{rpc.MethodRiskPolicySnapshot, rpc.MethodRiskPolicyCapitalEvent, rpc.MethodRiskPolicyOverride, rpc.MethodRiskPolicyResetDrawdown, rpc.MethodRiskPolicyCorrectPeak, rpc.MethodRiskPolicyArtefact}, ordinaryHeadroom, ordinaryFloor
+	case "recon":
+		return []string{rpc.MethodReconSnapshot, rpc.MethodReconStatus, rpc.MethodReconCheck, rpc.MethodReconBacktest, rpc.MethodReconDismiss, rpc.MethodReconEquity}, ordinaryHeadroom, ordinaryFloor
+	case "proposals":
+		if hasInvocationToken(rest, "reduce") && hasInvocationToken(rest, "--portfolio", "-portfolio") {
+			return []string{rpc.MethodTradeProposalsReducePortfolioPreview, rpc.MethodTradeProposalsReducePortfolioSubmit}, 30 * time.Second, ordinaryFloor
+		}
+		return []string{rpc.MethodAutoTradeStatus, rpc.MethodTradeProposalsSnapshot, rpc.MethodTradeProposalsRefresh, rpc.MethodTradeProposalsPreview, rpc.MethodTradeProposalsSubmit, rpc.MethodTradeProposalsIgnore, rpc.MethodTradeProposalsReducePreview, rpc.MethodTradeProposalsReduceSubmit}, ordinaryHeadroom, ordinaryFloor
+	case "opportunities":
+		return []string{rpc.MethodOpportunitiesStatus, rpc.MethodOpportunitiesSnapshot, rpc.MethodOpportunitiesRefresh, rpc.MethodOpportunitiesPreviewExercise, rpc.MethodOpportunitiesSubmitExercise, rpc.MethodOpportunitiesIgnore}, ordinaryHeadroom, ordinaryFloor
+	case "purge":
+		return []string{rpc.MethodPositionsList, rpc.MethodQuoteSnapshot, rpc.MethodPurgeStatus, rpc.MethodPurgeExecute, rpc.MethodPurgeRestorePreview, rpc.MethodPurgeRestoreExecute}, ordinaryHeadroom, ordinaryFloor
+	case "backtest":
+		return []string{rpc.MethodHistoryDaily, rpc.MethodScanRun, rpc.MethodTechnical, rpc.MethodRegimeSnapshot, rpc.MethodStatusHealth, rpc.MethodQuoteSnapshot}, 15 * time.Second, longFloor
+	case "scan":
+		if hasInvocationToken(rest, "list") {
+			return []string{rpc.MethodScanList}, ordinaryHeadroom, ordinaryFloor
+		}
+		if hasInvocationToken(rest, "params") {
+			return []string{rpc.MethodScanParams}, ordinaryHeadroom, ordinaryFloor
+		}
+		return []string{rpc.MethodScanRun}, 15 * time.Second, longFloor
+	case "trading":
+		if hasInvocationToken(rest, "paper-smoke") {
+			return []string{rpc.MethodTradingPaperSmoke}, 20 * time.Second, ordinaryFloor
+		}
+		return []string{rpc.MethodTradingStatus}, ordinaryHeadroom, ordinaryFloor
+	case "settings":
+		return []string{rpc.MethodSettingsGet, rpc.MethodSettingsUpdate}, ordinaryHeadroom, ordinaryFloor
+	case "orders":
+		return []string{rpc.MethodOrdersOpen, rpc.MethodOrdersHistory}, ordinaryHeadroom, ordinaryFloor
+	case "order":
+		switch {
+		case hasInvocationToken(rest, "preview"):
+			return []string{rpc.MethodOrderPreview}, ordinaryHeadroom, ordinaryFloor
+		case hasInvocationToken(rest, "place"):
+			return []string{rpc.MethodOrderPlace}, ordinaryHeadroom, ordinaryFloor
+		case hasInvocationToken(rest, "modify"):
+			return []string{rpc.MethodOrderModify}, ordinaryHeadroom, ordinaryFloor
+		case hasInvocationToken(rest, "cancel"):
+			return []string{rpc.MethodOrderCancel}, ordinaryHeadroom, ordinaryFloor
+		default:
+			return []string{rpc.MethodOrderStatus}, ordinaryHeadroom, ordinaryFloor
+		}
+	default:
+		return nil, ordinaryHeadroom, ordinaryFloor
+	}
+}
+
+func cliMethodBudget(methods []string, headroom, floor time.Duration) time.Duration {
+	budget := floor
+	for _, method := range methods {
+		timing, ok := rpc.LookupMethodTiming(method)
+		if !ok {
+			continue
+		}
+		if candidate := timing.ClientTimeout(headroom); candidate > budget {
+			budget = candidate
 		}
 	}
-	return parseDurationOr(cliUnaryTimeout, 60*time.Second)
+	return budget
+}
+
+func hasInvocationToken(args []string, tokens ...string) bool {
+	for _, arg := range args {
+		if slices.Contains(tokens, arg) {
+			return true
+		}
+	}
+	return false
 }
 
 func isBacktestDaemonInvocation(rest []string) bool {

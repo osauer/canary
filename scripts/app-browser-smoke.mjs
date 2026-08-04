@@ -323,7 +323,7 @@ async function runRound4SyntheticSmoke() {
     if (alertsView.litTiles !== 1 || alertsView.outTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while your in-app history remains") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
     if (!settings.processSeated || settings.detailsOpen !== false || !settings.cutoverVisible || !settings.coverage.includes("Older payments need a one-time review") || !settings.governanceHistory.includes("Synthetic process review")) throw new Error(`synthetic Settings process evidence failed: ${JSON.stringify(settings)}`);
-    if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account pending") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
+    if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
     if (ordersView.layout.viewport_width !== 591 || ordersView.layout.grid_columns.length !== 1 || ordersView.layout.identity_width < ordersView.layout.row_width * 0.8 || ordersView.layout.horizontal_overflow) {
       throw new Error(`synthetic Orders compact layout collapsed or overflowed: ${JSON.stringify(ordersView.layout)}`);
@@ -639,6 +639,7 @@ try {
   const eventsBefore = await fetchEventsDiagnostics(page);
   const privacy = await exerciseAccountPrivacy(page);
   const accountPanel = await exerciseAccountPanel(page);
+  const accountAuthority = await exerciseAccountAuthorityFixtures(page);
   const snapshotBanner = await assertSnapshotBannerCopy(page);
   const marketLayout = await exerciseMarketLayout(page);
   const viewportOverflow = await assertNoViewportOverflow(page);
@@ -716,6 +717,7 @@ try {
     push_state: pushState,
     privacy,
     account_panel: accountPanel,
+    account_authority: accountAuthority,
     snapshot_banner: snapshotBanner,
     market_layout: marketLayout,
     viewport_overflow: viewportOverflow,
@@ -873,6 +875,95 @@ async function exerciseAccountPanel(page) {
     detail_initially_folded: accountDetailInitiallyHidden,
     exposure_detail_disabled: exposureDisabled,
   };
+}
+
+async function exerciseAccountAuthorityFixtures(page) {
+  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = true; });
+  const now = new Date().toISOString();
+  const result = await page.evaluate((asOf) => {
+    const apply = globalThis.__canarySmoke?.applySnapshotPatch;
+    if (!apply) throw new Error("smoke snapshot patch hook is unavailable");
+    const read = () => ({
+      account: document.getElementById("accountLabel")?.textContent?.trim() || "",
+      net: document.getElementById("netLiquidation")?.textContent?.trim() || "",
+      buyingPower: document.getElementById("buyingPower")?.textContent?.trim() || "",
+      daily: document.getElementById("dailyPnl")?.textContent?.trim() || "",
+      freshness: document.getElementById("accountAsOf")?.textContent?.trim() || "",
+      freshnessHidden: document.getElementById("accountAsOf")?.hidden === true,
+      positionsUnavailable: document.getElementById("underlyingBookCount")?.textContent?.trim() === "Positions unavailable"
+        && /no single account is selected/i.test(document.getElementById("underlyingBookStatus")?.textContent || "")
+        && /Position data unavailable/i.test(document.getElementById("underlyingBookList")?.textContent || ""),
+      positionsClaimClean: /No underlyings|No held or virtual underlyings/i.test([
+        document.getElementById("underlyingBookCount")?.textContent || "",
+        document.getElementById("underlyingBookList")?.textContent || "",
+      ].join(" ")),
+    });
+    const authority = {
+      scope: { account_id: "SYNTHETIC-AUTHORITY", account_mode: "paper" },
+      source: "account_summary_request",
+      availability: "available",
+      freshness: "current",
+      as_of: asOf,
+      fields: { base_currency: true, net_liquidation: true, buying_power: false, daily_pnl: true },
+    };
+    apply({
+      status: { connected_account: "SYNTHETIC-AUTHORITY", account_mode: "paper" },
+      account: {
+        account_id: "IGNORED-LEGACY-ID", base_currency: "EUR", net_liquidation: 0, buying_power: 0, daily_pnl: 0,
+        daily_pnl_observation: { status: "ok", as_of: asOf }, as_of: asOf, authority,
+      },
+      positions: { authority: { ...authority, source: "portfolio_stream", fields: undefined } },
+      sources: { account: { state: "current", last_success_at: asOf } },
+    });
+    const maskedZero = read();
+    document.getElementById("accountPrivacyToggle")?.click();
+    const revealedZero = read();
+
+    apply({ account: { authority: { ...authority, source: "account_updates_cache", freshness: "unknown", reason: "unstamped_cache", as_of: "" } } });
+    const cached = read();
+
+    apply({
+      status: { connected_account: "", account_mode: "unknown" },
+      account: {
+        account_id: "STALE-LEGACY-ID", base_currency: "USD", net_liquidation: 0, buying_power: 0, daily_pnl: null,
+        authority: {
+          scope: { account_id: "", account_mode: "unknown" }, source: "account_summary_request",
+          availability: "unavailable", freshness: "unknown", reason: "scope_unresolved",
+          fields: { base_currency: false, net_liquidation: false, buying_power: false, daily_pnl: false },
+        },
+      },
+      positions: {
+        stocks: [], options: [], by_underlying: [],
+        authority: { scope: { account_id: "", account_mode: "unknown" }, source: "portfolio_stream", availability: "unavailable", freshness: "unknown", reason: "scope_unresolved" },
+      },
+      sources: { account: { state: "current", last_success_at: asOf } },
+    });
+    const unavailable = read();
+    document.getElementById("accountPrivacyToggle")?.click();
+    return { maskedZero, revealedZero, cached, unavailable };
+  }, now);
+
+  if (result.maskedZero.net !== "******" || result.maskedZero.buyingPower !== "--" || result.maskedZero.daily !== "******") {
+    throw new Error(`account authority must distinguish a private real zero from a missing zero: ${JSON.stringify(result.maskedZero)}`);
+  }
+  if (!/0/.test(result.revealedZero.net) || /\$|USD/.test(result.revealedZero.net) || !/€|EUR/.test(result.revealedZero.net) || result.revealedZero.buyingPower !== "--") {
+    throw new Error(`account authority must reveal the genuine EUR zero without inventing USD: ${JSON.stringify(result.revealedZero)}`);
+  }
+  if (result.cached.freshness !== "Cached · time unknown") {
+    throw new Error(`cached account context must name its unknown time: ${JSON.stringify(result.cached)}`);
+  }
+  if (result.unavailable.net !== "--" || result.unavailable.buyingPower !== "--" || result.unavailable.daily !== "--" || result.unavailable.account !== "Account unresolved" || result.unavailable.freshness !== "Account unavailable") {
+    throw new Error(`unavailable account data must not render legacy zeros or a guessed account: ${JSON.stringify(result.unavailable)}`);
+  }
+  if (!result.unavailable.positionsUnavailable || result.unavailable.positionsClaimClean) {
+    throw new Error(`an unavailable empty positions result must not read as a clean book: ${JSON.stringify(result.unavailable)}`);
+  }
+
+  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = false; });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
+  await waitForSnapshotEvent(page, 0);
+  return { genuine_zero: true, missing_zero: true, cached_named: true, unresolved_refused: true };
 }
 
 async function assertSnapshotBannerCopy(page) {

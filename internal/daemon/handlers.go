@@ -60,6 +60,10 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if c == nil {
 		return nil, accountSummaryAuthority{}, s.gatewayUnavailableError()
 	}
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		return nil, accountSummaryAuthority{}, errors.New("account summary requires one selected account; configure an account pin for a multi-account login")
+	}
 	snapshot, err := s.readAccountSnapshot(ctx, c)
 	raw := snapshot.raw
 	provenance := snapshot.provenance
@@ -77,16 +81,23 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if raw == nil {
 		return nil, accountSummaryAuthority{}, errors.New("account summary unavailable")
 	}
+	if !strings.EqualFold(strings.TrimSpace(raw.AccountID), strings.TrimSpace(scope.Account)) {
+		return nil, accountSummaryAuthority{}, errors.New("account summary account scope conflict")
+	}
 	authority := accountSummaryAuthority{
 		Provenance: provenance, AsOf: observedAt.UTC(),
 		NetLiquidationAvailable: raw.NetLiquidation != nil,
 		TotalCashAvailable:      raw.TotalCashValue != nil,
-		BaseCurrencyAvailable:   strings.TrimSpace(raw.Currency) != "",
+		BaseCurrencyAvailable:   raw.BaseCurrencyProvenance.Proven() && strings.TrimSpace(raw.BaseCurrency) != "",
+	}
+	baseCurrency := ""
+	if authority.BaseCurrencyAvailable {
+		baseCurrency = normCcy(raw.BaseCurrency)
 	}
 	res := &rpc.AccountResult{
 		AccountID:    raw.AccountID,
 		AccountType:  raw.AccountType,
-		BaseCurrency: raw.Currency,
+		BaseCurrency: baseCurrency,
 		AsOf:         accountResultAuthorityAsOf(authority, time.Now().UTC()),
 	}
 	if raw.NetLiquidation != nil {
@@ -134,8 +145,10 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if raw.LookAheadExcess != nil {
 		res.LookAheadExcess = *raw.LookAheadExcess
 	}
-	ledger := s.repairCurrencyLedgerFXRatesCached(ctx, c, raw.CurrencyLedger, res.BaseCurrency)
-	res.CurrencyExposure = buildCurrencyExposure(ledger, res.BaseCurrency)
+	if res.BaseCurrency != "" {
+		ledger := s.repairCurrencyLedgerFXRatesCached(ctx, c, raw.CurrencyLedger, res.BaseCurrency)
+		res.CurrencyExposure = buildCurrencyExposure(ledger, res.BaseCurrency)
+	}
 	// Daily P&L: read the connector's most-recent reqPnL frame. ok=false
 	// before the first frame arrives — leave pointers nil (no fabrication).
 	// Subscribe lazily on the first call when the cache is empty: post-
@@ -147,7 +160,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	// falsely report missing P&L while the first frame is in flight.
 	snap, ok := c.AccountDailyPnL()
 	if !ok {
-		if account := s.cachedAccount(); account != "" {
+		if account := scope.Account; brokerScopeAccountConcrete(account) {
 			if err := c.SubscribeAccountPnL(account); err != nil {
 				s.logger.Debugf("SubscribeAccountPnL(%s) failed: %v", account, err)
 			}
@@ -188,13 +201,13 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		pnlDue = session.IsOpen
 		pnlSessionKey = session.Date
 	}
-	scope := s.currentBrokerStateScope()
 	pnlSource := dailyPnLScopeSource(scope)
 	pnlObservation, pnlObservationErr := s.dailyPnLObservations.observe(context.Background(), pnlSource, pnlSessionKey, pnlNow, pnlDue, snap, ok || !snap.AsOf.IsZero())
 	if pnlObservationErr != nil {
 		s.logger.Warnf("Daily P&L observation authority degraded: %v", pnlObservationErr)
 	}
 	res.DailyPnLObservation = &pnlObservation
+	res.Authority = accountResultDataAuthority(scope, raw, provenance, res)
 	// Feed the risk-constitution capital state: observation cadence is
 	// usage cadence — every successful account read updates the cash-flow-
 	// adjusted peak and drawdown tier; there is deliberately no scheduler
@@ -217,6 +230,65 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		}
 	}
 	return res, authority, nil
+}
+
+// accountResultDataAuthority projects the daemon's internal account summary
+// evidence onto the shared RPC truth contract. The legacy scalar values remain
+// float64 for compatibility; Fields is what distinguishes missing from a real
+// zero for every consumer outside the daemon.
+func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountSummary, provenance ibkrlib.AccountSummaryProvenance, res *rpc.AccountResult) *rpc.AccountDataAuthority {
+	authority := &rpc.AccountDataAuthority{
+		Scope:        accountDataScope(scope),
+		Availability: rpc.AccountDataAvailable,
+		Freshness:    rpc.AccountDataFreshnessUnknown,
+		Fields:       &rpc.AccountFieldAvailability{},
+	}
+	if raw == nil || res == nil {
+		authority.Availability = rpc.AccountDataUnavailable
+		authority.Reason = rpc.AccountDataReasonInvalidPayload
+		return authority
+	}
+	authority.Fields = &rpc.AccountFieldAvailability{
+		AccountType:          strings.TrimSpace(raw.AccountType) != "",
+		BaseCurrency:         raw.BaseCurrencyProvenance.Proven() && strings.TrimSpace(raw.BaseCurrency) != "",
+		NetLiquidation:       raw.NetLiquidation != nil,
+		BuyingPower:          raw.BuyingPower != nil,
+		AvailableFunds:       raw.AvailableFunds != nil,
+		ExcessLiquidity:      raw.ExcessLiquidity != nil,
+		TotalCash:            raw.TotalCashValue != nil,
+		MaintenanceMargin:    raw.MaintenanceMargin != nil,
+		InitialMargin:        raw.InitMarginReq != nil,
+		GrossPositionValue:   raw.GrossPositionValue != nil,
+		UnrealizedPnL:        raw.UnrealizedPnL != nil,
+		RealizedPnL:          raw.RealizedPnL != nil,
+		Cushion:              raw.Cushion != nil,
+		LookAheadInitMargin:  raw.LookAheadInitMargin != nil,
+		LookAheadMaintMargin: raw.LookAheadMaintMargin != nil,
+		LookAheadAvailable:   raw.LookAheadAvailable != nil,
+		LookAheadExcess:      raw.LookAheadExcess != nil,
+		DailyPnL:             res.DailyPnL != nil,
+		PnLUnrealizedTotal:   res.PnLUnrealizedTotal != nil,
+		PnLRealizedTotal:     res.PnLRealizedTotal != nil,
+		CurrencyExposure:     provenance == ibkrlib.AccountSummaryProvenanceRequest && res.BaseCurrency != "",
+	}
+	switch provenance {
+	case ibkrlib.AccountSummaryProvenanceRequest:
+		authority.Source = rpc.AccountDataSourceAccountSummaryRequest
+		authority.AsOf = res.AsOf.UTC()
+		if res.AsOf.IsZero() {
+			authority.Availability = rpc.AccountDataUnavailable
+			authority.Reason = rpc.AccountDataReasonClockInvalid
+		} else {
+			authority.Freshness = rpc.AccountDataFreshnessCurrent
+		}
+	case ibkrlib.AccountSummaryProvenanceCachedFallback:
+		authority.Source = rpc.AccountDataSourceAccountUpdatesCache
+		authority.Reason = rpc.AccountDataReasonUnstampedCache
+	default:
+		authority.Availability = rpc.AccountDataUnavailable
+		authority.Reason = rpc.AccountDataReasonInvalidPayload
+	}
+	return authority
 }
 
 // accountResultAuthorityAsOf keeps display context separate from decision
@@ -314,6 +386,15 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	session, sessionOK := c.CaptureSession()
 	var positions []*ibkrlib.RawPosition
 	positions, health, err := c.CachedPositionsWithHealth()
+	if err != nil {
+		return nil, err
+	}
+	if !brokerScopeConcrete(expectedScope) {
+		if portfolioHealth != nil {
+			*portfolioHealth = health
+		}
+		return newPositionsResult(expectedScope, health, time.Now().UTC()), nil
+	}
 	if brokerScopeConcrete(expectedScope) {
 		var scoped bool
 		health, scoped = scopedPortfolioStreamHealth(positions, health, expectedScope, time.Now())
@@ -321,21 +402,13 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 			if portfolioHealth != nil {
 				*portfolioHealth = health
 			}
-			return nil, errors.New("portfolio stream account scope conflict")
+			return newPositionsResult(expectedScope, health, time.Now().UTC()), nil
 		}
 	}
 	if portfolioHealth != nil {
 		*portfolioHealth = health
 	}
-	if err != nil {
-		return nil, err
-	}
-
-	res := &rpc.PositionsResult{
-		AsOf:    time.Now(),
-		Stocks:  []rpc.PositionView{},
-		Options: []rpc.PositionView{},
-	}
+	res := newPositionsResult(expectedScope, health, time.Now().UTC())
 	wantSym := normSym(p.Symbol)
 	wantType := strings.ToLower(strings.TrimSpace(p.Type))
 
@@ -434,24 +507,40 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	// startup cache lacks account-base, NLV, or a held non-base currency,
 	// take one bounded account-summary refresh before filling FXRate /
 	// *_base fields; otherwise downstream math would use a partial ledger.
-	rawAccount := c.AccountSummaryRaw()
-	baseCcy := normCcy(baseCurrencyFromRaw(rawAccount))
-	netLiquidationBase := netLiquidationBaseFromRaw(rawAccount, baseCcy)
-	ledger := s.repairCurrencyLedgerFXRatesCached(ctx, c, c.CurrencyLedgerSnapshot(), baseCcy)
+	baseCcy := ""
+	var netLiquidationBase *float64
+	ledger := c.CurrencyLedgerSnapshot()
+	if cachedAccount := c.CachedAccountSummary(); cachedAccount != nil &&
+		strings.EqualFold(strings.TrimSpace(cachedAccount.AccountID), strings.TrimSpace(expectedScope.Account)) {
+		if cachedAccount.BaseCurrencyProvenance.Proven() {
+			baseCcy = normCcy(cachedAccount.BaseCurrency)
+		}
+		if baseCcy != "" {
+			netLiquidationBase = cachedAccount.NetLiquidation
+			ledger = mergeCurrencyLedgers(cachedAccount.CurrencyLedger, ledger)
+		}
+	}
+	ledger = s.repairCurrencyLedgerFXRatesCached(ctx, c, ledger, baseCcy)
 	missing := missingPositionFXCurrencies(res.Stocks, res.Options, ledger, baseCcy)
 	if baseCcy == "" || netLiquidationBase == nil || len(missing) > 0 {
-		if raw, err := c.RequestAccountSummary(ctx, 3*time.Second); err == nil {
-			if baseCcy == "" {
-				baseCcy = normCcy(raw.Currency)
+		// Reuse the daemon's shared account-snapshot flight rather than issuing a
+		// new one-shot request on every positions --watch poll. The caller keeps
+		// the old three-second enrichment budget; a timed-out shared flight may
+		// complete in the background and the next poll can reuse it for 15s.
+		refreshCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		snapshot, err := s.readAccountSnapshot(refreshCtx, c)
+		cancel()
+		if raw := snapshot.raw; err == nil && raw != nil {
+			if baseCcy == "" && raw.BaseCurrencyProvenance.Proven() {
+				baseCcy = normCcy(raw.BaseCurrency)
 			}
-			if baseCcy == "" {
-				baseCcy = normCcy(baseCurrencyFromRaw(raw.Raw))
-			}
-			if netLiquidationBase == nil {
+			if netLiquidationBase == nil && baseCcy != "" {
 				netLiquidationBase = raw.NetLiquidation
 			}
-			freshLedger := s.repairCurrencyLedgerFXRatesCached(ctx, c, raw.CurrencyLedger, baseCcy)
-			ledger = mergeCurrencyLedgers(freshLedger, ledger)
+			if baseCcy != "" {
+				freshLedger := s.repairCurrencyLedgerFXRatesCached(ctx, c, raw.CurrencyLedger, baseCcy)
+				ledger = mergeCurrencyLedgers(freshLedger, ledger)
+			}
 		} else {
 			s.logger.Debugf("positions FX ledger refresh failed for %v: %v", missing, err)
 		}
@@ -465,8 +554,8 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	// startup pre-warms; subsequent calls within a few seconds read fresh
 	// values. Nil pointer means "no frame yet" / "no entitlement" /
 	// "DBL_MAX sentinel" — never zero-substituted.
-	s.fillDailyPnL(c, res.Stocks, conIDByPositionKey)
-	s.fillDailyPnL(c, res.Options, conIDByPositionKey)
+	s.fillDailyPnL(c, res.Stocks, conIDByPositionKey, expectedScope.Account)
+	s.fillDailyPnL(c, res.Options, conIDByPositionKey, expectedScope.Account)
 	fillBaseValues(res.Stocks, baseCcy)
 	fillBaseValues(res.Options, baseCcy)
 	flagClosedOptionSession(res.Options, res.AsOf)
@@ -477,12 +566,84 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	addPortfolioBaseContext(res.Portfolio, res.ByUnderlying, baseCcy, netLiquidationBase)
 	addFXSensitivity(res.Portfolio, ledger, baseCcy)
 	s.attachProtectionCoverage(ctx, res, wantSym, wantType, health)
+	completedAt := time.Now().UTC()
+	res.Authority = positionsResultDataAuthority(expectedScope, health, completedAt)
 	authorityScope := expectedScope
 	if !sessionOK || !c.SessionCurrent(session) || !sameBrokerScope(expectedScope, s.currentBrokerStateScope()) {
 		authorityScope = brokerStateScope{}
+		res.Authority.Availability = rpc.AccountDataUnavailable
+		res.Authority.Freshness = rpc.AccountDataFreshnessUnknown
+		res.Authority.Reason = rpc.AccountDataReasonSessionChanged
 	}
-	res.AsOf = positionsResultAuthorityAsOf(authorityScope, health, time.Now().UTC())
+	res.AsOf = positionsResultAuthorityAsOf(authorityScope, health, completedAt)
 	return res, nil
+}
+
+func newPositionsResult(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, completedAt time.Time) *rpc.PositionsResult {
+	result := &rpc.PositionsResult{
+		Stocks: []rpc.PositionView{}, Options: []rpc.PositionView{},
+		Authority: positionsResultDataAuthority(scope, health, completedAt.UTC()),
+	}
+	if brokerScopeAccountConcrete(scope.Account) {
+		result.AccountID = strings.TrimSpace(scope.Account)
+	}
+	result.AsOf = positionsResultAuthorityAsOf(scope, health, completedAt.UTC())
+	return result
+}
+
+func positionsResultDataAuthority(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, completedAt time.Time) *rpc.AccountDataAuthority {
+	status, arm := classifyPortfolioStreamHealthArm(scope, health, completedAt.UTC())
+	authority := &rpc.AccountDataAuthority{
+		Scope:  accountDataScope(scope),
+		Source: rpc.AccountDataSourcePortfolioStream,
+		AsOf:   portfolioStreamEvidenceAsOf(health),
+	}
+	switch status {
+	case orderIntegrityHealthCurrent:
+		authority.Availability = rpc.AccountDataAvailable
+		authority.Freshness = rpc.AccountDataFreshnessCurrent
+	case orderIntegrityHealthStale:
+		authority.Availability = rpc.AccountDataUnavailable
+		authority.Freshness = rpc.AccountDataFreshnessStale
+	default:
+		authority.Availability = rpc.AccountDataUnavailable
+		authority.Freshness = rpc.AccountDataFreshnessUnknown
+	}
+	authority.Reason = positionsAccountDataReason(arm)
+	return authority
+}
+
+func accountDataScope(scope brokerStateScope) rpc.AccountDataScope {
+	out := rpc.AccountDataScope{AccountMode: scope.Mode}
+	if brokerScopeAccountConcrete(scope.Account) {
+		out.AccountID = strings.TrimSpace(scope.Account)
+	}
+	return out
+}
+
+func positionsAccountDataReason(arm string) rpc.AccountDataReason {
+	switch arm {
+	case "":
+		return ""
+	case "stream_scope_conflict_latched":
+		return rpc.AccountDataReasonScopeConflict
+	case "stream_invalid_payload":
+		return rpc.AccountDataReasonInvalidPayload
+	case "daemon_scope_not_concrete":
+		return rpc.AccountDataReasonScopeUnresolved
+	case "stream_account_unbound":
+		return rpc.AccountDataReasonAccountUnbound
+	case "stream_account_mismatch":
+		return rpc.AccountDataReasonAccountMismatch
+	case "initial_download_incomplete":
+		return rpc.AccountDataReasonUnprimed
+	case "evidence_time_in_future":
+		return rpc.AccountDataReasonClockInvalid
+	case "receipt_stale":
+		return rpc.AccountDataReasonReceiptStale
+	default:
+		return rpc.AccountDataReasonInvalidPayload
+	}
 }
 
 // positionsResultAuthorityAsOf stamps only a complete, current, account-scoped
@@ -735,11 +896,13 @@ const maxDailyPnLSubscriptions = 50
 // Subscribing requires an account; if account is unknown the
 // subscribe branch is skipped, but the read branch still fires —
 // which matters for unit tests that seed the cache directly.
-func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, conIDs map[string]int) {
+func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, conIDs map[string]int, account string) {
 	if c == nil || len(rows) == 0 {
 		return
 	}
-	account := s.cachedAccount()
+	if !brokerScopeAccountConcrete(account) {
+		account = ""
+	}
 	for i := range rows {
 		view := &rows[i]
 		conID, ok := conIDs[positionViewKey(*view)]
@@ -767,26 +930,6 @@ func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, con
 // without reaching into pkg/ibkr internals.
 func (s *Server) activeDailyPnLCount(c *ibkrlib.Connector) int {
 	return c.ActiveDailyPnLSubscriptions()
-}
-
-// cachedAccount returns the account code the daemon believes is active.
-// Pulled from the connector's continuously-fresh accountSummary stream;
-// empty when pre-handshake.
-func (s *Server) cachedAccount() string {
-	c := s.gatewayConnector()
-	if c == nil {
-		return ""
-	}
-	raw := c.AccountSummaryRaw()
-	if id, ok := raw["AccountCode"]; ok && id != "" {
-		return id
-	}
-	// Some gateways emit the account code only on managedAccounts; the
-	// connector's account field is the canonical source.
-	if id := c.AccountID(); id != "" {
-		return id
-	}
-	return ""
 }
 
 // baseCurrencyFromRaw resolves the account's base currency by scanning
@@ -862,49 +1005,6 @@ func accountValueCurrencySuffix(raw map[string]string, tag string) string {
 		}
 	}
 	return best
-}
-
-func netLiquidationBaseFromRaw(raw map[string]string, baseCcy string) *float64 {
-	if v, ok := parseRawFloat(raw, "NetLiquidation"); ok {
-		return &v
-	}
-	baseCcy = normCcy(baseCcy)
-	if baseCcy != "" {
-		if v, ok := parseRawFloat(raw, "NetLiquidation_"+baseCcy); ok {
-			return &v
-		}
-		return nil
-	}
-	var out *float64
-	const prefix = "NetLiquidation_"
-	for k := range raw {
-		ccy, ok := strings.CutPrefix(k, prefix)
-		if !ok || normCcy(ccy) == "BASE" {
-			continue
-		}
-		v, ok := parseRawFloat(raw, k)
-		if !ok {
-			continue
-		}
-		if out != nil {
-			return nil
-		}
-		vv := v
-		out = &vv
-	}
-	return out
-}
-
-func parseRawFloat(raw map[string]string, key string) (float64, bool) {
-	v, ok := raw[key]
-	if !ok {
-		return 0, false
-	}
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-	if err != nil {
-		return 0, false
-	}
-	return parsed, true
 }
 
 const fxRepairQuoteBudget = 1200 * time.Millisecond
