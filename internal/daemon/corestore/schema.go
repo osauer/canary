@@ -35,6 +35,7 @@ type migration struct {
 // destructive approval; it cannot become a general retention rule.
 type migrationMaintenance struct {
 	ObservationDiscard *ObservationDiscardSelector
+	EventDiscard       *EventDiscardSelector
 	CompactCandidate   bool
 	RetireSourceBackup bool
 	// PreserveAuthorityHead is an explicit exception to the normal out-of-place
@@ -481,6 +482,50 @@ func contractCacheObservationPrune() migration {
 	}
 }
 
+const alertEpisodeNonTransitionPredicate = "alert_episode_non_transition.v1"
+
+var alertEpisodeNonTransitionSelector = EventDiscardSelector{
+	ScopeKey:  "daemon",
+	EventType: "alert_episode_decision",
+	Predicate: alertEpisodeNonTransitionPredicate,
+}
+
+// alertEpisodeEventPrune is migration 5. The alert registry is authoritative
+// in state_documents, but the original writer also appended a full decision
+// snapshot on every 30-second evaluation. Only lifecycle transitions are audit
+// events; refreshed, confirmed-negative, and held evaluations are current-state
+// updates and commissioning counters already retained in the registry document.
+//
+// The selector and JSON predicate are frozen here. Released payload versions 3
+// and 4 used the same action vocabulary. Unknown payload versions, malformed or
+// unknown decision members, other scopes, other event types, and all lifecycle
+// transitions are retained. The current registry document is untouched.
+func alertEpisodeEventPrune() migration {
+	selector := alertEpisodeNonTransitionSelector
+	dropDeleteGuard := `DROP TRIGGER event_log_no_delete`
+	discard := eventDiscardDeleteStatement(selector)
+	return migration{
+		version: 5,
+		name:    "alert_episode_event_prune",
+		statements: []string{
+			dropDeleteGuard,
+			discard,
+			appendOnlyDeleteTrigger("event_log"),
+		},
+		destructive: &destructiveApproval{
+			reason: "The alert registry appended its complete redacted decision snapshot on every 30-second evaluation even when no lifecycle transition occurred. " +
+				"Those snapshots have no reader and duplicate current registry state and durable commissioning counters in state_documents. This exception drops only event_log_no_delete, deletes only released version-3 or version-4 daemon alert_episode_decision payloads whose every decision is an object with a reviewed non-transition action, and recreates the identical delete guard in the same transaction. " +
+				"Opened, reopened, escalated, and recovered lifecycle events remain, as do unknown versions or actions, all other event types and scopes, current registry state, typed projections, and observations.",
+			statements: []string{dropDeleteGuard, discard},
+		},
+		maintenance: &migrationMaintenance{
+			EventDiscard:       &selector,
+			CompactCandidate:   true,
+			RetireSourceBackup: true,
+		},
+	}
+}
+
 func init() {
 	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
@@ -504,6 +549,7 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 		stressRenameMigration(),
 		legacyStressMeasurementRename(),
 		contractCacheObservationPrune(),
+		alertEpisodeEventPrune(),
 	)
 }
 
@@ -543,6 +589,22 @@ func migrationChecksum(m migration) string {
 				h.Write([]byte{0})
 			}
 		}
+		// EventDiscard was added after migration 4 shipped. Append it only when
+		// present so migration 4's ledger checksum remains byte-for-byte frozen.
+		if m.maintenance.EventDiscard != nil {
+			h.Write([]byte("maintenance.event-discard.v1"))
+			h.Write([]byte{0})
+			h.Write([]byte("event_discard"))
+			h.Write([]byte{0})
+			for _, value := range []string{
+				m.maintenance.EventDiscard.ScopeKey,
+				m.maintenance.EventDiscard.EventType,
+				m.maintenance.EventDiscard.Predicate,
+			} {
+				h.Write([]byte(value))
+				h.Write([]byte{0})
+			}
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -566,6 +628,10 @@ func cloneMigrationPlan(plan []migration) []migration {
 			if m.maintenance.ObservationDiscard != nil {
 				selector := *m.maintenance.ObservationDiscard
 				maintenance.ObservationDiscard = &selector
+			}
+			if m.maintenance.EventDiscard != nil {
+				selector := *m.maintenance.EventDiscard
+				maintenance.EventDiscard = &selector
 			}
 			cloned[i].maintenance = &maintenance
 		}
@@ -612,37 +678,59 @@ func validateMigrationMaintenance(m migration, approved map[string]struct{}) err
 		return nil
 	}
 	maintenance := m.maintenance
-	if maintenance.ObservationDiscard == nil {
-		return fmt.Errorf("migration %d maintenance has no typed observation discard", m.version)
-	}
-	selector := *maintenance.ObservationDiscard
-	if strings.TrimSpace(selector.ScopeKey) == "" ||
-		strings.TrimSpace(selector.Source) == "" ||
-		strings.TrimSpace(selector.Kind) == "" {
-		return fmt.Errorf("migration %d maintenance has an incomplete observation discard selector", m.version)
+	if (maintenance.ObservationDiscard == nil) == (maintenance.EventDiscard == nil) {
+		return fmt.Errorf("migration %d maintenance must have exactly one typed discard", m.version)
 	}
 	if !maintenance.CompactCandidate {
-		return fmt.Errorf("migration %d observation discard does not require candidate compaction", m.version)
+		return fmt.Errorf("migration %d discard does not require candidate compaction", m.version)
 	}
 	if !maintenance.RetireSourceBackup {
-		return fmt.Errorf("migration %d observation discard does not require eventual source-backup retirement", m.version)
-	}
-	if !maintenance.PreserveAuthorityHead {
-		return fmt.Errorf("migration %d observation discard does not explicitly preserve the authority head", m.version)
+		return fmt.Errorf("migration %d discard does not require eventual source-backup retirement", m.version)
 	}
 
-	exactDelete := observationDiscardDeleteStatement(selector)
-	wantStatements := []string{
-		`DROP TRIGGER observations_no_delete`,
-		exactDelete,
-		appendOnlyDeleteTrigger("observations"),
+	if maintenance.ObservationDiscard != nil {
+		selector := *maintenance.ObservationDiscard
+		if strings.TrimSpace(selector.ScopeKey) == "" ||
+			strings.TrimSpace(selector.Source) == "" ||
+			strings.TrimSpace(selector.Kind) == "" {
+			return fmt.Errorf("migration %d maintenance has an incomplete observation discard selector", m.version)
+		}
+		if !maintenance.PreserveAuthorityHead {
+			return fmt.Errorf("migration %d observation discard does not explicitly preserve the authority head", m.version)
+		}
+
+		exactDelete := observationDiscardDeleteStatement(selector)
+		wantStatements := []string{
+			`DROP TRIGGER observations_no_delete`,
+			exactDelete,
+			appendOnlyDeleteTrigger("observations"),
+		}
+		return validateExactMaintenanceStatements(m, approved, wantStatements, "observation-discard")
 	}
+
+	selector := *maintenance.EventDiscard
+	if selector != alertEpisodeNonTransitionSelector {
+		return fmt.Errorf("migration %d maintenance has an invalid event discard selector", m.version)
+	}
+	if maintenance.PreserveAuthorityHead {
+		return fmt.Errorf("migration %d event discard cannot preserve the authority head", m.version)
+	}
+	exactDelete := eventDiscardDeleteStatement(selector)
+	wantStatements := []string{
+		`DROP TRIGGER event_log_no_delete`,
+		exactDelete,
+		appendOnlyDeleteTrigger("event_log"),
+	}
+	return validateExactMaintenanceStatements(m, approved, wantStatements, "event-discard")
+}
+
+func validateExactMaintenanceStatements(m migration, approved map[string]struct{}, wantStatements []string, label string) error {
 	if len(m.statements) != len(wantStatements) {
-		return fmt.Errorf("migration %d maintenance is not the exact guarded observation-discard transaction", m.version)
+		return fmt.Errorf("migration %d maintenance is not the exact guarded %s transaction", m.version, label)
 	}
 	for i := range wantStatements {
 		if m.statements[i] != wantStatements[i] {
-			return fmt.Errorf("migration %d maintenance statement %d is not the exact guarded observation-discard statement", m.version, i+1)
+			return fmt.Errorf("migration %d maintenance statement %d is not the exact guarded %s statement", m.version, i+1, label)
 		}
 	}
 	for _, statement := range wantStatements[:2] {
@@ -661,6 +749,62 @@ func observationDiscardDeleteStatement(selector ObservationDiscardSelector) stri
  WHERE scope_key = '%s'
    AND source    = '%s'
    AND kind      = '%s'`, quote(selector.ScopeKey), quote(selector.Source), quote(selector.Kind))
+}
+
+func eventDiscardDeleteStatement(selector EventDiscardSelector) string {
+	clause := eventDiscardMatchClause(selector)
+	if clause == "" {
+		return ""
+	}
+	return "DELETE FROM event_log\n" + clause
+}
+
+func eventDiscardSummaryStatement(selector EventDiscardSelector) string {
+	clause := eventDiscardMatchClause(selector)
+	if clause == "" {
+		return ""
+	}
+	return "SELECT event_seq,length(payload_json),payload_sha256\nFROM event_log\n" + clause + "\n ORDER BY event_seq"
+}
+
+func eventDiscardCountStatement(selector EventDiscardSelector) string {
+	clause := eventDiscardMatchClause(selector)
+	if clause == "" {
+		return ""
+	}
+	return "SELECT count(*) FROM event_log\n" + clause
+}
+
+func eventDiscardMatchClause(selector EventDiscardSelector) string {
+	quote := func(value string) string {
+		return strings.ReplaceAll(value, "'", "''")
+	}
+	if selector != alertEpisodeNonTransitionSelector {
+		return ""
+	}
+	return fmt.Sprintf(` WHERE scope_key = '%s'
+   AND event_type = '%s'
+   AND json_extract(payload_json, '$.version') IN (3,4)
+   AND json_type(payload_json, '$.decisions') = 'array'
+   AND NOT EXISTS (
+         SELECT 1
+           FROM json_each(event_log.payload_json, '$.decisions') AS decision
+          WHERE CASE
+                  WHEN decision.type = 'object'
+                  THEN coalesce(json_extract(decision.value, '$.action') IN ('opened','reopened','escalated','recovered'), 0)
+                  ELSE 0
+                END
+       )
+   AND NOT EXISTS (
+         SELECT 1
+           FROM json_each(event_log.payload_json, '$.decisions') AS decision
+          WHERE CASE
+                  WHEN decision.type <> 'object' THEN 1
+                  WHEN json_type(decision.value, '$.action') IS NOT 'text' THEN 1
+                  WHEN json_extract(decision.value, '$.action') NOT IN ('opened','reopened','escalated','refreshed_active','recovered','confirmed_recovered','negative_without_episode','held_omitted','held_partial','held_stale','held_unavailable','held_untrusted_evidence') THEN 1
+                  ELSE 0
+                END
+       )`, quote(selector.ScopeKey), quote(selector.EventType))
 }
 
 func isDestructiveStatement(stmt string) bool {

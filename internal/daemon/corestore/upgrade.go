@@ -376,13 +376,25 @@ func RecomputeUpgradeMaintenance(ctx context.Context, opts RecomputeUpgradeMaint
 		if m.maintenance == nil {
 			continue
 		}
-		summary, err := summarizeObservationDiscard(ctx, tx, m)
-		if err != nil {
-			return UpgradeMaintenanceResult{}, fmt.Errorf("recompute migration %d discard: %w", m.version, err)
+		if m.maintenance.ObservationDiscard != nil {
+			summary, err := summarizeObservationDiscard(ctx, tx, m)
+			if err != nil {
+				return UpgradeMaintenanceResult{}, fmt.Errorf("recompute migration %d observation discard: %w", m.version, err)
+			}
+			result.Discards = append(result.Discards, summary)
+			if effect.retireSourceBackup && summary.RemovedRows > 0 {
+				result.SourceBackupRetirementRequired = true
+			}
 		}
-		result.Discards = append(result.Discards, summary)
-		if effect.retireSourceBackup && summary.RemovedRows > 0 {
-			result.SourceBackupRetirementRequired = true
+		if m.maintenance.EventDiscard != nil {
+			summary, err := summarizeEventDiscard(ctx, tx, m)
+			if err != nil {
+				return UpgradeMaintenanceResult{}, fmt.Errorf("recompute migration %d event discard: %w", m.version, err)
+			}
+			result.EventDiscards = append(result.EventDiscards, summary)
+			if effect.retireSourceBackup && summary.RemovedRows > 0 {
+				result.SourceBackupRetirementRequired = true
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -1121,7 +1133,7 @@ func migrateAndPublishUpgradeCandidate(
 	if verified.Status != InspectionCurrent || verified.Head != expectedHead {
 		return upgradeCandidateBuild{}, fmt.Errorf("%w: upgraded candidate has unexpected version or head", ErrRollback)
 	}
-	if err := verifyMaintenanceDiscardsAbsent(ctx, outputPath, execution.maintenance.Discards); err != nil {
+	if err := verifyMaintenanceDiscardsAbsent(ctx, outputPath, execution.maintenance.Discards, execution.maintenance.EventDiscards); err != nil {
 		return upgradeCandidateBuild{}, err
 	}
 	if err := os.Link(outputPath, destination); err != nil {
@@ -1231,35 +1243,61 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 	stamp := formatTime(now)
 	for next := version + 1; next <= len(plan); next++ {
 		m := plan[next-1]
-		var summary *ObservationDiscardSummary
-		if m.maintenance != nil {
+		var observationSummary *ObservationDiscardSummary
+		var eventSummary *EventDiscardSummary
+		if m.maintenance != nil && m.maintenance.ObservationDiscard != nil {
 			computed, err := summarizeObservationDiscard(ctx, tx, m)
 			if err != nil {
-				return fail(fmt.Errorf("summarize migration %d discard: %w", next, err))
+				return fail(fmt.Errorf("summarize migration %d observation discard: %w", next, err))
 			}
-			summary = &computed
+			observationSummary = &computed
+		}
+		if m.maintenance != nil && m.maintenance.EventDiscard != nil {
+			computed, err := summarizeEventDiscard(ctx, tx, m)
+			if err != nil {
+				return fail(fmt.Errorf("summarize migration %d event discard: %w", next, err))
+			}
+			eventSummary = &computed
 		}
 		for _, stmt := range m.statements {
 			result, err := tx.ExecContext(ctx, stmt)
 			if err != nil {
 				return fail(fmt.Errorf("apply migration %d: %w", next, err))
 			}
-			if summary != nil && stmt == observationDiscardDeleteStatement(summary.Selector) {
+			if observationSummary != nil && stmt == observationDiscardDeleteStatement(observationSummary.Selector) {
 				affected, err := result.RowsAffected()
 				if err != nil {
 					return fail(fmt.Errorf("count migration %d discarded rows: %w", next, err))
 				}
-				if affected != summary.RemovedRows {
-					return fail(fmt.Errorf("migration %d discarded %d rows after summarizing %d", next, affected, summary.RemovedRows))
+				if affected != observationSummary.RemovedRows {
+					return fail(fmt.Errorf("migration %d discarded %d observation rows after summarizing %d", next, affected, observationSummary.RemovedRows))
+				}
+			}
+			if eventSummary != nil && stmt == eventDiscardDeleteStatement(eventSummary.Selector) {
+				affected, err := result.RowsAffected()
+				if err != nil {
+					return fail(fmt.Errorf("count migration %d discarded event rows: %w", next, err))
+				}
+				if affected != eventSummary.RemovedRows {
+					return fail(fmt.Errorf("migration %d discarded %d event rows after summarizing %d", next, affected, eventSummary.RemovedRows))
 				}
 			}
 		}
-		if summary != nil {
-			if err := verifyObservationDiscardAbsent(ctx, tx, summary.Selector); err != nil {
-				return fail(fmt.Errorf("verify migration %d discard: %w", next, err))
+		if observationSummary != nil {
+			if err := verifyObservationDiscardAbsent(ctx, tx, observationSummary.Selector); err != nil {
+				return fail(fmt.Errorf("verify migration %d observation discard: %w", next, err))
 			}
-			maintenance.Discards = append(maintenance.Discards, *summary)
-			if effect.retireSourceBackup && summary.RemovedRows > 0 {
+			maintenance.Discards = append(maintenance.Discards, *observationSummary)
+			if effect.retireSourceBackup && observationSummary.RemovedRows > 0 {
+				maintenance.SourceBackupRetirementRequired = true
+			}
+		}
+		if eventSummary != nil {
+			if err := verifyEventDiscardAbsent(ctx, tx, eventSummary.Selector); err != nil {
+				return fail(fmt.Errorf("verify migration %d event discard: %w", next, err))
+			}
+			maintenance.EventDiscards = append(maintenance.EventDiscards, *eventSummary)
+			if effect.retireSourceBackup && eventSummary.RemovedRows > 0 {
 				maintenance.SourceBackupRetirementRequired = true
 			}
 		}
@@ -1346,6 +1384,52 @@ ORDER BY observation_id`, selector.ScopeKey, selector.Source, selector.Kind)
 	return summary, nil
 }
 
+func summarizeEventDiscard(ctx context.Context, q contextQueryer, m migration) (EventDiscardSummary, error) {
+	selector := *m.maintenance.EventDiscard
+	summary := EventDiscardSummary{
+		MigrationVersion: m.version,
+		MigrationName:    m.name,
+		Selector:         selector,
+	}
+	h := sha256.New()
+	h.Write([]byte("canary.event-discard.v1\x00"))
+	for _, value := range []string{selector.ScopeKey, selector.EventType, selector.Predicate} {
+		var size [8]byte
+		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+		h.Write(size[:])
+		h.Write([]byte(value))
+	}
+	rows, err := q.QueryContext(ctx, eventDiscardSummaryStatement(selector))
+	if err != nil {
+		return EventDiscardSummary{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var eventSeq, payloadBytes int64
+		var payloadDigest []byte
+		if err := rows.Scan(&eventSeq, &payloadBytes, &payloadDigest); err != nil {
+			return EventDiscardSummary{}, err
+		}
+		if eventSeq < 1 || payloadBytes < 0 || len(payloadDigest) != sha256.Size {
+			return EventDiscardSummary{}, errorsf("invalid event identity, size, or payload digest while summarizing discard")
+		}
+		var identity [8]byte
+		binary.BigEndian.PutUint64(identity[:], uint64(eventSeq))
+		h.Write(identity[:])
+		h.Write(payloadDigest)
+		if summary.RemovedRows == math.MaxInt64 || payloadBytes > math.MaxInt64-summary.PayloadBytes {
+			return EventDiscardSummary{}, errorsf("event discard summary counter overflow")
+		}
+		summary.RemovedRows++
+		summary.PayloadBytes += payloadBytes
+	}
+	if err := rows.Err(); err != nil {
+		return EventDiscardSummary{}, err
+	}
+	summary.OrderedDigestSHA256 = hex.EncodeToString(h.Sum(nil))
+	return summary, nil
+}
+
 type contextQueryRower interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
@@ -1362,8 +1446,19 @@ func verifyObservationDiscardAbsent(ctx context.Context, q contextQueryRower, se
 	return nil
 }
 
-func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, summaries []ObservationDiscardSummary) error {
-	if len(summaries) == 0 {
+func verifyEventDiscardAbsent(ctx context.Context, q contextQueryRower, selector EventDiscardSelector) error {
+	var remaining int64
+	if err := q.QueryRowContext(ctx, eventDiscardCountStatement(selector)).Scan(&remaining); err != nil {
+		return err
+	}
+	if remaining != 0 {
+		return fmt.Errorf("corestore: exact event discard selector still matches %d rows", remaining)
+	}
+	return nil
+}
+
+func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, observationSummaries []ObservationDiscardSummary, eventSummaries []EventDiscardSummary) error {
+	if len(observationSummaries) == 0 && len(eventSummaries) == 0 {
 		return nil
 	}
 	db, err := sql.Open("sqlite", sqliteDSN(path, defaultBusyTimeout, true))
@@ -1372,8 +1467,13 @@ func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, summaries
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	for _, summary := range summaries {
+	for _, summary := range observationSummaries {
 		if err := verifyObservationDiscardAbsent(ctx, db, summary.Selector); err != nil {
+			return err
+		}
+	}
+	for _, summary := range eventSummaries {
+		if err := verifyEventDiscardAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}
@@ -1410,6 +1510,11 @@ func validateUpgradedCandidate(ctx context.Context, db *sql.DB, source Inspectio
 	}
 	for _, summary := range execution.maintenance.Discards {
 		if err := verifyObservationDiscardAbsent(ctx, db, summary.Selector); err != nil {
+			return err
+		}
+	}
+	for _, summary := range execution.maintenance.EventDiscards {
+		if err := verifyEventDiscardAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}

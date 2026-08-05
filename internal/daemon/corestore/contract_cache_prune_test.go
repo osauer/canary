@@ -22,7 +22,7 @@ func TestContractCacheObservationPruneIsExactCompactAndHeadPreserving(t *testing
 	backupPath := filepath.Join(dir, "daemon-v3-backup.db")
 	candidatePath := filepath.Join(dir, "daemon-v4-candidate.db")
 	targetBackupPath := filepath.Join(dir, "daemon-v4-backup.db")
-	plan := currentMigrationPlan()
+	plan := currentMigrationPlan()[:contractCachePruneMigrationVersionForTest]
 	if len(plan) != 4 {
 		t.Fatalf("test fixture expects schema 4, got %d", len(plan))
 	}
@@ -219,7 +219,7 @@ func TestExpectedUpgradeHeadTransitionSupportsFrozenPlanPrefixes(t *testing.T) {
 		source int
 		target int
 		want   UpgradeHeadTransition
-	}{{1, 2, UpgradeHeadTransitionAdvanceOnce}, {1, 3, UpgradeHeadTransitionAdvanceOnce}, {2, 3, UpgradeHeadTransitionAdvanceOnce}, {3, 4, UpgradeHeadTransitionPreserve}} {
+	}{{1, 2, UpgradeHeadTransitionAdvanceOnce}, {1, 3, UpgradeHeadTransitionAdvanceOnce}, {2, 3, UpgradeHeadTransitionAdvanceOnce}, {3, 4, UpgradeHeadTransitionPreserve}, {3, 5, UpgradeHeadTransitionAdvanceOnce}, {4, 5, UpgradeHeadTransitionAdvanceOnce}} {
 		got, err := ExpectedUpgradeHeadTransition(tc.source, tc.target)
 		if err != nil || got != tc.want {
 			t.Errorf("transition %d->%d = %q err=%v want %q", tc.source, tc.target, got, err, tc.want)
@@ -237,7 +237,7 @@ func TestUpgradeHeadTransitionMatrixAndZeroRowMaintenance(t *testing.T) {
 	for _, tc := range []struct {
 		version int
 		want    UpgradeHeadTransition
-	}{{1, UpgradeHeadTransitionAdvanceOnce}, {2, UpgradeHeadTransitionAdvanceOnce}, {3, UpgradeHeadTransitionPreserve}} {
+	}{{1, UpgradeHeadTransitionAdvanceOnce}, {2, UpgradeHeadTransitionAdvanceOnce}, {3, UpgradeHeadTransitionAdvanceOnce}, {4, UpgradeHeadTransitionAdvanceOnce}} {
 		t.Run(string(rune('0'+tc.version)), func(t *testing.T) {
 			dir := privateTempDir(t)
 			sourcePath := filepath.Join(dir, "daemon.db")
@@ -277,13 +277,20 @@ func TestUpgradeHeadTransitionMatrixAndZeroRowMaintenance(t *testing.T) {
 			if result.HeadTransition != tc.want || result.Candidate.Head != wantHead {
 				t.Fatalf("result transition=%q candidate=%+v want %q %+v", result.HeadTransition, result.Candidate.Head, tc.want, wantHead)
 			}
-			if len(result.Maintenance.Discards) != 1 || result.Maintenance.Discards[0].RemovedRows != 0 ||
+			wantObservationDiscards := 0
+			if tc.version < contractCachePruneMigrationVersionForTest {
+				wantObservationDiscards = 1
+			}
+			if len(result.Maintenance.Discards) != wantObservationDiscards || len(result.Maintenance.EventDiscards) != 1 ||
+				result.Maintenance.EventDiscards[0].RemovedRows != 0 ||
 				result.Maintenance.SourceBackupRetirementRequired || result.TargetBackup != nil || !result.Maintenance.Compacted {
 				t.Fatalf("zero-row maintenance=%+v target=%+v", result.Maintenance, result.TargetBackup)
 			}
 		})
 	}
 }
+
+const contractCachePruneMigrationVersionForTest = 4
 
 func TestMaintenanceUpgradeRebuildsOnlyNamedCrashArtifacts(t *testing.T) {
 	dir := privateTempDir(t)

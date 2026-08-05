@@ -212,8 +212,8 @@ func TestAlertEpisodeRegistryLifecycleSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 7 {
-		t.Fatalf("decision events=%d want 7", len(events))
+	if len(events) != 4 {
+		t.Fatalf("transition events=%d want 4", len(events))
 	}
 	var event alertEpisodeDecisionEvent
 	if err := json.Unmarshal(events[len(events)-1].PayloadJSON, &event); err != nil {
@@ -245,18 +245,35 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	}
 	changedAt := open.Candidates[0].StateChangedAt
 
-	unavailableAt := base.Add(time.Minute)
-	unavailableCoverage := rpc.AlertCoverage{
-		State: rpc.AlertCoverageUnavailable, Freshness: rpc.AlertCoverageUnknown, AsOf: unavailableAt,
-		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{},
+	const outageHeartbeats = 24
+	var unavailable rpc.AlertCandidateSnapshot
+	for i := 1; i <= outageHeartbeats; i++ {
+		unavailableAt := base.Add(time.Duration(i) * time.Minute)
+		unavailableCoverage := rpc.AlertCoverage{
+			State: rpc.AlertCoverageUnavailable, Freshness: rpc.AlertCoverageUnknown, AsOf: unavailableAt,
+			ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{},
+		}
+		unavailable, err = registry.Apply(t.Context(), alertRegistryEvaluation(unavailableAt, unavailableCoverage))
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	unavailable, err := registry.Apply(t.Context(), alertRegistryEvaluation(unavailableAt, unavailableCoverage))
+	assertAlertRegistryCandidate(t, unavailable, rpc.AlertEpisodeOpen, rpc.AlertEvidenceUnavailable)
+	scope, ok := findAlertEpisodeScope(registry.document.Scopes, alertRegistryAuthority())
+	if !ok || scope.Metrics.Evaluations != outageHeartbeats+1 {
+		t.Fatalf("outage evaluations were not persisted: scope=%+v ok=%v", scope.Metrics, ok)
+	}
+	events, err := store.LoadEvents(t.Context(), corestore.EventQuery{
+		ScopeKey: daemonStateScope, Type: alertEpisodeDecisionEventType, Limit: 100,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertAlertRegistryCandidate(t, unavailable, rpc.AlertEpisodeOpen, rpc.AlertEvidenceUnavailable)
+	if len(events) != 1 {
+		t.Fatalf("outage heartbeats appended %d lifecycle events, want the opening event only", len(events))
+	}
 
-	partialAt := base.Add(2 * time.Minute)
+	partialAt := base.Add((outageHeartbeats + 1) * time.Minute)
 	partialNegative := positive
 	partialNegative.Active = false
 	partialNegative.ObservedAt = partialAt
@@ -275,7 +292,7 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	}
 	assertAlertRegistryCandidate(t, partial, rpc.AlertEpisodeOpen, rpc.AlertEvidencePartial)
 
-	staleAt := base.Add(3 * time.Minute)
+	staleAt := partialAt.Add(time.Minute)
 	staleNegative := partialNegative
 	staleNegative.ObservedAt = staleAt
 	staleNegative.EvidenceAsOf = staleAt.Add(-time.Minute)
@@ -291,7 +308,7 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	}
 	assertAlertRegistryCandidate(t, stale, rpc.AlertEpisodeOpen, rpc.AlertEvidenceStale)
 
-	omittedAt := base.Add(4 * time.Minute)
+	omittedAt := staleAt.Add(time.Minute)
 	omitted, err := registry.Apply(t.Context(), alertRegistryEvaluation(omittedAt, alertRegistryCompleteCoverage(omittedAt)))
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +318,7 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 		t.Fatal("degraded evidence changed active lifecycle timestamp")
 	}
 
-	recoveryAt := base.Add(5 * time.Minute)
+	recoveryAt := omittedAt.Add(time.Minute)
 	authoritativeNegative := partialNegative
 	authoritativeNegative.ObservedAt = recoveryAt
 	authoritativeNegative.EvidenceAsOf = recoveryAt
@@ -312,6 +329,15 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 		t.Fatal(err)
 	}
 	assertAlertRegistryCandidate(t, recovered, rpc.AlertEpisodeRecovered, rpc.AlertEvidenceCurrent)
+	events, err = store.LoadEvents(t.Context(), corestore.EventQuery{
+		ScopeKey: daemonStateScope, Type: alertEpisodeDecisionEventType, Limit: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("recovery lifecycle events=%d want opening and recovery only", len(events))
+	}
 }
 
 func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregatePartialCoverage(t *testing.T) {
@@ -747,18 +773,18 @@ func TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState(t *testing
 	events, err := store.LoadEvents(t.Context(), corestore.EventQuery{
 		ScopeKey: daemonStateScope, Type: alertEpisodeDecisionEventType, Limit: 100,
 	})
-	if err != nil || len(events) == 0 {
-		t.Fatalf("load post-migration decision event: count=%d err=%v", len(events), err)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("load retained transition event: count=%d err=%v", len(events), err)
 	}
 	var event alertEpisodeDecisionEvent
 	if err := json.Unmarshal(events[len(events)-1].PayloadJSON, &event); err != nil {
-		t.Fatalf("decode post-migration decision event: %v", err)
+		t.Fatalf("decode retained transition event: %v", err)
 	}
 	if len(event.Decisions) != 1 ||
-		event.Decisions[0].Action != alertDecisionRefreshedActive ||
+		event.Decisions[0].Action != alertDecisionOpened ||
 		event.Decisions[0].EpisodeKey != wantEpisode ||
 		event.Decisions[0].OccurrenceKey != wantOccurrence {
-		t.Fatalf("post-migration observation was not an in-place refresh: %+v", event.Decisions)
+		t.Fatalf("non-transition refresh appended an event: %+v", event.Decisions)
 	}
 
 	// The stored document now carries only the renamed values, and reloading it

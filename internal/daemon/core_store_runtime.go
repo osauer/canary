@@ -134,11 +134,11 @@ func (s *Server) upgradeCoreStoreSchema(ctx context.Context, minimum *corestore.
 	if s.logger != nil {
 		if sourceSizeErr == nil {
 			s.logger.Infof(
-				"daemon authority: one-time database maintenance starting; pruning unused contract-cache history and compacting %s before broker connection; do not interrupt",
+				"daemon authority: one-time database maintenance starting; pruning reviewed redundant history and compacting %s before broker connection; do not interrupt",
 				formatStorageBytes(sourceBytes),
 			)
 		} else {
-			s.logger.Infof("daemon authority: one-time database maintenance starting; pruning unused contract-cache history and compacting the database before broker connection; do not interrupt")
+			s.logger.Infof("daemon authority: one-time database maintenance starting; pruning reviewed redundant history and compacting the database before broker connection; do not interrupt")
 		}
 	}
 

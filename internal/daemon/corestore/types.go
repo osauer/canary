@@ -122,6 +122,31 @@ type ObservationDiscardSummary struct {
 	OrderedDigestSHA256 string
 }
 
+// EventDiscardSelector identifies the one reviewed class of event snapshots a
+// migration may discard. Predicate is a frozen implementation identifier, not
+// caller-supplied SQL and not a general event-retention surface.
+type EventDiscardSelector struct {
+	ScopeKey  string
+	EventType string
+	Predicate string
+}
+
+// EventDiscardSummary is deterministic evidence of the event rows one
+// maintenance migration removed from its disposable working snapshot.
+// OrderedDigestSHA256 uses the domain "canary.event-discard.v1\x00", then the
+// selector strings as 8-byte big-endian lengths plus bytes, then each event
+// sequence as 8-byte big-endian plus its stored 32-byte payload digest in
+// ascending sequence order. Payload bytes are never copied into coordination
+// state.
+type EventDiscardSummary struct {
+	MigrationVersion    int
+	MigrationName       string
+	Selector            EventDiscardSelector
+	RemovedRows         int64
+	PayloadBytes        int64
+	OrderedDigestSHA256 string
+}
+
 // UpgradeMaintenanceResult reports physical work required by pending
 // migration metadata and the exact discard evidence produced while building
 // the candidate. SourceBackupRetirementRequired is an instruction to the outer
@@ -129,6 +154,7 @@ type ObservationDiscardSummary struct {
 // after publication and independent target-head backup verification.
 type UpgradeMaintenanceResult struct {
 	Discards                       []ObservationDiscardSummary
+	EventDiscards                  []EventDiscardSummary
 	Compacted                      bool
 	SourceBackupRetirementRequired bool
 }

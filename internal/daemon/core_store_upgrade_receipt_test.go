@@ -3,15 +3,316 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
+
+func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
+	phases := []string{
+		coreSchemaPhaseIntent,
+		coreSchemaPhaseCandidate,
+		coreSchemaPhaseWatermark,
+		coreSchemaPhaseQuiesced,
+		coreSchemaPhaseRenamed,
+		coreSchemaPhaseSynced,
+		coreSchemaPhaseVerified,
+		coreSchemaPhaseTarget,
+		coreSchemaPhaseReceipt,
+		coreSchemaPhaseRetired,
+		coreSchemaPhaseRetireSync,
+	}
+	for _, phase := range phases {
+		t.Run(phase, func(t *testing.T) {
+			source := newV4AlertEventMaintenanceAuthority(t)
+			minimum := source.Head
+			ops := productionCoreSchemaUpgradeOps()
+			ops.after = func(reached string) error {
+				if reached == phase {
+					return errors.New("injected crash")
+				}
+				return nil
+			}
+			if _, err := ensureCoreStoreSchemaCurrentWithOps(
+				t.Context(), source.Path, &minimum, time.Now(), ops,
+			); err == nil {
+				t.Fatalf("alert-event maintenance did not stop after %s", phase)
+			}
+			manifest, exists, err := loadCoreSchemaUpgradeManifest(source.Path)
+			if err != nil || !exists {
+				t.Fatalf("durable alert-event manifest after %s: exists=%v err=%v", phase, exists, err)
+			}
+			artifacts, err := coreSchemaUpgradeArtifactPaths(source.Path, manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			resumedMinimum, err := loadAuthorityWatermark(source.Path + ".head")
+			if err != nil || resumedMinimum == nil {
+				t.Fatalf("load alert-event resume watermark: head=%+v err=%v", resumedMinimum, err)
+			}
+			gotHead, err := ensureCoreStoreSchemaCurrentWithOps(
+				t.Context(), source.Path, resumedMinimum, time.Now(), productionCoreSchemaUpgradeOps(),
+			)
+			if err != nil {
+				t.Fatalf("resume alert-event maintenance after %s: %v", phase, err)
+			}
+			wantHead := source.Head
+			wantHead.HeadGeneration++
+			if gotHead == nil || *gotHead != wantHead {
+				t.Fatalf("alert-event maintenance head=%+v want=%+v", gotHead, wantHead)
+			}
+			watermark, err := loadAuthorityWatermark(source.Path + ".head")
+			if err != nil || watermark == nil || *watermark != wantHead {
+				t.Fatalf("alert-event maintenance watermark=%+v err=%v", watermark, err)
+			}
+			if pending, err := coreSchemaUpgradePending(source.Path); err != nil || pending {
+				t.Fatalf("alert-event maintenance manifest pending=%v err=%v", pending, err)
+			}
+
+			current, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
+				Path: source.Path, MinimumHead: &wantHead,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.Status != corestore.InspectionCurrent ||
+				current.SchemaVersion != alertEpisodePruneMigrationVersion ||
+				current.Head != wantHead {
+				t.Fatalf("published alert-event maintenance authority=%+v", current)
+			}
+			if got := readAlertEpisodeEventKeys(t, source.Path); !slices.Equal(got, []string{"transition"}) {
+				t.Fatalf("published alert events=%v want transition only", got)
+			}
+			if got := readHistoricalStateDocument(t, source.Path, daemonStateScope, alertEpisodeRegistryStateKind); !bytes.Equal(got, source.RegistryJSON) {
+				t.Fatalf("published alert registry changed: got=%s want=%s", got, source.RegistryJSON)
+			}
+
+			if _, err := os.Lstat(artifacts.backup); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("bloated v4 source backup was not retired: %v", err)
+			}
+			if _, err := os.Lstat(artifacts.candidate); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("published v5 candidate still exists: %v", err)
+			}
+			receipt, ok, err := loadCoreSchemaMaintenanceReceipt(artifacts.receipt)
+			if err != nil || !ok {
+				t.Fatalf("alert-event maintenance receipt: ok=%v err=%v", ok, err)
+			}
+			if receipt.Version != coreSchemaMaintenanceReceiptVersion ||
+				receipt.UpgradeID != manifest.UpgradeID ||
+				receipt.Discard != nil ||
+				receipt.EventDiscard == nil ||
+				receipt.EventDiscard.MigrationVersion != alertEpisodePruneMigrationVersion ||
+				receipt.EventDiscard.MigrationName != alertEpisodePruneMigrationName ||
+				receipt.EventDiscard.Selector != alertEpisodePruneSelector ||
+				receipt.EventDiscard.RemovedRows != 1 ||
+				receipt.EventDiscard.PayloadBytes != int64(len(source.RemovedPayload)) ||
+				receipt.EventDiscard.OrderedDigestSHA256 != expectedAlertEventDiscardDigest(source.RemovedEventSeq, source.RemovedPayload) ||
+				receipt.Source.SchemaVersion != alertEpisodePruneMigrationVersion-1 ||
+				receipt.Source.Head != source.Head ||
+				receipt.Target.SchemaVersion != alertEpisodePruneMigrationVersion ||
+				receipt.Target.Head != wantHead {
+				t.Fatalf("alert-event maintenance receipt does not bind exact repair: %+v", receipt)
+			}
+			targetDigest, targetBytes, err := hashPrivateUpgradeArtifact(artifacts.targetBackup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if receipt.Target.SHA256 != targetDigest || receipt.Target.Bytes != targetBytes {
+				t.Fatalf("alert-event target fingerprint=%+v want %s/%d", receipt.Target, targetDigest, targetBytes)
+			}
+			if err := requireIndependentUpgradeArtifacts(source.Path, artifacts.targetBackup); err != nil {
+				t.Fatal(err)
+			}
+			if got := readAlertEpisodeEventKeys(t, artifacts.targetBackup); !slices.Equal(got, []string{"transition"}) {
+				t.Fatalf("target-backup alert events=%v want transition only", got)
+			}
+			if got := readHistoricalStateDocument(t, artifacts.targetBackup, daemonStateScope, alertEpisodeRegistryStateKind); !bytes.Equal(got, source.RegistryJSON) {
+				t.Fatalf("target-backup alert registry changed: got=%s want=%s", got, source.RegistryJSON)
+			}
+
+			secondHead, err := ensureCoreStoreSchemaCurrentWithOps(
+				t.Context(), source.Path, gotHead, time.Now(), productionCoreSchemaUpgradeOps(),
+			)
+			if err != nil || secondHead == nil || *secondHead != wantHead {
+				t.Fatalf("second startup after %s: head=%+v err=%v", phase, secondHead, err)
+			}
+			if pending, err := coreSchemaUpgradePending(source.Path); err != nil || pending {
+				t.Fatalf("second startup left manifest pending=%v err=%v", pending, err)
+			}
+		})
+	}
+}
+
+type v4AlertEventMaintenanceAuthority struct {
+	Path            string
+	Head            corestore.AuthorityHead
+	RegistryJSON    []byte
+	RemovedEventSeq int64
+	RemovedPayload  []byte
+}
+
+func newV4AlertEventMaintenanceAuthority(t *testing.T) v4AlertEventMaintenanceAuthority {
+	t.Helper()
+	path := filepath.Join(privateTestDir(t), "daemon.db")
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryJSON := []byte(`{"version":4,"scopes":[]}`)
+	if _, err := store.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{
+		ScopeKey: daemonStateScope, Kind: alertEpisodeRegistryStateKind, JSON: registryJSON,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 8, 5, 10, 0, 0, 0, time.UTC)
+	eventPayload := func(action string, at time.Time) []byte {
+		t.Helper()
+		raw, err := json.Marshal(alertEpisodeDecisionEvent{
+			Version: alertEpisodeRegistryDocumentVersion, AuthorityScope: alertRegistryAuthority(),
+			AsOf: at, Coverage: alertRegistryCompleteCoverage(at),
+			Decisions: []alertEpisodeDecision{{Action: action}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	transitionPayload := eventPayload(alertDecisionOpened, base)
+	removedPayload := eventPayload(alertDecisionHeldUnavailable, base.Add(time.Minute))
+	receipts, err := store.AppendEvents(t.Context(), []corestore.EventInput{
+		{
+			ScopeKey: daemonStateScope, EventKey: "transition", Type: alertEpisodeDecisionEventType,
+			Action: alertEpisodeDecisionEventAction, Origin: coreEventOriginDaemon,
+			OccurredAt: base, PayloadJSON: transitionPayload,
+		},
+		{
+			ScopeKey: daemonStateScope, EventKey: "redundant-held", Type: alertEpisodeDecisionEventType,
+			Action: alertEpisodeDecisionEventAction, Origin: coreEventOriginDaemon,
+			OccurredAt: base.Add(time.Minute), PayloadJSON: removedPayload,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := store.AuthorityHead(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Produce an exact schema-v4 authority after using the real v4 payload
+	// codec and Store mutation paths. Migration 5 changes no schema object: it
+	// only deletes reviewed events while the ordinary delete guard is dropped.
+	// Removing its ledger row and version stamp therefore restores the exact v4
+	// schema while retaining this synthetic pre-upgrade history.
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(ON)&_dqs=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`DROP TRIGGER schema_migrations_no_update`,
+		`DROP TRIGGER schema_migrations_no_delete`,
+		`DELETE FROM schema_migrations WHERE version=5`,
+		`CREATE TRIGGER schema_migrations_no_update BEFORE UPDATE ON schema_migrations BEGIN SELECT RAISE(ABORT, 'schema_migrations is append-only'); END`,
+		`CREATE TRIGGER schema_migrations_no_delete BEFORE DELETE ON schema_migrations BEGIN SELECT RAISE(ABORT, 'schema_migrations is append-only'); END`,
+		`PRAGMA user_version = 4`,
+	} {
+		if _, err := tx.ExecContext(t.Context(), statement); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	v4, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
+		Path: path, MinimumHead: &head, TargetVersion: alertEpisodePruneMigrationVersion - 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v4.Status != corestore.InspectionCurrent ||
+		v4.SchemaVersion != alertEpisodePruneMigrationVersion-1 ||
+		v4.Head != head {
+		t.Fatalf("synthetic v4 alert authority=%+v", v4)
+	}
+	if err := writeAuthorityWatermark(path+".head", head); err != nil {
+		t.Fatal(err)
+	}
+	return v4AlertEventMaintenanceAuthority{
+		Path: path, Head: head, RegistryJSON: registryJSON,
+		RemovedEventSeq: receipts[1].EventSeq, RemovedPayload: removedPayload,
+	}
+}
+
+func readAlertEpisodeEventKeys(t *testing.T, path string) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&_pragma=foreign_keys(ON)&_dqs=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(t.Context(), `SELECT event_key FROM event_log WHERE scope_key=? AND event_type=? ORDER BY event_seq`, daemonStateScope, alertEpisodeDecisionEventType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return keys
+}
+
+func expectedAlertEventDiscardDigest(eventSeq int64, payload []byte) string {
+	h := sha256.New()
+	h.Write([]byte("canary.event-discard.v1\x00"))
+	for _, value := range []string{
+		alertEpisodePruneSelector.ScopeKey,
+		alertEpisodePruneSelector.EventType,
+		alertEpisodePruneSelector.Predicate,
+	} {
+		var size [8]byte
+		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+		h.Write(size[:])
+		h.Write([]byte(value))
+	}
+	var identity [8]byte
+	binary.BigEndian.PutUint64(identity[:], uint64(eventSeq))
+	h.Write(identity[:])
+	digest := sha256.Sum256(payload)
+	h.Write(digest[:])
+	return hex.EncodeToString(h.Sum(nil))
+}
 
 func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampingHead(t *testing.T) {
 	phases := []string{
@@ -112,7 +413,9 @@ func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampin
 				t.Fatalf("maintenance receipt: ok=%v err=%v", ok, err)
 			}
 			if receipt.UpgradeID != manifest.UpgradeID ||
+				receipt.Version != 1 ||
 				receipt.Discard.MigrationVersion != contractCachePruneMigrationVersion ||
+				receipt.EventDiscard != nil ||
 				receipt.Discard.Selector != contractCachePruneSelector ||
 				receipt.Discard.RemovedRows != 2 ||
 				receipt.Discard.PayloadBytes != 200 ||
@@ -514,8 +817,8 @@ func TestCoreSchemaUpgradeLegacyManifestRealPlanChainsBeforeAndAfterPublication(
 				t.Fatal(err)
 			}
 			if current.Status != corestore.InspectionCurrent ||
-				current.SchemaVersion != contractCachePruneMigrationVersion {
-				t.Fatalf("legacy chain did not reach current v4: %+v", current)
+				current.SchemaVersion != alertEpisodePruneMigrationVersion {
+				t.Fatalf("legacy chain did not reach current schema: %+v", current)
 			}
 			if pending, err := coreSchemaUpgradePending(databasePath); err != nil || pending {
 				t.Fatalf("legacy chain manifest pending=%v err=%v", pending, err)
@@ -587,8 +890,10 @@ func TestCoreSchemaUpgradePreparingIntentResetsUnboundRealPlanArtifacts(t *testi
 	if !sawReset {
 		t.Fatal("preparing resume did not request safe reset of unbound artifacts")
 	}
-	if finalHead == nil || *finalHead != source.Head {
-		t.Fatalf("preparing resume changed maintenance head: got=%+v want=%+v", finalHead, source.Head)
+	wantHead := source.Head
+	wantHead.HeadGeneration++
+	if finalHead == nil || *finalHead != wantHead {
+		t.Fatalf("preparing resume head=%+v want=%+v", finalHead, wantHead)
 	}
 	published, err := os.Stat(databasePath)
 	if err != nil {

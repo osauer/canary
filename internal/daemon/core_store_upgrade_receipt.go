@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	coreSchemaMaintenanceReceiptVersion = 1
+	coreSchemaMaintenanceReceiptVersion = 2
 	contractCachePruneMigrationVersion  = 4
 	contractCachePruneMigrationName     = "contract_cache_observation_prune"
+	alertEpisodePruneMigrationVersion   = 5
+	alertEpisodePruneMigrationName      = "alert_episode_event_prune"
 )
 
 var contractCachePruneSelector = corestore.ObservationDiscardSelector{
@@ -26,13 +28,21 @@ var contractCachePruneSelector = corestore.ObservationDiscardSelector{
 	Kind:     "contract_cache.snapshot.v3",
 }
 
+var alertEpisodePruneSelector = corestore.EventDiscardSelector{
+	ScopeKey:  "daemon",
+	EventType: "alert_episode_decision",
+	Predicate: "alert_episode_non_transition.v1",
+}
+
 // coreSchemaUpgradeMaintenance is the frozen, typed maintenance result bound
-// into the transient manifest before publication. It is deliberately singular:
-// this release authorizes one exact derived-cache discard, not a retention API.
+// into the transient manifest before publication. Each field names one shipped
+// repair; this is not a retention API. Discard keeps the v4 JSON field name so
+// an interrupted v4 manifest remains resumable after the v5 binary starts.
 type coreSchemaUpgradeMaintenance struct {
-	Discard            corestore.ObservationDiscardSummary `json:"discard"`
-	Compacted          bool                                `json:"compacted"`
-	RetireSourceBackup bool                                `json:"retire_source_backup"`
+	Discard            *corestore.ObservationDiscardSummary `json:"discard,omitempty"`
+	EventDiscard       *corestore.EventDiscardSummary       `json:"event_discard,omitempty"`
+	Compacted          bool                                 `json:"compacted"`
+	RetireSourceBackup bool                                 `json:"retire_source_backup"`
 }
 
 type coreSchemaMaintenanceArtifactReceipt struct {
@@ -43,11 +53,12 @@ type coreSchemaMaintenanceArtifactReceipt struct {
 }
 
 type coreSchemaMaintenanceReceipt struct {
-	Version   int                                  `json:"version"`
-	UpgradeID string                               `json:"upgrade_id"`
-	Discard   corestore.ObservationDiscardSummary  `json:"discard"`
-	Source    coreSchemaMaintenanceArtifactReceipt `json:"source"`
-	Target    coreSchemaMaintenanceArtifactReceipt `json:"target"`
+	Version      int                                  `json:"version"`
+	UpgradeID    string                               `json:"upgrade_id"`
+	Discard      *corestore.ObservationDiscardSummary `json:"discard,omitempty"`
+	EventDiscard *corestore.EventDiscardSummary       `json:"event_discard,omitempty"`
+	Source       coreSchemaMaintenanceArtifactReceipt `json:"source"`
+	Target       coreSchemaMaintenanceArtifactReceipt `json:"target"`
 }
 
 func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*coreSchemaUpgradeMaintenance, error) {
@@ -55,19 +66,26 @@ func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*co
 	if result.TargetBackup != nil {
 		return nil, fmt.Errorf("schema preparation created a target backup before publication")
 	}
-	if len(maintenance.Discards) == 0 {
+	if len(maintenance.Discards) == 0 && len(maintenance.EventDiscards) == 0 {
 		if maintenance.Compacted || maintenance.SourceBackupRetirementRequired {
 			return nil, fmt.Errorf("schema upgrade maintenance flags have no typed discard summary")
 		}
 		return nil, nil
 	}
-	if len(maintenance.Discards) != 1 {
-		return nil, fmt.Errorf("schema upgrade maintenance must contain exactly one discard summary")
+	if len(maintenance.Discards) > 1 || len(maintenance.EventDiscards) > 1 {
+		return nil, fmt.Errorf("schema upgrade maintenance contains duplicate typed discard summaries")
 	}
 	bound := &coreSchemaUpgradeMaintenance{
-		Discard:            maintenance.Discards[0],
 		Compacted:          maintenance.Compacted,
 		RetireSourceBackup: maintenance.SourceBackupRetirementRequired,
+	}
+	if len(maintenance.Discards) == 1 {
+		discard := maintenance.Discards[0]
+		bound.Discard = &discard
+	}
+	if len(maintenance.EventDiscards) == 1 {
+		discard := maintenance.EventDiscards[0]
+		bound.EventDiscard = &discard
 	}
 	if err := validateCoreSchemaUpgradeMaintenance(*bound); err != nil {
 		return nil, err
@@ -76,22 +94,41 @@ func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*co
 }
 
 func validateCoreSchemaUpgradeMaintenance(maintenance coreSchemaUpgradeMaintenance) error {
-	discard := maintenance.Discard
-	if discard.MigrationVersion != contractCachePruneMigrationVersion ||
-		discard.MigrationName != contractCachePruneMigrationName ||
-		discard.Selector != contractCachePruneSelector {
-		return fmt.Errorf("schema upgrade maintenance is not the authorized contract-cache discard")
+	if maintenance.Discard == nil && maintenance.EventDiscard == nil {
+		return fmt.Errorf("schema upgrade maintenance has no authorized typed discard")
 	}
-	if discard.RemovedRows < 0 || discard.PayloadBytes < 0 || !validSHA256Hex(discard.OrderedDigestSHA256) {
-		return fmt.Errorf("schema upgrade maintenance discard summary is invalid")
+	if maintenance.Discard != nil {
+		discard := *maintenance.Discard
+		if discard.MigrationVersion != contractCachePruneMigrationVersion ||
+			discard.MigrationName != contractCachePruneMigrationName ||
+			discard.Selector != contractCachePruneSelector {
+			return fmt.Errorf("schema upgrade maintenance is not the authorized contract-cache discard")
+		}
+		if discard.RemovedRows < 0 || discard.PayloadBytes < 0 || !validSHA256Hex(discard.OrderedDigestSHA256) {
+			return fmt.Errorf("schema upgrade maintenance observation discard summary is invalid")
+		}
+		if discard.RemovedRows == 0 && discard.PayloadBytes != 0 {
+			return fmt.Errorf("zero-row observation discard reports payload bytes")
+		}
+	}
+	if maintenance.EventDiscard != nil {
+		discard := *maintenance.EventDiscard
+		if discard.MigrationVersion != alertEpisodePruneMigrationVersion ||
+			discard.MigrationName != alertEpisodePruneMigrationName ||
+			discard.Selector != alertEpisodePruneSelector {
+			return fmt.Errorf("schema upgrade maintenance is not the authorized alert-event discard")
+		}
+		if discard.RemovedRows < 0 || discard.PayloadBytes < 0 || !validSHA256Hex(discard.OrderedDigestSHA256) {
+			return fmt.Errorf("schema upgrade maintenance event discard summary is invalid")
+		}
+		if discard.RemovedRows == 0 && discard.PayloadBytes != 0 {
+			return fmt.Errorf("zero-row event discard reports payload bytes")
+		}
 	}
 	if !maintenance.Compacted {
 		return fmt.Errorf("maintenance discard did not compact the candidate")
 	}
-	if discard.RemovedRows == 0 {
-		if discard.PayloadBytes != 0 {
-			return fmt.Errorf("zero-row maintenance discard reports payload bytes")
-		}
+	if !coreSchemaUpgradeMaintenanceHasRemovedRows(maintenance) {
 		if maintenance.RetireSourceBackup {
 			return fmt.Errorf("zero-row maintenance cannot retire the source backup")
 		}
@@ -107,7 +144,36 @@ func equalCoreSchemaUpgradeMaintenance(left, right *coreSchemaUpgradeMaintenance
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
+	return equalObservationDiscard(left.Discard, right.Discard) &&
+		equalEventDiscard(left.EventDiscard, right.EventDiscard) &&
+		left.Compacted == right.Compacted &&
+		left.RetireSourceBackup == right.RetireSourceBackup
+}
+
+func equalObservationDiscard(left, right *corestore.ObservationDiscardSummary) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
 	return *left == *right
+}
+
+func equalEventDiscard(left, right *corestore.EventDiscardSummary) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func coreSchemaUpgradeMaintenanceHasRemovedRows(maintenance coreSchemaUpgradeMaintenance) bool {
+	return maintenance.Discard != nil && maintenance.Discard.RemovedRows > 0 ||
+		maintenance.EventDiscard != nil && maintenance.EventDiscard.RemovedRows > 0
+}
+
+func coreSchemaUpgradeMaintenanceMatchesTarget(maintenance coreSchemaUpgradeMaintenance, targetVersion int) bool {
+	if maintenance.EventDiscard != nil {
+		return targetVersion == alertEpisodePruneMigrationVersion
+	}
+	return maintenance.Discard != nil && targetVersion == contractCachePruneMigrationVersion
 }
 
 func coreSchemaUpgradeRetiresSourceBackup(manifest coreSchemaUpgradeManifest) bool {
@@ -149,18 +215,15 @@ func verifyCoreSchemaUpgradeMaintenanceProof(
 	if err != nil {
 		return fmt.Errorf("recompute schema maintenance from immutable source backup: %w", err)
 	}
-	if len(recomputed.Discards) != 1 {
-		return fmt.Errorf("recomputed schema maintenance did not contain exactly one discard")
+	proofResult := corestore.UpgradeResult{Maintenance: recomputed}
+	proof, err := coreSchemaUpgradeMaintenanceFromResult(proofResult)
+	if err != nil {
+		return fmt.Errorf("bind recomputed schema maintenance: %w", err)
 	}
-	proof := coreSchemaUpgradeMaintenance{
-		Discard:            recomputed.Discards[0],
-		Compacted:          recomputed.Compacted,
-		RetireSourceBackup: recomputed.SourceBackupRetirementRequired,
+	if proof == nil {
+		return fmt.Errorf("recomputed schema maintenance contained no typed discard")
 	}
-	if err := validateCoreSchemaUpgradeMaintenance(proof); err != nil {
-		return fmt.Errorf("validate recomputed schema maintenance: %w", err)
-	}
-	if !equalCoreSchemaUpgradeMaintenance(manifest.Maintenance, &proof) {
+	if !equalCoreSchemaUpgradeMaintenance(manifest.Maintenance, proof) {
 		return fmt.Errorf("schema maintenance manifest disagrees with immutable source-backup proof")
 	}
 	return nil
@@ -187,7 +250,7 @@ func finalizeCoreSchemaUpgradeMaintenance(
 		}
 		return verifyCoreSchemaUpgradeMaintenanceProof(ctx, *manifest, artifacts, ops)
 	}
-	if manifest.Maintenance.Discard.RemovedRows <= 0 {
+	if !coreSchemaUpgradeMaintenanceHasRemovedRows(*manifest.Maintenance) {
 		return fmt.Errorf("source-backup retirement lacks a non-empty discard summary")
 	}
 
@@ -204,7 +267,7 @@ func finalizeCoreSchemaUpgradeMaintenance(
 	if err != nil {
 		return err
 	}
-	if receiptExists && receipt != expected {
+	if receiptExists && !equalCoreSchemaMaintenanceReceipt(receipt, expected) {
 		return fmt.Errorf("schema maintenance receipt does not match the upgrade manifest")
 	}
 	if receiptExists {
@@ -329,10 +392,17 @@ func ensureCoreSchemaUpgradeTargetBackup(
 }
 
 func coreSchemaMaintenanceReceiptFromManifest(manifest coreSchemaUpgradeManifest) coreSchemaMaintenanceReceipt {
+	version := coreSchemaMaintenanceReceiptVersion
+	if manifest.TargetVersion == contractCachePruneMigrationVersion && manifest.Maintenance.EventDiscard == nil {
+		// Preserve byte-compatible crash recovery for a v4 maintenance receipt
+		// written before the event-prune migration existed.
+		version = 1
+	}
 	return coreSchemaMaintenanceReceipt{
-		Version:   coreSchemaMaintenanceReceiptVersion,
-		UpgradeID: manifest.UpgradeID,
-		Discard:   manifest.Maintenance.Discard,
+		Version:      version,
+		UpgradeID:    manifest.UpgradeID,
+		Discard:      manifest.Maintenance.Discard,
+		EventDiscard: manifest.Maintenance.EventDiscard,
 		Source: coreSchemaMaintenanceArtifactReceipt{
 			SchemaVersion: manifest.SourceVersion,
 			Head:          manifest.SourceHead,
@@ -349,7 +419,7 @@ func coreSchemaMaintenanceReceiptFromManifest(manifest coreSchemaUpgradeManifest
 }
 
 func validateCoreSchemaMaintenanceReceipt(receipt coreSchemaMaintenanceReceipt) error {
-	if receipt.Version != coreSchemaMaintenanceReceiptVersion ||
+	if (receipt.Version != 1 && receipt.Version != coreSchemaMaintenanceReceiptVersion) ||
 		!validCoreSchemaUpgradeID(receipt.UpgradeID) ||
 		!validAuthorityHead(receipt.Source.Head) ||
 		!validAuthorityHead(receipt.Target.Head) ||
@@ -361,8 +431,12 @@ func validateCoreSchemaMaintenanceReceipt(receipt coreSchemaMaintenanceReceipt) 
 		receipt.Target.Bytes <= 0 {
 		return fmt.Errorf("schema maintenance receipt identity is invalid")
 	}
+	if receipt.Version == 1 && (receipt.Discard == nil || receipt.EventDiscard != nil) {
+		return fmt.Errorf("legacy schema maintenance receipt has invalid discard metadata")
+	}
 	return validateCoreSchemaUpgradeMaintenance(coreSchemaUpgradeMaintenance{
 		Discard:            receipt.Discard,
+		EventDiscard:       receipt.EventDiscard,
 		Compacted:          true,
 		RetireSourceBackup: true,
 	})
@@ -405,7 +479,7 @@ func writeCoreSchemaMaintenanceReceipt(path string, receipt coreSchemaMaintenanc
 	if existing, ok, err := loadCoreSchemaMaintenanceReceipt(path); err != nil {
 		return err
 	} else if ok {
-		if existing != receipt {
+		if !equalCoreSchemaMaintenanceReceipt(existing, receipt) {
 			return fmt.Errorf("refuse to replace a different schema maintenance receipt")
 		}
 		return nil
@@ -454,10 +528,21 @@ func writeCoreSchemaMaintenanceReceipt(path string, receipt coreSchemaMaintenanc
 		return fmt.Errorf("sync schema maintenance receipt directory: %w", err)
 	}
 	loaded, ok, err := loadCoreSchemaMaintenanceReceipt(path)
-	if err != nil || !ok || loaded != receipt {
+	if err != nil {
 		return fmt.Errorf("verify durable schema maintenance receipt: %w", err)
 	}
+	if !ok || !equalCoreSchemaMaintenanceReceipt(loaded, receipt) {
+		return fmt.Errorf("verify durable schema maintenance receipt: persisted receipt changed")
+	}
 	return nil
+}
+
+func equalCoreSchemaMaintenanceReceipt(left, right coreSchemaMaintenanceReceipt) bool {
+	return left.Version == right.Version &&
+		left.UpgradeID == right.UpgradeID &&
+		equalObservationDiscard(left.Discard, right.Discard) &&
+		equalEventDiscard(left.EventDiscard, right.EventDiscard) &&
+		left.Source == right.Source && left.Target == right.Target
 }
 
 func requireIndependentUpgradeArtifacts(paths ...string) error {

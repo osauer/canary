@@ -364,7 +364,9 @@ func newAlertEpisodeRegistryWithInactiveLimit(ctx context.Context, core *coresto
 }
 
 // Apply evaluates one already-classified producer batch and atomically persists
-// both the current registry and its typed, redacted decision event.
+// the current registry. Lifecycle transitions also append a typed, redacted
+// decision event; heartbeat, held, and confirmation evaluations remain only in
+// the authoritative registry document and its durable commissioning counters.
 func (r *alertEpisodeRegistry) Apply(ctx context.Context, evaluation alertEpisodeEvaluation) (rpc.AlertCandidateSnapshot, error) {
 	if r == nil || r.core == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert episode registry is unavailable")
@@ -384,22 +386,28 @@ func (r *alertEpisodeRegistry) Apply(ctx context.Context, evaluation alertEpisod
 		if err != nil {
 			return rpc.AlertCandidateSnapshot{}, fmt.Errorf("encode alert episode registry: %w", err)
 		}
-		eventJSON, err := json.Marshal(alertEpisodeDecisionEvent{
-			Version: alertEpisodeRegistryDocumentVersion, AuthorityScope: evaluation.AuthorityScope,
-			AsOf: evaluation.AsOf, Coverage: cloneAlertCoverage(evaluation.Coverage), Decisions: decisions,
-		})
-		if err != nil {
-			return rpc.AlertCandidateSnapshot{}, fmt.Errorf("encode alert episode decision event: %w", err)
-		}
-		eventKey := coreEventKey(alertEpisodeDecisionEventType, evaluation.AsOf, eventJSON, int(r.revision+1))
-		saved, _, err := r.core.CompareAndSwapStateDocumentWithEvents(ctx, corestore.StateDocumentCAS{
+		update := corestore.StateDocumentCAS{
 			ScopeKey: daemonStateScope, Kind: alertEpisodeRegistryStateKind,
 			ExpectedRevision: r.revision, JSON: documentJSON,
-		}, []corestore.EventInput{{
-			ScopeKey: daemonStateScope, EventKey: eventKey, Type: alertEpisodeDecisionEventType,
-			Action: alertEpisodeDecisionEventAction, Origin: coreEventOriginDaemon,
-			OccurredAt: evaluation.AsOf, PayloadJSON: eventJSON,
-		}})
+		}
+		var saved corestore.StateDocument
+		if alertEpisodeDecisionsContainTransition(decisions) {
+			eventJSON, encodeErr := json.Marshal(alertEpisodeDecisionEvent{
+				Version: alertEpisodeRegistryDocumentVersion, AuthorityScope: evaluation.AuthorityScope,
+				AsOf: evaluation.AsOf, Coverage: cloneAlertCoverage(evaluation.Coverage), Decisions: decisions,
+			})
+			if encodeErr != nil {
+				return rpc.AlertCandidateSnapshot{}, fmt.Errorf("encode alert episode decision event: %w", encodeErr)
+			}
+			eventKey := coreEventKey(alertEpisodeDecisionEventType, evaluation.AsOf, eventJSON, int(r.revision+1))
+			saved, _, err = r.core.CompareAndSwapStateDocumentWithEvents(ctx, update, []corestore.EventInput{{
+				ScopeKey: daemonStateScope, EventKey: eventKey, Type: alertEpisodeDecisionEventType,
+				Action: alertEpisodeDecisionEventAction, Origin: coreEventOriginDaemon,
+				OccurredAt: evaluation.AsOf, PayloadJSON: eventJSON,
+			}})
+		} else {
+			saved, err = r.core.CompareAndSwapStateDocument(ctx, update)
+		}
 		if errors.Is(err, corestore.ErrRevisionConflict) {
 			if reloadErr := r.reload(ctx); reloadErr != nil {
 				return rpc.AlertCandidateSnapshot{}, reloadErr
@@ -418,6 +426,16 @@ func (r *alertEpisodeRegistry) Apply(ctx context.Context, evaluation alertEpisod
 		return alertEpisodeSnapshot(scopeDocument, evaluation.AsOf)
 	}
 	return rpc.AlertCandidateSnapshot{}, errors.New("persist alert episode registry: repeated revision conflict")
+}
+
+func alertEpisodeDecisionsContainTransition(decisions []alertEpisodeDecision) bool {
+	for _, decision := range decisions {
+		switch decision.Action {
+		case alertDecisionOpened, alertDecisionReopened, alertDecisionEscalated, alertDecisionRecovered:
+			return true
+		}
+	}
+	return false
 }
 
 // RecordInputDisposition durably accounts for an input that correctly did not

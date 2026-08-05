@@ -620,6 +620,9 @@ func TestHistoricalV230SQLiteAuthorityUpgrade(t *testing.T) {
 	if receipt.UpgradeID != artifacts.UpgradeID {
 		t.Fatalf("maintenance receipt upgrade id=%q, want %q", receipt.UpgradeID, artifacts.UpgradeID)
 	}
+	if receipt.Version != coreSchemaMaintenanceReceiptVersion {
+		t.Fatalf("maintenance receipt version=%d want %d", receipt.Version, coreSchemaMaintenanceReceiptVersion)
+	}
 	wantSelector := corestore.ObservationDiscardSelector{
 		ScopeKey: wantObservationScope,
 		Source:   wantObservationSource,
@@ -635,6 +638,15 @@ func TestHistoricalV230SQLiteAuthorityUpgrade(t *testing.T) {
 		receipt.Discard.PayloadBytes != int64(len(beforeDefective[0])) ||
 		receipt.Discard.OrderedDigestSHA256 != wantDiscardDigest {
 		t.Fatalf("maintenance receipt discard=%+v", receipt.Discard)
+	}
+	if receipt.EventDiscard == nil ||
+		receipt.EventDiscard.MigrationVersion != alertEpisodePruneMigrationVersion ||
+		receipt.EventDiscard.MigrationName != alertEpisodePruneMigrationName ||
+		receipt.EventDiscard.Selector != alertEpisodePruneSelector ||
+		receipt.EventDiscard.RemovedRows != 0 ||
+		receipt.EventDiscard.PayloadBytes != 0 ||
+		!validSHA256Hex(receipt.EventDiscard.OrderedDigestSHA256) {
+		t.Fatalf("maintenance receipt event discard=%+v", receipt.EventDiscard)
 	}
 	if receipt.Source.SchemaVersion != source.SchemaVersion ||
 		receipt.Source.Head != source.Head ||
@@ -700,7 +712,7 @@ func TestHistoricalV230SQLiteAuthorityUpgrade(t *testing.T) {
 	}
 }
 
-func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T) {
+func TestHistoricalV254SchemaV3MaintenanceChainsThroughCurrent(t *testing.T) {
 	fixture := historicalUpgradeFixtureByID(t, "v2.5.4-schema-v3-authority")
 	wantSchema := historicalExpectation[int](t, fixture, "schema_version")
 	wantEpoch := historicalExpectation[string](t, fixture, "authority_epoch")
@@ -719,24 +731,6 @@ func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T
 	materializeHistoricalUpgradeFixture(t, fixture, root)
 	databasePath := filepath.Join(root, "daemon.db")
 	watermarkPath := databasePath + ".head"
-	frozenWatermarkTime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
-	if err := os.Chtimes(watermarkPath, frozenWatermarkTime, frozenWatermarkTime); err != nil {
-		t.Fatal(err)
-	}
-	watermarkBytesBefore, err := os.ReadFile(watermarkPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	watermarkInfoBefore, err := os.Stat(watermarkPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !watermarkInfoBefore.ModTime().Equal(frozenWatermarkTime) {
-		t.Fatalf(
-			"failed to freeze schema-v3 watermark mtime: got=%s want=%s",
-			watermarkInfoBefore.ModTime(), frozenWatermarkTime,
-		)
-	}
 	minimum, err := loadAuthorityWatermark(watermarkPath)
 	if err != nil || minimum == nil {
 		t.Fatalf("load schema-v3 watermark=%+v error=%v", minimum, err)
@@ -801,7 +795,7 @@ func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T
 	}
 	logs := maintenanceLogs.String()
 	wantStart := fmt.Sprintf(
-		"daemon authority: one-time database maintenance starting; pruning unused contract-cache history and compacting %s before broker connection; do not interrupt",
+		"daemon authority: one-time database maintenance starting; pruning reviewed redundant history and compacting %s before broker connection; do not interrupt",
 		formatStorageBytes(sourceBytes),
 	)
 	wantCompletionTail := fmt.Sprintf(
@@ -815,8 +809,10 @@ func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T
 		strings.Count(logs, "daemon authority: one-time database maintenance") != 2 {
 		t.Fatalf("schema maintenance logs=%q", logs)
 	}
-	if upgradedMinimum == nil || *upgradedMinimum != source.Head {
-		t.Fatalf("maintenance-only minimum=%+v, want unchanged %+v", upgradedMinimum, source.Head)
+	wantHead := source.Head
+	wantHead.HeadGeneration++
+	if upgradedMinimum == nil || *upgradedMinimum != wantHead {
+		t.Fatalf("maintenance minimum=%+v, want %+v", upgradedMinimum, wantHead)
 	}
 	current, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
 		Path: databasePath, MinimumHead: upgradedMinimum,
@@ -825,8 +821,8 @@ func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T
 		t.Fatal(err)
 	}
 	if current.Status != corestore.InspectionCurrent || current.SchemaVersion != source.TargetVersion ||
-		current.Head != source.Head {
-		t.Fatalf("maintenance-only target=%+v", current)
+		current.Head != wantHead {
+		t.Fatalf("maintenance target=%+v", current)
 	}
 	afterState := readHistoricalStateDocument(t, databasePath, wantStateScope, wantStateKind)
 	if !bytes.Equal(afterState, beforeState) {
@@ -857,32 +853,12 @@ func TestHistoricalV254SchemaV3MaintenancePreservesHeadAndWatermark(t *testing.T
 			beforeControlEvidence, afterControlEvidence,
 		)
 	}
-	watermarkBytesAfter, err := os.ReadFile(watermarkPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	watermarkInfoAfter, err := os.Stat(watermarkPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(watermarkBytesAfter, watermarkBytesBefore) {
-		t.Fatalf("maintenance-only upgrade rewrote external watermark bytes")
-	}
-	if !watermarkInfoAfter.ModTime().Equal(watermarkInfoBefore.ModTime()) {
-		t.Fatalf(
-			"maintenance-only upgrade changed external watermark mtime: before=%s after=%s",
-			watermarkInfoBefore.ModTime(), watermarkInfoAfter.ModTime(),
-		)
-	}
-	if !os.SameFile(watermarkInfoBefore, watermarkInfoAfter) {
-		t.Fatalf("maintenance-only upgrade replaced the external watermark file")
-	}
 	publishedWatermark, err := loadAuthorityWatermark(watermarkPath)
-	if err != nil || publishedWatermark == nil || *publishedWatermark != source.Head {
-		t.Fatalf("maintenance-only watermark=%+v error=%v", publishedWatermark, err)
+	if err != nil || publishedWatermark == nil || *publishedWatermark != wantHead {
+		t.Fatalf("maintenance watermark=%+v error=%v", publishedWatermark, err)
 	}
 	if pending, err := coreSchemaUpgradePending(databasePath); err != nil || pending {
-		t.Fatalf("maintenance-only upgrade pending=%v error=%v", pending, err)
+		t.Fatalf("maintenance upgrade pending=%v error=%v", pending, err)
 	}
 }
 
