@@ -661,14 +661,7 @@ func classifyRegimePITGamma(c *rpc.GammaZeroComputed) string {
 				continue
 			}
 			if band := classifyRegimePITGamma(sub); band != "" {
-				weight := sub.GammaTotalAbs
-				if weight <= 0 {
-					weight = 1
-					if key == "SPX" {
-						weight = 100
-					}
-				}
-				bands = append(bands, weightedBand{band: band, weight: weight})
+				bands = append(bands, weightedBand{band: band, weight: rpc.GammaIndexWeight(key, sub)})
 			}
 		}
 		if len(bands) == 0 {

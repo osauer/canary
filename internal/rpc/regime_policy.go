@@ -112,12 +112,13 @@ var regimeGates = map[string]RegimeGate{
 	// this indicator exists to catch.
 	RegimeIndicatorUSDJPY: {MinSessions: 1, FastDepth: 7.0},
 	// depth = percent below gamma-zero (−gap_pct); a wholly-short profile
-	// with no crossing reports 100. Neither gate here can fire: red already
-	// requires depth > 2.0, above MinDepth, and MinSessions is 1, so a fresh
-	// gamma red confirms same-day on the default branch. That is intended —
-	// a dealer gamma flip is a fast amplifier and holding it a session
-	// defeats the signal. The two values are retained as the scale's noise
-	// floor and saturation point, not as gates.
+	// with no crossing reports 100. On a single-index red neither gate can
+	// fire — red already requires depth > 2.0, above MinDepth, and
+	// MinSessions is 1, so a fresh gamma red confirms same-day on the
+	// default branch. That is intended: a dealer gamma flip is a fast
+	// amplifier and holding it a session defeats the signal. MinDepth does
+	// decide on the combined row, whose gamma-weighted gap can land
+	// anywhere between the two indexes.
 	RegimeIndicatorGammaZero: {MinSessions: 1, MinDepth: 0.5, FastDepth: 4.5},
 	// depth = points below the 40% band floor (40 - pct_above_50dma).
 	RegimeIndicatorBreadth: {MinSessions: 2, MinDepth: 2.0, FastDepth: 10.0},
@@ -130,29 +131,57 @@ func RegimeGateFor(indicator string) (RegimeGate, bool) {
 	return g, ok
 }
 
+// GammaIndexWeight is the weight one index carries in the combined SPY+SPX
+// row: its gross gamma exposure, or a scale-ratio stand-in when a leg
+// reports none. Single copy, because the band vote and the eligibility depth
+// have to weigh the two indexes the same way — weighing them differently
+// lets a red banded on the dominant index be refused for depth the other
+// index diluted (internal-docs/design/regime-calibration.md, gamma path (c)).
+func GammaIndexWeight(key string, c *GammaZeroComputed) float64 {
+	if c != nil && c.GammaTotalAbs > 0 {
+		return c.GammaTotalAbs
+	}
+	if key == "SPX" {
+		return 100
+	}
+	return 1
+}
+
+// GammaCombinedGapPct is the gamma-weighted mean of the per-index gaps on a
+// combined-scope result. nil when the result is not combined scope or no
+// index reports a crossing.
+func GammaCombinedGapPct(c *GammaZeroComputed) *float64 {
+	if c == nil || c.Scope != GammaZeroScopeCombined || len(c.PerIndex) == 0 {
+		return nil
+	}
+	var sum, weight float64
+	for _, key := range []string{"SPY", "SPX"} {
+		sub := c.PerIndex[key]
+		if sub == nil || sub.GapPct == nil {
+			continue
+		}
+		w := GammaIndexWeight(key, sub)
+		sum += *sub.GapPct * w
+		weight += w
+	}
+	if weight <= 0 {
+		return nil
+	}
+	gap := sum / weight
+	return &gap
+}
+
 // RegimeGammaDepth extracts gamma's eligibility depth in percent below
 // gamma-zero (−gap). A wholly-short profile with no crossing is an extreme
-// state — fast-path depth by construction. Combined scope averages the
-// per-index gaps the weighted vote read.
+// state — fast-path depth by construction. Combined scope reads the same
+// gamma-weighted gap the band vote read.
 func RegimeGammaDepth(c *GammaZeroComputed) *float64 {
 	if c == nil {
 		return nil
 	}
-	if c.Scope == GammaZeroScopeCombined && len(c.PerIndex) > 0 {
-		var sum float64
-		var count int
-		for _, key := range []string{"SPY", "SPX"} {
-			sub := c.PerIndex[key]
-			if sub == nil || sub.GapPct == nil {
-				continue
-			}
-			sum += *sub.GapPct
-			count++
-		}
-		if count > 0 {
-			d := -sum / float64(count)
-			return &d
-		}
+	if gap := GammaCombinedGapPct(c); gap != nil {
+		d := -*gap
+		return &d
 	}
 	if c.GapPct != nil {
 		d := -*c.GapPct
@@ -511,7 +540,7 @@ var regimeThresholdTexts = map[string]regimeThresholdText{
 	RegimeIndicatorCredit:    {"hy_ig_oas_v1", "HY OAS < 4.0 and 20d widening < 0.50 pp", "HY OAS 4.0-5.5 or 20d widening >= 0.50 pp", "HY OAS >= 5.5 or 20d widening >= 1.00 pp", "trips HY OAS >=5.5"},
 	RegimeIndicatorFunding:   {"funding_cp_tbill_v1", "CP/T-bill spread < 25 bp", "25 <= spread < 75 bp", "spread >= 75 bp", "trips >=75 bp"},
 	RegimeIndicatorUSDJPY:    {"usd_jpy_carry_proxy_v1", "yen strengthening < 1% over the week", "yen strengthening 1-2% over the week", "yen strengthening >= 2% over the week", "trips yen +2%/week"},
-	RegimeIndicatorGammaZero: {"dealer_gamma_v3", "spot > 2% above gamma-zero or profile wholly long-gamma", "spot within +/-2% of gamma-zero or mixed gamma profile", "spot below gamma-zero, profile wholly short-gamma, or dominant/equal exposure is amplifying", "trips spot below gamma-zero"},
+	RegimeIndicatorGammaZero: {"dealer_gamma_v3", "spot > 2% above gamma-zero or profile wholly long-gamma", "spot within +/-2% of gamma-zero or mixed gamma profile", "spot > 2% below gamma-zero, profile wholly short-gamma, or dominant/equal exposure is amplifying", "trips spot >2% below gamma-zero"},
 	RegimeIndicatorBreadth:   {"spx_breadth_50dma_v1", "SPX members above 50-DMA > 55%", "40% <= members above 50-DMA <= 55%", "members above 50-DMA < 40%", "trips <40% (50d)"},
 }
 

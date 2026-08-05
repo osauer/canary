@@ -145,8 +145,9 @@ func TestEvaluateRegimeEligibility(t *testing.T) {
 // TestRegimeBandAloneGates pins the four indicators whose eligibility turns on
 // the band alone. credit, funding and usdjpy carry a depth scale — FastDepth,
 // the saturation point — but no depth floor; gamma's floor and fast path both
-// sit below its own red boundary, so neither can fire. Making any of them gate
-// on depth or persistence is a risk-policy change, not a refactor.
+// sit below its own red boundary, so on a single-index red neither can fire
+// (the combined row's weighted gap can still land under the floor). Making any
+// of them gate on depth or persistence is a risk-policy change, not a refactor.
 func TestRegimeBandAloneGates(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -182,7 +183,7 @@ func TestRegimeBandAloneGates(t *testing.T) {
 
 // TestRegimeGammaDepth pins gamma's three red-producing paths: gap crossing,
 // wholly-short no-crossing profile (fast-path by construction), and the
-// combined-scope per-index average.
+// combined-scope gamma-weighted gap.
 func TestRegimeGammaDepth(t *testing.T) {
 	t.Parallel()
 	if d := RegimeGammaDepth(&GammaZeroComputed{GapPct: new(-1.4)}); d == nil || *d != 1.4 {
@@ -194,12 +195,37 @@ func TestRegimeGammaDepth(t *testing.T) {
 	combined := &GammaZeroComputed{
 		Scope: GammaZeroScopeCombined,
 		PerIndex: map[string]*GammaZeroComputed{
-			"SPY": {GapPct: new(-1.0)},
-			"SPX": {GapPct: new(-3.0)},
+			"SPY": {GapPct: new(-1.0), GammaTotalAbs: 10e9},
+			"SPX": {GapPct: new(-3.0), GammaTotalAbs: 30e9},
 		},
 	}
-	if d := RegimeGammaDepth(combined); d == nil || *d != 2.0 {
-		t.Fatalf("combined depth = %v, want per-index average 2.0", d)
+	if d := RegimeGammaDepth(combined); d == nil || *d != 2.5 {
+		t.Fatalf("combined depth = %v, want gamma-weighted 2.5", d)
+	}
+	// The gate this weighting exists for: the dominant index bands the row
+	// red, and an unweighted mean would dilute it to 0.05 — under MinDepth.
+	dominant := &GammaZeroComputed{
+		Scope: GammaZeroScopeCombined,
+		PerIndex: map[string]*GammaZeroComputed{
+			"SPY": {GapPct: new(2.6), GammaTotalAbs: 10e9},
+			"SPX": {GapPct: new(-2.5), GammaTotalAbs: 100e9},
+		},
+	}
+	d := RegimeGammaDepth(dominant)
+	if d == nil || *d < regimeGates[RegimeIndicatorGammaZero].MinDepth {
+		t.Fatalf("dominant-leg depth = %v, want at or above the depth floor", d)
+	}
+	elig := EvaluateRegimeEligibility(RegimeEligibilityInput{
+		Indicator: RegimeIndicatorGammaZero, Band: "red", Depth: d,
+		StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh,
+	})
+	if elig == nil || !elig.Eligible {
+		t.Fatalf("dominant-leg red eligibility = %+v, want eligible", elig)
+	}
+	if d := RegimeGammaDepth(&GammaZeroComputed{Scope: GammaZeroScopeCombined, PerIndex: map[string]*GammaZeroComputed{
+		"SPY": {GammaSign: "negative"},
+	}}); d != nil {
+		t.Fatalf("combined with no crossing depth = %v, want nil", d)
 	}
 	if d := RegimeGammaDepth(&GammaZeroComputed{GammaSign: "positive"}); d != nil {
 		t.Fatalf("long-gamma no-crossing depth = %v, want nil", d)

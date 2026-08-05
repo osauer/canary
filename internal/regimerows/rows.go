@@ -655,7 +655,7 @@ func gammaCombinedRegimeBand(c *rpc.GammaZeroComputed) Band {
 		}
 		b := gammaSingleRegimeBand(sub)
 		if b != BandUnranked {
-			bands = append(bands, weightedBand{band: b, weight: gammaPerIndexWeight(key, sub)})
+			bands = append(bands, weightedBand{band: b, weight: rpc.GammaIndexWeight(key, sub)})
 		}
 	}
 	if len(bands) == 0 {
@@ -700,7 +700,7 @@ func rankableGammaCombinedRegimeBand(c *rpc.GammaZeroComputed) Band {
 		}
 		b := gammaSingleRegimeBand(sub)
 		if b != BandUnranked {
-			bands = append(bands, weightedBand{band: b, weight: gammaPerIndexWeight(key, sub)})
+			bands = append(bands, weightedBand{band: b, weight: rpc.GammaIndexWeight(key, sub)})
 		}
 	}
 	if len(bands) == 0 {
@@ -727,16 +727,6 @@ func rankableGammaCombinedRegimeBand(c *rpc.GammaZeroComputed) Band {
 		return BandRed
 	}
 	return BandYellow
-}
-
-func gammaPerIndexWeight(key string, c *rpc.GammaZeroComputed) float64 {
-	if c != nil && c.GammaTotalAbs > 0 {
-		return c.GammaTotalAbs
-	}
-	if key == "SPX" {
-		return 100
-	}
-	return 1
 }
 
 func gammaSingleRegimeBand(c *rpc.GammaZeroComputed) Band {

@@ -158,7 +158,7 @@ canonical S&P dealer-gamma row.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
-| SPX zero-gamma | spot > 2% above zero-gamma | within +/-2% | spot below zero-gamma |
+| SPX zero-gamma | spot > 2% above zero-gamma | within +/-2% | spot > 2% below zero-gamma |
 
 Gamma is ranked only when `gamma_zero.envelope.result.quality.rankability` is
 `rankable`. Non-rankable gamma remains visible in the row/envelope, but it does
@@ -278,8 +278,13 @@ thresholds; values live in `internal/rpc/regime_policy.go`):
 | HY OAS | band is the gate | n/a | 1 | series <= 7d | < 5.25 and widening < 0.85 pp |
 | Funding | band is the gate | n/a | 1 | series <= 7d | < 65 bp |
 | USD/JPY | band is the gate (speed is depth) | n/a | 1 | live tick while IDEALPRO trades (Sunday 17:15 to Friday 17:00 ET); the weekend and the daily 17:00-17:15 ET changeover are `not_due`, not overdue | yen move < 1.5% |
-| Dealer gamma | gap <= -0.5% below gamma-zero | gap <= -2.0% or wholly-short profile | 1 | compute within current NY trading date (prior-date cache = `stale`, warns only) | gap > +0.5% |
+| Dealer gamma | gamma-weighted SPY/SPX gap <= -0.5% below gamma-zero | weighted gap <= -2.0% or wholly-short profile | 1 | compute within current NY trading date (prior-date cache = `stale`, warns only) | weighted gap > +0.5% |
 | Breadth | <= 38% | <= 30% | 2 | last completed session's compute | > 45% |
+
+Dealer gamma's depth is the SPY/SPX gap averaged by each index's gross gamma
+exposure — the same weighting the combined row's band vote uses, so the index
+that decides the band is the index that decides whether the red is deep enough
+to count.
 
 A session is banked only from evidence that is cadence-fresh under the row's own
 schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick

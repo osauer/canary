@@ -362,7 +362,7 @@ canonical S&amp;P dealer-gamma row.</p>
 <td>SPX zero-gamma</td>
 <td>spot &gt; 2% above zero-gamma</td>
 <td>within +/-2%</td>
-<td>spot below zero-gamma</td>
+<td>spot &gt; 2% below zero-gamma</td>
 </tr>
 </tbody>
 </table>
@@ -602,11 +602,11 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 </tr>
 <tr>
 <td>Dealer gamma</td>
-<td>gap &lt;= -0.5% below gamma-zero</td>
-<td>gap &lt;= -2.0% or wholly-short profile</td>
+<td>gamma-weighted SPY/SPX gap &lt;= -0.5% below gamma-zero</td>
+<td>weighted gap &lt;= -2.0% or wholly-short profile</td>
 <td>1</td>
 <td>compute within current NY trading date (prior-date cache = <code>stale</code>, warns only)</td>
-<td>gap &gt; +0.5%</td>
+<td>weighted gap &gt; +0.5%</td>
 </tr>
 <tr>
 <td>Breadth</td>
@@ -619,6 +619,10 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 </tbody>
 </table>
 </div>
+<p>Dealer gamma's depth is the SPY/SPX gap averaged by each index's gross gamma
+exposure — the same weighting the combined row's band vote uses, so the index
+that decides the band is the index that decides whether the red is deep enough
+to count.</p>
 <p>A session is banked only from evidence that is cadence-fresh under the row's own
 schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick
 still displays its band and its hysteresis hold, but the persistence counter

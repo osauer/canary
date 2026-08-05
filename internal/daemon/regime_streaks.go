@@ -646,7 +646,7 @@ func combineGammaComputedBands(c *rpc.GammaZeroComputed) string {
 			continue
 		}
 		if band := classifyGammaComputedBand(sub); band != "" {
-			bands = append(bands, weightedBand{band: band, weight: gammaComputedBandWeight(key, sub)})
+			bands = append(bands, weightedBand{band: band, weight: rpc.GammaIndexWeight(key, sub)})
 		}
 	}
 	if len(bands) == 0 {
@@ -676,33 +676,13 @@ func combineGammaComputedBands(c *rpc.GammaZeroComputed) string {
 	return "yellow"
 }
 
-func gammaComputedBandWeight(key string, c *rpc.GammaZeroComputed) float64 {
-	if c != nil && c.GammaTotalAbs > 0 {
-		return c.GammaTotalAbs
-	}
-	if key == "SPX" {
-		return 100
-	}
-	return 1
-}
-
 func gammaComputedStreakValue(c *rpc.GammaZeroComputed) float64 {
 	if c == nil {
 		return 0
 	}
 	if c.Scope == rpc.GammaZeroScopeCombined && len(c.PerIndex) > 0 {
-		var sum float64
-		var count int
-		for _, key := range []string{"SPY", "SPX"} {
-			sub := c.PerIndex[key]
-			if sub == nil || sub.GapPct == nil {
-				continue
-			}
-			sum += *sub.GapPct
-			count++
-		}
-		if count > 0 {
-			return sum / float64(count)
+		if gap := rpc.GammaCombinedGapPct(c); gap != nil {
+			return *gap
 		}
 		return c.GammaTotalAbs
 	}

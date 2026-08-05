@@ -1574,7 +1574,7 @@ func regimeGateExplainLine() string {
 	gamma := g(rpc.RegimeIndicatorGammaZero)
 	breadth := g(rpc.RegimeIndicatorBreadth)
 	return fmt.Sprintf(
-		"VIX/VIX3M ratio ≥%.2f ×%d sessions (fast ≥%.2f); VVIX ≥%.0f ×%d (fast ≥%.0f); HYG ≥%.2f%% below 50DMA ×%d (fast ≥%.1f%%); gamma gap ≤−%.1f%% below γ-zero (wholly-short profile = fast path); breadth ≤%.0f%% ×%d (fast ≤%.0f%%); HY OAS, funding, USD/JPY: the red band itself is the gate, 1 session.",
+		"VIX/VIX3M ratio ≥%.2f ×%d sessions (fast ≥%.2f); VVIX ≥%.0f ×%d (fast ≥%.0f); HYG ≥%.2f%% below 50DMA ×%d (fast ≥%.1f%%); gamma gap ≤−%.1f%% below γ-zero, the gamma-weighted SPY/SPX gap on the combined row (wholly-short profile = fast path); breadth ≤%.0f%% ×%d (fast ≤%.0f%%); HY OAS, funding, USD/JPY: the red band itself is the gate, 1 session.",
 		vix.MinDepth, vix.MinSessions, vix.FastDepth,
 		vvix.MinDepth, vvix.MinSessions, vvix.FastDepth,
 		hyg.MinDepth, hyg.MinSessions, hyg.FastDepth,

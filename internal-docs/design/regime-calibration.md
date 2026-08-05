@@ -184,7 +184,7 @@ includes hysteresis.
 | Credit spreads (HY OAS) | ≥ 5.5 or 20-obs widening ≥ 1.00 pp | levels are already deep — no extra depth | n/a (official daily series) | 1 | series ≤ 7d old (as today) | leave red < 5.25 and widening < 0.85 pp |
 | Funding (CP−T-bill) | ≥ 75 bp | ≥ 75 bp | n/a | 1 | series ≤ 7d old (as today) | leave red < 65 bp |
 | USD/JPY | yen +≥2%/week | ≥ 2% (speed *is* the depth; Aug-2024-calibrated) | ≥ 2% in 3 days (existing spec prose, now enforced) | 1 | same-day tick or same-day close | leave red < 1.5% |
-| Dealer gamma | spot below γ-zero / wholly short profile | see gamma paths below | see gamma paths below | 1 | current-options-session compute for confirmation; latest completed-session result is typed `not_due` context before the next options session | leave red when gap > +0.5% |
+| Dealer gamma | spot >2% below γ-zero / wholly short profile | see gamma paths below | see gamma paths below | 1 | current-options-session compute for confirmation; latest completed-session result is typed `not_due` context before the next options session | leave red when the depth gap > +0.5% |
 | SPX breadth | < 40% above 50DMA with SPX near highs | ≤ 38% | ≤ 30% | 2 | last completed session's compute (the newest possible observation) | leave red > 45% |
 
 **Gamma eligibility, all three red paths** (red has three producers —
@@ -192,12 +192,22 @@ includes hysteresis.
 (`regime_streaks.go:390-398`), and the combined-scope weighted vote
 (`combineGammaComputedBands`, `regime_streaks.go:415-458`)):
 
-- (a) gap path: min depth = gap ≤ −0.5% below γ-zero (within ±0.5% is
-  transition noise); fast path gap ≤ −2.0%.
+- (a) gap path: min depth = gap ≤ −0.5% below γ-zero; fast path gap ≤ −2.0%.
+  Neither binds on this path: `classifyGammaBand` already needs gap ≤ −2.0%
+  for red, so a single-index red enters at or past the fast level. The
+  −0.5% floor is the depth scale's noise floor, and it decides only through
+  path (c).
 - (b) wholly-short profile with no crossing: an extreme state — treated as
   fast-path (eligible day 1, depth gate vacuous).
 - (c) combined-scope vote: eligibility evaluated on the per-index weighted
-  gap that produced the vote, same −0.5%/−2.0% levels.
+  gap that produced the vote, same −0.5%/−2.0% levels. Implemented
+  2026-08-05: `rpc.RegimeGammaDepth` had averaged the SPY and SPX gaps
+  *unweighted* while `combineGammaComputedBands` voted on |GEX| weight, so a
+  mixed book banded red on the dominant index and was then refused
+  `depth_below_min` because the other index's positive gap cancelled it out
+  of the mean — SPX −2.5% at 100bn against SPY +2.6% at 10bn banded red at
+  depth −0.05, now +2.04 and eligible. Both sides read
+  `rpc.GammaIndexWeight` now, which is the single copy of the weight rule.
 
 Rationale highlights:
 

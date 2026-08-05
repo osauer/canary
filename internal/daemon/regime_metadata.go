@@ -293,7 +293,7 @@ func gammaBandReason(r rpc.RegimeGammaZero) string {
 		case "yellow":
 			return "spot within +/-2% of gamma-zero"
 		case "red":
-			return "spot below gamma-zero"
+			return "spot >2% below gamma-zero"
 		}
 	}
 	switch c.GammaSign {
