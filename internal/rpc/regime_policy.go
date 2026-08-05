@@ -69,6 +69,24 @@ type RegimeGate struct {
 
 // regimeGates is the per-indicator eligibility policy table from
 // internal-docs/design/regime-calibration.md Part 1.
+//
+// Re-calibrating FastDepth. It is the saturation point — where an indicator
+// stops getting meaningfully worse — and it is derived, not chosen:
+//
+//	FastDepth = red boundary + 0.6 × (yellow band width)
+//
+// The rule reproduces the three anchors that predate it: vix_term
+// 1.00+0.6(0.08)=1.048 vs 1.05, vol_of_vol 110+0.6(20)=122 vs 120, breadth
+// 40−0.6(15)=31 vs 30. Derive any new indicator the same way and record
+// deviations at the row, as usdjpy does.
+//
+// None of these are fitted values, and the decisions journal cannot make them
+// so: it samples a calm tape in which credit, funding, gamma and breadth have
+// never left green. Move them only against a corpus that actually contains
+// stress. A change to the band boundaries alone is not a reason to move them,
+// because the rule already tracks the bands.
+//
+// MinDepth and MinSessions are separate questions the rule does not speak to.
 var regimeGates = map[string]RegimeGate{
 	// depth = VIX/VIX3M ratio. Inversion is already discrete; fast path on a
 	// deep day-one inversion.
@@ -78,17 +96,29 @@ var regimeGates = map[string]RegimeGate{
 	// depth = percent below the 50DMA ((dma-price)/dma*100). 0.25% is the
 	// noise floor; a 1% break is eligible day one.
 	RegimeIndicatorHYGSPY: {MinSessions: 2, MinDepth: 0.25, FastDepth: 1.0},
-	// Official daily series: red levels are already deep, streak 1.
-	RegimeIndicatorCredit:  {MinSessions: 1},
-	RegimeIndicatorFunding: {MinSessions: 1},
-	// Speed is the depth (>=2%/week yen strength), streak 1 by design —
-	// August-2024 carry unwinds play out in three sessions.
-	RegimeIndicatorUSDJPY: {MinSessions: 1},
-	// depth = percent below gamma-zero (-gap_pct). Within 0.5% of the
-	// crossing is transition noise; a wholly-short profile (no crossing)
-	// passes as fast-path — callers encode that by passing a depth >=
-	// FastDepth.
-	RegimeIndicatorGammaZero: {MinSessions: 1, MinDepth: 0.5, FastDepth: 2.0},
+	// depth = HY OAS percent. The red band itself stays the gate: the band's
+	// second trigger (20-day widening ≥1.0pp) can go red near 4%, so a level
+	// floor would silently suppress it. 6.5 is the derived saturation — past
+	// the 2022 peak, well short of 2020's ~11%.
+	RegimeIndicatorCredit: {MinSessions: 1, FastDepth: 6.5},
+	// depth = CP−bill spread in bp. Red levels are already deep, streak 1.
+	// 105 is the derived saturation; March 2020 reached roughly twice it.
+	RegimeIndicatorFunding: {MinSessions: 1, FastDepth: 105},
+	// depth = weekly yen strengthening in percent (−WeeklyChange). Speed is
+	// the depth (≥2%/week), streak 1 by design — August-2024 carry unwinds
+	// play out in three sessions. The one deviation from the rule: it yields
+	// 2.6, but a calm fortnight of journal already printed 4.58%/week, so the
+	// scale would saturate on ordinary weeks. 7.0 is the August-2024 unwind
+	// this indicator exists to catch.
+	RegimeIndicatorUSDJPY: {MinSessions: 1, FastDepth: 7.0},
+	// depth = percent below gamma-zero (−gap_pct); a wholly-short profile
+	// with no crossing reports 100. Neither gate here can fire: red already
+	// requires depth > 2.0, above MinDepth, and MinSessions is 1, so a fresh
+	// gamma red confirms same-day on the default branch. That is intended —
+	// a dealer gamma flip is a fast amplifier and holding it a session
+	// defeats the signal. The two values are retained as the scale's noise
+	// floor and saturation point, not as gates.
+	RegimeIndicatorGammaZero: {MinSessions: 1, MinDepth: 0.5, FastDepth: 4.5},
 	// depth = points below the 40% band floor (40 - pct_above_50dma).
 	RegimeIndicatorBreadth: {MinSessions: 2, MinDepth: 2.0, FastDepth: 10.0},
 }

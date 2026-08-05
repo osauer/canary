@@ -142,6 +142,44 @@ func TestEvaluateRegimeEligibility(t *testing.T) {
 	}
 }
 
+// TestRegimeBandAloneGates pins the four indicators whose eligibility turns on
+// the band alone. credit, funding and usdjpy carry a depth scale — FastDepth,
+// the saturation point — but no depth floor; gamma's floor and fast path both
+// sit below its own red boundary, so neither can fire. Making any of them gate
+// on depth or persistence is a risk-policy change, not a refactor.
+func TestRegimeBandAloneGates(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		indicator string
+		depths    []float64 // spanning that indicator's red range
+	}{
+		// 2.7 is a red reached through the 20-day-widening trigger, far below
+		// the 5.5 level trigger — the reason credit carries no depth floor.
+		{RegimeIndicatorCredit, []float64{2.7, 5.5, 6.5, 12.0}},
+		{RegimeIndicatorFunding, []float64{75, 105, 400}},
+		{RegimeIndicatorUSDJPY, []float64{2.0, 7.0, 10.0}},
+		// 100 is the wholly-short profile with no crossing.
+		{RegimeIndicatorGammaZero, []float64{2.01, 4.5, 100}},
+	}
+	for _, tc := range cases {
+		for _, depth := range tc.depths {
+			for sessions := range 4 { // 0 is the fresh-install default
+				got := EvaluateRegimeEligibility(RegimeEligibilityInput{
+					Indicator:      tc.indicator,
+					Band:           "red",
+					Depth:          new(depth),
+					StreakSessions: sessions,
+					Fresh:          true,
+					FreshnessClass: RegimeFreshnessFresh,
+				})
+				if got == nil || !got.Eligible {
+					t.Errorf("%s depth=%v sessions=%d: want eligible, got %+v", tc.indicator, depth, sessions, got)
+				}
+			}
+		}
+	}
+}
+
 // TestRegimeGammaDepth pins gamma's three red-producing paths: gap crossing,
 // wholly-short no-crossing profile (fast-path by construction), and the
 // combined-scope per-index average.

@@ -592,8 +592,12 @@ func (c creditSpreadsStreaks) displayBand(res *rpc.RegimeSnapshotResult) string 
 	return band
 }
 
-// Official series red levels are already deep — no separate depth metric.
-func (creditSpreadsStreaks) depth(_ *rpc.RegimeSnapshotResult) *float64 { return nil }
+// Depth is the HY OAS level itself. It measures how bad, not whether: the
+// gate's MinDepth is zero because the band's 20-day-widening trigger can go
+// red at a much lower level.
+func (creditSpreadsStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
+	return res.CreditSpreads.HYOAS
+}
 
 func (creditSpreadsStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.CreditSpreads.Status == rpc.RegimeStatusOK
@@ -614,7 +618,10 @@ func (f fundingStressStreaks) displayBand(res *rpc.RegimeSnapshotResult) string 
 	return band
 }
 
-func (fundingStressStreaks) depth(_ *rpc.RegimeSnapshotResult) *float64 { return nil }
+// Depth is the CP−bill spread itself, in bp.
+func (fundingStressStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
+	return res.FundingStress.SpreadBps
+}
 
 func (fundingStressStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.FundingStress.Status == rpc.RegimeStatusOK
@@ -630,8 +637,15 @@ func (u usdJpyStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
 	return band
 }
 
-// Speed is the depth for the carry proxy — the 2%/week red band is the gate.
-func (usdJpyStreaks) depth(_ *rpc.RegimeSnapshotResult) *float64 { return nil }
+// Speed is the depth for the carry proxy — weekly yen strengthening, the sign
+// convention classifyUSDJPYBand bands on. The 2%/week red band stays the gate.
+func (usdJpyStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
+	if res.USDJPY.WeeklyChange == nil {
+		return nil
+	}
+	d := -*res.USDJPY.WeeklyChange
+	return &d
+}
 
 func (usdJpyStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.USDJPY.Status == rpc.RegimeStatusOK
