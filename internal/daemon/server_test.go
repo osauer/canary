@@ -6,9 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -173,74 +177,130 @@ func TestDispatchQuoteSubscribeReportsTerminal(t *testing.T) {
 	}
 }
 
-// unaryDeadline picks a per-method budget that stays under the matching
-// CLI per-invocation deadline (cmd/canary/main.go) so the daemon's classified
-// error reaches the user before the socket times out, while leaving the
-// streaming method (quote.subscribe) without a deadline. Locks two
-// invariants: every unary method has d > 0, and d stays under the CLI's
-// budget for that command. Most commands share the default 60s CLI budget;
-// `scan`, `technical`, and `brief` have a 90s budget because cold-start
-// off-hours scanner warmup, multi-symbol daily-history fan-out, and brief's
-// multi-source composition are genuinely longer than other paths.
+// Every dispatched method must exist in the shared timing authority. This
+// scans the real dispatch switch and resolves the rpc.Method* constants from
+// the rpc package, so adding a handler without a timing entry fails here.
+func TestDispatchMethodsMatchRPCTimingCatalog(t *testing.T) {
+	t.Parallel()
+
+	constants := rpcMethodConstants(t)
+	dispatched := dispatchMethodValues(t, constants)
+	catalogued := make(map[string]bool)
+	for _, timing := range rpc.MethodTimings() {
+		catalogued[timing.Method] = true
+	}
+	for method := range dispatched {
+		if !catalogued[method] {
+			t.Errorf("dispatched method %q has no rpc timing entry", method)
+		}
+	}
+	for method := range catalogued {
+		if !dispatched[method] {
+			t.Errorf("rpc timing entry %q has no daemon dispatch case", method)
+		}
+	}
+}
+
+func rpcMethodConstants(t *testing.T) map[string]string {
+	t.Helper()
+	entries, err := filepath.Glob(filepath.Join("..", "rpc", "*.go"))
+	if err != nil {
+		t.Fatalf("glob rpc files: %v", err)
+	}
+	fset := token.NewFileSet()
+	out := map[string]string{}
+	for _, path := range entries {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				values, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range values.Names {
+					if !strings.HasPrefix(name.Name, "Method") || i >= len(values.Values) {
+						continue
+					}
+					lit, ok := values.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err == nil {
+						out[name.Name] = value
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+func dispatchMethodValues(t *testing.T, constants map[string]string) map[string]bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "server.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse server.go: %v", err)
+	}
+	out := map[string]bool{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "dispatch" || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			clause, ok := node.(*ast.CaseClause)
+			if !ok {
+				return true
+			}
+			for _, expr := range clause.List {
+				sel, ok := expr.(*ast.SelectorExpr)
+				if !ok {
+					continue
+				}
+				pkg, ok := sel.X.(*ast.Ident)
+				if !ok || pkg.Name != "rpc" || !strings.HasPrefix(sel.Sel.Name, "Method") {
+					continue
+				}
+				value, ok := constants[sel.Sel.Name]
+				if !ok {
+					t.Errorf("dispatch uses unresolved rpc.%s", sel.Sel.Name)
+					continue
+				}
+				out[value] = true
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// unaryDeadline is a direct adapter over the shared timing catalog: every
+// unary method gets its exact daemon timeout and streaming methods get none.
 func TestUnaryDeadlineCoversAllUnaryMethods(t *testing.T) {
 	t.Parallel()
-	const cliDefault = 60 * time.Second
-	const cliLong = 90 * time.Second
-
-	cases := []struct {
-		method    string
-		cliBudget time.Duration
-	}{
-		{rpc.MethodAccountSummary, cliDefault},
-		{rpc.MethodPositionsList, cliDefault},
-		{rpc.MethodQuoteSnapshot, cliDefault},
-		{rpc.MethodChainFetch, cliDefault},
-		{rpc.MethodChainExpiries, cliDefault},
-		{rpc.MethodScanRun, cliLong},
-		{rpc.MethodScanList, cliDefault},
-		{rpc.MethodScanParams, cliDefault},
-		{rpc.MethodHistoryDaily, cliDefault},
-		{rpc.MethodTechnical, cliLong},
-		{rpc.MethodMarketCalendar, cliDefault},
-		{rpc.MethodBreadthSPX, cliDefault},
-		{rpc.MethodGammaZeroSPX, cliDefault},
-		{rpc.MethodRegimeSnapshot, cliDefault},
-		{rpc.MethodAlertCandidates, cliDefault},
-		{rpc.MethodAlertStatus, cliDefault},
-		{rpc.MethodBriefSnapshot, cliLong},
-		{rpc.MethodBriefAck, cliLong},
-		{rpc.MethodNudgesSnapshot, cliDefault},
-		{rpc.MethodNudgesCutoverReview, cliDefault},
-		{rpc.MethodReconStatus, cliDefault},
-		{rpc.MethodReconCheck, cliDefault},
-		{rpc.MethodStatusHealth, cliDefault},
-		{rpc.MethodTradingStatus, cliDefault},
-		{rpc.MethodSettingsGet, cliDefault},
-		{rpc.MethodSettingsUpdate, cliDefault},
-		{rpc.MethodOrdersOpen, cliDefault},
-		{rpc.MethodOrdersHistory, cliDefault},
-		{rpc.MethodOrderStatus, cliDefault},
-		{rpc.MethodOrderPreview, cliDefault},
-		{rpc.MethodCancel, cliDefault},
-		{rpc.MethodOrderPlace, cliDefault},
-		{rpc.MethodOrderModify, cliDefault},
-		{rpc.MethodOrderCancel, cliDefault},
-		{rpc.MethodPurgeStatus, cliDefault},
-		{rpc.MethodPurgeExecute, cliDefault},
-		{rpc.MethodPurgeRestorePreview, cliDefault},
-		{rpc.MethodPurgeRestoreExecute, cliDefault},
-	}
-	for _, tc := range cases {
-		d := unaryDeadline(tc.method)
-		if d <= 0 {
-			t.Errorf("unaryDeadline(%q) = %s, want >0 (every unary method needs a per-request timeout)", tc.method, d)
+	for _, timing := range rpc.MethodTimings() {
+		got := unaryDeadline(timing.Method)
+		if timing.Lifetime == rpc.MethodLifetimeStreaming {
+			if got != 0 {
+				t.Errorf("unaryDeadline(%q) = %s, want 0 for streaming method", timing.Method, got)
+			}
+			continue
 		}
-		if d >= tc.cliBudget {
-			t.Errorf("unaryDeadline(%q) = %s, must stay under CLI budget %s so daemon errors first", tc.method, d, tc.cliBudget)
+		if got != timing.DaemonTimeout {
+			t.Errorf("unaryDeadline(%q) = %s, want catalog timeout %s", timing.Method, got, timing.DaemonTimeout)
 		}
-	}
-	if d := unaryDeadline(rpc.MethodQuoteSubscribe); d != 0 {
-		t.Errorf("unaryDeadline(%q) = %s, want 0 (streaming methods must not have a deadline)", rpc.MethodQuoteSubscribe, d)
 	}
 }
 

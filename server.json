@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.osauer/canary",
   "title": "Canary MCP",
-  "description": "Canary MCP server for Interactive Brokers market data, portfolio context, and risk checks.",
-  "version": "2.8.0",
+  "description": "Canary MCP server for an Interactive Brokers daily brief, account and position data, market research, and risk checks.",
+  "version": "2.9.0",
   "websiteUrl": "https://osauer.dev/canary/",
   "repository": {
     "url": "https://github.com/osauer/canary",

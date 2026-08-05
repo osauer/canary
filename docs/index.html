@@ -54,8 +54,8 @@
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
-        "softwareVersion": "2.8.0",
-        "dateModified": "2026-08-03T20:47:00+02:00",
+        "softwareVersion": "2.9.0",
+        "dateModified": "2026-08-04T22:57:00+02:00",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -852,8 +852,8 @@ canary setup claude-desktop
         </article>
         <article class="feature">
           <small>Desk brief</small>
-          <h3>A daily brief on your phone</h3>
-          <p>The paired Canary app gives the daily brief its own tab, and the daemon composes it as written prose: a lead verdict, then Review for the last completed session and Ready for the evidence and risk capacity of the next one. <code>canary brief</code> prints the same briefing in the terminal. Sources the daemon could not read are named rather than skipped, so unknown never reads as clean, and closed-market data stays visibly closed instead of masquerading as fresh. An experimental relay adds access away from home.</p>
+          <h3>One daily brief, wherever you work</h3>
+          <p>The paired Canary app gives the daily brief its own tab, and the daemon writes it as a lead verdict followed by Review for the last completed session and Ready for the next one. <code>canary brief</code> prints the same briefing in the terminal, while <code>canary_brief</code> lets Claude and other MCP clients read it without signing anything off or changing process state. Sources the daemon could not read are named rather than skipped, so missing evidence never looks clean. An experimental relay adds phone access away from home.</p>
         </article>
         <article class="feature">
           <small>Boundary</small>
@@ -887,7 +887,7 @@ canary setup claude-desktop
         <article class="proof">
           <img src="social/positions.png" width="1280" height="608" loading="lazy" alt="sanitized canary positions by underlying terminal output">
           <h3>Positions and exposure</h3>
-          <p>Underlying grouping, option legs, marks, Greek coverage, and portfolio-level exposure with sensitive values redacted here.</p>
+          <p>Underlying grouping, option legs, marks, Greek coverage, and portfolio-level exposure. Each read belongs to one account and keeps missing values separate from real zeros; sensitive values are redacted here.</p>
         </article>
       </div>
     </section>

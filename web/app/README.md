@@ -46,6 +46,13 @@ engraved register; `PAPER` is a deliberate identity exception in the TWS
 simulated-trading convention (red field, white text) and uses its own modifier
 class rather than a severity lamp — paper is a different desk, not a warning.
 
+Account and position panels use the daemon's account, availability, and
+freshness fields directly. A real zero remains a number, a value the broker did
+not send shows `--`, and Canary never supplies USD when the base currency is
+unknown. Old position rows may remain visible for reference, but the position
+counts, portfolio verdict, Greeks, exposure chart, and P/L summaries stay
+unavailable until the selected account has a current position result.
+
 Start the app host on the Mac that runs TWS or IB Gateway:
 
 ```sh

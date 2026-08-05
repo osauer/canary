@@ -289,6 +289,7 @@ test("the age line names the weekday inside the week and the date beyond it", ()
   const oldLit = new Date(nowMs - 20 * 24 * 60 * 60 * 1000);
   const oldOut = new Date(oldLit.getTime() + 40 * 60 * 1000);
   const dated = oldLit.toLocaleDateString([], { day: "numeric", month: "short" });
+  const outDated = oldOut.toLocaleDateString([], { day: "numeric", month: "short" });
   const stale = occurrence({
     display_id: "alert-previous-abcdef0123456789", severity: "watch", state: "recovered", title: "Old lamp",
     first_seen_at: oldLit.toISOString(), last_seen_at: oldOut.toISOString(),
@@ -309,7 +310,7 @@ test("the age line names the weekday inside the week and the date beyond it", ()
   // cannot tell which, so a retained lamp states its date.
   const old = visibleText(elements.get("alertHistoryList").children[0]);
   assert.ok(old.includes(`Lit ${dated} `), old);
-  assert.ok(old.includes(`, out ${dated} `), old);
+  assert.ok(old.includes(`, out ${outDated} `), old);
   assert.ok(old.includes("40 min lit"), old);
 });
 

@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="portfolio-review-with-claude-and-ibkr">Portfolio review with Claude and IBKR</h1>
-<p>Updated: 2026-07-18 21:05 CEST</p>
+<p>Updated: 2026-08-04 22:57 CEST</p>
 <p><code>canary mcp</code> lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The job is to give an assistant enough structured account, position, option, quote, calendar, scanner, sizing, and regime context to do the kind of review a disciplined trader would otherwise assemble by hand.</p>
 <p>A review session can also lean on the discipline surfaces: <code>canary_rules</code> evaluates a 14-rule daily checklist over the live book (concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity) and names its offenders. Missing data degrades to unknown rather than a false pass, so a cold daemon cannot flatter the book. In the terminal, <code>canary policy</code> reports drawdown against a risk policy you wrote yourself, and <code>canary recon</code> checks the daily broker statement against your declared ledger.</p>
 <p>The review stays separate from execution: collect account and market evidence, name the missing inputs, and decide which questions deserve a closer look.</p>
@@ -69,6 +69,7 @@
 <h2 id="what-claude-can-inspect">What Claude can inspect</h2>
 <p>A good portfolio review needs more than balances and positions. Through <code>canary mcp</code>, Claude can call:</p>
 <ul>
+<li><code>canary_brief</code> for Canary's assembled Review and Ready overview, including inputs it could not read</li>
 <li><code>canary_account</code> for net liquidation, buying power, cash, margin, and daily P&amp;L</li>
 <li><code>canary_positions</code> for holdings, option legs, Greeks, and per-underlying grouping</li>
 <li><code>canary_quote</code> and <code>canary://quote/{symbol}</code> for snapshot and streaming stock or ETF quotes</li>
@@ -83,11 +84,11 @@
 <h2 id="use-this-prompt">Use this prompt</h2>
 <p>Start with the maintained prompt in <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_analysis_prompt.md">examples/canary_portfolio_analysis_prompt.md</a>. It keeps evidence, data quality, and follow-up questions separate from orders.</p>
 <p>Short version to paste into Claude:</p>
-<pre><code>Review my IBKR portfolio using the Canary MCP tools. Start with account state,
-positions grouped by underlying, options Greeks, quote freshness, and the current
-risk-regime lifecycle. Rank the risks I should inspect today, explain the evidence
-behind each one, and separate observations from possible next actions. Do not
-place or imply orders.</code></pre>
+<pre><code>Review my IBKR portfolio using the Canary MCP tools. Start with canary_brief,
+then inspect account state, positions grouped by underlying, options Greeks,
+quote freshness, and the current risk-regime lifecycle. Rank the risks I should
+inspect today, explain the evidence behind each one, and separate observations
+from possible next actions. Do not place or imply orders.</code></pre>
 <p>For a deeper review, use the full example prompt and let Claude decide which MCP calls are needed before it writes the answer.</p>
 <p>For a scheduled stress check that preserves lifecycle stage, planner readiness, source health, fingerprints, confidence, rows, and warnings, use <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_stress_prompt.md">examples/canary_portfolio_stress_prompt.md</a>.</p>
 <h2 id="what-a-useful-answer-looks-like">What a useful answer looks like</h2>

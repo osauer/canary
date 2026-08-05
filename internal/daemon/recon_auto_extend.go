@@ -36,11 +36,33 @@ func (s *Server) evaluateRiskPolicyV3Reconciliation() (extended bool) {
 		return false
 	}
 
+	evaluationScope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(evaluationScope) {
+		return false
+	}
 	rep, snapshot := s.buildReconReportWithSnapshot()
+	mutationScope := evaluationScope
+	if snapshot != nil {
+		mutationScope = snapshot.Scope
+	}
+	if !sameBrokerScope(mutationScope, evaluationScope) || !sameBrokerScope(mutationScope, s.currentBrokerStateScope()) {
+		s.warnf("risk-policy v3 reconciliation stopped because the selected broker account changed during evaluation")
+		return false
+	}
 	if rep.Status == rpc.ReconStatusActive && statementsHealthOK(rep.InputHealth) && snapshot != nil {
-		s.riskCapital.IncorporateStatementSnapshot(*snapshot)
+		if err := s.riskCapital.IncorporateStatementSnapshotForScope(*snapshot); err != nil {
+			s.warnf("risk-policy statement capital snapshot unavailable: %v", err)
+			return false
+		}
 	} else if rep.Status == rpc.ReconStatusUnavailable && strings.HasPrefix(rep.Message, "no retained Flex statements yet") {
-		s.riskCapital.ActivateStatementAuthorityWithoutStatements()
+		if err := s.riskCapital.ActivateStatementAuthorityWithoutStatementsForScope(mutationScope); err != nil {
+			s.warnf("risk-policy statement authority unavailable: %v", err)
+			return false
+		}
+	}
+	if !sameBrokerScope(mutationScope, s.currentBrokerStateScope()) {
+		s.warnf("risk-policy v3 reconciliation stopped because the selected broker account changed before automatic extension")
+		return false
 	}
 
 	now := time.Now()
@@ -50,7 +72,7 @@ func (s *Server) evaluateRiskPolicyV3Reconciliation() (extended bool) {
 	if !autoExtendEligible(mgr.status, pol, rep, now) {
 		return false
 	}
-	ev, appended, err := s.riskCapital.ApplyAutomaticReconcile(rep.ReportID, rep.CoverageTo)
+	ev, appended, err := s.riskCapital.ApplyAutomaticReconcileForScope(rep.ReportID, rep.CoverageTo, mutationScope)
 	if err != nil {
 		s.warnf("risk-policy v3 auto-extend failed for report %s: %v", rep.ReportID, err)
 		return false

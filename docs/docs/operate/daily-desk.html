@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="the-daily-desk">The daily desk</h1>
-<p>Updated: 2026-07-31 08:56 CEST</p>
+<p>Updated: 2026-08-04 22:57 CEST</p>
 <p>The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. <a href="../start/first-session.html">Your first session</a> explains what these screens contain; this page assumes you already know and only tells you when to look.</p>
 <h2 id="before-the-open">Before the open</h2>
 <pre><code class="language-sh">canary status
@@ -150,7 +150,7 @@ canary brief
 <h2 id="where-the-stamp-comes-from">Where the stamp comes from</h2>
 <p>Rendering the brief from your terminal also stamps the day's artefact when one is due, and prints the stamp line. The stamp is the act of looking, not a second act on top of it, and there is no checklist to sign.</p>
 <p>The mechanics are worth knowing once. <code>canary brief --json</code> renders without stamping. An agent-origin invocation prints <code>agent-origin render — not stamped</code>, and the daemon refuses the stamp outright for any non-human origin, journaling nothing, so only a terminal or a paired device can stamp at all. The target is morning first, then end of day, then nothing; <code>--kind morning</code> or <code>--kind eod</code> overrides that choice.</p>
-<p>There is no MCP tool for <code>brief</code>. An agent can read the same underlying surfaces, but the brief itself is a CLI and paired-app surface.</p>
+<p>MCP clients read the same assembled result through <code>canary_brief</code>. That tool calls only the read path: it never stamps the morning or end-of-day artefact, acknowledges the brief, or changes process state.</p>
 <h2 id="market-context">Market context</h2>
 <pre><code class="language-sh">canary regime
 canary stress

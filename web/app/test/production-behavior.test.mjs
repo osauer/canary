@@ -66,6 +66,7 @@ function reset() {
   state.connectionOK = false;
   state.connectionText = "Connecting";
   state.eventSource = null;
+  state.portfolioDetailOpen = false;
   state.protectionOpen = false;
   state.protectionQtyOverrides = {};
   state.protectionQuoteTicks = {};
@@ -254,6 +255,205 @@ test("TestAppJSAccountPrivacyMasksUnderlyingPnl replacement masks both summary a
   assert.equal(shared.sensitiveMoneyHidden(12.5), false);
 });
 
+test("account authority distinguishes genuine zero from a missing money field", () => {
+  reset();
+  state.accountValueVisible = true;
+  const now = new Date().toISOString();
+  const account = {
+    account_id: "SYNTHETIC-LEGACY-ID",
+    base_currency: "EUR",
+    net_liquidation: 0,
+    buying_power: 0,
+    daily_pnl: 0,
+    daily_pnl_observation: { status: "ok", as_of: now },
+    as_of: now,
+    authority: {
+      scope: { account_id: "SYNTHETIC-AUTHORITY", account_mode: "paper" },
+      source: "account_summary_request",
+      availability: "available",
+      freshness: "current",
+      as_of: now,
+      fields: { base_currency: true, net_liquidation: true, buying_power: false, daily_pnl: true },
+    },
+  };
+  state.snapshot = {
+    account,
+    positions: { portfolio: {}, authority: { scope: { account_id: "SYNTHETIC-AUTHORITY", account_mode: "paper" } } },
+    status: { connected_account: "SYNTHETIC-AUTHORITY", account_mode: "paper" },
+    market_calendar: { session: { state: "regular", is_open: true } },
+    sources: { account: { state: "current", last_success_at: now } },
+  };
+
+  underlyings.renderAccountPanel(account, state.snapshot.positions, {});
+  assert.match(dom.element("netLiquidation").textContent, /0/);
+  assert.match(dom.element("netLiquidation").textContent, /€|EUR/);
+  assert.equal(dom.element("buyingPower").textContent, "--", "legacy zero must stay missing when the daemon says the field is absent");
+  assert.match(dom.element("dailyPnl").textContent, /0/);
+  assert.equal(dom.element("dailyPnlPct").textContent, "--", "a zero NLV cannot support a Daily P/L percentage");
+  assert.equal(dom.element("accountLabel").textContent, "SYNTHETIC-AUTHORITY");
+  assert.equal(shared.accountFieldValue(account, "net_liquidation"), 0);
+  assert.equal(shared.accountFieldValue(account, "buying_power"), null);
+  assert.equal(shared.accountBaseCurrency(account), "EUR");
+
+  state.accountValueVisible = false;
+  underlyings.renderAccountPanel(account, state.snapshot.positions, {});
+  assert.equal(dom.element("netLiquidation").textContent, "******", "a genuine zero remains a present private value");
+  assert.equal(dom.element("buyingPower").textContent, "--", "a missing zero must not become a private value");
+  assert.equal(dom.element("accountLabel").textContent, shared.maskAccountId("SYNTHETIC-AUTHORITY"));
+});
+
+test("account authority renders cached, unavailable, and unresolved states without inventing currency", () => {
+  reset();
+  state.accountValueVisible = true;
+  const lastGood = new Date(Date.now() - 60_000).toISOString();
+  const cached = {
+    account_id: "IGNORED-LEGACY-ID",
+    base_currency: "USD",
+    net_liquidation: 125,
+    buying_power: 0,
+    daily_pnl: 0,
+    daily_pnl_observation: { status: "missing", as_of: lastGood },
+    authority: {
+      scope: { account_id: "SYNTHETIC-CACHED", account_mode: "live" },
+      source: "account_updates_cache",
+      availability: "available",
+      freshness: "unknown",
+      reason: "unstamped_cache",
+      fields: { base_currency: false, net_liquidation: true, buying_power: false, daily_pnl: false },
+    },
+  };
+  state.snapshot = { account: cached, positions: { portfolio: {} }, status: { account_mode: "live" }, sources: { account: { state: "current", last_success_at: lastGood } } };
+  underlyings.renderAccountPanel(cached, state.snapshot.positions, {});
+  assert.equal(dom.element("netLiquidation").textContent.includes("$"), false);
+  assert.equal(dom.element("netLiquidation").textContent.includes("USD"), false);
+  assert.equal(dom.element("buyingPower").textContent, "--");
+  assert.equal(dom.element("dailyPnl").textContent, "--");
+  assert.equal(dom.element("dailyPnlPct").textContent, "Daily P/L unavailable");
+  assert.equal(dom.element("accountAsOf").textContent, "Cached · time unknown");
+  assert.match(dom.element("accountAsOf").title, /cannot prove when/i);
+
+  state.snapshot.sources.account = { state: "unavailable", last_success_at: lastGood };
+  underlyings.renderAccountPanel(cached, state.snapshot.positions, {});
+  assert.match(dom.element("accountAsOf").textContent, /^Account unavailable · last good /);
+  assert.match(dom.element("netLiquidation").textContent, /125/, "retained values remain visible as explicitly last-good context");
+
+  const unavailable = {
+    account_id: "STALE-LEGACY-ID",
+    base_currency: "USD",
+    net_liquidation: 0,
+    authority: {
+      scope: { account_mode: "unknown" },
+      source: "account_summary_request",
+      availability: "unavailable",
+      freshness: "unknown",
+      reason: "scope_unresolved",
+      fields: { base_currency: false, net_liquidation: false },
+    },
+  };
+  state.snapshot = { account: unavailable, positions: { portfolio: {} }, status: {}, sources: { account: { state: "current" } } };
+  underlyings.renderAccountPanel(unavailable, state.snapshot.positions, {});
+  assert.equal(dom.element("netLiquidation").textContent, "--");
+  assert.equal(dom.element("accountLabel").textContent, "Account unresolved");
+  assert.equal(dom.element("accountAsOf").textContent, "Account unavailable");
+  assert.equal(shared.accountBaseCurrency(unavailable), "");
+});
+
+test("account identity refuses conflicting typed account scopes", () => {
+  reset();
+  const account = { authority: { scope: { account_id: "SYN-A", account_mode: "paper" }, availability: "unavailable" } };
+  state.snapshot = {
+    account,
+    positions: { authority: { scope: { account_id: "SYN-B", account_mode: "paper" } } },
+    status: { connected_account: "SYN-A", account_mode: "paper" },
+  };
+  assert.deepEqual(underlyings.currentAccountContext(account), {
+    accountId: "",
+    accountLabel: "Account mismatch",
+    modeClass: "paper",
+    modeLabel: "Paper",
+    hasAccount: false,
+  });
+});
+
+test("stale positions never render an empty clean book and retain nonempty rows only as context", () => {
+  reset();
+  const staleAt = new Date(Date.now() - 20 * 60_000).toISOString();
+  const authority = {
+    scope: { account_id: "SYNTHETIC", account_mode: "paper" },
+    source: "portfolio_stream",
+    availability: "unavailable",
+    freshness: "stale",
+    reason: "receipt_stale",
+    as_of: staleAt,
+  };
+  const empty = { stocks: [], options: [], by_underlying: [], portfolio: {}, authority, as_of: "" };
+  state.snapshot = { positions: empty, account: {}, sources: { positions: { state: "current", last_success_at: staleAt } } };
+  underlyings.renderUnderlyings(empty, {});
+  assert.equal(dom.element("underlyingBookCount").textContent, "Positions unavailable");
+  assert.match(dom.element("underlyingBookStatus").textContent, /stale/i);
+  assert.equal(dom.element("underlyingBookList").textContent, "Position data unavailable.");
+  assert.match(dom.element("underlyingBookFreshness").textContent, /^Positions stale/);
+
+  const retained = {
+    ...empty,
+    by_underlying: [{
+      underlying: "SYN",
+      stock: { symbol: "SYN", currency: "EUR", position: 1, quote_expectation: "none", daily_pnl_base: 0 },
+      options: [],
+      group_daily_pnl_base: 0,
+    }],
+  };
+  state.snapshot.positions = retained;
+  underlyings.renderUnderlyings(retained, {});
+  assert.match(dom.element("underlyingBookCount").textContent, /^1 last known/);
+  assert.match(dom.element("underlyingBookStatus").textContent, /visible for reference/i);
+  assert.match(dom.element("underlyingBookList").textContent, /SYN/);
+  assert.equal(dom.element("underlyingWinnerPnl").textContent, "--", "stale rows must not publish a clean or current P/L summary");
+});
+
+test("portfolio risk refuses stale position values and explains retained context", () => {
+  reset();
+  state.accountValueVisible = true;
+  const staleAt = new Date(Date.now() - 20 * 60_000).toISOString();
+  const positions = {
+    stocks: [{ symbol: "SYN", position: 1 }],
+    options: [],
+    portfolio: {
+      base_currency: "EUR",
+      dollar_delta_base: 75,
+      daily_theta_base: -4,
+      fx_sensitivity_per_pct: 12,
+      greeks_total: 1,
+      greeks_coverage: 1,
+      exposure_base: [{ underlying: "SYN", market_value_base: 100, base_currency: "EUR" }],
+    },
+    authority: {
+      scope: { account_id: "SYNTHETIC", account_mode: "paper" },
+      source: "portfolio_stream",
+      availability: "unavailable",
+      freshness: "stale",
+      reason: "receipt_stale",
+      as_of: staleAt,
+    },
+  };
+  state.snapshot = { positions, account: {}, sources: { positions: { state: "current", last_success_at: staleAt } } };
+
+  portfolio.renderPortfolioRisk(positions, {});
+  assert.equal(dom.element("portfolioDollarDelta").textContent, "Portfolio stale");
+  assert.match(dom.element("portfolioDeltaMeaning").textContent, /visible for reference/i);
+  assert.equal(dom.element("portfolioDailyTheta").textContent, "--");
+  assert.equal(dom.element("portfolioFxSensitivity").textContent, "--");
+  assert.equal(dom.element("portfolioGreeksCoverage").textContent, "--");
+  assert.equal(dom.element("portfolioExposureVisual").hidden, true);
+  assert.equal(dom.element("portfolioExposureList").hidden, true);
+  assert.doesNotMatch(dom.element("portfolioPanel").textContent, /Low delta|Moderate delta|High delta risk|€75|€100/);
+
+  portfolio.setPortfolioExpansion(true);
+  assert.equal(dom.element("portfolioDetailPanel").hidden, false);
+  assert.match(dom.element("portfolioDetailList").textContent, /visible for reference/i);
+  assert.doesNotMatch(dom.element("portfolioDetailList").textContent, /Greeks ready|No open positions/);
+});
+
 test("TestAppJSProtectionSummaryUsesDataDrivenRiskTones replacement derives tone and no-stop value from served data", () => {
   reset();
   state.snapshot = { account: { base_currency: "EUR" }, positions: { stocks: [], options: [], portfolio: {}, protection_coverage: null }, stress: { portfolio: {} } };
@@ -328,7 +528,7 @@ test("TestAppJSMoneyFormattersNeverDefaultToUSD replacement preserves unknown, b
   assert.equal(shared.money(729.87, "MIX"), "729.87 MIX");
   assert.match(shared.money(729.87, "EUR"), /729[,.]87/);
   assert.equal(shared.money(729.87, "").includes("$"), false);
-  state.snapshot = { account: { base_currency: "EUR" } };
+  state.snapshot = { account: { base_currency: "EUR", authority: { availability: "available", fields: { base_currency: true } } } };
   assert.equal(protection.protectionLossCurrency(true, {}), "EUR");
   assert.equal(protection.protectionLossCurrency(false, { currency: "GBP" }), "GBP");
   const leg = protection.deriskLegRow({ action: "SELL", reduce_quantity: 1, symbol: "SYN", risk_contribution_cut: 200, notional_currency: "USD" }, false, "EUR");

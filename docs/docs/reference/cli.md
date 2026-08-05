@@ -30,7 +30,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary gamma`](#canary-gamma) | Markets | SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due) | `read-only` | yes |
 | [`canary regime`](#canary-regime) | Markets | Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth | `read-only` | yes |
 | [`canary stress`](#canary-stress) | Markets | Stateless market-regime × portfolio-shape stress read with action, evidence, and source health | `read-only` | yes |
-| [`canary brief`](#canary-brief) | Desk | Typed morning/EOD operator brief with disclosed source degradation | `read-only` | CLI only |
+| [`canary brief`](#canary-brief) | Desk | Typed morning/EOD operator brief with disclosed source degradation | `read-only` | yes |
 | [`canary rules`](#canary-rules) | Desk | Advisory 14-rule daily trading checklist, hardest breach first | `read-only` | yes |
 | [`canary alerts`](#canary-alerts) | Desk | Alert-source coverage: which of the expected producers claim coverage and the disclosed per-rule gaps | `read-only` | CLI only |
 | [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
@@ -372,7 +372,7 @@ Subcommands: `history`.
 
 Typed morning/EOD operator brief with disclosed source degradation.
 
-Guard `read-only`. CLI only, with no MCP tool: daily brief MCP exposure is explicitly deferred until after phase 2; agent CLI renders are read-only and never stamp.
+Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary brief [--json] [--kind morning|eod]
@@ -414,7 +414,7 @@ Subcommands: `history`.
 
 Alert-source coverage: which of the expected producers claim coverage and the disclosed per-rule gaps.
 
-Guard `read-only`. CLI only, with no MCP tool: alert-source coverage diagnostic for the operator watching push-delivery readiness; CLI-first like `brief` — an agent inspecting alert internals should read the issue #19 surfaces deliberately, not via a routine tool call.
+Guard `read-only`. CLI only, with no MCP tool: alert-source coverage diagnostic for the operator watching push-delivery readiness; an agent inspecting alert internals should read the issue #19 surfaces deliberately, not through a routine MCP tool call.
 
 ```text
 canary alerts [--json]

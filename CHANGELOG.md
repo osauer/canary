@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.9.0 — 2026-08-04 22:57 CEST
+
+### What's new
+
+- **Claude and other MCP clients can read Canary's daily brief in one call.** `canary_brief` returns the same assembled Review and Ready result as `canary brief`, including the inputs Canary could not read, instead of asking an assistant to rebuild the desk view from several smaller tools. It calls only the read path: it cannot sign off the morning or end-of-day brief, stamp an artefact, acknowledge anything, place an order, or change process state.
+- **Account and position results say exactly what they know.** Both JSON results now name one account and paper/live mode, the source, whether the result is available, and whether it is current, stale, or of unknown age. Account results also say which individual fields the broker supplied. Existing numeric fields remain in place for compatibility, but a zero counts as a real zero only when its field is marked available. The terminal and paired app use the same information, so unavailable money shows as unavailable and an old or incomplete empty position list cannot read as an empty book.
+
+### Fixed
+
+- **Reconciliation no longer combines Flex statements from sibling accounts.** A report now uses only statements belonging to the selected account, says how many sibling statements it skipped, and stays unavailable when it cannot resolve one account or no retained statement belongs to it. Report identities include the account scope, and storage or parse failures leave the public result with a short, fixed reason instead of exposing raw file or provider text.
+- **Switching accounts no longer reuses another account's capital history.** Equity peaks, drawdown latches, capital events, and reconciliation state are stored separately for each account and paper/live mode. The first read safely adopts an older single-account record only when that record already proves the same account and mode; unresolved scope is refused rather than guessed.
+- **Slow MCP reads no longer fail before the daemon has finished them.** History, order preview, proposal refresh, and opportunity refresh previously had a 35-second MCP limit in front of a 55-second daemon limit, so the client could give up while valid work was still running. Every daemon method now has one shared timing record, and CLI and MCP callers add their own small margin to it. Tests compare the real daemon dispatch table and every MCP tool against that record, so a new method cannot quietly recreate the mismatch.
+
 ## v2.8.0 — 2026-08-04 22:42 CEST
 
 ### What's new

@@ -43,6 +43,8 @@ type retainedStatementMerge struct {
 	coverageTo       time.Time
 }
 
+const reconSkippedSiblingStatementsCount = "skipped_sibling_statements"
+
 // buildReconReport regenerates the report. It is cheap (local files only)
 // and side-effect free apart from reading journals.
 func (s *Server) buildReconReport() *rpc.ReconResult {
@@ -73,10 +75,6 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	defer func() {
 		res.Automation = s.reconAutomationStatus(res, now)
 	}()
-	if s.riskCapital != nil {
-		res.LastAutoExtendReportID, res.LastAutoExtendedAt = s.riskCapital.LastAutoExtend()
-	}
-
 	var health []rpc.SourceHealth
 	pol := s.riskPolicies.snapshot().policy
 	rc := reconPolicyOf(pol)
@@ -87,6 +85,19 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 		res.InputHealth = health
 		return res, nil, nil
 	}
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		res.Status = rpc.ReconStatusUnavailable
+		res.Message = "reconciliation needs one selected broker account"
+		res.Fetch.State = rpc.ReconReportStateUnavailable
+		res.Fetch.Reason = rpc.ReconReportReasonAuthorityUnavailable
+		res.Fetch.LastError = flexReasonMessage(res.Fetch.Reason)
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "account_scope", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
+		return res, nil, nil
+	}
+	if s.riskCapital != nil {
+		res.LastAutoExtendReportID, res.LastAutoExtendedAt = s.riskCapital.LastAutoExtendForScope(scope)
+	}
 
 	statements, problems, err := loadRetainedFlexStatementsContext(ctx, func(stage string) error { return s.nudgeScanCheck(ctx, stage) })
 	if err != nil && ctx.Err() != nil {
@@ -94,9 +105,13 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	}
 	switch {
 	case err != nil:
+		s.warnf("reconciliation: retained Flex statement read failed: %v", err)
 		res.Status = rpc.ReconStatusUnavailable
-		res.Message = "cannot read retained statements: " + err.Error()
-		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable", Notes: []string{err.Error()}})
+		res.Message = "retained statements are temporarily unavailable"
+		res.Fetch.State = rpc.ReconReportStateUnavailable
+		res.Fetch.Reason = rpc.ReconReportReasonStorageFailed
+		res.Fetch.LastError = flexReasonMessage(res.Fetch.Reason)
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable", Notes: []string{rpc.ReconReportReasonStorageFailed}})
 		return res, nil, nil
 	case len(statements) == 0:
 		res.Status = rpc.ReconStatusUnavailable
@@ -104,12 +119,35 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable"})
 		return res, nil, nil
 	}
+	statements, skipped := retainedStatementsForScope(statements, scope)
+	res.Counts[reconSkippedSiblingStatementsCount] = skipped
+	if len(statements) == 0 {
+		res.Status = rpc.ReconStatusUnavailable
+		res.Message = "no retained Flex statements belong to the selected account"
+		res.Fetch.State = rpc.ReconReportStateUnavailable
+		res.Fetch.Reason = rpc.ReconReportReasonReportInvalid
+		res.Fetch.LastError = flexReasonMessage(res.Fetch.Reason)
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "statements", Status: "unavailable", Notes: []string{
+			rpc.ReconReportReasonReportInvalid,
+			fmt.Sprintf("%s=%d", reconSkippedSiblingStatementsCount, skipped),
+		}})
+		return res, nil, nil
+	}
 	res.Status = rpc.ReconStatusActive
 	if len(problems) > 0 {
+		for _, problem := range problems {
+			s.warnf("reconciliation: retained Flex statement rejected: %s", problem)
+		}
 		res.Status = rpc.ReconStatusDegraded
-		health = append(health, rpc.SourceHealth{Source: "statements", Status: "degraded", Notes: problems})
+		health = append(health, rpc.SourceHealth{Source: "statements", Status: "degraded", Notes: []string{
+			rpc.ReconReportReasonResponseInvalid,
+			fmt.Sprintf("invalid_retained_statements=%d", len(problems)),
+			fmt.Sprintf("%s=%d", reconSkippedSiblingStatementsCount, skipped),
+		}})
 	} else {
-		health = append(health, rpc.SourceHealth{Source: "statements", Status: "ok"})
+		health = append(health, rpc.SourceHealth{Source: "statements", Status: "ok", Notes: []string{
+			fmt.Sprintf("%s=%d", reconSkippedSiblingStatementsCount, skipped),
+		}})
 	}
 
 	merged := mergeRetainedStatements(statements)
@@ -117,10 +155,16 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	res.CoverageFrom = merged.coverageFrom
 	res.CoverageTo = merged.coverageTo
 
-	replayCtx := s.riskCapital.ReplayContext()
+	replayCtx, err := s.riskCapital.ReplayContextForScope(scope)
+	if err != nil {
+		res.Status = rpc.ReconStatusUnavailable
+		res.Message = "capital state is unavailable for the selected account"
+		res.InputHealth = append(health, rpc.SourceHealth{Source: "capital_state", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
+		return res, nil, nil
+	}
 	res.GenesisAt = replayCtx.GenesisAt
 	matchableFlows, baseline := partitionReconBaselineFlows(merged.flows, replayCtx)
-	events, err := s.riskCapital.CapitalFlowEventsContext(ctx, func(stage string) error { return s.nudgeScanCheck(ctx, stage) })
+	events, err := s.riskCapital.CapitalFlowEventsContextForScope(ctx, func(stage string) error { return s.nudgeScanCheck(ctx, stage) }, scope)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -145,7 +189,7 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 		matchedExceptions = kept
 	}
 	exceptions := append(merged.exceptions, matchedExceptions...)
-	if err := s.applyReconDismissalsContext(ctx, exceptions, func(stage string) error { return s.nudgeScanCheck(ctx, stage) }); err != nil {
+	if err := s.applyReconDismissalsContext(ctx, exceptions, func(stage string) error { return s.nudgeScanCheck(ctx, stage) }, scope); err != nil {
 		return nil, nil, err
 	}
 
@@ -171,10 +215,11 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	if pol.PolicyVersion >= 3 {
 		res.StatementCumFlowsBase = &statementFlows
 	}
-	res.Equity = s.reconEquityCheck(merged.equityByDay)
-	res.ReportID = reconReportID(exceptions, baseline, confirmed, matchableFlows, bridgeEvents, res.CoverageFrom, res.CoverageTo, res.StatementAsOf, pol)
+	res.Equity = s.reconEquityCheck(merged.equityByDay, scope)
+	res.ReportID = reconReportID(exceptions, baseline, confirmed, matchableFlows, bridgeEvents, res.CoverageFrom, res.CoverageTo, res.StatementAsOf, pol, reconScopeIdentity(scope))
 	res.InputHealth = health
 	snapshot := &statementCapitalSnapshot{
+		Scope:      scope,
 		CoverageTo: res.CoverageTo,
 		Flows:      matchableFlows,
 		NudgeConfirmedFlows: nudgeConfirmedFlowSnapshot{
@@ -196,6 +241,33 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 		return nil, nil, err
 	}
 	return res, snapshot, nil
+}
+
+// retainedStatementsForScope keeps statement truth on one concrete broker
+// account. A retained Flex response may contain several sibling statements;
+// those siblings remain broker evidence on disk, but they cannot participate
+// in this account's reconciliation or capital projection.
+func retainedStatementsForScope(statements []flexstmt.Statement, scope brokerStateScope) ([]flexstmt.Statement, int) {
+	if !brokerScopeConcrete(scope) {
+		return nil, len(statements)
+	}
+	selected := make([]flexstmt.Statement, 0, len(statements))
+	skipped := 0
+	for _, statement := range statements {
+		if strings.EqualFold(strings.TrimSpace(statement.AccountID), strings.TrimSpace(scope.Account)) {
+			selected = append(selected, statement)
+			continue
+		}
+		skipped++
+	}
+	return selected, skipped
+}
+
+func reconScopeIdentity(scope brokerStateScope) string {
+	if !brokerScopeConcrete(scope) {
+		return ""
+	}
+	return opaqueIdentity("reconciliation-scope-v1", strings.ToUpper(strings.TrimSpace(scope.Account)), strings.ToLower(strings.TrimSpace(scope.Mode)))
 }
 
 func (s *Server) nudgeScanCheck(ctx context.Context, stage string) error {
@@ -289,7 +361,10 @@ func mergeRetainedStatements(statements []flexstmt.Statement) retainedStatementM
 			merged.flows = append(merged.flows, reconFlow{id: t.ID, typ: "Transfer " + t.Direction, desc: t.Description, valueDate: t.Date, amountBase: amount})
 		}
 		for _, e := range st.Equity {
-			key := e.ReportDate.Format("2006-01-02")
+			// Account remains part of the winner key even though callers filter
+			// before merge. This prevents a future unfiltered helper from
+			// silently letting one sibling's same-day row replace another's.
+			key := strings.ToUpper(strings.TrimSpace(st.AccountID)) + "\x00" + e.ReportDate.Format("2006-01-02")
 			if _, ok := merged.equityByDay[key]; !ok {
 				merged.equityByDay[key] = e
 			}
@@ -484,7 +559,7 @@ func businessDaysApart(a, b time.Time) int {
 
 // applyReconDismissals folds journaled human dismissals into the exception
 // list. The journal is the source of truth; nothing else stores them.
-func (s *Server) applyReconDismissalsContext(ctx context.Context, exceptions []rpc.ReconException, checkpoint func(string) error) error {
+func (s *Server) applyReconDismissalsContext(ctx context.Context, exceptions []rpc.ReconException, checkpoint func(string) error, scope brokerStateScope) error {
 	if s == nil || s.riskCapital == nil || s.riskCapital.core == nil {
 		// Legacy unit/import helper only; Start binds core before runtime.
 		return applyReconDismissalsContext(ctx, exceptions, checkpoint)
@@ -496,7 +571,7 @@ func (s *Server) applyReconDismissalsContext(ctx context.Context, exceptions []r
 	} else if err := ctx.Err(); err != nil {
 		return err
 	}
-	payloads, err := s.riskCapital.GovernanceEventPayloads(ctx)
+	payloads, err := s.riskCapital.GovernanceEventPayloadsForScope(ctx, scope)
 	if err != nil {
 		return err
 	}
@@ -569,7 +644,7 @@ func applyReconDismissalsContext(ctx context.Context, exceptions []rpc.ReconExce
 	return nil
 }
 
-func (s *Server) reconEquityCheck(equityByDay map[string]flexstmt.EquityRow) *rpc.ReconEquityCheck {
+func (s *Server) reconEquityCheck(equityByDay map[string]flexstmt.EquityRow, scope brokerStateScope) *rpc.ReconEquityCheck {
 	var newest flexstmt.EquityRow
 	for _, row := range equityByDay {
 		if row.ReportDate.After(newest.ReportDate) {
@@ -586,7 +661,7 @@ func (s *Server) reconEquityCheck(equityByDay map[string]flexstmt.EquityRow) *rp
 		var pairedOK bool
 		for _, row := range equityByDay {
 			day := row.ReportDate.UTC().Format("2006-01-02")
-			if equity, ok := s.riskCapital.DailySample(day); ok && (!pairedOK || row.ReportDate.After(paired.ReportDate)) {
+			if equity, ok := s.riskCapital.DailySampleForScope(day, scope); ok && (!pairedOK || row.ReportDate.After(paired.ReportDate)) {
 				paired, pairedEquity, pairedOK = row, equity, true
 			}
 		}
@@ -600,7 +675,7 @@ func (s *Server) reconEquityCheck(equityByDay map[string]flexstmt.EquityRow) *rp
 				div := (equity - paired.TotalBase) / math.Abs(paired.TotalBase) * 100
 				check.DivergencePct = &div
 			}
-		} else if equity, asOf := s.riskCapital.LastEquity(); equity > 0 {
+		} else if equity, asOf := s.riskCapital.LastEquityForScope(scope); equity > 0 {
 			check.RuntimeEquityBase = &equity
 			check.RuntimeAsOf = asOf
 		}
@@ -611,9 +686,9 @@ func (s *Server) reconEquityCheck(equityByDay map[string]flexstmt.EquityRow) *rp
 // reconReportID pins the classified content, coverage, statement freshness,
 // and policy identity. The v2 projection stays byte-identical; v3 additionally
 // pins full row content so a confirmed restatement cannot reuse an id.
-func reconReportID(exceptions, baseline, confirmed []rpc.ReconException, statementFlows []reconFlow, bridgeEvents []capitalEventV1, from, to, stmtAsOf time.Time, pol *risk.Constitution) string {
+func reconReportID(exceptions, baseline, confirmed []rpc.ReconException, statementFlows []reconFlow, bridgeEvents []capitalEventV1, from, to, stmtAsOf time.Time, pol *risk.Constitution, scopeIdentity string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|", from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339), stmtAsOf.UTC().Format(time.RFC3339))
+	fmt.Fprintf(h, "%s|%s|%s|%s|", scopeIdentity, from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339), stmtAsOf.UTC().Format(time.RFC3339))
 	if pol != nil {
 		fmt.Fprintf(h, "%s|", pol.FingerprintKey())
 	}

@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-07-31 08:56 CEST
+Updated: 2026-08-04 22:57 CEST
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -36,7 +36,7 @@ Rendering the brief from your terminal also stamps the day's artefact when one i
 
 The mechanics are worth knowing once. `canary brief --json` renders without stamping. An agent-origin invocation prints `agent-origin render — not stamped`, and the daemon refuses the stamp outright for any non-human origin, journaling nothing, so only a terminal or a paired device can stamp at all. The target is morning first, then end of day, then nothing; `--kind morning` or `--kind eod` overrides that choice.
 
-There is no MCP tool for `brief`. An agent can read the same underlying surfaces, but the brief itself is a CLI and paired-app surface.
+MCP clients read the same assembled result through `canary_brief`. That tool calls only the read path: it never stamps the morning or end-of-day artefact, acknowledges the brief, or changes process state.
 
 ## Market context
 

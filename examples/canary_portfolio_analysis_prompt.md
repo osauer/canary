@@ -1,6 +1,6 @@
 # Canary Portfolio Analysis — MCP Workflow
 
-Last updated: 2026-05-29 06:36 CEST
+Last updated: 2026-08-04
 
 Use Canary's MCP tools to review the user's live Interactive Brokers / TWS context. The goal is not generic personal-finance advice; it is a concrete desk workflow for traders who care about exposure, market regime, option risk, data freshness, and what to review next. Produce analysis and plans only. Do not invoke order-preview, placement, modification, cancellation, or broker-submission tools in this workflow.
 
@@ -23,12 +23,13 @@ Optimize for decision quality, data provenance, and a compact final answer. Use 
 Run this first. If a hard gate fails, stop with a readiness report that names the blocker, what can still be analyzed, and the exact next action for the user.
 
 1. `canary_status`: require a connected gateway and account discovery. Read `subsystems` before deciding which follow-up tools are reliable.
-2. `canary_account`: capture net liquidation value, buying power, cash, margin, base currency, daily P&L, and currency exposure.
-3. `canary_positions`: capture stocks, options, `portfolio.exposure_base`, per-underlying grouping, portfolio-level Greeks, daily P&L fields, quote freshness, and FX/base-currency fields.
-4. `canary_rules`: capture the current rulebook policy fingerprint, rule verdicts, missing inputs, and any existing breach. If it is unavailable or conflicts with the user's stated policy, mark the review `insufficient_policy`; do not supply a model-invented threshold.
-5. `canary_stress`: use the typed top-level action, market confirmation, portfolio fit, and input health as the governed combined posture. Do not reconstruct a stronger action from lower-level signals.
+2. `canary_brief`: read Canary's assembled Review and Ready overview. Use it to find the few rows that deserve a closer look; this read never signs off or changes process state.
+3. `canary_account`: capture net liquidation value, buying power, cash, margin, base currency, daily P&L, and currency exposure. Check `authority` before using the numbers: require one account, an available result, and an explicit availability flag for each field you quote.
+4. `canary_positions`: capture stocks, options, `portfolio.exposure_base`, per-underlying grouping, portfolio-level Greeks, daily P&L fields, quote freshness, and FX/base-currency fields. Check that its `authority` names the same account and says the result is available.
+5. `canary_rules`: capture the current rulebook policy fingerprint, rule verdicts, missing inputs, and any existing breach. If it is unavailable or conflicts with the user's stated policy, mark the review `insufficient_policy`; do not supply a model-invented threshold.
+6. `canary_stress`: use the typed top-level action, market confirmation, portfolio fit, and input health as the governed combined posture. Do not reconstruct a stronger action from lower-level signals.
 
-Hard stop when the gateway is disconnected, the wrong account is clearly selected, or `canary_positions` cannot return holdings. If market-data subsystems are unavailable but positions are present, continue with a partial portfolio review and label quote-dependent conclusions as blocked.
+Hard stop when the gateway is disconnected, account scope is unresolved or conflicting, the wrong account is clearly selected, or `canary_positions` cannot return an available holdings result. A numeric zero without a matching true field-availability flag is missing, not zero. If market-data subsystems are unavailable but positions are present, continue with a partial portfolio review and label quote-dependent conclusions as blocked.
 
 `daily_pnl_ccy` / `daily_pnl_base` are populated from per-contract `reqPnLSingle` subscriptions that the first positions call may only pre-warm. If the daemon was just started and daily P&L is important to the review, rerun `canary_positions` once after the readiness gate before treating missing daily P&L as unavailable.
 

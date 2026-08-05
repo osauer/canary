@@ -141,8 +141,8 @@ simulate trade execution.
 | Command | Purpose | Schema |
 |---|---|---|
 | `canary status` | Daemon + gateway health (run this first if anything fails) | [schemas.md#status](schemas.md#status) |
-| `canary account` | Account summary (NLV, BP, cash, margin, daily P&L); add `--watch` for in-place refresh | [schemas.md#account](schemas.md#account) |
-| `canary positions` | Open positions (stocks + options) with per-position daily P&L; add `--watch` for in-place refresh | [schemas.md#positions](schemas.md#positions) |
+| `canary account` | One-account summary with field-by-field availability (NLV, BP, cash, margin, daily P&L); add `--watch` for in-place refresh | [schemas.md#account](schemas.md#account) |
+| `canary positions` | Open positions for one named account, with freshness and per-position daily P&L; add `--watch` for in-place refresh | [schemas.md#positions](schemas.md#positions) |
 | `canary watch` | Default decision-making monitor for the local saved-symbol watchlist; use `--list` only for the offline symbol inventory | [schemas.md#watch](schemas.md#watch) |
 | `canary calendar` | Official sessions for US equities, US listed options regular sessions, and Xetra | [schemas.md#calendar](schemas.md#calendar) |
 | `canary quote SYM[,SYM…]` | Snapshot quotes for one or many symbols | [schemas.md#quote](schemas.md#quote) |
@@ -161,7 +161,7 @@ simulate trade execution.
 | `canary gamma` | SPX-canonical dealer zero-gamma estimate with SPY context when usable (heavy compute; first call per NY trading day kicks a background job) | [schemas.md#gamma](schemas.md#gamma) |
 | `canary regime` | Broad-market stress lifecycle: equity vol, credit, funding, FX carry, SPX gamma with SPY context, and SPX breadth in one call | [schemas.md#regime](schemas.md#regime) |
 | `canary stress` | Portfolio-aware action/readiness snapshot, source health, fingerprints, and planner readiness | [schemas.md#stress](schemas.md#stress) |
-| `canary brief` | Daily operator brief in two movements (Review, Ready), rendered as daemon-composed prose with a typed row fallback; agent renders and all JSON reads never stamp | — |
+| `canary brief` | Daily operator brief in two movements (Review, Ready), rendered as daemon-composed prose with a typed row fallback; agent renders and all JSON reads never stamp | MCP twin: `canary_brief`, read-only and never stamps |
 | `canary rules` | Advisory compiled 14-rule discipline model, current evidence, and state-transition history | — |
 | `canary alerts` | Alert-source coverage: which expected producers claim coverage, disclosed per-rule gaps, and the aggregate snapshot state push delivery waits on; redacted by contract | — |
 | `canary market-events` | Held or requested stock/ETF market-event flags: borrow inventory, extreme borrow fee, Nasdaq Reg SHO, LULD, and halt context | [schemas.md#market-events](schemas.md#market-events) |

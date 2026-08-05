@@ -1,6 +1,6 @@
 # Writing a risk policy
 
-Updated: 2026-07-25 12:09 CEST
+Updated: 2026-08-04 22:57 CEST
 
 The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
@@ -116,10 +116,12 @@ are optional overrides, never approval material. A version bump made for an
 unrelated edit can therefore move a complete policy to `unapproved` only
 through the non-cadence keys it newly requires.
 
-Evaluation is account-wide: the ladder measures current equity against the
-cash-flow-adjusted peak, so a revision changes the answer for everything you
-hold at once. No position carries the policy that was in force when it was
-opened.
+Evaluation covers one selected account: the ladder measures that account's
+current equity against its own cash-flow-adjusted peak. Paper and live state are
+kept separate, and switching accounts cannot reuse another account's peak,
+drawdown latch, or reconciliation clock. A policy revision still changes the
+answer for everything held in the selected account at once; no position carries
+the policy that was in force when it was opened.
 
 ## Bounded exceptions
 

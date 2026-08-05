@@ -2,7 +2,7 @@
   "serverInfo": {
     "name": "canary",
     "title": "Canary MCP Server",
-    "version": "2.8.0",
+    "version": "2.9.0",
     "description": "Canary's local MCP server for Interactive Brokers market data, portfolio context, and advisory risk checks through IB Gateway or TWS.",
     "homepage": "https://osauer.dev/canary/",
     "repository": "https://github.com/osauer/canary",
@@ -714,6 +714,14 @@
             "description": "response shape: full returns the existing stress evidence payload (default); alert returns compact monitor headline, source health, portfolio/market summaries including held_stress, protection_coverage, option health, hedge offset, warnings, and non-observe flags"
           }
         }
+      }
+    },
+    {
+      "name": "canary_brief",
+      "description": "Read Canary's current daily brief exactly as the daemon composed it. Use when the user asks what changed since the last close, what matters today, which inputs are missing or stale, or what still needs attention before trading. This is the same typed brief used by Canary's terminal and paired app; it does not rebuild the answer from separate account, position, regime, or rulebook calls. Read-only: it never acknowledges the brief, records a sign-off, advances a review clock, writes to the journal, or changes settings. NOT for drilling into one holding or account total; use `canary_positions` or `canary_account` after the brief points to that detail.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
       }
     },
     {

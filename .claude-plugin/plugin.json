@@ -1,7 +1,7 @@
 {
   "name": "canary",
-  "version": "2.8.0",
-  "description": "Canary for Claude Code and MCP clients: Interactive Brokers portfolio analysis, trading research, account/positions, market data, risk checks, and preview-only order drafts via the local canary CLI. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy.",
+  "version": "2.9.0",
+  "description": "Canary for Claude Code and MCP clients: an Interactive Brokers daily brief, portfolio analysis, account and position data, market research, risk checks, and preview-only order drafts through the local canary CLI. The MCP tools cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy.",
   "author": {
     "name": "osauer",
     "url": "https://github.com/osauer"

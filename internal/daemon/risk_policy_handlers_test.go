@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -20,6 +21,7 @@ func newRiskPolicyTestServer(t *testing.T, policyTOML string) *Server {
 		now:          time.Now,
 		riskPolicies: m,
 		riskCapital:  &riskCapitalStore{now: time.Now},
+		endpoint:     discover.Endpoint{Port: 7496, Account: "U1234567"},
 	}
 	s.installBriefStateStore()
 	return s

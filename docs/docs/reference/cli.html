@@ -224,7 +224,7 @@
 <td>Desk</td>
 <td>Typed morning/EOD operator brief with disclosed source degradation</td>
 <td><code>read-only</code></td>
-<td>CLI only</td>
+<td>yes</td>
 </tr>
 <tr>
 <td><a href="#canary-rules"><code>canary rules</code></a></td>
@@ -1109,7 +1109,7 @@ canary stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] 
 </div>
 <h2 id="canary-brief"><code>canary brief</code></h2>
 <p>Typed morning/EOD operator brief with disclosed source degradation.</p>
-<p>Guard <code>read-only</code>. CLI only, with no MCP tool: daily brief MCP exposure is explicitly deferred until after phase 2; agent CLI renders are read-only and never stamp.</p>
+<p>Guard <code>read-only</code>. Also available as an MCP tool.</p>
 <pre><code class="language-text">canary brief [--json] [--kind morning|eod]
 </code></pre>
 <p><strong>Flags</strong></p>
@@ -1194,7 +1194,7 @@ canary rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [
 </div>
 <h2 id="canary-alerts"><code>canary alerts</code></h2>
 <p>Alert-source coverage: which of the expected producers claim coverage and the disclosed per-rule gaps.</p>
-<p>Guard <code>read-only</code>. CLI only, with no MCP tool: alert-source coverage diagnostic for the operator watching push-delivery readiness; CLI-first like <code>brief</code> — an agent inspecting alert internals should read the issue #19 surfaces deliberately, not via a routine tool call.</p>
+<p>Guard <code>read-only</code>. CLI only, with no MCP tool: alert-source coverage diagnostic for the operator watching push-delivery readiness; an agent inspecting alert internals should read the issue #19 surfaces deliberately, not through a routine MCP tool call.</p>
 <pre><code class="language-text">canary alerts [--json]
 </code></pre>
 <p><strong>Flags</strong></p>

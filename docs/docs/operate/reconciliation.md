@@ -1,12 +1,18 @@
 # Reconciliation
 
-Updated: 2026-07-25 12:07 CEST
+Updated: 2026-08-04 22:57 CEST
 
 `canary recon` matches the external cash flows on your IBKR Flex statements
 against the capital events you declared. The statement is the broker's record.
 The declared ledger and the local order journal are claims about intent, never
 truth, so when the two disagree the report says so rather than splitting the
 difference.
+
+The report is built for one selected account and paper/live mode. When a Flex
+response contains statements for sibling accounts, Canary skips those
+statements and reports how many it skipped. If it cannot resolve one account,
+or no retained statement belongs to that account, reconciliation stays
+unavailable instead of pooling the data.
 
 One number depends on this. Drawdown is measured from a cash-flow-adjusted peak,
 so equity that moved because you moved money has to be separated from equity

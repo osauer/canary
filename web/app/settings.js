@@ -1,5 +1,5 @@
 import { renderProtectionPanel } from "./protection.js";
-import { $, currentSettings, labelize, money, purgeRestoreSettingEnabled, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
+import { $, accountBaseCurrency, currentSettings, labelize, money, purgeRestoreSettingEnabled, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
 import { state } from "./state.js";
 import { currentAccountContext, renderUnderlyings } from "./underlyings.js";
 
@@ -71,7 +71,7 @@ function tradingLimitSummary(limits = {}) {
   const parts = [];
   // [trading].max_notional is defined in the account currency (see
   // config.Trading), so label it with the account base, never a fixed USD.
-  if (typeof notional === "number") parts.push(money(notional, state.snapshot?.account?.base_currency || ""));
+  if (typeof notional === "number") parts.push(money(notional, accountBaseCurrency(state.snapshot?.account || {})));
   if (typeof optionQty === "number") parts.push(`${optionQty} opt`);
   return parts.join(" / ") || "--";
 }

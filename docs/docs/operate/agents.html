@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="working-with-agents">Working with agents</h1>
-<p>Updated: 2026-07-25 20:23 CEST</p>
+<p>Updated: 2026-08-04 22:57 CEST</p>
 <p><code>canary mcp</code> makes read/status CLI operations and preview-only stock/ETF order drafts available to MCP clients: Claude Code, Claude Desktop, or any other host that speaks the protocol. The same daemon serves the CLI and MCP, and the MCP layer is a thin adapter over the existing RPCs. Official market calendars and stock/ETF quotes are also available; quote resources can be read once or subscribed to for streaming updates.</p>
 <p>For exact tool parameters and JSON envelopes, see the auto-generated <a href="../reference/mcp-tools.html">MCP tools reference</a>. For protocol mechanics, see the upstream <a href="https://modelcontextprotocol.io/">Model Context Protocol spec</a>.</p>
 <h2 id="setup">Setup</h2>
@@ -117,8 +117,11 @@ canary status                         # daemon health, gateway connection, data 
 <code>~/.claude/skills/&lt;name&gt;/</code>, but that creates only a skill command. Use the
 plugin path for normal Canary installs because the MCP tools and safety hooks are
 plugin components.</p>
-<p>The tools mirror the agent-appropriate CLI commands: <code>canary_status</code> ↔ <code>canary status</code>, <code>canary_calendar</code> ↔ <code>canary calendar</code>, <code>canary_gamma</code> ↔ <code>canary gamma</code>, <code>canary_market_events</code> ↔ <code>canary market-events</code>, <code>canary_order_preview</code> ↔ <code>canary order preview</code>. <code>canary_watch</code> maps to the enriched <code>canary watch</code> by default, or to read-only <code>canary watch --list</code> when <code>include_quotes</code> is false. Local lifecycle verbs stay outside the tool set: <code>setup</code>, <code>update</code>, <code>restart</code>, <code>mcp</code>, and <code>daemon</code>. Claude calls the tools as MCP operations rather than CLI subcommands.</p>
+<p>The tools mirror the agent-appropriate CLI commands: <code>canary_status</code> ↔ <code>canary status</code>, <code>canary_brief</code> ↔ <code>canary brief</code>, <code>canary_calendar</code> ↔ <code>canary calendar</code>, <code>canary_gamma</code> ↔ <code>canary gamma</code>, <code>canary_market_events</code> ↔ <code>canary market-events</code>, <code>canary_order_preview</code> ↔ <code>canary order preview</code>. <code>canary_watch</code> maps to the enriched <code>canary watch</code> by default, or to read-only <code>canary watch --list</code> when <code>include_quotes</code> is false. Local lifecycle verbs stay outside the tool set: <code>setup</code>, <code>update</code>, <code>restart</code>, <code>mcp</code>, and <code>daemon</code>. Claude calls the tools as MCP operations rather than CLI subcommands.</p>
 <h2 id="example-conversations">Example conversations</h2>
+<h3 id="what-do-i-need-to-know-before-the-open">&quot;What do I need to know before the open?&quot;</h3>
+<p>→ Claude invokes <code>canary_brief</code>.</p>
+<p>The daemon returns the same Review/Ready briefing served to the terminal and paired app. Review covers what changed since the last regular close; Ready covers today's market, risk capacity, protection work, process clocks, and missing inputs. The MCP tool is read-only and cannot sign off or stamp the brief.</p>
 <h3 id="is-the-market-regime-favorable-right-now">&quot;Is the market regime favorable right now?&quot;</h3>
 <p>→ Claude invokes <code>canary_regime</code>.</p>
 <p>Returns the eight-row dashboard. Each row carries raw measurements, compact band/as-of metadata, scoped warnings when data is stale or unavailable, and a <code>streak</code> field when the row is rankable. The top-level envelope also carries lifecycle stage, readiness, source health, and semantic fingerprints for monitor dedupe.</p>
@@ -191,6 +194,7 @@ term coverage the result stays rankable, disclosing the missing bucket in
 <li><strong>Chain follow-ups freely.</strong> Each tool call is cheap (cached when possible). &quot;And what about gamma for those?&quot; or &quot;How did that look yesterday?&quot; generate natural follow-up tool calls.</li>
 <li><strong>For the dashboard, ask &quot;how does the market regime look?&quot;</strong> It triggers <code>canary_regime</code>, which returns the eight-row dashboard in one call. Faster than asking about each indicator separately.</li>
 <li><strong>For scheduled stress checks, ask for the stress read.</strong> &quot;How does market weather interact with my portfolio right now?&quot; triggers <code>canary_stress</code>, which returns the whole decision surface plus evidence rows in one call, so the assistant never composes its own escalation ladder.</li>
+<li><strong>For the daily desk, ask what needs attention before the open.</strong> That triggers <code>canary_brief</code>, so Claude reads Canary's assembled Review/Ready result instead of rebuilding it from several smaller tools.</li>
 <li><strong>For sizing, give Claude the full plan.</strong> &quot;I want to enter AAPL at 180 with a stop at 175 and a target at 195, risking 1% of NLV&quot; lets <code>canary_size</code> return the R-multiple, breakeven win rate, and share count in one round-trip.</li>
 </ul>
 <h2 id="reference">Reference</h2>

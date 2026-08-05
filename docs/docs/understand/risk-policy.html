@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="writing-a-risk-policy">Writing a risk policy</h1>
-<p>Updated: 2026-07-25 12:09 CEST</p>
+<p>Updated: 2026-08-04 22:57 CEST</p>
 <p>The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
 cadence declarations the daemon evaluates against your account.
@@ -235,10 +235,12 @@ and the monthly pulse falls on the first working day at 09:00 — so the keys
 are optional overrides, never approval material. A version bump made for an
 unrelated edit can therefore move a complete policy to <code>unapproved</code> only
 through the non-cadence keys it newly requires.</p>
-<p>Evaluation is account-wide: the ladder measures current equity against the
-cash-flow-adjusted peak, so a revision changes the answer for everything you
-hold at once. No position carries the policy that was in force when it was
-opened.</p>
+<p>Evaluation covers one selected account: the ladder measures that account's
+current equity against its own cash-flow-adjusted peak. Paper and live state are
+kept separate, and switching accounts cannot reuse another account's peak,
+drawdown latch, or reconciliation clock. A policy revision still changes the
+answer for everything held in the selected account at once; no position carries
+the policy that was in force when it was opened.</p>
 <h2 id="bounded-exceptions">Bounded exceptions</h2>
 <pre><code class="language-sh">canary policy override --control &lt;key&gt; --reason &quot;...&quot; --hours &lt;n&gt;
 </code></pre>

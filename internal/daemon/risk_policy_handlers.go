@@ -61,10 +61,11 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 		health = append(health, rpc.SourceHealth{Source: "account", Status: "ok", AsOf: acct.AsOf})
 	}
 
-	res.Capital = s.riskCapital.Report(mgr.policy, obs, s.currentBrokerStateScope())
+	scope := s.currentBrokerStateScope()
+	res.Capital = s.riskCapital.Report(mgr.policy, obs, scope)
 	res.Limits = risk.ConstitutionLimits(mgr.policy)
-	res.Overrides = s.riskCapital.ActiveOverrides()
-	res.Cadence = s.riskCapital.Artefacts()
+	res.Overrides = s.riskCapital.ActiveOverridesForScope(scope)
+	res.Cadence = s.riskCapital.ArtefactsForScope(scope)
 	res.Inventory = s.riskPolicyInventory(mgr.policy)
 	res.InputHealth = health
 	return res, nil
@@ -131,6 +132,10 @@ func (s *Server) handleRiskPolicyCapitalEvent(_ context.Context, req *rpc.Reques
 	}
 	s.reconMu.Lock()
 	defer s.reconMu.Unlock()
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		return nil, errBadRequest("capital events require one selected broker account")
+	}
 	var recon *capitalReconRef
 	if strings.EqualFold(strings.TrimSpace(p.Type), "reconcile") {
 		if strings.TrimSpace(p.Report) == "" {
@@ -138,14 +143,17 @@ func (s *Server) handleRiskPolicyCapitalEvent(_ context.Context, req *rpc.Reques
 			// pass its id through the exact same gate as an explicit id.
 			p.Report = s.buildReconReport().ReportID
 		}
-		rep, err := s.reconcileReportGate(p.Report)
+		rep, err := s.reconcileReportGateForScope(p.Report, scope)
 		if err != nil {
 			return nil, err
 		}
 		recon = &capitalReconRef{ReportID: rep.ReportID, CoverageTo: rep.CoverageTo}
 	}
+	if !sameBrokerScope(scope, s.currentBrokerStateScope()) {
+		return nil, errBadRequest("the selected broker account changed while the capital event was being checked; review the current state and retry")
+	}
 	pol := s.riskPolicies.snapshot().policy
-	ev, err := s.riskCapital.ApplyCapitalEventForPolicy(p, normalizedWriteOrigin(p.Origin), pol, recon)
+	ev, err := s.riskCapital.ApplyCapitalEventForPolicyScope(p, normalizedWriteOrigin(p.Origin), pol, scope, recon)
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
@@ -163,23 +171,29 @@ func (s *Server) handleRiskPolicyCapitalEvent(_ context.Context, req *rpc.Reques
 // outages is a one-shot override on capital.max_unreconciled_days, not a
 // soft mode here.
 func (s *Server) reconcileReportGate(reportID string) (*rpc.ReconResult, error) {
-	rep, blockers := s.reconcileReportAssessment(reportID)
+	return s.reconcileReportGateForScope(reportID, s.currentBrokerStateScope())
+}
+
+func (s *Server) reconcileReportGateForScope(reportID string, scope brokerStateScope) (*rpc.ReconResult, error) {
+	rep, blockers := s.reconcileReportAssessmentForScope(reportID, scope)
 	if len(blockers) > 0 {
 		return nil, errBadRequest(blockers[0])
 	}
 	return rep, nil
 }
 
-// reconcileReportAssessment is the single source of truth for report
-// signability. The write gate returns its first blocker verbatim; the daily
-// brief exposes the full ordered list. No caller may infer signability from a
-// second set of conditions.
-func (s *Server) reconcileReportAssessment(reportID string) (*rpc.ReconResult, []string) {
+func (s *Server) reconcileReportAssessmentForScope(reportID string, scope brokerStateScope) (*rpc.ReconResult, []string) {
 	reportID = strings.TrimSpace(reportID)
 	if reportID == "" {
 		return nil, []string{"current reconcile report is unavailable to sign off; review `canary recon` for its blocking status"}
 	}
-	rep := s.buildReconReport()
+	if !brokerScopeConcrete(scope) {
+		return nil, []string{"reconciliation requires one selected broker account"}
+	}
+	rep, snapshot := s.buildReconReportWithSnapshot()
+	if !sameBrokerScope(scope, s.currentBrokerStateScope()) || (snapshot != nil && !sameBrokerScope(scope, snapshot.Scope)) {
+		return rep, []string{"the selected broker account changed while the reconciliation report was being checked; review the current report and retry"}
+	}
 	switch rep.Status {
 	case rpc.ReconStatusActive, rpc.ReconStatusDegraded:
 	case rpc.ReconStatusUnapproved:
@@ -315,11 +329,18 @@ func (s *Server) handleReconDismiss(_ context.Context, req *rpc.Request) (*rpc.R
 	}
 	s.reconMu.Lock()
 	defer s.reconMu.Unlock()
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		return nil, errBadRequest("reconciliation requires one selected broker account")
+	}
 	lineID, reason := strings.TrimSpace(p.LineID), strings.TrimSpace(p.Reason)
 	if lineID == "" || reason == "" {
 		return nil, errBadRequest("recon dismiss needs both --line and --reason")
 	}
-	rep := s.buildReconReport()
+	rep, snapshot := s.buildReconReportWithSnapshot()
+	if !sameBrokerScope(scope, s.currentBrokerStateScope()) || (snapshot != nil && !sameBrokerScope(scope, snapshot.Scope)) {
+		return nil, errBadRequest("the selected broker account changed while the reconciliation report was being checked; review the current report and retry")
+	}
 	found := false
 	for _, ex := range rep.Exceptions {
 		if ex.LineID == lineID {
@@ -334,10 +355,13 @@ func (s *Server) handleReconDismiss(_ context.Context, req *rpc.Request) (*rpc.R
 		return nil, errBadRequest("line " + lineID + " is not an exception on the current report; run `canary recon` for the live list")
 	}
 	now := time.Now().UTC()
-	if err := s.riskCapital.RecordGovernanceEvent(map[string]any{
+	if !sameBrokerScope(scope, s.currentBrokerStateScope()) {
+		return nil, errBadRequest("the selected broker account changed before the reconciliation decision could be saved; review the current report and retry")
+	}
+	if err := s.riskCapital.RecordGovernanceEventForScope(map[string]any{
 		"version": 1, "at": now, "kind": "recon_dismiss", "line_id": lineID, "reason": reason,
 		"report": rep.ReportID, "policy_fingerprint": constitutionFingerprint(s.riskPolicies.snapshot().policy),
-	}); err != nil {
+	}, scope); err != nil {
 		return nil, fmt.Errorf("persist reconciliation dismissal: %w", err)
 	}
 	return &rpc.RiskPolicyWriteResult{OK: true, At: now,
@@ -353,7 +377,7 @@ func (s *Server) handleRiskPolicyOverride(_ context.Context, req *rpc.Request) (
 		return nil, err
 	}
 	mgr := s.riskPolicies.snapshot()
-	rec, err := s.riskCapital.GrantOverride(p, mgr.policy)
+	rec, err := s.riskCapital.GrantOverrideForScope(p, mgr.policy, s.currentBrokerStateScope())
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
@@ -372,7 +396,7 @@ func (s *Server) handleRiskPolicyResetDrawdown(_ context.Context, req *rpc.Reque
 		return nil, err
 	}
 	mgr := s.riskPolicies.snapshot()
-	if err := s.riskCapital.ResetDrawdown(p.Reason, mgr.policy); err != nil {
+	if err := s.riskCapital.ResetDrawdownForScope(p.Reason, mgr.policy, s.currentBrokerStateScope()); err != nil {
 		return nil, errBadRequest(err.Error())
 	}
 	return &rpc.RiskPolicyWriteResult{
@@ -405,7 +429,7 @@ func (s *Server) handleRiskPolicyCorrectPeak(_ context.Context, req *rpc.Request
 		}
 		peak, asOf, source = bt.Replay.ReplayedPeakBase, bt.Replay.ReplayedPeakAt, "statement_replay"
 	}
-	from, err := s.riskCapital.CorrectPeak(peak, asOf, source, p.Reason, mgr.policy)
+	from, err := s.riskCapital.CorrectPeakForScope(peak, asOf, source, p.Reason, mgr.policy, s.currentBrokerStateScope())
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
@@ -424,7 +448,7 @@ func (s *Server) handleRiskPolicyArtefact(_ context.Context, req *rpc.Request) (
 		return nil, err
 	}
 	mgr := s.riskPolicies.snapshot()
-	rec, err := s.riskCapital.RecordArtefact(p, mgr.policy)
+	rec, err := s.riskCapital.RecordArtefactForScope(p, mgr.policy, s.currentBrokerStateScope())
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}

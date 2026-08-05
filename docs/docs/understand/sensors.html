@@ -438,6 +438,12 @@ closed, typed ledger field set; aggregate ordinary and foreign-account rows fail
 closed. Daily P&amp;L is required during the US equity regular session. Silence
 outside the session is <code>not_due</code>, leaves otherwise current account evidence
 healthy, and keeps the P&amp;L-specific observation explicitly unavailable.</p>
+<p>Account and positions JSON also carry an <code>authority</code> block. It names the one
+account and paper/live mode, the source, whether the result is available, and
+whether it is current, stale, or of unknown age. Account summary fields each
+have an availability flag, so <code>0</code> means zero only when that field was actually
+received. An unresolved or conflicting account scope stays unavailable; a list
+of managed accounts is never treated as one combined account.</p>
 <p>Missing, stale, partial, or failed required inputs produce degraded/failed input
 health and normally <code>confirm_inputs</code> with blocked readiness. Reg SHO and halt
 health are required for a held book. Borrow inventory and fee health become

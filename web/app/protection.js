@@ -3,7 +3,7 @@ import { marketEventFlagVisible, marketEventHealthItems, marketEventIDLabel, mar
 import { refreshOpenOrders } from "./orders.js";
 import { renderAll } from "./render-runtime.js";
 import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
-import { $, blockerText, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
+import { $, accountBaseCurrency, blockerText, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
 import { currentMarketCalendar, marketSessionLabel } from "./shell.js";
 import { state } from "./state.js";
 
@@ -975,7 +975,7 @@ function protectionExecutionTriggerLabel(semantics = {}) {
 // base-converted amount to the contract currency, or anything to USD —
 // unknown stays "" and renders as a bare number.
 function protectionLossCurrency(usedBase, risk = {}) {
-  if (usedBase) return risk.base_currency || state.snapshot?.account?.base_currency || "";
+  if (usedBase) return risk.base_currency || accountBaseCurrency(state.snapshot?.account || {});
   return risk.currency || "";
 }
 

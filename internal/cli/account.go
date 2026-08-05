@@ -53,8 +53,23 @@ func renderAccountText(env *Env, a *rpc.AccountResult) int {
 // rest of the snapshot reading top-to-bottom in priority order.
 func renderAccountTextTo(env *Env, out io.Writer, a *rpc.AccountResult) int {
 	fmt.Fprintln(out)
-	base := nonEmpty(a.BaseCurrency, "USD")
-	header := fmt.Sprintf("Account  %s · base=%s", nonEmpty(a.AccountID, "—"), base)
+	fields, typedFields := accountResultFields(a)
+	base := strings.TrimSpace(a.BaseCurrency)
+	if typedFields && !fields.BaseCurrency {
+		base = ""
+	}
+	accountID := a.AccountID
+	accountMode := ""
+	if a.Authority != nil {
+		if a.Authority.Scope.AccountID != "" {
+			accountID = a.Authority.Scope.AccountID
+		}
+		accountMode = a.Authority.Scope.AccountMode
+	}
+	header := fmt.Sprintf("Account  %s · base=%s", nonEmpty(accountID, "—"), nonEmpty(base, "—"))
+	if accountMode != "" {
+		header += " · " + accountMode
+	}
 	if a.AccountType != "" {
 		header += " · type=" + env.dim(a.AccountType)
 	}
@@ -64,6 +79,16 @@ func renderAccountTextTo(env *Env, out io.Writer, a *rpc.AccountResult) int {
 	// Width 14 fits the widest typical NLV with a thousands-grouped
 	// currency symbol ("€ 992,841.68" is 12; -€ 999,999.99 is 13).
 	const valW = 14
+	fieldAvailable := func(available bool) bool {
+		return !typedFields || (a.Authority.Availability == rpc.AccountDataAvailable && fields.BaseCurrency && available)
+	}
+	money := func(value float64, available bool) string {
+		return env.formatAccountMoneyRight(value, base, valW, fieldAvailable(available), typedFields)
+	}
+	signedMoney := func(value float64, available bool) string {
+		return env.formatAccountSignedMoneyRight(value, base, valW, fieldAvailable(available), typedFields)
+	}
+	writeAccountAuthorityNotice(env, out, a.Authority)
 
 	// Hero block: net liquidation + today's delta. These are the two
 	// numbers a trader scans for first; everything below is supporting
@@ -71,38 +96,42 @@ func renderAccountTextTo(env *Env, out io.Writer, a *rpc.AccountResult) int {
 	// from call one — the lazy reqPnL subscription kicks in on the
 	// first call and lands a value on the next refresh.
 	fmt.Fprintf(out, "  Net liquidation         %s\n",
-		env.bold(env.formatMoneyNegCcyRight(a.NetLiquidation, base, valW)))
-	writeDailyPnLLine(env, out, a, base, valW)
+		env.bold(money(a.NetLiquidation, fields.NetLiquidation)))
+	writeDailyPnLLine(env, out, a, base, valW, fieldAvailable(fields.DailyPnL), typedFields)
 
 	fmt.Fprintln(out, env.dim("  Balances"))
-	fmt.Fprintf(out, "    Buying power            %s\n", env.formatMoneyNegCcyRight(a.BuyingPower, base, valW))
-	fmt.Fprintf(out, "    Available funds         %s\n", env.formatMoneyNegCcyRight(a.AvailableFunds, base, valW))
-	fmt.Fprintf(out, "    Excess liquidity        %s\n", env.formatMoneyNegCcyRight(a.ExcessLiquidity, base, valW))
-	fmt.Fprintf(out, "    Total cash              %s\n", env.formatMoneyNegCcyRight(a.TotalCash, base, valW))
-	fmt.Fprintf(out, "    Gross position value    %s\n", env.formatMoneyNegCcyRight(a.GrossPositionValue, base, valW))
-	fmt.Fprintf(out, "    Cushion                 %s\n", env.formatCushion(a.Cushion, valW))
+	fmt.Fprintf(out, "    Buying power            %s\n", money(a.BuyingPower, fields.BuyingPower))
+	fmt.Fprintf(out, "    Available funds         %s\n", money(a.AvailableFunds, fields.AvailableFunds))
+	fmt.Fprintf(out, "    Excess liquidity        %s\n", money(a.ExcessLiquidity, fields.ExcessLiquidity))
+	fmt.Fprintf(out, "    Total cash              %s\n", money(a.TotalCash, fields.TotalCash))
+	fmt.Fprintf(out, "    Gross position value    %s\n", money(a.GrossPositionValue, fields.GrossPositionValue))
+	fmt.Fprintf(out, "    Cushion                 %s\n", env.formatAccountCushion(a.Cushion, valW, !typedFields || (a.Authority.Availability == rpc.AccountDataAvailable && fields.Cushion), typedFields))
 
 	// Session P&L: inception-to-now Unrealized (vs cost basis on every
 	// open position) plus today's Realized closed-trade total. Sign-
 	// coloured both directions. Different time horizon than the Daily
 	// P&L line above (start-of-trading-day delta from reqPnL).
 	fmt.Fprintln(out, env.dim("  Session P&L"))
-	fmt.Fprintf(out, "    Unrealized (open)       %s\n", env.formatSignedMoneyRight(a.UnrealizedPnL, base, valW))
-	fmt.Fprintf(out, "    Realized (today)        %s\n", env.formatSignedMoneyRight(a.RealizedPnL, base, valW))
+	fmt.Fprintf(out, "    Unrealized (open)       %s\n", signedMoney(a.UnrealizedPnL, fields.UnrealizedPnL))
+	fmt.Fprintf(out, "    Realized (today)        %s\n", signedMoney(a.RealizedPnL, fields.RealizedPnL))
 
 	fmt.Fprintln(out, env.dim("  Margin"))
-	fmt.Fprintf(out, "    Initial                 %s\n", env.formatMoneyNegCcyRight(a.InitialMargin, base, valW))
-	fmt.Fprintf(out, "    Maintenance             %s\n", env.formatMoneyNegCcyRight(a.MaintenanceMargin, base, valW))
+	fmt.Fprintf(out, "    Initial                 %s\n", money(a.InitialMargin, fields.InitialMargin))
+	fmt.Fprintf(out, "    Maintenance             %s\n", money(a.MaintenanceMargin, fields.MaintenanceMargin))
 
 	// Look-ahead block: only when at least one value lands. Cash accounts
 	// (and stub gateways pre-handshake) leave the whole quad zero, which
 	// would otherwise render as four em-dashes adding noise.
-	if a.LookAheadInitMargin != 0 || a.LookAheadMaintMargin != 0 || a.LookAheadAvailable != 0 || a.LookAheadExcess != 0 {
+	hasLookAhead := a.LookAheadInitMargin != 0 || a.LookAheadMaintMargin != 0 || a.LookAheadAvailable != 0 || a.LookAheadExcess != 0
+	if typedFields {
+		hasLookAhead = fields.LookAheadInitMargin || fields.LookAheadMaintMargin || fields.LookAheadAvailable || fields.LookAheadExcess
+	}
+	if hasLookAhead {
 		fmt.Fprintln(out, env.dim("  Look-ahead margin"))
-		fmt.Fprintf(out, "    Initial                 %s\n", env.formatMoneyNegCcyRight(a.LookAheadInitMargin, base, valW))
-		fmt.Fprintf(out, "    Maintenance             %s\n", env.formatMoneyNegCcyRight(a.LookAheadMaintMargin, base, valW))
-		fmt.Fprintf(out, "    Available funds         %s\n", env.formatMoneyNegCcyRight(a.LookAheadAvailable, base, valW))
-		fmt.Fprintf(out, "    Excess liquidity        %s\n", env.formatMoneyNegCcyRight(a.LookAheadExcess, base, valW))
+		fmt.Fprintf(out, "    Initial                 %s\n", money(a.LookAheadInitMargin, fields.LookAheadInitMargin))
+		fmt.Fprintf(out, "    Maintenance             %s\n", money(a.LookAheadMaintMargin, fields.LookAheadMaintMargin))
+		fmt.Fprintf(out, "    Available funds         %s\n", money(a.LookAheadAvailable, fields.LookAheadAvailable))
+		fmt.Fprintf(out, "    Excess liquidity        %s\n", money(a.LookAheadExcess, fields.LookAheadExcess))
 	}
 
 	// reqPnL-stream totals sit at the bottom because the headline figure is
@@ -117,17 +146,66 @@ func renderAccountTextTo(env *Env, out io.Writer, a *rpc.AccountResult) int {
 		fmt.Fprintln(out, env.dim("  Total P&L (reqPnL stream)"))
 		if a.PnLUnrealizedTotal != nil {
 			fmt.Fprintf(out, "    Unrealized              %s\n",
-				env.formatPnLCcyPtrRight(a.PnLUnrealizedTotal, base, valW))
+				env.formatAccountPnLPtrRight(a.PnLUnrealizedTotal, base, valW, fieldAvailable(fields.PnLUnrealizedTotal), typedFields))
 		}
 		if a.PnLRealizedTotal != nil {
 			fmt.Fprintf(out, "    Realized                %s\n",
-				env.formatPnLCcyPtrRight(a.PnLRealizedTotal, base, valW))
+				env.formatAccountPnLPtrRight(a.PnLRealizedTotal, base, valW, fieldAvailable(fields.PnLRealizedTotal), typedFields))
 		}
 	}
 
 	renderCurrencyExposureTo(env, out, a)
-	fmt.Fprintf(out, "  as of %s\n", formatTimeShort(a.AsOf))
+	asOf := a.AsOf
+	if a.Authority != nil && !a.Authority.AsOf.IsZero() {
+		asOf = a.Authority.AsOf
+	}
+	fmt.Fprintf(out, "  as of %s\n", formatTimeShort(asOf))
 	return 0
+}
+
+func accountResultFields(a *rpc.AccountResult) (rpc.AccountFieldAvailability, bool) {
+	if a == nil || a.Authority == nil || a.Authority.Fields == nil {
+		return rpc.AccountFieldAvailability{}, false
+	}
+	return *a.Authority.Fields, true
+}
+
+func writeAccountAuthorityNotice(env *Env, out io.Writer, authority *rpc.AccountDataAuthority) {
+	if authority == nil || (authority.Availability == rpc.AccountDataAvailable && authority.Freshness == rpc.AccountDataFreshnessCurrent) {
+		return
+	}
+	message := accountAuthorityReason(authority.Reason)
+	if message == "" {
+		message = "account data is not current"
+	}
+	fmt.Fprintf(out, "  %s\n", env.yellow("Data note: "+message))
+}
+
+func accountAuthorityReason(reason rpc.AccountDataReason) string {
+	switch reason {
+	case rpc.AccountDataReasonUnstampedCache:
+		return "showing cached account values; their observation time is unknown"
+	case rpc.AccountDataReasonScopeUnresolved:
+		return "one account has not been selected"
+	case rpc.AccountDataReasonScopeConflict:
+		return "the broker data belongs to a different account"
+	case rpc.AccountDataReasonAccountUnbound:
+		return "the broker stream has not identified its account"
+	case rpc.AccountDataReasonAccountMismatch:
+		return "the broker stream account does not match the selected account"
+	case rpc.AccountDataReasonUnprimed:
+		return "the initial portfolio download is not complete"
+	case rpc.AccountDataReasonInvalidPayload:
+		return "the broker sent an invalid account payload"
+	case rpc.AccountDataReasonClockInvalid:
+		return "the observation time is invalid"
+	case rpc.AccountDataReasonReceiptStale:
+		return "the last complete portfolio receipt is stale"
+	case rpc.AccountDataReasonSessionChanged:
+		return "the broker session changed during the read"
+	default:
+		return ""
+	}
 }
 
 // writeDailyPnLLine prints the hero-row Daily P&L line. When the gateway
@@ -135,7 +213,7 @@ func renderAccountTextTo(env *Env, out io.Writer, a *rpc.AccountResult) int {
 // + "(subscribing — value lands on next call)" hint so a first-time user
 // sees the field exists. The first call starts the lazy reqPnL subscription;
 // a later call can carry the observed value.
-func writeDailyPnLLine(env *Env, out io.Writer, a *rpc.AccountResult, base string, w int) {
+func writeDailyPnLLine(env *Env, out io.Writer, a *rpc.AccountResult, base string, w int, available, typed bool) {
 	if a.DailyPnL == nil {
 		fmt.Fprintf(out, "  Daily P&L               %s  %s\n",
 			env.dim(padDash(w)),
@@ -143,7 +221,56 @@ func writeDailyPnLLine(env *Env, out io.Writer, a *rpc.AccountResult, base strin
 		return
 	}
 	fmt.Fprintf(out, "  Daily P&L               %s\n",
-		env.formatPnLCcyPtrRight(a.DailyPnL, base, w))
+		env.formatAccountPnLPtrRight(a.DailyPnL, base, w, available, typed))
+}
+
+func (e *Env) formatAccountMoneyRight(v float64, ccy string, w int, available, typed bool) string {
+	if strings.TrimSpace(ccy) == "" || (typed && !available) {
+		return e.dim(padDash(w))
+	}
+	if !typed {
+		return e.formatMoneyNegCcyRight(v, ccy, w)
+	}
+	s := formatMoneyCcyForPnL(v, ccy)
+	if pad := w - len(s); pad > 0 {
+		s = strings.Repeat(" ", pad) + s
+	}
+	return e.colorBySign(v, s, signNeg)
+}
+
+func (e *Env) formatAccountSignedMoneyRight(v float64, ccy string, w int, available, typed bool) string {
+	if strings.TrimSpace(ccy) == "" || (typed && !available) {
+		return e.dim(padDash(w))
+	}
+	if !typed {
+		return e.formatSignedMoneyRight(v, ccy, w)
+	}
+	s := formatMoneyCcyForPnL(v, ccy)
+	if v > 0 {
+		s = "+" + s
+	}
+	if pad := w - len(s); pad > 0 {
+		s = strings.Repeat(" ", pad) + s
+	}
+	return e.colorBySign(v, s, signPnL)
+}
+
+func (e *Env) formatAccountPnLPtrRight(v *float64, ccy string, w int, available, typed bool) string {
+	if v == nil || strings.TrimSpace(ccy) == "" || (typed && !available) {
+		return e.dim(padDash(w))
+	}
+	return e.formatPnLCcyRight(*v, ccy, w)
+}
+
+func (e *Env) formatAccountCushion(v float64, w int, available, typed bool) string {
+	if typed && !available {
+		return e.dim(padDash(w))
+	}
+	if !typed || v != 0 {
+		return e.formatCushion(v, w)
+	}
+	s := padLeftVisible("0.00 ⚠", w)
+	return e.red(s)
 }
 
 // formatCushion renders the margin cushion as a 2-decimal ratio with a
@@ -199,7 +326,10 @@ func renderCurrencyExposureTo(env *Env, out io.Writer, a *rpc.AccountResult) {
 	if len(a.CurrencyExposure) == 0 {
 		return
 	}
-	base := nonEmpty(a.BaseCurrency, "USD")
+	base := strings.TrimSpace(a.BaseCurrency)
+	if base == "" {
+		return
+	}
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Currency exposure  (base=%s)\n", base)
 	fmt.Fprintln(out, env.rule(60))

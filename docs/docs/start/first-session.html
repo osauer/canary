@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="your-first-session">Your first session</h1>
-<p>Updated: 2026-07-25 20:23 CEST</p>
+<p>Updated: 2026-08-04 22:57 CEST</p>
 <p>Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; <a href="install.html">Install and first run</a> covers getting there.</p>
 <p>The terminal output below comes from the repository's fixture renderer (<code>go run cmd/_preview/main.go</code>), which draws the real CLI screens from synthetic data on the placeholder account <code>DU0000000</code>. Your figures will differ. The shape of each screen will not.</p>
 <h2 id="1-prove-the-gateway-is-reachable">1. Prove the gateway is reachable</h2>
@@ -124,6 +124,11 @@ SPX members    cache:2026-05-22, 503 names
 <pre><code class="language-sh">canary account
 </code></pre>
 <p>You get net liquidation and daily P&amp;L on top, then balances, session P&amp;L, margin, look-ahead margin, and the total P&amp;L that IBKR's <code>reqPnL</code> stream reports. A multi-currency account gets a currency-exposure table underneath with the FX rate used for each leg.</p>
+<p>Each result belongs to one selected account. Canary now keeps a real zero apart
+from a value the broker did not send: the terminal prints the missing value as
+unavailable, and JSON includes the account, source, freshness, and a list of
+fields the broker actually supplied. If a login exposes several accounts and
+none is selected, Canary refuses the account read instead of combining them.</p>
 <p>One figure carries into everything else: net liquidation. <code>canary size</code> reads it from this same account snapshot and expresses risk as a percentage of it, so an NLV that looks wrong makes every later sizing wrong in the same direction.</p>
 <p>Leave the look-ahead margin block alone for now. It answers what happens at the next margin cycle, which matters when you are near a limit and not before.</p>
 <h2 id="3-read-the-book-as-risk">3. Read the book as risk</h2>

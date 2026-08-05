@@ -2494,6 +2494,10 @@ type PositionsResult struct {
 	Portfolio          *PositionsPortfolio        `json:"portfolio,omitempty"`
 	ProtectionCoverage *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
 	AccountID          string                     `json:"account_id,omitempty"`
+	// Authority is the account scope and portfolio-stream receipt contract.
+	// It is additive so older stored/test payloads remain readable; current
+	// daemon responses always populate it.
+	Authority *AccountDataAuthority `json:"authority,omitempty"`
 }
 
 // PositionsPortfolio is the daemon-side aggregator across all open legs.
@@ -2607,9 +2611,10 @@ type UnderlyingExposure struct {
 // gateway didn't deliver it (older server versions or non-margin accounts).
 // LookAhead* fields project the post-overnight-margin-cycle state — useful
 // to spot "fine now, blown by tonight" cases on portfolio-margin books.
-// All scalar fields are zero (not nil) on absence — the renderer treats
-// zero as "show em-dash" for non-money fields like Cushion to avoid
-// fabricating signal.
+// Legacy scalar fields remain float64 for wire compatibility. Authority.Fields
+// is the source of truth for whether each one was observed: an available field
+// with value zero is a genuine zero, while an unavailable field's numeric zero
+// is only the Go zero value and must render as missing.
 //
 // DailyPnL / PnLUnrealizedTotal / PnLRealizedTotal are populated from
 // the gateway's reqPnL stream (TWS msg 94). DailyPnL is start-of-
@@ -2658,6 +2663,9 @@ type AccountResult struct {
 	// market-data surfaces.
 	DataType string    `json:"data_type,omitempty"`
 	AsOf     time.Time `json:"as_of"`
+	// Authority carries the concrete account/mode, producer, freshness, and
+	// per-field availability. Current daemon responses always populate it.
+	Authority *AccountDataAuthority `json:"authority,omitempty"`
 }
 
 // DailyPnLObservation is the value-free health record for the account Daily
