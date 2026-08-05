@@ -213,9 +213,16 @@ func toolLiteralMethods(tool *ast.CompositeLit, fieldName string) map[string]boo
 
 // A starting daemon verifies its database before it publishes its socket, and
 // that wait grows with the file. Opening the connection must get that budget
-// rather than the tool's own: charging it to canary_status's two seconds
-// turned a healthy boot into a tool timeout.
+// rather than the tool's own: charging startup to a tool deadline can turn a
+// healthy boot into a tool timeout.
 func TestMCPToolDialGetsStartupBudgetNotToolBudget(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	startup := dial.StartupBudget()
+	toolBudget := mcpToolCallTimeout("canary_status", nil)
+	if startup == toolBudget {
+		t.Fatalf("test fixture does not distinguish startup budget %s from tool budget %s", startup, toolBudget)
+	}
+
 	var dialBudget time.Duration
 	srv := NewServer(nil, "test")
 	srv.SetContextDialer(func(ctx context.Context) (*dial.Conn, error) {
@@ -230,10 +237,9 @@ func TestMCPToolDialGetsStartupBudgetNotToolBudget(t *testing.T) {
 	if err := srv.Serve(context.Background(), in, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Serve: %v", err)
 	}
-	startup := dial.StartupBudget()
-	toolBudget := mcpToolCallTimeout("canary_status", nil)
-	if dialBudget <= toolBudget || dialBudget > startup {
-		t.Fatalf("dial budget = %s, want more than the %s tool budget and at most the %s startup budget", dialBudget, toolBudget, startup)
+	const schedulingMargin = 100 * time.Millisecond
+	if delta := startup - dialBudget; delta < 0 || delta > schedulingMargin {
+		t.Fatalf("dial budget = %s, want within %s of startup budget %s rather than tool budget %s", dialBudget, schedulingMargin, startup, toolBudget)
 	}
 }
 
