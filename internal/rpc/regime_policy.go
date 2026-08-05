@@ -483,3 +483,45 @@ func HeuristicThresholds(label, green, yellow, red, trip string) *RegimeThreshol
 		PendingBacktest: true,
 	}
 }
+
+// regimeThresholdText is one indicator's published band prose. Label is the
+// threshold-set version identity, persisted as
+// regime_indicators.thresholds_label so the calibration corpus can be
+// partitioned by the values a decision was produced under — not a display
+// name, which every renderer supplies for itself.
+type regimeThresholdText struct{ label, green, yellow, red, trip string }
+
+// regimeThresholdTexts is the single source for published band prose.
+//
+// It was two hand-maintained copies, and they drifted: the backtest builder
+// published four boundaries as strict (>1.00, >110, >75 bp, >2%) where the
+// classifiers are inclusive, so a reading exactly on the line was documented
+// as the band below the one it actually lands in. It also passed a display
+// string as the label, which left replayed rows unpartitionable by
+// threshold-set version.
+//
+// Prose is prose and cannot be proven against the code by the compiler. When a
+// classifier boundary moves, this table moves with it — regimelab's boundary
+// probe bisects each classifier and compares the parsed claims here against
+// what the code does, which is what caught the drift.
+var regimeThresholdTexts = map[string]regimeThresholdText{
+	RegimeIndicatorVIXTerm:   {"vix_term_structure_v1", "VIX/VIX3M < 0.92", "0.92 <= VIX/VIX3M < 1.00", "VIX/VIX3M >= 1.00", "trips >=1.00"},
+	RegimeIndicatorVolOfVol:  {"vvix_daily_v1", "VVIX < 90", "90 <= VVIX < 110", "VVIX >= 110", "trips >=110"},
+	RegimeIndicatorHYGSPY:    {"hyg_spy_credit_proxy_v1", "HYG >= 50-day SMA", "HYG < 50-day SMA", "HYG < 50-day SMA and SPY >= 97% of 52-week high", "trips HYG <50dma with SPY >=97% of 52w high"},
+	RegimeIndicatorCredit:    {"hy_ig_oas_v1", "HY OAS < 4.0 and 20d widening < 0.50 pp", "HY OAS 4.0-5.5 or 20d widening >= 0.50 pp", "HY OAS >= 5.5 or 20d widening >= 1.00 pp", "trips HY OAS >=5.5"},
+	RegimeIndicatorFunding:   {"funding_cp_tbill_v1", "CP/T-bill spread < 25 bp", "25 <= spread < 75 bp", "spread >= 75 bp", "trips >=75 bp"},
+	RegimeIndicatorUSDJPY:    {"usd_jpy_carry_proxy_v1", "yen strengthening < 1% over the week", "yen strengthening 1-2% over the week", "yen strengthening >= 2% over the week", "trips yen +2%/week"},
+	RegimeIndicatorGammaZero: {"dealer_gamma_v3", "spot > 2% above gamma-zero or profile wholly long-gamma", "spot within +/-2% of gamma-zero or mixed gamma profile", "spot below gamma-zero, profile wholly short-gamma, or dominant/equal exposure is amplifying", "trips spot below gamma-zero"},
+	RegimeIndicatorBreadth:   {"spx_breadth_50dma_v1", "SPX members above 50-DMA > 55%", "40% <= members above 50-DMA <= 55%", "members above 50-DMA < 40%", "trips <40% (50d)"},
+}
+
+// RegimeThresholdsFor returns the published band prose for an indicator, or
+// nil when the indicator is unknown. Each call builds a fresh value: the
+// result is embedded per-snapshot and must not be shared across them.
+func RegimeThresholdsFor(indicator string) *RegimeThresholds {
+	t, ok := regimeThresholdTexts[indicator]
+	if !ok {
+		return nil
+	}
+	return HeuristicThresholds(t.label, t.green, t.yellow, t.red, t.trip)
+}
