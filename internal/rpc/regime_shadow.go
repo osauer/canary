@@ -71,9 +71,13 @@ type RegimeShadowRead struct {
 	// Confirming is the arm that gates the two stress stages. Each cluster
 	// contributes only what it carries ABOVE its own red boundary, so no
 	// quantity of sub-red evidence can reach the cutoff however much of it
-	// there is.
+	// there is. The tape then multiplies that sum, so a broken tape over a
+	// board carrying nothing above red multiplies zero.
 	Confirming float64 `json:"confirming"`
-	// Warning is the plain sum and reaches early_warning.
+	// Warning is the cluster sum plus the tape, and reaches early_warning.
+	// The tape is an addend here and a multiplier on Confirming: the shipped
+	// machine warns on a tape break alone and never confirms on one, and this
+	// is that same asymmetry.
 	Warning float64 `json:"warning"`
 	Tape    float64 `json:"tape"`
 	Stage   string  `json:"stage"`
@@ -87,7 +91,7 @@ type RegimeShadowRead struct {
 // under. A change to the anchors, the arms, or the cutoffs must bump it, or
 // the corpus blends models and measures nothing. Same discipline as
 // RegimeCurrencyPolicyVersion.
-const RegimeShadowModel = "regime-shadow-v3"
+const RegimeShadowModel = "regime-shadow-v4"
 
 // Stage cutoffs. Derived, not fitted: under the confirming arm's transform a
 // cluster exactly at its red boundary contributes 0 and one at saturation
@@ -98,6 +102,17 @@ const RegimeShadowModel = "regime-shadow-v3"
 // is a fortnight of calm tape in which only two indicators ever printed red;
 // a cutoff fitted there is fitted to two indicators' noise. Refit only against
 // a corpus that contains stress.
+//
+// The tape multiplier is derived the same way, by reading the shipped
+// machine's own tape arms as a relaxation of its required red count:
+//
+//	confirmed_stress  2 eligible reds → 1 at SPY −2.5%   ratio 2 = 1 + tape(−2.5%)
+//	panic             3 eligible reds → 1 at SPY −4.0%   ratio 3 = 1 + tape(−4.0%)
+//
+// Both land on 1 + tape, on the ramp's own integer labels, which is why the
+// multiplier carries no constant of its own. The shipped machine's third
+// relaxation — 3 reds → 0 at SPY −7% — is the one this model declines; see
+// RegimeShadowTape.
 const (
 	regimeShadowConfirmedCutoff = 1.0
 	regimeShadowPanicCutoff     = 1.5
@@ -182,6 +197,14 @@ func RegimeShadowSecondaryRampFor(indicator string) (green, red, saturation floa
 	return r.green, r.red, r.saturation, true
 }
 
+// RegimeShadowStageFor exposes the arm-to-stage mapping for the analysis
+// harness, which scores candidate arm placements against a stored read. It is
+// the same function the model uses, so a candidate is scored on the shipped
+// cutoffs rather than on a second copy of them.
+func RegimeShadowStageFor(warning, confirming float64, ranked int) string {
+	return regimeShadowStage(&RegimeShadowRead{Warning: warning, Confirming: confirming}, ranked)
+}
+
 // rampStrength maps a reading onto [0,1] through three anchors, clamped
 // outside. Linear in between, so the derivative is finite everywhere and no
 // reading sits on a cliff.
@@ -234,17 +257,35 @@ func regimeShadowPersistence(indicator string, strength float64, stressSessions 
 
 // RegimeShadowTape scores the tape on the same anchors the shipped machine's
 // crash triggers use: 0 at −1.5%, 1 at −2.5%, 2 at −4%, 3 at −7%. It lives
-// here rather than in the daemon so it shares regimeTapeConfirmable with the
-// machine it mirrors — a second copy of that predicate is the drift this
-// codebase has already paid for once.
+// here rather than in the daemon so it shares its session and currency
+// predicates with the machine it mirrors — a second copy of those is the drift
+// this codebase has already paid for once.
 //
-// The term is recorded but does not yet reach a stage. Where its arm belongs
-// is the one part of the model the enumeration could not settle: the shipped
-// −4% trigger also wants two corroborating clusters, so an unconditional arm
-// at the same level confirms stress on an empty board. Carrying the number
-// now lets the corpus answer it.
+// The term multiplies the confirming arm and adds into the warning arm. A day's
+// price is not independent evidence that a regime exists — it is the event the
+// regime is supposed to anticipate — so it may not create a confirmation, only
+// weigh one the clusters already carry. Multiplying is what "may not create"
+// means arithmetically: a board with nothing above red confirms at no tape
+// level, because the tape multiplies zero.
+//
+// Two earlier placements are recorded as failures. An unconditional arm at the
+// ramp's integer labels confirmed stress on a wholly green board; moving the
+// arms to −4%/−7% moved that class rather than removing it. A third — adding
+// the tape only once some cluster is above red — enumerates identically to the
+// multiplier on the discrete alphabet and fails on the continuum: it confirms
+// the instant a reading steps over its red line, which is 2026-06-12 with the
+// tape as amplifier.
+//
+// One divergence from the shipped machine is deliberate. Its −7% arm panics
+// with no cluster evidence at all; here that reading warns. A −7% print over
+// six green clusters is a contradiction the market does not produce, so the
+// state says the board is wrong, not that the regime is confirmed.
 func RegimeShadowTape(r RegimeSnapshotResult) float64 {
-	if !regimeTapeConfirmable(r) || r.HYGSPYDivergence.SPYChangePct == nil {
+	// Currency is the one gate the ramp cannot subsume, and it binds here for
+	// the same reason it binds on a row: the term now carries weight, so a
+	// frozen or overdue print must not multiply a confirmation. Same predicate
+	// the shipped machine gates its own SPY arms on, not a second copy.
+	if !regimeLifecycleSPYTapeCurrent(r) {
 		return 0
 	}
 	drop := -*r.HYGSPYDivergence.SPYChangePct
@@ -302,6 +343,10 @@ func EvaluateRegimeShadow(rows []RegimeShadowIndicatorInput, tape float64, ranke
 		// stops mild evidence accumulating into a confirmation.
 		out.Confirming += math.Max(0, 2*(c-0.5))
 	}
+	// The tape weighs confirmation but never creates it, and warns on its own.
+	// See RegimeShadowTape for why the arms take different shapes.
+	out.Confirming *= 1 + tape
+	out.Warning += tape
 	out.Stage = regimeShadowStage(out, ranked)
 	return out
 }
