@@ -50,7 +50,7 @@ func TestRegimeShadowShallowRedCannotConfirm(t *testing.T) {
 func TestRegimeShadowSubRedCannotAccumulate(t *testing.T) {
 	t.Parallel()
 	var rows []RegimeShadowIndicatorInput
-	for ind, ramp := range regimeShadowRamps {
+	for ind, ramp := range regimeShadowRampAnchors {
 		// Just inside the red boundary, on the calm side.
 		rows = append(rows, shadowRow(ind, ramp.red-1e-9, 9))
 	}
@@ -71,7 +71,7 @@ func TestRegimeShadowSubRedCannotAccumulate(t *testing.T) {
 // fixed in 5788510 was exactly this failure in the shipped tally.
 func TestRegimeShadowMonotoneUnderWorsening(t *testing.T) {
 	t.Parallel()
-	for ind, ramp := range regimeShadowRamps {
+	for ind, ramp := range regimeShadowRampAnchors {
 		sat := regimeGates[ind].FastDepth
 		lo, hi := ramp.green-2, math.Max(sat, ramp.red)+2
 		for _, sessions := range []int{1, 2, 5} {
@@ -96,7 +96,7 @@ func TestRegimeShadowMonotoneUnderWorsening(t *testing.T) {
 // span band changes without reintroducing a cliff.
 func TestRegimeShadowMonotoneInPersistence(t *testing.T) {
 	t.Parallel()
-	for ind, ramp := range regimeShadowRamps {
+	for ind, ramp := range regimeShadowRampAnchors {
 		prev := -1.0
 		for sessions := range 8 {
 			got := EvaluateRegimeShadow([]RegimeShadowIndicatorInput{
@@ -135,7 +135,7 @@ func TestRegimeShadowCurrencyBlocksConfirmation(t *testing.T) {
 // bisection in the analysis harness; this only pins the ramp's shape.
 func TestRegimeShadowRampAnchors(t *testing.T) {
 	t.Parallel()
-	for ind := range regimeShadowRamps {
+	for ind := range regimeShadowRampAnchors {
 		green, red, sat, ok := RegimeShadowRampFor(ind)
 		if !ok {
 			t.Fatalf("%s: no ramp", ind)
@@ -146,7 +146,7 @@ func TestRegimeShadowRampAnchors(t *testing.T) {
 		for _, tc := range []struct {
 			depth, want float64
 		}{{green, 0}, {red, 0.5}, {sat, 1}} {
-			if got := regimeShadowStrength(ind, tc.depth); math.Abs(got-tc.want) > 1e-9 {
+			if got := regimeShadowStrength(ind, tc.depth, nil); math.Abs(got-tc.want) > 1e-9 {
 				t.Errorf("%s strength at %v = %v, want %v", ind, tc.depth, got, tc.want)
 			}
 		}
@@ -163,5 +163,59 @@ func TestRegimeShadowVerdictFloor(t *testing.T) {
 	}, 0, RegimeVerdictFloor-1)
 	if got.Stage != LifecycleDataQuality {
 		t.Fatalf("stage = %q below the verdict floor, want %q", got.Stage, LifecycleDataQuality)
+	}
+}
+
+// TestRegimeShadowCreditScoresBothAxes pins the fix for a real silence in the
+// model. Credit bands red on an OAS level >= 5.5 OR a 20-day widening >=
+// 1.00pp. Scoring the level alone put a widening-driven red — OAS near 4.2,
+// which is barely off the green boundary — at a strength of about 0.07, so a
+// credit event arriving as fast repricing from a low base contributed nothing.
+func TestRegimeShadowCreditScoresBothAxes(t *testing.T) {
+	t.Parallel()
+	levelOnly := 4.2
+	widening := 1.2
+
+	quiet := EvaluateRegimeShadow([]RegimeShadowIndicatorInput{
+		shadowRow(RegimeIndicatorCredit, levelOnly, 3),
+	}, 0, 3)
+	if got := quiet.Indicators[RegimeIndicatorCredit].Strength; got > 0.2 {
+		t.Fatalf("level %v alone scores %v, want a low strength", levelOnly, got)
+	}
+
+	row := shadowRow(RegimeIndicatorCredit, levelOnly, 3)
+	row.SecondaryDepth = &widening
+	repricing := EvaluateRegimeShadow([]RegimeShadowIndicatorInput{row}, 0, 3)
+	if got := repricing.Indicators[RegimeIndicatorCredit].Strength; got <= 0.5 {
+		t.Fatalf("a %vpp 20-day widening scores %v, want above the red anchor 0.5", widening, got)
+	}
+	if repricing.Warning <= quiet.Warning {
+		t.Error("the widening axis did not raise the warning arm")
+	}
+	// Worst-of, not sum: a benign second axis must never lower the score.
+	benign := 0.0
+	row.SecondaryDepth = &benign
+	calm := EvaluateRegimeShadow([]RegimeShadowIndicatorInput{row}, 0, 3)
+	if calm.Indicators[RegimeIndicatorCredit].Strength != quiet.Indicators[RegimeIndicatorCredit].Strength {
+		t.Error("a calm second axis changed the score; the axes must combine worst-of")
+	}
+}
+
+// TestRegimeShadowSecondaryAxisMonotone pins that the second axis cannot break
+// the property the whole model rests on.
+func TestRegimeShadowSecondaryAxisMonotone(t *testing.T) {
+	t.Parallel()
+	for ind, ramp := range regimeShadowSecondaryRamps {
+		prev := -1.0
+		for i := range 300 {
+			v := ramp.green - 1 + (ramp.saturation-ramp.green+2)*float64(i)/299
+			row := shadowRow(ind, -1e9, 3)
+			row.SecondaryDepth = &v
+			got := EvaluateRegimeShadow([]RegimeShadowIndicatorInput{row}, 0, 3)
+			if got.Warning < prev-1e-9 {
+				t.Fatalf("%s secondary axis at %v: warning fell %v -> %v", ind, v, prev, got.Warning)
+			}
+			prev = got.Warning
+		}
 	}
 }

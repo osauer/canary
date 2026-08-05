@@ -38,6 +38,12 @@ func regimeShadowRead(res *rpc.RegimeSnapshotResult) *rpc.RegimeShadowRead {
 		if streak != nil {
 			in.StressSessions = streak.StressSessions
 		}
+		// Credit is the one row banding on two quantities — an OAS level or a
+		// 20-day widening — so the scorer needs both, or a red that arrived as
+		// fast repricing from a low base reads as calm.
+		if key == rpc.RegimeIndicatorCredit {
+			in.SecondaryDepth = res.CreditSpreads.HY20DChange
+		}
 		rows = append(rows, in)
 	}
 	return rpc.EvaluateRegimeShadow(rows, rpc.RegimeShadowTape(*res), res.Composite.ClusterRankedCount)

@@ -46,6 +46,11 @@ type RegimeShadowIndicatorInput struct {
 	// Rankable is false when the row cannot be ranked at all (gamma's
 	// rankability veto, a breadth engine that is not ready).
 	Rankable bool
+	// SecondaryDepth is the reading on an indicator's second banding axis,
+	// where it has one. Credit bands on an OAS level OR a 20-day widening;
+	// only scoring the level makes a widening-driven red read as calm. Nil
+	// for every indicator that bands on one axis.
+	SecondaryDepth *float64
 }
 
 // RegimeShadowIndicator is one indicator's scored contribution.
@@ -99,19 +104,20 @@ const (
 	regimeShadowEarlyCutoff     = 0.25
 )
 
-// regimeShadowRamp is an indicator's strength ramp below the saturation point.
-// Green is the green/yellow boundary and scores 0; Red is the yellow/red
-// boundary and scores 0.5; the 1.0 anchor is the gate table's FastDepth, read
-// from regimeGates rather than repeated here.
-//
-// All three are on the indicator's depth axis, which runs the same direction
-// for every indicator: higher is worse. Anchors are checked against the
-// compiled classifiers by bisection in the analysis harness, because a
-// transcribed boundary is exactly the drift that put four wrong thresholds in
-// the backtest builder's published text.
-type regimeShadowRamp struct{ green, red float64 }
+// regimeShadowRamp is a strength ramp: green scores 0, red scores 0.5, and
+// saturation scores 1.0, linear in between and clamped outside.
+type regimeShadowRamp struct{ green, red, saturation float64 }
 
-var regimeShadowRamps = map[string]regimeShadowRamp{
+// regimeShadowRampAnchors carries each indicator's two band boundaries on its
+// depth axis, which runs the same direction for all eight: higher is worse.
+// The saturation anchor is deliberately absent — it is the gate table's
+// FastDepth, and primaryRamp reads it from there so that number keeps exactly
+// one home. Repeating it here is the drift that put four wrong thresholds in
+// the backtest builder's published text.
+//
+// The boundaries themselves ARE transcribed, so the analysis harness bisects
+// each compiled classifier and checks them.
+var regimeShadowRampAnchors = map[string]struct{ green, red float64 }{
 	RegimeIndicatorVIXTerm:  {0.92, 1.00},
 	RegimeIndicatorVolOfVol: {90, 110},
 	// hyg_spy's yellow/red split is carried by a second axis this model does
@@ -127,40 +133,89 @@ var regimeShadowRamps = map[string]regimeShadowRamp{
 	RegimeIndicatorBreadth:   {-15.0, 0.0},
 }
 
-// RegimeShadowRampFor exposes an indicator's ramp anchors for the analysis
-// harness, which bisects the compiled classifier and checks them. The bool
-// reports whether the indicator is known.
+// primaryRamp assembles an indicator's ramp, taking the saturation anchor from
+// the gate table rather than a second copy.
+func primaryRamp(indicator string) (regimeShadowRamp, bool) {
+	a, ok := regimeShadowRampAnchors[indicator]
+	if !ok {
+		return regimeShadowRamp{}, false
+	}
+	return regimeShadowRamp{a.green, a.red, regimeGates[indicator].FastDepth}, true
+}
+
+// regimeShadowSecondaryRamps carries the second axis for an indicator that
+// bands on more than one, scored on its own ramp and combined worst-of.
+//
+// Credit is the case that forces this. Its band goes red on HY OAS >= 5.5 OR
+// a 20-day widening >= 1.00pp, and those are different quantities. Scoring the
+// level alone put a red reached through the widening path — HY OAS near 4.2 —
+// at a strength of about 0.07, so the model stayed silent on exactly the shape
+// a credit event takes when it arrives as fast repricing from a low base.
+//
+// Saturation is explicit here because the gate table's FastDepth describes the
+// primary axis only. 1.3pp is the same red + 0.6 x (yellow band width) rule the
+// gate table states, and it is the weakest number in this file: 2008 widened
+// high yield by many times it. It says "a 20-day repricing this fast is as bad
+// as this axis can express", not "this is as bad as credit gets".
+var regimeShadowSecondaryRamps = map[string]regimeShadowRamp{
+	RegimeIndicatorCredit: {0.5, 1.0, 1.3},
+}
+
+// RegimeShadowRampFor exposes an indicator's primary ramp anchors for the
+// analysis harness, which bisects the compiled classifier and checks them. The
+// bool reports whether the indicator is known.
 func RegimeShadowRampFor(indicator string) (green, red, saturation float64, ok bool) {
-	r, ok := regimeShadowRamps[indicator]
+	r, ok := primaryRamp(indicator)
 	if !ok {
 		return 0, 0, 0, false
 	}
-	return r.green, r.red, regimeGates[indicator].FastDepth, true
+	return r.green, r.red, r.saturation, true
 }
 
-// regimeShadowStrength ramps a depth reading onto [0,1] through the three
-// anchors, clamped outside. Linear in between, so the derivative is finite
-// everywhere and no reading sits on a cliff.
-func regimeShadowStrength(indicator string, depth float64) float64 {
-	r, ok := regimeShadowRamps[indicator]
+// RegimeShadowSecondaryRampFor exposes an indicator's second axis, if it has
+// one. The bool reports whether it does.
+func RegimeShadowSecondaryRampFor(indicator string) (green, red, saturation float64, ok bool) {
+	r, ok := regimeShadowSecondaryRamps[indicator]
 	if !ok {
-		return 0
+		return 0, 0, 0, false
 	}
-	sat := regimeGates[indicator].FastDepth
+	return r.green, r.red, r.saturation, true
+}
+
+// rampStrength maps a reading onto [0,1] through three anchors, clamped
+// outside. Linear in between, so the derivative is finite everywhere and no
+// reading sits on a cliff.
+func (r regimeShadowRamp) strength(depth float64) float64 {
 	switch {
 	case depth <= r.green:
 		return 0
-	case depth >= sat && sat > r.red:
+	case r.saturation <= r.red:
+		// No saturation anchor above the red boundary: the red boundary is as
+		// far as this axis is calibrated, so it saturates there.
+		return 1
+	case depth >= r.saturation:
 		return 1
 	case depth <= r.red:
 		return 0.5 * (depth - r.green) / (r.red - r.green)
-	case sat > r.red:
-		return 0.5 + 0.5*(depth-r.red)/(sat-r.red)
 	default:
-		// No saturation anchor above the red boundary: the red boundary is
-		// as far as this axis is calibrated, so it saturates there.
-		return 1
+		return 0.5 + 0.5*(depth-r.red)/(r.saturation-r.red)
 	}
+}
+
+// regimeShadowStrength scores an indicator across every axis it bands on and
+// takes the worst, so a red reached on either axis is scored as a red.
+func regimeShadowStrength(indicator string, depth float64, secondary *float64) float64 {
+	r, ok := primaryRamp(indicator)
+	if !ok {
+		return 0
+	}
+	s := r.strength(depth)
+	if secondary != nil {
+		if sr, ok := regimeShadowSecondaryRamps[indicator]; ok {
+			s = math.Max(s, sr.strength(*secondary))
+		}
+	}
+	return s
 }
 
 // regimeShadowPersistence ramps time-in-stress onto [0,1]. Deep evidence needs
@@ -215,7 +270,7 @@ func EvaluateRegimeShadow(rows []RegimeShadowIndicatorInput, tape float64, ranke
 		Clusters: map[string]float64{}, Indicators: map[string]RegimeShadowIndicator{},
 	}
 	for _, in := range rows {
-		if _, known := regimeShadowRamps[in.Indicator]; !known {
+		if _, known := regimeShadowRampAnchors[in.Indicator]; !known {
 			continue
 		}
 		var scored RegimeShadowIndicator
@@ -227,10 +282,10 @@ func EvaluateRegimeShadow(rows []RegimeShadowIndicatorInput, tape float64, ranke
 		case !RegimeCurrencyMayConfirm(in.FreshnessClass):
 			// Banded and visible, but never confirming. Identical policy to
 			// the shipped machine.
-			scored.Strength = regimeShadowStrength(in.Indicator, *in.Depth)
+			scored.Strength = regimeShadowStrength(in.Indicator, *in.Depth, in.SecondaryDepth)
 			scored.Zeroed = "currency"
 		default:
-			scored.Strength = regimeShadowStrength(in.Indicator, *in.Depth)
+			scored.Strength = regimeShadowStrength(in.Indicator, *in.Depth, in.SecondaryDepth)
 			scored.Persistence = regimeShadowPersistence(in.Indicator, scored.Strength, in.StressSessions)
 			scored.Weight = scored.Strength * scored.Persistence
 		}
