@@ -325,18 +325,19 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 	if state.Stage != LifecycleConfirmedStress && state.Stage != LifecyclePanic {
 		return false
 	}
-	cleanRed, cleanYellow := 0, 0
+	cleanRed, cleanAtLeastYellow := 0, 0
 	for i, name := range RegimeClusterNames {
 		if i >= len(cb.Confirmed) || !regimeLifecycleClusterCurrent(r, name) {
 			continue
 		}
 		switch cb.Confirmed[i] {
 		case "red":
+			cleanAtLeastYellow++
 			if i < len(cb.Eligible) && cb.Eligible[i] {
 				cleanRed++
 			}
 		case "yellow":
-			cleanYellow++
+			cleanAtLeastYellow++
 		}
 	}
 	spyCurrent := regimeLifecycleSPYTapeCurrent(r)
@@ -349,7 +350,7 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 	}
 	return cleanRed >= 2 ||
 		(spyCurrent && cleanRed >= 1 && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -2.5)) ||
-		(spyCurrent && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && cleanYellow >= 2) ||
+		(spyCurrent && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && cleanAtLeastYellow >= 2) ||
 		(vixCurrent && cleanRed >= 1 && pctAtLeast(r.VIXTermStructure.VIXChangePct, 20.0))
 }
 
@@ -387,6 +388,14 @@ func tallyRegimeClusters(cb RegimeClusterBands) regimeClusterTally {
 		}
 	}
 	return t
+}
+
+// atLeastYellow counts confirmed clusters at yellow or worse. Lower-bound
+// corroboration counts must use it rather than yellow alone: a cluster that
+// deteriorates from yellow to red would otherwise leave the yellow bucket and
+// quiet the stage.
+func (t regimeClusterTally) atLeastYellow() int {
+	return t.yellow + t.red
 }
 
 // applyRegimeSeverityGovernor applies, in order, the provenance gate and the
@@ -818,7 +827,7 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 	}
 	return regimeTapeConfirmable(r) &&
 		((t.eligibleRed >= 1 && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -2.5)) ||
-			(pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && t.yellow >= 2) ||
+			(pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && t.atLeastYellow() >= 2) ||
 			(t.eligibleRed >= 1 && pctAtLeast(r.VIXTermStructure.VIXChangePct, 20.0)))
 }
 
@@ -829,7 +838,7 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 func regimeLifecycleEarlyWarning(r RegimeSnapshotResult, t regimeClusterTally, unconfirmed []string) bool {
 	return t.eligibleRed+t.provisionalRed >= 1 ||
 		t.red >= 1 ||
-		t.yellow >= 3 ||
+		t.atLeastYellow() >= 3 ||
 		len(unconfirmed) > 0 ||
 		(regimeTapeConfirmable(r) &&
 			(pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) ||
