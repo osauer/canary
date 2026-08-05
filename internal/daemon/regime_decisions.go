@@ -74,6 +74,12 @@ type regimeDecisionLine struct {
 	Composite   rpc.RegimeComposite                `json:"composite"`
 	Indicators  map[string]regimeDecisionIndicator `json:"indicators"`
 	DataQuality []rpc.DataQualityHealth            `json:"data_quality,omitempty"`
+	// Shadow is an alternative scoring of the same snapshot, recorded so the
+	// two models can be compared on real readings. It is written and never
+	// read back: nothing in the decision path consults it, and a replay of
+	// the shipped model must ignore it. Absent when the model declines to
+	// score.
+	Shadow *rpc.RegimeShadowRead `json:"shadow,omitempty"`
 }
 
 type regimeDecisionIndicator struct {
@@ -245,6 +251,7 @@ func buildRegimeDecisionLine(now time.Time, res *rpc.RegimeSnapshotResult, publi
 		Composite:        res.Composite,
 		Indicators:       regimeDecisionIndicators(res),
 		DataQuality:      res.DataQuality,
+		Shadow:           regimeShadowRead(res),
 	}
 	if publication.Revision > 0 {
 		line.SnapshotPublishedAt = publication.PublishedAt.UTC()

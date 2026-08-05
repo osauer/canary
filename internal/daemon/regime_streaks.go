@@ -37,6 +37,21 @@ type StreakEntry struct {
 	// Cleared on any band change. Freshness is NOT latched: overdue data
 	// drops eligibility regardless.
 	EligibleLatched bool `json:"eligible_latched,omitempty"`
+	// StressSessions counts consecutive NY trading sessions since this
+	// indicator was last green. Unlike Sessions it does NOT reset when the
+	// band changes — only a return to green ends the run — so a yellow
+	// deteriorating into red carries its accumulated time instead of
+	// restarting at one.
+	//
+	// Sessions cannot serve this purpose and is not being changed to: it
+	// dates the CURRENT band, which is what eligibility persistence and the
+	// "N sessions in red" prose both mean. This is a second, longer clock.
+	//
+	// Read only by the shadow regime model (rpc.EvaluateRegimeShadow), which
+	// needs a persistence term that cannot fall when the market worsens.
+	// Entries written before the field existed decode to zero, which callers
+	// treat as one session rather than as no history.
+	StressSessions int `json:"stress_sessions,omitempty"`
 	// LastBandAt is when LastBand was last measured from live inputs. It
 	// dates a band held across an input outage so the row can say how old
 	// its reading is instead of implying it is current. Entries written
@@ -318,6 +333,27 @@ func (s *StreakStore) saveLockedContextPublication(ctx context.Context, publicat
 	return nil
 }
 
+// nextStressSessions advances the since-green counter. Green ends a stress
+// run; every other band continues one, so a yellow worsening to red carries
+// its time rather than starting over the way Sessions does.
+//
+// That difference is the whole reason the field exists: a counter that resets
+// when the market gets worse puts a discontinuity at exactly the boundary
+// where evidence matters most.
+func nextStressSessions(prev StreakEntry, exists bool, band, today string) int {
+	if band == "green" {
+		return 0
+	}
+	if !exists {
+		return 1
+	}
+	// A band change inside one session is still one session.
+	if prev.LastSession == today {
+		return max(prev.StressSessions, 1)
+	}
+	return prev.StressSessions + 1
+}
+
 // Tick advances the streak counter for indicatorKey using the supplied
 // (value, band) observation, returns a *StreakInfo representing the
 // updated state, and persists the file. Empty band freezes the counter
@@ -362,6 +398,9 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 	}
 
 	entry, exists := s.entries[indicatorKey]
+	// StressSessions spans band changes, so it is carried across the reset
+	// below rather than computed inside each branch.
+	stress := nextStressSessions(entry, exists, band, today)
 	switch {
 	case !exists:
 		// First-ever observation for this indicator. Start at 1.
@@ -393,6 +432,7 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 			LastValue:   value,
 		}
 	}
+	entry.StressSessions = stress
 	// Reached only for a non-empty band (the freeze path returned above), so
 	// this dates the last LIVE measurement, never a frozen carry.
 	entry.LastBandAt = nowNY
@@ -463,9 +503,10 @@ func (s *StreakStore) Latch(indicatorKey string) {
 
 func entryToInfo(e StreakEntry) *rpc.StreakInfo {
 	return &rpc.StreakInfo{
-		Band:     e.LastBand,
-		Sessions: e.Sessions,
-		Since:    e.SinceDate,
+		Band:           e.LastBand,
+		Sessions:       e.Sessions,
+		Since:          e.SinceDate,
+		StressSessions: e.StressSessions,
 	}
 }
 
