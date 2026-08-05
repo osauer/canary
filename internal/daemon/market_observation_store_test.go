@@ -32,7 +32,7 @@ func openMarketTestCoreStore(t *testing.T) *corestore.Store {
 	return store
 }
 
-func TestSaveMarketStateMarksObservationDecisionEligible(t *testing.T) {
+func TestSaveMarketStatePublishesCurrentWithoutObservation(t *testing.T) {
 	store := openMarketTestCoreStore(t)
 	at := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
 	if err := saveMarketState(store, "market/test", "current.v1", corestore.ObservationInput{
@@ -42,8 +42,12 @@ func TestSaveMarketStateMarksObservationDecisionEligible(t *testing.T) {
 		t.Fatal(err)
 	}
 	observation, ok, err := store.LatestDecisionEligibleObservation(t.Context(), "market/test", "current-code", "measurement.v1")
-	if err != nil || !ok || !observation.DecisionEligible {
-		t.Fatalf("decision observation = %+v ok=%v err=%v", observation, ok, err)
+	if err != nil || ok {
+		t.Fatalf("unexpected decision observation = %+v ok=%v err=%v", observation, ok, err)
+	}
+	doc, ok, err := store.GetStateDocument(t.Context(), "market/test", "current.v1")
+	if err != nil || !ok || string(doc.JSON) != `{"v":1}` {
+		t.Fatalf("current state = %+v ok=%v err=%v", doc, ok, err)
 	}
 }
 

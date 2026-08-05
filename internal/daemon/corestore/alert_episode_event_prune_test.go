@@ -20,9 +20,10 @@ func TestAlertEpisodeEventPruneKeepsTransitionsAndUnknownPayloads(t *testing.T) 
 	backupPath := filepath.Join(dir, "daemon-v4-backup.db")
 	candidatePath := filepath.Join(dir, "daemon-v5-candidate.db")
 	plan := currentMigrationPlan()
-	if len(plan) != alertEpisodePruneMigrationVersionForTest {
-		t.Fatalf("test fixture expects schema %d, got %d", alertEpisodePruneMigrationVersionForTest, len(plan))
+	if len(plan) < alertEpisodePruneMigrationVersionForTest {
+		t.Fatalf("test fixture expects schema %d support, got %d", alertEpisodePruneMigrationVersionForTest, len(plan))
 	}
+	plan = plan[:alertEpisodePruneMigrationVersionForTest]
 
 	store, err := openWithPlan(ctx, Options{Path: sourcePath}, plan[:4])
 	if err != nil {
@@ -169,7 +170,7 @@ func TestAlertEpisodeEventPruneKeepsTransitionsAndUnknownPayloads(t *testing.T) 
 	if err := guardedDB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	upgraded, err := Open(ctx, Options{Path: candidatePath, MinimumHead: &wantHead})
+	upgraded, err := openWithPlan(ctx, Options{Path: candidatePath, MinimumHead: &wantHead}, plan)
 	if err != nil {
 		t.Fatal(err)
 	}

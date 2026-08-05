@@ -299,6 +299,8 @@ func normalizeMembers(members []string) ([]string, error) {
 }
 
 func saveMembersAuthority(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
+	_ = metadata
+	_ = observedAt
 	for range membersAuthorityWriteTries {
 		doc, ok, err := authority.GetStateDocument(ctx, membersAuthorityScope, membersStateKind)
 		if err != nil {
@@ -308,14 +310,10 @@ func saveMembersAuthority(ctx context.Context, authority *corestore.Store, paylo
 		if ok {
 			revision = doc.Revision
 		}
-		_, _, err = authority.CompareAndSwapStateDocumentWithObservations(ctx, corestore.StateDocumentCAS{
+		_, err = authority.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
 			ScopeKey: membersAuthorityScope, Kind: membersStateKind,
 			ExpectedRevision: revision, JSON: payload,
-		}, []corestore.ObservationInput{{
-			ScopeKey: membersAuthorityScope, Source: membersObservationSource,
-			Kind: membersObservationKind, ObservedAt: observedAt,
-			ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: true,
-		}})
+		})
 		if !errors.Is(err, corestore.ErrRevisionConflict) {
 			return err
 		}
@@ -333,16 +331,12 @@ func ValidateLegacyMembersObservation(payload []byte) (time.Time, int, error) {
 	return env.AsOf, len(env.Members), nil
 }
 
-// ImportLegacyMembersObservation preserves exact legacy bytes as
-// non-authorizing evidence. The caller supplies metadata containing the
-// decision_eligible=false cutover marker.
+// ImportLegacyMembersObservation is the cutover compatibility hook. The
+// caller has already validated the bytes; schema 6 retires this refetchable
+// beta cache instead of copying it into immutable history.
 func ImportLegacyMembersObservation(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, err := authority.AppendObservation(ctx, corestore.ObservationInput{
-		ScopeKey: membersAuthorityScope, Source: membersObservationSource,
-		Kind: membersObservationKind, ObservedAt: observedAt,
-		ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: false,
-	})
-	return err
+	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
+	return nil
 }
 
 // membersFile is the on-disk envelope. Mirrors the gamma-zero store's

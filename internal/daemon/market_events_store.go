@@ -67,12 +67,6 @@ type marketEventBorrowFeeAttempt struct {
 	Failure     *rpc.SourceFailure `json:"failure,omitempty"`
 }
 
-type marketEventBorrowFeeOutcome struct {
-	Version int                         `json:"version"`
-	Attempt marketEventBorrowFeeAttempt `json:"attempt"`
-	Entry   *marketEventBorrowFeeEntry  `json:"entry,omitempty"`
-}
-
 const (
 	marketEventBorrowFeeOutcomeSuccess = "success"
 	marketEventBorrowFeeOutcomeFailure = "failure"
@@ -329,38 +323,10 @@ func (c *marketEventCache) persistBorrowFeeState(ctx context.Context, lastGood *
 	if err != nil {
 		return 0, err
 	}
-	outcome := marketEventBorrowFeeOutcome{Version: marketEventBorrowFeesStateVersion, Attempt: *cloneBorrowFeeAttempt(&attempt)}
-	if attempt.Outcome == marketEventBorrowFeeOutcomeSuccess {
-		outcome.Entry = cloneBorrowFeeEntryPtr(lastGood)
-	}
-	outcomePayload, err := json.Marshal(outcome)
-	if err != nil {
-		return 0, err
-	}
-	records := 0
-	sourceURL := ""
-	if outcome.Entry != nil {
-		records = len(outcome.Entry.Symbols)
-		sourceURL = outcome.Entry.SourceURL
-	}
-	metadata, err := json.Marshal(struct {
-		Version   int    `json:"version"`
-		Outcome   string `json:"outcome"`
-		Records   int    `json:"records"`
-		SourceURL string `json:"source_url,omitempty"`
-	}{marketEventBorrowFeesStateVersion, attempt.Outcome, records, sourceURL})
-	if err != nil {
-		return 0, err
-	}
-	saved, _, err := store.CompareAndSwapStateDocumentWithObservations(ctx, corestore.StateDocumentCAS{
+	saved, err := store.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
 		ScopeKey: marketEventBorrowFeesScope, Kind: marketEventBorrowFeesStateKind,
 		ExpectedRevision: revision, JSON: statePayload,
-	}, []corestore.ObservationInput{{
-		ScopeKey: marketEventBorrowFeesScope, Source: marketEventBorrowFeesSource,
-		Kind: marketEventBorrowFeesObservationKind, ObservedAt: attempt.CompletedAt,
-		ContentType: "application/json", Payload: outcomePayload, MetadataJSON: metadata,
-		DecisionEligible: true,
-	}})
+	})
 	if err != nil {
 		return 0, err
 	}

@@ -46,11 +46,18 @@ type upgradeBootFixture struct {
 }
 
 func upgradeBootFixtures() []upgradeBootFixture {
-	return []upgradeBootFixture{{
-		name:   "pre-currency-policy-regime-history",
-		seed:   seedPreCurrencyPolicyRegimeHistory,
-		verify: verifyPreCurrencyPolicyRegimeHistory,
-	}}
+	return []upgradeBootFixture{
+		{
+			name:   "pre-currency-policy-regime-history",
+			seed:   seedPreCurrencyPolicyRegimeHistory,
+			verify: verifyPreCurrencyPolicyRegimeHistory,
+		},
+		{
+			name:   "pre-depth-scale-regime-history",
+			seed:   seedPreDepthScaleRegimeHistory,
+			verify: verifyPreDepthScaleRegimeHistory,
+		},
+	}
 }
 
 func TestUpgradeBootReachesReadyOnPriorVersionStores(t *testing.T) {
@@ -181,8 +188,28 @@ func withUpgradeBootAuthority(t *testing.T, root string, step func(*testing.T, *
 // the desk on v2.6.2: a complete, receipted regime publication whose retained
 // decision line was rendered before the input-currency cutover.
 func seedPreCurrencyPolicyRegimeHistory(t *testing.T, store *corestore.Store) {
+	seedUpgradeBootRegimeHistory(t, store, nil, seedPriorCurrencyPolicyDecisionEvent)
+}
+
+func seedPreDepthScaleRegimeHistory(t *testing.T, store *corestore.Store) {
+	seedUpgradeBootRegimeHistory(t, store, func(snapshot *rpc.RegimeSnapshotResult) {
+		depth := 42.0
+		snapshot.FundingStress.SpreadBps = &depth
+	}, seedPriorDepthScaleDecisionEvent)
+}
+
+func seedUpgradeBootRegimeHistory(
+	t *testing.T,
+	store *corestore.Store,
+	configure func(*rpc.RegimeSnapshotResult),
+	seedDecision func(*testing.T, *corestore.Store, *rpc.RegimeSnapshotResult, regimeSnapshotPublication),
+) {
 	t.Helper()
 	snapshot := upgradeBootRegimeSnapshot(time.Date(2026, 7, 20, 15, 10, 0, 0, time.UTC))
+	if configure != nil {
+		configure(snapshot)
+		snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	}
 	raw, _, err := encodeRegimeSnapshotDocument(snapshot)
 	if err != nil {
 		t.Fatalf("encode snapshot: %v", err)
@@ -206,7 +233,7 @@ func seedPreCurrencyPolicyRegimeHistory(t *testing.T, store *corestore.Store) {
 	}
 	projectionRecoverySeedStreakStore(t, store, publication, entries)
 	seedUpgradeBootRuleStageProjection(t, store, snapshot, publication)
-	seedPriorCurrencyPolicyDecisionEvent(t, store, snapshot, publication)
+	seedDecision(t, store, snapshot, publication)
 
 	server := &Server{coreStore: store, logger: NewLogger(&bytes.Buffer{}, "error")}
 	if err := server.persistRegimeDecisionProjectionState(
@@ -246,6 +273,27 @@ func verifyPreCurrencyPolicyRegimeHistory(t *testing.T, store *corestore.Store) 
 		if indicator.Freshness != rpc.RegimeFreshnessNotDue {
 			t.Fatalf("upgrade boot rewrote retained %s freshness to %q", key, indicator.Freshness)
 		}
+	}
+}
+
+func verifyPreDepthScaleRegimeHistory(t *testing.T, store *corestore.Store) {
+	t.Helper()
+	events, err := loadAllCoreEvents(t.Context(), store, coreEventRegimeDecision)
+	if err != nil {
+		t.Fatalf("load decision events after upgrade boot: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("decision events after upgrade boot=%d, want the one retained line", len(events))
+	}
+	var line regimeDecisionLine
+	if err := json.Unmarshal(events[0].PayloadJSON, &line); err != nil {
+		t.Fatalf("decode retained decision line: %v", err)
+	}
+	if line.V != 2 {
+		t.Fatalf("upgrade boot rewrote retained decision version to %d", line.V)
+	}
+	if got := line.Indicators[StreakKeyFunding].Depth; got != nil {
+		t.Fatalf("upgrade boot backfilled retained funding depth: %v", *got)
 	}
 }
 
@@ -318,6 +366,42 @@ func seedPriorCurrencyPolicyDecisionEvent(
 	}
 	if bytes.Equal(raw, current) {
 		t.Fatal("retained line no longer diverges from a current recompute; the fixture would pass vacuously")
+	}
+	appendUpgradeBootDecisionEvent(t, store, line, publication)
+}
+
+// seedPriorDepthScaleDecisionEvent reproduces the v2 payload that was already
+// durable when funding, credit, USD/JPY, and gamma gained explicit depth. The
+// old line is immutable evidence: upgrade boot must accept the missing
+// additive field without backfilling it or weakening current-v3 validation.
+func seedPriorDepthScaleDecisionEvent(
+	t *testing.T,
+	store *corestore.Store,
+	snapshot *rpc.RegimeSnapshotResult,
+	publication regimeSnapshotPublication,
+) {
+	t.Helper()
+	line := buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication)
+	line.V = 2
+	indicator := line.Indicators[StreakKeyFunding]
+	if indicator.Depth == nil {
+		t.Fatal("depth-scale fixture has no current funding depth")
+	}
+	indicator.Depth = nil
+	line.Indicators[StreakKeyFunding] = indicator
+	appendUpgradeBootDecisionEvent(t, store, line, publication)
+}
+
+func appendUpgradeBootDecisionEvent(
+	t *testing.T,
+	store *corestore.Store,
+	line regimeDecisionLine,
+	publication regimeSnapshotPublication,
+) {
+	t.Helper()
+	raw, err := json.Marshal(line)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	key := fmt.Sprintf("%s:snapshot:%020d", coreEventRegimeDecision, publication.Revision)

@@ -77,7 +77,7 @@ func TestImportLegacyMarketObservationsPreflightsAndPreservesExactBytes(t *testi
 	if err != nil {
 		t.Fatalf("import: %v\nmanifest=%+v", err, manifest)
 	}
-	if manifest.ImportedFiles != 10 || manifest.StateDocuments != 0 || manifest.Observations != 12 {
+	if manifest.ImportedFiles != 10 || manifest.StateDocuments != 0 || manifest.Observations != 1 {
 		t.Fatalf("manifest counts = files:%d states:%d observations:%d", manifest.ImportedFiles, manifest.StateDocuments, manifest.Observations)
 	}
 	if _, ok, err := authority.GetStateDocument(context.Background(), gammaZeroAuthorityScope(rpc.GammaZeroScopeCombined), gammaZeroStateKind); err != nil || ok {
@@ -124,7 +124,7 @@ func TestImportLegacyMarketObservationsMalformedArtifactWritesNothing(t *testing
 	}
 }
 
-func TestImportLegacyResidualMarketFilesAsObservationsOnly(t *testing.T) {
+func TestImportLegacyResidualMarketFilesAreValidatedWithoutRetention(t *testing.T) {
 	cacheRoot := t.TempDir()
 	stateRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
@@ -146,25 +146,12 @@ func TestImportLegacyResidualMarketFilesAsObservationsOnly(t *testing.T) {
 	if err := spx.SaveExternal(membersPath, members, now); err != nil {
 		t.Fatalf("seed legacy SPX members: %v", err)
 	}
-	wantRaw := map[string][]byte{}
-	for kind, path := range map[string]string{
-		"fx":       filepath.Join(cacheDir, fxRateStoreFilename),
-		"earnings": filepath.Join(cacheDir, earningsStoreFilename),
-		"members":  membersPath,
-	} {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s fixture: %v", kind, err)
-		}
-		wantRaw[kind] = raw
-	}
-
 	authority := openMarketTestCoreStore(t)
 	manifest, err := importLegacyMarketObservations(context.Background(), authority)
 	if err != nil {
 		t.Fatalf("import residual observations: %v\nmanifest=%+v", err, manifest)
 	}
-	if manifest.ImportedFiles != 3 || manifest.Observations != 3 || manifest.StateDocuments != 0 {
+	if manifest.ImportedFiles != 3 || manifest.Observations != 0 || manifest.StateDocuments != 0 {
 		t.Fatalf("residual manifest counts: files=%d observations=%d states=%d", manifest.ImportedFiles, manifest.Observations, manifest.StateDocuments)
 	}
 	checks := []struct {
@@ -175,20 +162,9 @@ func TestImportLegacyResidualMarketFilesAsObservationsOnly(t *testing.T) {
 		{"members", "market/breadth/spx/members", "wikipedia.sp500_constituents", "spx_members.snapshot.v1", "spx_members.current.v1"},
 	}
 	for _, check := range checks {
-		observation, ok, err := authority.LatestObservation(context.Background(), check.scope, check.source, check.kind)
-		if err != nil || !ok {
-			t.Fatalf("%s observation missing: ok=%v err=%v", check.name, ok, err)
+		if _, ok, err := authority.LatestObservation(context.Background(), check.scope, check.source, check.kind); err != nil || ok {
+			t.Fatalf("legacy %s observation retained: ok=%v err=%v", check.name, ok, err)
 		}
-		if !bytes.Equal(observation.Payload, wantRaw[check.name]) {
-			t.Fatalf("%s observation did not preserve exact bytes", check.name)
-		}
-		if observation.DecisionEligible {
-			t.Fatalf("legacy %s observation is decision-eligible", check.name)
-		}
-		if _, ok, err := authority.LatestDecisionEligibleObservation(context.Background(), check.scope, check.source, check.kind); err != nil || ok {
-			t.Fatalf("legacy %s crossed eligible reader: ok=%v err=%v", check.name, ok, err)
-		}
-		assertLegacyObservationMetadata(t, observation.MetadataJSON)
 		if _, ok, err := authority.GetStateDocument(context.Background(), check.scope, check.stateKind); err != nil || ok {
 			t.Fatalf("legacy %s seeded current state: ok=%v err=%v", check.name, ok, err)
 		}
@@ -273,70 +249,24 @@ func TestImportLegacyDecisionMeasurementsRedactsDecisionAndAccountData(t *testin
 	if err != nil {
 		t.Fatalf("import: %v\nmanifest=%+v", err, manifest)
 	}
-	if manifest.ImportedFiles != 4 || manifest.StateDocuments != 0 || manifest.Observations != 4 {
+	if manifest.ImportedFiles != 4 || manifest.StateDocuments != 0 || manifest.Observations != 0 {
 		t.Fatalf("manifest counts = files:%d states:%d observations:%d", manifest.ImportedFiles, manifest.StateDocuments, manifest.Observations)
 	}
 	regimeObservations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: legacyRegimeMeasurementScope, Source: legacyRegimeMeasurementSource, Kind: legacyRegimeMeasurementKind,
 	})
-	if err != nil || len(regimeObservations) != 2 {
+	if err != nil || len(regimeObservations) != 0 {
 		t.Fatalf("regime observations=%d err=%v", len(regimeObservations), err)
 	}
 	stressObservations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: legacyStressMeasurementScope, Source: legacyStressMeasurementSource, Kind: legacyStressMeasurementKind,
 	})
-	if err != nil || len(stressObservations) != 2 {
+	if err != nil || len(stressObservations) != 0 {
 		t.Fatalf("canary observations=%d err=%v", len(stressObservations), err)
-	}
-	for _, observation := range regimeObservations {
-		if observation.DecisionEligible {
-			t.Fatal("legacy regime measurement is decision-eligible")
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(observation.Payload, &payload); err != nil {
-			t.Fatalf("decode regime projection: %v", err)
-		}
-		for _, forbidden := range []string{"fingerprint", "stage", "severity", "readiness", "confidence", "verdict", "composite", "governors"} {
-			if _, exists := payload[forbidden]; exists {
-				t.Fatalf("regime projection retained forbidden %q: %s", forbidden, observation.Payload)
-			}
-		}
-		assertLegacyObservationMetadata(t, observation.MetadataJSON)
-	}
-	for _, observation := range stressObservations {
-		if observation.DecisionEligible {
-			t.Fatal("legacy canary measurement is decision-eligible")
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(observation.Payload, &payload); err != nil {
-			t.Fatalf("decode canary projection: %v", err)
-		}
-		for _, forbidden := range []string{"fingerprint", "account", "account_mode", "action", "severity", "portfolio_fit", "held_stress", "rows", "summary"} {
-			if _, exists := payload[forbidden]; exists {
-				t.Fatalf("canary projection retained forbidden %q: %s", forbidden, observation.Payload)
-			}
-		}
-		market := payload["market"].(map[string]any)
-		if _, exists := market["regime_verdict"]; exists {
-			t.Fatalf("canary market retained verdict: %s", observation.Payload)
-		}
-		if _, exists := market["regime_posture"]; exists {
-			t.Fatalf("canary market retained stage/posture: %s", observation.Payload)
-		}
-		for _, key := range []string{"source_as_of", "source_fingerprints"} {
-			sources := payload[key].(map[string]any)
-			if _, exists := sources["account"]; exists {
-				t.Fatalf("%s retained account data: %s", key, observation.Payload)
-			}
-			if _, exists := sources["positions"]; exists {
-				t.Fatalf("%s retained portfolio data: %s", key, observation.Payload)
-			}
-		}
-		assertLegacyObservationMetadata(t, observation.MetadataJSON)
 	}
 	var archives int
 	for _, artifact := range manifest.Artifacts {
-		if filepath.Ext(artifact.Path) == ".gz" && artifact.Status == "imported" {
+		if filepath.Ext(artifact.Path) == ".gz" && artifact.Status == "validated_discarded_beta" {
 			archives++
 			if len(artifact.SHA256) != 64 || artifact.Records != 1 {
 				t.Fatalf("archive manifest missing hash/count: %+v", artifact)
@@ -414,19 +344,5 @@ func writeLegacyGzipJSONLines(t *testing.T, path string, values ...any) {
 	}
 	if err := file.Close(); err != nil {
 		t.Fatalf("close gzip file: %v", err)
-	}
-}
-
-func assertLegacyObservationMetadata(t *testing.T, raw []byte) {
-	t.Helper()
-	var metadata map[string]any
-	if err := json.Unmarshal(raw, &metadata); err != nil {
-		t.Fatalf("decode observation metadata: %v", err)
-	}
-	if eligible, ok := metadata["decision_eligible"].(bool); !ok || eligible {
-		t.Fatalf("legacy observation eligibility = %#v", metadata["decision_eligible"])
-	}
-	if digest, _ := metadata["legacy_file_sha256"].(string); len(digest) != 64 {
-		t.Fatalf("legacy observation missing file hash: %+v", metadata)
 	}
 }

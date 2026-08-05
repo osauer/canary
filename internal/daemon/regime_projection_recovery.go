@@ -795,6 +795,17 @@ func validateRegimeDecisionProjectionEvent(event corestore.EventRecord, line reg
 		// than blocking the upgrade boot.
 		return nil
 	}
+	if line.V > 0 && line.V < regimeDecisionLineVersion {
+		// The event key, publication time, and typed fingerprint above bind an
+		// immutable older payload to this exact snapshot. Its rendered fields
+		// belong to that payload version: recomputing them with newer depth,
+		// label, or replay fields can legitimately produce different bytes.
+		// Current-version lines remain byte-exact below.
+		return nil
+	}
+	if line.V != regimeDecisionLineVersion {
+		return fmt.Errorf("regime decision payload version %d is not supported at snapshot revision %d", line.V, publication.Revision)
+	}
 	expected := buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication)
 	actualJSON, err := json.Marshal(line)
 	if err != nil {

@@ -36,6 +36,7 @@ type migration struct {
 type migrationMaintenance struct {
 	ObservationDiscard *ObservationDiscardSelector
 	EventDiscard       *EventDiscardSelector
+	OperationalPrune   *OperationalPruneSelector
 	CompactCandidate   bool
 	RetireSourceBackup bool
 	// PreserveAuthorityHead is an explicit exception to the normal out-of-place
@@ -448,12 +449,14 @@ func legacyStressMeasurementRename() migration {
 //
 // The selector and three-statement shape are deliberately frozen here. This is
 // one reviewed repair, not a general observation-retention mechanism.
+var contractCachePruneSelector = ObservationDiscardSelector{
+	ScopeKey: "market/contracts",
+	Source:   "ibkr.tws.contract_details",
+	Kind:     "contract_cache.snapshot.v3",
+}
+
 func contractCacheObservationPrune() migration {
-	selector := ObservationDiscardSelector{
-		ScopeKey: "market/contracts",
-		Source:   "ibkr.tws.contract_details",
-		Kind:     "contract_cache.snapshot.v3",
-	}
+	selector := contractCachePruneSelector
 	dropDeleteGuard := `DROP TRIGGER observations_no_delete`
 	discard := observationDiscardDeleteStatement(selector)
 	return migration{
@@ -526,6 +529,48 @@ func alertEpisodeEventPrune() migration {
 	}
 }
 
+const betaOperationalPrunePredicate = "beta_operational_history.v1"
+
+var betaOperationalPruneSelector = OperationalPruneSelector{Predicate: betaOperationalPrunePredicate}
+
+// betaOperationalHistoryPrune is migration 6. Canary's beta writers retained
+// raw market refreshes and analytical histories without a bounded operational
+// reader. Current state, outage fallbacks, broker/order continuity, token
+// tombstones, capital and risk governance, reconciliation, statements,
+// receipt-bound earnings identity observations, terminal-evidence changes,
+// quarantined gamma recovery rows, operational proposal/opportunity events,
+// and the newest two regime events all survive.
+//
+// The exact statements are frozen by validateMigrationMaintenance. This is a
+// one-time semantic epoch reset, not a configurable retention engine: unknown
+// observation kinds, unknown event types/actions, and near matches survive.
+func betaOperationalHistoryPrune() migration {
+	selector := betaOperationalPruneSelector
+	statements := betaOperationalPruneStatements()
+	destructive := make([]string, 0, len(statements))
+	for _, statement := range statements {
+		if isDestructiveStatement(statement) {
+			destructive = append(destructive, statement)
+		}
+	}
+	return migration{
+		version:    6,
+		name:       "beta_operational_history_prune",
+		statements: statements,
+		destructive: &destructiveApproval{
+			reason: "The beta authority retained full market refresh payloads and analytical histories that no operational reader uses. " +
+				"This reviewed reset preserves every current state document, outage cache, broker route, order event, consumed-token tombstone, order-ID floor, capital and risk-policy event, statement and reconciliation row, exact earnings identity proof, terminal-evidence change, quarantined gamma recovery row, operational proposal/opportunity event, unknown row class, and the newest two regime events required by projection recovery. " +
+				"It removes only the frozen observation kinds and analytical event/action classes named by beta_operational_history.v1, deletes their typed child projections before parent events, restores every suspended append-only delete trigger in the same transaction, advances the authority head exactly once, and requires out-of-place compaction plus verified target-backup publication.",
+			statements: destructive,
+		},
+		maintenance: &migrationMaintenance{
+			OperationalPrune:   &selector,
+			CompactCandidate:   true,
+			RetireSourceBackup: true,
+		},
+	}
+}
+
 func init() {
 	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
@@ -550,6 +595,7 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 		legacyStressMeasurementRename(),
 		contractCacheObservationPrune(),
 		alertEpisodeEventPrune(),
+		betaOperationalHistoryPrune(),
 	)
 }
 
@@ -605,6 +651,14 @@ func migrationChecksum(m migration) string {
 				h.Write([]byte{0})
 			}
 		}
+		// OperationalPrune was added after migrations 4 and 5 shipped. Append
+		// it only when present so both earlier ledger checksums remain frozen.
+		if m.maintenance.OperationalPrune != nil {
+			h.Write([]byte("maintenance.operational-prune.v1"))
+			h.Write([]byte{0})
+			h.Write([]byte(m.maintenance.OperationalPrune.Predicate))
+			h.Write([]byte{0})
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -632,6 +686,10 @@ func cloneMigrationPlan(plan []migration) []migration {
 			if m.maintenance.EventDiscard != nil {
 				selector := *m.maintenance.EventDiscard
 				maintenance.EventDiscard = &selector
+			}
+			if m.maintenance.OperationalPrune != nil {
+				selector := *m.maintenance.OperationalPrune
+				maintenance.OperationalPrune = &selector
 			}
 			cloned[i].maintenance = &maintenance
 		}
@@ -678,7 +736,17 @@ func validateMigrationMaintenance(m migration, approved map[string]struct{}) err
 		return nil
 	}
 	maintenance := m.maintenance
-	if (maintenance.ObservationDiscard == nil) == (maintenance.EventDiscard == nil) {
+	typed := 0
+	for _, present := range []bool{
+		maintenance.ObservationDiscard != nil,
+		maintenance.EventDiscard != nil,
+		maintenance.OperationalPrune != nil,
+	} {
+		if present {
+			typed++
+		}
+	}
+	if typed != 1 {
 		return fmt.Errorf("migration %d maintenance must have exactly one typed discard", m.version)
 	}
 	if !maintenance.CompactCandidate {
@@ -708,20 +776,45 @@ func validateMigrationMaintenance(m migration, approved map[string]struct{}) err
 		return validateExactMaintenanceStatements(m, approved, wantStatements, "observation-discard")
 	}
 
-	selector := *maintenance.EventDiscard
-	if selector != alertEpisodeNonTransitionSelector {
-		return fmt.Errorf("migration %d maintenance has an invalid event discard selector", m.version)
+	if maintenance.EventDiscard != nil {
+		selector := *maintenance.EventDiscard
+		if selector != alertEpisodeNonTransitionSelector {
+			return fmt.Errorf("migration %d maintenance has an invalid event discard selector", m.version)
+		}
+		if maintenance.PreserveAuthorityHead {
+			return fmt.Errorf("migration %d event discard cannot preserve the authority head", m.version)
+		}
+		exactDelete := eventDiscardDeleteStatement(selector)
+		wantStatements := []string{
+			`DROP TRIGGER event_log_no_delete`,
+			exactDelete,
+			appendOnlyDeleteTrigger("event_log"),
+		}
+		return validateExactMaintenanceStatements(m, approved, wantStatements, "event-discard")
+	}
+
+	selector := *maintenance.OperationalPrune
+	if selector != betaOperationalPruneSelector {
+		return fmt.Errorf("migration %d maintenance has an invalid operational prune selector", m.version)
 	}
 	if maintenance.PreserveAuthorityHead {
-		return fmt.Errorf("migration %d event discard cannot preserve the authority head", m.version)
+		return fmt.Errorf("migration %d operational prune cannot preserve the authority head", m.version)
 	}
-	exactDelete := eventDiscardDeleteStatement(selector)
-	wantStatements := []string{
-		`DROP TRIGGER event_log_no_delete`,
-		exactDelete,
-		appendOnlyDeleteTrigger("event_log"),
+	wantStatements := betaOperationalPruneStatements()
+	if len(m.statements) != len(wantStatements) {
+		return fmt.Errorf("migration %d maintenance is not the exact guarded operational-prune transaction", m.version)
 	}
-	return validateExactMaintenanceStatements(m, approved, wantStatements, "event-discard")
+	for i, statement := range wantStatements {
+		if m.statements[i] != statement {
+			return fmt.Errorf("migration %d maintenance statement %d is not the exact guarded operational-prune statement", m.version, i+1)
+		}
+		if isDestructiveStatement(statement) {
+			if _, ok := approved[statement]; !ok {
+				return fmt.Errorf("migration %d operational-prune destructive statement lacks exact approval", m.version)
+			}
+		}
+	}
+	return nil
 }
 
 func validateExactMaintenanceStatements(m migration, approved map[string]struct{}, wantStatements []string, label string) error {
@@ -805,6 +898,123 @@ func eventDiscardMatchClause(selector EventDiscardSelector) string {
                   ELSE 0
                 END
        )`, quote(selector.ScopeKey), quote(selector.EventType))
+}
+
+func betaOperationalObservationMatchClause() string {
+	return ` WHERE
+       (source = 'ibkr.tws.option_chain'
+        AND kind = 'gamma_zero.compute.v1'
+        AND decision_eligible = 1)
+    OR kind IN (
+       'contract_cache.snapshot.v3',
+       'gamma_open_interest.snapshot.v1',
+       'trading_halts.snapshot.v1',
+       'breadth_spx.windows.v2',
+       'borrow_inventory.snapshot.v1',
+       'gamma_expiry_grid.snapshot.v1',
+       'regime_streaks.snapshot.v1',
+       'regime_official_series.snapshot.v1',
+       'regime_hmds.snapshot.v1',
+       'regime_measurement.v1',
+       'gamma_skew_diagnostic.v1',
+       'reg_sho.snapshot.v1',
+       'stress_market_measurement.v1',
+       'fx_rates.snapshot.v1',
+       'earnings_dates.snapshot.v1',
+       'borrow_fees.fetch_outcome.v2',
+       'earnings_dates.provider_outcome.v2',
+       'earnings_dates.provider_outcome.v3',
+       'breadth_spx.history.v2',
+       'breadth_spx.snapshot.v1',
+       'spx_members.snapshot.v1',
+       'borrow_fee_tws.fetch_outcome.v1'
+    )`
+}
+
+func betaOperationalRegimeEventMatchClause() string {
+	return ` WHERE scope_key = 'daemon'
+   AND event_type = 'regime_decision'
+   AND event_seq NOT IN (
+       SELECT event_seq
+         FROM event_log
+        WHERE scope_key = 'daemon'
+          AND event_type = 'regime_decision'
+        ORDER BY event_seq DESC
+        LIMIT 2
+   )`
+}
+
+func betaOperationalEventMatchClause() string {
+	return ` WHERE scope_key = 'daemon'
+   AND (
+       event_type IN ('rule_transition','stress_decision','alert_episode_decision')
+       OR (
+           event_type = 'regime_decision'
+           AND event_seq NOT IN (
+               SELECT event_seq
+                 FROM event_log
+                WHERE scope_key = 'daemon'
+                  AND event_type = 'regime_decision'
+                ORDER BY event_seq DESC
+                LIMIT 2
+           )
+       )
+       OR (
+           event_type = 'trade_proposal_event'
+           AND json_extract(payload_json, '$.version') = 1
+           AND json_type(payload_json, '$.type') = 'text'
+           AND json_extract(payload_json, '$.type') IN (
+               'generated','theta-suppressed','shown','blocked','previewed',
+               'policy-drift','policy-error'
+           )
+       )
+       OR (
+           event_type = 'opportunity_event'
+           AND json_extract(payload_json, '$.version') = 1
+           AND json_type(payload_json, '$.type') = 'text'
+           AND json_extract(payload_json, '$.type') IN (
+               'shown','submit-blocked','submit-error','policy-drift','policy-error'
+           )
+       )
+   )`
+}
+
+func betaOperationalPruneStatements() []string {
+	regimeEvents := betaOperationalRegimeEventMatchClause()
+	regimeProjectionEvents := ` WHERE event_seq IN (
+       SELECT event_seq FROM event_log` + regimeEvents + `
+   )`
+	ruleEvents := ` WHERE event_seq IN (
+       SELECT event_seq FROM event_log
+        WHERE scope_key = 'daemon' AND event_type = 'rule_transition'
+   )`
+	stressEvents := ` WHERE event_seq IN (
+       SELECT event_seq FROM event_log
+        WHERE scope_key = 'daemon' AND event_type = 'stress_decision'
+   )`
+	return []string{
+		`DROP TRIGGER observations_no_delete`,
+		`DROP TRIGGER regime_indicators_no_delete`,
+		`DROP TRIGGER regime_decisions_no_delete`,
+		`DROP TRIGGER rule_transitions_no_delete`,
+		`DROP TRIGGER stress_transitions_no_delete`,
+		`DROP TRIGGER event_log_no_delete`,
+		"DELETE FROM observations\n" + betaOperationalObservationMatchClause(),
+		`DELETE FROM regime_indicators
+ WHERE decision_event_seq IN (
+       SELECT event_seq FROM event_log` + regimeEvents + `
+   )`,
+		"DELETE FROM regime_decisions\n" + regimeProjectionEvents,
+		"DELETE FROM rule_transitions\n" + ruleEvents,
+		"DELETE FROM stress_transitions\n" + stressEvents,
+		"DELETE FROM event_log\n" + betaOperationalEventMatchClause(),
+		appendOnlyDeleteTrigger("event_log"),
+		appendOnlyDeleteTrigger("stress_transitions"),
+		appendOnlyDeleteTrigger("rule_transitions"),
+		appendOnlyDeleteTrigger("regime_decisions"),
+		appendOnlyDeleteTrigger("regime_indicators"),
+		appendOnlyDeleteTrigger("observations"),
+	}
 }
 
 func isDestructiveStatement(stmt string) bool {

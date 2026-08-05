@@ -3,7 +3,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -158,7 +157,7 @@ func TestFXRateSQLiteReplacesLegacyAndSurvivesRestart(t *testing.T) {
 	if rate, _, ok := restarted.get("EUR", "USD", fxCacheTTL); !ok || rate != 0.88 {
 		t.Fatalf("SQLite FX restart: rate=%v ok=%v", rate, ok)
 	}
-	assertStateAndObservation(t, authority, fxAuthorityScope, fxStateKind, fxObservationSource, fxObservationKind)
+	assertStateWithoutObservation(t, authority, fxAuthorityScope, fxStateKind, fxObservationSource, fxObservationKind)
 }
 
 func TestEarningsSQLiteReplacesLegacyAndSurvivesRestart(t *testing.T) {
@@ -198,7 +197,7 @@ func TestEarningsSQLiteReplacesLegacyAndSurvivesRestart(t *testing.T) {
 	if !ok || entry.Date != "2026-07-30" || entry.TimeOfDay != "" || entry.Estimated {
 		t.Fatal("SQLite earnings restart did not retain only the typed date")
 	}
-	assertStateAndObservation(t, authority, earningsAuthorityScope, earningsStateKind, earningsObservationSource, earningsProviderObservationKind)
+	assertStateWithoutObservation(t, authority, earningsAuthorityScope, earningsStateKind, earningsObservationSource, earningsProviderObservationKind)
 }
 
 func TestResidualAuthoritiesRejectMalformedRows(t *testing.T) {
@@ -238,7 +237,7 @@ func writeMalformedMarketState(t *testing.T, store *corestore.Store, scope, kind
 	}
 }
 
-func assertStateAndObservation(t *testing.T, store *corestore.Store, scope, stateKind, source, observationKind string) {
+func assertStateWithoutObservation(t *testing.T, store *corestore.Store, scope, stateKind, source, observationKind string) {
 	t.Helper()
 	if _, ok, err := store.GetStateDocument(context.Background(), scope, stateKind); err != nil || !ok {
 		t.Fatalf("state document missing: ok=%v err=%v", ok, err)
@@ -246,13 +245,7 @@ func assertStateAndObservation(t *testing.T, store *corestore.Store, scope, stat
 	observations, err := store.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: scope, Source: source, Kind: observationKind,
 	})
-	if err != nil || len(observations) != 1 {
-		t.Fatalf("atomic observation count=%d err=%v", len(observations), err)
-	}
-	if !observations[0].DecisionEligible {
-		t.Fatal("current state observation is not decision-eligible")
-	}
-	if !json.Valid(observations[0].Payload) {
-		t.Fatal("stored observation payload is not JSON")
+	if err != nil || len(observations) != 0 {
+		t.Fatalf("unexpected observation count=%d err=%v", len(observations), err)
 	}
 }

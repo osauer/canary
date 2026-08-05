@@ -661,6 +661,8 @@ func TestRegimeDecisionProjectionToleratesPriorCurrencyPolicyLine(t *testing.T) 
 	publishedAt := time.Date(2026, 7, 20, 15, 10, 0, 0, time.UTC)
 	snapshot := regimeSnapshotCacheFixture(publishedAt, "prior-policy decision line")
 	snapshot.Lifecycle.Stage = rpc.LifecycleQuiet
+	depth := 42.0
+	snapshot.FundingStress.SpreadBps = &depth
 	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
 	publication := regimeSnapshotPublication{Revision: 1, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
 
@@ -675,6 +677,24 @@ func TestRegimeDecisionProjectionToleratesPriorCurrencyPolicyLine(t *testing.T) 
 		}},
 		{name: "current policy with divergent content still fails", mutate: func(line *regimeDecisionLine) {
 			line.Stage = rpc.LifecycleEarlyWarning
+		}, wantErr: true},
+		{name: "v2 line may predate a newly added depth", mutate: func(line *regimeDecisionLine) {
+			line.V = 2
+			indicator := line.Indicators[StreakKeyFunding]
+			indicator.Depth = nil
+			line.Indicators[StreakKeyFunding] = indicator
+		}},
+		{name: "v2 line keeps its rendered depth as immutable history", mutate: func(line *regimeDecisionLine) {
+			line.V = 2
+			wrong := 41.0
+			indicator := line.Indicators[StreakKeyFunding]
+			indicator.Depth = &wrong
+			line.Indicators[StreakKeyFunding] = indicator
+		}},
+		{name: "v3 line cannot omit a current depth", mutate: func(line *regimeDecisionLine) {
+			indicator := line.Indicators[StreakKeyFunding]
+			indicator.Depth = nil
+			line.Indicators[StreakKeyFunding] = indicator
 		}, wantErr: true},
 	}
 	for _, test := range tests {

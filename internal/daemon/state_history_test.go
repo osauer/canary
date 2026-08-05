@@ -57,7 +57,7 @@ func (w *syncWriter) String() string {
 	return w.buf.String()
 }
 
-func TestRulesHistorySQLiteRoundTrip(t *testing.T) {
+func TestRulesHistorySQLiteDoesNotRetainCalibrationEvents(t *testing.T) {
 	store := openMarketTestCoreStore(t)
 	s := &Server{coreStore: store, logger: NewLogger(&bytes.Buffer{}, "error")}
 	pol := risk.DefaultRulebookPolicy()
@@ -80,14 +80,8 @@ func TestRulesHistorySQLiteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rules history: %v", err)
 	}
-	if got.Count != 1 || got.TotalCount != 1 || len(got.Entries) != 1 {
+	if got.Count != 0 || got.TotalCount != 0 || len(got.Entries) != 0 {
 		t.Fatalf("rules history counts = count %d total %d entries %d", got.Count, got.TotalCount, len(got.Entries))
-	}
-	entry := got.Entries[0]
-	if entry.Rule != risk.RuleOptionLinePremium || entry.Status != risk.RuleStatusWatch ||
-		entry.Evidence != "hedge tier drives the current state" ||
-		entry.PolicyFingerprint != pol.FingerprintKey() {
-		t.Fatalf("SQLite rule transition did not round-trip: %+v", entry)
 	}
 }
 
@@ -165,8 +159,8 @@ func TestStateHistoryEnvelopeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rules.TotalCount != 2 || rules.Count != 1 || !rules.Truncated || rules.Limit != 1 {
-		t.Fatalf("truncated envelope = %+v", rules)
+	if rules.TotalCount != 0 || rules.Count != 0 || rules.Truncated || rules.Limit != 1 {
+		t.Fatalf("empty operational envelope = %+v", rules)
 	}
 }
 
@@ -379,7 +373,7 @@ func TestHistoryRotationSettingsRetired(t *testing.T) {
 	if out.History.Rotation.Enabled.Value || out.History.Rotation.Enabled.Access != rpc.SettingsAccessRead || out.History.Rotation.KeepRawMonths.Value != 0 {
 		t.Fatalf("retired history settings = %+v", out.History)
 	}
-	if !out.Stress.Journal.Enabled.Value {
+	if out.Stress.Journal.Enabled.Value {
 		t.Fatalf("default stress settings = %+v", out.Stress)
 	}
 }

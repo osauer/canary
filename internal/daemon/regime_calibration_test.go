@@ -399,8 +399,8 @@ func TestRegimeDecisionJournalDedupesAndHeartbeats(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &decoded); err != nil {
 			t.Fatalf("line %d invalid JSON: %v", i, err)
 		}
-		if decoded.V != 2 || decoded.Stage == "" {
-			t.Fatalf("line %d = %+v, want v2 with stage", i, decoded)
+		if decoded.V != regimeDecisionLineVersion || decoded.Stage == "" {
+			t.Fatalf("line %d = %+v, want current v%d with stage", i, decoded, regimeDecisionLineVersion)
 		}
 		// The calibration corpus must be partitionable across policy cutovers.
 		if decoded.CurrencyPolicy != rpc.RegimeCurrencyPolicyVersion {

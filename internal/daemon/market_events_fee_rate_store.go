@@ -28,13 +28,6 @@ type marketEventFeeRateObservation struct {
 	Record   *marketEventFeeRateRecord
 }
 
-type marketEventFeeRateObservationPayload struct {
-	Version  int                       `json:"version"`
-	StateKey string                    `json:"state_key"`
-	Attempt  marketEventFeeRateAttempt `json:"attempt"`
-	Record   *marketEventFeeRateRecord `json:"record,omitempty"`
-}
-
 func loadMarketEventFeeRateState(store *corestore.Store, now time.Time) (marketEventFeeRateState, int64, error) {
 	state := newMarketEventFeeRateState()
 	doc, ok, err := store.GetStateDocument(context.Background(), marketEventFeeRateScope, marketEventFeeRateStateKind)
@@ -70,40 +63,15 @@ func (c *marketEventCache) persistMarketEventFeeRateState(
 	if store == nil {
 		return revision, nil
 	}
+	_ = observations
 	statePayload, err := json.Marshal(state)
 	if err != nil {
 		return 0, err
 	}
-	inputs := make([]corestore.ObservationInput, 0, len(observations))
-	for _, observation := range observations {
-		payload, marshalErr := json.Marshal(marketEventFeeRateObservationPayload{
-			Version: marketEventFeeRateStateVersion, StateKey: observation.StateKey,
-			Attempt: observation.Attempt, Record: observation.Record,
-		})
-		if marshalErr != nil {
-			return 0, marshalErr
-		}
-		metadata, marshalErr := json.Marshal(struct {
-			Version  int    `json:"version"`
-			StateKey string `json:"state_key"`
-			Outcome  string `json:"outcome"`
-		}{marketEventFeeRateStateVersion, observation.StateKey, observation.Attempt.Outcome})
-		if marshalErr != nil {
-			return 0, marshalErr
-		}
-		inputs = append(inputs, corestore.ObservationInput{
-			ScopeKey: marketEventFeeRateScope, Source: marketEventFeeRateSource,
-			Kind: marketEventFeeRateObservationKind, ObservedAt: observation.Attempt.CompletedAt,
-			ContentType: "application/json", Payload: payload, MetadataJSON: metadata,
-			// The broker numeric scale has not been commissioned against a
-			// controlled fixture, so this evidence cannot feed policy decisions.
-			DecisionEligible: false,
-		})
-	}
-	saved, _, err := store.CompareAndSwapStateDocumentWithObservations(ctx, corestore.StateDocumentCAS{
+	saved, err := store.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
 		ScopeKey: marketEventFeeRateScope, Kind: marketEventFeeRateStateKind,
 		ExpectedRevision: revision, JSON: statePayload,
-	}, inputs)
+	})
 	if err != nil {
 		return 0, err
 	}

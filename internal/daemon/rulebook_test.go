@@ -1202,7 +1202,7 @@ func TestJournalRuleTransitionsCarriesPolicyAndTerminalAuthorityFingerprints(t *
 	}
 }
 
-func TestJournalRuleTransitionsSQLitePayloadCarriesAcceptedTerminalAuthority(t *testing.T) {
+func TestJournalRuleTransitionsDoesNotRetainSQLiteCalibrationHistory(t *testing.T) {
 	store := openMarketTestCoreStore(t)
 	at := time.Date(2026, 7, 21, 14, 0, 0, 0, time.UTC)
 	terminalKey := "sha256:" + strings.Repeat("b", 64)
@@ -1226,19 +1226,8 @@ func TestJournalRuleTransitionsSQLitePayloadCarriesAcceptedTerminalAuthority(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("rule transition events = %d, want 1", len(events))
-	}
-	var payload struct {
-		TerminalAuthorities []ruleTransitionTerminalAuthority `json:"terminal_authorities"`
-	}
-	if err := json.Unmarshal(events[0].PayloadJSON, &payload); err != nil {
-		t.Fatalf("decode raw event payload: %v", err)
-	}
-	if len(payload.TerminalAuthorities) != 1 || payload.TerminalAuthorities[0].ContractConID != 84 ||
-		payload.TerminalAuthorities[0].AuthorityRevision != 9 || payload.TerminalAuthorities[0].AuthorityFingerprint != terminalKey ||
-		payload.TerminalAuthorities[0].AuthorityBinding != terminal.AuthorityBinding {
-		t.Fatalf("raw terminal authority = %+v", payload.TerminalAuthorities)
+	if len(events) != 0 {
+		t.Fatalf("rule transition events = %d, want none", len(events))
 	}
 }
 

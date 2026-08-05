@@ -43,7 +43,7 @@ func TestRegimeSeriesCacheUsesSQLiteWithoutLegacyFallback(t *testing.T) {
 		ScopeKey: regimeSeriesAuthorityScope(fredSeriesHYOAS),
 		Source:   regimeSeriesObservationSource(fredSeriesHYOAS), Kind: regimeSeriesObservationKind,
 	})
-	if err != nil || len(observations) != 1 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("observations=%d err=%v", len(observations), err)
 	}
 }

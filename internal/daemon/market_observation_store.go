@@ -106,10 +106,11 @@ func loadMarketState(store *corestore.Store, scopeKey, kind string) ([]byte, boo
 	return append([]byte(nil), doc.JSON...), true, nil
 }
 
-// saveMarketState atomically publishes the current document and appends the
-// exact immutable measurement bytes. A CAS retry handles a concurrent writer
-// without ever falling back to a legacy file or losing the observation half
-// of the commit.
+// saveMarketState atomically publishes the current operational document. Beta
+// builds once duplicated every refresh into the immutable observation ledger;
+// production has no generic history reader, so that copy only caused unbounded
+// authority growth. Narrow evidence classes that require receipts use their
+// own typed writers instead.
 func saveMarketState(store *corestore.Store, scopeKey, stateKind string, input corestore.ObservationInput) error {
 	return saveMarketStateContext(context.Background(), store, scopeKey, stateKind, input)
 }
@@ -118,41 +119,11 @@ func saveMarketStateContext(ctx context.Context, store *corestore.Store, scopeKe
 	if store == nil {
 		return errors.New("market observation authority is not attached")
 	}
-	// Only current-code measurements may publish a current state document.
-	// The coupled observation is therefore decision-eligible by construction;
-	// legacy importers use append-only APIs and can never cross this boundary.
-	input.DecisionEligible = true
-	for range marketAuthorityWriteAttempts {
-		doc, ok, err := store.GetStateDocument(ctx, scopeKey, stateKind)
-		if err != nil {
-			return err
-		}
-		var revision int64
-		if ok {
-			revision = doc.Revision
-		}
-		_, _, err = store.CompareAndSwapStateDocumentWithObservations(
-			ctx,
-			corestore.StateDocumentCAS{
-				ScopeKey:         scopeKey,
-				Kind:             stateKind,
-				ExpectedRevision: revision,
-				JSON:             input.Payload,
-			},
-			[]corestore.ObservationInput{input},
-		)
-		if !errors.Is(err, corestore.ErrRevisionConflict) {
-			return err
-		}
-	}
-	return fmt.Errorf("save market state %s/%s: %w after %d attempts", scopeKey, stateKind, corestore.ErrRevisionConflict, marketAuthorityWriteAttempts)
+	return saveMarketDocument(ctx, store, scopeKey, stateKind, input.Payload)
 }
 
 // saveMarketDocument publishes the current document without appending an
-// observation. It is for derived caches — state whose only reader is the
-// daemon's own next boot and which the broker will re-serve on request.
-// Everything a decision can rest on goes through saveMarketState instead, so
-// that its exact bytes stay in the immutable ledger.
+// observation. It is the common path for refreshable current market state.
 func saveMarketDocument(ctx context.Context, store *corestore.Store, scopeKey, stateKind string, payload []byte) error {
 	if store == nil {
 		return errors.New("market observation authority is not attached")

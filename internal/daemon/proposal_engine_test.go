@@ -2696,8 +2696,8 @@ func TestInstallSnapshotGatesJournalOnRevisionChange(t *testing.T) {
 	if err := e.installSnapshot(snap, false); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	if got := countProposalEvents("generated"); got != 1 {
-		t.Fatalf("first install appended %d generated events, want 1", got)
+	if got := countProposalEvents("generated"); got != 0 {
+		t.Fatalf("first install retained %d generated events, want none", got)
 	}
 	if got := countLines(srv.proposalOutcomes.Path, `"marked"`); got != 1 {
 		t.Fatalf("first install appended %d marks, want 1", got)
@@ -2708,8 +2708,8 @@ func TestInstallSnapshotGatesJournalOnRevisionChange(t *testing.T) {
 	if err := e.installSnapshot(snap, false); err != nil {
 		t.Fatalf("same-revision install: %v", err)
 	}
-	if got := countProposalEvents("generated"); got != 1 {
-		t.Fatalf("revision-identical install appended events: %d, want 1", got)
+	if got := countProposalEvents("generated"); got != 0 {
+		t.Fatalf("revision-identical install retained events: %d, want none", got)
 	}
 	if got := countLines(srv.proposalOutcomes.Path, `"marked"`); got != 1 {
 		t.Fatalf("revision-identical install appended marks: %d, want 1", got)
@@ -2721,8 +2721,8 @@ func TestInstallSnapshotGatesJournalOnRevisionChange(t *testing.T) {
 	if err := e.installSnapshot(snap, false); err != nil {
 		t.Fatalf("date-rollover install: %v", err)
 	}
-	if got := countProposalEvents("generated"); got != 1 {
-		t.Fatalf("date rollover appended generated events: %d, want 1", got)
+	if got := countProposalEvents("generated"); got != 0 {
+		t.Fatalf("date rollover retained generated events: %d, want none", got)
 	}
 	if got := countLines(srv.proposalOutcomes.Path, `"marked"`); got != 2 {
 		t.Fatalf("date rollover appended %d marks total, want 2", got)
@@ -2734,8 +2734,8 @@ func TestInstallSnapshotGatesJournalOnRevisionChange(t *testing.T) {
 	if err := e.installSnapshot(snap, false); err != nil {
 		t.Fatalf("new-revision install: %v", err)
 	}
-	if got := countProposalEvents("generated"); got != 2 {
-		t.Fatalf("new revision appended %d generated events total, want 2", got)
+	if got := countProposalEvents("generated"); got != 0 {
+		t.Fatalf("new revision retained %d generated events total, want none", got)
 	}
 }
 

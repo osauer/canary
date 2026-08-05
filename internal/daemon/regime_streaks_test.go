@@ -144,7 +144,7 @@ func TestStreakStoreUsesSQLiteWithoutLegacyFallback(t *testing.T) {
 	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: streakAuthorityScope, Source: streakSource, Kind: streakObservationKind,
 	})
-	if err != nil || len(observations) != 2 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("observations=%d err=%v", len(observations), err)
 	}
 }

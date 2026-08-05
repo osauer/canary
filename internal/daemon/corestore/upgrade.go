@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -393,6 +394,16 @@ func RecomputeUpgradeMaintenance(ctx context.Context, opts RecomputeUpgradeMaint
 			}
 			result.EventDiscards = append(result.EventDiscards, summary)
 			if effect.retireSourceBackup && summary.RemovedRows > 0 {
+				result.SourceBackupRetirementRequired = true
+			}
+		}
+		if m.maintenance.OperationalPrune != nil {
+			summary, err := summarizeOperationalPrune(ctx, tx, m)
+			if err != nil {
+				return UpgradeMaintenanceResult{}, fmt.Errorf("recompute migration %d operational prune: %w", m.version, err)
+			}
+			result.OperationalPrunes = append(result.OperationalPrunes, summary)
+			if effect.retireSourceBackup && operationalPruneRemovedRows(summary) {
 				result.SourceBackupRetirementRequired = true
 			}
 		}
@@ -1133,7 +1144,7 @@ func migrateAndPublishUpgradeCandidate(
 	if verified.Status != InspectionCurrent || verified.Head != expectedHead {
 		return upgradeCandidateBuild{}, fmt.Errorf("%w: upgraded candidate has unexpected version or head", ErrRollback)
 	}
-	if err := verifyMaintenanceDiscardsAbsent(ctx, outputPath, execution.maintenance.Discards, execution.maintenance.EventDiscards); err != nil {
+	if err := verifyMaintenanceDiscardsAbsent(ctx, outputPath, execution.maintenance.Discards, execution.maintenance.EventDiscards, execution.maintenance.OperationalPrunes); err != nil {
 		return upgradeCandidateBuild{}, err
 	}
 	if err := os.Link(outputPath, destination); err != nil {
@@ -1245,6 +1256,7 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 		m := plan[next-1]
 		var observationSummary *ObservationDiscardSummary
 		var eventSummary *EventDiscardSummary
+		var operationalSummary *OperationalPruneSummary
 		if m.maintenance != nil && m.maintenance.ObservationDiscard != nil {
 			computed, err := summarizeObservationDiscard(ctx, tx, m)
 			if err != nil {
@@ -1258,6 +1270,13 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 				return fail(fmt.Errorf("summarize migration %d event discard: %w", next, err))
 			}
 			eventSummary = &computed
+		}
+		if m.maintenance != nil && m.maintenance.OperationalPrune != nil {
+			computed, err := summarizeOperationalPrune(ctx, tx, m)
+			if err != nil {
+				return fail(fmt.Errorf("summarize migration %d operational prune: %w", next, err))
+			}
+			operationalSummary = &computed
 		}
 		for _, stmt := range m.statements {
 			result, err := tx.ExecContext(ctx, stmt)
@@ -1282,6 +1301,33 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 					return fail(fmt.Errorf("migration %d discarded %d event rows after summarizing %d", next, affected, eventSummary.RemovedRows))
 				}
 			}
+			if operationalSummary != nil {
+				operationalStatements := betaOperationalPruneStatements()
+				var expected int64 = -1
+				switch stmt {
+				case operationalStatements[6]:
+					expected = operationalSummary.RemovedObservationRows
+				case operationalStatements[7]:
+					expected = operationalSummary.RemovedRegimeIndicatorRows
+				case operationalStatements[8]:
+					expected = operationalSummary.RemovedRegimeDecisionRows
+				case operationalStatements[9]:
+					expected = operationalSummary.RemovedRuleTransitionRows
+				case operationalStatements[10]:
+					expected = operationalSummary.RemovedStressTransitionRows
+				case operationalStatements[11]:
+					expected = operationalSummary.RemovedEventRows
+				}
+				if expected >= 0 {
+					affected, err := result.RowsAffected()
+					if err != nil {
+						return fail(fmt.Errorf("count migration %d operational prune rows: %w", next, err))
+					}
+					if affected != expected {
+						return fail(fmt.Errorf("migration %d operational prune removed %d rows after summarizing %d", next, affected, expected))
+					}
+				}
+			}
 		}
 		if observationSummary != nil {
 			if err := verifyObservationDiscardAbsent(ctx, tx, observationSummary.Selector); err != nil {
@@ -1298,6 +1344,15 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 			}
 			maintenance.EventDiscards = append(maintenance.EventDiscards, *eventSummary)
 			if effect.retireSourceBackup && eventSummary.RemovedRows > 0 {
+				maintenance.SourceBackupRetirementRequired = true
+			}
+		}
+		if operationalSummary != nil {
+			if err := verifyOperationalPruneAbsent(ctx, tx, operationalSummary.Selector); err != nil {
+				return fail(fmt.Errorf("verify migration %d operational prune: %w", next, err))
+			}
+			maintenance.OperationalPrunes = append(maintenance.OperationalPrunes, *operationalSummary)
+			if effect.retireSourceBackup && operationalPruneRemovedRows(*operationalSummary) {
 				maintenance.SourceBackupRetirementRequired = true
 			}
 		}
@@ -1333,6 +1388,7 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 
 type contextQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 func summarizeObservationDiscard(ctx context.Context, q contextQueryer, m migration) (ObservationDiscardSummary, error) {
@@ -1430,6 +1486,181 @@ func summarizeEventDiscard(ctx context.Context, q contextQueryer, m migration) (
 	return summary, nil
 }
 
+func summarizeOperationalPrune(ctx context.Context, q contextQueryer, m migration) (OperationalPruneSummary, error) {
+	if m.maintenance == nil || m.maintenance.OperationalPrune == nil ||
+		*m.maintenance.OperationalPrune != betaOperationalPruneSelector {
+		return OperationalPruneSummary{}, errorsf("invalid operational prune selector")
+	}
+	summary := OperationalPruneSummary{
+		MigrationVersion: m.version,
+		MigrationName:    m.name,
+		Selector:         *m.maintenance.OperationalPrune,
+	}
+	var sourceVersion int
+	if err := q.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&sourceVersion); err != nil {
+		return OperationalPruneSummary{}, err
+	}
+	observationMatch := betaOperationalObservationMatchClause()
+	if sourceVersion < legacyStressMeasurementRenameVersionForSummary {
+		observationMatch = addSQLMatch(observationMatch, ` WHERE scope_key = 'market/legacy/canary-measurements'
+   AND source = 'legacy.canary_decision_journal'
+   AND kind = 'canary_market_measurement.v1'`)
+	}
+	if sourceVersion < contractCachePruneMigrationVersionForSummary {
+		observationMatch = subtractSQLMatch(observationMatch, observationDiscardSummaryMatchClause(contractCachePruneSelector))
+	}
+	eventMatch := betaOperationalEventMatchClause()
+	if sourceVersion < stressRenameMigrationVersionForSummary {
+		eventMatch = addSQLMatch(eventMatch, ` WHERE scope_key = 'daemon' AND event_type = 'canary_decision'`)
+	}
+	if sourceVersion < alertEpisodePruneMigrationVersionForSummary {
+		eventMatch = subtractSQLMatch(eventMatch, eventDiscardMatchClause(alertEpisodeNonTransitionSelector))
+	}
+
+	observationHash := sha256.New()
+	observationHash.Write([]byte("canary.operational-prune.observations.v1\x00"))
+	observationHash.Write([]byte(summary.Selector.Predicate))
+	observationHash.Write([]byte{0})
+	rows, err := q.QueryContext(ctx, `SELECT observation_id,length(payload),payload_sha256
+FROM observations
+`+observationMatch+`
+ORDER BY observation_id`)
+	if err != nil {
+		return OperationalPruneSummary{}, err
+	}
+	for rows.Next() {
+		var id, payloadBytes int64
+		var digest []byte
+		if err := rows.Scan(&id, &payloadBytes, &digest); err != nil {
+			rows.Close()
+			return OperationalPruneSummary{}, err
+		}
+		if id < 1 || payloadBytes < 0 || len(digest) != sha256.Size {
+			rows.Close()
+			return OperationalPruneSummary{}, errorsf("invalid operational observation identity, size, or digest")
+		}
+		var identity [8]byte
+		binary.BigEndian.PutUint64(identity[:], uint64(id))
+		observationHash.Write(identity[:])
+		observationHash.Write(digest)
+		if summary.RemovedObservationRows == math.MaxInt64 || payloadBytes > math.MaxInt64-summary.RemovedObservationPayloadBytes {
+			rows.Close()
+			return OperationalPruneSummary{}, errorsf("operational observation summary counter overflow")
+		}
+		summary.RemovedObservationRows++
+		summary.RemovedObservationPayloadBytes += payloadBytes
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return OperationalPruneSummary{}, err
+	}
+	if err := rows.Close(); err != nil {
+		return OperationalPruneSummary{}, err
+	}
+	summary.ObservationDigestSHA256 = hex.EncodeToString(observationHash.Sum(nil))
+
+	eventHash := sha256.New()
+	eventHash.Write([]byte("canary.operational-prune.events.v1\x00"))
+	eventHash.Write([]byte(summary.Selector.Predicate))
+	eventHash.Write([]byte{0})
+	rows, err = q.QueryContext(ctx, `SELECT event_seq,length(payload_json),payload_sha256
+FROM event_log
+`+eventMatch+`
+ORDER BY event_seq`)
+	if err != nil {
+		return OperationalPruneSummary{}, err
+	}
+	for rows.Next() {
+		var seq, payloadBytes int64
+		var digest []byte
+		if err := rows.Scan(&seq, &payloadBytes, &digest); err != nil {
+			rows.Close()
+			return OperationalPruneSummary{}, err
+		}
+		if seq < 1 || payloadBytes < 0 || len(digest) != sha256.Size {
+			rows.Close()
+			return OperationalPruneSummary{}, errorsf("invalid operational event identity, size, or digest")
+		}
+		var identity [8]byte
+		binary.BigEndian.PutUint64(identity[:], uint64(seq))
+		eventHash.Write(identity[:])
+		eventHash.Write(digest)
+		if summary.RemovedEventRows == math.MaxInt64 || payloadBytes > math.MaxInt64-summary.RemovedEventPayloadBytes {
+			rows.Close()
+			return OperationalPruneSummary{}, errorsf("operational event summary counter overflow")
+		}
+		summary.RemovedEventRows++
+		summary.RemovedEventPayloadBytes += payloadBytes
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return OperationalPruneSummary{}, err
+	}
+	if err := rows.Close(); err != nil {
+		return OperationalPruneSummary{}, err
+	}
+	summary.EventDigestSHA256 = hex.EncodeToString(eventHash.Sum(nil))
+
+	stressTable := "stress_transitions"
+	stressEventType := "stress_decision"
+	var currentStressTable int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='stress_transitions'`).Scan(&currentStressTable); err != nil {
+		return OperationalPruneSummary{}, err
+	}
+	if currentStressTable == 0 {
+		stressTable = "canary_transitions"
+		stressEventType = "canary_decision"
+	}
+	counts := []struct {
+		query string
+		out   *int64
+	}{
+		{`SELECT count(*) FROM regime_indicators WHERE decision_event_seq IN (SELECT event_seq FROM event_log` + betaOperationalRegimeEventMatchClause() + `)`, &summary.RemovedRegimeIndicatorRows},
+		{`SELECT count(*) FROM regime_decisions WHERE event_seq IN (SELECT event_seq FROM event_log` + betaOperationalRegimeEventMatchClause() + `)`, &summary.RemovedRegimeDecisionRows},
+		{`SELECT count(*) FROM rule_transitions WHERE event_seq IN (SELECT event_seq FROM event_log WHERE scope_key='daemon' AND event_type='rule_transition')`, &summary.RemovedRuleTransitionRows},
+		{`SELECT count(*) FROM ` + stressTable + ` WHERE event_seq IN (SELECT event_seq FROM event_log WHERE scope_key='daemon' AND event_type='` + stressEventType + `')`, &summary.RemovedStressTransitionRows},
+	}
+	for _, count := range counts {
+		if err := q.QueryRowContext(ctx, count.query).Scan(count.out); err != nil {
+			return OperationalPruneSummary{}, err
+		}
+	}
+	return summary, nil
+}
+
+const (
+	stressRenameMigrationVersionForSummary         = 2
+	legacyStressMeasurementRenameVersionForSummary = 3
+	contractCachePruneMigrationVersionForSummary   = 4
+	alertEpisodePruneMigrationVersionForSummary    = 5
+)
+
+func addSQLMatch(match, additional string) string {
+	match = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(match), "WHERE"))
+	additional = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(additional), "WHERE"))
+	return " WHERE (\n" + match + "\n   ) OR (\n" + additional + "\n   )"
+}
+
+func subtractSQLMatch(match, prior string) string {
+	match = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(match), "WHERE"))
+	prior = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(prior), "WHERE"))
+	return " WHERE (\n" + match + "\n   ) AND NOT (\n" + prior + "\n   )"
+}
+
+func observationDiscardSummaryMatchClause(selector ObservationDiscardSelector) string {
+	return fmt.Sprintf(" WHERE scope_key = '%s' AND source = '%s' AND kind = '%s'",
+		strings.ReplaceAll(selector.ScopeKey, "'", "''"),
+		strings.ReplaceAll(selector.Source, "'", "''"),
+		strings.ReplaceAll(selector.Kind, "'", "''"),
+	)
+}
+
+func operationalPruneRemovedRows(summary OperationalPruneSummary) bool {
+	return summary.RemovedObservationRows > 0 || summary.RemovedEventRows > 0 ||
+		summary.RemovedRegimeDecisionRows > 0 || summary.RemovedRegimeIndicatorRows > 0 ||
+		summary.RemovedRuleTransitionRows > 0 || summary.RemovedStressTransitionRows > 0
+}
+
 type contextQueryRower interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
@@ -1457,8 +1688,35 @@ func verifyEventDiscardAbsent(ctx context.Context, q contextQueryRower, selector
 	return nil
 }
 
-func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, observationSummaries []ObservationDiscardSummary, eventSummaries []EventDiscardSummary) error {
-	if len(observationSummaries) == 0 && len(eventSummaries) == 0 {
+func verifyOperationalPruneAbsent(ctx context.Context, q contextQueryRower, selector OperationalPruneSelector) error {
+	if selector != betaOperationalPruneSelector {
+		return errorsf("invalid operational prune selector")
+	}
+	checks := []struct {
+		label string
+		query string
+	}{
+		{"observations", `SELECT count(*) FROM observations` + betaOperationalObservationMatchClause()},
+		{"events", `SELECT count(*) FROM event_log` + betaOperationalEventMatchClause()},
+		{"regime indicators", `SELECT count(*) FROM regime_indicators WHERE decision_event_seq IN (SELECT event_seq FROM event_log` + betaOperationalRegimeEventMatchClause() + `)`},
+		{"regime decisions", `SELECT count(*) FROM regime_decisions WHERE event_seq IN (SELECT event_seq FROM event_log` + betaOperationalRegimeEventMatchClause() + `)`},
+		{"rule transitions", `SELECT count(*) FROM rule_transitions WHERE event_seq IN (SELECT event_seq FROM event_log WHERE scope_key='daemon' AND event_type='rule_transition')`},
+		{"stress transitions", `SELECT count(*) FROM stress_transitions WHERE event_seq IN (SELECT event_seq FROM event_log WHERE scope_key='daemon' AND event_type='stress_decision')`},
+	}
+	for _, check := range checks {
+		var remaining int64
+		if err := q.QueryRowContext(ctx, check.query).Scan(&remaining); err != nil {
+			return err
+		}
+		if remaining != 0 {
+			return fmt.Errorf("corestore: operational prune still matches %d %s rows", remaining, check.label)
+		}
+	}
+	return nil
+}
+
+func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, observationSummaries []ObservationDiscardSummary, eventSummaries []EventDiscardSummary, operationalSummaries []OperationalPruneSummary) error {
+	if len(observationSummaries) == 0 && len(eventSummaries) == 0 && len(operationalSummaries) == 0 {
 		return nil
 	}
 	db, err := sql.Open("sqlite", sqliteDSN(path, defaultBusyTimeout, true))
@@ -1474,6 +1732,11 @@ func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, observati
 	}
 	for _, summary := range eventSummaries {
 		if err := verifyEventDiscardAbsent(ctx, db, summary.Selector); err != nil {
+			return err
+		}
+	}
+	for _, summary := range operationalSummaries {
+		if err := verifyOperationalPruneAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}
@@ -1515,6 +1778,11 @@ func validateUpgradedCandidate(ctx context.Context, db *sql.DB, source Inspectio
 	}
 	for _, summary := range execution.maintenance.EventDiscards {
 		if err := verifyEventDiscardAbsent(ctx, db, summary.Selector); err != nil {
+			return err
+		}
+	}
+	for _, summary := range execution.maintenance.OperationalPrunes {
+		if err := verifyOperationalPruneAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}

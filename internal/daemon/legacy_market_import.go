@@ -47,6 +47,7 @@ type legacyMarketImportPlan struct {
 	artifactIndex int
 	stateDocs     int
 	observations  int
+	retain        bool
 	apply         func(context.Context, *corestore.Store) error
 }
 
@@ -124,12 +125,12 @@ type legacyStressMeasurementV1 struct {
 	SourceFingerprints legacyStressSourceFingerprints `json:"source_fingerprints,omitzero"`
 }
 
-// importLegacyMarketObservations is the single cutover entry point for
-// irreplaceable legacy market and gamma artifacts. It performs a complete
-// read/validate/hash preflight before the first SQLite mutation, so malformed
-// allowlisted input fails the unpublished cutover rather than yielding a
-// partial authority. It never renames or deletes sources; sealing is a later
-// orchestration decision after parity checks.
+// importLegacyMarketObservations is the single cutover entry point for legacy
+// market and gamma artifacts. It performs a complete read/validate/hash
+// preflight before the first SQLite mutation, retains only quarantined gamma
+// rows needed by authority repair, and records the other beta caches as
+// validated-but-discarded. It never renames or deletes sources; sealing is a
+// later orchestration decision after parity checks.
 func importLegacyMarketObservations(ctx context.Context, authority *corestore.Store) (legacyMarketImportManifest, error) {
 	manifest := legacyMarketImportManifest{StartedAt: time.Now().UTC()}
 	if authority == nil {
@@ -145,17 +146,23 @@ func importLegacyMarketObservations(ctx context.Context, authority *corestore.St
 			return manifest, err
 		}
 		artifact := &manifest.Artifacts[plan.artifactIndex]
-		if err := plan.apply(ctx, authority); err != nil {
-			artifact.Status = "failed"
-			artifact.Error = err.Error()
-			manifest.CompletedAt = time.Now().UTC()
-			return manifest, fmt.Errorf("import legacy %s %s: %w", artifact.Kind, artifact.Path, err)
+		if plan.retain {
+			if err := plan.apply(ctx, authority); err != nil {
+				artifact.Status = "failed"
+				artifact.Error = err.Error()
+				manifest.CompletedAt = time.Now().UTC()
+				return manifest, fmt.Errorf("import legacy %s %s: %w", artifact.Kind, artifact.Path, err)
+			}
+			artifact.Status = "imported"
+		} else {
+			artifact.Status = "validated_discarded_beta"
 		}
-		artifact.Status = "imported"
 		manifest.ImportedFiles++
 		manifest.ImportedRecords += artifact.Records
-		manifest.StateDocuments += plan.stateDocs
-		manifest.Observations += plan.observations
+		if plan.retain {
+			manifest.StateDocuments += plan.stateDocs
+			manifest.Observations += plan.observations
+		}
 	}
 	manifest.CompletedAt = time.Now().UTC()
 	return manifest, nil
@@ -526,11 +533,8 @@ func preflightLegacyGammaSkew(manifest *legacyMarketImportManifest, path string)
 	}
 	manifest.Artifacts[index].Records = len(inputs)
 	return legacyMarketImportPlan{
-		artifactIndex: index, observations: len(inputs),
-		apply: func(ctx context.Context, store *corestore.Store) error {
-			_, err := store.AppendObservations(ctx, inputs)
-			return err
-		},
+		artifactIndex: index,
+		apply:         func(context.Context, *corestore.Store) error { return nil },
 	}, true, nil
 }
 
@@ -630,14 +634,8 @@ func preflightOptionalLegacyDecisionMeasurements(manifest *legacyMarketImportMan
 	}
 	manifest.Artifacts[index].Records = len(inputs)
 	return legacyMarketImportPlan{
-		artifactIndex: index, observations: len(inputs),
-		apply: func(ctx context.Context, store *corestore.Store) error {
-			if len(inputs) == 0 {
-				return nil
-			}
-			_, err := store.AppendObservations(ctx, inputs)
-			return err
-		},
+		artifactIndex: index,
+		apply:         func(context.Context, *corestore.Store) error { return nil },
 	}, true, nil
 }
 
@@ -688,9 +686,14 @@ func stateImportPlan(index int, scopeKey, stateKind string, input corestore.Obse
 	_ = scopeKey
 	_ = stateKind
 	input.DecisionEligible = false
+	retain := input.Source == gammaZeroSource && input.Kind == gammaZeroObservationKind
 	return legacyMarketImportPlan{
 		artifactIndex: index, observations: 1,
+		retain: retain,
 		apply: func(ctx context.Context, store *corestore.Store) error {
+			if !retain {
+				return nil
+			}
 			_, err := store.AppendObservation(ctx, input)
 			return err
 		},

@@ -446,7 +446,7 @@ func TestEarningsIdentityDefinitiveSupersessionCASRollbackSurvivesRestart(t *tes
 	providerBefore, err := store.ListObservations(t.Context(), corestore.ObservationQuery{
 		ScopeKey: earningsAuthorityScope, Kind: earningsProviderObservationKind,
 	})
-	if err != nil || len(providerBefore) != 1 {
+	if err != nil || len(providerBefore) != 0 {
 		t.Fatal("initial provider observation fixture is incomplete")
 	}
 

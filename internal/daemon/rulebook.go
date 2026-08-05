@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -1505,9 +1504,9 @@ func validRulebookTerminalEarningsAuthority(info rpc.EarningsInfo, asOf time.Tim
 		revalidateAfter.Sub(verifiedAt) <= 366*24*time.Hour
 }
 
-// journalRuleTransitions appends status changes as typed SQLite events so
-// threshold calibration has a direct authoritative history. The JSONL branch
-// remains only for legacy unit/import oracles.
+// journalRuleTransitions keeps the JSONL branch only for legacy format and
+// import oracles. Runtime SQLite authority holds current rule state without an
+// unbounded calibration history.
 func (s *Server) journalRuleTransitions(res *rpc.RulesResult) {
 	s.journalRuleTransitionsBound(res, rulebookCacheBinding{}, false)
 }
@@ -1532,6 +1531,11 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 	if res == nil || len(res.Rules) == 0 {
 		return
 	}
+	if s.coreStore != nil {
+		// Current rule state is held by the bound rulebook cache. The beta
+		// transition corpus had no operational reader and grew without bound.
+		return
+	}
 	policyFingerprint := ""
 	if res.PolicyFingerprint != nil {
 		policyFingerprint = res.PolicyFingerprint.Key
@@ -1550,16 +1554,6 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 	// (json.Encoder emits each map with a trailing newline).
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	var coreEvents []corestore.EventInput
-	coreEventOrdinal := 0
-	if s.coreStore != nil {
-		head, err := s.coreStore.AuthorityHead(context.Background())
-		if err != nil {
-			s.warnf("rules transitions: SQLite authority head unavailable: %v", err)
-			return
-		}
-		coreEventOrdinal = int(head.LastEventSeq) + 1
-	}
 	for _, r := range res.Rules {
 		if was, seen := prevStatus[r.ID]; seen && was == r.Status {
 			continue
@@ -1578,31 +1572,6 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 			entry["connector_epoch"] = binding.connectorEpoch
 		}
 		_ = enc.Encode(entry)
-		if s.coreStore != nil {
-			raw, err := json.Marshal(entry)
-			if err != nil {
-				continue
-			}
-			version := int64(res.PolicyVersion)
-			key := coreEventKey(coreEventRuleTransition, res.AsOf, raw, coreEventOrdinal+len(coreEvents))
-			coreEvents = append(coreEvents, corestore.EventInput{
-				ScopeKey: daemonStateScope, EventKey: key, Type: coreEventRuleTransition,
-				Action: coreEventActionRecord, Origin: coreEventOriginDaemon,
-				OccurredAt: res.AsOf, PayloadJSON: raw,
-				Projection: corestore.EventProjection{RuleTransition: &corestore.RuleTransitionProjection{
-					RuleID: r.ID, Status: r.Status, PreviousStatus: prevStatus[r.ID],
-					PolicyID: res.PolicyID, PolicyVersion: &version, PolicyFingerprint: policyFingerprint,
-				}},
-			})
-		}
-	}
-	if s.coreStore != nil {
-		if len(coreEvents) > 0 {
-			if _, err := s.coreStore.AppendEvents(context.Background(), coreEvents); err != nil {
-				s.warnf("rules transitions: SQLite append failed: %v", err)
-			}
-		}
-		return
 	}
 	// rulesJournalMu is the writer-quiescence lock journal rotation
 	// excludes: held across path resolve, open, write, and close so a

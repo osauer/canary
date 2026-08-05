@@ -676,13 +676,8 @@ func TestEarningsProviderOutcomesPersistAndRecoverWithoutRawError(t *testing.T) 
 	observations, err := store.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: earningsAuthorityScope, Kind: earningsProviderObservationKind,
 	})
-	if err != nil || len(observations) != 2 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("provider observations=%d err=%v", len(observations), err)
-	}
-	for _, observation := range observations {
-		if bytesContain(observation.Payload, "SECRET") {
-			t.Fatal("raw provider error entered immutable observation")
-		}
 	}
 
 	restarted := newEarningsCacheMemory(nil)

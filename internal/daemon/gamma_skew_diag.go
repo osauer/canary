@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,16 +11,13 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// gammaSkewDiagJournal appends one immutable daemon.db observation per
-// computed gamma slice. It exists because the skew-fit rankability bars in
-// gamma_quality.go are heuristic and need a retained distribution for offline
-// calibration. Live decisions never read this corpus. The path-backed codec is
-// a legacy import/test seam only; authoritative observations are not a
-// delete-safe cache.
+// gammaSkewDiagJournal retains its path codec only for legacy format tests.
+// Once daemon authority is attached, beta calibration observations are no
+// longer appended because no production reader consumes them.
 //
 // Lifecycle mirrors gammaZeroStore.Save: appended only on the
-// successful, non-cancelled persist path in spawnJob, and append
-// failures degrade to warnings — journaling must never fail a compute.
+// successful, non-cancelled persist path in spawnJob; runtime attachment makes
+// append a no-op and can never fail a compute.
 type gammaSkewDiagJournal struct {
 	// path is retained solely for explicit legacy-import and isolated
 	// file-format tests. Production attaches the daemon authority before
@@ -99,40 +95,7 @@ func (j *gammaSkewDiagJournal) append(now time.Time, scope, sessionKey string, r
 		return nil
 	}
 	if j.authority != nil {
-		inputs := make([]corestore.ObservationInput, 0, len(lines))
-		for _, line := range lines {
-			payload, err := json.Marshal(line)
-			if err != nil {
-				return fmt.Errorf("encode skew diagnostics: %w", err)
-			}
-			metadata, err := json.Marshal(struct {
-				Version     int    `json:"version"`
-				Method      string `json:"method"`
-				SessionKey  string `json:"session_key"`
-				Scope       string `json:"scope"`
-				Slice       string `json:"slice"`
-				Rankability string `json:"rankability"`
-			}{
-				Version: gammaSkewDiagVersion, Method: clone.Method,
-				SessionKey: sessionKey, Scope: scope, Slice: line.Slice,
-				Rankability: line.Rankability,
-			})
-			if err != nil {
-				return fmt.Errorf("encode skew diagnostic metadata: %w", err)
-			}
-			inputs = append(inputs, corestore.ObservationInput{
-				ScopeKey:         gammaSkewDiagScopeKey(scope, line.Slice),
-				Source:           "ibkr.gamma.compute",
-				Kind:             gammaSkewDiagObservationKind,
-				ObservedAt:       line.AsOf,
-				ContentType:      "application/json",
-				Payload:          payload,
-				MetadataJSON:     metadata,
-				DecisionEligible: true,
-			})
-		}
-		_, err := j.authority.AppendObservations(context.Background(), inputs)
-		return err
+		return nil
 	}
 	return j.appendLegacy(lines)
 }

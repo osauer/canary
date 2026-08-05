@@ -23,6 +23,7 @@ var migrationChecksumPins = map[int]string{
 	3: "0d735df122fa40b41c2a74fe79560d5c4f865ff33b413a3bc69867bbb771419d",
 	4: "f5912938a8dd29c4499c55bbadeb70944fad012df39ce63cd5304cc0489eab85",
 	5: "06dc11562e044c291d31d5e6da0807a84817d6a350bc66169a276f1c073519e7",
+	6: "7f89638d2b12368b6012c479cd2e9385ac36f939e20d16d609ab7eabed3911f2",
 }
 
 func TestShippedMigrationChecksumsAreFrozen(t *testing.T) {
@@ -165,7 +166,7 @@ func TestDestructiveGuardRejectsUnapprovedMigrations(t *testing.T) {
 func TestStressRenameMigrationPreservesEvidence(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(privateTempDir(t), "daemon.db")
-	plan := currentMigrationPlan()
+	plan := currentMigrationPlan()[:2]
 
 	seedV1Authority(t, path, plan)
 
@@ -272,7 +273,7 @@ func TestStressRenameMigrationPreservesEvidence(t *testing.T) {
 
 	// The migrated file is a valid current authority: this re-checks the full
 	// schema-object manifest, the migration ledger, and the payload digests.
-	store, err := Open(ctx, Options{Path: path})
+	store, err := openWithPlan(ctx, Options{Path: path}, plan)
 	if err != nil {
 		t.Fatalf("open migrated authority: %v", err)
 	}
@@ -294,7 +295,7 @@ func TestStressRenameUpgradesThroughOperatorPath(t *testing.T) {
 	ctx := t.Context()
 	dir := privateTempDir(t)
 	sourcePath := filepath.Join(dir, "daemon.db")
-	plan := currentMigrationPlan()
+	plan := currentMigrationPlan()[:2]
 	seedV1Authority(t, sourcePath, plan)
 
 	inspection, err := inspectWithPlan(ctx, InspectOptions{Path: sourcePath}, plan)

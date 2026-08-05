@@ -108,7 +108,7 @@ func TestGammaZeroStore_CoreStoreIsSoleRuntimeAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListObservations: %v", err)
 	}
-	if len(observations) != 1 || len(observations[0].Payload) == 0 || len(observations[0].MetadataJSON) == 0 {
+	if len(observations) != 0 {
 		t.Fatalf("persisted observation = %+v", observations)
 	}
 }

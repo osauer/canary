@@ -141,11 +141,8 @@ func TestExternalMembersSQLiteColdStartContinuityAndNoLegacyWrite(t *testing.T) 
 	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: membersAuthorityScope, Source: membersObservationSource, Kind: membersObservationKind,
 	})
-	if err != nil || len(observations) != 1 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("atomic members observations=%d err=%v", len(observations), err)
-	}
-	if !observations[0].DecisionEligible {
-		t.Fatal("current members observation is not decision-eligible")
 	}
 	if _, ok, err := authority.GetStateDocument(context.Background(), membersAuthorityScope, membersStateKind); err != nil || !ok {
 		t.Fatalf("members state missing: ok=%v err=%v", ok, err)

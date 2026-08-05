@@ -2,7 +2,7 @@
 
 **Status:** Implementation contract
 
-**Updated:** 2026-07-31
+**Updated:** 2026-08-05
 
 ## Purpose
 
@@ -27,7 +27,8 @@ append-only evidence table and made the authority materially too large.
 - Startup validates the authority before RPC or broker connectivity.
 - No maintenance path mutates the published database in place.
 - No general age-, size-, or count-based retention applies to evidence.
-- A discard migration identifies one exact row class. Near matches survive.
+- A discard migration identifies one frozen, reviewed selector. Unknown classes
+  and near matches survive.
 - The append-only trigger is removed and recreated in the same migration
   transaction.
 - The source database remains unchanged until a compact candidate and an exact
@@ -65,6 +66,42 @@ The schema migration therefore:
    over the removed observation identities and payload digests.
 
 That approval does not authorize pruning any other observation.
+
+## Beta operational compaction
+
+Schema 6 is a separately approved beta-epoch reset. It is not a general
+retention setting and has no age, size, or caller-provided selector. Its frozen
+`beta_operational_history.v1` predicate removes only:
+
+- named refreshable market-observation kinds with no production history reader;
+- decision-eligible current gamma computes, while retaining quarantined
+  `decision_eligible=false` recovery rows;
+- rule, stress, and alert analytical events and their typed projections;
+- all but the newest two regime events and projections, which retain the
+  current projection plus one crash-recovery predecessor;
+- non-operational proposal and opportunity events such as generated, shown,
+  previewed, blocked, and policy diagnostic rows.
+
+It retains current state documents; authority metadata and watermarks; broker
+scope and order evidence; preview-token tombstones and order-ID floors; capital,
+risk-policy, statement, and reconciliation evidence; exact earnings-identity
+and terminal-evidence observations; proposal and opportunity `ignored` and
+`submitted` actions; and every unknown or near-matching row class.
+
+The v6 receipt binds separate ordered observation and event digests plus the
+removed projection counts. When v4, v5, and v6 are pending together, immutable
+source-backup recomputation subtracts the rows consumed by the earlier frozen
+selectors and understands the v1 canary-to-stress and v3 legacy-observation
+renames. This makes one receipt reproducible from every prior schema v1 through
+v5 without mutating the backup.
+
+After migration, refreshable market writers publish state only. Receipt-bound
+earnings identity and terminal-evidence writers remain explicit exceptions.
+Rule and alert histories no longer append, regime and stress journaling default
+off unless explicitly enabled, proposal and opportunity histories retain only
+operational actions, and legacy cutover validates but does not re-import the
+discarded beta classes. Quarantined legacy gamma rows remain importable for the
+narrow authority-repair path.
 
 ## Large-authority upgrade sequence
 

@@ -33,7 +33,6 @@ const (
 	earningsPersistVersion             = 4
 	earningsIdentityPersistVersion     = 3
 	earningsPreviousPersistVersion     = 2
-	earningsProviderObservationVersion = 3
 	earningsLegacyVersion              = 1
 	earningsNasdaqParserContractLegacy = 1
 	// v2 accepted a nested no-date announcement, so only its no-date outcomes
@@ -76,7 +75,6 @@ const (
 	earningsProviderObservationKind = "earnings_dates.provider_outcome.v3"
 	earningsNasdaqProvider          = "nasdaq"
 	earningsWSHProvider             = "ibkr_wsh"
-	earningsWSHObservationSource    = "ibkr.wsh_event_calendar"
 
 	earningsIdentityObservationVersion = 1
 	earningsIdentityObservationKind    = "earnings_dates.identity_outcome.v1"
@@ -627,11 +625,7 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 	if len(completed) == 0 && completedIdentity == nil {
 		return
 	}
-	observations, err := earningsProviderObservations(sym, completed)
-	if err != nil {
-		c.logf("earnings provider outcome encode failed: %v", err)
-		return
-	}
+	var observations []corestore.ObservationInput
 	identityObservationIndex := -1
 	if completedIdentity != nil {
 		observation, encodeErr := earningsIdentityObservation(*completedIdentity)
@@ -1428,42 +1422,6 @@ func validOpaqueEarningsIdentityObservationID(value string) bool {
 	return err == nil && len(decoded) == sha256.Size && hex.EncodeToString(decoded) == raw
 }
 
-func earningsProviderObservations(sym string, completed []earningsCompletedProvider) ([]corestore.ObservationInput, error) {
-	observations := make([]corestore.ObservationInput, 0, len(completed))
-	for _, item := range completed {
-		payload, err := json.Marshal(struct {
-			Version  int                     `json:"version"`
-			Symbol   string                  `json:"symbol"`
-			Provider string                  `json:"provider"`
-			Attempt  earningsProviderAttempt `json:"attempt"`
-		}{earningsProviderObservationVersion, sym, item.provider, item.attempt})
-		if err != nil {
-			return nil, fmt.Errorf("encode %s earnings observation: %w", item.provider, err)
-		}
-		metadata, err := json.Marshal(struct {
-			Version  int    `json:"version"`
-			Provider string `json:"provider"`
-			Status   string `json:"status"`
-		}{earningsProviderObservationVersion, item.provider, item.attempt.Status})
-		if err != nil {
-			return nil, fmt.Errorf("encode %s earnings metadata: %w", item.provider, err)
-		}
-		observations = append(observations, corestore.ObservationInput{
-			ScopeKey: earningsAuthorityScope, Source: earningsObservationSourceForProvider(item.provider),
-			Kind: earningsProviderObservationKind, ObservedAt: item.attempt.CompletedAt,
-			ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: true,
-		})
-	}
-	return observations, nil
-}
-
-func earningsObservationSourceForProvider(provider string) string {
-	if provider == earningsWSHProvider {
-		return earningsWSHObservationSource
-	}
-	return earningsObservationSource
-}
-
 func validEarningsProviderStatus(status string) bool {
 	switch status {
 	case rpc.EarningsStatusDate, rpc.EarningsStatusNoDatePublished,
@@ -1602,9 +1560,6 @@ func (s *earningsStore) commitBound(
 	if s == nil {
 		return nil, errors.New("earnings store: nil store")
 	}
-	if len(observations) == 0 {
-		return nil, errors.New("earnings observations are required")
-	}
 	if build == nil {
 		return nil, errors.New("earnings state builder is required")
 	}
@@ -1619,6 +1574,28 @@ func (s *earningsStore) commitBound(
 		if err := s.save(resolvedEarningsEntries(candidate, now)); err != nil {
 			return nil, err
 		}
+		return candidate, nil
+	}
+	if len(observations) == 0 {
+		candidate, err := build(s.revision+1, nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateEarningsSymbols(candidate, now); err != nil {
+			return nil, err
+		}
+		payload, err := json.Marshal(earningsPersistEnvelope{Version: earningsPersistVersion, Symbols: candidate})
+		if err != nil {
+			return nil, fmt.Errorf("encode earnings authority: %w", err)
+		}
+		saved, err := s.authority.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
+			ScopeKey: earningsAuthorityScope, Kind: earningsStateKind,
+			ExpectedRevision: s.revision, JSON: payload,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("commit earnings authority: %w", err)
+		}
+		s.revision = saved.Revision
 		return candidate, nil
 	}
 	update := corestore.StateDocumentCAS{

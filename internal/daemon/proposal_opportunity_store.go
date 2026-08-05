@@ -447,6 +447,9 @@ func (s *proposalStore) appendEvent(ctx context.Context, ev proposalEvent) error
 	if err != nil {
 		return err
 	}
+	if len(inputs) == 0 {
+		return nil
+	}
 	if _, err := s.core.AppendEvents(ctx, inputs); err != nil {
 		return err
 	}
@@ -463,6 +466,9 @@ func (s *opportunityStore) appendEvent(ctx context.Context, ev opportunityEvent)
 	inputs, normalized, err := opportunityEventInputs(ctx, s.core, []opportunityEvent{ev})
 	if err != nil {
 		return err
+	}
+	if len(inputs) == 0 {
+		return nil
 	}
 	if _, err := s.core.AppendEvents(ctx, inputs); err != nil {
 		return err
@@ -506,6 +512,9 @@ func proposalEventInputs(ctx context.Context, core *corestore.Store, events []pr
 		if !proposalEventValid(ev) {
 			return nil, nil, errors.New("proposal event is malformed")
 		}
+		if !operationalProposalEvent(ev.Type) {
+			continue
+		}
 		raw, err := json.Marshal(ev)
 		if err != nil {
 			return nil, nil, err
@@ -533,6 +542,9 @@ func opportunityEventInputs(ctx context.Context, core *corestore.Store, events [
 		if !opportunityEventValid(ev) {
 			return nil, nil, errors.New("opportunity event is malformed")
 		}
+		if !operationalOpportunityEvent(ev.Type) {
+			continue
+		}
 		raw, err := json.Marshal(ev)
 		if err != nil {
 			return nil, nil, err
@@ -545,6 +557,14 @@ func opportunityEventInputs(ctx context.Context, core *corestore.Store, events [
 		normalized = append(normalized, ev)
 	}
 	return inputs, normalized, nil
+}
+
+func operationalProposalEvent(eventType string) bool {
+	return eventType == "ignored" || eventType == "submitted"
+}
+
+func operationalOpportunityEvent(eventType string) bool {
+	return eventType == "ignored" || eventType == "submitted"
 }
 
 func loadProposalEvents(ctx context.Context, core *corestore.Store) ([]proposalEvent, error) {

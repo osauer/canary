@@ -84,7 +84,7 @@ func TestGammaOpenInterestStoreUsesSQLiteWithoutFileFallback(t *testing.T) {
 	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: gammaOIAuthorityScope, Source: gammaOISource, Kind: gammaOIObservationKind,
 	})
-	if err != nil || len(observations) != 1 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("observations=%d err=%v", len(observations), err)
 	}
 }

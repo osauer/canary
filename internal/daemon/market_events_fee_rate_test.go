@@ -115,11 +115,8 @@ func TestHeldShortFeeRateFallbackPersistsUncommissionedEvidenceAndRetriesAfterRe
 	observations, err := authority.ListObservations(t.Context(), corestore.ObservationQuery{
 		ScopeKey: marketEventFeeRateScope, Source: marketEventFeeRateSource, Kind: marketEventFeeRateObservationKind,
 	})
-	if err != nil || len(observations) != 1 || observations[0].DecisionEligible {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("fallback observations=%+v err=%v", observations, err)
-	}
-	if strings.Contains(string(observations[0].Payload), "DU123") {
-		t.Fatalf("raw account persisted in observation: %s", observations[0].Payload)
 	}
 
 	restarted := newMarketEventCache(func() time.Time { return now.Add(time.Minute) })
@@ -148,10 +145,10 @@ func TestHeldShortFeeRateFallbackPersistsUncommissionedEvidenceAndRetriesAfterRe
 	observations, err = authority.ListObservations(t.Context(), corestore.ObservationQuery{
 		ScopeKey: marketEventFeeRateScope, Source: marketEventFeeRateSource, Kind: marketEventFeeRateObservationKind,
 	})
-	if err != nil || len(observations) != 2 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("post-failure observations=%+v err=%v", observations, err)
 	}
-	for _, payload := range append([][]byte{doc.JSON}, observations[1].Payload) {
+	for _, payload := range [][]byte{doc.JSON} {
 		if strings.Contains(string(payload), rpc.SourceFailureNotEntitled) || strings.Contains(string(payload), "SECRET") || strings.Contains(string(payload), `"failure":`) {
 			t.Fatalf("runtime entitlement/failure persisted: %s", payload)
 		}

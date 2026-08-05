@@ -147,6 +147,37 @@ type EventDiscardSummary struct {
 	OrderedDigestSHA256 string
 }
 
+// OperationalPruneSelector identifies the one reviewed beta-history reset.
+// Predicate is a frozen implementation identifier; it is never caller input
+// and does not establish a general retention or age-based deletion surface.
+type OperationalPruneSelector struct {
+	Predicate string
+}
+
+// OperationalPruneSummary is the deterministic receipt for the v6
+// operational-only compaction. Observation and event digests bind the ordered
+// row identities to their already-stored payload hashes. Projection rows are
+// derived from those event payloads, so fixed per-table counts prove that the
+// matching children were removed before their parent events without copying
+// private payloads into coordination state.
+type OperationalPruneSummary struct {
+	MigrationVersion int
+	MigrationName    string
+	Selector         OperationalPruneSelector
+
+	RemovedObservationRows         int64
+	RemovedObservationPayloadBytes int64
+	ObservationDigestSHA256        string
+	RemovedEventRows               int64
+	RemovedEventPayloadBytes       int64
+	EventDigestSHA256              string
+
+	RemovedRegimeDecisionRows   int64
+	RemovedRegimeIndicatorRows  int64
+	RemovedRuleTransitionRows   int64
+	RemovedStressTransitionRows int64
+}
+
 // UpgradeMaintenanceResult reports physical work required by pending
 // migration metadata and the exact discard evidence produced while building
 // the candidate. SourceBackupRetirementRequired is an instruction to the outer
@@ -155,6 +186,7 @@ type EventDiscardSummary struct {
 type UpgradeMaintenanceResult struct {
 	Discards                       []ObservationDiscardSummary
 	EventDiscards                  []EventDiscardSummary
+	OperationalPrunes              []OperationalPruneSummary
 	Compacted                      bool
 	SourceBackupRetirementRequired bool
 }

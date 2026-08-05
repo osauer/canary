@@ -82,7 +82,7 @@ func TestGammaSkewDiagJournalUsesSQLiteWithoutLegacyFallback(t *testing.T) {
 			ScopeKey: gammaSkewDiagScopeKey(rpc.GammaZeroScopeCombined, slice),
 			Source:   "ibkr.gamma.compute", Kind: gammaSkewDiagObservationKind,
 		})
-		if err != nil || len(observations) != 1 || len(observations[0].MetadataJSON) == 0 {
+		if err != nil || len(observations) != 0 {
 			t.Fatalf("slice %s observations=%d err=%v", slice, len(observations), err)
 		}
 	}

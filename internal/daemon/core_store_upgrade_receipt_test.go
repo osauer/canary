@@ -12,7 +12,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -88,12 +87,12 @@ func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			if current.Status != corestore.InspectionCurrent ||
-				current.SchemaVersion != alertEpisodePruneMigrationVersion ||
+				current.SchemaVersion != betaOperationalPruneMigrationVersion ||
 				current.Head != wantHead {
 				t.Fatalf("published alert-event maintenance authority=%+v", current)
 			}
-			if got := readAlertEpisodeEventKeys(t, source.Path); !slices.Equal(got, []string{"transition"}) {
-				t.Fatalf("published alert events=%v want transition only", got)
+			if got := readAlertEpisodeEventKeys(t, source.Path); len(got) != 0 {
+				t.Fatalf("published alert events=%v want none", got)
 			}
 			if got := readHistoricalStateDocument(t, source.Path, daemonStateScope, alertEpisodeRegistryStateKind); !bytes.Equal(got, source.RegistryJSON) {
 				t.Fatalf("published alert registry changed: got=%s want=%s", got, source.RegistryJSON)
@@ -119,9 +118,16 @@ func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
 				receipt.EventDiscard.RemovedRows != 1 ||
 				receipt.EventDiscard.PayloadBytes != int64(len(source.RemovedPayload)) ||
 				receipt.EventDiscard.OrderedDigestSHA256 != expectedAlertEventDiscardDigest(source.RemovedEventSeq, source.RemovedPayload) ||
+				receipt.OperationalPrune == nil ||
+				receipt.OperationalPrune.MigrationVersion != betaOperationalPruneMigrationVersion ||
+				receipt.OperationalPrune.MigrationName != betaOperationalPruneMigrationName ||
+				receipt.OperationalPrune.Selector != betaOperationalPruneReceiptSelector ||
+				receipt.OperationalPrune.RemovedEventRows != 1 ||
+				receipt.OperationalPrune.RemovedEventPayloadBytes != int64(len(source.TransitionPayload)) ||
+				receipt.OperationalPrune.EventDigestSHA256 != expectedOperationalEventPruneDigest(source.TransitionEventSeq, source.TransitionPayload) ||
 				receipt.Source.SchemaVersion != alertEpisodePruneMigrationVersion-1 ||
 				receipt.Source.Head != source.Head ||
-				receipt.Target.SchemaVersion != alertEpisodePruneMigrationVersion ||
+				receipt.Target.SchemaVersion != betaOperationalPruneMigrationVersion ||
 				receipt.Target.Head != wantHead {
 				t.Fatalf("alert-event maintenance receipt does not bind exact repair: %+v", receipt)
 			}
@@ -135,8 +141,8 @@ func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
 			if err := requireIndependentUpgradeArtifacts(source.Path, artifacts.targetBackup); err != nil {
 				t.Fatal(err)
 			}
-			if got := readAlertEpisodeEventKeys(t, artifacts.targetBackup); !slices.Equal(got, []string{"transition"}) {
-				t.Fatalf("target-backup alert events=%v want transition only", got)
+			if got := readAlertEpisodeEventKeys(t, artifacts.targetBackup); len(got) != 0 {
+				t.Fatalf("target-backup alert events=%v want none", got)
 			}
 			if got := readHistoricalStateDocument(t, artifacts.targetBackup, daemonStateScope, alertEpisodeRegistryStateKind); !bytes.Equal(got, source.RegistryJSON) {
 				t.Fatalf("target-backup alert registry changed: got=%s want=%s", got, source.RegistryJSON)
@@ -156,11 +162,13 @@ func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
 }
 
 type v4AlertEventMaintenanceAuthority struct {
-	Path            string
-	Head            corestore.AuthorityHead
-	RegistryJSON    []byte
-	RemovedEventSeq int64
-	RemovedPayload  []byte
+	Path               string
+	Head               corestore.AuthorityHead
+	RegistryJSON       []byte
+	RemovedEventSeq    int64
+	RemovedPayload     []byte
+	TransitionEventSeq int64
+	TransitionPayload  []byte
 }
 
 func newV4AlertEventMaintenanceAuthority(t *testing.T) v4AlertEventMaintenanceAuthority {
@@ -231,7 +239,7 @@ func newV4AlertEventMaintenanceAuthority(t *testing.T) v4AlertEventMaintenanceAu
 	for _, statement := range []string{
 		`DROP TRIGGER schema_migrations_no_update`,
 		`DROP TRIGGER schema_migrations_no_delete`,
-		`DELETE FROM schema_migrations WHERE version=5`,
+		`DELETE FROM schema_migrations WHERE version>=5`,
 		`CREATE TRIGGER schema_migrations_no_update BEFORE UPDATE ON schema_migrations BEGIN SELECT RAISE(ABORT, 'schema_migrations is append-only'); END`,
 		`CREATE TRIGGER schema_migrations_no_delete BEFORE DELETE ON schema_migrations BEGIN SELECT RAISE(ABORT, 'schema_migrations is append-only'); END`,
 		`PRAGMA user_version = 4`,
@@ -264,6 +272,7 @@ func newV4AlertEventMaintenanceAuthority(t *testing.T) v4AlertEventMaintenanceAu
 	return v4AlertEventMaintenanceAuthority{
 		Path: path, Head: head, RegistryJSON: registryJSON,
 		RemovedEventSeq: receipts[1].EventSeq, RemovedPayload: removedPayload,
+		TransitionEventSeq: receipts[0].EventSeq, TransitionPayload: transitionPayload,
 	}
 }
 
@@ -306,6 +315,19 @@ func expectedAlertEventDiscardDigest(eventSeq int64, payload []byte) string {
 		h.Write(size[:])
 		h.Write([]byte(value))
 	}
+	var identity [8]byte
+	binary.BigEndian.PutUint64(identity[:], uint64(eventSeq))
+	h.Write(identity[:])
+	digest := sha256.Sum256(payload)
+	h.Write(digest[:])
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func expectedOperationalEventPruneDigest(eventSeq int64, payload []byte) string {
+	h := sha256.New()
+	h.Write([]byte("canary.operational-prune.events.v1\x00"))
+	h.Write([]byte(betaOperationalPruneReceiptSelector.Predicate))
+	h.Write([]byte{0})
 	var identity [8]byte
 	binary.BigEndian.PutUint64(identity[:], uint64(eventSeq))
 	h.Write(identity[:])
@@ -817,7 +839,7 @@ func TestCoreSchemaUpgradeLegacyManifestRealPlanChainsBeforeAndAfterPublication(
 				t.Fatal(err)
 			}
 			if current.Status != corestore.InspectionCurrent ||
-				current.SchemaVersion != alertEpisodePruneMigrationVersion {
+				current.SchemaVersion != betaOperationalPruneMigrationVersion {
 				t.Fatalf("legacy chain did not reach current schema: %+v", current)
 			}
 			if pending, err := coreSchemaUpgradePending(databasePath); err != nil || pending {

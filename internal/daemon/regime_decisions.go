@@ -31,6 +31,12 @@ func regimeDecisionsDefaultPath() (string, error) {
 
 const regimeDecisionHeartbeat = time.Hour
 
+// regimeDecisionLineVersion advances whenever the replay payload's rendered
+// contract changes. Version 2 predates the complete per-indicator depth scale
+// and later label/replay additions. Startup binds those immutable older lines
+// by publication identity; version 3 is compared byte-for-byte.
+const regimeDecisionLineVersion = 3
+
 // regimeDecisionLine is the v1 event payload: enough raw measurement,
 // gate evidence, and decision output to measure false-alarm and recall
 // rates offline and to replay incidents.
@@ -221,7 +227,7 @@ func (j *regimeDecisionJournal) appendPublicationContext(ctx context.Context, no
 
 func buildRegimeDecisionLine(now time.Time, res *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication) regimeDecisionLine {
 	line := regimeDecisionLine{
-		V:                2,
+		V:                regimeDecisionLineVersion,
 		CurrencyPolicy:   rpc.RegimeCurrencyPolicyVersion,
 		TS:               now,
 		SessionKey:       nyTradingSessionKey(nyTime(now)),

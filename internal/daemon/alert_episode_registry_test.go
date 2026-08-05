@@ -212,18 +212,8 @@ func TestAlertEpisodeRegistryLifecycleSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 4 {
-		t.Fatalf("transition events=%d want 4", len(events))
-	}
-	var event alertEpisodeDecisionEvent
-	if err := json.Unmarshal(events[len(events)-1].PayloadJSON, &event); err != nil {
-		t.Fatal(err)
-	}
-	if len(event.Decisions) != 1 || event.Decisions[0].PolicyFingerprint != reopenObservation.PolicyFingerprint || event.Decisions[0].ProducerDecisionReason != "classified_active" || event.Decisions[0].EvidenceAsOf != reopenObservation.EvidenceAsOf {
-		t.Fatalf("redacted decision audit incomplete: %+v", event)
-	}
-	if strings.Contains(string(events[len(events)-1].PayloadJSON), "account") || strings.Contains(string(events[len(events)-1].PayloadJSON), "symbol") {
-		t.Fatalf("decision event exposes forbidden subject field: %s", events[len(events)-1].PayloadJSON)
+	if len(events) != 0 {
+		t.Fatalf("transition events=%d want none", len(events))
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -269,8 +259,8 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("outage heartbeats appended %d lifecycle events, want the opening event only", len(events))
+	if len(events) != 0 {
+		t.Fatalf("outage heartbeats appended %d lifecycle events, want none", len(events))
 	}
 
 	partialAt := base.Add((outageHeartbeats + 1) * time.Minute)
@@ -335,8 +325,8 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("recovery lifecycle events=%d want opening and recovery only", len(events))
+	if len(events) != 0 {
+		t.Fatalf("recovery lifecycle events=%d want none", len(events))
 	}
 }
 
@@ -457,7 +447,7 @@ func TestAlertEpisodeRegistryRejectsEquivocationAtomically(t *testing.T) {
 		t.Fatalf("timestamp equivocation error=%v", err)
 	}
 	events, err = store.LoadEvents(t.Context(), corestore.EventQuery{ScopeKey: daemonStateScope, Type: alertEpisodeDecisionEventType})
-	if err != nil || len(events) != 1 {
+	if err != nil || len(events) != 0 {
 		t.Fatalf("timestamp equivocation was not atomic events=%d err=%v", len(events), err)
 	}
 }
@@ -773,18 +763,8 @@ func TestAlertEpisodeRegistryMigratesV3StressRenameWithoutLosingState(t *testing
 	events, err := store.LoadEvents(t.Context(), corestore.EventQuery{
 		ScopeKey: daemonStateScope, Type: alertEpisodeDecisionEventType, Limit: 100,
 	})
-	if err != nil || len(events) != 1 {
-		t.Fatalf("load retained transition event: count=%d err=%v", len(events), err)
-	}
-	var event alertEpisodeDecisionEvent
-	if err := json.Unmarshal(events[len(events)-1].PayloadJSON, &event); err != nil {
-		t.Fatalf("decode retained transition event: %v", err)
-	}
-	if len(event.Decisions) != 1 ||
-		event.Decisions[0].Action != alertDecisionOpened ||
-		event.Decisions[0].EpisodeKey != wantEpisode ||
-		event.Decisions[0].OccurrenceKey != wantOccurrence {
-		t.Fatalf("non-transition refresh appended an event: %+v", event.Decisions)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("load pruned transition events: count=%d err=%v", len(events), err)
 	}
 
 	// The stored document now carries only the renamed values, and reloading it

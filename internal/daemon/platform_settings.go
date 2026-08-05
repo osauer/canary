@@ -1037,14 +1037,14 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 
 func regimeJournalEnabledFrom(data platformSettingsData) bool {
 	if data.Regime.Journal.Enabled == nil {
-		return true
+		return false
 	}
 	return *data.Regime.Journal.Enabled
 }
 
 func stressJournalEnabledFrom(data platformSettingsData) bool {
 	if data.Stress.Journal.Enabled == nil {
-		return true
+		return false
 	}
 	return *data.Stress.Journal.Enabled
 }

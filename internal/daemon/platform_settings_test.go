@@ -42,6 +42,9 @@ func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
 	if !got.AutoTrade.FastPathEnabled.Value {
 		t.Fatal("auto_trade.fast_path_enabled default = false, want true")
 	}
+	if got.Regime.Journal.Enabled.Value || got.Stress.Journal.Enabled.Value {
+		t.Fatalf("calibration journals default enabled: regime=%t stress=%t", got.Regime.Journal.Enabled.Value, got.Stress.Journal.Enabled.Value)
+	}
 
 	patch := mustRaw(t, map[string]any{
 		"features": map[string]any{

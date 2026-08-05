@@ -260,6 +260,9 @@ func (s *Store) saveAuthority(stateKind, observationKind string, observedAt time
 }
 
 func (s *Store) saveAuthorityPayload(ctx context.Context, stateKind, observationKind string, observedAt time.Time, payload, metadata []byte) error {
+	_ = observationKind
+	_ = observedAt
+	_ = metadata
 	for range 4 {
 		doc, ok, err := s.authority.GetStateDocument(ctx, breadthAuthorityScope, stateKind)
 		if err != nil {
@@ -269,14 +272,10 @@ func (s *Store) saveAuthorityPayload(ctx context.Context, stateKind, observation
 		if ok {
 			revision = doc.Revision
 		}
-		_, _, err = s.authority.CompareAndSwapStateDocumentWithObservations(ctx, corestore.StateDocumentCAS{
+		_, err = s.authority.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
 			ScopeKey: breadthAuthorityScope, Kind: stateKind,
 			ExpectedRevision: revision, JSON: payload,
-		}, []corestore.ObservationInput{{
-			ScopeKey: breadthAuthorityScope, Source: breadthSource, Kind: observationKind,
-			ObservedAt: observedAt, ContentType: "application/json",
-			Payload: payload, MetadataJSON: metadata, DecisionEligible: true,
-		}})
+		})
 		if !errors.Is(err, corestore.ErrRevisionConflict) {
 			return err
 		}
@@ -284,36 +283,24 @@ func (s *Store) saveAuthorityPayload(ctx context.Context, stateKind, observation
 	return fmt.Errorf("save breadth authority %s: %w", stateKind, corestore.ErrRevisionConflict)
 }
 
-// ImportLegacySnapshot/Windows/History preserve exact legacy JSON bytes as
-// non-authorizing observations. They intentionally do not publish current
-// state: clean-slate cutover starts every live cache cold, and only a
-// current-code fetch may create a state document.
+// ImportLegacySnapshot/Windows/History are compatibility hooks for the
+// cutover preflight. Schema 6 intentionally retires these beta caches after
+// validation, so they publish neither history nor current state.
 func ImportLegacySnapshot(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, err := authority.AppendObservation(ctx, corestore.ObservationInput{
-		ScopeKey: breadthAuthorityScope, Source: breadthSource, Kind: breadthSnapshotObservationKind,
-		ObservedAt: observedAt, ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: false,
-	})
-	return err
+	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
+	return nil
 }
 
-// ImportLegacyWindows preserves legacy window JSON as a non-authorizing
-// observation without publishing it as current state.
+// ImportLegacyWindows validates through the caller and retains no beta row.
 func ImportLegacyWindows(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, err := authority.AppendObservation(ctx, corestore.ObservationInput{
-		ScopeKey: breadthAuthorityScope, Source: breadthSource, Kind: breadthWindowsObservationKind,
-		ObservedAt: observedAt, ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: false,
-	})
-	return err
+	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
+	return nil
 }
 
-// ImportLegacyHistory preserves legacy history JSON as a non-authorizing
-// observation without publishing it as current state.
+// ImportLegacyHistory validates through the caller and retains no beta row.
 func ImportLegacyHistory(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, err := authority.AppendObservation(ctx, corestore.ObservationInput{
-		ScopeKey: breadthAuthorityScope, Source: breadthSource, Kind: breadthHistoryObservationKind,
-		ObservedAt: observedAt, ContentType: "application/json", Payload: payload, MetadataJSON: metadata, DecisionEligible: false,
-	})
-	return err
+	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
+	return nil
 }
 
 // UseCoreStore attaches daemon.db and loads the engine projection from it.

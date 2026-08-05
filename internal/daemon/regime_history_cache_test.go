@@ -105,7 +105,7 @@ func TestRegimeHistoryCacheUsesSQLiteWithoutLegacyFallback(t *testing.T) {
 		ScopeKey: regimeHistoryAuthorityScope("USD.JPY", USDJPYLookbackDays),
 		Source:   regimeHistorySource, Kind: regimeHistoryObservationKind,
 	})
-	if err != nil || len(observations) != 1 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("observations=%d err=%v", len(observations), err)
 	}
 }

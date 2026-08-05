@@ -24,7 +24,7 @@ const (
 func TestLegacyStressMeasurementRenamePreservesEvidence(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(privateTempDir(t), "daemon.db")
-	plan := currentMigrationPlan()
+	plan := currentMigrationPlan()[:3]
 
 	seedV1Authority(t, path, plan)
 	seedLegacyMeasurementObservations(t, path, plan)
@@ -109,7 +109,7 @@ func TestLegacyStressMeasurementRenamePreservesEvidence(t *testing.T) {
 
 	// The relabelled rows are readable under the new identity, the old identity
 	// is gone, and the payload digests still verify.
-	store, err := Open(ctx, Options{Path: path})
+	store, err := openWithPlan(ctx, Options{Path: path}, plan)
 	if err != nil {
 		t.Fatalf("open migrated authority: %v", err)
 	}

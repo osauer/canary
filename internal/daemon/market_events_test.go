@@ -569,19 +569,8 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 		t.Fatalf("raw transport text crossed health boundary: %+v", health.Notes)
 	}
 
-	failureObservation, ok, err := authority.LatestObservation(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind)
-	if err != nil || !ok {
-		t.Fatalf("failure observation ok=%v err=%v", ok, err)
-	}
-	if strings.Contains(string(failureObservation.Payload), "dial tcp") {
-		t.Fatalf("raw transport text persisted: %s", failureObservation.Payload)
-	}
-	var outcome marketEventBorrowFeeOutcome
-	if err := json.Unmarshal(failureObservation.Payload, &outcome); err != nil {
-		t.Fatalf("decode failure outcome: %v", err)
-	}
-	if outcome.Attempt.Failure == nil || outcome.Attempt.Failure.Code != rpc.SourceFailureTimeout {
-		t.Fatalf("persisted failure outcome=%+v", outcome)
+	if _, ok, err := authority.LatestObservation(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind); err != nil || ok {
+		t.Fatalf("failure observation retained ok=%v err=%v", ok, err)
 	}
 
 	within := failedAt.Add(time.Minute)
@@ -610,7 +599,7 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: marketEventBorrowFeesScope, Source: marketEventBorrowFeesSource, Kind: marketEventBorrowFeesObservationKind,
 	})
-	if err != nil || len(observations) != 2 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("fetch outcome observations=%d err=%v", len(observations), err)
 	}
 	doc, ok, err := authority.GetStateDocument(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesStateKind)
@@ -678,8 +667,8 @@ func TestMarketEventBorrowFeeDownloadParseSQLiteReopenRecovery(t *testing.T) {
 	if entry.AsOf != time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC) {
 		t.Fatalf("provider as_of=%s", entry.AsOf)
 	}
-	if _, ok, err := authority.LatestObservation(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind); err != nil || !ok {
-		t.Fatalf("fetch outcome observation ok=%v err=%v", ok, err)
+	if _, ok, err := authority.LatestObservation(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind); err != nil || ok {
+		t.Fatalf("fetch outcome observation retained ok=%v err=%v", ok, err)
 	}
 	if err := authority.Close(); err != nil {
 		t.Fatalf("close corestore: %v", err)
@@ -745,7 +734,7 @@ func TestMarketEventBorrowFeeDoesNotPublishMemoryWhenAuthorityCommitFails(t *tes
 	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: marketEventBorrowFeesScope, Source: marketEventBorrowFeesSource, Kind: marketEventBorrowFeesObservationKind,
 	})
-	if err != nil || len(observations) != 1 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("failed commit appended an observation: count=%d err=%v", len(observations), err)
 	}
 }
@@ -869,10 +858,10 @@ func TestMarketEventSQLitePersistsNormalizedSnapshotsAndRestarts(t *testing.T) {
 	if err := cache.persistBorrowInventory(context.Background(), now, inventory); err != nil {
 		t.Fatalf("persist borrow inventory: %v", err)
 	}
-	assertStateAndObservation(t, authority, marketEventRegSHOScope, marketEventRegSHOStateKind, marketEventRegSHOSource, marketEventRegSHOObservationKind)
-	assertStateAndObservation(t, authority, marketEventHaltsScope, marketEventHaltsStateKind, marketEventHaltsSource, marketEventHaltsObservationKind)
-	assertStateAndObservation(t, authority, marketEventBorrowFeesScope, marketEventBorrowFeesStateKind, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind)
-	assertStateAndObservation(t, authority, marketEventBorrowInventoryScope, marketEventBorrowInventoryStateKind, marketEventBorrowInventorySource, marketEventBorrowInventoryObservationKind)
+	assertStateWithoutObservation(t, authority, marketEventRegSHOScope, marketEventRegSHOStateKind, marketEventRegSHOSource, marketEventRegSHOObservationKind)
+	assertStateWithoutObservation(t, authority, marketEventHaltsScope, marketEventHaltsStateKind, marketEventHaltsSource, marketEventHaltsObservationKind)
+	assertStateWithoutObservation(t, authority, marketEventBorrowFeesScope, marketEventBorrowFeesStateKind, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind)
+	assertStateWithoutObservation(t, authority, marketEventBorrowInventoryScope, marketEventBorrowInventoryStateKind, marketEventBorrowInventorySource, marketEventBorrowInventoryObservationKind)
 
 	restarted := newMarketEventCache(func() time.Time { return now.Add(time.Hour) })
 	if err := restarted.UseCoreStore(authority); err != nil {

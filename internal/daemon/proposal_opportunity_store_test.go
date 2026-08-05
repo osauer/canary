@@ -168,14 +168,14 @@ func TestProposalCurrentAndEventsRollbackTogether(t *testing.T) {
 	one := scopedTestSnapshot("DU1234567", rpc.AccountModePaper, now)
 	one.Revision = "sha256:first"
 	one.Proposals[0].Revision = one.Revision
-	if err := first.SaveCurrentWithEvents(t.Context(), one, []proposalEvent{{At: now, Type: "generated", Key: one.Proposals[0].Key, Revision: one.Revision, AccountID: one.AccountID}}); err != nil {
+	if err := first.SaveCurrentWithEvents(t.Context(), one, []proposalEvent{{At: now, Type: "ignored", Key: one.Proposals[0].Key, Revision: one.Revision, AccountID: one.AccountID}}); err != nil {
 		t.Fatal(err)
 	}
 	two := cloneProposalSnapshot(one)
 	two.AsOf = now.Add(time.Minute)
 	two.Revision = "sha256:stale"
 	two.Proposals[0].Revision = two.Revision
-	err := stale.SaveCurrentWithEvents(t.Context(), two, []proposalEvent{{At: two.AsOf, Type: "generated", Key: two.Proposals[0].Key, Revision: two.Revision, AccountID: two.AccountID}})
+	err := stale.SaveCurrentWithEvents(t.Context(), two, []proposalEvent{{At: two.AsOf, Type: "ignored", Key: two.Proposals[0].Key, Revision: two.Revision, AccountID: two.AccountID}})
 	if !errors.Is(err, corestore.ErrRevisionConflict) {
 		t.Fatalf("stale current+event write error = %v, want revision conflict", err)
 	}
@@ -206,14 +206,14 @@ func TestProposalCurrentAndEventsRollbackTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	opportunityOne := persistedOpportunitySnapshot(now, "DU1234567", rpc.AccountModePaper, "sha256:opportunity-first")
-	if err := firstOpportunity.SaveCurrentWithEvents(t.Context(), opportunityOne, []opportunityEvent{{At: now, Type: "shown", Key: opportunityOne.Opportunities[0].Key, Revision: opportunityOne.Revision, AccountID: opportunityOne.AccountID}}); err != nil {
+	if err := firstOpportunity.SaveCurrentWithEvents(t.Context(), opportunityOne, []opportunityEvent{{At: now, Type: "ignored", Key: opportunityOne.Opportunities[0].Key, Revision: opportunityOne.Revision, AccountID: opportunityOne.AccountID}}); err != nil {
 		t.Fatal(err)
 	}
 	opportunityTwo := cloneOpportunitySnapshot(opportunityOne)
 	opportunityTwo.AsOf = now.Add(time.Minute)
 	opportunityTwo.Revision = "sha256:opportunity-stale"
 	opportunityTwo.Opportunities[0].Revision = opportunityTwo.Revision
-	err = staleOpportunity.SaveCurrentWithEvents(t.Context(), opportunityTwo, []opportunityEvent{{At: opportunityTwo.AsOf, Type: "shown", Key: opportunityTwo.Opportunities[0].Key, Revision: opportunityTwo.Revision, AccountID: opportunityTwo.AccountID}})
+	err = staleOpportunity.SaveCurrentWithEvents(t.Context(), opportunityTwo, []opportunityEvent{{At: opportunityTwo.AsOf, Type: "ignored", Key: opportunityTwo.Opportunities[0].Key, Revision: opportunityTwo.Revision, AccountID: opportunityTwo.AccountID}})
 	if !errors.Is(err, corestore.ErrRevisionConflict) {
 		t.Fatalf("stale opportunity current+event write error = %v, want revision conflict", err)
 	}

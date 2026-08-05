@@ -103,13 +103,8 @@ func TestStoreUsesSQLiteWithoutLegacyFallback(t *testing.T) {
 	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
 		ScopeKey: breadthAuthorityScope, Source: breadthSource,
 	})
-	if err != nil || len(observations) != 3 {
+	if err != nil || len(observations) != 0 {
 		t.Fatalf("observations=%d err=%v", len(observations), err)
-	}
-	for _, observation := range observations {
-		if !observation.DecisionEligible {
-			t.Fatal("current breadth observation is not decision-eligible")
-		}
 	}
 }
 
@@ -144,8 +139,8 @@ func TestWindowCheckpointReplacesStateWithoutObservation(t *testing.T) {
 		t.Fatalf("SaveWindows: %v", err)
 	}
 	observations, err = authority.ListObservations(context.Background(), query)
-	if err != nil || len(observations) != 1 {
-		t.Fatalf("canonical observations=%d err=%v, want one", len(observations), err)
+	if err != nil || len(observations) != 0 {
+		t.Fatalf("canonical observations=%d err=%v, want none", len(observations), err)
 	}
 }
 

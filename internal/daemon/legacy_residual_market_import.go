@@ -134,12 +134,9 @@ func preflightLegacySPXMembers(manifest *legacyMarketImportManifest, path string
 }
 
 func observationOnlyImportPlan(index int, input corestore.ObservationInput) legacyMarketImportPlan {
-	input.DecisionEligible = false
+	_ = input
 	return legacyMarketImportPlan{
-		artifactIndex: index, observations: 1,
-		apply: func(ctx context.Context, store *corestore.Store) error {
-			_, err := store.AppendObservation(ctx, input)
-			return err
-		},
+		artifactIndex: index,
+		apply:         func(context.Context, *corestore.Store) error { return nil },
 	}
 }
