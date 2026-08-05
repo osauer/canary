@@ -2,31 +2,23 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.9.0 — 2026-08-04 22:57 CEST
+## v2.9.0 — 2026-08-05 08:11 CEST
 
 ### What's new
 
-- **Claude and other MCP clients can read Canary's daily brief in one call.** `canary_brief` returns the same assembled Review and Ready result as `canary brief`, including the inputs Canary could not read, instead of asking an assistant to rebuild the desk view from several smaller tools. It calls only the read path: it cannot sign off the morning or end-of-day brief, stamp an artefact, acknowledge anything, place an order, or change process state.
+- **Claude and other MCP clients can read Canary's daily brief in one call.** The new read-only `canary_brief` MCP endpoint returns the same assembled Review and Ready result as `canary brief`, including the inputs Canary could not read, instead of asking an assistant to rebuild the desk view from several smaller tools. It cannot sign off the morning or end-of-day brief, stamp an artefact, acknowledge anything, place an order, or change process state.
 - **Account and position results say exactly what they know.** Both JSON results now name one account and paper/live mode, the source, whether the result is available, and whether it is current, stale, or of unknown age. Account results also say which individual fields the broker supplied. Existing numeric fields remain in place for compatibility, but a zero counts as a real zero only when its field is marked available. The terminal and paired app use the same information, so unavailable money shows as unavailable and an old or incomplete empty position list cannot read as an empty book.
+- **`canary status` has a `Market access` row, so a missing market-data subscription is visible in one place.** The row names what the gateway refused, the IBKR code, when it happened, and when Canary will ask again. It is an observation with a thirty-minute window, not an entitlement record: features holding a cached result keep serving it, nothing is switched off because of it, and the row is absent when the gateway has refused nothing.
+
+### Changed
+
+- **Canary no longer pretends to be a web browser when it looks up an earnings date.** The Nasdaq request now sends no user-agent, origin, or referrer rather than claiming to be Nasdaq's own web app. Earnings dates are unaffected, verified against the live endpoint after the change.
 
 ### Fixed
 
 - **Reconciliation no longer combines Flex statements from sibling accounts.** A report now uses only statements belonging to the selected account, says how many sibling statements it skipped, and stays unavailable when it cannot resolve one account or no retained statement belongs to it. Report identities include the account scope, and storage or parse failures leave the public result with a short, fixed reason instead of exposing raw file or provider text.
 - **Switching accounts no longer reuses another account's capital history.** Equity peaks, drawdown latches, capital events, and reconciliation state are stored separately for each account and paper/live mode. The first read safely adopts an older single-account record only when that record already proves the same account and mode; unresolved scope is refused rather than guessed.
 - **Slow MCP reads no longer fail before the daemon has finished them.** History, order preview, proposal refresh, and opportunity refresh previously had a 35-second MCP limit in front of a 55-second daemon limit, so the client could give up while valid work was still running. Every daemon method now has one shared timing record, and CLI and MCP callers add their own small margin to it. Tests compare the real daemon dispatch table and every MCP tool against that record, so a new method cannot quietly recreate the mismatch.
-
-## v2.8.0 — 2026-08-04 22:42 CEST
-
-### What's new
-
-- **`canary status` has a `Market access` row, so a missing market-data subscription is visible in one place.** Until now every feature discovered an entitlement gap on its own and described it in its own words, which is how a missing subscription could read as "no live spot tick from the gateway" on one card and as something else entirely on the next. The row names what the gateway refused, the IBKR code, when it happened, and when Canary will ask again — code 354 means the account is not subscribed to that data, which is the one cause the account holder can act on. It is an observation with a thirty-minute window, not a record of your entitlements: nothing is switched off because of it, features holding a cached result keep serving it, a symbol nothing asked for never appears, and a data-farm outage can list a symbol your account does hold. The row is absent on a desk with nothing refused.
-
-### Changed
-
-- **Canary no longer pretends to be a web browser when it looks up an earnings date.** The Nasdaq lookup sent a Chrome user-agent string together with headers claiming the request had come from Nasdaq's own website. Measured against the live endpoint, those origin headers never made any difference to whether the request was accepted, so they are gone, and the request now sends no user-agent rather than a false one. Every other outbound lookup — Wikipedia, the Reg SHO and halt feeds, the Federal Reserve series — already identified itself honestly; this was the one exception. Earnings dates are unaffected, verified against the live endpoint after the change.
-
-### Fixed
-
 - **A regime indicator no longer goes blank when the gateway stops feeding it.** One missed price tick blanked a whole row, so the credit reading went dark 131 times in a fortnight — once for four and a half hours, through most of a US session, while TWS had lost its link to IBKR. The market had not moved; only our sight of it had. Each row now keeps showing its last measured reading, labelled as held and dated, instead of erasing it. A held reading is for awareness only: it can never confirm stress, bank a session towards persistence, or move the desk verdict, and `canary status` still reports the lane as degraded so the outage stays visible. Rows recompute the moment their inputs return, and a row with nothing measured yet still says so. Substituting daily closes for the missing tick was tried and rejected: replayed over the same fortnight it would have understated credit stress in 94 of 131 cases.
 - **Dealer gamma no longer presents an old failure as if it were happening right now.** When a compute fails and the options session then closes, the daemon deliberately does not retry until the next open — but the surface kept quoting the original gateway error, so a Friday-afternoon failure read as a broken gateway all weekend. The failure is still reported, now with the time it happened and when the next attempt is due. A desk that has never computed gamma at all now says that too, instead of rendering a blank card with no reason. (#26)
 - **A missing market-data subscription no longer hides behind "no live tick".** The underlying spot step discarded the gateway's own rejection, so an account not subscribed to SPY or SPX data got the same wording as a gateway that was merely quiet. The rejection code is now named in the reason — IBKR 354 says the subscription is missing, which is the one cause the account holder can act on directly.
