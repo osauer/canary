@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,10 +344,31 @@ func TestFetchNasdaqEarningsBareClientErrorsAreProtocolFailures(t *testing.T) {
 	}
 }
 
-func TestEarningsNasdaqUserAgentUsesCanonicalProductIdentity(t *testing.T) {
+// The Nasdaq request must never impersonate a browser or Nasdaq's own web app:
+// no User-Agent reaches the peer, and the first-party Origin/Referer headers
+// stay absent. Asserted on the wire, because Go's transport supplies a default
+// User-Agent after the request leaves the caller.
+func TestFetchNasdaqEarningsSendsNoImpersonatingHeaders(t *testing.T) {
 	t.Parallel()
-	if !strings.HasSuffix(earningsNasdaqUserAgent, " canary-earnings/1.0") {
-		t.Fatalf("Nasdaq User-Agent = %q", earningsNasdaqUserAgent)
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	cache := newEarningsCacheMemory(nil)
+	cache.fetchURL = srv.URL + "/api/analyst/%s/earnings-date"
+	if _, err := cache.fetchOne(t.Context(), "TESTQ"); err == nil {
+		t.Fatal("fetchOne error = nil, want the stubbed 404")
+	}
+	for _, header := range []string{"User-Agent", "Origin", "Referer"} {
+		if value, ok := got[http.CanonicalHeaderKey(header)]; ok {
+			t.Errorf("%s reached the peer as %q, want absent", header, value)
+		}
+	}
+	if got.Get("Accept") != "application/json, text/plain, */*" {
+		t.Errorf("Accept = %q", got.Get("Accept"))
 	}
 }
 

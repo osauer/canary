@@ -63,7 +63,6 @@ const (
 	// cadence. Their typed outcome and next attempt survive daemon restart.
 	earningsNonRetryableFailureRetry = 24 * time.Hour
 	earningsFetchConcurrency         = 4
-	earningsNasdaqUserAgent          = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 canary-earnings/1.0"
 	earningsAuthorityScope           = "market/events/earnings"
 	// Keep the established state kind: a newer payload under the same key makes
 	// older binaries reject the authority instead of silently reading a stale
@@ -905,14 +904,16 @@ func (c *earningsCache) fetchOne(ctx context.Context, sym string) (earningsEntry
 	if err != nil {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusTransportFailure, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqRequest, false, err)
 	}
-	// Nasdaq's CDN rejects bare Go clients; this allowlisted browser header set
-	// is the endpoint contract established by the original provider spike.
+	// Nasdaq's edge rejects any client that names itself, including an honest
+	// project agent, so the request carries no User-Agent rather than claiming
+	// to be a browser. An explicitly empty value suppresses Go's default. Do
+	// not restore a Mozilla string, an Origin, or a Referer: measured against
+	// the live endpoint, those headers never affected acceptance, and they
+	// asserted that the request came from Nasdaq's own web app.
 	for k, v := range map[string]string{
-		"User-Agent":      earningsNasdaqUserAgent,
+		"User-Agent":      "",
 		"Accept":          "application/json, text/plain, */*",
 		"Accept-Language": "en-US,en;q=0.9",
-		"Origin":          "https://www.nasdaq.com",
-		"Referer":         "https://www.nasdaq.com/",
 	} {
 		req.Header.Set(k, v)
 	}
