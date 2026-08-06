@@ -143,9 +143,13 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   `release-smoke SMOKE_STRICT=1` leg is the binding full pass.
 - TWS session: finish any live-session work first, then switch TWS to paper —
   `release-smoke` runs against whichever session is up, and
-  `release-paper-smoke` insists on paper. A fresh paper login blocks the API
-  behind a "simulated trading" disclaimer dialog whose click is human-only; if
-  every connection fails msg-204, screenshot TWS and hand it to the user.
+  `release-paper-preflight` insists on paper. That preflight is read-only: it
+  mints a preview token and checks account, FX, WhatIf and eligibility, and
+  never submits. The place/ack/cancel round-trip that used to follow it was
+  removed on 2026-08-06, so the release no longer places any order. A fresh
+  paper login blocks the API behind a "simulated trading" disclaimer dialog
+  whose click is human-only; if every connection fails msg-204, screenshot TWS
+  and hand it to the user.
 
 ## Stage 4 — Hygiene scan (pre-commit)
 

@@ -1500,8 +1500,12 @@ _release-run:
 	$(MAKE) plugin-check
 	@# Exercise the paper account, cross-currency notional, and broker WhatIf
 	@# path before the expensive smoke. This mints an isolated preview
-	@# token but never places an order; the binding place/ack/cancel smoke stays
-	@# below. Late v2.3.0 preview failures motivated this gate.
+	@# token but never places an order. This is now the whole of the release's
+	@# order-path proof: the place/ack/cancel round-trip that used to follow it
+	@# was removed on 2026-08-06 by operator decision, so the release performs
+	@# no broker write at all. What is still gated is connect, auth, account,
+	@# FX, WhatIf and eligibility; what is no longer gated is transmit, ack and
+	@# cancel. Late v2.3.0 preview failures motivated this gate.
 	$(MAKE) release-paper-preflight VERSION=$(RELEASE_VERSION)
 	@# Build the release binary with the target version stamped BEFORE
 	@# tagging — pass VERSION explicitly so the build doesn't fall back
@@ -1515,12 +1519,6 @@ _release-run:
 	@# read is a bug, not a licence gap. Both postures are passed explicitly
 	@# so the release smoke never inherits a weaker caller default.
 	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1
-	@# Binding paper-trading smoke (2026-06-10 decision): the order
-	@# pipeline is verified automatically per release — place/ack/cancel
-	@# a 1-share paper round-trip via an isolated daemon pinned to the
-	@# local PAPER session. No SKIP: a missing paper login aborts the
-	@# release. This replaces the human-certified runtime live gate.
-	./scripts/with-gateway-lock.sh ./scripts/release-paper-smoke.sh bin/canary
 	@# The push-triggered workflows have run in parallel with the local gates.
 	@# Before crossing the tag boundary, require the exact candidate SHA,
 	@# workflow identity, latest rerun state, and the complete source-controlled
