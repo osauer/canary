@@ -137,15 +137,19 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   `make check` stays local because it reaches the stamp gates hosted CI drops
   (see Stage 2). Note the CI matrix tests on ubuntu only (same decision):
   darwin -race coverage has no routine runner, so a suspected darwin-specific
-  regression warrants a deliberate local `make test` before firing. Do **not** run a standalone full `make smoke` immediately before
-  firing — back-to-back full matrices on one paper session have produced a
-  known "0 OPT subscribes" pacing artifact; the pipeline's own
-  `release-smoke SMOKE_STRICT=1` leg is the binding full pass.
-- TWS session: `release-smoke` runs against whichever session is up, so no
-  paper switch is needed. Both paper-only gates — the place/ack/cancel
-  round-trip and the read-only WhatIf preflight — were removed on 2026-08-06,
-  so nothing in the pipeline touches the order path. A gateway must still be
-  reachable. If a fresh paper login is in use, its "simulated trading"
+  regression warrants a deliberate local `make test` before firing.
+- TWS session: none needed. The release is hermetic as of 2026-08-06 — the
+  paper round-trip, the WhatIf preflight and the wire smoke were all removed
+  from the pipeline, so it depends on no broker session and no external
+  service. Fire whenever CI is green on the candidate SHA.
+- What that gives up: nothing proves the shipped binary talks to IBKR
+  correctly before it publishes. `make smoke-fast` (reduced matrix) and
+  `make smoke` (full) run the identical wire invariants and are the
+  replacement — worth a run after any release touching the wire path, and
+  useful on a cadence rather than once per cut. Do **not** run a full
+  `make smoke` back-to-back with another full matrix on one session: that
+  produces a known "0 OPT subscribes" pacing artifact.
+- If you do run one against a fresh paper login, its "simulated trading"
   disclaimer dialog blocks the API and the click is human-only; if every
   connection fails msg-204, screenshot TWS and hand it to the user.
 

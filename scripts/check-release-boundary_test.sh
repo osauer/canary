@@ -193,7 +193,6 @@ _release-run:
 	$(MAKE) release-origin-check
 	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	$(MAKE) plugin-check
-	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1
 	$(MAKE) release-ci-wait
 	$(MAKE) release-main-candidate-check
 	@msg=fixture; \
@@ -619,14 +618,18 @@ if "$checker" "$test_root" >/dev/null 2>&1; then
 	exit 1
 fi
 
-# The live smoke's strictness must be passed explicitly, never inherited.
-for smoke_pin_mutation in \
-	's# SPX_EXPECTED_REACHABLE=1##' \
-	's#SPX_EXPECTED_REACHABLE=1#SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE)#'
+# The release is hermetic: reintroducing the live smoke into the pipeline must
+# fail, whatever strictness it is given. This replaces the inverse case, which
+# required the smoke to be present with pinned strictness.
+for smoke_reintroduction in \
+	'$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1' \
+	'$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=0 SPX_EXPECTED_REACHABLE=0'
 do
-	sed "$smoke_pin_mutation" "$test_root/Makefile.canonical" >"$test_root/Makefile"
+	awk -v inject="\t$smoke_reintroduction" \
+		'{ print } $0 == "\t$(MAKE) plugin-check" { print inject }' \
+		"$test_root/Makefile.canonical" >"$test_root/Makefile"
 	if "$checker" "$test_root" >/dev/null 2>&1; then
-		echo "check-release-boundary test: unpinned release smoke passed: $smoke_pin_mutation" >&2
+		echo "check-release-boundary test: pipeline release smoke passed: $smoke_reintroduction" >&2
 		exit 1
 	fi
 done

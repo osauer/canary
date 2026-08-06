@@ -1504,20 +1504,31 @@ _release-run:
 	@# click on every cut. The release no longer touches the order path at
 	@# all — neither transmit nor preview — and performs no broker write.
 	@# release-paper-preflight remains an invocable target for a deliberate
-	@# manual check. release-smoke below still requires a reachable gateway,
-	@# but takes whichever session is up.
+	@# manual check.
 	@# Build the release binary with the target version stamped BEFORE
 	@# tagging — pass VERSION explicitly so the build doesn't fall back
 	@# to `git describe` (which wouldn't see the tag yet). The smoke
 	@# script asserts `bin/canary version == $(RELEASE_VERSION)`, so the
 	@# stamp has to match.
 	$(MAKE) build VERSION=$(RELEASE_VERSION)
-	@# Binding TWS/Gateway JSON + wire smoke against the freshly-stamped
-	@# binary. Runs one isolated daemon session and fails on no gateway, and
-	@# on the SPX entitlement banner: this desk has OPRA, so a skipped SPX
-	@# read is a bug, not a licence gap. Both postures are passed explicitly
-	@# so the release smoke never inherits a weaker caller default.
-	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION) SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1
+	@# No broker gate runs here. release-smoke was removed from the pipeline
+	@# on 2026-08-06 by operator decision, completing the same day's removal
+	@# of the paper round-trip and the WhatIf preflight: the release is now
+	@# hermetic and depends on no external service.
+	@#
+	@# What it asserted is not deleted — `make smoke` and `make smoke-fast`
+	@# run the identical wire invariants (quote-spy, chain-iv-source,
+	@# regime-subs, account-summary, gamma-no-wait-envelope,
+	@# status-handshake) and stay available. The reasoning: four of the six
+	@# check failures a daily operator hits within minutes, and gating a
+	@# mechanical publishing step on a live market session made releases
+	@# non-deterministic. The two that catch silently-wrong data
+	@# (chain-iv-source, regime-subs) are better run on a cadence than once
+	@# per cut, which is what the manual targets are for.
+	@#
+	@# What is no longer proven before a publish: that the shipped binary
+	@# talks to IBKR correctly at all. Run `make smoke-fast` after a release
+	@# that touched the wire path.
 	@# The push-triggered workflows have run in parallel with the local gates.
 	@# Before crossing the tag boundary, require the exact candidate SHA,
 	@# workflow identity, latest rerun state, and the complete source-controlled

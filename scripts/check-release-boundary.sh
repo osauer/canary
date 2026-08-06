@@ -1336,18 +1336,24 @@ if [ "$run_target_seen" -eq 1 ]; then
 			"$run_origin_check_count" >&2
 		failure=1
 	fi
+	# plugin-check reaches the version stamps hosted CI drops, so it has to
+	# run before anything irreversible. It used to be anchored ahead of
+	# release-smoke; with that leg gone the anchor is the pre-tag CI wait.
 	if [ "$run_plugin_check_count" -ne 1 ] \
-		|| [ "$run_release_smoke_line" -eq 0 ] \
-		|| [ "$run_plugin_check_line" -ge "$run_release_smoke_line" ]; then
-		printf 'check-release-boundary: _release-run must run one exact local plugin-check before release-smoke\n' >&2
+		|| [ "$run_ci_wait_line1" -eq 0 ] \
+		|| [ "$run_plugin_check_line" -ge "$run_ci_wait_line1" ]; then
+		printf 'check-release-boundary: _release-run must run one exact local plugin-check before the pre-tag CI wait\n' >&2
 		failure=1
 	fi
-	# The live smoke's strictness is release authority, not a caller default:
-	# SMOKE_STRICT=0 turns a vanished gateway into a clean skip and
-	# SPX_EXPECTED_REACHABLE=0 drops the SPX entitlement-error rejection.
-	if [ "$run_release_smoke_count" -ne 1 ] \
-		|| [ "$run_release_smoke_pinned_count" -ne 1 ]; then
-		printf 'check-release-boundary: _release-run must invoke release-smoke exactly once with SMOKE_STRICT=1 SPX_EXPECTED_REACHABLE=1\n' >&2
+	# The release is hermetic as of 2026-08-06 by operator decision: it must
+	# depend on no broker session and no external service. This asserted the
+	# opposite until then — that release-smoke ran exactly once with pinned
+	# strictness — and is inverted rather than deleted so the new property is
+	# held as firmly as the old one was. release-smoke, release-paper-preflight
+	# and the paper round-trip all remain invocable by hand; none may run
+	# inside the pipeline.
+	if [ "$run_release_smoke_count" -ne 0 ]; then
+		printf 'check-release-boundary: _release-run must not invoke release-smoke; the release is hermetic and takes no broker dependency\n' >&2
 		failure=1
 	fi
 	# The fixed published inventory must be proved while the release tag is
