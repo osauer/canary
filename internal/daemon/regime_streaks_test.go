@@ -64,52 +64,6 @@ func TestStreakStore_BandChangeResets(t *testing.T) {
 	}
 }
 
-// TestStreakStore_StressSessionsSpanBandChanges pins the difference between
-// the two counters. Sessions dates the current band and resets when it
-// changes; StressSessions dates the run since green and must not, because a
-// counter that restarts when the market worsens puts a discontinuity exactly
-// where the evidence matters.
-func TestStreakStore_StressSessionsSpanBandChanges(t *testing.T) {
-	s := NewStreakStore(t.TempDir())
-	day := func(d string) time.Time { return mustParseNY(t, d+" 10:00 EST") }
-
-	// Mon-Fri; a weekend date would key back to Friday and silently collapse
-	// two of these into one session.
-	s.Tick(StreakKeyVIXTerm, 0.85, "green", day("2026-05-18"))
-	if got := s.entries[StreakKeyVIXTerm].StressSessions; got != 0 {
-		t.Fatalf("green: StressSessions = %d, want 0", got)
-	}
-	s.Tick(StreakKeyVIXTerm, 0.95, "yellow", day("2026-05-19"))
-	s.Tick(StreakKeyVIXTerm, 0.96, "yellow", day("2026-05-20"))
-	if got := s.entries[StreakKeyVIXTerm].StressSessions; got != 2 {
-		t.Fatalf("two yellow sessions: StressSessions = %d, want 2", got)
-	}
-	// The band worsens. Sessions restarts; StressSessions carries on.
-	info := s.Tick(StreakKeyVIXTerm, 1.02, "red", day("2026-05-21"))
-	if info.Sessions != 1 {
-		t.Errorf("Sessions = %d after worsening, want 1 (band-scoped)", info.Sessions)
-	}
-	if got := s.entries[StreakKeyVIXTerm].StressSessions; got != 3 {
-		t.Errorf("StressSessions = %d after worsening, want 3 (carries)", got)
-	}
-	// Recovering to green ends the run.
-	s.Tick(StreakKeyVIXTerm, 0.80, "green", day("2026-05-22"))
-	if got := s.entries[StreakKeyVIXTerm].StressSessions; got != 0 {
-		t.Errorf("StressSessions = %d after returning to green, want 0", got)
-	}
-}
-
-// TestStreakStore_StressSessionsSameSessionBandChange: a band change inside
-// one NY session is still one session, for both counters.
-func TestStreakStore_StressSessionsSameSessionBandChange(t *testing.T) {
-	s := NewStreakStore(t.TempDir())
-	s.Tick(StreakKeyVIXTerm, 0.95, "yellow", mustParseNY(t, "2026-05-20 10:00 EST"))
-	s.Tick(StreakKeyVIXTerm, 1.02, "red", mustParseNY(t, "2026-05-20 15:00 EST"))
-	if got := s.entries[StreakKeyVIXTerm].StressSessions; got != 1 {
-		t.Errorf("StressSessions = %d after an intraday band change, want 1", got)
-	}
-}
-
 // TestStreakStore_EmptyBandFreezes: an unavailable indicator (empty band)
 // returns the previous state without mutating the counter.
 func TestStreakStore_EmptyBandFreezes(t *testing.T) {

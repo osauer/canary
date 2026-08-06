@@ -33,12 +33,13 @@ const regimeDecisionHeartbeat = time.Hour
 
 // regimeDecisionLineVersion advances whenever the replay payload's rendered
 // contract changes. Version 2 predates the complete per-indicator depth scale
-// and later label/replay additions. Version 3 predates the combined gamma row
-// weighing each leg's own depth rather than a gap the leg may not have, which
-// moves the shadow model's gamma strength and so the rendered line. Startup
-// binds those immutable older lines by publication identity; version 4 is
-// compared byte-for-byte.
-const regimeDecisionLineVersion = 4
+// and later label/replay additions. Versions 3 and 4 carried a shadow scoring
+// block, which was removed: 4 is the last version that renders one, so lines
+// written under it cannot be reproduced by this renderer. Startup binds every
+// older version by publication identity; only the current version is compared
+// byte-for-byte, which is what lets a rendered field be added or removed
+// without leaving the daemon unable to start.
+const regimeDecisionLineVersion = 5
 
 // regimeDecisionLine is the v1 event payload: enough raw measurement,
 // gate evidence, and decision output to measure false-alarm and recall
@@ -77,12 +78,6 @@ type regimeDecisionLine struct {
 	Composite   rpc.RegimeComposite                `json:"composite"`
 	Indicators  map[string]regimeDecisionIndicator `json:"indicators"`
 	DataQuality []rpc.DataQualityHealth            `json:"data_quality,omitempty"`
-	// Shadow is an alternative scoring of the same snapshot, recorded so the
-	// two models can be compared on real readings. It is written and never
-	// read back: nothing in the decision path consults it, and a replay of
-	// the shipped model must ignore it. Absent when the model declines to
-	// score.
-	Shadow *rpc.RegimeShadowRead `json:"shadow,omitempty"`
 }
 
 type regimeDecisionIndicator struct {
@@ -247,7 +242,6 @@ func buildRegimeDecisionLine(now time.Time, res *rpc.RegimeSnapshotResult, publi
 		Composite:        res.Composite,
 		Indicators:       regimeDecisionIndicators(res),
 		DataQuality:      res.DataQuality,
-		Shadow:           regimeShadowRead(res),
 	}
 	if publication.Revision > 0 {
 		line.SnapshotPublishedAt = publication.PublishedAt.UTC()

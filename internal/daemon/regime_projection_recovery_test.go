@@ -174,7 +174,6 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 				Sessions: 2, LastValue: redRatio, EligibleLatched: true,
 				// The session advanced, so the since-green run advances with it,
 				// exactly as the live tick would have written it.
-				StressSessions: 1,
 			},
 		},
 		{
@@ -218,7 +217,6 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 				Sessions: 1, LastValue: redRatio,
 				// Sessions resets with the new red streak; the since-green run
 				// deliberately does not, which is why it is a separate clock.
-				StressSessions: 1,
 			},
 		},
 	}
@@ -347,12 +345,12 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 }
 
 // TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness is the same
-// rule as the not-due freeze above, applied to the two entry fields that never
-// reach the wire at all. StressSessions is json:"-" and LastBandAt is the wall
-// clock of a live measurement, so a reloaded snapshot witnesses neither and the
-// recovery re-derivation must carry both. Zeroing them made the boot-time
-// compare fail at the current position, where there is no repair path, and no
-// binary could start against state a running daemon had written.
+// rule as the not-due freeze above, applied to the entry field that never
+// reaches the wire at all. LastBandAt is the wall clock of a live measurement,
+// so a reloaded snapshot never witnesses it and the recovery re-derivation must
+// carry it. Zeroing it made the boot-time compare fail at the current position,
+// where there is no repair path, and no binary could start against state a
+// running daemon had written.
 func TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness(t *testing.T) {
 	ny := newYorkLocation()
 	asOf := time.Date(2026, 7, 20, 16, 5, 0, 0, ny)
@@ -367,7 +365,7 @@ func TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness(t *testing.
 	stressed := StreakEntry{
 		LastBand: "red", SinceDate: "2026-07-15", LastSession: "2026-07-20",
 		Sessions: 4, LastValue: ratio, EligibleLatched: true,
-		StressSessions: 9, LastBandAt: measuredAt,
+		LastBandAt: measuredAt,
 	}
 
 	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "carries-unwitnessed-fields")
@@ -397,95 +395,6 @@ func TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness(t *testing.
 		}
 	}
 
-	// The stress run still advances when the projection covers a real session
-	// tick, so carrying is not a freeze.
-	advanced, err := projectedRegimeStreakEntries(seeded, snapshot, publication)
-	if err != nil {
-		t.Fatalf("projected entries: %v", err)
-	}
-	if advanced[StreakKeyVIXTerm].StressSessions != stressed.StressSessions {
-		t.Fatalf("same-session stress run=%d, want the stored %d",
-			advanced[StreakKeyVIXTerm].StressSessions, stressed.StressSessions)
-	}
-	older := cloneStreakEntries(seeded)
-	entry := older[StreakKeyVIXTerm]
-	entry.LastSession, entry.Sessions = "2026-07-17", stressed.Sessions-1
-	older[StreakKeyVIXTerm] = entry
-	stepped, err := projectedRegimeStreakEntries(older, snapshot, publication)
-	if err != nil {
-		t.Fatalf("projected entries across a session tick: %v", err)
-	}
-	if want := stressed.StressSessions + 1; stepped[StreakKeyVIXTerm].StressSessions != want {
-		t.Fatalf("advanced stress run=%d, want %d", stepped[StreakKeyVIXTerm].StressSessions, want)
-	}
-}
-
-// TestRegimeDecisionProjectionRestoresStressSessionsBeforeRerender covers the
-// same dropped field one layer up. The decision line embeds the shadow model,
-// the shadow model scores a persistence term from StressSessions, and
-// StressSessions is json:"-" — so a line re-rendered from a reloaded snapshot
-// scores it from zero and cannot match the bytes the live path journaled. The
-// boot recovery restores the field from the reconciled streak store first.
-func TestRegimeDecisionProjectionRestoresStressSessionsBeforeRerender(t *testing.T) {
-	ny := newYorkLocation()
-	asOf := time.Date(2026, 7, 20, 16, 5, 0, 0, ny)
-	// Between MinDepth 1.00 and FastDepth 1.05: strength short of saturation is
-	// what leaves the persistence term room to move.
-	ratio := 1.02
-	stored := StreakEntry{
-		LastBand: "red", SinceDate: "2026-07-15", LastSession: "2026-07-20",
-		Sessions: 4, LastValue: ratio, EligibleLatched: true, StressSessions: 6,
-	}
-
-	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "restores-stress-sessions")
-	snapshot.VIXTermStructure = rpc.RegimeVIXTerm{
-		Status: rpc.RegimeStatusOK, Ratio: &ratio,
-		Streak: &rpc.StreakInfo{
-			Band: stored.LastBand, Sessions: stored.Sessions, Since: stored.SinceDate,
-			StressSessions: stored.StressSessions,
-		},
-		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Band:        stored.LastBand,
-			Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
-			Eligibility: &rpc.RegimeEligibility{Eligible: true},
-		},
-	}
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
-
-	live, err := json.Marshal(buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication))
-	if err != nil {
-		t.Fatalf("marshal live line: %v", err)
-	}
-
-	// Persistence drops the field: this is exactly what reloading the stored
-	// snapshot document yields.
-	snapshot.VIXTermStructure.Streak.StressSessions = 0
-	reloaded, err := json.Marshal(buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication))
-	if err != nil {
-		t.Fatalf("marshal reloaded line: %v", err)
-	}
-	if bytes.Equal(live, reloaded) {
-		t.Fatal("fixture does not exercise the field: the shadow model scored the same without it")
-	}
-
-	streaks := NewStreakStore("")
-	streaks.mu.Lock()
-	streaks.entries = map[string]StreakEntry{StreakKeyVIXTerm: stored}
-	streaks.loaded = true
-	streaks.mu.Unlock()
-	streaks.restoreStressSessions(snapshot)
-
-	if got := snapshot.VIXTermStructure.Streak.StressSessions; got != stored.StressSessions {
-		t.Fatalf("restored stress run=%d, want %d", got, stored.StressSessions)
-	}
-	restored, err := json.Marshal(buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication))
-	if err != nil {
-		t.Fatalf("marshal restored line: %v", err)
-	}
-	if !bytes.Equal(live, restored) {
-		t.Fatalf("re-rendered line after restore is not byte-identical to the journaled one:\n live     %s\n restored %s", live, restored)
-	}
 }
 
 func TestRegimeRuleProjectionDeterministicAndHolds(t *testing.T) {

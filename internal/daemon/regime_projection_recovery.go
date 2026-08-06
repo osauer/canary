@@ -118,10 +118,6 @@ func (s *Server) reconcileRegimeSnapshotProjections(ctx context.Context, cache *
 	if err := streaks.reconcileRegimeProjection(ctx, snapshot, plan); err != nil {
 		return err
 	}
-	// The reloaded snapshot is missing one input the live path had. Restoring it
-	// from the store just reconciled above must happen before any projection is
-	// re-rendered from this snapshot.
-	streaks.restoreStressSessions(snapshot)
 	if err := s.reconcileRulesRegimeStageProjection(ctx, snapshot, plan); err != nil {
 		return err
 	}
@@ -443,58 +439,18 @@ func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.
 		if streak.Band == "red" && meta.Eligibility != nil && meta.Eligibility.Eligible {
 			latched = true
 		}
-		// StressSessions is json:"-" and LastBandAt is a wall-clock measurement
-		// time, so the persisted snapshot carries neither and the projection
-		// cannot re-derive them. Zeroing them claims a write the live path never
-		// made and the current-position compare then fails closed with no repair
-		// path — the trap the lastValue carry above already avoids.
-		//
-		// The stress run advances by the live path's own rule, except that a
-		// session which did not advance carries the stored count verbatim:
-		// nextStressSessions floors a continuing run at 1, which would rewrite
-		// an entry stored before the field existed and fail that same compare.
-		stress := nextStressSessions(prior, existed, streak.Band, lastSessionForTarget)
-		if existed && streak.Band != "green" && prior.LastSession == lastSessionForTarget {
-			stress = prior.StressSessions
-		}
+		// LastBandAt is a wall-clock measurement time the persisted snapshot
+		// does not carry and the projection cannot re-derive. Zeroing it claims
+		// a write the live path never made, and the current-position compare
+		// then fails closed with no repair path — the trap the lastValue carry
+		// above already avoids.
 		next[key] = StreakEntry{
 			LastBand: streak.Band, SinceDate: streak.Since, LastSession: lastSessionForTarget,
 			Sessions: streak.Sessions, LastValue: lastValue, EligibleLatched: latched,
-			StressSessions: stress, LastBandAt: prior.LastBandAt,
+			LastBandAt: prior.LastBandAt,
 		}
 	}
 	return next, nil
-}
-
-// restoreStressSessions puts back the one streak field a persisted snapshot
-// cannot carry. rpc.StreakInfo.StressSessions is json:"-" on purpose — it feeds
-// a model that is still unserved — so a snapshot reloaded from SQLite scores
-// that model with zeros where the live path had the real run. Anything
-// re-rendered from such a snapshot then disagrees with what the live path
-// wrote, and the decision projection's byte compare fails closed at the current
-// position with no repair path.
-//
-// The store is the authority for the field, and by this point it has been
-// reconciled to this exact publication, so it holds the values the publishing
-// daemon used. Rows the snapshot does not serve, and indicators with no stored
-// entry, are left alone rather than zeroed.
-func (s *StreakStore) restoreStressSessions(snapshot *rpc.RegimeSnapshotResult) {
-	if s == nil || snapshot == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.loadLocked()
-	for _, indicator := range streakIndicators {
-		key := indicator.key()
-		_, _, streak := regimeDecisionRowView(snapshot, key)
-		if streak == nil {
-			continue
-		}
-		if entry, ok := s.entries[key]; ok {
-			streak.StressSessions = entry.StressSessions
-		}
-	}
 }
 
 func (s *StreakStore) regimeProjectionPosition(plan regimeProjectionPlan) (regimeProjectionPosition, error) {

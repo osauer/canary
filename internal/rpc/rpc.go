@@ -1595,13 +1595,6 @@ type StreakInfo struct {
 	Band     string `json:"band"`
 	Sessions int    `json:"sessions"`
 	Since    string `json:"since"`
-	// StressSessions counts sessions since the indicator was last green and,
-	// unlike Sessions, survives a band change. Deliberately off the wire: it
-	// exists only to carry the shadow regime model's persistence term from
-	// the streak store to the decisions journal, both inside the daemon, and
-	// promoting it to a served field would publish a contract for a model
-	// that is still being measured.
-	StressSessions int `json:"-"`
 }
 
 // RegimeIndicatorMeta is the compact interpretation/provenance layer shared
