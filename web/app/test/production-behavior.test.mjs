@@ -180,6 +180,34 @@ test("TestAppJSSnapshotBannerClaimsLastGoodOnlyWhenPresent replacement keeps col
   assert.equal(gatewayAndCold.text, "Account and positions unavailable.");
 });
 
+test("sync strip combines app transport health with typed account-data authority", () => {
+  reset();
+  state.connectionOK = true;
+  const now = new Date().toISOString();
+  const current = { availability: "available", freshness: "current" };
+  const snap = {
+    updated_at: now,
+    account: { authority: { ...current, source: "account_summary_request" } },
+    positions: { authority: { ...current, source: "portfolio_stream" } },
+    sources: { account: { state: "current" }, positions: { state: "current" } },
+  };
+
+  shell.renderSyncStrip(snap);
+  assert.equal(dom.element("syncStatusLabel").textContent, "Snapshot");
+  assert.equal(dom.element("syncStatusState").textContent, "Live");
+  assert.equal(dom.element("syncStrip").classList.contains("sync-strip--degraded"), false);
+
+  snap.positions.authority = { availability: "unavailable", freshness: "unknown", reason: "unprimed" };
+  shell.renderSyncStrip(snap);
+  assert.equal(dom.element("syncStatusLabel").textContent, "Data gaps");
+  assert.equal(dom.element("syncStatusState").textContent, "Degraded");
+  assert.equal(dom.element("syncStrip").classList.contains("sync-strip--degraded"), true);
+
+  snap.positions.authority = current;
+  snap.sources.positions = { state: "stale" };
+  assert.equal(shell.snapshotHasDataGaps(snap), true);
+});
+
 test("TestAppJSStressDetailUsesSourceBackedEvidenceRows replacement ranks actual evidence and caps it at five", () => {
   reset();
   const rows = stress.stressDriverRows({ rows: [

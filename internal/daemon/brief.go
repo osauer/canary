@@ -1229,10 +1229,20 @@ func briefUnresolvedEarnings(rules *rpc.RulesResult) []string {
 	return unresolved
 }
 
+func briefAccountDataCurrent(authority *rpc.AccountDataAuthority) bool {
+	return authority != nil && authority.Availability == rpc.AccountDataAvailable && authority.Freshness == rpc.AccountDataFreshnessCurrent
+}
+
 func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.PositionsResult, acctErr, posErr error, sessionOpen bool) rpc.BriefPortfolioSection {
 	out := rpc.BriefPortfolioSection{}
-	if acctErr != nil || acct == nil {
-		out.Account.BriefRowState = briefUnavailable("account summary unavailable: " + errText(acctErr))
+	if acctErr != nil || acct == nil || !briefAccountDataCurrent(acct.Authority) {
+		detail := "account summary unavailable"
+		if acctErr != nil {
+			detail += ": " + errText(acctErr)
+		} else if acct != nil {
+			detail += ": current account data is not proven"
+		}
+		out.Account.BriefRowState = briefUnavailable(detail)
 	} else {
 		detail := "account summary in base currency"
 		if !sessionOpen {
@@ -1250,8 +1260,14 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 			}
 		}
 	}
-	if posErr != nil || pos == nil {
-		out.Movers.BriefRowState = briefUnavailable("positions unavailable: " + errText(posErr))
+	if posErr != nil || pos == nil || !briefAccountDataCurrent(pos.Authority) {
+		detail := "positions unavailable"
+		if posErr != nil {
+			detail += ": " + errText(posErr)
+		} else if pos != nil {
+			detail += ": current position data is not proven"
+		}
+		out.Movers.BriefRowState = briefUnavailable(detail)
 		out.PremiumAtRisk.BriefRowState = briefUnavailable("positions unavailable")
 		out.HedgeCost.BriefRowState = briefUnavailable("positions unavailable")
 	} else {

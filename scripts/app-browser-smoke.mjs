@@ -897,6 +897,8 @@ async function exerciseAccountAuthorityFixtures(page) {
         document.getElementById("underlyingBookCount")?.textContent || "",
         document.getElementById("underlyingBookList")?.textContent || "",
       ].join(" ")),
+      syncLabel: document.getElementById("syncStatusLabel")?.textContent?.trim() || "",
+      syncState: document.getElementById("syncStatusState")?.textContent?.trim() || "",
     });
     const authority = {
       scope: { account_id: "SYNTHETIC-AUTHORITY", account_mode: "paper" },
@@ -957,6 +959,9 @@ async function exerciseAccountAuthorityFixtures(page) {
   }
   if (!result.unavailable.positionsUnavailable || result.unavailable.positionsClaimClean) {
     throw new Error(`an unavailable empty positions result must not read as a clean book: ${JSON.stringify(result.unavailable)}`);
+  }
+  if (result.unavailable.syncLabel !== "Data gaps" || result.unavailable.syncState !== "Degraded") {
+    throw new Error(`unavailable account data must degrade the global sync plate: ${JSON.stringify(result.unavailable)}`);
   }
 
   await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = false; });

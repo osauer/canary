@@ -1303,13 +1303,76 @@ func TestBriefMoversAggregateByUnderlyingWithResidual(t *testing.T) {
 	}
 }
 
+func briefTestCurrentAccountDataAuthority(source rpc.AccountDataSource) *rpc.AccountDataAuthority {
+	return &rpc.AccountDataAuthority{
+		Scope:        rpc.AccountDataScope{AccountID: "DU123", AccountMode: rpc.AccountModePaper},
+		Source:       source,
+		Availability: rpc.AccountDataAvailable,
+		Freshness:    rpc.AccountDataFreshnessCurrent,
+		AsOf:         time.Date(2026, 8, 6, 9, 30, 0, 0, time.UTC),
+	}
+}
+
+func TestBriefPortfolioRequiresCurrentAccountDataAuthority(t *testing.T) {
+	s := newRiskPolicyTestServer(t, dailyBriefPolicyTOML())
+	dailyPnL := 125.0
+	account := &rpc.AccountResult{
+		NetLiquidation: 230175, DailyPnL: &dailyPnL, BaseCurrency: "EUR",
+		Authority: briefTestCurrentAccountDataAuthority(rpc.AccountDataSourceAccountSummaryRequest),
+	}
+	currentPositions := briefTestCurrentAccountDataAuthority(rpc.AccountDataSourcePortfolioStream)
+
+	tests := []struct {
+		name      string
+		authority *rpc.AccountDataAuthority
+	}{
+		{name: "missing"},
+		{name: "unavailable", authority: &rpc.AccountDataAuthority{Availability: rpc.AccountDataUnavailable, Freshness: rpc.AccountDataFreshnessUnknown}},
+		{name: "stale", authority: &rpc.AccountDataAuthority{Availability: rpc.AccountDataUnavailable, Freshness: rpc.AccountDataFreshnessStale}},
+		{name: "unknown age", authority: &rpc.AccountDataAuthority{Availability: rpc.AccountDataAvailable, Freshness: rpc.AccountDataFreshnessUnknown}},
+	}
+	for _, tc := range tests {
+		t.Run("positions "+tc.name, func(t *testing.T) {
+			out := s.composeBriefPortfolio(account, &rpc.PositionsResult{Authority: tc.authority}, nil, nil, true)
+			for name, row := range map[string]rpc.BriefRowState{
+				"movers": out.Movers.BriefRowState, "premium": out.PremiumAtRisk.BriefRowState, "hedge": out.HedgeCost.BriefRowState,
+			} {
+				if row.Status != rpc.BriefStatusUnavailable {
+					t.Fatalf("%s row=%+v, want unavailable", name, row)
+				}
+			}
+			if out.PremiumAtRisk.AmountBase != nil || out.HedgeCost.AmountBase != nil {
+				t.Fatalf("unavailable positions produced clean zero amounts: premium=%v hedge=%v", out.PremiumAtRisk.AmountBase, out.HedgeCost.AmountBase)
+			}
+		})
+	}
+
+	t.Run("account unavailable", func(t *testing.T) {
+		unavailable := *account
+		unavailable.Authority = &rpc.AccountDataAuthority{Availability: rpc.AccountDataUnavailable, Freshness: rpc.AccountDataFreshnessUnknown}
+		out := s.composeBriefPortfolio(&unavailable, &rpc.PositionsResult{Authority: currentPositions}, nil, nil, true)
+		if out.Account.Status != rpc.BriefStatusUnavailable || out.Account.EquityBase != nil || out.Account.DailyPnLBase != nil {
+			t.Fatalf("unavailable account row=%+v, want unavailable without money", out.Account)
+		}
+	})
+
+	t.Run("current empty book", func(t *testing.T) {
+		out := s.composeBriefPortfolio(account, &rpc.PositionsResult{Authority: currentPositions}, nil, nil, true)
+		if out.PremiumAtRisk.Status != rpc.BriefStatusOK || out.HedgeCost.Status != rpc.BriefStatusOK ||
+			out.PremiumAtRisk.AmountBase == nil || *out.PremiumAtRisk.AmountBase != 0 ||
+			out.HedgeCost.AmountBase == nil || *out.HedgeCost.AmountBase != 0 {
+			t.Fatalf("current empty book lost its genuine zero: premium=%+v hedge=%+v", out.PremiumAtRisk, out.HedgeCost)
+		}
+	})
+}
+
 func TestBriefPremiumDisclosesUnknownHedgeClassification(t *testing.T) {
 	s := newRiskPolicyTestServer(t, dailyBriefPolicyTOML())
 	pos := &rpc.PositionsResult{Options: []rpc.PositionView{
 		{Symbol: "NOW", SecType: "OPT", Right: "C", Quantity: 10, MarketValueBase: new(4265.0)},
 		{Symbol: "SPY", SecType: "OPT", Right: "P", Quantity: 50, Multiplier: 100, MarketValueBase: new(54544.0)},
-	}}
-	acct := &rpc.AccountResult{NetLiquidation: 230175, DailyPnL: new(7389.46), BaseCurrency: "EUR"}
+	}, Authority: briefTestCurrentAccountDataAuthority(rpc.AccountDataSourcePortfolioStream)}
+	acct := &rpc.AccountResult{NetLiquidation: 230175, DailyPnL: new(7389.46), BaseCurrency: "EUR", Authority: briefTestCurrentAccountDataAuthority(rpc.AccountDataSourceAccountSummaryRequest)}
 	out := s.composeBriefPortfolio(acct, pos, nil, nil, false)
 	if out.PremiumAtRisk.Status != rpc.BriefStatusDegraded || !strings.Contains(out.PremiumAtRisk.Detail, "protective share") {
 		t.Fatalf("premium must disclose unknown hedge classification: %+v", out.PremiumAtRisk)

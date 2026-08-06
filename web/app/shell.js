@@ -156,6 +156,19 @@ async function refreshSelectedMarketCalendar() {
   }
 }
 
+function snapshotHasDataGaps(snap = {}) {
+  const transportGap = Object.values(snap.sources || {}).some((meta) => {
+    const sourceState = String(meta?.state || "").trim().toLowerCase();
+    return Boolean(meta?.error) || sourceState === "stale" || sourceState === "unavailable";
+  });
+  const authorityGap = [snap.account, snap.positions].some((result) => {
+    if (!result || typeof result !== "object") return false;
+    const authority = result.authority;
+    return !authority || authority.availability !== "available" || authority.freshness !== "current";
+  });
+  return transportGap || authorityGap;
+}
+
 function renderSyncStrip(snap) {
   const strip = $("syncStrip");
   if (!strip) return;
@@ -166,10 +179,10 @@ function renderSyncStrip(snap) {
   }
 
   const ageMinutes = Math.max(0, Math.floor((Date.now() - updatedAt.getTime()) / 60000));
-  const sourceIssues = Object.values(snap.sources || {}).filter((meta) => meta?.error).length;
+  const dataGaps = snapshotHasDataGaps(snap);
   const stateLabel = !state.connectionOK
     ? "syncing"
-    : sourceIssues > 0
+    : dataGaps
       ? "degraded"
       : ageMinutes >= 5
         ? "stale"
@@ -177,7 +190,7 @@ function renderSyncStrip(snap) {
   // Panel Dark foot plate: "Snapshot HH:MM:SS · Auto" in the engraved
   // register. The transport word moved into the plate's title so the line
   // stays a stamp rather than a status paragraph.
-  $("syncStatusLabel").textContent = sourceIssues > 0 ? "Data gaps" : "Snapshot";
+  $("syncStatusLabel").textContent = dataGaps ? "Data gaps" : "Snapshot";
   $("syncStatusTime").textContent = shortTimeWithZone(snap.updated_at);
   $("syncStatusState").textContent = labelize(stateLabel);
   strip.classList.toggle("sync-strip--degraded", stateLabel !== "live");
@@ -377,4 +390,4 @@ function greeksMeaning(portfolio, positions) {
   return "Model Greeks unavailable for this option snapshot.";
 }
 
-export { closureWord, countdownLabel, currentMarketCalendar, gatewayIssueText, greeksCoverage, greeksMeaning, marketSessionLabel, marketSessionNow, marketStatusPhrase, refreshSelectedMarketCalendar, renderSourceBanners, renderSyncStrip, renderTopbar, setBanner, setupMarketSelect, snapshotIssueSummary, snapshotPayloadPresent, snapshotSourceLabel };
+export { closureWord, countdownLabel, currentMarketCalendar, gatewayIssueText, greeksCoverage, greeksMeaning, marketSessionLabel, marketSessionNow, marketStatusPhrase, refreshSelectedMarketCalendar, renderSourceBanners, renderSyncStrip, renderTopbar, setBanner, setupMarketSelect, snapshotHasDataGaps, snapshotIssueSummary, snapshotPayloadPresent, snapshotSourceLabel };
