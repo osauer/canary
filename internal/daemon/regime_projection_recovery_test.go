@@ -172,6 +172,9 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 			want: StreakEntry{
 				LastBand: "red", SinceDate: priorSince, LastSession: resetSince,
 				Sessions: 2, LastValue: redRatio, EligibleLatched: true,
+				// The session advanced, so the since-green run advances with it,
+				// exactly as the live tick would have written it.
+				StressSessions: 1,
 			},
 		},
 		{
@@ -213,6 +216,9 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 			want: StreakEntry{
 				LastBand: "red", SinceDate: resetSince, LastSession: resetSince,
 				Sessions: 1, LastValue: redRatio,
+				// Sessions resets with the new red streak; the since-green run
+				// deliberately does not, which is why it is a separate clock.
+				StressSessions: 1,
 			},
 		},
 	}
@@ -337,6 +343,80 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 	err := stale.reconcileRegimeProjection(t.Context(), fresh, regimeProjectionPlan{publication: freshPublication})
 	if err == nil || !strings.Contains(err.Error(), "content mismatch at snapshot revision 2") {
 		t.Fatalf("fresh row with a stale stored value err=%v, want a content mismatch", err)
+	}
+}
+
+// TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness is the same
+// rule as the not-due freeze above, applied to the two entry fields that never
+// reach the wire at all. StressSessions is json:"-" and LastBandAt is the wall
+// clock of a live measurement, so a reloaded snapshot witnesses neither and the
+// recovery re-derivation must carry both. Zeroing them made the boot-time
+// compare fail at the current position, where there is no repair path, and no
+// binary could start against state a running daemon had written.
+func TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness(t *testing.T) {
+	ny := newYorkLocation()
+	asOf := time.Date(2026, 7, 20, 16, 5, 0, 0, ny)
+	ratio := 0.8632345293811753
+	// The live writer stamps LastBandAt from its own clock, so it never lands on
+	// the snapshot's AsOf to the nanosecond. Re-deriving it cannot reproduce the
+	// stored value even in principle.
+	measuredAt := asOf.Add(-3 * time.Millisecond)
+	// A red row carrying an accumulated stress run is the case that bit: the run
+	// survives a band change, so the served streak's own session count cannot
+	// recover it.
+	stressed := StreakEntry{
+		LastBand: "red", SinceDate: "2026-07-15", LastSession: "2026-07-20",
+		Sessions: 4, LastValue: ratio, EligibleLatched: true,
+		StressSessions: 9, LastBandAt: measuredAt,
+	}
+
+	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "carries-unwitnessed-fields")
+	snapshot.VIXTermStructure = rpc.RegimeVIXTerm{
+		Status: rpc.RegimeStatusOK, Ratio: &ratio,
+		Streak: &rpc.StreakInfo{Band: stressed.LastBand, Sessions: stressed.Sessions, Since: stressed.SinceDate},
+		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
+			Band:        stressed.LastBand,
+			Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
+			Eligibility: &rpc.RegimeEligibility{Eligible: true},
+		},
+	}
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
+
+	seeded := map[string]StreakEntry{StreakKeyVIXTerm: stressed}
+	streaks := projectionRecoverySeedStreakStore(t, openRegimeSnapshotTestStore(t), publication, seeded)
+	if err := streaks.reconcileRegimeProjection(t.Context(), snapshot, regimeProjectionPlan{publication: publication}); err != nil {
+		t.Fatalf("startup reconcile at the current position: %v", err)
+	}
+	streaks.mu.Lock()
+	got := cloneStreakEntries(streaks.entries)
+	streaks.mu.Unlock()
+	for key, want := range seeded {
+		if !reflect.DeepEqual(got[key], want) {
+			t.Fatalf("%s after reconcile=%+v, want unchanged %+v", key, got[key], want)
+		}
+	}
+
+	// The stress run still advances when the projection covers a real session
+	// tick, so carrying is not a freeze.
+	advanced, err := projectedRegimeStreakEntries(seeded, snapshot, publication)
+	if err != nil {
+		t.Fatalf("projected entries: %v", err)
+	}
+	if advanced[StreakKeyVIXTerm].StressSessions != stressed.StressSessions {
+		t.Fatalf("same-session stress run=%d, want the stored %d",
+			advanced[StreakKeyVIXTerm].StressSessions, stressed.StressSessions)
+	}
+	older := cloneStreakEntries(seeded)
+	entry := older[StreakKeyVIXTerm]
+	entry.LastSession, entry.Sessions = "2026-07-17", stressed.Sessions-1
+	older[StreakKeyVIXTerm] = entry
+	stepped, err := projectedRegimeStreakEntries(older, snapshot, publication)
+	if err != nil {
+		t.Fatalf("projected entries across a session tick: %v", err)
+	}
+	if want := stressed.StressSessions + 1; stepped[StreakKeyVIXTerm].StressSessions != want {
+		t.Fatalf("advanced stress run=%d, want %d", stepped[StreakKeyVIXTerm].StressSessions, want)
 	}
 }
 

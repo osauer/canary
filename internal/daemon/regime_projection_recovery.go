@@ -439,9 +439,24 @@ func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.
 		if streak.Band == "red" && meta.Eligibility != nil && meta.Eligibility.Eligible {
 			latched = true
 		}
+		// StressSessions is json:"-" and LastBandAt is a wall-clock measurement
+		// time, so the persisted snapshot carries neither and the projection
+		// cannot re-derive them. Zeroing them claims a write the live path never
+		// made and the current-position compare then fails closed with no repair
+		// path — the trap the lastValue carry above already avoids.
+		//
+		// The stress run advances by the live path's own rule, except that a
+		// session which did not advance carries the stored count verbatim:
+		// nextStressSessions floors a continuing run at 1, which would rewrite
+		// an entry stored before the field existed and fail that same compare.
+		stress := nextStressSessions(prior, existed, streak.Band, lastSessionForTarget)
+		if existed && streak.Band != "green" && prior.LastSession == lastSessionForTarget {
+			stress = prior.StressSessions
+		}
 		next[key] = StreakEntry{
 			LastBand: streak.Band, SinceDate: streak.Since, LastSession: lastSessionForTarget,
 			Sessions: streak.Sessions, LastValue: lastValue, EligibleLatched: latched,
+			StressSessions: stress, LastBandAt: prior.LastBandAt,
 		}
 	}
 	return next, nil
