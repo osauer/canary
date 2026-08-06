@@ -363,12 +363,30 @@ plugin-check: ## Validate plugin/marketplace manifests with `claude plugin valid
 # therefore never published — which is exactly how it drifted to 1.6.1
 # while the plugin shipped 1.9.0. Pin it to plugin.json so the release
 # version bump touches both files or fails the gate.
-registry-version-check: ## Ensure server.json version tracks .claude-plugin/plugin.json
+registry-version-check: ## Ensure server.json tracks plugin.json and stays registry-publishable
 	@command -v jq >/dev/null 2>&1 || { echo "jq missing on PATH; install jq or skip"; exit 1; }
 	@reg=$$(jq -r '.version // empty' server.json); \
 	plg=$$(jq -r '.version // empty' .claude-plugin/plugin.json); \
 	if [ -z "$$reg" ] || [ -z "$$plg" ] || [ "$$reg" != "$$plg" ]; then \
 		echo "registry-version-check: server.json version ($$reg) != .claude-plugin/plugin.json version ($$plg); keep them in lockstep" >&2; \
+		exit 1; \
+	fi
+	@# The MCP Registry caps the description at 100 characters. That limit used
+	@# to be enforced only by release-registry-server, which runs from the TAG
+	@# and therefore after tagging and after the GitHub release: v2.8.0 crossed
+	@# the irreversible boundary with a 118-character description and could
+	@# never be registered. Checking the working tree here puts the same limit
+	@# in `make check`, so an over-long description fails before it is ever
+	@# committed, let alone tagged.
+	@desc=$$(jq -r '.description // empty' server.json); \
+	len=$$(printf '%s' "$$desc" | wc -m | tr -d ' '); \
+	if [ -z "$$desc" ]; then \
+		echo "registry-version-check: server.json has no description; the MCP Registry requires one" >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$len" -gt 100 ]; then \
+		echo "registry-version-check: server.json description is $$len characters; the MCP Registry caps it at 100" >&2; \
+		echo "  $$desc" >&2; \
 		exit 1; \
 	fi
 
