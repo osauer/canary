@@ -33,9 +33,12 @@ const regimeDecisionHeartbeat = time.Hour
 
 // regimeDecisionLineVersion advances whenever the replay payload's rendered
 // contract changes. Version 2 predates the complete per-indicator depth scale
-// and later label/replay additions. Startup binds those immutable older lines
-// by publication identity; version 3 is compared byte-for-byte.
-const regimeDecisionLineVersion = 3
+// and later label/replay additions. Version 3 predates the combined gamma row
+// weighing each leg's own depth rather than a gap the leg may not have, which
+// moves the shadow model's gamma strength and so the rendered line. Startup
+// binds those immutable older lines by publication identity; version 4 is
+// compared byte-for-byte.
+const regimeDecisionLineVersion = 4
 
 // regimeDecisionLine is the v1 event payload: enough raw measurement,
 // gate evidence, and decision output to measure false-alarm and recall
