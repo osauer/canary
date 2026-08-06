@@ -34,6 +34,9 @@ func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
 	}
 	for _, phase := range phases {
 		t.Run(phase, func(t *testing.T) {
+			// Each boundary owns a private authority directory, so the eleven
+			// crash-and-resume runs are independent and need not serialize.
+			t.Parallel()
 			source := newV4AlertEventMaintenanceAuthority(t)
 			minimum := source.Head
 			ops := productionCoreSchemaUpgradeOps()

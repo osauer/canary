@@ -7,7 +7,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -1120,12 +1122,24 @@ func validateSchemaObjectsWithPlan(ctx context.Context, db *sql.DB, expectedVers
 	return fmt.Errorf("schema object manifest mismatch: expected %s, got %s", wantFingerprint, gotFingerprint)
 }
 
+// canonicalSchemaManifests memoizes the manifest each validated plan prefix
+// produces. The manifest is a pure function of the statements that prefix
+// runs, and the ledger checksums already identify those statements exactly,
+// so a hit is as strong a derivation as the rebuild it replaces. Building it
+// migrates a throwaway in-memory database, which every inspection, open,
+// backup verification, and upgrade step would otherwise pay for again.
+var canonicalSchemaManifests sync.Map
+
 func canonicalSchemaManifestWithPlan(ctx context.Context, version int, plan []migration) ([]schemaObject, error) {
 	if err := validateMigrationPlan(plan); err != nil {
 		return nil, err
 	}
 	if version < 1 || version > len(plan) {
 		return nil, errorsf("unsupported schema version")
+	}
+	key := canonicalSchemaManifestKey(plan[:version])
+	if cached, ok := canonicalSchemaManifests.Load(key); ok {
+		return slices.Clone(cached.([]schemaObject)), nil
 	}
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -1139,7 +1153,21 @@ func canonicalSchemaManifestWithPlan(ctx context.Context, version int, plan []mi
 	if _, err := migrate(ctx, db, cloneMigrationPlan(plan[:version]), time.Unix(0, 0).UTC()); err != nil {
 		return nil, err
 	}
-	return readSchemaManifest(ctx, db)
+	objects, err := readSchemaManifest(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	canonicalSchemaManifests.Store(key, slices.Clone(objects))
+	return objects, nil
+}
+
+func canonicalSchemaManifestKey(prefix []migration) string {
+	var key strings.Builder
+	for _, m := range prefix {
+		key.WriteString(migrationChecksum(m))
+		key.WriteByte('\x00')
+	}
+	return key.String()
 }
 
 func readSchemaManifest(ctx context.Context, db *sql.DB) ([]schemaObject, error) {
