@@ -420,6 +420,74 @@ func TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness(t *testing.
 	}
 }
 
+// TestRegimeDecisionProjectionRestoresStressSessionsBeforeRerender covers the
+// same dropped field one layer up. The decision line embeds the shadow model,
+// the shadow model scores a persistence term from StressSessions, and
+// StressSessions is json:"-" — so a line re-rendered from a reloaded snapshot
+// scores it from zero and cannot match the bytes the live path journaled. The
+// boot recovery restores the field from the reconciled streak store first.
+func TestRegimeDecisionProjectionRestoresStressSessionsBeforeRerender(t *testing.T) {
+	ny := newYorkLocation()
+	asOf := time.Date(2026, 7, 20, 16, 5, 0, 0, ny)
+	// Between MinDepth 1.00 and FastDepth 1.05: strength short of saturation is
+	// what leaves the persistence term room to move.
+	ratio := 1.02
+	stored := StreakEntry{
+		LastBand: "red", SinceDate: "2026-07-15", LastSession: "2026-07-20",
+		Sessions: 4, LastValue: ratio, EligibleLatched: true, StressSessions: 6,
+	}
+
+	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "restores-stress-sessions")
+	snapshot.VIXTermStructure = rpc.RegimeVIXTerm{
+		Status: rpc.RegimeStatusOK, Ratio: &ratio,
+		Streak: &rpc.StreakInfo{
+			Band: stored.LastBand, Sessions: stored.Sessions, Since: stored.SinceDate,
+			StressSessions: stored.StressSessions,
+		},
+		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
+			Band:        stored.LastBand,
+			Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
+			Eligibility: &rpc.RegimeEligibility{Eligible: true},
+		},
+	}
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
+
+	live, err := json.Marshal(buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication))
+	if err != nil {
+		t.Fatalf("marshal live line: %v", err)
+	}
+
+	// Persistence drops the field: this is exactly what reloading the stored
+	// snapshot document yields.
+	snapshot.VIXTermStructure.Streak.StressSessions = 0
+	reloaded, err := json.Marshal(buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication))
+	if err != nil {
+		t.Fatalf("marshal reloaded line: %v", err)
+	}
+	if bytes.Equal(live, reloaded) {
+		t.Fatal("fixture does not exercise the field: the shadow model scored the same without it")
+	}
+
+	streaks := NewStreakStore("")
+	streaks.mu.Lock()
+	streaks.entries = map[string]StreakEntry{StreakKeyVIXTerm: stored}
+	streaks.loaded = true
+	streaks.mu.Unlock()
+	streaks.restoreStressSessions(snapshot)
+
+	if got := snapshot.VIXTermStructure.Streak.StressSessions; got != stored.StressSessions {
+		t.Fatalf("restored stress run=%d, want %d", got, stored.StressSessions)
+	}
+	restored, err := json.Marshal(buildRegimeDecisionLine(publication.PublishedAt, snapshot, publication))
+	if err != nil {
+		t.Fatalf("marshal restored line: %v", err)
+	}
+	if !bytes.Equal(live, restored) {
+		t.Fatalf("re-rendered line after restore is not byte-identical to the journaled one:\n live     %s\n restored %s", live, restored)
+	}
+}
+
 func TestRegimeRuleProjectionDeterministicAndHolds(t *testing.T) {
 	publishedAt := time.Date(2026, 7, 21, 15, 5, 0, 0, time.UTC)
 	prior := rulesRegimeStageState{
