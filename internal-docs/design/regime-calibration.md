@@ -192,22 +192,47 @@ includes hysteresis.
 (`regime_streaks.go:390-398`), and the combined-scope weighted vote
 (`combineGammaComputedBands`, `regime_streaks.go:415-458`)):
 
-- (a) gap path: min depth = gap ≤ −0.5% below γ-zero; fast path gap ≤ −2.0%.
-  Neither binds on this path: `classifyGammaBand` already needs gap ≤ −2.0%
-  for red, so a single-index red enters at or past the fast level. The
-  −0.5% floor is the depth scale's noise floor, and it decides only through
-  path (c).
-- (b) wholly-short profile with no crossing: an extreme state — treated as
-  fast-path (eligible day 1, depth gate vacuous).
-- (c) combined-scope vote: eligibility evaluated on the per-index weighted
-  gap that produced the vote, same −0.5%/−2.0% levels. Implemented
-  2026-08-05: `rpc.RegimeGammaDepth` had averaged the SPY and SPX gaps
-  *unweighted* while `combineGammaComputedBands` voted on |GEX| weight, so a
-  mixed book banded red on the dominant index and was then refused
-  `depth_below_min` because the other index's positive gap cancelled it out
-  of the mean — SPX −2.5% at 100bn against SPY +2.6% at 10bn banded red at
-  depth −0.05, now +2.04 and eligible. Both sides read
+- (a) gap path: min depth = gap ≤ −0.5% below γ-zero; fast path gap ≤ −4.5%
+  (the 2026-08-05 saturation re-derivation; it read −2.0% when this table was
+  written). Neither gate binds on this path: `classifyGammaBand` already needs
+  gap ≤ −2.0% for red, so a single-index red clears the −0.5% floor by
+  construction and `MinSessions` is 1, so it confirms same-day whether or not
+  the fast path fires. The −0.5% floor is the depth scale's noise floor, and it
+  decides only through path (c).
+- (b) wholly-short profile with no crossing: an extreme state — depth 100,
+  eligible day 1. It has no gap because there is no line left to measure a
+  distance from, not because the reading is mild.
+- (c) combined-scope vote: eligibility evaluated on the per-index |GEX|-weighted
+  mean of the per-index *depths*, same −0.5%/−2.0% levels, over the same legs
+  and weights the vote read. Implemented 2026-08-05: `rpc.RegimeGammaDepth` had
+  averaged the SPY and SPX gaps *unweighted* while `combineGammaComputedBands`
+  voted on |GEX| weight, so a mixed book banded red on the dominant index and
+  was then refused `depth_below_min` because the other index's positive gap
+  cancelled it out of the mean — SPX −2.5% at 100bn against SPY +2.6% at 10bn
+  banded red at depth −0.05, now +2.04 and eligible. Both sides read
   `rpc.GammaIndexWeight` now, which is the single copy of the weight rule.
+
+  Completed 2026-08-06 (issue #28), after the first pass left the combination
+  reading gaps rather than depths: a leg on path (b) has no gap, so it was
+  skipped *before* its weight was considered and contributed nothing, and the
+  mean collapsed onto the crossing leg. SPX wholly short at 100bn against SPY
+  +2.6% at 10bn banded red and reported −2.60, refused `depth_below_min`, while
+  the strictly worse book — both legs wholly short — was eligible, because a nil
+  depth passes the gate vacuously. That ordering is not something the thresholds
+  can express, so the fix is structural: `gammaIndexDepth` is one leg's depth on
+  either path, and `gammaCombinedDepth` weighs those. Human policy decision
+  2026-08-06: yes, extend path (b) into path (c) at full weight — strictly more
+  red gamma readings become eligible to confirm; thresholds unmoved.
+
+  Asymmetric by decision, same date: a leg wholly *long* with no crossing has no
+  depth to contribute and is left out of the mean rather than counted as extreme
+  calm. The scale defines an extreme for the amplifying side only. So an
+  equal-weight book with one index wholly short and one wholly long confirms on
+  the short leg instead of cancelling to zero.
+
+  `rpc.GammaCombinedGapPct` is deliberately not the same function: it reports a
+  measured distance and is what the streak store and the renderers read, so it
+  keeps skipping a leg that has no crossing to measure.
 
 Rationale highlights:
 

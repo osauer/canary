@@ -183,7 +183,8 @@ func TestRegimeBandAloneGates(t *testing.T) {
 
 // TestRegimeGammaDepth pins gamma's three red-producing paths: gap crossing,
 // wholly-short no-crossing profile (fast-path by construction), and the
-// combined-scope gamma-weighted gap.
+// combined-scope gamma-weighted depth — including a combined leg that takes
+// the no-crossing path while the other leg crosses.
 func TestRegimeGammaDepth(t *testing.T) {
 	t.Parallel()
 	if d := RegimeGammaDepth(&GammaZeroComputed{GapPct: new(-1.4)}); d == nil || *d != 1.4 {
@@ -222,10 +223,47 @@ func TestRegimeGammaDepth(t *testing.T) {
 	if elig == nil || !elig.Eligible {
 		t.Fatalf("dominant-leg red eligibility = %+v, want eligible", elig)
 	}
+	// A leg wholly short with no crossing carries its full weight at the
+	// no-crossing extreme. Skipping it for want of a gap let the calmer index
+	// decide the whole row's depth: this book bands red on SPX and reported
+	// -2.6, refused depth_below_min, while the strictly worse book — both legs
+	// wholly short — was eligible.
+	noCrossing := &GammaZeroComputed{
+		Scope: GammaZeroScopeCombined,
+		PerIndex: map[string]*GammaZeroComputed{
+			"SPY": {GapPct: new(2.6), GammaSign: "positive", GammaTotalAbs: 10e9},
+			"SPX": {GammaSign: "negative", GammaTotalAbs: 100e9},
+		},
+	}
+	d = RegimeGammaDepth(noCrossing)
+	if d == nil || *d < regimeGates[RegimeIndicatorGammaZero].FastDepth {
+		t.Fatalf("dominant no-crossing depth = %v, want at or above the fast-path level", d)
+	}
+	elig = EvaluateRegimeEligibility(RegimeEligibilityInput{
+		Indicator: RegimeIndicatorGammaZero, Band: "red", Depth: d,
+		StreakSessions: 1, Fresh: true, FreshnessClass: RegimeFreshnessFresh,
+	})
+	if elig == nil || !elig.Eligible {
+		t.Fatalf("dominant no-crossing red eligibility = %+v, want eligible", elig)
+	}
 	if d := RegimeGammaDepth(&GammaZeroComputed{Scope: GammaZeroScopeCombined, PerIndex: map[string]*GammaZeroComputed{
 		"SPY": {GammaSign: "negative"},
+	}}); d == nil || *d != 100 {
+		t.Fatalf("combined single wholly-short leg depth = %v, want 100", d)
+	}
+	// The other direction is not symmetric: a long leg with no crossing has no
+	// depth to contribute and is left out, rather than counted as extreme calm.
+	if d := RegimeGammaDepth(&GammaZeroComputed{Scope: GammaZeroScopeCombined, PerIndex: map[string]*GammaZeroComputed{
+		"SPY": {GapPct: new(-2.5), GammaTotalAbs: 10e9},
+		"SPX": {GammaSign: "positive", GammaTotalAbs: 100e9},
+	}}); d == nil || *d != 2.5 {
+		t.Fatalf("long no-crossing leg depth = %v, want the crossing leg's 2.5", d)
+	}
+	if d := RegimeGammaDepth(&GammaZeroComputed{Scope: GammaZeroScopeCombined, PerIndex: map[string]*GammaZeroComputed{
+		"SPY": {GammaSign: "positive"},
+		"SPX": {GammaSign: "no_data"},
 	}}); d != nil {
-		t.Fatalf("combined with no crossing depth = %v, want nil", d)
+		t.Fatalf("combined with no depth on either leg = %v, want nil", d)
 	}
 	if d := RegimeGammaDepth(&GammaZeroComputed{GammaSign: "positive"}); d != nil {
 		t.Fatalf("long-gamma no-crossing depth = %v, want nil", d)

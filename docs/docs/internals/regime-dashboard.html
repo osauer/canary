@@ -602,8 +602,8 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 </tr>
 <tr>
 <td>Dealer gamma</td>
-<td>gamma-weighted SPY/SPX gap &lt;= -0.5% below gamma-zero</td>
-<td>weighted gap &lt;= -2.0% or wholly-short profile</td>
+<td>gamma-weighted SPY/SPX depth &gt;= 0.5% below gamma-zero</td>
+<td>depth &gt;= 4.5% below, or a wholly-short profile</td>
 <td>1</td>
 <td>compute within current NY trading date (prior-date cache = <code>stale</code>, warns only)</td>
 <td>weighted gap &gt; +0.5%</td>
@@ -619,10 +619,14 @@ thresholds; values live in <code>internal/rpc/regime_policy.go</code>):</p>
 </tbody>
 </table>
 </div>
-<p>Dealer gamma's depth is the SPY/SPX gap averaged by each index's gross gamma
+<p>Dealer gamma's depth averages the two indexes by each one's gross gamma
 exposure — the same weighting the combined row's band vote uses, so the index
 that decides the band is the index that decides whether the red is deep enough
-to count.</p>
+to count. What is averaged is each index's depth, not its gap: an index whose
+dealers are short gamma across the whole modelled range has no crossing, and so
+no gap, but that is the most amplifying reading gamma has and it enters the
+average at its full weight. An index with no crossing on the long side has no
+depth to contribute and is left out.</p>
 <p>A session is banked only from evidence that is cadence-fresh under the row's own
 schedule. A mixed-vintage pre-open VIX/VIX3M ratio or a closed-venue FX tick
 still displays its band and its hysteresis hold, but the persistence counter

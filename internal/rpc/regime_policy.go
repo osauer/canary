@@ -117,7 +117,7 @@ var regimeGates = map[string]RegimeGate{
 	// MinSessions is 1, so a fresh gamma red confirms same-day on the
 	// default branch. That is intended: a dealer gamma flip is a fast
 	// amplifier and holding it a session defeats the signal. MinDepth does
-	// decide on the combined row, whose gamma-weighted gap can land
+	// decide on the combined row, whose gamma-weighted depth can land
 	// anywhere between the two indexes.
 	RegimeIndicatorGammaZero: {MinSessions: 1, MinDepth: 0.5, FastDepth: 4.5},
 	// depth = points below the 40% band floor (40 - pct_above_50dma).
@@ -172,16 +172,26 @@ func GammaCombinedGapPct(c *GammaZeroComputed) *float64 {
 }
 
 // RegimeGammaDepth extracts gamma's eligibility depth in percent below
-// gamma-zero (−gap). A wholly-short profile with no crossing is an extreme
-// state — fast-path depth by construction. Combined scope reads the same
-// gamma-weighted gap the band vote read.
+// gamma-zero (−gap). Combined scope weighs the per-index depths the way the
+// band vote weighed the per-index bands, so the index that sets the colour is
+// the index that decides whether the red is deep enough to confirm.
 func RegimeGammaDepth(c *GammaZeroComputed) *float64 {
 	if c == nil {
 		return nil
 	}
-	if gap := GammaCombinedGapPct(c); gap != nil {
-		d := -*gap
-		return &d
+	if c.Scope == GammaZeroScopeCombined && len(c.PerIndex) > 0 {
+		return gammaCombinedDepth(c)
+	}
+	return gammaIndexDepth(c)
+}
+
+// gammaIndexDepth is one index's depth: percent below its gamma-zero, or the
+// extreme a wholly-short profile with no crossing earns — dealers short across
+// the whole modelled band is the most amplifying reading gamma has, and it has
+// no line left to measure a distance from. nil when the index reports neither.
+func gammaIndexDepth(c *GammaZeroComputed) *float64 {
+	if c == nil {
+		return nil
 	}
 	if c.GapPct != nil {
 		d := -*c.GapPct
@@ -192,6 +202,33 @@ func RegimeGammaDepth(c *GammaZeroComputed) *float64 {
 		return &d
 	}
 	return nil
+}
+
+// gammaCombinedDepth is the |GEX|-weighted mean of the per-index depths. It
+// cannot be expressed through GammaCombinedGapPct: that function reports a
+// measured distance, so it has nothing to say about a leg with no crossing,
+// while depth does.
+//
+// A leg with no depth at all — long or unsigned, no crossing — is left out
+// rather than counted calm. The scale defines an extreme for the amplifying
+// side only.
+func gammaCombinedDepth(c *GammaZeroComputed) *float64 {
+	var sum, weight float64
+	for _, key := range []string{"SPY", "SPX"} {
+		sub := c.PerIndex[key]
+		d := gammaIndexDepth(sub)
+		if d == nil {
+			continue
+		}
+		w := GammaIndexWeight(key, sub)
+		sum += *d * w
+		weight += w
+	}
+	if weight <= 0 {
+		return nil
+	}
+	depth := sum / weight
+	return &depth
 }
 
 // RegimeIndicatorCluster maps an indicator key to its cluster wire name.
