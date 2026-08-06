@@ -894,7 +894,18 @@ func TestCoreSchemaUpgradePreparingIntentResetsUnboundRealPlanArtifacts(t *testi
 	}); err != nil {
 		t.Fatalf("seed unbound prepared artifacts: %v", err)
 	}
-	unboundCandidate, err := os.Stat(artifacts.candidate)
+	// A safe rebuild unlinks the seeded candidate and creates the replacement at
+	// the same path, so on a filesystem that recycles inode numbers — ext4, as CI
+	// runs on — the rebuilt file can land on the freed inode and be indistinguishable
+	// from the seeded one by device and inode alone. Holding this descriptor open
+	// keeps the seeded inode allocated for the whole upgrade, so os.SameFile below
+	// stays an identity test rather than an allocator coin flip.
+	unboundHandle, err := os.Open(artifacts.candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unboundHandle.Close()
+	unboundCandidate, err := unboundHandle.Stat()
 	if err != nil {
 		t.Fatal(err)
 	}
