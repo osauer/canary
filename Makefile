@@ -1498,15 +1498,14 @@ _release-run:
 	@# locally here. Plugin validation remains local because hosted CI
 	@# intentionally has no Claude CLI.
 	$(MAKE) plugin-check
-	@# Exercise the paper account, cross-currency notional, and broker WhatIf
-	@# path before the expensive smoke. This mints an isolated preview
-	@# token but never places an order. This is now the whole of the release's
-	@# order-path proof: the place/ack/cancel round-trip that used to follow it
-	@# was removed on 2026-08-06 by operator decision, so the release performs
-	@# no broker write at all. What is still gated is connect, auth, account,
-	@# FX, WhatIf and eligibility; what is no longer gated is transmit, ack and
-	@# cancel. Late v2.3.0 preview failures motivated this gate.
-	$(MAKE) release-paper-preflight VERSION=$(RELEASE_VERSION)
+	@# No paper-session gate runs here. Both the place/ack/cancel round-trip
+	@# and the read-only WhatIf preflight were removed on 2026-08-06 by
+	@# operator decision: each demanded a paper TWS login and a human dialog
+	@# click on every cut. The release no longer touches the order path at
+	@# all — neither transmit nor preview — and performs no broker write.
+	@# release-paper-preflight remains an invocable target for a deliberate
+	@# manual check. release-smoke below still requires a reachable gateway,
+	@# but takes whichever session is up.
 	@# Build the release binary with the target version stamped BEFORE
 	@# tagging — pass VERSION explicitly so the build doesn't fall back
 	@# to `git describe` (which wouldn't see the tag yet). The smoke

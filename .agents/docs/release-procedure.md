@@ -141,15 +141,13 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   firing — back-to-back full matrices on one paper session have produced a
   known "0 OPT subscribes" pacing artifact; the pipeline's own
   `release-smoke SMOKE_STRICT=1` leg is the binding full pass.
-- TWS session: finish any live-session work first, then switch TWS to paper —
-  `release-smoke` runs against whichever session is up, and
-  `release-paper-preflight` insists on paper. That preflight is read-only: it
-  mints a preview token and checks account, FX, WhatIf and eligibility, and
-  never submits. The place/ack/cancel round-trip that used to follow it was
-  removed on 2026-08-06, so the release no longer places any order. A fresh
-  paper login blocks the API behind a "simulated trading" disclaimer dialog
-  whose click is human-only; if every connection fails msg-204, screenshot TWS
-  and hand it to the user.
+- TWS session: `release-smoke` runs against whichever session is up, so no
+  paper switch is needed. Both paper-only gates — the place/ack/cancel
+  round-trip and the read-only WhatIf preflight — were removed on 2026-08-06,
+  so nothing in the pipeline touches the order path. A gateway must still be
+  reachable. If a fresh paper login is in use, its "simulated trading"
+  disclaimer dialog blocks the API and the click is human-only; if every
+  connection fails msg-204, screenshot TWS and hand it to the user.
 
 ## Stage 4 — Hygiene scan (pre-commit)
 

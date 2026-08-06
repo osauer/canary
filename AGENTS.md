@@ -37,9 +37,9 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
   round-trip and carried a standing exemption for it; the round-trip was
   removed on 2026-08-06 by operator decision, and the exemption with it. No
   target, release included, may place a broker order without a
-  transaction-specific instruction in the current turn. The release still runs
-  `release-paper-preflight`, which mints a preview token and exercises account,
-  FX, WhatIf and eligibility against the paper session, and never submits.
+  transaction-specific instruction in the current turn. The read-only WhatIf
+  preflight was removed in the same decision, so the release does not touch
+  the order path at all.
 - `canary settings set trading.freeze=true` and all freeze/limit changes are
   human-only. Never weaken trading guardrails in code, config, hooks, tests, or
   docs without an explicit human decision about that exact policy change.
