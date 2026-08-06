@@ -40,7 +40,8 @@ GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
 # be installed at runtime.
 PREFIX ?= $(HOME)/.local
 RESTART_TIMEOUT ?= 15s
-DAEMON_SHARD_WORKERS ?= 2
+DAEMON_SHARD_WORKERS ?= 0
+DAEMON_SHARDS ?= 12
 
 CLAUDE_DIR ?= $(HOME)/.claude
 CLAUDE_PLUGIN_ID ?= canary@canary
@@ -605,12 +606,21 @@ test-integration-live: ## Require and exercise a live Gateway; absence or failed
 # The integration leg is serialized across sessions via with-gateway-lock:
 # its client IDs and daemon spawns hit the shared TWS gateway, and two
 # overlapping runs used to flake with error 326 and force a full re-run.
-# The root daemon package has more than 1,200 top-level tests. On Linux the
+# The root daemon package has more than 1,300 top-level tests. On Linux the
 # single race-enabled test binary exhausted its 240-second package deadline
 # while newly started tests were still making progress. Keep the deadline and
-# full inventory binding, but split only that oversized package into four
-# processes with a bounded worker pool; subpackages remain ordinary package
-# legs. DAEMON_SHARD_WORKERS=1 is the low-memory fallback.
+# full inventory binding, but split only that oversized package into bounded
+# parallel processes; subpackages remain ordinary package legs.
+#
+# Shards are cut by inventory position, not by cost, so an individual shard's
+# wall time is unpredictable: one minute-long test sets the floor for the whole
+# leg, and at four shards it held a quarter of the inventory behind it. The
+# dispatcher refills a free worker with the next shard, so cutting more shards
+# than workers lets that imbalance absorb itself without anyone maintaining a
+# duration profile. Twelve shards over a derived pool measured 1:17 against
+# 2:13 for the original four-over-two on a 14-core machine — within seconds of
+# the floor that one test sets. DAEMON_SHARD_WORKERS=1 is the low-memory
+# fallback, and DAEMON_SHARDS pairs with it.
 trading-package-scope-check:
 	@set -eu; \
 		unexpected="$$(find internal/daemon -mindepth 2 -type f -name '*.go' -exec sh -c \
@@ -635,11 +645,11 @@ test-internal: ## Run internal/... under -race excluding the sharded daemon root
 # together they were the ubuntu test job's 7.5-minute tail, and they share
 # nothing but the scope check, so they parallelize cleanly.
 test-daemon-default: trading-package-scope-check ## Daemon root default-build shards + hermetic lifecycle integration
-	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -workers $(DAEMON_SHARD_WORKERS) -race -timeout 240s
+	go run ./scripts/test-shard -package ./internal/daemon -shards $(DAEMON_SHARDS) -workers $(DAEMON_SHARD_WORKERS) -race -timeout 240s
 	$(MAKE) test-integration
 
 test-daemon-trading: trading-package-scope-check ## Daemon root trading-build shards (write path)
-	go run ./scripts/test-shard -package ./internal/daemon -shards 4 -workers $(DAEMON_SHARD_WORKERS) -race -tags trading -timeout 240s
+	go run ./scripts/test-shard -package ./internal/daemon -shards $(DAEMON_SHARDS) -workers $(DAEMON_SHARD_WORKERS) -race -tags trading -timeout 240s
 
 test-daemon: trading-package-scope-check ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
 	$(MAKE) test-internal

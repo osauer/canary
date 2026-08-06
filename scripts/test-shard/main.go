@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ func parseConfig(args []string, stderr io.Writer) (config, error) {
 	flags.SetOutput(stderr)
 	flags.StringVar(&cfg.packagePath, "package", "", "exact Go package to test")
 	flags.IntVar(&cfg.shards, "shards", 4, "number of test processes")
-	flags.IntVar(&cfg.workers, "workers", 1, "maximum test processes to run concurrently")
+	flags.IntVar(&cfg.workers, "workers", 1, "maximum test processes to run concurrently (0 derives one from this machine)")
 	flags.BoolVar(&cfg.race, "race", false, "enable the Go race detector")
 	flags.StringVar(&cfg.tags, "tags", "", "comma-separated Go build tags")
 	flags.DurationVar(&cfg.timeout, "timeout", 240*time.Second, "timeout for each shard")
@@ -76,8 +77,11 @@ func parseConfig(args []string, stderr io.Writer) (config, error) {
 	if cfg.shards < 1 {
 		return config{}, errors.New("-shards must be at least 1")
 	}
-	if cfg.workers < 1 {
-		return config{}, errors.New("-workers must be at least 1")
+	if cfg.workers < 0 {
+		return config{}, errors.New("-workers must not be negative")
+	}
+	if cfg.workers == 0 {
+		cfg.workers = deriveWorkers(cfg.shards, runtime.NumCPU())
 	}
 	if cfg.workers > cfg.shards {
 		return config{}, errors.New("-workers must not exceed -shards")
@@ -87,6 +91,17 @@ func parseConfig(args []string, stderr io.Writer) (config, error) {
 	}
 	cfg.tags = strings.TrimSpace(cfg.tags)
 	return cfg, nil
+}
+
+// deriveWorkers sizes the pool for the machine running the gate. A race-enabled
+// shard of this package spends most of its wall time waiting on SQLite, timers,
+// and sleeps rather than on CPU, so a third of the cores keeps several shards in
+// flight without the pool itself becoming the contended resource. The floor
+// preserves the two-worker pool that small CI runners already used; the ceiling
+// is the shard count, since idle workers cannot help. Memory-starved machines
+// override with DAEMON_SHARD_WORKERS=1.
+func deriveWorkers(shards, cpus int) int {
+	return min(shards, max(2, cpus/3))
 }
 
 func execute(cfg config, driver testDriver, stdout, stderr io.Writer) int {

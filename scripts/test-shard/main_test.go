@@ -6,6 +6,7 @@ import (
 	"io"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -24,9 +25,9 @@ func TestParseConfigValidatesWorkerBounds(t *testing.T) {
 			args: []string{"-package", "./internal/daemon", "-shards", "4", "-workers", "2"},
 		},
 		{
-			name:    "zero workers",
-			args:    []string{"-package", "./internal/daemon", "-shards", "4", "-workers", "0"},
-			wantErr: "-workers must be at least 1",
+			name:    "negative workers",
+			args:    []string{"-package", "./internal/daemon", "-shards", "4", "-workers", "-1"},
+			wantErr: "-workers must not be negative",
 		},
 		{
 			name:    "workers exceed shards",
@@ -49,6 +50,50 @@ func TestParseConfigValidatesWorkerBounds(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("parseConfig error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestParseConfigDerivesWorkerPoolFromTheMachine pins -workers 0 as the Makefile
+// default: it must resolve to a real pool within the shard count, never to the
+// zero that would dispatch nothing.
+func TestParseConfigDerivesWorkerPoolFromTheMachine(t *testing.T) {
+	t.Parallel()
+	cfg, err := parseConfig([]string{"-package", "./internal/daemon", "-shards", "12", "-workers", "0"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if want := deriveWorkers(12, runtime.NumCPU()); cfg.workers != want {
+		t.Fatalf("derived workers = %d, want %d", cfg.workers, want)
+	}
+	if cfg.workers < 1 || cfg.workers > cfg.shards {
+		t.Fatalf("derived workers = %d, outside 1..%d", cfg.workers, cfg.shards)
+	}
+}
+
+// TestDeriveWorkersScalesWithCoresWithoutRegressingSmallRunners pins both ends
+// of the pool: a small CI runner keeps the two-worker pool it already had, and
+// a large developer machine may not exceed the shards there are to run.
+func TestDeriveWorkersScalesWithCoresWithoutRegressingSmallRunners(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		shards int
+		cpus   int
+		want   int
+	}{
+		{name: "single-core runner keeps the floor", shards: 12, cpus: 1, want: 2},
+		{name: "four-core CI runner keeps the floor", shards: 12, cpus: 4, want: 2},
+		{name: "eight-core machine still lands on the floor", shards: 12, cpus: 8, want: 2},
+		{name: "fourteen-core machine scales past the floor", shards: 12, cpus: 14, want: 4},
+		{name: "large machine is capped by the shard count", shards: 12, cpus: 96, want: 12},
+		{name: "single shard cannot exceed itself", shards: 1, cpus: 96, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := deriveWorkers(tc.shards, tc.cpus); got != tc.want {
+				t.Fatalf("deriveWorkers(%d, %d) = %d, want %d", tc.shards, tc.cpus, got, tc.want)
 			}
 		})
 	}
