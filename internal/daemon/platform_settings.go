@@ -1035,16 +1035,21 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 	return out
 }
 
+// regimeJournalEnabledFrom is the single default for forward regime-decision
+// collection: the reported setting and the writer's own gate both resolve
+// through here, so the settings surface cannot describe a daemon that is
+// journaling as disabled.
 func regimeJournalEnabledFrom(data platformSettingsData) bool {
 	if data.Regime.Journal.Enabled == nil {
-		return false
+		return true
 	}
 	return *data.Regime.Journal.Enabled
 }
 
+// stressJournalEnabledFrom is the same single default for stress decisions.
 func stressJournalEnabledFrom(data platformSettingsData) bool {
 	if data.Stress.Journal.Enabled == nil {
-		return false
+		return true
 	}
 	return *data.Stress.Journal.Enabled
 }

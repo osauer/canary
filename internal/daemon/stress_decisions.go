@@ -136,14 +136,7 @@ func (s *Server) journalStressDecision(res *rpc.StressResult) {
 }
 
 func (s *Server) stressJournalEnabled() bool {
-	if s.platformSettings == nil {
-		return true
-	}
-	data := s.platformSettings.snapshot()
-	if data.Stress.Journal.Enabled == nil {
-		return true
-	}
-	return *data.Stress.Journal.Enabled
+	return stressJournalEnabledFrom(s.platformSettings.snapshot())
 }
 
 // append journals one deduped stress decision. The mutex is held across

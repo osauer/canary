@@ -113,14 +113,7 @@ func (s *Server) journalRegimeDecisionPublicationContext(ctx context.Context, re
 }
 
 func (s *Server) regimeJournalEnabled() bool {
-	if s.platformSettings == nil {
-		return true
-	}
-	data := s.platformSettings.snapshot()
-	if data.Regime.Journal.Enabled == nil {
-		return true
-	}
-	return *data.Regime.Journal.Enabled
+	return regimeJournalEnabledFrom(s.platformSettings.snapshot())
 }
 
 // append journals one deduped regime decision. Since phase 2 the mutex is

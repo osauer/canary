@@ -42,8 +42,8 @@ func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
 	if !got.AutoTrade.FastPathEnabled.Value {
 		t.Fatal("auto_trade.fast_path_enabled default = false, want true")
 	}
-	if got.Regime.Journal.Enabled.Value || got.Stress.Journal.Enabled.Value {
-		t.Fatalf("calibration journals default enabled: regime=%t stress=%t", got.Regime.Journal.Enabled.Value, got.Stress.Journal.Enabled.Value)
+	if !got.Regime.Journal.Enabled.Value || !got.Stress.Journal.Enabled.Value {
+		t.Fatalf("calibration journals default disabled: regime=%t stress=%t", got.Regime.Journal.Enabled.Value, got.Stress.Journal.Enabled.Value)
 	}
 
 	patch := mustRaw(t, map[string]any{
@@ -268,6 +268,78 @@ func TestPlatformSettingsTradingFreezeBlocksWritesAllowsCancels(t *testing.T) {
 	if !disabled.tradingFrozen() {
 		t.Fatal("freeze did not engage while trading disabled")
 	}
+}
+
+// TestPlatformSettingsJournalsReportWhatTheDaemonWrites binds the reported
+// value of both calibration journals to the writer's own gate. The surface and
+// the writers resolved the unset preference independently once, and the two
+// defaults drifted apart: settings reported both journals disabled while the
+// daemon kept appending decision events. The agreement across every stored
+// state is the property; the default itself is only pinned as the value the
+// platform-settings design doc states.
+func TestPlatformSettingsJournalsReportWhatTheDaemonWrites(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		server func(t *testing.T) *Server
+		want   bool
+	}{
+		{
+			name:   "no settings store",
+			server: func(*testing.T) *Server { return &Server{cfg: &config.Resolved{}} },
+			want:   true,
+		},
+		{
+			name:   "no stored preference",
+			server: func(t *testing.T) *Server { return newPlatformSettingsTestServer(t, config.Trading{}) },
+			want:   true,
+		},
+		{
+			name:   "stored enabled",
+			server: func(t *testing.T) *Server { return journalSettingsServer(t, true) },
+			want:   true,
+		},
+		{
+			name:   "stored disabled",
+			server: func(t *testing.T) *Server { return journalSettingsServer(t, false) },
+			want:   false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := tc.server(t)
+			got, err := srv.handleSettingsGet()
+			if err != nil {
+				t.Fatalf("handleSettingsGet: %v", err)
+			}
+			if writes := srv.regimeJournalEnabled(); got.Regime.Journal.Enabled.Value != writes {
+				t.Fatalf("regime.journal.enabled reported %t while the daemon journals %t", got.Regime.Journal.Enabled.Value, writes)
+			}
+			if writes := srv.stressJournalEnabled(); got.Stress.Journal.Enabled.Value != writes {
+				t.Fatalf("stress.journal.enabled reported %t while the daemon journals %t", got.Stress.Journal.Enabled.Value, writes)
+			}
+			if got.Regime.Journal.Enabled.Value != tc.want || got.Stress.Journal.Enabled.Value != tc.want {
+				t.Fatalf("journals = regime:%t stress:%t, want %t", got.Regime.Journal.Enabled.Value, got.Stress.Journal.Enabled.Value, tc.want)
+			}
+		})
+	}
+}
+
+func journalSettingsServer(t *testing.T, enabled bool) *Server {
+	t.Helper()
+	srv := newPlatformSettingsTestServer(t, config.Trading{})
+	patch := mustRaw(t, map[string]any{
+		"regime": map[string]any{"journal": map[string]any{"enabled": enabled}},
+		"stress": map[string]any{"journal": map[string]any{"enabled": enabled}},
+	})
+	if _, err := srv.handleSettingsUpdate(context.Background(), &rpc.Request{Params: patch}); err != nil {
+		t.Fatalf("set both journals to %t: %v", enabled, err)
+	}
+	data := srv.platformSettings.snapshot()
+	if data.Regime.Journal.Enabled == nil || data.Stress.Journal.Enabled == nil {
+		t.Fatalf("explicit %t did not store a preference: %+v", enabled, data)
+	}
+	return srv
 }
 
 // TestPlatformSettingsStressJournalMigratesStoredCanaryKey pins the upgrade of

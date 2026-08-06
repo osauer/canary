@@ -373,7 +373,7 @@ func TestHistoryRotationSettingsRetired(t *testing.T) {
 	if out.History.Rotation.Enabled.Value || out.History.Rotation.Enabled.Access != rpc.SettingsAccessRead || out.History.Rotation.KeepRawMonths.Value != 0 {
 		t.Fatalf("retired history settings = %+v", out.History)
 	}
-	if out.Stress.Journal.Enabled.Value {
+	if !out.Stress.Journal.Enabled.Value {
 		t.Fatalf("default stress settings = %+v", out.Stress)
 	}
 }
