@@ -782,6 +782,96 @@ also fork the decision corpus's comparability, undermining Part 4. So:
   decision events and current streak state remain authoritative database data;
   rollback does not delete or replace them.
 
+## Part 7 — What the shadow scoring experiment measured (2026-08-06)
+
+A shadow regime model ran beside the shipped stage machine, journalling a
+second scoring of every decision without serving it. It is being removed. This
+section is the durable record of what its readings did and did not establish,
+written because the code and its journal rows both go away.
+
+**The decision it existed to support.** Whether the band-plus-gates
+architecture should be replaced by a continuous strength score — specifically
+whether the six mechanisms bolted on after 2026-06-12 (depth floor, fast path,
+eligibility latch, red-exit hysteresis, persistence, currency) can be subsumed
+by ramping each indicator's strength through its own band boundaries, so that a
+7bp HYG break and a 3% break become different numbers rather than the same
+band. An earlier static count put the reduction at 194 decision points to 86.
+
+**Verdict: the readings cannot support that decision, and are not close.**
+Not primarily because of sample size. The window contains no variance in the
+quantity under test.
+
+| what was recorded | value |
+|---|---|
+| window | 2026-08-05 19:54Z → 2026-08-06 06:24Z, ~10.5h |
+| rows / distinct snapshot fingerprints | 144 / **12** (~91% are republication duplicates) |
+| shadow confirming arm, observed range | 0.000 – 0.429 against a 1.0 cutoff |
+| shadow warning arm | 0.000 – 1.232 against a 0.25 cutoff |
+| tape term | 0.000 throughout |
+| clusters ever carrying weight | credit, fx, vol only — breadth, funding, gamma zeroed by staleness for the whole window |
+| red-band stress events | none |
+
+The window runs from just after a US close through one overnight session, so
+the daily-cadence indicators are stale by design and the currency gate zeroes
+half the board. The confirming arm never came within a factor of two of its
+cutoff. Nothing in the window exercised the discrimination the model exists to
+perform.
+
+Two further reasons the corpus is not homogeneous, both worth knowing before
+anyone cites these numbers: `RegimeGammaDepth` changed mid-window (f379ea6), so
+gamma strengths before and after are on different inputs; and the model id
+moved v3→v4 during development, which by the model's own versioning rule means
+readings under the two definitions must not be pooled.
+
+**What would actually be needed.** The unit is regime *episodes*, not days or
+rows — the previous 14-day corpus had six of eight indicators never leaving
+green, so calendar time buys nothing on its own. To decide this you would need
+at least two independent stress episodes, each carrying a cluster across its red
+boundary with real depth, so that both models are observed near their decision
+boundaries and one episode cannot be a fluke; plus a calm baseline long enough
+to measure the false-positive rate the gates exist to suppress. On this desk's
+observed episode rate that is months, not weeks. Anything less measures
+agreement in the region where neither model is deciding anything.
+
+### Finding worth keeping: the shipped model has two routes to `data_quality`
+
+Five of the twelve states read `data_quality` from the shipped model while the
+shadow returned `early_warning`. The obvious hypothesis — that the shadow
+ignores the ranked-cluster floor — is wrong. The shadow applies
+`RegimeVerdictFloor` correctly, and on those states the ranked count was 5 or 6,
+comfortably above it.
+
+The real cause is that `data_quality` is reachable two different ways:
+
+1. **too few ranked clusters** — the `RegimeVerdictFloor` check, and
+2. **an input-health defect** — a degraded or stale source lane forcing the
+   whole verdict down regardless of how many clusters ranked.
+
+On these states it was route 2: gamma blocked on a missed session, with
+funding, gamma and breadth all stale. The shadow models only route 1, so it
+scored a verdict from the clusters that were still current.
+
+This is recorded as a finding about the **shipped** model because it raises a
+question the shadow's removal does not settle: overnight, with five or six
+clusters ranked and current, the shipped model refuses to state a verdict at
+all because other lanes are stale. Whether "some inputs are stale" should
+suppress a verdict the surviving inputs could support — rather than qualify it
+— is a live design question, and it is the one thing this experiment surfaced
+that outlives it.
+
+### Finding worth keeping: the disagreement was cosmetic in operational terms
+
+On all four fingerprints where the shipped model read `confirmed_stress` and
+the shadow read `early_warning`, the served severity was `watch` — the
+provenance governor had already capped it, because every threshold remains
+`pending_backtest`. Across all twelve states, every severity was `watch`.
+
+So on this window the two models produced the same operational posture
+throughout, and the stage-name disagreement had no consequence a desk would
+act on differently. That is a caution about reading stage-agreement percentages
+as if they measured impact: measure severity and the action it implies, not
+the stage label.
+
 ## Review log
 
 - **2026-06-12 — adversarial review (subagent, full code verification):
