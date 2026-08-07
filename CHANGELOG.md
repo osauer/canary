@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.8.1 — 2026-08-06 21:06 CEST
+## v2.8.1 — 2026-08-07 07:44 CEST
 
 ### What's new
 
@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
-- **A too-long server description can no longer reach a published release.** v2.8.0's registry description ran to 118 characters against the registry's 100-character cap, and that cap was checked only during publication — after the tag and the GitHub release were already public, where nothing could be corrected. The description is now shorter, and the limit is checked beside the version stamps, so an over-long one fails before it can be committed.
+- **A too-long server description can no longer reach a published release.** v2.8.0's registry description ran to 118 characters against the registry's 100-character cap, and that cap was checked only during publication — after the tag and the GitHub release were already public, where nothing could be corrected. The description is now shorter, and the limit is checked beside the version stamps, so an over-long one fails before it can be tagged or published.
 
 ## v2.8.0 — 2026-08-06 07:53 CEST
 
