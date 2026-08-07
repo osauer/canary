@@ -473,6 +473,7 @@ func TestNewGammaZeroCacheWithStore_LoadsYesterdaysSessionAsLKG(t *testing.T) {
 	if slot.current.result.LegCount != 3333 {
 		t.Fatalf("combined LKG LegCount = %d, want 3333", slot.current.result.LegCount)
 	}
+	persistedCurrent := slot.current
 
 	var computeRuns atomic.Int32
 	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
@@ -482,8 +483,8 @@ func TestNewGammaZeroCacheWithStore_LoadsYesterdaysSessionAsLKG(t *testing.T) {
 		return fresh, nil
 	}
 	job, fresh := cache.kickOrJoin(context.Background(), rpc.GammaZeroScopeCombined, today, 300, compute)
-	if fresh || job != slot.current {
-		t.Fatalf("active rollover should serve LKG while refreshing: fresh=%v job=%p want %p", fresh, job, slot.current)
+	if fresh || job != persistedCurrent {
+		t.Fatalf("active rollover should serve LKG while refreshing: fresh=%v job=%p want %p", fresh, job, persistedCurrent)
 	}
 
 	deadline := time.Now().Add(500 * time.Millisecond)
