@@ -5382,13 +5382,25 @@ func (c *Connection) requestMarketDataWithContract(ctx context.Context, contract
 // transport check to expectedEpoch, so a queued quote request never crosses a
 // reconnect onto the successor socket.
 func (c *Connection) requestMarketDataWithContractForEpoch(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool, expectedEpoch uint64, beforeSend func(reqID int) func()) (int, error) {
+	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, snapshot, regulatorySnap, expectedEpoch, true, beforeSend)
+}
+
+// requestSharedMarketDataWithContractForEpoch is the reconnect-safe form used
+// when a shared read subscription must be re-issued on its originating socket.
+// Unlike broker-write quote evidence, a shared subscription may legitimately
+// use a by-fields contract while contract hydration is still pending.
+func (c *Connection) requestSharedMarketDataWithContractForEpoch(ctx context.Context, contract Contract, genericTicks string, expectedEpoch uint64, beforeSend func(reqID int) func()) (int, error) {
+	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, false, false, expectedEpoch, false, beforeSend)
+}
+
+func (c *Connection) requestMarketDataWithContractForEpochMode(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool, expectedEpoch uint64, requireExactContract bool, beforeSend func(reqID int) func()) (int, error) {
 	if !c.IsConnected() {
 		return 0, fmt.Errorf("not connected to IBKR")
 	}
 	if err := c.requireServerVersion("RequestMarketData"); err != nil {
 		return 0, err
 	}
-	if contract.ConID <= 0 && !isExplicitSessionFXContract(contract) {
+	if requireExactContract && contract.ConID <= 0 && !isExplicitSessionFXContract(contract) {
 		return 0, fmt.Errorf("exact market-data contract requires positive ConID or explicit CASH/IDEALPRO pair")
 	}
 	if contract.Symbol == "" {

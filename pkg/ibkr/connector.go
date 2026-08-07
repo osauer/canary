@@ -406,12 +406,17 @@ type Subscription struct {
 	// so the old reqID will never tick again. Nil for exact-session
 	// subscriptions and disconnected placeholders, which are not replayed.
 	replaySpec *mdReplaySpec
+	// replayedAfter10197 bounds competing-session recovery to one transparent
+	// replay for this shared subscription. A second 10197 is terminal and
+	// returns control to the demand path instead of creating a retry loop.
+	replayedAfter10197 bool
 	// rejectedReqID records the reqID the gateway reported dead via a
-	// terminal entitlement/definition error (200/354): the server tears
-	// the ticker down itself, so a wire CancelMarketData for that exact
-	// reqID only draws error 300 "Can't find EId". Stored as the reqID
-	// (not a bool) so a refresh that re-issues the subscription under a
-	// new reqID naturally re-arms the cancel. See wireCancelNeeded.
+	// terminal subscription error such as 200, 354, or 10197: the server
+	// tears the ticker down itself, so a wire CancelMarketData for that
+	// exact reqID only draws error 300 "Can't find EId". Stored as the
+	// reqID (not a bool) so a refresh or recovery that re-issues the
+	// subscription under a new reqID naturally re-arms the cancel. See
+	// wireCancelNeeded.
 	rejectedReqID int
 }
 
@@ -443,7 +448,8 @@ type SubscriptionRejection struct {
 //   - 322   "Error processing request" (duplicate ticker ID)
 //   - 354   "Requested market data is not subscribed" (entitlement gap)
 //   - 10197 "Competing live session blocks live data" — handler also
-//     forces delayed mode, but the original reqID is dead either way.
+//     forces delayed mode and replays a shared subscription because the
+//     original reqID is dead.
 func isTerminalSubscriptionError(code int) bool {
 	switch code {
 	case 200, 320, 321, 322, 354, 10197:
@@ -1198,7 +1204,8 @@ func (c *Connector) failPendingExactHistoricalRoute(reqID, code int, message str
 //     — for 354 — feed the absence memory so steady pollers stop
 //     re-requesting a name with no data entitlement (the recurring
 //     354+2129 source);
-//   - 10197 keeps its force-delayed side effect.
+//   - 10197 keeps its force-delayed side effect and transparently replays
+//     the shared request IBKR killed so the first symbol is not lost.
 //
 // Deliberately NOT ported from handleIBKRError: refreshSubscription's
 // blind alternate-routing resubscribe on 200/320/321/354 — re-requesting
@@ -1223,7 +1230,13 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 		return nil
 	}
 
-	c.pushSubscriptionRejection(reqID, code, note.message)
+	// A shared request rejected with 10197 gets one transparent replay after
+	// the connection enters delayed mode. Keep its RejectCh quiet until that
+	// attempt resolves so the original quote/gamma poll can receive the new
+	// reqID's delayed ticks. Every other terminal rejection still fast-aborts.
+	if code != 10197 {
+		c.pushSubscriptionRejection(reqID, code, note.message)
+	}
 
 	switch code {
 	case 200, 354:
@@ -1232,14 +1245,28 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 			origin.connection.releaseMarketDataSlot(reqID)
 		}
 	case 10197:
-		if origin.connection != nil && origin.connection.markCompetingLiveSession(strconv.Itoa(reqID)) {
-			postBarrier = func() {
+		firstTransition := origin.connection != nil && origin.connection.markCompetingLiveSession(strconv.Itoa(reqID))
+		postBarrier = func() {
+			var modeErr error
+			if firstTransition {
 				if err := origin.connection.setMarketDataTypeAtEpoch(3, origin.epoch); err != nil {
 					ibkrLogger.Errorf("[cid=%d] Failed to request delayed market data after 10197: %v", origin.connection.config.ClientID, err)
+					modeErr = err
 				} else {
 					ibkrLogger.Warnf("[cid=%d] Forced delayed market data after 10197 (%s)", origin.connection.config.ClientID, note.message)
 				}
 			}
+			if modeErr == nil && c.recoverSharedMarketDataAfter10197(origin, reqID, note.message) {
+				return
+			}
+			// Option/exact-session subscriptions cannot be transparently replayed;
+			// their bounded owners retain the retry decision. A failed mode switch
+			// takes the same honest unavailable path.
+			c.markSubscriptionRejected(reqID)
+			if origin.connection != nil {
+				origin.connection.releaseMarketDataSlotAtEpoch(reqID, origin.epoch)
+			}
+			c.pushSubscriptionRejection(reqID, code, note.message)
 		}
 	}
 
@@ -1564,6 +1591,13 @@ type mdReplaySpec struct {
 	primaryExch  string
 }
 
+type mdReplayEntry struct {
+	key      string
+	sub      *Subscription
+	oldReqID int
+	spec     mdReplaySpec
+}
+
 // handleBackendConnectivityNotice tracks the TWS<->IBKR backend link.
 // 1100: link lost — refuse new order transmissions until a restore notice.
 // 1102: restored with server-side state maintained — nothing to replay.
@@ -1648,13 +1682,7 @@ func (c *Connector) recoverFromBackendDataLoss(origin ConnectorSessionBinding) {
 }
 
 func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding) (replayed, dropped int) {
-	type replayEntry struct {
-		key      string
-		sub      *Subscription
-		oldReqID int
-		spec     mdReplaySpec
-	}
-	var entries []replayEntry
+	var entries []mdReplayEntry
 	c.subMu.RLock()
 	for key, sub := range c.subscriptions {
 		if sub == nil || sub.SessionEpoch != 0 || sub.ReqID == 0 || sub.replaySpec == nil {
@@ -1665,7 +1693,7 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 			// demand paths own any retry decision.
 			continue
 		}
-		entries = append(entries, replayEntry{key: key, sub: sub, oldReqID: sub.ReqID, spec: *sub.replaySpec})
+		entries = append(entries, mdReplayEntry{key: key, sub: sub, oldReqID: sub.ReqID, spec: *sub.replaySpec})
 	}
 	c.subMu.RUnlock()
 
@@ -1721,6 +1749,133 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 		replayed++
 	}
 	return replayed, dropped
+}
+
+// recoverSharedMarketDataAfter10197 replays the one shared subscription that
+// triggered IBKR's competing-session transition. Error 10197 kills the
+// original reqID, while reqMarketDataType(3) applies only to later requests;
+// without this replay the first symbol stays empty and only subsequent symbols
+// receive delayed ticks. The existing RejectCh stays attached so an in-flight
+// quote or gamma poll continues across the new reqID instead of fast-aborting.
+//
+// The boolean reports ownership of a replayable shared subscription. Once true,
+// this method always completes the old request's lifecycle: success adopts the
+// replacement, while failure signals the original poller with typed 10197.
+func (c *Connector) recoverSharedMarketDataAfter10197(origin ConnectorSessionBinding, reqID int, message string) bool {
+	entry, ok := c.sharedMarketDataReplayEntry(reqID)
+	if !ok {
+		return false
+	}
+
+	// The gateway has already killed oldReqID. Release its slot before
+	// acquiring the replacement, and stamp it server-dead so a concurrent
+	// teardown never sends the futile cancel that would draw error 300.
+	c.markSubscriptionRejected(entry.oldReqID)
+	if origin.connection != nil {
+		origin.connection.releaseMarketDataSlotAtEpoch(entry.oldReqID, origin.epoch)
+	}
+
+	contract, genericTicks, err := marketDataReplayRequest(entry.spec)
+	if err != nil || origin.connection == nil || !c.SessionCurrent(origin) {
+		c.pushSubscriptionRejection(entry.oldReqID, 10197, message)
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	adopted := false
+	newReqID, requestErr := origin.connection.requestSharedMarketDataWithContractForEpoch(
+		ctx, contract, genericTicks, origin.epoch,
+		func(newReqID int) func() {
+			c.subMu.Lock()
+			current := c.subscriptions[entry.key]
+			if current == entry.sub && current.ReqID == entry.oldReqID {
+				delete(c.reqIDMap, entry.oldReqID)
+				c.reqIDMap[newReqID] = entry.key
+				resetSubscriptionObservations(current)
+				current.ReqID = newReqID
+				current.LastTime = time.Now()
+				adopted = true
+			}
+			c.subMu.Unlock()
+
+			return func() {
+				if !adopted {
+					return
+				}
+				c.subMu.Lock()
+				current := c.subscriptions[entry.key]
+				if current == entry.sub && current.ReqID == newReqID {
+					delete(c.reqIDMap, newReqID)
+					c.reqIDMap[entry.oldReqID] = entry.key
+					current.ReqID = entry.oldReqID
+					current.rejectedReqID = entry.oldReqID
+				}
+				c.subMu.Unlock()
+			}
+		},
+	)
+	if requestErr == nil && newReqID != 0 && adopted {
+		c.logInfo("Replayed market data for %s under delayed mode after IBKR 10197", entry.key)
+		return true
+	}
+	if requestErr == nil && newReqID != 0 {
+		_ = origin.connection.cancelMarketDataForEpoch(context.Background(), newReqID, origin.epoch)
+	}
+	c.pushSubscriptionRejection(entry.oldReqID, 10197, message)
+	c.logWarn("Failed to replay market data for %s after IBKR 10197; leaving it unavailable", entry.key)
+	return true
+}
+
+func (c *Connector) sharedMarketDataReplayEntry(reqID int) (mdReplayEntry, bool) {
+	if reqID <= 0 {
+		return mdReplayEntry{}, false
+	}
+	c.subMu.Lock()
+	defer c.subMu.Unlock()
+	key := c.reqIDMap[reqID]
+	sub := c.subscriptions[key]
+	if key == "" || sub == nil || sub.ReqID != reqID || sub.SessionEpoch != 0 || sub.replaySpec == nil || sub.replayedAfter10197 {
+		return mdReplayEntry{}, false
+	}
+	sub.replayedAfter10197 = true
+	return mdReplayEntry{key: key, sub: sub, oldReqID: reqID, spec: *sub.replaySpec}, true
+}
+
+func marketDataReplayRequest(spec mdReplaySpec) (Contract, string, error) {
+	if spec.symbol == "" {
+		if strings.TrimSpace(spec.contract.Symbol) == "" {
+			return Contract{}, "", errors.New("market-data replay contract has no symbol")
+		}
+		genericTicks := spec.genericTicks
+		if genericTicks == "" {
+			genericTicks = sharedGenericTicks
+		}
+		return spec.contract, genericTicks, nil
+	}
+
+	symbol := strings.ToUpper(strings.TrimSpace(spec.symbol))
+	if symbol == "" {
+		return Contract{}, "", errors.New("market-data replay symbol is empty")
+	}
+	secType, exchange, currency, primaryExchange := classifySymbol(symbol)
+	if spec.primaryExch != "" {
+		primaryExchange = spec.primaryExch
+	}
+	localSymbol, tradingClass := contractDisplayHints(symbol, secType)
+	wireSymbol := dualClassWireSymbol(symbol)
+	if base, _, ok := FxPair(symbol); ok {
+		wireSymbol = base
+	}
+	contract := Contract{
+		Symbol: wireSymbol, SecType: secType, Exchange: exchange,
+		PrimaryExch: primaryExchange, Currency: currency,
+		LocalSymbol: localSymbol, TradingClass: tradingClass,
+	}
+	if contract.SecType == "STK" && spec.primaryExch == "" {
+		contract.PrimaryExch = ""
+	}
+	return contract, sharedGenericTicks, nil
 }
 
 type retiredMarketDataSubscription struct {

@@ -3,6 +3,7 @@ package ibkr
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -236,6 +237,109 @@ func TestSystemNotice10197ForcesDelayed(t *testing.T) {
 	})
 	if !c.conn.HasCompetingLiveSession() {
 		t.Fatal("10197 notice must flag the competing live session")
+	}
+}
+
+// TestSystemNotice10197ReplaysRejectedSharedSubscription pins the user-facing
+// first-symbol failure: reqMarketDataType(3) applies only to later requests,
+// while 10197 has already killed the request that triggered the switch. The
+// connector must therefore rebind that same shared subscription to one new
+// reqID without aborting its in-flight poller.
+func TestSystemNotice10197ReplaysRejectedSharedSubscription(t *testing.T) {
+	c, conn, out := newBackendConnectivityConnector(t, nil)
+	if !c.SeedContractDetails("SPY", ContractDetailsLite{
+		Symbol: "SPY", SecType: "STK", Exchange: "SMART", PrimaryExch: "ARCA",
+		Currency: "USD", ConID: 756733, TradingClass: "SPY",
+	}) {
+		t.Fatal("seed SPY contract details")
+	}
+	if err := c.SubscribeMarketData(context.Background(), "SPY", []string{"LAST"}); err != nil {
+		t.Fatalf("subscribe SPY: %v", err)
+	}
+	oldReqID := c.subReqIDForTest("SPY")
+	if oldReqID == 0 {
+		t.Fatal("SPY subscription has no initial reqID")
+	}
+	rejectCh := c.SubscriptionRejectCh("SPY")
+	if rejectCh == nil {
+		t.Fatal("SPY subscription has no rejection channel")
+	}
+	wireBefore := out.Len()
+
+	c.processSystemNotice(reqAliasEntry{symbol: "SPY", secType: "STK"}, &systemNotification{
+		tickerID: int64(oldReqID), code: 10197, message: "untrusted competing-session detail",
+	})
+
+	newReqID := c.subReqIDForTest("SPY")
+	if newReqID == 0 || newReqID == oldReqID {
+		t.Fatalf("SPY reqID=%d after 10197, want replacement for %d", newReqID, oldReqID)
+	}
+	select {
+	case rejection := <-rejectCh:
+		t.Fatalf("transparent 10197 replay aborted the original poller: %+v", rejection)
+	default:
+	}
+
+	payload := out.Bytes()
+	frames := decodeOutboundFrames(t, conn, payload[wireBefore:])
+	if len(frames) != 2 || len(frames[0]) < 3 || len(frames[1]) < 3 {
+		t.Fatalf("10197 recovery frames=%#v, want delayed-mode switch then one market-data replay", frames)
+	}
+	if frames[0][0] != strconv.Itoa(reqMarketDataType) || frames[0][2] != "3" {
+		t.Fatalf("first 10197 recovery frame=%#v, want reqMarketDataType(3)", frames[0])
+	}
+	if frames[1][0] != strconv.Itoa(reqMktData) || frames[1][2] != strconv.Itoa(newReqID) {
+		t.Fatalf("second 10197 recovery frame=%#v, want reqMktData for %d", frames[1], newReqID)
+	}
+
+	c.subMu.RLock()
+	_, oldMapped := c.reqIDMap[oldReqID]
+	newKey := c.reqIDMap[newReqID]
+	sub := c.subscriptions["SPY"]
+	c.subMu.RUnlock()
+	if oldMapped || newKey != "SPY" || sub == nil || sub.rejectedReqID == newReqID {
+		t.Fatalf("SPY replay mapping oldMapped=%v newKey=%q sub=%+v", oldMapped, newKey, sub)
+	}
+	conn.marketDataSlotsMu.Lock()
+	_, oldSlot := conn.marketDataSlots[oldReqID]
+	_, newSlot := conn.marketDataSlots[newReqID]
+	slotCount := len(conn.marketDataSlots)
+	conn.marketDataSlotsMu.Unlock()
+	if oldSlot || !newSlot || slotCount != 1 {
+		t.Fatalf("SPY replay slots old=%v new=%v count=%d, want only replacement", oldSlot, newSlot, slotCount)
+	}
+
+	epoch := conn.BrokerSessionEpoch()
+	if !conn.processMarketDataTypeAtEpoch([]string{"58", "1", strconv.Itoa(newReqID), "3"}, epoch) {
+		t.Fatal("delayed market-data type notice was not accepted for replacement")
+	}
+	c.handleTickPrice([]string{"1", "2", strconv.Itoa(newReqID), "68", "773.10"})
+	quote := c.MarketDataSnapshot()["SPY"]
+	if quote == nil || quote.Last != 773.10 || c.MarketDataTypeForSymbol("SPY") != 3 {
+		t.Fatalf("SPY delayed replay quote=%+v dataType=%d", quote, c.MarketDataTypeForSymbol("SPY"))
+	}
+
+	duplicateBefore := out.Len()
+	c.processSystemNotice(reqAliasEntry{symbol: "SPY", secType: "STK"}, &systemNotification{
+		tickerID: int64(oldReqID), code: 10197, message: "duplicate old request",
+	})
+	if got := out.Len(); got != duplicateBefore {
+		t.Fatalf("duplicate old 10197 wrote %d bytes after successful replay", got-duplicateBefore)
+	}
+
+	c.processSystemNotice(reqAliasEntry{symbol: "SPY", secType: "STK"}, &systemNotification{
+		tickerID: int64(newReqID), code: 10197, message: "replacement also rejected",
+	})
+	if got := out.Len(); got != duplicateBefore {
+		t.Fatalf("second current 10197 wrote %d bytes, want bounded single replay", got-duplicateBefore)
+	}
+	select {
+	case rejection := <-rejectCh:
+		if rejection.Code != 10197 {
+			t.Fatalf("second 10197 rejection=%+v, want typed 10197", rejection)
+		}
+	default:
+		t.Fatal("second current 10197 did not terminate the bounded poller")
 	}
 }
 

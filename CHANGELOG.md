@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- **A quote no longer loses its first symbol when another IBKR session owns the live feed.** Canary now replays the request that triggered error 10197 after switching to delayed data, so a multi-symbol read no longer leaves that first result unavailable while later symbols succeed. (#27)
 - **Regime history no longer stores the same decision on every four-minute refresh.** Canary still commits every complete snapshot, including fresh raw values and streak progress, but adds an append-only decision row only for the first reading, a semantic change, a re-enabled journal, or the hourly heartbeat. A durable receipt distinguishes an intentional skip from a crash so startup recovery remains fail-closed. This removes the duplicate growth called out in v2.8.0 without another history clear-out. (#29)
 
 ## v2.8.2 — 2026-08-07 10:51 CEST
