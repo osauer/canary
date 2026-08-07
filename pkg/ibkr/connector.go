@@ -308,8 +308,9 @@ type ConnectorConfig struct {
 // Subscription holds the latest values observed for one streaming market-data
 // request. Zero-valued fields may mean either an observed zero or data not yet
 // received; fields with an accompanying Observed flag distinguish those cases.
-// LastTime is the subscription's liveness clock and LastTickAt is the tick
-// observation instant; the two differ and are documented on the fields.
+// LastTime is the subscription bookkeeping clock, LastTickAt is the any-tick
+// liveness clock, and LastPriceTickAt is the accepted-price observation clock;
+// they differ and are documented on the fields.
 type Subscription struct {
 	Symbol string
 	// SessionEpoch is set for exact-session subscriptions. Zero identifies a
@@ -350,10 +351,14 @@ type Subscription struct {
 	// delivered borrow inventory".
 	ShortableShares   int64
 	ShortableObserved bool
-	PrevClose         float64
-	Open              float64
-	High              float64
-	Low               float64
+	// ShortableTickAt is when this process last received wire tick 89 for
+	// ShortableShares. It is zero until that field is observed and does not
+	// advance for other price, size, generic, or string ticks.
+	ShortableTickAt time.Time
+	PrevClose       float64
+	Open            float64
+	High            float64
+	Low             float64
 	// Week-range highs/lows arrive via generic tick 165 (Misc Stats) as
 	// tickPrice messages with tick types 15-20. Captured here so consumers
 	// (notably scan-row enrichment, where 52w range is a standard column)
@@ -382,6 +387,17 @@ type Subscription struct {
 	// including size, volume and IV ticks, so a subscription delivering only
 	// size ticks looks alive while its price is frozen.
 	LastTickAt time.Time
+	// LastPriceTickAt is when this process last accepted a positive price tick
+	// from the gateway on this subscription. It is never seeded at subscribe
+	// time and does not advance for blank or rejected price payloads, size,
+	// volume, IV, or last-trade-time ticks. RTVolume advances it only when that
+	// payload carries a positive last price.
+	//
+	// Like LastTickAt, this is an arrival instant rather than the instant the
+	// broker value was struck: frozen data can still arrive now while carrying
+	// an older value. It is price-specific, not per-field; a new high, close, or
+	// week-range price advances the same clock as bid, ask, last, and mark.
+	LastPriceTickAt time.Time
 	// IV is the option implied volatility tick (generic tick 106), present
 	// only when the streaming subscribe requested it. Stored as a fraction
 	// (0.234 == 23.4%); the gateway sometimes emits the percent form, which
@@ -1741,9 +1757,10 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 		delete(c.reqIDMap, e.oldReqID)
 		c.reqIDMap[newReqID] = e.key
 		e.sub.ReqID = newReqID
-		// LastTime only: re-issuing the request is not an observation, and
-		// LastTickAt must keep pointing at the last real tick so a replay that
-		// never resumes ticking stays visible as a growing gap.
+		// LastTime only: re-issuing the request is not an observation. Both
+		// LastTickAt and LastPriceTickAt must keep pointing at the last real
+		// observations so a replay that never resumes stays visible as a
+		// growing gap.
 		e.sub.LastTime = time.Now()
 		c.subMu.Unlock()
 		replayed++
@@ -4301,6 +4318,7 @@ func resetSubscriptionObservations(sub *Subscription) {
 	sub.OpenIntObserved = false
 	sub.ShortableShares = 0
 	sub.ShortableObserved = false
+	sub.ShortableTickAt = time.Time{}
 	sub.PrevClose = 0
 	sub.Open = 0
 	sub.High = 0
@@ -4313,6 +4331,7 @@ func resetSubscriptionObservations(sub *Subscription) {
 	sub.Week52High = 0
 	sub.LastTradeTime = time.Time{}
 	sub.LastTickAt = time.Time{}
+	sub.LastPriceTickAt = time.Time{}
 	sub.IV = 0
 	sub.LastTime = time.Time{}
 	sub.Observed = false
@@ -5814,9 +5833,11 @@ func (c *Connector) handleTickPrice(fields []string) {
 	if isOptionReq {
 		c.subMu.Lock()
 		if sub, ok := c.subscriptions[optSym]; ok {
-			sub.LastTime = time.Now()
-			sub.LastTickAt = sub.LastTime
+			observedAt := time.Now()
+			sub.LastTime = observedAt
+			sub.LastTickAt = observedAt
 			if price > 0 {
+				sub.LastPriceTickAt = observedAt
 				sub.Observed = true
 				switch tickType {
 				case 1, 66:
@@ -5923,8 +5944,10 @@ func (c *Connector) handleTickPrice(fields []string) {
 		// often the only price tick the gateway sends.
 		sub.MarkPrice = price
 	}
-	sub.LastTime = time.Now()
-	sub.LastTickAt = sub.LastTime
+	observedAt := time.Now()
+	sub.LastTime = observedAt
+	sub.LastTickAt = observedAt
+	sub.LastPriceTickAt = observedAt
 }
 
 // handleTickGeneric processes generic tick updates. The wire tick ids
@@ -7944,8 +7967,9 @@ func (c *Connector) handleTickSize(fields []string) {
 		return
 	}
 
-	// Mark observed on any size tick
+	// Mark observed on any size tick.
 	sub.Observed = true
+	observedAt := time.Now()
 
 	// IBKR tick types: 0=BID_SIZE, 3=ASK_SIZE, 8=VOLUME (cumulative day total).
 	// 21=average volume, delivered by the Misc Stats generic-tick bundle (165).
@@ -7983,9 +8007,10 @@ func (c *Connector) handleTickSize(fields []string) {
 		// as ≤1000 shares and fire false Borrow-scarce flags.
 		sub.ShortableShares = size
 		sub.ShortableObserved = true
+		sub.ShortableTickAt = observedAt
 	}
-	sub.LastTime = time.Now()
-	sub.LastTickAt = sub.LastTime
+	sub.LastTime = observedAt
+	sub.LastTickAt = observedAt
 }
 
 // handleTickString processes IBKR tick-string updates. Tick type 45 carries
@@ -8022,6 +8047,7 @@ func (c *Connector) handleTickString(fields []string) {
 	if !ok {
 		return
 	}
+	priceObserved := false
 	switch tickType {
 	case 45:
 		sec, err := strconv.ParseInt(value, 10, 64)
@@ -8036,6 +8062,7 @@ func (c *Connector) handleTickString(fields []string) {
 		}
 		if last > 0 {
 			sub.LastPrice = last
+			priceObserved = true
 		}
 		if volume > 0 {
 			sub.Volume = volume
@@ -8046,8 +8073,12 @@ func (c *Connector) handleTickString(fields []string) {
 	default:
 		return
 	}
-	sub.LastTime = time.Now()
-	sub.LastTickAt = sub.LastTime
+	observedAt := time.Now()
+	sub.LastTime = observedAt
+	sub.LastTickAt = observedAt
+	if priceObserved {
+		sub.LastPriceTickAt = observedAt
+	}
 	sub.Observed = true
 }
 
@@ -8450,9 +8481,10 @@ func orderBrokerErrorMessage(code int, message, advancedRejectJSON string) strin
 // MarketDataSnapshot returns a detached point-in-time copy of all locally
 // tracked streaming subscriptions. The returned map and MarketData values may
 // be mutated by the caller. Zero fields can represent data not yet observed.
-// Timestamp carries the subscription's liveness clock, which is seeded at
-// subscribe time; LastTickAt is the tick observation instant and is zero until
-// a tick actually arrives. Neither guarantees broker-source freshness.
+// Timestamp carries the subscription's bookkeeping clock, which is seeded at
+// subscribe time; LastTickAt is the any-tick liveness clock; LastPriceTickAt
+// is the accepted-price observation clock. The latter two are zero until their
+// respective tick class arrives. None guarantees broker-source freshness.
 func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 	c.subMu.RLock()
 	defer c.subMu.RUnlock()
@@ -8471,11 +8503,13 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 			Volume:            sub.Volume,
 			AvgVolume:         sub.AvgVolume,
 			LastTickAt:        sub.LastTickAt,
+			LastPriceTickAt:   sub.LastPriceTickAt,
 			LastTradeTime:     sub.LastTradeTime,
 			OpenInt:           sub.OpenInt,
 			OpenIntObserved:   sub.OpenIntObserved,
 			ShortableShares:   sub.ShortableShares,
 			ShortableObserved: sub.ShortableObserved,
+			ShortableTickAt:   sub.ShortableTickAt,
 			Close:             sub.PrevClose,
 			Open:              sub.Open,
 			High:              sub.High,

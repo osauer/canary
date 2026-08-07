@@ -1307,12 +1307,8 @@ func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string
 		})
 		if md := connector.MarketDataSnapshot()[sym]; md != nil && md.ShortableObserved {
 			probes[i].observed = true
-			asOf := md.Timestamp
-			if asOf.IsZero() {
-				asOf = now
-			}
 			record := marketEventBorrowInventoryRecord{
-				Symbol: sym, ShortableShares: md.ShortableShares, AsOf: asOf,
+				Symbol: sym, ShortableShares: md.ShortableShares, AsOf: md.ShortableTickAt,
 				DataType: md.DataType, Delayed: md.IsDelayed,
 			}
 			probes[i].record = &record
@@ -1386,7 +1382,7 @@ func marketEventBorrowInventoryFlag(sym string, md ibkrlib.MarketData, now time.
 		Severity:   severity,
 		Role:       rpc.MarketEventRoleProposalModifier,
 		Source:     "IBKR generic tick 236",
-		AsOf:       md.Timestamp,
+		AsOf:       md.ShortableTickAt,
 		ObservedAt: now,
 		Value:      &value,
 		Unit:       "shares",

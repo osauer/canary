@@ -34,7 +34,7 @@ func TestDelayedMarketDataFallbackLeaseRearmsOnlyTargetAndRestoresMode(t *testin
 		release()
 		t.Fatalf("SPY subscription was not force-refreshed: %+v", sub)
 	}
-	if sub.Bid != 0 || sub.Ask != 0 || sub.LastPrice != 0 || !sub.LastTickAt.IsZero() {
+	if sub.Bid != 0 || sub.Ask != 0 || sub.LastPrice != 0 || !sub.LastTickAt.IsZero() || !sub.LastPriceTickAt.IsZero() {
 		release()
 		t.Fatalf("stale SPY observation survived delayed refresh: %+v", sub)
 	}
@@ -86,7 +86,7 @@ func seedDelayedFallbackSymbol(t *testing.T, connector *Connector, symbol string
 	}
 	connector.subMu.Lock()
 	connector.subscriptions[symbol] = &Subscription{
-		Symbol: symbol, LastTime: time.Now(), LastTickAt: time.Now(),
+		Symbol: symbol, LastTime: time.Now(), LastTickAt: time.Now(), LastPriceTickAt: time.Now(),
 		Bid: 100, Ask: 101, LastPrice: 100.5, Observed: true,
 		RejectCh: make(chan SubscriptionRejection, 1),
 	}

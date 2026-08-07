@@ -372,6 +372,39 @@ func TestMarketDataSnapshot_LastTickAtAdvancesOnNonPriceTicks(t *testing.T) {
 	}
 }
 
+// Price freshness must not inherit the any-tick liveness clock. A liquid
+// subscription can keep receiving size and volume while its bid/ask/last are
+// frozen, which is exactly the failure mode LastPriceTickAt needs to expose.
+func TestMarketDataSnapshot_LastPriceTickAtAdvancesOnlyOnAcceptedPrice(t *testing.T) {
+	connector := NewConnector(&ConnectorConfig{})
+	connector.subMu.Lock()
+	connector.reqIDMap[42] = "SPY"
+	connector.subscriptions["SPY"] = &Subscription{Symbol: "SPY", ReqID: 42, LastPrice: 580.51}
+	connector.subMu.Unlock()
+
+	connector.handleTickSize([]string{"2", "2", "42", "0", "300"})
+	connector.handleTickPrice([]string{"1", "2", "42", "1", ""})
+	connector.handleTickPrice([]string{"1", "2", "42", "1", "0"})
+
+	got := connector.MarketDataSnapshot()["SPY"]
+	if got.LastTickAt.IsZero() {
+		t.Fatal("LastTickAt stayed zero after non-price traffic")
+	}
+	if !got.LastPriceTickAt.IsZero() {
+		t.Fatalf("LastPriceTickAt = %s before an accepted price; non-price and rejected traffic must not advance it", got.LastPriceTickAt)
+	}
+
+	before := time.Now()
+	connector.handleTickPrice([]string{"1", "2", "42", "1", "580.50"})
+	got = connector.MarketDataSnapshot()["SPY"]
+	if got.LastPriceTickAt.Before(before) {
+		t.Fatalf("LastPriceTickAt = %s; want accepted-price arrival at or after %s", got.LastPriceTickAt, before)
+	}
+	if !got.LastPriceTickAt.Equal(got.LastTickAt) {
+		t.Fatalf("accepted price clocks differ: LastPriceTickAt=%s LastTickAt=%s", got.LastPriceTickAt, got.LastTickAt)
+	}
+}
+
 // TestHandleTickPrice_NegativePrice verifies negative prices are also validated.
 func TestHandleTickPrice_NegativePrice(t *testing.T) {
 	connector := NewConnector(&ConnectorConfig{})
@@ -469,6 +502,9 @@ func TestShortableAndUnderlyingIVArriveOnWireTickIDs(t *testing.T) {
 		t.Fatalf("wire tick 89 should set shortable shares: shares=%d observed=%v",
 			sub.ShortableShares, sub.ShortableObserved)
 	}
+	if sub.ShortableTickAt.IsZero() {
+		t.Fatal("wire tick 89 should stamp the shortable-share observation")
+	}
 	if sub.IV != 0.35 {
 		t.Fatalf("wire tick 24 should set underlying IV, got %v", sub.IV)
 	}
@@ -535,6 +571,9 @@ func TestHandleTickString_LastTradeTime(t *testing.T) {
 	if sub.LastTime.IsZero() {
 		t.Fatal("LastTime not updated after last-timestamp tick")
 	}
+	if !sub.LastPriceTickAt.IsZero() {
+		t.Fatalf("LastPriceTickAt = %s after a last-trade-time tick; no price was observed", sub.LastPriceTickAt)
+	}
 }
 
 func TestHandleTickString_RTVolumeUpdatesVolume(t *testing.T) {
@@ -562,6 +601,9 @@ func TestHandleTickString_RTVolumeUpdatesVolume(t *testing.T) {
 	}
 	if !sub.Observed {
 		t.Fatal("Observed not set after RTVolume tick")
+	}
+	if sub.LastPriceTickAt.IsZero() {
+		t.Fatal("LastPriceTickAt not set after RTVolume supplied a positive last price")
 	}
 }
 
@@ -833,6 +875,14 @@ func TestHandleTickSizeShortableSharesRoutesToMarketData(t *testing.T) {
 	}
 	if !md.ShortableObserved || md.ShortableShares != 750 {
 		t.Fatalf("shortable tick = observed %v shares %d, want true/750", md.ShortableObserved, md.ShortableShares)
+	}
+	if md.ShortableTickAt.IsZero() {
+		t.Fatal("shortable tick observation time missing from MarketDataSnapshot")
+	}
+	shortableAt := md.ShortableTickAt
+	c.handleTickSize([]string{"2", "1", "9", "0", "1200"})
+	if got := c.MarketDataSnapshot()["CRWV"].ShortableTickAt; !got.Equal(shortableAt) {
+		t.Fatalf("ShortableTickAt advanced on a bid-size tick: got %s want %s", got, shortableAt)
 	}
 }
 

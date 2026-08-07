@@ -8,13 +8,13 @@ import (
 )
 
 // snapshotTicks is the raw tick set one brief subscribe collected inside its
-// budget, plus the gateway data-type and the tick observation instant.
+// budget, plus the gateway data-type and the price-tick observation instant.
 //
-// observedAt is when this process last saw a tick on the subscription, zero
-// when none ever arrived. It is an arrival instant, not the instant the value
-// was struck: under frozen mode the gateway re-sends the last known value on
-// request, so a frozen quote's observedAt is essentially read time however old
-// the value is. See [ibkrlib.Subscription.LastTickAt].
+// observedAt is when this process last accepted a positive price tick on the
+// subscription, zero when none ever arrived. It is an arrival instant, not the
+// instant the value was struck: under frozen mode the gateway re-sends the last
+// known value on request, so a frozen quote's observedAt is essentially read
+// time however old the value is. See [ibkrlib.Subscription.LastPriceTickAt].
 type snapshotTicks struct {
 	bid, ask, last, mark, closePx float64
 	dataType                      string
@@ -122,7 +122,7 @@ func briefSnapshotPriceWith52WHigh(ctx context.Context, c *ibkrlib.Connector, sy
 		if d.Week52High > 0 {
 			out.week52High = d.Week52High
 		}
-		out.observedAt = d.LastTickAt
+		out.observedAt = d.LastPriceTickAt
 		// Capture dataType while the subscription is still live; once
 		// UnsubscribeMarketData fires (defer above), the connector's
 		// symbol→reqID mapping is gone and the type would always read
@@ -199,7 +199,7 @@ func briefSnapshotFullHeld(ctx context.Context, c *ibkrlib.Connector, symbol str
 		// Capture every tick we've seen so far; on timeout the final
 		// iteration's values are what the caller observes.
 		out.bid, out.ask, out.last, out.mark, out.closePx = d.Bid, d.Ask, d.Last, d.MarkPrice, d.Close
-		out.observedAt = d.LastTickAt
+		out.observedAt = d.LastPriceTickAt
 		if out.dataType == "" && (out.bid > 0 || out.ask > 0 || out.last > 0 || out.mark > 0 || out.closePx > 0) {
 			// Capture data-type while the subscription is still live;
 			// once UnsubscribeMarketData fires (defer above), the

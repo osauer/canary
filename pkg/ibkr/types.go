@@ -50,7 +50,12 @@ type MarketData struct {
 	// [Subscription.LastTickAt] for the two limits that bind every reader:
 	// it is an arrival instant rather than the instant the value was struck,
 	// and it advances on any tick, size and volume included.
-	LastTickAt        time.Time `json:"last_tick_at,omitzero"`
+	LastTickAt time.Time `json:"last_tick_at,omitzero"`
+	// LastPriceTickAt is when this process last accepted a positive price
+	// tick on the subscription, or zero when none has arrived. It excludes
+	// blank and rejected prices plus non-price traffic, but remains an arrival
+	// instant rather than proof of broker-source freshness.
+	LastPriceTickAt   time.Time `json:"last_price_tick_at,omitzero"`
 	LastTradeTime     time.Time `json:"last_trade_time,omitzero"`
 	BidSize           int       `json:"bid_size"`
 	AskSize           int       `json:"ask_size"`
@@ -58,6 +63,7 @@ type MarketData struct {
 	OpenIntObserved   bool      `json:"open_int_observed,omitempty"`
 	ShortableShares   int64     `json:"shortable_shares,omitempty"`
 	ShortableObserved bool      `json:"shortable_observed,omitempty"`
+	ShortableTickAt   time.Time `json:"shortable_tick_at,omitzero"`
 
 	IV     float64 `json:"iv"`
 	HV     float64 `json:"hv"`

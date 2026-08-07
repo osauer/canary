@@ -8,11 +8,11 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// Every tick-derived quality used to be stamped with snapshot-build time, so a
+// Every price-tick-derived quality used to be stamped with snapshot-build time, so a
 // served row reported about a second old whatever its true vintage and a live
 // subscription that had stopped delivering ticks was indistinguishable from one
 // that was ticking. The stamp is now the instant the tick arrived.
-func TestFirmTickQualityStampsTickArrival(t *testing.T) {
+func TestFirmTickQualityStampsPriceTickArrival(t *testing.T) {
 	t.Parallel()
 	now := regimeTestNow
 	observed := now.Add(-8 * time.Minute)
@@ -58,11 +58,11 @@ func TestFirmTickQualityRefusesAbsentAndFutureStamps(t *testing.T) {
 	}
 }
 
-// End-to-end: the connector's tick-arrival instant reaches every per-scalar
+// End-to-end: the connector's price-tick arrival instant reaches every per-scalar
 // quality a regime row publishes, through the snapshot closures and the
 // bounded wrappers. Each leg is given a different age so a fetcher that
 // stamped one leg with another's clock — or with its own — is caught.
-func TestRegimeRowsPublishTickArrivalAsOf(t *testing.T) {
+func TestRegimeRowsPublishPriceTickArrivalAsOf(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	now := regimeTestNow

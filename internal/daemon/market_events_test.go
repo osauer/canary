@@ -128,18 +128,22 @@ func TestHaltsOKHealthAgesTheFetchNotTheFeedStamp(t *testing.T) {
 func TestMarketEventBorrowInventoryFlagThresholds(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	observedAt := now.Add(-3 * time.Second)
 	if _, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableShares: 500}, now); ok {
 		t.Fatal("unobserved shortable shares should be unknown, not false-active")
 	}
-	flag, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 500}, now)
+	flag, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 500, ShortableTickAt: observedAt}, now)
 	if !ok || flag.Severity != rpc.MarketEventSeverityAct || flag.Label != "Borrow scarce" {
 		t.Fatalf("scarce flag = %+v ok=%v", flag, ok)
 	}
-	flag, ok = marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 5_000}, now)
+	if !flag.AsOf.Equal(observedAt) {
+		t.Fatalf("scarce flag as_of = %s, want shortable tick at %s", flag.AsOf, observedAt)
+	}
+	flag, ok = marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 5_000, ShortableTickAt: observedAt}, now)
 	if !ok || flag.Severity != rpc.MarketEventSeverityWatch || flag.Label != "Borrow tight" {
 		t.Fatalf("tight flag = %+v ok=%v", flag, ok)
 	}
-	if _, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 50_000}, now); ok {
+	if _, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 50_000, ShortableTickAt: observedAt}, now); ok {
 		t.Fatal("ample borrow inventory should not emit an inactive false flag")
 	}
 }
