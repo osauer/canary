@@ -2,7 +2,7 @@
   "serverInfo": {
     "name": "canary",
     "title": "Canary MCP Server",
-    "version": "2.8.1",
+    "version": "2.8.2",
     "description": "Canary's local MCP server for Interactive Brokers market data, portfolio context, and advisory risk checks through IB Gateway or TWS.",
     "homepage": "https://osauer.dev/canary/",
     "repository": "https://github.com/osauer/canary",

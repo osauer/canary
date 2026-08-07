@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.8.2 — 2026-08-07 10:51 CEST
+
+### What's new
+
+- **Canary can now tell which part of a gateway or alert path needs attention.** `canary status` distinguishes a closed local API port, an unfinished API handshake, and a lost TWS backend link. The new local-only `canary app status` separately reports app liveness, daemon alert coverage, and notification delivery health.
+
+### Fixed
+
+- **Dealer gamma can now use delayed data when IBKR rejects the live SPY or SPX spot feed with error 354.** During regular US option hours, Canary retries that underlying once and accepts the result only when spot and every option-model tick share the delayed clock. Text says `15m delayed`, JSON carries `data_type: "delayed"`, and delayed-frozen or mixed-clock inputs remain unavailable. (#27)
+- **A transient authority-head timeout no longer leaves storage blocked until the daemon restarts.** Canary reopens mutations only after SQLite integrity, authority identity, monotonic-head, and external-watermark proofs all pass. Corruption, rollback, I/O, disk, read-only, and other failures stay fail-closed.
+- **Concurrent lookups for the same unresolved contract no longer fan out into duplicate broker requests and warning lines.** One bounded request is shared across callers while each caller keeps its own timeout, reducing contract-definition churn without changing terminal failures or inactive-symbol safeguards.
+
 ## v2.8.1 — 2026-08-07 07:44 CEST
 
 ### What's new
