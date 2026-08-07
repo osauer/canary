@@ -314,6 +314,8 @@ func (g gammaLogf) Warnf(format string, args ...any) {
 // back-solve when the gateway doesn't deliver a model tick (the typical
 // pre-market state). Both are captured by computeGammaZeroFor before
 // the fan-out begins; the fetcher does NOT take its own spot snapshot.
+// snapshotDataType binds the per-leg option-model observation to the spot
+// clock. A delayed spot may consume only IBKR's delayed model tick 83.
 //
 // tradingClass is the option's listed class — load-bearing for SPX
 // because the SPX-class AM-settled and SPXW-class PM-settled contracts
@@ -329,6 +331,7 @@ type legFetcher func(
 	right string,
 	snapshotSpot float64,
 	snapshotAt time.Time,
+	snapshotDataType string,
 ) legResult
 
 // productionLegFetcher is the live-gateway implementation. It mirrors
@@ -340,7 +343,8 @@ type legFetcher func(
 // Two-stage data collection:
 //
 //	Stage 1  — gateway model tick. Tick 21 (OPTION_COMPUTATION,
-//	           tickType=13) routes into optIV[key] / optGreeks[key];
+//	           tickType=13 live/frozen or 83 delayed) routes into
+//	           optIV[key] / optGreeks[key];
 //	           fastest path with the gateway's own σ. Verified to fire
 //	           off-hours under the daemon's default MarketDataType=2 —
 //	           same path `canary chain SPY` relies on for ATM IV.
@@ -369,6 +373,7 @@ func productionLegFetcher(
 	right string,
 	snapshotSpot float64,
 	snapshotAt time.Time,
+	snapshotDataType string,
 ) legResult {
 	if c == nil {
 		return legResult{Throttle: true}
@@ -412,11 +417,11 @@ func productionLegFetcher(
 	deadline := time.Now().Add(1500 * time.Millisecond)
 	var iv, gamma float64
 	err = pollUntilWithReject(ctx, deadline, c.SubscriptionRejectCh(key), key, func() bool {
-		if v, found := c.OptionIV(key); found && v > 0 {
+		if v, optionDataType, found := c.OptionIVWithDataType(key); found && v > 0 && gammaOptionModelDataTypeCompatible(snapshotDataType, optionDataType) {
 			iv = v
-		}
-		if g, found := c.OptionGreeks(key); found {
-			gamma = g.Gamma
+			if g, found := c.OptionGreeks(key); found {
+				gamma = g.Gamma
+			}
 		}
 		return iv > 0
 	})
@@ -441,6 +446,12 @@ func productionLegFetcher(
 		})
 		return legResult{OI: oi, OIObserved: oiObserved, IV: iv, Gamma: gamma, IVSource: gammaIVSourceModelTick, OK: true}
 	}
+	if snapshotDataType == rpc.MarketDataDelayed {
+		// A quote/previous-close inversion has no typed source clock. Using it
+		// beside a delayed spot would recreate the exact mixed-time input this
+		// fallback is designed to prevent, so delayed runs require tick 83.
+		return legResult{Failure: gammaLegFailureTimeout}
+	}
 	// Stage 2: BS-IV fallback when model tick never arrived.
 	// Back-solve σ from the option's bid/ask mid or prior-session close.
 	bid, ask, hasQuote := c.OptionQuoteBidAsk(key)
@@ -461,6 +472,17 @@ func productionLegFetcher(
 		fallback.Failure = gammaLegFailureTimeout
 	}
 	return fallback
+}
+
+func gammaOptionModelDataTypeCompatible(spotDataType string, optionDataType int) bool {
+	switch spotDataType {
+	case rpc.MarketDataDelayed:
+		return optionDataType == ibkrlib.OptionModelDataTypeDelayed
+	case "", rpc.MarketDataLive, rpc.MarketDataFrozen:
+		return optionDataType != ibkrlib.OptionModelDataTypeDelayed
+	default:
+		return false
+	}
 }
 
 func classifyGammaLegFailure(err error) string {
@@ -780,7 +802,9 @@ func computeGammaZeroFor(
 		return nil, err
 	}
 
-	// Keep the connection's default MarketDataType (type=2, frozen-aware).
+	// Keep the connection's current market-data mode. The ordinary path is
+	// type 2 (frozen-aware); the single retry after a typed RTH 354 holds a
+	// type-3 lease around this whole fan-out.
 	// Verified 2026-05-21: `canary chain SPY` works off-hours via the same
 	// handleOptionComputation routing the gamma fan-out depends on — both
 	// run under type=2 and chain reliably gets model ticks per leg.
@@ -800,6 +824,7 @@ func computeGammaZeroFor(
 		sym:        sym,
 		spot:       spot,
 		spotAt:     spotAt,
+		dataType:   dataType,
 		fetch:      fetch,
 		workers:    params.WorkerCount,
 		progress:   progress,
@@ -854,7 +879,7 @@ func computeGammaZeroFor(
 	gexLegs, gammaTotalAbs := prepareGEXLegs(legs, spot)
 	if len(gexLegs) == 0 {
 		diagnostic := gammaSourceFailureDiagnostic(
-			sym, spot, spotAt, picked, legs, stats.derivedIVs, legDiagnostics, collection.finish(time.Since(startWall)),
+			sym, spot, spotAt, dataType, picked, legs, stats.derivedIVs, legDiagnostics, collection.finish(time.Since(startWall)),
 			params, startWall, now(),
 		)
 		return diagnostic, fmt.Errorf("zero-gamma: no usable GEX legs: %d priced legs landed, but none had non-zero open-interest-weighted gamma (%s)",
@@ -862,7 +887,7 @@ func computeGammaZeroFor(
 	}
 	if len(legs) < gammaMinPricedLegs || len(gexLegs) < gammaMinGEXLegs {
 		diagnostic := gammaSourceFailureDiagnostic(
-			sym, spot, spotAt, picked, legs, stats.derivedIVs, legDiagnostics, collection.finish(time.Since(startWall)),
+			sym, spot, spotAt, dataType, picked, legs, stats.derivedIVs, legDiagnostics, collection.finish(time.Since(startWall)),
 			params, startWall, now(),
 		)
 		return diagnostic, fmt.Errorf("zero-gamma: low usable leg count: %d priced legs/%d OI-weighted GEX legs; need at least %d/%d (%s)",
@@ -997,6 +1022,7 @@ func computeGammaZeroFor(
 	res := &rpc.GammaZeroComputed{
 		SpotUnderlying:          spot,
 		SpotAt:                  spotAt,
+		DataType:                dataType,
 		ZeroGamma:               zg,
 		GapPct:                  gapPct,
 		GammaSign:               gammaSign,
@@ -1189,6 +1215,7 @@ type gammaLegFanout struct {
 	sym        string
 	spot       float64
 	spotAt     time.Time
+	dataType   string
 	fetch      legFetcher
 	workers    int
 	progress   *atomic.Int32
@@ -1239,7 +1266,7 @@ func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legDat
 		if ctx.Err() != nil || throttledAbort.Load() || earlyAbort.Load() {
 			return
 		}
-		r := f.fetch(ctx, f.c, f.sym, j.tradingClass, j.expiryYMD, j.strike, j.right, f.spot, f.spotAt)
+		r := f.fetch(ctx, f.c, f.sym, j.tradingClass, j.expiryYMD, j.strike, j.right, f.spot, f.spotAt, f.dataType)
 		// Always increment the progress counter — failed legs still
 		// represent work attempted. 10 % is consumed by spot+expiries
 		// stages above; the fan-out scales linearly from 10 → 85.
@@ -1351,6 +1378,7 @@ func gammaSourceFailureDiagnostic(
 	sym string,
 	spot float64,
 	spotAt time.Time,
+	dataType string,
 	picked []pickedExpiration,
 	legs []legData,
 	derivedIVs int,
@@ -1368,6 +1396,7 @@ func gammaSourceFailureDiagnostic(
 	out := &rpc.GammaZeroComputed{
 		SpotUnderlying:        spot,
 		SpotAt:                spotAt,
+		DataType:              dataType,
 		GammaSign:             "no_data",
 		GammaSign0DTE:         "no_data",
 		GammaSign1to7:         "no_data",
@@ -1511,6 +1540,15 @@ func snapshotUnderlyingForGamma(ctx context.Context, c *ibkrlib.Connector, sym s
 	return spot, dataType, pollErr
 }
 
+type gammaSpotError struct {
+	message string
+	code    int
+	cause   error
+}
+
+func (e *gammaSpotError) Error() string { return e.message }
+func (e *gammaSpotError) Unwrap() error { return e.cause }
+
 // gammaSpotUnavailableError explains why the underlying spot step found no
 // usable price. The generic "no live tick" wording is true of a budget
 // timeout and equally true of an account that is simply not subscribed to
@@ -1528,15 +1566,24 @@ func gammaSpotUnavailableError(sym string, pollErr error) error {
 		// 354 — "Requested market data is not subscribed", the one
 		// terminal code the account holder can act on directly.
 		if rejected.Rejection.Code == 354 {
-			return fmt.Errorf("zero-gamma: no %s spot available: this account is not subscribed to %s market data (IBKR 354)", sym, sym)
+			return &gammaSpotError{
+				message: fmt.Sprintf("zero-gamma: no %s spot available: this account is not subscribed to %s market data (IBKR 354)", sym, sym),
+				code:    354,
+			}
 		}
-		return fmt.Errorf("zero-gamma: no %s spot available: gateway rejected the %s market-data subscription (IBKR %d)",
-			sym, sym, rejected.Rejection.Code)
+		return &gammaSpotError{
+			message: fmt.Sprintf("zero-gamma: no %s spot available: gateway rejected the %s market-data subscription (IBKR %d)", sym, sym, rejected.Rejection.Code),
+			code:    rejected.Rejection.Code,
+		}
 	}
 	if absent, ok := errors.AsType[*ibkrlib.MarketDataAbsenceError](pollErr); ok {
-		return fmt.Errorf("zero-gamma: no %s spot available: %w", sym, absent)
+		return &gammaSpotError{
+			message: fmt.Sprintf("zero-gamma: no %s spot available: %s", sym, absent),
+			code:    absent.Code,
+			cause:   absent,
+		}
 	}
-	return fmt.Errorf("zero-gamma: no %s spot available (gateway returned no live tick)", sym)
+	return &gammaSpotError{message: fmt.Sprintf("zero-gamma: no %s spot available (gateway returned no live tick)", sym)}
 }
 
 // throttleDetected reports whether the fan-out's observed
@@ -1569,18 +1616,17 @@ func throttleDetected(done, noContract int32) bool {
 //   - "" — no marketDataType notice has arrived yet (typical in the
 //     first few hundred ms of a fresh subscription). Treated as
 //     live per rpc.IsLiveDataType convention.
+//   - "delayed" — only when the production leg fetcher can bind every
+//     option IV to IBKR's delayed model-computation tick 83. The source is
+//     15-20 minutes old but clock-aligned end to end and labeled on the
+//     result; that is inside gamma's one-hour RTH rankability horizon.
 //
 // Rejected:
-//   - "delayed" / "delayed-frozen" — typically 15-minute-old data
-//     because the account isn't entitled to live for the symbol.
-//     A 15-min staleness biases every BS gamma in the sweep against
-//     the spot snapshot, and we can't compensate for the lag
-//     post-hoc. The renderer should surface this as a configuration
-//     issue rather than an unreliable headline.
+//   - "delayed-frozen" — the prior close, not the RTH delayed stream.
 //   - Anything else (unexpected value) — stale-by-default.
 func isAcceptableDataType(dt string) bool {
 	switch dt {
-	case "", "live", "frozen":
+	case "", rpc.MarketDataLive, rpc.MarketDataFrozen, rpc.MarketDataDelayed:
 		return true
 	default:
 		return false

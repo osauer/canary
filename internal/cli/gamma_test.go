@@ -1164,3 +1164,17 @@ func TestRenderGamma_ExplainCarriesScalingCaveat(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatGammaPerIndexCompactDisclosesDelayedFeed(t *testing.T) {
+	t.Parallel()
+	zero := 580.0
+	got := formatGammaPerIndexCompact(&rpc.GammaZeroComputed{
+		SpotUnderlying: 585,
+		ZeroGamma:      &zero,
+		LegCount:       420,
+		DataType:       rpc.MarketDataDelayed,
+	})
+	if !strings.Contains(got, "420 GEX legs · 15m delayed") {
+		t.Fatalf("delayed compact gamma = %q, want feed disclosure", got)
+	}
+}

@@ -29,6 +29,13 @@ const OptionSubscriptionGenericTicks = "100,101,104,106"
 // option market-data subscriptions.
 const OptionOpenInterestGenericTick = "101"
 
+const (
+	// OptionModelDataTypeLive identifies live/frozen model tick 13.
+	OptionModelDataTypeLive = 1
+	// OptionModelDataTypeDelayed identifies delayed model tick 83.
+	OptionModelDataTypeDelayed = 3
+)
+
 // ErrSymbolInactive indicates IBKR has reported the contract is unavailable (e.g., delisted).
 var ErrSymbolInactive = errors.New("symbol marked inactive")
 
@@ -174,6 +181,10 @@ type Connector struct {
 	absenceMu     sync.Mutex
 	mktDataAbsent map[string]marketDataAbsence
 	absenceNow    func() time.Time
+	// marketDataModeMu serializes the connection-global reqMarketDataType
+	// switch. A delayed fallback keeps this lock for its whole retry so the
+	// ordinary post-connect type-2 setup cannot cut across the fan-out.
+	marketDataModeMu sync.Mutex
 
 	// acctUpdatesMu guards the account-updates resubscribe throttle (see
 	// maybeResubscribeAccountUpdates) and the account the stream is currently
@@ -206,6 +217,7 @@ type Connector struct {
 	// Option IV tracking (by underlying symbol or per-contract key)
 	optMu           sync.RWMutex
 	optIV           map[string]float64 // last observed implied vol (fraction, e.g., 0.30)
+	optIVDataType   map[string]int     // model-tick source: 1=tick 13, 3=tick 83; absent for generic tick 24
 	optReqIDs       map[int]string     // option reqID -> underlying or option market-data key
 	optQuoteBid     map[string]float64 // last observed option bid per underlying
 	optQuoteAsk     map[string]float64 // last observed option ask per underlying
@@ -780,6 +792,7 @@ func NewConnector(config *ConnectorConfig) *Connector {
 		contractDetailsFlights: make(map[string]*contractDetailsFlight),
 		contractWarningState:   make(map[string]contractWarningState),
 		optIV:                  make(map[string]float64),
+		optIVDataType:          make(map[string]int),
 		optReqIDs:              make(map[int]string),
 		optQuoteBid:            make(map[string]float64),
 		optQuoteAsk:            make(map[string]float64),
@@ -1797,6 +1810,15 @@ func (c *Connector) detachSubscription(symbol string) func() {
 // to delayed mode when the connection has detected a competing live session.
 // It returns an error when no broker connection is active or the write fails.
 func (c *Connector) SetMarketDataType(dataType int) error {
+	if c == nil {
+		return fmt.Errorf("IBKR connector not available")
+	}
+	c.marketDataModeMu.Lock()
+	defer c.marketDataModeMu.Unlock()
+	return c.setMarketDataType(dataType)
+}
+
+func (c *Connector) setMarketDataType(dataType int) error {
 	c.mu.RLock()
 	conn := c.conn
 	c.mu.RUnlock()
@@ -1808,6 +1830,116 @@ func (c *Connector) SetMarketDataType(dataType int) error {
 		dataType = 3
 	}
 	return conn.SetMarketDataType(dataType)
+}
+
+// BeginDelayedMarketDataFallback temporarily changes subsequent market-data
+// requests to IBKR delayed mode and force-refreshes symbol's rejected shared
+// subscription. It is intentionally narrow: callers must have already
+// observed a typed entitlement rejection and must release the returned lease
+// after the bounded retry. Entitlement observations remain in-memory only.
+//
+// IBKR returns live data even when type 3 was requested if the account is
+// entitled to it. Otherwise it returns delayed ticks and names them through
+// the per-request marketDataType notice. The lease restores the daemon's
+// frozen-aware type-2 default unless this exact connection has since reported
+// a competing live session, in which case delayed mode remains binding.
+func (c *Connector) BeginDelayedMarketDataFallback(ctx context.Context, symbol string) (func(), error) {
+	if c == nil {
+		return nil, fmt.Errorf("IBKR connector not available")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return nil, fmt.Errorf("market-data fallback symbol is required")
+	}
+
+	if err := c.lockMarketDataMode(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	conn := c.conn
+	ready := c.ready
+	c.mu.RUnlock()
+	if !ready || conn == nil || !conn.IsConnected() {
+		c.marketDataModeMu.Unlock()
+		return nil, fmt.Errorf("IBKR connection not available")
+	}
+	if err := conn.SetMarketDataType(3); err != nil {
+		c.marketDataModeMu.Unlock()
+		return nil, fmt.Errorf("request delayed market data: %w", err)
+	}
+
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			c.mu.RLock()
+			current := c.conn
+			c.mu.RUnlock()
+			if current == conn {
+				if err := conn.restoreFrozenMarketDataTypeUnlessCompeting(); err != nil {
+					connectorLogger.Warnf("%s: Failed to restore frozen-aware market data after delayed fallback: %v", c.name, err)
+				}
+			}
+			c.marketDataModeMu.Unlock()
+		})
+	}
+
+	// Code 354 is a verdict on the rejected request, not on the delayed
+	// request we are about to make. Rearm only that typed absence; every other
+	// remembered symbol and every non-354 cause stays untouched.
+	var rearmedAbsence *marketDataAbsence
+	c.absenceMu.Lock()
+	if absent, ok := c.mktDataAbsent[symbol]; ok && absent.code == 354 {
+		copy := absent
+		rearmedAbsence = &copy
+		delete(c.mktDataAbsent, symbol)
+	}
+	c.absenceMu.Unlock()
+	restoreRearmedAbsence := func() {
+		if rearmedAbsence == nil {
+			return
+		}
+		c.absenceMu.Lock()
+		if _, replaced := c.mktDataAbsent[symbol]; !replaced {
+			c.mktDataAbsent[symbol] = *rearmedAbsence
+		}
+		c.absenceMu.Unlock()
+	}
+
+	if _, err := c.ensureMarketDataSubscription(ctx, symbol, nil, 0, true); err != nil {
+		restoreRearmedAbsence()
+		release()
+		return nil, fmt.Errorf("refresh %s under delayed market data: %w", symbol, err)
+	}
+	c.mu.RLock()
+	current := c.conn
+	c.mu.RUnlock()
+	if current != conn {
+		restoreRearmedAbsence()
+		release()
+		return nil, fmt.Errorf("IBKR connection changed during delayed market-data fallback")
+	}
+	return release, nil
+}
+
+func (c *Connector) lockMarketDataMode(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if c.marketDataModeMu.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // Start attaches lifecycle handlers and attempts to open the Connector's
@@ -1961,6 +2093,7 @@ func (c *Connector) invalidateUnstampedConnectorObservations(conn *Connection) {
 	c.absenceMu.Unlock()
 	c.optMu.Lock()
 	clear(c.optIV)
+	clear(c.optIVDataType)
 	clear(c.optReqIDs)
 	clear(c.optQuoteBid)
 	clear(c.optQuoteAsk)
@@ -3864,6 +3997,15 @@ func explicitContractRouteMatches(requested, candidate Contract) bool {
 // acquisition; unavailable, inactive, entitlement, and request failures are
 // returned.
 func (c *Connector) EnsureMarketDataSubscription(ctx context.Context, symbol string, fields []string, staleAfter time.Duration) (bool, error) {
+	return c.ensureMarketDataSubscription(ctx, symbol, fields, staleAfter, false)
+}
+
+// ensureMarketDataSubscription is the implementation behind the public
+// staleness refresh and the entitlement-scoped delayed fallback. When
+// resetObservations is true, stale prices and per-request state are cleared
+// before the replacement wire request, so the caller cannot mistake the prior
+// request's cached tick for evidence produced under the new data mode.
+func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol string, fields []string, staleAfter time.Duration, resetObservations bool) (bool, error) {
 	symbol = strings.ToUpper(symbol)
 	if reason, inactive := c.inactiveReason(symbol); inactive {
 		if reason == "" {
@@ -3917,7 +4059,7 @@ func (c *Connector) EnsureMarketDataSubscription(ctx context.Context, symbol str
 
 	if sub, exists := c.subscriptions[symbol]; exists {
 		// Refresh if stale
-		if staleAfter > 0 && time.Since(sub.LastTime) >= staleAfter {
+		if resetObservations || (staleAfter > 0 && time.Since(sub.LastTime) >= staleAfter) {
 			if sub.ReqID != 0 {
 				if conn := c.conn; conn != nil && conn.IsConnected() && wireCancelNeeded(sub) {
 					if err := conn.CancelMarketData(sub.ReqID); err != nil {
@@ -3946,12 +4088,16 @@ func (c *Connector) EnsureMarketDataSubscription(ctx context.Context, symbol str
 					sub.RejectCh = make(chan SubscriptionRejection, 1)
 				}
 			}
+			if resetObservations {
+				resetSubscriptionObservations(sub)
+			}
 			reqID, err := request()
 			if err != nil {
 				marketDataLogger.Warnf("%s: Failed to refresh market data for %s: %v", c.name, symbol, err)
 				return false, err
 			}
 			sub.ReqID = reqID
+			sub.LastTime = time.Now()
 			marketDataLogger.Debugf("%s: Refreshed market data subscription for %s (ReqID: %d)", c.name, symbol, reqID)
 			return true, nil
 		}
@@ -3982,6 +4128,40 @@ func (c *Connector) EnsureMarketDataSubscription(ctx context.Context, symbol str
 	c.subscriptions[symbol] = sub
 	marketDataLogger.Debugf("%s: Subscribed to market data for %s (ReqID: %d)", c.name, symbol, reqID)
 	return true, nil
+}
+
+func resetSubscriptionObservations(sub *Subscription) {
+	if sub == nil {
+		return
+	}
+	sub.LastPrice = 0
+	sub.Bid = 0
+	sub.Ask = 0
+	sub.MarkPrice = 0
+	sub.BidSize = 0
+	sub.AskSize = 0
+	sub.Volume = 0
+	sub.AvgVolume = 0
+	sub.OpenInt = 0
+	sub.OpenIntObserved = false
+	sub.ShortableShares = 0
+	sub.ShortableObserved = false
+	sub.PrevClose = 0
+	sub.Open = 0
+	sub.High = 0
+	sub.Low = 0
+	sub.Week13Low = 0
+	sub.Week13High = 0
+	sub.Week26Low = 0
+	sub.Week26High = 0
+	sub.Week52Low = 0
+	sub.Week52High = 0
+	sub.LastTradeTime = time.Time{}
+	sub.LastTickAt = time.Time{}
+	sub.IV = 0
+	sub.LastTime = time.Time{}
+	sub.Observed = false
+	sub.rejectedReqID = 0
 }
 
 // UnsubscribeMarketData removes the normalized symbol or route key from the
@@ -4910,11 +5090,23 @@ func (c *Connector) SubscribeOption(ctx context.Context, underlying, tradingClas
 			RejectCh: make(chan SubscriptionRejection, 1),
 		}
 		c.subMu.Unlock()
-		// Route option-computation ticks (msg 21, tick types 10/11/13) for this
+		// Route option-computation ticks (msg 21, live types 10/11/13 and
+		// delayed types 80/81/83) for this
 		// reqID into optIV / optQuoteMid keyed by the OPRA chain key. This is the
 		// same handler path SubscribeOptionIV uses for ATM IV; per-strike chain
 		// renders just need a different key so multiple strikes coexist.
 		c.optMu.Lock()
+		// A new wire request must prove its own observation. Cache values survive
+		// ordinary unsubscribe so other readers can inspect the last row, but
+		// reusing them here would let a fresh gamma fan-out accept yesterday's
+		// model tick before this reqID produced anything.
+		delete(c.optIV, key)
+		delete(c.optIVDataType, key)
+		delete(c.optQuoteBid, key)
+		delete(c.optQuoteAsk, key)
+		delete(c.optPrevClose, key)
+		delete(c.optGreeks, key)
+		delete(c.optUnderlyingPx, key)
 		c.optReqIDs[reqID] = key
 		c.optMu.Unlock()
 		return func() {
@@ -5624,6 +5816,10 @@ func (c *Connector) handleTickGeneric(fields []string) {
 		}
 		c.optMu.Lock()
 		c.optIV[symbol] = iv
+		// Generic tick 24 is not a per-contract model-computation tick. Clear
+		// any prior 13/83 source stamp together with the overwritten value so
+		// clock-sensitive callers cannot misclassify it as model IV.
+		delete(c.optIVDataType, symbol)
 		c.optMu.Unlock()
 		// Also write to the per-symbol subscription so MarketDataSnapshot sees
 		// it without having to consult the option-IV cache separately —
@@ -5694,20 +5890,25 @@ func (c *Connector) handleOptionComputation(fields []string) {
 	}
 
 	switch tickType {
-	case 10: // bid computation
+	case 10, 80: // live/delayed bid computation
 		if optionPrice > 0 {
 			c.optQuoteBid[symbol] = optionPrice
 		}
-	case 11: // ask computation
+	case 11, 81: // live/delayed ask computation
 		if optionPrice > 0 {
 			c.optQuoteAsk[symbol] = optionPrice
 		}
-	case 13: // model computation — canonical source for greeks
+	case 13, 83: // live/delayed model computation — canonical source for greeks
 		if impliedVol > 0 {
 			if impliedVol > 1.5 {
 				impliedVol /= 100.0
 			}
 			c.optIV[symbol] = impliedVol
+			if tickType == 83 {
+				c.optIVDataType[symbol] = OptionModelDataTypeDelayed
+			} else {
+				c.optIVDataType[symbol] = OptionModelDataTypeLive
+			}
 		}
 		// IBKR sends a NaN/sentinel-tagged Greeks row when the model hasn't
 		// priced the contract yet (typical for far OTM / illiquid OOH). We
@@ -7392,6 +7593,20 @@ func (c *Connector) OptionIV(symbol string) (float64, bool) {
 	defer c.optMu.RUnlock()
 	v, ok := c.optIV[symbol]
 	return v, ok
+}
+
+// OptionIVWithDataType returns the last valid implied-volatility observation
+// together with the IBKR model-computation source type. dataType is 1 for
+// tick 13, 3 for delayed tick 83, and 0 when IV came from an untyped generic
+// tick. Callers that require clock alignment must reject 0 rather than infer.
+func (c *Connector) OptionIVWithDataType(symbol string) (iv float64, dataType int, ok bool) {
+	c.optMu.RLock()
+	defer c.optMu.RUnlock()
+	iv, ok = c.optIV[symbol]
+	if !ok {
+		return 0, 0, false
+	}
+	return iv, c.optIVDataType[symbol], true
 }
 
 // OptionGreeks returns the last valid model-computation Greeks for an option

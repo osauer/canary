@@ -366,12 +366,13 @@ func renderGammaPerIndexLines(env *Env, c *rpc.GammaZeroComputed) {
 // label, followed by " · N legs".
 func formatGammaPerIndexCompact(c *rpc.GammaZeroComputed) string {
 	legCount := c.LegCount
+	dataSuffix := gammaCompactDataTypeSuffix(c.DataType)
 	if c.ZeroGamma != nil {
 		dist := ""
 		if c.SpotUnderlying > 0 {
 			dist = fmt.Sprintf(" (%+.1f%% from spot)", (*c.ZeroGamma-c.SpotUnderlying)/c.SpotUnderlying*100)
 		}
-		return fmt.Sprintf("γ-zero %s%s · %d GEX legs", formatSpotPrice(*c.ZeroGamma), dist, legCount)
+		return fmt.Sprintf("γ-zero %s%s · %d GEX legs%s", formatSpotPrice(*c.ZeroGamma), dist, legCount, dataSuffix)
 	}
 	if c.Summary != nil {
 		if idx, ok := summaryForSingleIndex(c); ok && idx.ZeroGammaStatus == "unavailable" {
@@ -379,11 +380,11 @@ func formatGammaPerIndexCompact(c *rpc.GammaZeroComputed) string {
 			if why == "" {
 				why = "no usable gamma profile"
 			}
-			return fmt.Sprintf("unavailable · %s · %d GEX legs", why, legCount)
+			return fmt.Sprintf("unavailable · %s · %d GEX legs%s", why, legCount, dataSuffix)
 		}
 	}
 	if c.LegCount > 0 && c.GammaTotalAbs == 0 {
-		return fmt.Sprintf("unavailable · no usable gamma magnitude · %d GEX legs", legCount)
+		return fmt.Sprintf("unavailable · no usable gamma magnitude · %d GEX legs%s", legCount, dataSuffix)
 	}
 	regime := "no signed profile"
 	switch c.GammaSign {
@@ -392,13 +393,26 @@ func formatGammaPerIndexCompact(c *rpc.GammaZeroComputed) string {
 	case "negative":
 		regime = "short-γ"
 	case "no_data":
-		return fmt.Sprintf("unavailable · no usable gamma profile · %d GEX legs", legCount)
+		return fmt.Sprintf("unavailable · no usable gamma profile · %d GEX legs%s", legCount, dataSuffix)
 	}
 	rangeText := ""
 	if c.SweepLowAbs > 0 && c.SweepHighAbs > 0 {
 		rangeText = fmt.Sprintf(" in %s-%s", formatSpotPrice(c.SweepLowAbs), formatSpotPrice(c.SweepHighAbs))
 	}
-	return fmt.Sprintf("no crossing%s · %s · %d GEX legs", rangeText, regime, legCount)
+	return fmt.Sprintf("no crossing%s · %s · %d GEX legs%s", rangeText, regime, legCount, dataSuffix)
+}
+
+func gammaCompactDataTypeSuffix(dataType string) string {
+	switch dataType {
+	case rpc.MarketDataDelayed:
+		return " · 15m delayed"
+	case rpc.MarketDataFrozen:
+		return " · frozen"
+	case rpc.MarketDataDelayedFrozen:
+		return " · delayed-frozen"
+	default:
+		return ""
+	}
 }
 
 func summaryForSingleIndex(c *rpc.GammaZeroComputed) (rpc.GammaIndexSummary, bool) {

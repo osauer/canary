@@ -1331,11 +1331,11 @@ Ready (combined scope, subsequent calls):
       "confidence": "estimate",
       "not_advice": "Market-structure context only; not a trade recommendation.",
       "per_index": {
-        "SPY": {"underlying": "SPY", "spot_underlying": 583.21,
+        "SPY": {"underlying": "SPY", "spot_underlying": 583.21, "data_type": "live",
                 "zero_gamma": 581.40, "zero_gamma_status": "crossing",
                 "regime": "transition_gamma", "leg_count": 1208,
                 "priced_leg_count": 1280},
-        "SPX": {"underlying": "SPX", "spot_underlying": 5430.0,
+        "SPX": {"underlying": "SPX", "spot_underlying": 5430.0, "data_type": "delayed",
                 "zero_gamma_status": "none_in_window",
                 "regime": "long_gamma", "leg_count": 1994,
                 "priced_leg_count": 2150}
@@ -1350,8 +1350,8 @@ Ready (combined scope, subsequent calls):
        "abs_gex": 7.0e9, "open_interest": 12450}
     ],
     "per_index": {
-      "SPY": {"scope": "spy", "spot_underlying": 583.21, "zero_gamma": 581.40, "...": "..."},
-      "SPX": {"scope": "spx", "spot_underlying": 5430.0, "gamma_sign": "positive", "...": "..."}
+      "SPY": {"scope": "spy", "spot_underlying": 583.21, "data_type": "live", "zero_gamma": 581.40, "...": "..."},
+      "SPX": {"scope": "spx", "spot_underlying": 5430.0, "data_type": "delayed", "gamma_sign": "positive", "...": "..."}
     },
     "expirations": ["2026-05-16", "2026-05-23", "2026-05-30",
                     "2026-06-06", "2026-06-13", "2026-06-19"],
@@ -1439,6 +1439,12 @@ Field meanings:
   `GammaZeroComputed` so renderers can recurse for per-underlying
   detail. Profiles are stripped from default CLI JSON and MCP responses;
   pass `--profiles` / `include_profiles: true` when charting.
+- `result.per_index.*.data_type` — the feed clock used for both the
+  underlying spot and option-model inputs: `live`, `frozen`, or `delayed`.
+  After a regular-hours IBKR 354, the daemon retries that underlying once in
+  delayed mode. A delayed slice is usable only when every accepted IV came
+  from IBKR's delayed model-computation tick; mixed or untyped option clocks
+  are refused, and `delayed-frozen` never ranks.
 - `result.top_strikes` — top-N strikes by absolute gamma notional,
   merged across both indices on combined scope (sorted by `abs_gex`
   descending; SPX rows dominate by structure). Each row carries

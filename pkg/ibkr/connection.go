@@ -4576,6 +4576,20 @@ func (c *Connection) SetMarketDataType(dataType int) error {
 	return c.sendMessage(msg)
 }
 
+// restoreFrozenMarketDataTypeUnlessCompeting restores the daemon's normal
+// frozen-aware mode without racing the 10197 recovery path. Holding the read
+// side through the send means a newly observed competing session either wins
+// before this check (and suppresses the restore) or waits, then posts its own
+// type-3 request after the restore.
+func (c *Connection) restoreFrozenMarketDataTypeUnlessCompeting() error {
+	c.competingMu.RLock()
+	defer c.competingMu.RUnlock()
+	if c.competingLiveSession {
+		return nil
+	}
+	return c.SetMarketDataType(2)
+}
+
 func (c *Connection) setMarketDataTypeAtEpoch(dataType int, epoch uint64) error {
 	msg := c.encodeMsg(reqMarketDataType, 1, dataType)
 	return c.sendMessageWithTypeContextForEpochGuarded(context.Background(), msg, RequestTypeGeneral, epoch, true, nil)

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -829,14 +830,15 @@ func TestThrottleDetected(t *testing.T) {
 
 // TestIsAcceptableDataType pins the stale-data refusal logic. Live
 // and frozen pass — frozen is "yesterday's official close" which the
-// spec accepts for daily refresh. Delayed and delayed-frozen are
-// rejected because 15-min lag corrupts the BS-vs-spot anchoring.
+// spec accepts for daily refresh. Delayed passes because the production
+// fetcher separately requires clock-aligned delayed option model ticks;
+// delayed-frozen remains prior-close orientation only.
 func TestIsAcceptableDataType(t *testing.T) {
 	cases := map[string]bool{
 		"":               true,
 		"live":           true,
 		"frozen":         true,
-		"delayed":        false,
+		"delayed":        true,
 		"delayed-frozen": false,
 		"unknown":        false, // forward-compat: unknown values are stale-by-default
 	}
@@ -844,6 +846,32 @@ func TestIsAcceptableDataType(t *testing.T) {
 		if got := isAcceptableDataType(dt); got != want {
 			t.Errorf("isAcceptableDataType(%q) = %v, want %v", dt, got, want)
 		}
+	}
+}
+
+func TestGammaOptionModelDataTypeCompatible(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		spotType   string
+		optionType int
+		want       bool
+	}{
+		{"delayed requires delayed model tick", rpc.MarketDataDelayed, ibkrlib.OptionModelDataTypeDelayed, true},
+		{"delayed rejects live model tick", rpc.MarketDataDelayed, ibkrlib.OptionModelDataTypeLive, false},
+		{"delayed rejects untyped IV", rpc.MarketDataDelayed, 0, false},
+		{"live accepts live model tick", rpc.MarketDataLive, ibkrlib.OptionModelDataTypeLive, true},
+		{"live preserves legacy untyped IV", rpc.MarketDataLive, 0, true},
+		{"live rejects delayed model tick", rpc.MarketDataLive, ibkrlib.OptionModelDataTypeDelayed, false},
+		{"frozen rejects delayed model tick", rpc.MarketDataFrozen, ibkrlib.OptionModelDataTypeDelayed, false},
+		{"unknown spot refuses", "unexpected", ibkrlib.OptionModelDataTypeLive, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gammaOptionModelDataTypeCompatible(tc.spotType, tc.optionType); got != tc.want {
+				t.Fatalf("compatible(%q, %d) = %v, want %v", tc.spotType, tc.optionType, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -914,6 +942,39 @@ func TestBSIVFallback_AssemblesLegFromSyntheticPrice(t *testing.T) {
 				t.Errorf("expected positive finite gamma, got %v", r.Gamma)
 			}
 		})
+	}
+}
+
+func TestShouldRetryGammaWithDelayed(t *testing.T) {
+	t.Parallel()
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rth := time.Date(2026, 8, 7, 10, 0, 0, 0, loc)
+	closed := time.Date(2026, 8, 7, 2, 0, 0, 0, loc)
+	entitlement := gammaSpotUnavailableError("SPX", &SubscriptionRejectedError{
+		Key: "SPX", Rejection: ibkrlib.SubscriptionRejection{Code: 354, Message: "untrusted"},
+	})
+	absent := fmt.Errorf("hold SPY underlying: %w", &ibkrlib.MarketDataAbsenceError{Key: "SPY", Code: 354})
+	other := gammaSpotUnavailableError("SPX", &SubscriptionRejectedError{
+		Key: "SPX", Rejection: ibkrlib.SubscriptionRejection{Code: 200, Message: "untrusted"},
+	})
+
+	if !shouldRetryGammaWithDelayed(entitlement, rth) {
+		t.Fatal("typed RTH 354 should retry once with delayed data")
+	}
+	if !shouldRetryGammaWithDelayed(absent, rth) {
+		t.Fatal("remembered RTH 354 should rearm for delayed retry")
+	}
+	if shouldRetryGammaWithDelayed(entitlement, closed) {
+		t.Fatal("closed-session 354 must not request the RTH delayed stream")
+	}
+	if shouldRetryGammaWithDelayed(other, rth) {
+		t.Fatal("non-entitlement rejection must not change market-data mode")
+	}
+	if shouldRetryGammaWithDelayed(context.Canceled, rth) {
+		t.Fatal("cancellation must not retry")
 	}
 }
 

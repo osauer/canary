@@ -121,6 +121,48 @@ func TestGammaQualitySingleScopesCanRankIndependently(t *testing.T) {
 	}
 }
 
+func TestGammaQualityDelayedClockAlignedResultCanRank(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 7, 15, 0, 0, 0, time.UTC)
+	result := rankableGammaFixture(rpc.GammaZeroScopeSPX, now.Add(-20*time.Minute))
+	result.DataType = rpc.MarketDataDelayed
+
+	annotateGammaQuality(result, now)
+	if got := result.Quality.Rankability; got != rpc.GammaRankabilityRankable {
+		t.Fatalf("delayed aligned rankability = %q, want rankable: %+v", got, result.Quality)
+	}
+	assertGammaQualityGate(t, result.Quality, "market_data_type", rpc.GammaQualityGatePass)
+}
+
+func TestGammaQualityDelayedFrozenResultBlocks(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 7, 15, 0, 0, 0, time.UTC)
+	result := rankableGammaFixture(rpc.GammaZeroScopeSPX, now.Add(-20*time.Minute))
+	result.DataType = rpc.MarketDataDelayedFrozen
+
+	annotateGammaQuality(result, now)
+	if got := result.Quality.Rankability; got != rpc.GammaRankabilityBlocked {
+		t.Fatalf("delayed-frozen rankability = %q, want blocked: %+v", got, result.Quality)
+	}
+	assertGammaQualityGate(t, result.Quality, "market_data_type", rpc.GammaQualityGateBlock)
+}
+
+func assertGammaQualityGate(t *testing.T, q *rpc.GammaSignalQuality, name, status string) {
+	t.Helper()
+	if q == nil {
+		t.Fatal("gamma quality missing")
+	}
+	for _, gate := range q.Gates {
+		if gate.Name == name {
+			if gate.Status != status {
+				t.Fatalf("gate %s status = %q, want %q: %+v", name, gate.Status, status, gate)
+			}
+			return
+		}
+	}
+	t.Fatalf("gate %s missing: %+v", name, q.Gates)
+}
+
 func TestGammaQualitySPXCanonicalRanksWithSPYUnavailable(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)

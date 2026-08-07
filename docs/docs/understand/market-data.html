@@ -185,6 +185,12 @@ has the verdicts and what each one does to the row.</p>
 The gateway then returns live ticks for symbols your subscriptions cover and
 the last-known price when it cannot. Type 1, pure live, can leave snapshot
 requests hanging when the market is closed, so it is not used.</p>
+<p>Dealer gamma has one narrow regular-hours exception. If the gateway rejects an
+SPY or SPX spot request with IBKR 354, Canary retries that underlying once under
+type 3. An entitled request still comes back live; an unentitled one may come
+back 15–20 minutes delayed. The retry is bounded to the failed gamma phase and
+the connection returns to type 2 afterwards. Nothing learned about the account
+is stored as an entitlement.</p>
 <p>Entitlements are never stored. The daemon reports the data type it observed on
 each request instead, which is why a <code>DATA</code> column appears beside a quote and
 why the same symbol can report differently in two sessions.</p>
@@ -208,7 +214,7 @@ why the same symbol can report differently in two sessions.</p>
 </tr>
 <tr>
 <td><code>delayed</code></td>
-<td>Direction and rough level. Not a limit price: the number is 15 to 20 minutes old, which is several lifetimes for a short-dated option.</td>
+<td>Direction and rough level. Not a limit price: the number is 15 to 20 minutes old, which is several lifetimes for a short-dated option. Dealer gamma can use it as a coarse daily regime input only when both spot and every option model tick are delayed together.</td>
 </tr>
 <tr>
 <td><code>delayed-frozen</code></td>
@@ -224,15 +230,19 @@ state moved to a <code>feed_type</code> field beside it. An empty data type mean
 gateway has not sent its notice yet, which happens for a few hundred
 milliseconds after a fresh subscription; it is treated as live.</p>
 <p>Some computations refuse delayed input rather than producing a plausible wrong
-answer. Dealer gamma accepts <code>live</code> and <code>frozen</code> and rejects both delayed
-types, because a 15-minute-old spot biases every gamma in the chain.</p>
+answer. Dealer gamma accepts <code>live</code>, <code>frozen</code>, and clock-aligned <code>delayed</code>
+inputs. It never mixes a delayed spot with live, frozen, or untyped option
+prices: a delayed run must receive IBKR's delayed model-computation tick for
+every priced leg. <code>delayed-frozen</code> is still refused.</p>
 <h2 id="why-one-symbol-says-delayed"><span class="secno" aria-hidden="true">04</span>Why one symbol says delayed</h2>
 <p>There are two distinct causes and they need different fixes.</p>
 <p><strong>No subscription for that instrument class.</strong> IBKR answers with error 354,
 &quot;Requested market data is not subscribed&quot;. That rejection is terminal for the
-subscription: there is no automatic retry in delayed mode. The key is
+subscription. Ordinary quote paths do not retry it in delayed mode: the key is
 suppressed for 30 minutes so a poller stops hammering a dead name, and a
-gateway reconnect re-arms it immediately. Options are a separate entitlement
+gateway reconnect re-arms it immediately. The regular-hours dealer-gamma phase
+is the narrow exception described above; it rearms only its rejected
+underlying for one clock-aligned delayed attempt. Options are a separate entitlement
 from the underlying stock, which is the usual surprise: a stock quote can be
 live while its chain returns nothing.</p>
 <p><strong>A competing live session.</strong> If the same login is already streaming live data
@@ -261,7 +271,7 @@ this, including what each badge string says verbatim.</p>
 </tr>
 <tr>
 <td><code>canary gamma</code></td>
-<td>Option market data for SPX and SPY, and it rejects delayed input outright.</td>
+<td>Option market data for SPX and SPY. After an RTH IBKR 354 it can retry once on delayed spot plus delayed option-model ticks; mixed clocks and delayed-frozen data are refused.</td>
 </tr>
 <tr>
 <td><code>canary scan</code></td>

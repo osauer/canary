@@ -500,8 +500,9 @@ func gammaDigitsWithSuffix(value string, suffix byte, minDigits, maxDigits int) 
 	return gammaDigits(value[:len(value)-1], len(value)-1)
 }
 
-// runUnderlyingPhase wraps one (Hold underlying → computeGammaZeroFor →
-// release underlying) cycle. Progress baseline is the starting %
+// runUnderlyingPhase wraps a (Hold underlying → computeGammaZeroFor →
+// release underlying) cycle and, after a typed RTH 354 only, one delayed
+// retry of that full cycle. Progress baseline is the starting %
 // (0 for SPY phase, 50 for SPX phase) so the existing 0-100 atomic
 // reports cleanly across both halves.
 func runUnderlyingPhase(
@@ -522,6 +523,61 @@ func runUnderlyingPhase(
 	// Ride the connector's background pacing lane so an interactive read
 	// arriving mid-fan-out is not queued behind it.
 	bgCtx = ibkrlib.WithRequestPriority(bgCtx, ibkrlib.PriorityBackground)
+	result, err := runUnderlyingPhaseOnce(bgCtx, s, c, underlying, params, prog, progressBase)
+	if err == nil || !shouldRetryGammaWithDelayed(err, time.Now()) {
+		return result, err
+	}
+	if c == nil {
+		return nil, err
+	}
+
+	// IBKR 354 kills the original reqID and the connector remembers that
+	// terminal verdict for 30 minutes. The lease deliberately rearms only
+	// this symbol, requests delayed mode, and force-refreshes the underlying
+	// before one bounded retry. Option legs remain clock-aligned because the
+	// production fetcher accepts only delayed model tick 83 beside a delayed
+	// spot. No other cause and no off-hours failure takes this path.
+	releaseMode, fallbackErr := c.BeginDelayedMarketDataFallback(bgCtx, underlying)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("zero-gamma: %s delayed fallback after IBKR 354 unavailable: %w", underlying, fallbackErr)
+	}
+	defer releaseMode()
+	prog.Store(progressBase)
+	result, retryErr := runUnderlyingPhaseOnce(bgCtx, s, c, underlying, params, prog, progressBase)
+	if retryErr != nil {
+		return result, fmt.Errorf("zero-gamma: %s delayed fallback after IBKR 354 failed: %w", underlying, retryErr)
+	}
+	return result, nil
+}
+
+func shouldRetryGammaWithDelayed(err error, at time.Time) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if gammaClassifySession(at) != rpc.SessionRTH {
+		return false
+	}
+	if spotErr, ok := errors.AsType[*gammaSpotError](err); ok {
+		return spotErr.code == 354
+	}
+	if absent, ok := errors.AsType[*ibkrlib.MarketDataAbsenceError](err); ok {
+		return absent.Code == 354
+	}
+	if rejected, ok := errors.AsType[*SubscriptionRejectedError](err); ok {
+		return rejected.Rejection.Code == 354
+	}
+	return false
+}
+
+func runUnderlyingPhaseOnce(
+	bgCtx context.Context,
+	s *Server,
+	c *ibkrlib.Connector,
+	underlying string,
+	params rpc.GammaZeroParams,
+	prog *atomic.Int32,
+	progressBase int32,
+) (*rpc.GammaZeroComputed, error) {
 	release, err := s.subs.Hold(bgCtx, underlying)
 	if err != nil {
 		return nil, fmt.Errorf("hold %s underlying: %w", underlying, err)
@@ -529,12 +585,16 @@ func runUnderlyingPhase(
 	defer release()
 
 	innerProg := &atomic.Int32{}
+	stopProgress := make(chan struct{})
+	defer close(stopProgress)
 	go func() {
 		t := time.NewTicker(200 * time.Millisecond)
 		defer t.Stop()
 		for {
 			select {
 			case <-bgCtx.Done():
+				return
+			case <-stopProgress:
 				return
 			case <-t.C:
 				inner := innerProg.Load()

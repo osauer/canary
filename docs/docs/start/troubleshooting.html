@@ -184,6 +184,12 @@
 <p>Both are states rather than failures, and both exit 0. Only the <code>error</code> status exits 1.</p>
 <p>Cold means no usable result exists and nothing is computing. The daemon prewarms gamma after gateway startup and refreshes behind the served value after a 15-minute soft TTL during regular US option hours. Outside those hours automatic refresh is not due at all, so an off-hours cold cache stays cold on purpose rather than running a heavy option-chain fan against a closed market. <code>canary gamma --force</code> starts one anyway, which is mostly a troubleshooting move.</p>
 <p>Computing prints the start time, an ETA, and a progress percentage. Re-running <code>canary gamma</code> blocks on the result again; <code>canary gamma --no-wait</code> returns the current status immediately instead.</p>
+<p>During regular US option hours, an IBKR 354 on SPY or SPX triggers one delayed
+retry for that underlying. A successful result says <code>15m delayed</code> in text and
+carries <code>data_type: &quot;delayed&quot;</code> in JSON. Canary accepts it only when the spot and
+the option model ticks share that delayed clock; it does not turn a delayed
+quote into real-time data. If the delayed option model ticks also fail, gamma
+stays unavailable and the error still names IBKR 354.</p>
 <h2 id="claude-desktop-does-not-list-the-tools">Claude Desktop does not list the tools</h2>
 <p>Quit Claude Desktop completely and reopen it. A closed window is not a quit, and the MCP server is only respawned on a real relaunch. This is also the step people miss after reinstalling the bundle.</p>
 <p><code>canary setup claude-desktop</code> writes an <code>mcpServers.canary</code> entry pointing at the resolved absolute path of the running binary, into <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS or <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows. It backs up any existing config first. It refuses to write over a file that is not valid JSON, and prints the path so you can fix or delete it. <a href="hosts.html">Connect an MCP host</a> covers the wiring for each host in full.</p>

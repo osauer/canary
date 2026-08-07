@@ -157,6 +157,7 @@ func buildGammaIndexSummary(c *rpc.GammaZeroComputed, label string) rpc.GammaInd
 	return rpc.GammaIndexSummary{
 		Underlying:      label,
 		SpotUnderlying:  c.SpotUnderlying,
+		DataType:        c.DataType,
 		ZeroGamma:       c.ZeroGamma,
 		ZeroGammaStatus: status,
 		Regime:          regime,

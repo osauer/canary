@@ -86,6 +86,7 @@ func buildGammaSignalQuality(c *rpc.GammaZeroComputed, now time.Time) rpc.GammaS
 	}
 
 	gammaQualityFreshnessGate(&q, c, now)
+	gammaQualityDataTypeGate(&q, c)
 	if c.Scope == rpc.GammaZeroScopeCombined && len(c.PerIndex) > 0 {
 		gammaQualityCombinedGates(&q, c)
 	} else {
@@ -95,6 +96,30 @@ func buildGammaSignalQuality(c *rpc.GammaZeroComputed, now time.Time) rpc.GammaS
 	gammaQualityAuthorityProvenanceGate(&q, c)
 	gammaFinalizeRankability(&q)
 	return q
+}
+
+func gammaQualityDataTypeGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed) {
+	if c.Scope == rpc.GammaZeroScopeCombined && len(c.PerIndex) > 0 {
+		// Combined results have no single market clock; each child carries and
+		// gates its own data_type before SPX-canonical aggregation.
+		return
+	}
+	switch strings.TrimSpace(c.DataType) {
+	case "":
+		gammaQualityAddGate(q, "market_data_type", rpc.GammaQualityGatePass,
+			"legacy cached result predates feed provenance; its method admitted only live or frozen spot")
+	case rpc.MarketDataLive:
+		gammaQualityAddGate(q, "market_data_type", rpc.GammaQualityGatePass, "live spot and option-model inputs")
+	case rpc.MarketDataFrozen:
+		gammaQualityAddGate(q, "market_data_type", rpc.GammaQualityGatePass, "frozen-aware end-of-session inputs")
+	case rpc.MarketDataDelayed:
+		gammaQualityAddGate(q, "market_data_type", rpc.GammaQualityGatePass,
+			"15-20 minute delayed spot and option-model inputs are clock-aligned and disclosed")
+	case rpc.MarketDataDelayedFrozen:
+		gammaQualityAddGate(q, "market_data_type", rpc.GammaQualityGateBlock, "delayed-frozen inputs are prior-close orientation only")
+	default:
+		gammaQualityAddGate(q, "market_data_type", rpc.GammaQualityGateBlock, "unrecognized gamma market-data type")
+	}
 }
 
 func gammaQualityAuthorityProvenanceGate(q *rpc.GammaSignalQuality, c *rpc.GammaZeroComputed) {

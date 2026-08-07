@@ -55,6 +55,13 @@ The gateway then returns live ticks for symbols your subscriptions cover and
 the last-known price when it cannot. Type 1, pure live, can leave snapshot
 requests hanging when the market is closed, so it is not used.
 
+Dealer gamma has one narrow regular-hours exception. If the gateway rejects an
+SPY or SPX spot request with IBKR 354, Canary retries that underlying once under
+type 3. An entitled request still comes back live; an unentitled one may come
+back 15–20 minutes delayed. The retry is bounded to the failed gamma phase and
+the connection returns to type 2 afterwards. Nothing learned about the account
+is stored as an entitlement.
+
 Entitlements are never stored. The daemon reports the data type it observed on
 each request instead, which is why a `DATA` column appears beside a quote and
 why the same symbol can report differently in two sessions.
@@ -65,7 +72,7 @@ why the same symbol can report differently in two sessions.
 | --- | --- |
 | `live` | Anything price-sensitive: a limit price, a spread you are about to cross, an option Greek. |
 | `frozen` | Position accounting and after-hours review. It is the last recorded quote with no further updates, and it arrives as a single snapshot, never a stream. |
-| `delayed` | Direction and rough level. Not a limit price: the number is 15 to 20 minutes old, which is several lifetimes for a short-dated option. |
+| `delayed` | Direction and rough level. Not a limit price: the number is 15 to 20 minutes old, which is several lifetimes for a short-dated option. Dealer gamma can use it as a coarse daily regime input only when both spot and every option model tick are delayed together. |
 | `delayed-frozen` | Orientation only. It is yesterday's close. |
 
 Two more values appear on some surfaces. `prev_close` marks a price taken from
@@ -76,8 +83,10 @@ gateway has not sent its notice yet, which happens for a few hundred
 milliseconds after a fresh subscription; it is treated as live.
 
 Some computations refuse delayed input rather than producing a plausible wrong
-answer. Dealer gamma accepts `live` and `frozen` and rejects both delayed
-types, because a 15-minute-old spot biases every gamma in the chain.
+answer. Dealer gamma accepts `live`, `frozen`, and clock-aligned `delayed`
+inputs. It never mixes a delayed spot with live, frozen, or untyped option
+prices: a delayed run must receive IBKR's delayed model-computation tick for
+every priced leg. `delayed-frozen` is still refused.
 
 ## Why one symbol says delayed
 
@@ -85,9 +94,11 @@ There are two distinct causes and they need different fixes.
 
 **No subscription for that instrument class.** IBKR answers with error 354,
 "Requested market data is not subscribed". That rejection is terminal for the
-subscription: there is no automatic retry in delayed mode. The key is
+subscription. Ordinary quote paths do not retry it in delayed mode: the key is
 suppressed for 30 minutes so a poller stops hammering a dead name, and a
-gateway reconnect re-arms it immediately. Options are a separate entitlement
+gateway reconnect re-arms it immediately. The regular-hours dealer-gamma phase
+is the narrow exception described above; it rearms only its rejected
+underlying for one clock-aligned delayed attempt. Options are a separate entitlement
 from the underlying stock, which is the usual surprise: a stock quote can be
 live while its chain returns nothing.
 
@@ -105,7 +116,7 @@ this, including what each badge string says verbatim.
 | --- | --- |
 | `canary quote`, position marks | Streaming or snapshot market data for that instrument. |
 | `canary chain` | Option market data for the class, typically OPRA. The expiry list alone is contract details and needs less. |
-| `canary gamma` | Option market data for SPX and SPY, and it rejects delayed input outright. |
+| `canary gamma` | Option market data for SPX and SPY. After an RTH IBKR 354 it can retry once on delayed spot plus delayed option-model ticks; mixed clocks and delayed-frozen data are refused. |
 | `canary scan` | Scanner access for the ranking, plus market data for the per-row enrichment. |
 | `canary breadth`, `canary history`, `canary technical` | Historical daily bars. No streaming-quote entitlement is involved. |
 | `canary calendar` | Nothing. It makes no broker call at all. |

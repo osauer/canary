@@ -111,6 +111,13 @@ Cold means no usable result exists and nothing is computing. The daemon prewarms
 
 Computing prints the start time, an ETA, and a progress percentage. Re-running `canary gamma` blocks on the result again; `canary gamma --no-wait` returns the current status immediately instead.
 
+During regular US option hours, an IBKR 354 on SPY or SPX triggers one delayed
+retry for that underlying. A successful result says `15m delayed` in text and
+carries `data_type: "delayed"` in JSON. Canary accepts it only when the spot and
+the option model ticks share that delayed clock; it does not turn a delayed
+quote into real-time data. If the delayed option model ticks also fail, gamma
+stays unavailable and the error still names IBKR 354.
+
 ## Claude Desktop does not list the tools
 
 Quit Claude Desktop completely and reopen it. A closed window is not a quit, and the MCP server is only respawned on a real relaunch. This is also the step people miss after reinstalling the bundle.

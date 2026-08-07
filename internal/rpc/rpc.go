@@ -1056,6 +1056,7 @@ type GammaWarningDetail struct {
 type GammaIndexSummary struct {
 	Underlying      string   `json:"underlying,omitempty"`
 	SpotUnderlying  float64  `json:"spot_underlying,omitempty"`
+	DataType        string   `json:"data_type,omitempty"`
 	ZeroGamma       *float64 `json:"zero_gamma,omitempty"`
 	ZeroGammaStatus string   `json:"zero_gamma_status,omitempty"`
 	Regime          string   `json:"regime,omitempty"`
@@ -1137,6 +1138,10 @@ type GammaZeroComputed struct {
 	// SpotAt is the gateway-observation timestamp for SpotUnderlying.
 	// Distinct from AsOf which covers the whole computation.
 	SpotAt time.Time `json:"spot_at,omitzero"`
+	// DataType is the gateway feed state shared by the underlying spot and
+	// option-model inputs. Delayed results are accepted only when the option
+	// fan-out used IBKR's delayed model-computation tick 83 throughout.
+	DataType string `json:"data_type,omitempty"`
 
 	// ZeroGamma is the dealer γ-zero level under the Perfiliev convention
 	// (the spot where dealer net gamma crosses zero). nil when no

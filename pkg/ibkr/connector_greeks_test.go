@@ -57,8 +57,51 @@ func TestHandleOptionComputationPersistsGreeks(t *testing.T) {
 	if iv, ok := conn.OptionIV(key); !ok || math.Abs(iv-0.275) > 1e-9 {
 		t.Errorf("optIV = %v ok=%v, want 0.275", iv, ok)
 	}
+	if iv, dataType, ok := conn.OptionIVWithDataType(key); !ok || math.Abs(iv-0.275) > 1e-9 || dataType != OptionModelDataTypeLive {
+		t.Errorf("typed optIV = %v dataType=%d ok=%v, want 0.275 type=%d", iv, dataType, ok, OptionModelDataTypeLive)
+	}
 	if u, ok := conn.OptionUnderlyingPrice(key); !ok || math.Abs(u-199.40) > 1e-9 {
 		t.Errorf("underlying = %v ok=%v, want 199.40", u, ok)
+	}
+}
+
+func TestHandleDelayedOptionComputationPersistsAlignedSource(t *testing.T) {
+	conn := NewConnector(nil)
+	key := "SPY_260117C600"
+	conn.optReqIDs[17] = key
+
+	row := func(tickType, optionPrice string) []string {
+		return []string{"21", "17", tickType, "0", "0.31", "0.48", optionPrice, "0", "0.012", "21", "-0.08", "598.4"}
+	}
+	conn.handleOptionComputation(row("80", "10.20"))
+	conn.handleOptionComputation(row("81", "10.60"))
+	conn.handleOptionComputation(row("83", "10.40"))
+
+	iv, dataType, ok := conn.OptionIVWithDataType(key)
+	if !ok || math.Abs(iv-0.31) > 1e-9 || dataType != OptionModelDataTypeDelayed {
+		t.Fatalf("typed delayed IV = %v dataType=%d ok=%v, want 0.31 type=%d", iv, dataType, ok, OptionModelDataTypeDelayed)
+	}
+	bid, ask, ok := conn.OptionQuoteBidAsk(key)
+	if !ok || math.Abs(bid-10.20) > 1e-9 || math.Abs(ask-10.60) > 1e-9 {
+		t.Fatalf("delayed option quote = bid %v ask %v ok=%v, want 10.20/10.60", bid, ask, ok)
+	}
+	if g, ok := conn.OptionGreeks(key); !ok || math.Abs(g.Gamma-0.012) > 1e-9 {
+		t.Fatalf("delayed model Greeks = %+v ok=%v, want gamma 0.012", g, ok)
+	}
+}
+
+func TestGenericIVCannotInheritDelayedModelSource(t *testing.T) {
+	conn := NewConnector(nil)
+	key := "SPY_260117C600"
+	conn.optReqIDs[17] = key
+	conn.reqIDMap[17] = key
+	conn.subscriptions[key] = &Subscription{Symbol: key}
+	conn.handleOptionComputation([]string{"21", "17", "83", "0", "0.31", "0.48", "10.4", "0", "0.012", "21", "-0.08", "598.4"})
+	conn.handleTickGeneric([]string{"45", "1", "17", "24", "0.44"})
+
+	iv, dataType, ok := conn.OptionIVWithDataType(key)
+	if !ok || math.Abs(iv-0.44) > 1e-9 || dataType != 0 {
+		t.Fatalf("generic IV = %v dataType=%d ok=%v, want 0.44 with no model source", iv, dataType, ok)
 	}
 }
 
