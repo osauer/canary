@@ -9,6 +9,34 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
+func TestStatusGatewayPhaseDistinguishesConnectivityBoundaries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                                       string
+		local, ready, setup, inFlight, backendDown bool
+		lastError                                  string
+		uptime                                     time.Duration
+		want                                       string
+	}{
+		{"startup", false, false, false, true, false, "", time.Second, rpc.GatewayPhaseConnecting},
+		{"startup grace", false, false, false, false, false, "", time.Second, rpc.GatewayPhaseConnecting},
+		{"port down", false, false, false, false, false, "dial refused", time.Minute, rpc.GatewayPhasePortDown},
+		{"local socket without API readiness", true, false, false, true, false, "", time.Second, rpc.GatewayPhaseAPINotReady},
+		{"post-handshake setup", true, true, false, true, false, "", time.Second, rpc.GatewayPhaseAPINotReady},
+		{"backend link down", true, true, true, false, true, "", time.Minute, rpc.GatewayPhaseBackendLinkDown},
+		{"local port loss wins over stale backend latch", false, false, true, false, true, "", time.Minute, rpc.GatewayPhasePortDown},
+		{"ready", true, true, true, false, false, "", time.Minute, rpc.GatewayPhaseReady},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := statusGatewayPhase(tc.local, tc.ready, tc.setup, tc.inFlight, tc.backendDown, tc.lastError, tc.uptime)
+			if got != tc.want {
+				t.Fatalf("phase=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRegimeStatusQualityClustersStaleInputs(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.May, 30, 12, 0, 0, 0, time.UTC)

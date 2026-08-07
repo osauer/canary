@@ -25,12 +25,16 @@ type Store struct {
 	path           string
 	busyTimeout    time.Duration
 	commitObserver func(AuthorityHead) error
+	readHead       func(context.Context) (AuthorityHead, error)
+	checkIntegrity func(context.Context) (IntegrityReport, error)
 
-	writeMu   sync.Mutex
-	healthMu  sync.RWMutex
-	health    Health
-	closeOnce sync.Once
-	closeErr  error
+	writeMu             sync.Mutex
+	lastObservedHead    AuthorityHead
+	recoveryMinimumHead AuthorityHead
+	healthMu            sync.RWMutex
+	health              Health
+	closeOnce           sync.Once
+	closeErr            error
 }
 
 // Open validates or creates the authority at opts.Path and returns a
@@ -174,11 +178,19 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 	if err := enforcePrivateModes(path); err != nil {
 		return fail(err)
 	}
-	return &Store{
+	store := &Store{
 		db: db, path: path, busyTimeout: timeout,
-		commitObserver: opts.CommitObserver,
-		health:         Health{Ready: true},
-	}, nil
+		commitObserver:   opts.CommitObserver,
+		lastObservedHead: head,
+		health:           Health{Ready: true},
+	}
+	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
+		return readAuthorityHead(ctx, store.db)
+	}
+	store.checkIntegrity = func(ctx context.Context) (IntegrityReport, error) {
+		return checkIntegrityDB(ctx, store.db)
+	}
+	return store, nil
 }
 
 func ensurePrivateParent(parent string) error {
@@ -271,8 +283,9 @@ func (s *Store) Close() error {
 	return s.closeErr
 }
 
-// Health returns the process-lifetime mutation-health latch. A false Ready
-// value blocks later critical mutations until the store is closed and reopened.
+// Health returns mutation health. A false Ready value blocks critical
+// mutations. Only the explicitly eligible post-commit head-read timeout can be
+// proof-recovered in process; every other latch requires an explicit reopen.
 func (s *Store) Health() Health {
 	s.healthMu.RLock()
 	defer s.healthMu.RUnlock()
@@ -321,23 +334,36 @@ func (s *Store) criticalMutation(ctx context.Context, fn func(*sql.Tx) error) er
 	}
 	if err == nil && s.commitObserver != nil {
 		headCtx, cancel := context.WithTimeout(context.Background(), s.busyTimeout)
-		head, headErr := readAuthorityHead(headCtx, s.db)
+		head, headErr := s.readCommittedHead(headCtx)
 		cancel()
 		if headErr != nil {
-			s.latchCritical(headErr)
-			if s.Health().Ready {
-				s.latchHealth("head_watermark")
+			if errors.Is(headErr, context.DeadlineExceeded) {
+				s.latchRecoverableHeadWatermarkTimeout()
+			} else {
+				s.latchCritical(headErr)
+				if s.Health().Ready {
+					s.latchHealth("head_watermark")
+				}
 			}
 			err = fmt.Errorf("read committed authority head: %w", headErr)
 		} else if observerErr := s.commitObserver(head); observerErr != nil {
 			s.latchHealth("head_watermark")
 			err = fmt.Errorf("persist committed authority head: %w", observerErr)
+		} else {
+			s.lastObservedHead = head
 		}
 	}
 	if err != nil {
 		s.latchCritical(err)
 	}
 	return err
+}
+
+func (s *Store) readCommittedHead(ctx context.Context) (AuthorityHead, error) {
+	if s.readHead != nil {
+		return s.readHead(ctx)
+	}
+	return readAuthorityHead(ctx, s.db)
 }
 
 func (s *Store) latchCritical(err error) {
@@ -355,6 +381,108 @@ func (s *Store) latchHealth(code string) {
 		return
 	}
 	s.health = Health{Ready: false, Code: code, BlockedAt: time.Now().UTC()}
+	s.recoveryMinimumHead = AuthorityHead{}
+}
+
+// latchRecoverableHeadWatermarkTimeout records the one in-process recovery
+// class. The caller holds writeMu, so lastObservedHead is the exact head whose
+// watermark was known durable before the just-committed mutation.
+func (s *Store) latchRecoverableHeadWatermarkTimeout() {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if !s.health.Ready {
+		return
+	}
+	s.recoveryMinimumHead = s.lastObservedHead
+	s.health = Health{
+		Ready: false, Code: "head_watermark", BlockedAt: time.Now().UTC(), RecoveryEligible: true,
+	}
+}
+
+// RecoverTransientHeadWatermark attempts the only supported in-process
+// authority recovery. The write lock keeps every mutation blocked throughout
+// the proof. Success requires intact content, the exact authority epoch, a
+// head no older than the last externally observed head, and a successful
+// synchronous persistence of the current head through CommitObserver.
+func (s *Store) RecoverTransientHeadWatermark(ctx context.Context) (bool, error) {
+	if s == nil {
+		return false, ErrRecoveryNotEligible
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	health := s.Health()
+	if health.Ready {
+		return false, nil
+	}
+	if health.Code != "head_watermark" || !health.RecoveryEligible || s.commitObserver == nil {
+		return false, ErrRecoveryNotEligible
+	}
+
+	check := s.checkIntegrity
+	if check == nil {
+		check = func(ctx context.Context) (IntegrityReport, error) { return checkIntegrityDB(ctx, s.db) }
+	}
+	report, err := check(ctx)
+	if err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			if _, critical := criticalSQLiteCode(err); critical {
+				s.disableTransientRecoveryForCritical(err)
+			} else {
+				s.disableTransientRecovery("integrity")
+			}
+		}
+		return false, fmt.Errorf("verify authority integrity for recovery: %w", err)
+	}
+	if !report.OK() {
+		s.disableTransientRecovery("corrupt")
+		return false, integrityFailure(report)
+	}
+
+	head, err := s.readCommittedHead(ctx)
+	if err != nil {
+		s.disableTransientRecoveryForCritical(err)
+		return false, fmt.Errorf("read authority head for recovery: %w", err)
+	}
+	if err := requireMinimumHead(head, s.recoveryMinimumHead); err != nil {
+		s.disableTransientRecovery("rollback")
+		return false, err
+	}
+	if err := s.commitObserver(head); err != nil {
+		// Persistence is still uncertain. Keep the narrow latch eligible so a
+		// later background proof can retry, but never reopen mutations now.
+		return false, fmt.Errorf("persist recovered authority head: %w", err)
+	}
+
+	s.healthMu.Lock()
+	if !s.health.Ready && s.health.Code == "head_watermark" && s.health.RecoveryEligible {
+		s.health = Health{Ready: true}
+		s.recoveryMinimumHead = AuthorityHead{}
+		s.lastObservedHead = head
+		s.healthMu.Unlock()
+		return true, nil
+	}
+	s.healthMu.Unlock()
+	return false, ErrRecoveryNotEligible
+}
+
+func (s *Store) disableTransientRecoveryForCritical(err error) {
+	if code, critical := criticalSQLiteCode(err); critical {
+		s.disableTransientRecovery(code)
+	}
+}
+
+func (s *Store) disableTransientRecovery(code string) {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if s.health.Ready {
+		return
+	}
+	if strings.TrimSpace(code) != "" {
+		s.health.Code = code
+	}
+	s.health.RecoveryEligible = false
+	s.recoveryMinimumHead = AuthorityHead{}
 }
 
 func criticalSQLiteCode(err error) (string, bool) {

@@ -147,6 +147,18 @@ failure, marks itself unhealthy, and withholds the new in-memory/RPC view. State
 and observation remain transactionally aligned, although the current schema
 stores no direct observation ID on the state row.
 
+One narrow transient can recover without reopening the daemon: if the SQLite
+commit succeeded but the bounded read of its new authority head reached its
+context deadline before the external watermark write began, every later
+mutation remains blocked while a background proof runs under the writer lock.
+The proof rechecks SQLite structure, foreign keys and selected payload hashes,
+requires the same authority epoch and a head no older than the last externally
+accepted head, then synchronously writes and fsyncs that current head through
+the normal watermark observer. Only all-green proof clears the latch. A failed
+watermark write stays blocked and retryable; busy, readonly, full-disk, I/O,
+corruption, rollback, and every other failure remain latched until explicit
+reopen or verified recovery.
+
 ### Protect a broker transmission
 
 Before sending an order, one transaction binds the exact broker route, records

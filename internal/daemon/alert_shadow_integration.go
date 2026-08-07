@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -327,14 +326,15 @@ func (s *Server) observeDataHealthAlertShadow(result *rpc.HealthResult, brokerSc
 	s.enqueueDataHealthAlertShadow(input)
 }
 
-func alertShadowGatewayPhaseForHealth(connected, setupComplete, connectInFlight bool, lastError string, uptime time.Duration) alertShadowGatewayPhase {
-	if connected {
+func alertShadowGatewayPhaseForHealth(gatewayPhase string, setupComplete, connectInFlight bool, uptime time.Duration) alertShadowGatewayPhase {
+	if gatewayPhase == rpc.GatewayPhaseReady {
 		return alertShadowGatewayReady
 	}
-	if setupComplete || strings.TrimSpace(lastError) != "" || (!connectInFlight && uptime >= alertShadowGatewayStartupGrace) {
-		return alertShadowGatewayFailed
+	if gatewayPhase == rpc.GatewayPhaseConnecting ||
+		(gatewayPhase == rpc.GatewayPhaseAPINotReady && !setupComplete && (connectInFlight || uptime < alertShadowGatewayStartupGrace)) {
+		return alertShadowGatewayConnecting
 	}
-	return alertShadowGatewayConnecting
+	return alertShadowGatewayFailed
 }
 
 func (s *Server) enqueueDataHealthAlertShadow(input alertShadowDataHealthInput) {

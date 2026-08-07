@@ -216,6 +216,8 @@ func (e *Env) concernText(c statusConcern) string {
 
 func nextConcern(res rpc.HealthResult, cliVersion string) statusConcern {
 	switch {
+	case res.GatewayPhase == rpc.GatewayPhaseBackendLinkDown:
+		return statusConcern{Text: "Gateway backend link is down (TWS API remains reachable)", Level: statusConcernBad}
 	case !res.Connected && res.LastError != "":
 		return statusConcern{Text: "Gateway offline: " + res.LastError, Level: statusConcernBad}
 	case isHandshakeInFlight(res):
@@ -466,6 +468,12 @@ func formatDaemonValue(res rpc.HealthResult) string {
 }
 
 func formatTWSValue(res rpc.HealthResult) string {
+	if res.GatewayPhase == rpc.GatewayPhaseBackendLinkDown {
+		if res.ServerVersion == 0 {
+			return "API connected, IBKR backend link down"
+		}
+		return fmt.Sprintf("API server %d, IBKR backend link down", res.ServerVersion)
+	}
 	if res.ServerVersion == 0 {
 		return "connected, API server unknown"
 	}
@@ -599,6 +607,12 @@ func membersRefreshNeedsAttention(m rpc.MembersHealth) bool {
 // successful connection nor a connect error yet — i.e. the gateway
 // handshake goroutine started but hasn't produced a verdict.
 func isHandshakeInFlight(res rpc.HealthResult) bool {
+	switch res.GatewayPhase {
+	case rpc.GatewayPhaseConnecting, rpc.GatewayPhaseAPINotReady:
+		return !res.Connected
+	case rpc.GatewayPhasePortDown, rpc.GatewayPhaseBackendLinkDown, rpc.GatewayPhaseReady:
+		return false
+	}
 	return !res.Connected && res.LastError == ""
 }
 

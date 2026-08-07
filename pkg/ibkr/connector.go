@@ -150,6 +150,17 @@ type Connector struct {
 	inactiveMu         sync.RWMutex
 	inactiveSymbols    map[string]inactiveSymbolState
 	inactiveCandidates map[string]inactiveCandidateState
+	// contractDetailsFlights coalesces identical unresolved contract requests.
+	// The broker sees one reqContractDetails and concurrent callers whose wait
+	// budgets remain open see the same terminal result; unrelated exact
+	// contracts remain independent.
+	contractDetailsFlightMu sync.Mutex
+	contractDetailsFlights  map[string]*contractDetailsFlight
+	// contractWarningState bounds repeated unresolved-contract WARN lines. The
+	// next emitted line reports how many identical warnings were suppressed.
+	contractWarningMu    sync.Mutex
+	contractWarningState map[string]contractWarningState
+	contractWarningNow   func() time.Time
 
 	// mktDataAbsent remembers subscription keys whose market-data request
 	// the gateway terminally rejected as not-entitled (error 354), so the
@@ -766,6 +777,8 @@ func NewConnector(config *ConnectorConfig) *Connector {
 		brokerOrderIndex:       make(map[string]string),
 		orderStatusLogSig:      make(map[string]string),
 		contractCache:          make(map[string]ContractDetailsLite),
+		contractDetailsFlights: make(map[string]*contractDetailsFlight),
+		contractWarningState:   make(map[string]contractWarningState),
 		optIV:                  make(map[string]float64),
 		optReqIDs:              make(map[int]string),
 		optQuoteBid:            make(map[string]float64),
@@ -1586,6 +1599,17 @@ func (c *Connector) backendConnectivityDown() (bool, time.Time) {
 	return c.backendConnDown, c.backendConnAt
 }
 
+// BackendLinkStatus reports the current TWS-to-IBKR upstream-link latch.
+// It is intentionally separate from IsConnected/IsReady, which describe the
+// local API socket and handshake. A code-1100 notice sets Down until a current
+// session observes code 1101 or 1102.
+func (c *Connector) BackendLinkStatus() (down bool, changedAt time.Time) {
+	if c == nil {
+		return false, time.Time{}
+	}
+	return c.backendConnectivityDown()
+}
+
 // recoverFromBackendDataLoss is the 1101 post action. Exact-session
 // subscriptions (SessionEpoch != 0) are excluded: they are short-lived
 // broker-write evidence bound to one request, and their owners fail and
@@ -2314,6 +2338,41 @@ type inactiveCandidateState struct {
 	lastUpdated time.Time
 }
 
+const contractWarningWindow = 5 * time.Minute
+
+type contractWarningState struct {
+	lastEmitted time.Time
+	suppressed  int
+}
+
+func (c *Connector) coalesceContractWarning(key string, window time.Duration, message string) (string, bool) {
+	if window <= 0 {
+		window = contractWarningWindow
+	}
+	now := time.Now()
+	if c.contractWarningNow != nil {
+		now = c.contractWarningNow()
+	}
+	c.contractWarningMu.Lock()
+	defer c.contractWarningMu.Unlock()
+	if c.contractWarningState == nil {
+		c.contractWarningState = make(map[string]contractWarningState)
+	}
+	state := c.contractWarningState[key]
+	if !state.lastEmitted.IsZero() && now.Sub(state.lastEmitted) < window {
+		state.suppressed++
+		c.contractWarningState[key] = state
+		return "", false
+	}
+	if state.suppressed > 0 {
+		message += fmt.Sprintf(" (%d identical warnings suppressed)", state.suppressed)
+	}
+	state.lastEmitted = now
+	state.suppressed = 0
+	c.contractWarningState[key] = state
+	return message, true
+}
+
 // MarketDataKeyForContract returns the normalized cache and subscription key
 // for an explicitly routed market-data contract. An unrouted stock uses its
 // upper-case symbol only when it has no positive ConID; routed or exact
@@ -2574,9 +2633,10 @@ func (c *Connector) SeedContractDetails(symbol string, detail ContractDetailsLit
 
 // FetchContractDetails returns cached contract details for symbol when a
 // resolved entry exists; otherwise it requests all matching rows and waits for
-// the broker's completion marker. Calls must be serialized because the request
-// uses shared response handlers. On timeout it returns any rows already
-// received together with [ErrContractDetailsTimeout].
+// the broker's completion marker. Identical in-flight requests are coalesced;
+// each response handler still filters by request ID so unrelated contracts can
+// resolve independently. On timeout it returns any rows already received
+// together with [ErrContractDetailsTimeout].
 func (c *Connector) FetchContractDetails(symbol string, timeout time.Duration) ([]ContractDetailsLite, error) {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
 	if symbol == "" {
@@ -2590,6 +2650,12 @@ func (c *Connector) FetchContractDetails(symbol string, timeout time.Duration) (
 		c.logDebug("Contract details fetch satisfied from cache symbol=%s conID=%d", symbol, cached.ConID)
 		return []ContractDetailsLite{*cached}, nil
 	}
+	return c.coalesceContractDetails("symbol\x00"+symbol, timeout, func(wireTimeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
+		return c.fetchContractDetailsSymbolWire(symbol, wireTimeout, observe)
+	})
+}
+
+func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
 	if !c.isConnected() {
 		return nil, fmt.Errorf("IBKR connection not available")
 	}
@@ -2651,6 +2717,9 @@ func (c *Connector) FetchContractDetails(symbol string, timeout time.Duration) (
 		select {
 		case d := <-detailsCh:
 			results = append(results, d)
+			if observe != nil {
+				observe(results)
+			}
 		case <-doneCh:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
@@ -2714,6 +2783,13 @@ func (c *Connector) fetchContractDetailsForContract(contract Contract, timeout t
 	if timeout <= 0 {
 		timeout = 12 * time.Second
 	}
+	flightKey := "contract\x00" + contractDetailsFlightKey(contract)
+	return c.coalesceContractDetails(flightKey, timeout, func(wireTimeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
+		return c.fetchContractDetailsForContractWire(contract, key, wireTimeout, observe)
+	})
+}
+
+func (c *Connector) fetchContractDetailsForContractWire(contract Contract, key string, timeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
 	if !c.isConnected() {
 		return nil, fmt.Errorf("IBKR connection not available")
 	}
@@ -2769,6 +2845,9 @@ func (c *Connector) fetchContractDetailsForContract(contract Contract, timeout t
 		select {
 		case d := <-detailsCh:
 			results = append(results, d)
+			if observe != nil {
+				observe(results)
+			}
 		case <-doneCh:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
@@ -2789,6 +2868,107 @@ func (c *Connector) fetchContractDetailsForContract(contract Contract, timeout t
 			return results, ErrContractDetailsTimeout
 		}
 	}
+}
+
+type contractDetailsFlight struct {
+	done    chan struct{}
+	results []ContractDetailsLite
+	err     error
+	waiters int
+}
+
+// contractDetailsSharedWireMinimum prevents a short-budget cache warmer from
+// becoming the leader and ending the shared broker request before a concurrent
+// history caller's longer budget can observe its terminal result. Every caller
+// still returns on its own deadline; the detached wire flight remains bounded.
+const contractDetailsSharedWireMinimum = 30 * time.Second
+
+// coalesceContractDetails shares one identical wire request. Followers retain
+// their own wait budget and timing out never cancels the leader; the flight may
+// still populate the contract cache or deliver a terminal broker answer to
+// callers whose budgets remain open.
+func (c *Connector) coalesceContractDetails(key string, timeout time.Duration, fetch func(time.Duration, func([]ContractDetailsLite)) ([]ContractDetailsLite, error)) ([]ContractDetailsLite, error) {
+	c.contractDetailsFlightMu.Lock()
+	if c.contractDetailsFlights == nil {
+		c.contractDetailsFlights = make(map[string]*contractDetailsFlight)
+	}
+	flight := c.contractDetailsFlights[key]
+	if flight != nil {
+		flight.waiters++
+		c.contractDetailsFlightMu.Unlock()
+		return c.waitForContractDetailsFlight(flight, timeout)
+	}
+	flight = &contractDetailsFlight{done: make(chan struct{}), waiters: 1}
+	c.contractDetailsFlights[key] = flight
+	c.contractDetailsFlightMu.Unlock()
+
+	wireTimeout := max(timeout, contractDetailsSharedWireMinimum)
+	go func() {
+		results, err := fetch(wireTimeout, func(partial []ContractDetailsLite) {
+			c.contractDetailsFlightMu.Lock()
+			flight.results = cloneContractDetails(partial)
+			c.contractDetailsFlightMu.Unlock()
+		})
+		c.contractDetailsFlightMu.Lock()
+		flight.results = cloneContractDetails(results)
+		flight.err = err
+		delete(c.contractDetailsFlights, key)
+		close(flight.done)
+		c.contractDetailsFlightMu.Unlock()
+	}()
+	return c.waitForContractDetailsFlight(flight, timeout)
+}
+
+func (c *Connector) waitForContractDetailsFlight(flight *contractDetailsFlight, timeout time.Duration) ([]ContractDetailsLite, error) {
+	select {
+	case <-flight.done:
+		return cloneContractDetails(flight.results), flight.err
+	default:
+	}
+	if timeout <= 0 {
+		return c.contractDetailsFlightPartial(flight), ErrContractDetailsTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-flight.done:
+		return cloneContractDetails(flight.results), flight.err
+	case <-timer.C:
+		return c.contractDetailsFlightPartial(flight), ErrContractDetailsTimeout
+	}
+}
+
+func (c *Connector) contractDetailsFlightPartial(flight *contractDetailsFlight) []ContractDetailsLite {
+	c.contractDetailsFlightMu.Lock()
+	defer c.contractDetailsFlightMu.Unlock()
+	return cloneContractDetails(flight.results)
+}
+
+func cloneContractDetails(in []ContractDetailsLite) []ContractDetailsLite {
+	if in == nil {
+		return nil
+	}
+	return append([]ContractDetailsLite(nil), in...)
+}
+
+func contractDetailsFlightKey(contract Contract) string {
+	contract = normalizeMarketDataContract(contract)
+	return strings.Join([]string{
+		strconv.Itoa(contract.ConID),
+		strings.ToUpper(strings.TrimSpace(contract.Symbol)),
+		strings.ToUpper(strings.TrimSpace(contract.SecType)),
+		strings.TrimSpace(contract.Expiry),
+		strconv.FormatFloat(contract.Strike, 'g', -1, 64),
+		strings.ToUpper(strings.TrimSpace(contract.Right)),
+		strconv.Itoa(contract.Multiplier),
+		strings.ToUpper(strings.TrimSpace(contract.Exchange)),
+		strings.ToUpper(strings.TrimSpace(contract.PrimaryExch)),
+		strings.ToUpper(strings.TrimSpace(contract.Currency)),
+		strings.ToUpper(strings.TrimSpace(contract.LocalSymbol)),
+		strings.ToUpper(strings.TrimSpace(contract.TradingClass)),
+		strings.ToUpper(strings.TrimSpace(contract.SecIDType)),
+		strings.TrimSpace(contract.SecID),
+	}, "\x00")
 }
 
 // contractDetailsLateGrace is how long the deferred cleanup goroutine
@@ -6945,7 +7125,10 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 	// debug; this abort is the caller-visible outcome, and every other leg
 	// returns its error for the caller to report.
 	if requireConID && baseContract.ConID == 0 {
-		c.logWarn("Historical data request aborted for %s: contract ID unresolved (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
+		message := fmt.Sprintf("Historical data request aborted for %s: contract ID unresolved (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
+		if summary, emit := c.coalesceContractWarning("historical_unresolved\x00"+symbol+"\x00"+baseContract.Exchange+"\x00"+baseContract.PrimaryExch, contractWarningWindow, message); emit {
+			c.logWarn("%s", summary)
+		}
 		return nil, fmt.Errorf("contract details unresolved for %s (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
 	}
 

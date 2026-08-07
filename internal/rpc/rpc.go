@@ -3069,6 +3069,18 @@ type MarketDataAccessHealth struct {
 	RetryAt time.Time `json:"retry_at,omitzero"`
 }
 
+// Gateway phases distinguish the local TWS/Gateway API socket from the
+// gateway's own upstream broker link. Connected remains the compatibility
+// readiness bit used by existing consumers; GatewayPhase is the diagnostic
+// authority and must not be inferred from LastError prose.
+const (
+	GatewayPhaseConnecting      = "connecting"
+	GatewayPhasePortDown        = "port_down"
+	GatewayPhaseAPINotReady     = "api_not_ready"
+	GatewayPhaseBackendLinkDown = "backend_link_down"
+	GatewayPhaseReady           = "ready"
+)
+
 // Market-data access reasons classify a rejection by IBKR code alone.
 const (
 	MarketDataAccessNotSubscribed = "not_subscribed"
@@ -3126,9 +3138,14 @@ type HealthResult struct {
 	Alternates    []int  `json:"alternates,omitempty"`
 	ClientID      int    `json:"client_id"`
 	Connected     bool   `json:"connected"`
-	DataType      string `json:"data_type,omitempty"`
-	ServerVersion int    `json:"server_version,omitempty"`
-	LastError     string `json:"last_error,omitempty"`
+	// GatewayPhase classifies which connectivity boundary currently blocks
+	// service. A backend_link_down phase can coexist with Connected=true: the
+	// local API session is ready while TWS reports its IBKR backend link lost.
+	GatewayPhase   string    `json:"gateway_phase"`
+	GatewayPhaseAt time.Time `json:"gateway_phase_at,omitzero"`
+	DataType       string    `json:"data_type,omitempty"`
+	ServerVersion  int       `json:"server_version,omitempty"`
+	LastError      string    `json:"last_error,omitempty"`
 	// BackgroundTasks lists daemon-internal long-running computes that
 	// are running or waiting for a scheduled retry. Empty when nothing
 	// is active. Always present on the wire (never omitted) so

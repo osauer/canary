@@ -12,6 +12,11 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+const (
+	coreStoreRecoveryPollInterval = 5 * time.Second
+	coreStoreRecoveryTimeout      = time.Minute
+)
+
 // openCoreStore runs only after the socket-specific instance lock has been
 // won. The second lock is rooted beside daemon.db, so alternate socket paths
 // cannot create two writers for one authority.
@@ -207,12 +212,55 @@ func (s *Server) authoritySubsystemHealth() rpc.SubsystemHealth {
 	if health.Ready {
 		return rpc.SubsystemHealth{Name: "storage", Status: "ready"}
 	}
+	message := "authoritative persistence is latched fail-closed"
+	if health.RecoveryEligible {
+		message = "authoritative persistence is fail-closed while a transient head-watermark proof is pending"
+	}
 	return rpc.SubsystemHealth{
 		Name:        "storage",
 		Status:      "unavailable",
-		Message:     "authoritative persistence is latched fail-closed",
+		Message:     message,
 		LastError:   health.Code,
 		LastErrorAt: health.BlockedAt,
+	}
+}
+
+func (s *Server) runCoreStoreRecoveryLoop(ctx context.Context) {
+	ticker := time.NewTicker(coreStoreRecoveryPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.tryCoreStoreRecovery(ctx)
+		}
+	}
+}
+
+func (s *Server) tryCoreStoreRecovery(ctx context.Context) {
+	if s == nil || s.coreStore == nil {
+		return
+	}
+	health := s.coreStore.Health()
+	if health.Ready || !health.RecoveryEligible || health.Code != "head_watermark" {
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, coreStoreRecoveryTimeout)
+	recovered, err := s.coreStore.RecoverTransientHeadWatermark(probeCtx)
+	cancel()
+	if err != nil {
+		if !errors.Is(err, corestore.ErrRecoveryNotEligible) {
+			// The unavailable storage subsystem is already operator-visible.
+			// Retries are frequent by design, so keep repeated proof failures at
+			// debug rather than turning a persistent watermark outage into WARN
+			// log churn.
+			s.debugf("daemon authority: transient head-watermark recovery proof failed: %v", err)
+		}
+		return
+	}
+	if recovered && s.logger != nil {
+		s.logger.Infof("daemon authority: transient head-watermark latch recovered after integrity, identity, monotonic-head, and external-watermark verification")
 	}
 }
 

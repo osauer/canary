@@ -288,22 +288,23 @@ func TestProtectionHeartbeatPreservesContractIdentityAndRejectsAmbiguousFallback
 
 func TestAlertShadowGatewayPhaseDistinguishesStartupFromFailure(t *testing.T) {
 	tests := []struct {
-		name                       string
-		connected, setup, inFlight bool
-		lastError                  string
-		uptime                     time.Duration
-		want                       alertShadowGatewayPhase
+		name            string
+		gatewayPhase    string
+		setup, inFlight bool
+		uptime          time.Duration
+		want            alertShadowGatewayPhase
 	}{
-		{"ready", true, true, false, "", time.Minute, alertShadowGatewayReady},
-		{"initial handshake", false, false, true, "", time.Minute, alertShadowGatewayConnecting},
-		{"startup grace", false, false, false, "", 10 * time.Second, alertShadowGatewayConnecting},
-		{"discovery failed", false, false, false, "no endpoint", time.Second, alertShadowGatewayFailed},
-		{"startup grace expired", false, false, false, "", time.Minute, alertShadowGatewayFailed},
-		{"reconnect after ready", false, true, true, "", time.Minute, alertShadowGatewayFailed},
+		{"ready", rpc.GatewayPhaseReady, true, false, time.Minute, alertShadowGatewayReady},
+		{"initial handshake", rpc.GatewayPhaseAPINotReady, false, true, time.Minute, alertShadowGatewayConnecting},
+		{"startup grace", rpc.GatewayPhaseConnecting, false, false, 10 * time.Second, alertShadowGatewayConnecting},
+		{"port down", rpc.GatewayPhasePortDown, false, false, time.Second, alertShadowGatewayFailed},
+		{"startup grace expired", rpc.GatewayPhasePortDown, false, false, time.Minute, alertShadowGatewayFailed},
+		{"reconnect after ready", rpc.GatewayPhaseAPINotReady, true, true, time.Minute, alertShadowGatewayFailed},
+		{"backend link down", rpc.GatewayPhaseBackendLinkDown, true, false, time.Minute, alertShadowGatewayFailed},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := alertShadowGatewayPhaseForHealth(tc.connected, tc.setup, tc.inFlight, tc.lastError, tc.uptime); got != tc.want {
+			if got := alertShadowGatewayPhaseForHealth(tc.gatewayPhase, tc.setup, tc.inFlight, tc.uptime); got != tc.want {
 				t.Fatalf("phase=%q want %q", got, tc.want)
 			}
 		})

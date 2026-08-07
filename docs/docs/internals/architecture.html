@@ -554,8 +554,12 @@ daemon listens on the Unix socket and MCP speaks stdio; neither serves HTTP.</p>
 <p>Routes register in <code>internal/app/http/routes.go</code> in four families: static
 PWA assets, pairing and auth, the authenticated app API, and the
 <code>/api/events</code> SSE stream. Handlers read app stores, the live snapshot, or
-typed daemon calls; they do not invent policy. There is no separate health
-route; <code>/api/bootstrap</code> and <code>/api/snapshot</code> carry relay and liveness state.</p>
+typed daemon calls; they do not invent policy. Authenticated <code>/api/bootstrap</code>
+and <code>/api/snapshot</code> carry paired-device state. The separate local-Mac-only
+<code>/api/app-status</code> route is a redacted operator diagnostic: it reports app
+liveness, daemon-producer coverage, and app-dispatcher delivery health without
+device, occurrence, account, or transport identities; the relay refuses to
+forward it.</p>
 <p>Remote access keeps pairing, auth, session validation, forwarding allowlists,
 and daemon access on the local machine. The Worker and the Durable Object carry
 route transport state only.</p>
@@ -571,8 +575,12 @@ daemon database — <code>$XDG_STATE_HOME/ibkr/ibkr-daemon.log</code>, or
 64 MiB, keeping one older generation. The app logs to <code>ibkr-app.log</code>.</li>
 <li><code>canary status</code> renders the daemon's <code>status.health</code> report: gateway,
 session, and TLS state, uptime, background tasks, subsystem health, data
-quality, data-farm notices, and trading state. It ends in one verdict:
-ready, attention, offline, or starting.</li>
+quality, data-farm notices, and trading state. Its typed gateway phase
+distinguishes a closed local API port, a reachable port whose API handshake
+is not ready, and a ready TWS API whose IBKR backend link is down. It ends in
+one verdict: ready, attention, offline, or starting.</li>
+<li><code>canary app status</code> calls the local-Mac-only app diagnostic and keeps alert
+producer coverage separate from app-owned dispatcher delivery health.</li>
 <li>Typed read surfaces carry their own source health. Regime clusters, gamma,
 the market calendar, and governance report stale, partial, degraded, or
 unknown instead of guessing.</li>

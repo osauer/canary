@@ -23,6 +23,7 @@ var (
 	ErrFreshAuthorityConflict = errors.New("corestore: fresh trading authority requires empty order and purge state")
 	ErrProjectionConflict     = errors.New("corestore: immutable projection conflict")
 	ErrUpgradeRequired        = errors.New("corestore: schema upgrade required")
+	ErrRecoveryNotEligible    = errors.New("corestore: transient recovery is not eligible")
 )
 
 // Options configures the authoritative store. Path is required; the daemon
@@ -268,13 +269,17 @@ type QuiesceOptions struct {
 	ExpectedHead          AuthorityHead
 }
 
-// Health is a process-lifetime latch. Critical mutation failures caused by a
-// full, busy, corrupt, or I/O-failing SQLite store transition Ready to false;
-// only closing and explicitly reopening the store can reset it.
+// Health is fail-closed mutation health. Critical failures caused by a full,
+// busy, readonly, corrupt, or I/O-failing SQLite store remain latched until an
+// explicit reopen. RecoveryEligible is true only for the narrow case where a
+// mutation committed but reading its post-commit head hit the bounded context
+// deadline; the live store may clear that latch only after an integrity,
+// identity, monotonic-head, and external-watermark proof succeeds.
 type Health struct {
-	Ready     bool
-	Code      string
-	BlockedAt time.Time
+	Ready            bool
+	Code             string
+	BlockedAt        time.Time
+	RecoveryEligible bool
 }
 
 // StateDocument is the current revision of one scope- and kind-addressed JSON

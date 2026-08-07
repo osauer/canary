@@ -291,8 +291,12 @@ daemon listens on the Unix socket and MCP speaks stdio; neither serves HTTP.
 Routes register in `internal/app/http/routes.go` in four families: static
 PWA assets, pairing and auth, the authenticated app API, and the
 `/api/events` SSE stream. Handlers read app stores, the live snapshot, or
-typed daemon calls; they do not invent policy. There is no separate health
-route; `/api/bootstrap` and `/api/snapshot` carry relay and liveness state.
+typed daemon calls; they do not invent policy. Authenticated `/api/bootstrap`
+and `/api/snapshot` carry paired-device state. The separate local-Mac-only
+`/api/app-status` route is a redacted operator diagnostic: it reports app
+liveness, daemon-producer coverage, and app-dispatcher delivery health without
+device, occurrence, account, or transport identities; the relay refuses to
+forward it.
 
 Remote access keeps pairing, auth, session validation, forwarding allowlists,
 and daemon access on the local machine. The Worker and the Durable Object carry
@@ -311,8 +315,12 @@ is no external metrics stack and no tracing.
   64 MiB, keeping one older generation. The app logs to `ibkr-app.log`.
 - `canary status` renders the daemon's `status.health` report: gateway,
   session, and TLS state, uptime, background tasks, subsystem health, data
-  quality, data-farm notices, and trading state. It ends in one verdict:
-  ready, attention, offline, or starting.
+  quality, data-farm notices, and trading state. Its typed gateway phase
+  distinguishes a closed local API port, a reachable port whose API handshake
+  is not ready, and a ready TWS API whose IBKR backend link is down. It ends in
+  one verdict: ready, attention, offline, or starting.
+- `canary app status` calls the local-Mac-only app diagnostic and keeps alert
+  producer coverage separate from app-owned dispatcher delivery health.
 - Typed read surfaces carry their own source health. Regime clusters, gamma,
   the market calendar, and governance report stale, partial, degraded, or
   unknown instead of guessing.

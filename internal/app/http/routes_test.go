@@ -91,6 +91,57 @@ func TestBootstrapRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestAppStatusIsLocalAndSeparatesProducerFromDispatcher(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t).Handler()
+
+	remoteReq := httptest.NewRequest(http.MethodGet, AppStatusPath, nil)
+	remoteReq.RemoteAddr = "203.0.113.9:4242"
+	remoteRes := httptest.NewRecorder()
+	handler.ServeHTTP(remoteRes, remoteReq)
+	if remoteRes.Code != http.StatusForbidden {
+		t.Fatalf("remote status=%d, want 403", remoteRes.Code)
+	}
+
+	localReq := httptest.NewRequest(http.MethodGet, AppStatusPath, nil)
+	localReq.RemoteAddr = "127.0.0.1:4242"
+	localRes := httptest.NewRecorder()
+	handler.ServeHTTP(localRes, localReq)
+	if localRes.Code != http.StatusOK {
+		t.Fatalf("local status=%d body=%s", localRes.Code, localRes.Body.String())
+	}
+	var got AppStatusDTO
+	if err := json.Unmarshal(localRes.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode app status: %v", err)
+	}
+	if got.SchemaVersion != AppStatusSchemaVersion || got.Version != "test-version" {
+		t.Fatalf("identity=%+v", got)
+	}
+	if got.AlertProducer.Sources == nil || got.AlertDispatcher.State == "" {
+		t.Fatalf("producer/dispatcher projections are not independently present: %+v", got)
+	}
+}
+
+func TestAppStatusReadyRequiresBothAlertAuthorities(t *testing.T) {
+	t.Parallel()
+	coverage := &AlertCoverageDTO{
+		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceDataHealth},
+		CoveredSources:  []rpc.AlertSource{rpc.AlertSourceDataHealth},
+	}
+	ready := AppStatusDTO{
+		AlertProducer:   AlertProducerStatusDTO{Initialized: true, Coverage: coverage},
+		AlertDispatcher: AlertDeliveryHealthDTO{State: state.AlertDeliveryHealthHealthy},
+	}
+	if !AppStatusReady(ready) {
+		t.Fatal("complete producer plus healthy dispatcher was not ready")
+	}
+	ready.AlertDispatcher.State = state.AlertDeliveryHealthUnavailable
+	if AppStatusReady(ready) {
+		t.Fatal("dispatcher outage was hidden by healthy producer coverage")
+	}
+}
+
 func TestGovernanceDTOIsAuthenticatedAndTyped(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)

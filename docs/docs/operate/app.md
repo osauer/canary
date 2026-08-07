@@ -60,6 +60,21 @@ other.
 Every auth outcome is logged as `canary app auth:` lines in
 `~/Library/Logs/ibkr/app.err.log`.
 
+## Check app and alert health
+
+```sh
+canary app status
+canary app status --json
+```
+
+This local-Mac-only check proves the app HTTP host is reachable and reports the
+two alert authorities separately. `alert_producer` shows whether the app has a
+current, complete daemon-authored source snapshot. `alert_dispatcher` shows the
+app-owned delivery state and its fixed failure class, if any. A current active
+alert is not itself a health failure. Device grants, subscriptions, occurrence
+identities, account data, and raw transport errors are not returned, and the
+remote relay refuses this route.
+
 ## Remote access
 
 Remote mode keeps the normal app host local, then opens an outbound connector to

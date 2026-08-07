@@ -144,6 +144,17 @@ the installed app (twin copies of the same cookie jar) never invalidate each
 other.</p>
 <p>Every auth outcome is logged as <code>canary app auth:</code> lines in
 <code>~/Library/Logs/ibkr/app.err.log</code>.</p>
+<h2 id="check-app-and-alert-health">Check app and alert health</h2>
+<pre><code class="language-sh">canary app status
+canary app status --json
+</code></pre>
+<p>This local-Mac-only check proves the app HTTP host is reachable and reports the
+two alert authorities separately. <code>alert_producer</code> shows whether the app has a
+current, complete daemon-authored source snapshot. <code>alert_dispatcher</code> shows the
+app-owned delivery state and its fixed failure class, if any. A current active
+alert is not itself a health failure. Device grants, subscriptions, occurrence
+identities, account data, and raw transport errors are not returned, and the
+remote relay refuses this route.</p>
 <h2 id="remote-access">Remote access</h2>
 <p>Remote mode keeps the normal app host local, then opens an outbound connector to
 <code>https://remote.osauer.dev</code>:</p>

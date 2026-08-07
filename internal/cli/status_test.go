@@ -554,6 +554,14 @@ func TestNextConcernPriority(t *testing.T) {
 			want: "Gateway offline: dial timeout",
 		},
 		{
+			name: "backend link is distinct from local API readiness",
+			in: rpc.HealthResult{
+				Connected:    true,
+				GatewayPhase: rpc.GatewayPhaseBackendLinkDown,
+			},
+			want: "Gateway backend link is down (TWS API remains reachable)",
+		},
+		{
 			name: "handshake pending",
 			in:   rpc.HealthResult{},
 			cli:  "v1.2.4",
@@ -712,6 +720,19 @@ func TestNextConcernPriority(t *testing.T) {
 				t.Fatalf("nextConcern(%+v) = %q, want %q", tc.in, got.Text, tc.want)
 			}
 		})
+	}
+}
+
+func TestHandshakeStateUsesTypedGatewayPhase(t *testing.T) {
+	t.Parallel()
+	if isHandshakeInFlight(rpc.HealthResult{GatewayPhase: rpc.GatewayPhasePortDown}) {
+		t.Fatal("typed port_down was misreported as an in-flight handshake")
+	}
+	if !isHandshakeInFlight(rpc.HealthResult{GatewayPhase: rpc.GatewayPhaseAPINotReady}) {
+		t.Fatal("typed api_not_ready must keep the bounded handshake poll active")
+	}
+	if got := formatTWSValue(rpc.HealthResult{GatewayPhase: rpc.GatewayPhaseBackendLinkDown, ServerVersion: 187}); got != "API server 187, IBKR backend link down" {
+		t.Fatalf("backend TWS value=%q", got)
 	}
 }
 

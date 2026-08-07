@@ -19,6 +19,7 @@ import (
 
 	mobileapp "github.com/osauer/canary/v2/internal/app"
 	"github.com/osauer/canary/v2/internal/app/auth"
+	apphttp "github.com/osauer/canary/v2/internal/app/http"
 	"github.com/osauer/canary/v2/internal/cli"
 	"github.com/osauer/canary/v2/internal/productidentity"
 )
@@ -33,6 +34,8 @@ func runApp(args []string) int {
 			return runAppPair(args[1:])
 		case "devices":
 			return runAppDevices(args[1:])
+		case "status":
+			return runAppStatus(args[1:])
 		case "restart":
 			return runAppRestart(args[1:])
 		case "serve":
@@ -40,6 +43,107 @@ func runApp(args []string) int {
 		}
 	}
 	return runAppServe(args)
+}
+
+func runAppStatus(args []string) int {
+	opts := mobileapp.DefaultOptions(effectiveVersion())
+	fs := flag.NewFlagSet(productidentity.Executable+" app status", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	usage := func(w io.Writer) {
+		fmt.Fprintf(w, "%s app status - inspect the local app host and alert pipeline.\n", productidentity.Executable)
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Usage: %s app status [--addr HOST:PORT] [--json]\n", productidentity.Executable)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Flags:")
+		printFlagDefaults(w, fs)
+	}
+	fs.Usage = func() { usage(os.Stdout) }
+	addr := fs.String("addr", opts.Addr, "local app host listen address")
+	asJSON := fs.Bool("json", false, "print the typed status as JSON")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		return rejectUnexpectedArgument(os.Stderr, productidentity.Executable+" app status", fs, usage)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	status, err := fetchAppStatus(ctx, strings.TrimSpace(*addr))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s app status: %v\n", productidentity.Executable, err)
+		return 1
+	}
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(status)
+	} else {
+		renderAppStatus(os.Stdout, status)
+	}
+	if !apphttp.AppStatusReady(status) {
+		return 1
+	}
+	return 0
+}
+
+func fetchAppStatus(ctx context.Context, addr string) (apphttp.AppStatusDTO, error) {
+	baseURL := "http://" + mobileapp.LoopbackAddrForLocalConnect(addr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+apphttp.AppStatusPath, nil)
+	if err != nil {
+		return apphttp.AppStatusDTO{}, err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return apphttp.AppStatusDTO{}, fmt.Errorf("connect to local app host at %s: %w (start it with `%s app`)", baseURL, err, productidentity.Executable)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return apphttp.AppStatusDTO{}, err
+	}
+	if res.StatusCode != http.StatusOK {
+		var body struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &body)
+		if body.Error == "" {
+			body.Error = res.Status
+		}
+		return apphttp.AppStatusDTO{}, errors.New(body.Error)
+	}
+	var status apphttp.AppStatusDTO
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return apphttp.AppStatusDTO{}, fmt.Errorf("decode app status: %w", err)
+	}
+	if status.SchemaVersion != apphttp.AppStatusSchemaVersion {
+		return apphttp.AppStatusDTO{}, fmt.Errorf("unsupported app status schema %q", status.SchemaVersion)
+	}
+	return status, nil
+}
+
+func renderAppStatus(w io.Writer, status apphttp.AppStatusDTO) {
+	fmt.Fprintf(w, "Canary app %s (%s)\n", strings.ToUpper(status.State), status.Version)
+	producer := "not initialized"
+	if status.AlertProducer.Initialized && status.AlertProducer.Coverage != nil {
+		coverage := status.AlertProducer.Coverage
+		producer = fmt.Sprintf("%d/%d sources covered, %s", len(coverage.CoveredSources), len(coverage.ExpectedSources), coverage.Freshness)
+	}
+	fmt.Fprintf(w, "  Alert producer    %s\n", producer)
+	dispatcher := status.AlertDispatcher.State
+	if status.AlertDispatcher.Class != "" {
+		dispatcher += " (" + status.AlertDispatcher.Class + ")"
+	}
+	fmt.Fprintf(w, "  Alert dispatcher  %s\n", nonEmptyAppStatus(dispatcher, "unknown"))
+}
+
+func nonEmptyAppStatus(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func runAppRestart(args []string) int {
@@ -353,6 +457,7 @@ func printAppUsage(w io.Writer) {
 	fmt.Fprintf(w, "  %s app restart [--addr HOST:PORT] [--public-url URL] [--remote] [--remote-url URL] [--state-dir PATH]\n", productidentity.Executable)
 	fmt.Fprintf(w, "  %s app pair [--addr HOST:PORT] [--public-url URL] [--json]\n", productidentity.Executable)
 	fmt.Fprintf(w, "  %s app devices [prune] [--keep-days N] [--addr HOST:PORT] [--json]\n", productidentity.Executable)
+	fmt.Fprintf(w, "  %s app status [--addr HOST:PORT] [--json]\n", productidentity.Executable)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "The app serves a mobile-first PWA, live SSE snapshots,")
 	fmt.Fprintln(w, "and opt-in Canary Web Push subscriptions. Pairing URLs are short-lived.")

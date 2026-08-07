@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"io"
@@ -12,7 +13,36 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/app/auth"
+	apphttp "github.com/osauer/canary/v2/internal/app/http"
+	"github.com/osauer/canary/v2/internal/app/state"
 )
+
+func TestFetchAppStatusRequiresTypedSchema(t *testing.T) {
+	t.Parallel()
+
+	want := apphttp.AppStatusDTO{
+		SchemaVersion: apphttp.AppStatusSchemaVersion,
+		Version:       "test",
+		State:         apphttp.AppStatusStateReady,
+		AlertDispatcher: apphttp.AlertDeliveryHealthDTO{
+			State: state.AlertDeliveryHealthHealthy,
+		},
+	}
+	addr := startAppStatusServer(t, want)
+	got, err := fetchAppStatus(context.Background(), addr)
+	if err != nil {
+		t.Fatalf("fetchAppStatus: %v", err)
+	}
+	if got.SchemaVersion != want.SchemaVersion || got.Version != want.Version || got.AlertDispatcher.State != want.AlertDispatcher.State {
+		t.Fatalf("status=%+v, want selected fields from %+v", got, want)
+	}
+
+	want.SchemaVersion = "app-status-future"
+	addr = startAppStatusServer(t, want)
+	if _, err := fetchAppStatus(context.Background(), addr); err == nil || !strings.Contains(err.Error(), "unsupported app status schema") {
+		t.Fatalf("future schema error=%v", err)
+	}
+}
 
 func TestCreatePairingSessionUsesAppPublicURLByDefault(t *testing.T) {
 	t.Parallel()
@@ -104,6 +134,28 @@ func startPairingSessionServer(t *testing.T, observe func([]byte)) string {
 			observe(body)
 		}
 		writePairingSession(t, w)
+	}))
+	srv.Listener = ln
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return ln.Addr().String()
+}
+
+func startAppStatusServer(t *testing.T, status apphttp.AppStatusDTO) string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != apphttp.AppStatusPath {
+			t.Errorf("request = %s %s, want GET %s", r.Method, r.URL.Path, apphttp.AppStatusPath)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	srv.Listener = ln
 	srv.Start()

@@ -137,6 +137,12 @@ func TestCommitObserverTracksDurableHeadAndFailureBlocksStore(t *testing.T) {
 	if health := store.Health(); health.Ready || health.Code != "head_watermark" {
 		t.Fatalf("health after observer failure=%+v", health)
 	}
+	if store.Health().RecoveryEligible {
+		t.Fatal("observer persistence failure must not be eligible for in-process recovery")
+	}
+	if recovered, err := store.RecoverTransientHeadWatermark(t.Context()); recovered || !errors.Is(err, ErrRecoveryNotEligible) {
+		t.Fatalf("observer failure recovery=(%v,%v), want not eligible", recovered, err)
+	}
 	if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{
 		ScopeKey: "test", Kind: "blocked", JSON: []byte(`{}`),
 	}); !errors.Is(err, ErrBlocked) {
@@ -154,6 +160,134 @@ func TestCommitObserverTracksDurableHeadAndFailureBlocksStore(t *testing.T) {
 	committed, ok, err := reopened.GetStateDocument(t.Context(), "test", "observer")
 	if err != nil || !ok || committed.Revision != 2 || string(committed.JSON) != `{"v":2}` {
 		t.Fatalf("committed mutation after observer failure: doc=%+v ok=%v err=%v", committed, ok, err)
+	}
+}
+
+func TestTransientCommittedHeadReadTimeoutRecoversOnlyAfterProof(t *testing.T) {
+	path := filepath.Join(privateTempDir(t), "daemon.db")
+	var observedMu sync.Mutex
+	var observed []AuthorityHead
+	store, err := Open(t.Context(), Options{
+		Path: path, BusyTimeout: 10 * time.Millisecond,
+		CommitObserver: func(head AuthorityHead) error {
+			observedMu.Lock()
+			observed = append(observed, head)
+			observedMu.Unlock()
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	realReadHead := store.readHead
+	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
+		<-ctx.Done()
+		return AuthorityHead{}, ctx.Err()
+	}
+	_, err = store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "recoverable", JSON: []byte(`{"v":1}`)})
+	if err == nil || !strings.Contains(err.Error(), "read committed authority head") {
+		t.Fatalf("mutation error=%v", err)
+	}
+	health := store.Health()
+	if health.Ready || health.Code != "head_watermark" || !health.RecoveryEligible {
+		t.Fatalf("recoverable health=%+v", health)
+	}
+	store.readHead = realReadHead
+	recovered, err := store.RecoverTransientHeadWatermark(t.Context())
+	if err != nil || !recovered {
+		t.Fatalf("recovery=(%v,%v)", recovered, err)
+	}
+	if health := store.Health(); !health.Ready || health.RecoveryEligible {
+		t.Fatalf("health after proof=%+v", health)
+	}
+	head, err := store.AuthorityHead(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedMu.Lock()
+	if len(observed) != 1 || observed[0] != head {
+		t.Fatalf("watermark observations=%+v head=%+v", observed, head)
+	}
+	observedMu.Unlock()
+	if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "after-recovery", JSON: []byte(`{}`)}); err != nil {
+		t.Fatalf("mutation after verified recovery: %v", err)
+	}
+}
+
+func TestTransientHeadRecoveryKeepsWritesBlockedUntilWatermarkProof(t *testing.T) {
+	path := filepath.Join(privateTempDir(t), "daemon.db")
+	store, err := Open(t.Context(), Options{Path: path, BusyTimeout: 10 * time.Millisecond, CommitObserver: func(AuthorityHead) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	realReadHead := store.readHead
+	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
+		<-ctx.Done()
+		return AuthorityHead{}, ctx.Err()
+	}
+	_, _ = store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "recoverable", JSON: []byte(`{}`)})
+	store.readHead = realReadHead
+
+	observerEntered := make(chan struct{})
+	releaseObserver := make(chan struct{})
+	var calls atomic.Int32
+	store.commitObserver = func(AuthorityHead) error {
+		if calls.Add(1) == 1 {
+			close(observerEntered)
+			<-releaseObserver
+		}
+		return nil
+	}
+	recoveryDone := make(chan error, 1)
+	go func() {
+		_, err := store.RecoverTransientHeadWatermark(context.Background())
+		recoveryDone <- err
+	}()
+	<-observerEntered
+	mutationDone := make(chan error, 1)
+	go func() {
+		_, err := store.CompareAndSwapStateDocument(context.Background(), StateDocumentCAS{ScopeKey: "test", Kind: "blocked-during-proof", JSON: []byte(`{}`)})
+		mutationDone <- err
+	}()
+	select {
+	case err := <-mutationDone:
+		t.Fatalf("mutation crossed recovery proof: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(releaseObserver)
+	if err := <-recoveryDone; err != nil {
+		t.Fatalf("recovery: %v", err)
+	}
+	if err := <-mutationDone; err != nil {
+		t.Fatalf("mutation after recovery proof: %v", err)
+	}
+}
+
+func TestTransientHeadRecoveryDoesNotUnlockWhenWatermarkPersistenceIsUncertain(t *testing.T) {
+	path := filepath.Join(privateTempDir(t), "daemon.db")
+	store, err := Open(t.Context(), Options{Path: path, BusyTimeout: 10 * time.Millisecond, CommitObserver: func(AuthorityHead) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	realReadHead := store.readHead
+	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
+		<-ctx.Done()
+		return AuthorityHead{}, ctx.Err()
+	}
+	_, _ = store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "recoverable", JSON: []byte(`{}`)})
+	store.readHead = realReadHead
+	store.commitObserver = func(AuthorityHead) error { return errors.New("watermark unavailable") }
+	if recovered, err := store.RecoverTransientHeadWatermark(t.Context()); recovered || err == nil {
+		t.Fatalf("uncertain watermark recovery=(%v,%v)", recovered, err)
+	}
+	if health := store.Health(); health.Ready || !health.RecoveryEligible {
+		t.Fatalf("uncertain watermark must stay fail-closed and retryable: %+v", health)
+	}
+	if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "still-blocked", JSON: []byte(`{}`)}); !errors.Is(err, ErrBlocked) {
+		t.Fatalf("mutation after uncertain proof=%v, want ErrBlocked", err)
 	}
 }
 
@@ -545,7 +679,13 @@ func TestIntegrityForeignKeyRefusalAndHealthLatch(t *testing.T) {
 		if health.Ready || health.Code != "busy" {
 			t.Fatalf("health=%+v", health)
 		}
+		if health.RecoveryEligible {
+			t.Fatal("critical busy failure must not be eligible for in-process recovery")
+		}
 		_, _ = locker.Exec(`ROLLBACK`)
+		if recovered, err := s.RecoverTransientHeadWatermark(t.Context()); recovered || !errors.Is(err, ErrRecoveryNotEligible) {
+			t.Fatalf("critical busy recovery=(%v,%v), want not eligible", recovered, err)
+		}
 		if _, err := s.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "x", Kind: "y", JSON: []byte(`{}`)}); !errors.Is(err, ErrBlocked) {
 			t.Fatalf("blocked latch error=%v", err)
 		}

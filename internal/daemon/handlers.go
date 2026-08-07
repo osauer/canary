@@ -3950,6 +3950,25 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		res.DataFarms = statusDataFarms(farmStatuses)
 		res.MarketDataAccess = statusMarketDataAccess(c.MarketDataAbsences())
 	}
+	localConnected, apiReady, backendDown := false, false, false
+	if c != nil {
+		localConnected = c.IsConnected()
+		apiReady = c.IsReady()
+		var backendAt time.Time
+		backendDown, backendAt = c.BackendLinkStatus()
+		if backendDown {
+			res.GatewayPhaseAt = backendAt
+		}
+	}
+	res.GatewayPhase = statusGatewayPhase(
+		localConnected,
+		apiReady,
+		setupComplete,
+		connectInFlight,
+		backendDown,
+		lastErr,
+		time.Since(s.startedAt),
+	)
 	res.AccountMode = accountModeForStatus(ep.Port, accountForMode)
 
 	// BackgroundTasks lists daemon-internal long-running computes
@@ -3991,13 +4010,32 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 			res.ConnectedAccount = pin
 		}
 	}
-	gatewayPhase := alertShadowGatewayPhaseForHealth(res.Connected, setupComplete, connectInFlight, lastErr, time.Since(s.startedAt))
+	gatewayPhase := alertShadowGatewayPhaseForHealth(res.GatewayPhase, setupComplete, connectInFlight, time.Since(s.startedAt))
 	observedAt := time.Now().UTC()
 	if s.now != nil {
 		observedAt = s.now().UTC()
 	}
 	s.observeDataHealthAlertShadow(res, shadowScope, gatewayPhase, observedAt)
 	return res
+}
+
+// statusGatewayPhase classifies the exact connectivity boundary without
+// parsing broker or dial error text. Startup grace preserves the existing
+// connecting state before the first local socket verdict arrives.
+func statusGatewayPhase(localConnected, apiReady, setupComplete, connectInFlight, backendDown bool, lastError string, uptime time.Duration) string {
+	if localConnected {
+		if backendDown {
+			return rpc.GatewayPhaseBackendLinkDown
+		}
+		if apiReady && setupComplete {
+			return rpc.GatewayPhaseReady
+		}
+		return rpc.GatewayPhaseAPINotReady
+	}
+	if connectInFlight || (!setupComplete && strings.TrimSpace(lastError) == "" && uptime < alertShadowGatewayStartupGrace) {
+		return rpc.GatewayPhaseConnecting
+	}
+	return rpc.GatewayPhasePortDown
 }
 
 func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus) []rpc.SubsystemHealth {

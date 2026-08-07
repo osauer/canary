@@ -1,7 +1,10 @@
 package ibkr
 
 import (
+	"bufio"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -189,5 +192,140 @@ func TestContractDetailsDerivativeRejectionDoesNotMark(t *testing.T) {
 
 	if c.IsSymbolInactive("SPY") {
 		t.Fatal("option-probe rejections must not mark the underlying")
+	}
+}
+
+func TestConcurrentContractResolutionSharesTerminalHGENQResultWithoutSlots(t *testing.T) {
+	c := readyBrokerEvidenceTestConnector(t)
+	var out safeBuffer
+	c.conn.writer = bufio.NewWriter(&out)
+	setServerVersionReady(c.conn, minServerVersionRequired)
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := c.FetchContractDetails("HGENQ", time.Second)
+			results <- err
+		}()
+	}
+	close(start)
+	reqID := waitForSharedContractDetailsFlight(t, c, "symbol\x00HGENQ", 2)
+	c.processSystemNotice(reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+		tickerID: int64(reqID), code: 200, message: "No security definition has been found for the request",
+	})
+	for range 2 {
+		if err := <-results; !errors.Is(err, ErrContractNoDefinition) {
+			t.Fatalf("shared terminal result=%v", err)
+		}
+	}
+	if c.IsSymbolInactive("HGENQ") {
+		t.Fatal("one shared broker answer counted as multiple inactive confirmations")
+	}
+	if got := c.conn.rateLimiter.marketDataSubs.Count(); got != 0 {
+		t.Fatalf("contract resolution consumed market-data slots: %d", got)
+	}
+
+	second := make(chan error, 1)
+	go func() {
+		_, err := c.FetchContractDetails("HGENQ", time.Second)
+		second <- err
+	}()
+	secondReqID := waitForSharedContractDetailsFlight(t, c, "symbol\x00HGENQ", 1)
+	c.processSystemNotice(reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+		tickerID: int64(secondReqID), code: 200, message: "No security definition has been found for the request",
+	})
+	if err := <-second; !errors.Is(err, ErrContractNoDefinition) {
+		t.Fatalf("second terminal result=%v", err)
+	}
+	if !c.IsSymbolInactive("HGENQ") {
+		t.Fatal("two independent healthy-farm broker answers did not mark HGENQ inactive")
+	}
+}
+
+func TestContractResolutionLeaderTimeoutDoesNotEndSharedWireFlight(t *testing.T) {
+	c := readyBrokerEvidenceTestConnector(t)
+	var out safeBuffer
+	c.conn.writer = bufio.NewWriter(&out)
+	setServerVersionReady(c.conn, minServerVersionRequired)
+
+	leader := make(chan error, 1)
+	go func() {
+		_, err := c.FetchContractDetails("HGENQ", 20*time.Millisecond)
+		leader <- err
+	}()
+	reqID := waitForSharedContractDetailsFlight(t, c, "symbol\x00HGENQ", 1)
+
+	follower := make(chan error, 1)
+	go func() {
+		_, err := c.FetchContractDetails("HGENQ", time.Second)
+		follower <- err
+	}()
+	waitForSharedContractDetailsFlight(t, c, "symbol\x00HGENQ", 2)
+	if err := <-leader; !errors.Is(err, ErrContractDetailsTimeout) {
+		t.Fatalf("short-budget leader error=%v, want timeout", err)
+	}
+
+	c.processSystemNotice(reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+		tickerID: int64(reqID), code: 200, message: "No security definition has been found for the request",
+	})
+	if err := <-follower; !errors.Is(err, ErrContractNoDefinition) {
+		t.Fatalf("long-budget follower error=%v, want shared terminal result", err)
+	}
+	if c.IsSymbolInactive("HGENQ") {
+		t.Fatal("one shared terminal broker answer counted as multiple inactive confirmations")
+	}
+	if got := c.conn.rateLimiter.marketDataSubs.Count(); got != 0 {
+		t.Fatalf("contract resolution consumed market-data slots: %d", got)
+	}
+}
+
+func waitForSharedContractDetailsFlight(t *testing.T, c *Connector, key string, waiters int) int {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		c.contractDetailsFlightMu.Lock()
+		flight := c.contractDetailsFlights[key]
+		joined := flight != nil && flight.waiters >= waiters
+		c.contractDetailsFlightMu.Unlock()
+		if joined {
+			c.contractDetailsMu.Lock()
+			for reqID := range c.contractDetailsReqs {
+				c.contractDetailsMu.Unlock()
+				return reqID
+			}
+			c.contractDetailsMu.Unlock()
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("contract-details flight %q did not reach %d waiters", key, waiters)
+	return 0
+}
+
+func TestContractWarningCoalescerSummarizesRepeats(t *testing.T) {
+	c := NewConnector(&ConnectorConfig{})
+	t.Cleanup(func() { c.conn.rateLimiter.Stop() })
+	now := time.Date(2026, time.August, 7, 8, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	c.contractWarningNow = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	if got, emit := c.coalesceContractWarning("HGENQ", time.Minute, "unresolved HGENQ"); !emit || got != "unresolved HGENQ" {
+		t.Fatalf("first warning=(%q,%v)", got, emit)
+	}
+	for range 3 {
+		if got, emit := c.coalesceContractWarning("HGENQ", time.Minute, "unresolved HGENQ"); emit || got != "" {
+			t.Fatalf("repeat warning=(%q,%v)", got, emit)
+		}
+	}
+	mu.Lock()
+	now = now.Add(time.Minute)
+	mu.Unlock()
+	got, emit := c.coalesceContractWarning("HGENQ", time.Minute, "unresolved HGENQ")
+	if !emit || !strings.Contains(got, "3 identical warnings suppressed") {
+		t.Fatalf("summary warning=(%q,%v)", got, emit)
 	}
 }

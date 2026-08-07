@@ -92,6 +92,7 @@ func Register(deps Dependencies) {
 	srv.POST("/api/pairing/sessions", h.handleStartPairing)
 	srv.GET("/api/devices", h.handleDevicesList)
 	srv.POST("/api/devices/prune", h.handleDevicesPrune)
+	srv.GET(AppStatusPath, h.handleAppStatus)
 	srv.POST("/api/pairing/complete", h.handleCompletePairing)
 	srv.POST("/api/auth/challenge", h.handleAuthChallenge)
 	srv.POST("/api/auth/session", h.handleAuthSession)
