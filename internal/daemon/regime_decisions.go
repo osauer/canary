@@ -144,11 +144,11 @@ func (j *regimeDecisionJournal) appendPublicationContext(ctx context.Context, no
 		now = publication.PublishedAt
 	}
 	fp := res.Fingerprint.Key
-	// Authoritative publications use a revision-stable event key and must
-	// project every accepted revision. Fingerprint heartbeat deduplication is
-	// retained only for legacy/import callers that have no publication
-	// identity; otherwise a projection receipt could claim revision N while
-	// the decision journal contained only an older, equal-fingerprint event.
+	// Authoritative publications reach this writer only after the durable
+	// projection marker selected the recorded disposition. They use a
+	// revision-stable event key; equal-fingerprint skips are represented by
+	// that marker and never enter this append path. Legacy/import callers have
+	// no publication identity, so they retain process-local heartbeat dedupe.
 	if publication.Revision == 0 && fp != "" && fp == j.lastFingerprint && now.Sub(j.lastWrite) < regimeDecisionHeartbeat {
 		return nil
 	}

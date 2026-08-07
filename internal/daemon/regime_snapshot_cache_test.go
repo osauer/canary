@@ -282,6 +282,79 @@ func TestRegimeSnapshotCacheDeepCopiesIngressAndEveryEgress(t *testing.T) {
 	}
 }
 
+func TestRegimeSnapshotCachePublishesEqualFingerprintWithoutDuplicateDecisionEvent(t *testing.T) {
+	store := openRegimeSnapshotTestStore(t)
+	daemonContext, cancelDaemon := context.WithCancel(context.Background())
+	t.Cleanup(cancelDaemon)
+	clock := &regimeSnapshotTestClock{now: regimeSnapshotTestNow()}
+	cache := newRegimeSnapshotTestCache(t, store, daemonContext, clock)
+	server := &Server{
+		coreStore:       store,
+		regimeDecisions: &regimeDecisionJournal{core: store},
+		logger:          NewLogger(&bytes.Buffer{}, "error"),
+	}
+	firstSnapshot := regimeSnapshotCacheFixture(clock.Now(), "first raw snapshot")
+	refresh := func(snapshot *rpc.RegimeSnapshotResult) regimeSnapshotRefreshFunc {
+		return func(context.Context) (*rpc.RegimeSnapshotResult, bool, regimeSnapshotAfterPublishFunc, error) {
+			return snapshot, true, func(ctx context.Context, publication regimeSnapshotPublication) error {
+				return server.commitRegimeSnapshotProjections(ctx, snapshot, nil, publication)
+			}, nil
+		}
+	}
+	first, err := cache.serve(t.Context(), refresh(firstSnapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Health.LastSuccessAt == nil {
+		t.Fatal("initial publication has no success time")
+	}
+
+	clock.Set(first.Health.LastSuccessAt.Add(2 * time.Minute))
+	secondSnapshot := regimeSnapshotCacheFixture(clock.Now(), "new raw snapshot")
+	if secondSnapshot.Fingerprint != firstSnapshot.Fingerprint {
+		t.Fatalf("fixture fingerprints differ: first=%+v second=%+v", firstSnapshot.Fingerprint, secondSnapshot.Fingerprint)
+	}
+	if bytes.Equal(mustEncodeRegimeSnapshotDocument(t, firstSnapshot), mustEncodeRegimeSnapshotDocument(t, secondSnapshot)) {
+		t.Fatal("fixture raw snapshots are equal; test does not exercise equal-fingerprint publication")
+	}
+	if _, err := cache.serve(t.Context(), refresh(secondSnapshot)); err != nil {
+		t.Fatal(err)
+	}
+	cache.wait()
+
+	current, err := cache.current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Revision != 2 || current.Snapshot == nil || current.Snapshot.Summary.Label != "new raw snapshot" {
+		t.Fatalf("current publication=%+v", current)
+	}
+	events, err := loadAllCoreEvents(t.Context(), store, coreEventRegimeDecision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("equal fingerprint wrote %d regime decisions, want one initial event", len(events))
+	}
+	receipt, ok, err := server.loadRegimeProjectionReceipt(t.Context())
+	if err != nil || !ok || receipt.Version != regimeProjectionReceiptVersion ||
+		receipt.SnapshotRevision != 2 || receipt.DecisionEvent != regimeDecisionEventSkippedUnchanged {
+		t.Fatalf("projection receipt=%+v ok=%v err=%v", receipt, ok, err)
+	}
+	if err := server.reconcileRegimeSnapshotProjections(t.Context(), cache); err != nil {
+		t.Fatalf("restart-style projection validation: %v", err)
+	}
+}
+
+func mustEncodeRegimeSnapshotDocument(t *testing.T, snapshot *rpc.RegimeSnapshotResult) []byte {
+	t.Helper()
+	raw, _, err := encodeRegimeSnapshotDocument(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func TestRegimeSnapshotCacheWarmStaleServesImmediatelyAndRefreshOutlivesCaller(t *testing.T) {
 	store := openRegimeSnapshotTestStore(t)
 	daemonContext, cancelDaemon := context.WithCancel(context.Background())

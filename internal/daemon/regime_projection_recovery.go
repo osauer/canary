@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -15,14 +16,17 @@ import (
 )
 
 const (
-	regimeProjectionReceiptKind    = "regime_snapshot.projections.v1"
-	regimeProjectionReceiptVersion = 2
-	regimeProjectionReceiptLegacy  = 1
+	regimeProjectionReceiptKind     = "regime_snapshot.projections.v1"
+	regimeProjectionReceiptVersion  = 3
+	regimeProjectionReceiptPrevious = 2
+	regimeProjectionReceiptLegacy   = 1
 
-	regimeDecisionProjectionStateKind    = "regime_snapshot.decision_projection.v1"
-	regimeDecisionProjectionStateVersion = 1
-	regimeDecisionEventRecorded          = "recorded"
-	regimeDecisionEventDisabled          = "disabled_by_setting"
+	regimeDecisionProjectionStateKind     = "regime_snapshot.decision_projection.v1"
+	regimeDecisionProjectionStateVersion  = 2
+	regimeDecisionProjectionStatePrevious = 1
+	regimeDecisionEventRecorded           = "recorded"
+	regimeDecisionEventSkippedUnchanged   = "skipped_unchanged"
+	regimeDecisionEventDisabled           = "disabled_by_setting"
 )
 
 // regimeProjectionReceipt is written only after streaks, the rule-stage
@@ -320,7 +324,8 @@ func exactRegimeSnapshotPublication(left, right regimeSnapshotPublication) bool 
 }
 
 func validRegimeDecisionEventDisposition(disposition string) bool {
-	return disposition == regimeDecisionEventRecorded || disposition == regimeDecisionEventDisabled
+	return disposition == regimeDecisionEventRecorded || disposition == regimeDecisionEventSkippedUnchanged ||
+		disposition == regimeDecisionEventDisabled
 }
 
 func decodeRegimeProjectionReceipt(raw []byte) (regimeProjectionReceipt, error) {
@@ -337,7 +342,8 @@ func decodeRegimeProjectionReceipt(raw []byte) (regimeProjectionReceipt, error) 
 		}
 		return regimeProjectionReceipt{}, err
 	}
-	if receipt.Version != regimeProjectionReceiptVersion && receipt.Version != regimeProjectionReceiptLegacy {
+	if receipt.Version != regimeProjectionReceiptVersion && receipt.Version != regimeProjectionReceiptPrevious &&
+		receipt.Version != regimeProjectionReceiptLegacy {
 		return regimeProjectionReceipt{}, errors.New("regime projection receipt version is invalid")
 	}
 	if receipt.SnapshotRevision <= 0 || receipt.SnapshotPublishedAt.IsZero() || receipt.SnapshotFingerprint.Key == "" || receipt.SnapshotFingerprint.Version == "" {
@@ -345,6 +351,10 @@ func decodeRegimeProjectionReceipt(raw []byte) (regimeProjectionReceipt, error) 
 	}
 	if receipt.Version == regimeProjectionReceiptVersion && !validRegimeDecisionEventDisposition(receipt.DecisionEvent) {
 		return regimeProjectionReceipt{}, errors.New("regime projection receipt decision event disposition is invalid")
+	}
+	if receipt.Version == regimeProjectionReceiptPrevious &&
+		(receipt.DecisionEvent != regimeDecisionEventRecorded && receipt.DecisionEvent != regimeDecisionEventDisabled) {
+		return regimeProjectionReceipt{}, errors.New("previous regime projection receipt decision event disposition is invalid")
 	}
 	if receipt.Version == regimeProjectionReceiptLegacy && receipt.DecisionEvent != "" {
 		return regimeProjectionReceipt{}, errors.New("legacy regime projection receipt has a decision event disposition")
@@ -708,7 +718,15 @@ func (s *Server) reconcileRegimeDecisionProjection(ctx context.Context, snapshot
 	} else if currentOK {
 		disposition = regimeDecisionEventRecorded
 	} else if s.regimeJournalEnabled() {
-		disposition = regimeDecisionEventRecorded
+		skip, err := regimeDecisionPublicationCanSkip(events, publication, plan)
+		if err != nil {
+			return "", err
+		}
+		if skip {
+			disposition = regimeDecisionEventSkippedUnchanged
+		} else {
+			disposition = regimeDecisionEventRecorded
+		}
 	} else {
 		disposition = regimeDecisionEventDisabled
 	}
@@ -752,6 +770,17 @@ func (s *Server) reconcileRegimeDecisionProjection(ctx context.Context, snapshot
 	case regimeDecisionEventDisabled:
 		if currentOK {
 			return "", fmt.Errorf("regime decision event exists at disabled snapshot revision %d", publication.Revision)
+		}
+	case regimeDecisionEventSkippedUnchanged:
+		if currentOK {
+			return "", fmt.Errorf("regime decision event exists at skipped snapshot revision %d", publication.Revision)
+		}
+		eligible, err := regimeDecisionSkipAnchorEligible(events, publication)
+		if err != nil {
+			return "", err
+		}
+		if !eligible {
+			return "", fmt.Errorf("regime decision skip at snapshot revision %d has no current heartbeat anchor", publication.Revision)
 		}
 	default:
 		return "", fmt.Errorf("regime decision projection disposition %q is invalid", disposition)
@@ -827,6 +856,51 @@ func validateRegimeDecisionProjectionEvent(event corestore.EventRecord, line reg
 	return nil
 }
 
+// regimeDecisionPublicationCanSkip decides only new publications. A transition,
+// first publication, or re-enabled journal always records. Equal fingerprints
+// may skip only while an exact prior event remains inside the hourly heartbeat
+// window; the durable marker then records that the missing revision event is
+// intentional rather than a crash gap.
+func regimeDecisionPublicationCanSkip(events []corestore.EventRecord, publication regimeSnapshotPublication, plan regimeProjectionPlan) (bool, error) {
+	if plan.previous == nil || plan.previousDecision == regimeDecisionEventDisabled ||
+		plan.previous.Fingerprint != publication.Fingerprint {
+		return false, nil
+	}
+	if plan.previousDecision != regimeDecisionEventRecorded && plan.previousDecision != regimeDecisionEventSkippedUnchanged {
+		return false, fmt.Errorf("regime decision projection cannot advance prior disposition %q", plan.previousDecision)
+	}
+	return regimeDecisionSkipAnchorEligible(events, publication)
+}
+
+// regimeDecisionSkipAnchorEligible validates the latest recorded authoritative
+// event as the heartbeat anchor for a skipped revision. It intentionally does
+// not accept a same-fingerprint event older than the heartbeat or a loose event
+// tuple: restart recovery must distinguish an intentional skip from missing
+// evidence using only durable state.
+func regimeDecisionSkipAnchorEligible(events []corestore.EventRecord, publication regimeSnapshotPublication) (bool, error) {
+	for _, event := range slices.Backward(events) {
+		var line regimeDecisionLine
+		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
+			return false, fmt.Errorf("decode regime decision heartbeat anchor: %w", err)
+		}
+		if line.SnapshotRevision <= 0 || line.SnapshotRevision >= publication.Revision {
+			continue
+		}
+		wantKey := fmt.Sprintf("%s:snapshot:%020d", coreEventRegimeDecision, line.SnapshotRevision)
+		if event.EventKey != wantKey || !event.OccurredAt.Equal(line.TS) ||
+			!line.SnapshotPublishedAt.Equal(line.TS) || line.SnapshotFingerprint.Key == "" ||
+			line.SnapshotFingerprint.Version == "" || line.Fingerprint != line.SnapshotFingerprint.Key {
+			return false, fmt.Errorf("regime decision heartbeat anchor is not exact at snapshot revision %d", line.SnapshotRevision)
+		}
+		age := publication.PublishedAt.Sub(event.OccurredAt)
+		if age < 0 {
+			return false, fmt.Errorf("regime decision heartbeat anchor at snapshot revision %d is ahead of publication revision %d", line.SnapshotRevision, publication.Revision)
+		}
+		return line.SnapshotFingerprint == publication.Fingerprint && age < regimeDecisionHeartbeat, nil
+	}
+	return false, nil
+}
+
 func validatePriorRegimeDecisionDisposition(events []corestore.EventRecord, publication regimeSnapshotPublication, disposition string) error {
 	event, line, ok, err := findRegimeDecisionProjectionEvent(events, publication.Revision)
 	if err != nil {
@@ -844,6 +918,17 @@ func validatePriorRegimeDecisionDisposition(events []corestore.EventRecord, publ
 	case regimeDecisionEventDisabled:
 		if ok {
 			return fmt.Errorf("receipted disabled regime decision event exists at snapshot revision %d", publication.Revision)
+		}
+	case regimeDecisionEventSkippedUnchanged:
+		if ok {
+			return fmt.Errorf("receipted skipped regime decision event exists at snapshot revision %d", publication.Revision)
+		}
+		eligible, err := regimeDecisionSkipAnchorEligible(events, publication)
+		if err != nil {
+			return err
+		}
+		if !eligible {
+			return fmt.Errorf("receipted regime decision skip at snapshot revision %d has no current heartbeat anchor", publication.Revision)
 		}
 	default:
 		return fmt.Errorf("receipted regime decision disposition %q is invalid", disposition)
@@ -870,7 +955,12 @@ func (s *Server) loadRegimeDecisionProjectionState(ctx context.Context) (regimeD
 		return regimeDecisionProjectionState{}, false, doc, fmt.Errorf("decode regime decision projection marker: %w", err)
 	}
 	publication := regimeDecisionProjectionPublication(state)
-	if state.Version != regimeDecisionProjectionStateVersion || validateRegimeSnapshotPublication(publication) != nil || !validRegimeDecisionEventDisposition(state.DecisionEvent) {
+	validVersion := state.Version == regimeDecisionProjectionStateVersion || state.Version == regimeDecisionProjectionStatePrevious
+	validDisposition := validRegimeDecisionEventDisposition(state.DecisionEvent)
+	if state.Version == regimeDecisionProjectionStatePrevious && state.DecisionEvent == regimeDecisionEventSkippedUnchanged {
+		validDisposition = false
+	}
+	if !validVersion || validateRegimeSnapshotPublication(publication) != nil || !validDisposition {
 		return regimeDecisionProjectionState{}, false, doc, errors.New("decode regime decision projection marker: invalid state")
 	}
 	return state, true, doc, nil

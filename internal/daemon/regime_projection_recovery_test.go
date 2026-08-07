@@ -558,7 +558,7 @@ func TestRegimeDecisionProjectionStableReplayDoesNotDuplicate(t *testing.T) {
 	}
 }
 
-func TestRegimeDecisionProjectionRecordsEqualFingerprintForEveryPublicationRevision(t *testing.T) {
+func TestRegimeDecisionProjectionSkipsEqualFingerprintsUntilHourlyHeartbeat(t *testing.T) {
 	store := openRegimeSnapshotTestStore(t)
 	server := &Server{
 		coreStore:       store,
@@ -570,21 +570,34 @@ func TestRegimeDecisionProjectionRecordsEqualFingerprintForEveryPublicationRevis
 	snapshot.Lifecycle.Stage = rpc.LifecycleEarlyWarning
 	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
 
-	var previous *regimeSnapshotPublication
-	for revision := int64(7); revision <= 8; revision++ {
-		publication := regimeSnapshotPublication{
-			Revision: revision, PublishedAt: publishedAt.Add(time.Duration(revision-7) * time.Second),
-			Fingerprint: snapshot.Fingerprint,
-		}
-		plan := regimeProjectionPlan{publication: publication, initial: revision == 7, previous: previous}
+	var (
+		previous            *regimeSnapshotPublication
+		previousDisposition string
+		dispositions        []string
+	)
+	publications := []regimeSnapshotPublication{
+		{Revision: 7, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint},
+		{Revision: 8, PublishedAt: publishedAt.Add(time.Second), Fingerprint: snapshot.Fingerprint},
+		{Revision: 9, PublishedAt: publishedAt.Add(regimeDecisionHeartbeat), Fingerprint: snapshot.Fingerprint},
+	}
+	for _, publication := range publications {
+		plan := regimeProjectionPlan{publication: publication, initial: publication.Revision == 7, previous: previous}
 		if previous != nil {
-			plan.previousDecision = regimeDecisionEventRecorded
+			plan.previousDecision = previousDisposition
 		}
-		if _, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, plan); err != nil {
-			t.Fatalf("reconcile revision %d: %v", revision, err)
+		disposition, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, plan)
+		if err != nil {
+			t.Fatalf("reconcile revision %d: %v", publication.Revision, err)
 		}
+		dispositions = append(dispositions, disposition)
 		publicationCopy := publication
 		previous = &publicationCopy
+		previousDisposition = disposition
+	}
+	if got, want := fmt.Sprint(dispositions), fmt.Sprint([]string{
+		regimeDecisionEventRecorded, regimeDecisionEventSkippedUnchanged, regimeDecisionEventRecorded,
+	}); got != want {
+		t.Fatalf("dispositions=%s, want %s", got, want)
 	}
 
 	events, err := loadAllCoreEvents(t.Context(), store, coreEventRegimeDecision)
@@ -592,10 +605,10 @@ func TestRegimeDecisionProjectionRecordsEqualFingerprintForEveryPublicationRevis
 		t.Fatal(err)
 	}
 	if len(events) != 2 {
-		t.Fatalf("events=%d, want one exact event per publication revision", len(events))
+		t.Fatalf("events=%d, want initial transition plus hourly heartbeat", len(events))
 	}
-	for index, event := range events {
-		wantRevision := int64(index + 7)
+	for index, wantRevision := range []int64{7, 9} {
+		event := events[index]
 		wantKey := fmt.Sprintf("regime_decision:snapshot:%020d", wantRevision)
 		if event.EventKey != wantKey {
 			t.Fatalf("event %d key=%q, want %q", index, event.EventKey, wantKey)
@@ -607,6 +620,33 @@ func TestRegimeDecisionProjectionRecordsEqualFingerprintForEveryPublicationRevis
 		if line.SnapshotRevision != wantRevision || line.Fingerprint != snapshot.Fingerprint.Key {
 			t.Fatalf("event %d line=%+v", index, line)
 		}
+	}
+}
+
+func TestRegimeDecisionSkippedDispositionRequiresDurableHeartbeatAnchor(t *testing.T) {
+	publishedAt := time.Date(2026, 7, 21, 15, 10, 0, 0, time.UTC)
+	snapshot := regimeSnapshotCacheFixture(publishedAt, "skipped recovery")
+	snapshot.Lifecycle.Stage = rpc.LifecycleEarlyWarning
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
+	store := openRegimeSnapshotTestStore(t)
+	server := &Server{coreStore: store, regimeDecisions: &regimeDecisionJournal{core: store}, logger: NewLogger(&bytes.Buffer{}, "error")}
+	if err := server.persistRegimeDecisionProjectionState(
+		t.Context(), corestore.StateDocument{}, false, publication, regimeDecisionEventSkippedUnchanged,
+	); err != nil {
+		t.Fatal(err)
+	}
+	_, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, regimeProjectionPlan{
+		publication: publication,
+		receipt: regimeProjectionReceipt{
+			Version: regimeProjectionReceiptVersion, SnapshotRevision: publication.Revision,
+			SnapshotPublishedAt: publication.PublishedAt, SnapshotFingerprint: publication.Fingerprint,
+			DecisionEvent: regimeDecisionEventSkippedUnchanged,
+		},
+		receiptOK: true, validateOnly: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "no current heartbeat anchor") {
+		t.Fatalf("skipped projection without anchor error=%v", err)
 	}
 }
 
