@@ -871,8 +871,12 @@ func TestGammaZeroCache_LongComputeGetsFullSoftTTLAfterSuccess(t *testing.T) {
 	scope := rpc.GammaZeroScopeCombined
 
 	var computeRuns atomic.Int32
+	refreshRelease := make(chan struct{})
 	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
 		run := computeRuns.Add(1)
+		if run == 2 {
+			<-refreshRelease
+		}
 		return &rpc.GammaZeroComputed{SpotUnderlying: 5000 + float64(run)}, nil
 	}
 
@@ -911,9 +915,15 @@ func TestGammaZeroCache_LongComputeGetsFullSoftTTLAfterSuccess(t *testing.T) {
 	refresh := c.slots[scope].refresh
 	c.mu.Unlock()
 	if refresh == nil {
+		close(refreshRelease)
 		t.Fatal("due poll did not start a background refresh")
 	}
-	<-refresh.done
+	close(refreshRelease)
+	select {
+	case <-refresh.done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for background refresh")
+	}
 	if runs := computeRuns.Load(); runs != 2 {
 		t.Fatalf("due poll started %d computes, want 2", runs)
 	}
