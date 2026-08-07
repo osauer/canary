@@ -76,14 +76,23 @@ func TestReconNudgeAccessorUsesOpaqueBrokerBackedContentIdentity(t *testing.T) {
 		t.Fatalf("report=%+v snapshot=%+v", report, snapshot)
 	}
 	facts := snapshot.NudgeConfirmedFlows
-	if facts.PolicyVersion != 4 || !strings.HasPrefix(facts.ReportIdentity, "sha256:") || len(facts.ConfirmedRows) != 1 || !strings.HasPrefix(facts.ConfirmedRows[0], "sha256:") {
+	if facts.PolicyVersion != 4 || len(facts.ConfirmedRows) != 1 {
 		t.Fatalf("nudge facts=%+v", facts)
 	}
-	raw, _ := json.Marshal(facts)
-	for _, forbidden := range []string{"private-line-id", report.ReportID, "hostile broker prose", "123"} {
-		if strings.Contains(string(raw), forbidden) {
-			t.Fatalf("nudge accessor leaked %q: %s", forbidden, raw)
+	for name, identity := range map[string]string{
+		"policy": facts.PolicyIdentity,
+		"report": facts.ReportIdentity,
+		"row":    facts.ConfirmedRows[0],
+	} {
+		if !validSHA256Fingerprint(identity) {
+			t.Fatalf("nudge %s identity is not an opaque SHA-256 fingerprint: %q", name, identity)
 		}
+	}
+	if want := opaqueIdentity("recon-report", report.ReportID); facts.ReportIdentity != want {
+		t.Fatalf("report identity=%q want %q", facts.ReportIdentity, want)
+	}
+	if want := confirmedFlowContentIdentity(report.Confirmed[0]); facts.ConfirmedRows[0] != want {
+		t.Fatalf("confirmed-row identity=%q want %q", facts.ConfirmedRows[0], want)
 	}
 }
 
