@@ -108,9 +108,8 @@ before committing and whenever a change spans several of the above. Running it
 over a change no gate inspects proves nothing — report the gates you chose and
 why, rather than a green check that examined none of your edits.
 
-For intermediate checkpoint commits, `make commit-check` may verify the exact
-staged tree with a conservative impact-aware plan. Its cache and partial plan
-are never final handoff, CI, or release evidence.
+`make commit-check` remains a compatibility alias for `make check`; v3 retired
+the separate staged-tree planner so there is one canonical repository gate.
 
 `make smoke-fast` is the default live-gateway gate; full
 `make smoke` is required for daemon, CLI, or wire-path changes and for releases.

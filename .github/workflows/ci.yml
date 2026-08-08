@@ -66,7 +66,7 @@ jobs:
         run: make test-internal
 
   test-daemon-default:
-    name: make test-daemon-default (sharded -race)
+    name: make test-daemon-default (-race)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,11 +77,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: make test-daemon-default (shards + hermetic integration)
+      - name: make test-daemon-default
         run: make test-daemon-default
 
   test-daemon-trading:
-    name: make test-daemon-trading (sharded -race)
+    name: make test-daemon-trading (-race)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +92,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: make test-daemon-trading (trading shards)
+      - name: make test-daemon-trading
         run: make test-daemon-trading
 
   app-render:

@@ -51,8 +51,8 @@ write_manifest() {
       "jobs": [
         "make check (lint + vet + vulncheck + parity)",
         "make test (ubuntu-latest)",
-        "make test-daemon-default (sharded -race)",
-        "make test-daemon-trading (sharded -race)",
+        "make test-daemon-default (-race)",
+        "make test-daemon-trading (-race)",
         "isolated Canary app render",
         "cross-compile release matrix"
       ]
@@ -128,16 +128,16 @@ jobs:
       - name: make test-internal (-race; internal minus daemon root)
         run: make test-internal
   test-daemon-default:
-    name: make test-daemon-default (sharded -race)
+    name: make test-daemon-default (-race)
     runs-on: ubuntu-latest
     steps:
-      - name: make test-daemon-default (shards + hermetic integration)
+      - name: make test-daemon-default
         run: make test-daemon-default
   test-daemon-trading:
-    name: make test-daemon-trading (sharded -race)
+    name: make test-daemon-trading (-race)
     runs-on: ubuntu-latest
     steps:
-      - name: make test-daemon-trading (trading shards)
+      - name: make test-daemon-trading
         run: make test-daemon-trading
   app-render:
     name: isolated Canary app render
@@ -709,9 +709,9 @@ replacements = {
         "        run: go test ./scripts/...",
     ),
     "best_effort_daemon": (
-        "      - name: make test-daemon-default (shards + hermetic integration)\n"
+        "      - name: make test-daemon-default\n"
         "        run: make test-daemon-default",
-        "      - name: make test-daemon-default (shards + hermetic integration)\n"
+        "      - name: make test-daemon-default\n"
         "        continue-on-error: true\n"
         "        run: make test-daemon-default",
     ),

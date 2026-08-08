@@ -42,15 +42,7 @@ Signatures are recorded as your GitHub username and a timestamp on the
 
 ## Running the checks
 
-For an intermediate checkpoint, stage the intended files and run:
-
-```bash
-make commit-check
-```
-
-This verifies the exact staged tree with a conservative, impact-aware plan. It
-falls back to full `make check` when it cannot prove a smaller scope. It does
-not replace the binding final gates below.
+Run the canonical repository gate before committing:
 
 ```bash
 make check

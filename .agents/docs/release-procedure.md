@@ -147,8 +147,8 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 
 ## Stage 3 — Gates (hard, fail-fast)
 
-- `make commit-check` and its exact-tree cache are intermediate development
-  aids only. They are never release evidence.
+- `make commit-check` is a compatibility alias for `make check`; neither local
+  spelling is release evidence.
 - `make check` first, then `make smoke-fast` as the gateway sanity check. Do
   not run the full local `make test` before firing (operator decision
   2026-08-03): hosted CI's exact-SHA run is the binding test authority, pinned

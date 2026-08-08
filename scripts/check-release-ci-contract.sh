@@ -57,12 +57,12 @@ EXPECTED_CI_RUN_STEPS = {
         },
     },
     "test-daemon-default": {
-        "make test-daemon-default (shards + hermetic integration)": {
+        "make test-daemon-default": {
             "run": "make test-daemon-default",
         },
     },
     "test-daemon-trading": {
-        "make test-daemon-trading (trading shards)": {
+        "make test-daemon-trading": {
             "run": "make test-daemon-trading",
         },
     },
@@ -90,8 +90,8 @@ EXPECTED_WORKFLOWS = {
         "jobs": (
             "make check (lint + vet + vulncheck + parity)",
             "make test (ubuntu-latest)",
-            "make test-daemon-default (sharded -race)",
-            "make test-daemon-trading (sharded -race)",
+            "make test-daemon-default (-race)",
+            "make test-daemon-trading (-race)",
             "isolated Canary app render",
             "cross-compile release matrix",
         ),

@@ -40,8 +40,6 @@ GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
 # be installed at runtime.
 PREFIX ?= $(HOME)/.local
 RESTART_TIMEOUT ?= 15s
-DAEMON_SHARD_WORKERS ?= 0
-DAEMON_SHARDS ?= 12
 
 CLAUDE_DIR ?= $(HOME)/.claude
 CLAUDE_PLUGIN_ID ?= canary@canary
@@ -83,7 +81,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -277,15 +275,9 @@ TEST_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(TEST_JOBS),)
 test: ## Full gate: check + hermetic app render + pkg, command/support, and daemon/integration tests (-race), overlapped by default
 	$(MAKE) $(TEST_MAKEFLAGS) check app-render-check test-pkg test-support test-daemon
 
-# Fast checkpoint gate for the exact staged tree. It selects conservative
-# target families, tests the staged candidate in an isolated worktree, and
-# caches only successful exact-tree fast plans. It is not final handoff, CI,
-# or release evidence; those continue to require check/test.
-commit-check: ## Verify the exact staged tree with an impact-aware intermediate gate
-	go run ./scripts/commit-check
-
-commit-check-contract-check: ## Keep the fast staged gate additive and out of CI/release authority
-	go test ./scripts/commit-check
+# Compatibility spelling retained for older contributor and agent workflows.
+# The reduced v3 tree has one canonical repository gate.
+commit-check: check ## Compatibility alias for the canonical repository gate
 
 # Binding pre-commit gate: agent config/hooks + formatting + go vet +
 # staticcheck + govulncheck + plugin manifest validation. Fails on stdlib
@@ -301,7 +293,7 @@ commit-check-contract-check: ## Keep the fast staged gate additive and out of CI
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check commit-check-contract-check reduction-metrics-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -620,8 +612,6 @@ test-support: ## Run command and CI/release support tests under -race
 	go test -race -timeout=180s ./cmd/...
 	go test -race -timeout=60s ./scripts/release-registry-server
 	go test -race -timeout=60s ./scripts/release-ci-wait
-	go test -race -timeout=60s ./scripts/test-shard
-	go test -race -timeout=60s ./scripts/commit-check
 
 test-integration: ## Run hermetic CLI/daemon lifecycle integration tests; never probes a live Gateway
 	INTEGRATION_TEST_MODE=hermetic go test -race -count=1 -timeout=420s -run '^TestLifecycle_' ./test/integration/...
@@ -637,21 +627,6 @@ test-integration-live: ## Require and exercise a live Gateway; absence or failed
 # The integration leg is serialized across sessions via with-gateway-lock:
 # its client IDs and daemon spawns hit the shared TWS gateway, and two
 # overlapping runs used to flake with error 326 and force a full re-run.
-# The root daemon package has more than 1,300 top-level tests. On Linux the
-# single race-enabled test binary exhausted its 240-second package deadline
-# while newly started tests were still making progress. Keep the deadline and
-# full inventory binding, but split only that oversized package into bounded
-# parallel processes; subpackages remain ordinary package legs.
-#
-# Shards are cut by inventory position, not by cost, so an individual shard's
-# wall time is unpredictable: one minute-long test sets the floor for the whole
-# leg, and at four shards it held a quarter of the inventory behind it. The
-# dispatcher refills a free worker with the next shard, so cutting more shards
-# than workers lets that imbalance absorb itself without anyone maintaining a
-# duration profile. Twelve shards over a derived pool measured 1:17 against
-# 2:13 for the original four-over-two on a 14-core machine — within seconds of
-# the floor that one test sets. DAEMON_SHARD_WORKERS=1 is the low-memory
-# fallback, and DAEMON_SHARDS pairs with it.
 trading-package-scope-check:
 	@set -eu; \
 		unexpected="$$(find internal/daemon -mindepth 2 -type f -name '*.go' -exec sh -c \
@@ -663,7 +638,7 @@ trading-package-scope-check:
 			exit 1; \
 		fi
 
-test-internal: ## Run internal/... under -race excluding the sharded daemon root
+test-internal: ## Run internal/... under -race excluding the daemon root
 	@set -eu; \
 		daemon_pkg="$$(go list ./internal/daemon)"; \
 		all_internal="$$(go list ./internal/...)"; \
@@ -675,27 +650,17 @@ test-internal: ## Run internal/... under -race excluding the sharded daemon root
 # The daemon root's two build modes are separate CI jobs since 2026-08-04:
 # together they were the ubuntu test job's 7.5-minute tail, and they share
 # nothing but the scope check, so they parallelize cleanly.
-test-daemon-default: trading-package-scope-check ## Daemon root default-build shards + hermetic lifecycle integration
-	go run ./scripts/test-shard -package ./internal/daemon -shards $(DAEMON_SHARDS) -workers $(DAEMON_SHARD_WORKERS) -race -timeout 240s
+test-daemon-default: trading-package-scope-check ## Daemon root default build + hermetic lifecycle integration
+	go test -race -timeout=420s ./internal/daemon
 	$(MAKE) test-integration
 
-test-daemon-trading: trading-package-scope-check ## Daemon root trading-build shards (write path)
-	go run ./scripts/test-shard -package ./internal/daemon -shards $(DAEMON_SHARDS) -workers $(DAEMON_SHARD_WORKERS) -race -tags trading -timeout 240s
+test-daemon-trading: trading-package-scope-check ## Daemon root trading build (write path)
+	go test -race -timeout=420s -tags trading ./internal/daemon
 
-test-daemon: trading-package-scope-check ## Run internal/... and test/integration/... under -race (daemon root sharded; incl. trading-tag write path)
+test-daemon: trading-package-scope-check ## Run internal/... and hermetic integration under -race in both build modes
 	$(MAKE) test-internal
 	$(MAKE) test-daemon-default
 	$(MAKE) test-daemon-trading
-
-# One CI lane intentionally keeps the daemon package in a single race-enabled
-# process. Sharding is the reliable Linux gate, while this macOS diagnostic
-# retains visibility into package-global races between otherwise independent
-# tests that land in different shards. Its larger deadline is diagnostic
-# headroom, not the Linux timeout repair.
-test-daemon-unsharded: trading-package-scope-check ## Run the daemon gate in one process per build mode (cross-shard race diagnostic; ex-macOS CI job)
-	go test -race -timeout=420s ./internal/...
-	$(MAKE) test-integration
-	go test -race -timeout=420s -tags trading ./internal/daemon
 
 # Install the standalone skill bundle directly under global agent skill roots.
 # Dogfood path only — end users get the skill via `/plugin install canary`.

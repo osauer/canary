@@ -287,16 +287,10 @@ Windows is not supported — the daemon uses Unix-only primitives (setsid, flock
 ## Testing
 
 ```sh
-make commit-check # fast intermediate gate for the exact staged tree
 make check      # gofmt + go vet + staticcheck + govulncheck + plugin/parity checks
 make test       # check + unit tests + hermetic daemon/CLI lifecycle integration
 make test-integration-live # strict live-Gateway integration; absence fails
 ```
-
-`make commit-check` is for frequent checkpoint commits. It classifies the
-staged paths, verifies that exact tree in an isolated worktree, and falls back
-to full `make check` for unknown or authority-sensitive changes. Its exact-tree
-cache is never final, CI, or release evidence.
 
 `make check` is the binding gate. It fails on stdlib vulnerabilities, so an outdated Go toolchain is a build failure. The lint/vuln tools are pinned in `go.mod` and run via `go tool`, so CI and local checks use the same versions. The gate also checks that MCP tools, streaming resources, generated references, and plugin metadata stay aligned with the CLI commands.
 
