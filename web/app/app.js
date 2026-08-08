@@ -1,4 +1,4 @@
-import { enablePush, renderAlertMode, renderGovernance, sendGovernanceCutoverReview, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
+import { enablePush, renderAlertMode, renderReconciliationCard, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
 import { renderAlerts, renderSelectedAlert, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard, setupBriefVisibility } from "./brief.js";
@@ -24,7 +24,7 @@ function installSmokeHooks() {
   if (!smoke || smoke.applySnapshotPatch) return;
   smoke.applySnapshotPatch = (patch = {}, ui = {}) => {
     const current = state.snapshot || {};
-    const { governance, governanceRefreshSucceeded, ...snapshotPatch } = patch;
+    const snapshotPatch = patch;
     state.snapshot = {
       ...current,
       ...snapshotPatch,
@@ -65,8 +65,6 @@ function installSmokeHooks() {
         } : current.brief?.ready,
       } : current.brief,
     };
-    if (Object.prototype.hasOwnProperty.call(patch, "governance")) state.governance = governance;
-    if (Object.prototype.hasOwnProperty.call(patch, "governanceRefreshSucceeded")) state.governanceRefreshSucceeded = governanceRefreshSucceeded;
     for (const key of ["protectionOpen", "portfolioDetailOpen", "stressDetailOpen", "opportunitiesOpen"]) {
       if (Object.prototype.hasOwnProperty.call(ui, key)) state[key] = Boolean(ui[key]);
     }
@@ -165,7 +163,7 @@ function renderAll() {
   renderSourceBanners(snap);
   renderAlertMode();
   renderAlerts();
-  renderGovernance();
+  renderReconciliationCard();
   renderSettings();
   renderTabs();
   renderSyncStrip(snap);
@@ -178,7 +176,6 @@ document.querySelectorAll("#alertSegments button").forEach((button) => {
 $("enablePushButton").addEventListener("click", enablePush);
 $("safeNotificationTestButton").addEventListener("click", sendSafeNotificationTest);
 $("reconciliationCheckButton").addEventListener("click", sendReconciliationCheck);
-$("governanceCutoverReviewButton").addEventListener("click", sendGovernanceCutoverReview);
 $("retryAuthButton").addEventListener("click", bootstrap);
 $("accountPrivacyToggle").addEventListener("click", () => {
   setAccountValueVisible(!state.accountValueVisible);

@@ -1,4 +1,4 @@
-import { applyGovernanceCutoverOverlay, refreshGovernance, refreshPushState, scheduleGovernanceRefresh, validateGovernanceResponse } from "./alerts.js";
+import { refreshPushState } from "./alerts.js";
 import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, renderAlerts, renderSelectedAlert, scheduleAlertsRefresh } from "./alert-inbox.js";
 import { tryDeviceLogin } from "./auth.js";
 import { refreshOpenOrders } from "./orders.js";
@@ -67,9 +67,7 @@ async function fetchBootstrap() {
 }
 
 function applyBootstrap(data) {
-  state.snapshot = applyGovernanceCutoverOverlay(data.snapshot);
-  state.governance = validateGovernanceResponse(data.governance);
-  state.governanceRefreshSucceeded = null;
+  state.snapshot = data.snapshot;
   state.authenticated = Boolean(data.auth?.authenticated);
   state.settings = data.settings || data.snapshot?.settings || state.settings;
   if (state.snapshot && state.settings) state.snapshot.settings = state.settings;
@@ -118,7 +116,7 @@ function connectEvents() {
         return;
       }
       const data = JSON.parse(event.data);
-      if (type === "snapshot") state.snapshot = applyGovernanceCutoverOverlay(data);
+      if (type === "snapshot") state.snapshot = data;
       if (type !== "snapshot") state.snapshot = { ...(state.snapshot || {}), [type]: data };
       if (type === "nudges") {
         const observedAt = data?.as_of || new Date().toISOString();
@@ -130,7 +128,6 @@ function connectEvents() {
             nudges: { state: "current", updated_at: observedAt, last_success_at: observedAt },
           },
         };
-        state.snapshot = applyGovernanceCutoverOverlay(state.snapshot);
       }
       if (type === "snapshot" || type === "settings") state.settings = type === "settings" ? data : data.settings || state.settings;
       state.lastEventAt = Date.now();
@@ -139,13 +136,6 @@ function connectEvents() {
       if (["snapshot", "stress", "nudges"].includes(type)) handleAttentionContextChange();
       if (type === "stress") {
         scheduleAlertsRefresh({ delayMs: 500, ensureTrailing: true });
-      }
-      if (type === "nudges" && state.authenticated) {
-        refreshGovernance();
-        scheduleGovernanceRefresh({ delayMs: 1500, minIntervalMs: 0, ensureTrailing: true });
-      }
-      if (type === "snapshot" && state.authenticated) {
-        scheduleGovernanceRefresh();
       }
     });
   }

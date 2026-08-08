@@ -17,7 +17,6 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/pkg/server"
 
-	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
 	"github.com/osauer/canary/v2/internal/app/auth"
 	"github.com/osauer/canary/v2/internal/app/daemonclient"
 	"github.com/osauer/canary/v2/internal/app/live"
@@ -133,8 +132,6 @@ func Register(deps Dependencies) {
 	srv.POST("/api/recon/check", h.requireAuth(h.handleReconcileCheck))
 	srv.POST("/api/push/subscribe", h.requireAuth(h.handlePushSubscribe))
 	srv.DELETE("/api/push/{id}", h.requireAuth(h.handlePushDelete))
-	srv.GET("/api/governance", h.requireAuth(h.handleGovernance))
-	srv.POST("/api/governance/cutover-review", h.requireAuth(h.handleGovernanceCutoverReview))
 	srv.POST("/api/push/test", h.requireAuth(h.handleSafePushTest))
 }
 
@@ -354,196 +351,12 @@ func (h *handler) handleBootstrap(w nethttp.ResponseWriter, r *nethttp.Request) 
 		"relay":            h.deps.Relay.Status(),
 		"vapid_public_key": vapid.PublicKey,
 		"auth":             h.authStatus(r),
-		"governance":       h.governanceDTO(),
 	})
 }
 
-// GovernancePollSource describes freshness of the app-to-daemon poll itself;
-// daemon evaluator/source health remains a separate typed field.
-type GovernancePollSource struct {
-	State         string    `json:"state"`
-	Reason        string    `json:"reason,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at,omitzero"`
-	LastSuccessAt time.Time `json:"last_success_at,omitzero"`
-}
-
-// GovernanceSourceHealth is a wire value rather than rpc.NudgeSourceHealth so
-// its JSON encoding preserves the result-level aggregate that was normalized
-// with candidate context.
-type GovernanceSourceHealth struct {
-	Aggregate      string               `json:"aggregate"`
-	Policy         rpc.NudgeInputHealth `json:"policy"`
-	Reconciliation rpc.NudgeInputHealth `json:"reconciliation"`
-	Capital        rpc.NudgeInputHealth `json:"capital"`
-	Pins           rpc.NudgeInputHealth `json:"pins"`
-	Cadence        rpc.NudgeInputHealth `json:"cadence"`
-	ConfirmedFlow  rpc.NudgeInputHealth `json:"confirmed_flow"`
-}
-
-// GovernanceOccurrenceDTO is one governance-sourced row projected from the
-// source-neutral delivery ledger. Producer keys, evidence fingerprints, and
-// transport identities are deliberately absent; title and body are fixed
-// Canary presentation copy, never daemon or broker free text.
-type GovernanceOccurrenceDTO struct {
-	DisplayID   string    `json:"display_id"`
-	Kind        string    `json:"kind"`
-	State       string    `json:"state"`
-	Severity    string    `json:"severity"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body"`
-	Destination string    `json:"destination"`
-	OccurredAt  time.Time `json:"occurred_at"`
-	FirstSeenAt time.Time `json:"first_seen_at"`
-	LastSeenAt  time.Time `json:"last_seen_at"`
-	ResolvedAt  time.Time `json:"resolved_at,omitzero"`
-}
-
-// GovernanceDTO is the typed SPA boundary. Current candidates retain the
-// foundation's opaque semantic fingerprint; durable evidence is projected
-// from the source-neutral alert-delivery ledger (the legacy governance
-// ledger is retired), so delivery health is the shared alert transport
-// health, and per-attempt rows are not exposed.
-type GovernanceDTO struct {
-	Candidates            []rpc.NudgeCandidate             `json:"candidates"`
-	SourceHealth          GovernanceSourceHealth           `json:"source_health"`
-	PollSource            GovernancePollSource             `json:"poll_source"`
-	Reconciliation        *ReconciliationDTO               `json:"reconciliation,omitempty"`
-	ConfirmedFlowCoverage *rpc.NudgeConfirmedFlowCoverage  `json:"confirmed_flow_coverage,omitempty"`
-	Context               *rpc.NudgeSnapshotContext        `json:"context,omitempty"`
-	Occurrences           []GovernanceOccurrenceDTO        `json:"occurrences"`
-	DeliveryHealth        AlertDeliveryHealthDTO           `json:"delivery_health"`
-	Diagnostic            state.GovernanceDiagnosticStatus `json:"diagnostic"`
-}
-
-func (h *handler) governanceDTO() GovernanceDTO {
-	snapshot := h.deps.Live.Snapshot()
-	now := time.Now().UTC()
-	delivery := h.deps.Store.AlertDelivery(now)
-	occurrences := make([]GovernanceOccurrenceDTO, 0)
-	for _, occ := range delivery.Occurrences {
-		if occ.Source != rpc.AlertSourceGovernance {
-			continue
-		}
-		row := GovernanceOccurrenceDTO{
-			DisplayID:   occ.DisplayID,
-			Kind:        string(occ.Kind),
-			State:       string(occ.State),
-			Severity:    string(occ.Severity),
-			Destination: string(occ.Destination),
-			OccurredAt:  occ.EvidenceAsOf,
-			FirstSeenAt: occ.FirstSeenAt,
-			LastSeenAt:  occ.LastSeenAt,
-			ResolvedAt:  occ.EndedAt,
-		}
-		if presentation, ok := appalerts.PresentationFor(occ.PresentationCode, occ.State); ok {
-			row.Title, row.Body = presentation.Title, presentation.Body
-		}
-		occurrences = append(occurrences, row)
-	}
-	dto := GovernanceDTO{
-		Candidates:     make([]rpc.NudgeCandidate, 0),
-		Occurrences:    occurrences,
-		DeliveryHealth: alertDeliveryHealthDTO(delivery),
-		Diagnostic:     h.deps.Store.GovernanceDiagnostic(),
-	}
-	failClosed := rpc.NormalizeNudgeSourceHealth(rpc.NudgeSourceHealth{}, 0)
-	dto.SourceHealth = governanceSourceHealth(failClosed)
-	if snapshot.Nudges != nil {
-		dto.Candidates = append(dto.Candidates, snapshot.Nudges.Candidates...)
-		normalized := rpc.NormalizeNudgeSourceHealth(snapshot.Nudges.SourceHealth, len(snapshot.Nudges.Candidates))
-		dto.SourceHealth = governanceSourceHealth(normalized)
-		if snapshot.Nudges.Reconciliation != nil {
-			if reconciliation, err := reconciliationDTO(*snapshot.Nudges.Reconciliation); err == nil {
-				dto.Reconciliation = &reconciliation
-			}
-		}
-		if snapshot.Nudges.ConfirmedFlowCoverage != nil {
-			coverage := *snapshot.Nudges.ConfirmedFlowCoverage
-			dto.ConfirmedFlowCoverage = &coverage
-		}
-		dto.Context = cloneNudgeSnapshotContext(snapshot.Nudges.Context)
-	}
-	if source, ok := snapshot.Sources["nudges"]; ok {
-		dto.PollSource = GovernancePollSource{State: source.State, Reason: source.Reason, UpdatedAt: source.UpdatedAt, LastSuccessAt: source.LastSuccessAt}
-	}
-	return dto
-}
-
-func governanceSourceHealth(health rpc.NudgeSourceHealth) GovernanceSourceHealth {
-	return GovernanceSourceHealth{
-		Aggregate: health.Aggregate, Policy: health.Policy, Reconciliation: health.Reconciliation,
-		Capital: health.Capital, Pins: health.Pins, Cadence: health.Cadence, ConfirmedFlow: health.ConfirmedFlow,
-	}
-}
-
-func (h *handler) handleGovernance(w nethttp.ResponseWriter, _ *nethttp.Request) {
-	writeJSON(w, h.governanceDTO())
-}
-
-// ReconciliationReportDTO is the allowlisted browser projection of report
-// generation cadence and coverage; empty timestamps mean unavailable evidence.
-type ReconciliationReportDTO struct {
-	State              string `json:"state"`
-	Reason             string `json:"reason,omitempty"`
-	ExpectedCoverageTo string `json:"expected_coverage_to,omitempty"`
-	CoverageTo         string `json:"coverage_to,omitempty"`
-	LastAttemptAt      string `json:"last_attempt_at,omitempty"`
-	LastCompletedAt    string `json:"last_completed_at,omitempty"`
-	NextAttemptAt      string `json:"next_attempt_at,omitempty"`
-	RetryAutomatic     bool   `json:"retry_automatic"`
-	CanCheckNow        bool   `json:"can_check_now"`
-}
-
-// ReconciliationEvaluationDTO reports the daemon's distinct policy-evaluation
-// state and reason without conflating it with report generation.
-type ReconciliationEvaluationDTO struct {
-	State  string `json:"state"`
-	Reason string `json:"reason,omitempty"`
-}
-
-// ReconciliationDTO keeps report production and policy evaluation as separate
-// browser concepts.
-type ReconciliationDTO struct {
-	Report     ReconciliationReportDTO     `json:"report"`
-	Evaluation ReconciliationEvaluationDTO `json:"evaluation"`
-}
-
 type reconciliationResponseDTO struct {
-	Outcome        string            `json:"outcome,omitempty"`
-	Reconciliation ReconciliationDTO `json:"reconciliation"`
-}
-
-func reconciliationDTO(status rpc.ReconAutomationStatus) (ReconciliationDTO, error) {
-	if err := rpc.ValidateReconAutomationStatus(status); err != nil {
-		return ReconciliationDTO{}, err
-	}
-	return ReconciliationDTO{
-		Report: ReconciliationReportDTO{
-			State: status.Report.State, Reason: status.Report.Reason,
-			ExpectedCoverageTo: reconciliationDate(status.Report.ExpectedCoverageTo),
-			CoverageTo:         reconciliationDate(status.Report.CoverageTo),
-			LastAttemptAt:      reconciliationTime(status.Report.LastAttempt),
-			LastCompletedAt:    reconciliationTime(status.Report.LastSuccess),
-			NextAttemptAt:      reconciliationTime(status.Report.NextAttempt),
-			RetryAutomatic:     status.Report.RetryAutomatic,
-			CanCheckNow:        status.Report.CanCheckNow,
-		},
-		Evaluation: ReconciliationEvaluationDTO{State: status.Evaluation.State, Reason: status.Evaluation.Reason},
-	}, nil
-}
-
-func reconciliationDate(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format("2006-01-02")
-}
-
-func reconciliationTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339)
+	Outcome        string              `json:"outcome,omitempty"`
+	Reconciliation live.Reconciliation `json:"reconciliation"`
 }
 
 func reconciliationTerminal(status rpc.ReconAutomationStatus) bool {
@@ -564,15 +377,15 @@ func (h *handler) handleReconcileStatus(w nethttp.ResponseWriter, r *nethttp.Req
 		writeError(w, nethttp.StatusServiceUnavailable, "daily report status unavailable")
 		return
 	}
-	reconciliation, err := reconciliationDTO(result.Status)
-	if err != nil {
+	reconciliation, err := live.ProjectReconciliation(&result.Status)
+	if err != nil || reconciliation == nil {
 		writeError(w, nethttp.StatusBadGateway, "invalid daily report status")
 		return
 	}
 	if reconciliationTerminal(result.Status) && h.deps.Live != nil {
 		h.deps.Live.PollNudgesOnce(r.Context())
 	}
-	writeJSON(w, reconciliationResponseDTO{Reconciliation: reconciliation})
+	writeJSON(w, reconciliationResponseDTO{Reconciliation: *reconciliation})
 }
 
 func (h *handler) handleReconcileCheck(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -590,68 +403,15 @@ func (h *handler) handleReconcileCheck(w nethttp.ResponseWriter, r *nethttp.Requ
 		writeError(w, nethttp.StatusServiceUnavailable, "daily report check unavailable")
 		return
 	}
-	reconciliation, err := reconciliationDTO(result.Status)
-	if err != nil || rpc.ValidateReconCheckResult(*result) != nil {
+	reconciliation, err := live.ProjectReconciliation(&result.Status)
+	if err != nil || reconciliation == nil || rpc.ValidateReconCheckResult(*result) != nil {
 		writeError(w, nethttp.StatusBadGateway, "invalid daily report check result")
 		return
 	}
 	if reconciliationTerminal(result.Status) && h.deps.Live != nil {
 		h.deps.Live.PollNudgesOnce(r.Context())
 	}
-	writeJSON(w, reconciliationResponseDTO{Outcome: result.Outcome, Reconciliation: reconciliation})
-}
-
-func (h *handler) handleGovernanceCutoverReview(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if err := decodeEmptyJSONObject(r); err != nil {
-		writeError(w, nethttp.StatusBadRequest, "governance cutover review body must be an empty JSON object")
-		return
-	}
-	if _, ok := h.session(r); !ok {
-		writeError(w, nethttp.StatusUnauthorized, "unauthorized")
-		return
-	}
-	params := rpc.NudgesCutoverReviewParams{
-		Origin:   rpc.NudgeCutoverReviewOriginPairedDevice,
-		Evidence: rpc.NudgeCutoverReviewEvidencePairedDeviceForegroundRender,
-	}
-	result, err := h.deps.Daemon.NudgesCutoverReview(r.Context(), params)
-	if err != nil {
-		writeCutoverReviewError(w, err)
-		return
-	}
-	if result == nil {
-		writeError(w, nethttp.StatusBadGateway, "invalid governance cutover review result")
-		return
-	}
-	if _, err := json.Marshal(result); err != nil {
-		writeError(w, nethttp.StatusBadGateway, "invalid governance cutover review result")
-		return
-	}
-	h.deps.Live.PollNudgesOnce(r.Context())
-	writeJSON(w, result)
-}
-
-func decodeEmptyJSONObject(r *nethttp.Request) error {
-	if r.Body == nil || r.Body == nethttp.NoBody {
-		return nil
-	}
-	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
-	var fixed map[string]json.RawMessage
-	if err := decoder.Decode(&fixed); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		return err
-	}
-	if fixed == nil || len(fixed) != 0 {
-		return errors.New("body must be an empty JSON object")
-	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("body must contain exactly one empty JSON object")
-	}
-	return nil
+	writeJSON(w, reconciliationResponseDTO{Outcome: result.Outcome, Reconciliation: *reconciliation})
 }
 
 func decodeRequiredEmptyJSONObject(r *nethttp.Request) error {
@@ -672,45 +432,6 @@ func decodeRequiredEmptyJSONObject(r *nethttp.Request) error {
 		return errors.New("body must contain exactly one empty JSON object")
 	}
 	return nil
-}
-
-func writeCutoverReviewError(w nethttp.ResponseWriter, err error) {
-	if errors.Is(err, daemonclient.ErrInvalidNudgesCutoverReviewResult) {
-		writeError(w, nethttp.StatusBadGateway, "invalid governance cutover review result")
-		return
-	}
-	if rpcErr, ok := errors.AsType[*rpc.Error](err); ok {
-		switch rpcErr.Code {
-		case rpc.CodeBadRequest:
-			writeError(w, nethttp.StatusConflict, "governance cutover review requires fresh revalidation")
-		case rpc.CodeDaemonUnavailable, rpc.CodeGatewayUnavailable, rpc.CodeTimeout:
-			writeError(w, nethttp.StatusServiceUnavailable, "governance cutover review unavailable")
-		default:
-			writeError(w, nethttp.StatusBadGateway, "governance cutover review failed")
-		}
-		return
-	}
-	writeError(w, nethttp.StatusServiceUnavailable, "governance cutover review unavailable")
-}
-
-func cloneNudgeSnapshotContext(in *rpc.NudgeSnapshotContext) *rpc.NudgeSnapshotContext {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	if in.Shadow != nil {
-		shadow := *in.Shadow
-		out.Shadow = &shadow
-	}
-	if in.Drawdown != nil {
-		drawdown := *in.Drawdown
-		if in.Drawdown.ConsumedPct != nil {
-			consumed := *in.Drawdown.ConsumedPct
-			drawdown.ConsumedPct = &consumed
-		}
-		out.Drawdown = &drawdown
-	}
-	return &out
 }
 
 func (h *handler) settingsSnapshot(ctx context.Context) *rpc.PlatformSettings {

@@ -318,7 +318,7 @@
                 <path d="M6.5 10.5a5.5 5.5 0 0 1 11 0c0 5 2 5.5 2 7H4.5c0-1.5 2-2 2-7Z"></path>
                 <path d="M10 20a2.3 2.3 0 0 0 4 0"></path>
               </svg>
-              Alerts
+              Action Queue
             </span>
             <span class="alert-active-count" id="alertCount">0 Active</span>
           </summary>
@@ -326,7 +326,7 @@
             <p class="alerts-delivery-banner" id="alertsDeliveryBanner" role="alert" hidden></p>
             <section class="alert-section" aria-label="Lit annunciators">
               <div class="pd-placard pd-placard--row" id="currentSignalPlacard">
-                <span>Active</span>
+                <span>Open</span>
                 <b id="currentSignalCount">0</b>
               </div>
               <div class="alert-log" id="currentSignalList"></div>
@@ -437,60 +437,6 @@
                 </label>
               </div>
             </div>
-            <div class="pd-placard">System</div>
-            <section class="pd-tile pd-bank governance-section" aria-labelledby="governanceHeading">
-              <div class="pd-set-row">
-                <span class="pd-tile__legend" id="governanceHeading">Process evidence</span>
-                <span class="pd-chip" id="governanceCurrentState">Unavailable</span>
-              </div>
-              <p class="governance-summary" id="governanceSummary">Process check status not observed yet.</p>
-              <section class="governance-block" aria-label="Current risk and process reminders" id="governanceCurrentBlock" hidden>
-                <div class="pd-placard pd-placard--row">
-                  <span>Current</span>
-                  <b id="governanceCurrentCount">--</b>
-                </div>
-                <div class="governance-list" id="governanceCurrentList"></div>
-              </section>
-              <section class="governance-coverage" aria-label="Older payment review" id="governanceCoverageBlock" hidden>
-                <span>Older payment history</span>
-                <p id="governanceCoverage">Payment history unavailable.</p>
-                <button class="text-button" id="governanceCutoverReviewButton" type="button" hidden>Mark older payments reviewed</button>
-                <p class="governance-action-status" id="governanceCutoverReviewStatus" role="status"></p>
-              </section>
-              <details class="governance-details" id="governanceEvidenceDetails">
-                <summary>Evidence detail</summary>
-                <section class="governance-block" aria-label="Governance history">
-                  <div class="pd-placard pd-placard--row">
-                    <span>History</span>
-                    <b id="governanceHistoryCount">0</b>
-                  </div>
-                  <div class="governance-list" id="governanceHistoryList"></div>
-                </section>
-                <section class="governance-delivery-summary" aria-label="Notification delivery state">
-                  <div class="governance-delivery__head">
-                    <span>Delivery diagnostics</span>
-                    <b id="governanceDeliveryHealth">unavailable</b>
-                  </div>
-                </section>
-                <div class="governance-evidence" aria-label="Process check details">
-                  <div>
-                    <span>Information used</span>
-                    <p id="governanceSourceHealth">Unavailable · not checked yet</p>
-                  </div>
-                  <div>
-                    <span>Extra warning details</span>
-                    <p id="governanceContext">Extra warning details unavailable.</p>
-                  </div>
-                  <div>
-                    <span>Payment history checked</span>
-                    <p id="governanceCoverageDetail">Payment history unavailable.</p>
-                  </div>
-                </div>
-                <section class="governance-delivery" aria-label="Notification delivery evidence">
-                  <p id="governanceDeliveryDetail">Delivery evidence not observed.</p>
-                </section>
-              </details>
-            </section>
             <div class="pd-placard">Status</div>
             <div class="pd-grid pd-grid--status">
               <div class="pd-tile pd-tile--readout pd-tile--cell">
@@ -739,7 +685,7 @@
             <path d="M10 20a2.3 2.3 0 0 0 4 0"></path>
           </svg>
           <b class="bottom-tab__badge" id="alertUnreadBadge" aria-hidden="true" hidden></b>
-          <span>Alerts</span>
+          <span>Queue</span>
         </button>
         <button class="bottom-tab" id="tabOrders" type="button" data-tab="orders" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true">

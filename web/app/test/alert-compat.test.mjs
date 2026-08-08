@@ -38,8 +38,6 @@ function loadAlerts({ visibility = "visible", alertsPanelHidden = false } = {}) 
     authenticated: true,
     clearedAlertFingerprint: "",
     governance: null,
-    governanceCutoverReceipt: null,
-    governanceCutoverReview: { busy: false, state: "", error: false },
     governanceRefreshAfterFlight: false,
     governanceRefreshDueAt: 0,
     governanceRefreshInFlight: null,

@@ -75,15 +75,78 @@ type Snapshot struct {
 	Sources         map[string]SourceMeta       `json:"sources,omitempty"`
 }
 
-// publicNudgesSnapshot is the browser/SSE projection. Reconciliation uses a
-// separate allowlisted HTTP DTO; keeping the full daemon RPC value here would
-// let future private fields bypass that boundary through bootstrap or events.
+// publicNudgesSnapshot is the browser/SSE projection. Reconciliation uses the
+// same allowlisted DTO as its explicit HTTP routes; keeping the full daemon RPC
+// value here would let future private fields bypass that boundary.
 type publicNudgesSnapshot struct {
 	AsOf                  time.Time                       `json:"as_of"`
 	Candidates            []rpc.NudgeCandidate            `json:"candidates"`
 	SourceHealth          publicNudgeSourceHealth         `json:"source_health"`
+	Reconciliation        *Reconciliation                 `json:"reconciliation,omitempty"`
 	ConfirmedFlowCoverage *rpc.NudgeConfirmedFlowCoverage `json:"confirmed_flow_coverage,omitempty"`
 	Context               *rpc.NudgeSnapshotContext       `json:"context,omitempty"`
+}
+
+// Reconciliation is the allowlisted browser projection of the Flex report
+// schedule and comparison result. It is shared by bootstrap, SSE, and the
+// explicit check/status routes so the app has one process-evidence contract.
+type Reconciliation struct {
+	Report     ReconciliationReport     `json:"report"`
+	Evaluation ReconciliationEvaluation `json:"evaluation"`
+}
+
+// ReconciliationReport describes the automated report schedule and coverage.
+type ReconciliationReport struct {
+	State              string `json:"state"`
+	Reason             string `json:"reason,omitempty"`
+	ExpectedCoverageTo string `json:"expected_coverage_to,omitempty"`
+	CoverageTo         string `json:"coverage_to,omitempty"`
+	LastAttemptAt      string `json:"last_attempt_at,omitempty"`
+	LastCompletedAt    string `json:"last_completed_at,omitempty"`
+	NextAttemptAt      string `json:"next_attempt_at,omitempty"`
+	RetryAutomatic     bool   `json:"retry_automatic"`
+	CanCheckNow        bool   `json:"can_check_now"`
+}
+
+// ReconciliationEvaluation describes the comparison result for covered data.
+type ReconciliationEvaluation struct {
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ProjectReconciliation validates the daemon contract before exposing its
+// fixed, redacted subset to the paired app.
+func ProjectReconciliation(status *rpc.ReconAutomationStatus) (*Reconciliation, error) {
+	if status == nil {
+		return nil, nil
+	}
+	if err := rpc.ValidateReconAutomationStatus(*status); err != nil {
+		return nil, err
+	}
+	var out Reconciliation
+	out.Report.State, out.Report.Reason = status.Report.State, status.Report.Reason
+	out.Report.ExpectedCoverageTo = appDate(status.Report.ExpectedCoverageTo)
+	out.Report.CoverageTo = appDate(status.Report.CoverageTo)
+	out.Report.LastAttemptAt = appTime(status.Report.LastAttempt)
+	out.Report.LastCompletedAt = appTime(status.Report.LastSuccess)
+	out.Report.NextAttemptAt = appTime(status.Report.NextAttempt)
+	out.Report.RetryAutomatic, out.Report.CanCheckNow = status.Report.RetryAutomatic, status.Report.CanCheckNow
+	out.Evaluation.State, out.Evaluation.Reason = status.Evaluation.State, status.Evaluation.Reason
+	return &out, nil
+}
+
+func appDate(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format("2006-01-02")
+}
+
+func appTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 type publicNudgeSourceHealth struct {
@@ -101,13 +164,14 @@ func projectPublicNudges(value *rpc.NudgesSnapshotResult) *publicNudgesSnapshot 
 		return nil
 	}
 	health := rpc.NormalizeNudgeSourceHealth(value.SourceHealth, len(value.Candidates))
+	reconciliation, _ := ProjectReconciliation(value.Reconciliation)
 	return &publicNudgesSnapshot{
 		AsOf: value.AsOf, Candidates: value.Candidates,
 		SourceHealth: publicNudgeSourceHealth{
 			Aggregate: health.Aggregate, Policy: health.Policy, Reconciliation: health.Reconciliation,
 			Capital: health.Capital, Pins: health.Pins, Cadence: health.Cadence, ConfirmedFlow: health.ConfirmedFlow,
 		},
-		ConfirmedFlowCoverage: value.ConfirmedFlowCoverage, Context: value.Context,
+		Reconciliation: reconciliation, ConfirmedFlowCoverage: value.ConfirmedFlowCoverage, Context: value.Context,
 	}
 }
 

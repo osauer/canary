@@ -44,6 +44,7 @@ Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true }
 
 const {
   acknowledgeAttention,
+  actionQueueItems,
   canAssertAlertClear,
   handleAttentionContextChange,
   ingestAlerts,
@@ -62,6 +63,19 @@ const sourceNames = [
 ];
 const at = "2026-07-22T12:00:00Z";
 const freshUntil = "2026-07-22T12:10:00Z";
+
+test("action queue combines alerts, protection, exercise, and process work", () => {
+  state.snapshot = {
+    proposals: { as_of: at, proposals: [{ symbol: "AAPL", bucket: "trailing_stop", state: "ready", reason: "No protective stop" }] },
+    opportunities: { as_of: at, opportunities: [{ symbol: "SPY", blockers: [] }] },
+    nudges: { candidates: [{ severity: "watch", title: "Review report", body: "The daily report is late.", occurred_at: at }] },
+  };
+  const alerts = [{ severity: "urgent", last_seen_at: at }];
+  const queue = actionQueueItems(alerts);
+  assert.deepEqual(queue.map((item) => item.kind), ["alert", "protection", "exercise", "process"]);
+  assert.match(queue[1].title, /AAPL/);
+  state.snapshot = null;
+});
 
 function source(name, overrides = {}) {
   return {
@@ -500,7 +514,7 @@ test("a failed recovery GET keeps the retained unread authority instead of clear
   assert.notEqual(state.alertsFeedValid, false, "a transport failure must not invalidate the validated feed");
   assert.equal(badge.hidden, false, "the unread badge must survive a failed refresh");
   assert.equal(badge.textContent, "1");
-  assert.equal(tab.attributes["aria-label"], "Alerts, 1 unread");
+  assert.equal(tab.attributes["aria-label"], "Action queue, 1 open");
   assert.equal(state.attentionStatus.error, true);
   assert.match(state.attentionStatus.state, /retained state/i);
   globalThis.fetch = async () => ({ ok: true, async json() { return dto({ generation: 10 }); } });
@@ -611,7 +625,7 @@ test("an invalidated feed quarantines delivery health and the selected-alert pan
   renderSelectedAlert();
   assert.equal(elements.get("selectedAlertPanel").hidden, true, "stale selected-alert detail must not present as current");
   assert.equal(elements.get("alertDeliveryHealth").textContent, "unavailable");
-  assert.equal(elements.get("tabAlerts").attributes["aria-label"], "Alerts, unread state unknown");
+  assert.equal(elements.get("tabAlerts").attributes["aria-label"], "Action queue, alert state unknown");
   reset();
 });
 

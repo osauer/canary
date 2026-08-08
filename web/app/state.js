@@ -2,18 +2,8 @@
 
 const state = {
   snapshot: null,
-  governance: null,
-  governanceRefreshInFlight: null,
-  governanceRefreshTimer: null,
-  governanceRefreshDueAt: 0,
-  governanceRefreshTimerEnsureTrailing: false,
-  governanceRefreshAfterFlight: false,
-  governanceLastRefreshAt: 0,
-  governanceRefreshSucceeded: null,
   reconciliationCheck: { busy: false, state: "", error: false },
-  governanceCutoverReceipt: null,
   safeNotificationTest: { busy: false, state: "", error: false },
-  governanceCutoverReview: { busy: false, state: "", error: false },
   alertSettings: { mode: "watch_and_act" },
   alertSettingsUpdate: { busy: false, state: "", error: false },
   alerts: null,

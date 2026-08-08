@@ -76,8 +76,6 @@ function reset() {
   state.protectionDerisk = { percent: 25, busy: "", result: null, submitted: null, requestRef: "", previewedAt: 0, abort: null };
   state.governance = null;
   state.governanceRefreshSucceeded = null;
-  state.governanceCutoverReceipt = null;
-  state.governanceCutoverReview = { busy: false, state: "", error: false };
   state.reconciliationCheck = { busy: false, state: "", error: false };
   state.safeNotificationTest = { busy: false, state: "", error: false };
   state.pushInspection = { state: "unsupported", busy: false };
@@ -583,29 +581,6 @@ test("TestRegimeAuthorityHealthControlsVisibleDataQualityPosture replacement qua
   assert.match(timestamp.title, /refresh timed out/);
   assert.equal(stress.regimeAuthorityView({ sources: { regime: { state: "not_observed" } } }).status, "unavailable");
   assert.equal(stress.regimeAuthorityView({ regime: { authority_health: { status: "fresh" } } }).degraded, false);
-});
-
-test("TestGovernanceRendererConsumesTypedAuthorities replacement renders only current allowlisted authority", () => {
-  reset();
-  state.snapshot = {
-    sources: { nudges: { state: "current", reason: "authoritative", updated_at: "2026-07-01T12:00:00Z" } },
-    nudges: {
-      as_of: "2026-07-01T12:00:00Z",
-      candidates: [{ title: "Synthetic current reminder", body: "Review synthetic evidence", severity: "watch", destination: "alerts" }],
-      source_health: { aggregate: "ready" },
-      confirmed_flow_coverage: { pre_cutover_flows_unreviewed: false },
-    },
-  };
-  state.governance = { candidates: [], source_health: {}, poll_source: {}, occurrences: [], delivery_health: {}, diagnostic: {} };
-  alerts.renderGovernance();
-  assert.equal(dom.element("governanceCurrentState").textContent, "Needs you");
-  assert.match(dom.element("governanceCurrentList").textContent, /Synthetic current reminder/);
-
-  state.snapshot.sources.nudges = { state: "hostile-state", reason: "hostile-reason" };
-  alerts.renderGovernance();
-  assert.equal(dom.element("governanceCurrentState").textContent, "Unavailable");
-  assert.equal(dom.element("governanceCurrentList").textContent.includes("Synthetic current reminder"), false);
-  assert.equal(dom.element("governanceSourceHealth").textContent.includes("hostile"), false);
 });
 
 test("TestBriefCardStaticContract replacement renders production narrative, safe runs, fallback sections, and sign-off gating", () => {

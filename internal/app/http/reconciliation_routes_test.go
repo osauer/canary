@@ -260,39 +260,6 @@ func TestReconciliationRoutesUseFixedSafeErrors(t *testing.T) {
 	}
 }
 
-func TestGovernanceDTOProjectsReconciliation(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 7, 21, 6, 36, 0, 0, time.UTC)
-	status := reconciliationRouteRetryStatus(now)
-	status.Report.CoverageTo = time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
-	status.Report.LastSuccess = now.Add(-24 * time.Hour)
-	status.Report.LastError = "HOSTILE private daemon text"
-	nudges := readyRouteNudges(now)
-	nudges.Reconciliation = &status
-	client := &reconciliationRouteClient{routeFakeClient: routeFakeClient{}, nudges: nudges}
-	srv, _, _ := newGovernanceTestHandler(t, client)
-	handler := srv.Handler()
-	cookie := routeSessionCookie(t, handler)
-	request := httptest.NewRequest(http.MethodGet, "/api/governance", nil)
-	request.AddCookie(cookie)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-	}
-	var dto GovernanceDTO
-	if err := json.Unmarshal(response.Body.Bytes(), &dto); err != nil {
-		t.Fatal(err)
-	}
-	if dto.Reconciliation == nil || dto.Reconciliation.Report.State != rpc.ReconReportStateRetryScheduled ||
-		dto.Reconciliation.Report.CoverageTo != "2026-07-19" || dto.Reconciliation.Evaluation.State != rpc.ReconEvaluationStateWaiting {
-		t.Fatalf("governance reconciliation=%+v", dto.Reconciliation)
-	}
-	if strings.Contains(response.Body.String(), "HOSTILE") || strings.Contains(response.Body.String(), `"last_error"`) {
-		t.Fatalf("governance leaked daemon-only fields: %s", response.Body.String())
-	}
-}
-
 func reconciliationRouteCheckingStatus(now time.Time) rpc.ReconAutomationStatus {
 	return rpc.ReconAutomationStatus{
 		Report: rpc.ReconFetchStatus{

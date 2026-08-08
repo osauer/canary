@@ -511,6 +511,76 @@ function alertRowElement(occurrence) {
   return row;
 }
 
+// The queue is a presentation over existing authorities, not a new policy
+// engine. Alerts keep their served lifecycle and severity; proposals,
+// exercises, and process reminders keep their own keys and remain subject to
+// their existing review/preview gates.
+function actionQueueItems(activeAlerts = []) {
+  const snapshot = state.snapshot || {};
+  const items = activeAlerts.map((alert) => ({ kind: "alert", severity: alert.severity, at: alert.last_seen_at, alert }));
+  for (const proposal of snapshot.proposals?.proposals || []) {
+    items.push({
+      kind: "protection",
+      severity: String(proposal.state || "").toLowerCase() === "blocked" ? "watch" : "act",
+      title: `${proposal.symbol || proposal.contract?.symbol || "Position"} · ${String(proposal.bucket || "protection").replaceAll("_", " ")}`,
+      body: "Review the daemon-authored protection action and its warnings.",
+      at: snapshot.proposals?.as_of || "",
+    });
+  }
+  for (const opportunity of snapshot.opportunities?.opportunities || []) {
+    items.push({
+      kind: "exercise",
+      severity: (opportunity.blockers || []).length > 0 ? "watch" : "act",
+      title: `${opportunity.symbol || opportunity.contract?.symbol || "Option"} · option exercise`,
+      body: "Review warnings and the fresh exercise preflight before confirmation.",
+      at: snapshot.opportunities?.as_of || "",
+    });
+  }
+  for (const nudge of snapshot.nudges?.candidates || []) {
+    items.push({ kind: "process", severity: nudge.severity || "watch", title: nudge.title, body: nudge.body, at: nudge.occurred_at || nudge.due_at || "" });
+  }
+  return items.sort(bySeverity);
+}
+
+function actionQueueRowElement(item) {
+  if (item.kind === "alert") return alertRowElement(item.alert);
+  const row = document.createElement("button");
+  row.type = "button";
+  const tint = SEVERITY_TINT[item.severity] || "";
+  row.className = `alert-row pd-tile pd-alert${tint ? ` ${tint}` : ""}`;
+  if (tint) {
+    const bar = document.createElement("span");
+    bar.className = "pd-tile__bar";
+    bar.setAttribute("aria-hidden", "true");
+    row.append(bar);
+  }
+  const source = document.createElement("span");
+  source.className = "alert-row__source pd-alert__src";
+  source.textContent = item.kind === "protection" ? "Protection" : item.kind === "exercise" ? "Option exercise" : "Process";
+  const title = document.createElement("b");
+  title.className = "pd-alert__title";
+  title.textContent = item.title || "Review required";
+  const body = document.createElement("p");
+  body.className = "pd-alert__body";
+  body.textContent = item.body || "Review the current evidence.";
+  const age = document.createElement("span");
+  age.className = "pd-alert__age";
+  age.textContent = item.at ? `Current ${clockLabel(item.at)}` : "Current";
+  row.append(source, title, body, age);
+  row.addEventListener("click", () => {
+    if (item.kind === "process") {
+      $("tabBrief")?.click();
+      return;
+    }
+    $("tabMonitor")?.click();
+    state.protectionOpen = true;
+    state.opportunitiesOpen = item.kind === "exercise";
+    const sheet = $("protectionSheet");
+    if (sheet && !sheet.open) sheet.showModal();
+  });
+  return row;
+}
+
 // The engraved unlit poster: the quiet desk stated as a fact, and only when
 // the feed can actually assert it. Incomplete or stale coverage keeps the
 // honest sentence instead — a dark panel and an unreadable panel look the
@@ -564,11 +634,13 @@ function renderAttention() {
   const unread = attention?.unread_count;
   const feedInvalid = state.alertsFeedValid === false;
   const known = Number.isSafeInteger(unread) && unread >= 0 && !feedInvalid;
+  const activeAlerts = feedInvalid ? [] : (state.alerts?.occurrences || []).filter((item) => item.ended_at === null);
+  const queueCount = actionQueueItems(activeAlerts).length;
   const badge = $("alertUnreadBadge");
   const tab = $("tabAlerts");
   if (badge) {
-    badge.hidden = !known || unread === 0;
-    badge.textContent = known && unread > 0 ? (unread > 99 ? "99+" : String(unread)) : "";
+    badge.hidden = queueCount === 0;
+    badge.textContent = queueCount > 0 ? (queueCount > 99 ? "99+" : String(queueCount)) : "";
     badge.setAttribute("aria-hidden", "true");
     const severity = highestActiveAlertSeverity();
     badge.classList.toggle("bottom-tab__badge--act", severity === "act");
@@ -576,7 +648,7 @@ function renderAttention() {
   }
   // An invalidated feed makes the unread state unknown, not zero: never
   // announce "no unread alerts" or clear the OS icon badge on it.
-  if (tab) tab.setAttribute("aria-label", known && unread > 0 ? `Alerts, ${unread} unread` : feedInvalid ? "Alerts, unread state unknown" : "Alerts, no unread alerts");
+  if (tab) tab.setAttribute("aria-label", queueCount > 0 ? `Action queue, ${queueCount} open` : feedInvalid ? "Action queue, alert state unknown" : "Action queue, empty");
   if (!feedInvalid) syncAppIconBadge(known ? unread : 0);
   const status = $("attentionStatus");
   if (status) {
@@ -647,13 +719,14 @@ function renderAlerts() {
   const historyList = $("alertHistoryList");
   const placard = $("currentSignalPlacard");
   if (!value || !valid || !value.initialized) {
+    const actions = actionQueueItems([]);
     state.renderedAlertAttention = null;
     if (placard) placard.hidden = false;
-    setText("alertCount", "Unknown");
-    setText("currentSignalCount", "--");
+    setText("alertCount", actions.length > 0 ? `${actions.length} Open` : "Unknown");
+    setText("currentSignalCount", String(actions.length));
     setText("alertAuthorityState", "Unknown");
     setText("alertCoverageSummary", valid ? "Alert authority is not initialized." : "The latest alert update was rejected; retained evidence is not a current verdict.");
-    if (currentList) currentList.replaceChildren(emptyRow("Current alert state is unavailable."));
+    if (currentList) currentList.replaceChildren(...(actions.length > 0 ? actions.map(actionQueueRowElement) : [emptyRow("Current alert state is unavailable.")]));
     if (historyList) historyList.replaceChildren();
     const history = $("alertsHistorySection");
     if (history) history.hidden = true;
@@ -667,23 +740,24 @@ function renderAlerts() {
   }
 
   const active = value.occurrences.filter((item) => item.ended_at === null);
+  const queue = actionQueueItems(active);
   const ended = value.occurrences.filter((item) => item.ended_at !== null);
   const clear = canAssertAlertClear(value);
   const completeCurrent = value.coverage.state === "complete" && value.coverage.freshness === "current";
   const authorityState = clear ? "Clear" : value.current_state === "active" && completeCurrent ? "Active" : value.current_state === "active" ? "Degraded" : "Unknown";
-  setText("alertCount", active.length > 0 ? `${active.length} Active` : authorityState);
-  setText("currentSignalCount", String(active.length));
+  setText("alertCount", queue.length > 0 ? `${queue.length} Open` : authorityState);
+  setText("currentSignalCount", String(queue.length));
   setText("alertAuthorityState", authorityState);
   setText("alertCoverageSummary", `${value.coverage.state} coverage · ${value.coverage.freshness} · ${value.coverage.covered_sources.length}/${value.coverage.expected_sources.length} sources · ${timeLabel(value.coverage.as_of)}`);
   const extinguished = extinguishedRegister(value, ended);
   // The poster is the count: an engraved ALL DARK under an "ACTIVE 0" legend
   // says the same thing twice and dilutes the one word that matters. Every
   // other quiet state keeps the legend, because a sentence is not a poster.
-  const posted = active.length === 0 && clear;
+  const posted = queue.length === 0 && clear;
   if (placard) placard.hidden = posted;
   if (currentList) {
-    currentList.replaceChildren(...(active.length > 0
-      ? [...active].sort(bySeverity).map(alertRowElement)
+    currentList.replaceChildren(...(queue.length > 0
+      ? queue.map(actionQueueRowElement)
       : [posted ? allDarkPoster(value) : emptyRow("No active alert can be confirmed because source coverage is incomplete or stale.")]));
   }
   if (historyList) historyList.replaceChildren(...extinguished.map(alertRowElement));
@@ -929,6 +1003,7 @@ export {
   AlertContractError,
   acknowledgeAttention,
   acknowledgeAttentionNow,
+  actionQueueItems,
   alertRowElement,
   alertSourceLabel,
   attentionViewReady,
