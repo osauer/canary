@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -235,7 +235,7 @@ func (w *Worker) registerCurrent(ctx context.Context) error {
 		if !errors.Is(err, errRouteExpired) && !errors.Is(err, errRouteRejected) {
 			return err
 		}
-		log.Printf("canary app relay: relay refused resume of route %s (%v); registering a fresh route", routeID, err)
+		slog.Warn("canary app relay: relay refused route resume; registering a fresh route", "route_id", routeID, "error", err)
 	}
 	if err := w.register(ctx, registerRequest{Version: w.version}); err != nil {
 		return err
@@ -244,7 +244,7 @@ func (w *Worker) registerCurrent(ctx context.Context) error {
 	newRouteID := w.routeID
 	w.mu.RUnlock()
 	if routeID != "" && newRouteID != routeID {
-		log.Printf("canary app relay: route re-registered as %s; previously paired devices must re-pair (their old remote route %s is gone)", newRouteID, routeID)
+		slog.Warn("canary app relay: route re-registered; previously paired devices must re-pair", "route_id", newRouteID, "previous_route_id", routeID)
 	}
 	return nil
 }
@@ -423,7 +423,7 @@ func (w *Worker) connectOnce(ctx context.Context) error {
 	defer conn.Close(websocket.StatusNormalClosure, "canary app relay reconnect")
 	w.setStatus(true, "connected")
 	if err := w.persistRouteExtension(time.Now().UTC()); err != nil {
-		log.Printf("canary app relay: persist route extension: %v", err)
+		slog.Error("canary app relay: persist route extension", "error", err)
 	}
 
 	connCtx, cancel := context.WithCancel(ctx)

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	hyperserve "github.com/osauer/hyperserve/pkg/server"
 	"github.com/skip2/go-qrcode"
 
 	mobileapp "github.com/osauer/canary/v2/internal/app"
@@ -153,15 +155,24 @@ func runAppRestart(args []string) int {
 }
 
 func runAppServe(args []string) int {
+	return runAppServeWithIO(args, os.Stdout, os.Stderr)
+}
+
+func runAppServeWithIO(args []string, stdout, stderr io.Writer) int {
+	logger := configureAppLogger(stderr)
 	opts := mobileapp.DefaultOptions(effectiveVersion())
 	fs := flag.NewFlagSet(productidentity.Executable+" app", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		printAppUsage(os.Stdout)
-		fmt.Fprintln(os.Stdout)
-		fmt.Fprintln(os.Stdout, "Serve flags:")
-		printFlagDefaults(os.Stdout, fs)
+	// Supervised app stdout/stderr share one production log. Flag's default
+	// renderer has no severity token, so keep parse failures inside the app
+	// logger and reserve the plain usage renderer for an explicit --help.
+	fs.SetOutput(io.Discard)
+	usage := func() {
+		printAppServeUsage(stdout, fs)
 	}
+	// flag.Parse invokes Usage for both --help and parse failures. Suppress
+	// that automatic unlevelled output; the explicit help path below renders
+	// it once, while failures stay a single structured error record.
+	fs.Usage = func() {}
 	addr := fs.String("addr", opts.Addr, "HTTP listen address")
 	publicURL := fs.String("public-url", opts.PublicURL, "trusted browser-visible base URL")
 	remote := fs.Bool("remote", opts.Remote, "enable the outbound Cloudflare Worker relay")
@@ -169,17 +180,15 @@ func runAppServe(args []string) int {
 	stateDir := fs.String("state-dir", opts.StateDir, "local app state directory")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			usage()
 			return 0
 		}
+		logger.Error("canary app arguments rejected", "error", err)
 		return 2
 	}
 	if fs.NArg() != 0 {
-		return rejectUnexpectedArgument(os.Stderr, productidentity.Executable+" app", fs, func(w io.Writer) {
-			printAppUsage(w)
-			fmt.Fprintln(w)
-			fmt.Fprintln(w, "Serve flags:")
-			printFlagDefaults(w, fs)
-		})
+		logger.Error("canary app arguments rejected", "unexpected_argument", fs.Arg(0), "action", "run `canary app --help`")
+		return 2
 	}
 	opts.Addr = strings.TrimSpace(*addr)
 	opts.Remote = *remote
@@ -193,19 +202,41 @@ func runAppServe(args []string) int {
 
 	app, err := mobileapp.New(opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s app: %v\n", productidentity.Executable, err)
+		logger.Error("canary app failed to initialize", "error", err)
 		return 1
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	fmt.Fprintf(os.Stdout, "%s app serving %s (listen %s)\n", productidentity.Executable, app.Options.PublicURL, app.Options.Addr)
-	fmt.Fprintf(os.Stdout, "Pair a phone with: %s app pair\n", productidentity.Executable)
+	logger.Info(productidentity.Executable+" app serving", "public_url", app.Options.PublicURL, "listen", app.Options.Addr)
+	logger.Info("Pair a phone", "command", productidentity.Executable+" app pair")
 	if err := app.Run(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "%s app: %v\n", productidentity.Executable, err)
+		logger.Error("canary app stopped", "error", err)
 		return 1
 	}
 	return 0
+}
+
+func printAppServeUsage(w io.Writer, fs *flag.FlagSet) {
+	printAppUsage(w)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Serve flags:")
+	printFlagDefaults(w, fs)
+}
+
+// newAppLogger owns the physical production-log contract: one slog text
+// record per line, with an explicit level= field. App packages use
+// slog.Default and HyperServe holds its own default pointer, so configure both
+// before parsing or constructing any production app component.
+func newAppLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(w, nil))
+}
+
+func configureAppLogger(w io.Writer) *slog.Logger {
+	logger := newAppLogger(w)
+	slog.SetDefault(logger)
+	hyperserve.SetDefaultLogger(logger)
+	return logger
 }
 
 func runAppPair(args []string) int {

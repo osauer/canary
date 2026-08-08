@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net"
 	nethttp "net/http"
 	"net/url"
@@ -255,7 +255,7 @@ func (h *handler) handleDevicesPrune(w nethttp.ResponseWriter, r *nethttp.Reques
 		return
 	}
 	kept := len(h.deps.Store.Devices())
-	log.Printf("canary app auth: pruned %d device grants older than %d days (%d kept)", removed, req.KeepDays, kept)
+	slog.Info("canary app auth: pruned device grants", "removed", removed, "older_than_days", req.KeepDays, "kept", kept)
 	writeJSON(w, map[string]any{"removed": removed, "kept": kept, "keep_days": req.KeepDays})
 }
 
@@ -285,7 +285,7 @@ func (h *handler) handleCompletePairing(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	res, err := h.deps.Auth.CompletePairing(req)
 	if err != nil {
-		log.Printf("canary app auth: pairing rejected: %v", err)
+		slog.Info("canary app auth: pairing rejected", "error", err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())
 		return
 	}
@@ -293,9 +293,9 @@ func (h *handler) handleCompletePairing(w nethttp.ResponseWriter, r *nethttp.Req
 	if cookie, err := h.deps.Auth.IssueDeviceCookie(res.DeviceID); err == nil {
 		setDeviceCookie(w, r, cookie)
 	} else {
-		log.Printf("canary app auth: issue device cookie for %s: %v", res.DeviceID, err)
+		slog.Error("canary app auth: issue device cookie", "device_id", res.DeviceID, "error", err)
 	}
-	log.Printf("canary app auth: paired device %s", res.DeviceID)
+	slog.Info("canary app auth: paired device", "device_id", res.DeviceID)
 	writeJSON(w, res)
 }
 
@@ -309,7 +309,7 @@ func (h *handler) handleAuthChallenge(w nethttp.ResponseWriter, r *nethttp.Reque
 	}
 	ch, err := h.deps.Auth.StartChallenge(req.DeviceID)
 	if err != nil {
-		log.Printf("canary app auth: challenge rejected for device %s: %v", req.DeviceID, err)
+		slog.Info("canary app auth: challenge rejected", "device_id", req.DeviceID, "error", err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())
 		return
 	}
@@ -328,7 +328,7 @@ func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request
 	}
 	sess, err := h.deps.Auth.CompleteChallenge(req.DeviceID, req.Challenge, req.Signature)
 	if err != nil {
-		log.Printf("canary app auth: session rejected for device %s: %v", req.DeviceID, err)
+		slog.Info("canary app auth: session rejected", "device_id", req.DeviceID, "error", err)
 		writeError(w, nethttp.StatusUnauthorized, err.Error())
 		return
 	}
@@ -340,9 +340,9 @@ func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request
 	if cookie, err := h.deps.Auth.IssueDeviceCookie(sess.DeviceID); err == nil {
 		setDeviceCookie(w, r, cookie)
 	} else {
-		log.Printf("canary app auth: issue device cookie for %s: %v", sess.DeviceID, err)
+		slog.Error("canary app auth: issue device cookie", "device_id", sess.DeviceID, "error", err)
 	}
-	log.Printf("canary app auth: device login for %s", sess.DeviceID)
+	slog.Info("canary app auth: device login", "device_id", sess.DeviceID)
 	writeJSON(w, sess)
 }
 
@@ -962,10 +962,10 @@ func (h *handler) deviceCookieSession(w nethttp.ResponseWriter, r *nethttp.Reque
 	}
 	sess, err := h.deps.Auth.AuthenticateDeviceCookie(c.Value)
 	if err != nil {
-		log.Printf("canary app auth: device cookie rejected (%s %s): %v", r.Method, r.URL.Path, err)
+		slog.Info("canary app auth: device cookie rejected", "method", r.Method, "path", r.URL.Path, "error", err)
 		return auth.Session{}, false
 	}
-	log.Printf("canary app auth: session minted from device cookie for %s (%s %s)", sess.DeviceID, r.Method, r.URL.Path)
+	slog.Info("canary app auth: session minted from device cookie", "device_id", sess.DeviceID, "method", r.Method, "path", r.URL.Path)
 	setSessionCookie(w, r, sess.Token, sess.ExpiresAt)
 	// Slide the cookie's clock without rotating its value (twin jars).
 	setDeviceCookie(w, r, c.Value)

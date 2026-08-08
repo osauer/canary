@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +17,52 @@ import (
 	"github.com/osauer/canary/v2/internal/app/auth"
 	apphttp "github.com/osauer/canary/v2/internal/app/http"
 	"github.com/osauer/canary/v2/internal/app/state"
+	hyperserve "github.com/osauer/hyperserve/pkg/server"
 )
+
+func TestNewAppLoggerEmitsOneLeveledPhysicalLine(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	logger := newAppLogger(&out)
+	logger.Info("canary app serving", "detail", "first\nsecond")
+
+	got := strings.TrimSuffix(out.String(), "\n")
+	if strings.Contains(got, "\n") {
+		t.Fatalf("logger emitted an unlevelled continuation line: %q", got)
+	}
+	for _, want := range []string{"time=", "level=INFO", `msg="canary app serving"`, `detail="first\nsecond"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log record %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestRunAppServeParseFailureIsOneLeveledLine(t *testing.T) {
+	oldSlog := slog.Default()
+	oldHyperServe := hyperserve.DefaultLogger()
+	t.Cleanup(func() {
+		slog.SetDefault(oldSlog)
+		hyperserve.SetDefaultLogger(oldHyperServe)
+	})
+
+	var stdout, stderr bytes.Buffer
+	if exit := runAppServeWithIO([]string{"--definitely-not-a-real-flag"}, &stdout, &stderr); exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("parse failure wrote unlevelled stdout: %q", stdout.String())
+	}
+	got := strings.TrimSuffix(stderr.String(), "\n")
+	if strings.Contains(got, "\n") {
+		t.Fatalf("parse failure emitted more than one physical line: %q", got)
+	}
+	for _, want := range []string{"time=", "level=ERROR", `msg="canary app arguments rejected"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("parse-failure record %q does not contain %q", got, want)
+		}
+	}
+}
 
 func TestFetchAppStatusRequiresTypedSchema(t *testing.T) {
 	t.Parallel()
