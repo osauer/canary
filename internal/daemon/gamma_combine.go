@@ -389,10 +389,6 @@ func gammaOneSidedFallbackUsableForCombined(result *rpc.GammaZeroComputed, now t
 //	timeout        → deadline / timeout before SPX landed
 //	zero_magnitude → legs landed but all gamma magnitude was zero
 //	unavailable → every unclassified failure; raw causes remain local-log only
-func summarizeSPXFailure(err error) string {
-	return summarizeGammaPhaseFailure(err)
-}
-
 func summarizeGammaPhaseFailure(err error) string {
 	if err == nil {
 		return "unknown"

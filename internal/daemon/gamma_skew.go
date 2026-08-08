@@ -140,18 +140,6 @@ func fitSkewCurve(legs []legData, snapshotSpot float64) SkewCurve {
 	}
 }
 
-// skewFitRSquared computes the R² goodness-of-fit for the curve over
-// the supplied legs. Useful for the result envelope's transparency —
-// a renderer can show "skew fit: 12 pts, R² 0.94" so the reader knows
-// the curve was well-conditioned rather than fit to noise.
-//
-// Returns 0 when the curve is unfit OR when the σ variance is zero
-// (all observed IVs equal — degenerate case where R² is undefined).
-func skewFitRSquared(curve SkewCurve, legs []legData, snapshotSpot float64) float64 {
-	r2, _ := skewFitStats(curve, legs, snapshotSpot)
-	return r2
-}
-
 // skewFitStats computes R² and the residual RMS (in IV units) in one
 // pass. The two diagnose different failures: R² is relative to the
 // smile's amplitude across strikes, so it collapses on flat smiles

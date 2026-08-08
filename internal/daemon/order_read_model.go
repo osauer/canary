@@ -434,11 +434,6 @@ func (s *Server) readOrderIntegrityCachedPositions(ctx context.Context) ([]*ibkr
 	return c.CachedPositionsWithHealth()
 }
 
-func (s *Server) reconcileOrderViewsFromCachedPositions(ctx context.Context, views []rpc.OrderView, read orderIntegrityCachedPositionsRead) orderIntegrityEvaluation {
-	binding, ok := s.captureOrderIntegrityEvidenceBinding()
-	return s.reconcileOrderViewsFromCachedPositionsBound(ctx, views, read, binding, ok)
-}
-
 func (s *Server) reconcileOrderViewsFromCachedPositionsBound(ctx context.Context, views []rpc.OrderView, read orderIntegrityCachedPositionsRead, binding daemonBrokerEvidenceBinding, bindingOK bool) orderIntegrityEvaluation {
 	scope := binding.scope
 	if !bindingOK {
@@ -525,10 +520,6 @@ func scopedPortfolioStreamHealth(raw []*ibkrlib.RawPosition, health ibkrlib.Port
 	}
 	health.ScopeConflictAt = observedAt.UTC()
 	return health, false
-}
-
-func classifyOrderIntegrityPortfolioHealth(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, now time.Time) string {
-	return classifyPortfolioStreamHealth(scope, health, now)
 }
 
 // classifyPortfolioStreamHealth is the shared trust boundary for any complete
@@ -1669,10 +1660,6 @@ func orderViewModifyEligible(view rpc.OrderView) bool {
 	}
 }
 
-func orderViewCancelEligible(view rpc.OrderView) bool {
-	return orderViewCancelEligibleWithAttemptTruth(view, false)
-}
-
 func orderViewCancelEligibleWithAttemptTruth(view rpc.OrderView, attemptUncertain bool) bool {
 	if !view.Open || view.ReservedOrderID <= 0 || view.LifecycleStatus == rpc.OrderLifecyclePendingCancel {
 		return false
@@ -1894,6 +1881,7 @@ func (s *Server) loadOrderJournalEventsForRead(_ string) ([]orderJournalEvent, e
 	return s.orderJournal.LoadEvents(0)
 }
 
+//lint:ignore U1000 used by the trading-tag order placement path
 func (s *Server) reservedBrokerOrderIDFloor() (int, error) {
 	if s == nil || s.orderJournal == nil {
 		return 0, nil

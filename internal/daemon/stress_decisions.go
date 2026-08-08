@@ -362,9 +362,3 @@ func (s *Server) stressEvaluationTick(ctx context.Context) bool {
 	s.journalStressDecision(&can)
 	return true
 }
-
-// stressJournalTick remains as a narrow compatibility seam for legacy tests.
-// It now performs an evaluation; the journal setting controls retention only.
-func (s *Server) stressJournalTick(ctx context.Context) {
-	s.stressEvaluationTick(ctx)
-}

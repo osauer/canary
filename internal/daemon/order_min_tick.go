@@ -65,12 +65,10 @@ func (s *Server) cachedContractMinTick(conID int) float64 {
 }
 
 // trailRedemptionGuard re-checks a trailing-stop draft against the live
-// market at token redemption: a preview token lives ten minutes and the
-// market can move through the initial stop in that window — redeeming then
-// places a stop on the trigger side that fires immediately at the moved
-// price. With no live two-sided quote (off-hours placement of a resting
-// protective stop) the guard stands aside: broker WhatIf already vetted the
-// draft and the exchange holds the order until the open.
+// market at token redemption so a moved market cannot turn a protective
+// stop into an immediate trigger.
+//
+//lint:ignore U1000 used by the trading-tag order redemption path
 func (s *Server) trailRedemptionGuard(ctx context.Context, draft rpc.OrderDraft) string {
 	if draft.Trail == nil || draft.Trail.InitialStopPrice <= 0 {
 		return ""

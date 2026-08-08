@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -94,4 +95,13 @@ func TestReduceSubmitSerializesAgainstConcurrentOrderPlace(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("reduce submit did not proceed after the order place released brokerWriteMu")
 	}
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

@@ -932,81 +932,6 @@ func (s *Server) activeDailyPnLCount(c *ibkrlib.Connector) int {
 	return c.ActiveDailyPnLSubscriptions()
 }
 
-// baseCurrencyFromRaw resolves the account's base currency by scanning
-// the raw accountSummary map. The bare "Currency" tag IBKR emits carries
-// the literal string "BASE" (the pseudo-currency name, not the actual
-// base currency), so it is useless on its own — we only return it when
-// the value is something other than "BASE". Prefer account-level value
-// suffixes (`NetLiquidation_EUR`) because the streaming `$LEDGER:ALL`
-// ExchangeRate rows can all be 1.0 on some accounts; use the exchange-rate
-// fallback only when exactly one real currency has a unit rate.
-func baseCurrencyFromRaw(raw map[string]string) string {
-	if v, ok := raw["Currency"]; ok {
-		ccy := normCcy(v)
-		if ccy != "" && ccy != "BASE" {
-			return ccy
-		}
-	}
-	for _, tag := range []string{
-		"NetLiquidation",
-		"BuyingPower",
-		"AvailableFunds",
-		"ExcessLiquidity",
-		"TotalCashValue",
-		"MaintMarginReq",
-		"MaintenanceMarginReq",
-		"InitMarginReq",
-		"GrossPositionValue",
-		"UnrealizedPnL",
-		"RealizedPnL",
-	} {
-		if ccy := accountValueCurrencySuffix(raw, tag); ccy != "" {
-			return ccy
-		}
-	}
-	const erPrefix = "ExchangeRate_"
-	const eps = 1e-6
-	match := ""
-	for k, v := range raw {
-		ccy, ok := strings.CutPrefix(k, erPrefix)
-		if !ok {
-			continue
-		}
-		ccy = normCcy(ccy)
-		if ccy == "" || ccy == "BASE" {
-			continue
-		}
-		rate, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		if err != nil || math.Abs(rate-1.0) > eps {
-			continue
-		}
-		if match != "" && ccy != match {
-			return ""
-		}
-		match = ccy
-	}
-	return match
-}
-
-func accountValueCurrencySuffix(raw map[string]string, tag string) string {
-	prefix := tag + "_"
-	best := ""
-	for k := range raw {
-		ccy, ok := strings.CutPrefix(k, prefix)
-		if !ok {
-			continue
-		}
-		ccy = normCcy(ccy)
-		if ccy == "" || ccy == "BASE" {
-			continue
-		}
-		if best == "" || ccy < best {
-			best = ccy
-		}
-	}
-	return best
-}
-
 const fxRepairQuoteBudget = 1200 * time.Millisecond
 
 type currencyRateResolver func(context.Context, string, string, time.Duration) (float64, bool)
@@ -1621,10 +1546,6 @@ func optionGreeksKey(p rpc.PositionView) string {
 //
 // Always returns a non-nil result (the renderer relies on this), but
 // individual pointer fields stay nil when their inputs were absent.
-func buildPortfolioAggregates(stocks, options []rpc.PositionView) *rpc.PositionsPortfolio {
-	return buildPortfolioAggregatesWithBase(stocks, options, "")
-}
-
 func buildPortfolioAggregatesWithBase(stocks, options []rpc.PositionView, baseCcy string) *rpc.PositionsPortfolio {
 	acc := newPortfolioAggregateAccumulator(baseCcy)
 	for _, o := range options {

@@ -78,13 +78,6 @@ func findAppLaunchAgent(ctx context.Context) (appSupervisor, bool) {
 	return sup, true
 }
 
-// launchdProgramArguments extracts both the leading executable and the app
-// args ("app", "--remote", ...) from `launchctl print` output.
-func launchdProgramArguments(out string) (string, []string) {
-	executable, args, _ := parseLaunchdProgramArguments(out)
-	return executable, args
-}
-
 func parseLaunchdProgramArguments(out string) (string, []string, error) {
 	if len(launchdArgumentsRe.FindAllStringIndex(out, -1)) != 1 {
 		return "", nil, errors.New("launchd job must contain exactly one arguments block")

@@ -178,16 +178,6 @@ type regimeRowPolicy struct {
 	held   bool
 }
 
-// populateStreaks runs classification (with red-exit hysteresis), ticks the
-// streak counter, evaluates cadence freshness and confirmation eligibility
-// for each regime row, attaches the *rpc.StreakInfo, and returns the
-// per-indicator policy for annotateRegimeMetadata to serve. Nil-safe on the
-// store side (no persistence ⇒ no hysteresis/latch, eligibility evaluated at
-// sessions=1) and on the band side (Tick freezes the counter when band="").
-func (s *Server) populateStreaks(res *rpc.RegimeSnapshotResult) map[string]regimeRowPolicy {
-	return s.populateStreaksWithStore(res, s.streaks)
-}
-
 func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks *StreakStore) map[string]regimeRowPolicy {
 	policies := make(map[string]regimeRowPolicy, len(streakIndicators))
 	if res == nil {
@@ -370,24 +360,6 @@ func (s *Server) regimeContentionMessage() string {
 type regimeFanoutOutcome struct {
 	Snapshot *rpc.RegimeSnapshotResult
 	Complete bool
-}
-
-// runRegimeFanout preserves the package-private test seam used by the row
-// orchestration tests. Publication paths must use runRegimeFanoutOutcome so a
-// deadline-filled envelope can never be mistaken for a complete observation.
-func runRegimeFanout(
-	ctx context.Context,
-	vix func(context.Context) rpc.RegimeVIXTerm,
-	volOfVol func(context.Context) rpc.RegimeVolOfVol,
-	hyg func(context.Context) rpc.RegimeHYGSPYDivergence,
-	creditSpreads func(context.Context) rpc.RegimeCreditSpreads,
-	fundingStress func(context.Context) rpc.RegimeFundingStress,
-	usdjpy func(context.Context) rpc.RegimeUSDJPY,
-	gamma func(context.Context) rpc.RegimeGammaZero,
-	breadth func(context.Context) rpc.RegimeBreadth,
-	contentionMsg func() string,
-) *rpc.RegimeSnapshotResult {
-	return runRegimeFanoutOutcome(ctx, vix, volOfVol, hyg, creditSpreads, fundingStress, usdjpy, gamma, breadth, contentionMsg).Snapshot
 }
 
 func runRegimeFanoutOutcome(

@@ -248,18 +248,6 @@ func productionAppRestartDepsForExecutable(executable string) appRestartDeps {
 	}
 }
 
-func runRestartCore(ctx context.Context, opts *restartOptions, deps restartDeps) int {
-	res, exit := restartDaemon(ctx, opts, deps)
-	if exit != 0 {
-		return exit
-	}
-	if opts.jsonOut {
-		return printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res)
-	}
-	renderRestartStarted(opts.out, res)
-	return 0
-}
-
 type restartStackBehavior struct {
 	startDaemonWhenMissing bool
 }
@@ -493,10 +481,6 @@ func resumeAppAfterDaemonRestart(ctx context.Context, opts *restartOptions, deps
 		fmt.Fprintf(opts.out, "%s: resumed supervised app pid %d after daemon restart (%s)\n", prefix, newPID, sup.Target)
 	}
 	return res, 0
-}
-
-func restartDaemon(ctx context.Context, opts *restartOptions, deps restartDeps) (restartResult, int) {
-	return restartDaemonWithBehavior(ctx, opts, deps, true)
 }
 
 func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps restartDeps, startWhenMissing bool) (restartResult, int) {
@@ -1112,11 +1096,6 @@ func findAppProcessForExecutables(ctx context.Context, executablePaths map[strin
 	default:
 		return appProcess{}, fmt.Errorf("%w: multiple Canary app processes found", errAppUnverified)
 	}
-}
-
-func appCommandArgs(cmdline string) ([]string, bool) {
-	args, _, ok := appCommandMatch(cmdline, nil)
-	return args, ok
 }
 
 func appCommandMatch(cmdline string, exactPaths map[string]struct{}) ([]string, bool, bool) {

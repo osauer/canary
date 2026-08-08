@@ -602,14 +602,6 @@ func (e *Env) formatPnLCcyRight(v float64, ccy string, width int) string {
 	return e.colorBySign(v, s, signPnL)
 }
 
-// formatPnLCcyPtrRight is formatPnLCcyRight with nil handling.
-func (e *Env) formatPnLCcyPtrRight(v *float64, ccy string, width int) string {
-	if v == nil {
-		return padDash(width)
-	}
-	return e.formatPnLCcyRight(*v, ccy, width)
-}
-
 // formatMoneyCcyForPnL is formatMoneyCcy without the zero-as-em-dash
 // branch — for sign-coloured P&L lines a value of exactly zero is a
 // real result ("flat day") and must render as a number, not a dash.

@@ -178,31 +178,6 @@ type spxExpirySpec struct {
 	Strikes      []float64
 }
 
-// selectSPXExpirationsClassed picks up to N (date, tradingClass) pairs
-// that are NOT past their class-specific settlement window. The budget is
-// global across classes — each (date, class) counts as a distinct listing
-// because SPX-class AM-settled contracts and SPXW-class PM-settled
-// contracts have different ConIDs and settlement instants.
-//
-// SPX needs a class-aware slot policy instead of "nearest N": daily SPXW
-// listings can otherwise consume the whole basket and miss the SPX AM
-// monthly/quarterly contracts that dominate term dealer exposure. IBKR/TWS
-// exposes those SPX AM contracts by the Thursday last-trade date before the
-// third Friday; the anchor below targets the actual chain dates rather than
-// projecting a third-Friday calendar onto IBKR's wire shape.
-//
-// Slots: nearest/0DTE, next nearest, this week's Friday/EOW, next SPX AM
-// monthly, next SPX AM quarterly, then nearest unused fill. The returned
-// slice is sorted date/class ascending for deterministic downstream fanout.
-//
-// classed is the per-date per-class strike grid emitted by
-// FetchOptionExpiryStrikesClassed. now is the wall-clock reference
-// for the settlement cutoff. count caps the returned slice.
-func selectSPXExpirationsClassed(classed map[string][]ibkrlib.ExpiryClassedStrikes, now time.Time, count int) []spxExpirySpec {
-	candidates := classedSPXCandidateSpecs(classed, now)
-	return pickSPXExpirationSlots(candidates, now.In(newYorkLocation()), count)
-}
-
 func newYorkLocation() *time.Location {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {

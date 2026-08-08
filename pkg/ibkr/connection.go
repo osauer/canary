@@ -3485,31 +3485,6 @@ func (c *Connection) setClientIDInUseErrorAtEpoch(epoch uint64, message string) 
 
 // Message encoding/decoding methods
 
-// sendRawMessage sends a raw string message with rate limiting
-func (c *Connection) sendRawMessage(msg string) error {
-	// Check connection status before queueing - reject if disconnecting
-	c.statusMu.RLock()
-	status := c.status
-	c.statusMu.RUnlock()
-	if status != StatusConnected {
-		return fmt.Errorf("cannot send message: connection status is %v", status)
-	}
-
-	// Use rate limiter for all messages
-	return c.rateLimiter.Submit(RequestTypeGeneral, func() error {
-		if err := c.waitForHandshakeReady(); err != nil {
-			return err
-		}
-		return c.withTransport(false, func() error {
-			_, err := c.writer.WriteString(msg)
-			if err != nil {
-				return err
-			}
-			return c.writer.Flush()
-		})
-	})
-}
-
 // sendMessage sends a length-prefixed message with rate limiting
 func (c *Connection) sendMessage(msg []byte) error {
 	// Check connection status before queueing - reject if disconnecting

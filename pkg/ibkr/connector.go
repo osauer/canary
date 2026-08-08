@@ -8380,14 +8380,6 @@ func (c *Connector) isKnownBrokerOrderID(id int) bool {
 	return indexed || direct || c.isWhatIfOrderID(id)
 }
 
-func (c *Connector) notifyOrderErrorLifecycleFrom(origin ConnectorSessionBinding, orderID, code int, message, advancedRejectJSON string) {
-	c.publicationBarrier.RLock()
-	defer c.publicationBarrier.RUnlock()
-	c.evidenceBarrier.RLock()
-	defer c.evidenceBarrier.RUnlock()
-	c.notifyOrderErrorLifecycleUnderBarrier(origin, orderID, code, message, advancedRejectJSON)
-}
-
 func (c *Connector) notifyOrderErrorLifecycleUnderBarrier(origin ConnectorSessionBinding, orderID, code int, message, advancedRejectJSON string) {
 	if orderID <= 0 || code == 0 || orderWhatIfInformationalError(code) {
 		return
@@ -8409,11 +8401,6 @@ func (c *Connector) notifyOrderErrorLifecycleUnderBarrier(origin ConnectorSessio
 		Message:   message,
 	}
 	c.dispatchOrderLifecycleUnderBarrier(origin, ev, c.SessionReceiptCurrent(origin))
-}
-
-func (c *Connector) notifyOrderErrorLifecycle(orderID, code int, message, advancedRejectJSON string) {
-	binding, _ := c.CaptureSession()
-	c.notifyOrderErrorLifecycleFrom(binding, orderID, code, message, advancedRejectJSON)
 }
 
 func (c *Connector) dispatchOrderLifecycle(ev OrderLifecycleEvent) {

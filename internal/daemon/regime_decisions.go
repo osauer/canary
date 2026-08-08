@@ -119,14 +119,6 @@ func (s *Server) regimeJournalEnabled() bool {
 // writer-quiescence contract journal rotation relies on (a live-file
 // rename is invisible to an open-per-append writer only while no append
 // is in flight).
-func (j *regimeDecisionJournal) append(now time.Time, res *rpc.RegimeSnapshotResult) error {
-	return j.appendContext(context.Background(), now, res)
-}
-
-func (j *regimeDecisionJournal) appendContext(ctx context.Context, now time.Time, res *rpc.RegimeSnapshotResult) error {
-	return j.appendPublicationContext(ctx, now, res, regimeSnapshotPublication{})
-}
-
 func (j *regimeDecisionJournal) appendPublicationContext(ctx context.Context, now time.Time, res *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication) error {
 	if j == nil || res == nil {
 		return nil

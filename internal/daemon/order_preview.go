@@ -566,6 +566,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}, nil
 }
 
+//lint:ignore U1000 used by trading-tag order placement and paper smoke paths
 func (s *Server) fetchPreviewQuote(ctx context.Context, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
 	return s.fetchPreviewQuoteBound(ctx, contract, timeout, nil)
 }

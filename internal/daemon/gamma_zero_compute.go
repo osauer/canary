@@ -1664,47 +1664,6 @@ func classSettlementInstant(tradingClass string, year int, month time.Month, day
 // boundary semantics stay consistent across the SPX/SPXW split.
 const classSettlementBuffer = 15 * time.Minute
 
-// selectExpirations picks up to N expirations using a slot-anchored
-// policy. Same-day expiries before their class's settlement cutoff
-// count; same-day expiries after settlement are dropped (see
-// classSettlementInstant + classSettlementBuffer).
-//
-// The slot policy is fixed:
-//
-//	1  front-week-1    nearest unused candidate
-//	2  front-week-2    next nearest unused candidate
-//	3  EOW             this calendar week's Friday (rolls to fill if already used)
-//	4  next-monthly    next 3rd-Friday (any month)
-//	5  next-quarterly  next 3rd-Friday of Mar/Jun/Sep/Dec
-//	6+ fill            nearest unused candidate, until count is reached
-//
-// Each anchored slot (3–5) is allowed to find no candidate, in which
-// case the slot is skipped and the fill rule covers the remaining
-// count. The output is sorted ascending for stable downstream
-// iteration.
-//
-// Why the slot policy: lexicographic-N picked only weeklies inside
-// ~2 weeks on the SPY chain (max DTE = 13), so the term gamma bucket
-// (DTE > 7) was computed over almost-weeklies. Anchoring monthly +
-// quarterly slots guarantees the basket reaches the OPEX and
-// institutional-collar horizons that dominate dealer term-gamma.
-//
-// tradingClass is the option class whose settlement instant defines
-// the today-cutoff (same semantics as before this refactor): "SPX"
-// cuts off at 09:45 ET (AM-settle + 15-min buffer); "SPXW", "SPY",
-// and empty default to 16:15 ET (PM-settle + 15-min buffer).
-//
-// Input map keys are YYYY-MM-DD; output is the picked subset in the
-// same date format, sorted ascending.
-func selectExpirations(strikes map[string][]float64, tradingClass string, now time.Time, count int) []string {
-	if count <= 0 {
-		return nil
-	}
-	nyNow := now.In(newYorkLocation())
-	candidates := selectExpirationCandidates(strikes, tradingClass, now)
-	return pickExpirationSlots(candidates, nyNow, count)
-}
-
 func selectExpirationCandidates(strikes map[string][]float64, tradingClass string, now time.Time) []string {
 	loc := newYorkLocation()
 	nyNow := now.In(loc)
@@ -1726,11 +1685,8 @@ func selectExpirationCandidates(strikes map[string][]float64, tradingClass strin
 	return candidates
 }
 
-// pickExpirationSlots applies the slot policy documented on
-// selectExpirations to an already-filtered, ascending-sorted candidate
-// list. Exposed at package scope (lowercase but distinct from
-// selectExpirations) so tests can drive the picker independently of
-// the trading-class settlement-filter logic.
+// pickExpirationSlots applies the front-week, EOW, monthly, quarterly, then
+// nearest-unused policy to an already-filtered ascending candidate list.
 //
 // candidates: sorted ascending, must already be non-expired.
 // nyNow:      NY-localised wall-clock; used by the EOW anchor.
