@@ -58,14 +58,6 @@ errors roll back both records; no legacy-file write or fallback follows.
 
 ## Policy
 
-The purge/restore workflow/read surface is enabled by default. Disabling
-`features.purge_restore.enabled` disables its workflow controls while
-`purge.status` remains readable. Enabling it is not broker-write authority:
-purge, restore preview, and restore submission remain unconditionally
-unavailable until exact per-leg portfolio and account-global working-order
-authority exist. Use TWS for a manual exit/restore, then refresh and reconcile
-the daemon.
-
 Stock/ETF protection proposals are enabled by default. Disabling
 `features.stock_protection.enabled` blocks stock/ETF protection proposal actions
 with a `stock_protection_disabled` blocker, while proposal/status surfaces
@@ -113,7 +105,7 @@ truth remains on quote, chain, position, and status responses.
   connectivity.
 - CLI: `canary settings show [--json]` and
   `canary settings set <key>=<value>` for the writable keys above, e.g.
-  `features.purge_restore.enabled=true|false|null` or
+  `features.stock_protection.enabled=true|false|null` or
   `features.rulebook.earnings_overrides.<SYMBOL>=YYYY-MM-DD|null`.
   `canary settings set --help` is the authoritative key list.
 - HTTP/app: `GET /api/settings`, `PATCH /api/settings`, `/api/bootstrap`, live

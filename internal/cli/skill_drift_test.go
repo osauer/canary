@@ -23,7 +23,6 @@ var skillExcluded = map[string]string{
 	"mcp":    "MCP server bootstrap, not an agent data command",
 	"setup":  "interactive first-run wizard",
 	"update": "binary self-update is a human decision",
-	"purge":  "destructive emergency workflow, deliberately human-only",
 	"stop":   "stops the daemon and app other sessions and the paired phone are using; a human decision, not an agent step",
 }
 
@@ -36,7 +35,6 @@ var forbiddenAllowPrefixes = []string{
 	"canary opportunities preview", "canary opportunities exercise", "canary opportunities ignore",
 	"canary settings set",
 	"canary watch --add", "canary watch --remove", "canary watch --clear",
-	"canary purge",
 }
 
 func readSkill(t *testing.T) string {
@@ -160,7 +158,6 @@ func TestAgentPolicyDocsDoNotClaimLiveAgentHardBlock(t *testing.T) {
 		"../../README.md",
 		"../../SECURITY.md",
 		"../../internal-docs/design/agent-origin-gating.md",
-		"../../internal-docs/design/trading-paper-smoke.md",
 		"../../.agents/docs/agent-session-hygiene.md",
 		"../../.agents/docs/daemon-cli-trading-contract.md",
 		"../../skills/canary/SKILL.md",

@@ -247,11 +247,6 @@ func TestPlatformSettingsTradingControlGenerationCoversExactlyFiveControls(t *te
 		value := false
 		next.Trading.Freeze = &value
 	})
-	set(6, func(next *platformSettingsData) {
-		value := false
-		next.Features.PurgeRestore.Enabled = &value
-	})
-
 	base := config.Trading{
 		MaxNotional:           10_000,
 		MaxOptionContracts:    10,

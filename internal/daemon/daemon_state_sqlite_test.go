@@ -235,7 +235,6 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 	settings := platformSettingsData{
 		Version: platformSettingsDocVersion, TradingControlGeneration: 1,
 		Features: platformFeatureSettingsData{
-			PurgeRestore:    platformPurgeRestoreSettingsData{Enabled: &flag},
 			StockProtection: platformStockProtectionSettingsData{Enabled: &flag},
 			Rulebook: platformRulebookSettingsData{
 				Enabled: &flag, EarningsOverrides: map[string]string{"TEST": "2026-08-01Tamc"},

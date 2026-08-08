@@ -585,10 +585,6 @@ func orderPreviewTimeout(timeoutMs int) time.Duration {
 	return min(timeout, orderPreviewMaxWait)
 }
 
-func (s *Server) fetchPreviewWhatIf(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, timeout time.Duration) (rpc.OrderWhatIfResult, error) {
-	return s.fetchPreviewWhatIfBound(ctx, status, draft, timeout, nil)
-}
-
 func (s *Server) fetchPreviewWhatIfBound(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, timeout time.Duration, authority *orderPreviewBrokerAuthority) (rpc.OrderWhatIfResult, error) {
 	whatIfCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -1358,115 +1354,6 @@ func contractMultiplier(contract rpc.ContractParams) int {
 		}
 		return 1
 	}
-}
-
-func positionQuantityForContract(positions []*ibkrlib.RawPosition, contract rpc.ContractParams) float64 {
-	if strings.EqualFold(contract.SecType, "OPT") {
-		return optionPositionQuantity(positions, contract)
-	}
-	return stockPositionQuantity(positions, contract)
-}
-
-func stockPositionQuantity(positions []*ibkrlib.RawPosition, contract rpc.ContractParams) float64 {
-	wantSymbol := strings.ToUpper(strings.TrimSpace(contract.Symbol))
-	if wantSymbol == "" {
-		return 0
-	}
-	wantCurrency := strings.ToUpper(strings.TrimSpace(contract.Currency))
-	wantLocalSymbol := strings.ToUpper(strings.TrimSpace(contract.LocalSymbol))
-	wantTradingClass := strings.ToUpper(strings.TrimSpace(contract.TradingClass))
-	wantPrimaryExch := strings.ToUpper(strings.TrimSpace(contract.PrimaryExch))
-	wantExchange := strings.ToUpper(strings.TrimSpace(contract.Exchange))
-	var qty float64
-	for _, pos := range positions {
-		if pos == nil {
-			continue
-		}
-		if !strings.EqualFold(pos.Contract.SecType, "STK") || !strings.EqualFold(pos.Contract.Symbol, wantSymbol) {
-			continue
-		}
-		if wantCurrency != "" && pos.Contract.Currency != "" && !strings.EqualFold(pos.Contract.Currency, wantCurrency) {
-			continue
-		}
-		if wantLocalSymbol != "" && pos.Contract.LocalSymbol != "" && !strings.EqualFold(pos.Contract.LocalSymbol, wantLocalSymbol) {
-			continue
-		}
-		if wantTradingClass != "" && pos.Contract.TradingClass != "" && !strings.EqualFold(pos.Contract.TradingClass, wantTradingClass) {
-			continue
-		}
-		if wantPrimaryExch != "" && !stockVenueMatches(pos.Contract, wantPrimaryExch) {
-			continue
-		}
-		if wantPrimaryExch == "" && wantExchange != "" && wantExchange != "SMART" && !stockVenueMatches(pos.Contract, wantExchange) {
-			continue
-		}
-		qty += pos.Position
-	}
-	return qty
-}
-
-func optionPositionQuantity(positions []*ibkrlib.RawPosition, contract rpc.ContractParams) float64 {
-	wantSymbol := strings.ToUpper(strings.TrimSpace(contract.Symbol))
-	wantExpiry := strings.TrimSpace(contract.Expiry)
-	wantRight := strings.ToUpper(strings.TrimSpace(contract.Right))
-	wantCurrency := strings.ToUpper(strings.TrimSpace(contract.Currency))
-	wantLocalSymbol := strings.ToUpper(strings.TrimSpace(contract.LocalSymbol))
-	wantTradingClass := strings.ToUpper(strings.TrimSpace(contract.TradingClass))
-	for _, pos := range positions {
-		if pos == nil || !strings.EqualFold(pos.Contract.SecType, "OPT") {
-			continue
-		}
-		if contract.ConID > 0 && pos.Contract.ConID > 0 {
-			if contract.ConID == pos.Contract.ConID {
-				return pos.Position
-			}
-			continue
-		}
-		if !strings.EqualFold(pos.Contract.Symbol, wantSymbol) ||
-			strings.TrimSpace(pos.Contract.Expiry) != wantExpiry ||
-			!strings.EqualFold(pos.Contract.Right, wantRight) ||
-			!samePreviewFloat(pos.Contract.Strike, contract.Strike) {
-			continue
-		}
-		if wantCurrency != "" && pos.Contract.Currency != "" && !strings.EqualFold(pos.Contract.Currency, wantCurrency) {
-			continue
-		}
-		if wantLocalSymbol != "" && pos.Contract.LocalSymbol != "" && !strings.EqualFold(pos.Contract.LocalSymbol, wantLocalSymbol) {
-			continue
-		}
-		if wantTradingClass != "" && pos.Contract.TradingClass != "" && !strings.EqualFold(pos.Contract.TradingClass, wantTradingClass) {
-			continue
-		}
-		if !optionalMultiplierEqual(pos.Contract.Multiplier, contract.Multiplier) {
-			continue
-		}
-		return pos.Position
-	}
-	return 0
-}
-
-func samePreviewFloat(a, b float64) bool {
-	const epsilon = 1e-9
-	if a > b {
-		return a-b < epsilon
-	}
-	return b-a < epsilon
-}
-
-func stockVenueMatches(contract ibkrlib.Contract, want string) bool {
-	want = strings.ToUpper(strings.TrimSpace(want))
-	if want == "" {
-		return true
-	}
-	primaryExch := strings.ToUpper(strings.TrimSpace(contract.PrimaryExch))
-	exchange := strings.ToUpper(strings.TrimSpace(contract.Exchange))
-	if exchange == "SMART" {
-		exchange = ""
-	}
-	if primaryExch == "" && exchange == "" {
-		return true
-	}
-	return primaryExch == want || exchange == want
 }
 
 func classifyPositionEffect(before, after float64) string {

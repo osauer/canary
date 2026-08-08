@@ -13,7 +13,7 @@ Field absence semantics matter:
 - Times are RFC 3339 with timezone.
 
 Coverage boundary: commands without a section here — `rules` (+`history`),
-`recon`, `policy`, `brief`, `purge`, `opportunities`, the
+`recon`, `policy`, `brief`, `opportunities`, the
 `proposals` write subcommands, `settings set`, `trading paper-smoke`,
 `order place|modify|cancel`, and `update` — still emit `--json`, shaped by
 their result structs in `internal/rpc/rpc.go` and neighbors. For those, run
@@ -1965,8 +1965,9 @@ Field meanings:
   DAY/GTC TRAIL / TRAIL LIMIT (protective trails are amended in place so
   a re-price never opens an unprotected cancel/replace window). Cancel
   requires a broker-acknowledged order ID and not `pending_cancel`.
-- `purge_id`, `leg_id`, `source`, `bypass_preview` — provenance for
-  purge/proposal-originated orders.
+- `purge_id`, `leg_id`, `source`, `bypass_preview` — legacy provenance
+  retained when reading historical workflow orders; current proposals use
+  `source` and `leg_id`.
 
 ## orders-history
 
@@ -2461,12 +2462,9 @@ read-only cells or how to change them.
 
 ```json
 {
-  "kind": "ibkr.platform_settings",
-  "features": {
-    "purge_restore": {
-      "enabled": {"value": true, "access": "write", "source": "runtime"}
-    },
-    "stock_protection": {
+	"kind": "ibkr.platform_settings",
+	"features": {
+		"stock_protection": {
       "enabled": {"value": true, "access": "write", "source": "runtime"}
     }
   },
@@ -2532,12 +2530,12 @@ read-only cells or how to change them.
 
 Field meanings:
 
-- `features.purge_restore.enabled` / `features.stock_protection.enabled`
-  — runtime user preferences (always `write`/`runtime`). Default `true`
+- `features.stock_protection.enabled` — runtime user preference (always
+  `write`/`runtime`). Default `true`
   when never set; `canary settings set ...=null` clears the override back
   to the default.
 - `trading.freeze` — the runtime trading brake. `true` blocks every new
-  broker write (place/modify/purge/restore/proposal submits) while
+  broker write (place/modify/proposal submit/option exercise) while
   cancels stay allowed; it engages even when order entry is otherwise
   misconfigured. Human-only on live routes.
 - `trading.mode`, `account`, `client_id`, `live_override` — read-only

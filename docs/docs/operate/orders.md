@@ -43,7 +43,10 @@ When trading is enabled, the daemon expects these values to be pinned:
 - `[gateway].client_id`
 - `[trading].mode = "paper"` or `"live"`; absent or `"disabled"` means no order entry
 
-Placing, modifying, and cancelling an order each require a submit-eligible preview token. That is an invariant, not a config switch. Purge and restore are the one surface outside it: they never mint a preview token, and their broker submission is disabled outright today, so the only way to run a purge is manually in TWS.
+Placing and modifying an order require a submit-eligible preview token.
+Cancelling requires an exact broker-acknowledged local order reference. Those
+are invariants, not config switches; the product does not expose free-form
+order entry.
 
 Paper mode should use a paper endpoint or account, such as TWS paper on `7497` or a `DU...` account.
 

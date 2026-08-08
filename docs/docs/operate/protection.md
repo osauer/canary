@@ -1,4 +1,4 @@
-# Protection and emergency exits
+# Protection and risk reduction
 
 Updated: 2026-07-25 12:07 CEST
 
@@ -6,10 +6,9 @@ Nothing here submits an order for you. The daemon can propose a close or a
 reduce and can price one against the broker. Placing it stays an explicit
 instruction from you, for that exact order, in that moment.
 
-Two things are worth knowing before you need them. Purge and restore cannot
-reach the broker at all today, so a full emergency exit is a TWS job. And a
-blocked proposal row is normally the system refusing to act on evidence it
-cannot trust, not a fault to work around.
+A blocked proposal row is normally the system refusing to act on evidence it
+cannot trust, not a fault to work around. Canary exposes only constrained
+close/reduce actions here; use TWS for an unmodeled emergency exit.
 
 ## What each command does
 
@@ -20,8 +19,6 @@ cannot trust, not a fault to work around.
 | `canary proposals preview KEY REVISION` | no | mint a preview token and read the broker WhatIf verdict |
 | `canary proposals submit KEY REVISION` | yes | place that one protective order |
 | `canary proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close |
-| `canary purge dry-run` | no | price what a full exit would cost |
-| `canary purge status`, `canary purge monitor` | no | the purge ledger and any orders recorded against it |
 
 `canary proposals` with no subcommand runs `list`. In a standard build the submit
 path fails closed anyway: the daemon's write handler is compiled out behind the
@@ -95,26 +92,3 @@ the exact quantity a reduce-modify has to target, and it appears with
 `short_risk_quantity` in `canary orders open --json`. The same holdings show up in
 `canary positions` as `reconcile_required` under protection coverage, where a
 stale protective order is deliberately not counted as protection.
-
-## Purge and restore
-
-`canary purge` is the emergency full-exit path, and its broker submission is
-disabled outright. Before the daemon evaluates anything else it appends a
-`purge_submission_unavailable` blocker to every purge execute and to every
-restore, preview and execute alike. The blocker's action line says what to do
-instead: run the purge manually in TWS, then refresh and reconcile the daemon
-afterward.
-
-This is not a configuration problem. Setting
-`features.purge_restore.enabled=true` does not authorize submission; that flag
-controls the workflow and read surface only. Purge is also the one surface
-outside the preview-token gate: it never mints a token, and the fast path is its
-only supported mode.
-
-The review side still works. `canary purge dry-run` builds a purge book from
-current positions, prices each leg, and prints a boundary line stating that no
-broker order has been placed, modified, cancelled, or transmitted. Use it to
-size the exit before you go to TWS. Its prices are real-time wherever your IBKR
-market-data subscriptions cover the instrument, delayed where they don't.
-`canary purge status` and
-`canary purge monitor` read the ledger and any orders already recorded against it.

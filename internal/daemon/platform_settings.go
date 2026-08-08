@@ -278,9 +278,25 @@ type platformHistoryRotationSettingsData struct {
 }
 
 type platformFeatureSettingsData struct {
-	PurgeRestore    platformPurgeRestoreSettingsData    `json:"purge_restore"`
 	StockProtection platformStockProtectionSettingsData `json:"stock_protection"`
 	Rulebook        platformRulebookSettingsData        `json:"rulebook"`
+}
+
+// UnmarshalJSON accepts the retired purge_restore preference so v2 settings
+// documents remain upgradeable. The field is deliberately discarded and is
+// therefore absent from every subsequent write.
+func (d *platformFeatureSettingsData) UnmarshalJSON(raw []byte) error {
+	var stored struct {
+		StockProtection platformStockProtectionSettingsData `json:"stock_protection"`
+		Rulebook        platformRulebookSettingsData        `json:"rulebook"`
+		PurgeRestore    json.RawMessage                     `json:"purge_restore,omitempty"`
+	}
+	if err := decodeStrictPlatformSettingsJSON(raw, &stored); err != nil {
+		return err
+	}
+	d.StockProtection = stored.StockProtection
+	d.Rulebook = stored.Rulebook
+	return nil
 }
 
 type platformRulebookSettingsData struct {
@@ -288,10 +304,6 @@ type platformRulebookSettingsData struct {
 	// EarningsOverrides maps SYMBOL → "YYYY-MM-DD" or "YYYY-MM-DDTamc"/
 	// "Tbmo"; overrides are authoritative over fetched dates (rules 6-8).
 	EarningsOverrides map[string]string `json:"earnings_overrides,omitempty"`
-}
-
-type platformPurgeRestoreSettingsData struct {
-	Enabled *bool `json:"enabled,omitempty"`
 }
 
 type platformStockProtectionSettingsData struct {
@@ -304,7 +316,7 @@ type platformTradingSettingsData struct {
 	AllowStockShort       *bool    `json:"allow_stock_short,omitempty"`
 	AllowOptionSellToOpen *bool    `json:"allow_option_sell_to_open,omitempty"`
 	// Freeze is the runtime trading brake: true blocks every new broker
-	// write (place/modify/purge/restore/proposals) via
+	// write (place/modify/proposals) via
 	// brokerWriteAuthorization while cancels stay allowed. Unlike the
 	// limits above it is not gated on tradingLimitWritability — a brake
 	// must engage even when order entry is otherwise misconfigured.
@@ -585,8 +597,6 @@ func deriveTradingControlGeneration(current platformSettingsData, next *platform
 func canonicalPlatformSettingValue(data platformSettingsData, key string) (json.RawMessage, error) {
 	var value any
 	switch key {
-	case "features.purge_restore.enabled":
-		value = data.Features.PurgeRestore.Enabled
 	case "features.stock_protection.enabled":
 		value = data.Features.StockProtection.Enabled
 	case "features.rulebook.enabled":
@@ -813,8 +823,6 @@ func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessag
 		return nil
 	}
 	switch key {
-	case "features.purge_restore.enabled":
-		return boolField(&next.Features.PurgeRestore.Enabled)
 	case "features.stock_protection.enabled":
 		return boolField(&next.Features.StockProtection.Enabled)
 	case "features.rulebook.enabled":
@@ -943,11 +951,6 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 	}
 	status := s.currentTradingStatus()
 	limitsWritable, limitReason := s.tradingLimitWritability()
-	purgeEnabled := true
-	purgeSource := rpc.SettingsSourceRuntime
-	if data.Features.PurgeRestore.Enabled != nil {
-		purgeEnabled = *data.Features.PurgeRestore.Enabled
-	}
 	stockProtectionEnabled := true
 	if data.Features.StockProtection.Enabled != nil {
 		stockProtectionEnabled = *data.Features.StockProtection.Enabled
@@ -970,9 +973,6 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 	out := rpc.PlatformSettings{
 		Kind: "ibkr.platform_settings",
 		Features: rpc.PlatformFeatureSettings{
-			PurgeRestore: rpc.PurgeRestoreSettings{
-				Enabled: rpc.SettingsBool{Value: purgeEnabled, Access: rpc.SettingsAccessWrite, Source: purgeSource},
-			},
 			StockProtection: rpc.StockProtectionSettings{
 				Enabled: rpc.SettingsBool{Value: stockProtectionEnabled, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime},
 			},
@@ -1122,14 +1122,6 @@ func (s *Server) lockEffectiveTradingControlSnapshot() (config.Trading, uint64, 
 func (s *Server) effectiveTradingConfig() config.Trading {
 	tr, _ := s.effectiveTradingControlSnapshot()
 	return tr
-}
-
-func (s *Server) purgeRestoreEnabled() bool {
-	data := s.platformSettings.snapshot()
-	if data.Features.PurgeRestore.Enabled == nil {
-		return true
-	}
-	return *data.Features.PurgeRestore.Enabled
 }
 
 func (s *Server) stockProtectionEnabled() bool {

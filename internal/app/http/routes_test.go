@@ -873,7 +873,7 @@ func TestPatchSettingsReplacesClientClaimedOrigin(t *testing.T) {
 	cookie := routeSessionCookie(t, handler)
 	req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{
 		"origin":"human-tty",
-		"features":{"purge_restore":{"enabled":false}}
+		"features":{"stock_protection":{"enabled":false}}
 	}`)))
 	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
@@ -897,7 +897,7 @@ func TestPatchSettingsReplacesClientClaimedOrigin(t *testing.T) {
 	if origin != rpc.OrderOriginPairedDevice {
 		t.Fatalf("forwarded origin=%q, want %q", origin, rpc.OrderOriginPairedDevice)
 	}
-	if got := string(forwarded["features"]); got != `{"purge_restore":{"enabled":false}}` {
+	if got := string(forwarded["features"]); got != `{"stock_protection":{"enabled":false}}` {
 		t.Fatalf("forwarded features=%s, want unchanged feature patch", got)
 	}
 }
@@ -929,7 +929,7 @@ func TestPatchSettingsForwardsFeatureToggleWithPairedDeviceOrigin(t *testing.T) 
 	client := &routeSettingsPatchCaptureClient{}
 	handler := newTestHandlerWithClient(t, client).Handler()
 	cookie := routeSessionCookie(t, handler)
-	req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{"features":{"purge_restore":{"enabled":false}}}`)))
+	req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{"features":{"stock_protection":{"enabled":false}}}`)))
 	req.AddCookie(cookie)
 	res := httptest.NewRecorder()
 
@@ -951,7 +951,7 @@ func TestPatchSettingsForwardsFeatureToggleWithPairedDeviceOrigin(t *testing.T) 
 	if forwarded.Origin != rpc.OrderOriginPairedDevice {
 		t.Fatalf("forwarded origin=%q, want %q", forwarded.Origin, rpc.OrderOriginPairedDevice)
 	}
-	if got := string(forwarded.Features); got != `{"purge_restore":{"enabled":false}}` {
+	if got := string(forwarded.Features); got != `{"stock_protection":{"enabled":false}}` {
 		t.Fatalf("forwarded features=%s, want unchanged feature patch", got)
 	}
 }
@@ -1272,94 +1272,6 @@ func TestProposalRoutesRejectUnknownFields(t *testing.T) {
 		if !strings.Contains(res.Body.String(), "unknown field") {
 			t.Fatalf("%s error should name the unknown field; body=%s", name, res.Body.String())
 		}
-	}
-}
-
-func TestPurgeHTTPAdaptersPreviewAndStatus(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	statusReq := httptest.NewRequest(http.MethodGet, "/api/purge/status", nil)
-	statusReq.AddCookie(cookie)
-	statusRes := httptest.NewRecorder()
-	handler.ServeHTTP(statusRes, statusReq)
-	if statusRes.Code != http.StatusOK {
-		t.Fatalf("status route=%d, want 200; body=%s", statusRes.Code, statusRes.Body.String())
-	}
-	var status rpc.PurgeStatusResult
-	if err := json.NewDecoder(statusRes.Body).Decode(&status); err != nil {
-		t.Fatalf("decode status: %v", err)
-	}
-	if status.Totals.ActiveRows != 1 || len(status.Rows) != 1 || status.Rows[0].Symbol != "MSFT" {
-		t.Fatalf("unexpected purge status: %#v", status)
-	}
-
-	previewReq := httptest.NewRequest(http.MethodPost, "/api/purge/restore/preview", bytes.NewReader([]byte(`{"all":true}`)))
-	previewReq.AddCookie(cookie)
-	previewRes := httptest.NewRecorder()
-	handler.ServeHTTP(previewRes, previewReq)
-	if previewRes.Code != http.StatusOK {
-		t.Fatalf("preview route=%d, want 200; body=%s", previewRes.Code, previewRes.Body.String())
-	}
-	var preview rpc.PurgeRestoreResult
-	if err := json.NewDecoder(previewRes.Body).Decode(&preview); err != nil {
-		t.Fatalf("decode preview: %v", err)
-	}
-	if preview.Status != "preview" || preview.SelectedLegs != 1 {
-		t.Fatalf("unexpected restore preview: %#v", preview)
-	}
-}
-
-func TestPurgeExecuteRequiresCurrentConfirmation(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	for name, body := range map[string]string{
-		"missing":       `{"all":true}`,
-		"wrong_account": `{"all":true,"confirm_account":"DU999","confirm_mode":"paper"}`,
-		"wrong_mode":    `{"all":true,"confirm_account":"DU123","confirm_mode":"live"}`,
-	} {
-		req := httptest.NewRequest(http.MethodPost, "/api/purge/execute", bytes.NewReader([]byte(body)))
-		req.AddCookie(cookie)
-		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, req)
-		if res.Code != http.StatusBadRequest {
-			t.Fatalf("%s status=%d, want 400; body=%s", name, res.Code, res.Body.String())
-		}
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/purge/execute", bytes.NewReader([]byte(`{"symbols":["msft","MSFT"],"confirm_account":"DU123","confirm_mode":"paper"}`)))
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("confirmed status=%d, want 200; body=%s", res.Code, res.Body.String())
-	}
-	var out rpc.PurgeExecuteResult
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		t.Fatalf("decode execute: %v", err)
-	}
-	if out.Status != "submitted" || out.SubmittedLegs != 1 {
-		t.Fatalf("unexpected execute result: %#v", out)
-	}
-}
-
-func TestPurgeExecuteRequiresTradingCapability(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/purge/execute", bytes.NewReader([]byte(`{"all":true,"confirm_account":"DU123","confirm_mode":"paper"}`)))
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", res.Code, res.Body.String())
-	}
-	if !strings.Contains(res.Body.String(), "broker writes are not enabled") {
-		t.Fatalf("response missing capability reason: %s", res.Body.String())
 	}
 }
 
@@ -1781,11 +1693,6 @@ func (routeFakeClient) TradeProposalsIgnore(context.Context, rpc.TradeProposalIg
 func (routeFakeClient) Settings(context.Context) (*rpc.PlatformSettings, error) {
 	return &rpc.PlatformSettings{
 		Kind: "ibkr.platform_settings",
-		Features: rpc.PlatformFeatureSettings{
-			PurgeRestore: rpc.PurgeRestoreSettings{
-				Enabled: rpc.SettingsBool{Value: true, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime},
-			},
-		},
 		Trading: rpc.PlatformTradingSettings{
 			Mode: rpc.SettingsString{Value: "paper", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig},
 			Limits: rpc.TradingLimitSettings{
@@ -1889,62 +1796,6 @@ func (routeFakeClient) OrdersOpen(context.Context, rpc.OrdersOpenParams) (*rpc.O
 
 func (routeFakeClient) OrderStatus(context.Context, rpc.OrderStatusParams) (*rpc.OrderStatusResult, error) {
 	return &rpc.OrderStatusResult{Found: true, Order: routeOpenOrderView(), AsOf: time.Now().UTC()}, nil
-}
-
-func (routeFakeClient) PurgeStatus(context.Context, rpc.PurgeStatusParams) (*rpc.PurgeStatusResult, error) {
-	return &rpc.PurgeStatusResult{
-		Kind:    "ibkr.purge_status",
-		Status:  "active",
-		Account: "DU123",
-		Rows: []rpc.PurgeLedgerRow{{
-			LegID:             "leg-1",
-			Symbol:            "MSFT",
-			SecType:           "STK",
-			Contract:          rpc.ContractParams{Symbol: "MSFT", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-			Account:           "DU123",
-			Currency:          "USD",
-			OriginalSide:      "LONG",
-			OriginalQuantity:  3,
-			PurgeAction:       rpc.OrderActionSell,
-			RestoreAction:     rpc.OrderActionBuy,
-			Multiplier:        1,
-			PurgedQuantity:    3,
-			RemainingQuantity: 3,
-			Status:            "active",
-		}},
-		Totals: rpc.PurgeLedgerTotals{ActiveRows: 1, RemainingQuantity: 3},
-		AsOf:   time.Now().UTC(),
-	}, nil
-}
-
-func (routeFakeClient) PurgeExecute(context.Context, rpc.PurgeExecuteParams) (*rpc.PurgeExecuteResult, error) {
-	return nil, nil
-}
-
-func (routeFakeClient) PurgeRestorePreview(context.Context, rpc.PurgeRestoreParams) (*rpc.PurgeRestoreResult, error) {
-	return &rpc.PurgeRestoreResult{
-		Kind:         "ibkr.purge_restore_preview",
-		PurgeID:      "active",
-		Status:       "preview",
-		Mode:         "paper",
-		Account:      "DU123",
-		Scale:        1,
-		SelectedLegs: 1,
-		Legs: []rpc.PurgeRestoreLeg{{
-			LegID:    "leg-1",
-			Symbol:   "MSFT",
-			SecType:  "STK",
-			Contract: rpc.ContractParams{Symbol: "MSFT", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-			Action:   rpc.OrderActionBuy,
-			Quantity: 3,
-			Status:   "preview",
-		}},
-		AsOf: time.Now().UTC(),
-	}, nil
-}
-
-func (routeFakeClient) PurgeRestoreExecute(context.Context, rpc.PurgeRestoreParams) (*rpc.PurgeRestoreResult, error) {
-	return nil, nil
 }
 
 type routeWriteFakeClient struct {
@@ -2068,34 +1919,6 @@ func (routeWriteFakeClient) OrderCancel(context.Context, rpc.OrderCancelParams) 
 		LifecycleStatus: rpc.OrderLifecycleCancelled,
 		SendState:       "sent",
 		AsOf:            time.Now().UTC(),
-	}, nil
-}
-
-func (routeWriteFakeClient) PurgeExecute(context.Context, rpc.PurgeExecuteParams) (*rpc.PurgeExecuteResult, error) {
-	return &rpc.PurgeExecuteResult{
-		Kind:          "ibkr.purge_execute",
-		PurgeID:       "purge-test",
-		Status:        "submitted",
-		Mode:          "paper",
-		Account:       "DU123",
-		BypassPreview: true,
-		SelectedLegs:  1,
-		SubmittedLegs: 1,
-		AsOf:          time.Now().UTC(),
-	}, nil
-}
-
-func (routeWriteFakeClient) PurgeRestoreExecute(context.Context, rpc.PurgeRestoreParams) (*rpc.PurgeRestoreResult, error) {
-	return &rpc.PurgeRestoreResult{
-		Kind:          "ibkr.purge_restore_execute",
-		PurgeID:       "active",
-		Status:        "submitted",
-		Mode:          "paper",
-		Account:       "DU123",
-		Scale:         1,
-		SelectedLegs:  1,
-		SubmittedLegs: 1,
-		AsOf:          time.Now().UTC(),
 	}, nil
 }
 

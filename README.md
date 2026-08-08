@@ -92,7 +92,7 @@ For v1.0.0+ releases, the installer, `canary update`, and the MCPB release asset
 - **Daily brief.** `canary brief` and MCP `canary_brief` return the daemon's same written Review/Ready briefing: what changed since the last close, what matters before the next one, and which inputs could not be read. The MCP tool is a pure read. It never signs off, stamps an artefact, or advances process state.
 - **Market-event flags.** `canary market-events` and MCP `canary_market_events` annotate held or requested stock/ETF symbols with borrow inventory, extreme borrow fee, Nasdaq Reg SHO threshold-list, LULD pause, and regulatory/news halt context. Flags are context and proposal gates: active halt/LULD can block protection proposals, borrow stress can strengthen short buy-to-cover context, and unknown sources remain unknown rather than false. Borrow-fee output also discloses global versus exact-held-short coverage; the narrow TWS `FEE_RATE` fallback remains scale-unverified and cannot create or clear the 50% flag.
 - **Protection proposals and order views.** The daemon maintains trailing-stop, theta-hygiene, and risk-reduction proposals with per-row blockers; `canary proposals` and MCP `canary_proposals` read them. Order state is a local journal read (`canary orders open`, `canary orders history`, `canary order status`) that reconciles itself against the broker's open-order list after each reconnect and every 30 minutes, closing rows the broker no longer reports as `closed_reconciled`. A protective stop that no longer matches its position is flagged critical with the exact reduce-to-position quantity. These are reads; acting on any of it stays behind the separate gated order path.
-- **Platform settings.** `canary settings show` and MCP `canary_settings` report runtime preferences, trading/build capability, account mode, and compact observed market-data quality with `access`, `source`, and read-only reasons. `features.purge_restore.enabled` controls the workflow/read surface while `purge status` stays readable; it never authorizes broker submission, which is currently unavailable and must be handled manually in TWS.
+- **Platform settings.** `canary settings show` and MCP `canary_settings` report runtime preferences, trading/build capability, account mode, and compact observed market-data quality with `access`, `source`, and read-only reasons. Runtime preferences can hide stock-protection or rulebook workflows, but they never authorize broker submission.
 
 Every data command supports `--json`. `canary restart --json` is also useful for scripts: it reports whether a daemon was already running, old/new PIDs, whether `--force` was used, the post-start `status.health` snapshot, and any app process it refreshed. Lifecycle commands such as `setup`, `update`, `restart`, `mcp`, and `daemon` are for local operation and transport setup.
 
@@ -174,7 +174,7 @@ $ canary calendar --market us-options --date 2026-11-27 --json | jq '.session'
 $ canary positions --by underlying --json | jq '.portfolio.effective_delta'
 $ canary stress --json | jq '{action, market_confirmation, portfolio_fit, held_stress: .portfolio.held_stress}'
 $ canary market-events --symbol GME --json | jq '{flags, source_health, fingerprint}'
-$ canary settings show --json | jq '.features.purge_restore.enabled'
+$ canary settings show --json | jq '.features.stock_protection.enabled'
 $ canary chain NVDA --json | jq '.expiries[] | select(.iv > 0.6)'
 $ canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 ```
@@ -183,11 +183,11 @@ $ canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 
 ### Mobile app
 
-`canary app` serves a paired PWA for iPhone-sized checks when you are away from the desk. It has five tabs. Monitor is a fixed grid of instrument windows covering every regime cluster the daemon ranks plus the rulebook, protection, and stress, each printing its reading and the level it would trip at. Brief carries the daemon-composed daily briefing. Alerts is the annunciator log. Orders is a read-only view of the local order journal. Settings holds account and process state and can toggle the purge/restore workflow preference. Broker submission remains unavailable and requires manual TWS action. Start it on the Mac running TWS or IB Gateway, then run `canary app pair` and scan the QR code. `canary app status` is the local operator check for app liveness, daemon alert-producer coverage, and app-owned dispatcher health.
+`canary app` serves a paired PWA for iPhone-sized checks when you are away from the desk. It has five tabs. Monitor is a fixed grid of instrument windows covering every regime cluster the daemon ranks plus the rulebook, protection, and stress, each printing its reading and the level it would trip at. Brief carries the daemon-composed daily briefing. Alerts is the annunciator log. Orders shows the local order lifecycle and supports the constrained review flows compiled into the active build. Settings holds account and process state. Start it on the Mac running TWS or IB Gateway, then run `canary app pair` and scan the QR code. `canary app status` is the local operator check for app liveness, daemon alert-producer coverage, and app-owned dispatcher health.
 
 For access away from the LAN without router setup, run `canary app --remote` to use the Cloudflare Worker relay at `remote.osauer.dev`, then run `canary app pair` as usual.
 
-See [web/app/README.md](web/app/README.md) for the short operator notes; the original MVP design is preserved as a historical record in [internal-docs/design/mobile-app-mvp.md](internal-docs/design/mobile-app-mvp.md).
+See [web/app/README.md](web/app/README.md) for the short operator notes.
 
 ### Go and other agent SDKs
 

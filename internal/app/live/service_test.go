@@ -75,7 +75,7 @@ func TestPollOnceCachesSnapshotAndPublishesEvents(t *testing.T) {
 	if snap.Trading == nil || !snap.Trading.CanPreview {
 		t.Fatalf("trading missing from snapshot: %#v", snap.Trading)
 	}
-	if snap.Settings == nil || !snap.Settings.Features.PurgeRestore.Enabled.Value {
+	if snap.Settings == nil {
 		t.Fatalf("settings missing from snapshot: %#v", snap.Settings)
 	}
 	if got := snap.Settings.MarketData.Quality.Status; got != "unknown" {
@@ -2058,11 +2058,6 @@ func (c *fakeClient) TradeProposalsIgnore(context.Context, rpc.TradeProposalIgno
 func (c *fakeClient) Settings(context.Context) (*rpc.PlatformSettings, error) {
 	return &rpc.PlatformSettings{
 		Kind: "ibkr.platform_settings",
-		Features: rpc.PlatformFeatureSettings{
-			PurgeRestore: rpc.PurgeRestoreSettings{
-				Enabled: rpc.SettingsBool{Value: true, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime},
-			},
-		},
 		MarketData: rpc.PlatformMarketDataSetting{
 			Quality: rpc.PlatformMarketDataQuality{Status: "unknown", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved},
 		},
@@ -2094,21 +2089,5 @@ func (c *fakeClient) OrdersOpen(context.Context, rpc.OrdersOpenParams) (*rpc.Ord
 }
 
 func (c *fakeClient) OrderStatus(context.Context, rpc.OrderStatusParams) (*rpc.OrderStatusResult, error) {
-	return nil, nil
-}
-
-func (c *fakeClient) PurgeStatus(context.Context, rpc.PurgeStatusParams) (*rpc.PurgeStatusResult, error) {
-	return nil, nil
-}
-
-func (c *fakeClient) PurgeExecute(context.Context, rpc.PurgeExecuteParams) (*rpc.PurgeExecuteResult, error) {
-	return nil, nil
-}
-
-func (c *fakeClient) PurgeRestorePreview(context.Context, rpc.PurgeRestoreParams) (*rpc.PurgeRestoreResult, error) {
-	return nil, nil
-}
-
-func (c *fakeClient) PurgeRestoreExecute(context.Context, rpc.PurgeRestoreParams) (*rpc.PurgeRestoreResult, error) {
 	return nil, nil
 }

@@ -178,11 +178,6 @@ func TestHistoricalV171FileAuthorityCutover(t *testing.T) {
 	wantPurgeRef := historicalExpectation[string](t, fixture, "purge_order_ref")
 	wantRestoreRef := historicalExpectation[string](t, fixture, "restore_order_ref")
 	wantOrderFloor := historicalExpectation[int64](t, fixture, "global_order_id_floor")
-	wantPurgeLeg := historicalExpectation[string](t, fixture, "purge_leg_id")
-	wantPurged := historicalExpectation[float64](t, fixture, "purged_quantity")
-	wantRestored := historicalExpectation[float64](t, fixture, "restored_quantity")
-	wantRemaining := historicalExpectation[float64](t, fixture, "purge_remaining_quantity")
-	wantFillCursors := historicalExpectation[int](t, fixture, "purge_fill_cursor_count")
 	wantEndpoint := historicalExpectation[string](t, fixture, "route_endpoint")
 	wantClientID := historicalExpectation[int](t, fixture, "route_client_id")
 	wantAccount := historicalExpectation[string](t, fixture, "route_account")
@@ -221,38 +216,9 @@ func TestHistoricalV171FileAuthorityCutover(t *testing.T) {
 		t.Fatalf("migrated v1.7.1 global order id floor=%d error=%v, want %d", floor, err, wantOrderFloor)
 	}
 
-	purgeDoc, ok, err := server.coreStore.GetStateDocument(t.Context(), purgeLedgerStateScope, purgeLedgerStateKind)
-	if err != nil || !ok {
-		t.Fatalf("migrated v1.7.1 purge authority found=%v error=%v", ok, err)
-	}
-	var purge purgeLedgerFile
-	if err := json.Unmarshal(purgeDoc.JSON, &purge); err != nil {
-		t.Fatal(err)
-	}
-	if purge.SchemaVersion != purgeLedgerSchemaVersion || len(purge.Rows) != 1 {
-		t.Fatalf("migrated v1.7.1 purge authority=%+v", purge)
-	}
-	row := purge.Rows[0]
-	if row.LegID != wantPurgeLeg ||
-		row.Status != purgeLedgerStatusActive ||
-		row.PurgedQuantity != wantPurged ||
-		row.RestoredQuantity != wantRestored ||
-		row.RemainingQuantity != wantRemaining ||
-		row.Endpoint != wantEndpoint ||
-		row.ClientID != wantClientID ||
-		row.Account != wantAccount ||
-		row.Mode != wantMode ||
-		len(row.OrderFills) != wantFillCursors ||
-		row.OrderFills[wantPurgeRef].Filled != wantPurged ||
-		row.OrderFills[wantRestoreRef].Filled != wantRestored {
-		t.Fatalf("migrated v1.7.1 purge row=%+v", row)
-	}
-
 	cutover := assertHistoricalFileCutoverArtifacts(t, fixture, root, server)
 	if cutover.Counts.RetainedOrderEvents != 4 ||
-		cutover.Counts.RetainedOrderChains != 2 ||
-		cutover.Counts.PurgeRows != 1 ||
-		cutover.Counts.PurgeFillCursors != wantFillCursors {
+		cutover.Counts.RetainedOrderChains != 2 {
 		t.Fatalf("v1.7.1 cutover counts=%+v", cutover.Counts)
 	}
 
@@ -262,16 +228,6 @@ func TestHistoricalV171FileAuthorityCutover(t *testing.T) {
 	restarted := newCutoverTestServer(t, "")
 	if err := restarted.openCoreStore(t.Context()); err != nil {
 		t.Fatalf("restart migrated v1.7.1 authority: %v", err)
-	}
-	restartedDoc, ok, err := restarted.coreStore.GetStateDocument(
-		t.Context(), purgeLedgerStateScope, purgeLedgerStateKind,
-	)
-	if err != nil || !ok || !bytes.Equal(restartedDoc.JSON, purgeDoc.JSON) {
-		_ = restarted.closeCoreStore()
-		t.Fatalf(
-			"restarted v1.7.1 purge continuity found=%v document=%s error=%v",
-			ok, restartedDoc.JSON, err,
-		)
 	}
 	if err := restarted.closeCoreStore(); err != nil {
 		t.Fatal(err)
@@ -285,8 +241,6 @@ func TestHistoricalV221FileAuthorityCutover(t *testing.T) {
 	wantFlows := historicalExpectation[float64](t, fixture, "declared_capital_flow_base")
 	wantOrderRef := historicalExpectation[string](t, fixture, "retained_order_ref")
 	wantOrderFloor := historicalExpectation[int64](t, fixture, "global_order_id_floor")
-	wantPurgeLeg := historicalExpectation[string](t, fixture, "purge_leg_id")
-	wantPurgeRemaining := historicalExpectation[float64](t, fixture, "purge_remaining_quantity")
 	root := privateTestDir(t)
 	materializeHistoricalUpgradeFixture(t, fixture, root)
 	stateHome := filepath.Join(root, "state")
@@ -332,20 +286,6 @@ func TestHistoricalV221FileAuthorityCutover(t *testing.T) {
 		t.Fatalf("migrated global order id floor=%d error=%v, want %d", floor, err, wantOrderFloor)
 	}
 
-	purgeDoc, ok, err := server.coreStore.GetStateDocument(t.Context(), purgeLedgerStateScope, purgeLedgerStateKind)
-	if err != nil || !ok {
-		t.Fatalf("migrated purge authority found=%v error=%v", ok, err)
-	}
-	var purge purgeLedgerFile
-	if err := json.Unmarshal(purgeDoc.JSON, &purge); err != nil {
-		t.Fatal(err)
-	}
-	if len(purge.Rows) != 1 || purge.Rows[0].LegID != wantPurgeLeg ||
-		purge.Rows[0].RemainingQuantity != wantPurgeRemaining || purge.Rows[0].Endpoint != "127.0.0.1:4002" ||
-		purge.Rows[0].ClientID != 41 || len(purge.Rows[0].OrderFills) != 1 {
-		t.Fatalf("migrated purge authority=%+v", purge.Rows)
-	}
-
 	cutover, _, err := loadCoreCutoverManifest(t.Context(), server.coreStore)
 	if err != nil {
 		t.Fatal(err)
@@ -363,6 +303,9 @@ func TestHistoricalV221FileAuthorityCutover(t *testing.T) {
 		source, ok := sources[original]
 		if !ok || source.Status != "sealed" {
 			t.Fatalf("legacy source %s not sealed: %+v", original, source)
+		}
+		if strings.HasSuffix(original, "purge-ledger.json") && source.Class != "retired_product_state" {
+			t.Fatalf("retired purge ledger class=%q, want retired_product_state", source.Class)
 		}
 		sealedRaw, err := os.ReadFile(source.Destination)
 		if err != nil {
@@ -451,6 +394,9 @@ func assertHistoricalFileCutoverArtifacts(
 		source, ok := sources[original]
 		if !ok || source.Status != "sealed" {
 			t.Fatalf("legacy source %s not sealed: %+v", original, source)
+		}
+		if strings.HasSuffix(original, "purge-ledger.json") && source.Class != "retired_product_state" {
+			t.Fatalf("retired purge ledger class=%q, want retired_product_state", source.Class)
 		}
 		sealedRaw, err := os.ReadFile(source.Destination)
 		if err != nil {

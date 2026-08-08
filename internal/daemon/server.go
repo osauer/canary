@@ -76,11 +76,11 @@ type Server struct {
 	now        func() time.Time
 
 	// brokerWriteMu serializes the check-then-act sections of every broker
-	// write entry point (proposal submit, order place/modify, purge execute,
-	// restore execute). These are seconds-long, low-frequency operations;
+	// write entry point (proposal submit and order place/modify). These are
+	// seconds-long, low-frequency operations;
 	// serialization is the correctness tool against double-submit TOCTOU
 	// races, not a throughput concern. Cancel stays outside so a protective
-	// cancel is never queued behind a long purge.
+	// cancel is never queued behind a longer placement flow.
 	brokerWriteMu sync.Mutex
 
 	// reduceBasketMu guards reduceBasketDedupe, the short-TTL replay cache for
@@ -418,10 +418,6 @@ type Server struct {
 	// goroutine per Server lifetime across reconnect-driven
 	// postConnectSetup re-runs.
 	orderReconcileLoopStarted sync.Once
-	// purgeLedger is the fill-backed purge/restore book. It is reduced from
-	// broker lifecycle evidence, not from preview/send attempts, so restore
-	// cannot double a position merely because a local file was edited.
-	purgeLedger *purgeLedgerStore
 	// proposalOutcomes is the append-only measurement book for protection
 	// proposals. It records submitted/fill/mark evidence keyed to proposal
 	// identity and order-journal refs without storing raw preview tokens.
@@ -522,7 +518,6 @@ type Server struct {
 	orderFXRateForTest           func(context.Context, string, string, time.Duration) (float64, time.Time, error)
 	orderContractResolverForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
 	orderPreviewWhatIf           func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
-	purgeRefreshPositions        func() ([]*ibkrlib.RawPosition, error)
 	orderWritesEnabled           func() bool
 	gatewayReadyForTrading       func() bool
 	orderReserveBrokerID         func(context.Context) (int, error)
@@ -676,7 +671,6 @@ func New(opts Options) *Server {
 	s.installStreakStore()
 	s.installStressDecisionJournal()
 	s.installOrderJournalStore()
-	s.installPurgeLedgerStore()
 	s.installProposalOutcomeStore()
 	s.installPlatformSettingsStore()
 	s.installProtectionPolicyManager()
@@ -791,15 +785,6 @@ func (s *Server) installOrderJournalStore() {
 		return
 	}
 	s.orderJournal = newOrderJournalStore(path)
-}
-
-func (s *Server) installPurgeLedgerStore() {
-	path, err := defaultPurgeLedgerPath()
-	if err != nil {
-		s.warnf("purge ledger: resolve state path: %v (purge ledger disabled)", err)
-		return
-	}
-	s.purgeLedger = newPurgeLedgerStore(path, s.now)
 }
 
 func (s *Server) installPlatformSettingsStore() {
@@ -2897,14 +2882,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleOrderModify(ctx, req) })
 	case rpc.MethodOrderCancel:
 		s.unary(req, enc, func() (any, error) { return s.handleOrderCancel(ctx, req) })
-	case rpc.MethodPurgeStatus:
-		s.unary(req, enc, func() (any, error) { return s.handlePurgeStatus(ctx, req) })
-	case rpc.MethodPurgeExecute:
-		s.unary(req, enc, func() (any, error) { return s.handlePurgeExecute(ctx, req) })
-	case rpc.MethodPurgeRestorePreview:
-		s.unary(req, enc, func() (any, error) { return s.handlePurgeRestorePreview(ctx, req) })
-	case rpc.MethodPurgeRestoreExecute:
-		s.unary(req, enc, func() (any, error) { return s.handlePurgeRestoreExecute(ctx, req) })
 	default:
 		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
 	}

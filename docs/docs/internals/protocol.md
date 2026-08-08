@@ -40,8 +40,6 @@ same concrete broker session. A reconnect or redemption-time change rejects
 the token. The first-byte guard treats the redeemed value as immutable for that
 session and never issues a new broker request or reparses an unstamped cache.
 
-Purge/restore preview and submission are unconditionally unavailable until the
-daemon has exact per-leg portfolio and account-global working-order authority.
 Option-exercise preview likewise returns the typed
 `exercise_submission_unavailable` blocker and mints no token because exact
 option-to-underlying risk policy and durable one-shot authority are not yet

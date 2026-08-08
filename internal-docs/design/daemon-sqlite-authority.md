@@ -51,8 +51,8 @@ not create permission to share one state database.
   reconciliation continuity. Valid capital/governance events required to
   reproduce that current state are safety state, not imported analytical
   history.
-- Rules regime-stage latch, purge/restore rows and fill cursors, and
-  governance-nudge state containing explicit review/completion evidence.
+- Rules regime-stage latch and governance-nudge state containing explicit
+  review/completion evidence.
 - Full event chains for active or uncertain orders; all consumed preview-token
   tombstones; and a conservative global broker-order-ID floor plus any fully
   scoped floors derivable from the legacy journal. Every write-capable identity
@@ -113,7 +113,7 @@ silently ignored and are not queried by the new daemon.
 - A consumed preview token is a unique tombstone, not a read-then-write
   convention. Token consumption, order-ID floor advancement, and durable
   pre-transmit order events commit in one transaction before broker transmit.
-  Place, modify, cancel, purge, and restore all use this rule.
+  Place, modify, and cancel all use this rule.
 - Cutover creates a new authority epoch, signer generation, token version, and
   private signer path. Every unspent legacy preview token becomes invalid and
   trading-readiness proof is reset until a new paper-smoke artifact is issued.
@@ -226,8 +226,9 @@ Three version domains remain separate:
 3. Import policy-critical state, order-safety continuity, and preserved
    observations transactionally. Rebuild statement projections from Flex XML.
 4. Prove semantic parity for settings/freeze, capital latch and account scope,
-   purge authority, active orders, consumed-token membership, order-ID floors,
-   statement fingerprints, and preserved-observation hashes.
+   active orders, consumed-token membership, order-ID floors, statement
+   fingerprints, and preserved-observation hashes. A legacy purge ledger is
+   sealed as retired product state and is not attached to live authority.
 5. Run SQLite quick/integrity and foreign-key checks, checkpoint to zero WAL
    frames, close the temporary database, create and verify a private backup,
    and fsync the database. Write and fsync `daemon.db.head` before atomically

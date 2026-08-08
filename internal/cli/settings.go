@@ -264,8 +264,6 @@ func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Canary Settings  %s\n", env.statusBadge(settingsVerdict(*st)))
 	fmt.Fprintln(out)
-	statusRow(env, out, "Purge/restore workflow", formatSettingsBool(env, st.Features.PurgeRestore.Enabled))
-	statusRow(env, out, "Purge/restore submit", "unavailable (use TWS)")
 	statusRow(env, out, "Stock protection", formatSettingsBool(env, st.Features.StockProtection.Enabled))
 	statusRow(env, out, "Rulebook", formatSettingsBool(env, st.Features.Rulebook.Enabled))
 	if n := len(st.Features.Rulebook.EarningsOverrides.Value); n > 0 {
@@ -295,9 +293,6 @@ func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 func settingsVerdict(st rpc.PlatformSettings) statusConcern {
 	if st.Trading.Freeze.Value {
 		return statusConcern{Text: "FROZEN", Level: statusConcernWarn}
-	}
-	if !st.Features.PurgeRestore.Enabled.Value {
-		return statusConcern{Text: "LIMITED", Level: statusConcernNotice}
 	}
 	if !st.Features.StockProtection.Enabled.Value {
 		return statusConcern{Text: "LIMITED", Level: statusConcernNotice}

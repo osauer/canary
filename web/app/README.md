@@ -115,8 +115,5 @@ CANARY_ICON_CROP=y,x,height,width \
 web/app/generate-icons.sh
 ```
 
-Trading workflows, HTTP MCP, debug diagnostics, and production relay hosting are
-future work.
-
-The original MVP design is preserved as a historical record in
-[`internal-docs/design/mobile-app-mvp.md`](../../internal-docs/design/mobile-app-mvp.md).
+Broker actions use the typed daemon routes and the same preview, confirmation,
+account, mode, freeze, and journal gates as the terminal surface.

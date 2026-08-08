@@ -204,38 +204,6 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["ibkr", "canary"], "purge", "--all"],
-    decision = "prompt",
-    justification = "Purge execution is a broker write and requires a transaction-specific current-turn instruction.",
-    match = [
-        "ibkr purge --all",
-        "canary purge --all",
-    ],
-)
-
-prefix_rule(
-    pattern = [["ibkr", "canary"], "purge", "execute"],
-    decision = "prompt",
-    justification = "Purge execution is a broker write and requires a transaction-specific current-turn instruction.",
-    match = [
-        "ibkr purge execute --all --json",
-        "canary purge execute --all --json",
-    ],
-)
-
-prefix_rule(
-    pattern = [["ibkr", "canary"], "purge", "restore"],
-    decision = "prompt",
-    justification = "Restore preview is read-only but the same prefix can carry --execute; require review at this boundary.",
-    match = [
-        "ibkr purge restore --all --json",
-        "ibkr purge restore --all --execute --json",
-        "canary purge restore --all --json",
-        "canary purge restore --all --execute --json",
-    ],
-)
-
-prefix_rule(
     pattern = [["ibkr", "canary"], "settings", "set"],
     decision = "forbidden",
     justification = "Runtime settings, freeze, and trading-limit changes are human-only in agent sessions.",

@@ -238,7 +238,7 @@ func TestCleanSlateRenameUsesStressDOMAndRetainsSafetyContracts(t *testing.T) {
 	}
 	for _, identifier := range []string{
 		`"ibkrRemoteRoute"`, `"ibkrDeviceID"`,
-		`"ibkrDeviceKeyJWK"`, `"ibkrPurgeBook"`, `"ibkrPurgeBooks"`,
+		`"ibkrDeviceKeyJWK"`,
 		`indexedDB.open("ibkr-app", 1)`,
 	} {
 		if !strings.Contains(js, identifier) {
@@ -375,8 +375,6 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		"function resetViewportScroll()",
 		`window.addEventListener("resize", resetViewportScroll)`,
 		"function renderSettings()",
-		"function setPurgeRestoreEnabled(enabled)",
-		"function purgeRestoreSettingEnabled()",
 		"function setStockProtectionEnabled(enabled)",
 		"function stockProtectionSettingEnabled()",
 		"function protectionMetricText(proposal = {})",
@@ -527,16 +525,12 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		`id="underlyingWinnerPnl"`,
 		`Loser daily P/L`,
 		`id="underlyingLoserPnl"`,
-		`Purge all`,
-		`Restore all`,
-		`Rebuild all`,
 		`id="underlyingBookListPanel" hidden`,
 		`id="portfolioPanel" data-open="false"`,
 		`Delta posture`,
 		`id="portfolioDeltaMeaning"`,
 		`id="alertsTab" data-tab-panel="alerts"`,
 		`id="settingsTab" data-tab-panel="settings"`,
-		`id="purgeRestoreToggle"`,
 		`id="stockProtectionToggle"`,
 		`id="settingsTradingLimits"`,
 		`id="settingsMarketDataStatus"`,
@@ -652,8 +646,8 @@ func TestAppJSLiveWritesCarryNoTypedConfirmation(t *testing.T) {
 			t.Fatalf("app.js must not reference removed live-confirmation surface %q", banned)
 		}
 	}
-	// Purge/restore and exercise submission are typed-disabled, so Canary has
-	// no broker-write prompt for either capability. No other prompt may exist.
+	// Exercise submission uses typed review/confirmation and no free-text
+	// broker-write prompt. No other prompt may exist.
 	if got := strings.Count(js, "window.prompt"); got != 0 {
 		t.Fatalf("app.js window.prompt count = %d, want zero", got)
 	}

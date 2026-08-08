@@ -66,9 +66,10 @@ current verdict.
 Policy-critical continuity is different from analytical decision history.
 Allowlisted capital and governance events needed to reproduce current
 risk-capital safeguards remain authoritative events. Active/uncertain order
-chains, consumed-token tombstones, conservative order-ID floors, and purge
-rows/fill cursors are also retained because dropping them could weaken
-broker-write safety. Trading-readiness proof is reset.
+chains, consumed-token tombstones, and conservative order-ID floors are also
+retained because dropping them could weaken broker-write safety. Retired
+workflow files are sealed in the cutover backup without becoming live
+authority. Trading-readiness proof is reset.
 
 ## Typed history APIs
 
@@ -117,10 +118,6 @@ events, consumed preview tokens, and order-ID floors share the same database
 authority and route scope. A write-eligible lookup is never served from stale
 file-derived state, and a failed critical transaction cannot transmit a broker
 order.
-
-Purge is position liquidation, not history deletion. It appends order evidence
-and updates purge authority transactionally; it does not erase or redact event
-history.
 
 ## Rotation and legacy settings
 

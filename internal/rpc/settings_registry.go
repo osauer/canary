@@ -53,10 +53,6 @@ type SettingsKeySpec struct {
 func SettingsKeys() []SettingsKeySpec {
 	return []SettingsKeySpec{
 		{
-			Key: "features.purge_restore.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
-			Doc: "Controls the purge/restore workflow/read surface while purge status stays readable; true does not authorize preview or broker submission, which remains unavailable until exact per-leg portfolio and account-global working-order authority exists (default true).",
-		},
-		{
 			Key: "features.stock_protection.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
 			Doc: "Allows stock/ETF protection proposal actions; false blocks them with a stock_protection_disabled blocker while proposal snapshots stay readable (default true).",
 		},

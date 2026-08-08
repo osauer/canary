@@ -6,7 +6,6 @@ import { renderAll } from "./render-runtime.js";
 import { $ } from "./shared.js";
 import { refreshSelectedMarketCalendar, renderTopbar } from "./shell.js";
 import { state } from "./state.js";
-import { refreshPurgeStatus } from "./underlyings.js";
 
 async function bootstrap(options = {}) {
   try {
@@ -91,7 +90,6 @@ function applyBootstrap(data) {
   handleAttentionContextChange();
   connectEvents();
   refreshOpenOrders();
-  refreshPurgeStatus();
   if (state.selectedMarket !== "us") {
     refreshSelectedMarketCalendar();
   }

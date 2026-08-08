@@ -1,6 +1,6 @@
 import { heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
-import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, parseDate, pct, privacyMask, purgeRestoreSettingEnabled, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
+import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, parseDate, pct, privacyMask, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
 import { state } from "./state.js";
 
 function renderAccountPanel(account = {}, positions = {}, stress = {}) {
@@ -256,46 +256,44 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
   const list = $("underlyingBookList");
   if (!list) return;
 
-  const baseCurrency = normalizeCurrency(accountBaseCurrency(account) || positions.portfolio?.base_currency || "");
-  const rows = underlyingBookRows(positions, baseCurrency, marketEvents);
-  const heldCount = rows.filter((row) => !row.virtual).length;
-  const virtualCount = rows.length - heldCount;
+	const baseCurrency = normalizeCurrency(accountBaseCurrency(account) || positions.portfolio?.base_currency || "");
+	const rows = underlyingBookRows(positions, baseCurrency, marketEvents);
+	const heldCount = rows.length;
   const count = $("underlyingBookCount");
   const status = $("underlyingBookStatus");
   const freshness = $("underlyingBookFreshness");
   const authorityView = positionsAuthorityView(positions, state.snapshot?.sources?.positions || {});
-  const heldSymbols = rows.filter((row) => !row.virtual).slice(0, 3).map((row) => row.symbol);
+	const heldSymbols = rows.slice(0, 3).map((row) => row.symbol);
   const heldLabel = heldSymbols.length > 0 ? ` · ${heldSymbols.join(", ")}${heldCount > heldSymbols.length ? ` +${heldCount - heldSymbols.length}` : ""}` : "";
   const quoteSummary = underlyingQuoteSummary(rows);
   renderUnderlyingPnlSummary(authorityView.available ? underlyingHeldDailyPnlTotals(rows, baseCurrency) : {});
   renderMovers(authorityView.available ? rows : [], baseCurrency);
   renderMarketFlagRail("underlyingFlagRail", underlyingHeroMarketFlags(rows, marketEvents));
-  if (count) {
-    count.textContent = !authorityView.available
-      ? rows.length === 0 ? "Positions unavailable" : `${heldCount} last known / ${virtualCount} purged${heldLabel}`
-      : rows.length === 0
-      ? "No underlyings"
-      : `${heldCount} held / ${virtualCount} purged${heldLabel}`;
-  }
+	if (count) {
+		count.textContent = !authorityView.available
+			? rows.length === 0 ? "Positions unavailable" : `${heldCount} last known${heldLabel}`
+			: rows.length === 0
+			? "No underlyings"
+			: `${heldCount} held${heldLabel}`;
+	}
   if (status) {
     status.textContent = state.underlyingNotice
       || (!authorityView.available ? authorityView.detail : "")
       || quoteSummary
-      || (virtualCount > 0 ? "Includes virtual purge-book records" : heldCount > 0 ? "Current held underlyings" : "Waiting for positions or purge book");
+		|| (heldCount > 0 ? "Current held underlyings" : "Waiting for positions");
   }
   if (freshness) {
     renderPositionsFreshness(freshness, positions, state.snapshot?.sources?.positions || {});
   }
   const panel = $("underlyingPanel");
-  if (panel && (state.underlyingBusy || state.underlyingNotice)) {
-    state.underlyingDetailOpen = true;
-  }
-  renderUnderlyingBulkActions(rows);
+	if (panel && state.underlyingNotice) {
+		state.underlyingDetailOpen = true;
+	}
 
-  if (rows.length === 0) {
+	if (rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "underlying-book__empty";
-    empty.textContent = authorityView.available ? "No held or virtual underlyings." : "Position data unavailable.";
+		empty.textContent = authorityView.available ? "No held underlyings." : "Position data unavailable.";
     list.replaceChildren(empty);
     renderUnderlyingExpansion();
     return;
@@ -357,35 +355,6 @@ function renderPositionsFreshness(el, positions = {}, source = {}) {
   renderFreshnessTimestamp(el, authority.as_of || positions.as_of, { staleMinutes: 15, quietWhenFresh: true, fallback: "Position time unavailable" });
 }
 
-function renderUnderlyingBulkActions(rows) {
-  const heldCount = rows.filter((row) => !row.virtual).length;
-  const virtualCount = rows.length - heldCount;
-  const trading = state.snapshot?.trading || {};
-  setUnderlyingActionButtonState("buildAllUnderlyingsButton", false, underlyingWriteReason("Review restore", virtualCount > 0, trading));
-  setUnderlyingActionButtonState("purgeAllUnderlyingsButton", false, underlyingWriteReason("Purge all held underlyings", heldCount > 0, trading));
-  setUnderlyingActionButtonState("restoreAllUnderlyingsButton", false, underlyingWriteReason("Restore all purged rows", virtualCount > 0, trading));
-  // Tooltips are invisible on touch; when every bulk action is disabled, say
-  // why in one muted line instead of presenting three dead buttons.
-  const bulkNote = $("underlyingBulkNote");
-  if (bulkNote) {
-    const allDisabled = ["buildAllUnderlyingsButton", "purgeAllUnderlyingsButton", "restoreAllUnderlyingsButton"]
-      .every((id) => $(id)?.disabled);
-    bulkNote.hidden = !allDisabled;
-    if (allDisabled) {
-      bulkNote.textContent = heldCount > 0
-        ? underlyingWriteReason("Purge all held underlyings", true, trading)
-        : "No held or purged underlyings to act on";
-    }
-  }
-}
-
-function setUnderlyingActionButtonState(id, enabled, reason) {
-  const button = $(id);
-  if (!button) return;
-  button.disabled = !enabled;
-  button.title = enabled ? reason : reason || "Unavailable";
-}
-
 function renderUnderlyingPnlSummary(totals) {
   setUnderlyingSummaryPnl("underlyingWinnerPnl", totals.winner, totals.winnerCurrency);
   setUnderlyingSummaryPnl("underlyingLoserPnl", totals.loser, totals.loserCurrency);
@@ -410,7 +379,7 @@ function renderMovers(rows, baseCurrency) {
   if (!placard || !strip) return;
   const movers = moverRows(rows);
   // The movers row is also the Underlyings sheet's opener: on a flat or
-  // all-purged book the row would hide and strand the book behind no
+	// flat book the row would hide and strand the book behind no
   // control at all, so a held book keeps the placard with an honest
   // no-movement reading instead.
   const heldBook = Array.isArray(rows) && rows.length > 0;
@@ -444,7 +413,7 @@ function renderMovers(rows, baseCurrency) {
 
 function moverRows(rows) {
   return (rows || [])
-    .filter((row) => !row.virtual && typeof row.pnl === "number" && row.pnl !== 0)
+		.filter((row) => typeof row.pnl === "number" && row.pnl !== 0)
     .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl) || a.symbol.localeCompare(b.symbol));
 }
 
@@ -495,7 +464,7 @@ function underlyingHeldDailyPnlTotals(rows, baseCurrency) {
     loserCurrency: "",
   };
   for (const row of rows) {
-    if (row.virtual || typeof row.pnl !== "number" || row.pnl === 0) continue;
+		if (typeof row.pnl !== "number" || row.pnl === 0) continue;
     if (row.pnl > 0) {
       totals.winner = (totals.winner || 0) + row.pnl;
       totals.winnerCurrency = mergeCurrency(totals.winnerCurrency, row.pnlCurrency || baseCurrency);
@@ -527,39 +496,12 @@ function renderUnderlyingExpansion() {
   button.setAttribute("aria-expanded", String(state.underlyingDetailOpen));
 }
 
-function canWriteUnderlyings(trading = {}) {
-	void trading;
-	return false;
-}
-
-function underlyingWriteReason(action, hasRows, trading = {}) {
-	void action;
-	void trading;
-  if (!hasRows) return "No matching underlying rows";
-  if (!purgeRestoreSettingEnabled()) return "Purge/restore workflow is hidden in Settings";
-  return "Purge/restore submission is unavailable; use TWS, then refresh and reconcile Canary";
-}
-
 function underlyingBookRows(positions, baseCurrency, marketEvents = {}) {
-  const rows = new Map();
-  for (const row of heldUnderlyingRows(positions, baseCurrency, marketEvents)) {
-    rows.set(row.symbol, row);
-  }
-  for (const row of purgedUnderlyingRows(positions, baseCurrency, marketEvents)) {
-    const existing = rows.get(row.symbol);
-    if (existing) {
-      existing.hasPurgeRecord = true;
-      existing.purgeLabel = row.purgeLabel;
-      continue;
-    }
-    rows.set(row.symbol, row);
-  }
-  return [...rows.values()].sort(compareUnderlyingRows);
+	return heldUnderlyingRows(positions, baseCurrency, marketEvents).sort(compareUnderlyingRows);
 }
 
 function compareUnderlyingRows(a, b) {
-  if (a.virtual !== b.virtual) return a.virtual ? 1 : -1;
-  const aPnl = underlyingSortPnl(a);
+	const aPnl = underlyingSortPnl(a);
   const bPnl = underlyingSortPnl(b);
   const aRank = underlyingPnlSortRank(aPnl);
   const bRank = underlyingPnlSortRank(bPnl);
@@ -570,7 +512,7 @@ function compareUnderlyingRows(a, b) {
 }
 
 function underlyingSortPnl(row) {
-  return row.virtual ? row.pnl : row.dailyPnl;
+	return row.dailyPnl;
 }
 
 function underlyingPnlSortRank(value) {
@@ -608,8 +550,6 @@ function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
       // even when its underlying stock is defunct.
       expectsQuote: optionCount > 0 || !group.stock || group.stock.quote_expectation !== "none",
       held: true,
-      virtual: false,
-      purged: false,
       stockCount,
       optionCount,
       detail: underlyingPositionDetail(stockCount, optionCount),
@@ -691,99 +631,6 @@ function heldUnderlyingDailyPnl(group, baseCurrency, currency) {
     return { value: rows.reduce((sum, row) => sum + row.daily_pnl_ccy, 0), currency, source: "daily P/L" };
   }
   return { value: null, currency: baseCurrency, source: "daily P/L pending" };
-}
-
-function purgedUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
-  const rows = new Map();
-  for (const entry of purgeBookEntries(positions)) {
-    const symbol = normalizeSymbol(entry.underlying || entry.symbol || entry.ticker || entry.contract?.symbol);
-    if (!symbol) continue;
-    const quoteState = underlyingMarketQuote(symbol);
-    const row = rows.get(symbol) || {
-      symbol,
-      currency: "",
-      price: null,
-      priceSource: "",
-      priceAt: "",
-      change: null,
-      changePct: null,
-      pnl: null,
-      pnlCurrency: "",
-      pnlSource: "shadow P/L",
-      quote: quoteState.quote,
-      quoteError: quoteState.error,
-      virtual: true,
-      purged: true,
-      held: false,
-      legCount: 0,
-      purgeIDs: new Set(),
-      detail: "",
-      marketFlags: marketEventFlagsForSymbol(symbol, marketEvents),
-    };
-    const currency = normalizeCurrency(entry.currency || entry.trading_currency || entry.contract?.currency || entry.base_currency);
-    if (currency) {
-      row.currency = mergeCurrency(row.currency, currency);
-    }
-    if (quoteState.quote) {
-      row.quote = quoteState.quote;
-      const marketPrice = quotePrice(quoteState.quote);
-      if (typeof marketPrice === "number") {
-        row.price = marketPrice;
-        row.priceSource = quoteSourceLabel(quoteState.quote, "IBKR quote");
-        row.priceAt = quoteTimestamp(quoteState.quote);
-      }
-      const quotePct = quoteChangePct(quoteState.quote);
-      if (typeof quotePct === "number") {
-        row.changePct = quotePct;
-      }
-      const marketChange = quoteChange(quoteState.quote);
-      if (typeof marketChange === "number") {
-        row.change = marketChange;
-      }
-      const quoteCurrency = normalizeCurrency(quoteState.quote.currency || quoteState.quote.contract?.currency);
-      if (quoteCurrency) {
-        row.currency = mergeCurrency(row.currency, quoteCurrency);
-      }
-    }
-    if (quoteState.error) {
-      row.quoteError = quoteState.error;
-    }
-    const price = firstNumber(entry.current_price, entry.quote_price, entry.price, entry.last_price, entry.mark, entry.underlying, entry.reference_price);
-    if (typeof price === "number" && row.price === null) {
-      row.price = price;
-      row.priceSource = entry.current_price_source || entry.quote_price_source || entry.price_source || "purge book";
-    }
-    const change = firstNumber(entry.quote_change_pct, entry.change_pct, entry.day_change_pct, entry.regular_change_pct);
-    if (typeof change === "number" && row.changePct === null) {
-      row.changePct = change;
-    }
-    const absoluteChange = firstNumber(entry.quote_change, entry.change, entry.day_change, entry.regular_change);
-    if (typeof absoluteChange === "number" && row.change === null) {
-      row.change = absoluteChange;
-    }
-    const pnl = purgeEntryPnl(entry);
-    if (typeof pnl.value === "number") {
-      row.pnl = (row.pnl || 0) + pnl.value;
-      row.pnlCurrency = mergeCurrency(row.pnlCurrency, pnl.currency || currency || baseCurrency);
-      row.pnlSource = pnl.source;
-    }
-    if (entry.purge_id) row.purgeIDs.add(String(entry.purge_id));
-    row.legCount += Number(entry.leg_count || 1);
-    rows.set(symbol, row);
-  }
-  return [...rows.values()].map((row) => {
-    const out = {
-      ...row,
-      currency: row.currency || row.pnlCurrency || baseCurrency,
-      pnlCurrency: row.pnlCurrency || row.currency || baseCurrency,
-      priceSource: row.priceSource || "purge book",
-      purgeLabel: row.purgeIDs.size > 0 ? [...row.purgeIDs].slice(0, 2).join(", ") : "purge book",
-      detail: `${row.legCount} purged ${row.legCount === 1 ? "leg" : "legs"}`,
-    };
-    out.marketFlags = marketEventFlagsForSymbol(out.symbol, marketEvents);
-    out.quoteStatus = underlyingQuoteStatus(out);
-    return out;
-  });
 }
 
 function underlyingMarketQuote(symbol) {
@@ -889,82 +736,9 @@ function underlyingQuoteStatus(row) {
   };
 }
 
-function purgeBookEntries(positions = {}) {
-  const out = [];
-  const candidates = [
-    state.snapshot?.purge_book,
-    state.snapshot?.purge_books,
-    state.snapshot?.purged_underlyings,
-    state.snapshot?.purged_positions,
-    state.latestPurgeStatus,
-    positions.purge_book,
-    positions.purge_books,
-    positions.purged_underlyings,
-    positions.purged_positions,
-    readLocalPurgeBook(),
-  ];
-  for (const candidate of candidates) {
-    collectPurgeEntries(candidate, out, {});
-  }
-  return out;
-}
-
-function collectPurgeEntries(candidate, out, context) {
-  if (!candidate) return;
-  if (Array.isArray(candidate)) {
-    candidate.forEach((item) => collectPurgeEntries(item, out, context));
-    return;
-  }
-  if (typeof candidate !== "object") return;
-
-  const next = {
-    purge_id: candidate.purge_id || context.purge_id,
-    base_currency: candidate.base_currency || context.base_currency,
-  };
-  for (const key of ["books", "underlyings", "positions", "rows"]) {
-    if (Array.isArray(candidate[key])) {
-      candidate[key].forEach((item) => collectPurgeEntries(item, out, next));
-    }
-  }
-  if (Array.isArray(candidate.legs)) {
-    candidate.legs.forEach((leg) => out.push({ ...leg, ...next }));
-  }
-  if (candidate.symbol || candidate.underlying || candidate.ticker || candidate.contract?.symbol) {
-    out.push({ ...candidate, ...next });
-  }
-}
-
-function readLocalPurgeBook() {
-  for (const key of ["ibkrPurgeBook", "ibkrPurgeBooks"]) {
-    const raw = localStorage.getItem(key);
-    if (!raw) continue;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function purgeEntryPnl(entry) {
-  const direct = firstNumber(entry.current_shadow_pnl, entry.shadow_pnl, entry.group_unrealized_pnl_base, entry.unrealized_pnl_base, entry.pnl_base, entry.pnl, entry.shadow_saved);
-  const currency = normalizeCurrency(entry.pnl_currency || entry.base_currency || entry.currency || entry.contract?.currency);
-  if (typeof direct === "number") {
-    const shadow = typeof entry.current_shadow_pnl === "number" || typeof entry.shadow_pnl === "number" || typeof entry.shadow_saved === "number";
-    return { value: direct, currency, source: shadow ? "shadow P/L" : "unrealized P/L" };
-  }
-  const restore = firstNumber(entry.current_restore_value, entry.estimated_value);
-  const exit = firstNumber(entry.exit_value);
-  if (typeof restore === "number" && typeof exit === "number") {
-    return { value: exit - restore, currency, source: "shadow P/L" };
-  }
-  return { value: null, currency, source: "no P/L" };
-}
-
 function underlyingBookRow(row, baseCurrency) {
-  const item = document.createElement("div");
-  item.className = "underlying-row" + (row.virtual ? " underlying-row--virtual" : "") + (row.hasPurgeRecord ? " underlying-row--book" : "");
+	const item = document.createElement("div");
+	item.className = "underlying-row";
   if (row.quoteError) item.classList.add("underlying-row--quote-error");
   item.dataset.symbol = row.symbol;
 
@@ -974,7 +748,7 @@ function underlyingBookRow(row, baseCurrency) {
   title.className = "underlying-row__title";
   const symbol = document.createElement("strong");
   symbol.textContent = row.symbol;
-  title.append(symbol, ...underlyingMarkers(row));
+	title.append(symbol);
   const detail = document.createElement("small");
   detail.textContent = row.detail;
   identity.append(title, detail);
@@ -1012,65 +786,8 @@ function underlyingBookRow(row, baseCurrency) {
   pnlNote.textContent = row.pnlSource || "P/L";
   pnl.append(pnlValue, pnlNote);
 
-  const actions = document.createElement("div");
-  actions.className = "underlying-row__actions";
-  actions.append(
-    underlyingActionButton("Purge", !row.virtual, row, "purge"),
-    underlyingActionButton("Restore", row.virtual, row, "restore"),
-    underlyingActionButton("Build", row.virtual, row, "build"),
-  );
-
-  item.append(identity, price, change, pnl, actions);
-  return item;
-}
-
-function underlyingMarkers(row) {
-  const markers = [];
-  if (row.virtual) {
-    markers.push(underlyingMarker("Virtual", "virtual"));
-    markers.push(underlyingMarker("Purged", "purged"));
-  } else if (row.hasPurgeRecord) {
-    markers.push(underlyingMarker("Book", "book"));
-  }
-  return markers;
-}
-
-function underlyingMarker(label, tone) {
-  const marker = document.createElement("span");
-  marker.className = "underlying-marker underlying-marker--" + tone;
-  marker.textContent = label;
-  return marker;
-}
-
-function underlyingActionButton(label, enabled, row, action) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "underlying-action underlying-action--" + action;
-  button.textContent = label;
-  const trading = state.snapshot?.trading || {};
-  const writeAction = action === "purge" || action === "restore";
-  const available = false;
-  button.disabled = !available;
-  const disabledReason = row.virtual
-    ? "Already in the purge book; restore or build is available."
-    : "Available after this underlying has been purged.";
-  button.title = available
-    ? underlyingActionTitle(label, row, action)
-    : underlyingWriteReason(`${label} ${row.symbol}`, enabled, trading) || disabledReason;
-  button.setAttribute("aria-label", `${label} ${row.symbol}`);
-  if (available) {
-    button.addEventListener("click", () => {
-      runUnderlyingAction(action, { symbols: [row.symbol] });
-    });
-  }
-  return button;
-}
-
-function underlyingActionTitle(label, row, action) {
-	void label;
-	void row;
-	void action;
-	return "Purge/restore submission is unavailable; use TWS, then refresh and reconcile Canary";
+	item.append(identity, price, change, pnl);
+	return item;
 }
 
 function quoteSourceLabel(quote, fallback) {
@@ -1161,71 +878,4 @@ function renderTradingEnvPill(modeClass) {
   pill.title = "Trading environment could not be resolved.";
 }
 
-async function refreshPurgeStatus() {
-  try {
-    const res = await fetch("/api/purge/status", { credentials: "include" });
-    if (!res.ok) return;
-    state.latestPurgeStatus = await res.json();
-    renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {});
-  } catch {
-    // Purge status is secondary context; live positions and trading remain primary.
-  }
-}
-
-async function runUnderlyingAction(action, target = {}) {
-  const all = Boolean(target.all);
-  const symbols = (target.symbols || []).map(normalizeSymbol).filter(Boolean);
-  const label = underlyingActionLabel(action, all, symbols);
-	state.underlyingNotice = `${label}: purge/restore submission is unavailable; use TWS, then refresh and reconcile Canary.`;
-	renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {});
-}
-
-function underlyingActionEndpoint(action) {
-  if (action === "build") return "/api/purge/restore/preview";
-  if (action === "restore") return "/api/purge/restore/execute";
-  return "/api/purge/execute";
-}
-
-function underlyingActionLabel(action, all, symbols) {
-  const target = all ? "all" : symbols.join(", ") || "selection";
-  if (action === "build") return `Build ${target}`;
-  if (action === "restore") return `Restore ${target}`;
-  return `Purge ${target}`;
-}
-
-function underlyingWriteConfirmation(action, label) {
-	void action;
-  const trading = state.snapshot?.trading || {};
-  state.underlyingNotice = underlyingWriteReason(label, true, trading);
-  renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {});
-  return null;
-}
-
-function purgeResultSummary(result = {}) {
-  const status = result.status || "ok";
-  const selected = Number(result.selected_legs || 0);
-  const submitted = Number(result.submitted_legs || 0);
-  const skipped = Number(result.skipped_legs || 0);
-  const errors = Number(result.error_legs || 0);
-  const message = result.message ? ` / ${result.message}` : "";
-  const preview = result.kind === "ibkr.purge_restore_preview" ? "draft" : status;
-  return `${preview}; ${selected} selected, ${submitted} submitted, ${skipped} skipped, ${errors} errors${message}`;
-}
-
-function renderUnderlyingActionResult(result = {}) {
-  const panel = $("underlyingActionResult");
-  if (!panel) return;
-  panel.hidden = false;
-  panel.className = "underlying-action-result " + (result.status === "error" || result.error_legs > 0 ? "risk" : "neutral");
-  const lines = [];
-  if (result.message) lines.push(result.message);
-  if ((result.blockers || []).length > 0) {
-    lines.push(...result.blockers.map((blocker) => blocker.message || blocker.code).filter(Boolean));
-  }
-  if ((result.skipped || []).length > 0) {
-    lines.push(...result.skipped.slice(0, 3).map((row) => `${row.symbol || row.leg_id}: ${row.reason}`));
-  }
-  panel.textContent = lines.join(" / ") || purgeResultSummary(result);
-}
-
-export { accountAuthorityReason, accountDailyPnlPct, accountDailyPnlValue, canWriteUnderlyings, collectPurgeEntries, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, positionsAuthorityView, purgeBookEntries, purgeEntryPnl, purgeResultSummary, purgedUnderlyingRows, quoteErrorBySymbol, quoteSourceLabel, readLocalPurgeBook, refreshPurgeStatus, renderAccountDailyPnlPct, renderAccountFreshness, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderPositionsFreshness, renderUnderlyingActionResult, renderUnderlyingBulkActions, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, runUnderlyingAction, setUnderlyingActionButtonState, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingActionButton, underlyingActionEndpoint, underlyingActionLabel, underlyingActionTitle, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarker, underlyingMarkers, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl, underlyingWriteConfirmation, underlyingWriteReason };
+export { accountAuthorityReason, accountDailyPnlPct, accountDailyPnlValue, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, positionsAuthorityView, quoteErrorBySymbol, quoteSourceLabel, renderAccountDailyPnlPct, renderAccountFreshness, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderPositionsFreshness, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl };

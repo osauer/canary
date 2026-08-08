@@ -21,14 +21,8 @@ func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleSettingsGet: %v", err)
 	}
-	if !got.Features.PurgeRestore.Enabled.Value {
-		t.Fatal("purge_restore.enabled default = false, want true")
-	}
 	if !got.Features.StockProtection.Enabled.Value {
 		t.Fatal("stock_protection.enabled default = false, want true")
-	}
-	if got.Features.PurgeRestore.Enabled.Access != rpc.SettingsAccessWrite {
-		t.Fatalf("purge_restore.enabled access = %q, want write", got.Features.PurgeRestore.Enabled.Access)
 	}
 	if got.Features.StockProtection.Enabled.Access != rpc.SettingsAccessWrite {
 		t.Fatalf("stock_protection.enabled access = %q, want write", got.Features.StockProtection.Enabled.Access)
@@ -48,7 +42,6 @@ func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
 
 	patch := mustRaw(t, map[string]any{
 		"features": map[string]any{
-			"purge_restore":    map[string]any{"enabled": false},
 			"stock_protection": map[string]any{"enabled": false},
 		},
 	})
@@ -64,21 +57,15 @@ func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleSettingsGet after reopen: %v", err)
 	}
-	if got.Features.PurgeRestore.Enabled.Value {
-		t.Fatal("purge_restore.enabled persisted true, want false")
-	}
 	if got.Features.StockProtection.Enabled.Value {
 		t.Fatal("stock_protection.enabled persisted true, want false")
 	}
 
-	reset := []byte(`{"features":{"purge_restore":{"enabled":null},"stock_protection":{"enabled":null}}}`)
+	reset := []byte(`{"features":{"stock_protection":{"enabled":null}}}`)
 	if _, err := srv.handleSettingsUpdate(context.Background(), &rpc.Request{Params: reset}); err != nil {
 		t.Fatalf("reset runtime settings: %v", err)
 	}
 	got, _ = srv.handleSettingsGet()
-	if !got.Features.PurgeRestore.Enabled.Value {
-		t.Fatal("purge_restore.enabled reset = false, want default true")
-	}
 	if !got.Features.StockProtection.Enabled.Value {
 		t.Fatal("stock_protection.enabled reset = false, want default true")
 	}
@@ -166,22 +153,6 @@ func TestPlatformSettingsTradingPatchOriginMatrix(t *testing.T) {
 	}
 }
 
-func TestPlatformSettingsPurgeDisabledBlocksPurgeWrites(t *testing.T) {
-	t.Parallel()
-	srv := newPlatformSettingsTestServer(t, config.Trading{Mode: config.TradingModePaper})
-	if _, err := srv.handleSettingsUpdate(context.Background(), &rpc.Request{Params: []byte(`{"features":{"purge_restore":{"enabled":false}}}`)}); err != nil {
-		t.Fatalf("disable purge_restore: %v", err)
-	}
-	blockers := srv.purgeExecuteBlockers(rpc.TradingStatus{Mode: config.TradingModePaper})
-	if !hasBlocker(blockers, "purge_restore_disabled") {
-		t.Fatalf("purge blockers missing purge_restore_disabled: %#v", blockers)
-	}
-	preview := srv.purgeRestorePreviewBlockers(rpc.TradingStatus{Mode: config.TradingModePaper})
-	if !hasBlocker(preview, "purge_restore_disabled") {
-		t.Fatalf("restore preview blockers missing purge_restore_disabled: %#v", preview)
-	}
-}
-
 func TestPlatformSettingsStockProtectionDisabledBlocksStockTrailProposal(t *testing.T) {
 	t.Parallel()
 	srv := newPlatformSettingsTestServer(t, config.Trading{})
@@ -262,10 +233,6 @@ func TestPlatformSettingsTradingFreezeBlocksWritesAllowsCancels(t *testing.T) {
 	if hasBlocker(cancelAuth.Blockers, tradingFrozenBlockerCode) {
 		t.Fatalf("frozen cancel authorization retained trading_frozen: %+v", cancelAuth)
 	}
-	if !hasBlocker(srv.purgeExecuteBlockers(status), tradingFrozenBlockerCode) {
-		t.Fatal("purge execute blockers missing trading_frozen while frozen")
-	}
-
 	if _, err := srv.handleSettingsUpdate(context.Background(), &rpc.Request{Params: []byte(`{"origin":"human-tty","trading":{"freeze":null}}`)}); err != nil {
 		t.Fatalf("reset freeze: %v", err)
 	}
@@ -376,7 +343,7 @@ func TestPlatformSettingsStressJournalMigratesStoredCanaryKey(t *testing.T) {
 	// Exactly what a pre-rename daemon persisted after `canary settings set
 	// canary.journal.enabled=false`.
 	legacy := []byte(`{"version":1,"trading_control_generation":0,` +
-		`"features":{"purge_restore":{},"stock_protection":{},"rulebook":{}},` +
+		`"features":{"stock_protection":{},"rulebook":{}},` +
 		`"trading":{},"regime":{"journal":{}},` +
 		`"canary":{"journal":{"enabled":false}},"history":{"rotation":{}}}`)
 	if _, err := core.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{

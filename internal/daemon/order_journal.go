@@ -41,6 +41,9 @@ const (
 	orderSendStateBrokerAcknowledged = "broker_acknowledged"
 	orderSendStateUncertainSend      = "uncertain_send"
 	orderSendStateTerminal           = "terminal"
+
+	legacyPurgeExecuteSource = "purge"
+	legacyPurgeRestoreSource = "purge_restore"
 )
 
 var errOrderPreviewTokenAlreadyUsed = errors.New("preview token already used")
@@ -171,33 +174,16 @@ type legacyOrderImportParity struct {
 	ReconciliationEvents int
 }
 
-type legacyTradingAuthorityParity struct {
-	Orders legacyOrderImportParity
-	Purge  legacyPurgeImportParity
-}
+type legacyTradingAuthorityParity struct{ Orders legacyOrderImportParity }
 
-// initializeFreshTradingAuthority establishes deterministic empty order and
-// purge safety state without consulting legacy paths. The corestore operation
-// is atomic and refuses partial or nonempty trading authority.
+// initializeFreshTradingAuthority establishes deterministic empty order safety
+// state without consulting legacy paths. The corestore operation is atomic and
+// refuses partial or nonempty trading authority.
 func initializeFreshTradingAuthority(ctx context.Context, store *corestore.Store) error {
 	if store == nil {
 		return fmt.Errorf("trading authority is unavailable")
 	}
-	ledger := purgeLedgerFile{
-		Kind:          purgeLedgerKind,
-		SchemaVersion: purgeLedgerSchemaVersion,
-		UpdatedAt:     time.Unix(0, 0).UTC(),
-		Rows:          []purgeLedgerRow{},
-	}
-	raw, err := marshalPurgeLedger(ledger)
-	if err != nil {
-		return fmt.Errorf("encode fresh purge authority: %w", err)
-	}
-	if _, err := store.InitializeFreshOrderAuthority(ctx, corestore.StateDocumentCAS{
-		ScopeKey: purgeLedgerStateScope,
-		Kind:     purgeLedgerStateKind,
-		JSON:     raw,
-	}); err != nil {
+	if err := store.InitializeFreshOrderAuthority(ctx); err != nil {
 		return fmt.Errorf("initialize fresh trading authority: %w", err)
 	}
 	return nil
@@ -248,7 +234,7 @@ func (s *orderJournalStore) coreStore() (*corestore.Store, error) {
 // before RPC serving or broker connection. It also rotates token verification
 // into daemon.db's authority epoch/signer generation.
 func (s *Server) attachCoreOrderAuthority(ctx context.Context, store *corestore.Store) error {
-	if s == nil || store == nil || s.orderJournal == nil || s.purgeLedger == nil || s.orderTokens == nil || !s.tradingReadiness.attachedTo(store) {
+	if s == nil || store == nil || s.orderJournal == nil || s.orderTokens == nil || !s.tradingReadiness.attachedTo(store) {
 		return fmt.Errorf("order authority adapters are unavailable")
 	}
 	head, err := store.AuthorityHead(ctx)
@@ -259,9 +245,6 @@ func (s *Server) attachCoreOrderAuthority(ctx context.Context, store *corestore.
 		return err
 	}
 	if err := s.orderJournal.UseCoreStore(store); err != nil {
-		return err
-	}
-	if err := s.purgeLedger.UseCoreStore(store); err != nil {
 		return err
 	}
 	return nil
@@ -551,9 +534,9 @@ func coreOrderActionForEvent(ev orderJournalEvent) corestore.ActionKind {
 		return ev.ActionKind
 	}
 	switch ev.Source {
-	case purgeExecuteSource:
+	case legacyPurgeExecuteSource:
 		return corestore.ActionPurge
-	case purgeRestoreSource:
+	case legacyPurgeRestoreSource:
 		return corestore.ActionRestore
 	case "opportunity":
 		return corestore.ActionExercise
@@ -772,21 +755,16 @@ func importLegacyOrderAuthority(ctx context.Context, store *corestore.Store, pat
 	return importSelectedLegacyOrderAuthority(ctx, store, selection)
 }
 
-// importLegacyTradingAuthority is startup's first-cutover entrypoint. It reads
-// and fingerprints the order journal exactly once, then feeds the same decoded
-// safety selection to both order and purge imports so route derivation cannot
-// observe a different legacy snapshot.
-func importLegacyTradingAuthority(ctx context.Context, store *corestore.Store, orderPath, purgePath string) (legacyTradingAuthorityParity, error) {
+// importLegacyTradingAuthority is startup's first-cutover entrypoint. Retired
+// purge-ledger files are sealed into the cutover backup but are no longer live
+// authority; their order events remain preserved through the order journal.
+func importLegacyTradingAuthority(ctx context.Context, store *corestore.Store, orderPath string) (legacyTradingAuthorityParity, error) {
 	var parity legacyTradingAuthorityParity
 	selection, err := loadLegacyOrderImportSelection(orderPath)
 	if err != nil {
 		return parity, err
 	}
 	parity.Orders, err = importSelectedLegacyOrderAuthority(ctx, store, selection)
-	if err != nil {
-		return parity, err
-	}
-	parity.Purge, err = importLegacyPurgeAuthority(ctx, store, purgePath, selection)
 	if err != nil {
 		return parity, err
 	}

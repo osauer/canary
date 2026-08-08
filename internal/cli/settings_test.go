@@ -14,7 +14,6 @@ func TestSettingsPatchFromAssignmentBuildsNestedPatch(t *testing.T) {
 		feature    string
 		want       any
 	}{
-		{"features.purge_restore.enabled=false", "purge_restore", false},
 		{"features.stock_protection.enabled=null", "stock_protection", nil},
 	} {
 		raw, err := settingsPatchFromAssignment(tc.assignment)
@@ -45,7 +44,7 @@ func TestSettingsSubcommandIndexHandlesHoistedFlags(t *testing.T) {
 	if got := settingsSubcommandIndex([]string{"--json", "show"}); got != 1 {
 		t.Fatalf("settingsSubcommandIndex(--json show) = %d, want 1", got)
 	}
-	if got := settingsSubcommandIndex([]string{"--json", "set", "features.purge_restore.enabled=true"}); got != 1 {
+	if got := settingsSubcommandIndex([]string{"--json", "set", "features.stock_protection.enabled=true"}); got != 1 {
 		t.Fatalf("settingsSubcommandIndex(--json set ...) = %d, want 1", got)
 	}
 }

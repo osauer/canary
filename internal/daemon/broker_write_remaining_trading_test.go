@@ -16,53 +16,6 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-func TestPurgeExecuteTypedDisableMakesZeroStageOrBrokerCalls(t *testing.T) {
-	t.Parallel()
-	srv := newPurgeExecuteTestServer(t)
-	brokerCalls := 0
-	srv.orderPlaceBroker = func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error {
-		brokerCalls++
-		return nil
-	}
-	swapped := installBrokerWriteConnectorSwapAfterStage(t, srv)
-
-	res, err := srv.executePurge(context.Background(), rpc.PurgeExecuteParams{All: true, WaitMs: 1, Origin: rpc.OrderOriginHumanTTY})
-	if err != nil {
-		t.Fatalf("executePurge: %v", err)
-	}
-	assertPurgeSubmissionUnavailable(t, res.Status, res.Blockers)
-	if swapped() || brokerCalls != 0 {
-		t.Fatalf("stage_hook=%v broker_calls=%d, want false/0", swapped(), brokerCalls)
-	}
-	if journalContainsEventType(t, srv, orderJournalEventSendAttempted) {
-		t.Fatal("typed-disabled purge reached the durable pre-transmit stage")
-	}
-}
-
-func TestPurgeRestoreTypedDisableMakesZeroStageOrBrokerCalls(t *testing.T) {
-	t.Parallel()
-	srv := newPurgeRestoreTestServer(t, config.Trading{Mode: config.TradingModePaper, MaxNotional: 100_000})
-	seedPurgeLedgerFill(t, srv.purgeLedger, "purge-test", "leg-aapl", purgeLedgerTestStockContract(), rpc.OrderActionSell, 1, 100)
-	brokerCalls := 0
-	srv.orderPlaceBroker = func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error {
-		brokerCalls++
-		return nil
-	}
-	swapped := installBrokerWriteConnectorSwapAfterStage(t, srv)
-
-	res, err := srv.executePurgeRestore(context.Background(), rpc.PurgeRestoreParams{All: true, Scale: 1, WaitMs: 1, Origin: rpc.OrderOriginHumanTTY})
-	if err != nil {
-		t.Fatalf("executePurgeRestore: %v", err)
-	}
-	assertPurgeSubmissionUnavailable(t, res.Status, res.Blockers)
-	if swapped() || brokerCalls != 0 {
-		t.Fatalf("stage_hook=%v broker_calls=%d, want false/0", swapped(), brokerCalls)
-	}
-	if journalContainsEventType(t, srv, orderJournalEventSendAttempted) {
-		t.Fatal("typed-disabled restore reached the durable pre-transmit stage")
-	}
-}
-
 func TestPaperSmokePreAckCleanupConnectorSwapAfterStageMakesZeroCancelCalls(t *testing.T) {
 	t.Parallel()
 	srv, _ := newPaperSmokeTestServer(t)

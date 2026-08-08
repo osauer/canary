@@ -444,12 +444,6 @@ func attachFreshOrderTestAuthority(t *testing.T, s *Server) *corestore.Store {
 		_ = authority.Close()
 		t.Fatal(err)
 	}
-	if s.purgeLedger != nil {
-		if err := s.purgeLedger.UseCoreStore(authority); err != nil {
-			_ = authority.Close()
-			t.Fatal(err)
-		}
-	}
 	t.Cleanup(func() { _ = authority.Close() })
 	return authority
 }

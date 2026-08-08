@@ -10,11 +10,11 @@ import { renderOpenOrders } from "./orders.js";
 import { renderPortfolioRisk, setPortfolioExpansion } from "./portfolio.js";
 import { cancelProtectionDerisk, previewProtectionDerisk, renderProtectionPanel } from "./protection.js";
 import { installRenderAll } from "./render-runtime.js";
-import { renderSettings, setPurgeRestoreEnabled, setStockProtectionEnabled } from "./settings.js";
+import { renderSettings, setStockProtectionEnabled } from "./settings.js";
 import { $, accountBaseCurrency, accountFieldValue, pct, renderSensitiveText } from "./shared.js";
 import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect } from "./shell.js";
 import { state } from "./state.js";
-import { positionsAuthorityView, renderAccountPanel, renderPositionsFreshness, renderUnderlyings, runUnderlyingAction, setUnderlyingExpansion } from "./underlyings.js";
+import { positionsAuthorityView, renderAccountPanel, renderPositionsFreshness, renderUnderlyings, setUnderlyingExpansion } from "./underlyings.js";
 
 installRenderAll(renderAll);
 installSmokeHooks();
@@ -281,22 +281,10 @@ $("underlyingDetailToggle").addEventListener("click", () => {
   setUnderlyingExpansion(!state.underlyingDetailOpen);
 });
 $("underlyingPanel").addEventListener("click", handleUnderlyingPanelTap);
-$("buildAllUnderlyingsButton").addEventListener("click", () => {
-  runUnderlyingAction("build", { all: true });
-});
-$("purgeAllUnderlyingsButton").addEventListener("click", () => {
-  runUnderlyingAction("purge", { all: true });
-});
-$("restoreAllUnderlyingsButton").addEventListener("click", () => {
-  runUnderlyingAction("restore", { all: true });
-});
 $("portfolioDetailToggle").addEventListener("click", () => {
   setPortfolioExpansion(!state.portfolioDetailOpen);
 });
 $("portfolioPanel").addEventListener("click", handlePortfolioPanelTap);
-$("purgeRestoreToggle").addEventListener("change", (event) => {
-  setPurgeRestoreEnabled(event.currentTarget.checked);
-});
 $("stockProtectionToggle").addEventListener("change", (event) => {
   setStockProtectionEnabled(event.currentTarget.checked);
 });

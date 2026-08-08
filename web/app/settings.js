@@ -1,5 +1,5 @@
 import { renderProtectionPanel } from "./protection.js";
-import { $, accountBaseCurrency, currentSettings, labelize, money, purgeRestoreSettingEnabled, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
+import { $, accountBaseCurrency, currentSettings, labelize, money, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
 import { state } from "./state.js";
 import { currentAccountContext, renderUnderlyings } from "./underlyings.js";
 
@@ -10,15 +10,8 @@ function renderSettings() {
   const settings = currentSettings();
   if (!settings || !settings.kind) return;
   state.settings = settings;
-  const purge = settings.features?.purge_restore?.enabled || {};
-  const stockProtection = settings.features?.stock_protection?.enabled || {};
-  renderFreshnessTimestamp("settingsAsOf", settings.as_of, { staleMinutes: 15 });
-  $("purgeRestoreSettingState").textContent = purge.value === false ? "Workflow off" : "Workflow on";
-  $("purgeRestoreSettingMeta").textContent = `Broker submission unavailable · ${settingMeta(purge)}`;
-  const toggle = $("purgeRestoreToggle");
-  toggle.checked = purge.value !== false;
-  toggle.disabled = purge.access !== "write";
-  toggle.title = purge.reason || "Toggle the purge/restore workflow preference; this never enables broker submission";
+	const stockProtection = settings.features?.stock_protection?.enabled || {};
+	renderFreshnessTimestamp("settingsAsOf", settings.as_of, { staleMinutes: 15 });
   $("stockProtectionSettingState").textContent = stockProtection.value === false ? "Disabled" : "Enabled";
   $("stockProtectionSettingMeta").textContent = settingMeta(stockProtection);
   const stockToggle = $("stockProtectionToggle");
@@ -113,55 +106,6 @@ function settingsPolicyFileLabel(value) {
   return normalized.split("/").filter(Boolean).pop() || raw;
 }
 
-async function setPurgeRestoreEnabled(enabled) {
-  const previous = purgeRestoreSettingEnabled();
-  state.settings = {
-    ...currentSettings(),
-    features: {
-      ...(currentSettings().features || {}),
-      purge_restore: {
-        ...(currentSettings().features?.purge_restore || {}),
-        enabled: {
-          ...(currentSettings().features?.purge_restore?.enabled || {}),
-          value: enabled,
-        },
-      },
-    },
-  };
-  if (state.snapshot) state.snapshot.settings = state.settings;
-  renderSettings();
-  renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {});
-  try {
-    const res = await fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ features: { purge_restore: { enabled } } }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    state.settings = await res.json();
-    if (state.snapshot) state.snapshot.settings = state.settings;
-  } catch (err) {
-    state.settings = {
-      ...currentSettings(),
-      features: {
-        ...(currentSettings().features || {}),
-        purge_restore: {
-          ...(currentSettings().features?.purge_restore || {}),
-          enabled: {
-            ...(currentSettings().features?.purge_restore?.enabled || {}),
-            value: previous,
-          },
-        },
-      },
-    };
-    if (state.snapshot) state.snapshot.settings = state.settings;
-    state.underlyingNotice = "Settings update failed: " + err.message;
-  }
-  renderSettings();
-  renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {});
-}
-
 async function setStockProtectionEnabled(enabled) {
   const previous = stockProtectionSettingEnabled();
   state.settings = {
@@ -211,4 +155,4 @@ async function setStockProtectionEnabled(enabled) {
   renderProtectionPanel(state.snapshot?.proposals || {}, state.snapshot?.auto_trade || {}, state.snapshot?.market_events || {});
 }
 
-export { renderProtectionSettings, renderSettings, renderSettingsPlate, setPurgeRestoreEnabled, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };
+export { renderProtectionSettings, renderSettings, renderSettingsPlate, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };

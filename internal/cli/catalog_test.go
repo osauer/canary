@@ -46,13 +46,13 @@ func TestCatalogValueFlagsDriveHoisting(t *testing.T) {
 		"expiry", "width", "side", "rate", "timeout", "limit", "symbol",
 		"type", "sort", "days", "by", "lookback-days", "benchmark",
 		"entry", "stop", "target", "risk-pct", "lot", "fx",
-		"only", "scale", "market", "exchange", "primary", "currency", "log",
+		"only", "market", "exchange", "primary", "currency", "log",
 		"date", "next",
 		"min-dte", "max-dte", "target-dte", "class",
-		"account", "preview-token", "strategy", "tif", "replace-order",
+		"preview-token", "strategy", "tif", "replace-order",
 		"order-type", "trail-percent", "trail-amount", "initial-stop", "limit-offset", "trigger-method",
 		"addr", "public-url", "state-dir", "config", "socket",
-		"profile", "view", "wait",
+		"profile", "view",
 	} {
 		if !isValueFlag(name) {
 			t.Fatalf("isValueFlag(%q)=false, want true", name)

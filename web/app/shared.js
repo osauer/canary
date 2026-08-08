@@ -7,13 +7,6 @@ function currentSettings() {
   return state.settings || state.snapshot?.settings || {};
 }
 
-function purgeRestoreSettingEnabled() {
-  // This setting controls the workflow/read surface only. It is never broker-write
-  // authority; the daemon keeps purge/restore preview and submission disabled.
-  const setting = currentSettings().features?.purge_restore?.enabled;
-  return setting?.value !== false;
-}
-
 function stockProtectionSettingEnabled() {
   const setting = currentSettings().features?.stock_protection?.enabled;
   return setting?.value !== false;
@@ -412,4 +405,4 @@ function shortTimeWithZone(value) {
   });
 }
 
-export { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, blockerText, cleanDetail, compactMoney, compactWholeMoney, currentSettings, displayMoney, firstNumber, hasNumericValue, labelize, maskAccountId, mergeCurrency, money, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, purgeRestoreSettingEnabled, quoteTimestamp, readJSONOrText, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTime, shortTimeWithZone, signedClass, signedDisplayMoney, signedMoneyRead, signedPct, signedTone, stockProtectionSettingEnabled, wholePct };
+export { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, blockerText, cleanDetail, compactMoney, compactWholeMoney, currentSettings, displayMoney, firstNumber, hasNumericValue, labelize, maskAccountId, mergeCurrency, money, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, quoteTimestamp, readJSONOrText, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTime, shortTimeWithZone, signedClass, signedDisplayMoney, signedMoneyRead, signedPct, signedTone, stockProtectionSettingEnabled, wholePct };

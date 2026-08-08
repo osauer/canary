@@ -15,8 +15,8 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
   route pins, preview tokens, freeze state, broker WhatIf/eligibility, and the
   local journal remain the authorization boundary.
 - **User-facing command/tool/API:** `canary proposals submit`, `canary order
-  place|modify`, `canary purge … / purge restore --execute`, app HTTP write
-  endpoints, MCP `canary_order_preview` (token redaction only).
+  place|modify|cancel`, opportunity exercise, app HTTP write endpoints, and
+  MCP `canary_order_preview` (token redaction only).
 - **Owner layer:** origin *detection* is adapter-owned (CLI process state, app
   pairing); broker-write authorization is daemon policy in the broker-write
   choke point. Config/build stay the owners of trading capability; origin is
@@ -44,11 +44,11 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
    classification, but is not advertised as configuration.
 2. **RPC**: `Origin string` added to `OrderPlaceParams`, `OrderModifyParams`,
    `OrderCancelParams` (journaled),
-   `TradeProposalSubmitParams`, `PurgeExecuteParams`,
-   `PurgeRestoreExecuteParams`, and platform-settings update params for
+   `TradeProposalSubmitParams`, opportunity-exercise params, and
+   platform-settings update params for
    `[trading]` limit keys.
 3. **Daemon**: `brokerWriteAuthorization` (single choke point used by place,
-   modify, proposal submit, purge execute, restore execute) authorizes writes
+   modify, proposal submit, and option exercise) authorizes writes
    from all origins using connected-gateway readiness, trading mode, build
    capability, gateway/account/client pins, journal availability, freeze state,
    preview tokens, and broker checks.

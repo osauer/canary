@@ -3,7 +3,7 @@
 Updated: 2026-06-11 22:14 CEST
 
 Use this before changing daemon, RPC, CLI, MCP, trading capability, order
-preview/status, purge, account, position, stress, regime, gamma, breadth, or
+preview/status, liquidation, account, position, stress, regime, gamma, breadth, or
 market-data semantics.
 
 ## Scope
@@ -25,7 +25,7 @@ market-data semantics.
 
 ## Safety Invariants
 
-- Agentic sessions may place, modify, cancel, submit, exercise, purge, restore,
+- Agentic sessions may place, modify, cancel, submit, exercise, or liquidate
   or transmit only after an explicit transaction-specific user instruction in
   the current turn, and only through the agent-origin gated CLI. Browser/PWA
   automation is read-only. Connected-gateway readiness, mode, pins, preview

@@ -31,7 +31,7 @@ The standard read-only artifact uses the canonical `canary` filename. Getting th
 
 **Standard build.** Order transmission is not compiled in. The CLI keeps `canary order place`, `canary order modify`, and `canary order cancel` in every build; in a standard build the daemon's write handlers are compiled out behind the `trading` build tag and return `ErrTradingDisabled`, so the verbs exist and fail closed before anything reaches the broker. The bundled MCP surface has no order-entry tools in either build.
 
-**Trading build.** This binary can place, modify, and cancel orders once `[trading].mode` and the pinned gateway endpoint and account are set and cross-checked against the connected session. Every write still needs a submit-eligible preview token, which is an invariant rather than a switch. Purge and restore sit outside that gate: they never mint a token, and their broker submission is disabled outright. Trading builds are experimental and provided as-is. [Order previews and the trading build](../operate/orders.md) has the configuration and the gates in full.
+**Trading build.** This binary can place, modify, and cancel constrained orders once `[trading].mode` and the pinned gateway endpoint and account are set and cross-checked against the connected session. Every write still needs a submit-eligible preview token or the capability-specific one-shot review contract. Trading builds are experimental and provided as-is. [Order previews and the trading build](../operate/orders.md) has the configuration and the gates in full.
 
 To see which one you are running, `canary settings` prints a `Build` row reading either `stable` or `experimental-trading`, followed by a build note.
 

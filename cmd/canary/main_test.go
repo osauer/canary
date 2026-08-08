@@ -93,7 +93,7 @@ func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 		{name: "regime"}, {name: "stress"}, {name: "brief"}, {name: "rules"},
 		{name: "alerts"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
 		{name: "proposals", args: []string{"reduce", "--portfolio"}},
-		{name: "opportunities"}, {name: "purge"},
+		{name: "opportunities"},
 		{name: "size"}, {name: "trading"}, {name: "trading", args: []string{"paper-smoke"}}, {name: "settings"},
 		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"preview"}},
 		{name: "order", args: []string{"place"}}, {name: "order", args: []string{"modify"}}, {name: "order", args: []string{"cancel"}},

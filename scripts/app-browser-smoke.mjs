@@ -216,7 +216,6 @@ async function runRound4SyntheticSmoke() {
         lifecycle_state: "working",
       }],
     });
-    if (method === "GET" && requestPath === "/api/purge/status") return json({ entries: [] });
     if (method === "POST" && requestPath === "/api/alerts/attention/read") {
       const body = request.postDataJSON();
       if (Object.keys(body).length !== 1 || body.through_seq !== 4) return json({ error: "unexpected synthetic watermark" }, 400);
@@ -893,7 +892,7 @@ async function exerciseAccountAuthorityFixtures(page) {
       positionsUnavailable: document.getElementById("underlyingBookCount")?.textContent?.trim() === "Positions unavailable"
         && /no single account is selected/i.test(document.getElementById("underlyingBookStatus")?.textContent || "")
         && /Position data unavailable/i.test(document.getElementById("underlyingBookList")?.textContent || ""),
-      positionsClaimClean: /No underlyings|No held or virtual underlyings/i.test([
+		positionsClaimClean: /No underlyings|No held underlyings/i.test([
         document.getElementById("underlyingBookCount")?.textContent || "",
         document.getElementById("underlyingBookList")?.textContent || "",
       ].join(" ")),
@@ -1225,119 +1224,50 @@ async function exerciseStressControlsRemoved(page) {
 }
 
 async function exerciseUnderlyingPanelFixture(page) {
-  await page.evaluate(() => {
-    localStorage.setItem("ibkrPurgeBook", JSON.stringify({
-      purge_id: "purge_ui_fixture",
-      base_currency: "USD",
-      legs: [{
-        symbol: "SMOKE",
-        sec_type: "STK",
-        currency: "USD",
-        current_price: 444.12,
-        current_price_source: "fixture quote",
-        quote_change_pct: -0.7,
-        shadow_saved: 125.5,
-        status: "priced",
-      }],
-    }));
-  });
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
-  await page.waitForFunction(() => {
-    return document.querySelector("#underlyingPanel #underlyingBookList .underlying-row");
-  }, { timeout: 5000 });
-  const info = await page.evaluate(() => ({
-    count: document.getElementById("underlyingBookCount")?.textContent?.trim() || "",
-    status: document.getElementById("underlyingBookStatus")?.textContent?.trim() || "",
-    winner: document.getElementById("underlyingWinnerPnl")?.textContent?.trim() || "",
-    loser: document.getElementById("underlyingLoserPnl")?.textContent?.trim() || "",
-    accountHasUnderlyingBook: !!document.querySelector("#accountPanel #underlyingBookList"),
-    stressHasUnderlyingBook: !!document.querySelector("#stressHero #underlyingBookList"),
-    standaloneHasUnderlyingBook: !!document.querySelector("#underlyingPanel #underlyingBookList"),
-    foldIcon: Boolean(document.querySelector("#underlyingPanel #underlyingDetailToggle.panel-chevron")),
-    bulkButtons: [...document.querySelectorAll("#underlyingPanel .underlying-bulk-actions button")].map((button) => ({
-      text: button.textContent?.trim() || "",
-      disabled: button.disabled,
-      title: button.title || "",
-    })),
-      rows: [...document.querySelectorAll("#underlyingPanel #underlyingBookList .underlying-row")].map((row) => ({
-      symbol: row.dataset.symbol || "",
-      virtual: row.classList.contains("underlying-row--virtual"),
-      markers: [...row.querySelectorAll(".underlying-marker")].map((marker) => marker.textContent?.trim() || ""),
-      quoteStatus: row.querySelector(".underlying-quote-status")?.textContent?.trim() || "",
-      quoteStatusTitle: row.querySelector(".underlying-quote-status")?.getAttribute("title") || "",
-      buttons: [...row.querySelectorAll("button")].map((button) => ({
-        text: button.textContent?.trim() || "",
-        disabled: button.disabled,
-        title: button.title || "",
-      })),
-      text: row.textContent?.replace(/\s+/g, " ").trim() || "",
-    })),
-  }));
-  if (info.accountHasUnderlyingBook || info.stressHasUnderlyingBook || !info.standaloneHasUnderlyingBook) {
-    throw new Error(`underlyings subledger is in the wrong panel: ${JSON.stringify(info)}`);
-  }
-  if (!info.foldIcon) {
-    throw new Error(`underlyings folded summary is missing its disclosure toggle: ${JSON.stringify(info)}`);
-  }
-  if (!info.winner || !info.loser) {
-    throw new Error(`underlyings folded summary is missing winner/loser totals: ${JSON.stringify(info)}`);
-  }
-  const row = info.rows.find((item) => item.symbol === "SMOKE");
-  if (!row || !row.virtual) {
-    throw new Error(`virtual purge row is missing: ${JSON.stringify(info)}`);
-  }
-  if (!row.quoteStatus || !row.quoteStatusTitle) {
-    throw new Error(`underlying row should include quote price status: ${JSON.stringify(row)}`);
-  }
-  if (rawGatewayCopyPattern.test(row.quoteStatus)) {
-    throw new Error(`underlying row leaks raw gateway error text: ${JSON.stringify(row)}`);
-  }
-  for (const marker of ["Virtual", "Purged"]) {
-    if (!row.markers.includes(marker)) {
-      throw new Error(`virtual purge row lacks ${marker} marker: ${JSON.stringify(row)}`);
-    }
-  }
-  const purge = row.buttons.find((button) => button.text === "Purge");
-  const restore = row.buttons.find((button) => button.text === "Restore");
-  const build = row.buttons.find((button) => button.text === "Build");
-  if (!purge?.disabled || !purge.title) {
-    throw new Error(`purged row should disable Purge with a reason: ${JSON.stringify(row.buttons)}`);
-  }
-  if (!restore || !build) {
-    throw new Error(`purged row should render Restore and Build actions: ${JSON.stringify(row.buttons)}`);
-  }
-  if (row.buttons.some((button) => /placeholder|backend wiring/i.test(button.title))) {
-    throw new Error(`underlying row still contains placeholder action copy: ${JSON.stringify(row.buttons)}`);
-  }
-  const bulkLabels = info.bulkButtons.map((item) => item.text);
-  const expectedBulkLabels = ["Purge all", "Restore all", "Rebuild all"];
-  if (JSON.stringify(bulkLabels) !== JSON.stringify(expectedBulkLabels)) {
-    throw new Error(`bulk underlying controls should be ordered Purge all, Restore all, Rebuild all: ${JSON.stringify(info.bulkButtons)}`);
-  }
-  for (const label of expectedBulkLabels) {
-    const button = info.bulkButtons.find((item) => item.text === label);
-    if (button.disabled && !button.title) {
-      throw new Error(`disabled bulk underlying control lacks a reason: ${JSON.stringify(button)}`);
-    }
-  }
+	await page.evaluate(() => {
+		const now = new Date().toISOString();
+		globalThis.__canarySmoke.applySnapshotPatch({
+			positions: {
+				authority: { availability: "available", freshness: "current", as_of: now },
+				by_underlying: [{
+					underlying: "SMOKE",
+					group_daily_pnl_base: 125.5,
+					stock: { symbol: "SMOKE", currency: "USD", mark: 444.12, quote_expectation: "none" },
+				}],
+				portfolio: { base_currency: "USD" },
+			},
+			sources: { positions: { state: "current", last_success_at: now } },
+		});
+	});
+	await page.waitForFunction(() => document.querySelector('#underlyingBookList [data-symbol="SMOKE"]'), { timeout: 5000 });
+	const info = await page.evaluate(() => {
+		const row = document.querySelector('#underlyingBookList [data-symbol="SMOKE"]');
+		return {
+			count: document.getElementById("underlyingBookCount")?.textContent?.trim() || "",
+			status: document.getElementById("underlyingBookStatus")?.textContent?.trim() || "",
+			winner: document.getElementById("underlyingWinnerPnl")?.textContent?.trim() || "",
+			accountHasUnderlyingBook: Boolean(document.querySelector("#accountPanel #underlyingBookList")),
+			stressHasUnderlyingBook: Boolean(document.querySelector("#stressHero #underlyingBookList")),
+			standaloneHasUnderlyingBook: Boolean(document.querySelector("#underlyingPanel #underlyingBookList")),
+			foldIcon: Boolean(document.querySelector("#underlyingPanel #underlyingDetailToggle.panel-chevron")),
+			rowText: row?.textContent?.replace(/\s+/g, " ").trim() || "",
+			actions: row?.querySelectorAll("button").length || 0,
+		};
+	});
+	if (info.accountHasUnderlyingBook || info.stressHasUnderlyingBook || !info.standaloneHasUnderlyingBook || !info.foldIcon) {
+		throw new Error(`underlyings book is in the wrong panel or lacks its disclosure: ${JSON.stringify(info)}`);
+	}
+	if (!/1 held/.test(info.count) || !/SMOKE/.test(info.rowText) || !info.winner) {
+		throw new Error(`held underlying did not render with its P\/L summary: ${JSON.stringify(info)}`);
+	}
+	if (info.actions !== 0) {
+		throw new Error(`monitoring rows must not expose retired write actions: ${JSON.stringify(info)}`);
+	}
 
-  await page.evaluate(() => localStorage.removeItem("ibkrPurgeBook"));
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
-  // The reload resets __canarySmoke and the rendered stress/regime state; later
-  // exercises assume the same arrived-snapshot barrier as the initial load.
-  await waitForSnapshotEvent(page, 0);
-
-  return {
-    virtual_rows: info.rows.length,
-    count: info.count,
-    markers: row.markers,
-    purge_disabled: purge.disabled,
-    restore_disabled: restore.disabled,
-    build_disabled: build.disabled,
-    bulk_buttons: info.bulkButtons,
-  };
+	await page.reload({ waitUntil: "domcontentloaded" });
+	await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
+	await waitForSnapshotEvent(page, 0);
+	return info;
 }
 
 async function exerciseStressDetail(page) {
@@ -1535,15 +1465,14 @@ async function exerciseSheetLayer(page) {
       const sheet = document.getElementById("underlyingsSheet");
       return Boolean(sheet?.open) && Boolean(document.getElementById("underlyingPanel")?.offsetParent);
     }, { timeout: 5000 });
-    underlyingsSheet = await page.evaluate(() => ({
-      exercised: true,
-      title: document.getElementById("underlyingsSheetTitle")?.textContent?.trim() || "",
-      bookExpanded: !document.getElementById("underlyingBookListPanel")?.hidden,
-      hardKeys: [...document.querySelectorAll("#underlyingsSheet .underlying-bulk-actions .pd-key")].map((key) => key.textContent?.trim() || ""),
-    }));
-    const expectedKeys = ["Purge all", "Restore all", "Rebuild all"];
-    if (JSON.stringify(underlyingsSheet.hardKeys) !== JSON.stringify(expectedKeys)) {
-      throw new Error(`Underlyings sheet should seat the bulk actions as hard keys: ${JSON.stringify(underlyingsSheet)}`);
+		underlyingsSheet = await page.evaluate(() => ({
+			exercised: true,
+			title: document.getElementById("underlyingsSheetTitle")?.textContent?.trim() || "",
+			bookExpanded: !document.getElementById("underlyingBookListPanel")?.hidden,
+			writeActions: document.querySelectorAll("#underlyingsSheet .underlying-action").length,
+		}));
+		if (underlyingsSheet.writeActions !== 0) {
+			throw new Error(`Underlyings sheet must not retain retired write actions: ${JSON.stringify(underlyingsSheet)}`);
     }
     if (!underlyingsSheet.bookExpanded || underlyingsSheet.title !== "Underlyings") {
       throw new Error(`Underlyings sheet should open on the expanded book: ${JSON.stringify(underlyingsSheet)}`);
@@ -2599,8 +2528,7 @@ async function exerciseSettingsTab(page) {
   const selectors = [
     "#settingsTab",
     "#settingsAsOf",
-    "#purgeRestoreToggle",
-    "#stockProtectionToggle",
+		"#stockProtectionToggle",
     "#settingsTradingStatus",
     "#settingsTradingMeta",
     "#settingsTradingLimits",

@@ -28,8 +28,8 @@ writes one ordered path instead of several competing writers.
 
 `daemon.db` carries five kinds of continuity:
 
-- **Current daemon state:** settings, risk-capital state, readiness, purge
-  state, current proposals and opportunities, alert episodes, and last-good
+- **Current daemon state:** settings, risk-capital state, readiness, current
+  proposals and opportunities, alert episodes, and last-good
   market or model publications.
 - **Local decision history:** events explaining what the software observed,
   evaluated, or attempted. Broker confirmations and statements establish

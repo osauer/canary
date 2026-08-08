@@ -95,9 +95,9 @@ and SQLite-backed installations from v2.3.0. If a file-backed installation is
 still on v1.7.1, jump directly through the current installer above. Do not
 stage through any binary from v1.8 through v2.2.1: those historical releases
 could delete the v1 purge ledger when they opened it. The current migration
-preserves that ledger's restore quantities and fill cursors, but it cannot
-recover records an earlier upgrade already discarded. Installations already
-running v1.8 through v2.2.1 can migrate the supported file state that remains.
+seals any surviving ledger as retired product state in the cutover backup; it
+does not reactivate that workflow. Installations already running v1.8 through
+v2.2.1 can migrate the supported file state that remains.
 Installations older than v1.7.1 remain outside the direct-migration boundary.
 
 A file-backed cutover imports the supported authority into a new, validated

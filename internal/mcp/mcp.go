@@ -1,7 +1,7 @@
 // Package mcp adapts the daemon's read, research, and preview capabilities to
 // the Model Context Protocol over stdio. Its curated tools and resources use
 // short-lived typed daemon calls where required; they do not expose broker
-// place, modify, cancel, exercise, purge, or restore operations.
+// place, modify, cancel, or exercise operations.
 //
 // Wire: newline-delimited JSON-RPC 2.0 over stdin/stdout, no framing headers.
 // The MCP lifecycle is initialize → initialized (notification) → repeated

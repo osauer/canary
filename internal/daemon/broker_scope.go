@@ -109,8 +109,3 @@ func orderViewMatchesBrokerScope(view rpc.OrderView, scope brokerStateScope) boo
 	return brokerScopedAccountMatches(view.Account, scope) &&
 		brokerScopedModeMatches(view.Mode, scope.Mode)
 }
-
-func purgeLedgerRowMatchesBrokerScope(row purgeLedgerRow, scope brokerStateScope) bool {
-	return brokerScopedAccountMatches(row.Account, scope) &&
-		brokerScopedModeMatches(row.Mode, scope.Mode)
-}

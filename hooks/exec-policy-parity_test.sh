@@ -62,10 +62,6 @@ run_cli_case retired-order-place ibkr prompt order place --preview-token TOKEN -
 run_cli_case order-modify canary prompt order modify ORDER_ID --quantity 2 --json
 run_cli_case order-cancel canary prompt order cancel ORDER_ID --json
 run_cli_case opportunity-exercise canary prompt opportunities exercise KEY REVISION --json
-run_cli_case purge-all canary prompt purge --all
-run_cli_case purge-execute canary prompt purge execute --all --json
-run_cli_case purge-restore-preview canary prompt purge restore --all --json
-run_cli_case purge-restore-execute canary prompt purge restore --all --execute --json
 
 # Runtime settings, freeze, and limit writes remain human-only.
 run_cli_case settings-freeze canary forbidden settings set trading.freeze=true

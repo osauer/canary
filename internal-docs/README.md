@@ -41,14 +41,6 @@ and this index needs the fix.
 | Doc | State |
 |---|---|
 | [design/authority-contract-cache-bloat.md](design/authority-contract-cache-bloat.md) | Written 2026-07-31; 5.1 GB of unread contract-cache observations, prune plan not approved |
-| [design/account-identity-audit.md](design/account-identity-audit.md) | Written 2026-08-01; 20 findings on account identity and pin-change semantics after issue #14, n-account design position, four open operator questions |
-
-## Historical records
-
-| Doc | Why it is kept |
-|---|---|
-| [design/mobile-app-mvp.md](design/mobile-app-mvp.md) | MVP baseline for the paired PWA; linked from README as history |
-| [design/trading-paper-smoke.md](design/trading-paper-smoke.md) | Live-gate decision record; pinned by `internal/cli/skill_drift_test.go` |
 
 `drafts/` is intentionally empty between documentation rounds; its README says
 what belongs there.

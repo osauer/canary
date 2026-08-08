@@ -34,7 +34,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 ## Safety invariants
 
 - GTC is accepted for TRAIL/TRAIL LIMIT only, enforced at preview and again at
-  the protobuf wire validator; LMT, purge legs, and the modify path remain
+  the protobuf wire validator; LMT and the modify path remain
   DAY-only. Broker WhatIf stays the final arbiter of venue support.
 - DAY remains the default at every layer; a policy file without `tif` and the
   embedded default keep their previous fingerprints (`omitempty` + unset).

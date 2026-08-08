@@ -28,6 +28,7 @@ func (s *Server) handleTradingPaperSmoke(_ context.Context, _ *rpc.Request) (any
 	return nil, ErrTradingDisabled
 }
 
+//lint:ignore U1000 Keeps the non-trading build API aligned with trading builds.
 func (s *Server) reserveBoundBrokerOrderID(ctx context.Context, binding brokerWriteTransactionBinding) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -41,6 +42,7 @@ func (s *Server) reserveBoundBrokerOrderID(ctx context.Context, binding brokerWr
 	return 0, ErrTradingDisabled
 }
 
+//lint:ignore U1000 Keeps the non-trading build API aligned with trading builds.
 func (s *Server) submitBoundConfiguredOrder(ctx context.Context, binding brokerWriteTransactionBinding, status rpc.TradingStatus, contract *ibkrlib.Contract, order *ibkrlib.RawOrder) error {
 	if err := ctx.Err(); err != nil {
 		return err

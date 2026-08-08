@@ -160,12 +160,7 @@ func (s *Server) appendOrderLifecycleEvent(ev ibkrlib.OrderLifecycleEvent) bool 
 	}
 	normalizeOrderLifecycleJournalEvent(&journalEvent)
 
-	var persistErr error
-	if s.purgeLedger != nil {
-		persistErr = s.purgeLedger.CommitOrderLifecycle(s.orderJournal, journalEvent)
-	} else {
-		persistErr = s.orderJournal.Append(journalEvent)
-	}
+	persistErr := s.orderJournal.Append(journalEvent)
 	if persistErr != nil {
 		s.warnf("append order lifecycle event: %v", persistErr)
 		return false

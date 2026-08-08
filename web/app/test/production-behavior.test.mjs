@@ -117,8 +117,7 @@ test("TestAppJSStalePairingURLFallsBackToDeviceLogin replacement executes bounde
       });
     }
     if (url === "/api/orders/open") return response({ orders: [] });
-    if (url === "/api/purge/status") return response({ entries: [] });
-    return response({});
+	return response({});
   };
   const delays = [];
   assert.equal(await lifecycle.bootstrapWithRetry({ sleep: async (delay) => delays.push(delay) }), true);
@@ -142,9 +141,7 @@ test("TestAppJSTradingStateUsesSnapshotCanWrite replacement exercises typed writ
   const order = { order_ref: "synthetic-order", open: true, order_type: "LMT", remaining: 2 };
   assert.equal(orders.orderModifyGate(order, { can_write: false }).ready, false);
   assert.equal(orders.orderModifyGate(order, { can_write: true }).ready, true);
-  assert.equal(underlyings.canWriteUnderlyings({ can_write: true }), false);
-  assert.match(underlyings.underlyingWriteReason("purge", true, { can_write: true }), /submission is unavailable/);
-  const frozen = { can_write: false, mode: "paper", account: "synthetic", write_blockers: [{ code: "trading_frozen" }] };
+	const frozen = { can_write: false, mode: "paper", account: "synthetic", write_blockers: [{ code: "trading_frozen" }] };
   assert.equal(orders.tradingCancelAllowed(frozen), true);
   assert.equal(orders.orderCancelGate(order, frozen).ready, true);
   assert.equal(orders.tradingCancelAllowed({ ...frozen, write_blockers: [{ code: "policy_blocked" }] }), false);
@@ -255,11 +252,11 @@ test("TestUnderlyingWinnerLoserTotalsUseDailyPnl replacement ignores unrealized 
   };
   assert.deepEqual(underlyings.heldUnderlyingDailyPnl(group, "EUR", "USD"), { value: 25, currency: "EUR", source: "daily P/L" });
   assert.deepEqual(underlyings.heldUnderlyingDailyPnl({ stock: group.stock, options: group.options }, "EUR", "USD"), { value: 25, currency: "EUR", source: "daily P/L" });
-  const totals = underlyings.underlyingHeldDailyPnlTotals([
-    { pnl: 25, pnlCurrency: "EUR" },
-    { pnl: -7, pnlCurrency: "EUR" },
-    { pnl: 4000, pnlCurrency: "EUR", virtual: true },
-  ], "EUR");
+	const totals = underlyings.underlyingHeldDailyPnlTotals([
+		{ pnl: 25, pnlCurrency: "EUR" },
+		{ pnl: -7, pnlCurrency: "EUR" },
+		{ pnl: null, pnlCurrency: "EUR" },
+	], "EUR");
   assert.deepEqual(totals, { winner: 25, winnerCurrency: "EUR", loser: -7, loserCurrency: "EUR" });
 });
 

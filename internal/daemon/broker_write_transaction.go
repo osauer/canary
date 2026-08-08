@@ -38,6 +38,13 @@ type brokerWriteTransactionBinding struct {
 	testOnly                   bool
 }
 
+func (s *Server) currentTradingStatus() rpc.TradingStatus {
+	s.mu.Lock()
+	ep := s.endpoint
+	s.mu.Unlock()
+	return s.tradingStatus(ep)
+}
+
 func (s *Server) currentBrokerWriteAuthorization() brokerWriteAuthorization {
 	if s == nil {
 		auth := brokerWriteAuthorization{}
@@ -83,6 +90,8 @@ func (s *Server) brokerWriteOriginBlockers(status rpc.TradingStatus, origin stri
 // daemon connector snapshot and captures its exact socket session before the
 // gate runs. A later connector/session/scope change invalidates the binding;
 // callers must never fall through to a freshly looked-up connector.
+//
+//lint:ignore U1000 Used by trading-tag broker writes.
 func (s *Server) authorizeBrokerWriteTransaction(origin string, cancel bool) (brokerWriteAuthorization, brokerWriteTransactionBinding, error) {
 	if s == nil {
 		auth := s.currentBrokerWriteAuthorization()
@@ -326,6 +335,8 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 // carries binding.session through allocator claim and the epoch-checked frame
 // write. No publication lock is held while pacing or transport can block; the
 // protected transport takes its short publication lease at the final write.
+//
+//lint:ignore U1000 Used by trading-tag broker writes.
 func (s *Server) withBoundBrokerWriteTransaction(binding brokerWriteTransactionBinding, operation func() error) error {
 	if operation == nil {
 		return brokerWriteTransactionDriftError()

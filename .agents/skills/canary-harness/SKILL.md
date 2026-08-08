@@ -12,7 +12,7 @@ proposal, opportunity, settings, reconciliation, and order-preview/status
 work. Use `canary ... --json` only when MCP is unavailable, a CLI-only diagnostic
 is required, or the project needs an exact reproducible CLI artifact.
 
-The MCP surface cannot place, modify, cancel, exercise, purge, restore, or
+The MCP surface cannot place, modify, cancel, exercise, liquidate, or
 transmit. An explicit current-turn broker-write request uses only the
 agent-origin gated CLI; trading readiness, route/account/client pins, preview
 tokens, broker WhatIf/eligibility, freeze state, journaling, and daemon

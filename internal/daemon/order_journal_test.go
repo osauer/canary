@@ -31,21 +31,6 @@ func newTestOrderJournalStore(t *testing.T, path string) *orderJournalStore {
 	return journal
 }
 
-func newTestPurgeLedgerStore(t *testing.T, path string, now func() time.Time) *purgeLedgerStore {
-	t.Helper()
-	dbPath := filepath.Join(filepath.Dir(path), "authority", filepath.Base(path)+".db")
-	store, err := corestore.Open(context.Background(), corestore.Options{Path: dbPath})
-	if err != nil {
-		t.Fatalf("open test purge authority: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	ledger := newPurgeLedgerStore(path, now)
-	if err := ledger.UseCoreStore(store); err != nil {
-		t.Fatalf("attach test purge authority: %v", err)
-	}
-	return ledger
-}
-
 func TestOrderJournalDefaultPathUsesXDGStateHome(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/tmp/ibkr-state")
 
@@ -453,8 +438,7 @@ func TestLegacyOrderAuthorityImportPreservesSafetyStateAcrossRestart(t *testing.
 	if err != nil {
 		t.Fatalf("open authority: %v", err)
 	}
-	purgePath := filepath.Join(filepath.Dir(legacyPath), "purge-ledger.json")
-	cutover, err := importLegacyTradingAuthority(ctx, authority, legacyPath, purgePath)
+	cutover, err := importLegacyTradingAuthority(ctx, authority, legacyPath)
 	if err != nil {
 		t.Fatalf("import legacy trading authority: %v", err)
 	}
@@ -462,10 +446,7 @@ func TestLegacyOrderAuthorityImportPreservesSafetyStateAcrossRestart(t *testing.
 	if parity.GlobalOrderIDFloor != 900 || parity.RetainedEventCount != 1 || parity.ConsumedTokenCount != 2 {
 		t.Fatalf("import parity = %+v", parity)
 	}
-	if cutover.Purge.ActiveRows != 0 || cutover.Purge.FillCursors != 0 {
-		t.Fatalf("empty purge parity = %+v", cutover.Purge)
-	}
-	if _, err := importLegacyTradingAuthority(ctx, authority, legacyPath, purgePath); err != nil {
+	if _, err := importLegacyTradingAuthority(ctx, authority, legacyPath); err != nil {
 		t.Fatalf("idempotent coherent reimport: %v", err)
 	}
 	if err := authority.Close(); err != nil {
@@ -534,17 +515,6 @@ func TestInitializeFreshTradingAuthorityNeverReadsAdjacentLegacyFiles(t *testing
 	}
 	if len(events) != 0 {
 		t.Fatalf("fresh authority imported adjacent order events: %+v", events)
-	}
-	doc, ok, err := authority.GetStateDocument(t.Context(), purgeLedgerStateScope, purgeLedgerStateKind)
-	if err != nil || !ok {
-		t.Fatalf("fresh purge document: found=%v error=%v", ok, err)
-	}
-	var ledger purgeLedgerFile
-	if err := json.Unmarshal(doc.JSON, &ledger); err != nil {
-		t.Fatal(err)
-	}
-	if len(ledger.Rows) != 0 || !ledger.UpdatedAt.Equal(time.Unix(0, 0).UTC()) {
-		t.Fatalf("fresh purge authority = %+v", ledger)
 	}
 	if err := initializeFreshTradingAuthority(t.Context(), authority); !errors.Is(err, corestore.ErrFreshAuthorityConflict) {
 		t.Fatalf("second initialization error = %v, want fresh-authority conflict", err)

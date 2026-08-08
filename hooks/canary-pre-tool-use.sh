@@ -211,33 +211,16 @@ allow_broker_write_or_block() {
   block "Broker-adjacent Canary CLI writes are allowed only when trading.status is paper/write-ready on a paper-looking route or live/write-ready with live_override=ready. Disabled, blocked, frozen, unknown, and route-mismatched states remain blocked. Current: $(broker_write_status_summary)"
 }
 
-purge_read_only_command() {
-  if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+purge[[:space:]]+(dry-run|status|monitor|--help|-h|help)([[:space:]]|$)' ||
-    has_re '(^|[[:space:]])--dry-run([[:space:]]|$)' ||
-    has_re '(^|[[:space:]])(--help|-h)([[:space:]]|$)'; then
-    return 0
-  fi
-  if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+purge[[:space:]]+restore([[:space:]]|$)' &&
-    ! has_re '(^|[[:space:]])--execute(=|[[:space:]]|$)'; then
-    return 0
-  fi
-  return 1
-}
-
 broker_write_command() {
   has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+(preview|submit|ignore)([[:space:]]|$)' ||
     {
       has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+reduce([[:space:]]|$)' &&
-        has_re '(^|[[:space:]])--submit(=|[[:space:]]|$)'
-    } ||
-    has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+opportunities[[:space:]]+(preview|exercise|ignore)([[:space:]]|$)' ||
-    has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+trading[[:space:]]+paper-smoke([[:space:]]|$)' ||
-    has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+order[[:space:]]+(place|submit|execute|modify|cancel|close)([[:space:]]|$)' ||
-    has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(submit|place|transmit|modify|cancel|close)([[:space:]]|$)' ||
-    {
-      has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+purge([[:space:]]|$)' &&
-        ! purge_read_only_command
-    }
+		has_re '(^|[[:space:]])--submit(=|[[:space:]]|$)'
+	} ||
+	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+opportunities[[:space:]]+(preview|exercise|ignore)([[:space:]]|$)' ||
+	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+trading[[:space:]]+paper-smoke([[:space:]]|$)' ||
+	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+order[[:space:]]+(place|submit|execute|modify|cancel|close)([[:space:]]|$)' ||
+	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(submit|place|transmit|modify|cancel|close)([[:space:]]|$)'
 }
 
 state_write_command() {

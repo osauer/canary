@@ -16,35 +16,31 @@ import (
 
 // Daemon method names are stable wire identifiers shared by every adapter.
 const (
-	MethodAccountSummary      = "account.summary"
-	MethodPositionsList       = "positions.list"
-	MethodQuoteSnapshot       = "quote.snapshot"
-	MethodQuoteSubscribe      = "quote.subscribe"
-	MethodChainFetch          = "chain.fetch"
-	MethodChainExpiries       = "chain.expiries"
-	MethodHistoryDaily        = "history.daily"
-	MethodTechnical           = "technical.snapshot"
-	MethodMarketCalendar      = "market.calendar"
-	MethodStatusHealth        = "status.health"
-	MethodTradingStatus       = "trading.status"
-	MethodTradingPaperSmoke   = "trading.paper_smoke"
-	MethodSettingsGet         = "settings.get"
-	MethodSettingsUpdate      = "settings.update"
-	MethodOrdersOpen          = "orders.open"
-	MethodOrdersHistory       = "orders.history"
-	MethodOrderStatus         = "order.status"
-	MethodOrderPreview        = "order.preview"
-	MethodBreadthSPX          = "breadth.spx"
-	MethodGammaZeroSPX        = "gamma.zero_spx"
-	MethodRegimeSnapshot      = "regime.snapshot"
-	MethodCancel              = "cancel"
-	MethodOrderPlace          = "order.place"
-	MethodOrderModify         = "order.modify"
-	MethodOrderCancel         = "order.cancel"
-	MethodPurgeStatus         = "purge.status"
-	MethodPurgeExecute        = "purge.execute"
-	MethodPurgeRestorePreview = "purge.restore.preview"
-	MethodPurgeRestoreExecute = "purge.restore.execute"
+	MethodAccountSummary    = "account.summary"
+	MethodPositionsList     = "positions.list"
+	MethodQuoteSnapshot     = "quote.snapshot"
+	MethodQuoteSubscribe    = "quote.subscribe"
+	MethodChainFetch        = "chain.fetch"
+	MethodChainExpiries     = "chain.expiries"
+	MethodHistoryDaily      = "history.daily"
+	MethodTechnical         = "technical.snapshot"
+	MethodMarketCalendar    = "market.calendar"
+	MethodStatusHealth      = "status.health"
+	MethodTradingStatus     = "trading.status"
+	MethodTradingPaperSmoke = "trading.paper_smoke"
+	MethodSettingsGet       = "settings.get"
+	MethodSettingsUpdate    = "settings.update"
+	MethodOrdersOpen        = "orders.open"
+	MethodOrdersHistory     = "orders.history"
+	MethodOrderStatus       = "order.status"
+	MethodOrderPreview      = "order.preview"
+	MethodBreadthSPX        = "breadth.spx"
+	MethodGammaZeroSPX      = "gamma.zero_spx"
+	MethodRegimeSnapshot    = "regime.snapshot"
+	MethodCancel            = "cancel"
+	MethodOrderPlace        = "order.place"
+	MethodOrderModify       = "order.modify"
+	MethodOrderCancel       = "order.cancel"
 )
 
 // Error codes classify terminal request failures carried by Error.Code.
@@ -3456,213 +3452,6 @@ type OrderPlaceResult struct {
 	SendState       string     `json:"send_state,omitempty"`
 	Message         string     `json:"message,omitempty"`
 	AsOf            time.Time  `json:"as_of"`
-}
-
-// PurgeExecuteParams selects an explicit purge workflow. It is a broker-write
-// request and remains subject to daemon preview, origin, freeze, and limit gates.
-type PurgeExecuteParams struct {
-	PurgeID       string            `json:"purge_id"`
-	All           bool              `json:"all,omitempty"`
-	Symbols       []string          `json:"symbols,omitempty"`
-	Legs          []PurgeExecuteLeg `json:"legs,omitempty"`
-	BypassPreview *bool             `json:"bypass_preview,omitempty"`
-	WaitMs        int               `json:"wait_ms,omitempty"`
-	Origin        string            `json:"origin,omitempty"`
-}
-
-// PurgeExecuteLeg identifies one exact position leg selected for purge.
-type PurgeExecuteLeg struct {
-	LegID        string         `json:"leg_id"`
-	Symbol       string         `json:"symbol"`
-	SecType      string         `json:"sec_type"`
-	Contract     ContractParams `json:"contract"`
-	OriginalSide string         `json:"original_side"`
-	PurgeAction  string         `json:"purge_action"`
-	Quantity     float64        `json:"quantity"`
-	Multiplier   int            `json:"multiplier,omitempty"`
-}
-
-// PurgeExecuteResult reports per-leg submission, skips, blockers, and monitor
-// guidance. Submitted legs are not necessarily filled.
-type PurgeExecuteResult struct {
-	Kind                 string                   `json:"kind"`
-	PurgeID              string                   `json:"purge_id"`
-	Status               string                   `json:"status"`
-	Mode                 string                   `json:"mode,omitempty"`
-	Account              string                   `json:"account,omitempty"`
-	Endpoint             string                   `json:"endpoint,omitempty"`
-	ClientID             int                      `json:"client_id,omitempty"`
-	BypassPreview        bool                     `json:"bypass_preview"`
-	SelectedLegs         int                      `json:"selected_legs"`
-	SubmittedLegs        int                      `json:"submitted_legs"`
-	SkippedLegs          int                      `json:"skipped_legs"`
-	ErrorLegs            int                      `json:"error_legs"`
-	Orders               []PurgeExecuteOrder      `json:"orders,omitempty"`
-	Skipped              []PurgeExecuteSkippedLeg `json:"skipped,omitempty"`
-	Warnings             []string                 `json:"warnings,omitempty"`
-	Blockers             []TradingBlocker         `json:"blockers,omitempty"`
-	Message              string                   `json:"message,omitempty"`
-	MonitorCommand       string                   `json:"monitor_command,omitempty"`
-	RestoreReviewCommand string                   `json:"restore_review_command,omitempty"`
-	AsOf                 time.Time                `json:"as_of"`
-}
-
-// PurgeExecuteOrder reports the sanitized order state for one submitted leg.
-type PurgeExecuteOrder struct {
-	LegID           string             `json:"leg_id"`
-	Symbol          string             `json:"symbol"`
-	SecType         string             `json:"sec_type"`
-	Contract        ContractParams     `json:"contract"`
-	Action          string             `json:"action"`
-	Quantity        int                `json:"quantity"`
-	LimitPrice      float64            `json:"limit_price"`
-	OrderRef        string             `json:"order_ref"`
-	ReservedOrderID int                `json:"reserved_order_id,omitempty"`
-	Status          string             `json:"status,omitempty"`
-	LifecycleStatus string             `json:"lifecycle_status,omitempty"`
-	SendState       string             `json:"send_state,omitempty"`
-	Message         string             `json:"message,omitempty"`
-	Quote           OrderQuoteSnapshot `json:"quote"`
-}
-
-// PurgeExecuteSkippedLeg records a selected leg that was not submitted and its
-// stable reason.
-type PurgeExecuteSkippedLeg struct {
-	LegID    string         `json:"leg_id"`
-	Symbol   string         `json:"symbol"`
-	SecType  string         `json:"sec_type"`
-	Contract ContractParams `json:"contract"`
-	Reason   string         `json:"reason"`
-}
-
-// PurgeStatusParams selects a workflow or account-scoped ledger window. Empty
-// values use daemon defaults and never broaden broker-write authority.
-type PurgeStatusParams struct {
-	PurgeID string `json:"purge_id,omitempty"`
-	Account string `json:"account,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-}
-
-// PurgeStatusResult is the daemon's durable purge-ledger and observed-order
-// view. It is not a broker statement.
-type PurgeStatusResult struct {
-	Kind            string            `json:"kind"`
-	PurgeID         string            `json:"purge_id,omitempty"`
-	Status          string            `json:"status"`
-	Account         string            `json:"account,omitempty"`
-	Rows            []PurgeLedgerRow  `json:"rows,omitempty"`
-	Totals          PurgeLedgerTotals `json:"totals"`
-	TotalOrders     int               `json:"total_orders"`
-	OpenOrders      int               `json:"open_orders"`
-	FilledOrders    int               `json:"filled_orders"`
-	CancelledOrders int               `json:"cancelled_orders"`
-	AttentionOrders int               `json:"attention_orders"`
-	Orders          []OrderView       `json:"orders,omitempty"`
-	Message         string            `json:"message,omitempty"`
-	AsOf            time.Time         `json:"as_of"`
-}
-
-// PurgeLedgerTotals summarizes durable purge and restore quantities and values.
-type PurgeLedgerTotals struct {
-	ActiveRows        int     `json:"active_rows"`
-	RestoredRows      int     `json:"restored_rows"`
-	PurgedQuantity    float64 `json:"purged_quantity"`
-	RestoredQuantity  float64 `json:"restored_quantity"`
-	RemainingQuantity float64 `json:"remaining_quantity"`
-	PurgeValue        float64 `json:"purge_value"`
-	RestoreValue      float64 `json:"restore_value"`
-	ShadowPnL         float64 `json:"shadow_pnl"`
-}
-
-// PurgeLedgerRow is one durable leg record reduced from purge, restore, and
-// observed fill events.
-type PurgeLedgerRow struct {
-	LegID               string         `json:"leg_id"`
-	PurgeID             string         `json:"purge_id,omitempty"`
-	Symbol              string         `json:"symbol"`
-	SecType             string         `json:"sec_type"`
-	Contract            ContractParams `json:"contract"`
-	Account             string         `json:"account,omitempty"`
-	Mode                string         `json:"mode,omitempty"`
-	Currency            string         `json:"currency,omitempty"`
-	OriginalSide        string         `json:"original_side"`
-	OriginalQuantity    float64        `json:"original_quantity"`
-	PurgeAction         string         `json:"purge_action"`
-	RestoreAction       string         `json:"restore_action"`
-	Multiplier          int            `json:"multiplier"`
-	PurgedQuantity      float64        `json:"purged_quantity"`
-	RestoredQuantity    float64        `json:"restored_quantity"`
-	RemainingQuantity   float64        `json:"remaining_quantity"`
-	PurgeAvgPrice       float64        `json:"purge_avg_price,omitempty"`
-	RestoreAvgPrice     float64        `json:"restore_avg_price,omitempty"`
-	PurgeValue          float64        `json:"purge_value,omitempty"`
-	RestoreValue        float64        `json:"restore_value,omitempty"`
-	ShadowPnL           float64        `json:"shadow_pnl,omitempty"`
-	Status              string         `json:"status"`
-	LastPurgeOrderRef   string         `json:"last_purge_order_ref,omitempty"`
-	LastRestoreOrderRef string         `json:"last_restore_order_ref,omitempty"`
-	CreatedAt           time.Time      `json:"created_at,omitzero"`
-	UpdatedAt           time.Time      `json:"updated_at,omitzero"`
-	Warnings            []string       `json:"warnings,omitempty"`
-}
-
-// PurgeRestoreParams selects a proportional restore request. It is a new
-// broker-write request and remains subject to current daemon gates.
-type PurgeRestoreParams struct {
-	PurgeID   string   `json:"purge_id,omitempty"`
-	All       bool     `json:"all,omitempty"`
-	Symbols   []string `json:"symbols,omitempty"`
-	Scale     float64  `json:"scale,omitempty"`
-	WaitMs    int      `json:"wait_ms,omitempty"`
-	TimeoutMs int      `json:"timeout_ms,omitempty"`
-	Origin    string   `json:"origin,omitempty"`
-}
-
-// PurgeRestoreResult reports modeled legs, submissions, skips, and durable
-// ledger state. Submitted legs are not necessarily filled.
-type PurgeRestoreResult struct {
-	Kind           string                   `json:"kind"`
-	PurgeID        string                   `json:"purge_id,omitempty"`
-	Status         string                   `json:"status"`
-	Mode           string                   `json:"mode,omitempty"`
-	Account        string                   `json:"account,omitempty"`
-	Endpoint       string                   `json:"endpoint,omitempty"`
-	ClientID       int                      `json:"client_id,omitempty"`
-	Scale          float64                  `json:"scale"`
-	SelectedLegs   int                      `json:"selected_legs"`
-	SubmittedLegs  int                      `json:"submitted_legs"`
-	SkippedLegs    int                      `json:"skipped_legs"`
-	ErrorLegs      int                      `json:"error_legs"`
-	EstimatedValue float64                  `json:"estimated_value,omitempty"`
-	ShadowPnL      float64                  `json:"shadow_pnl,omitempty"`
-	Legs           []PurgeRestoreLeg        `json:"legs,omitempty"`
-	Orders         []PurgeExecuteOrder      `json:"orders,omitempty"`
-	Skipped        []PurgeExecuteSkippedLeg `json:"skipped,omitempty"`
-	Warnings       []string                 `json:"warnings,omitempty"`
-	Blockers       []TradingBlocker         `json:"blockers,omitempty"`
-	Message        string                   `json:"message,omitempty"`
-	LedgerRows     []PurgeLedgerRow         `json:"ledger_rows,omitempty"`
-	AsOf           time.Time                `json:"as_of"`
-}
-
-// PurgeRestoreLeg reports the modeled preview and outcome for one restore leg.
-// WhatIf remains broker evidence rather than a fill guarantee.
-type PurgeRestoreLeg struct {
-	LegID           string              `json:"leg_id"`
-	Symbol          string              `json:"symbol"`
-	SecType         string              `json:"sec_type"`
-	Contract        ContractParams      `json:"contract"`
-	Action          string              `json:"action"`
-	Quantity        int                 `json:"quantity"`
-	RemainingBefore float64             `json:"remaining_before"`
-	LimitPrice      float64             `json:"limit_price,omitempty"`
-	EstimatedValue  float64             `json:"estimated_value,omitempty"`
-	ShadowPnL       float64             `json:"shadow_pnl,omitempty"`
-	Quote           OrderQuoteSnapshot  `json:"quote,omitzero"`
-	Position        OrderPositionImpact `json:"position,omitzero"`
-	WhatIf          OrderWhatIfResult   `json:"what_if,omitzero"`
-	Status          string              `json:"status"`
-	Warnings        []string            `json:"warnings,omitempty"`
 }
 
 // OrderModifyResult reports the durable local and broker-send state of a gated

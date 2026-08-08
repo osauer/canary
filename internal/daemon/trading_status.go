@@ -27,6 +27,8 @@ func (s *Server) tradingStatus(ep discover.Endpoint) rpc.TradingStatus {
 // tradingStatusForCancel omits the runtime control projection. Cancellation
 // must remain available while a human freeze/limit commit is in progress; the
 // cancel authorization path applies every non-control blocker separately.
+//
+//lint:ignore U1000 Used by trading-tag broker writes.
 func (s *Server) tradingStatusForCancel(ep discover.Endpoint) rpc.TradingStatus {
 	return s.tradingStatusWithWriteProjection(ep, false)
 }
@@ -38,6 +40,7 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		_ = s.orderReserveBrokerID
 		_ = s.orderPlaceBroker
 		_ = s.orderCancelBroker
+		_ = s.optionExerciseBroker
 		_ = s.orderWriteBindingForTest
 		_ = s.orderWriteBeforeBrokerSend
 		_ = &s.paperSmokeMu

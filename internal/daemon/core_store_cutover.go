@@ -53,8 +53,6 @@ type coreCutoverCounts struct {
 	RetainedOrderEvents      int `json:"retained_order_events"`
 	RetainedOrderChains      int `json:"retained_order_chains"`
 	ConsumedPreviewTokens    int `json:"consumed_preview_tokens"`
-	PurgeRows                int `json:"purge_rows"`
-	PurgeFillCursors         int `json:"purge_fill_cursors"`
 	MarketObservationFiles   int `json:"market_observation_files"`
 	MarketObservationRecords int `json:"market_observation_records"`
 	MarketObservations       int `json:"market_observations"`
@@ -270,7 +268,7 @@ func (s *Server) populateLegacyCutover(ctx context.Context, store *corestore.Sto
 }
 
 func (s *Server) populateLegacyTradingCutover(ctx context.Context, store *corestore.Store, manifest *coreCutoverManifest) error {
-	orderPath, purgePath, err := s.legacyTradingPaths()
+	orderPath, err := s.legacyOrderPath()
 	if err != nil {
 		return err
 	}
@@ -278,11 +276,7 @@ func (s *Server) populateLegacyTradingCutover(ctx context.Context, store *corest
 	if err != nil {
 		return err
 	}
-	purgeBefore, err := captureCutoverSource("purge_ledger", "trading_safety", coreCutoverActionSeal, purgePath, "", 0, 0, "")
-	if err != nil {
-		return err
-	}
-	tradingReport, err := importLegacyTradingAuthority(ctx, store, orderPath, purgePath)
+	tradingReport, err := importLegacyTradingAuthority(ctx, store, orderPath)
 	if err != nil {
 		return fmt.Errorf("import trading safety authority: %w", err)
 	}
@@ -297,16 +291,10 @@ func (s *Server) populateLegacyTradingCutover(ctx context.Context, store *corest
 	if err := verifyCapturedCutoverSourceUnchanged(orderBefore); err != nil {
 		return err
 	}
-	if err := verifyCapturedCutoverSourceUnchanged(purgeBefore); err != nil {
-		return err
-	}
 	mergeCutoverSource(manifest, orderBefore)
-	mergeCutoverSource(manifest, purgeBefore)
 	manifest.Counts.RetainedOrderEvents = tradingReport.Orders.RetainedEventCount
 	manifest.Counts.RetainedOrderChains = tradingReport.Orders.RetainedChainCount
 	manifest.Counts.ConsumedPreviewTokens = tradingReport.Orders.ConsumedTokenCount
-	manifest.Counts.PurgeRows = tradingReport.Purge.ActiveRows
-	manifest.Counts.PurgeFillCursors = tradingReport.Purge.FillCursors
 	return nil
 }
 
@@ -520,6 +508,7 @@ func (s *Server) addSkippedLegacySources(manifest *coreCutoverManifest) error {
 		{"brief_baselines", "discarded_presentation_baseline", briefStateFile},
 		{"trading_readiness", "reset_safety_proof", "trading-readiness.json"},
 		{"legacy_preview_key", "rotated_secret", "order-preview-key"},
+		{"legacy_purge_ledger", "retired_product_state", "purge-ledger.json"},
 		{"legacy_history_index", "discarded_derived_index", "history.db"},
 		{"legacy_history_wal", "discarded_derived_index", "history.db-wal"},
 		{"legacy_history_shm", "discarded_derived_index", "history.db-shm"},
@@ -935,16 +924,12 @@ func isLegacyBlockerPath(path string) bool {
 	return slices.Contains(legacyBlockerPaths(), path)
 }
 
-func (s *Server) legacyTradingPaths() (string, string, error) {
+func (s *Server) legacyOrderPath() (string, error) {
 	orderPath, err := defaultOrderJournalPath()
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	purgePath, err := defaultPurgeLedgerPath()
-	if err != nil {
-		return "", "", err
-	}
-	return orderPath, purgePath, nil
+	return orderPath, nil
 }
 
 func newCoreCutoverID() (string, error) {

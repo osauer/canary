@@ -16,20 +16,11 @@ import (
 
 const freshOrderAuthorityFingerprint = "fresh-empty-authority-v1"
 
-// InitializeFreshOrderAuthority atomically establishes the empty order-safety
-// epoch and its companion mutable state document. It is only for a newly
-// created authority: any existing order event, token tombstone, broker scope,
-// order-ID floor, order import marker, or target state document is a conflict.
+// InitializeFreshOrderAuthority atomically establishes an empty order-safety
+// epoch. It is only for a newly created authority: any existing order event,
+// token tombstone, broker scope, order-ID floor, or import marker is a conflict.
 // Unrelated daemon state may already exist in the same database.
-func (s *Store) InitializeFreshOrderAuthority(ctx context.Context, initialState StateDocumentCAS) (StateDocument, error) {
-	if err := validateStateCAS(initialState); err != nil {
-		return StateDocument{}, err
-	}
-	if initialState.ExpectedRevision != 0 {
-		return StateDocument{}, errorsf("fresh order authority state must start at revision zero")
-	}
-
-	var saved StateDocument
+func (s *Store) InitializeFreshOrderAuthority(ctx context.Context) error {
 	err := s.criticalMutation(ctx, func(tx *sql.Tx) error {
 		checks := []struct {
 			label string
@@ -41,7 +32,6 @@ func (s *Store) InitializeFreshOrderAuthority(ctx context.Context, initialState 
 			{label: "order-ID floors", query: `SELECT EXISTS(SELECT 1 FROM order_id_floors)`},
 			{label: "broker scopes", query: `SELECT EXISTS(SELECT 1 FROM broker_scopes)`},
 			{label: "order import marker", query: `SELECT EXISTS(SELECT 1 FROM legacy_imports WHERE scope_key='authority' AND source_kind='orders')`},
-			{label: "initial state document", query: `SELECT EXISTS(SELECT 1 FROM state_documents WHERE scope_key=? AND kind=?)`, args: []any{initialState.ScopeKey, initialState.Kind}},
 		}
 		for _, check := range checks {
 			var exists bool
@@ -63,17 +53,12 @@ func (s *Store) InitializeFreshOrderAuthority(ctx context.Context, initialState 
 VALUES('authority','orders',?,'complete','0',?,?,?)`, freshOrderAuthorityFingerprint, []byte(`{"mode":"fresh","version":1}`), stamp, stamp); err != nil {
 			return fmt.Errorf("initialize fresh order marker: %w", err)
 		}
-		var err error
-		saved, err = compareAndSwapStateTx(ctx, tx, initialState, now)
-		if err != nil {
-			return fmt.Errorf("initialize fresh companion state: %w", err)
-		}
 		if _, err := advanceHeadTx(ctx, tx, 0, now); err != nil {
 			return fmt.Errorf("advance fresh order authority head: %w", err)
 		}
 		return nil
 	})
-	return saved, err
+	return err
 }
 
 // StagePreTransmit atomically binds the broker scope, validates and consumes an

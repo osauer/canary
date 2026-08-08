@@ -186,18 +186,11 @@ Direct-upgrade support begins with:
   evidence carries a complete broker route;
 - v2.3.0 for SQLite installations.
 
-The known `purge-ledger-v1` format receives a strict adapter because its
-restore quantities and fill cursors map losslessly to v2 once the complete
-route is re-derived from exact order evidence.
-
-v1.7.1 is the last writer of that v1 ledger. v1.8 through v2.2.1 use the same
-v2 purge-ledger format exercised by the pinned v2.2.1 fixture, so their
-retained file authority is directly importable. Those historical binaries
-also treated an inherited v1 ledger as an unknown schema and removed it when
-they opened it. The current migration cannot recover rows an earlier upgrade
-already discarded. An installation still on v1.7.1 must therefore jump
-directly through the current installer; staging through an intermediate old
-binary could destroy the state the current adapter is designed to preserve.
+Legacy purge ledgers are no longer imported into live authority. The cutover
+records them as `retired_product_state`, verifies their digest, and seals the
+original bytes in the backup. Historical order events remain readable so the
+order audit is not rewritten. The migration cannot recover files an earlier
+upgrade already discarded.
 
 Legacy order rows whose `client_id=0` was omitted by historical JSON remain
 ambiguous. The importer must not infer zero from current configuration.

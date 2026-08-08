@@ -422,21 +422,9 @@
               <p class="governance-action-status" id="alertSettingsStatus" role="status"></p>
               <p class="governance-action-status" id="safeNotificationTestStatus" role="status"></p>
             </section>
-            <div class="pd-placard">Workflows</div>
-            <div class="pd-tile pd-bank">
-              <div class="pd-set-row">
-                <span class="pd-set-copy">
-                  <span class="pd-tile__legend">Purge / restore</span>
-                  <b class="pd-set-val" id="purgeRestoreSettingState">--</b>
-                  <small class="pd-set-note" id="purgeRestoreSettingMeta">Runtime preference</small>
-                </span>
-                <label class="toggle-switch pd-sw" title="Toggle the purge/restore workflow preference; broker submission remains unavailable">
-                  <input id="purgeRestoreToggle" type="checkbox">
-                  <span></span>
-                  <em class="pd-sw__word" aria-hidden="true"></em>
-                </label>
-              </div>
-              <div class="pd-set-row">
+			<div class="pd-placard">Workflows</div>
+			<div class="pd-tile pd-bank">
+			  <div class="pd-set-row">
                 <span class="pd-set-copy">
                   <span class="pd-tile__legend">Stock protection</span>
                   <b class="pd-set-val" id="stockProtectionSettingState">--</b>
@@ -713,20 +701,13 @@
               </div>
               <small class="underlying-pnl-basis" id="underlyingPnlBasis" hidden></small>
               <div class="market-flag-rail" id="underlyingFlagRail" hidden></div>
-              <div class="underlying-bulk-actions" aria-label="Underlying bulk actions">
-                <button class="underlying-action underlying-action--purge pd-key" id="purgeAllUnderlyingsButton" type="button">Purge all</button>
-                <button class="underlying-action underlying-action--restore pd-key" id="restoreAllUnderlyingsButton" type="button">Restore all</button>
-                <button class="underlying-action underlying-action--build pd-key" id="buildAllUnderlyingsButton" type="button">Rebuild all</button>
-                <span class="underlying-bulk-note" id="underlyingBulkNote" hidden></span>
-              </div>
-              <div class="underlying-action-result" id="underlyingActionResult" hidden></div>
-              <div class="underlying-book__list-panel" id="underlyingBookListPanel" hidden>
-                <div class="underlying-book__head">
-                  <div>
-                    <span>Held and purged</span>
-                    <b id="underlyingBookCount">No underlyings</b>
-                  </div>
-                  <small id="underlyingBookStatus">Held and virtual purge-book records</small>
+			  <div class="underlying-book__list-panel" id="underlyingBookListPanel" hidden>
+				<div class="underlying-book__head">
+				  <div>
+					<span>Held positions</span>
+					<b id="underlyingBookCount">No underlyings</b>
+				  </div>
+				  <small id="underlyingBookStatus">Current held underlyings</small>
                 </div>
                 <div class="underlying-book__list" id="underlyingBookList"></div>
               </div>

@@ -106,15 +106,8 @@ type HistoryRotationSettings struct {
 
 // PlatformFeatureSettings groups runtime feature preferences.
 type PlatformFeatureSettings struct {
-	PurgeRestore    PurgeRestoreSettings    `json:"purge_restore"`
 	StockProtection StockProtectionSettings `json:"stock_protection"`
 	Rulebook        RulebookSettings        `json:"rulebook"`
-}
-
-// PurgeRestoreSettings controls purge/restore actions while leaving status
-// readable.
-type PurgeRestoreSettings struct {
-	Enabled SettingsBool `json:"enabled"`
 }
 
 // StockProtectionSettings controls stock-protection proposal actions without
