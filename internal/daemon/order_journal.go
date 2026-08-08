@@ -197,6 +197,28 @@ func newOrderJournalStore(path string) *orderJournalStore {
 	return &orderJournalStore{Path: path}
 }
 
+// initializeLockedOrderSigner must run only after startup owns the daemon and
+// persistence locks. That is the first safe point for creating the private
+// preview-token signing key.
+func (s *Server) initializeLockedOrderSigner() error {
+	if s == nil {
+		return fmt.Errorf("initialize locked order authority: unavailable server")
+	}
+	if s.orderTokens != nil {
+		return nil
+	}
+	path, err := orderTokenKeyPathForDatabase(s.coreStorePath)
+	if err != nil {
+		return fmt.Errorf("resolve order preview token key: %w", err)
+	}
+	signer, err := newOrderTokenSigner(path, s.now)
+	if err != nil {
+		return fmt.Errorf("initialize order preview token signer: %w", err)
+	}
+	s.orderTokens = signer
+	return nil
+}
+
 // UseCoreStore switches every live order read and write to daemon.db. Path is
 // retained only for the explicit legacy importer; it is never a fallback.
 func (s *orderJournalStore) UseCoreStore(store *corestore.Store) error {
@@ -234,7 +256,7 @@ func (s *orderJournalStore) coreStore() (*corestore.Store, error) {
 // before RPC serving or broker connection. It also rotates token verification
 // into daemon.db's authority epoch/signer generation.
 func (s *Server) attachCoreOrderAuthority(ctx context.Context, store *corestore.Store) error {
-	if s == nil || store == nil || s.orderJournal == nil || s.orderTokens == nil || !s.tradingReadiness.attachedTo(store) {
+	if s == nil || store == nil || s.orderJournal == nil || s.orderTokens == nil {
 		return fmt.Errorf("order authority adapters are unavailable")
 	}
 	head, err := store.AuthorityHead(ctx)

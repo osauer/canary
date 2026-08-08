@@ -132,9 +132,6 @@ func (s *Server) createAndPublishCoreStore(ctx context.Context) (*corestore.Stor
 			return nil, build, fmt.Errorf("initialize fresh statement projection: %w", err)
 		}
 	}
-	if err := initializeEmptyTradingReadiness(ctx, store); err != nil {
-		return nil, build, err
-	}
 	if err := initializeCleanProposalOpportunityAuthority(ctx, store); err != nil {
 		return nil, build, err
 	}
@@ -298,22 +295,12 @@ func (s *Server) populateLegacyTradingCutover(ctx context.Context, store *corest
 	return nil
 }
 
-func initializeEmptyTradingReadiness(ctx context.Context, store *corestore.Store) error {
-	if _, ok, err := store.GetStateDocument(ctx, tradingReadinessStateScope, tradingReadinessStateKind); err != nil {
-		return err
-	} else if ok {
-		return nil
-	}
-	_, err := writeInitialState(ctx, store, tradingReadinessStateKind, tradingReadinessFile{Version: tradingReadinessFileVersion})
-	return err
-}
-
 func (s *Server) attachCoreStoreAdapters(ctx context.Context, store *corestore.Store) error {
 	s.coreStore = store
 	if err := s.bindAuthoritativeDaemonState(ctx, store); err != nil {
 		return fmt.Errorf("attach daemon state authority: %w", err)
 	}
-	if err := s.initializeLockedOrderSignerAndReadiness(ctx, store); err != nil {
+	if err := s.initializeLockedOrderSigner(); err != nil {
 		return err
 	}
 	if err := s.attachCoreOrderAuthority(ctx, store); err != nil {
@@ -506,7 +493,7 @@ func (s *Server) addSkippedLegacySources(manifest *coreCutoverManifest) error {
 		{"opportunity_current", "discarded_decision_state", "opportunities-current.json"},
 		{"opportunity_events", "discarded_decision_history", "opportunities.jsonl"},
 		{"brief_baselines", "discarded_presentation_baseline", briefStateFile},
-		{"trading_readiness", "reset_safety_proof", "trading-readiness.json"},
+		{"trading_readiness", "retired_product_state", "trading-readiness.json"},
 		{"legacy_preview_key", "rotated_secret", "order-preview-key"},
 		{"legacy_purge_ledger", "retired_product_state", "purge-ledger.json"},
 		{"legacy_history_index", "discarded_derived_index", "history.db"},

@@ -1143,7 +1143,7 @@ func abs(v float64) float64 {
 // TestDesignDocDisclosesRule1HedgeExemption pins the rule-1 hedge-exemption
 // wording in internal-docs/design/trading-rulebook.md to the semantics implemented
 // here, so the design doc cannot silently lag another rule-1 change (the
-// trading-paper-smoke drift-guard precedent). The blank reference keeps the
+// prior cross-surface drift-guard precedent). The blank reference keeps the
 // doc's predicate name honest: renaming rule12HedgeLeg breaks this file and
 // points at the doc pin that must move with it.
 func TestDesignDocDisclosesRule1HedgeExemption(t *testing.T) {

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -20,83 +19,19 @@ func runTrading(ctx context.Context, env *Env, args []string) int {
 	switch sub {
 	case "status":
 		return runTradingStatus(ctx, env, args)
-	case "paper-smoke":
-		return runTradingPaperSmoke(ctx, env, args)
 	default:
-		return fail(env, "trading: unknown subcommand %q (try `canary trading status` or `canary trading paper-smoke`)", sub)
+		return fail(env, "trading: unknown subcommand %q (try `canary trading status`)", sub)
 	}
 }
 
 func tradingSubcommandIndex(args []string) int {
 	for i, arg := range args {
 		switch arg {
-		case "status", "paper-smoke":
+		case "status":
 			return i
 		}
 	}
 	return -1
-}
-
-func runTradingPaperSmoke(ctx context.Context, env *Env, args []string) int {
-	fs := flagSet(env, "trading paper-smoke")
-	timeout := fs.Duration("timeout", 30*time.Second, "maximum wait for broker acknowledgement")
-	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
-	if err := fs.Parse(args); err != nil {
-		return parseExit(err)
-	}
-	if fs.NArg() > 0 {
-		return failUnexpectedArgs(env, fs)
-	}
-	var res rpc.TradingPaperSmokeResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradingPaperSmoke, rpc.TradingPaperSmokeParams{TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}, &res); err != nil {
-		return fail(env, "trading paper-smoke: %v", err)
-	}
-	if *jsonOut {
-		printJSON(env, res)
-	} else {
-		renderTradingPaperSmokeText(env, &res)
-	}
-	if res.Passed {
-		return 0
-	}
-	return 1
-}
-
-func renderTradingPaperSmokeText(env *Env, res *rpc.TradingPaperSmokeResult) {
-	out := env.Stdout
-	verdict := statusConcern{Text: "PASSED", Level: statusConcernNone}
-	if !res.Passed {
-		verdict = statusConcern{Text: "FAILED", Level: statusConcernWarn}
-	}
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "Canary Paper Smoke  %s\n", env.statusBadge(verdict))
-	fmt.Fprintln(out)
-	statusRow(env, out, "Gate", fmt.Sprintf("%s %s via %s (client %d)", nonEmpty(res.Mode, "unknown"), nonEmpty(res.Account, "unknown"), nonEmpty(res.Endpoint, "unknown"), res.ClientID))
-	order := fmt.Sprintf("BUY %d %s LMT %.2f DAY", res.Quantity, res.Symbol, res.LimitPrice)
-	if res.OrderRef != "" {
-		order += " (" + res.OrderRef + ")"
-	}
-	statusRow(env, out, "Order", order)
-	if res.ReservedOrderID != 0 {
-		statusRow(env, out, "Broker ID", fmt.Sprint(res.ReservedOrderID))
-	}
-	statusRow(env, out, "Ack", nonEmpty(res.AckLifecycleStatus, "none"))
-	statusRow(env, out, "Cancel", nonEmpty(res.CancelLifecycleStatus, "none"))
-	if res.EvidenceSaved && res.EvidenceAt != nil {
-		statusRow(env, out, "Evidence", fmt.Sprintf("%s at %s (max age %s)", res.Result, res.EvidenceAt.Format(time.RFC3339), res.EvidenceMaxAge))
-	}
-	for _, w := range res.Warnings {
-		fmt.Fprintf(out, "  %s\n", env.dim(w.Code+": "+w.Message))
-	}
-	if res.Message != "" {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, res.Message)
-	}
-	if res.Passed {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, env.dim("Evidence is bound to this binary version; rerun after every install."))
-	}
-	fmt.Fprintln(out)
 }
 
 func runTradingStatus(ctx context.Context, env *Env, args []string) int {
@@ -106,7 +41,7 @@ func runTradingStatus(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	if fs.NArg() > 0 {
-		return fail(env, "trading: unknown subcommand %q (try `canary trading status` or `canary trading paper-smoke`)", fs.Arg(0))
+		return fail(env, "trading: unknown subcommand %q (try `canary trading status`)", fs.Arg(0))
 	}
 	var res rpc.TradingStatus
 	if err := env.Conn.Call(ctx, rpc.MethodTradingStatus, nil, &res); err != nil {
@@ -139,9 +74,6 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 	}
 	if st.Mode == config.TradingModeLive {
 		statusRow(env, out, "Live override", nonEmpty(st.LiveOverride, rpc.TradingLiveOverrideBlocked))
-		if st.PaperSmoke != "" {
-			statusRow(env, out, "Paper smoke", formatPaperSmokeValue(*st))
-		}
 	}
 	if len(st.Blockers) > 0 {
 		fmt.Fprintln(out)
@@ -168,20 +100,6 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 
 func formatTradingCapabilities(st rpc.TradingStatus) string {
 	return fmt.Sprintf("preview=%v write=%v", st.CanPreview, st.CanWrite)
-}
-
-func formatPaperSmokeValue(st rpc.TradingStatus) string {
-	value := st.PaperSmoke
-	if st.PaperSmokeAt != nil && !st.PaperSmokeAt.IsZero() {
-		value += " at " + st.PaperSmokeAt.Format(time.RFC3339)
-	}
-	if st.PaperSmokeAccount != "" || st.PaperSmokeEndpoint != "" || st.PaperSmokeClientID != 0 {
-		value += fmt.Sprintf(" (%s via %s, client %d)", nonEmpty(st.PaperSmokeAccount, "unknown-account"), nonEmpty(st.PaperSmokeEndpoint, "unknown-endpoint"), st.PaperSmokeClientID)
-	}
-	if st.PaperSmokeMaxAge != "" {
-		value += "; max age " + st.PaperSmokeMaxAge
-	}
-	return value
 }
 
 func tradingStatusVerdict(st rpc.TradingStatus) statusConcern {

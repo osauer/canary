@@ -24,10 +24,6 @@ func (s *Server) handleOrderCancel(_ context.Context, _ *rpc.Request) (any, erro
 	return nil, ErrTradingDisabled
 }
 
-func (s *Server) handleTradingPaperSmoke(_ context.Context, _ *rpc.Request) (any, error) {
-	return nil, ErrTradingDisabled
-}
-
 //lint:ignore U1000 Keeps the non-trading build API aligned with trading builds.
 func (s *Server) reserveBoundBrokerOrderID(ctx context.Context, binding brokerWriteTransactionBinding) (int, error) {
 	if err := ctx.Err(); err != nil {

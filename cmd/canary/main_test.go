@@ -21,7 +21,6 @@ func TestUnaryInvocationBudgetsOutliveDaemonMethods(t *testing.T) {
 		{name: "proposal refresh", cmd: "proposals", args: []string{"refresh"}, method: rpc.MethodTradeProposalsRefresh, want: 60 * time.Second},
 		{name: "opportunity refresh", cmd: "opportunities", args: []string{"refresh"}, method: rpc.MethodOpportunitiesRefresh, want: 60 * time.Second},
 		{name: "brief composition", cmd: "brief", method: rpc.MethodBriefSnapshot, want: 90 * time.Second},
-		{name: "paper smoke", cmd: "trading", args: []string{"paper-smoke"}, method: rpc.MethodTradingPaperSmoke, want: 120 * time.Second},
 		{name: "portfolio reduce", cmd: "proposals", args: []string{"reduce", "--portfolio"}, method: rpc.MethodTradeProposalsReducePortfolioPreview, want: 150 * time.Second},
 	}
 	for _, tc := range cases {
@@ -52,7 +51,7 @@ func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 		{name: "brief"}, {name: "rules"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
 		{name: "proposals", args: []string{"reduce", "--portfolio"}},
 		{name: "opportunities"},
-		{name: "trading"}, {name: "trading", args: []string{"paper-smoke"}}, {name: "settings"},
+		{name: "trading"}, {name: "settings"},
 		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"cancel"}},
 	} {
 		methods, headroom, floor := cliInvocationTiming(cmd.name, cmd.args)

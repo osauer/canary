@@ -91,16 +91,6 @@ type Server struct {
 	reduceBasketMu     sync.Mutex
 	reduceBasketDedupe map[string]reduceBasketDedupeEntry
 
-	// paperSmokeMu admits one paper-smoke round-trip at a time; a second
-	// concurrent run could overwrite fresh evidence with its own outcome
-	// while two smoke orders ride. brokerWriteMu cannot serve here — the
-	// smoke only holds it for the place call, not across its ack/cancel
-	// waits.
-	paperSmokeMu sync.Mutex
-	// paperSmokeCancelBudgetOverride shortens the detached cancel budget.
-	// Test hook only; zero means the production paperSmokeCancelBudget.
-	paperSmokeCancelBudgetOverride time.Duration
-
 	// minTickByConID caches broker-reported minimum price increments per
 	// contract (see resolveContractMinTick).
 	minTickMu      sync.Mutex
@@ -388,11 +378,6 @@ type Server struct {
 	authorityCloseOnce    sync.Once
 	authorityCloseErr     error
 
-	// tradingReadiness persists daemon-owned evidence for local write
-	// gates, starting with the recent paper-smoke proof required before
-	// live mode. It deliberately lives outside config so a TOML edit cannot
-	// fake runtime readiness.
-	tradingReadiness *tradingReadinessStore
 	// orderJournal is the durable audit log for order intents and broker
 	// lifecycle events. It is installed before order writes exist so status
 	// and later handlers share one state primitive.
@@ -2793,8 +2778,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleStatusHealth(), nil })
 	case rpc.MethodTradingStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleTradingStatus(), nil })
-	case rpc.MethodTradingPaperSmoke:
-		s.unary(req, enc, func() (any, error) { return s.handleTradingPaperSmoke(ctx, req) })
 	case rpc.MethodAutoTradeStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleAutoTradeStatus(), nil })
 	case rpc.MethodRulesSnapshot:

@@ -44,16 +44,6 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["ibkr", "canary"], "trading", "paper-smoke"],
-    decision = "prompt",
-    justification = "Direct paper-smoke reaches broker place/ack/cancel and is not the release exception; the sole release exception remains reachable only through the canonical make release target.",
-    match = [
-        "ibkr trading paper-smoke",
-        "canary trading paper-smoke",
-    ],
-)
-
-prefix_rule(
     pattern = ["canary", "policy", "show"],
     decision = "allow",
     justification = "Risk-constitution read view; every policy write verb (capital-event, override, reset-drawdown, artefact) is a separate human-only subcommand outside this rule.",
@@ -187,15 +177,6 @@ prefix_rule(
     justification = "The canonical release target tags, pushes, and publishes; require an exact version and current-turn release authority.",
     match = [
         "make release RELEASE_VERSION=v2.3.1",
-    ],
-)
-
-prefix_rule(
-    pattern = ["make", "release-paper-preflight"],
-    decision = "prompt",
-    justification = "The release paper preflight reaches the configured paper gateway and broker WhatIf surface but never submits an order.",
-    match = [
-        "make release-paper-preflight VERSION=v2.3.1",
     ],
 )
 

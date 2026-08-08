@@ -80,8 +80,8 @@ result, import class, and row or payload count.
 - Stress decision history.
 - Proposal and proposal-outcome history and current proposal snapshot.
 - Opportunity history and current opportunity snapshot.
-- Trading-readiness proof; broker writes remain blocked until a new paper-smoke
-  artifact is issued.
+- Retired trading-readiness proof, sealed only as legacy state and not imported
+  into v3.
 - Derived verdicts from rotated decision archives and their mirrored
   `history.db` rows. The original raw observation payloads are preserved as
   described above.
@@ -115,8 +115,8 @@ silently ignored and are not queried by the new daemon.
   pre-transmit order events commit in one transaction before broker transmit.
   Place, modify, and cancel all use this rule.
 - Cutover creates a new authority epoch, signer generation, token version, and
-  private signer path. Every unspent legacy preview token becomes invalid and
-  trading-readiness proof is reset until a new paper-smoke artifact is issued.
+  private signer path. Every unspent legacy preview token becomes invalid; the
+  retired trading-readiness artifact is sealed but not imported.
 - Order-ID floors never decrease. Cutover retains the legacy global maximum;
   adding scoped floors may make the rule more conservative, never less.
 - Every order event, tombstone, floor, and write-eligible lookup is scoped by

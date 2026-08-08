@@ -3,9 +3,7 @@ package daemon
 import (
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/discover"
@@ -230,16 +228,6 @@ func TestTradingStatusLiveReadyWithPinsAndConnectedGateway(t *testing.T) {
 	if st.LiveOverride != rpc.TradingLiveOverrideReady {
 		t.Fatalf("LiveOverride = %q, want ready", st.LiveOverride)
 	}
-	// Re-gated 2026-06-10: paper-smoke evidence is informational, never a
-	// live blocker - the smoke is enforced in the release pipeline instead.
-	for _, b := range st.Blockers {
-		if strings.HasPrefix(b.Code, "paper_smoke") {
-			t.Fatalf("paper-smoke must not block live readiness, got %+v", st.Blockers)
-		}
-	}
-	if st.PaperSmoke != tradingPaperSmokeStatusMissing {
-		t.Fatalf("paper-smoke status should still be reported informationally, got %q", st.PaperSmoke)
-	}
 }
 
 func TestTradingStatusBlocksWhenGatewayUnavailable(t *testing.T) {
@@ -277,66 +265,6 @@ func TestTradingStatusBlocksLiveModeOnPaperLookingEndpoint(t *testing.T) {
 
 	if !hasTradingBlocker(st, "live_endpoint_unconfirmed") {
 		t.Fatalf("missing live endpoint blocker in %+v", st.Blockers)
-	}
-}
-
-func TestTradingStatusLiveReadyWithMatchingPaperSmoke(t *testing.T) {
-	t.Parallel()
-	port := 4001
-	clientID := 31
-	now := time.Date(2026, 5, 28, 7, 0, 0, 0, time.UTC)
-	srv := &Server{
-		cfg: &config.Resolved{
-			Gateway: config.Gateway{Host: "127.0.0.1", Port: &port, ClientID: &clientID, Account: "U1234567"},
-			Trading: config.Trading{Mode: config.TradingModeLive}.WithDefaults(),
-		},
-		version:                "test-version",
-		now:                    func() time.Time { return now },
-		gatewayReadyForTrading: func() bool { return true },
-	}
-	attachTradingStatusTestAuthority(t, srv)
-	store := newTradingReadinessStore(filepath.Join(t.TempDir(), "trading-readiness.json"), newTestPaperSmokeSigner(t))
-	if err := store.UseCoreStore(t.Context(), srv.coreStore); err != nil {
-		t.Fatalf("attach readiness authority: %v", err)
-	}
-	if err := store.SavePaperSmoke(tradingPaperSmokeEvidence{
-		Account:       "DU1234567",
-		Endpoint:      "127.0.0.1:4002",
-		EndpointClass: tradingPaperSmokeEndpointClassPaper,
-		ClientID:      31,
-		Version:       "test-version",
-		Result:        tradingPaperSmokeResultPassed,
-		At:            now.Add(-time.Hour),
-	}); err != nil {
-		t.Fatalf("SavePaperSmoke: %v", err)
-	}
-	srv.tradingReadiness = store
-	st := srv.tradingStatus(discover.Endpoint{Host: "127.0.0.1", Port: 4001, ClientID: 31, Account: "U1234567", PortOrigin: discover.OriginPinned})
-
-	if st.Blocked {
-		t.Fatalf("live status should be ready, got blockers %+v", st.Blockers)
-	}
-	if st.PaperSmoke != tradingPaperSmokeStatusValid {
-		t.Fatalf("PaperSmoke = %q, want valid", st.PaperSmoke)
-	}
-	if st.PaperSmokeAt == nil || !st.PaperSmokeAt.Equal(now.Add(-time.Hour)) {
-		t.Fatalf("PaperSmokeAt = %s", st.PaperSmokeAt)
-	}
-	if st.LiveOverride != rpc.TradingLiveOverrideReady {
-		t.Fatalf("LiveOverride = %q, want ready", st.LiveOverride)
-	}
-	if !st.CanPreview {
-		t.Fatalf("live-ready gate should allow preview: %+v", st)
-	}
-	if st.CanWrite != orderWritesAvailable {
-		t.Fatalf("write capabilities mismatch build mode: %+v", st)
-	}
-	if orderWritesAvailable {
-		if len(st.WriteBlockers) > 0 {
-			t.Fatalf("write-ready status should not expose write blockers: %+v", st.WriteBlockers)
-		}
-	} else if !hasTradingWriteBlocker(st, "order_writes_unavailable") {
-		t.Fatalf("missing write blocker for non-trading build: %+v", st.WriteBlockers)
 	}
 }
 

@@ -33,7 +33,7 @@ broker writes are not exposed as a local setting.
 
 Cutover imports the validated settings document exactly, including
 `trading.freeze` and any limit overrides. Trading readiness is a separate
-safety proof and resets until a new paper-smoke artifact is issued.
+safety authority and remains unavailable until startup completes.
 
 ## Contract
 

@@ -127,8 +127,6 @@ type Trading struct {
 	AllowStockShort bool `toml:"allow_stock_short"`
 	// AllowOptionSellToOpen permits option sell-to-open previews when true. Default false.
 	AllowOptionSellToOpen bool `toml:"allow_option_sell_to_open"`
-	// PaperSmokeMaxAge is the freshness window for the paper-smoke evidence reported in trading status. The smoke is informational at runtime and enforced by the release pipeline; it does not gate live enablement. Defaults to 168h.
-	PaperSmokeMaxAge duration `toml:"paper_smoke_max_age"`
 }
 
 // Rulebook configures operator-owned evidence inputs for the advisory trading
@@ -348,9 +346,6 @@ func (t Trading) WithDefaults() Trading {
 	if t.MaxOptionContracts == 0 {
 		t.MaxOptionContracts = 5
 	}
-	if t.PaperSmokeMaxAge == 0 {
-		t.PaperSmokeMaxAge = duration(168 * time.Hour)
-	}
 	return t
 }
 
@@ -358,14 +353,6 @@ func (t Trading) WithDefaults() Trading {
 // beyond read-only status/preview diagnostics.
 func (t Trading) OrderEntryEnabled() bool {
 	return t.Mode == TradingModePaper || t.Mode == TradingModeLive
-}
-
-// PaperSmokeMaxAgeDuration returns the resolved paper-smoke freshness window.
-func (t Trading) PaperSmokeMaxAgeDuration() time.Duration {
-	if t.PaperSmokeMaxAge == 0 {
-		return 168 * time.Hour
-	}
-	return t.PaperSmokeMaxAge.Std()
 }
 
 // SPX holds the SPX-related daemon knobs. Currently just the members

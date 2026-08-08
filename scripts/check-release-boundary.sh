@@ -1361,8 +1361,8 @@ if [ "$run_target_seen" -eq 1 ]; then
 	# depend on no broker session and no external service. This asserted the
 	# opposite until then — that release-smoke ran exactly once with pinned
 	# strictness — and is inverted rather than deleted so the new property is
-	# held as firmly as the old one was. release-smoke, release-paper-preflight
-	# and the paper round-trip all remain invocable by hand; none may run
+	# held as firmly as the old one was. The paper preflight and round-trip
+	# are retired; release-smoke remains invocable by hand but may not run
 	# inside the pipeline.
 	if [ "$run_release_smoke_count" -ne 0 ]; then
 		printf 'check-release-boundary: _release-run must not invoke release-smoke; the release is hermetic and takes no broker dependency\n' >&2

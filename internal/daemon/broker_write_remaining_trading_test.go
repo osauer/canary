@@ -40,62 +40,6 @@ func TestOptionExercisePreviewMintsExactOneShotAuthority(t *testing.T) {
 	}
 }
 
-func TestPaperSmokePreAckCleanupConnectorSwapAfterStageMakesZeroCancelCalls(t *testing.T) {
-	t.Parallel()
-	srv, _ := newPaperSmokeTestServer(t)
-	first := &ibkrlib.Connector{}
-	second := &ibkrlib.Connector{}
-	const firstEpoch uint64 = 61
-	srv.mu.Lock()
-	srv.connector = first
-	srv.connectorEpoch = firstEpoch
-	srv.mu.Unlock()
-	srv.orderWriteBindingForTest = func(status rpc.TradingStatus) (*ibkrlib.Connector, uint64, ibkrlib.ConnectorSessionBinding, brokerStateScope) {
-		return first, firstEpoch, ibkrlib.ConnectorSessionBinding{}, brokerStateScope{Account: status.Account, Mode: status.Mode}
-	}
-	preSendCalls := 0
-	srv.orderWriteBeforeBrokerSend = func() {
-		preSendCalls++
-		if preSendCalls != 2 {
-			return
-		}
-		srv.mu.Lock()
-		defer srv.mu.Unlock()
-		if srv.connector != first || srv.connectorEpoch != firstEpoch {
-			t.Fatalf("pre-cancel connector = %p epoch=%d, want captured connector %p epoch=%d", srv.connector, srv.connectorEpoch, first, firstEpoch)
-		}
-		srv.connector = second
-		srv.connectorEpoch++
-	}
-	placeCalls := 0
-	srv.orderPlaceBroker = func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error {
-		placeCalls++
-		return nil // no acknowledgement, forcing the reserved-ID cleanup path
-	}
-	cancelCalls := 0
-	srv.orderCancelBroker = func(context.Context, int) error {
-		cancelCalls++
-		return nil
-	}
-
-	res, err := srv.runPaperSmoke(context.Background(), rpc.TradingPaperSmokeParams{Origin: rpc.OrderOriginHumanTTY, TimeoutMs: 1})
-	if err != nil {
-		t.Fatalf("runPaperSmoke: %v", err)
-	}
-	if res.Passed || res.Result != tradingPaperSmokeResultFailed {
-		t.Fatalf("smoke result = %+v, want failed evidence", res)
-	}
-	if preSendCalls != 2 || placeCalls != 1 || cancelCalls != 0 {
-		t.Fatalf("pre_send=%d place=%d cancel=%d, want 2/1/0", preSendCalls, placeCalls, cancelCalls)
-	}
-	if !strings.Contains(res.Message, "connection authority changed") {
-		t.Fatalf("smoke message = %q, want cleanup transaction-binding refusal", res.Message)
-	}
-	if !journalContainsEventType(t, srv, orderJournalEventCancelRequested) {
-		t.Fatal("paper-smoke cleanup swap did not reach the durable cancel-requested stage")
-	}
-}
-
 func TestOptionExerciseAuthorityFailureAfterStageMakesZeroBrokerCalls(t *testing.T) {
 	t.Parallel()
 	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper})

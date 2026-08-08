@@ -43,8 +43,6 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		_ = s.optionExerciseBroker
 		_ = s.orderWriteBindingForTest
 		_ = s.orderWriteBeforeBrokerSend
-		_ = &s.paperSmokeMu
-		_ = s.paperSmokeCancelBudgetOverride
 	}
 	var cfg config.Resolved
 	if s != nil && s.cfg != nil {
@@ -144,23 +142,6 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		if cfg.Gateway.Port != nil && cfg.Gateway.Account != "" && looksPaper(port, account) {
 			add("live_endpoint_unconfirmed", "live trading requires a live-looking endpoint and account", "Use port 4001/7496 and pin the live account in [gateway].account.")
 		}
-		check := s.checkPaperSmoke(account, status.Endpoint, clientID, tr.PaperSmokeMaxAgeDuration())
-		status.PaperSmoke = check.Status
-		status.PaperSmokeMaxAge = tr.PaperSmokeMaxAgeDuration().String()
-		if check.Evidence != nil {
-			at := check.Evidence.At
-			status.PaperSmokeAt = &at
-			status.PaperSmokeAccount = check.Evidence.Account
-			status.PaperSmokeEndpoint = check.Evidence.Endpoint
-			status.PaperSmokeClientID = check.Evidence.ClientID
-			status.PaperSmokeVersion = check.Evidence.Version
-		}
-		// Paper-smoke evidence is informational only (surfaced in the
-		// status fields above), not a live blocker. Since 2026-06-10 the
-		// smoke is enforced in the release pipeline — `make release` runs
-		// it at version bump and aborts on failure — so runtime live
-		// enablement rests on the TWS API toggle, the trading-capable
-		// binary, and the config pins checked above.
 	}
 
 	status.Blocked = len(status.Blockers) > 0
@@ -408,21 +389,6 @@ func accountModeForStatus(port int, account string) string {
 	default:
 		return rpc.AccountModeUnknown
 	}
-}
-
-func (s *Server) checkPaperSmoke(account, endpoint string, clientID int, maxAge time.Duration) tradingPaperSmokeCheck {
-	if s == nil {
-		return tradingPaperSmokeCheck{
-			Status:  tradingPaperSmokeStatusMissing,
-			Message: "live trading requires recent paper-smoke evidence in daemon-owned state",
-			Action:  "Run `canary trading paper-smoke` against the pinned paper account first.",
-		}
-	}
-	now := time.Now()
-	if s.now != nil {
-		now = s.now()
-	}
-	return s.tradingReadiness.CheckPaperSmoke(account, endpoint, clientID, s.version, maxAge, now)
 }
 
 func (s *Server) orderJournalSummary() (orderJournalSummary, error) {

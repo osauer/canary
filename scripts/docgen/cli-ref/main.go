@@ -35,7 +35,7 @@ var commandNotes = map[string]string{
 	"proposals": "Protection proposals are advisory. The daemon can propose a close or a reduce, and only `submit` and `reduce` reach the broker. " +
 		"Each needs an explicit human instruction for that exact order.",
 	"opportunities": "Opportunity detection is advisory. Only `exercise` reaches the broker, and it needs an explicit human instruction for that exact action.",
-	"trading":       "`status` reads the local gate. `paper-smoke` is a release check that places one far-off-market paper order and cancels it, so it needs a paper account and an explicit human instruction.",
+	"trading":       "`status` reads the local trading gate and its blockers.",
 	"stop": "Stopping is local process management: it signals the daemon and the app on this machine and reaches no broker. Orders already working stay at the broker, but nothing local watches them until the daemon runs again — no fills or cancels in the journal, no protection proposals, no phone alerts. " +
 		"So `stop` asks before it stops a daemon that still has work in flight, the same work its own idle shutdown defers on, and `--yes` is how a script answers. " +
 		"`--force` only escalates a stuck process from SIGTERM to SIGKILL after `--timeout`; it never widens what is stopped. " +

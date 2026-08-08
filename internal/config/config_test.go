@@ -47,9 +47,6 @@ func TestLoad_MissingFileGivesFullAuto(t *testing.T) {
 	if res.Trading.MaxOptionContracts != 5 {
 		t.Errorf("trading max_option_contracts = %d, want 5", res.Trading.MaxOptionContracts)
 	}
-	if res.Trading.PaperSmokeMaxAgeDuration() != 168*time.Hour {
-		t.Errorf("trading paper_smoke_max_age = %v, want 168h", res.Trading.PaperSmokeMaxAgeDuration())
-	}
 	if !res.AutoTrade.ProposalsEnabledResolved() {
 		t.Error("manual proposals should default enabled")
 	}
@@ -100,7 +97,6 @@ max_notional = 25000
 max_option_contracts = 3
 allow_stock_short = true
 allow_option_sell_to_open = true
-paper_smoke_max_age = "24h"
 
 [rulebook]
 terminal_evidence_file = "/tmp/earnings-terminal-evidence.json"
@@ -159,9 +155,6 @@ reload_interval = "45s"
 	}
 	if !res.Trading.AllowOptionSellToOpen {
 		t.Error("Trading.AllowOptionSellToOpen should parse true")
-	}
-	if res.Trading.PaperSmokeMaxAgeDuration() != 24*time.Hour {
-		t.Errorf("Trading.PaperSmokeMaxAge = %v, want 24h", res.Trading.PaperSmokeMaxAgeDuration())
 	}
 	if res.Rulebook.TerminalEvidenceFile != "/tmp/earnings-terminal-evidence.json" {
 		t.Errorf("Rulebook.TerminalEvidenceFile = %q", res.Rulebook.TerminalEvidenceFile)

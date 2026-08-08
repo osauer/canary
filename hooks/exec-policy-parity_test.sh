@@ -66,15 +66,11 @@ run_cli_case retired-settings-freeze ibkr forbidden settings set trading.freeze=
 run_cli_case settings-limit canary forbidden settings set trading.max_order_notional=1000
 
 # Unknown/malformed and composed shell forms get no executable-specific gap.
-run_cli_case direct-paper-smoke canary prompt trading paper-smoke
-
-# The only release exception is the canonical make target. Direct paper-smoke
-# remains prompted above; both release entry points retain their existing prompt.
+# The canonical release target retains its current-turn prompt boundary.
 commit_check_decision="$(decision make commit-check)"
 release_decision="$(decision make release RELEASE_VERSION=v9.9.9)"
-preflight_decision="$(decision make release-paper-preflight VERSION=v9.9.9)"
-if [[ "$commit_check_decision" != "allow" || "$release_decision" != "prompt" || "$preflight_decision" != "prompt" ]]; then
-  echo "FAIL release-boundary: commit-check=$commit_check_decision release=$release_decision preflight=$preflight_decision want=allow/prompt/prompt" >&2
+if [[ "$commit_check_decision" != "allow" || "$release_decision" != "prompt" ]]; then
+	echo "FAIL release-boundary: commit-check=$commit_check_decision release=$release_decision want=allow/prompt" >&2
   fails=$((fails + 1))
 else
   echo "ok   verification-release-boundary (allow/prompt)"

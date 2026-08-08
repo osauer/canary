@@ -29,7 +29,6 @@ cd "$(dirname "$0")/.."
 ./scripts/check-release-boundary_test.sh
 ./scripts/lib-daemon-control_test.sh
 ./scripts/release-smoke_test.sh
-./scripts/release-paper-smoke_test.sh
 
 grep -Fq 'gh auth status --hostname github.com' scripts/release-auth-preflight.sh || {
 	echo "check-release-packaging: release auth preflight does not pin github.com" >&2

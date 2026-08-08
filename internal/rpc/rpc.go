@@ -16,31 +16,30 @@ import (
 
 // Daemon method names are stable wire identifiers shared by every adapter.
 const (
-	MethodAccountSummary    = "account.summary"
-	MethodPositionsList     = "positions.list"
-	MethodQuoteSnapshot     = "quote.snapshot"
-	MethodQuoteSubscribe    = "quote.subscribe"
-	MethodChainFetch        = "chain.fetch"
-	MethodChainExpiries     = "chain.expiries"
-	MethodHistoryDaily      = "history.daily"
-	MethodTechnical         = "technical.snapshot"
-	MethodMarketCalendar    = "market.calendar"
-	MethodStatusHealth      = "status.health"
-	MethodTradingStatus     = "trading.status"
-	MethodTradingPaperSmoke = "trading.paper_smoke"
-	MethodSettingsGet       = "settings.get"
-	MethodSettingsUpdate    = "settings.update"
-	MethodOrdersOpen        = "orders.open"
-	MethodOrdersHistory     = "orders.history"
-	MethodOrderStatus       = "order.status"
-	MethodOrderPreview      = "order.preview"
-	MethodBreadthSPX        = "breadth.spx"
-	MethodGammaZeroSPX      = "gamma.zero_spx"
-	MethodRegimeSnapshot    = "regime.snapshot"
-	MethodCancel            = "cancel"
-	MethodOrderPlace        = "order.place"
-	MethodOrderModify       = "order.modify"
-	MethodOrderCancel       = "order.cancel"
+	MethodAccountSummary = "account.summary"
+	MethodPositionsList  = "positions.list"
+	MethodQuoteSnapshot  = "quote.snapshot"
+	MethodQuoteSubscribe = "quote.subscribe"
+	MethodChainFetch     = "chain.fetch"
+	MethodChainExpiries  = "chain.expiries"
+	MethodHistoryDaily   = "history.daily"
+	MethodTechnical      = "technical.snapshot"
+	MethodMarketCalendar = "market.calendar"
+	MethodStatusHealth   = "status.health"
+	MethodTradingStatus  = "trading.status"
+	MethodSettingsGet    = "settings.get"
+	MethodSettingsUpdate = "settings.update"
+	MethodOrdersOpen     = "orders.open"
+	MethodOrdersHistory  = "orders.history"
+	MethodOrderStatus    = "order.status"
+	MethodOrderPreview   = "order.preview"
+	MethodBreadthSPX     = "breadth.spx"
+	MethodGammaZeroSPX   = "gamma.zero_spx"
+	MethodRegimeSnapshot = "regime.snapshot"
+	MethodCancel         = "cancel"
+	MethodOrderPlace     = "order.place"
+	MethodOrderModify    = "order.modify"
+	MethodOrderCancel    = "order.cancel"
 )
 
 // Error codes classify terminal request failures carried by Error.Code.
@@ -3054,74 +3053,24 @@ type TradingBlocker struct {
 // separate from broker permission: TWS / IB Gateway can still reject writes
 // after all local gates pass.
 type TradingStatus struct {
-	Mode               string           `json:"mode"`
-	Endpoint           string           `json:"endpoint,omitempty"`
-	GatewayHost        string           `json:"gateway_host,omitempty"`
-	GatewayPort        int              `json:"gateway_port,omitempty"`
-	PortOrigin         string           `json:"port_origin,omitempty"`
-	Account            string           `json:"account,omitempty"`
-	AccountOrigin      string           `json:"account_origin,omitempty"`
-	ClientID           int              `json:"client_id,omitempty"`
-	ClientIDOrigin     string           `json:"client_id_origin,omitempty"`
-	MCPTrading         string           `json:"mcp_trading"`
-	CanPreview         bool             `json:"can_preview"`
-	CanWrite           bool             `json:"can_write"`
-	WriteBlockers      []TradingBlocker `json:"write_blockers,omitempty"`
-	OpenOrders         int              `json:"open_orders,omitempty"`
-	LastOrderEvent     string           `json:"last_order_event,omitempty"`
-	PaperSmoke         string           `json:"paper_smoke,omitempty"`
-	PaperSmokeAt       *time.Time       `json:"paper_smoke_at,omitempty"`
-	PaperSmokeMaxAge   string           `json:"paper_smoke_max_age,omitempty"`
-	PaperSmokeAccount  string           `json:"paper_smoke_account,omitempty"`
-	PaperSmokeEndpoint string           `json:"paper_smoke_endpoint,omitempty"`
-	PaperSmokeClientID int              `json:"paper_smoke_client_id,omitempty"`
-	PaperSmokeVersion  string           `json:"paper_smoke_version,omitempty"`
-	LiveOverride       string           `json:"live_override,omitempty"`
-	Blocked            bool             `json:"blocked"`
-	Blockers           []TradingBlocker `json:"blockers,omitempty"`
-}
-
-// TradingPaperSmokeParams is the input for MethodTradingPaperSmoke: a
-// daemon-observed paper order round-trip (place a 1-share far-off-market
-// LMT, wait for broker acknowledgement, cancel, wait for the cancel to
-// confirm) that produces the MAC'd evidence the live gate requires.
-type TradingPaperSmokeParams struct {
-	// TimeoutMs caps the wait for broker acknowledgement. 0 means the
-	// daemon default (30 s); values are capped daemon-side (60 s) so the
-	// whole round-trip stays under the per-method deadline.
-	TimeoutMs int `json:"timeout_ms,omitempty"`
-	// Origin identifies who is asking (OrderOrigin*). Paper-smoke mints
-	// the last live precondition, so non-human origins are refused even
-	// though the order itself transmits on the paper route.
-	Origin string `json:"origin,omitempty"`
-}
-
-// TradingPaperSmokeResult reports the round-trip outcome. Passed means the
-// daemon observed both the broker acknowledgement and the cancel
-// confirmation and saved signed evidence; any other outcome after a
-// transmit attempt saves result=failed evidence, deliberately revoking
-// prior valid evidence (fail closed).
-type TradingPaperSmokeResult struct {
-	Passed                bool          `json:"passed"`
-	Result                string        `json:"result"`
-	Mode                  string        `json:"mode"`
-	Account               string        `json:"account,omitempty"`
-	Endpoint              string        `json:"endpoint,omitempty"`
-	ClientID              int           `json:"client_id,omitempty"`
-	Version               string        `json:"version,omitempty"`
-	Symbol                string        `json:"symbol,omitempty"`
-	OrderRef              string        `json:"order_ref,omitempty"`
-	ReservedOrderID       int           `json:"reserved_order_id,omitempty"`
-	LimitPrice            float64       `json:"limit_price,omitempty"`
-	Quantity              int           `json:"quantity,omitempty"`
-	AckLifecycleStatus    string        `json:"ack_lifecycle_status,omitempty"`
-	CancelLifecycleStatus string        `json:"cancel_lifecycle_status,omitempty"`
-	EvidenceSaved         bool          `json:"evidence_saved"`
-	EvidenceAt            *time.Time    `json:"evidence_at,omitempty"`
-	EvidenceMaxAge        string        `json:"evidence_max_age,omitempty"`
-	Message               string        `json:"message,omitempty"`
-	Warnings              []DataWarning `json:"warnings,omitempty"`
-	AsOf                  time.Time     `json:"as_of"`
+	Mode           string           `json:"mode"`
+	Endpoint       string           `json:"endpoint,omitempty"`
+	GatewayHost    string           `json:"gateway_host,omitempty"`
+	GatewayPort    int              `json:"gateway_port,omitempty"`
+	PortOrigin     string           `json:"port_origin,omitempty"`
+	Account        string           `json:"account,omitempty"`
+	AccountOrigin  string           `json:"account_origin,omitempty"`
+	ClientID       int              `json:"client_id,omitempty"`
+	ClientIDOrigin string           `json:"client_id_origin,omitempty"`
+	MCPTrading     string           `json:"mcp_trading"`
+	CanPreview     bool             `json:"can_preview"`
+	CanWrite       bool             `json:"can_write"`
+	WriteBlockers  []TradingBlocker `json:"write_blockers,omitempty"`
+	OpenOrders     int              `json:"open_orders,omitempty"`
+	LastOrderEvent string           `json:"last_order_event,omitempty"`
+	LiveOverride   string           `json:"live_override,omitempty"`
+	Blocked        bool             `json:"blocked"`
+	Blockers       []TradingBlocker `json:"blockers,omitempty"`
 }
 
 // Order constants are the allowlisted action, order-type, time-in-force,

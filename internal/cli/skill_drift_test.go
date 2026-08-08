@@ -181,7 +181,6 @@ func TestAgentPolicyDocsDoNotClaimLiveAgentHardBlock(t *testing.T) {
 			"paper-ready trading state",
 			"live and unknown states remain blocked",
 			"daemon-side agent-origin block remain",
-			"cannot run paper-smoke (daemon-side",
 		} {
 			if strings.Contains(lower, stale) {
 				t.Errorf("%s contains stale live-agent policy phrase %q", path, stale)

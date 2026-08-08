@@ -242,7 +242,7 @@ func init() {
 		{"recon", "Post-trade reconciliation: broker statement flows vs the declared capital ledger", "canary recon show [--refresh] [--json] | canary recon backtest [--refresh] [--json] | canary recon equity [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--json] | canary recon dismiss --line ID --reason S", runRecon},
 		{"proposals", "Daemon-owned close/reduce-only protection proposals", "canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]", runProposals},
 		{"opportunities", "Daemon-owned option exercise opportunities", "canary opportunities status|refresh|list|preview|exercise|ignore [--json]", runOpportunities},
-		{"trading", "Local trading gate status and configuration", "canary trading status [--json] | canary trading paper-smoke [--timeout 30s] [--json]", runTrading},
+		{"trading", "Local trading gate status and configuration", "canary trading status [--json]", runTrading},
 		{"settings", "Runtime platform preferences and observed read-only state", "canary settings show [--json] | canary settings set <supported-key>=true|false|null|number", runSettings},
 		{"orders", "Read current-context local order lifecycle state without transmitting orders", "canary orders open [--json] | canary orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]", runOrders},
 		{"order", "Inspect or cancel a Canary-owned order", "canary order status ID [--json] | canary order cancel ID [--json]", runOrder},

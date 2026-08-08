@@ -66,16 +66,6 @@ Honest limits of this interlock:
   QA read-only and use the agent-origin gated CLI for an explicitly requested
   write. App writes still require the preview token and server-validated
   account/mode confirmation fields.
-- **Paper-smoke evidence is MAC'd, not secret.** `canary trading paper-smoke`
-  writes evidence signed with the order-token HMAC key, so hand-written or
-  edited `trading-readiness.json` files surface as `unsigned` in trading
-  status. Since 2026-06-10 the evidence is a release-pipeline quality gate
-  (`make release` runs the smoke at version bump and aborts on failure),
-  not a runtime live precondition — live enablement rests on the TWS-side
-  API toggle, the trading-capable binary, and the config pins. The MAC
-  remains an interlock against casual forgery and accidental edits of the
-  status display, nothing more.
-
 ## Release integrity (v1.0.0+)
 
 Every GitHub release from v1.0.0 onward ships signed checksums for the published install assets:

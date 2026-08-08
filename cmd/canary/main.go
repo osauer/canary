@@ -252,9 +252,6 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "opportunities":
 		return []string{rpc.MethodOpportunitiesStatus, rpc.MethodOpportunitiesSnapshot, rpc.MethodOpportunitiesRefresh, rpc.MethodOpportunitiesPreviewExercise, rpc.MethodOpportunitiesSubmitExercise, rpc.MethodOpportunitiesIgnore}, ordinaryHeadroom, ordinaryFloor
 	case "trading":
-		if hasInvocationToken(rest, "paper-smoke") {
-			return []string{rpc.MethodTradingPaperSmoke}, 20 * time.Second, ordinaryFloor
-		}
 		return []string{rpc.MethodTradingStatus}, ordinaryHeadroom, ordinaryFloor
 	case "settings":
 		return []string{rpc.MethodSettingsGet, rpc.MethodSettingsUpdate}, ordinaryHeadroom, ordinaryFloor

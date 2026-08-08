@@ -125,7 +125,6 @@ run_cli_case malformed-name 0 "$live_ready" none 'CLIevil order cancel 42'
 run_cli_case composed-pipe 2 "$live_ready" none 'CLI order cancel 42 | cat'
 run_cli_case composed-chain 2 "$live_ready" none 'CLI order status 42; CLI order cancel 42'
 run_cli_case command-substitution 2 "$live_ready" none 'CLI order cancel $(cat order-id)'
-run_cli_case paper-smoke-direct 0 "$live_ready" status 'CLI trading paper-smoke'
 
 # Every retired executable spelling is rejected before read/write
 # classification or trading-status lookup.
@@ -165,7 +164,7 @@ run_case cd-then-read 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary 
 run_case cd-then-write 2 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary settings set trading.freeze=true'
 
 # The project hook leaves the canonical release invocation to execpolicy and
-# the release target's own gates; direct paper-smoke remains a broker write.
+# the release target's own gates.
 run_case release-target 0 "$live_ready" none 'make release RELEASE_VERSION=v9.9.9'
 
 if [[ "$fails" -gt 0 ]]; then

@@ -218,17 +218,12 @@ broker_write_command() {
 		has_re '(^|[[:space:]])--submit(=|[[:space:]]|$)'
 	} ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+opportunities[[:space:]]+(preview|exercise|ignore)([[:space:]]|$)' ||
-	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+trading[[:space:]]+paper-smoke([[:space:]]|$)' ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+order[[:space:]]+cancel([[:space:]]|$)' ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(submit|place|transmit|modify|cancel|close)([[:space:]]|$)'
 }
 
 state_write_command() {
   has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+settings[[:space:]]+set([[:space:]]|$)' ||
-    {
-      has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+watch([[:space:]]|$)' &&
-        has_re '(^|[[:space:]])--(add|remove|clear)(=|[[:space:]]|$)'
-    } ||
     has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+daemon[[:space:]]+(purge|reset|wipe)([[:space:]]|$)'
 }
 
@@ -247,11 +242,6 @@ fi
 
 if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+settings[[:space:]]+set([[:space:]]|$)'; then
   block "Runtime settings writes, including trading.freeze and trading limit changes, must be run by the user from an interactive session."
-fi
-
-if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+watch([[:space:]]|$)' &&
-  has_re '(^|[[:space:]])--(add|remove|clear)(=|[[:space:]]|$)'; then
-  block "Agents should not mutate the user's local watchlist. Ask the user to make that local preference change manually."
 fi
 
 if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+daemon[[:space:]]+(purge|reset|wipe)([[:space:]]|$)'; then

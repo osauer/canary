@@ -100,30 +100,3 @@ func TestRenderTradingStatusTextWriteBlockers(t *testing.T) {
 		}
 	}
 }
-
-// The dispatcher hoists flags ahead of positionals, so `canary trading
-// paper-smoke --json` reaches runTrading as ["--json", "paper-smoke"].
-// The old dispatch treated a leading flag as "status implied" and
-// silently ran `trading status` instead of the paper smoke — which let
-// the release gate read a status payload as an empty smoke result.
-func TestTradingSubcommandIndexFindsHoistedSubcommand(t *testing.T) {
-	cases := []struct {
-		name string
-		args []string
-		want int
-	}{
-		{"hoisted flag before subcommand", []string{"--json", "paper-smoke"}, 1},
-		{"subcommand first", []string{"paper-smoke", "--json"}, 0},
-		{"status with hoisted flag", []string{"--json", "status"}, 1},
-		{"flags only implies status", []string{"--json"}, -1},
-		{"bare", nil, -1},
-		{"unknown token is not a subcommand", []string{"bogus"}, -1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tradingSubcommandIndex(tc.args); got != tc.want {
-				t.Fatalf("tradingSubcommandIndex(%v) = %d, want %d", tc.args, got, tc.want)
-			}
-		})
-	}
-}

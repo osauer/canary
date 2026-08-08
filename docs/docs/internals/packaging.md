@@ -82,7 +82,7 @@ Minimum product rules before publishing a trading preview:
 - Name the channel and assets distinctly, for example `canary-trading`, so users do not confuse it with the stable read-only Canary build.
 - Mark the build experimental and provided as-is in README, release notes, download pages, and any CLI status surface that can report the channel.
 - Keep trading config inactive as `config.toml.trading`. Activation requires removing the `.trading` suffix, verifying pinned account and endpoint fields, and restarting the daemon.
-- Publish paper-trading capability before live trading. Live trading needs its own approval, paper-smoke, audit, and rollback story.
+- Publish paper-trading capability before live trading. Live trading needs its own explicit approval, audit, and rollback story.
 - Keep MCP broker writes out of the preview until there is a separate human-confirmation and nonce model for MCP.
 - Tighten updater asset matching before attaching experimental tarballs to any release that stable `canary update` can see.
 - Run a trading-tag test and smoke matrix separate from the stable read-only release smoke.

@@ -26,7 +26,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
 | [`canary proposals`](#canary-proposals) | Desk | Daemon-owned close/reduce-only protection proposals | `confirm` | yes |
 | [`canary opportunities`](#canary-opportunities) | Desk | Daemon-owned option exercise opportunities | `confirm` | yes |
-| [`canary trading`](#canary-trading) | Desk | Local trading gate status and configuration | `confirm` | yes |
+| [`canary trading`](#canary-trading) | Desk | Local trading gate status and configuration | `read-only` | yes |
 | [`canary settings`](#canary-settings) | System | Runtime platform preferences and observed read-only state | `confirm` | yes |
 | [`canary orders`](#canary-orders) | Desk | Read current-context local order lifecycle state without transmitting orders | `read-only` | yes |
 | [`canary order`](#canary-order) | Desk | Inspect or cancel a Canary-owned order | `confirm` | yes |
@@ -316,27 +316,20 @@ canary opportunities status|refresh|list|preview|exercise|ignore [--json]
 
 Local trading gate status and configuration.
 
-`status` reads the local gate. `paper-smoke` is a release check that places one far-off-market paper order and cancels it, so it needs a paper account and an explicit human instruction.
+`status` reads the local trading gate and its blockers.
 
-Guard `read-only`, with `confirm` subcommands. Also available as an MCP tool.
+Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary trading status [--json]
-canary trading paper-smoke [--timeout 30s] [--json]
 ```
 
-**Subcommands**
-
-| Subcommand | Guard |
-|------------|-------|
-| `status` | `read-only` |
-| `paper-smoke` | `confirm` |
+Subcommands: `status`.
 
 **Flags**
 
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
-| `--timeout` | yes | - |
 | `--json` | no | - |
 
 ## `canary settings`
