@@ -14,7 +14,6 @@
 //	go run cmd/_preview/main.go chain-strikes
 //	go run cmd/_preview/main.go quote
 //	go run cmd/_preview/main.go history
-//	go run cmd/_preview/main.go scan
 //	go run cmd/_preview/main.go size
 //	go run cmd/_preview/main.go status
 //	go run cmd/_preview/main.go stress
@@ -48,13 +47,12 @@ func main() {
 		"chain-strikes":  func() { cli.PreviewRenderChainStrikes(env, fixtureChainStrikes()) },
 		"quote":          func() { cli.PreviewRenderQuoteSnapshot(env, fixtureQuotes()) },
 		"history":        func() { cli.PreviewRenderHistory(env, fixtureHistory()) },
-		"scan":           func() { cli.PreviewRenderScan(env, fixtureScan()) },
 		"size":           func() { cli.PreviewRenderSize(env, fixtureSize()) },
 		"status":         func() { cli.PreviewRenderStatus(env, fixtureStatus()) },
 		"regime":         func() { cli.PreviewRenderRegime(env, fixtureRegime()) },
 		"stress":         func() { cli.PreviewRenderStress(env, fixtureStress()) },
 	}
-	order := []string{"status", "account", "positions", "positions-flat", "chain", "chain-strikes", "quote", "history", "scan", "size", "regime", "stress"}
+	order := []string{"status", "account", "positions", "positions-flat", "chain", "chain-strikes", "quote", "history", "size", "regime", "stress"}
 
 	if which == "all" {
 		for i, key := range order {
@@ -68,7 +66,7 @@ func main() {
 	fn, ok := screens[which]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "unknown preview: %q\n", which)
-		fmt.Fprintln(os.Stderr, "screens: account | positions | positions-flat | chain | chain-strikes | quote | history | scan | size | status | regime | stress | all")
+		fmt.Fprintln(os.Stderr, "screens: account | positions | positions-flat | chain | chain-strikes | quote | history | size | status | regime | stress | all")
 		os.Exit(2)
 	}
 	fn()
@@ -309,36 +307,6 @@ func fixtureHistory() *rpc.HistoryDailyResult {
 			{Date: "2026-05-08", Open: 207.90, High: 210.40, Low: 207.10, Close: 209.55, Volume: 44_800_000},
 			{Date: "2026-05-09", Open: 209.20, High: 210.05, Low: 206.30, Close: 207.42, Volume: 39_100_000},
 			{Date: "2026-05-12", Open: 207.55, High: 209.80, Low: 206.95, Close: 208.91, Volume: 31_700_000},
-		},
-		AsOf: time.Date(2026, 5, 13, 14, 32, 18, 0, time.UTC),
-	}
-}
-
-// fixtureScan is a 6-row mixed-exchange screen — USD-quoted US rows,
-// one EUR row, one HKD row, plus a partial row (no IV, no 52w range,
-// no Currency) so the per-row currency, em-dash, and fallback paths render.
-func fixtureScan() *rpc.ScanResult {
-	mkRow := func(rank int, sym, ccy string, last, pct, iv, lo, hi float64, vol int64) rpc.ScanRow {
-		return rpc.ScanRow{
-			Rank: rank, Symbol: sym, Currency: ccy,
-			Last: f64(last), ChangePct: f64(pct), IV: f64(iv),
-			Week52Low: f64(lo), Week52High: f64(hi),
-			Volume: &vol,
-		}
-	}
-	// CHG% is in percent units (7.21 = 7.21%) — formatChangePct prints
-	// the value with a trailing % without multiplying.
-	partial := rpc.ScanRow{Rank: 6, Symbol: "ZZZ", Last: f64(12.34), ChangePct: f64(4.10)}
-	return &rpc.ScanResult{
-		Preset: "top_pct_gain",
-		Type:   "TOP_PERC_GAIN",
-		Rows: []rpc.ScanRow{
-			mkRow(1, "AAPL", "USD", 207.85, 7.21, 0.247, 142.10, 219.50, 38_400_000),
-			mkRow(2, "NVDA", "USD", 128.54, 5.12, 0.382, 75.20, 145.80, 248_000_000),
-			mkRow(3, "AMD", "USD", 145.22, 4.28, 0.318, 89.40, 178.90, 62_500_000),
-			mkRow(4, "SAP", "EUR", 174.50, 2.85, 0.221, 130.20, 188.40, 4_100_000),
-			mkRow(5, "0700", "HKD", 412.20, 3.42, 0.298, 285.00, 458.80, 18_400_000),
-			partial,
 		},
 		AsOf: time.Date(2026, 5, 13, 14, 32, 18, 0, time.UTC),
 	}

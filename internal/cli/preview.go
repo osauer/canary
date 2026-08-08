@@ -47,12 +47,6 @@ func PreviewRenderHistory(env *Env, r *rpc.HistoryDailyResult) {
 	renderHistoryText(env, r)
 }
 
-// PreviewRenderScan renders synthetic scanner results with the production text
-// renderer.
-func PreviewRenderScan(env *Env, r *rpc.ScanResult) {
-	renderScanText(env, r)
-}
-
 // PreviewRenderSize renders a synthetic position-size result with the
 // production text renderer.
 func PreviewRenderSize(env *Env, r *risk.SizeResult) {

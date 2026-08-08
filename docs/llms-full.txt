@@ -4,7 +4,7 @@ Updated: 2026-08-03 20:47 CEST
 
 `Canary` is a local Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and paired app for Interactive Brokers. It exposes account and market context with typed source quality; the risk side stays advisory and operator-controlled through a regime dashboard, portfolio stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
 
-Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise. The surface covers snapshot quotes with freshness and spread context, a streaming stock/ETF quote resource, option chains with implied volatility, Greeks, and open interest, daily history bars, market scanners, S&P 500 breadth, and dealer gamma.
+Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise. The surface covers snapshot quotes with freshness and spread context, a streaming stock/ETF quote resource, option chains with implied volatility, Greeks, and open interest, daily history bars, S&P 500 breadth, and dealer gamma.
 
 The public project home is https://osauer.dev/canary/. The source repository is https://github.com/osauer/canary.
 
@@ -124,14 +124,12 @@ Important tools:
 - `canary_chain`: option expiries, strike grids, deltas, implied volatility, open interest, expected move, and liquidity gates.
 - `canary_history`: daily equity or ETF OHLCV bars for lookback and moving-average analysis.
 - `canary_technical`: trend, moving average, relative strength, ATR, and liquidity screen for stocks and ETFs.
-- `canary_scan`: IBKR market scanners such as most active, top gainers, and top losers.
 - `canary_regime`: risk-regime dashboard across volatility, credit/funding, breadth, momentum, dealer gamma, currency stress, and freshness, with the trip level each indicator is measured against.
 - `canary_breadth`: S&P 500 breadth, moving-average participation, and new high/new low context.
 - `canary_gamma`: SPY and SPX dealer gamma context with zero-gamma estimates and cache provenance.
 - `canary_stress`: portfolio stress-check tool that combines account, positions, market, and regime context into one action: stand down, watch, defend, rebalance, deploy, or confirm inputs. It serves the margin-cushion watch floor, and a low cushion is urgent on its own authority even when the headline action reads stand down.
 - `canary_rules`: portfolio risk-rulebook check with per-rule pass/watch/act verdicts, named offenders, and disclosed data gaps.
 - `canary_size`: fixed-fractional position sizing from entry, stop, account equity, and configured risk rules.
-- `canary_scan_params`: scanner catalog discovery, listing every gateway-supported scan code, location code, and instrument type for composing ad-hoc scans.
 - `canary_market_events`: observed market-event flags for held or requested symbols (borrow tightness, extreme borrow fee, Reg SHO threshold membership, LULD and regulatory halts).
 - `canary_proposals`: read daemon-owned protection proposals (trailing stops, theta hygiene, risk reduction) with per-row blockers; read-only.
 - `canary_opportunities`: read daemon-owned opportunity snapshots and research diagnostics; read-only.

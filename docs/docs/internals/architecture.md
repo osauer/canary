@@ -116,7 +116,7 @@ sources.
 
 | Source | Runtime path | Data |
 |---|---|---|
-| TWS / IB Gateway API socket | TWS wire protocol over TCP/TLS | Account, positions, quotes, option chains/Greeks/OI, historical bars, scanners, order lifecycle, shortable-share observations, subscription-gated Wall Street Horizon earnings events, and broker WhatIf/eligibility. This includes an exact-contract historical `FEE_RATE` context fallback for currently held short stocks when the due FTP source is unusable; its scale is uncommissioned and policy-ineligible. |
+| TWS / IB Gateway API socket | TWS wire protocol over TCP/TLS | Account, positions, quotes, option chains/Greeks/OI, historical bars, order lifecycle, shortable-share observations, subscription-gated Wall Street Horizon earnings events, and broker WhatIf/eligibility. This includes an exact-contract historical `FEE_RATE` context fallback for currently held short stocks when the due FTP source is unusable; its scale is uncommissioned and policy-ineligible. |
 | IBKR Flex Web Service | HTTPS POST and polling | Daily raw Flex XML statements used as broker statement truth for reconciliation. |
 | IBKR short-stock availability | FTP | Primary global borrow availability and annualized fee-rate evidence; only current/session-valid rows can drive the extreme-fee flag. |
 | Nasdaq | HTTPS JSON, pipe-delimited text, and RSS/XML | One independent earnings-date input, Reg SHO threshold securities, and LULD/trade-halt context. |

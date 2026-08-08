@@ -10,7 +10,7 @@
 
 **A local command line, MCP server, and risk desk for Interactive Brokers.**
 
-`canary` turns your local IB Gateway or TWS session into structured account and market context for the terminal, Claude Desktop, Claude Code, Cursor, Continue, Zed, and other MCP hosts. It is the local `canary mcp` TWS bridge for portfolio review, exposure mapping, options diagnostics, market-regime checks, scanner-driven research, watchlist monitoring, and position-sizing math.
+`canary` turns your local IB Gateway or TWS session into structured account and market context for the terminal, Claude Desktop, Claude Code, Cursor, Continue, Zed, and other MCP hosts. It is the local `canary mcp` TWS bridge for portfolio review, exposure mapping, options diagnostics, market-risk checks, watchlist monitoring, and position-sizing math.
 
 For MCP users, `canary mcp` exposes the same typed reads as the command line, including Canary's assembled daily brief. The bundled MCP surface cannot place, modify, cancel, or transmit broker orders; it can analyze the book, size plans, and draft preview-only stock/ETF limit orders.
 
@@ -84,7 +84,6 @@ For v1.0.0+ releases, the installer, `canary update`, and the MCPB release asset
 - **Official market calendars.** US cash equities, US listed options regular sessions, and German Xetra cash equities with holidays, early closes, next open/close, and quote `session_context` when calendar state explains stale or missing data.
 - **Local watchlist.** Add/remove/clear symbols offline, list them as JSON, show an enriched quote monitor with price, currency, changes, ranges, volume, timestamps, and held-stock context, or poll the saved list with `canary watch --watch`.
 - **Options.** Expiry lists with ATM IV and implied move, strike grids with call/put quotes, deltas, and open interest. Option snapshots are supported; option streaming is not exposed.
-- **Scanners.** Built-in market scans for movers, losers, unusual volume, gaps, high IV rank, and option volume. Agents can also compose ad-hoc scans without writing config.
 - **Position sizing.** Fixed-fractional sizing against live NLV, with optional target, R-multiple, and breakeven win rate. Pure math; never an order ticket.
 - **Market breadth.** S&P 500 participation from constituent daily bars: percent above 50-DMA, percent above 200-DMA, and fresh 52-week highs/lows. A fresh cache is instant; first-ever cold start can take about an hour because of IBKR pacing.
 - **Dealer gamma.** Production-ready SPX/SPXW-canonical zero-gamma and concentration view, with SPY used as corroborating context when its option surface is usable. A fresh, rankable SPX result is the stable headline signal; SPY-only is a labeled proxy. Treat the signed level as a regime hint, not a precise trading level.
@@ -99,13 +98,13 @@ Every data command supports `--json`. `canary restart --json` is also useful for
 
 For schemas and edge cases, see the [agent skill schema notes](skills/canary/schemas.md), [MCP tools reference](docs/docs/reference/mcp-tools.md), [MCP resources reference](docs/docs/reference/mcp-resources.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
 
-For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](examples/canary_portfolio_analysis_prompt.md) for portfolio review, [examples/canary_portfolio_stress_prompt.md](examples/canary_portfolio_stress_prompt.md) for scheduled stress checks, and [examples/canary_fresh_ideas_screen_prompt.md](examples/canary_fresh_ideas_screen_prompt.md) for a fresh-ideas screening session.
+For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](examples/canary_portfolio_analysis_prompt.md) for portfolio review and [examples/canary_portfolio_stress_prompt.md](examples/canary_portfolio_stress_prompt.md) for scheduled stress checks.
 
 ## Pick your path
 
 ### Claude Desktop, Cursor, Continue, Zed
 
-`canary mcp` starts a local stdio MCP server. MCP hosts can call the same account, watchlist, quote, calendar, position, scanner, sizing, regime, stress, daily-brief, and preview-only order-draft tools that the CLI exposes as JSON. The order preview surface can mint a local non-submitting preview token, but it cannot place, modify, cancel, or transmit broker orders. Watchlist access through MCP can return either the saved symbols or enriched quote rows; local lifecycle verbs such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` stay outside the MCP tool set.
+`canary mcp` starts a local stdio MCP server. MCP hosts can call the same account, watchlist, quote, calendar, position, sizing, regime, stress, daily-brief, and preview-only order-draft tools that the CLI exposes as JSON. The order preview surface can mint a local non-submitting preview token, but it cannot place, modify, cancel, or transmit broker orders. Watchlist access through MCP can return either the saved symbols or enriched quote rows; local lifecycle verbs such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` stay outside the MCP tool set.
 
 The server also exposes quotes for stocks and ETFs as an MCP resource:
 
@@ -245,7 +244,7 @@ For normal read-only use, no config file is required. The daemon TCP-probes `400
 port = 7496
 ```
 
-Every section and key — `[gateway]`, `[daemon]`, `[trading]`, `[rulebook]`, `[auto_trade]`, `[opportunities]`, `[spx]`, `[scans.<name>]` — is enumerated with types, defaults, and semantics in the generated [configuration reference](docs/docs/reference/config.md), alongside the public `CANARY_*` variables and the broker-wire `IBKR_*` diagnostics. `canary status` shows what the daemon ended up using and where each value came from (`pinned` or `discovered`).
+Every section and key — `[gateway]`, `[daemon]`, `[trading]`, `[rulebook]`, `[auto_trade]`, `[opportunities]`, and `[spx]` — is enumerated with types, defaults, and semantics in the generated [configuration reference](docs/docs/reference/config.md), alongside the public `CANARY_*` variables and the broker-wire `IBKR_*` diagnostics. `canary status` shows what the daemon ended up using and where each value came from (`pinned` or `discovered`).
 
 **Runtime platform preferences** are daemon-owned, live in the safety-pinned `$XDG_STATE_HOME/ibkr/daemon.db`, and change without a restart. Feature toggles and rulebook earnings overrides are available through `canary settings set`, the SPA Settings tab, or `PATCH /api/settings`; the `trading.freeze` brake and experimental trading-limit overrides require `canary settings set` from an interactive human terminal. The writable keys are listed in the [configuration reference](docs/docs/reference/config.md); ownership and semantics live in the [platform-settings design](internal-docs/design/platform-settings.md).
 
@@ -266,38 +265,6 @@ References:
 - [Working with agents](docs/docs/operate/agents.md) for Claude and MCP workflows.
 - [Packaging and distribution](docs/docs/internals/packaging.md) for packaging notes.
 - [Privacy](PRIVACY.md) for data locality and local files.
-
-### Adding scanners
-
-Two paths, depending on who's calling:
-
-**Humans — add a preset to `config.toml`.** Use this when you want a stable shorthand you'll call by name:
-
-```toml
-[scans.tech-gainers]
-type     = "TOP_PERC_GAIN"
-exchange = "STK.NASDAQ"
-limit    = 25
-```
-
-Then `canary scan tech-gainers`. **Caveat:** writing **any** `[scans.*]` block makes the seven built-in defaults disappear — the `[scans]` table is replace-not-merge. Copy the defaults from [internal/config/config.go](internal/config/config.go) into your file if you want to keep them. Run `canary restart` for new presets to be visible.
-
-**Agents — use the ad-hoc form, no config write needed:**
-
-```
-canary scan --type TOP_PERC_GAIN --exchange STK.NASDAQ --limit 25 --json
-canary scan --type TOP_PERC_GAIN --exchange STK.EU.IBIS --instrument STOCK.EU --limit 25 --json
-```
-
-Ad-hoc rows are capped at 50 (vs. preset's user-set limit) to keep an agent from accidentally pulling thousands.
-
-**Finding the right `scanCode` and `locationCode`.** The TWS Market Scanner UI hides these strings behind human labels. Dump your gateway's actual catalog with:
-
-```
-canary scan params --instrument STK [--json]
-```
-
-The catalog varies by gateway version and by your market-data subscriptions — `scanCode`s like `HIGH_OPT_IMP_VOLAT_OVER_HIST` require US options data, and European stock locations often require `--instrument STOCK.EU` instead of the US default `STK`. `--instrument STK` narrows to US stock scans; omit for everything. Add `--raw` to get the full XML (~200 KB–2 MB) if you need a less-common field. There's no need to memorize the values — the catalog is the source of truth.
 
 ## Safety
 

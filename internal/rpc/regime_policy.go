@@ -8,7 +8,7 @@ import (
 // This file is the single copy of regime confirmation policy: eligibility
 // gates, cluster combination with isolated-red downgrades, and headline
 // wording. Daemon composite, lifecycle builder, CLI renderer, Stress, and
-// the backtest builder all consume these functions or their served outputs.
+// historical verification all consume these functions or their served outputs.
 
 // Indicator keys, shared with the daemon streak store and the eligibility
 // gates table. Stable strings — they key persisted state.
@@ -46,7 +46,7 @@ const RegimeVerdictFloor = 3
 // RegimeCurrencyPolicyVersion identifies the input-currency policy a decision
 // event was produced under (internal-docs/design/regime-input-currency.md).
 // Behaviour changes in how inputs report currency alter the daily fingerprint
-// sequence, so the calibration corpus has to be partitionable: a backtest must
+// sequence, so the calibration corpus has to be partitionable: a replay must
 // never blend days either side of a cutover. Bump on every change to how a
 // class is assigned or consumed.
 const RegimeCurrencyPolicyVersion = "regime-currency-v1"
@@ -425,7 +425,7 @@ func hasIndependentEligibleRed(bands []string, eligible []bool, self int) bool {
 }
 
 // ApplyRegimeClusterTallies fills the cluster-level counts on a composite
-// from the shared combination — the daemon, the backtest builder, and tests
+// from the shared combination — the daemon and tests
 // all populate composites through this one function. Row-level counts
 // (GreenCount etc.) remain the caller's concern; Verdict is set afterwards
 // via RegimeHeadline once the lifecycle stage is known.
@@ -456,7 +456,7 @@ func ApplyRegimeClusterTallies(c *RegimeComposite, cb RegimeClusterBands) {
 
 // RegimeHeadline is the single wording table for the regime headline. Both
 // composite.verdict and posture.label render this string; the CLI, MCP, SPA,
-// and backtest all show the served value. First match wins.
+// and historical replay all show the served value. First match wins.
 func RegimeHeadline(c RegimeComposite, stage string) string {
 	switch {
 	case strings.EqualFold(strings.TrimSpace(stage), LifecycleDataQuality):
@@ -533,7 +533,7 @@ func GammaBucketRegime(spot float64, zero *float64, sign string) string {
 }
 
 // HeuristicThresholds builds the heuristic/pending-backtest threshold
-// metadata shared by the daemon regime rows and the backtest builder. The
+// metadata shared by daemon regime rows and historical verification. The
 // Heuristic and PendingBacktest bits are policy: they mark bands whose
 // values have not yet earned promotion through the decisions journal. Trip is
 // the compact display form of red and is authored here beside it, so a gauge
@@ -559,7 +559,7 @@ type regimeThresholdText struct{ label, green, yellow, red, trip string }
 
 // regimeThresholdTexts is the single source for published band prose.
 //
-// It was two hand-maintained copies, and they drifted: the backtest builder
+// It was two hand-maintained copies, and they drifted: the retired replay builder
 // published four boundaries as strict (>1.00, >110, >75 bp, >2%) where the
 // classifiers are inclusive, so a reading exactly on the line was documented
 // as the band below the one it actually lands in. It also passed a display

@@ -44,18 +44,6 @@ func ComputeStress(in StressInput) StressResult {
 	return stress.ComputeStress(in)
 }
 
-func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
-	return stress.SummarizeMarket(r, now)
-}
-
-func severityRankAtLeast(got, want risk.SignalSeverity) bool {
-	return stress.SeverityAtLeast(got, want)
-}
-
-func stressGammaDegraded(g rpc.RegimeGammaZero) bool {
-	return stress.GammaDegraded(g)
-}
-
 func stressMarketEvidence(m StressMarketSummary) string {
 	return stress.MarketEvidence(m)
 }

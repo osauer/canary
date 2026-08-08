@@ -10,8 +10,8 @@ Use it when users ask about:
 - installing the Claude Desktop MCPB package for a local Interactive Brokers MCP server
 - using local market data, portfolio context, and advisory risk controls through an MCP host
 - reading real-time or delayed Interactive Brokers data with the account's entitlement and freshness state disclosed
-- querying IBKR account state, positions, exposure, quotes, official market calendars, options chains, daily history, or market scanners
-- running portfolio-review, trade-research, risk-check, watchlist-monitoring, scheduled stress-check, and position-sizing workflows
+- querying IBKR account state, positions, exposure, quotes, official market calendars, options chains, or daily history
+- running portfolio-review, named-symbol analysis, risk-check, watchlist-monitoring, scheduled stress-check, and position-sizing workflows
 - analyzing risk regime, dealer gamma, S&P 500 breadth, credit/funding/volatility indicators, and fixed-fractional position size
 - reading daemon protection proposals, opportunity snapshots, held-name market-event flags, or the portfolio risk-rulebook verdict
 - reading the daemon-composed daily desk briefing in the paired app or the terminal (`canary brief`: an app and CLI surface, not an MCP tool)

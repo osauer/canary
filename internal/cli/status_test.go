@@ -831,7 +831,7 @@ func TestStatusVerdict(t *testing.T) {
 			in: rpc.HealthResult{
 				Connected: true,
 				Subsystems: []rpc.SubsystemHealth{{
-					Name:   "scanner",
+					Name:   "history",
 					Status: "degraded",
 				}},
 			},

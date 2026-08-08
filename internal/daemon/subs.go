@@ -25,9 +25,8 @@ const defaultCoalesceInterval = 150 * time.Millisecond
 // 104 = historical volatility, 106 = option implied volatility (averaged
 // across the chain — the "IV of the underlying" retail platforms display),
 // 165 = Misc Stats (delivers 13w/26w/52w highs/lows as tickPrice msgs
-// with tick types 15-20), and 236 = shortable shares. 106 and 165 are
-// load-bearing for `canary scan` row enrichment; 236 is evidence for the
-// market-event borrow-inventory flag.
+// with tick types 15-20), and 236 = shortable shares. 236 is evidence for
+// the market-event borrow-inventory flag.
 var defaultGenericTicks = []string{"100", "101", "104", "106", "165", "236"}
 
 // ibkrMarketConnector is the slice of *ibkrlib.Connector that subManager

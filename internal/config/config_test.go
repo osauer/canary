@@ -77,9 +77,6 @@ func TestLoad_MissingFileGivesFullAuto(t *testing.T) {
 	if res.Opportunities.RefreshCadenceDuration() != 2*time.Minute {
 		t.Errorf("opportunities refresh_cadence = %v, want 2m", res.Opportunities.RefreshCadenceDuration())
 	}
-	if _, ok := res.Scans["top-movers"]; !ok {
-		t.Errorf("top-movers preset missing from defaults")
-	}
 }
 
 func TestLoad_PinnedFieldsAreBinding(t *testing.T) {
@@ -115,12 +112,6 @@ refresh_cadence = "5m"
 hot_reload = false
 reload_interval = "45s"
 
-[scans.movers]
-type       = "TOP_PERC_GAIN"
-exchange   = "STK.EU.IBIS"
-instrument = "STOCK.EU"
-limit      = 10
-timeout    = "30s"
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -189,19 +180,6 @@ timeout    = "30s"
 	}
 	if res.Opportunities.ReloadIntervalDuration() != 45*time.Second {
 		t.Errorf("Opportunities.ReloadInterval = %v, want 45s", res.Opportunities.ReloadIntervalDuration())
-	}
-	got, ok := res.Scans["movers"]
-	if !ok {
-		t.Fatalf("scans[movers] missing")
-	}
-	if got.Limit != 10 {
-		t.Errorf("scans[movers].Limit = %d, want 10", got.Limit)
-	}
-	if got.Instrument != "STOCK.EU" {
-		t.Errorf("scans[movers].Instrument = %q, want STOCK.EU", got.Instrument)
-	}
-	if got.Timeout.Std() != 30*time.Second {
-		t.Errorf("scans[movers].Timeout = %v, want 30s", got.Timeout.Std())
 	}
 }
 

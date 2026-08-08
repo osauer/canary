@@ -39,7 +39,7 @@ func TestMethodTimingsAreCompleteAndSafe(t *testing.T) {
 
 	for _, method := range []string{
 		MethodAccountSummary, MethodPositionsList, MethodQuoteSnapshot, MethodQuoteSubscribe,
-		MethodChainFetch, MethodChainExpiries, MethodScanRun, MethodScanList, MethodScanParams,
+		MethodChainFetch, MethodChainExpiries,
 		MethodHistoryDaily, MethodTechnical, MethodMarketCalendar, MethodStatusHealth,
 		MethodTradingStatus, MethodTradingPaperSmoke, MethodSettingsGet, MethodSettingsUpdate,
 		MethodOrdersOpen, MethodOrdersHistory, MethodOrderStatus, MethodOrderPreview,

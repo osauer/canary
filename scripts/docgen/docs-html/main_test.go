@@ -22,7 +22,7 @@ func TestManifestOwnsUntrackedOutputs(t *testing.T) {
 	if err := validateManifest(tracked); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(pages), 32; got != want {
+	if got, want := len(pages), 30; got != want {
 		t.Fatalf("manifest has %d pages, want %d", got, want)
 	}
 }
@@ -217,8 +217,8 @@ func TestBuildWritesCompleteSiteArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 48 {
-		t.Fatalf("generated %d files, want 48", count)
+	if count != 45 {
+		t.Fatalf("generated %d files, want 45", count)
 	}
 	for _, path := range []string{"docs/index.html", "docs/start/install.html", "guides/updating.html"} {
 		if _, err := os.Stat(filepath.Join(output, filepath.FromSlash(path))); err != nil {

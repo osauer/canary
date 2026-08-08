@@ -22,9 +22,6 @@ const (
 	MethodQuoteSubscribe      = "quote.subscribe"
 	MethodChainFetch          = "chain.fetch"
 	MethodChainExpiries       = "chain.expiries"
-	MethodScanRun             = "scan.run"
-	MethodScanList            = "scan.list"
-	MethodScanParams          = "scan.params"
 	MethodHistoryDaily        = "history.daily"
 	MethodTechnical           = "technical.snapshot"
 	MethodMarketCalendar      = "market.calendar"
@@ -363,74 +360,6 @@ type ChainFetchParams struct {
 	Width        int    `json:"width"`                   // ATM ± width
 	Side         string `json:"side"`                    // calls | puts | both
 	TradingClass string `json:"trading_class,omitempty"` // SPX | SPXW for multi-class index chains; empty = auto
-}
-
-// ScanRunParams runs a scanner. Two modes:
-//
-//  1. Preset shorthand: set Preset to the name of a [scans.<name>] block
-//     from config.toml (or one of the built-in defaults). Type/Exchange
-//     are ignored.
-//  2. Ad-hoc: leave Preset empty and set Type (scanCode), Exchange
-//     (locationCode), and optionally Instrument directly. Useful for agents that don't want to
-//     persist a preset to the user's config file.
-//
-// Exactly one of Preset or Type is required. Limit is optional in both
-// modes; <=0 falls back to the preset's configured Limit (mode 1) or
-// the daemon's hard cap of 50 (mode 2).
-type ScanRunParams struct {
-	Preset          string  `json:"preset,omitempty"`
-	Type            string  `json:"type,omitempty"`
-	Exchange        string  `json:"exchange,omitempty"`
-	Instrument      string  `json:"instrument,omitempty"`
-	Limit           int     `json:"limit,omitempty"`
-	MinPrice        float64 `json:"min_price,omitempty"`
-	MinVolume       int64   `json:"min_volume,omitempty"`
-	MinDollarVolume float64 `json:"min_dollar_volume,omitempty"`
-	RequireLive     bool    `json:"require_live,omitempty"`
-	ExcludePenny    bool    `json:"exclude_penny,omitempty"`
-}
-
-// ScanParamsParams requests the gateway's full scanner catalog. Instrument
-// filters the ScanTypes list to those valid for the given instrument
-// (e.g. "STK"); empty returns every type. IncludeRawXML attaches the raw
-// XML payload to the response for callers that want to grep for fields
-// not surfaced in the parsed struct (filter values, instrument flags,
-// etc.). The XML is typically ~200 KB on a US Pro gateway.
-type ScanParamsParams struct {
-	Instrument    string `json:"instrument,omitempty"`
-	IncludeRawXML bool   `json:"include_raw_xml,omitempty"`
-}
-
-// ScanParamsResult mirrors pkg/ibkr.ScannerParameters but stays in the
-// rpc package so consumers (CLI, MCP) don't need to import pkg/ibkr.
-// Code comments on the wire-level types live with the parser.
-type ScanParamsResult struct {
-	Instruments []ScanParamInstrument `json:"instruments"`
-	Locations   []ScanParamLocation   `json:"locations"`
-	ScanTypes   []ScanParamScanType   `json:"scan_types"`
-	RawXML      string                `json:"raw_xml,omitempty"`
-	AsOf        time.Time             `json:"as_of"`
-}
-
-// ScanParamInstrument is one row in ScanParamsResult.Instruments.
-type ScanParamInstrument struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
-// ScanParamLocation is one row in ScanParamsResult.Locations.
-type ScanParamLocation struct {
-	Code        string `json:"code"`
-	DisplayName string `json:"display_name"`
-}
-
-// ScanParamScanType is one row in ScanParamsResult.ScanTypes. Instruments
-// is the list of instrument-type tokens this scan is valid for (e.g.
-// ["STK", "ETF"]); empty means "all".
-type ScanParamScanType struct {
-	Code        string   `json:"code"`
-	DisplayName string   `json:"display_name"`
-	Instruments []string `json:"instruments,omitempty"`
 }
 
 // CancelParams cancels an in-flight stream by id.
@@ -2882,74 +2811,6 @@ type ChainResult struct {
 	Strikes          []ChainStrike          `json:"strikes"`
 	WarningDetails   []DataWarning          `json:"warning_details,omitempty"`
 	AsOf             time.Time              `json:"as_of"`
-}
-
-// ScanRow is one row of a scanner result. The IBKR scanner subscription
-// only returns rank+symbol+three-mostly-empty-comment-fields per row, so
-// every numeric field below is populated by the daemon via a follow-up
-// snapshot subscribe on the symbol. Pointers (not scalars) so consumers
-// can distinguish "the gateway didn't deliver this tick within the
-// enrichment window" from "the value is genuinely zero" — the no-fabrication
-// invariant. Comment carries the raw scanner-side text when non-empty
-// (rare; most scan types leave it blank).
-//
-// Currency is the ISO-4217 code for Last / PrevClose / Change / Week52*
-// — needed so non-US ad-hoc scans (e.g. --exchange STK.EU.IBIS) render
-// with the right symbol instead of a hardcoded $. Empty string means
-// "the daemon couldn't resolve a currency for this row"; renderers
-// should fall back to $ in that case for back-compat with old daemons.
-//
-// Unit conventions follow Quote: ChangePct is in PERCENT units (5.41
-// means 5.41 %), IV is a DECIMAL FRACTION (0.342 means 34.2 %).
-type ScanRow struct {
-	Rank               int           `json:"rank"`
-	Symbol             string        `json:"symbol"`
-	SecType            string        `json:"sec_type,omitempty"`
-	Exchange           string        `json:"exchange,omitempty"`
-	Currency           string        `json:"currency,omitempty"`
-	LocalSymbol        string        `json:"local_symbol,omitempty"`
-	TradingClass       string        `json:"trading_class,omitempty"`
-	InstrumentTags     []string      `json:"instrument_tags,omitempty"`
-	Last               *float64      `json:"last,omitempty"`
-	PrevClose          *float64      `json:"prev_close,omitempty"`
-	Change             *float64      `json:"change,omitempty"`
-	ChangePct          *float64      `json:"change_pct,omitempty"`
-	Volume             *int64        `json:"volume,omitempty"`
-	AvgVolume20D       *int64        `json:"avg_volume_20d,omitempty"`
-	AvgDollarVolume20D *float64      `json:"avg_dollar_volume_20d,omitempty"`
-	IV                 *float64      `json:"iv,omitempty"`
-	Week52High         *float64      `json:"week_52_high,omitempty"`
-	Week52Low          *float64      `json:"week_52_low,omitempty"`
-	DataType           string        `json:"data_type,omitempty"`
-	FeedType           string        `json:"feed_type,omitempty"`
-	PriceAt            time.Time     `json:"price_at,omitzero"`
-	PriceAsOf          string        `json:"price_as_of,omitempty"`
-	AsOf               time.Time     `json:"as_of,omitzero"`
-	VolumePhase        string        `json:"volume_phase,omitempty"`
-	WarningDetails     []DataWarning `json:"warning_details,omitempty"`
-	Comment            string        `json:"comment,omitempty"`
-}
-
-// ScanResult wraps the rows.
-type ScanResult struct {
-	Preset string    `json:"preset"`
-	Type   string    `json:"type"`
-	Rows   []ScanRow `json:"rows"`
-	AsOf   time.Time `json:"as_of"`
-}
-
-// ScanListResult enumerates configured presets.
-type ScanListResult struct {
-	Presets []ScanPresetSummary `json:"presets"`
-}
-
-// ScanPresetSummary describes a single preset entry in scan list.
-type ScanPresetSummary struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Exchange   string `json:"exchange"`
-	Instrument string `json:"instrument,omitempty"`
-	Limit      int    `json:"limit"`
 }
 
 // BackgroundTaskStatus names a daemon-internal long-running task that

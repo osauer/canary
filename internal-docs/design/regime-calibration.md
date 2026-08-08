@@ -4,9 +4,9 @@
 **Created:** 2026-06-12 13:09 CEST
 **Last update:** 2026-07-21
 **Owner:** osauer
-**Related:** `docs/docs/internals/regime-dashboard.md`, `docs/docs/internals/regime-backtest.md`,
+**Related:** `docs/docs/internals/regime-dashboard.md`,
 `internal/rpc/lifecycle.go`, `internal/rpc/regime_policy.go`, `internal/daemon/regime*.go`,
-`internal/stress/stress.go`, `internal/cli/backtest.go`, `internal-docs/design/platform-settings.md`,
+`internal/stress/stress.go`, `internal-docs/design/platform-settings.md`,
 `.agents/docs/daemon-cli-trading-contract.md`, `.agents/docs/spa-authority-matrix.md`
 
 ## Why this exists — the 2026-06-12 false positive
@@ -546,8 +546,8 @@ Fingerprints feed alert dedupe, so new fields need an explicit stance:
   calibration corpora, deduped by semantic fingerprint with an hourly
   heartbeat.
 - `canary regime --log <path>`: manual, opt-in JSONL of full snapshots.
-- `docs/docs/internals/regime-backtest.md`: PIT-panel methodology, with gamma and
-  breadth explicitly *unavailable* in its historical tiers.
+- Historical calibration is driven by the typed decision-event corpus below;
+  the retired general-purpose backtest CLI is not a product surface.
 
 The 2026-06-12 incident still cannot be reconstructed completely from data
 that did not exist then, so promotion remains forward-data-driven. The SQLite
@@ -681,10 +681,10 @@ red rows. Then `make docs-regen`; `make check` enforces no drift.
 - `docs/docs/internals/regime-dashboard.md`: new "Confirmation eligibility and
   severity governance" section; per-indicator tables gain
   depth/streak/freshness columns; promotion criteria section.
-- `docs/docs/internals/regime-backtest.md`: decision-event corpus becomes the
-  forward-collection corpus; promotion criteria cross-referenced.
-- Both specs publish as generated HTML in the Pages artifact → run
-  `make pages-build` after editing their Markdown sources.
+- `docs/docs/internals/regime-dashboard.md`: the decision-event corpus is the
+  forward-collection corpus and the promotion criteria are documented there.
+- The public contract publishes as generated HTML in the Pages artifact → run
+  `make pages-build` after editing its Markdown source.
 - Indicator notes constants in `regime.go`: each gains one sentence naming
   its eligibility gates (the notes are consumer-visible documentation).
 

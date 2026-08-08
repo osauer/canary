@@ -401,32 +401,16 @@ func (s SPX) MembersAutoRefreshEnabled() bool {
 	return *s.MembersAutoRefresh
 }
 
-// Scan holds a single scanner preset. Timeout is per-preset and optional;
-// <=0 falls back to the daemon's default (20s).
-type Scan struct {
-	// Type is the IBKR scanner code, such as TOP_PERC_GAIN; dump your gateway's catalog with `canary scan params`.
-	Type string `toml:"type"`
-	// Exchange is the IBKR scanner locationCode, such as STK.US.MAJOR or STK.NASDAQ.
-	Exchange string `toml:"exchange"`
-	// Instrument is the IBKR scanner instrument token, such as STK for US stocks or STOCK.EU for European stocks; empty defaults to STK.
-	Instrument string `toml:"instrument"`
-	// Limit caps returned rows for this preset.
-	Limit int `toml:"limit"`
-	// Timeout is the per-preset scan timeout; <=0 falls back to the daemon default (20s).
-	Timeout duration `toml:"timeout"`
-}
-
 // Config is the on-disk shape of ~/.config/ibkr/config.toml.
 type Config struct {
-	Gateway       Gateway         `toml:"gateway"`
-	Daemon        Daemon          `toml:"daemon"`
-	Trading       Trading         `toml:"trading"`
-	Rulebook      Rulebook        `toml:"rulebook"`
-	AutoTrade     AutoTrade       `toml:"auto_trade"`
-	Opportunities Opportunities   `toml:"opportunities"`
-	Flex          Flex            `toml:"flex"`
-	SPX           SPX             `toml:"spx"`
-	Scans         map[string]Scan `toml:"scans"`
+	Gateway       Gateway       `toml:"gateway"`
+	Daemon        Daemon        `toml:"daemon"`
+	Trading       Trading       `toml:"trading"`
+	Rulebook      Rulebook      `toml:"rulebook"`
+	AutoTrade     AutoTrade     `toml:"auto_trade"`
+	Opportunities Opportunities `toml:"opportunities"`
+	Flex          Flex          `toml:"flex"`
+	SPX           SPX           `toml:"spx"`
 }
 
 // Resolved is the validated, defaults-applied view a daemon actually uses.
@@ -441,7 +425,6 @@ type Resolved struct {
 	Opportunities Opportunities
 	Flex          Flex
 	SPX           SPX
-	Scans         map[string]Scan
 }
 
 // duration is a time.Duration that decodes from a TOML string ("5m").
@@ -511,7 +494,7 @@ func Load(path string) (*Config, error) {
 				return nil, fmt.Errorf("config %s: key %s was removed: %s", path, keys[i], msg)
 			}
 		}
-		return nil, fmt.Errorf("config %s: unknown key(s): %s (see README §Configuration for the supported schema: [gateway], [daemon], [trading], [rulebook], [auto_trade], [opportunities], [flex], [spx], [scans.<name>])", path, strings.Join(keys, ", "))
+		return nil, fmt.Errorf("config %s: unknown key(s): %s (see README §Configuration for the supported schema: [gateway], [daemon], [trading], [rulebook], [auto_trade], [opportunities], [flex], [spx])", path, strings.Join(keys, ", "))
 	}
 	return cfg, nil
 }
@@ -549,11 +532,6 @@ func (c *Config) Resolve() (*Resolved, error) {
 		dae.LogLevel = "info"
 	}
 
-	scans := c.Scans
-	if scans == nil {
-		scans = defaultScans()
-	}
-
 	return &Resolved{
 		Gateway:       c.Gateway,
 		Daemon:        dae,
@@ -563,7 +541,6 @@ func (c *Config) Resolve() (*Resolved, error) {
 		Opportunities: c.Opportunities.WithDefaults(),
 		Flex:          c.Flex.WithDefaults(),
 		SPX:           c.SPX,
-		Scans:         scans,
 	}, nil
 }
 
@@ -594,42 +571,5 @@ func SPXMembersAutoRefreshFromEnv() (enabled bool, forced bool) {
 		return false, true
 	default:
 		return false, false
-	}
-}
-
-// defaultScans is the built-in preset set, used when the user has no
-// [scans.*] block in config.toml. Every Type / Exchange string here was
-// validated against an IB Gateway scanner catalog via `canary scan params`.
-// If a future gateway drops one of these scanCodes the
-// preset will return an error to the user; `canary scan params` is the
-// canonical recovery path.
-//
-// Selection rationale (US stock + options trader):
-//   - Direction symmetric: top-movers + top-losers, not just gainers.
-//   - Volume both ways: most-active is raw share volume (mega-caps);
-//     unusual-vol is volume relative to a stock's own history (catches
-//     names that are unusual *for themselves*).
-//   - Two options scans because they cover different use cases:
-//     high-iv-rank surfaces names where IV is elevated vs. their own
-//     history (the option-seller's "something brewing" signal);
-//     unusual-opt-vol surfaces names where option volume is hot vs.
-//     average (the flow signal).
-//   - gappers catches the open-print earnings/news reactions that drive
-//     the first hour of every session.
-//
-// Absolute-IV (HIGH_OPT_IMP_VOLAT) was deliberately not included — it
-// surfaces the same structural high-IV biotech/SPAC names every day and
-// is rarely the actionable signal an option seller wants. Users who
-// still want it can copy this map into their config.toml and add the
-// extra preset.
-func defaultScans() map[string]Scan {
-	return map[string]Scan{
-		"top-movers":      {Type: "TOP_PERC_GAIN", Exchange: "STK.US.MAJOR", Limit: 20},
-		"top-losers":      {Type: "TOP_PERC_LOSE", Exchange: "STK.US.MAJOR", Limit: 20},
-		"most-active":     {Type: "MOST_ACTIVE", Exchange: "STK.US.MAJOR", Limit: 20},
-		"unusual-vol":     {Type: "HOT_BY_VOLUME", Exchange: "STK.US.MAJOR", Limit: 20},
-		"gappers":         {Type: "HIGH_OPEN_GAP", Exchange: "STK.US.MAJOR", Limit: 20},
-		"high-iv-rank":    {Type: "HIGH_OPT_IMP_VOLAT_OVER_HIST", Exchange: "STK.US", Limit: 20},
-		"unusual-opt-vol": {Type: "HOT_BY_OPT_VOLUME", Exchange: "STK.US.MAJOR", Limit: 20},
 	}
 }

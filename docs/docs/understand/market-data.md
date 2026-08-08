@@ -117,13 +117,12 @@ this, including what each badge string says verbatim.
 | `canary quote`, position marks | Streaming or snapshot market data for that instrument. |
 | `canary chain` | Option market data for the class, typically OPRA. The expiry list alone is contract details and needs less. |
 | `canary gamma` | Option market data for SPX and SPY. After an RTH IBKR 354 it can retry once on delayed spot plus delayed option-model ticks; mixed clocks and delayed-frozen data are refused. |
-| `canary scan` | Scanner access for the ranking, plus market data for the per-row enrichment. |
 | `canary breadth`, `canary history`, `canary technical` | Historical daily bars. No streaming-quote entitlement is involved. |
 | `canary calendar` | Nothing. It makes no broker call at all. |
 
 Live quotes also consume subscription slots, which retail accounts cap at
-around a hundred concurrent. That is why a wide chain or a large scan
-serializes rather than firing every request at once.
+around a hundred concurrent. That is why a wide chain serializes rather than
+firing every request at once.
 
 ## What works with no market-data subscription at all
 

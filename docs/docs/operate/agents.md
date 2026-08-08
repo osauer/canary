@@ -100,12 +100,6 @@ term coverage the result stays rankable, disclosing the missing bucket in
 
 When no serveable result exists, `canary_gamma` kicks a multi-minute background compute and returns `status: "computing"` with an ETA. During options RTH, a served result refreshes behind the last-good value after 15 minutes. See [Sensors → Gamma](../understand/sensors.md#gamma) and [Concepts → Gamma](../understand/concepts.md#gamma).
 
-### "Find me top S&P 500 names trading above their 50-day moving average."
-
-→ Claude invokes `canary_breadth` to get the index-wide reading, then `canary_scan` with the `top-movers` preset (or an ad-hoc scan) to return specific names.
-
-Returns the % of S&P names above their 50-DMA (the tactical signal) and per-row scanner output enriched with last / prev_close / change_pct / volume / IV. Claude typically pairs the breadth context ("market-wide reading: 54% above 50-DMA, healthy") with the specific names that match the scan. For follow-up questions like *"show me daily bars for AAPL"*, Claude chains to `canary_history`. See [Concepts → Breadth](../understand/concepts.md#breadth).
-
 ### "Preview buying 10 AAPL shares."
 
 → Claude invokes `canary_trading_status`, then `canary_order_preview` only if the local preview gate is ready.

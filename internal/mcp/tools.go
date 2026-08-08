@@ -41,7 +41,7 @@ var Tools = []Tool{
 		Name:               "canary_status",
 		RPCMethods:         []string{rpc.MethodStatusHealth},
 		Title:              "Canary Status",
-		Description:        "Daemon + gateway health snapshot: connection state, account, server version, members-list source, last-error, background tasks, per-subsystem health for storage/quote/watchlist/scanner/history/chain/gamma/breadth/proposals/opportunities, unhealthy IBKR data farms, and high-level `data_quality` warnings for degraded gamma or stale regime clusters. Run this first when troubleshooting connectivity or tool-specific slowness (\"why is data missing / stale / wrong-account?\", \"will scanner or gamma be busy?\", \"are downstream risk reads stale?\", \"why is the protection or opportunities panel stale?\"). `subsystems[].status` can be ready/computing/unavailable/degraded/disabled and is more specific than the top-level gateway connection — quote/scanner degrade when required market-data readiness has not been observed, history degrades when historical-data readiness has not been observed, and chain degrades when market-data readiness is missing or a security-definition farm explicitly reports trouble, even if the socket is connected; `breadth` runs on a second broker connection of its own and degrades when that connection is down even though the top-level gateway link is up, which is the state where `canary_breadth` keeps serving a stale session; `storage` is the daemon's own database rather than a broker feed, and an unavailable one means the daemon has latched fail-closed — served data can be stale and order writes are blocked, with the matching blocker on `canary_trading_status`; the `proposals` and `opportunities` entries turn degraded with blocker codes and the served snapshot's as_of when refreshes keep failing while an older snapshot is still served; `opportunities.message` also carries active opportunity policy id/version/status/fingerprint when available; `data_farms[]` is omitted when farms are healthy and only lists farms currently broken/disconnected; `data_quality[]` means the daemon can still serve data, but say so when a decision rests on it; `market_data_access[]` is the one place a refused market-data subscription is named — check it first when a specific symbol is missing quotes, spot, or chain data across tools, and report the symbol and `code` (354 = the account is not subscribed to that data) instead of re-diagnosing per tool. It is a time-windowed observation, not an entitlement record: a listed `route_key` means a fresh fetch would be refused until `retry_at`, not that the feature is off, so keep serving cached results and say they are cached; an empty list only means nothing was refused in the window, never that every symbol is entitled. NOT for portfolio state — use `canary_account` for cash/margin or `canary_positions` for what you own, and NOT for full risk evidence — use `canary_regime` or `canary_stress`.",
+		Description:        "Daemon + gateway health snapshot: connection state, account, server version, members-list source, last-error, background tasks, per-subsystem health for storage/quote/watchlist/history/chain/gamma/breadth/proposals/opportunities, unhealthy IBKR data farms, and high-level `data_quality` warnings for degraded gamma or stale regime clusters. Run this first when troubleshooting connectivity or tool-specific slowness (\"why is data missing / stale / wrong-account?\", \"will gamma be busy?\", \"are downstream risk reads stale?\", \"why is the protection or opportunities panel stale?\"). `subsystems[].status` can be ready/computing/unavailable/degraded/disabled and is more specific than the top-level gateway connection — quote degrades when required market-data readiness has not been observed, history degrades when historical-data readiness has not been observed, and chain degrades when market-data readiness is missing or a security-definition farm explicitly reports trouble, even if the socket is connected; `breadth` runs on a second broker connection of its own and degrades when that connection is down even though the top-level gateway link is up, which is the state where `canary_breadth` keeps serving a stale session; `storage` is the daemon's own database rather than a broker feed, and an unavailable one means the daemon has latched fail-closed — served data can be stale and order writes are blocked, with the matching blocker on `canary_trading_status`; the `proposals` and `opportunities` entries turn degraded with blocker codes and the served snapshot's as_of when refreshes keep failing while an older snapshot is still served; `opportunities.message` also carries active opportunity policy id/version/status/fingerprint when available; `data_farms[]` is omitted when farms are healthy and only lists farms currently broken/disconnected; `data_quality[]` means the daemon can still serve data, but say so when a decision rests on it; `market_data_access[]` is the one place a refused market-data subscription is named — check it first when a specific symbol is missing quotes, spot, or chain data across tools, and report the symbol and `code` (354 = the account is not subscribed to that data) instead of re-diagnosing per tool. It is a time-windowed observation, not an entitlement record: a listed `route_key` means a fresh fetch would be refused until `retry_at`, not that the feature is off, so keep serving cached results and say they are cached; an empty list only means nothing was refused in the window, never that every symbol is entitled. NOT for portfolio state — use `canary_account` for cash/margin or `canary_positions` for what you own, and NOT for full risk evidence — use `canary_regime` or `canary_stress`.",
 		MonitorDescription: "Connectivity and data-health check for the scheduled monitor. Use only when `canary_stress` reports degraded/failed inputs or the gateway may be disconnected. Read-only.",
 		JSONSchema:         schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
@@ -593,63 +593,6 @@ var Tools = []Tool{
 		},
 	},
 	{
-		Name:        "canary_scan",
-		RPCMethods:  []string{rpc.MethodScanList, rpc.MethodScanRun},
-		Title:       "Canary Market Scanner",
-		Description: "Run a market scanner. Three call shapes: (1) preset by name — `{preset: \"top-movers\"}` — for the configured shortcuts; (2) ad-hoc — `{type: \"HIGH_LAST_VS_EMA50\", exchange: \"STK.US.MAJOR\", instrument: \"STK\"}` for US stock breakouts, `{type: \"MOST_ACTIVE_USD\", exchange: \"STK.US.MAJOR\", instrument: \"STK\"}` for broad liquid activity, or `{type: \"HIGH_VS_52W_HL\", exchange: \"STK.EU.IBIS\", instrument: \"STOCK.EU\"}` for German/Xetra stocks; (3) empty `{}` — enumerates the configured presets so the agent can pick one. For common known scan codes such as `HIGH_LAST_VS_EMA50`, `HIGH_LAST_VS_EMA200`, `HIGH_VS_52W_HL`, `MOST_ACTIVE_USD`, and `HOT_BY_VOLUME`, call this tool directly and reserve `canary_scan_params` for unfamiliar codes, regional uncertainty, or unsupported-code/location errors. Each row is enriched with last/prev_close/change/change_pct/volume/iv/week_52_high/week_52_low plus instrument_tags and data_type/feed_type/price_at/price_as_of/volume_phase/warning_details via per-row market-data subscriptions the daemon issues automatically (IBKR's scanner protocol returns only rank+symbol). `instrument_tags` flags known ETFs/leveraged ETPs that IBKR may still return from stock scans; when the user asks for non-ETF single-name ideas, drop rows tagged `etf` or `leveraged_etp`. Missing tags mean unknown, not confirmed common stock. Scanner enrichment can be the slowest step because it briefly subscribes to each returned row; use small `limit` values and stop after one weak/noisy scan instead of stacking rescue scans. Use `min_price`, `min_volume`, `min_dollar_volume`, `exclude_penny`, and `require_live` to suppress micro-cap/off-hours noise before the result reaches the agent. Nil fields mean the gateway didn't deliver the corresponding tick within the enrichment window — common off-hours, and IV is nil for symbols without actively-traded options. Ad-hoc rows are capped at 50.",
-		JSONSchema: schemaObject(map[string]json.RawMessage{
-			"preset":            schemaString("preset name from `canary_scan` with no args (e.g. \"top-movers\"); omit for ad-hoc or list mode"),
-			"type":              schemaString("ad-hoc scanCode (e.g. \"HIGH_LAST_VS_EMA50\", \"HIGH_VS_52W_HL\", \"MOST_ACTIVE_USD\") — required with `exchange` when no `preset` is given"),
-			"exchange":          schemaString("ad-hoc locationCode (e.g. \"STK.US.MAJOR\" or \"STK.EU.IBIS\") — required with `type` when no `preset` is given"),
-			"instrument":        schemaString("IBKR scanner instrument for ad-hoc scans; defaults to STK for US stocks, use STOCK.EU for European stock locations such as STK.EU.IBIS"),
-			"limit":             json.RawMessage(`{"type":"integer","minimum":1,"description":"max rows; preset default when omitted; ad-hoc capped at 50"}`),
-			"min_price":         json.RawMessage(`{"type":"number","minimum":0,"description":"drop enriched rows whose last price is below this value; rows without last price fail this filter"}`),
-			"min_volume":        json.RawMessage(`{"type":"integer","minimum":0,"description":"drop enriched rows whose current share volume is below this value; rows without volume fail this filter"}`),
-			"min_dollar_volume": json.RawMessage(`{"type":"number","minimum":0,"description":"drop enriched rows whose last×volume dollar-volume is below this value; rows without last or volume fail this filter"}`),
-			"require_live":      json.RawMessage(`{"type":"boolean","description":"drop rows whose quote context is off-hours, stale, previous-close-only, or otherwise not a usable live quote"}`),
-			"exclude_penny":     json.RawMessage(`{"type":"boolean","description":"drop enriched rows below $5, equivalent to min_price at least 5"}`),
-		}, nil),
-		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
-			var in rpc.ScanRunParams
-			if err := unmarshalArgs(args, &in); err != nil {
-				return nil, err
-			}
-			if in.Preset == "" && in.Type == "" && in.Exchange == "" {
-				var res rpc.ScanListResult
-				if err := conn.Call(ctx, rpc.MethodScanList, nil, &res); err != nil {
-					return nil, err
-				}
-				return json.Marshal(res)
-			}
-			var res rpc.ScanResult
-			if err := conn.Call(ctx, rpc.MethodScanRun, in, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
-		},
-	},
-	{
-		Name:        "canary_scan_params",
-		RPCMethods:  []string{rpc.MethodScanParams},
-		Title:       "Canary Scanner Parameters",
-		Description: "Discover the scanner catalog this IBKR gateway supports: every scanCode (the `type` for ad-hoc `canary_scan`) and every locationCode (`exchange`), plus the instrument types each scanCode applies to. Use this before composing an ad-hoc scan — the catalog varies by gateway version, market-data permissions, and region. Pass `instrument: \"STK\"` to narrow scan_types to US stocks or `instrument: \"STOCK.EU\"` for European stocks; pass `include_raw_xml: true` only when you need a field not surfaced in the parsed result (the XML payload is ~200 KB). NOT for actually running a scan (use `canary_scan` — including `{}` to enumerate configured presets), and NOT for quotes or technicals on known symbols (use `canary_quote` or `canary_technical`).",
-		JSONSchema: schemaObject(map[string]json.RawMessage{
-			"instrument":      schemaString("filter scan_types to those valid for this instrument (e.g. \"STK\", \"STOCK.EU\", \"OPT\", \"ETF\"); empty returns all"),
-			"include_raw_xml": json.RawMessage(`{"type":"boolean","description":"include the gateway's raw XML payload (~200 KB); default false"}`),
-		}, nil),
-		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
-			var in rpc.ScanParamsParams
-			if err := unmarshalArgs(args, &in); err != nil {
-				return nil, err
-			}
-			var res rpc.ScanParamsResult
-			if err := conn.Call(ctx, rpc.MethodScanParams, in, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
-		},
-	},
-	{
 		Name:        "canary_breadth",
 		RPCMethods:  []string{rpc.MethodBreadthSPX},
 		Title:       "Canary S&P 500 Breadth",
@@ -776,7 +719,7 @@ var Tools = []Tool{
 			"Standalone portfolio limit breaches and held-underlying stress become rebalance/watch context rather than market-stress alerts; stale account or positions snapshots block dependent margin, P&L, exposure, concentration, held-stress, and option signals with explicit `blocked_by` sources.",
 			"Context-only gamma is context/unranked evidence, not degraded input health; blocked, unavailable, degraded, or computing gamma/breadth becomes explicit input-health evidence, not a false safe/false red signal. Stale/degraded/partial confirming clusters cannot upgrade `market_confirmation` to confirmed until refreshed.",
 			"Market confirmation and act-grade decisions key on `market.eligible_red_clusters` — reds that passed the regime confirmation gates (depth + persistence + cadence-freshness) — never on raw red counts; `market.unconfirmed_red_cluster_names` lists the visible-but-provisional reds, which hold the stress read at watch.",
-			"Works pre-market and after hours by relying on account, positions, regime, and daemon market-event freshness/status metadata; it does not call option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources, and it refuses to escalate solely on incomplete computed surfaces.",
+			"Works pre-market and after hours by relying on account, positions, regime, and daemon market-event freshness/status metadata; it does not call option chains, short-interest feeds, paid borrow vendors, or external flow sources, and it refuses to escalate solely on incomplete computed surfaces.",
 			"This tool is read-only and does NOT place, preview, submit, modify, cancel, draft, size, or select orders.",
 			"NOT for detailed diagnostics — use `canary_regime`, `canary_positions`, or `canary_account` when you need underlying evidence; use `canary_positions` for held-option warnings such as `mark_outside_bid_ask`, `options_closed`, per-leg greeks, quote freshness, and the full by-underlying ledger.",
 		}, " "),
@@ -1155,19 +1098,18 @@ func sanitizeOrderStatusForMCP(res *rpc.OrderStatusResult) {
 // template canary://quote/{symbol} gated by TestStreamingParity in
 // resources_test.go.
 var ExcludedCLI = map[string]string{
-	"version":  "info-only CLI verb; not useful as a tool call",
-	"mcp":      "transport server mode; the MCP host starts this process, no LLM should call it as a tool",
-	"daemon":   "local background service mode; autospawned by CLI/MCP clients and not an agent operation",
-	"app":      "local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool",
-	"setup":    "local configuration verb (writes claude_desktop_config.json); not a daemon RPC, no LLM should ever call it",
-	"update":   "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
-	"restart":  "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
-	"stop":     "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",
-	"backtest": "offline research harness over local JSONL fixtures; not a live broker/MCP operation",
-	"purge":    "emergency local-terminal purge-book workflow; deliberately withheld from MCP until execution/review safety is proven",
-	"policy":   "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence",
-	"recon":    "post-trade reconciliation surface deferred from MCP in phase 3a (internal-docs/design/post-trade-truth.md): dismiss/sign-off are human-only governance acts and the read view ships CLI-first, same posture as `policy`; revisit together with it",
-	"alerts":   "alert-source coverage diagnostic for the operator watching push-delivery readiness; an agent inspecting alert internals should read the issue #19 surfaces deliberately, not through a routine MCP tool call",
+	"version": "info-only CLI verb; not useful as a tool call",
+	"mcp":     "transport server mode; the MCP host starts this process, no LLM should call it as a tool",
+	"daemon":  "local background service mode; autospawned by CLI/MCP clients and not an agent operation",
+	"app":     "local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool",
+	"setup":   "local configuration verb (writes claude_desktop_config.json); not a daemon RPC, no LLM should ever call it",
+	"update":  "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
+	"restart": "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
+	"stop":    "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",
+	"purge":   "emergency local-terminal purge-book workflow; deliberately withheld from MCP until execution/review safety is proven",
+	"policy":  "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence",
+	"recon":   "post-trade reconciliation surface deferred from MCP in phase 3a (internal-docs/design/post-trade-truth.md): dismiss/sign-off are human-only governance acts and the read view ships CLI-first, same posture as `policy`; revisit together with it",
+	"alerts":  "alert-source coverage diagnostic for the operator watching push-delivery readiness; an agent inspecting alert internals should read the issue #19 surfaces deliberately, not through a routine MCP tool call",
 }
 
 func schemaObject(props map[string]json.RawMessage, required []string) json.RawMessage {

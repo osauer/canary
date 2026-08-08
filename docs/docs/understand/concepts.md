@@ -53,7 +53,7 @@ The high-precision rule is intentional: broad-market stress must be confirmed by
 - near-expiry held-option delta concentration
 - held-name stock quote or option bid/ask degradation
 
-The stress read calls no option chains, scanners, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.
+The stress read calls no option chains, short-interest feeds, paid borrow vendors, or external flow sources. It does consume the daemon's market-event context for held-name tags and alert fingerprints, and those flags remain context and safety gates rather than standalone execution advice.
 
 Stress marks the alert boundary. The diagnosis behind an alert comes from `canary_positions`, `canary_regime`, `canary_market_events`, or `canary_account`.
 

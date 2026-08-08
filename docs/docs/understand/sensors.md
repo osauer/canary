@@ -445,7 +445,6 @@ an order.
   and recovery boundaries.
 - [Concepts](concepts.md): how to interpret calendars, Gamma, Regime, Stress,
   market events, and breadth.
-- [Regime and Stress Backtest Runbook](../internals/regime-backtest.md): evidence
-  required to replace pending heuristics with calibrated policy.
 - [Risk Regime Dashboard Contract](../internals/regime-dashboard.md): row
-  methodology and model detail.
+  methodology, model detail, and evidence required to replace pending
+  heuristics with calibrated policy.

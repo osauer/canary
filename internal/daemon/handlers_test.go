@@ -95,16 +95,6 @@ func TestReadHandlersReturnGatewayUnavailableWhenDisconnected(t *testing.T) {
 		assertGatewayUnavailable(t, err)
 	})
 
-	t.Run("scan.run with valid preset", func(t *testing.T) {
-		srv.cfg.Scans = map[string]config.Scan{
-			"top-movers": {Type: "TOP_PERC_GAIN", Exchange: "STK.US.MAJOR", Limit: 20},
-		}
-		params, _ := json.Marshal(rpc.ScanRunParams{Preset: "top-movers"})
-		req := &rpc.Request{ID: "t4", Method: rpc.MethodScanRun, Params: params}
-		_, err := srv.handleScanRun(ctx, req)
-		assertGatewayUnavailable(t, err)
-	})
-
 	t.Run("history.daily", func(t *testing.T) {
 		params, _ := json.Marshal(rpc.HistoryDailyParams{Symbol: "AAPL", Days: 30})
 		req := &rpc.Request{ID: "t6", Method: rpc.MethodHistoryDaily, Params: params}
@@ -770,7 +760,7 @@ func TestQuoteLiquidityCacheKeyUsesQuoteSymbolFallback(t *testing.T) {
 		t.Fatalf("cache keys = %+v / %+v, want quote symbols", rgnt, cupr)
 	}
 	if rgnt == cupr {
-		t.Fatalf("cache keys collided for scanner quote shells: %+v", rgnt)
+		t.Fatalf("cache keys collided for symbol-only quote shells: %+v", rgnt)
 	}
 
 	contractKey := quoteLiquidityCacheKey(&rpc.Quote{
@@ -997,25 +987,6 @@ func TestNormaliseStockQuoteContractMarketDE(t *testing.T) {
 	}
 }
 
-// scan.run with an unknown preset is a client error, not internal — and
-// classifyError must map it to bad_request, not internal (D6 in the review).
-func TestScanRunUnknownPresetIsBadRequest(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-	srv.cfg.Scans = map[string]config.Scan{}
-
-	params, _ := json.Marshal(rpc.ScanRunParams{Preset: "nope"})
-	req := &rpc.Request{ID: "t5", Method: rpc.MethodScanRun, Params: params}
-	_, err := srv.handleScanRun(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for unknown preset")
-	}
-	code, _ := classifyError(err)
-	if code != rpc.CodeBadRequest {
-		t.Fatalf("classifyError code = %q, want %q", code, rpc.CodeBadRequest)
-	}
-}
-
 // Greeks zero-substitution regression: a genuinely-zero Greek from the
 // model (deep-ITM theta ≈ 0, ATM-straddle delta ≈ 0) must surface as a
 // non-nil pointer. The previous per-field `!= 0` filter silently dropped
@@ -1117,10 +1088,6 @@ func TestDecodeParamsMalformedIsBadRequest(t *testing.T) {
 		}},
 		{"chain.fetch", func() error {
 			_, err := srv.handleChainFetch(context.Background(), &rpc.Request{ID: "t", Params: malformed})
-			return err
-		}},
-		{"scan.run", func() error {
-			_, err := srv.handleScanRun(context.Background(), &rpc.Request{ID: "t", Params: malformed})
 			return err
 		}},
 		{"history.daily", func() error {

@@ -18,14 +18,13 @@ const (
 // `canary <name>` (body or allowed-tools); adding a CLI command without
 // updating the skill fails `make check` via parity-check.
 var skillExcluded = map[string]string{
-	"daemon":   "lifecycle plumbing, not an agent data command",
-	"app":      "long-lived local app host, not an agent data command",
-	"mcp":      "MCP server bootstrap, not an agent data command",
-	"setup":    "interactive first-run wizard",
-	"update":   "binary self-update is a human decision",
-	"purge":    "destructive emergency workflow, deliberately human-only",
-	"stop":     "stops the daemon and app other sessions and the paired phone are using; a human decision, not an agent step",
-	"backtest": "offline research harness; only the read-only research-opportunity subcommand is allowlisted explicitly",
+	"daemon": "lifecycle plumbing, not an agent data command",
+	"app":    "long-lived local app host, not an agent data command",
+	"mcp":    "MCP server bootstrap, not an agent data command",
+	"setup":  "interactive first-run wizard",
+	"update": "binary self-update is a human decision",
+	"purge":  "destructive emergency workflow, deliberately human-only",
+	"stop":   "stops the daemon and app other sessions and the paired phone are using; a human decision, not an agent step",
 }
 
 // forbiddenAllowPrefixes are invocation shapes that must never be

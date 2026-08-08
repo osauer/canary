@@ -56,8 +56,7 @@ var structSources = []structSource{
 		Root:    "Config",
 		Heading: "TOML config",
 		Intro: "Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. " +
-			"Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. " +
-			"Note: defining any `[scans.<name>]` preset replaces the built-in preset set — the scans table is replace-not-merge.",
+			"Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error.",
 	},
 	{
 		Path:    "internal/daemon/protection_policy.go",
@@ -149,7 +148,7 @@ func fatal(format string, args ...any) {
 // and extracts every field with a toml tag, recursively. A field whose
 // (possibly pointer) type is a struct declared in the same file
 // becomes a path prefix rather than a row; map[string]Struct recurses
-// with a `<name>` placeholder segment (the `[scans.<name>]` shape).
+// with a `<name>` placeholder segment.
 // Returns rows sorted by (section, field).
 func parseStructRows(path, root string) ([]tomlField, error) {
 	fset := token.NewFileSet()

@@ -165,7 +165,6 @@ paired with an existing reduce/cover proposal.
 | Contract resolution | `reqContractData` (9), `contractData` (10) | `Connector.FetchContractDetails` | ready |
 | Option chains | `reqSecDefOptParams` (78), `tickOptionComputation` (21) | `Connector.FetchOptionExpiries`, `FetchOptionExpiryStrikes`, `OptionGreeks`, `OptionIV` | ready |
 | Daily historical bars | `reqHistoricalData` (20), `historicalData` (17), `historicalDataEnd` (17) | `Connector.FetchHistoricalDailyBars`, exact-contract `Connector.FetchHistoricalDailyFeeRates` | ready; `FEE_RATE` is a held-short daemon fallback and remains policy-ineligible until its scale fixture is commissioned |
-| Market scanner | `reqScannerSubscription` (22), `reqScannerParameters` (24) | `Connector.RunScannerSubscription`, `RunScannerParameters` | ready |
 | Market-data type switch | `reqMarketDataType` (59), `marketDataType` (58) | `Connector.SetMarketDataType` | ready |
 | Unrestricted order placement / cancel | `placeOrder` (3), `cancelOrder` (4) | `Connector.SubmitOrder`, `CancelOrder`; `Connection.PlaceOrder`, `CancelOrder` | disabled by default (`ErrTradingDisabled`); `-tags trading` only |
 | Paper-gated order placement / cancel | `placeOrder` (3), `cancelOrder` (4) | `Connector.SubmitPaperOrder`, `CancelPaperOrder`; `Connection.PlacePaperOrder`, `CancelPaperOrder` | all builds; validates paper account and connection coordinates, but does not replace application authorization |

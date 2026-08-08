@@ -213,7 +213,7 @@ func TestSubsystemHealthDegradesWhenFarmNoticesAreMissing(t *testing.T) {
 	if storage.Status != "unavailable" {
 		t.Fatalf("storage subsystem = %+v, want unavailable without daemon.db", storage)
 	}
-	for _, name := range []string{"quote", "scanner", "chain"} {
+	for _, name := range []string{"quote", "chain"} {
 		sub := mustFindSubsystem(t, subs, name)
 		if sub.Status != "degraded" || !strings.Contains(sub.Message, "no market-data farm connection notice observed") {
 			t.Fatalf("%s subsystem = %+v, want degraded missing market-data notice", name, sub)
@@ -232,7 +232,7 @@ func TestSubsystemHealthUsesHealthyFarmNotices(t *testing.T) {
 		{Name: "usfarm", Type: "market", Status: "ok", Code: 2104, AsOf: now},
 		{Name: "ushmds", Type: "historical", Status: "inactive", Code: 2107, AsOf: now},
 	})
-	for _, name := range []string{"quote", "scanner", "history", "chain"} {
+	for _, name := range []string{"quote", "history", "chain"} {
 		sub := mustFindSubsystem(t, subs, name)
 		if sub.Status != "ready" {
 			t.Fatalf("%s subsystem = %+v, want ready", name, sub)
@@ -246,7 +246,7 @@ func TestSubsystemHealthUsesRecentQuoteWhenFarmNoticeIsMissing(t *testing.T) {
 	s := &Server{now: func() time.Time { return now }}
 	s.observeMarketDataWitness(now.Add(-time.Minute))
 	subs := s.subsystemHealth(true, nil)
-	for _, name := range []string{"quote", "scanner", "chain"} {
+	for _, name := range []string{"quote", "chain"} {
 		sub := mustFindSubsystem(t, subs, name)
 		if sub.Status != "ready" {
 			t.Fatalf("%s subsystem = %+v, want ready from direct quote witness", name, sub)
@@ -275,7 +275,7 @@ func TestSubsystemHealthExplicitFarmFailureOverridesQuoteWitness(t *testing.T) {
 	subs := s.subsystemHealth(true, []ibkrlib.DataFarmStatus{{
 		Name: "usfarm", Type: "market", Status: "disconnected", Code: 2103, AsOf: now,
 	}})
-	for _, name := range []string{"quote", "scanner", "chain"} {
+	for _, name := range []string{"quote", "chain"} {
 		if sub := mustFindSubsystem(t, subs, name); sub.Status != "degraded" {
 			t.Fatalf("%s subsystem = %+v, explicit failure must override witness", name, sub)
 		}
@@ -292,7 +292,7 @@ func TestSubsystemHealthDegradesOnDisconnectedFarms(t *testing.T) {
 		{Name: "usfarm", Type: "market", Status: "disconnected", Code: 2103, Message: "Market data farm connection is broken:usfarm", AsOf: now},
 		{Name: "ushmds", Type: "historical", Status: "disconnected", Code: 2105, Message: "HMDS data farm connection is broken:ushmds", AsOf: now},
 	})
-	for _, name := range []string{"quote", "scanner", "chain"} {
+	for _, name := range []string{"quote", "chain"} {
 		sub := mustFindSubsystem(t, subs, name)
 		if sub.Status != "degraded" || !strings.Contains(sub.Message, "market-data farm usfarm disconnected") {
 			t.Fatalf("%s subsystem = %+v, want degraded market-data farm disconnected", name, sub)

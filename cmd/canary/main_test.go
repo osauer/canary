@@ -35,29 +35,6 @@ func TestIsWatchDaemonInvocation(t *testing.T) {
 	}
 }
 
-func TestIsBacktestDaemonInvocation(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		args []string
-		want bool
-	}{
-		{"offline stress stays local", []string{"stress", "--input", "rows.jsonl"}, false},
-		{"capture opportunity needs daemon", []string{"capture-opportunity", "--symbols", "SPY"}, true},
-		{"export opportunity bars needs daemon", []string{"export-opportunity-bars", "--symbols", "SPY"}, true},
-		{"subcommand help stays local", []string{"export-opportunity-bars", "--help"}, false},
-		{"top level help stays local", []string{"--help"}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := isBacktestDaemonInvocation(tc.args); got != tc.want {
-				t.Fatalf("isBacktestDaemonInvocation(%v) = %v, want %v", tc.args, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestRetiredCanaryDoesNotUseStressUnaryBudget(t *testing.T) {
 	t.Parallel()
 	current := unaryInvocationBudget("stress", nil)
@@ -116,8 +93,7 @@ func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 		{name: "regime"}, {name: "stress"}, {name: "brief"}, {name: "rules"},
 		{name: "alerts"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
 		{name: "proposals", args: []string{"reduce", "--portfolio"}},
-		{name: "opportunities"}, {name: "purge"}, {name: "backtest", args: []string{"capture-opportunity"}},
-		{name: "scan"}, {name: "scan", args: []string{"list"}}, {name: "scan", args: []string{"params"}},
+		{name: "opportunities"}, {name: "purge"},
 		{name: "size"}, {name: "trading"}, {name: "trading", args: []string{"paper-smoke"}}, {name: "settings"},
 		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"preview"}},
 		{name: "order", args: []string{"place"}}, {name: "order", args: []string{"modify"}}, {name: "order", args: []string{"cancel"}},

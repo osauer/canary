@@ -57,8 +57,7 @@ func TestParity(t *testing.T) {
 		if cliNames[name] {
 			continue
 		}
-		// MCP tools can expose CLI subverbs as their own tool (e.g.
-		// `canary scan params` → `canary_scan_params`). Accept the tool if
+		// MCP tools can expose CLI subverbs as their own tool. Accept the tool if
 		// the prefix up to the first underscore is itself a CLI command,
 		// since MCP clients use a flat tool surface and a focused tool
 		// per subverb is easier for agents than one mega-tool with a

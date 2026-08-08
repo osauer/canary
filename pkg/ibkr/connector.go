@@ -8109,7 +8109,7 @@ func parseRTVolumeTick(value string, serverVersion int) (last float64, volume in
 // Recent TWS/Gateway builds expose size values as IBKR Decimal payloads.
 // For stock volume (tick type 8) the wire field can arrive as a fixed-scale
 // integer where 41,762,007 shares is encoded as 41762007966821. Treating that
-// as a plain int produces trillion-share volume in quote/scanner output. Small
+// as a plain int produces trillion-share volume in quote output. Small
 // values still arrive as ordinary integers for some instruments, so only
 // normalise obviously-scaled volume payloads and leave bid/ask sizes and option
 // open-interest ticks untouched.

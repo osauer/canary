@@ -341,7 +341,7 @@ func (s *Server) instructions() string {
 	if s.profile == ProfileMonitor {
 		return "Read-only Canary monitor profile for Interactive Brokers. Use `canary_stress` first for portfolio risk posture; call `canary_status` only for connectivity or degraded-input troubleshooting."
 	}
-	return "Canary tools and resources for Interactive Brokers. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, technical/relative-strength screens, market scans, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio stress read, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: canary://quote/{symbol})."
+	return "Canary tools and resources for Interactive Brokers. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, named-symbol technical/relative-strength screens, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio stress read, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local non-submitting preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: canary://quote/{symbol})."
 }
 
 // toolDescriptor is the wire shape MCP expects in tools/list.
@@ -531,13 +531,12 @@ func (s *Server) writeToolError(id json.RawMessage, err error) {
 }
 
 const (
-	mcpFastToolHeadroom = 1 * time.Second
-	mcpDefaultHeadroom  = 5 * time.Second
-	mcpDefaultToolFloor = 35 * time.Second
-	mcpLongToolFloor    = 60 * time.Second
-	mcpScannerToolFloor = 90 * time.Second
-	mcpWatchQuoteFloor  = 45 * time.Second
-	mcpScanParamsFloor  = 20 * time.Second
+	mcpFastToolHeadroom  = 1 * time.Second
+	mcpDefaultHeadroom   = 5 * time.Second
+	mcpDefaultToolFloor  = 35 * time.Second
+	mcpLongToolFloor     = 60 * time.Second
+	mcpAnalysisToolFloor = 90 * time.Second
+	mcpWatchQuoteFloor   = 45 * time.Second
 )
 
 func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
@@ -548,15 +547,6 @@ func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
 	case "canary_status", "canary_calendar", "canary_breadth":
 		headroom = mcpFastToolHeadroom
 		floor = 0
-	case "canary_scan":
-		if scanListModeArgs(args) {
-			headroom = mcpFastToolHeadroom
-			floor = 0
-		} else {
-			floor = mcpScannerToolFloor
-		}
-	case "canary_scan_params":
-		floor = mcpScanParamsFloor
 	case "canary_watch":
 		if watchListOnlyArgs(args) {
 			headroom = mcpFastToolHeadroom
@@ -567,9 +557,9 @@ func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
 	case "canary_chain", "canary_gamma":
 		floor = mcpLongToolFloor
 	case "canary_technical":
-		floor = mcpScannerToolFloor
+		floor = mcpAnalysisToolFloor
 	case "canary_stress":
-		floor = mcpScannerToolFloor
+		floor = mcpAnalysisToolFloor
 	}
 	return mcpMethodBudget(methods, headroom, floor)
 }
@@ -597,11 +587,6 @@ func mcpToolMethodsForCall(name string, args json.RawMessage) []string {
 		return nil
 	}
 	switch name {
-	case "canary_scan":
-		if scanListModeArgs(args) {
-			return []string{rpc.MethodScanList}
-		}
-		return []string{rpc.MethodScanRun}
 	case "canary_chain":
 		var in struct {
 			Expiry string `json:"expiry"`
@@ -639,18 +624,6 @@ func refreshRequested(args json.RawMessage) bool {
 		_ = json.Unmarshal(args, &in)
 	}
 	return in.Refresh
-}
-
-func scanListModeArgs(args json.RawMessage) bool {
-	var in struct {
-		Preset   string `json:"preset"`
-		Type     string `json:"type"`
-		Exchange string `json:"exchange"`
-	}
-	if len(args) > 0 {
-		_ = json.Unmarshal(args, &in)
-	}
-	return in.Preset == "" && in.Type == "" && in.Exchange == ""
 }
 
 func watchListOnlyArgs(args json.RawMessage) bool {

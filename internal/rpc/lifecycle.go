@@ -488,8 +488,8 @@ func regimeTapeConfirmable(r RegimeSnapshotResult) bool {
 
 // regimePendingBacktestClusters returns the confirming clusters whose red
 // rows classify on threshold sets still flagged pending_backtest. The flag
-// finally becomes load-bearing here: per-set promotion (version-label bump
-// via the backtest plan) relaxes the gate without policy edits.
+// finally becomes load-bearing here: per-set promotion with versioned
+// calibration evidence relaxes the gate without policy edits.
 func regimePendingBacktestClusters(r *RegimeSnapshotResult, confirmedBy []string) []string {
 	var out []string
 	for _, name := range confirmedBy {

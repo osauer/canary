@@ -619,5 +619,5 @@ func bandForBreadth(r rpc.RegimeBreadth) string {
 
 // Cluster combination (raw worst-of bands, isolated-red downgrades,
 // eligibility-keyed independence) lives in internal/rpc/regime_policy.go —
-// the single copy the daemon, lifecycle builder, CLI, Stress, and backtest
+// the single copy the daemon, lifecycle builder, CLI, Stress, and historical verification
 // all share.

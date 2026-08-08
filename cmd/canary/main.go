@@ -131,17 +131,6 @@ func main() {
 		os.Exit(cli.Run(ctx, env, cmd, rest))
 	}
 
-	// Offline research harnesses consume local JSONL fixtures and should not
-	// autospawn or depend on a live gateway. The opportunity capture/export
-	// subcommands intentionally sample live scanner, technical, or history
-	// snapshots, so they go through the normal daemon path.
-	if cmd == "backtest" && !isBacktestDaemonInvocation(rest) {
-		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer cancel()
-		env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Color: color}
-		os.Exit(cli.Run(ctx, env, cmd, rest))
-	}
-
 	// `canary <cmd> --help` should not spawn the daemon — render help and exit.
 	for _, a := range rest {
 		if a == "--help" || a == "-h" || a == "-help" {
@@ -186,11 +175,6 @@ func main() {
 	// Streaming commands (`quote --watch`, `account --watch`, `positions
 	// --watch`) bypass — a long-lived watch must outlive any unary budget.
 	//
-	// `scan` gets a larger budget because the daemon-side MethodScanRun
-	// deadline is 75 s (35 s gateway scanner-subscription warmup off-hours
-	// + per-row enrichment); the CLI ceiling must exceed it so the
-	// classified daemon error reaches the user instead of a raw socket
-	// timeout from cancelling the in-flight request.
 	if !isStreamingInvocation(cmd, rest) {
 		budget := unaryInvocationBudget(cmd, rest)
 		var dlCancel context.CancelFunc
@@ -232,7 +216,7 @@ func unaryInvocationBudget(cmd string, rest []string) time.Duration {
 	// Integration builds deliberately override these strings with tiny values
 	// to exercise cancellation paths. Preserve that test seam exactly; normal
 	// production defaults derive from the shared RPC timing catalog below.
-	longClass := cmd == "scan" || cmd == "technical" || cmd == "stress" || cmd == "brief" || (cmd == "backtest" && isBacktestDaemonInvocation(rest))
+	longClass := cmd == "technical" || cmd == "stress" || cmd == "brief"
 	if cliUnaryTimeout != "60s" || cliLongUnaryTimeout != "90s" {
 		if longClass {
 			return parseDurationOr(cliLongUnaryTimeout, 90*time.Second)
@@ -301,16 +285,6 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 		return []string{rpc.MethodOpportunitiesStatus, rpc.MethodOpportunitiesSnapshot, rpc.MethodOpportunitiesRefresh, rpc.MethodOpportunitiesPreviewExercise, rpc.MethodOpportunitiesSubmitExercise, rpc.MethodOpportunitiesIgnore}, ordinaryHeadroom, ordinaryFloor
 	case "purge":
 		return []string{rpc.MethodPositionsList, rpc.MethodQuoteSnapshot, rpc.MethodPurgeStatus, rpc.MethodPurgeExecute, rpc.MethodPurgeRestorePreview, rpc.MethodPurgeRestoreExecute}, ordinaryHeadroom, ordinaryFloor
-	case "backtest":
-		return []string{rpc.MethodHistoryDaily, rpc.MethodScanRun, rpc.MethodTechnical, rpc.MethodRegimeSnapshot, rpc.MethodStatusHealth, rpc.MethodQuoteSnapshot}, 15 * time.Second, longFloor
-	case "scan":
-		if hasInvocationToken(rest, "list") {
-			return []string{rpc.MethodScanList}, ordinaryHeadroom, ordinaryFloor
-		}
-		if hasInvocationToken(rest, "params") {
-			return []string{rpc.MethodScanParams}, ordinaryHeadroom, ordinaryFloor
-		}
-		return []string{rpc.MethodScanRun}, 15 * time.Second, longFloor
 	case "trading":
 		if hasInvocationToken(rest, "paper-smoke") {
 			return []string{rpc.MethodTradingPaperSmoke}, 20 * time.Second, ordinaryFloor
@@ -355,20 +329,6 @@ func cliMethodBudget(methods []string, headroom, floor time.Duration) time.Durat
 func hasInvocationToken(args []string, tokens ...string) bool {
 	for _, arg := range args {
 		if slices.Contains(tokens, arg) {
-			return true
-		}
-	}
-	return false
-}
-
-func isBacktestDaemonInvocation(rest []string) bool {
-	for _, arg := range rest {
-		if arg == "--help" || arg == "-h" || arg == "-help" || arg == "help" {
-			return false
-		}
-	}
-	for _, arg := range rest {
-		if arg == "capture-opportunity" || arg == "export-opportunity-bars" {
 			return true
 		}
 	}

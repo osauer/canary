@@ -4,7 +4,7 @@
 
 ## TOML config
 
-Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. Note: defining any `[scans.<name>]` preset replaces the built-in preset set — the scans table is replace-not-merge.
+Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -31,11 +31,6 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[opportunities]` | `refresh_cadence` | `duration` | RefreshCadence controls how often the daemon refreshes opportunities; default 2m. |
 | `[opportunities]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks the opportunity policy file for changes; default 30s. |
 | `[rulebook]` | `terminal_evidence_file` | `string` | TerminalEvidenceFile points to an optional JSON document of reviewed, exact-contract terminal/non-reporting issuer evidence for rules 6-8. |
-| `[scans.<name>]` | `exchange` | `string` | Exchange is the IBKR scanner locationCode, such as STK.US.MAJOR or STK.NASDAQ. |
-| `[scans.<name>]` | `instrument` | `string` | Instrument is the IBKR scanner instrument token, such as STK for US stocks or STOCK.EU for European stocks; empty defaults to STK. |
-| `[scans.<name>]` | `limit` | `int` | Limit caps returned rows for this preset. |
-| `[scans.<name>]` | `timeout` | `duration` | Timeout is the per-preset scan timeout; <=0 falls back to the daemon default (20s). |
-| `[scans.<name>]` | `type` | `string` | Type is the IBKR scanner code, such as TOP_PERC_GAIN; dump your gateway's catalog with `canary scan params`. |
 | `[spx]` | `members_auto_refresh` | `*bool` | MembersAutoRefresh controls whether the daemon refreshes the S&P 500 constituent list from Wikipedia daily at 02:30 ET (default true; set false to pin the embedded baseline) — overridden symmetrically by the `CANARY_SPX_MEMBERS_AUTO_REFRESH` env var (`1` force-on, `0` force-off). |
 | `[trading]` | `allow_option_sell_to_open` | `bool` | AllowOptionSellToOpen permits option sell-to-open previews when true. |
 | `[trading]` | `allow_stock_short` | `bool` | AllowStockShort permits stock short/opening flip previews when true. |

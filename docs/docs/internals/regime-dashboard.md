@@ -433,8 +433,8 @@ reds only, so two marginal reds can no longer confirm each other.
 
 The live gamma sweep uses the nearest 80 listed strikes per expiry inside the
 +/-10% candidate window to keep the IBKR fan-out bounded, especially for
-SPX/SPXW. The [backtest runbook](regime-backtest.md#data-gates) owns the rule
-for gamma in historical replays.
+SPX/SPXW. Historical verification must preserve the same bounded selection and
+source-quality rules.
 
 Open interest is a required input for OI-weighted dealer GEX, but missing OI is
 unknown, never zero. Priced legs without observed OI may still fit the IV/skew
@@ -464,7 +464,10 @@ blending days from either side of a cutover. A threshold set drops
 rates against labeled episodes, and a version-label bump documented here. Disable collection via
 `canary settings set regime.journal.enabled=false`.
 
-## Backtesting
+## Calibration evidence
 
-The active backtest sequence, tuning gates, and source-data backlog live in
-[Regime and Stress Backtest Runbook](regime-backtest.md).
+The event history above is the replay input for future calibration. A policy
+change may replace `pending_backtest` only when its versioned evidence records
+coverage, false-alarm and recall rates, data-quality exclusions, and ordinary
+regression tests for the resulting thresholds. Canary no longer exposes a
+general-purpose user-facing backtest command.

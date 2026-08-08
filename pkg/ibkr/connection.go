@@ -1335,8 +1335,6 @@ const (
 	msgHistoricalDataEnd                      = 108
 	msgCurrentTimeMillis                      = 109
 	msgBondContractData                       = 18
-	msgScannerParameters                      = 19
-	msgScannerData                            = 20
 	msgTickOptionComputation                  = 21
 	msgTickGeneric                            = 45
 	msgTickString                             = 46
@@ -1415,9 +1413,6 @@ const (
 	replaceFA                   = 19
 	reqHistoricalData           = 20
 	exerciseOptions             = 21
-	reqScannerSubscription      = 22
-	cancelScannerSubscription   = 23
-	reqScannerParameters        = 24
 	cancelHistoricalData        = 25
 	reqCurrentTime              = 49
 	reqRealTimeBars             = 50
@@ -4113,10 +4108,8 @@ func (c *Connection) readMessage() ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	// Sanity cap: 16 MB. The IBKR scanner-parameters XML on a US Pro
-	// account with many subscriptions can run 1-3 MB; an old 1 MB cap
-	// truncated that response and desynced the stream. 16 MB is well
-	// above any realistic IBKR frame and still slams the door on a
+	// Sanity cap: 16 MB. Some IBKR responses can exceed the old 1 MB cap;
+	// 16 MB is well above any realistic frame while still rejecting a
 	// gateway that's gone rogue (or a wire that's been hijacked).
 	if msgLength > 16*1024*1024 {
 		return nil, fmt.Errorf("message too large: %d bytes", msgLength)

@@ -1,8 +1,8 @@
 // Package cli adapts typed daemon contracts and local workflows into Canary
 // commands, machine-readable output, and terminal rendering. Broker-connected
 // and runtime-state commands call the daemon over its typed Unix-socket
-// protocol, while setup, update, watchlist, and offline research workflows run
-// locally. Handlers return process exit codes; the daemon remains authoritative
+// protocol, while setup, update, and watchlist workflows run locally. Handlers
+// return process exit codes; the daemon remains authoritative
 // for broker state, policy decisions, and gated broker writes.
 package cli
 
@@ -205,14 +205,12 @@ func init() {
 		{"proposals", "Daemon-owned close/reduce-only protection proposals", "canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]", runProposals},
 		{"opportunities", "Daemon-owned option exercise opportunities", "canary opportunities status|refresh|list|preview|exercise|ignore [--json]", runOpportunities},
 		{"purge", "Emergency fast-path close for current stock/ETF and single-leg option positions", "canary purge SYMBOL|'*' [--wait 2s] [--json] | canary purge --all [--wait 2s] [--json] | canary purge restore SYMBOL|'*' [--scale 0.5] [--execute] [--json] | canary purge status [PURGE_ID] [--json] | canary purge monitor [PURGE_ID] [--watch --rate 1s] | canary purge dry-run [--json]", runPurge},
-		{"backtest", "Offline stress/regime/opportunity backtest harness from JSONL snapshots", "canary backtest stress|regime|opportunity|build-regime|build-opportunity --input PATH [--json] | canary backtest build-opportunity-pit --bars BARS.jsonl --bars-manifest MANIFEST.json [--symbols SYM[,SYM...]] [--sample-step-bars 21] [--holdout-start-date YYYY-MM-DD --holdout-plan ID] | canary backtest opportunity --input PATH [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] | canary backtest research-opportunity --input SCORED_PIT.jsonl [--plan all|ID[,ID...]] [--max-slots N] [--bars BARS.jsonl] [--bars-manifest MANIFEST.json] [--json] | canary backtest score-opportunity --input PIT.jsonl --bars BARS.jsonl [--bars-manifest MANIFEST.json] [--target-policy net-excess-positive] | canary backtest capture-opportunity [--preset top-movers | --symbols SYM[,SYM...]] [--include-regime] [--split tuning|holdout] [--holdout-plan ID] [--append PATH] [--json] | canary backtest export-opportunity-bars --symbols SYM[,SYM...] --bars BARS.jsonl --bars-manifest MANIFEST.json [--benchmark QQQ] [--lookback-days 420] [--json]", runBacktest},
-		{"scan", "Run a scanner preset or an ad-hoc scan; dump the gateway catalog with `scan params`", "canary scan <preset> | canary scan list | canary scan params [--instrument STK] [--raw] | canary scan --type SCANCODE --exchange LOCATIONCODE [--instrument STK|STOCK.EU] [--limit N] [--min-price 5] [--require-live] [--json]", runScan},
 		{"size", "Fixed-fractional position sizing pegged to live NLV", "canary size --symbol SYM --entry F --stop F [--risk-pct 1.0] [--side long|short] [--lot 1] [--fx 1.0] [--json]", runSize},
 		{"trading", "Local trading gate status and configuration", "canary trading status [--json] | canary trading paper-smoke [--timeout 30s] [--json]", runTrading},
 		{"settings", "Runtime platform preferences and observed read-only state", "canary settings show [--json] | canary settings set <supported-key>=true|false|null|number", runSettings},
 		{"orders", "Read current-context local order lifecycle state without transmitting orders", "canary orders open [--json] | canary orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]", runOrders},
 		{"order", "Preview, place, modify, cancel, or inspect gated orders", "canary order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT --trigger-method 2] [--json] | canary order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY [--order-type TRAIL-LIMIT --trail-percent PCT --limit-offset PRICE] [--json] | canary order place --preview-token TOKEN [--json] | canary order modify ID --preview-token TOKEN [--json] | canary order cancel ID [--json] | canary order status ID [--json]", runOrder},
-		{"app", "Run the paired mobile PWA application layer", "canary app [--addr HOST:PORT] | canary app pair", nil}, // dispatched in cmd/canary/main.go — long-lived app server
+		{"app", "Run the paired mobile PWA application layer", "canary app [--addr HOST:PORT] | canary app pair", nil},                                                // dispatched in cmd/canary/main.go — long-lived app server
 		{"mcp", "Run the stdio MCP server for local AI clients", "canary mcp", nil},                                                                                   // dispatched in cmd/canary/main.go — long-lived stdio server
 		{"daemon", "Run the stateful gateway daemon (normally autospawned)", "canary daemon [--foreground] [--config PATH] [--socket PATH] [--log PATH|stderr]", nil}, // dispatched in cmd/canary/main.go — long-lived daemon
 		{"setup", "Wire Canary into a local AI client (default: claude-desktop)", "canary setup [claude-desktop]", nil},                                               // dispatched in cmd/canary/main.go — no daemon contact
@@ -678,6 +676,20 @@ func visibleLen(s string) int {
 		n++
 	}
 	return n
+}
+
+func truncateVisible(s string, width int) string {
+	if visibleLen(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+	return string(runes[:width-1]) + "."
 }
 
 // padRightVisible pads s on the right with spaces until its visible

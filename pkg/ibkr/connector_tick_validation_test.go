@@ -783,12 +783,9 @@ func TestHandleTickSize_OpenInterestAcceptsDecimalPayload(t *testing.T) {
 	}
 }
 
-// TestHandleTickPrice_WeekRangeCapture pins the new tick types added in
-// v0.12 for scan-row enrichment. 13W/26W/52W highs/lows arrive as
-// standard tickPrice messages (msg ID 1) with tick types 15-20; capture
-// is load-bearing for the scanner's 52w column. A previous build silently
-// dropped these into the default branch, so an absent test made the
-// regression invisible.
+// TestHandleTickPrice_WeekRangeCapture pins the 13W/26W/52W high/low tick
+// types. A previous build silently dropped these into the default branch,
+// so an absent test made the regression invisible.
 func TestHandleTickPrice_WeekRangeCapture(t *testing.T) {
 	c := NewConnector(&ConnectorConfig{})
 	c.subMu.Lock()

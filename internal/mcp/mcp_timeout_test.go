@@ -37,15 +37,12 @@ func TestMCPToolCallTimeoutBudgets(t *testing.T) {
 		want time.Duration
 	}{
 		{name: "canary_status", want: clientBudget(rpc.MethodStatusHealth, mcpFastToolHeadroom)},
-		{name: "canary_scan", args: json.RawMessage(`{}`), want: clientBudget(rpc.MethodScanList, mcpFastToolHeadroom)},
-		{name: "canary_scan", args: json.RawMessage(`{"preset":"top-movers"}`), want: mcpScannerToolFloor},
-		{name: "canary_scan_params", args: json.RawMessage(`{}`), want: mcpScanParamsFloor},
 		{name: "canary_watch", args: json.RawMessage(`{"include_quotes":false}`), want: clientBudget(rpc.MethodStatusHealth, mcpFastToolHeadroom)},
 		{name: "canary_watch", args: json.RawMessage(`{}`), want: mcpWatchQuoteFloor},
 		{name: "canary_chain", args: json.RawMessage(`{"symbol":"AAPL","expiry":"2026-07-17"}`), want: mcpLongToolFloor},
-		{name: "canary_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpScannerToolFloor},
+		{name: "canary_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpAnalysisToolFloor},
 		{name: "canary_regime", want: clientBudget(rpc.MethodRegimeSnapshot, mcpDefaultHeadroom)},
-		{name: "canary_stress", want: mcpScannerToolFloor},
+		{name: "canary_stress", want: mcpAnalysisToolFloor},
 		{name: "canary_history", args: json.RawMessage(`{"symbol":"SPY"}`), want: clientBudget(rpc.MethodHistoryDaily, mcpDefaultHeadroom)},
 		{name: "canary_order_preview", args: json.RawMessage(`{"action":"sell","symbol":"SPY","quantity":1}`), want: clientBudget(rpc.MethodOrderPreview, mcpDefaultHeadroom)},
 		{name: "canary_proposals", args: json.RawMessage(`{}`), want: mcpDefaultToolFloor},

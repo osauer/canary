@@ -13,7 +13,7 @@ Field absence semantics matter:
 - Times are RFC 3339 with timezone.
 
 Coverage boundary: commands without a section here — `rules` (+`history`),
-`recon`, `policy`, `brief`, `purge`, `backtest`, `opportunities`, the
+`recon`, `policy`, `brief`, `purge`, `opportunities`, the
 `proposals` write subcommands, `settings set`, `trading paper-smoke`,
 `order place|modify|cancel`, and `update` — still emit `--json`, shaped by
 their result structs in `internal/rpc/rpc.go` and neighbors. For those, run
@@ -510,7 +510,7 @@ Field meanings:
 - `avg_volume` — IBKR average volume tick from the Misc Stats bundle.
   Omitted when not delivered.
 - `avg_volume_20d`, `avg_dollar_volume_20d` — computed from the latest
-  daily bars, not from scanner output. Use these as the investability
+  daily bars. Use these as the investability
   liquidity gate for stock screens. `avg_dollar_volume_20d` is average
   `close × volume` over the sample.
 - `liquidity_status` — `ok`, `partial`, or `unavailable`. `partial`
@@ -947,99 +947,6 @@ Field meanings:
   SMA200 in the first implementation.
 - `data_quality` — `ok`, `partial`, `insufficient_data`, or `error`.
   Inspect `missing_reasons` before using partial rows in a screen.
-
-## scan
-
-Three invocations share this result shape — preset, ad-hoc, and list-only differ in inputs.
-
-`canary scan top-movers --json` (preset shorthand):
-
-```json
-{
-  "preset": "top-movers",
-  "type": "TOP_PERC_GAIN",
-  "as_of": "2026-05-09T14:32:09Z",
-  "rows": [
-    {
-      "rank": 1,
-      "symbol": "NVDA",
-      "currency": "USD",
-      "last": 458.02,
-      "prev_close": 434.50,
-      "change": 23.52,
-      "change_pct": 5.41,
-      "volume": 12345678,
-      "iv": 0.342,
-      "week_52_high": 465.10,
-      "week_52_low": 290.50,
-      "comment": ""
-    }
-  ]
-}
-```
-
-`canary scan --type TOP_PERC_GAIN --exchange STK.NASDAQ --limit 25 --json` (ad-hoc): same row shape, `preset` is empty.
-
-Row fields:
-
-- `rank` — IBKR scanner ranking (0-indexed in the response, 1-indexed in the text renderer for readability).
-- `symbol` — ticker.
-- `currency` — ISO-4217 code for `last`/`prev_close`/`change`/`week_52_*`. Populated from the gateway's scannerData row (the contract currency comes back alongside symbol/exchange). Omitted by daemons older than v0.13.0; consumers should treat empty as "unknown" and fall back to `$`.
-- `instrument_tags` — conservative local labels for known exchange-traded products that IBKR may still return from a stock scan, e.g. `etf`, `leveraged_etp`, `single_stock_etp`, `broad_index_etf`, `sector_etp`. When a prompt asks for non-ETF single-name ideas, drop rows tagged `etf` or `leveraged_etp` before running deeper analysis. Empty/missing means "no known local tag", not proof that the row is common stock.
-- `last`, `prev_close`, `change`, `change_pct`, `volume` — populated by a follow-up market-data subscribe the daemon issues per row. IBKR's scanner subscription itself returns *only* rank + symbol (by protocol design — the leaderboard is a separate service from market data), so the daemon enriches each row in parallel. Nil fields mean the gateway didn't deliver the corresponding tick within the per-row enrichment window — common off-hours, especially for IV.
-- `iv` — underlying's averaged option implied volatility (from generic tick 106). Stored as a fraction: 0.234 = 23.4%. Present only when the symbol has actively-traded options *and* the gateway delivers the tick within the window.
-- `week_52_high`, `week_52_low` — 52-week price range (from generic tick 165). Used to gauge where the current price sits within the year's extremes.
-- `comment` — raw scanner-side comment field. Empty for most scan types; carries the IBKR-side metric only for a few specialty scans.
-
-`type` always echoes the underlying `scanCode` so the caller can attribute rows even without `preset`. **The scanner ranks server-side; per-row data is fetched client-side.** This is by IBKR's design — the TWS Market Scanner GUI works the same way.
-
-## scan-list
-
-`canary scan list --json`
-
-```json
-{
-  "presets": [
-    { "name": "gappers", "type": "HIGH_OPEN_GAP", "exchange": "STK.US.MAJOR", "limit": 20 },
-    { "name": "high-iv-rank", "type": "HIGH_OPT_IMP_VOLAT_OVER_HIST", "exchange": "STK.US", "limit": 20 },
-    { "name": "most-active", "type": "MOST_ACTIVE", "exchange": "STK.US.MAJOR", "limit": 20 },
-    { "name": "top-losers", "type": "TOP_PERC_LOSE", "exchange": "STK.US.MAJOR", "limit": 20 },
-    { "name": "top-movers", "type": "TOP_PERC_GAIN", "exchange": "STK.US.MAJOR", "limit": 20 },
-    { "name": "unusual-opt-vol", "type": "HOT_BY_OPT_VOLUME", "exchange": "STK.US.MAJOR", "limit": 20 },
-    { "name": "unusual-vol", "type": "HOT_BY_VOLUME", "exchange": "STK.US.MAJOR", "limit": 20 }
-  ]
-}
-```
-
-User-defined `[scans.<name>]` blocks in `config.toml` replace the defaults entirely (no merge). Always run `scan list` if unsure what's configured.
-
-## scan-params
-
-`canary scan params --instrument STK --json` (catalog dump; use to discover valid `scanCode` and `locationCode` strings before composing an ad-hoc scan):
-
-```json
-{
-  "instruments": [
-    { "name": "US Stocks", "type": "STK" },
-    { "name": "US Equity ETFs", "type": "ETF.EQ.US" }
-  ],
-  "locations": [
-    { "code": "STK.US", "display_name": "US Stocks" },
-    { "code": "STK.US.MAJOR", "display_name": "Listed/NASDAQ" },
-    { "code": "STK.NASDAQ", "display_name": "NASDAQ" }
-  ],
-  "scan_types": [
-    { "code": "TOP_PERC_GAIN", "display_name": "Top % Gainers", "instruments": ["STK", "ETF"] },
-    { "code": "HIGH_OPT_IMP_VOLAT_OVER_HIST", "display_name": "High Option Imp Vol Over Historical", "instruments": ["STK"] }
-  ],
-  "as_of": "2026-05-12T06:45:00Z"
-}
-```
-
-- `instruments` — instrument-group tokens. Use `instruments[].type` as the `--instrument` filter value (e.g. `STK`, `OPT`, `ETF`).
-- `locations` — every `locationCode` the gateway accepts. Pass `code` as the ad-hoc scan's `--exchange`.
-- `scan_types` — every `scanCode`. Pass `code` as the ad-hoc scan's `--type`. `scan_types[].instruments` lists which instrument-types the scan applies to (filter the list to scans valid for your target).
-- Add `--raw` to attach the full XML in a `raw_xml` field (only when you need a less-common field like filter values or category tags).
 
 ## status
 
