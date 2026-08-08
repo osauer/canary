@@ -4005,7 +4005,7 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	// connected_account names one account or nothing. A login holding several
 	// advertises the comma-joined managedAccounts list, which is a session
 	// inventory rather than an account code, and every consumer that reads this
-	// field wants the account the session is scoped to: the CLI and TUI already
+	// field wants the account the session is scoped to: the CLI already
 	// guarded their rendering, but the SPA and the MCP status tool served the
 	// list through unchanged. Guarding those two instead would have left the
 	// same key carrying different values in `canary status --json` and in

@@ -70,7 +70,7 @@ func render(specs []cli.CommandSpec) string {
 
 	fmt.Fprintf(out, "`canary` is one binary with %d subcommands, listed here in registry order. ", len(specs))
 	out.WriteString("`canary status` comes first on purpose: when anything else fails, it is the command that says whether the daemon is running and the gateway is reachable. ")
-	out.WriteString("Running `canary` with no arguments in an interactive terminal opens the full-screen terminal app, which reads the same registry.\n\n")
+	out.WriteString("Running `canary` with no arguments prints the grouped command summary.\n\n")
 
 	out.WriteString("Add `--json` to a data command for machine-readable output instead of a table. ")
 	out.WriteString("Commands that accept `--watch` redraw on an interval set by `--rate`, as in `canary account --watch --rate 1s`. ")
@@ -127,10 +127,6 @@ func renderCommand(out *strings.Builder, spec cli.CommandSpec) {
 		fmt.Fprintf(out, "CLI only, with no MCP tool: %s.\n\n", strings.TrimRight(reason, "."))
 	} else {
 		out.WriteString("Also available as an MCP tool.\n\n")
-	}
-
-	if spec.TUI == cli.TUIExternal {
-		out.WriteString("Run this from a plain shell rather than the full-screen terminal app: it owns a long-lived process or an installer lifecycle.\n\n")
 	}
 
 	if spec.Usage != "" {

@@ -77,9 +77,9 @@
     <rect x="36" y="562" width="172" height="1" fill="#d8d2c4"/>
   </g>
 
-  <g role="group" aria-label="CLI / TUI. argv · stdout. internal/cli">
+  <g role="group" aria-label="CLI. argv · stdout. internal/cli">
     <rect x="246" y="210" width="44" height="44" rx="11" fill="#42526a"/><svg x="256" y="220" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-terminal"/></svg>
-    <text x="302" y="227" class="node-title">CLI / TUI</text>
+    <text x="302" y="227" class="node-title">CLI</text>
     <text x="302" y="246" class="node-sub"><tspan x="302" dy="0">argv · stdout</tspan></text>
     <text x="302" y="261" class="mono-small">internal/cli</text>
     <rect x="246" y="278" width="180" height="1" fill="#d8d2c4"/>

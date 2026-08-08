@@ -31,9 +31,6 @@ func TestCatalogCoversCommands(t *testing.T) {
 		if spec.Guard == "" {
 			t.Fatalf("%s missing guard class", cmd.Name)
 		}
-		if spec.TUI == "" {
-			t.Fatalf("%s missing TUI support", cmd.Name)
-		}
 		if spec.Group == "" {
 			t.Fatalf("%s missing help group", cmd.Name)
 		}

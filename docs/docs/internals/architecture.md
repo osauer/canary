@@ -30,7 +30,7 @@ authority.
 
 | Process or surface | Lifetime | Responsibility |
 |---|---|---|
-| CLI / TUI | One command | Validates input, calls the daemon for broker and runtime work, and renders human or JSON output. A few local-only workflows run without the daemon. |
+| CLI | One command | Validates input, calls the daemon for broker and runtime work, and renders human or JSON output. A few local-only workflows run without the daemon. |
 | `canary daemon` | Demand-driven background process or foreground service | Owns the broker connections and all runtime state: `daemon.db`, refreshable in-memory views, schedulers, source ingestion, risk-policy execution, proposals, opportunities, and reconciliation. |
 | `canary mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates tools and resources into short daemon calls. The surface serves read, research, and preview work; it exposes no broker-write tools. |
 | `canary app` | Independently run or supervised HTTP process | Serves the embedded Canary PWA and owns pairing, auth, and app state. Maintains the live snapshot and quote streams, emits SSE, and can connect to the remote relay and Web Push. |

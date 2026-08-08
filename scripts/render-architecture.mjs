@@ -268,7 +268,7 @@ function systemArchitecture() {
   ${component({ x: 36, y: rows[1], iconName: "cpu", color: C.slate, title: "AI / MCP Host", subtitle: ["Claude · Codex", "other MCP clients"], width: 172 })}
   ${component({ x: 36, y: rows[2], iconName: "mobileCode", color: C.yellow, iconColor: C.ink, title: "Canary PWA", subtitle: ["browser", "iOS Home Screen"], width: 172 })}
 
-  ${component({ x: 246, y: rows[0], iconName: "terminal", color: C.slate, title: "CLI / TUI", subtitle: ["argv · stdout"], mono: "internal/cli", width: 180 })}
+  ${component({ x: 246, y: rows[0], iconName: "terminal", color: C.slate, title: "CLI", subtitle: ["argv · stdout"], mono: "internal/cli", width: 180 })}
   ${component({ x: 246, y: rows[1], iconName: "plugConnected", color: C.slate, title: "MCP Adapter", subtitle: ["JSON-RPC 2.0 · stdio"], mono: "internal/mcp", width: 180 })}
   ${component({ x: 246, y: rows[2], iconName: "mobileCode", color: C.yellow, iconColor: C.ink, title: "Canary App Host", subtitle: ["HTTP JSON · SSE"], mono: "internal/app", width: 180 })}
 

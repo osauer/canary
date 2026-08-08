@@ -13,19 +13,18 @@ import (
 )
 
 // TestCatalogFlagParity pins the catalog's flag inventory to the actual
-// flag.FlagSet registrations in this package. The CLI reference and TUI
-// completion are generated from the catalog, so a flag registered in a
-// handler but missing here ships undocumented (restart --remote was the
-// first instance), and a catalog flag no handler registers is a phantom.
+// flag.FlagSet registrations in this package. The CLI reference is generated
+// from the catalog, so a flag registered in a handler but missing here ships
+// undocumented (restart --remote was the first instance), and a catalog flag
+// no handler registers is a phantom.
 func TestCatalogFlagParity(t *testing.T) {
 	registered := collectRegisteredFlags(t)
 
-	external := map[string]bool{}
+	// These commands parse in cmd/canary rather than internal/cli.
+	external := map[string]bool{"app": true, "mcp": true, "daemon": true, "setup": true}
 	catalogFlags := map[string]map[string]bool{}
 	for _, spec := range Catalog() {
-		if spec.TUI == TUIExternal {
-			// app/mcp/daemon/setup parse outside internal/cli.
-			external[spec.Name] = true
+		if external[spec.Name] {
 			continue
 		}
 		set := map[string]bool{}

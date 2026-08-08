@@ -2,9 +2,9 @@ package cli
 
 import "slices"
 
-// GuardClass describes whether a command can run directly inside the TUI or
-// needs a human confirmation first. It is metadata only; existing CLI gates
-// still enforce the real safety policy.
+// GuardClass describes whether a command is read-only, changes local state, or
+// needs a human confirmation. It is metadata only; existing CLI gates still
+// enforce the real safety policy.
 type GuardClass string
 
 // Guard classifications used by the command catalog.
@@ -12,18 +12,6 @@ const (
 	GuardReadOnly GuardClass = "read-only"
 	GuardLocal    GuardClass = "local"
 	GuardConfirm  GuardClass = "confirm"
-)
-
-// TUISupport describes how the full-screen terminal app should handle a
-// command. External commands are advertised for discovery but should be run in
-// a regular terminal because they own a process, stdio stream, or installer
-// lifecycle outside the TUI's prompt/output model.
-type TUISupport string
-
-// TUI support classifications used by the command catalog.
-const (
-	TUISupported TUISupport = "supported"
-	TUIExternal  TUISupport = "external"
 )
 
 // HelpGroup buckets commands in the top-level help listing. It is a reading
@@ -57,8 +45,8 @@ func HelpGroups() []HelpGroupSpec {
 }
 
 // FlagSpec is the shared flag metadata used by command-line flag hoisting and
-// TUI completion. Values is intentionally small and enum-like; dynamic
-// completion (symbols, watchlist names) lives in the TUI layer.
+// generated reference documentation. Values is intentionally small and
+// enum-like.
 type FlagSpec struct {
 	Name       string
 	TakesValue bool
@@ -74,9 +62,9 @@ type SubcommandSpec struct {
 	Guard GuardClass
 }
 
-// CommandSpec is the user-facing command catalog shared by the one-shot CLI
-// and the TUI. Name/Summary/Usage are copied from Commands() at runtime so the
-// help table and catalog cannot silently drift.
+// CommandSpec is the user-facing command catalog. Name/Summary/Usage are copied
+// from Commands() at runtime so the help table and catalog cannot silently
+// drift.
 type CommandSpec struct {
 	Name    string
 	Summary string
@@ -88,7 +76,6 @@ type CommandSpec struct {
 	Flags       []FlagSpec
 	Subcommands []SubcommandSpec
 	Guard       GuardClass
-	TUI         TUISupport
 	Group       HelpGroup
 }
 
@@ -101,7 +88,7 @@ func (s CommandSpec) listing() string {
 }
 
 // Catalog returns the registered commands with shared metadata for the help
-// listing, completion, TUI guard decisions, and flag-value handling.
+// listing, generated reference, guard descriptions, and flag-value handling.
 func Catalog() []CommandSpec {
 	extras := catalogExtras()
 	out := make([]CommandSpec, 0, len(commands))
@@ -112,9 +99,6 @@ func Catalog() []CommandSpec {
 		spec.Usage = cmd.Usage
 		if spec.Guard == "" {
 			spec.Guard = GuardReadOnly
-		}
-		if spec.TUI == "" {
-			spec.TUI = TUISupported
 		}
 		out = append(out, spec)
 	}
@@ -159,15 +143,15 @@ func catalogExtras() map[string]CommandSpec {
 		"policy":        {Group: GroupDesk, Brief: "Risk constitution: limits, capital and drawdown state", Flags: flags(boolFlag("explain"), valueFlag("amount", nil), valueFlag("effective-at", nil), valueFlag("note", nil), valueFlag("control", nil), valueFlag("reason", nil), valueFlag("hours", nil), valueFlag("report", nil), valueFlag("peak", nil), boolFlag("from-statements"), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "show", Guard: GuardReadOnly}, {Name: "capital-event", Guard: GuardConfirm}, {Name: "override", Guard: GuardConfirm}, {Name: "reset-drawdown", Guard: GuardConfirm}, {Name: "correct-peak", Guard: GuardConfirm}, {Name: "artefact", Guard: GuardConfirm}, {Name: "default", Guard: GuardLocal}}, Guard: GuardReadOnly},
 		"recon":         {Group: GroupDesk, Brief: "Post-trade reconciliation against the capital ledger", Flags: flags(boolFlag("refresh"), valueFlag("line", nil), valueFlag("reason", nil), valueFlag("since", nil), valueFlag("until", nil), valueFlag("limit", nil), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "show", Guard: GuardReadOnly}, {Name: "backtest", Guard: GuardReadOnly}, {Name: "equity", Guard: GuardReadOnly}, {Name: "dismiss", Guard: GuardConfirm}}, Guard: GuardReadOnly},
 		// settings set stays GuardConfirm: it writes runtime preferences, and
-		// trading.freeze plus the trading-limit keys are accepted precisely
-		// because the TUI is an interactive human terminal.
+		// trading.freeze plus the trading-limit keys are accepted only from an
+		// interactive human terminal.
 		"settings": {Group: GroupSystem, Flags: flags(boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "show", Guard: GuardReadOnly}, {Name: "set", Guard: GuardConfirm}}, Guard: GuardReadOnly},
 		"orders":   {Group: GroupDesk, Brief: "Read the local order journal; never transmits", Flags: flags(valueFlag("since", nil), valueFlag("until", nil), valueFlag("limit", nil), valueFlag("event-limit", nil), boolFlag("json")), Subcommands: subcommands("open", "history")},
 		"order":    {Group: GroupDesk, Flags: flags(valueFlag("limit", nil), valueFlag("strategy", []string{"patient-limit", "explicit-limit", "broker-trail"}), valueFlag("order-type", []string{"LMT", "TRAIL", "TRAIL-LIMIT"}), valueFlag("trail-percent", nil), valueFlag("trail-amount", nil), valueFlag("initial-stop", nil), valueFlag("limit-offset", nil), valueFlag("trigger-method", []string{"1", "2", "3", "4", "7", "8"}), valueFlag("tif", []string{"DAY", "GTC"}), boolFlag("outside-rth"), valueFlag("replace-order", nil), valueFlag("timeout", nil), valueFlag("market", []string{"us", "de"}), valueFlag("exchange", nil), valueFlag("primary", nil), valueFlag("currency", nil), valueFlag("preview-token", nil), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "preview", Guard: GuardReadOnly}, {Name: "status", Guard: GuardReadOnly}, {Name: "place", Guard: GuardConfirm}, {Name: "modify", Guard: GuardConfirm}, {Name: "cancel", Guard: GuardConfirm}}},
-		"app":      {Group: GroupSystem, Flags: flags(valueFlag("addr", nil), valueFlag("public-url", nil), valueFlag("state-dir", nil), boolFlag("remote"), valueFlag("remote-url", nil), valueFlag("keep-days", nil), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "pair", Guard: GuardLocal}, {Name: "serve", Guard: GuardLocal}, {Name: "devices", Guard: GuardReadOnly}, {Name: "restart", Guard: GuardConfirm}}, Guard: GuardLocal, TUI: TUIExternal},
-		"mcp":      {Group: GroupSystem, Flags: flags(valueFlag("profile", []string{"full", "monitor"})), Guard: GuardLocal, TUI: TUIExternal},
-		"daemon":   {Group: GroupSystem, Flags: flags(boolFlag("foreground"), boolFlag("version"), valueFlag("config", nil), valueFlag("socket", nil), valueFlag("log", nil)), Guard: GuardLocal, TUI: TUIExternal},
-		"setup":    {Group: GroupSystem, Guard: GuardLocal, TUI: TUIExternal},
+		"app":      {Group: GroupSystem, Flags: flags(valueFlag("addr", nil), valueFlag("public-url", nil), valueFlag("state-dir", nil), boolFlag("remote"), valueFlag("remote-url", nil), valueFlag("keep-days", nil), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "pair", Guard: GuardLocal}, {Name: "serve", Guard: GuardLocal}, {Name: "devices", Guard: GuardReadOnly}, {Name: "restart", Guard: GuardConfirm}}, Guard: GuardLocal},
+		"mcp":      {Group: GroupSystem, Flags: flags(valueFlag("profile", []string{"full", "monitor"})), Guard: GuardLocal},
+		"daemon":   {Group: GroupSystem, Flags: flags(boolFlag("foreground"), boolFlag("version"), valueFlag("config", nil), valueFlag("socket", nil), valueFlag("log", nil)), Guard: GuardLocal},
+		"setup":    {Group: GroupSystem, Guard: GuardLocal},
 		"update":   {Group: GroupSystem, Flags: flags(boolFlag("check"), boolFlag("force"), boolFlag("restart"), boolFlag("no-restart")), Guard: GuardConfirm},
 		"restart":  {Group: GroupSystem, Flags: flags(boolFlag("app"), boolFlag("force"), valueFlag("timeout", nil), valueFlag("addr", nil), valueFlag("public-url", nil), boolFlag("remote"), valueFlag("remote-url", nil), valueFlag("state-dir", nil), boolFlag("json")), Guard: GuardConfirm},
 		"stop":     {Group: GroupSystem, Flags: flags(boolFlag("app"), boolFlag("daemon"), boolFlag("force"), boolFlag("yes"), valueFlag("timeout", nil), boolFlag("json")), Guard: GuardConfirm},
