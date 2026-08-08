@@ -16,7 +16,7 @@ import (
 // always carries v9.9.9 plus assets for every supported host so tests
 // don't have to skip per-platform.
 func fakeFetch(tag string) fetchFunc {
-	return func(ctx context.Context) (*update.Release, error) {
+	return func(ctx context.Context, _ string) (*update.Release, error) {
 		return &update.Release{
 			TagName: tag,
 			Assets: []update.Asset{
@@ -32,7 +32,7 @@ func fakeFetch(tag string) fetchFunc {
 }
 
 func fakeFetchErr(err error) fetchFunc {
-	return func(ctx context.Context) (*update.Release, error) { return nil, err }
+	return func(ctx context.Context, _ string) (*update.Release, error) { return nil, err }
 }
 
 func recordingInstall(installed *bool) installFunc {
@@ -298,7 +298,7 @@ func TestRunUpdateCore_NoAssetForHost(t *testing.T) {
 	opts.restart = true
 	// Construct a release that has SHA256SUMS but only plan9 assets
 	// — AssetForHost will fail on every supported host.
-	fetch := func(ctx context.Context) (*update.Release, error) {
+	fetch := func(ctx context.Context, _ string) (*update.Release, error) {
 		return &update.Release{
 			TagName: "v9.9.9",
 			Assets: []update.Asset{

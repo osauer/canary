@@ -51,7 +51,9 @@ CODEX_DIR  ?= $(HOME)/.codex
 CODEX_SKILL_DIR ?= $(CODEX_DIR)/skills/canary
 SKILL_SRC  ?= skills/canary
 
-MAIN_BRANCH ?= main
+# v2 remains the maintained N-1 line while v3 develops and stabilizes. Every
+# other major releases from main; callers cannot retarget this pinned variable.
+MAIN_BRANCH ?= $(if $(filter v2.%,$(RELEASE_VERSION)),release/2.x,main)
 RELEASE_SOURCE_MODE ?= controller
 RELEASE_CI_POLL ?= 15s
 RELEASE_CI_TIMEOUT ?= 30m
@@ -1224,6 +1226,11 @@ release: ## Cut a release from an isolated worktree of committed HEAD: make rele
 		echo "release: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
+	@branch=$$(git symbolic-ref --quiet --short HEAD) || { echo "release: checkout must be on $(MAIN_BRANCH)" >&2; exit 1; }; \
+	if [ "$$branch" != "$(MAIN_BRANCH)" ]; then \
+		echo "release: $(RELEASE_VERSION) belongs to $(MAIN_BRANCH), not $$branch" >&2; \
+		exit 1; \
+	fi
 	$(MAKE) release-origin-check
 	@# Fetch so origin/MAIN_BRANCH means GitHub's state, not a stale local
 	@# remote-tracking ref. Releasing needs the network anyway.
@@ -1298,6 +1305,11 @@ release-resume: ## Resume a release interrupted after its tag was pushed: make r
 	fi
 	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$$'; then \
 		echo "release-resume: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
+	@branch=$$(git symbolic-ref --quiet --short HEAD) || { echo "release-resume: checkout must be on $(MAIN_BRANCH)" >&2; exit 1; }; \
+	if [ "$$branch" != "$(MAIN_BRANCH)" ]; then \
+		echo "release-resume: $(RELEASE_VERSION) belongs to $(MAIN_BRANCH), not $$branch" >&2; \
 		exit 1; \
 	fi
 	$(MAKE) release-origin-check

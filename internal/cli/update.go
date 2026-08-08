@@ -90,7 +90,7 @@ func parseUpdateFlags(args []string, opts *updateOptions, stdout, stderr io.Writ
 // the three side-effectful operations (fetch metadata, run install,
 // restart the local stack) so unit tests can exercise the flag matrix and
 // version branches without HTTP / disk / signals.
-type fetchFunc func(ctx context.Context) (*update.Release, error)
+type fetchFunc func(ctx context.Context, installedVersion string) (*update.Release, error)
 type installFunc func(ctx context.Context, plan *update.Plan) error
 type stackRestartFunc func(ctx context.Context, installedExecutable string, stdout, stderr io.Writer) int
 
@@ -104,13 +104,13 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 		return 2
 	}
 
-	rel, err := fetch(ctx)
+	installed := normalizeVersion(opts.installedVersion)
+	rel, err := fetch(ctx, installed)
 	if err != nil {
 		fmt.Fprintf(opts.err, "%s update: could not reach GitHub releases API: %v\n", productidentity.Executable, err)
 		return 1
 	}
 
-	installed := normalizeVersion(opts.installedVersion)
 	latest := normalizeVersion(rel.TagName)
 
 	// Version-compare decision. --force always installs (bypasses).
@@ -261,8 +261,8 @@ func isStdinTTY(in io.Reader) bool {
 
 // --- production adapters (thin shims so runUpdateCore stays pure). ---
 
-func fetchLatestReleaseAdapter(ctx context.Context) (*update.Release, error) {
-	return update.FetchLatestRelease(ctx)
+func fetchLatestReleaseAdapter(ctx context.Context, installedVersion string) (*update.Release, error) {
+	return update.FetchLatestRelease(ctx, installedVersion)
 }
 
 func runInstallAdapter(ctx context.Context, plan *update.Plan) error {

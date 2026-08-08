@@ -50,6 +50,13 @@ fixture_make_with_env() {
 }
 
 mkdir -p "$test_root/bin" "$test_root/scripts" "$test_root/.github/workflows"
+for workflow in ci.yml pages-check.yml; do
+	cat >"$test_root/.github/workflows/$workflow" <<'EOF'
+on:
+  push:
+    branches: [main, release/2.x]
+EOF
+done
 for command in git gh claude; do
 	cat > "$test_root/bin/$command" <<'EOF'
 #!/bin/sh
@@ -68,7 +75,7 @@ override release_overridden_vars = $(strip $(foreach release_pinned_var,$(releas
 RELEASE_TARGETS = darwin-arm64 darwin-amd64 linux-amd64 linux-arm64
 SPX_EXPECTED_REACHABLE ?= 1
 SMOKE_STRICT ?= 0
-MAIN_BRANCH ?= main
+MAIN_BRANCH ?= $(if $(filter v2.%,$(RELEASE_VERSION)),release/2.x,main)
 RELEASE_SOURCE_MODE ?= controller
 GO_TAGS ?= trading
 GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)

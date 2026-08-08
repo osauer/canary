@@ -27,17 +27,33 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 - Report only redacted artifacts: commands, exit codes, log paths,
   fingerprints. No raw account ids, balances, order refs, or private logs.
 
+## Maintained release lines
+
+- v3 and later release from `main`; while v3 stabilizes, v2 maintenance
+  releases cut only from `release/2.x`. The Makefile derives that branch from
+  `RELEASE_VERSION` and refuses a release or resume from any other branch.
+- N-1 receives only safety, security, data-loss, and broker-compatibility
+  fixes. Forward-port every such fix to `main`; feature work never lands only
+  on N-1.
+- `canary update` selects the newest stable release on the installed major
+  line. It does not silently move v2 to v3, and draft/prerelease builds never
+  enter the stable channel.
+- Retiring N-1 requires at least 90 days of overlap, one maintenance release,
+  proven v2-to-v3 migration and rollback, and a new explicit operator
+  decision. Time alone does not retire it.
+
 ## Stage 0 — Context (autonomous)
 
 - The pipeline self-isolates: `make release` pins the operator's committed
   HEAD, creates a detached worktree at that commit, runs the whole body
   there, removes it on success, and keeps it (printing the path) on failure.
-  The body's first step fast-forward-pushes the pinned commit to origin/main
+  The body's first step fast-forward-pushes the pinned commit to the target
+  release branch
   (a no-op when already landed), so "commit it, fire" is the entire
   protocol: dirty files never ship, commits made after firing never ship,
-  and no separate push is required. The fire aborts only when origin/main
+  and no separate push is required. The fire aborts only when that branch
   carries commits the checkout lacks — pull/rebase first. Snapshot
-  `git status` and `git log --oneline origin/main..HEAD` before firing: a
+  `git status` and `git log --oneline origin/$(MAIN_BRANCH)..HEAD` before firing: a
   fire lands and publishes every local commit. The worktree runs the pinned
   commit's Makefile, so pipeline changes take effect once committed.
 - Shared-tree check (guards the prep commits, not the pipeline — the
