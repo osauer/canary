@@ -13,13 +13,13 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-func TestManifestCoversTrackedTwins(t *testing.T) {
+func TestManifestOwnsUntrackedOutputs(t *testing.T) {
 	root := repoRoot(t)
 	tracked, err := trackedFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateManifest(tracked, true); err != nil {
+	if err := validateManifest(tracked); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := len(pages), 32; got != want {
@@ -166,9 +166,12 @@ func TestSideNavTree(t *testing.T) {
 				t.Errorf("tree has %d links, want %d", got, want)
 			}
 			for _, href := range hrefs {
-				target := filepath.Join(root, filepath.Dir(output), filepath.FromSlash(href[1]))
-				if _, err := os.Stat(target); err != nil {
-					t.Errorf("link %q does not resolve from %s: %v", href[1], output, err)
+				target := filepath.Clean(filepath.Join(filepath.Dir(output), filepath.FromSlash(href[1])))
+				if strings.HasSuffix(href[1], "/") {
+					target = filepath.Join(target, "index.html")
+				}
+				if _, ok := rendered[filepath.ToSlash(target)]; !ok {
+					t.Errorf("link %q does not resolve from %s", href[1], output)
 				}
 			}
 
@@ -204,6 +207,23 @@ func TestSideNavTree(t *testing.T) {
 				t.Errorf("tree opens %d sections, want %d", got, want)
 			}
 		})
+	}
+}
+
+func TestBuildWritesCompleteSiteArtifact(t *testing.T) {
+	root := repoRoot(t)
+	output := t.TempDir()
+	count, err := run(root, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 48 {
+		t.Fatalf("generated %d files, want 48", count)
+	}
+	for _, path := range []string{"docs/index.html", "docs/start/install.html", "guides/updating.html"} {
+		if _, err := os.Stat(filepath.Join(output, filepath.FromSlash(path))); err != nil {
+			t.Errorf("build output %s is missing: %v", path, err)
+		}
 	}
 }
 

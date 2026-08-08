@@ -81,7 +81,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check docs-html-regen account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-daemon-unsharded test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check commit-check-contract-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-governance-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-paper-preflight release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -526,13 +526,12 @@ modernize: ## Apply go fix + modernize rewrites in place
 # internal/cli/catalog.go, or adding/changing a // docgen:env comment, and
 # commit the diff alongside the source change. `make docs-check` enforces
 # no drift.
-docs-regen: ## Regenerate docs/reference/*.md and their public HTML derivatives
+docs-regen: ## Regenerate checked-in documentation sources
 	go run ./scripts/docgen/config-ref
 	go run ./scripts/docgen/mcp-tools
 	go run ./scripts/docgen/cli-ref
 	go run ./scripts/check-mcp-server-card -write
 	cp docs/mcp-server.json docs/.well-known/mcp/server.json
-	go run ./scripts/docgen/docs-html
 
 # docs-check is the CI gate: regenerate to a tempfile, diff against the
 # checked-in copy, fail if they differ. Catches the "I changed a struct
@@ -564,21 +563,21 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 	done; \
 	exit $$fail
 
-# Markdown is the only prose authority for the generator-declared public
-# documentation pages (see the manifest in scripts/docgen/docs-html). GitHub
-# Pages currently publishes docs/ verbatim, so deterministic HTML derivatives
-# stay checked in. The check re-renders every declared page and compares exact
-# bytes; it never trusts a marker stored in the derivative. Hand-authored
-# pages get a structural pass instead: unbalanced inline CSS ships invisibly
-# (browsers drop the swallowed rules), so the structure check gates it.
-docs-html-check: ## Verify generated docs/ HTML matches sources and page structure is sound
+# Markdown is the only prose authority for the generator-declared pages. The
+# Pages artifact is built from tracked sources; generated HTML never returns to
+# the Git tree. Structural and link checks inspect the exact artifact deployed.
+docs-html-check: ## Build and verify the complete Pages artifact
 	@go test ./scripts/docgen/docs-html
-	@go run ./scripts/docgen/docs-html -check
 	@node scripts/render-architecture.mjs --check
-	@node scripts/check-docs-html-structure.mjs
+	@$(MAKE) pages-build
 
-docs-html-regen: ## Regenerate public docs/ HTML from Markdown sources
-	@go run ./scripts/docgen/docs-html
+pages-build: ## Build the deployable Pages artifact from tracked sources
+	@rm -rf dist/pages
+	@mkdir -p dist/pages
+	@cp -R docs/. dist/pages/
+	@go run ./scripts/docgen/docs-html -output-root dist/pages
+	@node scripts/check-docs-html-structure.mjs dist/pages
+	@node scripts/check-pages-links.mjs dist/pages
 
 # Pull the current S&P-500 membership list from Wikipedia and rewrite
 # internal/breadth/spx/members_data.go. Invoked by `make release` so a

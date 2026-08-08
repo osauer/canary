@@ -3,7 +3,7 @@ import path from "node:path";
 
 const projectBase = "/canary";
 const siteOrigin = "https://osauer.dev";
-const root = path.join(process.cwd(), "docs");
+const root = path.resolve(process.argv[2] ?? path.join(process.cwd(), "docs"));
 const problems = [];
 
 async function exists(file) {
@@ -113,4 +113,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log("pages link check: all osauer.dev/canary links resolve under docs/");
+console.log(`pages link check: all osauer.dev/canary links resolve under ${root}`);

@@ -1,6 +1,6 @@
 // Command docs-html renders the public documentation site from its Markdown
-// sources. Markdown is the only prose authority; the checked-in HTML exists
-// because the current GitHub Pages setup publishes docs/ as static files.
+// sources into a build directory. Markdown is the only prose authority;
+// generated HTML is never tracked.
 //
 // Markdown sits beside the HTML it produces, so a source path is the published
 // URL and there is nothing to keep in step. The manifest below adds only what
@@ -975,13 +975,10 @@ func trackedFiles(root string) (map[string]bool, error) {
 	return tracked, nil
 }
 
-// validateManifest checks the manifest against the repository. requireOutputs
-// is false when the generator is about to write the files: a brand-new page
-// cannot have a tracked HTML twin before anything has generated it, and three
-// authors in a row worked around that by rendering into a scratch git index.
-// The -check gate still demands both, because that is where an untracked
-// output would mean a page that never reached the site.
-func validateManifest(tracked map[string]bool, requireOutputs bool) error {
+// validateManifest checks that every source is tracked and every generated
+// output is not. Publication consumes the build artifact, so a checked-in HTML
+// twin is duplicate authority rather than evidence that a page will ship.
+func validateManifest(tracked map[string]bool) error {
 	known := map[string]bool{}
 	for _, section := range sections {
 		known[section.Slug] = true
@@ -1023,8 +1020,8 @@ func validateManifest(tracked map[string]bool, requireOutputs bool) error {
 		if !tracked[source] {
 			return fmt.Errorf("manifest source is not tracked: %s", source)
 		}
-		if requireOutputs && !tracked[output] {
-			return fmt.Errorf("manifest output is not tracked: %s", output)
+		if tracked[output] {
+			return fmt.Errorf("generated output must not be tracked: %s", output)
 		}
 		if page.Description == "" {
 			return fmt.Errorf("published page %s needs a Description", output)
@@ -1038,8 +1035,8 @@ func validateManifest(tracked map[string]bool, requireOutputs bool) error {
 			if !strings.HasPrefix(legacy, "docs/") {
 				return fmt.Errorf("legacy redirect %s is outside the published site tree", legacy)
 			}
-			if requireOutputs && !tracked[legacy] {
-				return fmt.Errorf("legacy redirect is not tracked: %s", legacy)
+			if tracked[legacy] {
+				return fmt.Errorf("generated legacy redirect must not be tracked: %s", legacy)
 			}
 		}
 	}
@@ -1121,12 +1118,12 @@ func (r *siteRenderer) artifacts() ([]artifact, error) {
 	return append(out, artifact{hubOutput, hub}), nil
 }
 
-func run(root string, check bool) (int, error) {
+func run(root, outputRoot string) (int, error) {
 	tracked, err := trackedFiles(root)
 	if err != nil {
 		return 0, err
 	}
-	if err := validateManifest(tracked, check); err != nil {
+	if err := validateManifest(tracked); err != nil {
 		return 0, err
 	}
 	renderer := newSiteRenderer(root, tracked)
@@ -1134,46 +1131,39 @@ func run(root string, check bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	var stale []string
 	for _, item := range items {
-		target := filepath.Join(root, filepath.FromSlash(item.path))
-		if check {
-			got, err := os.ReadFile(target)
-			if err != nil {
-				return 0, err
-			}
-			if !bytes.Equal(got, item.data) {
-				stale = append(stale, item.path)
-			}
-			continue
+		relative, ok := strings.CutPrefix(filepath.ToSlash(item.path), "docs/")
+		if !ok || relative == "" {
+			return 0, fmt.Errorf("generated path is outside the site root: %s", item.path)
 		}
+		target := filepath.Join(outputRoot, filepath.FromSlash(relative))
 		if err := writeAtomic(target, item.data); err != nil {
 			return 0, fmt.Errorf("write %s: %w", item.path, err)
 		}
-	}
-	if len(stale) > 0 {
-		return 0, fmt.Errorf("generated HTML is stale: %s; run make docs-html-regen", strings.Join(stale, ", "))
 	}
 	return len(items), nil
 }
 
 func main() {
-	check := flag.Bool("check", false, "verify generated HTML without writing files")
 	root := flag.String("root", ".", "repository root")
+	outputRoot := flag.String("output-root", "", "site build directory (required)")
 	flag.Parse()
+	if *outputRoot == "" {
+		fatal(errors.New("-output-root is required"))
+	}
 	absRoot, err := filepath.Abs(*root)
 	if err != nil {
 		fatal(err)
 	}
-	count, err := run(absRoot, *check)
+	absOutputRoot, err := filepath.Abs(*outputRoot)
 	if err != nil {
 		fatal(err)
 	}
-	if *check {
-		fmt.Printf("docs-html-check: %d generated file(s) match Markdown sources\n", count)
-	} else {
-		fmt.Printf("docs-html-regen: generated %d file(s)\n", count)
+	count, err := run(absRoot, absOutputRoot)
+	if err != nil {
+		fatal(err)
 	}
+	fmt.Printf("docs-html-build: generated %d file(s)\n", count)
 }
 
 func fatal(err error) {

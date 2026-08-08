@@ -19,11 +19,10 @@ To publish one:
    `statusPlanned` to `statusPublished`, replace `Draft` and `Page` with
    `Source`, and add `Description` plus a `Layout` if the page is long enough to
    want a table of contents.
-3. Run `make docs-html-regen`, add the new URL to `docs/sitemap.xml`, and
-   delete the brief. The generator writes a brand-new page's HTML without
-   requiring it to be tracked first; `make docs-html-check` still demands
-   both, because that is where an untracked output means a page that never
-   reached the site.
+3. Run `make pages-build`, add the new URL to `docs/sitemap.xml`, inspect the
+   generated artifact under `dist/pages`, and delete the brief. The generator
+   refuses tracked HTML twins; `make docs-html-check` builds and validates the
+   exact artifact that Pages deploys.
 
 The structure and the reasoning behind it are in
 [`internal-docs/design/documentation-ia.md`](../design/documentation-ia.md).

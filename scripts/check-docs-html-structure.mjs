@@ -6,7 +6,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const root = "docs";
+const root = process.argv[2] ?? "docs";
 const failures = [];
 
 function walk(dir) {

@@ -127,7 +127,7 @@ glossary and market-data pages exist, some of that overlap should collapse.
    `Source`, `Section`, `NavTitle`, `Summary`, `Description`, and
    `Layout: "architecture"` if it is long enough to want a section index. The
    output path is derived from `Source`.
-3. `make docs-html-regen`.
+3. `make pages-build`.
 4. Add the URL to `docs/sitemap.xml` with an honest `lastmod`. The test will
    tell you if you forget.
 5. If it is a page an agent should find, add it to `llms.txt` and
