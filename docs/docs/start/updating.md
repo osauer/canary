@@ -1,6 +1,6 @@
 # Updating
 
-Updated: 2026-07-31
+Updated: 2026-08-08
 
 Four things can affect data freshness: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
 
@@ -15,7 +15,7 @@ canary update            # fetch latest, prompt to restart the local app/daemon 
 
 The CLI then:
 
-1. Checks the [GitHub `/releases/latest`](https://api.github.com/repos/osauer/canary/releases/latest) endpoint and matches your OS/arch against the published tarballs.
+1. Lists stable GitHub releases, selects the newest release on the installed major line, and matches your OS/arch against its tarballs. A v2 install therefore follows maintained v2 releases and never silently crosses to v3; a development build follows the newest stable line.
 2. Verifies the **PGP signature on `SHA256SUMS`** against the maintainer's public key embedded in your current `canary` binary.
 3. SHA-verifies the tarball.
 4. Atomically replaces `~/.local/bin/canary`. Prior bytes exist only in hidden transaction staging and are deleted after publication; no runnable rollback binary is retained because daemon state migrations are forward-only.

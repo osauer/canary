@@ -13,15 +13,17 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/productidentity"
 	"github.com/osauer/canary/v2/internal/xdgcache"
+	"golang.org/x/mod/semver"
 )
 
-// GitHubReleasesURL is the latest-release endpoint for the public repo.
-// The endpoint excludes prereleases, so callers receive the stable channel.
-const GitHubReleasesURL = "https://api.github.com/repos/osauer/canary/releases/latest"
+// GitHubReleasesURL lists published releases so an installed major can remain
+// on its own stable line after a newer major is published.
+const GitHubReleasesURL = "https://api.github.com/repos/osauer/canary/releases?per_page=100"
 
 // httpTimeout bounds any single HTTP request (metadata or download).
 // 60s comfortably covers a ~20MB tarball over a slow connection while
@@ -32,8 +34,10 @@ const httpTimeout = 60 * time.Second
 // the fields we read are unmarshalled — drift on unrelated fields
 // (author, body, etc.) doesn't surface as a parse error.
 type Release struct {
-	TagName string  `json:"tag_name"`
-	Assets  []Asset `json:"assets"`
+	TagName    string  `json:"tag_name"`
+	Draft      bool    `json:"draft"`
+	Prerelease bool    `json:"prerelease"`
+	Assets     []Asset `json:"assets"`
 }
 
 // Asset is one published binary artefact attached to a release.
@@ -42,14 +46,14 @@ type Asset struct {
 	URL  string `json:"browser_download_url"`
 }
 
-// FetchLatestRelease hits the GitHub API for the repo's latest release
-// metadata. No auth — the repo is public. Returns the parsed release
-// or a descriptive error on transport / status / JSON failure.
+// FetchLatestRelease returns the newest stable release on the installed
+// binary's major line. Development builds have no installed major and follow
+// the newest stable release. It never silently crosses a released major.
 //
 // The HTTP client uses a 60-second timeout. Redirects are followed by
 // the default client behaviour (GitHub serves the JSON directly with
 // no redirect, but a future API edge change is harmless).
-func FetchLatestRelease(ctx context.Context) (*Release, error) {
+func FetchLatestRelease(ctx context.Context, installedVersion string) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GitHubReleasesURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
@@ -70,19 +74,44 @@ func FetchLatestRelease(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("github releases API returned status %d", resp.StatusCode)
 	}
 	// Cap the body read so a misbehaving server can't OOM the CLI.
-	// The latest-release JSON for Canary is < 50KB; 1MiB is generous.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read release metadata: %w", err)
 	}
-	var rel Release
-	if err := json.Unmarshal(body, &rel); err != nil {
+	var releases []Release
+	if err := json.Unmarshal(body, &releases); err != nil {
 		return nil, fmt.Errorf("parse release metadata: %w", err)
 	}
-	if rel.TagName == "" {
-		return nil, errors.New("release metadata missing tag_name")
+	return latestReleaseForInstalledMajor(releases, installedVersion)
+}
+
+func latestReleaseForInstalledMajor(releases []Release, installedVersion string) (*Release, error) {
+	installed := strings.TrimSpace(installedVersion)
+	if installed != "" && installed != "dev" && !strings.HasPrefix(installed, "v") {
+		installed = "v" + installed
 	}
-	return &rel, nil
+	major := ""
+	if semver.IsValid(installed) {
+		major = semver.Major(installed)
+	}
+	var best *Release
+	for i := range releases {
+		rel := &releases[i]
+		tag := strings.TrimSpace(rel.TagName)
+		if rel.Draft || rel.Prerelease || !semver.IsValid(tag) || major != "" && semver.Major(tag) != major {
+			continue
+		}
+		if best == nil || semver.Compare(tag, best.TagName) > 0 {
+			best = rel
+		}
+	}
+	if best == nil {
+		if major != "" {
+			return nil, fmt.Errorf("no stable Canary release found for maintained %s line", major)
+		}
+		return nil, errors.New("release metadata contains no stable semantic version")
+	}
+	return best, nil
 }
 
 // AssetForHost returns the (name, URL) of the tarball matching the

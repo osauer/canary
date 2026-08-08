@@ -208,6 +208,18 @@ if ! grep -Fqx \
 	echo "check-release-boundary: release recovery controller contract marker is missing" >&2
 	failure=1
 fi
+if ! grep -Fqx \
+	'MAIN_BRANCH ?= $(if $(filter v2.%,$(RELEASE_VERSION)),release/2.x,main)' \
+	"$root/Makefile"; then
+	echo "check-release-boundary: release line must map v2 to release/2.x and later majors to main" >&2
+	failure=1
+fi
+for workflow in ci.yml pages-check.yml; do
+	if ! grep -Eq 'branches: \[[^]]*release/2\.x' "$root/.github/workflows/$workflow"; then
+		printf 'check-release-boundary: %s must run on the maintained release/2.x branch\n' "$workflow" >&2
+		failure=1
+	fi
+done
 
 # Every check below this point runs once per line of the Makefile and of every
 # scanned script and workflow, so the matcher is the gate's hot loop. It is

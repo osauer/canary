@@ -27,6 +27,31 @@ const stubReleaseTmpl = `{
   ]
 }`
 
+func TestLatestReleaseForInstalledMajor(t *testing.T) {
+	t.Parallel()
+	releases := []Release{
+		{TagName: "v3.1.0", Prerelease: true},
+		{TagName: "v3.0.0"},
+		{TagName: "v2.9.0", Draft: true},
+		{TagName: "v2.8.5"},
+		{TagName: "v2.8.4"},
+	}
+	for _, tc := range []struct{ installed, want string }{
+		{installed: "v2.8.4", want: "v2.8.5"},
+		{installed: "2.7.0", want: "v2.8.5"},
+		{installed: "v3.0.0", want: "v3.0.0"},
+		{installed: "dev", want: "v3.0.0"},
+	} {
+		got, err := latestReleaseForInstalledMajor(releases, tc.installed)
+		if err != nil || got.TagName != tc.want {
+			t.Fatalf("installed %q: release=%+v err=%v, want %s", tc.installed, got, err, tc.want)
+		}
+	}
+	if _, err := latestReleaseForInstalledMajor(releases, "v4.0.0"); err == nil || !strings.Contains(err.Error(), "v4") {
+		t.Fatalf("missing v4 line err=%v", err)
+	}
+}
+
 // newReleaseServer returns an httptest server that serves the
 // templated release JSON at any /releases/latest suffix and a tiny
 // payload from /dl/*. The base URL is substituted into the JSON so
