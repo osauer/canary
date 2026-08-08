@@ -219,7 +219,7 @@ broker_write_command() {
 	} ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+opportunities[[:space:]]+(preview|exercise|ignore)([[:space:]]|$)' ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+trading[[:space:]]+paper-smoke([[:space:]]|$)' ||
-	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+order[[:space:]]+(place|submit|execute|modify|cancel|close)([[:space:]]|$)' ||
+	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+order[[:space:]]+cancel([[:space:]]|$)' ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(submit|place|transmit|modify|cancel|close)([[:space:]]|$)'
 }
 
@@ -271,7 +271,7 @@ if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+orders([[:space:]]|$)'; then
   exit 0
 fi
 
-if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(order[[:space:]]+(preview|status)|trading[[:space:]]+status|proposals[[:space:]]+(status|refresh|list)|opportunities[[:space:]]+(status|refresh|list))([[:space:]]|$)'; then
+if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(order[[:space:]]+status|trading[[:space:]]+status|proposals[[:space:]]+(status|refresh|list)|opportunities[[:space:]]+(status|refresh|list))([[:space:]]|$)'; then
   exit 0
 fi
 

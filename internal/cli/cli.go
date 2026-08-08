@@ -7,6 +7,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -164,6 +165,54 @@ func outputColumns(w io.Writer) int {
 	return int(ws.Col)
 }
 
+// runWatch is the one shared polling loop retained for account and position
+// views. Feature-specific streaming commands were retired in v3.
+func runWatch(ctx context.Context, env *Env, rate time.Duration, label string, render func(io.Writer) int) int {
+	if rate <= 0 {
+		rate = time.Second
+	}
+	ticker := time.NewTicker(rate)
+	defer ticker.Stop()
+	first := true
+	lastErr := 0
+	for {
+		var buf bytes.Buffer
+		if code := render(&buf); code != 0 {
+			if first {
+				_, _ = env.Stdout.Write(buf.Bytes())
+				return code
+			}
+			lastErr = code
+		} else {
+			lastErr = 0
+			if isTerminal(env.Stdout) {
+				fmt.Fprint(env.Stdout, "\x1b[2J\x1b[H")
+			} else if !first {
+				fmt.Fprintln(env.Stdout, env.dim(strings.Repeat("─", 60)))
+			}
+			_, _ = env.Stdout.Write(buf.Bytes())
+			if isTerminal(env.Stdout) {
+				fmt.Fprintf(env.Stdout, "  %s · refresh every %s · Ctrl-C to stop\n", env.dim(label), rate)
+			}
+			first = false
+		}
+		select {
+		case <-ctx.Done():
+			return lastErr
+		case <-ticker.C:
+		}
+	}
+}
+
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 // Command bundles a subcommand's name, one-line summary, optional usage
 // example, and handler. One slice — single source of truth for both the
 // dispatcher and the help table. `status` is listed first because users
@@ -186,29 +235,17 @@ func init() {
 		{"status", "Daemon + gateway health (run this first if anything fails)", "canary status [--json]", runStatus},
 		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "canary account [--watch --rate 1s] [--json]", runAccount},
 		{"positions", "List open positions (stocks + options)", "canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},
-		{"quote", "Snapshot or stream quotes for symbols / option contracts", "canary quote SYM[,SYM…] [--market us|de] [--watch --rate 250ms] | canary quote SYM YYMMDD C|P STRIKE [--json]", runQuote},
-		{"watch", "Local watchlist symbols; add/remove/clear offline or quote the list live", "canary watch [--quotes] [--timeout 5s] [--json] | canary watch --list [--json] | canary watch --watch --rate 1s | canary watch SYM[,SYM…] --add|--remove | canary watch --clear", runWatchlist},
-		{"calendar", "Official market sessions for US equities, US options, and Xetra", "canary calendar [--market us|us-options|de] [--date YYYY-MM-DD] [--next 14] [--json]", runCalendar},
-		{"chain", "Option chain table or expiry list", "canary chain SYM [--expiry YYYY-MM-DD [--width 5] [--side calls|puts|both] [--class SPX|SPXW]] [--no-iv] [--all-expiries] [--require-live-iv] [--min-dte N] [--max-dte N] [--target-dte N] [--json]", runChain},
-		{"history", "Daily OHLCV bars for a symbol", "canary history SYM [--days 90] [--json]", runHistory},
 		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
-		{"market-events", "Held-symbol market-event flags: borrow inventory, Reg SHO, LULD, and halts", "canary market-events [SYM[,SYM...]] [--symbol SYM] [--json]", runMarketEvents},
-		{"breadth", "S&P 500 breadth — % above 50/200-DMA + new-highs/new-lows, computed locally from constituent fan-out (~74 min cold)", "canary breadth [--days 30] [--json]", runBreadth},
-		{"gamma", "SPX-canonical dealer zero-gamma estimate with SPY context (daemon-prewarmed; refreshes behind the served value after 15m in RTH; off-hours refresh not due)", "canary gamma [--no-wait] [--force] [--only spy|spx] [--explain] [--diagnostics] [--json]", runGamma},
-		{"regime", "Broad-market stress lifecycle across vol, credit, funding, FX, gamma, and breadth", "canary regime [--explain [--diagnostics]] [--watch --rate 5m] [--log PATH] [--json] | canary regime history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--stage STAGE] [--limit N] [--json]", runRegime},
-		{"stress", "Stateless market-regime × portfolio-shape stress read with action, evidence, and source health", "canary stress [--details] [--view full|alert] [--json] | canary stress history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--severity SEV] [--action ACTION] [--limit N] [--json]", runStress},
 		{"brief", "Typed morning/EOD operator brief with disclosed source degradation", "canary brief [--json] [--kind morning|eod]", runBrief},
 		{"rules", "Advisory 14-rule daily trading checklist, hardest breach first", "canary rules [--all] [--symbol SYM] [--json] | canary rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]", runRules},
-		{"alerts", "Alert-source coverage: which of the expected producers claim coverage and the disclosed per-rule gaps", "canary alerts [--json]", runAlerts},
 		{"policy", "Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes)", "canary policy show [--explain] [--json] | canary policy capital-event deposit|withdrawal [--amount F] [--effective-at TIME] [--note S] | canary policy capital-event reconcile [--report ID] | canary policy override --control KEY --reason S --hours N | canary policy reset-drawdown --reason S | canary policy correct-peak (--from-statements|--peak F) --reason S | canary policy artefact morning|eod|weekly [--note S] | canary policy default protection|opportunity", runPolicy},
 		{"recon", "Post-trade reconciliation: broker statement flows vs the declared capital ledger", "canary recon show [--refresh] [--json] | canary recon backtest [--refresh] [--json] | canary recon equity [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--json] | canary recon dismiss --line ID --reason S", runRecon},
 		{"proposals", "Daemon-owned close/reduce-only protection proposals", "canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]", runProposals},
 		{"opportunities", "Daemon-owned option exercise opportunities", "canary opportunities status|refresh|list|preview|exercise|ignore [--json]", runOpportunities},
-		{"size", "Fixed-fractional position sizing pegged to live NLV", "canary size --symbol SYM --entry F --stop F [--risk-pct 1.0] [--side long|short] [--lot 1] [--fx 1.0] [--json]", runSize},
 		{"trading", "Local trading gate status and configuration", "canary trading status [--json] | canary trading paper-smoke [--timeout 30s] [--json]", runTrading},
 		{"settings", "Runtime platform preferences and observed read-only state", "canary settings show [--json] | canary settings set <supported-key>=true|false|null|number", runSettings},
 		{"orders", "Read current-context local order lifecycle state without transmitting orders", "canary orders open [--json] | canary orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]", runOrders},
-		{"order", "Preview, place, modify, cancel, or inspect gated orders", "canary order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT --trigger-method 2] [--json] | canary order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY [--order-type TRAIL-LIMIT --trail-percent PCT --limit-offset PRICE] [--json] | canary order place --preview-token TOKEN [--json] | canary order modify ID --preview-token TOKEN [--json] | canary order cancel ID [--json] | canary order status ID [--json]", runOrder},
+		{"order", "Inspect or cancel a Canary-owned order", "canary order status ID [--json] | canary order cancel ID [--json]", runOrder},
 		{"app", "Run the paired mobile PWA application layer", "canary app [--addr HOST:PORT] | canary app pair", nil},                                                // dispatched in cmd/canary/main.go — long-lived app server
 		{"mcp", "Run the stdio MCP server for local AI clients", "canary mcp", nil},                                                                                   // dispatched in cmd/canary/main.go — long-lived stdio server
 		{"daemon", "Run the stateful gateway daemon (normally autospawned)", "canary daemon [--foreground] [--config PATH] [--socket PATH] [--log PATH|stderr]", nil}, // dispatched in cmd/canary/main.go — long-lived daemon
@@ -489,16 +526,6 @@ func (e *Env) suffixBadge(dt string) string {
 	return "  ·  " + b
 }
 
-// formatMoneyNeg renders a balance amount, painting only the negative case
-// red and the zero case dim — positive balances stay uncolored. Use for
-// non-P&L money fields (cash, margin, NLV) where a positive number is
-// neutral signal but a negative one (cash debit, blown account) should
-// catch the eye. Different from formatPnL by design: balance views would
-// look celebratory if every positive number were green.
-func (e *Env) formatMoneyNeg(v float64) string {
-	return e.formatMoneyNegCcy(v, "USD")
-}
-
 // colorBySign wraps s with the env's red/green/dim color based on v.
 // Centralises the sign→color rule shared by the money / P&L / day-change
 // / Greeks formatters. signMode picks how zero is treated:
@@ -537,13 +564,6 @@ const (
 	signPnL                 // positive green, negative red, zero dim
 )
 
-// formatMoneyNegCcy is the currency-aware variant of formatMoneyNeg.
-// Empty currency falls through to "$" so existing test golden output
-// stays valid until callers thread their currency through.
-func (e *Env) formatMoneyNegCcy(v float64, ccy string) string {
-	return e.colorBySign(v, formatMoneyCcy(v, ccy), signNeg)
-}
-
 // formatMoneyNegCcyRight is formatMoneyNegCcy with right-alignment
 // padding to w visible cells, preserving the color wrap. Padding is
 // applied before the ANSI wrap so column alignment holds regardless of
@@ -555,21 +575,6 @@ func (e *Env) formatMoneyNegCcyRight(v float64, ccy string, w int) string {
 		s = strings.Repeat(" ", pad) + s
 	}
 	return e.colorBySign(v, s, signNeg)
-}
-
-// formatPnL renders a P&L amount with optional column padding, colored
-// green/red by sign when env.Color is on. Width=0 disables padding (use
-// at the last column). Padding is applied BEFORE the ANSI wrap so escape
-// codes don't perturb column alignment — the visible width matches the
-// requested width regardless of color state.
-func (e *Env) formatPnL(v float64, width int) string {
-	s := formatMoney(v)
-	if width > 0 {
-		if pad := width - len(s); pad > 0 {
-			s += strings.Repeat(" ", pad)
-		}
-	}
-	return e.colorBySign(v, s, signPnL)
 }
 
 // formatPnLRight is formatPnL but right-aligns the value within the
@@ -718,39 +723,4 @@ func padDash(w int) string {
 		return "—"
 	}
 	return strings.Repeat(" ", w-1) + "—"
-}
-
-// orDash renders v as a right-aligned float of visible width w, or a
-// right-aligned em-dash placeholder of the same visible width when v is
-// nil. Width is the visible column width — em-dash counts as 1 column,
-// not its 3 UTF-8 bytes.
-func orDash(p *float64, w int) string {
-	if p == nil {
-		return padDash(w)
-	}
-	return fmt.Sprintf("%*.2f", w, *p)
-}
-
-// formatSize renders a quote size compactly: 850, 1.2K, 12K, 1.4M.
-// Returns "—" for nil or zero so quote tables stay legible.
-func formatSize[T int | int64](p *T) string {
-	if p == nil {
-		return "—"
-	}
-	v := int64(*p)
-	if v <= 0 {
-		return "—"
-	}
-	switch {
-	case v < 1000:
-		return fmt.Sprintf("%d", v)
-	case v < 10_000:
-		return fmt.Sprintf("%.1fK", float64(v)/1000)
-	case v < 1_000_000:
-		return fmt.Sprintf("%dK", v/1000)
-	case v < 10_000_000:
-		return fmt.Sprintf("%.1fM", float64(v)/1_000_000)
-	default:
-		return fmt.Sprintf("%dM", v/1_000_000)
-	}
 }

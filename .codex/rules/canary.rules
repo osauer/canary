@@ -6,22 +6,20 @@
 # earlier, best-effort rejection for command shapes prefix rules cannot express.
 
 prefix_rule(
-    pattern = ["canary", ["status", "version", "account", "positions", "quote", "calendar", "chain", "history", "scan", "size", "technical", "market-events", "breadth", "gamma", "regime", "stress", "rules"]],
+    pattern = ["canary", ["status", "version", "account", "positions", "technical", "brief", "rules"]],
     decision = "allow",
-    justification = "Read-only Canary account, market-data, screen, regime, stress, and sizing commands are routine project work.",
+    justification = "Retained read-only Canary account, position, technical, brief, and rulebook commands are routine project work.",
     match = [
         "canary status --json",
-        "canary quote AAPL --json",
-        "canary stress --json",
+        "canary technical AAPL --json",
     ],
 )
 
 prefix_rule(
-    pattern = ["canary", "order", ["preview", "status"]],
+    pattern = ["canary", "order", "status"],
     decision = "allow",
-    justification = "Preview/status order commands are non-submitting read surfaces.",
+    justification = "Order status is a non-submitting lifecycle view.",
     match = [
-        "canary order preview --symbol AAPL --action BUY --quantity 1 --json",
         "canary order status --json",
     ],
 )
@@ -98,13 +96,11 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["ibkr", "canary"], "order", ["place", "submit", "execute", "modify", "cancel"]],
+    pattern = [["ibkr", "canary"], "order", "cancel"],
     decision = "prompt",
     justification = "Broker writes require an explicit transaction-specific current-turn instruction in addition to hook and daemon gates.",
     match = [
-        "ibkr order place --preview-token TOKEN --json",
         "ibkr order cancel ORDER_ID --json",
-        "canary order place --preview-token TOKEN --json",
         "canary order cancel ORDER_ID --json",
     ],
 )
@@ -188,7 +184,7 @@ prefix_rule(
 prefix_rule(
     pattern = ["make", "release"],
     decision = "prompt",
-    justification = "The canonical release target tags, pushes, publishes, and runs one paper-only SPY place/ack/cancel round-trip; require an exact version and current-turn release authority.",
+    justification = "The canonical release target tags, pushes, and publishes; require an exact version and current-turn release authority.",
     match = [
         "make release RELEASE_VERSION=v2.3.1",
     ],

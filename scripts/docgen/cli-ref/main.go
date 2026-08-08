@@ -195,9 +195,9 @@ func renderSubcommands(out *strings.Builder, spec cli.CommandSpec) {
 }
 
 // guardRank orders the guard classes from least to most restrictive. A
-// command whose own guard is read-only can still own a confirm subcommand
-// (`canary order place`), so the summary reports the strictest reachable class
-// rather than the command's own.
+// command whose own guard is read-only can still own a confirm subcommand,
+// so the summary reports the strictest reachable class rather than the
+// command's own.
 var guardRank = map[cli.GuardClass]int{
 	cli.GuardReadOnly: 0,
 	cli.GuardLocal:    1,

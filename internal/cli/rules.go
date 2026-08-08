@@ -271,6 +271,18 @@ func renderRulesHistoryText(env *Env, out io.Writer, res *rpc.RulesHistoryResult
 	}
 }
 
+func renderHistoryIndexFooter(env *Env, out io.Writer, idx rpc.HistoryIndexHealth) {
+	if behind := idx.JournalBytes - idx.IngestedBytes; behind > 0 {
+		fmt.Fprintf(out, "  %s\n", env.yellow(fmt.Sprintf("index catching up: %d bytes behind (rows may be missing)", behind)))
+		return
+	}
+	label := "index: journal fully ingested"
+	if !idx.LastIngestAt.IsZero() {
+		label = fmt.Sprintf("index: through %s · journal fully ingested", idx.LastIngestAt.UTC().Format("2006-01-02 15:04Z"))
+	}
+	fmt.Fprintf(out, "  %s\n", env.dim(label))
+}
+
 // ruleTransitionLabel renders was→status; a first observation (empty was)
 // reads as the bare status.
 func ruleTransitionLabel(e rpc.RuleTransitionEntry) string {

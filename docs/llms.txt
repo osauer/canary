@@ -48,7 +48,6 @@ Do not describe the standard downloads as an order-entry or automated-trading sy
 - [Reconciliation](https://osauer.dev/canary/docs/operate/reconciliation.html)
 - [CLI reference](https://osauer.dev/canary/docs/reference/cli.html)
 - [MCP tools reference](https://osauer.dev/canary/docs/reference/mcp-tools.html)
-- [MCP resources reference](https://osauer.dev/canary/docs/reference/mcp-resources.html)
 - [Configuration reference](https://osauer.dev/canary/docs/reference/config.html)
 - [Releases and support](https://osauer.dev/canary/docs/reference/releases.html)
 - [TWS wire protocol](https://osauer.dev/canary/docs/internals/protocol.html)

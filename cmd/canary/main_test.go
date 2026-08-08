@@ -8,43 +8,6 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-func TestIsWatchDaemonInvocation(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		args []string
-		want bool
-	}{
-		{"list stays local", []string{"--list"}, false},
-		{"list json stays local", []string{"--list", "--json"}, false},
-		{"add stays local", []string{"AAPL", "--add"}, false},
-		{"default watch needs daemon", nil, true},
-		{"json default needs daemon", []string{"--json"}, true},
-		{"timeout default needs daemon", []string{"--timeout", "2s"}, true},
-		{"quotes needs daemon", []string{"--quotes"}, true},
-		{"quotes true needs daemon", []string{"--quotes=true"}, true},
-		{"watch needs daemon", []string{"--watch"}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := isWatchDaemonInvocation(tc.args); got != tc.want {
-				t.Fatalf("isWatchDaemonInvocation(%v) = %v, want %v", tc.args, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestRetiredCanaryDoesNotUseStressUnaryBudget(t *testing.T) {
-	t.Parallel()
-	current := unaryInvocationBudget("stress", nil)
-	retired := unaryInvocationBudget("canary", nil)
-	ordinary := unaryInvocationBudget("unknown", nil)
-	if retired != ordinary || retired == current {
-		t.Fatalf("retired canary budget=%s ordinary=%s stress=%s", retired, ordinary, current)
-	}
-}
-
 func TestUnaryInvocationBudgetsOutliveDaemonMethods(t *testing.T) {
 	t.Parallel()
 
@@ -55,8 +18,6 @@ func TestUnaryInvocationBudgetsOutliveDaemonMethods(t *testing.T) {
 		method string
 		want   time.Duration
 	}{
-		{name: "history cold HMDS", cmd: "history", method: rpc.MethodHistoryDaily, want: 60 * time.Second},
-		{name: "order WhatIf preview", cmd: "order", args: []string{"preview"}, method: rpc.MethodOrderPreview, want: 60 * time.Second},
 		{name: "proposal refresh", cmd: "proposals", args: []string{"refresh"}, method: rpc.MethodTradeProposalsRefresh, want: 60 * time.Second},
 		{name: "opportunity refresh", cmd: "opportunities", args: []string{"refresh"}, method: rpc.MethodOpportunitiesRefresh, want: 60 * time.Second},
 		{name: "brief composition", cmd: "brief", method: rpc.MethodBriefSnapshot, want: 90 * time.Second},
@@ -87,16 +48,12 @@ func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "status"}, {name: "account"}, {name: "positions"}, {name: "quote"},
-		{name: "watch"}, {name: "calendar"}, {name: "chain"}, {name: "history"},
-		{name: "technical"}, {name: "market-events"}, {name: "breadth"}, {name: "gamma"},
-		{name: "regime"}, {name: "stress"}, {name: "brief"}, {name: "rules"},
-		{name: "alerts"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
+		{name: "status"}, {name: "account"}, {name: "positions"}, {name: "technical"},
+		{name: "brief"}, {name: "rules"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
 		{name: "proposals", args: []string{"reduce", "--portfolio"}},
 		{name: "opportunities"},
-		{name: "size"}, {name: "trading"}, {name: "trading", args: []string{"paper-smoke"}}, {name: "settings"},
-		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"preview"}},
-		{name: "order", args: []string{"place"}}, {name: "order", args: []string{"modify"}}, {name: "order", args: []string{"cancel"}},
+		{name: "trading"}, {name: "trading", args: []string{"paper-smoke"}}, {name: "settings"},
+		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"cancel"}},
 	} {
 		methods, headroom, floor := cliInvocationTiming(cmd.name, cmd.args)
 		if len(methods) == 0 {

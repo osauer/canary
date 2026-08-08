@@ -17,12 +17,6 @@ func TestParityCanonicalMCPIdentityAcrossSurfaces(t *testing.T) {
 			t.Errorf("runtime tool %q title %q is not Canary-branded", tool.Name, tool.Title)
 		}
 	}
-	for _, resource := range ResourceTemplates {
-		if !strings.HasPrefix(resource.URITemplate, "canary://") {
-			t.Errorf("runtime resource %q is outside the canary:// namespace", resource.URITemplate)
-		}
-	}
-
 	root := filepath.Clean(filepath.Join("..", ".."))
 	assertJSONField(t, filepath.Join(root, "server.json"), "name", "io.github.osauer/canary")
 	assertJSONField(t, filepath.Join(root, "docs", "mcp-server.json"), "name", "canary")

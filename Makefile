@@ -423,7 +423,7 @@ agent-config-check: hook-behavior-check ## Validate project agent config, hooks,
 	@go test ./internal/agentconfig/
 	@if command -v codex >/dev/null 2>&1; then \
 		read_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary status --json | jq -r .decision); \
-		write_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary order place --preview-token TOKEN --json | jq -r .decision); \
+		write_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary order cancel ORDER_ID --json | jq -r .decision); \
 		human_only_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary settings set trading.freeze=true | jq -r .decision); \
 		commit_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make commit-check | jq -r .decision); \
 		offline_gate_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- make check | jq -r .decision); \

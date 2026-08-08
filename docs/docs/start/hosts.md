@@ -75,10 +75,10 @@ After upgrading the binary, fully quit and relaunch the host. Hosts keep the ser
 canary mcp --profile monitor
 ```
 
-The `monitor` profile exposes exactly two tools, `canary_stress` and `canary_status`. It exists for scheduled low-token checks. Register it as a second server entry if you want both the full surface and a cheap one.
+The `monitor` profile exposes exactly two tools, `canary_brief` and `canary_status`. It exists for scheduled low-token checks. Register it as a second server entry if you want both the full surface and a cheap one.
 
 ## What the agent can then see
 
-27 tools cover the daily brief, account and positions, snapshot quotes and the watchlist, official market calendars, option chains, daily history, technical screens, scans, fixed-fractional sizing, S&P 500 breadth, dealer gamma, the regime dashboard, the portfolio stress read, the rulebook verdict, market-event flags, protection proposals, opportunities, settings, and read-only order-journal views. Streaming quotes come through the `canary://quote/{symbol}` resource template rather than a tool. Local lifecycle verbs (`setup`, `update`, `restart`, `mcp`, `daemon`, `version`) are deliberately absent, and so are `canary policy` and `canary recon`, which stay CLI-only and advisory. The [MCP tools reference](../reference/mcp-tools.md) and [MCP resources reference](../reference/mcp-resources.md) are generated from the registry and list every parameter.
+Thirteen tools cover the daily brief, account and positions, named-symbol technical analysis, rulebook verdict, protection proposals, option-exercise opportunities, settings, trading readiness, and read-only order-journal views. Local lifecycle verbs (`setup`, `update`, `restart`, `mcp`, `daemon`, `version`) and human policy/reconciliation writes remain CLI-only. The [MCP tools reference](../reference/mcp-tools.md) is generated from the registry and lists every parameter.
 
-The bundled MCP surface has no order-entry tools. The order-preview tool can mint a local preview token and reports `submit_eligible` separately, and it cannot place, modify, cancel, or transmit a broker order. A unit test enforces that boundary against the tool registry by name. [Order previews and the trading build](../operate/orders.md) owns the full story.
+The bundled MCP surface has no order-entry or preview tools. A unit test enforces that boundary against the tool registry by name. [Orders and the trading build](../operate/orders.md) owns the confirmed CLI and app paths.

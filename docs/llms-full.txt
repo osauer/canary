@@ -87,7 +87,6 @@ Claude Code plugin path:
 - Troubleshooting: https://osauer.dev/canary/docs/start/troubleshooting.html
 - CLI reference: https://osauer.dev/canary/docs/reference/cli.html
 - MCP tools reference: https://osauer.dev/canary/docs/reference/mcp-tools.html
-- MCP resources reference: https://osauer.dev/canary/docs/reference/mcp-resources.html
 - Configuration reference: https://osauer.dev/canary/docs/reference/config.html
 - Releases and support: https://osauer.dev/canary/docs/reference/releases.html
 - TWS wire protocol: https://osauer.dev/canary/docs/internals/protocol.html
@@ -137,16 +136,9 @@ Important tools:
 - `canary_orders_open`: read-only open-order lifecycle state for the connected broker account and mode. The journal reconciles itself against the broker's open-order list after each reconnect and every 30 minutes; rows the broker no longer reports close as closed_reconciled, and protective stops that no longer match their position carry a critical mismatch classification with the reduce-to-position quantity.
 - `canary_orders_history`: bounded local order-journal history for the connected broker account and mode; not an IBKR Activity Statement or broker audit.
 - `canary_order_status`: read-only lifecycle and audit events for one locally journaled order.
-- `canary_order_preview`: draft a locally gated order and mint a short-lived local preview token; cannot place, modify, cancel, or transmit a broker order.
 - `canary_settings`: read platform settings and observed state (feature enablement, trading mode/account/build capability, safety limits); cannot change settings.
 
 See the canonical tool schema and parameter descriptions at https://osauer.dev/canary/docs/reference/mcp-tools.html.
-
-## MCP Resources
-
-`canary://quote/{symbol}` is a live stock and ETF quote resource. It supports one-off reads and subscriptions through MCP resource APIs. Option contract streaming is not exposed as an MCP resource today; use `canary_chain` or CLI option quote paths for option snapshots.
-
-See https://osauer.dev/canary/docs/reference/mcp-resources.html.
 
 ## Operator Risk Workflow (CLI Only)
 

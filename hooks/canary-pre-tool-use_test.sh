@@ -95,7 +95,6 @@ run_case orders-open 0 "$live_ready" none 'canary orders open --json'
 run_case orders-history 0 "$live_ready" none 'canary orders history'
 run_case orders-piped 0 "$live_ready" none 'canary orders --json | jq -c .orders'
 run_case positions 0 "$live_ready" none 'canary positions --json'
-run_case order-preview 0 "$live_ready" none 'canary order preview sell BB 20260821 C 12 100 --json'
 run_case order-status 0 "$live_ready" none 'canary order status 42 --json'
 run_case order-help 0 "$live_ready" none 'canary order --help'
 run_case rules-future 0 "$live_ready" none 'canary rules --json'
@@ -103,52 +102,44 @@ run_case reduce-preview 0 "$live_ready" none 'canary proposals reduce BB --perce
 
 # Human-only and destructive state writes stay blocked regardless of status.
 run_case settings-set 2 "$live_ready" none 'canary settings set trading.freeze=true'
-run_case watch-add 2 "$live_ready" none 'canary watch --add BB'
 run_case daemon-wipe 2 "$live_ready" none 'canary daemon wipe'
 
 # Broker writes consult trading status: route-ready allows, otherwise block.
-run_case place-live-ready 0 "$live_ready" status 'canary order place --preview-token tok'
-run_case place-disabled 2 "$mode_disabled" status 'canary order place --preview-token tok'
 run_case cancel-frozen 0 "$live_frozen" status 'canary order cancel 42'
-run_case place-frozen 2 "$live_frozen" status 'canary order place --preview-token tok'
 run_case reduce-submit-live-ready 0 "$live_ready" status 'canary proposals reduce BB --percent 25 --submit --json'
 run_case reduce-submit-disabled 2 "$mode_disabled" status 'canary proposals reduce BB --percent 25 --submit --json'
 run_case reduce-submit-frozen 2 "$live_frozen" status 'canary proposals reduce BB --percent 25 --submit --json'
-run_case close-frozen 2 "$live_frozen" status 'canary order close 42'
 
 # Shell composition around a write is blocked before any status lookup.
-run_case compound-write 2 "$live_ready" none 'canary orders --json; canary order place --preview-token tok'
-run_case subshell-write 2 "$live_ready" none 'canary order place --preview-token $(cat tok)'
+run_case compound-write 2 "$live_ready" none 'canary orders --json; canary order cancel 42'
+run_case subshell-write 2 "$live_ready" none 'canary order cancel $(cat order-id)'
 run_case compound-reduce-submit 2 "$live_ready" none 'canary proposals reduce BB --percent 25 --submit --json; echo done'
 
 # Canonical adversarial shapes retain their authority boundaries.
-run_cli_case place 0 "$live_ready" status 'CLI order place --preview-token tok'
-run_cli_case modify-disabled 2 "$mode_disabled" status 'CLI order modify 42 --quantity 2'
 run_cli_case cancel-frozen 0 "$live_frozen" status 'CLI order cancel 42'
 run_cli_case exercise-disabled 2 "$mode_disabled" status 'CLI opportunities exercise option_exercise:a sha256:rev --json'
 run_cli_case settings-freeze 2 "$live_ready" none 'CLI settings set trading.freeze=true'
 run_cli_case settings-limit 2 "$live_ready" none 'CLI settings set trading.max_order_notional=1000'
-run_cli_case preview 0 "$live_ready" none 'CLI order preview sell BB 20260821 C 12 100 --json'
 run_cli_case status 0 "$live_ready" none 'CLI order status 42 --json'
-run_cli_case malformed-name 0 "$live_ready" none 'CLIevil order place --preview-token tok'
-run_cli_case composed-pipe 2 "$live_ready" none 'CLI order place --preview-token tok | cat'
-run_cli_case composed-chain 2 "$live_ready" none 'CLI order status 42; CLI order place --preview-token tok'
-run_cli_case command-substitution 2 "$live_ready" none 'CLI order place --preview-token $(cat tok)'
+run_cli_case malformed-name 0 "$live_ready" none 'CLIevil order cancel 42'
+run_cli_case composed-pipe 2 "$live_ready" none 'CLI order cancel 42 | cat'
+run_cli_case composed-chain 2 "$live_ready" none 'CLI order status 42; CLI order cancel 42'
+run_cli_case command-substitution 2 "$live_ready" none 'CLI order cancel $(cat order-id)'
 run_cli_case paper-smoke-direct 0 "$live_ready" status 'CLI trading paper-smoke'
 
 # Every retired executable spelling is rejected before read/write
 # classification or trading-status lookup.
 run_case retired-read 2 "$live_ready" none 'ibkr status --json'
 run_case retired-help 2 "$live_ready" none 'ibkr order --help'
-run_case retired-write 2 "$live_ready" none 'ibkr order place --preview-token tok'
-run_case retired-mixed 2 "$live_ready" none 'canary order status 42; ibkr order place --preview-token tok'
+run_case retired-write 2 "$live_ready" none 'ibkr order cancel 42'
+run_case retired-mixed 2 "$live_ready" none 'canary order status 42; ibkr order cancel 42'
 
 # The retired name is rejected at command position, however it is reached.
 run_case retired-abs-path 2 "$live_ready" none '/opt/legacy/ibkr status'
 run_case retired-rel-path 2 "$live_ready" none './tools/ibkr status'
 run_case retired-env-prefix 2 "$live_ready" none 'CANARY_LOG=/tmp/x ibkr status'
 run_case retired-wrapper 2 "$live_ready" none 'env ibkr status'
-run_case retired-sh-c 2 "$live_ready" none 'bash -c "ibkr order place --preview-token tok"'
+run_case retired-sh-c 2 "$live_ready" none 'bash -c "ibkr order cancel 42"'
 run_case retired-piped 2 "$live_ready" none 'echo x | ibkr status'
 run_case retired-subshell 2 "$live_ready" none 'echo $(ibkr status)'
 
@@ -173,8 +164,7 @@ run_case cd-trailing-slash 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr/'
 run_case cd-then-read 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary status --json'
 run_case cd-then-write 2 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary settings set trading.freeze=true'
 
-# Only the canonical release target carries the fixed paper round-trip
-# exception. The project hook leaves that make invocation to execpolicy and
+# The project hook leaves the canonical release invocation to execpolicy and
 # the release target's own gates; direct paper-smoke remains a broker write.
 run_case release-target 0 "$live_ready" none 'make release RELEASE_VERSION=v9.9.9'
 

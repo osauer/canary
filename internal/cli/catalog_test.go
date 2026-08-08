@@ -43,14 +43,9 @@ func TestCatalogCoversCommands(t *testing.T) {
 func TestCatalogValueFlagsDriveHoisting(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
-		"expiry", "width", "side", "rate", "timeout", "limit", "symbol",
-		"type", "sort", "days", "by", "lookback-days", "benchmark",
-		"entry", "stop", "target", "risk-pct", "lot", "fx",
-		"only", "market", "exchange", "primary", "currency", "log",
-		"date", "next",
-		"min-dte", "max-dte", "target-dte", "class",
-		"preview-token", "strategy", "tif", "replace-order",
-		"order-type", "trail-percent", "trail-amount", "initial-stop", "limit-offset", "trigger-method",
+		"rate", "timeout", "limit", "symbol", "type", "sort", "by",
+		"lookback-days", "benchmark", "market", "exchange", "primary", "currency",
+		"preview-token",
 		"addr", "public-url", "state-dir", "config", "socket",
 		"profile", "view",
 	} {
@@ -82,8 +77,8 @@ func TestOrderCatalogFlagsMatchHandlers(t *testing.T) {
 	if hasFlag("orders", "account") {
 		t.Fatal("orders catalog advertises --account, but orders handlers do not parse it")
 	}
-	if !hasFlag("order", "trigger-method") {
-		t.Fatal("order catalog missing --trigger-method")
+	if hasFlag("order", "preview-token") {
+		t.Fatal("order catalog exposes retired free-form preview/place controls")
 	}
 }
 
@@ -94,7 +89,6 @@ func TestOrderCatalogFlagsMatchHandlers(t *testing.T) {
 func TestSubcommandGuardsMatchWhatTheyDo(t *testing.T) {
 	t.Parallel()
 	want := map[string]map[string]GuardClass{
-		"watch":    {"add": GuardLocal, "remove": GuardLocal, "clear": GuardLocal, "list": GuardReadOnly},
 		"settings": {"show": GuardReadOnly, "set": GuardConfirm},
 		"recon":    {"show": GuardReadOnly, "backtest": GuardReadOnly, "equity": GuardReadOnly, "dismiss": GuardConfirm},
 	}

@@ -18,19 +18,20 @@ const (
 // `canary <name>` (body or allowed-tools); adding a CLI command without
 // updating the skill fails `make check` via parity-check.
 var skillExcluded = map[string]string{
-	"daemon": "lifecycle plumbing, not an agent data command",
-	"app":    "long-lived local app host, not an agent data command",
-	"mcp":    "MCP server bootstrap, not an agent data command",
-	"setup":  "interactive first-run wizard",
-	"update": "binary self-update is a human decision",
-	"stop":   "stops the daemon and app other sessions and the paired phone are using; a human decision, not an agent step",
+	"daemon":  "lifecycle plumbing, not an agent data command",
+	"app":     "long-lived local app host, not an agent data command",
+	"mcp":     "MCP server bootstrap, not an agent data command",
+	"setup":   "interactive first-run wizard",
+	"update":  "binary self-update is a human decision",
+	"restart": "process management is a human operation, not an agent data command",
+	"stop":    "stops the daemon and app other sessions and the paired phone are using; a human decision, not an agent step",
 }
 
 // forbiddenAllowPrefixes are invocation shapes that must never be
 // allowlisted in the skill: broker/state writes stay outside it so the
 // PreToolUse hook and the daemon origin gate remain the deciding layers.
 var forbiddenAllowPrefixes = []string{
-	"canary order place", "canary order modify", "canary order cancel",
+	"canary order cancel",
 	"canary proposals preview", "canary proposals submit", "canary proposals ignore",
 	"canary opportunities preview", "canary opportunities exercise", "canary opportunities ignore",
 	"canary settings set",
@@ -141,7 +142,7 @@ func TestSkillAllowlistMirrorsSettingsAndCLI(t *testing.T) {
 	for _, p := range settings.Permissions.Deny {
 		inner := strings.TrimSuffix(strings.TrimPrefix(p, "Bash("), ")")
 		for _, brokerWrite := range []string{
-			"canary order place", "canary order modify", "canary order cancel",
+			"canary order cancel",
 			"canary proposals submit", "canary opportunities exercise",
 		} {
 			if strings.HasPrefix(inner, brokerWrite) {
@@ -161,7 +162,6 @@ func TestAgentPolicyDocsDoNotClaimLiveAgentHardBlock(t *testing.T) {
 		"../../.agents/docs/agent-session-hygiene.md",
 		"../../.agents/docs/daemon-cli-trading-contract.md",
 		"../../skills/canary/SKILL.md",
-		"../../skills/canary/schemas.md",
 		"../../.agents/skills/canary-harness/SKILL.md",
 		"../../.claude-plugin/plugin.json",
 		"../../.codex/rules/canary.rules",

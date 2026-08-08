@@ -37,14 +37,7 @@ func TestMCPToolCallTimeoutBudgets(t *testing.T) {
 		want time.Duration
 	}{
 		{name: "canary_status", want: clientBudget(rpc.MethodStatusHealth, mcpFastToolHeadroom)},
-		{name: "canary_watch", args: json.RawMessage(`{"include_quotes":false}`), want: clientBudget(rpc.MethodStatusHealth, mcpFastToolHeadroom)},
-		{name: "canary_watch", args: json.RawMessage(`{}`), want: mcpWatchQuoteFloor},
-		{name: "canary_chain", args: json.RawMessage(`{"symbol":"AAPL","expiry":"2026-07-17"}`), want: mcpLongToolFloor},
 		{name: "canary_technical", args: json.RawMessage(`{"symbols":["ASTS","IREN"]}`), want: mcpAnalysisToolFloor},
-		{name: "canary_regime", want: clientBudget(rpc.MethodRegimeSnapshot, mcpDefaultHeadroom)},
-		{name: "canary_stress", want: mcpAnalysisToolFloor},
-		{name: "canary_history", args: json.RawMessage(`{"symbol":"SPY"}`), want: clientBudget(rpc.MethodHistoryDaily, mcpDefaultHeadroom)},
-		{name: "canary_order_preview", args: json.RawMessage(`{"action":"sell","symbol":"SPY","quantity":1}`), want: clientBudget(rpc.MethodOrderPreview, mcpDefaultHeadroom)},
 		{name: "canary_proposals", args: json.RawMessage(`{}`), want: mcpDefaultToolFloor},
 		{name: "canary_proposals", args: json.RawMessage(`{"refresh":true}`), want: clientBudget(rpc.MethodTradeProposalsRefresh, mcpDefaultHeadroom)},
 		{name: "canary_opportunities", args: json.RawMessage(`{"refresh":true}`), want: clientBudget(rpc.MethodOpportunitiesRefresh, mcpDefaultHeadroom)},
@@ -97,10 +90,6 @@ func TestMCPToolMethodDeclarationsMatchHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse tools.go: %v", err)
 	}
-	indirect := map[string][]string{
-		"canary_watch":  {"MethodStatusHealth", "MethodQuoteSnapshot", "MethodPositionsList"},
-		"canary_stress": {"MethodAccountSummary", "MethodPositionsList", "MethodRegimeSnapshot", "MethodMarketEventsSnapshot"},
-	}
 	var toolsLiteral *ast.CompositeLit
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -126,9 +115,6 @@ func TestMCPToolMethodDeclarationsMatchHandlers(t *testing.T) {
 		name := toolLiteralName(tool)
 		declared := toolLiteralMethods(tool, "RPCMethods")
 		called := toolLiteralMethods(tool, "Handler")
-		for _, method := range indirect[name] {
-			called[method] = true
-		}
 		for method := range called {
 			if !declared[method] {
 				t.Errorf("tool %s calls rpc.%s but does not declare it", name, method)
@@ -245,17 +231,18 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 	defer stop()
 
 	in := &bytes.Buffer{}
-	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"canary_calendar","arguments":{}}}` + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"canary_status","arguments":{}}}` + "\n")
 	out := &bytes.Buffer{}
 	srv := NewServer(nil, "test")
 	srv.SetDialer(dialer)
 
+	wantTimeout := mcpToolCallTimeout("canary_status", nil)
 	start := time.Now()
 	if err := srv.Serve(context.Background(), in, out); err != nil {
 		t.Fatalf("Serve: %v", err)
 	}
 	elapsed := time.Since(start)
-	if elapsed > 5*time.Second {
+	if elapsed > wantTimeout+2*time.Second {
 		t.Fatalf("hung daemon response took %s, want bounded below MCP host timeout", elapsed)
 	}
 
@@ -273,7 +260,7 @@ func TestMCPToolCallTimesOutHungDaemon(t *testing.T) {
 	if !resp.Result.IsError {
 		t.Fatalf("expected isError=true, got: %s", out.String())
 	}
-	if len(resp.Result.Content) != 1 || !strings.Contains(resp.Result.Content[0].Text, "canary_calendar timed out after 3s") {
+	if len(resp.Result.Content) != 1 || !strings.Contains(resp.Result.Content[0].Text, "canary_status timed out after "+wantTimeout.String()) {
 		t.Fatalf("timeout message = %+v", resp.Result.Content)
 	}
 }

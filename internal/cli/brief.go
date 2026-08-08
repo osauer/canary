@@ -67,6 +67,53 @@ func runBrief(ctx context.Context, env *Env, args []string) int {
 	return 0
 }
 
+func wrapVisibleText(text string, width int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" || width <= 0 {
+		return []string{text}
+	}
+	var lines []string
+	line := ""
+	for original := range strings.FieldsSeq(text) {
+		word := original
+		for visibleLen(word) > width {
+			head, tail := splitVisibleWord(word, width)
+			if line != "" {
+				lines = append(lines, line)
+				line = ""
+			}
+			lines = append(lines, head)
+			word = tail
+		}
+		if line == "" {
+			line = word
+		} else if visibleLen(line)+1+visibleLen(word) <= width {
+			line += " " + word
+		} else {
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func splitVisibleWord(word string, width int) (string, string) {
+	if width <= 0 {
+		return word, ""
+	}
+	used := 0
+	for i := range word {
+		if used == width {
+			return word[:i], word[i:]
+		}
+		used++
+	}
+	return word, ""
+}
+
 func briefHumanOrigin(origin string) bool {
 	return origin == rpc.OrderOriginHumanTTY || origin == rpc.OrderOriginPairedDevice
 }

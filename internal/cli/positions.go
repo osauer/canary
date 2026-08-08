@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/stress"
 )
 
 func runPositions(ctx context.Context, env *Env, args []string) int {
@@ -368,75 +369,80 @@ func formatPositionData(env *Env, p rpc.PositionView) string {
 	if p.DataType == "" && p.QuotePriceAt.IsZero() && p.RegularCloseAt.IsZero() && p.QuotePrice == nil && p.RegularClose == nil {
 		return env.dim("pos")
 	}
-	return formatWatchlistData(env, positionWatchlistRow(p))
+	if p.Stale || p.StaleReason != "" {
+		return env.yellow("stale")
+	}
+	switch p.QuoteQuality {
+	case "wide", "indicative", "prev_close", "missing":
+		return env.yellow(p.QuoteQuality)
+	}
+	if p.DataType != "" {
+		return p.DataType
+	}
+	return "quote"
 }
 
 func formatPositionAsOf(p rpc.PositionView) string {
-	return formatWatchlistAsOf(positionWatchlistRow(p))
-}
-
-func positionWatchlistRow(p rpc.PositionView) rpc.WatchlistRow {
-	var price *float64
-	if p.QuotePrice != nil {
-		price = p.QuotePrice
-	} else if close := positionRegularClose(p); close != nil {
-		price = close
-	}
-	if price == nil && p.Mark != 0 {
-		v := p.Mark
-		price = &v
-	}
-	source := p.QuotePriceSource
-	if source == "" && price != nil {
-		switch price {
-		case p.RegularClose, p.PrevClose:
-			source = "historical_close"
-		default:
-			source = p.PriceSource
+	for _, at := range []time.Time{p.QuotePriceAt, p.PriceAt, p.RegularCloseAt} {
+		if !at.IsZero() {
+			return formatTimeShort(at)
 		}
 	}
-	if source == "" && price != nil {
-		source = "mark"
+	return "—"
+}
+
+func (e *Env) formatChangePct(p *float64, width int) string {
+	if p == nil {
+		return padDash(width)
 	}
-	return rpc.WatchlistRow{
-		Quote: rpc.Quote{
-			Symbol:            p.Symbol,
-			Contract:          rpc.ContractParams{Symbol: p.Symbol, SecType: "STK", Currency: p.Currency},
-			Price:             price,
-			PriceSource:       source,
-			RegularClose:      p.RegularClose,
-			RegularCloseAt:    p.RegularCloseAt,
-			PriorRegularClose: p.PriorRegularClose,
-			RegularChange:     p.RegularChange,
-			RegularChangePct:  p.RegularChangePct,
-			QuotePrice:        p.QuotePrice,
-			QuotePriceSource:  p.QuotePriceSource,
-			QuotePriceAt:      p.QuotePriceAt,
-			QuotePriceAsOf:    p.QuotePriceAsOf,
-			QuoteChange:       p.QuoteChange,
-			QuoteChangePct:    p.QuoteChangePct,
-			PrevClose:         p.PrevClose,
-			Change:            p.DayChange,
-			ChangePct:         p.DayChangePct,
-			DayHigh:           p.DayHigh,
-			DayLow:            p.DayLow,
-			Week52High:        p.Week52High,
-			Week52Low:         p.Week52Low,
-			Volume:            p.Volume,
-			AvgVolume:         p.AvgVolume,
-			DataType:          p.DataType,
-			PriceAt:           p.PriceAt,
-			PriceAsOf:         p.PriceAsOf,
-			Stale:             p.Stale,
-			StaleReason:       p.StaleReason,
-			FeedType:          p.FeedType,
-			SpreadPct:         p.SpreadPct,
-			QuoteQuality:      p.QuoteQuality,
-			Indicative:        p.Indicative,
-			VolumePhase:       p.VolumePhase,
-			WarningDetails:    p.WarningDetails,
-			SessionContext:    p.SessionContext,
-		},
+	s := fmt.Sprintf("%+*.2f%%", width-1, *p)
+	return e.colorBySign(*p, s, signPnL)
+}
+
+func formatWatchlistNumber(p *float64, width int) string {
+	if p == nil {
+		return padDash(width)
+	}
+	return fmt.Sprintf("%*.2f", width, *p)
+}
+
+func formatWatchlistRange(env *Env, low, high *float64, width int) string {
+	lo, hi := "—", "—"
+	if low != nil {
+		lo = fmt.Sprintf("%.2f", *low)
+	}
+	if high != nil {
+		hi = fmt.Sprintf("%.2f", *high)
+	}
+	return env.dim(fmt.Sprintf("%*s-%-*s", (width-1)/2, lo, width-(width-1)/2-1, hi))
+}
+
+func formatWatchlistChange(env *Env, p *float64, width int) string {
+	if p == nil {
+		return padDash(width)
+	}
+	s := fmt.Sprintf("%+*.2f", width, *p)
+	return env.colorBySign(*p, s, signPnL)
+}
+
+func formatWatchlistVolume(volume, average *int64, width int) string {
+	return fmt.Sprintf("%*s", width, formatVolumePart(volume)+"/"+formatVolumePart(average))
+}
+
+func formatVolumePart(v *int64) string {
+	if v == nil || *v <= 0 {
+		return "—"
+	}
+	n := float64(*v)
+	switch {
+	case n >= 1e9:
+		return fmt.Sprintf("%.1fB", n/1e9)
+	case n >= 1e6:
+		return fmt.Sprintf("%.1fM", n/1e6)
+	case n >= 1e3:
+		return fmt.Sprintf("%.0fK", n/1e3)
+	default:
+		return fmt.Sprintf("%d", *v)
 	}
 }
 
@@ -452,11 +458,6 @@ func (e *Env) formatPositionPnLPtr(v *float64) string {
 		return "—"
 	}
 	return e.formatPositionPnL(*v)
-}
-
-// renderPortfolioSummary keeps its old name as the test entry-point.
-func renderPortfolioSummary(env *Env, r *rpc.PositionsResult) {
-	renderPortfolioSummaryTo(env, env.Stdout, r)
 }
 
 // renderPortfolioSummaryTo prints the daemon-computed aggregate block when
@@ -548,7 +549,7 @@ func renderPortfolioSummaryTo(env *Env, out io.Writer, r *rpc.PositionsResult) {
 			labelWidth, "FX sensitivity", val, base)
 	}
 	if r.ProtectionCoverage != nil {
-		fmt.Fprintf(out, "  %-*s  %s\n", labelWidth, "Protection coverage", formatProtectionCoverageEvidence(r.ProtectionCoverage))
+		fmt.Fprintf(out, "  %-*s  %s\n", labelWidth, "Protection coverage", stress.FormatProtectionCoverageEvidence(r.ProtectionCoverage))
 	}
 	fmt.Fprintln(out)
 }
@@ -560,11 +561,6 @@ func anyRealized(rows []rpc.PositionView) bool {
 		}
 	}
 	return false
-}
-
-// renderPositionsByUnderlying is the test-friendly wrapper.
-func renderPositionsByUnderlying(env *Env, r *rpc.PositionsResult) int {
-	return renderPositionsByUnderlyingTo(env, env.Stdout, r)
 }
 
 // renderPositionsByUnderlyingTo prints one block per underlying with the

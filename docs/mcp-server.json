@@ -1,7 +1,7 @@
 {
   "name": "canary",
   "title": "Canary MCP Server",
-  "description": "Canary's local MCP server and CLI for Interactive Brokers: a daily brief, account and position data, market research, and advisory risk checks through IB Gateway or TWS.",
+  "description": "Canary's read-only MCP server for Interactive Brokers: the daily brief, account and position detail, desk rules, named-symbol technical analysis, and action discovery.",
   "homepage": "https://osauer.dev/canary/",
   "repository": "https://github.com/osauer/canary",
   "license": "MIT",
@@ -32,33 +32,20 @@
     "daily brief",
     "account summary",
     "positions and exposure",
-    "stock and ETF quotes",
-    "official market calendars",
-    "option chains",
-    "daily historical bars",
     "technical and relative-strength screens",
-    "local watchlist",
     "trading rulebook snapshot reads",
     "daemon and gateway health status",
-    "fixed-fractional position sizing",
-    "S&P 500 breadth",
-    "SPY+SPX dealer gamma",
-    "broad-market stress lifecycle",
-    "portfolio stress checks",
-    "market-event flags (borrow, Reg SHO, halts)",
     "protection proposal reads",
     "option exercise opportunity reads",
     "trading-readiness and platform-settings reads",
-    "open-order, order-history, and order-status reads",
-    "preview-only order drafts",
-    "stock and ETF quote resources"
+    "open-order, order-history, and order-status reads"
   ],
   "safety": {
     "order_entry_surface": false,
     "can_place_orders": false,
     "can_modify_orders": false,
     "can_cancel_orders": false,
-    "summary": "The MCP tool surface is preview-only in every release variant: canary_order_preview can draft an order and mint a local preview token, but no MCP tool can place, modify, cancel, or transmit a broker order. Standard downloads are read-only builds; each release also publishes a clearly marked canary-trading CLI tarball for explicit opt-in order management."
+    "summary": "The MCP surface is read-only in every release variant. It cannot preview, place, modify, cancel, exercise, or transmit a broker action. Broker actions remain on explicitly confirmed CLI and paired-app paths."
   },
   "keywords": [
     "Interactive Brokers",

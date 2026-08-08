@@ -6,7 +6,7 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/canary/v2.svg)](https://pkg.go.dev/github.com/osauer/canary/v2)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
-**[Documentation](https://osauer.dev/canary/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [MCP resources](docs/docs/reference/mcp-resources.md) · [Configuration](docs/docs/reference/config.md) · [Sensors](docs/docs/understand/sensors.md) · [Rulebook](internal-docs/design/trading-rulebook.md) · [Trading policy](docs/docs/understand/policy.md) · [Storage](docs/docs/internals/storage.md) · [Architecture](docs/docs/internals/architecture.md) · [Platform settings](internal-docs/design/platform-settings.md) · [Working with agents](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
+**[Documentation](https://osauer.dev/canary/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [Configuration](docs/docs/reference/config.md) · [Rulebook](internal-docs/design/trading-rulebook.md) · [Architecture](docs/docs/internals/architecture.md) · [Working with agents](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
 
 **A local command line, MCP server, and risk desk for Interactive Brokers.**
 
@@ -96,7 +96,7 @@ For v1.0.0+ releases, the installer, `canary update`, and the MCPB release asset
 
 Every data command supports `--json`. `canary restart --json` is also useful for scripts: it reports whether a daemon was already running, old/new PIDs, whether `--force` was used, the post-start `status.health` snapshot, and any app process it refreshed. Lifecycle commands such as `setup`, `update`, `restart`, `mcp`, and `daemon` are for local operation and transport setup.
 
-For schemas and edge cases, see the [agent skill schema notes](skills/canary/schemas.md), [MCP tools reference](docs/docs/reference/mcp-tools.md), [MCP resources reference](docs/docs/reference/mcp-resources.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
+For schemas and edge cases, see the [MCP tools reference](docs/docs/reference/mcp-tools.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
 
 For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](examples/canary_portfolio_analysis_prompt.md) for portfolio review and [examples/canary_portfolio_stress_prompt.md](examples/canary_portfolio_stress_prompt.md) for scheduled stress checks.
 
@@ -105,12 +105,6 @@ For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](exa
 ### Claude Desktop, Cursor, Continue, Zed
 
 `canary mcp` starts a local stdio MCP server. MCP hosts can call the same account, watchlist, quote, calendar, position, sizing, regime, stress, daily-brief, and preview-only order-draft tools that the CLI exposes as JSON. The order preview surface can mint a local non-submitting preview token, but it cannot place, modify, cancel, or transmit broker orders. Watchlist access through MCP can return either the saved symbols or enriched quote rows; local lifecycle verbs such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` stay outside the MCP tool set.
-
-The server also exposes quotes for stocks and ETFs as an MCP resource:
-
-- `canary://quote/{symbol}`
-
-`resources/read` returns one snapshot for that URI; `resources/subscribe` delivers coalesced ticks via `notifications/resources/updated` until you `resources/unsubscribe` or close the stdio. The resource shape is documented in [docs/docs/reference/mcp-resources.md](docs/docs/reference/mcp-resources.md).
 
 For Claude Desktop, the recommended install path is the `.mcpb` asset from the latest release. For other clients, paste this into the client's MCP config (path varies):
 

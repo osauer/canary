@@ -32,7 +32,7 @@ authority.
 |---|---|---|
 | CLI | One command | Validates input, calls the daemon for broker and runtime work, and renders human or JSON output. A few local-only workflows run without the daemon. |
 | `canary daemon` | Demand-driven background process or foreground service | Owns the broker connections and all runtime state: `daemon.db`, refreshable in-memory views, schedulers, source ingestion, risk-policy execution, proposals, opportunities, and reconciliation. |
-| `canary mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates tools and resources into short daemon calls. The surface serves read, research, and preview work; it exposes no broker-write tools. |
+| `canary mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates a small read-only tool set into short daemon calls. It exposes no resources, preview, or broker-write tools. |
 | `canary app` | Independently run or supervised HTTP process | Serves the embedded Canary PWA and owns pairing, auth, and app state. Maintains the live snapshot and quote streams, emits SSE, and can connect to the remote relay and Web Push. |
 | Canary Paired PWA | Browser or iOS Home Screen app | Renders authenticated snapshots, receives SSE and push notifications, and keeps device-side credentials and recovery state. It is a plain PWA, not an Android Trusted Web Activity. |
 | TWS / IB Gateway | Interactive Brokers process outside this repo | Terminates the local TWS API socket and maintains the broker-managed session. |
@@ -71,7 +71,7 @@ refreshable in-memory views do not.
   surfaces to render them second.
 - `internal/cli` adapts commands to daemon methods or to a local-only workflow.
   Broker policy and state do not belong in the renderer.
-- `internal/mcp` adapts MCP tools and resources to daemon contracts. Tool
+- `internal/mcp` adapts read-only MCP tools to daemon contracts. Tool
   descriptions are product surface and must match the real authority and data
   quality.
 - `internal/app` owns the HTTP host, device auth, app-local persistence, live

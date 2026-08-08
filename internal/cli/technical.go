@@ -43,6 +43,17 @@ func runTechnical(ctx context.Context, env *Env, args []string) int {
 	return renderTechnicalText(env, &res)
 }
 
+func splitSymbols(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if symbol := strings.ToUpper(strings.TrimSpace(part)); symbol != "" {
+			out = append(out, symbol)
+		}
+	}
+	return out
+}
+
 func renderTechnicalText(env *Env, r *rpc.TechnicalResult) int {
 	out := env.Stdout
 	fmt.Fprintln(out)
@@ -109,7 +120,7 @@ func formatTechnicalVolume(v *int64, width int) string {
 	if v == nil || *v <= 0 {
 		return padDash(width)
 	}
-	return fmt.Sprintf("%*s", width, formatWatchlistVolumePart(v))
+	return fmt.Sprintf("%*s", width, formatVolumePart(v))
 }
 
 func formatTechnicalDollarVolume(v *float64, width int) string {

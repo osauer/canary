@@ -1,7 +1,5 @@
-// Package mcp adapts the daemon's read, research, and preview capabilities to
-// the Model Context Protocol over stdio. Its curated tools and resources use
-// short-lived typed daemon calls where required; they do not expose broker
-// place, modify, cancel, or exercise operations.
+// Package mcp adapts Canary's read-only desk tools to the Model Context
+// Protocol over stdio. It exposes no broker-write or streaming surface.
 //
 // Wire: newline-delimited JSON-RPC 2.0 over stdin/stdout, no framing headers.
 // The MCP lifecycle is initialize → initialized (notification) → repeated
@@ -28,10 +26,8 @@ import (
 // stable revision Claude Desktop and the official Go/TypeScript SDKs target.
 const ProtocolVersion = "2025-03-26"
 
-// Server hosts the MCP loop. One per process. Tool calls and streaming
-// resource subscriptions open additional daemon connections via dialer when
-// available, so per-call timeouts cannot leave late daemon replies queued on
-// the shared control connection. Without a dialer, tools fall back to conn.
+// Server hosts the MCP loop. Tool calls open short-lived daemon connections
+// through dialer when available, or fall back to conn in tests.
 type Server struct {
 	conn    *dial.Conn
 	version string
@@ -40,25 +36,10 @@ type Server struct {
 	mu  sync.Mutex // serializes writes to out
 	out *bufio.Writer
 
-	// dialer is the function used to open daemon connections for tools and
-	// resources. Set via SetDialer or SetContextDialer; nil means operations
+	// dialer opens daemon connections for tools. Nil means operations
 	// requiring the daemon fall back to conn when present, otherwise return an
 	// internal-error response.
 	dialer func(context.Context) (*dial.Conn, error)
-
-	// subs tracks active resource subscriptions, keyed by URI string. The
-	// CancelFunc tears down the per-subscription goroutine and the
-	// underlying daemon conn. Guarded by subMu.
-	subMu sync.Mutex
-	subs  map[string]context.CancelFunc
-
-	// serveCtx is the parent context for streaming resource subscriptions.
-	// Set at the top of Serve() so subscriptions are children of the
-	// server's lifecycle, not context.Background() — when Serve returns
-	// (client EOF, ctx cancel) all in-flight subscription goroutines see
-	// the cancel and unwind. shutdownSubscriptions still nudges them on
-	// the way out for prompt teardown of the daemon-side refcount.
-	serveCtx context.Context
 }
 
 // NewServer wires the MCP server to an optional daemon connection and the
@@ -70,11 +51,10 @@ func NewServer(conn *dial.Conn, version string) *Server {
 		conn:    conn,
 		version: version,
 		profile: ProfileFull,
-		subs:    map[string]context.CancelFunc{},
 	}
 }
 
-// SetProfile selects the tool and resource profile exposed by the server.
+// SetProfile selects the tool profile exposed by the server.
 // An empty profile selects [ProfileFull].
 func (s *Server) SetProfile(profile Profile) {
 	if profile == "" {
@@ -83,8 +63,8 @@ func (s *Server) SetProfile(profile Profile) {
 	s.profile = profile
 }
 
-// SetDialer wires the function used to open daemon connections for tools and
-// resources. It is kept for tests and integrations that do not need
+// SetDialer wires the function used to open daemon connections for tools. It
+// is kept for tests and integrations that do not need
 // context-aware dialing; production stdio should use SetContextDialer.
 func (s *Server) SetDialer(d func() (*dial.Conn, error)) {
 	if d == nil {
@@ -105,16 +85,12 @@ func (s *Server) SetContextDialer(d func(context.Context) (*dial.Conn, error)) {
 
 // ServeOptions controls optional lifecycle guards for the stdio server.
 type ServeOptions struct {
-	// IdleTimeout exits the server after this much time without an MCP
-	// request. Active resource subscriptions suppress the timeout because
-	// the server is still doing useful work even if stdin is quiet.
+	// IdleTimeout exits the server after this much time without an MCP request.
 	IdleTimeout time.Duration
 }
 
 // Serve runs the MCP loop until in returns io.EOF (client disconnect), ctx is
-// cancelled, or the client sends the MCP shutdown/exit lifecycle. Returns nil
-// on clean shutdown. Active resource subscriptions are cancelled before return
-// so per-sub goroutines unwind and the daemon-side refcount decrements promptly.
+// cancelled, or the client sends the MCP shutdown/exit lifecycle.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	return s.ServeWithOptions(ctx, in, out, ServeOptions{})
 }
@@ -132,9 +108,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 // when stdin itself cannot be interrupted.
 func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writer, opts ServeOptions) error {
 	s.out = bufio.NewWriter(out)
-	s.serveCtx = ctx
 	defer s.out.Flush()
-	defer s.shutdownSubscriptions()
 
 	reader := bufio.NewReader(in)
 	// Generous line buffer — MCP messages can include large tool results.
@@ -192,10 +166,6 @@ func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writ
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-idle:
-			if s.hasActiveSubscriptions() {
-				resetIdleTimer()
-				continue
-			}
 			return nil
 		case line, ok := <-lines:
 			if !ok {
@@ -278,16 +248,6 @@ func (s *Server) handle(ctx context.Context, line []byte) bool {
 		s.handleToolsList(req.ID)
 	case "tools/call":
 		s.handleToolsCall(ctx, req.ID, req.Params)
-	case "resources/list":
-		s.handleResourcesList(req.ID)
-	case "resources/templates/list":
-		s.handleResourcesTemplatesList(req.ID)
-	case "resources/read":
-		s.handleResourcesRead(ctx, req.ID, req.Params)
-	case "resources/subscribe":
-		s.handleResourcesSubscribe(ctx, req.ID, req.Params)
-	case "resources/unsubscribe":
-		s.handleResourcesUnsubscribe(req.ID, req.Params)
 	case "ping":
 		s.writeResult(req.ID, json.RawMessage(`{}`))
 	case "shutdown":
@@ -320,10 +280,7 @@ type initializeSrvInfo struct {
 }
 
 func (s *Server) handleInitialize(id, _ json.RawMessage) {
-	caps := map[string]any{
-		"tools":     map[string]any{"listChanged": false},
-		"resources": map[string]any{"subscribe": s.dialer != nil, "listChanged": false},
-	}
+	caps := map[string]any{"tools": map[string]any{"listChanged": false}}
 	res := initializeResult{
 		ProtocolVersion: ProtocolVersion,
 		Capabilities:    caps,
@@ -339,9 +296,9 @@ func (s *Server) handleInitialize(id, _ json.RawMessage) {
 
 func (s *Server) instructions() string {
 	if s.profile == ProfileMonitor {
-		return "Read-only Canary monitor profile for Interactive Brokers. Use `canary_stress` first for portfolio risk posture; call `canary_status` only for connectivity or degraded-input troubleshooting."
+		return "Read-only Canary monitor profile. Read `canary_brief` first; use `canary_status` only for connectivity or degraded-input troubleshooting."
 	}
-	return "Canary tools and resources for Interactive Brokers. Most tools are read-only: account, positions, snapshot quotes, option chains, daily history, named-symbol technical/relative-strength screens, fixed-fractional position sizing, S&P 500 breadth (50-/200-DMA, new highs/new lows), SPX-canonical dealer zero-gamma with SPY context, a broad-market stress-lifecycle regime dashboard, a stateless portfolio stress read, and daemon-owned protection proposal snapshots. Order-status/open-order tools are read-only journal views. The order-preview tool can mint a local non-submitting preview token and reports submit_eligible separately, but cannot place, modify, cancel, or transmit a broker order. Resources expose live streaming quotes via subscribe (URI template: canary://quote/{symbol})."
+	return "Read-only Canary desk tools. Start with `canary_brief`; drill into account, positions, rules, named-symbol technical analysis, proposals, opportunities, or order history only when the brief points there."
 }
 
 // toolDescriptor is the wire shape MCP expects in tools/list.
@@ -534,9 +491,7 @@ const (
 	mcpFastToolHeadroom  = 1 * time.Second
 	mcpDefaultHeadroom   = 5 * time.Second
 	mcpDefaultToolFloor  = 35 * time.Second
-	mcpLongToolFloor     = 60 * time.Second
 	mcpAnalysisToolFloor = 90 * time.Second
-	mcpWatchQuoteFloor   = 45 * time.Second
 )
 
 func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
@@ -544,21 +499,10 @@ func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
 	headroom := mcpDefaultHeadroom
 	floor := mcpDefaultToolFloor
 	switch name {
-	case "canary_status", "canary_calendar", "canary_breadth":
+	case "canary_status":
 		headroom = mcpFastToolHeadroom
 		floor = 0
-	case "canary_watch":
-		if watchListOnlyArgs(args) {
-			headroom = mcpFastToolHeadroom
-			floor = 0
-		} else {
-			floor = mcpWatchQuoteFloor
-		}
-	case "canary_chain", "canary_gamma":
-		floor = mcpLongToolFloor
 	case "canary_technical":
-		floor = mcpAnalysisToolFloor
-	case "canary_stress":
 		floor = mcpAnalysisToolFloor
 	}
 	return mcpMethodBudget(methods, headroom, floor)
@@ -587,21 +531,6 @@ func mcpToolMethodsForCall(name string, args json.RawMessage) []string {
 		return nil
 	}
 	switch name {
-	case "canary_chain":
-		var in struct {
-			Expiry string `json:"expiry"`
-		}
-		if len(args) > 0 {
-			_ = json.Unmarshal(args, &in)
-		}
-		if in.Expiry == "" {
-			return []string{rpc.MethodChainExpiries}
-		}
-		return []string{rpc.MethodChainFetch}
-	case "canary_watch":
-		if watchListOnlyArgs(args) {
-			return []string{rpc.MethodStatusHealth}
-		}
 	case "canary_proposals":
 		if refreshRequested(args) {
 			return []string{rpc.MethodTradeProposalsRefresh}
@@ -626,16 +555,6 @@ func refreshRequested(args json.RawMessage) bool {
 	return in.Refresh
 }
 
-func watchListOnlyArgs(args json.RawMessage) bool {
-	var in struct {
-		IncludeQuotes *bool `json:"include_quotes"`
-	}
-	if len(args) > 0 {
-		_ = json.Unmarshal(args, &in)
-	}
-	return in.IncludeQuotes != nil && !*in.IncludeQuotes
-}
-
 func lookupTool(name string) (Tool, bool) {
 	for _, t := range Tools {
 		if t.Name == name {
@@ -649,7 +568,7 @@ func (s *Server) visibleTools() []Tool {
 	if s.profile != ProfileMonitor {
 		return Tools
 	}
-	names := []string{"canary_stress", "canary_status"}
+	names := []string{"canary_brief", "canary_status"}
 	out := make([]Tool, 0, len(names))
 	for _, name := range names {
 		if tool, ok := lookupTool(name); ok {

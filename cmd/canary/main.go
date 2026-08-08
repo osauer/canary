@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"slices"
-	"strings"
 	"syscall"
 	"time"
 
@@ -122,15 +121,6 @@ func main() {
 
 	color := cli.ShouldColor(os.Stdout)
 
-	// `canary watch` defaults to the quote monitor, but add/remove/list/clear
-	// stay local metadata so they remain usable without a gateway.
-	if cmd == "watch" && !isWatchDaemonInvocation(rest) {
-		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer cancel()
-		env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Color: color}
-		os.Exit(cli.Run(ctx, env, cmd, rest))
-	}
-
 	// `canary <cmd> --help` should not spawn the daemon — render help and exit.
 	for _, a := range rest {
 		if a == "--help" || a == "-h" || a == "-help" {
@@ -216,7 +206,7 @@ func unaryInvocationBudget(cmd string, rest []string) time.Duration {
 	// Integration builds deliberately override these strings with tiny values
 	// to exercise cancellation paths. Preserve that test seam exactly; normal
 	// production defaults derive from the shared RPC timing catalog below.
-	longClass := cmd == "technical" || cmd == "stress" || cmd == "brief"
+	longClass := cmd == "technical" || cmd == "brief"
 	if cliUnaryTimeout != "60s" || cliLongUnaryTimeout != "90s" {
 		if longClass {
 			return parseDurationOr(cliLongUnaryTimeout, 90*time.Second)
@@ -240,38 +230,16 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	switch cmd {
 	case "status":
 		return []string{rpc.MethodStatusHealth, rpc.MethodAlertCandidates}, ordinaryHeadroom, ordinaryFloor
-	case "account", "size":
+	case "account":
 		return []string{rpc.MethodAccountSummary}, ordinaryHeadroom, ordinaryFloor
 	case "positions":
 		return []string{rpc.MethodPositionsList}, ordinaryHeadroom, ordinaryFloor
-	case "quote":
-		return []string{rpc.MethodQuoteSnapshot}, ordinaryHeadroom, ordinaryFloor
-	case "watch":
-		return []string{rpc.MethodQuoteSnapshot, rpc.MethodPositionsList}, 30 * time.Second, ordinaryFloor
-	case "calendar":
-		return []string{rpc.MethodMarketCalendar}, ordinaryHeadroom, ordinaryFloor
-	case "chain":
-		return []string{rpc.MethodChainFetch, rpc.MethodChainExpiries}, ordinaryHeadroom, ordinaryFloor
-	case "history":
-		return []string{rpc.MethodHistoryDaily}, ordinaryHeadroom, ordinaryFloor
 	case "technical":
 		return []string{rpc.MethodTechnical}, 15 * time.Second, longFloor
-	case "market-events":
-		return []string{rpc.MethodMarketEventsSnapshot}, ordinaryHeadroom, ordinaryFloor
-	case "breadth":
-		return []string{rpc.MethodBreadthSPX}, ordinaryHeadroom, ordinaryFloor
-	case "gamma":
-		return []string{rpc.MethodGammaZeroSPX}, ordinaryHeadroom, ordinaryFloor
-	case "regime":
-		return []string{rpc.MethodRegimeSnapshot, rpc.MethodRegimeHistory}, ordinaryHeadroom, ordinaryFloor
-	case "stress":
-		return []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodStressHistory}, 40 * time.Second, longFloor
 	case "brief":
 		return []string{rpc.MethodBriefSnapshot, rpc.MethodBriefAck}, 15 * time.Second, longFloor
 	case "rules":
 		return []string{rpc.MethodRulesSnapshot, rpc.MethodRulesHistory}, ordinaryHeadroom, ordinaryFloor
-	case "alerts":
-		return []string{rpc.MethodAlertStatus, rpc.MethodAlertCandidates}, ordinaryHeadroom, ordinaryFloor
 	case "policy":
 		return []string{rpc.MethodRiskPolicySnapshot, rpc.MethodRiskPolicyCapitalEvent, rpc.MethodRiskPolicyOverride, rpc.MethodRiskPolicyResetDrawdown, rpc.MethodRiskPolicyCorrectPeak, rpc.MethodRiskPolicyArtefact}, ordinaryHeadroom, ordinaryFloor
 	case "recon":
@@ -293,18 +261,10 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "orders":
 		return []string{rpc.MethodOrdersOpen, rpc.MethodOrdersHistory}, ordinaryHeadroom, ordinaryFloor
 	case "order":
-		switch {
-		case hasInvocationToken(rest, "preview"):
-			return []string{rpc.MethodOrderPreview}, ordinaryHeadroom, ordinaryFloor
-		case hasInvocationToken(rest, "place"):
-			return []string{rpc.MethodOrderPlace}, ordinaryHeadroom, ordinaryFloor
-		case hasInvocationToken(rest, "modify"):
-			return []string{rpc.MethodOrderModify}, ordinaryHeadroom, ordinaryFloor
-		case hasInvocationToken(rest, "cancel"):
+		if hasInvocationToken(rest, "cancel") {
 			return []string{rpc.MethodOrderCancel}, ordinaryHeadroom, ordinaryFloor
-		default:
-			return []string{rpc.MethodOrderStatus}, ordinaryHeadroom, ordinaryFloor
 		}
+		return []string{rpc.MethodOrderStatus}, ordinaryHeadroom, ordinaryFloor
 	default:
 		return nil, ordinaryHeadroom, ordinaryFloor
 	}
@@ -371,11 +331,10 @@ func warnIfDaemonVersionMismatch(conn *dial.Conn, cliVersion string) {
 }
 
 // isStreamingInvocation reports whether the CLI invocation will hold the
-// daemon socket open for an open-ended stream. `quote`, `account`, `positions`,
-// and `watch` all support `--watch` as a long-running render loop.
+// daemon socket open for an open-ended account or position watch.
 func isStreamingInvocation(cmd string, args []string) bool {
 	switch cmd {
-	case "quote", "account", "positions", "watch":
+	case "account", "positions":
 	default:
 		return false
 	}
@@ -385,23 +344,4 @@ func isStreamingInvocation(cmd string, args []string) bool {
 		}
 	}
 	return false
-}
-
-func isWatchDaemonInvocation(args []string) bool {
-	localOnly := false
-	for _, a := range args {
-		name := strings.TrimLeft(a, "-")
-		if i := strings.Index(name, "="); i >= 0 {
-			name = name[:i]
-		}
-		switch a {
-		case "--watch", "-watch", "--watch=true", "--quotes", "-quotes", "--quotes=true":
-			return true
-		}
-		switch name {
-		case "add", "remove", "clear", "list":
-			localOnly = true
-		}
-	}
-	return !localOnly
 }

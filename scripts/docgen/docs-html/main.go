@@ -313,15 +313,6 @@ var pages = []pageSpec{
 		Legacy:      []string{"docs/reference/mcp-tools.html"},
 	},
 	{
-		Source:      "docs/docs/reference/mcp-resources.md",
-		Section:     "reference",
-		NavTitle:    "MCP resources",
-		Summary:     "The non-tool resources, including the live quote subscription URI template.",
-		Description: "Reference for the non-tool resources exposed by canary mcp, including live quote subscriptions.",
-		Status:      statusPublished,
-		Legacy:      []string{"docs/reference/mcp-resources.html"},
-	},
-	{
 		Source:      "docs/docs/reference/config.md",
 		Section:     "reference",
 		NavTitle:    "Configuration",

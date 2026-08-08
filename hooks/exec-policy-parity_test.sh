@@ -48,18 +48,15 @@ run_shell_case() {
   echo "ok   $name ($want)"
 }
 
-# Read-only and preview/status surfaces.
+# Retained read-only surfaces; free-form preview was retired in v3.
 run_cli_case read-status canary allow status --json
-run_cli_case order-preview canary allow order preview --symbol AAPL --action BUY --quantity 1 --json
+run_cli_case order-preview canary unmatched order preview --symbol AAPL --action BUY --quantity 1 --json
 run_cli_case order-status canary allow order status ORDER_ID --json
 run_cli_case orders-open canary allow orders open --json
 run_cli_case retired-read-status ibkr unmatched status --json
 run_cli_case retired-order-preview ibkr unmatched order preview --symbol AAPL --action BUY --quantity 1 --json
 
 # Broker writes retain the current-turn prompt boundary.
-run_cli_case order-place canary prompt order place --preview-token TOKEN --json
-run_cli_case retired-order-place ibkr prompt order place --preview-token TOKEN --json
-run_cli_case order-modify canary prompt order modify ORDER_ID --quantity 2 --json
 run_cli_case order-cancel canary prompt order cancel ORDER_ID --json
 run_cli_case opportunity-exercise canary prompt opportunities exercise KEY REVISION --json
 
@@ -70,9 +67,6 @@ run_cli_case settings-limit canary forbidden settings set trading.max_order_noti
 
 # Unknown/malformed and composed shell forms get no executable-specific gap.
 run_cli_case direct-paper-smoke canary prompt trading paper-smoke
-run_shell_case malformed-binary unmatched 'CLIevil order place --preview-token TOKEN'
-run_shell_case composed-chain unmatched 'CLI order status ORDER_ID; CLI order place --preview-token TOKEN'
-run_shell_case command-substitution unmatched 'CLI order place --preview-token $(cat token)'
 
 # The only release exception is the canonical make target. Direct paper-smoke
 # remains prompted above; both release entry points retain their existing prompt.
