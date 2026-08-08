@@ -45,7 +45,7 @@ func TestImportLegacyMarketObservationsPreflightsAndPreservesExactBytes(t *testi
 	}
 
 	hmdsDir, _ := regimeHistoryCacheDefaultDir()
-	newRegimeHistoryCache(hmdsDir).put("USD.JPY", USDJPYLookbackDays, makeBars(10, 150), now)
+	newRegimeHistoryCache(hmdsDir, nil).put("USD.JPY", USDJPYLookbackDays, makeBars(10, 150), now)
 	seriesDir, _ := regimeSeriesCacheDefaultDir()
 	newRegimeSeriesCache(seriesDir).put(fredSeriesHYOAS, makeSeries(21, 3.5), now)
 	streakDir, _ := DefaultStreakStoreDir()

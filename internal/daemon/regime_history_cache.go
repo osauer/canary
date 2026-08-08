@@ -33,6 +33,7 @@ type regimeHistoryCache struct {
 	mem            map[string]regimeHistoryCacheEntry
 	freshFor       time.Duration
 	maxFallbackAge time.Duration
+	logWarnf       func(format string, args ...any)
 }
 
 type regimeHistoryCacheEntry struct {
@@ -43,12 +44,13 @@ type regimeHistoryCacheEntry struct {
 	Bars      []ibkrlib.HistoricalBar `json:"bars"`
 }
 
-func newRegimeHistoryCache(dir string) *regimeHistoryCache {
+func newRegimeHistoryCache(dir string, logWarnf func(format string, args ...any)) *regimeHistoryCache {
 	return &regimeHistoryCache{
 		dir:            dir,
 		mem:            map[string]regimeHistoryCacheEntry{},
 		freshFor:       regimeHistoryCacheFreshFor,
 		maxFallbackAge: regimeHistoryCacheMaxFallbackAge,
+		logWarnf:       logWarnf,
 	}
 }
 
@@ -90,10 +92,43 @@ func (c *regimeHistoryCache) fetch(ctx context.Context, sym string, days int, fe
 		c.put(sym, days, bars, now)
 		return bars, nil
 	}
-	if bars, ok := c.cachedUsable(sym, days, now, false); ok {
-		return bars, nil
+	if cached, ok := c.cachedUsable(sym, days, now, false); ok {
+		c.warnFallback(sym, days, bars, err)
+		return cached, nil
 	}
 	return bars, err
+}
+
+// warnFallback reports the live fetch that fetch() is about to hide behind
+// stale bars. Without it the caller sees (bars, nil) and can only complain
+// about the content of a series whose age it cannot see — on 2026-08-08 a
+// timed-out HMDS call surfaced as the closed-date pin reporting missing
+// official closes, which points at the wrong code.
+func (c *regimeHistoryCache) warnFallback(sym string, days int, live []ibkrlib.HistoricalBar, err error) {
+	if c.logWarnf == nil {
+		return
+	}
+	entry, ok := c.get(sym, days)
+	if !ok {
+		return
+	}
+	reason := fmt.Sprintf("live fetch failed: %v", err)
+	if err == nil {
+		reason = fmt.Sprintf("live fetch returned %d bars, want at least %d", len(live), regimeHistoryMinBars(days))
+	}
+	c.logWarnf("regime history cache: %s %dd: %s; serving bars fetched %s, newest %s",
+		sym, days, reason, entry.FetchedAt.Format(time.RFC3339), newestHistoryBarLabel(entry.Bars))
+}
+
+// newestHistoryBarLabel is the session date of the last labelable bar, so a
+// stale-fallback warning names the last session the served series covers.
+func newestHistoryBarLabel(bars []ibkrlib.HistoricalBar) string {
+	for _, bar := range slices.Backward(bars) {
+		if label := historyBarSessionDate(bar); label != "" {
+			return label
+		}
+	}
+	return "unknown"
 }
 
 func (c *regimeHistoryCache) cachedUsable(sym string, days int, now time.Time, requireFreshFetch bool) ([]ibkrlib.HistoricalBar, bool) {

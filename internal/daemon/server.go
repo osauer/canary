@@ -830,7 +830,7 @@ func (s *Server) installRegimeHistoryCache() {
 		s.logger.Warnf("regime history cache: resolve dir: %v (persistence disabled)", err)
 		return
 	}
-	s.regimeHistory = newRegimeHistoryCache(dir)
+	s.regimeHistory = newRegimeHistoryCache(dir, s.warnf)
 }
 
 // infof / warnf are nil-safe wrappers around s.logger. The tests that

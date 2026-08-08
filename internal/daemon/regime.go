@@ -739,7 +739,7 @@ func regimeClosedDateTapePin(ctx context.Context, deps *regimeDeps, sym string, 
 		warnDeps(deps, "regime: %s closed-date day change: calendar could not resolve the last two sessions", sym)
 		return regimeTapePin{}, false
 	}
-	hctx, hcancel := context.WithTimeout(ctx, 15*time.Second)
+	hctx, hcancel := context.WithTimeout(ctx, 20*time.Second)
 	bars, err := deps.history(hctx, sym, regimeTapePinLookbackDays)
 	hcancel()
 	if err != nil {
