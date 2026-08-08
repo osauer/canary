@@ -1103,10 +1103,6 @@ func (routeFakeClient) NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResul
 	return nil, nil
 }
 
-func (routeFakeClient) NudgesCutoverReview(context.Context, rpc.NudgesCutoverReviewParams) (*rpc.NudgesCutoverReviewResult, error) {
-	return nil, nil
-}
-
 func (routeFakeClient) Status(context.Context) (*rpc.HealthResult, error) {
 	return &rpc.HealthResult{Connected: true, GatewayHost: "127.0.0.1", GatewayPort: 7497}, nil
 }

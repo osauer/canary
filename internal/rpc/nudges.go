@@ -15,25 +15,7 @@ import (
 const (
 	// MethodNudgesSnapshot returns the current redacted advisory snapshot.
 	MethodNudgesSnapshot = "nudges.snapshot"
-	// MethodNudgesCutoverReview records authenticated paired-device review
-	// evidence; it does not complete a pulse or authorize broker activity.
-	MethodNudgesCutoverReview = "nudges.cutover_review"
 )
-
-// NudgeCutoverReviewOrigin identifies the authenticated surface supplying
-// cutover-review evidence.
-type NudgeCutoverReviewOrigin string
-
-// NudgeCutoverReviewOriginPairedDevice is the only accepted review origin.
-const NudgeCutoverReviewOriginPairedDevice NudgeCutoverReviewOrigin = "paired_device"
-
-// NudgeCutoverReviewEvidence identifies the fixed evidence class recorded by
-// a cutover review.
-type NudgeCutoverReviewEvidence string
-
-// NudgeCutoverReviewEvidencePairedDeviceForegroundRender means the paired
-// device visibly rendered the review in the foreground.
-const NudgeCutoverReviewEvidencePairedDeviceForegroundRender NudgeCutoverReviewEvidence = "paired_device_foreground_render_review"
 
 // Nudge candidate kinds, states, severities, destinations, and the blocking
 // drawdown tier mirror the pure risk contract.
@@ -87,7 +69,6 @@ const (
 	NudgeHealthReasonSourceUnavailable          = "source_unavailable"
 	NudgeHealthReasonEvaluationError            = "evaluation_error"
 	NudgeHealthReasonCoverageUnavailable        = "coverage_unavailable"
-	NudgeHealthReasonCutoverReviewRequired      = "cutover_review_required"
 	NudgeHealthReasonProcessRemindersNotEnabled = "process_reminders_not_enabled"
 	NudgeHealthReasonInvalid                    = "invalid_health"
 )
@@ -109,102 +90,6 @@ func (params *NudgesSnapshotParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*params = NudgesSnapshotParams(decoded)
-	return nil
-}
-
-// NudgesCutoverReviewParams carries only the fixed paired-surface evidence
-// labels. The daemon, not this DTO, authenticates the origin and authorizes
-// the advisory evidence write against current broker-backed report health.
-type NudgesCutoverReviewParams struct {
-	Origin   NudgeCutoverReviewOrigin   `json:"origin"`
-	Evidence NudgeCutoverReviewEvidence `json:"evidence"`
-}
-
-// MarshalJSON validates the fixed origin and evidence values before encoding.
-func (params NudgesCutoverReviewParams) MarshalJSON() ([]byte, error) {
-	if err := validateNudgesCutoverReviewParams(params); err != nil {
-		return nil, err
-	}
-	type wire NudgesCutoverReviewParams
-	return json.Marshal(wire(params))
-}
-
-// UnmarshalJSON rejects null, missing, duplicate, or unknown fields and
-// validates the resulting review evidence.
-func (params *NudgesCutoverReviewParams) UnmarshalJSON(data []byte) error {
-	type wire NudgesCutoverReviewParams
-	var decoded wire
-	if err := decodeExactNudgeJSONObject(data, []string{"origin", "evidence"}, &decoded); err != nil {
-		return err
-	}
-	value := NudgesCutoverReviewParams(decoded)
-	if err := validateNudgesCutoverReviewParams(value); err != nil {
-		return err
-	}
-	*params = value
-	return nil
-}
-
-func validateNudgesCutoverReviewParams(params NudgesCutoverReviewParams) error {
-	if params.Origin != NudgeCutoverReviewOriginPairedDevice {
-		return errors.New("invalid nudge cutover-review origin")
-	}
-	if params.Evidence != NudgeCutoverReviewEvidencePairedDeviceForegroundRender {
-		return errors.New("invalid nudge cutover-review evidence")
-	}
-	return nil
-}
-
-// NudgesCutoverReviewResult reports only daemon-authored, redacted evidence.
-// It is neither broker authority nor monthly-pulse completion.
-type NudgesCutoverReviewResult struct {
-	OK              bool                       `json:"ok"`
-	AlreadyReviewed bool                       `json:"already_reviewed"`
-	ReviewedAt      time.Time                  `json:"reviewed_at"`
-	CoverageFrom    time.Time                  `json:"coverage_from"`
-	Evidence        NudgeCutoverReviewEvidence `json:"evidence"`
-}
-
-// MarshalJSON validates success, timestamps, and evidence before encoding.
-func (result NudgesCutoverReviewResult) MarshalJSON() ([]byte, error) {
-	if err := validateNudgesCutoverReviewResult(result); err != nil {
-		return nil, err
-	}
-	type wire NudgesCutoverReviewResult
-	return json.Marshal(wire(result))
-}
-
-// UnmarshalJSON accepts only the exact validated result shape.
-func (result *NudgesCutoverReviewResult) UnmarshalJSON(data []byte) error {
-	type wire NudgesCutoverReviewResult
-	var decoded wire
-	if err := decodeExactNudgeJSONObject(data, []string{"ok", "already_reviewed", "reviewed_at", "coverage_from", "evidence"}, &decoded); err != nil {
-		return err
-	}
-	value := NudgesCutoverReviewResult(decoded)
-	if err := validateNudgesCutoverReviewResult(value); err != nil {
-		return err
-	}
-	*result = value
-	return nil
-}
-
-func validateNudgesCutoverReviewResult(result NudgesCutoverReviewResult) error {
-	if !result.OK {
-		return errors.New("nudge cutover-review result must be successful")
-	}
-	if result.ReviewedAt.IsZero() {
-		return errors.New("nudge cutover-review result is missing reviewed_at")
-	}
-	if result.CoverageFrom.IsZero() {
-		return errors.New("nudge cutover-review result is missing coverage_from")
-	}
-	if result.CoverageFrom.After(result.ReviewedAt) {
-		return errors.New("nudge cutover-review coverage_from is after reviewed_at")
-	}
-	if result.Evidence != NudgeCutoverReviewEvidencePairedDeviceForegroundRender {
-		return errors.New("invalid nudge cutover-review result evidence")
-	}
 	return nil
 }
 
@@ -347,8 +232,7 @@ func normalizeNudgeInputHealth(health NudgeInputHealth, source nudgeHealthSource
 				health.Reason == NudgeHealthReasonProcessRemindersNotEnabled
 		case NudgeInputStatusUnapproved:
 			validPair = health.Reason == NudgeHealthReasonPolicyUnapproved ||
-				health.Reason == NudgeHealthReasonCadenceUnapproved ||
-				(source == nudgeHealthSourceConfirmedFlow && health.Reason == NudgeHealthReasonCutoverReviewRequired)
+				health.Reason == NudgeHealthReasonCadenceUnapproved
 		case NudgeInputStatusStale:
 			validPair = health.Reason == NudgeHealthReasonEvidenceStale
 		case NudgeInputStatusUnavailable:
@@ -431,11 +315,9 @@ type NudgeDrawdownSummary struct {
 	ConsumedPct *float64 `json:"consumed_pct"`
 }
 
-// NudgeConfirmedFlowCoverage discloses only the redacted cutover boundary and
-// whether flows before that boundary still require review.
+// NudgeConfirmedFlowCoverage discloses the redacted observation boundary.
 type NudgeConfirmedFlowCoverage struct {
-	CoverageFrom              time.Time `json:"coverage_from"`
-	PreCutoverFlowsUnreviewed bool      `json:"pre_cutover_flows_unreviewed"`
+	CoverageFrom time.Time `json:"coverage_from"`
 }
 
 // MarshalJSON validates and canonicalizes health and candidates before
@@ -613,15 +495,6 @@ func validateNudgeSnapshotConfirmedFlowCoherence(
 	}
 	if !confirmedFlowHealth.AsOf.IsZero() && coverage.CoverageFrom.After(confirmedFlowHealth.AsOf) {
 		return errors.New("nudge snapshot confirmed-flow coverage is newer than source health")
-	}
-	if coverage.PreCutoverFlowsUnreviewed {
-		if confirmedFlowHealth.Status != NudgeInputStatusUnapproved || confirmedFlowHealth.Reason != NudgeHealthReasonCutoverReviewRequired {
-			return errors.New("nudge snapshot unreviewed confirmed-flow coverage has incoherent source health")
-		}
-		return nil
-	}
-	if confirmedFlowHealth.Reason == NudgeHealthReasonCutoverReviewRequired {
-		return errors.New("nudge snapshot reviewed confirmed-flow coverage still requires cutover review")
 	}
 	return nil
 }

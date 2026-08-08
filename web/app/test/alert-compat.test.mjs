@@ -55,7 +55,7 @@ function loadAlerts({ visibility = "visible", alertsPanelHidden = false } = {}) 
         as_of: "2026-07-02T00:00:00Z",
         candidates: [],
         source_health: { aggregate: "ready" },
-        confirmed_flow_coverage: { coverage_from: "2026-07-01T00:00:00Z", pre_cutover_flows_unreviewed: false },
+        confirmed_flow_coverage: { coverage_from: "2026-07-01T00:00:00Z" },
       },
     },
     vapidPublicKey: "",

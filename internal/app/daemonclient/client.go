@@ -29,7 +29,6 @@ type Client interface {
 	Rules(context.Context) (*rpc.RulesResult, error)
 	Brief(context.Context) (*rpc.BriefResult, error)
 	NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResult, error)
-	NudgesCutoverReview(context.Context, rpc.NudgesCutoverReviewParams) (*rpc.NudgesCutoverReviewResult, error)
 	BriefAck(context.Context, rpc.BriefAckParams) (*rpc.BriefAckResult, error)
 	ReconcileSignoff(context.Context, rpc.CapitalEventParams) (*rpc.RiskPolicyWriteResult, error)
 	TradingStatus(context.Context) (*rpc.TradingStatus, error)
@@ -79,8 +78,7 @@ const appQuoteSnapshotTimeout = 2500 * time.Millisecond
 // Result-validation errors identify daemon responses rejected at the app RPC
 // boundary without including private payload data.
 var (
-	ErrInvalidNudgesCutoverReviewResult = errors.New("invalid nudges cutover-review result")
-	ErrInvalidAlertCandidateSnapshot    = errors.New("invalid alert candidate snapshot")
+	ErrInvalidAlertCandidateSnapshot = errors.New("invalid alert candidate snapshot")
 )
 
 // Status returns the daemon health snapshot.
@@ -266,23 +264,6 @@ func (c Real) ReconcileCheck(ctx context.Context) (*rpc.ReconCheckResult, error)
 	}
 	if err := rpc.ValidateReconCheckResult(out); err != nil {
 		return nil, fmt.Errorf("invalid reconciliation check result: %w", err)
-	}
-	return &out, nil
-}
-
-// NudgesCutoverReview forwards a typed cutover-review request and validates
-// that the result remains JSON-encodable at the app boundary.
-func (c Real) NudgesCutoverReview(ctx context.Context, params rpc.NudgesCutoverReviewParams) (*rpc.NudgesCutoverReviewResult, error) {
-	return nudgesCutoverReview(ctx, params, c.call)
-}
-
-func nudgesCutoverReview(ctx context.Context, params rpc.NudgesCutoverReviewParams, call func(context.Context, string, any, any) error) (*rpc.NudgesCutoverReviewResult, error) {
-	var out rpc.NudgesCutoverReviewResult
-	if err := call(ctx, rpc.MethodNudgesCutoverReview, params, &out); err != nil {
-		return nil, err
-	}
-	if _, err := json.Marshal(out); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidNudgesCutoverReviewResult, err)
 	}
 	return &out, nil
 }

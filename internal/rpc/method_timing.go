@@ -77,7 +77,6 @@ var methodTimings = []MethodTiming{
 	{Method: MethodBriefSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 75 * time.Second},
 	{Method: MethodBriefAck, Lifetime: MethodLifetimeUnary, DaemonTimeout: 75 * time.Second},
 	{Method: MethodNudgesSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
-	{Method: MethodNudgesCutoverReview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodRiskPolicySnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodRiskPolicyCapitalEvent, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodRiskPolicyOverride, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},

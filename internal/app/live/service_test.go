@@ -1966,10 +1966,6 @@ func (c *fakeClient) NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResult,
 	return c.nudges, c.nudgesErr
 }
 
-func (c *fakeClient) NudgesCutoverReview(context.Context, rpc.NudgesCutoverReviewParams) (*rpc.NudgesCutoverReviewResult, error) {
-	return nil, nil
-}
-
 func (c *fakeClient) BriefAck(context.Context, rpc.BriefAckParams) (*rpc.BriefAckResult, error) {
 	c.quoteMu.Lock()
 	defer c.quoteMu.Unlock()

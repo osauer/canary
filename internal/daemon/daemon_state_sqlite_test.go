@@ -279,11 +279,7 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 		ConfirmedCoverage: &nudgeConfirmedCoverageState{
 			CoverageFrom: base.AddDate(0, -1, 0), ReportIdentity: "report-1", CoveredRowCount: 4,
 			CurrentReportIdentity: "report-2", CurrentRowCount: 5, CurrentRowsObserved: true,
-			PreCutoverUnreviewed: true, ReviewedAt: base.Add(-time.Hour), ReviewPolicyIdentity: "policy-v3",
-			ReviewPolicyVersion: 3, ReviewReportIdentity: "report-2", ReviewedRowCount: 5,
-			KnownRows: []string{"row-1"}, CurrentRows: []string{"row-2"}, ReviewedRows: []string{"row-2"},
-			ReviewStatementAsOf: base.Add(-2 * time.Hour), ReviewAuthority: "statement",
-			ReviewGovernance: "human-review",
+			KnownRows: []string{"row-1"}, CurrentRows: []string{"row-2"},
 		},
 		ConfirmedEvents: []nudgeConfirmedEventState{{ContentIdentity: "event-1", OccurredAt: base.Add(-time.Hour), Superseded: true}},
 		MonthlyCompletions: []nudgeMonthlyCompletion{{

@@ -49,18 +49,8 @@ type nudgeConfirmedCoverageState struct {
 	CurrentReportIdentity string    `json:"current_report_identity,omitempty"`
 	CurrentRowCount       int       `json:"current_row_count,omitempty"`
 	CurrentRowsObserved   bool      `json:"current_rows_observed,omitempty"`
-	PreCutoverUnreviewed  bool      `json:"pre_cutover_unreviewed"`
-	ReviewedAt            time.Time `json:"reviewed_at,omitzero"`
-	ReviewPolicyIdentity  string    `json:"review_policy_identity,omitempty"`
-	ReviewPolicyVersion   int       `json:"review_policy_version,omitempty"`
-	ReviewReportIdentity  string    `json:"review_report_identity,omitempty"`
-	ReviewedRowCount      int       `json:"reviewed_row_count,omitempty"`
 	KnownRows             []string  `json:"known_rows,omitempty"`
 	CurrentRows           []string  `json:"current_rows,omitempty"`
-	ReviewedRows          []string  `json:"reviewed_rows,omitempty"`
-	ReviewStatementAsOf   time.Time `json:"review_statement_as_of,omitzero"`
-	ReviewAuthority       string    `json:"review_authority,omitempty"`
-	ReviewGovernance      string    `json:"review_governance,omitempty"`
 }
 
 type nudgeConfirmedEventState struct {
@@ -104,18 +94,6 @@ type nudgeConfirmedFlowSnapshot struct {
 	ConfirmedRows     []string
 }
 
-type nudgeCutoverReviewEvidence struct {
-	ReviewedAt         time.Time
-	PolicyIdentity     string
-	PolicyVersion      int
-	ReportIdentity     string
-	ConfirmedRows      int
-	ReviewedRows       []string
-	StatementAsOf      time.Time
-	AuthorityIdentity  string
-	GovernanceIdentity string
-}
-
 func (s *Server) installNudgeStateStore() {
 	if s == nil {
 		return
@@ -151,7 +129,7 @@ func (st *nudgeStateStore) bindCore(ctx context.Context, core *corestore.Store) 
 		normalizeNudgeState(&state)
 		revision = doc.Revision
 	} else {
-		return fmt.Errorf("governance nudge state is missing from SQLite; cutover bootstrap was not completed")
+		return fmt.Errorf("governance nudge state is missing from SQLite; initialization was not completed")
 	}
 	st.mu.Lock()
 	st.core, st.revision, st.loaded = core, revision, true
@@ -335,11 +313,6 @@ func (st *nudgeStateStore) recordShadow(policyIdentity, latchEpisode string, ris
 	return nil
 }
 
-func (st *nudgeStateStore) shadowCandidate(policyIdentity, latchEpisode string, open bool) *risk.NudgeCandidate {
-	candidate, _ := st.shadowObservation(policyIdentity, latchEpisode, open)
-	return candidate
-}
-
 func (st *nudgeStateStore) shadowObservation(policyIdentity, latchEpisode string, open bool) (*risk.NudgeCandidate, int) {
 	if st == nil || !open {
 		return nil, 0
@@ -393,7 +366,6 @@ func (st *nudgeStateStore) observeConfirmedFlows(snapshot nudgeConfirmedFlowSnap
 			CurrentReportIdentity: snapshot.ReportIdentity,
 			CurrentRowCount:       len(rows),
 			CurrentRowsObserved:   true,
-			PreCutoverUnreviewed:  true,
 			KnownRows:             rows,
 			CurrentRows:           rows,
 		}
@@ -429,12 +401,6 @@ func (st *nudgeStateStore) observeConfirmedFlows(snapshot nudgeConfirmedFlowSnap
 		}
 		known[row] = struct{}{}
 		coverage.KnownRows = append(coverage.KnownRows, row)
-		if coverage.PreCutoverUnreviewed {
-			continue
-		}
-		if slices.Contains(coverage.ReviewedRows, row) {
-			continue
-		}
 		st.state.ConfirmedEvents = append(st.state.ConfirmedEvents, nudgeConfirmedEventState{
 			ContentIdentity: row,
 			OccurredAt:      now,
@@ -454,7 +420,6 @@ func cloneNudgeState(state nudgeStateFileV1) nudgeStateFileV1 {
 		coverage := *state.ConfirmedCoverage
 		coverage.KnownRows = append([]string(nil), state.ConfirmedCoverage.KnownRows...)
 		coverage.CurrentRows = append([]string(nil), state.ConfirmedCoverage.CurrentRows...)
-		coverage.ReviewedRows = append([]string(nil), state.ConfirmedCoverage.ReviewedRows...)
 		cloned.ConfirmedCoverage = &coverage
 	}
 	cloned.ConfirmedEvents = append([]nudgeConfirmedEventState(nil), state.ConfirmedEvents...)
@@ -467,13 +432,7 @@ func (st *nudgeStateStore) confirmedSnapshot(currentRows []string) (*rpc.NudgeCo
 	return coverage, events, ok
 }
 
-type confirmedFlowCurrentAuthority struct {
-	GovernanceIdentity string
-	ReportIdentity     string
-	StatementAsOf      time.Time
-}
-
-func (st *nudgeStateStore) confirmedSnapshotContext(ctx context.Context, currentRows []string, currentAuthority ...confirmedFlowCurrentAuthority) (*rpc.NudgeConfirmedFlowCoverage, []nudgeConfirmedEventState, bool, error) {
+func (st *nudgeStateStore) confirmedSnapshotContext(ctx context.Context, currentRows []string) (*rpc.NudgeConfirmedFlowCoverage, []nudgeConfirmedEventState, bool, error) {
 	if st == nil {
 		return nil, nil, false, nil
 	}
@@ -491,14 +450,8 @@ func (st *nudgeStateStore) confirmedSnapshotContext(ctx context.Context, current
 		return nil, nil, false, nil
 	}
 	coverageState := st.state.ConfirmedCoverage
-	var authority *confirmedFlowCurrentAuthority
-	if len(currentAuthority) > 0 {
-		authority = &currentAuthority[0]
-	}
-	effectiveUnreviewed := !cutoverReviewCurrentLocked(coverageState, st.state.ConfirmedEvents, current, authority)
 	coverage := &rpc.NudgeConfirmedFlowCoverage{
-		CoverageFrom:              coverageState.CoverageFrom,
-		PreCutoverFlowsUnreviewed: effectiveUnreviewed,
+		CoverageFrom: coverageState.CoverageFrom,
 	}
 	events := make([]nudgeConfirmedEventState, 0, len(st.state.ConfirmedEvents))
 	for _, event := range st.state.ConfirmedEvents {
@@ -514,149 +467,6 @@ func (st *nudgeStateStore) confirmedSnapshotContext(ctx context.Context, current
 		events = append(events, event)
 	}
 	return coverage, events, true, nil
-}
-
-// cutoverReviewCurrentLocked is the single projection used both by snapshots
-// and by the write path deciding whether old evidence is still an idempotency
-// boundary or may be replaced by a fresh paired-device review.
-func cutoverReviewCurrentLocked(coverage *nudgeConfirmedCoverageState, events []nudgeConfirmedEventState, current map[string]struct{}, authority *confirmedFlowCurrentAuthority) bool {
-	if coverage == nil || coverage.PreCutoverUnreviewed {
-		return false
-	}
-	if authority != nil {
-		currentGovernance := strings.TrimSpace(authority.GovernanceIdentity)
-		currentReviewAuthority := cutoverAuthorityIdentity(currentGovernance, coverage.ReviewReportIdentity,
-			coverage.ReviewStatementAsOf, coverage.ReviewedRows)
-		if currentGovernance == "" || coverage.ReviewGovernance != currentGovernance ||
-			coverage.ReviewAuthority == "" || coverage.ReviewAuthority != currentReviewAuthority {
-			return false
-		}
-	}
-	known := make(map[string]struct{}, len(coverage.KnownRows))
-	for _, row := range coverage.KnownRows {
-		known[row] = struct{}{}
-	}
-	for row := range current {
-		if _, ok := known[row]; !ok {
-			return false
-		}
-	}
-	if authority == nil || (authority.ReportIdentity == coverage.ReviewReportIdentity && authority.StatementAsOf.Equal(coverage.ReviewStatementAsOf)) {
-		return true
-	}
-	eventIDs := make(map[string]struct{}, len(events))
-	for _, event := range events {
-		eventIDs[event.ContentIdentity] = struct{}{}
-	}
-	delta := 0
-	for row := range current {
-		if slices.Contains(coverage.ReviewedRows, row) {
-			continue
-		}
-		delta++
-		if _, observed := eventIDs[row]; !observed {
-			return false
-		}
-	}
-	return delta > 0
-}
-
-func (st *nudgeStateStore) reviewConfirmedCutover(evidence nudgeCutoverReviewEvidence) (nudgeConfirmedCoverageState, bool, error) {
-	return st.reviewConfirmedCutoverContext(context.Background(), evidence)
-}
-
-func (st *nudgeStateStore) reviewConfirmedCutoverContext(ctx context.Context, evidence nudgeCutoverReviewEvidence) (nudgeConfirmedCoverageState, bool, error) {
-	if st == nil {
-		return nudgeConfirmedCoverageState{}, false, fmt.Errorf("governance nudge persistence is unavailable")
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return nudgeConfirmedCoverageState{}, false, err
-	}
-	st.loadLocked()
-	if st.loadErr {
-		return nudgeConfirmedCoverageState{}, false, fmt.Errorf("governance nudge persistence is unavailable")
-	}
-	if st.state.ConfirmedCoverage == nil {
-		return nudgeConfirmedCoverageState{}, false, fmt.Errorf("confirmed-flow cutover coverage is unavailable")
-	}
-	now := time.Now().UTC()
-	if st.now != nil {
-		now = st.now().UTC()
-	}
-	coverage := st.state.ConfirmedCoverage
-	currentReport := coverage.CurrentReportIdentity
-	if currentReport == "" {
-		currentReport = coverage.ReportIdentity
-	}
-	reviewedRows := normalizeOpaqueIdentities(evidence.ReviewedRows)
-	governanceIdentity := strings.TrimSpace(evidence.GovernanceIdentity)
-	authorityIdentity := strings.TrimSpace(evidence.AuthorityIdentity)
-	if authorityIdentity == "" {
-		authorityIdentity = cutoverAuthorityIdentity(governanceIdentity, evidence.ReportIdentity, evidence.StatementAsOf, reviewedRows)
-	}
-	if evidence.ReviewedAt.IsZero() || evidence.ReviewedAt.Before(coverage.CoverageFrom) || evidence.ReviewedAt.After(now) ||
-		strings.TrimSpace(evidence.PolicyIdentity) == "" || evidence.PolicyVersion != 4 ||
-		strings.TrimSpace(evidence.ReportIdentity) == "" || authorityIdentity == "" || evidence.ConfirmedRows < 0 || evidence.ConfirmedRows != len(reviewedRows) {
-		return nudgeConfirmedCoverageState{}, false, fmt.Errorf("confirmed-flow cutover review evidence is invalid")
-	}
-	if evidence.ReportIdentity != currentReport || evidence.ConfirmedRows != coverage.CurrentRowCount || !slices.Equal(reviewedRows, normalizeOpaqueIdentities(coverage.CurrentRows)) {
-		return nudgeConfirmedCoverageState{}, false, fmt.Errorf("confirmed-flow cutover review conflicts with current coverage")
-	}
-	if !coverage.PreCutoverUnreviewed {
-		current := make(map[string]struct{}, len(reviewedRows))
-		for _, row := range reviewedRows {
-			current[row] = struct{}{}
-		}
-		currentAuthority := &confirmedFlowCurrentAuthority{
-			GovernanceIdentity: governanceIdentity,
-			ReportIdentity:     evidence.ReportIdentity,
-			StatementAsOf:      evidence.StatementAsOf,
-		}
-		if cutoverReviewCurrentLocked(coverage, st.state.ConfirmedEvents, current, currentAuthority) {
-			if coverage.ReviewPolicyIdentity != evidence.PolicyIdentity || coverage.ReviewPolicyVersion != evidence.PolicyVersion ||
-				coverage.ReviewReportIdentity != evidence.ReportIdentity || coverage.ReviewedRowCount != evidence.ConfirmedRows ||
-				!slices.Equal(normalizeOpaqueIdentities(coverage.ReviewedRows), reviewedRows) ||
-				coverage.ReviewAuthority != authorityIdentity || coverage.ReviewGovernance != governanceIdentity {
-				return nudgeConfirmedCoverageState{}, false, fmt.Errorf("confirmed-flow cutover review conflicts with pinned evidence")
-			}
-			return *coverage, true, nil
-		}
-		// The old exact evidence is inert under the same projection used by
-		// snapshots. Only this fresh validated foreground action may replace it.
-	}
-	before := cloneNudgeState(st.state)
-	coverage.PreCutoverUnreviewed = false
-	coverage.ReviewedAt = evidence.ReviewedAt.UTC()
-	coverage.ReviewPolicyIdentity = evidence.PolicyIdentity
-	coverage.ReviewPolicyVersion = evidence.PolicyVersion
-	coverage.ReviewReportIdentity = evidence.ReportIdentity
-	coverage.ReviewedRowCount = evidence.ConfirmedRows
-	coverage.ReviewedRows = reviewedRows
-	coverage.ReviewStatementAsOf = evidence.StatementAsOf.UTC()
-	coverage.ReviewAuthority = authorityIdentity
-	coverage.ReviewGovernance = governanceIdentity
-	filtered := st.state.ConfirmedEvents[:0]
-	for _, event := range st.state.ConfirmedEvents {
-		if err := ctx.Err(); err != nil {
-			st.state = before
-			return nudgeConfirmedCoverageState{}, false, err
-		}
-		if !slices.Contains(reviewedRows, event.ContentIdentity) {
-			filtered = append(filtered, event)
-		}
-	}
-	st.state.ConfirmedEvents = filtered
-	if err := ctx.Err(); err != nil {
-		st.state = before
-		return nudgeConfirmedCoverageState{}, false, err
-	}
-	if err := st.persistLocked(); err != nil {
-		st.state = before
-		return nudgeConfirmedCoverageState{}, false, err
-	}
-	return *coverage, false, nil
 }
 
 func (st *nudgeStateStore) monthlyCompletion(month, policyIdentity string) *risk.MonthlyPulseCompletion {
@@ -1005,111 +815,6 @@ func (s *Server) handleNudgesSnapshot(ctx context.Context, req *rpc.Request) (*r
 	return &canonical, nil
 }
 
-func (s *Server) handleNudgesCutoverReview(ctx context.Context, req *rpc.Request) (*rpc.NudgesCutoverReviewResult, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	var params rpc.NudgesCutoverReviewParams
-	if err := decodeParams(req.Params, &params); err != nil {
-		return nil, err
-	}
-	// The fixed paired origin is assigned by the authenticated app route. On
-	// the raw local RPC socket this label is advisory and forgeable; it is not
-	// broker-write, freeze/limit, or policy-change authority and does not claim
-	// device-cryptographic proof or that a person was observed reviewing.
-	if params.Origin != rpc.NudgeCutoverReviewOriginPairedDevice ||
-		params.Evidence != rpc.NudgeCutoverReviewEvidencePairedDeviceForegroundRender {
-		return nil, errBadRequest("confirmed-flow cutover review requires an authenticated paired-device foreground render")
-	}
-	if s == nil || s.nudges == nil {
-		return nil, errBadRequest("confirmed-flow cutover review state is unavailable")
-	}
-	now := time.Now().UTC()
-	if s.now != nil {
-		now = s.now().UTC()
-	}
-	authority, reportIdentity, rows, token, err := s.validateCutoverReview(ctx, now)
-	if err != nil {
-		return nil, err
-	}
-	s.nudgeWriteMu.Lock()
-	defer s.nudgeWriteMu.Unlock()
-	if s.nudgeBeforeCommit != nil {
-		s.nudgeBeforeCommit("cutover")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	finalAuthority, finalReportIdentity, finalRows, finalToken, err := s.validateCutoverReview(ctx, now)
-	if err != nil {
-		return nil, err
-	}
-	if token != finalToken || authority.policyIdentity != finalAuthority.policyIdentity || reportIdentity != finalReportIdentity || !slices.Equal(rows, finalRows) {
-		return nil, errBadRequest("confirmed-flow cutover review conflicts with current authority")
-	}
-	if s.nudgeAfterValidation != nil {
-		s.nudgeAfterValidation("cutover")
-	}
-	governanceIdentity := nudgeAuthorityToken(finalAuthority)
-	receipt, already, err := s.nudges.reviewConfirmedCutoverContext(ctx, nudgeCutoverReviewEvidence{
-		ReviewedAt: now, PolicyIdentity: finalAuthority.policyIdentity, PolicyVersion: finalAuthority.report.PolicyVersion,
-		ReportIdentity: finalReportIdentity, ConfirmedRows: len(finalRows), ReviewedRows: finalRows,
-		StatementAsOf: finalToken.statementAsOf, AuthorityIdentity: finalToken.identity, GovernanceIdentity: governanceIdentity,
-	})
-	if err != nil {
-		return nil, errBadRequest(err.Error())
-	}
-	if s.nudgeAfterPersist != nil {
-		s.nudgeAfterPersist("cutover")
-	}
-	return &rpc.NudgesCutoverReviewResult{
-		OK: true, AlreadyReviewed: already, ReviewedAt: receipt.ReviewedAt,
-		CoverageFrom: receipt.CoverageFrom,
-		Evidence:     rpc.NudgeCutoverReviewEvidencePairedDeviceForegroundRender,
-	}, nil
-}
-
-type cutoverValidationToken struct {
-	identity      string
-	statementAsOf time.Time
-}
-
-func (s *Server) validateCutoverReview(ctx context.Context, now time.Time) (nudgeAuthorityState, string, []string, cutoverValidationToken, error) {
-	if err := ctx.Err(); err != nil {
-		return nudgeAuthorityState{}, "", nil, cutoverValidationToken{}, err
-	}
-	authority := s.currentNudgeAuthority(now)
-	if !authority.confirmedFlowEligible || !policyPinsReady(authority.report.Inventory) {
-		return nudgeAuthorityState{}, "", nil, cutoverValidationToken{}, errBadRequest("confirmed-flow cutover review requires current active v4 base-policy authority with matching sibling policy pins")
-	}
-	report, err := s.buildReconReportContext(ctx)
-	if err != nil {
-		return nudgeAuthorityState{}, "", nil, cutoverValidationToken{}, err
-	}
-	if !currentBrokerBackedReconReport(authority.policy, report, now) {
-		return nudgeAuthorityState{}, "", nil, cutoverValidationToken{}, errBadRequest("confirmed-flow cutover review requires a current active broker-backed reconciliation report")
-	}
-	rows := make([]string, 0, len(report.Confirmed))
-	for _, row := range report.Confirmed {
-		if err := ctx.Err(); err != nil {
-			return nudgeAuthorityState{}, "", nil, cutoverValidationToken{}, err
-		}
-		rows = append(rows, confirmedFlowContentIdentity(row))
-	}
-	rows = normalizeOpaqueIdentities(rows)
-	reportIdentity := opaqueIdentity("recon-report", report.ReportID)
-	token := cutoverValidationToken{
-		identity:      cutoverAuthorityIdentity(nudgeAuthorityToken(authority), reportIdentity, report.StatementAsOf, rows),
-		statementAsOf: report.StatementAsOf.UTC(),
-	}
-	return authority, reportIdentity, rows, token, nil
-}
-
-func cutoverAuthorityIdentity(governanceIdentity, reportIdentity string, statementAsOf time.Time, rows []string) string {
-	return opaqueIdentity("cutover-authority", governanceIdentity, reportIdentity,
-		statementAsOf.UTC().Format(time.RFC3339Nano), strings.Join(normalizeOpaqueIdentities(rows), ","))
-}
-
 func nudgeAuthorityToken(authority nudgeAuthorityState) string {
 	parts := []string{authority.policyIdentity, strconv.Itoa(authority.report.PolicyVersion), authority.report.Status, authority.report.Source,
 		strconv.FormatBool(authority.eligible), strconv.FormatBool(authority.cadenceEligible), strconv.FormatBool(authority.confirmedFlowEligible),
@@ -1351,20 +1056,13 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 	if !authority.confirmedFlowEligible {
 		result.SourceHealth.ConfirmedFlow = setHealth(rpc.NudgeInputStatusInactive, rpc.NudgeHealthReasonProcessRemindersNotEnabled)
 	} else if s.nudges != nil && s.nudges.healthOK() {
-		currentAuthority := confirmedFlowCurrentAuthority{GovernanceIdentity: nudgeAuthorityToken(authority)}
-		if report != nil {
-			currentAuthority.ReportIdentity = opaqueIdentity("recon-report", report.ReportID)
-			currentAuthority.StatementAsOf = report.StatementAsOf.UTC()
-		}
-		coverage, events, established, err := s.nudges.confirmedSnapshotContext(ctx, currentConfirmed, currentAuthority)
+		coverage, events, established, err := s.nudges.confirmedSnapshotContext(ctx, currentConfirmed)
 		if err != nil {
 			return rpc.NudgesSnapshotResult{}, err
 		}
 		if established {
 			result.ConfirmedFlowCoverage = coverage
 			switch {
-			case coverage.PreCutoverFlowsUnreviewed:
-				result.SourceHealth.ConfirmedFlow = setHealth(rpc.NudgeInputStatusUnapproved, rpc.NudgeHealthReasonCutoverReviewRequired)
 			case report == nil || report.Status == rpc.ReconStatusUnavailable:
 				result.SourceHealth.ConfirmedFlow = setHealth(rpc.NudgeInputStatusUnavailable, rpc.NudgeHealthReasonSourceUnavailable)
 			case report.Status != rpc.ReconStatusActive:

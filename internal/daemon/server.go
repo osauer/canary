@@ -2788,8 +2788,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleBriefAck(ctx, req) })
 	case rpc.MethodNudgesSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleNudgesSnapshot(ctx, req) })
-	case rpc.MethodNudgesCutoverReview:
-		s.unary(req, enc, func() (any, error) { return s.handleNudgesCutoverReview(ctx, req) })
 	case rpc.MethodRiskPolicySnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicySnapshot(ctx, req) })
 	case rpc.MethodRiskPolicyCapitalEvent:

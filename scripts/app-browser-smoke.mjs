@@ -115,10 +115,10 @@ async function runRound4SyntheticSmoke() {
         source_health: {
           aggregate: "degraded", policy: readyInput, reconciliation: readyInput, capital: readyInput,
           pins: readyInput, cadence: readyInput,
-          confirmed_flow: { status: "unapproved", reason: "cutover_review_required", as_of: now },
+          confirmed_flow: { status: "ok", as_of: now },
         },
         context: { shadow: { count: 1 }, drawdown: { tier: "block", consumed_pct: 0 } },
-        confirmed_flow_coverage: { coverage_from: earlier, pre_cutover_flows_unreviewed: true },
+        confirmed_flow_coverage: { coverage_from: earlier },
       },
     },
   };

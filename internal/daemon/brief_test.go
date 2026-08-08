@@ -212,8 +212,8 @@ func TestMonthlyBriefAckOriginPinsFingerprintIdempotencyAndRollover(t *testing.T
 		t.Fatalf("ack=%+v", ack)
 	}
 	coverage, _, _ := s.nudges.confirmedSnapshot(nil)
-	if coverage == nil || !coverage.PreCutoverFlowsUnreviewed {
-		t.Fatalf("monthly completion silently reviewed pre-cutover coverage: %+v", coverage)
+	if coverage == nil {
+		t.Fatal("monthly completion removed confirmed-flow coverage")
 	}
 	repeat, err := s.handleBriefAck(context.Background(), rawParams(t, params))
 	if err != nil || !repeat.AlreadyStamped || !repeat.At.Equal(ack.At) || repeat.BriefFingerprint != ack.BriefFingerprint {
