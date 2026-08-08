@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v2.8.4 — 2026-08-08 09:16 CEST
+## v2.8.4 — 2026-08-08 11:26 CEST
 
 ### What's new
 
@@ -18,7 +18,7 @@ All notable changes to this project are documented here. The project adheres to 
 - **Regime price freshness no longer advances on size- or volume-only traffic.** A subscription can remain alive while its price has stopped moving, so Canary now keeps a separate accepted-price clock for regime evidence; borrow inventory carries its own field observation time for the same reason. Stopped prices and old shortable-share readings no longer look newly measured merely because another tick arrived. (#15)
 - **A working quote path no longer lights “Market-data farm issue” merely because TWS did not replay an informational farm-connected notice.** A recent successful broker quote now proves the path is ready; only an explicit broken or disconnected farm state lights the alert, while unavailable evidence remains unknown rather than reassuring.
 - **Drawdown and option alerts now name the state they actually represent.** “Drawdown latch open” means a prior breach is still retained, not that current drawdown remains over the line or trading freeze is on. “Option-line exposure” means one non-hedge option line is above its advisory share-of-NLV threshold. Current typed Rulebook rows also retire the obsolete unnamed “Trading rule” compatibility alert.
-- **A slow daily-history read no longer reads as missing official closes.** The market-closed day change allowed its history fetch less time than every comparable read, so on a quiet weekend morning it could expire against a gateway that was answering normally and then withhold the day change as though the closing prices were absent. It now gets the same allowance as those reads, and Canary says plainly whenever it serves cached daily bars instead of live ones — why the live read failed, when the cached series was fetched, and the last session it covers.
+- **A slow daily-history read no longer reads as missing official closes.** It now gets the same timeout as comparable reads and says plainly when cached bars are served, why the live read failed, when the cache was fetched, and the last session it covers.
 
 ## v2.8.3 — 2026-08-07 18:15 CEST
 
