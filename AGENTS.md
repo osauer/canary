@@ -184,44 +184,18 @@ once per cut rather than anyone tracking it continuously.
 
 ## Releases and public surfaces
 
-Use only `make release RELEASE_VERSION=vX.Y.Z`; never create tags, push tags, or
-create GitHub releases directly, and never force-push as a release step. The
-target runs the pipeline body in a detached worktree pinned to the operator's
-committed HEAD (removed on success, kept and its path printed on failure), so
-the primary checkout stays free for concurrent work, and it owns its origin,
-live-TWS, paper-round-trip, exact-SHA Actions, signing, publishing, and registry
-checks. Before tagging, every source-controlled workflow triggered by a push to
-main and its complete job inventory must be completed/success for that
-candidate, and origin/main must still point to it. The manifest is checked
-against `.github/workflows` so a newly added push workflow cannot silently
-escape release authority. Missing or unavailable CI evidence fails closed.
-The tag push atomically reasserts the unchanged candidate on origin/main.
-`release-resume` runs the current committed origin/main recovery controller
-against a separate immutable tag worktree. It selects the CI workflow/job
-contract stored in that tag; the sole pre-contract exception is an exact
-SHA-keyed v2.5.4 legacy manifest, which is checked against the tag-era workflow
-tree. Effective fetch/push URLs must resolve to the canonical
-`github.com/osauer/canary` origin, and all `gh` API/publication calls pin that
-host and repository rather than inheriting `GH_HOST`/`GH_REPO`. After success,
-verify the GitHub release, remote tag, and registry artifact.
+Use only `make release RELEASE_VERSION=vX.Y.Z` (or `make release-resume` after a
+tag was pushed); never create tags, push tags, or create GitHub releases
+directly, and never force-push as a release step. Never invoke either target
+with ignore-errors (`-i`), keep-going (`-k`), dry-run (`-n`) or touch (`-t`)
+Make flags, an overridden recursive `MAKE`/`MAKEFLAGS`, injected makefiles,
+`.ONESHELL`, or `.IGNORE`: those contexts can turn a failed gate into a
+continued publication, and the Makefile rejects them. After success, verify the
+GitHub release, remote tag, and registry artifact.
 
-The pipeline repeats the exact-SHA Actions check after artifact assembly,
-immediately before the first irreversible publication; a late manual rerun
-therefore cannot hide in the build window. `make -i`, `make -k`, dry-run/touch
-modes, overridden `MAKE`, command-line `MAKEFLAGS`, injected makefiles,
-`.ONESHELL`, and `.IGNORE` are forbidden release contexts because they can
-weaken recursive gate failure semantics. Every Git push disables ambient
-follow-tags behavior, including the separately named plugin tag. Every plugin,
-GitHub, or registry publication boundary re-proves that the annotated remote
-tag object is the one created locally and peels to the candidate. Existing
-GitHub releases are staged from their published assets and must match the exact
-12-asset inventory, GitHub digests, signed checksums, and tag-derived release
-body; release creation also uses `--verify-tag` and tag-derived notes. Registry
-metadata is generated from the tag's `server.json` and the verified versioned
-MCPB, then compared as a complete typed record at the exact version endpoint.
-The OIDC workflow pins action commits and the publisher archive digest. Direct
-registry recovery repeats all CI, tag, and GitHub proofs. Ambient `GOFLAGS` is
-cleared for the waiter so Go's `-exec` setting cannot replace it.
+What the pipeline itself proves — CI evidence, tag, publication and registry
+checks — is described in `.agents/docs/release-procedure.md`, the procedure of
+record. Read it rather than inferring the guarantees from here.
 
 The release ships the operator's committed HEAD and lands it on origin/main
 itself, with a fast-forward push as the pipeline's first step — a separate
