@@ -2048,7 +2048,11 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		timeout = 5 * time.Second
 	}
 	if isOptionQuoteContract(p.Contract) {
-		return s.handleOptionQuoteSnapshot(ctx, c, p, timeout)
+		q, err := s.handleOptionQuoteSnapshot(ctx, c, p, timeout)
+		if err == nil && quoteCarriesMarketDataWitness(q) {
+			s.observeMarketDataWitness(q.AsOf)
+		}
+		return q, err
 	}
 
 	routeContract, echoedContract, routedQuote, err := normaliseStockQuoteContract(p.Contract)
@@ -2154,6 +2158,9 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		s.attachQuoteSessionContext(q, sessionMarket)
 	}
 	s.decorateQuote(q, sessionMarket)
+	if quoteCarriesMarketDataWitness(q) {
+		s.observeMarketDataWitness(q.AsOf)
+	}
 
 	return q, nil
 }
@@ -2525,6 +2532,9 @@ func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc
 				// before close. Signal stream end to the client envelope.
 				_ = enc.Encode(rpc.Response{ID: req.ID, Ok: true, Stream: true, End: true})
 				return
+			}
+			if frame.Error == nil && (frame.Bid != nil || frame.Ask != nil || frame.Last != nil) {
+				s.observeMarketDataWitness(frame.T)
 			}
 			buf, err := json.Marshal(frame)
 			if err != nil {
@@ -4043,13 +4053,18 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 	if !connected {
 		gatewayStatus = "unavailable"
 	}
+	now := time.Now().UTC()
+	if s.now != nil {
+		now = s.now().UTC()
+	}
+	quoteWitnessCurrent := s.marketDataWitnessCurrent(now)
 	out := []rpc.SubsystemHealth{
 		s.authoritySubsystemHealth(),
 		{Name: "watchlist", Status: "ready", Message: "list-only path is local; quote enrichment requires gateway"},
-		statusSubsystemFromReadiness("quote", marketDataFarmReadiness(connected, farms, "quotes may time out")),
-		statusSubsystemFromReadiness("scanner", marketDataFarmReadiness(connected, farms, "scanner requests may time out")),
+		statusSubsystemFromReadiness("quote", marketDataFarmReadiness(connected, farms, quoteWitnessCurrent, "quotes may time out")),
+		statusSubsystemFromReadiness("scanner", marketDataFarmReadiness(connected, farms, quoteWitnessCurrent, "scanner requests may time out")),
 		statusSubsystemFromReadiness("history", historicalDataFarmReadiness(connected, farms)),
-		chainSubsystemHealth(connected, farms),
+		chainSubsystemHealth(connected, farms, quoteWitnessCurrent),
 	}
 	gamma := rpc.SubsystemHealth{Name: "gamma", Status: gatewayStatus}
 	if s.zeroGamma != nil && s.zeroGamma.IsComputing() {

@@ -17,10 +17,27 @@ import (
 // so agent sessions can read this surface but never operate it. No verb
 // here touches broker writes, freeze, or trading limits.
 func runPolicy(ctx context.Context, env *Env, args []string) int {
+	if len(args) == 1 && helpArg(args[0]) {
+		printPolicyUsage(env)
+		return 0
+	}
 	sub := "show"
 	if idx := firstPositionalIndex(args); idx >= 0 {
 		sub = args[idx]
 		args = append(append([]string{}, args[:idx]...), args[idx+1:]...)
+	}
+	if sub == "help" {
+		if len(args) == 0 {
+			printPolicyUsage(env)
+			return 0
+		}
+		if len(args) == 1 {
+			return printPolicyActionUsage(env, args[0])
+		}
+		return fail(env, "policy help: expected one action name")
+	}
+	if len(args) == 1 && helpArg(args[0]) {
+		return printPolicyActionUsage(env, sub)
 	}
 	switch sub {
 	case "show":
@@ -40,6 +57,106 @@ func runPolicy(ctx context.Context, env *Env, args []string) int {
 	default:
 		return fail(env, "policy: unknown subcommand %q (try `canary policy show --explain`)", sub)
 	}
+}
+
+func printPolicyUsage(env *Env) {
+	fmt.Fprintln(env.Stdout, "canary policy — inspect and operate the risk constitution")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Start here:")
+	fmt.Fprintln(env.Stdout, "  canary policy show             Show the current capital, drawdown, latch and policy state.")
+	fmt.Fprintln(env.Stdout, "  canary policy show --explain   Also explain every limit and whether it is advisory or enforced.")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Human-only policy actions (run these yourself in an interactive terminal):")
+	fmt.Fprintln(env.Stdout, "  capital-event    Record a provisional deposit/withdrawal, or exceptionally sign off a recon report.")
+	fmt.Fprintln(env.Stdout, "  reset-drawdown   Release a latched drawdown brake and start a new high-water mark.")
+	fmt.Fprintln(env.Stdout, "  correct-peak     Repair a high-water mark that the retained statement history proves is wrong.")
+	fmt.Fprintln(env.Stdout, "  override         Grant one named policy control a temporary, journaled exception.")
+	fmt.Fprintln(env.Stdout, "  artefact         Record completion of a morning, EOD or weekly policy review.")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Related read-only/local action:")
+	fmt.Fprintln(env.Stdout, "  default          Print the embedded protection or opportunity policy template; this is not the risk constitution.")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Usually let retained broker statements account for deposits and withdrawals. A qualifying clean")
+	fmt.Fprintln(env.Stdout, "reconciliation report extends the policy clock automatically. Use a manual action only for the")
+	fmt.Fprintln(env.Stdout, "specific exceptional case described in its help.")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Run `canary policy help <action>` or `canary policy <action> --help` for effects, limits and examples.")
+}
+
+func printPolicyActionUsage(env *Env, action string) int {
+	switch action {
+	case "show":
+		fmt.Fprintln(env.Stdout, "canary policy show — inspect the effective risk constitution and current state")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy show [--explain] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This is read-only. Use --explain to see every limit's plain-English meaning,")
+		fmt.Fprintln(env.Stdout, "source and enforcement class.")
+	case "capital-event":
+		fmt.Fprintln(env.Stdout, "canary policy capital-event — record exceptional capital or reconciliation evidence")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy capital-event deposit|withdrawal --amount F [--effective-at TIME] [--note TEXT] [--json]")
+		fmt.Fprintln(env.Stdout, "       canary policy capital-event reconcile [--report ID] [--note TEXT] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Deposits and withdrawals adjust the cash-flow-aware high-water mark. They do not")
+		fmt.Fprintln(env.Stdout, "clear a drawdown latch. Retained broker statements are authoritative, so a manual")
+		fmt.Fprintln(env.Stdout, "deposit or withdrawal is normally only a provisional bridge before the statement arrives.")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "A qualifying clean recon report extends the clock automatically. Use reconcile only")
+		fmt.Fprintln(env.Stdout, "for exceptional human sign-off after reviewing `canary recon show`.")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Examples:")
+		fmt.Fprintln(env.Stdout, "  canary policy capital-event withdrawal --amount 1000 --effective-at 2026-08-08 --note \"cash withdrawal; statement pending\"")
+		fmt.Fprintln(env.Stdout, "  canary policy capital-event reconcile")
+	case "reset-drawdown":
+		fmt.Fprintln(env.Stdout, "canary policy reset-drawdown — release the latched drawdown brake")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy reset-drawdown --reason TEXT [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This is a human-only action: run it yourself in an interactive terminal after deciding")
+		fmt.Fprintln(env.Stdout, "that risk may resume. It clears the latch, re-bases the high-water mark to current")
+		fmt.Fprintln(env.Stdout, "equity, and journals your reason. It does not change policy")
+		fmt.Fprintln(env.Stdout, "thresholds, declared risk capital, trading.freeze, or any broker-write guardrail.")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "A deposit, withdrawal, market recovery or tomorrow's reconciliation does not clear")
+		fmt.Fprintln(env.Stdout, "the latch. Check the state first with `canary policy show`.")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Example:")
+		fmt.Fprintln(env.Stdout, "  canary policy reset-drawdown --reason \"Reviewed the breach and approved risk resumption\"")
+	case "correct-peak":
+		fmt.Fprintln(env.Stdout, "canary policy correct-peak — repair an incorrect high-water mark")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy correct-peak --from-statements --reason TEXT [--json]")
+		fmt.Fprintln(env.Stdout, "       canary policy correct-peak --peak F --reason TEXT [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Prefer --from-statements: it anchors the correction to retained broker evidence.")
+		fmt.Fprintln(env.Stdout, "A correction may only lower the peak and does not clear a drawdown latch.")
+	case "override":
+		fmt.Fprintln(env.Stdout, "canary policy override — grant one temporary policy exception")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy override --control KEY --reason TEXT --hours N [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Find the exact control key with `canary policy show --explain`. The exception is")
+		fmt.Fprintln(env.Stdout, "journaled, expires automatically, and is capped by the policy's maximum duration.")
+		fmt.Fprintln(env.Stdout, "It cannot change account pins, preview requirements, trading.freeze or broker-write guardrails.")
+	case "artefact":
+		fmt.Fprintln(env.Stdout, "canary policy artefact — record a completed policy review")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy artefact morning|eod|weekly [--note TEXT] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This journals completion for policy reporting. It does not clear alerts, change limits")
+		fmt.Fprintln(env.Stdout, "or authorize a broker action.")
+	case "default":
+		fmt.Fprintln(env.Stdout, "canary policy default — print an embedded non-constitution policy template")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy default protection|opportunity")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This read-only local command prints the daemon's embedded protection or opportunity")
+		fmt.Fprintln(env.Stdout, "policy as TOML. It does not print, create or modify your risk constitution.")
+	default:
+		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, artefact, or default)", action)
+	}
+	return 0
 }
 
 // firstPositionalIndex finds the first non-flag token, skipping the values

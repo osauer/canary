@@ -343,6 +343,7 @@ const (
 	alertDecisionReasonPositive              = "producer_positive"
 	alertDecisionReasonAuthoritativeNegative = "authoritative_negative"
 	alertDecisionReasonSourceOmitted         = "source_omitted"
+	alertDecisionReasonLegacyRetired         = "legacy_presentation_retired"
 )
 
 func newAlertEpisodeRegistry(ctx context.Context, core *corestore.Store) (*alertEpisodeRegistry, error) {
@@ -1001,6 +1002,19 @@ func applyAlertEpisodeEvaluation(base alertEpisodeRegistryDocument, evaluation a
 		if _, observed := seen[record.EpisodeKey]; observed {
 			continue
 		}
+		if alertLegacyPresentationCanRetire(evaluation, *record) {
+			before := record.State
+			record.State = rpc.AlertEpisodeRecovered
+			record.StateChangedAt = evaluation.AsOf.UTC()
+			record.ObservedAt = evaluation.AsOf.UTC()
+			record.LastSourceObservedAt = evaluation.AsOf.UTC()
+			record.EvidenceAsOf = evaluation.AsOf.UTC()
+			record.EvidenceHealth = rpc.AlertEvidenceCurrent
+			record.RegistryDecisionReason = alertDecisionReasonLegacyRetired
+			record.EmitRecovered = true
+			decisions = append(decisions, decisionFromAlertRecord(*record, before, alertDecisionRecovered))
+			continue
+		}
 		before := record.State
 		record.EvidenceHealth = omittedAlertEvidenceHealth(evaluation.Coverage, record.Source)
 		record.ObservedAt = evaluation.AsOf
@@ -1025,6 +1039,26 @@ func applyAlertEpisodeEvaluation(base alertEpisodeRegistryDocument, evaluation a
 		return alertEpisodeRegistryDocument{}, nil, fmt.Errorf("build alert episode registry: %w", err)
 	}
 	return next, decisions, nil
+}
+
+func alertLegacyPresentationCanRetire(evaluation alertEpisodeEvaluation, record alertEpisodeRegistryRecord) bool {
+	if record.PresentationCode != rpc.AlertPresentationRulebookLegacyCondition || record.Source != rpc.AlertSourceRulebook {
+		return false
+	}
+	if evaluation.Coverage.Freshness != rpc.AlertCoverageCurrent || !alertCoverageContains(evaluation.Coverage.CoveredSources, record.Source) {
+		return false
+	}
+	// Retirement is a compatibility lifecycle transition, not an inference
+	// that an old untyped condition recovered. It is allowed only after the
+	// current typed Rulebook producer has supplied at least one observation in
+	// the same evaluation; those named episode keys supersede the unscoped v2
+	// compatibility lamp.
+	for _, observation := range evaluation.Observations {
+		if observation.Source == rpc.AlertSourceRulebook && observation.PresentationCode != rpc.AlertPresentationRulebookLegacyCondition {
+			return true
+		}
+	}
+	return false
 }
 
 func recordFromAlertObservation(authorityScope string, observation alertEpisodeObservation, occurrence string, state rpc.AlertEpisodeState, changedAt time.Time, observationFingerprint string) alertEpisodeRegistryRecord {

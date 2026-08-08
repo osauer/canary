@@ -84,6 +84,23 @@ func TestPlatformSettingsDefaultsAndPersistence(t *testing.T) {
 	}
 }
 
+func TestObservedMarketDataQualityUsesDaemonQuoteReadiness(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	quality := observedMarketDataQuality(&platformSettingsObserved{MarketDataReady: true, ObservedAt: now})
+	if quality.Status != "ok" || !strings.Contains(quality.Summary, "successful quote") {
+		t.Fatalf("observed market-data quality = %+v, want quote-path confirmation", quality)
+	}
+	if quality.ObservedAt != now {
+		t.Fatalf("observed_at = %s, want %s", quality.ObservedAt, now)
+	}
+
+	unknown := observedMarketDataQuality(&platformSettingsObserved{ObservedAt: now})
+	if unknown.Status != "unknown" {
+		t.Fatalf("unwitnessed market-data quality = %+v, want unknown", unknown)
+	}
+}
+
 func TestPlatformSettingsRejectsUnknownAndReadOnlyWrites(t *testing.T) {
 	t.Parallel()
 	srv := newPlatformSettingsTestServer(t, config.Trading{Mode: config.TradingModeDisabled})

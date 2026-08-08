@@ -426,9 +426,22 @@ function alertAgeLine(occurrence) {
   const parts = occurrence.ended_at === null
     ? [`Lit ${clockLabel(occurrence.first_seen_at)}`]
     : [`Lit ${clockLabel(occurrence.first_seen_at)}, out ${clockLabel(occurrence.ended_at)}`, litDuration(occurrence.first_seen_at, occurrence.ended_at)];
-  if (occurrence.state !== "open") parts.push(occurrence.state);
+  if (occurrence.ended_at === null) {
+    if (occurrence.presentation_code === "risk_policy_drawdown_latched") parts.push("latched");
+    else if (occurrence.evidence_health !== "current") parts.push("retained");
+    else parts.push(occurrence.state);
+  } else {
+    parts.push(occurrence.state);
+  }
   if (occurrence.evidence_health !== "current") parts.push(`evidence ${occurrence.evidence_health}`);
   return parts.filter(Boolean).join(" \u00b7 ");
+}
+
+function alertBodyCopy(occurrence) {
+  if (occurrence.ended_at === null && occurrence.evidence_health !== "current") {
+    return `${occurrence.body} Retained: current evidence is ${occurrence.evidence_health}, so recovery is unconfirmed; this is not a fresh breach.`;
+  }
+  return occurrence.body;
 }
 
 function litDuration(from, to) {
@@ -490,7 +503,7 @@ function alertRowElement(occurrence) {
   title.textContent = occurrence.title;
   const body = document.createElement("p");
   body.className = "pd-alert__body";
-  body.textContent = occurrence.body;
+  body.textContent = alertBodyCopy(occurrence);
   const age = document.createElement("span");
   age.className = "pd-alert__age";
   age.textContent = alertAgeLine(occurrence);
@@ -704,8 +717,15 @@ function renderSelectedAlert() {
   panel.hidden = !occurrence;
   if (!occurrence) return;
   setText("selectedAlertTitle", occurrence.title);
-  setText("selectedAlertBody", occurrence.body);
-  setText("selectedAlertTime", `${alertSourceLabel(occurrence.source)} · ${occurrence.state} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`);
+  setText("selectedAlertBody", alertBodyCopy(occurrence));
+  const lifecycle = occurrence.ended_at !== null
+    ? "extinguished"
+    : occurrence.presentation_code === "risk_policy_drawdown_latched"
+      ? "latched prior breach"
+      : occurrence.evidence_health !== "current"
+        ? "retained; recovery unconfirmed"
+        : occurrence.state;
+  setText("selectedAlertTime", `${alertSourceLabel(occurrence.source)} · ${lifecycle} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`);
 }
 
 function attentionViewReady() {

@@ -1847,6 +1847,10 @@ p {
   gap: 12px;
 }
 
+.alerts-body > .alert-focus {
+  margin-top: 12px;
+}
+
 .alert-focus span,
 .alert-focus small {
   display: block;

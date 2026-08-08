@@ -235,15 +235,6 @@
           </div>
           <div class="pd-placard pd-placard--sheet" id="moversPlacard" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden>Daily P/L by name</div>
           <div class="pd-movers pd-movers--sheet" id="moversRow" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden></div>
-          <div class="alert-focus" id="selectedAlertPanel" hidden>
-            <div>
-              <span>Selected alert</span>
-              <b id="selectedAlertTitle">--</b>
-              <p id="selectedAlertBody">--</p>
-              <small id="selectedAlertTime">--</small>
-            </div>
-            <button class="text-button text-button--dark" id="clearSelectedAlertButton" type="button">Clear</button>
-          </div>
           <div class="signal-detail-deck" id="signalDetailDeck">
             <div class="signal-detail-col signal-detail-col--regime regime-detail-panel" id="regimeDetailPanel" hidden>
               <div class="regime-indicators" id="regimeIndicators"></div>
@@ -340,6 +331,15 @@
               </div>
               <div class="alert-log" id="currentSignalList"></div>
             </section>
+            <div class="alert-focus" id="selectedAlertPanel" hidden>
+              <div>
+                <span>Selected alert</span>
+                <b id="selectedAlertTitle">--</b>
+                <p id="selectedAlertBody">--</p>
+                <small id="selectedAlertTime">--</small>
+              </div>
+              <button class="text-button text-button--dark" id="clearSelectedAlertButton" type="button">Clear</button>
+            </div>
             <section class="alert-section alert-section--out" id="alertsHistorySection" aria-label="Extinguished annunciators" hidden>
               <div class="pd-placard pd-placard--row">
                 <span>Extinguished &middot; last 7 days</span>

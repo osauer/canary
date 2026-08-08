@@ -18,10 +18,27 @@ import (
 // printed here is what `canary policy capital-event reconcile`
 // signs off.
 func runRecon(ctx context.Context, env *Env, args []string) int {
+	if len(args) == 1 && helpArg(args[0]) {
+		printReconUsage(env)
+		return 0
+	}
 	sub := "show"
 	if idx := firstPositionalIndex(args); idx >= 0 {
 		sub = args[idx]
 		args = append(append([]string{}, args[:idx]...), args[idx+1:]...)
+	}
+	if sub == "help" {
+		if len(args) == 0 {
+			printReconUsage(env)
+			return 0
+		}
+		if len(args) == 1 {
+			return printReconActionUsage(env, args[0])
+		}
+		return fail(env, "recon help: expected one action name")
+	}
+	if len(args) == 1 && helpArg(args[0]) {
+		return printReconActionUsage(env, sub)
 	}
 	switch sub {
 	case "show":
@@ -35,6 +52,56 @@ func runRecon(ctx context.Context, env *Env, args []string) int {
 	default:
 		return fail(env, "recon: unknown subcommand %q (try `canary recon show`)", sub)
 	}
+}
+
+func printReconUsage(env *Env) {
+	fmt.Fprintln(env.Stdout, "canary recon — compare retained broker statements with Canary's capital ledger")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Actions:")
+	fmt.Fprintln(env.Stdout, "  show       Show the current report and unresolved statement/ledger differences.")
+	fmt.Fprintln(env.Stdout, "  backtest   Replay statement equity against runtime drawdown history.")
+	fmt.Fprintln(env.Stdout, "  equity     Show the retained daily statement-equity timeline and capital events.")
+	fmt.Fprintln(env.Stdout, "  dismiss    Mark one exceptional report line as deliberately not being a ledger event.")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Start with `canary recon show`. Add --refresh to request one background statement fetch.")
+	fmt.Fprintln(env.Stdout, "A qualifying clean report extends the policy clock automatically; routine clean reports")
+	fmt.Fprintln(env.Stdout, "do not need manual sign-off.")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Only dismiss is a human-only write. Run `canary recon help dismiss` or")
+	fmt.Fprintln(env.Stdout, "`canary recon dismiss --help` before using it.")
+}
+
+func printReconActionUsage(env *Env, action string) int {
+	switch action {
+	case "show":
+		fmt.Fprintln(env.Stdout, "canary recon show — inspect the current reconciliation report")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary recon show [--refresh] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This is read-only. --refresh requests one background Flex statement fetch before reporting.")
+	case "backtest":
+		fmt.Fprintln(env.Stdout, "canary recon backtest — replay statement equity against drawdown history")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary recon backtest [--refresh] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This is read-only and helps diagnose high-water marks and historical threshold crossings.")
+	case "equity":
+		fmt.Fprintln(env.Stdout, "canary recon equity — inspect retained statement equity and capital events")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary recon equity [--since TIME] [--until TIME] [--limit N] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "This is read-only. Results are newest first and show index health when ingestion is incomplete.")
+	case "dismiss":
+		fmt.Fprintln(env.Stdout, "canary recon dismiss — classify one exceptional report line as not being a ledger event")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary recon dismiss --line ID --reason TEXT [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Use the line ID from `canary recon show`. This human-only action journals your reason")
+		fmt.Fprintln(env.Stdout, "and marks the exception dismissed; it does not delete or alter the retained broker statement.")
+	default:
+		return fail(env, "recon help: unknown action %q (choose show, backtest, equity, or dismiss)", action)
+	}
+	return 0
 }
 
 // runReconEquity renders the statement-derived daily equity series joined

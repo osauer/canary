@@ -1056,6 +1056,25 @@ func TestAlertShadowComposerDataHealthUsesRootIncidentsAndNotDueIsClear(t *testi
 		t.Fatalf("not-due data became incident: %+v err=%v", clear, err)
 	}
 
+	now = base.Add(30 * time.Second)
+	missingNoticeAt := now
+	for i := range health.Subsystems {
+		if health.Subsystems[i].Name == "quote" || health.Subsystems[i].Name == "history" || health.Subsystems[i].Name == "chain" {
+			health.Subsystems[i].Status = "degraded"
+			health.Subsystems[i].Message = "no farm connection notice observed"
+		}
+	}
+	missingNotice, err := composer.ObserveDataHealth(t.Context(), alertShadowDataHealthInput{AsOf: missingNoticeAt, Health: health, Scope: scope, GatewayPhase: alertShadowGatewayReady})
+	if err != nil || len(missingNotice.Candidates) != 0 {
+		t.Fatalf("missing positive farm notices became an incident: %+v err=%v", missingNotice, err)
+	}
+	for i := range health.Subsystems {
+		if health.Subsystems[i].Name == "quote" || health.Subsystems[i].Name == "history" || health.Subsystems[i].Name == "chain" {
+			health.Subsystems[i].Status = "ready"
+			health.Subsystems[i].Message = ""
+		}
+	}
+
 	now = base.Add(time.Minute + time.Second)
 	failureAt := base.Add(time.Minute)
 	health.DataQuality = []rpc.DataQualityHealth{{Surface: "gamma", Status: "partial", CadenceState: rpc.DataCadenceMissedSession, AsOf: failureAt}}

@@ -614,3 +614,39 @@ test("an invalidated feed quarantines delivery health and the selected-alert pan
   assert.equal(elements.get("tabAlerts").attributes["aria-label"], "Alerts, unread state unknown");
   reset();
 });
+
+test("selected alert distinguishes retained evidence and a drawdown latch from current breaches", () => {
+  reset();
+  const retained = occurrence({
+    presentation_code: "rulebook_catalyst_coverage",
+    evidence_health: "partial",
+    body: "Catalyst coverage needs attention.",
+  });
+  ingestAlerts(dto({ occurrences: [retained] }));
+  state.selectedAlertID = retained.display_id;
+  renderSelectedAlert();
+  assert.match(elements.get("selectedAlertBody").textContent, /Retained: current evidence is partial/);
+  assert.match(elements.get("selectedAlertBody").textContent, /not a fresh breach/);
+  assert.match(elements.get("selectedAlertTime").textContent, /retained; recovery unconfirmed/);
+
+	reset();
+  const latched = occurrence({
+    presentation_code: "risk_policy_drawdown_latched",
+    source: "risk_policy",
+    kind: "drawdown",
+    body: "A prior drawdown breach remains latched.",
+  });
+  ingestAlerts(dto({
+    occurrences: [latched],
+    attention: {
+      unread_count: 1,
+      high_water_seq: latched.attention_seq,
+      read_through_seq: latched.attention_seq - 1,
+      unread_refs: [{ display_id: latched.display_id, source: latched.source, kind: latched.kind }],
+    },
+  }));
+  state.selectedAlertID = latched.display_id;
+  renderSelectedAlert();
+  assert.match(elements.get("selectedAlertTime").textContent, /latched prior breach/);
+  reset();
+});

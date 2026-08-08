@@ -62,7 +62,7 @@ func TestAlertRoutesRequireAuthAndBootstrapMatchesGET(t *testing.T) {
 	}
 	if len(getDTO.Occurrences) != 1 || getDTO.Occurrences[0].DisplayID == "" ||
 		getDTO.Occurrences[0].PresentationCode != rpc.AlertPresentationPortfolioStress ||
-		getDTO.Occurrences[0].Title != "Portfolio stress" || getDTO.Occurrences[0].Body != "Canary reports portfolio stress." ||
+		getDTO.Occurrences[0].Title != "Portfolio stress" || getDTO.Occurrences[0].Body != "The current portfolio stress classification is watch or higher; open Stress for the measured drivers." ||
 		getDTO.Attention.UnreadCount != 1 || len(getDTO.Attention.UnreadRefs) != 1 {
 		t.Fatalf("GET occurrences/attention=%+v", getDTO)
 	}
@@ -272,7 +272,7 @@ func TestAlertDTOUsesFixedPresentationAndRedactedAcceptanceTime(t *testing.T) {
 	view.Occurrences = []state.AlertDeliveryOccurrenceView{known, unknown}
 
 	dto := newAlertDTO(view, now)
-	if dto.Occurrences[0].Title != "Portfolio stress" || dto.Occurrences[0].Body != "Canary reports portfolio stress." {
+	if dto.Occurrences[0].Title != "Portfolio stress" || dto.Occurrences[0].Body != "The current portfolio stress classification is watch or higher; open Stress for the measured drivers." {
 		t.Fatalf("known fixed presentation=%+v", dto.Occurrences[0])
 	}
 	if dto.Occurrences[1].Title != "Alert unavailable" || dto.Occurrences[1].Body != "This alert cannot be displayed safely." {

@@ -664,8 +664,9 @@ func (s *platformSettingsStore) saveLocked(next platformSettingsData) error {
 func (s *Server) handleSettingsGet() (*rpc.PlatformSettings, error) {
 	health := s.handleStatusHealth()
 	out := s.platformSettingsSnapshot(&platformSettingsObserved{
-		DataQuality: health.DataQuality,
-		ObservedAt:  s.orderNow(),
+		DataQuality:     health.DataQuality,
+		MarketDataReady: platformHealthMarketDataReady(health),
+		ObservedAt:      s.orderNow(),
 	})
 	return &out, nil
 }
@@ -688,8 +689,9 @@ func (s *Server) handleSettingsUpdate(ctx context.Context, req *rpc.Request) (*r
 	if len(patch) == 0 {
 		health := s.handleStatusHealth()
 		out := s.platformSettingsSnapshot(&platformSettingsObserved{
-			DataQuality: health.DataQuality,
-			ObservedAt:  s.orderNow(),
+			DataQuality:     health.DataQuality,
+			MarketDataReady: platformHealthMarketDataReady(health),
+			ObservedAt:      s.orderNow(),
 		})
 		return &out, nil
 	}
@@ -698,8 +700,9 @@ func (s *Server) handleSettingsUpdate(ctx context.Context, req *rpc.Request) (*r
 	}
 	health := s.handleStatusHealth()
 	out := s.platformSettingsSnapshot(&platformSettingsObserved{
-		DataQuality: health.DataQuality,
-		ObservedAt:  s.orderNow(),
+		DataQuality:     health.DataQuality,
+		MarketDataReady: platformHealthMarketDataReady(health),
+		ObservedAt:      s.orderNow(),
 	})
 	return &out, nil
 }
@@ -1148,9 +1151,22 @@ func (s *Server) tradingFrozen() bool {
 }
 
 type platformSettingsObserved struct {
-	Quotes      map[string]rpc.Quote
-	DataQuality []rpc.DataQualityHealth
-	ObservedAt  time.Time
+	Quotes          map[string]rpc.Quote
+	DataQuality     []rpc.DataQualityHealth
+	MarketDataReady bool
+	ObservedAt      time.Time
+}
+
+func platformHealthMarketDataReady(health *rpc.HealthResult) bool {
+	if health == nil {
+		return false
+	}
+	for _, subsystem := range health.Subsystems {
+		if subsystem.Name == "quote" && subsystem.Status == "ready" {
+			return true
+		}
+	}
+	return false
 }
 
 func observedMarketDataQuality(observed *platformSettingsObserved) rpc.PlatformMarketDataQuality {
@@ -1181,6 +1197,9 @@ func observedMarketDataQuality(observed *platformSettingsObserved) rpc.PlatformM
 	case len(out.DataQuality) > 0:
 		out.Status = "degraded"
 		out.Summary = "observed decision surfaces report degraded data quality"
+	case len(counts) == 0 && observed.MarketDataReady:
+		out.Status = "ok"
+		out.Summary = "a recent successful quote confirms the market-data path"
 	case len(counts) == 0:
 		out.Status = "unknown"
 		out.Summary = "no quote feed state observed yet"

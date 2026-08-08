@@ -10,7 +10,15 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-const regimeProjectionConsumerRepairTimeout = 2 * time.Second
+const (
+	regimeProjectionConsumerRepairTimeout = 2 * time.Second
+	// A successful broker quote is direct evidence that the market-data path
+	// works even when TWS did not replay its informational 2104 farm notice to
+	// this daemon session. Keep that evidence short-lived: it supplements a
+	// missing positive notice, but never overrides an explicit broken or
+	// disconnected farm observation.
+	marketDataWitnessTTL = 5 * time.Minute
+)
 
 func (s *Server) statusDataQuality() []rpc.DataQualityHealth {
 	out := []rpc.DataQualityHealth{}
@@ -153,15 +161,15 @@ func statusSubsystemFromReadiness(name string, r farmReadiness) rpc.SubsystemHea
 	}
 }
 
-func marketDataFarmReadiness(connected bool, farms []ibkrlib.DataFarmStatus, impact string) farmReadiness {
-	return farmTypeReadiness(connected, farms, "market", "market-data", impact)
+func marketDataFarmReadiness(connected bool, farms []ibkrlib.DataFarmStatus, quoteWitnessCurrent bool, impact string) farmReadiness {
+	return farmTypeReadiness(connected, farms, "market", "market-data", quoteWitnessCurrent, impact)
 }
 
 func historicalDataFarmReadiness(connected bool, farms []ibkrlib.DataFarmStatus) farmReadiness {
-	return farmTypeReadiness(connected, farms, "historical", "historical-data", "history and technical screens may time out")
+	return farmTypeReadiness(connected, farms, "historical", "historical-data", false, "history and technical screens may time out")
 }
 
-func farmTypeReadiness(connected bool, farms []ibkrlib.DataFarmStatus, farmType, label, impact string) farmReadiness {
+func farmTypeReadiness(connected bool, farms []ibkrlib.DataFarmStatus, farmType, label string, directWitness bool, impact string) farmReadiness {
 	if !connected {
 		return farmReadiness{status: "unavailable"}
 	}
@@ -185,14 +193,17 @@ func farmTypeReadiness(connected bool, farms []ibkrlib.DataFarmStatus, farmType,
 	if seenReady {
 		return farmReadiness{status: "ready"}
 	}
+	if directWitness {
+		return farmReadiness{status: "ready", message: "successful quote observed without a farm connection notice"}
+	}
 	return farmReadiness{
 		status:  "degraded",
 		message: fmt.Sprintf("no %s farm connection notice observed; %s", label, impact),
 	}
 }
 
-func chainSubsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus) rpc.SubsystemHealth {
-	market := marketDataFarmReadiness(connected, farms, "option quote enrichment may time out")
+func chainSubsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus, quoteWitnessCurrent bool) rpc.SubsystemHealth {
+	market := marketDataFarmReadiness(connected, farms, quoteWitnessCurrent, "option quote enrichment may time out")
 	if market.status != "ready" {
 		return statusSubsystemFromReadiness("chain", market)
 	}
@@ -206,6 +217,32 @@ func chainSubsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus) rpc.Su
 		}
 	}
 	return rpc.SubsystemHealth{Name: "chain", Status: "ready"}
+}
+
+func (s *Server) observeMarketDataWitness(at time.Time) {
+	if s == nil {
+		return
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	s.marketDataWitnessAt.Store(at.UTC().UnixNano())
+}
+
+func (s *Server) marketDataWitnessCurrent(now time.Time) bool {
+	if s == nil {
+		return false
+	}
+	nanos := s.marketDataWitnessAt.Load()
+	if nanos <= 0 {
+		return false
+	}
+	at := time.Unix(0, nanos).UTC()
+	return !at.After(now) && now.Sub(at) <= marketDataWitnessTTL
+}
+
+func quoteCarriesMarketDataWitness(q *rpc.Quote) bool {
+	return q != nil && !q.Stale && (q.Bid != nil || q.Ask != nil || q.Last != nil)
 }
 
 func farmImpairedReadiness(status string, farm ibkrlib.DataFarmStatus, label string) farmReadiness {

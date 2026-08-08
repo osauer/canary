@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.8.4 — 2026-08-08 09:16 CEST
+
+### What's new
+
+- **Risk-policy actions now explain themselves before you use them.** `canary policy --help` starts with the current state and lists every human-only action, while `canary policy help <action>` and each action's `--help` explain when to use it, what it changes and what it leaves alone. Drawdown reset now says plainly that it clears the retained latch and re-bases the high-water mark without changing limits, declared risk capital, trading freeze or broker-write guardrails. Reconciliation has the same group and per-action help, including why routine clean reports need no manual sign-off.
+- **An active alert now opens into a plain-English explanation on the phone.** The detail names what Canary measured or could not prove, when it was observed and where to inspect the underlying evidence, instead of leaving terse labels such as “Option premium limit” unexplained.
+
+### Changed
+
+- **Every production app log record now carries an explicit severity.** Startup, argument, authentication and relay paths emit one structured physical line with a `level` field, and the binding app/release checks reject production logging paths that bypass that contract. Daily log monitors can classify these records without silently ignoring unlevelled failures.
+
+### Fixed
+
+- **Regime price freshness no longer advances on size- or volume-only traffic.** A subscription can remain alive while its price has stopped moving, so Canary now keeps a separate accepted-price clock for regime evidence; borrow inventory carries its own field observation time for the same reason. Stopped prices and old shortable-share readings no longer look newly measured merely because another tick arrived. (#15)
+- **A working quote path no longer lights “Market-data farm issue” merely because TWS did not replay an informational farm-connected notice.** A recent successful broker quote now proves the path is ready; only an explicit broken or disconnected farm state lights the alert, while unavailable evidence remains unknown rather than reassuring.
+- **Drawdown and option alerts now name the state they actually represent.** “Drawdown latch open” means a prior breach is still retained, not that current drawdown remains over the line or trading freeze is on. “Option-line exposure” means one non-hedge option line is above its advisory share-of-NLV threshold. Current typed Rulebook rows also retire the obsolete unnamed “Trading rule” compatibility alert.
+
 ## v2.8.3 — 2026-08-07 18:15 CEST
 
 ### What's new

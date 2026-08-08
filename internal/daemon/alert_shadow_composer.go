@@ -1930,6 +1930,7 @@ func alertShadowDataHealthFacts(input alertShadowDataHealthInput) ([]alertShadow
 func alertShadowDataFarmAggregate(input alertShadowDataHealthInput, subsystems map[string]rpc.SubsystemHealth) (string, time.Time, bool) {
 	status := "ready"
 	evidenceAt := input.AsOf.UTC()
+	subsystemUnavailable := false
 	for _, name := range []string{"quote", "history", "chain"} {
 		subsystem, ok := subsystems[name]
 		if !ok {
@@ -1939,17 +1940,23 @@ func alertShadowDataFarmAggregate(input alertShadowDataHealthInput, subsystems m
 		switch rowStatus {
 		case "ready":
 		case "degraded":
-			if status == "ready" {
-				status = "degraded"
-			}
+			// A degraded readiness row can mean only that this daemon did not
+			// observe TWS's informational farm-connected notice. Absence of a
+			// positive notice is diagnostic uncertainty, not evidence that a
+			// farm failed. Explicit broken/disconnected rows below own incidents.
 		case "unavailable", "error":
-			status = "unavailable"
+			subsystemUnavailable = true
 		default:
 			return "", time.Time{}, false
 		}
 		if !subsystem.LastErrorAt.IsZero() && subsystem.LastErrorAt.Before(evidenceAt) {
 			evidenceAt = subsystem.LastErrorAt.UTC()
 		}
+	}
+	if len(input.Health.DataFarms) == 0 && subsystemUnavailable {
+		// Withhold a new verdict when a dependent subsystem is unavailable but
+		// the daemon has no typed farm-failure evidence.
+		return "", time.Time{}, false
 	}
 	for _, farm := range input.Health.DataFarms {
 		farmType := strings.ToLower(strings.TrimSpace(farm.Type))

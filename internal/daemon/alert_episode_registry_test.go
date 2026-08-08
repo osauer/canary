@@ -330,6 +330,77 @@ func TestAlertEpisodeRegistryNeverRecoversFromOutageStalePartialOrOmission(t *te
 	}
 }
 
+func TestAlertEpisodeRegistryRetiresLegacyRulebookLampAfterTypedObservation(t *testing.T) {
+	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
+	defer store.Close()
+	registry, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, time.August, 7, 10, 0, 0, 0, time.UTC)
+	coverage := rpc.AlertCoverage{
+		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent, AsOf: base,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceRulebook}, CoveredSources: []rpc.AlertSource{rpc.AlertSourceRulebook},
+	}
+	legacy := alertRegistryObservation(t, "legacy-rulebook", base, true)
+	legacy.Source = rpc.AlertSourceRulebook
+	legacy.PresentationCode = rpc.AlertPresentationRulebookLegacyCondition
+	legacy.EpisodeKey, err = rpc.BuildAlertEpisodeKey(legacy.Source, legacy.Kind, "legacy-rulebook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Apply(t.Context(), alertRegistryEvaluation(base, coverage, legacy)); err != nil {
+		t.Fatal(err)
+	}
+
+	typedAt := base.Add(time.Minute)
+	coverage.AsOf = typedAt
+	typed := legacy
+	typed.Active = false
+	typed.PresentationCode = rpc.AlertPresentationRulebookSingleNameExposure
+	typed.ObservedAt = typedAt
+	typed.EvidenceAsOf = typedAt
+	typed.EvidenceFingerprint = alertRegistryFingerprint("typed-rulebook-negative")
+	typed.EpisodeKey, err = rpc.BuildAlertEpisodeKey(typed.Source, typed.Kind, "typed-rulebook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluation := alertRegistryEvaluation(typedAt, coverage, typed)
+	evaluation.OpportunitySources = []rpc.AlertSource{rpc.AlertSourceRulebook}
+	evaluation.SourceStates = []alertEpisodeRegistrySourceState{{
+		Source: rpc.AlertSourceRulebook, Status: alertShadowStatusCurrent, Reason: alertShadowReasonCurrent,
+		EvidenceHealth: rpc.AlertEvidenceCurrent, InputAsOf: typedAt, ObservedAt: typedAt,
+		EvidenceAsOf: typedAt, FreshUntil: typedAt.Add(time.Minute), Covered: true,
+	}}
+	recovered, err := registry.Apply(t.Context(), evaluation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.CurrentState != rpc.AlertSnapshotClear || len(recovered.Candidates) != 1 ||
+		recovered.Candidates[0].PresentationCode != rpc.AlertPresentationRulebookLegacyCondition ||
+		recovered.Candidates[0].State != rpc.AlertEpisodeRecovered {
+		t.Fatalf("legacy compatibility lamp was not explicitly retired: %+v", recovered)
+	}
+
+	typedAt = typedAt.Add(time.Minute)
+	coverage.AsOf = typedAt
+	typed.ObservedAt, typed.EvidenceAsOf = typedAt, typedAt
+	evaluation = alertRegistryEvaluation(typedAt, coverage, typed)
+	evaluation.OpportunitySources = []rpc.AlertSource{rpc.AlertSourceRulebook}
+	evaluation.SourceStates = []alertEpisodeRegistrySourceState{{
+		Source: rpc.AlertSourceRulebook, Status: alertShadowStatusCurrent, Reason: alertShadowReasonCurrent,
+		EvidenceHealth: rpc.AlertEvidenceCurrent, InputAsOf: typedAt, ObservedAt: typedAt,
+		EvidenceAsOf: typedAt, FreshUntil: typedAt.Add(time.Minute), Covered: true,
+	}}
+	cleared, err := registry.Apply(t.Context(), evaluation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.CurrentState != rpc.AlertSnapshotClear || len(cleared.Candidates) != 0 {
+		t.Fatalf("retired compatibility lamp remained active: %+v", cleared)
+	}
+}
+
 func TestAlertEpisodeRegistryRecoversOnlyCurrentCoveredSourceUnderAggregatePartialCoverage(t *testing.T) {
 	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
 	defer store.Close()

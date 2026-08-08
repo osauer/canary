@@ -219,6 +219,10 @@ type Server struct {
 	// from daily bars. Quote/watch can poll frequently, so this keeps the
 	// hard liquidity gate cheap after the first snapshot.
 	quoteLiquidity *quoteLiquidityCache
+	// marketDataWitnessAt is the last successful broker price observation.
+	// It lets status distinguish a missing informational farm notice from a
+	// failed quote path without treating the witness as durable entitlement.
+	marketDataWitnessAt atomic.Int64
 
 	// prevCloses memoises per-symbol previous-session close (tick 9)
 	// so the positions handler can render daily-change deltas without

@@ -240,6 +240,48 @@ func TestSubsystemHealthUsesHealthyFarmNotices(t *testing.T) {
 	}
 }
 
+func TestSubsystemHealthUsesRecentQuoteWhenFarmNoticeIsMissing(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	s := &Server{now: func() time.Time { return now }}
+	s.observeMarketDataWitness(now.Add(-time.Minute))
+	subs := s.subsystemHealth(true, nil)
+	for _, name := range []string{"quote", "scanner", "chain"} {
+		sub := mustFindSubsystem(t, subs, name)
+		if sub.Status != "ready" {
+			t.Fatalf("%s subsystem = %+v, want ready from direct quote witness", name, sub)
+		}
+		if name != "chain" && !strings.Contains(sub.Message, "successful quote observed") {
+			t.Fatalf("%s subsystem = %+v, want direct-witness explanation", name, sub)
+		}
+	}
+	history := mustFindSubsystem(t, subs, "history")
+	if history.Status != "degraded" {
+		t.Fatalf("history subsystem = %+v, quote witness must not prove historical data", history)
+	}
+
+	now = now.Add(marketDataWitnessTTL + time.Second)
+	quote := mustFindSubsystem(t, s.subsystemHealth(true, nil), "quote")
+	if quote.Status != "degraded" {
+		t.Fatalf("expired quote witness left quote ready: %+v", quote)
+	}
+}
+
+func TestSubsystemHealthExplicitFarmFailureOverridesQuoteWitness(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	s := &Server{now: func() time.Time { return now }}
+	s.observeMarketDataWitness(now)
+	subs := s.subsystemHealth(true, []ibkrlib.DataFarmStatus{{
+		Name: "usfarm", Type: "market", Status: "disconnected", Code: 2103, AsOf: now,
+	}})
+	for _, name := range []string{"quote", "scanner", "chain"} {
+		if sub := mustFindSubsystem(t, subs, name); sub.Status != "degraded" {
+			t.Fatalf("%s subsystem = %+v, explicit failure must override witness", name, sub)
+		}
+	}
+}
+
 func TestSubsystemHealthDegradesOnDisconnectedFarms(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 1, 15, 0, 0, 0, time.UTC)

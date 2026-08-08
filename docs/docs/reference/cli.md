@@ -438,7 +438,9 @@ canary policy capital-event deposit|withdrawal [--amount F] [--effective-at TIME
 canary policy capital-event reconcile [--report ID]
 canary policy override --control KEY --reason S --hours N
 canary policy reset-drawdown --reason S
+canary policy correct-peak (--from-statements|--peak F) --reason S
 canary policy artefact morning|eod|weekly [--note S]
+canary policy default protection|opportunity
 ```
 
 **Subcommands**
@@ -451,6 +453,7 @@ canary policy artefact morning|eod|weekly [--note S]
 | `reset-drawdown` | `confirm` |
 | `correct-peak` | `confirm` |
 | `artefact` | `confirm` |
+| `default` | `local` |
 
 **Flags**
 
