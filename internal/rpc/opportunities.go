@@ -147,6 +147,8 @@ type Opportunity struct {
 	UnderlyingContract       ContractParams                `json:"underlying_contract"`
 	ExpectedGain             float64                       `json:"expected_gain,omitempty"`
 	ExpectedGainCurrency     string                        `json:"expected_gain_currency,omitempty"`
+	RequiredCash             float64                       `json:"required_cash,omitempty"`
+	RequiredCashCurrency     string                        `json:"required_cash_currency,omitempty"`
 	IntrinsicValue           float64                       `json:"intrinsic_value,omitempty"`
 	CloseValue               float64                       `json:"close_value,omitempty"`
 	OptionBid                *float64                      `json:"option_bid,omitempty"`
@@ -161,6 +163,10 @@ type Opportunity struct {
 	SourceFingerprints       OpportunitySourceFingerprints `json:"source_fingerprints,omitzero"`
 	Blockers                 []TradingBlocker              `json:"blockers,omitempty"`
 	CreatedAt                time.Time                     `json:"created_at,omitzero"`
+	// PortfolioGeneration and PortfolioAccount are daemon-only execution
+	// authority. They are never serialized into advisory snapshots.
+	PortfolioGeneration uint64 `json:"-"`
+	PortfolioAccount    string `json:"-"`
 }
 
 // OpportunityPostExerciseRisk is advisory context for what exercising a long
@@ -207,11 +213,13 @@ type OpportunityExercisePreviewParams struct {
 	Origin    string `json:"origin,omitempty"`
 }
 
-// OpportunityExercisePreviewResult reports daemon and broker eligibility. A
-// token ID is an audit identifier; the raw authorizing token remains private.
+// OpportunityExercisePreviewResult reports daemon and broker eligibility. The
+// raw one-shot token is returned only to the requesting client; TokenID is its
+// non-authorizing audit identifier.
 type OpportunityExercisePreviewResult struct {
 	Accepted              bool             `json:"accepted"`
 	Opportunity           Opportunity      `json:"opportunity"`
+	PreviewToken          string           `json:"preview_token,omitempty"`
 	PreviewTokenID        string           `json:"preview_token_id,omitempty"`
 	TokenMinted           bool             `json:"token_minted"`
 	PreviewTokenExpiresAt time.Time        `json:"preview_token_expires_at,omitzero"`
@@ -223,11 +231,12 @@ type OpportunityExercisePreviewResult struct {
 // OpportunityExerciseSubmitParams requests gated exercise of an exact revision.
 // The daemon revalidates current authority; prior preview is not submit consent.
 type OpportunityExerciseSubmitParams struct {
-	Key       string `json:"key"`
-	Revision  string `json:"revision"`
-	Quantity  int    `json:"quantity,omitempty"`
-	TimeoutMs int    `json:"timeout_ms,omitempty"`
-	Origin    string `json:"origin,omitempty"`
+	Key          string `json:"key"`
+	Revision     string `json:"revision"`
+	Quantity     int    `json:"quantity,omitempty"`
+	PreviewToken string `json:"preview_token"`
+	TimeoutMs    int    `json:"timeout_ms,omitempty"`
+	Origin       string `json:"origin,omitempty"`
 }
 
 // OpportunityExerciseSubmitResult reports the terminal outcome of a gated

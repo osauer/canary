@@ -128,15 +128,19 @@ func runOpportunitiesExercise(ctx context.Context, env *Env, args []string) int 
 	fs := flagSet(env, "opportunities exercise")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	qty := fs.Int("quantity", 0, "selected quantity; defaults to opportunity quantity")
+	token := fs.String("preview-token", "", "signed token returned by opportunities preview")
 	timeout := fs.Duration("timeout", 5*time.Second, "preview/submit timeout")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
 	if fs.NArg() != 2 {
-		return fail(env, "opportunities exercise: usage is `canary opportunities exercise KEY REVISION`")
+		return fail(env, "opportunities exercise: usage is `canary opportunities exercise KEY REVISION --preview-token TOKEN`")
+	}
+	if strings.TrimSpace(*token) == "" {
+		return fail(env, "opportunities exercise: --preview-token is required; run opportunities preview first")
 	}
 	var res rpc.OpportunityExerciseSubmitResult
-	params := rpc.OpportunityExerciseSubmitParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
+	params := rpc.OpportunityExerciseSubmitParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, PreviewToken: strings.TrimSpace(*token), TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
 	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesSubmitExercise, params, &res); err != nil {
 		return fail(env, "opportunities exercise: %v", err)
 	}
@@ -222,6 +226,9 @@ func renderOpportunityPreviewText(env *Env, res *rpc.OpportunityExercisePreviewR
 	statusRow(env, out, "Opportunity", res.Opportunity.Key)
 	if res.PreviewTokenID != "" {
 		statusRow(env, out, "Token ID", res.PreviewTokenID)
+	}
+	if res.PreviewToken != "" {
+		statusRow(env, out, "Token", res.PreviewToken)
 	}
 	statusRow(env, out, "Exercise", opportunityExerciseSummary(res.Opportunity))
 	statusRow(env, out, "Expected gain", formatMoneyCcy(res.Opportunity.ExpectedGain, res.Opportunity.ExpectedGainCurrency))

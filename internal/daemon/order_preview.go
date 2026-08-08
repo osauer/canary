@@ -57,6 +57,9 @@ type orderPreviewTokenPayload struct {
 	WhatIf                   rpc.OrderWhatIfResult                 `json:"what_if"`
 	WhatIfStatus             string                                `json:"what_if_status,omitempty"`
 	Replace                  orderPreviewReplaceTarget             `json:"replace"`
+	ExerciseKey              string                                `json:"exercise_key,omitempty"`
+	ExerciseRevision         string                                `json:"exercise_revision,omitempty"`
+	ExerciseUnderlying       rpc.ContractParams                    `json:"exercise_underlying,omitzero"`
 }
 
 type orderPreviewReplaceTarget struct {
@@ -199,7 +202,7 @@ func (s *orderTokenSigner) mint(payload orderPreviewTokenPayload) (token string,
 		payload.Scope = rpc.OrderTokenScopePlace
 	}
 	switch payload.Scope {
-	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify:
+	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify, rpc.OrderTokenScopeExercise:
 	default:
 		return "", "", time.Time{}, fmt.Errorf("unsupported order preview token scope %q", payload.Scope)
 	}
@@ -254,7 +257,7 @@ func (s *orderTokenSigner) verify(token string) (orderPreviewTokenPayload, error
 		return orderPreviewTokenPayload{}, fmt.Errorf("order preview token belongs to signer generation %d in a different authority epoch", payload.SignerGeneration)
 	}
 	switch payload.Scope {
-	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify:
+	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify, rpc.OrderTokenScopeExercise:
 	default:
 		return orderPreviewTokenPayload{}, fmt.Errorf("unsupported order preview token scope %q", payload.Scope)
 	}

@@ -571,6 +571,7 @@ canary opportunities status|refresh|list|preview|exercise|ignore [--json]
 | `--quantity` | yes | - |
 | `--timeout` | yes | - |
 | `--reason` | yes | - |
+| `--preview-token` | yes | - |
 | `--json` | no | - |
 
 ## `canary size`

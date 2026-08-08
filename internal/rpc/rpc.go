@@ -3192,6 +3192,8 @@ const (
 	OrderTokenScopePlace = "place"
 	// OrderTokenScopeModify binds a preview token to one order operation.
 	OrderTokenScopeModify = "modify"
+	// OrderTokenScopeExercise binds a preview token to one reduce-only option exercise.
+	OrderTokenScopeExercise = "exercise"
 
 	// OrderLifecyclePreviewed is a durable order-lifecycle classification.
 	OrderLifecyclePreviewed = "previewed"

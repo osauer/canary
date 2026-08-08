@@ -418,10 +418,11 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		"function applyOpportunitySnapshot(opportunities = {})",
 		`fetch("/api/opportunities", { credentials: "include", cache: "no-store" })`,
 		`fetch("/api/opportunities/preview-exercise"`,
+		`fetch("/api/opportunities/exercise"`,
 		`fetch("/api/opportunities/ignore"`,
 		`fetch("/api/opportunities/refresh"`,
-		"Exercise submission unavailable",
-		"exact option-to-underlying risk policy and durable one-shot authority are not approved",
+		"Confirm exercise",
+		"Fresh exercise preflight did not mint a submit token",
 		"function protectionPreviewGate(proposal = {})",
 		"function protectionPreviewSubmitGate(proposal = {}, previewResult = null)",
 		"function protectionWriteUnavailableReason(trading = {})",
@@ -598,13 +599,11 @@ func TestAppMobileDashboardContracts(t *testing.T) {
 		".opportunity-row__metric--gain",
 		".opportunity-row__metric--risk",
 		".opportunity-preview",
+		".opportunity-submit",
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("styles.css missing mobile dashboard contract %q", want)
 		}
-	}
-	if strings.Contains(js, `fetch("/api/opportunities/exercise"`) {
-		t.Fatal("Canary must not expose the typed-disabled option-exercise submit transport")
 	}
 	if strings.Contains(css, ".bottom-tabs {\n  position: fixed;") {
 		t.Fatalf("bottom tabs must be pinned by shell layout, not fixed to the browser viewport")

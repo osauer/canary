@@ -35,6 +35,8 @@ type brokerWriteTransactionBinding struct {
 	riskBaseCurrency           string
 	riskBaseCurrencyProvenance ibkrlib.AccountBaseCurrencyProvenance
 	riskNotional               orderNotionalAuthority
+	exerciseBound              bool
+	exerciseDraft              rpc.OrderDraft
 	testOnly                   bool
 }
 
@@ -310,6 +312,17 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 			}
 			if err := validateOrderRiskAuthority(cfg, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency); err != nil {
 				return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
+			}
+		}
+		if binding.exerciseBound {
+			current, err := s.captureWireOrderPositionAuthority(binding, status, binding.exerciseDraft)
+			if err != nil {
+				return err
+			}
+			if current.Generation != binding.riskPortfolioGeneration ||
+				!strings.EqualFold(strings.TrimSpace(current.Health.Account), strings.TrimSpace(binding.riskPortfolioAccount)) ||
+				!sameOrderPositionImpact(current.Impact, binding.riskPosition) {
+				return fmt.Errorf("%w: portfolio position authority changed after exercise admission; preview again", ErrTradingDisabled)
 			}
 		}
 		if binding.orderID > 0 && binding.orderEventSeq > 0 {

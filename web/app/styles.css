@@ -3746,6 +3746,12 @@ p {
   color: var(--blue);
 }
 
+.opportunity-submit {
+  border-color: rgba(75, 208, 122, 0.28);
+  background: rgba(75, 208, 122, 0.12);
+  color: var(--pd-money-up);
+}
+
 .opportunity-ignore {
   border: 1px solid var(--line);
   color: var(--ink-2);

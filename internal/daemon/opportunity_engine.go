@@ -33,12 +33,6 @@ const opportunityRefreshRetryBase = 30 * time.Second
 // the wider cap adds no recovery lag. (2026-07-12)
 const opportunityRefreshBackoffCap = 15 * time.Minute
 
-var exerciseSubmissionUnavailableBlocker = rpc.TradingBlocker{
-	Code:    "exercise_submission_unavailable",
-	Message: "option exercise submission is unavailable because exact option-to-underlying risk policy and durable one-shot authority are not approved",
-	Action:  "Exercise manually in TWS after reviewing the resulting position, then refresh and reconcile the daemon.",
-}
-
 type opportunityEngine struct {
 	server  *Server
 	store   *opportunityStore
@@ -367,6 +361,11 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 	positionsFP := rpc.BuildPositionsFingerprint(pos, acct.NetLiquidation)
 	sources := rpc.OpportunitySourceFingerprints{Account: &accountFP, Positions: &positionsFP}
 	opportunities := e.generate(policy, policyStatus, pos, sources, scope, now)
+	for i := range opportunities {
+		opportunities[i].PortfolioGeneration = portfolioHealth.ProjectionGeneration
+		opportunities[i].PortfolioAccount = portfolioHealth.Account
+		applyExerciseFundingPreflight(&opportunities[i], acct)
+	}
 	slices.SortStableFunc(opportunities, func(a, b rpc.Opportunity) int {
 		if a.Score > b.Score {
 			return -1
@@ -518,6 +517,14 @@ func optionExerciseOpportunity(policy opportunityPolicy, status rpc.OpportunityP
 		CreatedAt:                now,
 	}
 	opp.PostExerciseRisk = opportunityPostExerciseRisk(opp, coverage)
+	switch effect {
+	case rpc.ExercisePositionEffectClose, rpc.ExercisePositionEffectReduce:
+	default:
+		addBlocker := func(code, message, action string) {
+			opp.Blockers = appendTradingBlockerOnce(opp.Blockers, rpc.TradingBlocker{Code: code, Message: message, Action: action})
+		}
+		addBlocker("exercise_not_reduce_only", "option exercise would "+effect+" the underlying exposure; Canary only submits exercises that close or reduce an existing position", "Use an ordinary reviewed order if you deliberately want to open, increase, or flip exposure.")
+	}
 	if opp.ExpectedGainCurrency == "" {
 		opp.ExpectedGainCurrency = "USD"
 	}
@@ -578,6 +585,40 @@ func optionExerciseOpportunity(policy opportunityPolicy, status rpc.OpportunityP
 		opp.State = rpc.OpportunityStateBlocked
 	}
 	return opp, true
+}
+
+// applyExerciseFundingPreflight adds current account funding evidence to call
+// exercises that buy stock to close or reduce a short. Puts deliver existing
+// long shares and therefore do not consume strike cash. This is a local,
+// account-scoped preflight; IBKR remains authoritative for final acceptance.
+func applyExerciseFundingPreflight(opp *rpc.Opportunity, account *rpc.AccountResult) {
+	if opp == nil || !strings.EqualFold(opp.Contract.Right, "C") ||
+		(opp.PositionEffect != rpc.ExercisePositionEffectClose && opp.PositionEffect != rpc.ExercisePositionEffectReduce) {
+		return
+	}
+	add := func(code, message, action string) {
+		opp.Blockers = appendTradingBlockerOnce(opp.Blockers, rpc.TradingBlocker{Code: code, Message: message, Action: action})
+		opp.State = rpc.OpportunityStateBlocked
+	}
+	multiplier := max(opp.Contract.Multiplier, 1)
+	required := opp.Contract.Strike * float64(opp.Quantity) * float64(multiplier)
+	opp.RequiredCash = required
+	opp.RequiredCashCurrency = nonEmptyString(opp.Contract.Currency, "USD")
+	if account == nil || account.Authority == nil || account.Authority.Availability != rpc.AccountDataAvailable ||
+		account.Authority.Freshness != rpc.AccountDataFreshnessCurrent || account.Authority.Fields == nil ||
+		!account.Authority.Fields.AvailableFunds || !account.Authority.Fields.BaseCurrency {
+		add("exercise_funding_preflight_unavailable", "fresh account funding evidence is unavailable for this call exercise", "Refresh the account and opportunity snapshot before previewing exercise.")
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(account.BaseCurrency), strings.TrimSpace(opp.RequiredCashCurrency)) {
+		add("exercise_funding_currency_unresolved", "exercise cash requirement is not in the account base currency", "Use TWS to review currency funding or wait for a contract-equivalent FX funding preflight.")
+		return
+	}
+	if account.AvailableFunds+1e-9 < required {
+		add("exercise_funding_insufficient", fmt.Sprintf("exercise requires about %.2f %s but current available funds are %.2f %s", required, opp.RequiredCashCurrency, account.AvailableFunds, account.BaseCurrency), "Reduce the exercise quantity or add settled funds, then refresh the preview.")
+		return
+	}
+	opp.Details = append(opp.Details, fmt.Sprintf("funding preflight %.2f %s required; %.2f %s available", required, opp.RequiredCashCurrency, account.AvailableFunds, account.BaseCurrency))
 }
 
 func opportunityUnderlyingContract(row, stock rpc.PositionView) rpc.ContractParams {
@@ -731,10 +772,15 @@ func (e *opportunityEngine) previewRevalidatedOpportunity(p rpc.OpportunityExerc
 	if qty <= 0 {
 		qty = opp.Quantity
 	}
-	if qty <= 0 || qty > opp.MaxQuantity {
-		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{Code: "invalid_quantity", Message: "exercise quantity must be positive and no greater than the opportunity quantity"})
+	if qty <= 0 || qty != opp.Quantity {
+		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{Code: "invalid_quantity", Message: "exercise quantity must match the freshly preflighted opportunity quantity"})
 	}
-	blockers = appendTradingBlockerOnce(blockers, exerciseSubmissionUnavailableBlocker)
+	if opp.UnderlyingContract.ConID <= 0 {
+		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{Code: "exercise_underlying_identity_unavailable", Message: "exercise requires an exact broker identity for the underlying position"})
+	}
+	if opp.PortfolioGeneration == 0 || strings.TrimSpace(opp.PortfolioAccount) == "" {
+		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{Code: "exercise_portfolio_authority_unavailable", Message: "exercise requires a current account-scoped portfolio generation"})
+	}
 	auth := e.exerciseAuthorization(p.Origin)
 	if !auth.Allowed {
 		blockers = mergeTradingBlockers(blockers, auth.Blockers)
@@ -749,39 +795,114 @@ func (e *opportunityEngine) previewRevalidatedOpportunity(p rpc.OpportunityExerc
 		AsOf:           now,
 	}
 	if submitEligible {
-		res.PreviewTokenID = opportunityPreviewTokenID(opp, qty)
-		res.PreviewTokenExpiresAt = now.Add(5 * time.Minute)
+		if e.server == nil || e.server.orderTokens == nil {
+			res.Accepted, res.SubmitEligible = false, false
+			res.TokenMinted = false
+			res.Blockers = appendTradingBlockerOnce(res.Blockers, rpc.TradingBlocker{Code: "exercise_preview_signer_unavailable", Message: "exercise preview signer is unavailable"})
+			return res
+		}
+		draft := exerciseOrderDraft(opp, qty, now)
+		token, tokenID, expiresAt, err := e.server.orderTokens.mint(orderPreviewTokenPayload{
+			Scope:               rpc.OrderTokenScopeExercise,
+			Mode:                auth.Status.Mode,
+			Account:             auth.Status.Account,
+			Endpoint:            auth.Status.Endpoint,
+			ClientID:            auth.Status.ClientID,
+			Draft:               draft,
+			Position:            rpc.OrderPositionImpact{Before: opp.UnderlyingQuantityBefore, After: opp.UnderlyingQuantityAfter, Effect: opp.PositionEffect},
+			PortfolioGeneration: opp.PortfolioGeneration,
+			PortfolioAccount:    opp.PortfolioAccount,
+			Notional:            opp.RequiredCash,
+			ExerciseKey:         opp.Key,
+			ExerciseRevision:    opp.Revision,
+			ExerciseUnderlying:  opp.UnderlyingContract,
+			ExpiresAt:           now.Add(5 * time.Minute),
+		})
+		if err != nil {
+			res.Accepted, res.SubmitEligible = false, false
+			res.TokenMinted = false
+			res.Blockers = appendTradingBlockerOnce(res.Blockers, rpc.TradingBlocker{Code: "exercise_preview_token_failed", Message: err.Error()})
+			return res
+		}
+		res.PreviewToken, res.PreviewTokenID = token, tokenID
+		res.PreviewTokenExpiresAt = expiresAt
+		res.TokenMinted = true
 	}
 	return res
 }
 
 func (e *opportunityEngine) Submit(ctx context.Context, p rpc.OpportunityExerciseSubmitParams) (rpc.OpportunityExerciseSubmitResult, error) {
 	now := e.clock()
-	preview, err := e.Preview(ctx, opportunityPreviewParamsForSubmit(p))
+	opp, blockers, err := e.revalidatedOpportunity(ctx, p.Key, p.Revision)
+	preview := rpc.OpportunityExercisePreviewResult{Opportunity: opp, Blockers: blockers, AsOf: now}
 	if err != nil {
-		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: preview.Opportunity, Blockers: preview.Blockers, AsOf: now}, err
-	}
-	if !preview.SubmitEligible {
-		e.appendEvent(opportunityEvent{At: now, Type: "submit-blocked", Key: preview.Opportunity.Key, Revision: preview.Opportunity.Revision, PreviewTokenID: preview.PreviewTokenID, AccountID: e.currentScope().Account, PolicyID: preview.Opportunity.PolicyID, PolicyVersion: preview.Opportunity.PolicyVersion, PolicyFingerprint: preview.Opportunity.PolicyFingerprint, Message: firstTradingBlockerMessage(preview.Blockers), SourceFingerprints: preview.Opportunity.SourceFingerprints})
-		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: preview.Opportunity, PreviewTokenID: preview.PreviewTokenID, Blockers: preview.Blockers, Message: "exercise submit blocked", AsOf: now}, nil
+		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: opp, Blockers: blockers, AsOf: now}, err
 	}
 	origin := normalizedWriteOrigin(p.Origin)
 	qty := p.Quantity
 	if qty <= 0 {
-		qty = preview.Opportunity.Quantity
+		qty = opp.Quantity
 	}
-	orderRef := "opportunity-exercise-" + shortStableHash(preview.Opportunity.Key+"|"+preview.Opportunity.Revision+"|"+strconv.Itoa(qty))
-	if err := e.server.submitOptionExercise(ctx, preview.Opportunity, qty, origin, orderRef); err != nil {
+	if qty <= 0 || qty != opp.Quantity {
+		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{Code: "invalid_quantity", Message: "exercise quantity must match the freshly preflighted opportunity quantity"})
+	}
+	payload, tokenErr := e.verifyExercisePreviewToken(p.PreviewToken, opp, qty)
+	if tokenErr != nil {
+		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{Code: "exercise_preview_token_invalid", Message: tokenErr.Error(), Action: "Run a fresh exercise preview, then confirm that exact token."})
+	}
+	preview.PreviewTokenID = payload.TokenID
+	preview.TokenMinted = payload.TokenID != ""
+	preview.SubmitEligible = len(blockers) == 0
+	preview.Accepted = preview.SubmitEligible
+	preview.Blockers = blockers
+	if !preview.SubmitEligible {
+		e.appendEvent(opportunityEvent{At: now, Type: "submit-blocked", Key: opp.Key, Revision: opp.Revision, PreviewTokenID: payload.TokenID, AccountID: e.currentScope().Account, PolicyID: opp.PolicyID, PolicyVersion: opp.PolicyVersion, PolicyFingerprint: opp.PolicyFingerprint, Message: firstTradingBlockerMessage(blockers), SourceFingerprints: opp.SourceFingerprints})
+		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, Blockers: blockers, Message: "exercise submit blocked", AsOf: now}, nil
+	}
+	orderRef := payload.Draft.OrderRef
+	if err := e.server.submitOptionExercise(ctx, payload, opp, qty, origin); err != nil {
 		blockers := []rpc.TradingBlocker{{Code: "exercise_submit_failed", Message: err.Error(), Action: "Reconcile in TWS before trying again."}}
-		e.appendEvent(opportunityEvent{At: now, Type: "submit-error", Key: preview.Opportunity.Key, Revision: preview.Opportunity.Revision, PreviewTokenID: preview.PreviewTokenID, OrderRef: orderRef, AccountID: e.currentScope().Account, PolicyID: preview.Opportunity.PolicyID, PolicyVersion: preview.Opportunity.PolicyVersion, PolicyFingerprint: preview.Opportunity.PolicyFingerprint, Message: err.Error(), SourceFingerprints: preview.Opportunity.SourceFingerprints})
-		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: preview.Opportunity, PreviewTokenID: preview.PreviewTokenID, OrderRef: orderRef, Blockers: blockers, Message: "exercise submit failed", AsOf: now}, nil
+		e.appendEvent(opportunityEvent{At: now, Type: "submit-error", Key: opp.Key, Revision: opp.Revision, PreviewTokenID: payload.TokenID, OrderRef: orderRef, AccountID: e.currentScope().Account, PolicyID: opp.PolicyID, PolicyVersion: opp.PolicyVersion, PolicyFingerprint: opp.PolicyFingerprint, Message: err.Error(), SourceFingerprints: opp.SourceFingerprints})
+		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, OrderRef: orderRef, Blockers: blockers, Message: "exercise submit failed; broker receipt may be uncertain, reconcile before retrying", AsOf: now}, nil
 	}
-	e.appendEvent(opportunityEvent{At: now, Type: "submitted", Key: preview.Opportunity.Key, Revision: preview.Opportunity.Revision, PreviewTokenID: preview.PreviewTokenID, OrderRef: orderRef, AccountID: e.currentScope().Account, PolicyID: preview.Opportunity.PolicyID, PolicyVersion: preview.Opportunity.PolicyVersion, PolicyFingerprint: preview.Opportunity.PolicyFingerprint, Message: "option exercise instruction sent; reconcile status in TWS", SourceFingerprints: preview.Opportunity.SourceFingerprints})
-	return rpc.OpportunityExerciseSubmitResult{Accepted: true, Preview: &preview, Opportunity: preview.Opportunity, PreviewTokenID: preview.PreviewTokenID, OrderRef: orderRef, Message: "option exercise instruction sent; reconcile status in TWS", AsOf: now}, nil
+	e.appendEvent(opportunityEvent{At: now, Type: "submitted", Key: opp.Key, Revision: opp.Revision, PreviewTokenID: payload.TokenID, OrderRef: orderRef, AccountID: e.currentScope().Account, PolicyID: opp.PolicyID, PolicyVersion: opp.PolicyVersion, PolicyFingerprint: opp.PolicyFingerprint, Message: "option exercise instruction sent; reconcile status in TWS", SourceFingerprints: opp.SourceFingerprints})
+	return rpc.OpportunityExerciseSubmitResult{Accepted: true, Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, OrderRef: orderRef, Message: "option exercise instruction sent; verify broker status in TWS", AsOf: now}, nil
 }
 
-func opportunityPreviewParamsForSubmit(p rpc.OpportunityExerciseSubmitParams) rpc.OpportunityExercisePreviewParams {
-	return rpc.OpportunityExercisePreviewParams(p)
+func exerciseOrderDraft(opp rpc.Opportunity, qty int, now time.Time) rpc.OrderDraft {
+	return rpc.OrderDraft{
+		Action:    rpc.OpportunityActionExercise,
+		Contract:  opp.Contract,
+		Quantity:  qty,
+		OrderRef:  "option-exercise-" + shortStableHash(opp.Key+"|"+opp.Revision+"|"+strconv.Itoa(qty)+"|"+now.UTC().Format(time.RFC3339Nano)),
+		OpenClose: opp.PositionEffect,
+		Source:    "option_exercise",
+	}
+}
+
+func (e *opportunityEngine) verifyExercisePreviewToken(token string, opp rpc.Opportunity, qty int) (orderPreviewTokenPayload, error) {
+	if e == nil || e.server == nil {
+		return orderPreviewTokenPayload{}, fmt.Errorf("exercise authority is unavailable")
+	}
+	payload, err := e.server.verifyPreviewTokenForCurrentGate(token)
+	if err != nil {
+		return orderPreviewTokenPayload{}, err
+	}
+	if payload.Scope != rpc.OrderTokenScopeExercise {
+		return orderPreviewTokenPayload{}, fmt.Errorf("preview token scope %q cannot authorize option exercise", payload.Scope)
+	}
+	if payload.ExerciseKey != opp.Key || payload.ExerciseRevision != opp.Revision || payload.Draft.Quantity != qty ||
+		payload.Draft.Contract != opp.Contract || payload.ExerciseUnderlying != opp.UnderlyingContract ||
+		payload.PortfolioGeneration == 0 || payload.PortfolioGeneration != opp.PortfolioGeneration ||
+		!strings.EqualFold(strings.TrimSpace(payload.PortfolioAccount), strings.TrimSpace(opp.PortfolioAccount)) ||
+		payload.Position.Effect != opp.PositionEffect ||
+		payload.Position.Before != opp.UnderlyingQuantityBefore || payload.Position.After != opp.UnderlyingQuantityAfter {
+		return orderPreviewTokenPayload{}, fmt.Errorf("exercise facts changed after preview; preview again")
+	}
+	if opp.PositionEffect != rpc.ExercisePositionEffectClose && opp.PositionEffect != rpc.ExercisePositionEffectReduce {
+		return orderPreviewTokenPayload{}, fmt.Errorf("exercise is not close/reduce-only")
+	}
+	return payload, nil
 }
 
 func (e *opportunityEngine) Ignore(p rpc.OpportunityIgnoreParams) rpc.OpportunityIgnoreResult {
@@ -842,13 +963,7 @@ func (e *opportunityEngine) revalidatedOpportunity(ctx context.Context, key, rev
 }
 
 func (e *opportunityEngine) exerciseAuthorization(origin string) brokerWriteAuthorization {
-	status := e.server.currentTradingStatus()
-	auth := e.server.brokerWriteAuthorization(status)
-	for _, blocker := range liveOriginBlockers(status, origin) {
-		auth.Blockers = appendTradingBlockerOnce(auth.Blockers, blocker)
-		auth.Allowed = false
-	}
-	return auth
+	return e.server.brokerWriteAuthorizationForRequest(origin)
 }
 
 func (e *opportunityEngine) installSnapshot(snap rpc.OpportunitySnapshot, show bool) error {
@@ -1047,10 +1162,6 @@ func opportunityKey(bucket string, contract rpc.ContractParams, action string) s
 	raw := strings.Join([]string{bucket, strings.ToUpper(contract.Symbol), strings.ToUpper(contract.SecType), strings.ToUpper(contract.LocalSymbol), contract.Expiry, strings.ToUpper(contract.Right), fmt.Sprintf("%.4f", contract.Strike), strings.ToUpper(action)}, "|")
 	sum := sha256.Sum256([]byte(raw))
 	return bucket + ":" + hex.EncodeToString(sum[:8])
-}
-
-func opportunityPreviewTokenID(opp rpc.Opportunity, qty int) string {
-	return "opprev_" + shortStableHash(strings.Join([]string{opp.Key, opp.Revision, strconv.Itoa(qty), fmt.Sprintf("%.2f", opp.ExpectedGain)}, "|"))
 }
 
 func opportunityIgnoreKey(scope brokerStateScope, key string) string {
