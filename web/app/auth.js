@@ -2,11 +2,7 @@ import { showPairing } from "./lifecycle.js";
 import { state } from "./state.js";
 
 // A non-secure origin — the plain-http LAN host — has no crypto.subtle, so the
-// device cannot hold a key and registers no client-side credential at all. The
 // HttpOnly device cookie the server sets on this response is then its only
-// continuity credential. That trades durability for exposure deliberately:
-// losing the cookie costs a fresh QR pairing, where the readable bearer secret
-// this path used to keep in localStorage cost a stealable long-lived login.
 async function completePairing(pairingID, nonce) {
   const req = {
     pairing_id: pairingID,
@@ -45,10 +41,6 @@ async function completePairing(pairingID, nonce) {
 }
 
 // The device key must survive for a year or more. iOS evicts IndexedDB
-// independently of localStorage under storage pressure, so the key (already
-// generated extractable) is mirrored to localStorage; losing either store
-// alone no longer forces a re-pair. Both stores are same-origin JS-readable,
-// so the mirror does not widen the exposure of the extractable key.
 const DEVICE_KEY_BACKUP = "ibkrDeviceKeyJWK";
 
 async function backupPrivateKey(key) {
@@ -82,14 +74,11 @@ async function restorePrivateKeyFromBackup() {
 // tryDeviceLogin returns "ok" when a fresh session was minted, "repair" when
 // the app definitively rejected this device (only a new pairing can help),
 // and "retry" for everything transient: network failures, relay 503s while
-// the Mac restarts, or a challenge that died with the old app process. A
 // transient failure must never read as "please re-pair" — that habit is what
-// buries the state store in orphaned device grants.
 async function tryDeviceLogin() {
   const deviceID = localStorage.getItem("ibkrDeviceID");
   const privateKey = hasWebCrypto() ? await loadPrivateKey() : null;
   // No key means no client-side credential exists — a cookie-only grant, or a
-  // crypto-less origin. Either way the device cookie already had its chance on
   // the request that 401'd, so re-pairing is the only move left.
   if (!deviceID || !privateKey) return "repair";
   let ch;
@@ -104,7 +93,6 @@ async function tryDeviceLogin() {
   }
   if (!ch.ok) {
     // 401 means the device grant is gone server-side; anything else is the
-    // relay or app being temporarily unavailable.
     return ch.status === 401 ? "repair" : "retry";
   }
   const challenge = await ch.json();

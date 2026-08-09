@@ -3,26 +3,12 @@
 // and evaluates one named invariant against the frames produced after a
 // given byte offset. Exit 0 = pass; non-zero = fail with a one-screen
 // failure report on stderr.
-//
 // The script that drives this binary (scripts/wire-smoke.sh) captures
 // the wire log's size before invoking a CLI command, then passes that
 // size as --since-offset so the check only sees frames produced by THIS
-// command — not the daemon's boot chatter or earlier commands.
-//
 // Adding a new invariant: add a case to dispatch(), implement a
-// CheckFunc, document it in the catalogue below. No plug-in machinery;
-// the binary is a single switch statement on purpose.
 //
-// Catalogue:
-//
-//	quote-spy              — reqMktData SPY STK + tickPrice within budget
-//	chain-iv-source        — ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV,
-//	                         or a chain response carrying per-leg IV when the
-//	                         board was already subscribed
-//	gamma-no-wait-envelope — gamma --no-wait returns a valid typed lifecycle state
-//	regime-subs            — MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY
 //	account-summary        — reqAccountSummary OUT + accountSummary IN
-//	status-handshake       — at least one MarketDataType notice (58) inbound
 package main
 
 import (
@@ -38,8 +24,6 @@ import (
 )
 
 // WireFrame mirrors pkg/ibkr.WireFrame's JSON shape. Kept as a separate
-// local type so the assertion binary doesn't depend on the connector
-// package — the JSONL format is the contract.
 type WireFrame struct {
 	Seq       uint64    `json:"seq"`
 	When      time.Time `json:"ts"`
@@ -54,7 +38,6 @@ type WireFrame struct {
 // CheckResult describes a single invariant's verdict. On failure the
 // Print method emits a one-screen report — exactly what a future
 // maintainer needs to see to diagnose the wire-level regression
-// without scrolling the JSONL.
 type CheckResult struct {
 	OK         bool
 	Name       string
@@ -90,10 +73,6 @@ func truncateFields(f []string, max int) []string {
 }
 
 // readFrames parses the JSONL log from the given byte offset. The
-// offset lets the script scope each check to "frames produced by THIS
-// command" — the script captures the file's pre-command size, runs the
-// command, then passes the size back here. Frames added by concurrent
-// daemon chatter (heartbeats, autosubs) before the offset are filtered.
 func readFrames(path string, sinceOffset int64) ([]WireFrame, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -135,7 +114,6 @@ func parseFrames(br *bufio.Reader) ([]WireFrame, error) {
 				out = append(out, frame)
 			}
 			// Malformed line: drop silently. The wire interceptor
-			// writes one JSON object per line so malformed entries
 			// indicate disk corruption, not a real wire event.
 		}
 		if err == io.EOF {
@@ -179,7 +157,6 @@ func main() {
 	}
 
 	// Auxiliary input: the JSON response the CLI printed. Typed daemon
-	// state — a gamma lifecycle status, a chain's per-leg IV — is response
 	// evidence that wire frames do not carry.
 	var envBytes []byte
 	if *envPath != "" {
@@ -205,7 +182,6 @@ func main() {
 // ---- catalogue ------------------------------------------------------------
 
 // checkInputs aggregates everything a check function may need. Passing one
-// struct keeps the type signature uniform when auxiliary inputs are required.
 type checkInputs struct {
 	Frames   []WireFrame
 	Loose    bool
@@ -249,11 +225,7 @@ func dispatch(name string, in checkInputs) CheckResult {
 func checkStatusHandshake(in checkInputs) CheckResult {
 	frames := in.Frames
 	// Status itself doesn't issue new subscribes (it reads daemon
-	// internal state via the local socket), but on a fresh daemon the
 	// boot sequence must have produced wire activity: the connection
-	// handshake, SetMarketDataType OUT (msg 59), and system-notice
-	// IN frames for the connected data farms (msg 204 with codes
-	// 2104/2106/2158).
 	var sawFarmNotice bool
 	var sawSetType bool
 	for _, f := range frames {
@@ -263,9 +235,6 @@ func checkStatusHandshake(in checkInputs) CheckResult {
 		if f.Direction == "IN" && f.MsgID == 204 {
 			// msg 204 is a system notification with a protobuf-encoded
 			// payload; the wire interceptor captures the raw blob in
-			// fields[1]. The human-readable substring "farm connection
-			// is OK" is reliably embedded — codes 2104 (market data
-			// farm), 2106 (HMDS), 2158 (sec-def farm) all carry it.
 			for _, fld := range f.Fields {
 				if strings.Contains(fld, "farm connection is OK") {
 					sawFarmNotice = true
@@ -294,11 +263,6 @@ func checkStatusHandshake(in checkInputs) CheckResult {
 func checkQuoteSPY(in checkInputs) CheckResult {
 	frames := in.Frames
 	// Expected outbound: reqMktData (msg 1) with SecType=STK and
-	// Symbol=SPY. Expected inbound: tickPrice (msg 1) with tickType in
-	// {1, 2, 4} — bid, ask, last. In loose off-hours mode, accept the
-	// same fallback ticks the quote engine documents: mark (37) and
-	// previous close (9). Live mode keeps the stricter check so a broken
-	// current-tick path does not slip through.
 	var outFound bool
 	var inTickPrice []WireFrame
 	wantTickTypes := map[string]bool{"1": true, "2": true, "4": true}
@@ -396,10 +360,7 @@ func checkChainIVSource(in checkInputs) CheckResult {
 	frames := in.Frames
 	loose := in.Loose
 	// The invariant requires msg 21 option-computation frames rather than
-	// relying on the generic tick 106 stock-IV field. At least one OPT
 	// subscription must receive a non-NaN IV value.
-	// Frames are filtered to msg_id=21 and we read fields[4] (IV).
-	// In loose mode (frozen/off-hours), the check WARNS instead of
 	// failing — model engine doesn't fire when options aren't trading.
 	var anyOPTOut bool
 	var anyModelTick bool
@@ -421,19 +382,12 @@ func checkChainIVSource(in checkInputs) CheckResult {
 	}
 	if !anyOPTOut {
 		// Zero OPT subscribes is not evidence of a broken chain on its own.
-		// Connector.SubscribeOption returns the existing key without sending
-		// reqMktData when the contract is already subscribed, and a gamma
-		// prewarm running beside the smoke has typically taken the whole SPY
-		// board. Inbound model ticks cannot settle it either: nothing
-		// correlates them to this read's contracts, so a prewarm's own stream
 		// would answer for a chain that returned nothing. Only the chain
-		// response speaks about this read.
 		return checkChainResponseIV(in)
 	}
 	if !anyModelTick {
 		if loose {
 			// Off-hours: model engine idle is expected. Pass with a soft
-			// signal in observed (the script can downgrade to a warning).
 			return CheckResult{OK: true, Observed: "loose-mode: 0 model ticks tolerated (likely pre-market/off-hours)"}
 		}
 		return CheckResult{
@@ -446,11 +400,7 @@ func checkChainIVSource(in checkInputs) CheckResult {
 }
 
 // checkChainResponseIV adjudicates a chain read that issued no new OPT
-// subscribe. "Already subscribed" and "cannot subscribe" are identical on the
 // wire — neither sends reqMktData — and differ in the response: a leg the
-// daemon could not reach comes back with data_status=subscribe_error and no
-// values at all, while a leg served from a live subscription carries the same
-// IV and prices it would have carried had this read opened the subscription.
 func checkChainResponseIV(in checkInputs) CheckResult {
 	if len(in.Envelope) == 0 {
 		return CheckResult{
@@ -461,7 +411,6 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 	}
 	// Only the fields this check reads; extra response fields stay
 	// forward-compatible, and the status strings are matched against an
-	// allowlist rather than parsed.
 	type strike struct {
 		CallIV         *float64 `json:"call_iv"`
 		PutIV          *float64 `json:"put_iv"`
@@ -479,9 +428,7 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 		}
 	}
 	// A leg that reached an option line, whether or not the model engine
-	// priced it. subscribe_error, unavailable and no_quote are all excluded:
 	// the first two are the failure this check exists to catch, and the third
-	// is a subscription that delivered nothing within the leg's budget.
 	reached := map[string]bool{"quoted": true, "prev_close": true, "model_only": true}
 	var withIV, withData int
 	for _, s := range res.Strikes {
@@ -500,7 +447,6 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 	}
 	if in.Loose && withData > 0 {
 		// Off-hours the model engine is idle, so priced legs without IV are
-		// the same tolerance the model-tick branch already grants.
 		return CheckResult{OK: true, Observed: fmt.Sprintf(
 			"loose-mode: 0 new OPT subscribes and 0 IVs, but %d of %d strikes carry option data", withData, total)}
 	}
@@ -518,9 +464,6 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 func checkRegimeSubs(in checkInputs) CheckResult {
 	frames := in.Frames
 	// regime fans out to VIX, VIX3M, HYG, SPY, USDJPY. Each gets a
-	// reqMktData OUT and a MarketDataType notice IN. We require all
-	// five outbound subscribes; inbound is best-effort because
-	// off-hours some indicators (VIX3M particularly) can be slow.
 	wantSymbols := map[string]bool{
 		"VIX": false, "VIX3M": false, "HYG": false, "SPY": false, "USD": false,
 	}

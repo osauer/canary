@@ -19,23 +19,15 @@ import (
 )
 
 // Trading rulebook assembly (internal-docs/design/trading-rulebook.md). The pure
-// evaluator lives in internal/risk; this file maps daemon state into
-// risk.RuleInputs, owns the cached evaluation preview causes read, and the
-// rules-decisions journal. Advisory-only end to end: nothing here touches
 // submit eligibility or broker-write authorization.
 
 const (
 	// rulesPreviewTTL spans the established one-minute Stress cadence with a
-	// small scheduling margin. All cache reuse remains scope- and connector-
-	// generation-bound; after this budget a preview gets a bounded canonical
-	// evaluation or an explicit unavailable advisory.
 	rulesPreviewTTL = 75 * time.Second
 	// rulebookDaemonRefreshEvery moves the app's established complete Rulebook
-	// workload into the daemon so alerts remain operational with the app shut.
 	rulebookDaemonRefreshEvery = time.Minute
 	rulebookRefreshRetryEvery  = 5 * time.Second
 	// rulesSPYQuoteTimeout bounds the one best-effort SPY snapshot quote
-	// per evaluation during regular hours (rules 9/10 tape context).
 	rulesSPYQuoteTimeout = 2500 * time.Millisecond
 )
 
@@ -93,7 +85,6 @@ func (s *Server) cachedRulebookResult(binding rulebookCacheBinding, maxAge time.
 // cacheRulebookResultStable publishes after the caller has either validated
 // an unbound/unavailable result or entered the exact Connector evidence
 // barrier. It must not call currentRulebookBinding while that write barrier is
-// held because doing so would recursively acquire its read side.
 func (s *Server) cacheRulebookResultStable(result *rpc.RulesResult, binding rulebookCacheBinding, cachedAt time.Time) bool {
 	copyResult := cloneRulesResult(result)
 	if copyResult == nil {
@@ -160,7 +151,6 @@ func (s *Server) publishCanonicalRulebookResult(ctx context.Context, result *rpc
 	if binding.connector == nil {
 		// A real unbound evaluation is necessarily degraded because neither
 		// account nor portfolio authority is available. Preserve that useful
-		// diagnostic and the test seam, but make the candidate copy explicitly
 		// uncovered so an injected/current-looking result can never recover.
 		shadowResult := cloneRulesResult(result)
 		if shadowResult.Status == "ok" {
@@ -291,7 +281,6 @@ func (s *Server) rulebookEnabled() bool {
 }
 
 // rulebookEarningsOverrides returns the operator's manual per-symbol
-// earnings dates ("YYYY-MM-DD" or "YYYY-MM-DDTamc"/"Tbmo"), uppercased keys.
 func (s *Server) rulebookEarningsOverrides() map[string]string {
 	if s.platformSettings == nil {
 		return nil
@@ -329,8 +318,6 @@ func (s *Server) handleRulesSnapshot(ctx context.Context, req *rpc.Request) (*rp
 }
 
 // rulesForPreview returns a scope-bound canonical evaluation. If neither a
-// fresh cache nor a bounded canonical read is available, the returned
-// degraded result produces a typed rulebook_unavailable advisory; contention
 // can never silently erase warnings.
 func (s *Server) rulesForPreview(ctx context.Context) *rpc.RulesResult {
 	if !s.rulebookEnabled() {
@@ -344,8 +331,6 @@ func (s *Server) rulesForPreview(ctx context.Context) *rpc.RulesResult {
 }
 
 // canonicalRulebookResult is the full Rulebook single-flight used by user,
-// app, and preview reads. It rechecks the cache after acquiring the evaluation
-// lock so a caller queued behind the daemon refresh reuses that result instead
 // of issuing a second account/positions/quote fanout.
 func (s *Server) canonicalRulebookResult(ctx context.Context, binding rulebookCacheBinding) *rpc.RulesResult {
 	if ctx == nil {
@@ -366,7 +351,6 @@ func (s *Server) canonicalRulebookResult(ctx context.Context, binding rulebookCa
 		return s.rulebookUnavailableResult("canonical_read_interrupted")
 	}
 	// Publish while the single-flight remains held. A queued caller's post-lock
-	// recheck therefore cannot slip between evaluation completion and caching.
 	if !s.publishCanonicalRulebookResult(ctx, result, binding) {
 		return s.rulebookUnavailableResult("canonical_publish_interrupted")
 	}
@@ -389,8 +373,6 @@ func (s *Server) lockRulesEvaluation(ctx context.Context) bool {
 
 // evaluateRulesMode lets read-only daemon composition reuse the exact rule
 // mapper/evaluator without turning its account fetch into a capital-state
-// observation. Transition journaling remains exclusively in
-// handleRulesSnapshot. All canonical callers serialize here so two complete
 // account/positions/tape assemblies cannot overlap.
 func (s *Server) evaluateRulesMode(ctx context.Context, includeTape, allowMaintenance bool) *rpc.RulesResult {
 	if ctx == nil {
@@ -479,9 +461,6 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	}
 
 	// Rule 14 inputs: base-normalized non-base NLV, corroborated against the
-	// positions snapshot so an empty currency report on a book with non-base
-	// legs degrades to unknown instead of passing (never-false-pass). An
-	// unhealthy or unprimed snapshot cannot corroborate anything — pass nil
 	// so the empty-report case stays unknown during boot races.
 	if acct != nil {
 		corr := pos
@@ -492,7 +471,6 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	}
 
 	// Rules 3/4/12 regime-conditional thresholds: serve the latched stage,
-	// mark it carried past the policy max age, and self-heal a cold or stale
 	// latch with one async refresh (single-flight; never from previews).
 	if st := s.rulesRegimeStageSnapshot(); st.Bucket != "" {
 		in.RegimeStage = st.Bucket
@@ -549,8 +527,6 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	}
 	// The envelope is the completion boundary for the assembled inputs. Some
 	// components (notably the positions read model) stamp their own receipt
-	// after evaluation starts; retaining the start time here makes valid
-	// same-call evidence appear to come from the future to strict consumers.
 	res.AsOf = time.Now().UTC()
 	return res
 }
@@ -710,12 +686,6 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 			notes = append(notes, info.Symbol+": "+nonEmptyString(info.Reason, nonEmptyString(info.Status, "not_observed")))
 		} else if !resolved && definitive {
 			// Operator policy (2026-08-03): the primary vendor's definitive
-			// no-date or unsupported verdict is accepted, and an unentitled
-			// secondary provider is nonexistent for this decision. The gap is
-			// disclosed per name in the notes; the health status stays ok so a
-			// routine post-report gap cannot relabel the whole rulebook result
-			// degraded. The affected name's rules still read unknown — the
-			// row, not the source, carries the missing-date truth.
 			notes = append(notes, info.Symbol+": "+nonEmptyString(info.Reason, info.Status)+" (vendor definitive; disclosed gap)")
 		} else if info.Reason == earningsReasonSingleSource && !definitive && status == rpc.SourceStatusOK {
 			status = rpc.SourceStatusPartial
@@ -758,12 +728,6 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 }
 
 // earningsSingleSourceDefinitive reports that the primary provider answered
-// definitively and no second opinion exists to contradict it: either no
-// secondary provider is configured, or the configured one is permanently
-// unentitled — which operator policy (2026-08-03) treats as nonexistent. A
-// secondary source that is merely down still withholds the verdict, so a
-// temporary outage of an entitled feed cannot be laundered into a definitive
-// answer.
 func earningsSingleSourceDefinitive(info rpc.EarningsInfo) bool {
 	if info.Status != rpc.EarningsStatusDate && info.Status != rpc.EarningsStatusNoDatePublished && info.Status != rpc.EarningsStatusUnsupportedSecurity {
 		return false
@@ -788,8 +752,6 @@ func earningsSingleSourceDefinitive(info rpc.EarningsInfo) bool {
 }
 
 // mapRuleNames converts the positions snapshot into pure rule inputs. The
-// exposure figure is the same DollarDeltaBase the Stress read uses — one
-// aggregation, several bars (design: "Which verdict wins when").
 func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy string) []risk.NameInput {
 	loc, _ := time.LoadLocation("America/New_York")
 	today := time.Now().In(loc)
@@ -810,12 +772,9 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 		}
 		if g.Stock != nil {
 			// Deliberately outside the equity-identity gate above: this field
-			// exists to recognize the non-equity types, which that gate rejects.
 			n.UnderlyingSecType = g.Stock.SecType
 		}
 		// ExposureBaseComplete guards rule 1's lower bound: the group sum
-		// excludes legs the aggregator couldn't price (delta without spot,
-		// markless stock, missing FX) — a bound seeded from a partial sum
 		// could overstate, and "proven ≥" must never overstate.
 		n.ExposureBaseComplete = g.GroupDollarDeltaBase != nil
 		if g.GroupDollarDeltaBase != nil {
@@ -829,13 +788,8 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 			n.HasStockLeg = true
 			n.StockDayChangePct = g.Stock.DayChangePct
 			// The account mark that values the book is good enough to assess
-			// an option leg's OTM-ness/extrinsic when the leg's own greeks
-			// tick carried no spot (routine off-session). Stale marks are
-			// not: nil stays nil rather than valuing against a dead price.
-			// Indicative is deliberately NOT gated: it describes the quote
 			// enrichment layer, not the account mark, and pre-market — where
 			// every stock row is indicative — is exactly when this join
-			// earns its keep.
 			if g.Stock.Mark > 0 && !g.Stock.Stale {
 				stockSpot = new(g.Stock.Mark)
 			}
@@ -860,7 +814,6 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 			}
 			if o.Delta != nil && o.Underlying == nil {
 				// The aggregator can't pair this delta with a spot, so the
-				// group sum excluded the leg — no lower bound may build on it.
 				n.ExposureBaseComplete = false
 			}
 			if leg.Underlying == nil && stockSpot != nil {
@@ -872,17 +825,12 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 			} else {
 				// No FX rate for this leg, so the raw contract-currency figure
 				// stands in. It is only right when the leg's currency is already
-				// the base, and otherwise wrong by the exchange rate — in either
-				// direction. Marked so the thresholds that read it can refuse to
-				// compare rather than let an understating pair silence them, and
-				// no lower bound may be built on it.
 				leg.MarketValueBase = o.MarketValue
 				leg.MarketValueBaseSource = risk.MarketValueBaseSourceSubstituted
 				n.ExposureBaseComplete = false
 			}
 			// FX path: same-currency is implicitly 1 and non-base uses the
 			// gateway rate (positionBaseRate) — the MV ratio is only a
-			// fallback and is undefined on a zero-marked leg, which is
 			// exactly the −100% line rule 13 exists to catch.
 			if rate, ok := positionBaseRate(o, baseCcy); ok {
 				leg.FXToBase = &rate
@@ -890,7 +838,6 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				leg.FXToBase = new(*o.MarketValueBase / o.MarketValue)
 			}
 			// IBKR AvgCost is multiplier-inclusive on options: cost basis is
-			// AvgCost × |contracts| × fx, with NO extra multiplier.
 			if leg.FXToBase != nil && o.AvgCost > 0 {
 				leg.CostBasisBase = new(o.AvgCost * math.Abs(o.Quantity) * *leg.FXToBase)
 			}
@@ -899,12 +846,6 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				leg.DTE = int(exp.Sub(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)).Hours() / 24)
 			}
 			// A substituted leg (MarketValueBase nil) has no FX path, so its
-			// extrinsic cannot be converted either: serving the raw
-			// contract-currency figure here would feed rule 4's base-currency
-			// budget a number wrong by the exchange rate, while the rule's
-			// substitution guard sits inside its ExtrinsicBase == nil branch —
-			// unreachable for a leg this line filled. Nil routes the leg into
-			// that guarded branch, where it is disclosed as uncomputable.
 			if extPerShare, ok := risk.OptionExtrinsicPerShare(o.Right, leg.Underlying, o.Strike, o.Mark); ok && o.Quantity > 0 && o.MarketValueBase != nil {
 				ext := extPerShare * o.Quantity * leg.Multiplier
 				if o.MarketValue != 0 {
@@ -937,9 +878,6 @@ type rulebookExactStockIdentity struct {
 // rulebookExactStocksBySymbol uses the ungrouped position rows as identity
 // authority. PositionGroup is intentionally symbol-aggregated and has room
 // for only one stock pointer, so it cannot prove exact identity when two
-// listings share a ticker. A non-nil Stocks slice means the full projection
-// was supplied; any missing, malformed, or conflicting identity then stays
-// unclassified instead of falling back to the group's overwritten pointer.
 func rulebookExactStocksBySymbol(pos *rpc.PositionsResult) (map[string]rulebookExactStockIdentity, bool) {
 	if pos == nil || pos.Stocks == nil {
 		return nil, false
@@ -969,9 +907,6 @@ func rulebookExactStocksBySymbol(pos *rpc.PositionsResult) (map[string]rulebookE
 }
 
 // nonIssuerEarningsSecurityType is the closed vocabulary of held security types
-// that have no issuer earnings event at all, returning the canonical spelling so
-// the classification is auditable downstream. Equities and anything unrecognized
-// are excluded: an unknown type is not evidence that earnings do not apply.
 func nonIssuerEarningsSecurityType(secType string) (string, bool) {
 	switch strings.ToUpper(strings.TrimSpace(secType)) {
 	case rpc.SecTypeIndex, "IND":
@@ -1003,8 +938,6 @@ func legDesc(o rpc.PositionView) string {
 }
 
 // nonBaseExposure sums base-normalized NLV held outside the account's base
-// currency (rule 14). nil = unavailable: an empty currency report is only
-// trusted as "base-only" when the positions snapshot corroborates it —
 // $LEDGER flakes must degrade to unknown, never pass a 90%-USD book.
 func nonBaseExposure(acct *rpc.AccountResult, pos *rpc.PositionsResult) (*float64, []string) {
 	base := strings.ToUpper(strings.TrimSpace(acct.BaseCurrency))
@@ -1039,10 +972,6 @@ func positionsCarryNonBase(pos *rpc.PositionsResult, base string) bool {
 	}
 	// Walk the flat lists, not ByUnderlying. Only equities anchor a group, so a
 	// bond, bill, fund, future or cash leg never appears there — and this
-	// function decides whether an absent currency report may be read as a
-	// corroborated base-only book. Missing those rows meant a desk holding a
-	// foreign bond looked same-currency, and rule 14 asserted a clean 0.0% on a
-	// book it had not measured. A false pass is the one direction the rulebook
 	// must never take, so every held leg is inspected regardless of grouping.
 	for _, p := range pos.Stocks {
 		if p.Currency != "" && !strings.EqualFold(p.Currency, base) {
@@ -1068,8 +997,6 @@ func trimFloat(v float64) string {
 
 // assembleEarnings merges manual overrides with the cache, applies reviewed
 // exact-contract terminal evidence, kicks the async refresher for gaps, and
-// computes ET session distances. Overrides remain authoritative over ordinary
-// provider dates, but they cannot silently overrule a terminal classification:
 // a date on the same exact cancelled contract is an explicit conflict.
 func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, pol risk.RulebookPolicy, cal *marketcal.Calendar, now time.Time, allowRefresh bool) (map[string]risk.EarningsInput, []rpc.EarningsInfo) {
 	loc, _ := time.LoadLocation("America/New_York")
@@ -1091,7 +1018,6 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 			} else {
 				// Position groups do not carry each option leg's exact underlying
 				// ConID. A stock identity proof may therefore exempt only a
-				// stock-only name; mixed groups use ordinary provider evidence.
 				view, observed = s.earnings.resolution(sym)
 			}
 		}
@@ -1155,8 +1081,6 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 		}
 
 		// A security type with no issuer cannot have an issuer earnings date, so
-		// no provider is asked and no absence is held against the source. An
-		// operator override still wins: it is handled above.
 		if secType, nonIssuer := nonIssuerEarningsSecurityType(n.UnderlyingSecType); nonIssuer {
 			earnings[sym] = risk.EarningsInput{NonIssuerSecurity: true, Source: "security_type",
 				Reason: risk.EarningsReasonNonIssuerSecurity}
@@ -1197,8 +1121,6 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 			earnings[sym] = risk.EarningsInput{Known: false, Source: "unknown", Reason: info.Reason}
 		}
 		// Aggregate freshness and provider retry readiness are different
-		// clocks. Always hand non-override names to the cache; kickRefresh
-		// cheaply filters them by each provider's durable NextAttempt.
 		toFetch = append(toFetch, earningsRefreshTarget{Symbol: sym, ConID: n.StockConID, SecType: n.StockSecType})
 		infos = append(infos, info)
 	}
@@ -1227,7 +1149,6 @@ func parseEarningsOverride(raw string, loc *time.Location) (risk.EarningsInput, 
 }
 
 // sessionsUntil counts US equity sessions from today to target inclusive,
-// in ET; nil when the target is behind us or unreasonably far.
 func sessionsUntil(cal *marketcal.Calendar, today time.Time, target time.Time) *int {
 	start := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 	end := time.Date(target.Year(), target.Month(), target.Day(), 0, 0, 0, 0, today.Location())
@@ -1271,7 +1192,6 @@ func (s *Server) spyDayChangePct(ctx context.Context) *float64 {
 }
 
 // filterRuleOffenders narrows offender/exempt lists to one symbol without
-// changing verdicts — scoping is presentation, not policy.
 func filterRuleOffenders(res *rpc.RulesResult, sym string) {
 	for i := range res.Rules {
 		res.Rules[i].Offenders = filterOffenders(res.Rules[i].Offenders, sym)
@@ -1294,9 +1214,7 @@ func filterOffenders(list []risk.RuleOffender, sym string) []risk.RuleOffender {
 
 // ruleTransitionTerminalAuthority is the minimum exact-contract linkage a
 // rule transition needs to name the accepted terminal/non-reporting authority
-// it consumed. Human-facing issuer text and source-document references remain
 // on the live RulesResult; immutable transition evidence carries only typed
-// identities, revisions, timestamps, and fingerprints.
 type ruleTransitionTerminalAuthority struct {
 	ContractConID        int       `json:"contract_con_id"`
 	AuthorityRevision    int64     `json:"authority_revision"`
@@ -1310,7 +1228,6 @@ type ruleTransitionTerminalAuthority struct {
 
 // ruleTransitionIdentityAuthority links an accepted broker-nonissuer proof to
 // its exact append-only observation and state revision without exposing the
-// held contract identifier.
 type ruleTransitionIdentityAuthority struct {
 	AuthorityRevision    int64     `json:"authority_revision"`
 	AuthorityFingerprint string    `json:"authority_fingerprint"`
@@ -1377,7 +1294,6 @@ func acceptedRuleTransitionIdentityAuthorities(res *rpc.RulesResult) []ruleTrans
 }
 
 // validRulebookBrokerEarningsAuthority recognizes only the exact public
-// projection emitted by earningsCache. In particular, a retained proof remains
 // usable only for the cache's five-minute exact-contract retry contract.
 func validRulebookBrokerEarningsAuthority(info rpc.EarningsInfo, asOf time.Time) bool {
 	identity := info.Identity
@@ -1516,7 +1432,6 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 	}
 	if s.coreStore != nil {
 		// Current rule state is held by the bound rulebook cache. The beta
-		// transition corpus had no operational reader and grew without bound.
 		return
 	}
 	policyFingerprint := ""
@@ -1532,9 +1447,6 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 		}
 	}
 	// All transition lines are buffered and land in ONE write syscall: to
-	// the history-index ingester a torn multi-syscall append would be
-	// indistinguishable from a crash mid-write. Line shape is unchanged
-	// (json.Encoder emits each map with a trailing newline).
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for _, r := range res.Rules {
@@ -1557,9 +1469,7 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 		_ = enc.Encode(entry)
 	}
 	// rulesJournalMu is the writer-quiescence lock journal rotation
-	// excludes: held across path resolve, open, write, and close so a
 	// live-file swap can never interleave with an append. Line shape,
-	// dedupe, and the 0o644 mode are untouched.
 	s.rulesJournalMu.Lock()
 	path, err := defaultTradingStatePath("rules-decisions.jsonl")
 	if err != nil {
@@ -1660,11 +1570,6 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 		out = append(out, warn(r, fmt.Sprintf("%s is oversized inside its pre-earnings freeze window; adding is the opposite of at-size.", sym)))
 	}
 	// Averaging down is the one behavior that resets rule 13's loss fence —
-	// warn when the drafted option leg matches a line already past it. Rule
-	// 14 (fx_exposure) deliberately has no preview cause: at structurally
-	// high non-base exposure it would fire on every ordinary order, and a
-	// warning with a 100% base rate trains the operator to ignore rule_*
-	// causes entirely.
 	if r, ok := breached(risk.RuleExitDiscipline); ok && isBuy && isOption {
 		draftDesc := fmt.Sprintf("%s %s %s %s", sym,
 			strings.ReplaceAll(draft.Contract.Expiry, "-", ""), strings.ToUpper(draft.Contract.Right), trimFloat(draft.Contract.Strike))

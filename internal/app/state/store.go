@@ -1,3 +1,7 @@
+// Package state owns the Canary app's private durable state, including paired
+// devices, push subscriptions, redacted inbox records, attention cursors, and
+// app-local delivery evidence. It serializes mutations to state.json; daemon
+// runtime and policy state remain separate authorities.
 package state
 
 import (
@@ -14,7 +18,6 @@ import (
 )
 
 // Alert delivery modes control app-side notification eligibility without
-// changing daemon policy or the durable occurrence record.
 const (
 	AlertModeNone        = "none"
 	AlertModeActOnly     = "act_only"
@@ -22,7 +25,6 @@ const (
 )
 
 // Governance transport and delivery constants classify app-local Web Push
-// attempts and aggregate delivery health.
 const (
 	GovernanceTransportAccepted       = "push_service_accepted"
 	GovernanceTransportPartial        = "partial_acceptance"
@@ -39,8 +41,6 @@ const (
 	GovernanceTransportHTTPRetry      = "http_retry"
 	GovernanceTransportHTTPRejected   = "http_rejected"
 	// GovernanceTransportTimeoutRetry and the following legacy classes remain
-	// readable for state written by the first app implementation; new transport
-	// code uses the specific classes above.
 	GovernanceTransportTimeoutRetry = "timeout_retry"
 	GovernanceTransportRejected     = "rejected"
 	GovernanceTransportDead         = "dead_subscription"
@@ -68,30 +68,21 @@ var (
 )
 
 // AttentionKindStress identifies the single legacy inbox record family
-// sharing the app's durable read cursor.
 const AttentionKindStress = "stress"
 
 // legacyStressAlertIDPrefix is the ID prefix the retired portfolio-stress inbox
-// wrote onto its records. It stays "canary-" because it is a read-side
-// predicate over IDs already on disk: nothing mints these records any more, so
-// a renamed prefix would simply stop matching every retained record and quietly
-// disable their fingerprint-mismatch retention rule.
 const legacyStressAlertIDPrefix = "canary-"
 
 const (
 	// alertPreviousContextRetention expires read alert records that stopped
-	// matching the live context (operator decision 2026-07-20: 14 days).
 	// Unread records and still-matching records never expire.
 	alertPreviousContextRetention = 14 * 24 * time.Hour
 	// alertMatchStampInterval bounds LastMatchedAt refresh writes: matching
-	// is observed on the stress cadence (about once a minute), but a
 	// 14-day retention only needs hourly stamp granularity.
 	alertMatchStampInterval = time.Hour
 )
 
 // Store serializes access to the app's private state.json and returns copies or
-// redacted projections at its public read boundaries. Its zero value is not
-// usable; callers open a store with [Open].
 type Store struct {
 	path                            string
 	mu                              sync.Mutex
@@ -109,7 +100,6 @@ type Store struct {
 
 // Data is the persisted app-state envelope. AlertDelivery remains an internal
 // independently versioned section even though the surrounding legacy fields
-// are exported for JSON persistence and tests.
 type Data struct {
 	Devices           []DeviceGrant       `json:"devices,omitempty"`
 	AlertSettings     AlertSettings       `json:"alert_settings"`
@@ -121,7 +111,6 @@ type Data struct {
 	RelayRoute        *RelayRoute         `json:"relay_route,omitempty"`
 	// LegacyGovernanceOccurrences decodes the retired governance ledger's
 	// occurrence rows for exactly one purpose: compacting their attention
-	// sequences out of the shared cursor space at load. It is nilled by that
 	// migration and never persisted again.
 	LegacyGovernanceOccurrences []legacyGovernanceOccurrence `json:"governance_occurrences,omitempty"`
 	DiagnosticStatus            GovernanceDiagnosticStatus   `json:"diagnostic_status"`
@@ -138,19 +127,15 @@ type legacyGovernanceOccurrence struct {
 }
 
 // DeviceGrant is an app-owned paired-device identity. RevokedAt is terminal:
-// re-pairing creates a new identity instead of reviving this one.
 type DeviceGrant struct {
 	ID           string `json:"id"`
 	Name         string `json:"name,omitempty"`
 	PublicKeyJWK string `json:"public_key_jwk,omitempty"`
 	// DeviceCookieHashes authenticate the long-lived HttpOnly device
 	// cookie. Cookies are the only client storage that provably survives
-	// the iOS home-screen web-app container split (localStorage/IndexedDB
 	// written by Safari never reach the installed app), so session
 	// continuity must not depend on script-visible storage. A capped list,
-	// not a single value: Safari and the installed app hold twin copies of
 	// the cookie jar, so issuing a fresh cookie to one twin must never
-	// invalidate the other.
 	DeviceCookieHashes []string  `json:"device_cookie_hashes,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	LastSeenAt         time.Time `json:"last_seen_at,omitzero"`
@@ -176,7 +161,6 @@ type AlertSettings struct {
 }
 
 // PushSubscription is an app-owned Web Push target bound to one paired device.
-// Its endpoint and keys are private transport material.
 type PushSubscription struct {
 	ID         string    `json:"id"`
 	DeviceID   string    `json:"device_id"`
@@ -201,14 +185,11 @@ type AlertRecord struct {
 	CreatedAt   time.Time `json:"created_at"`
 	// LastMatchedAt is refreshed while an observed stress result still matches this
 	// record's context (fingerprint for stress-source records, account/mode
-	// for all). Previous-context expiry keys on it; records from before the
-	// stamp existed fall back to CreatedAt.
 	LastMatchedAt time.Time `json:"last_matched_at,omitzero"`
 	AttentionSeq  uint64    `json:"attention_seq"`
 }
 
 // PushAttempt records one classified Web Push transport result. OK means the
-// push service accepted the request, not that a device displayed it.
 type PushAttempt struct {
 	At             time.Time `json:"at"`
 	SubscriptionID string    `json:"subscription_id,omitempty"`
@@ -220,14 +201,12 @@ type PushAttempt struct {
 }
 
 // AttentionRef identifies one redacted legacy inbox row without exposing its
-// private fingerprint or transport identity.
 type AttentionRef struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`
 }
 
 // Attention is the shared durable unread cursor for the legacy Alerts inbox.
-// Rows with sequence zero are intentionally excluded from UnreadCount.
 type Attention struct {
 	UnreadCount    int            `json:"unread_count"`
 	HighWaterSeq   uint64         `json:"high_water_seq"`
@@ -247,7 +226,6 @@ type GovernanceDiagnosticStatus struct {
 }
 
 // VAPIDKeys stores the app-owned signing key pair. PrivateKey must never cross
-// an authenticated app response or logging boundary.
 type VAPIDKeys struct {
 	PublicKey  string    `json:"public_key"`
 	PrivateKey string    `json:"private_key"`
@@ -255,7 +233,6 @@ type VAPIDKeys struct {
 }
 
 // ProposalAuditItem is a durable app-side audit row for paired-device proposal
-// actions; Payload may contain private request data and is not a public DTO.
 type ProposalAuditItem struct {
 	ID        string          `json:"id"`
 	DeviceID  string          `json:"device_id,omitempty"`
@@ -266,7 +243,6 @@ type ProposalAuditItem struct {
 
 // Open loads or initializes the private app store under dir, validates its
 // persisted invariants, and recovers interrupted delivery reservations. It
-// quarantines an invalid optional alert-delivery ledger without fabricating a
 // replacement authority.
 func Open(dir string) (*Store, error) {
 	if dir == "" {
@@ -325,7 +301,6 @@ func (s *Store) load() error {
 	// Decode the top-level object a second time without alert_delivery. This
 	// keeps a failure in the optional typed ledger from making the legacy
 	// stress authority unavailable, while every legacy field still uses its
-	// normal typed decoder and remains fatal on corruption.
 	rawAlertDelivery := append(json.RawMessage(nil), topLevel["alert_delivery"]...)
 	delete(topLevel, "alert_delivery")
 	legacyData, err := json.Marshal(topLevel)
@@ -349,13 +324,8 @@ func (s *Store) load() error {
 }
 
 // migrateLegacyGovernanceAttention is the one-way decoder for the retired
-// governance ledger: its persisted occurrence rows shared the durable
-// attention cursor, so dropping them would leave sequence gaps the validator
 // rejects. The migration renumbers the remaining alert-history sequences
-// contiguously, preserves order and each record's read/unread position, and
 // nils the legacy rows so the next save drops them permanently. Unread
-// governance rows simply vanish: nothing has produced or resolved them since
-// the source-neutral ledger cutover.
 func (s *Store) migrateLegacyGovernanceAttention() {
 	if len(s.data.LegacyGovernanceOccurrences) == 0 {
 		return
@@ -392,7 +362,6 @@ func (s *Store) AlertSettings() AlertSettings {
 }
 
 // Attention returns a snapshot of the legacy inbox's shared durable unread
-// cursor and redacted unread references.
 func (s *Store) Attention() Attention {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -400,8 +369,6 @@ func (s *Store) Attention() Attention {
 }
 
 // MarkAttentionRead durably advances the shared read cursor to application
-// render state reported by a client. It is not proof of human attention or
-// physical delivery.
 func (s *Store) MarkAttentionRead(throughSeq uint64) (Attention, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -520,7 +487,6 @@ func (s *Store) nextAttentionSeqLocked() (uint64, error) {
 }
 
 // SetAlertMode validates and durably replaces the app notification mode. It
-// does not change daemon policy or retroactively alter stored occurrences.
 func (s *Store) SetAlertMode(mode string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -537,8 +503,6 @@ func (s *Store) SetAlertMode(mode string) error {
 }
 
 // AddDevice durably inserts or updates a paired device. Revocation atomically
-// retires that device's targets in both delivery ledgers and cannot be undone
-// by updating the same identity.
 func (s *Store) AddDevice(d DeviceGrant) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -591,7 +555,6 @@ func (s *Store) AddDevice(d DeviceGrant) error {
 }
 
 // Device returns the active paired device with id. Revoked and unknown devices
-// both return false.
 func (s *Store) Device(id string) (DeviceGrant, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -604,12 +567,9 @@ func (s *Store) Device(id string) (DeviceGrant, bool) {
 }
 
 // maxDeviceCookieHashes bounds the valid cookie generations per device:
-// enough for a few Safari/home-screen twins plus re-provisioned logins,
-// small enough that a leaked state file exposes a bounded credential set.
 const maxDeviceCookieHashes = 5
 
 // AddDeviceCookieHash retains a bounded set of cookie generations for one
-// paired device so Safari and installed-app cookie jars can coexist.
 func (s *Store) AddDeviceCookieHash(id, hash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -632,7 +592,6 @@ func (s *Store) AddDeviceCookieHash(id, hash string) error {
 }
 
 // Devices returns a shallow copy of all paired-device records, including
-// revoked devices retained as audit state.
 func (s *Store) Devices() []DeviceGrant {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -642,8 +601,6 @@ func (s *Store) Devices() []DeviceGrant {
 }
 
 // PruneDevices removes device grants whose last activity predates cutoff,
-// along with their push subscriptions. Activity is the later of creation
-// and last-seen, so a freshly paired but not-yet-used device survives.
 func (s *Store) PruneDevices(cutoff time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -711,8 +668,6 @@ func (s *Store) SetDeviceSeen(id string, at time.Time) error {
 }
 
 // AddPushSubscription durably inserts or refreshes an app-owned push target.
-// Moving an endpoint between devices requires a fresh, never-retired target
-// identity and atomically retires the prior target's delivery evidence.
 func (s *Store) AddPushSubscription(sub PushSubscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -810,7 +765,6 @@ func (s *Store) PushSubscriptions() []PushSubscription {
 
 // ActivePushSubscriptions returns subscriptions only for current, non-revoked
 // paired devices. Governance delivery deliberately does not inherit the legacy stress inbox's
-// looser historical subscription iteration.
 func (s *Store) ActivePushSubscriptions() []PushSubscription {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -830,7 +784,6 @@ func (s *Store) ActivePushSubscriptions() []PushSubscription {
 }
 
 // ActivePushSubscriptionsForDevice returns subscriptions only when deviceID is
-// a current, non-revoked paired device; otherwise it returns nil.
 func (s *Store) ActivePushSubscriptionsForDevice(deviceID string) []PushSubscription {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -859,8 +812,6 @@ func (s *Store) RemovePushSubscription(id string) error {
 }
 
 // RemovePushSubscriptionAt atomically removes a subscription selected by ID or
-// endpoint and retires its targets in both delivery ledgers. A zero retiredAt
-// uses the current UTC time.
 func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -902,7 +853,6 @@ func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 }
 
 // RecordDiagnosticStatus validates and persists the latest safe notification
-// test result.
 func (s *Store) RecordDiagnosticStatus(status GovernanceDiagnosticStatus) error {
 	if status.At.IsZero() || !validDiagnosticState(status.State) {
 		return errors.New("invalid diagnostic status")
@@ -939,8 +889,6 @@ func (s *Store) GovernanceDiagnostic() GovernanceDiagnosticStatus {
 }
 
 // RecordAlert appends one redacted legacy inbox record and assigns its durable
-// attention sequence. It rejects duplicate IDs and refuses to evict unread
-// history when the bounded store is full.
 func (s *Store) RecordAlert(rec AlertRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -948,7 +896,6 @@ func (s *Store) RecordAlert(rec AlertRecord) error {
 }
 
 // RecordAlertIfNew atomically deduplicates a semantic portfolio-stress occurrence and
-// records its durable inbox row under the same store transaction.
 func (s *Store) RecordAlertIfNew(rec AlertRecord) (bool, error) {
 	if strings.TrimSpace(rec.Fingerprint) == "" {
 		return false, errors.New("alert fingerprint required")
@@ -1010,7 +957,6 @@ func (s *Store) recordAlertLocked(rec AlertRecord) error {
 }
 
 // AlertHistory returns a copy of the newest legacy inbox rows. A non-positive
-// limit returns all retained rows.
 func (s *Store) AlertHistory(limit int) []AlertRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1023,7 +969,6 @@ func (s *Store) AlertHistory(limit int) []AlertRecord {
 }
 
 // ClearAlertHistory removes only rows already covered by the durable read
-// cursor and returns the number removed; unread rows are always retained.
 func (s *Store) ClearAlertHistory() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1047,8 +992,6 @@ func (s *Store) ClearAlertHistory() (int, error) {
 }
 
 // CompactAlertHistory refreshes the last-matched stamp on records that still
-// match the observed context and drops read records whose context died more
-// than the retention window ago. Matching mirrors the SPA's staleness rule:
 // only a positive mismatch (a different live stress fingerprint for a
 // stress-source record, or a different stated account/mode) marks a record
 // previous-context; unknown context never expires anything. Unread records
@@ -1106,7 +1049,6 @@ func alertRecordMatchesContext(rec AlertRecord, stressFingerprint, account, mode
 }
 
 // HasAlertFingerprint reports whether the legacy inbox retains a record with
-// the private semantic fingerprint fp.
 func (s *Store) HasAlertFingerprint(fp string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1127,7 +1069,6 @@ func (s *Store) RecordPush(attempt PushAttempt) error {
 }
 
 // LastPush returns a copy of the legacy last-attempt diagnostic, or nil when
-// no attempt has been recorded.
 func (s *Store) LastPush() *PushAttempt {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1140,7 +1081,6 @@ func (s *Store) LastPush() *PushAttempt {
 
 // EnsureVAPID returns the retained app signing keys or generates and durably
 // stores one pair. gen is called while the store is locked and only when a
-// complete retained pair is unavailable.
 func (s *Store) EnsureVAPID(now time.Time, gen func() (privateKey, publicKey string, err error)) (VAPIDKeys, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1172,7 +1112,6 @@ func (s *Store) VAPID() (VAPIDKeys, bool) {
 
 // RelayRoute returns the resumable route only when remoteURL and its required
 // credentials match. An expired route is still returned for token-matched
-// revival.
 func (s *Store) RelayRoute(remoteURL string) (RelayRoute, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1184,13 +1123,10 @@ func (s *Store) RelayRoute(remoteURL string) (RelayRoute, bool) {
 		return RelayRoute{}, false
 	}
 	// An expired route is still returned: the relay revives a token-matched
-	// resume, and abandoning the route id here would orphan every paired
-	// phone. ExpiresAt is informational.
 	return route, true
 }
 
 // SetRelayRoute validates and durably stores a relay registration, preserving
-// CreatedAt when the same route identity is refreshed.
 func (s *Store) SetRelayRoute(route RelayRoute) error {
 	if route.RemoteURL == "" {
 		return errors.New("relay remote URL required")
@@ -1207,7 +1143,6 @@ func (s *Store) SetRelayRoute(route RelayRoute) error {
 	defer s.mu.Unlock()
 	if route.CreatedAt.IsZero() {
 		// Route extensions re-persist the same route id; keep its birth
-		// time so route age stays observable.
 		if prev := s.data.RelayRoute; prev != nil && prev.RouteID == route.RouteID {
 			route.CreatedAt = prev.CreatedAt
 		}

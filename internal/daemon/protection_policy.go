@@ -55,15 +55,8 @@ type protectionThetaPolicy struct {
 	// MaxDTE only considers options expiring within this many days (default 21).
 	MaxDTE int `toml:"max_dte" json:"max_dte"`
 	// MinAbsThetaPerDay is a dust floor that cheaply skips trivially small positions before the extrinsic decomposition (default 5.0 per day). It is NOT the
-	// materiality gate — absolute dollar theta scales with position size and
-	// price, so on its own it flags every large near-dated option regardless
-	// of whether time decay is a meaningful fraction of the position.
 	MinAbsThetaPerDay float64 `toml:"min_abs_theta_per_day" json:"min_abs_theta_per_day"`
 	// MinExtrinsicPctOfMark is the materiality gate: below this percent of mark the option is intrinsic-dominated and a theta-saving close is suppressed (default 40). Theta only erodes
-	// extrinsic (time) value; intrinsic value is directional and theta-immune
-	// while the option stays in the money, so closing an intrinsic-dominated
-	// option to "save" theta would forfeit intrinsic value and delta exposure
-	// for a decay that mostly is not at risk.
 	MinExtrinsicPctOfMark float64 `toml:"min_extrinsic_pct_of_mark" json:"min_extrinsic_pct_of_mark"`
 	// MaxSpreadPctOfMid skips quotes whose bid/ask spread exceeds this percent of mid — too wide to act on (default 25).
 	MaxSpreadPctOfMid float64 `toml:"max_spread_pct_of_mid" json:"max_spread_pct_of_mid"`
@@ -82,9 +75,7 @@ type protectionTrailPolicy struct {
 	// Enabled turns the trailing-stop bucket on (default true).
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// TIF applies to every trailing-stop proposal in this bucket: DAY or
-	// GTC, empty means DAY. omitempty keeps the unset value out of the
-	// policy fingerprint, so existing policy files and the embedded
-	// default keep their fingerprints across the upgrade.
+	// GTC, empty means DAY.
 	TIF      string                      `toml:"tif" json:"tif,omitempty"`
 	StockETF protectionTrailAssetPolicy  `toml:"stock_etf" json:"stock_etf"`
 	Options  protectionTrailOptionPolicy `toml:"options" json:"options"`
@@ -358,11 +349,7 @@ func applyProtectionPolicyDefaults(p *protectionPolicy, md *toml.MetaData) {
 	}
 	defaults := defaultProtectionPolicy()
 	// Backfill the extrinsic materiality gate so a pre-existing policy file
-	// written before this knob existed (it carries max_dte / min_abs_theta but
-	// not min_extrinsic_pct_of_mark) keeps validating instead of decoding the
 	// field to 0.0 and failing the positive-value check. Done before the
-	// trailing_stop branch below because that branch can return early for files
-	// with no [buckets.trailing_stop] table.
 	if p.Buckets.ThetaHygiene.Enabled && p.Buckets.ThetaHygiene.MinExtrinsicPctOfMark == 0 {
 		p.Buckets.ThetaHygiene.MinExtrinsicPctOfMark = defaults.Buckets.ThetaHygiene.MinExtrinsicPctOfMark
 	}
@@ -423,9 +410,6 @@ func validateProtectionPolicy(p protectionPolicy) error {
 		}
 	}
 	// Checked even when the bucket is disabled: tif is a closed two-value
-	// enum, the zero value is always valid, and rejecting a typo at
-	// file-write time beats rejecting it later when the bucket is
-	// switched on.
 	if tif := strings.TrimSpace(p.Buckets.TrailingStop.TIF); tif != "" &&
 		!strings.EqualFold(tif, rpc.OrderTIFDay) && !strings.EqualFold(tif, rpc.OrderTIFGTC) {
 		return fmt.Errorf("trailing_stop.tif %q is invalid; use DAY or GTC", p.Buckets.TrailingStop.TIF)
@@ -489,8 +473,6 @@ func validateTrailOptionPolicy(prefix string, p protectionTrailOptionPolicy) err
 }
 
 // effectiveTIF resolves the bucket TIF for proposal generation: GTC when
-// the policy says so, DAY otherwise (including unset). Other values never
-// reach here — validateProtectionPolicy rejects the file.
 func (p protectionTrailPolicy) effectiveTIF() string {
 	if strings.EqualFold(strings.TrimSpace(p.TIF), rpc.OrderTIFGTC) {
 		return rpc.OrderTIFGTC

@@ -50,9 +50,7 @@ type StressPortfolioSummary = rpc.StressPortfolioSummary
 type StressMarketSummary = rpc.StressMarketSummary
 
 // ComputeStress evaluates one typed snapshot. A zero input clock uses the
-// current time. Missing, stale, or incomplete sources remain explicit and do
 // not become healthy zero values. The result is advisory and performs no broker
-// writes.
 func ComputeStress(in StressInput) StressResult {
 	now := in.Now
 	if now.IsZero() {
@@ -68,7 +66,6 @@ func ComputeStress(in StressInput) StressResult {
 // computeStress owns the one Stress decision implementation. The established
 // mode freezes only the source-interpretation and source-health behavior that
 // existed at ad5b77b; account, positions, market clusters, Regime data quality,
-// and every underlying risk calculation continue through the same producer.
 func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIssue, established bool) StressResult {
 	accountFingerprint := rpc.BuildAccountFingerprint(&in.Account)
 	positionsFingerprint := rpc.BuildPositionsFingerprint(&in.Positions, in.Account.NetLiquidation)
@@ -144,11 +141,7 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 }
 
 // stressRelevantMarketEventsFingerprint applies the same exposure boundary as
-// stressMarketEventSourceIssues before market-event health enters alert
-// identity. The diagnostic snapshot remains portfolio-neutral, while a borrow
-// outage on an all-long book cannot churn Stress or established delivery
 // fingerprints. Active flags are retained: only irrelevant borrow source
-// health is removed.
 func stressRelevantMarketEventsFingerprint(pos rpc.PositionsResult, events rpc.MarketEventsResult) rpc.Fingerprint {
 	if !stressHasMarketEventsInput(events) {
 		return rpc.Fingerprint{}
@@ -165,10 +158,7 @@ func stressRelevantMarketEventsFingerprint(pos rpc.PositionsResult, events rpc.M
 }
 
 // stressEstablishedMarketEventsFingerprint keeps the exact pre-v2
-// MarketEvents source projection used by established delivery. New typed
 // failure details are stripped, but every v1 source-health bucket remains;
-// changing that projection under the same v1 label would break dedupe and
-// recovery continuity.
 func stressEstablishedMarketEventsFingerprint(events rpc.MarketEventsResult) rpc.Fingerprint {
 	if !stressHasMarketEventsInput(events) {
 		return rpc.Fingerprint{}
@@ -251,9 +241,7 @@ func stressEstablishedAlertProjection(result StressResult) rpc.EstablishedAlertP
 }
 
 // stressEstablishedAlertFingerprint retains the exact semantic projection
-// hashed before the sensor rename. The current Stress result remains wholly
 // Stress-labelled; only this compatibility copy restores the two renamed
-// values that participate in the frozen key.
 func stressEstablishedAlertFingerprint(result StressResult) rpc.Fingerprint {
 	compatibility := result
 	compatibility.PolicyFingerprint.Version = stressEstablishedPolicyFingerprintVersion
@@ -278,8 +266,6 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 		out.CushionPct = stressCurrentCushionPct(acct)
 		out.LookAheadCushionPct = stressLookAheadCushionPct(acct)
 		// The cushion trip is the policy's watch floor — the same number
-		// stressCushionSeverity leaves observe at — served beside the reading
-		// so no renderer keeps a twin of it.
 		if out.CushionPct != nil || out.LookAheadCushionPct != nil {
 			out.CushionTripPct = new(stressPolicy.MarginWatchPct)
 		}
@@ -301,8 +287,6 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 			out.OptionGreeks = fmt.Sprintf("%d/%d legs", pos.Portfolio.GreeksCoverage, pos.Portfolio.GreeksTotal)
 		}
 		// Names the aggregator could not value in base at all carry no row here;
-		// the daemon names them separately, and they belong in the same gap as
-		// the delta-less rows skipped below.
 		unmeasured := slices.Clone(pos.Portfolio.ExposureUnmeasured)
 		for _, e := range pos.Portfolio.ExposureBase {
 			if e.MarketValuePctNLV != nil {
@@ -337,8 +321,6 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 }
 
 // stressUpperSorted normalizes a disclosure name list: upper-cased, sorted, and
-// free of blanks and duplicates. Nil for an empty list, so a fully measured book
-// carries no field at all.
 func stressUpperSorted(names []string) []string {
 	var out []string
 	for _, n := range names {
@@ -351,7 +333,6 @@ func stressUpperSorted(names []string) []string {
 }
 
 // stressUnmeasuredNames renders the exposure gap for one row's evidence,
-// bounded so a wide book does not turn a row into a list.
 func stressUnmeasuredNames(names []string) string {
 	if len(names) == 0 {
 		return ""
@@ -802,10 +783,6 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 	out.TapeSessionState, out.TapeSessionReason, out.TapeNextOpen = stressTapeSession(now)
 	contextClusters := stressMarketContextClusters(r, now)
 	// Shared rpc combination: raw worst-of bands, eligibility-keyed
-	// isolated-red downgrades, and the eligible/provisional split. Stress
-	// previously recomputed this from raw bands (a third policy copy) and
-	// confirmed "market stress" on two marginal reds — the 2026-06-12
-	// false-positive surface the user actually watches.
 	cb := rpc.BuildRegimeClusterBands(&r)
 	clusterBands := map[string]string{}
 	for i, name := range rpc.RegimeClusterNames {
@@ -945,8 +922,6 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 }
 
 // stressIndicatorTrip passes the row's served compact trip through untouched.
-// A row whose producer serves no thresholds carries no trip, and the face it
-// feeds stays reading-only.
 func stressIndicatorTrip(t *rpc.RegimeThresholds) string {
 	if t == nil {
 		return ""
@@ -955,8 +930,6 @@ func stressIndicatorTrip(t *rpc.RegimeThresholds) string {
 }
 
 // stressGammaTrip prefers the measured γ-zero/spot pair, because dealer
-// gamma's red band is a crossing rather than a fixed number. Without a usable
-// crossing it falls back to the row's worded trip.
 func stressGammaTrip(g rpc.RegimeGammaZero) string {
 	if anchor := regimerows.GammaTripAnchor(g); anchor != "" {
 		return anchor
@@ -1142,7 +1115,6 @@ func stressMarketRow(m StressMarketSummary) StressRow {
 	default:
 		if len(m.UnconfirmedRedClusterNames) > 0 {
 			// The overall summary calls this warning out; the check still
-			// passes, and saying why here keeps the two from contradicting.
 			return stressRow("Market stress", "", risk.SeverityObserve, "An early warning is flashing ("+stressClusterList(m.UnconfirmedRedClusterNames)+" red, not confirmed); below the de-risking trigger.", evidence)
 		}
 		return stressRow("Market stress", "", risk.SeverityObserve, "No market-regime de-risking trigger.", evidence)
@@ -1189,7 +1161,6 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 	evidence := fmt.Sprintf("gross %.0f%% NLV (watch %.0f%%); net delta %.0f%% NLV (watch %.0f%%); gross delta %.0f%% NLV (watch %.0f%%)",
 		gross, stressPolicy.GrossExposureWatchPct, delta, stressPolicy.NetDeltaWatchPct, grossDelta, stressPolicy.GrossDeltaWatchPct)
 	// Disclosure is unconditional; only the pass verdict below is conditional.
-	// A breach earned by the measured names is still a breach.
 	gap := stressUnmeasuredNames(p.ExposureUnmeasured)
 	if gap != "" {
 		evidence += "; " + gap
@@ -1248,8 +1219,6 @@ func stressProtectionCoverageRow(p StressPortfolioSummary) StressRow {
 	if coverage.Counts.Unprotected > 0 || coverage.Counts.Partial > 0 {
 		guidance := "Review largest unprotected stock/ETF exposures before adding risk."
 		// Naming the position turns "go look somewhere" into a decision the
-		// row itself supports; the phrase shape mirrors the Monitor protection
-		// panel ("largest unprotected SYM amount").
 		if largest := largestUnprotectedPhrase(coverage); largest != "" {
 			guidance = "Review largest unprotected stock/ETF exposures before adding risk; largest unprotected " + largest + "."
 		}
@@ -1379,15 +1348,8 @@ func stressMarketConfirmation(m StressMarketSummary) string {
 }
 
 // stressGovernedSeverityAllows reports whether cluster-count evidence may
-// carry want-grade weight given the regime lifecycle's governed severity.
 // The lifecycle is the authority on heuristic cluster severity: its governor
-// holds confirmed_stress at watch (and panic at act) while confirming
-// thresholds are pending backtest with no tape co-sign, or while confirming
-// clusters are quality-impaired. Consuming that governed grade here keeps the
-// desk from re-deriving act/urgent off raw eligible counts — the last policy
-// copy left after 2026-06-12 moved cluster bands onto the shared rpc
 // combination. Tape-driven arms never route through this gate: the tape is
-// its own co-signature, mirroring the governor's own exemption. Snapshots
 // without a ranked stress lifecycle stage fail open to the raw counts.
 func stressGovernedSeverityAllows(m StressMarketSummary, want risk.SignalSeverity) bool {
 	switch m.RegimePosture.Stage {
@@ -1399,8 +1361,6 @@ func stressGovernedSeverityAllows(m StressMarketSummary, want risk.SignalSeverit
 }
 
 // stressClusterStressed is the act-grade market-stress context used by
-// portfolio-side escalation: governed-confirmable eligible reds, or tape
-// confirmation.
 func stressClusterStressed(m StressMarketSummary) bool {
 	return (m.EligibleRedClusters >= 2 && stressGovernedSeverityAllows(m, risk.SeverityAct)) || confirmedTapeStress(m)
 }
@@ -1440,7 +1400,6 @@ func stressPortfolioFit(p StressPortfolioSummary, signals []risk.Signal) string 
 		if len(sig.BlockedBy) > 0 || sig.Direction == risk.DirectionDataQuality {
 			// A skipped exposure-family signal means the classifier is blind
 			// on that axis. "Low" must remain a measurement; when the
-			// measuring signals themselves are blocked or data-quality, the
 			// honest default is unknown, never low.
 			switch sig.ID {
 			case risk.SignalGrossExposureHigh,
@@ -1482,11 +1441,7 @@ func stressPortfolioFit(p StressPortfolioSummary, signals []risk.Signal) string 
 
 // stressPortfolioAlertRelevant is the single policy copy for "does this
 // snapshot concern the live portfolio enough to alert on": only a low-fit,
-// flat book (no held stress, every exposure print under 0.5% NLV) is market
-// weather rather than a portfolio alert. Unknown fit stays relevant — an
 // unmeasurable portfolio must never be silenced. The app alert gate and the
-// SPA preview gate read the stamped PortfolioAlertRelevant field instead of
-// re-deriving these edge cases.
 func stressPortfolioAlertRelevant(r *StressResult) bool {
 	if r.PortfolioFit != stressPortfolioFitLow {
 		return true
@@ -1558,7 +1513,6 @@ func stressDecisionState(marketConfirmation, portfolioFit, inputHealth string, m
 	}
 	// Unmeasured exposure against live market pressure keeps the defensive
 	// watch frame: the market signal is real and must not be demoted to a
-	// data-quality footnote just because the portfolio side is blind.
 	if (marketConfirmation == stressMarketConfirmed || marketConfirmation == stressMarketPartial) && portfolioFit == stressPortfolioFitUnknown {
 		return risk.DirectionDefensive, risk.SeverityWatch
 	}
@@ -1827,8 +1781,6 @@ func stressTapeSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.S
 	out := []risk.Signal{}
 	if !stressTapeConfirmable(m) {
 		// Closed market date: the frozen day-change prints stay visible as
-		// evidence on the tape row, but emit no defensive or constructive
-		// tape signals until live prints return at the next open.
 		return out
 	}
 	spyDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct)
@@ -2196,7 +2148,6 @@ func stressSourceIssues(in StressInput, now time.Time) []stressSourceIssue {
 	switch {
 	case in.Positions.AsOf.IsZero() && in.Account.NetLiquidation > 0:
 		// A never-fetched positions snapshot against a real account is a
-		// positions source problem, not a clean empty book: exposure built
 		// from it is blind, so dependent signals must block and portfolio
 		// fit must derive unknown instead of defaulting to low.
 		issues = append(issues, stressSourceIssue{Source: "positions", Status: rpc.RegimeStatusUnavailable, Reason: "positions snapshot never fetched"})
@@ -2212,9 +2163,6 @@ func stressSourceIssues(in StressInput, now time.Time) []stressSourceIssue {
 
 // stressEstablishedSourceIssues is the exact ad5b77b source-decision
 // boundary. In particular, a missing account timestamp, Regime authority
-// health, and MarketEvents required-source health were not delivery inputs.
-// Keep this frozen unless the operator explicitly approves a new established
-// Stress paging policy.
 func stressEstablishedSourceIssues(in StressInput, now time.Time) []stressSourceIssue {
 	issues := []stressSourceIssue{}
 	if stressSourceStale(in.Account.AsOf, now) {
@@ -2252,7 +2200,6 @@ func stressRegimeAuthorityIssue(regime rpc.RegimeSnapshotResult) (stressSourceIs
 
 func stressMarketEventSourceIssues(pos rpc.PositionsResult, events rpc.MarketEventsResult, now time.Time) []stressSourceIssue {
 	// The daemon requests market-event context only for held underlyings. A
-	// clean empty book therefore needs no market-event source, but a held book
 	// must never turn a missing snapshot into an implicit "no flags" answer.
 	if len(stressMarketEventSymbols(pos)) == 0 {
 		return nil
@@ -2290,7 +2237,6 @@ func stressMarketEventSourceIssues(pos rpc.PositionsResult, events rpc.MarketEve
 		issues = append(issues, stressSourceIssue{Source: source, Status: status, Reason: reason})
 	}
 	// The result timestamp is part of the decision contract. Child rows that
-	// say OK cannot make a never-dated or stale aggregate current.
 	switch {
 	case events.AsOf.IsZero():
 		addIssue("market_events", rpc.SourceStatusUnknown, "market-event snapshot timestamp missing")
@@ -2383,7 +2329,6 @@ func stressPositionIsStock(position rpc.PositionView) bool {
 	secType := strings.ToUpper(strings.TrimSpace(position.SecType))
 	// Empty is retained as a compatibility-safe legacy stock projection. Live
 	// rows carry STOCK; explicit FUT, IND, or OPTION rows never make stock-borrow
-	// evidence decision-relevant.
 	return secType == "" || secType == rpc.SecTypeStock || secType == "STK" || secType == "ETF"
 }
 
@@ -2455,11 +2400,8 @@ func stressSourceStale(asOf, now time.Time) bool {
 
 // stressMarketEventHealthStale honors the producer-authored per-source age
 // contract. Daily official files must not be re-staled by Stress's generic
-// 10/90-minute polling budget, while a due source at or beyond its own limit
 // fails closed. AgeSeconds is authoritative because some fallbacks age the
-// fetch attempt rather than the observation date. A typed not_due cadence
 // takes precedence over wall-clock age, but never over an explicit non-OK
-// status or a future timestamp.
 func stressMarketEventHealthStale(health rpc.SourceHealth, now time.Time) bool {
 	if health.AsOf.IsZero() || now.IsZero() {
 		return false
@@ -2751,7 +2693,6 @@ func stressRegimeWarningCluster(w rpc.RegimeWarning) string {
 
 // stressEstablishedSourceHealth preserves the exact ad5b77b source-health
 // projection that participates in the established Stress fingerprint. New authority and
-// required-source interpretations stay on the main Stress result only.
 func stressEstablishedSourceHealth(in StressInput, now time.Time, accountFP, positionsFP, regimeFP, marketEventsFP rpc.Fingerprint, inputHealth string, m StressMarketSummary) []rpc.SourceHealth {
 	out := []rpc.SourceHealth{
 		stressAccountSourceHealth(in.Account, now, accountFP),
@@ -3081,7 +3022,6 @@ func stressWarningLine(w rpc.RegimeWarning) string {
 
 // stressMarketEvidence renders only the cluster facts that carry information:
 // zero-count buckets never render, and the reporting fraction appears only
-// while coverage is incomplete.
 func stressMarketEvidence(m StressMarketSummary) string {
 	parts := []string{}
 	if m.RedClusters > 0 {
@@ -3104,7 +3044,6 @@ func stressMarketEvidence(m StressMarketSummary) string {
 }
 
 // Trigger levels render next to the observed numbers so a reading can be
-// judged as near-miss or comfortable without opening the policy.
 func stressTapeEvidence(m StressMarketSummary) string {
 	parts := []string{}
 	if m.SPYChangePct != nil {
@@ -3128,14 +3067,11 @@ func stressTapeEvidence(m StressMarketSummary) string {
 }
 
 // stressTapeSession delegates to the shared rpc.TapeSessionFor policy copy —
-// the regime lifecycle keys its closed-date tape gating on the same
-// classification, and two hand-maintained calendars would drift.
 func stressTapeSession(now time.Time) (state, reason string, nextOpen *time.Time) {
 	return rpc.TapeSessionFor(now)
 }
 
 // stressTapeConfirmable reports whether direct SPY/VIX day-change prints may
-// carry severity or confirm stress right now.
 func stressTapeConfirmable(m StressMarketSummary) bool {
 	return m.TapeSessionState != rpc.TapeSessionClosedDate
 }
@@ -3155,7 +3091,6 @@ func stressTapeDemotedGuidance(m StressMarketSummary) string {
 func confirmedTapeStress(m StressMarketSummary) bool {
 	if !stressTapeConfirmable(m) {
 		// Frozen prints cannot confirm; only the cluster-side carry-unwind
-		// arm (fx red + breadth) may still fire.
 		return stressFastCarryUnwind(m)
 	}
 	spyDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct)
@@ -3259,15 +3194,11 @@ func formatProtectionCoverageEvidence(c *rpc.ProtectionCoverageSummary) string {
 }
 
 // FormatProtectionCoverageEvidence formats the current protection coverage
-// for the CLI without exporting Stress's internal evaluation machinery.
 func FormatProtectionCoverageEvidence(c *rpc.ProtectionCoverageSummary) string {
 	return formatProtectionCoverageEvidence(c)
 }
 
 // largestUnprotectedPhrase names the single largest unprotected position and
-// its uncovered amount ("MSFT € 12,345.67") for row guidance. The daemon
-// orders LargestUnprotected by uncovered notional; a row without a valued
-// notional still contributes its name. Empty when the daemon filled nothing.
 func largestUnprotectedPhrase(c *rpc.ProtectionCoverageSummary) string {
 	if c == nil {
 		return ""
@@ -3289,12 +3220,7 @@ func largestUnprotectedPhrase(c *rpc.ProtectionCoverageSummary) string {
 }
 
 // stressClusterStaleNotDue reports whether every stale row in a cluster
-// declares typed freshness class not_due: the source's publication window is
-// closed, so no newer observation can exist and the staleness is a schedule
-// gap, not broken market data. The row status itself stays stale and remains
-// confirmation-ineligible (the 2026-06-12 prior-evening-gamma protection);
 // this only keeps a closed publication window from paging the desk as a data
-// issue. A stale row without the typed class keeps the cluster stale.
 func stressClusterStaleNotDue(statuses []string, meta []rpc.RegimeIndicatorMeta) bool {
 	if len(statuses) != len(meta) {
 		return false
@@ -3333,8 +3259,6 @@ func stressWorstCushionPct(p StressPortfolioSummary) *float64 {
 }
 
 // The trailing trigger mirrors the tape row's disclosure style: the reader
-// sees how far the printed number sits from the policy line, not just the
-// number. Both cushion variants share the same watch floor.
 func stressCushionEvidence(p StressPortfolioSummary) string {
 	parts := []string{}
 	if p.CushionPct != nil {

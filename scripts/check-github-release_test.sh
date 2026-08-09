@@ -237,7 +237,6 @@ cp "$dist/SHA256SUMS" "$test_root/SHA256SUMS.canonical"
 
 # Draft stage: the staged pre-publish draft must verify from the release
 # list (drafts are invisible to the tags endpoint) with checksum assets
-# fetched through the asset API by id.
 python3 - "$test_root/release.canonical.json" "$test_root/release-list.json" <<'PY'
 import json
 import sys
@@ -374,8 +373,6 @@ if TEST_GPG_FINGERPRINT=0000000000000000000000000000000000000000 \
 fi
 
 # A valid signature from an unrelated key must fail even if that key would be
-# trusted by an ambient operator keyring. This fixture uses real GnuPG: first
-# prove the attacker signature is cryptographically valid in its own keyring,
 # then prove the checker rejects it while using only Canary's pinned key.
 attacker_home="$(mktemp -d /tmp/canary-wrong-signer-gpg.XXXXXX)"
 chmod 0700 "$attacker_home"

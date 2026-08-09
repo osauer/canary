@@ -193,7 +193,6 @@ assert_no_old_name "$fresh"
 }
 
 # A pre-upgrade executable is transactionally retired and its public path is
-# removed without retaining a runnable rollback binary.
 pre_upgrade="$test_root/pre-upgrade/bin"
 mkdir -p "$pre_upgrade"
 printf '%s\n' 'old executable' > "$pre_upgrade/ibkr"
@@ -208,9 +207,7 @@ assert_no_old_name "$pre_upgrade"
 }
 
 # An old custom installation that remains on PATH must not survive beside a
-# default-location Canary install. The installer cannot delete an executable
 # outside its selected transaction root, so it fails with the exact safe
-# recovery: reuse the old directory through CANARY_INSTALL_DIR.
 custom_legacy="$test_root/custom-legacy/bin"
 split_target="$test_root/split-target/bin"
 split_output="$test_root/split-target.err"
@@ -239,7 +236,6 @@ unset CANARY_INSTALL_TEST_PATH_PREFIX
 
 # Relative PATH entries must resolve to the same physical comparison. Otherwise
 # a caller launched from beside an old custom installation could still publish
-# a second Canary binary elsewhere.
 relative_legacy="$test_root/relative-legacy/bin"
 relative_target="$test_root/relative-target/bin"
 relative_output="$test_root/relative-target.err"
@@ -270,7 +266,6 @@ grep -Fq "CANARY_INSTALL_DIR=$relative_legacy_physical" "$relative_output" || {
 
 # The one-time product-rename bridge tells an existing installation to restart
 # before using daemon-backed commands, so state migration happens under the
-# newly installed binary rather than leaving an unlinked old daemon running.
 bridge_hint="$test_root/bridge-hint/bin"
 bridge_output="$test_root/bridge-hint.out"
 mkdir -p "$bridge_hint"
@@ -287,7 +282,6 @@ grep -Fq 'migrates supported existing state before broker connection' "$bridge_o
 }
 
 # The retired environment variable is rejected even when present but empty;
-# silently ignoring it could install to an unintended directory.
 retired_env_target="$test_root/retired-env/bin"
 if run_installer v9.9.9 env CANARY_INSTALL_DIR="$retired_env_target" IBKR_INSTALL_DIR= 2>/dev/null; then
 	echo "install test: retired install-directory variable was accepted" >&2
@@ -347,7 +341,6 @@ fi
 }
 
 # Publication failure and interruption both restore the exact pre-upgrade
-# layout instead of leaving mixed executable authorities.
 for mode in fail_canonical signal_after_canonical; do
 	target="$test_root/$mode/bin"
 	mkdir -p "$target"

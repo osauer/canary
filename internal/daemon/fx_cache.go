@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,26 +16,14 @@ import (
 )
 
 // fxCacheFreshWindow: a cached rate younger than this is served without
-// spending a gateway snapshot quote. The app host polls positions every
-// ~5s; while the streaming $LEDGER rate stays bogus (observed: persistent
 // unit USD rate on a EUR-base live account) every poll would otherwise pay
-// up to 2×1.2s of FX quote budget per suspicious currency.
 const fxCacheFreshWindow = 15 * time.Minute
 
 // fxCacheTTL bounds how stale a last-known-good rate may be served when
 // live resolution fails. 72h spans a weekend: FX snapshot quotes can be
-// unavailable off-hours, and a 24h bound would resurrect the every-poll
-// base-field flap each Saturday. G10 FX drift over a closed weekend is
-// immaterial next to the alternative — dropping every *_base field and
-// flipping the positions fingerprint (which churns proposal revisions
-// mid-confirm) whenever one quote times out.
 const fxCacheTTL = 72 * time.Hour
 
 // fxPersistMinInterval throttles best-effort durable flushes of the cache.
-// harvest calls put once per currency on every ~5s app-host poll, and
-// rewriting the projection that often buys nothing: a persisted `at` up to a
-// minute stale merely shifts the fresh/TTL windows by that much after a
-// restart.
 const fxPersistMinInterval = time.Minute
 
 const (
@@ -60,16 +46,12 @@ type fxRateCache struct {
 	now   func() time.Time
 	rates map[string]fxCachedRate
 	// degraded holds pairs currently served from cache after a failed
-	// live resolution, so the transition WARN/INFO logs once per episode
-	// instead of every poll (same dedupe pattern as lastGatewayUnreachable).
 	degraded map[string]bool
 	// store persists last-known-good rates across daemon restarts; nil
-	// (newFXRateCache) keeps the cache memory-only.
 	store *fxRateStore
 	// lastPersist throttles store flushes to fxPersistMinInterval.
 	lastPersist time.Time
 	// persistFailing dedupes save-error WARNs to once per episode
-	// (markDegraded's transition pattern).
 	persistFailing bool
 	logger         *Logger
 }
@@ -79,27 +61,9 @@ func newFXRateCache() *fxRateCache {
 }
 
 // newFXRateCacheWithStore returns a cache whose last-known-good rates
-// survive daemon restarts. Persisted rates still within fxCacheTTL of
 // now seed the cache at construction, so a restart during IBKR's
-// nightly reset window (or a weekend, when FX snapshot quotes can be
-// unavailable for days) serves *_base fields immediately instead of
-// nil until the first successful live resolution. Best-effort
 // throughout: a load failure logs and starts cold.
-func newFXRateCacheWithStore(store *fxRateStore, now func() time.Time, logger *Logger) *fxRateCache {
-	c := newFXRateCacheWithStoreCold(store, now, logger)
-	loaded, err := store.load(now())
-	if err != nil && logger != nil {
-		logger.Warnf("fx rate cache: load persisted rates: %v (starting cold)", err)
-	}
-	maps.Copy(c.rates, loaded)
-	if len(loaded) > 0 && logger != nil {
-		logger.Infof("fx rate cache: restored %d persisted rate(s)", len(loaded))
-	}
-	return c
-}
-
 // newFXRateCacheWithStoreCold installs the legacy codec path without reading
-// it. Production construction uses this before the persistence lock; the
 // unpublished cutover importer is the only production legacy reader.
 func newFXRateCacheWithStoreCold(store *fxRateStore, now func() time.Time, logger *Logger) *fxRateCache {
 	c := newFXRateCache()
@@ -112,8 +76,6 @@ func newFXRateCacheWithStoreCold(store *fxRateStore, now func() time.Time, logge
 }
 
 // UseCoreStore replaces any eagerly loaded legacy projection with daemon.db.
-// Missing SQLite state is an intentional cold start. Once this succeeds the
-// attached fxRateStore cannot fall back to or mirror fx-rates.json.
 func (f *fxRateCache) UseCoreStore(store *corestore.Store) error {
 	if f == nil {
 		return errors.New("fx rate cache: nil cache")
@@ -169,10 +131,6 @@ func (f *fxRateCache) put(baseCcy, ccy string, rate float64) {
 }
 
 // persistLocked flushes the rate map to the store, best-effort and
-// throttled to fxPersistMinInterval. The write stays under f.mu — a
-// <1 KiB atomic file replace at most once a minute is cheaper than a
-// snapshot-outside-the-lock dance. Save errors WARN once per episode,
-// not once per flush.
 func (f *fxRateCache) persistLocked() {
 	if f.store == nil {
 		return
@@ -199,8 +157,6 @@ func (f *fxRateCache) persistLocked() {
 
 // harvest stores valid streaming-ledger rates so the cache is warm before
 // the first repair failure. The ==1.0 exclusion mirrors the repair's
-// suspicion filter: live gateways stream fake unit rates for non-base
-// currencies, and caching one would defeat the repair.
 func (f *fxRateCache) harvest(ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) {
 	if f == nil {
 		return
@@ -219,7 +175,6 @@ func (f *fxRateCache) harvest(ledger map[string]ibkrlib.CurrencyLedger, baseCcy 
 }
 
 // markDegraded flips the per-pair serve-mode and reports whether it
-// changed, so callers log transitions once instead of once per poll.
 func (f *fxRateCache) markDegraded(baseCcy, ccy string, degraded bool) bool {
 	if f == nil {
 		return false
@@ -239,12 +194,7 @@ func (f *fxRateCache) markDegraded(baseCcy, ccy string, degraded bool) bool {
 }
 
 // repairCurrencyLedgerFXRatesCached is the Server-scoped variant of
-// repairCurrencyLedgerFXRates: same suspicious-rate policy, but resolution
-// consults the last-known-good cache. Before this cache, one transient FX
 // snapshot failure zeroed the rate and stripped every *_base field from
-// that single response — flipping SPA money formats between consecutive
-// SSE snapshots and churning the positions fingerprint. A cached rate
-// fresher than fxCacheFreshWindow short-circuits the quote entirely.
 func (s *Server) repairCurrencyLedgerFXRatesCached(ctx context.Context, c *ibkrlib.Connector, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) map[string]ibkrlib.CurrencyLedger {
 	if s == nil || s.fxRates == nil {
 		return repairCurrencyLedgerFXRates(ctx, c, ledger, baseCcy)
@@ -281,7 +231,6 @@ func (s *Server) cachedFXResolver(c *ibkrlib.Connector) currencyRateResolver {
 const fxRatePersistVersion = 1
 
 // fxRateStoreFilename lives directly in the shared $XDG_CACHE_HOME/ibkr/
-// root — the convention for single-file daemon caches (regime-streaks.json).
 const fxRateStoreFilename = "fx-rates.json"
 
 type fxPersistedRate struct {
@@ -296,10 +245,8 @@ type fxRatePersistEnvelope struct {
 
 // fxRateStore persists pair→{rate, at} across daemon restarts, so a
 // restart during IBKR's nightly server-reset window (or a weekend)
-// doesn't start cold and serve nil *_base fields until the first
 // successful live resolution. Rates only — ledger rows carry
 // account-scoped balances and must never be persisted here. Production uses
-// atomic daemon.db state + observation writes; the JSON branch is retained
 // only as a legacy cutover codec and for isolated tests.
 type fxRateStore struct {
 	dir       string // sealed legacy cache; unused after useCoreStore
@@ -307,7 +254,6 @@ type fxRateStore struct {
 }
 
 // newFXRateStore returns a store rooted at dir. The directory is
-// created lazily on first save so tests passing an unwritable dir
 // don't fail at construction.
 func newFXRateStore(dir string) *fxRateStore {
 	return &fxRateStore{dir: dir}
@@ -333,33 +279,7 @@ func (s *fxRateStore) useCoreStore(store *corestore.Store, now time.Time) (map[s
 }
 
 // load returns the persisted rates still within fxCacheTTL of now.
-// Missing file and version mismatch are cold starts (nil, nil); an
 // error surfaces only for I/O problems or JSON corruption. Entries
-// past the TTL or with non-positive rates are dropped on load — get
-// would refuse to serve them anyway, and re-seeding them would only
-// keep dead pairs in the file.
-func (s *fxRateStore) load(now time.Time) (map[string]fxCachedRate, error) {
-	var data []byte
-	if s.authority != nil {
-		var ok bool
-		var err error
-		data, ok, err = loadMarketState(s.authority, fxAuthorityScope, fxStateKind)
-		if err != nil || !ok {
-			return map[string]fxCachedRate{}, err
-		}
-		return decodeFXRateEnvelope(data, now, true)
-	}
-	var err error
-	data, err = os.ReadFile(filepath.Join(s.dir, fxRateStoreFilename))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read fx rate cache: %w", err)
-	}
-	return decodeFXRateEnvelope(data, now, false)
-}
-
 func decodeFXRateEnvelope(data []byte, now time.Time, strict bool) (map[string]fxCachedRate, error) {
 	var env fxRatePersistEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
@@ -393,7 +313,6 @@ func decodeFXRateEnvelope(data []byte, now time.Time, strict bool) (map[string]f
 }
 
 // save atomically replaces the on-disk envelope with the given rates.
-// Pretty-printed so a human debugging the cache can `cat` and read it.
 func (s *fxRateStore) save(rates map[string]fxCachedRate) error {
 	env := fxRatePersistEnvelope{
 		Version: fxRatePersistVersion,
@@ -440,7 +359,6 @@ func (s *fxRateStore) save(rates map[string]fxCachedRate) error {
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
-	// the cache dir doesn't accumulate junk.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()
@@ -474,10 +392,8 @@ func latestFXRateTime(rates map[string]fxCachedRate) time.Time {
 
 // fxRateStoreDefaultDir resolves the shared daemon cache root
 // ($XDG_CACHE_HOME/ibkr/, falling back to $HOME/.cache/ibkr/), matching
-// the streak and contract stores so all daemon caches live together.
 // Errors only when neither XDG_CACHE_HOME nor HOME is set, which on a
 // real OS user account doesn't happen; tests construct newFXRateStore
-// directly with t.TempDir().
 func fxRateStoreDefaultDir() (string, error) {
 	if v := os.Getenv("XDG_CACHE_HOME"); v != "" {
 		return filepath.Join(v, "ibkr"), nil

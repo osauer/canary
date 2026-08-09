@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # Regression fixture for check-release-site-sync.sh.
-#
-# v2.3.1 shipped with all three MCP discovery JSONs still stamped 2.3.0: the
 # stamp loop sat *after* the patch-release early return, so no patch cut ever
-# reached it. These cases pin the split — discovery stamps gate on every
 # release, the static-site push stays non-patch-only.
 
 set -euo pipefail
@@ -21,9 +18,6 @@ fail() {
 }
 
 # Minimal tree carrying only what the per-release stamp checks read. Each file
-# gets its own version argument so a single stale copy can be simulated. The
-# issue template takes the v-prefixed form because that is what a reporter
-# sees in the field.
 seed_docs() {
 	root="$1"
 	canonical="$2"
@@ -42,7 +36,6 @@ seed_docs() {
 }
 
 # A patch release whose discovery stamps all match passes without needing any
-# git state — the early return fires after the stamp loop, not before it.
 ok="$test_root/ok"
 mkdir -p "$ok"
 seed_docs "$ok" 2.3.1 2.3.1 2.3.1 v2.3.1
@@ -50,7 +43,6 @@ seed_docs "$ok" 2.3.1 2.3.1 2.3.1 v2.3.1
 	|| fail "a patch release with matching discovery stamps should pass"
 
 # The v2.3.1 regression itself, once per file so the loop cannot silently
-# narrow to the canonical copy and let a generated one drift.
 for stale_file in canonical wellknown card template; do
 	case "$stale_file" in
 		canonical) versions="2.3.0 2.3.1 2.3.1 v2.3.1" ;;
@@ -67,7 +59,6 @@ for stale_file in canonical wellknown card template; do
 	fi
 	# The hint has to fix the file it names. A shared "run make docs-regen"
 	# survived several cuts here because only pass/fail was ever asserted:
-	# the card's serverInfo.version is written by no generator, so following
 	# it left the gate failing with the identical message.
 	(cd "$stale" && "$script" v2.3.1 >/dev/null 2>"$test_root/hint-$stale_file") || true
 	case "$stale_file" in
@@ -97,7 +88,6 @@ for stale_file in canonical wellknown card template; do
 done
 
 # The issue template ships on every release, so a stale placeholder must fail
-# a non-patch cut too — not just the patch path that returns early above.
 stale_minor="$test_root/stale-minor-template"
 mkdir -p "$stale_minor"
 seed_docs "$stale_minor" 2.4.0 2.4.0 2.4.0 v2.3.1

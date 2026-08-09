@@ -22,8 +22,6 @@ import (
 const (
 	alertEpisodeRegistryDocumentVersion = 4
 	alertEpisodeRegistryStateKind       = "alert_episode_registry"
-	alertEpisodeDecisionEventType       = "alert_episode_decision"
-	alertEpisodeDecisionEventAction     = "evaluate"
 
 	// This is a storage bound, not an alert, escalation, or delivery policy.
 	// Active episodes are never counted against it and are never evicted.
@@ -36,10 +34,6 @@ const (
 )
 
 // alertEpisodeObservation is an already-classified, redacted producer fact.
-// The registry does not decide whether a condition is active, its severity,
-// presentation, or whether an escalation qualifies. A non-empty
-// EscalationFingerprint is the producer's stable identity for a qualifying
-// escalation; replaying the same identity does not mint another occurrence.
 type alertEpisodeObservation struct {
 	EpisodeKey             string
 	Source                 rpc.AlertSource
@@ -60,7 +54,6 @@ type alertEpisodeObservation struct {
 // alertEpisodeEvaluation is one source-coverage boundary. Absence from
 // Observations is explicitly an omission, never negative evidence. An active
 // episode recovers only from an Active=false observation inside complete,
-// current coverage with current evidence for that covered source.
 type alertEpisodeEvaluation struct {
 	AuthorityScope       string
 	AsOf                 time.Time
@@ -74,7 +67,6 @@ type alertEpisodeEvaluation struct {
 }
 
 // alertEpisodeRegistry owns producer lifecycle identity and its durable audit.
-// It has no sender, target, page policy, cooldown, or threshold.
 type alertEpisodeRegistry struct {
 	mu            sync.Mutex
 	core          *corestore.Store
@@ -171,14 +163,6 @@ type alertEpisodeRegistryRecord struct {
 	EmitRecovered              bool                      `json:"emit_recovered"`
 }
 
-type alertEpisodeDecisionEvent struct {
-	Version        int                    `json:"version"`
-	AuthorityScope string                 `json:"authority_scope"`
-	AsOf           time.Time              `json:"as_of"`
-	Coverage       rpc.AlertCoverage      `json:"coverage"`
-	Decisions      []alertEpisodeDecision `json:"decisions"`
-}
-
 type alertEpisodeDecision struct {
 	EpisodeKey             string                    `json:"episode_key"`
 	OccurrenceKey          string                    `json:"occurrence_key,omitempty"`
@@ -237,9 +221,6 @@ func newAlertEpisodeRegistryWithInactiveLimit(ctx context.Context, core *coresto
 }
 
 // Apply evaluates one already-classified producer batch and atomically persists
-// the current registry. The registry document contains the operational
-// lifecycle and commissioning counters; beta transition events were an
-// unbounded duplicate with no operational reader.
 func (r *alertEpisodeRegistry) Apply(ctx context.Context, evaluation alertEpisodeEvaluation) (rpc.AlertCandidateSnapshot, error) {
 	if r == nil || r.core == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert episode registry is unavailable")
@@ -286,7 +267,6 @@ func (r *alertEpisodeRegistry) Apply(ctx context.Context, evaluation alertEpisod
 
 // RecordInputDisposition durably accounts for an input that correctly did not
 // enter lifecycle evaluation. It mutates only redacted commissioning counters;
-// producer cursors and candidate state remain unchanged.
 func (r *alertEpisodeRegistry) RecordInputDisposition(ctx context.Context, authorityScope string, at time.Time, sources []rpc.AlertSource, disposition string) error {
 	if r == nil || r.core == nil {
 		return errors.New("alert episode registry is unavailable")
@@ -390,10 +370,7 @@ func (r *alertEpisodeRegistry) RecordInputDisposition(ctx context.Context, autho
 }
 
 // RecordApplyFailure durably accounts for a lifecycle evaluation that could
-// not be committed. It intentionally advances neither producer cursors nor
 // candidate/source authority. A later successful retry remains the only path
-// that may mutate lifecycle; this document change is commissioning evidence
-// only.
 func (r *alertEpisodeRegistry) RecordApplyFailure(ctx context.Context, authorityScope string, at time.Time) error {
 	if r == nil || r.core == nil {
 		return errors.New("alert episode registry is unavailable")
@@ -471,7 +448,6 @@ func (r *alertEpisodeRegistry) RecordApplyFailure(ctx context.Context, authority
 
 // Snapshot returns the durable current producer view. The bool is false until
 // the first evaluation has been committed; callers must represent that state
-// as unavailable instead of manufacturing a clear snapshot.
 func (r *alertEpisodeRegistry) Snapshot(authorityScope string, now time.Time) (rpc.AlertCandidateSnapshot, bool, error) {
 	if r == nil {
 		return rpc.AlertCandidateSnapshot{}, false, errors.New("alert episode registry is unavailable")
@@ -673,8 +649,6 @@ func applyAlertEpisodeEvaluation(base alertEpisodeRegistryDocument, evaluation a
 				continue
 			}
 			// A degraded negative cannot revise the already-authoritative recovery
-			// candidate into an invalid stale/partial recovered candidate. Retain
-			// that lifecycle fact while journaling this source observation.
 			record.LastSourceObservedAt = observation.ObservedAt
 			record.LastObservationFingerprint = observationFingerprint
 			record.PolicyFingerprint = observation.PolicyFingerprint
@@ -763,8 +737,6 @@ func alertLegacyPresentationCanRetire(evaluation alertEpisodeEvaluation, record 
 	}
 	// Retirement is a compatibility lifecycle transition, not an inference
 	// that an old untyped condition recovered. It is allowed only after the
-	// current typed Rulebook producer has supplied at least one observation in
-	// the same evaluation; those named episode keys supersede the unscoped v2
 	// compatibility lamp.
 	for _, observation := range evaluation.Observations {
 		if observation.Source == rpc.AlertSourceRulebook && observation.PresentationCode != rpc.AlertPresentationRulebookLegacyCondition {
@@ -809,9 +781,7 @@ func allocateAlertOccurrence(document *alertEpisodeRegistryDocument, episodeKey 
 
 func alertObservationCanRecover(coverage rpc.AlertCoverage, observation alertEpisodeObservation) bool {
 	// CoveredSources is the per-source completeness claim. Aggregate coverage
-	// may remain partial while one source is current and authoritative; that
 	// source may recover only its own explicit negative episode. Aggregate
-	// partial coverage still prevents a clear snapshot and omission is handled
 	// separately, never as negative evidence.
 	if coverage.Freshness != rpc.AlertCoverageCurrent || observation.EvidenceHealth != rpc.AlertEvidenceCurrent {
 		return false
@@ -887,7 +857,6 @@ func alertEpisodeSnapshot(document alertEpisodeRegistryScopeDocument, now time.T
 	clockInvalid := now.Before(document.AsOf)
 	// Candidate timestamps are immutable audit evidence and must remain at or
 	// before the snapshot timestamp. Keep the durable boundary as the wire
-	// timestamp during rollback, but strip all current coverage below so the
 	// future state can never manufacture a clear or a trustworthy recovery.
 	if clockInvalid {
 		now = document.AsOf
@@ -1483,9 +1452,6 @@ func alertEpisodeOpportunitySet(evaluation alertEpisodeEvaluation) map[rpc.Alert
 	sources := evaluation.OpportunitySources
 	if sources == nil {
 		// Direct lifecycle tests and legacy internal callers predate explicit
-		// producer opportunities. Treat their declared expected universe as the
-		// opportunity boundary; production composer calls always pass a precise
-		// non-nil set.
 		sources = evaluation.Coverage.ExpectedSources
 	}
 	out := make(map[rpc.AlertSource]struct{}, len(sources))

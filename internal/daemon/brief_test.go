@@ -1,38 +1,31 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/discover"
+
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
 	"testing"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func dailyBriefPolicyTOML() string {
 	return validRiskPolicyTOML
-}
-
-func TestComposeBriefCapturesBoundaryAfterInputs(t *testing.T) {
-	s := newRiskPolicyTestServer(t, dailyBriefPolicyTOML())
-	brief, rules := s.composeBrief(context.Background())
-	if brief == nil || rules == nil {
-		t.Fatalf("composeBrief returned brief=%v rules=%v", brief, rules)
-	}
-	if brief.AsOf.Before(rules.AsOf) {
-		t.Fatalf("brief boundary %s precedes rulebook snapshot %s", brief.AsOf, rules.AsOf)
-	}
-	for _, source := range rules.InputHealth {
-		if !source.AsOf.IsZero() && brief.AsOf.Before(source.AsOf) {
-			t.Fatalf("brief boundary %s precedes %s input %s", brief.AsOf, source.Source, source.AsOf)
-		}
-	}
 }
 
 func TestBriefSnapshotPurityAndDegradedRows(t *testing.T) {
@@ -54,20 +47,6 @@ func TestBriefSnapshotPurityAndDegradedRows(t *testing.T) {
 	}
 }
 
-func TestBriefRulesStatusUsesCurrentPolicyEvidence(t *testing.T) {
-	rows := &rpc.RulesResult{Status: "ok", Rules: []risk.RuleRow{
-		{Status: risk.RuleStatusPass}, {Status: risk.RuleStatusPass},
-		{Status: risk.RuleStatusWatch}, {Status: risk.RuleStatusAct}, {Status: risk.RuleStatusUnknown},
-	}}
-	got := briefRulesStatus(rows)
-	if got.Pass != 2 || got.Watch != 1 || got.Act != 1 || got.Unknown != 1 || got.Status != rpc.BriefStatusAttention {
-		t.Fatalf("current policy summary = %+v", got)
-	}
-	if empty := briefRulesStatus(nil); empty.Status != rpc.BriefStatusUnavailable {
-		t.Fatalf("missing policy summary = %+v", empty)
-	}
-}
-
 func stateTree(t *testing.T, root string) []string {
 	t.Helper()
 	var out []string
@@ -82,9 +61,6 @@ func stateTree(t *testing.T, root string) []string {
 	return out
 }
 
-// The kept rule worsened to act: a risk deterioration lifts the row to
-// attention instead of hiding under data-quality vocabulary.
-
 func TestBriefNilMoneyAndGreeksDegradeWithoutZeroFill(t *testing.T) {
 	pos := &rpc.PositionsResult{Options: []rpc.PositionView{
 		{Symbol: "AAPL", SecType: "OPT", Right: "C", Quantity: 1},
@@ -97,436 +73,6 @@ func TestBriefNilMoneyAndGreeksDegradeWithoutZeroFill(t *testing.T) {
 	hedge := briefHedgeCost(pos, "EUR")
 	if hedge.Status != rpc.BriefStatusDegraded || hedge.AmountBase != nil || hedge.ExcludedLegs != 1 {
 		t.Fatalf("hedge=%+v", hedge)
-	}
-}
-
-func TestBriefProposalsSessionSummaryFromJournal(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "trade-proposal-outcomes.jsonl")
-	lines := []proposalOutcomeMark{
-		// Older session: one proposal offered (marked), not acted.
-		{Version: 1, MarkDate: "2026-07-17", State: proposalOutcomeStateMarked, ProposalKey: "P-OLD-1"},
-		// Latest session (2026-07-18): three distinct proposals offered, one
-		// submitted+filled (acted once, deduped), one only marked.
-		{Version: 1, MarkDate: "2026-07-18", State: proposalOutcomeStateMarked, ProposalKey: "P-A"},
-		{Version: 1, MarkDate: "2026-07-18", State: proposalOutcomeStateSubmitted, ProposalKey: "P-B"},
-		{Version: 1, MarkDate: "2026-07-18", State: proposalOutcomeStateFilled, ProposalKey: "P-B"},
-		{Version: 1, MarkDate: "2026-07-18", State: proposalOutcomeStateMarked, ProposalKey: "P-C"},
-	}
-	var buf strings.Builder
-	for _, m := range lines {
-		raw, _ := json.Marshal(m)
-		buf.Write(raw)
-		buf.WriteByte('\n')
-	}
-	if err := os.WriteFile(path, []byte(buf.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store := newProposalOutcomeStore(path)
-	offered, acted, day, ok, err := store.SessionSummary()
-	if err != nil || !ok {
-		t.Fatalf("summary ok=%v err=%v", ok, err)
-	}
-	if day != "2026-07-18" || offered != 3 || acted != 1 {
-		t.Fatalf("latest session summary day=%q offered=%d acted=%d", day, offered, acted)
-	}
-
-	// The wire row leaks no proposal identity — counts and the day only.
-	s := &Server{proposalOutcomes: store}
-	row := s.briefProposals(time.Now())
-	if row.Status != rpc.BriefStatusOK || row.Offered != 3 || row.Acted != 1 || row.Day != "2026-07-18" {
-		t.Fatalf("proposals row=%+v", row)
-	}
-	raw, _ := json.Marshal(row)
-	for _, forbidden := range []string{"P-A", "P-B", "P-C", "proposal_key"} {
-		if strings.Contains(string(raw), forbidden) {
-			t.Fatalf("proposals row leaked %q: %s", forbidden, raw)
-		}
-	}
-
-	// Missing journal reads as a clean "no proposals" row, never an error.
-	empty := &Server{proposalOutcomes: newProposalOutcomeStore(filepath.Join(dir, "missing.jsonl"))}
-	if got := empty.briefProposals(time.Now()); got.Status != rpc.BriefStatusOK || got.Offered != 0 {
-		t.Fatalf("missing-journal proposals row=%+v", got)
-	}
-}
-
-func TestBriefCapitalEventsRegroupsLatchAndPeak(t *testing.T) {
-	age := 4
-	consumed := 30.4
-	peak := 260000.0
-	peakAsOf := time.Date(2026, 7, 15, 20, 0, 0, 0, time.UTC)
-	latch := rpc.BriefLatchRow{BriefRowState: briefAttention("engaged"), Latched: true, AgeDays: &age, ConsumedPctAtLatch: &consumed}
-	capital := rpc.BriefCapitalRow{BriefRowState: briefOK("ok"), AdjustedPeakBase: &peak, PeakAsOf: peakAsOf, BaseCurrency: "EUR"}
-	got := briefCapitalEvents(capital, latch)
-	if got.Status != rpc.BriefStatusAttention || !got.Latched || got.LatchAgeDays == nil || *got.LatchAgeDays != 4 {
-		t.Fatalf("latched capital events=%+v", got)
-	}
-	if got.AdjustedPeakBase == nil || *got.AdjustedPeakBase != peak || !got.PeakAsOf.Equal(peakAsOf) {
-		t.Fatalf("peak provenance did not flow: %+v", got)
-	}
-
-	// An absent constitution renders capital events unavailable, not a clean line.
-	if unavailable := briefCapitalEvents(rpc.BriefCapitalRow{BriefRowState: briefUnavailable("absent")}, rpc.BriefLatchRow{}); unavailable.Status != rpc.BriefStatusUnavailable {
-		t.Fatalf("absent constitution capital events=%+v", unavailable)
-	}
-	// A quiet book reads ok.
-	if quiet := briefCapitalEvents(rpc.BriefCapitalRow{BriefRowState: briefOK("ok")}, rpc.BriefLatchRow{BriefRowState: briefOK("open")}); quiet.Status != rpc.BriefStatusOK || quiet.Latched {
-		t.Fatalf("quiet capital events=%+v", quiet)
-	}
-}
-
-func TestBriefResultContainsNoPrivateIdentityOrTokenFields(t *testing.T) {
-	s := newRiskPolicyTestServer(t, dailyBriefPolicyTOML())
-	res, _ := s.composeBrief(context.Background())
-	raw, err := json.Marshal(res)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(raw)
-	for _, forbidden := range []string{"account_id", "order_id", "order_ref", "preview_token", "submit_eligible"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("brief result contains forbidden field %q: %s", forbidden, text)
-		}
-	}
-}
-
-func TestUnreconciledClockSharedProjection(t *testing.T) {
-	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	last := now.Add(-5 * 24 * time.Hour)
-	maxDays := 7
-	clock := risk.EvaluateUnreconciledClock(&maxDays, last, time.Time{}, now)
-	if !clock.Approved || clock.Stale || !clock.Deadline.Equal(last.Add(7*24*time.Hour)) || clock.DaysRemaining == nil || *clock.DaysRemaining != 2 {
-		t.Fatalf("clock=%+v", clock)
-	}
-	override := now.Add(4 * 24 * time.Hour)
-	clock = risk.EvaluateUnreconciledClock(&maxDays, last, override, now)
-	if !clock.Deadline.Equal(override) || clock.DaysRemaining == nil || *clock.DaysRemaining != 4 {
-		t.Fatalf("override clock=%+v", clock)
-	}
-	never := risk.EvaluateUnreconciledClock(&maxDays, time.Time{}, time.Time{}, now)
-	if !never.Stale || !never.Deadline.IsZero() || never.DaysRemaining != nil {
-		t.Fatalf("never clock=%+v", never)
-	}
-}
-
-func TestBriefRiskStatusDerivesFromValues(t *testing.T) {
-	now := time.Date(2026, 7, 19, 20, 0, 0, 0, time.UTC)
-	base := func() *rpc.RiskPolicyResult {
-		consumed := 10.0
-		return &rpc.RiskPolicyResult{Status: rpc.RiskPolicyStatusActive,
-			Capital: rpc.CapitalStateReport{Tier: risk.CapitalTierOK, Enforcement: "shadow", ConsumedPct: &consumed}}
-	}
-
-	blocked := base()
-	consumed := 1589.7
-	blocked.Capital.Tier = risk.CapitalTierBlock
-	blocked.Capital.ConsumedPct = &consumed
-	blocked.Capital.BlockLatched = true
-	blocked.Capital.LatchedAt = now.Add(-4 * 24 * time.Hour)
-	blocked.Capital.PeakAsOf = now.Add(-3 * time.Hour)
-	latchPct := 30.41
-	blocked.Capital.LatchConsumedPct = &latchPct
-	blocked.Capital.Enforcement = "shadow"
-	out := composeBriefRisk(blocked, now)
-	if out.Capital.Status != rpc.BriefStatusAttention || out.Latch.Status != rpc.BriefStatusAttention {
-		t.Fatalf("blocked tier must render attention: capital=%+v latch=%+v", out.Capital.BriefRowState, out.Latch.BriefRowState)
-	}
-	if out.Capital.PeakAsOf.IsZero() || out.Latch.ConsumedPctAtLatch == nil || *out.Latch.ConsumedPctAtLatch != latchPct {
-		t.Fatalf("provenance must flow into the brief: capital=%+v latch=%+v", out.Capital, out.Latch)
-	}
-	if !strings.Contains(out.Capital.Detail, "shadow enforcement journals what would block") {
-		t.Fatalf("shadow enforcement must not imply an active block: %q", out.Capital.Detail)
-	}
-	if out.Latch.AgeDays == nil || *out.Latch.AgeDays != 4 || !out.Latch.Latched {
-		t.Fatalf("latch row=%+v", out.Latch)
-	}
-	if out.Status != rpc.BriefStatusAttention || !strings.Contains(out.Detail, "need attention") {
-		t.Fatalf("section must roll up worst child: %+v", out.BriefRowState)
-	}
-
-	warn := base()
-	warn.Capital.Tier = risk.CapitalTierWarn
-	if got := composeBriefRisk(warn, now); got.Capital.Status != rpc.BriefStatusAttention {
-		t.Fatalf("warn tier=%+v", got.Capital.BriefRowState)
-	}
-
-	overConsumed := base()
-	full := 120.0
-	overConsumed.Capital.ConsumedPct = &full
-	if got := composeBriefRisk(overConsumed, now); got.Capital.Status != rpc.BriefStatusAttention {
-		t.Fatalf("consumed>=100%% with ok tier must still render attention: %+v", got.Capital.BriefRowState)
-	}
-
-	unapproved := base()
-	unapproved.Capital.Tier = risk.CapitalTierUnapproved
-	unapproved.Capital.ConsumedPct = nil
-	if got := composeBriefRisk(unapproved, now); got.Capital.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("unapproved=%+v", got.Capital.BriefRowState)
-	}
-
-	override := base()
-	override.Overrides = []rpc.OverrideRecord{{Control: "drawdown.block", Active: true, ExpiresAt: now.Add(time.Hour)}}
-	got := composeBriefRisk(override, now)
-	if got.Overrides.Status != rpc.BriefStatusAttention || len(got.Overrides.Rows) != 1 {
-		t.Fatalf("active override=%+v", got.Overrides)
-	}
-
-	if got := composeBriefRisk(base(), now); got.Status != rpc.BriefStatusOK || got.Detail != "risk and limits section complete" {
-		t.Fatalf("healthy section=%+v", got.BriefRowState)
-	}
-}
-
-func TestBriefSectionStateWorstChildAndCompleteness(t *testing.T) {
-	att := briefSectionState("risk", briefOK(""), briefAttention(""), briefDegraded(""))
-	if att.Status != rpc.BriefStatusAttention || !strings.Contains(att.Detail, "1 of 3 rows needs attention") || !strings.Contains(att.Detail, "1 degraded or unavailable") {
-		t.Fatalf("attention rollup=%+v", att)
-	}
-	deg := briefSectionState("market", briefOK(""), briefDegraded(""), briefUnavailable(""))
-	if deg.Status != rpc.BriefStatusDegraded || !strings.Contains(deg.Detail, "2 of 3 rows degraded or unavailable") {
-		t.Fatalf("degraded rollup=%+v", deg)
-	}
-	if got := briefSectionState("x", briefUnavailable(""), briefUnavailable("")); got.Status != rpc.BriefStatusUnavailable {
-		t.Fatalf("all-unavailable rollup=%+v", got)
-	}
-	if got := briefSectionState("x", briefOK("")); got.Status != rpc.BriefStatusOK || got.Detail != "x section complete" {
-		t.Fatalf("ok rollup=%+v", got)
-	}
-}
-
-func TestBriefClosedSessionDowngradesExpectedColdness(t *testing.T) {
-	asOf := time.Date(2026, 7, 17, 21, 58, 0, 0, time.UTC)
-	events := &rpc.MarketEventsResult{SourceHealth: []rpc.SourceHealth{
-		{Source: "trading_halts", Status: rpc.SourceStatusStale, AsOf: asOf},
-		{Source: "reg_sho_threshold", Status: rpc.SourceStatusOK, AsOf: asOf},
-		{Source: "borrow_fee", Status: rpc.SourceStatusDegraded, AsOf: asOf},
-	}}
-	rules := &rpc.RulesResult{}
-
-	byKind := func(rows []rpc.BriefMarketEventRow) map[string]rpc.BriefMarketEventRow {
-		out := map[string]rpc.BriefMarketEventRow{}
-		for _, row := range rows {
-			out[row.Kind] = row
-		}
-		return out
-	}
-
-	closed := byKind(briefMarketEventRows(events, rules, nil, false))
-	if row := closed["halt"]; row.Status != rpc.BriefStatusOK || !strings.Contains(row.Detail, "no fresh update expected while the market is closed") || !strings.Contains(row.Detail, "last checked") {
-		t.Fatalf("closed stale halt row=%+v", row.BriefRowState)
-	}
-	if row := closed["ssr"]; row.Status != rpc.BriefStatusOK || strings.Contains(row.Detail, "market is closed") {
-		t.Fatalf("healthy ssr source must render plain ok: %+v", row.BriefRowState)
-	}
-	// Degraded is abnormal-for-session and keeps its weight even while closed.
-	if row := closed["borrow"]; row.Status != rpc.BriefStatusDegraded || !strings.Contains(row.Detail, "source health is degraded") {
-		t.Fatalf("closed degraded borrow row=%+v", row.BriefRowState)
-	}
-	borrowMissed := &rpc.MarketEventsResult{SourceHealth: []rpc.SourceHealth{{
-		Source: "borrow_fee", Status: rpc.SourceStatusStale, RefreshState: rpc.SourceRefreshNotDue, AsOf: asOf,
-	}}}
-	if row := byKind(briefMarketEventRows(borrowMissed, rules, nil, false))["borrow"]; row.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("stale last-good from before the latest completed session was quieted: %+v", row.BriefRowState)
-	}
-	borrowCold := &rpc.MarketEventsResult{SourceHealth: []rpc.SourceHealth{{
-		Source: "borrow_fee", Status: rpc.SourceStatusUnknown, RefreshState: rpc.SourceRefreshNotDue, AsOf: asOf,
-	}}}
-	if row := byKind(briefMarketEventRows(borrowCold, rules, nil, false))["borrow"]; row.Status != rpc.BriefStatusOK || !strings.Contains(row.Detail, "no fresh update expected") {
-		t.Fatalf("not-yet-due cold borrow source=%+v", row.BriefRowState)
-	}
-	// A status outside the known vocabulary is never quiet-eligible: only
-	// stale/unknown may read as expected idleness while the market is closed.
-	weird := &rpc.MarketEventsResult{SourceHealth: []rpc.SourceHealth{{Source: "trading_halts", Status: "auth_failed", AsOf: asOf}}}
-	if row := byKind(briefMarketEventRows(weird, rules, nil, false))["halt"]; row.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("unrecognized status must degrade even closed: %+v", row.BriefRowState)
-	}
-
-	open := byKind(briefMarketEventRows(events, rules, nil, true))
-	if row := open["halt"]; row.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("open-session stale source must stay degraded: %+v", row.BriefRowState)
-	}
-	if row := open["borrow"]; row.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("open-session degraded source must stay degraded: %+v", row.BriefRowState)
-	}
-
-	for _, row := range briefMarketEventRows(nil, rules, errors.New("positions unavailable"), false) {
-		if row.Status != rpc.BriefStatusDegraded {
-			t.Fatalf("hard source error must degrade even closed: %s=%+v", row.Kind, row.BriefRowState)
-		}
-	}
-
-	cold := &rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusCold}
-	if got := composeBriefGamma(cold, false, asOf); got.Status != rpc.BriefStatusDegraded || !strings.Contains(got.Detail, rpc.DataCadenceNoLastGood) {
-		t.Fatalf("closed cold gamma=%+v", got.BriefRowState)
-	}
-	if got := composeBriefGamma(cold, true, asOf); got.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("open cold gamma=%+v", got.BriefRowState)
-	}
-	if got := composeBriefGamma(&rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusError}, false, asOf); got.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("gamma error must degrade even closed: %+v", got.BriefRowState)
-	}
-	mondayPreopen := time.Date(2026, 7, 20, 5, 5, 0, 0, time.UTC)
-	lastSession := &rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusReady, Result: &rpc.GammaZeroComputed{
-		AsOf: asOf, SpotUnderlying: 6300, GammaSign: "negative",
-		Quality: &rpc.GammaSignalQuality{Rankability: rpc.GammaRankabilityContextOnly, RankabilityReason: "freshness: market is closed; cached gamma is context only"},
-	}}
-	if got := composeBriefGamma(lastSession, false, mondayPreopen); got.Status != rpc.BriefStatusOK || !strings.Contains(got.Detail, "no newer regular-session compute is due") {
-		t.Fatalf("last-completed-session gamma=%+v", got.BriefRowState)
-	}
-	blocked := *lastSession
-	blockedResult := *lastSession.Result
-	blocked.Result = &blockedResult
-	blocked.Result.Quality = &rpc.GammaSignalQuality{Rankability: rpc.GammaRankabilityBlocked, RankabilityReason: "oi_observed_coverage: SPX OI is incomplete"}
-	if got := composeBriefGamma(&blocked, false, mondayPreopen); got.Status != rpc.BriefStatusDegraded || !strings.Contains(got.Detail, "OI is incomplete") {
-		t.Fatalf("blocked last-session gamma=%+v", got.BriefRowState)
-	}
-}
-
-func TestBriefBorrowHealthRequiresShortStockExposure(t *testing.T) {
-	events := &rpc.MarketEventsResult{SourceHealth: []rpc.SourceHealth{{
-		Source: "borrow_fee", Status: rpc.SourceStatusUnknown,
-		LastFailure: &rpc.SourceFailure{Code: "timeout", Stage: "ftp_control_connect", Retryable: true},
-	}}}
-	rules := &rpc.RulesResult{}
-	row := func(rows []rpc.BriefMarketEventRow) rpc.BriefMarketEventRow {
-		for _, candidate := range rows {
-			if candidate.Kind == "borrow" {
-				return candidate
-			}
-		}
-		return rpc.BriefMarketEventRow{}
-	}
-	allLong := false
-	if got := row(briefMarketEventRows(events, rules, nil, true, &allLong)); got.Status != rpc.BriefStatusOK || !strings.Contains(got.Detail, "no short-stock exposure") {
-		t.Fatalf("all-long borrow row=%+v, want explicit non-required OK", got.BriefRowState)
-	}
-	short := true
-	if got := row(briefMarketEventRows(events, rules, nil, true, &short)); got.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("short-book borrow row=%+v, want degraded", got.BriefRowState)
-	}
-	if got := row(briefMarketEventRows(events, rules, nil, true, nil)); got.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("unknown exposure borrow row=%+v, want fail-closed degraded", got.BriefRowState)
-	}
-
-	if relevant := briefBorrowFeeRelevant(&rpc.PositionsResult{Stocks: []rpc.PositionView{{Quantity: 10}}}, nil); relevant == nil || *relevant {
-		t.Fatalf("all-long relevance=%v, want false", relevant)
-	}
-	if relevant := briefBorrowFeeRelevant(&rpc.PositionsResult{ByUnderlying: []rpc.PositionGroup{{Stock: &rpc.PositionView{Quantity: -1}}}}, nil); relevant == nil || !*relevant {
-		t.Fatalf("grouped short relevance=%v, want true", relevant)
-	}
-	if relevant := briefBorrowFeeRelevant(&rpc.PositionsResult{Stocks: []rpc.PositionView{{SecType: "FUT", Quantity: -1}}}, nil); relevant == nil || *relevant {
-		t.Fatalf("short future relevance=%v, want false", relevant)
-	}
-	if relevant := briefBorrowFeeRelevant(&rpc.PositionsResult{ByUnderlying: []rpc.PositionGroup{{Stock: &rpc.PositionView{SecType: "IND", Quantity: -1}}}}, nil); relevant == nil || *relevant {
-		t.Fatalf("short index relevance=%v, want false", relevant)
-	}
-	if relevant := briefBorrowFeeRelevant(nil, errors.New("positions unavailable")); relevant != nil {
-		t.Fatalf("unavailable positions relevance=%v, want nil", relevant)
-	}
-}
-
-func TestBriefEarningsRowEscalatesWhenGoverningRuleUnknown(t *testing.T) {
-	rules := &rpc.RulesResult{
-		Rules:    []risk.RuleRow{{ID: "catalyst_coverage", Status: risk.RuleStatusUnknown}},
-		Earnings: []rpc.EarningsInfo{{Symbol: "MSFT", Date: "2026-07-29", Source: "fetched"}},
-	}
-	rows := briefMarketEventRows(&rpc.MarketEventsResult{}, rules, nil, false)
-	var earnings, halt rpc.BriefMarketEventRow
-	for _, row := range rows {
-		switch row.Kind {
-		case "earnings":
-			earnings = row
-		case "halt":
-			halt = row
-		}
-	}
-	if earnings.Status != rpc.BriefStatusAttention || !strings.Contains(earnings.Detail, "catalyst coverage") || earnings.Count != 1 {
-		t.Fatalf("earnings row must escalate on unknown governing rule: %+v", earnings)
-	}
-	if halt.Status != rpc.BriefStatusOK {
-		t.Fatalf("halt row must not inherit the earnings escalation: %+v", halt.BriefRowState)
-	}
-
-	rules.Earnings = []rpc.EarningsInfo{{
-		Symbol: "NOW", Source: "unknown", Status: rpc.EarningsStatusNoDatePublished,
-		Reason: rpc.EarningsStatusNoDatePublished,
-	}}
-	for _, row := range briefMarketEventRows(&rpc.MarketEventsResult{}, rules, nil, false) {
-		if row.Kind != "earnings" {
-			continue
-		}
-		if row.Status != rpc.BriefStatusAttention || row.Count != 1 || len(row.Symbols) != 1 || row.Symbols[0] != "NOW" ||
-			!strings.Contains(row.Detail, "NOW (no date published)") {
-			t.Fatalf("sole unresolved catalyst must remain visible and non-green: %+v", row)
-		}
-	}
-
-	rules.Rules[0].Status = risk.RuleStatusPass
-	rules.Earnings = []rpc.EarningsInfo{{Symbol: "MSFT", Date: "2026-07-29", Source: "fetched", Status: rpc.EarningsStatusDate}}
-	for _, row := range briefMarketEventRows(&rpc.MarketEventsResult{}, rules, nil, false) {
-		if row.Kind == "earnings" && row.Status != rpc.BriefStatusOK {
-			t.Fatalf("passing governing rule must not escalate: %+v", row.BriefRowState)
-		}
-	}
-}
-
-func TestBriefWSHEntitlementNoticeRequiresExactTypedTuple(t *testing.T) {
-	makeRules := func(provider, code, stage string, retryable bool) *rpc.RulesResult {
-		return &rpc.RulesResult{Earnings: []rpc.EarningsInfo{{Symbol: "SYNTH1", Providers: []rpc.EarningsProviderInfo{{
-			Provider: provider, LastFailure: &rpc.SourceFailure{Code: code, Stage: stage, Retryable: retryable},
-		}}}}}
-	}
-	for _, tc := range []struct {
-		name  string
-		rules *rpc.RulesResult
-		want  bool
-	}{
-		{"metadata", makeRules("ibkr_wsh", rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHMetadata, false), true},
-		{"event", makeRules("ibkr_wsh", rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHEvent, false), true},
-		{"provider", makeRules("nasdaq", rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHMetadata, false), false},
-		{"code", makeRules("ibkr_wsh", rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageWSHMetadata, false), false},
-		{"stage", makeRules("ibkr_wsh", rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHContractResolve, false), false},
-		{"retryable", makeRules("ibkr_wsh", rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHMetadata, true), false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := briefWSHEntitlementNotice(tc.rules)
-			if (got != "") != tc.want {
-				t.Fatalf("notice=%q want=%t", got, tc.want)
-			}
-			if strings.Contains(got, "ibkr_wsh") || strings.Contains(got, "not_entitled") {
-				t.Fatalf("notice exposed provider internals: %q", got)
-			}
-		})
-	}
-}
-
-func TestBriefMoversAggregateByUnderlyingWithResidual(t *testing.T) {
-	pos := &rpc.PositionsResult{ByUnderlying: []rpc.PositionGroup{
-		{Underlying: "spy", GroupDailyPnLBase: new(10500.50)},
-		{Underlying: "MSFT", GroupDailyPnLBase: new(-1600.25)},
-		{Underlying: "GOOG", GroupDailyPnLBase: new(800.10)},
-		{Underlying: "AMZN", GroupDailyPnLBase: new(-750.40)},
-		{Underlying: "TSLA", GroupDailyPnLBase: new(-1400.30)},
-		{Underlying: "ZVZZT"},
-	}}
-	row := briefMovers(pos, false)
-	if len(row.Rows) != 3 || row.Rows[0].Symbol != "SPY" || row.Rows[1].Symbol != "MSFT" || row.Rows[2].Symbol != "TSLA" {
-		t.Fatalf("rows=%+v", row.Rows)
-	}
-	if row.OtherPnLBase == nil || row.OtherCount != 2 {
-		t.Fatalf("residual=%+v count=%d", row.OtherPnLBase, row.OtherCount)
-	}
-	if diff := *row.OtherPnLBase - (800.10 - 750.40); diff < -0.001 || diff > 0.001 {
-		t.Fatalf("residual sum=%v", *row.OtherPnLBase)
-	}
-	if !strings.Contains(row.Detail, "by underlying") || !strings.Contains(row.Detail, "off-session marks") {
-		t.Fatalf("detail=%q", row.Detail)
-	}
-	if open := briefMovers(pos, true); strings.Contains(open.Detail, "off-session") {
-		t.Fatalf("open-session detail=%q", open.Detail)
-	}
-	if got := briefMovers(&rpc.PositionsResult{}, true); got.Status != rpc.BriefStatusDegraded {
-		t.Fatalf("empty movers=%+v", got.BriefRowState)
 	}
 }
 
@@ -593,24 +139,707 @@ func TestBriefPortfolioRequiresCurrentAccountDataAuthority(t *testing.T) {
 	})
 }
 
-func TestBriefPremiumDisclosesUnknownHedgeClassification(t *testing.T) {
-	s := newRiskPolicyTestServer(t, dailyBriefPolicyTOML())
-	pos := &rpc.PositionsResult{Options: []rpc.PositionView{
-		{Symbol: "NOW", SecType: "OPT", Right: "C", Quantity: 10, MarketValueBase: new(4265.0)},
-		{Symbol: "SPY", SecType: "OPT", Right: "P", Quantity: 50, Multiplier: 100, MarketValueBase: new(54544.0)},
-	}, Authority: briefTestCurrentAccountDataAuthority(rpc.AccountDataSourcePortfolioStream)}
-	acct := &rpc.AccountResult{NetLiquidation: 230175, DailyPnL: new(7389.46), BaseCurrency: "EUR", Authority: briefTestCurrentAccountDataAuthority(rpc.AccountDataSourceAccountSummaryRequest)}
-	out := s.composeBriefPortfolio(acct, pos, nil, nil, false)
-	if out.PremiumAtRisk.Status != rpc.BriefStatusDegraded || !strings.Contains(out.PremiumAtRisk.Detail, "protective share") {
-		t.Fatalf("premium must disclose unknown hedge classification: %+v", out.PremiumAtRisk)
+func TestAlertEpisodeRegistryCurrentLifecycleSurvivesRestart(t *testing.T) {
+	path := alertRegistryTestPath(t)
+	store := openAlertRegistryTestStore(t, path)
+	registry, err := newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if out.PremiumAtRisk.IncludedLegs != 2 || out.PremiumAtRisk.AmountBase == nil {
-		t.Fatalf("premium amount must stay complete: %+v", out.PremiumAtRisk)
+	base := time.Date(2026, 7, 21, 8, 0, 0, 0, time.UTC)
+	positive := alertRegistryObservation(t, "lifecycle", base, true)
+	opened, err := registry.Apply(t.Context(), alertRegistryEvaluation(base, alertRegistryCompleteCoverage(base), positive))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if out.HedgeCost.ExcludedLegs != 1 {
-		t.Fatalf("hedge=%+v", out.HedgeCost)
+	assertAlertRegistryCandidate(t, opened, rpc.AlertEpisodeOpen, rpc.AlertEvidenceCurrent)
+	occurrence := opened.Candidates[0].OccurrenceKey
+
+	outageAt := base.Add(time.Minute)
+	outage := rpc.AlertCoverage{
+		State: rpc.AlertCoverageUnavailable, Freshness: rpc.AlertCoverageUnknown, AsOf: outageAt,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{},
 	}
-	if !strings.Contains(out.Account.Detail, "market closed") {
-		t.Fatalf("closed-session account detail=%q", out.Account.Detail)
+	held, err := registry.Apply(t.Context(), alertRegistryEvaluation(outageAt, outage))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAlertRegistryCandidate(t, held, rpc.AlertEpisodeOpen, rpc.AlertEvidenceUnavailable)
+	if held.Candidates[0].OccurrenceKey != occurrence {
+		t.Fatal("outage rotated active occurrence")
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store = openAlertRegistryTestStore(t, path)
+	registry, err = newAlertEpisodeRegistry(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, ok, err := registry.Snapshot(alertRegistryAuthority(), outageAt)
+	if err != nil || !ok || restarted.Candidates[0].OccurrenceKey != occurrence {
+		t.Fatalf("restart snapshot=%+v ok=%v err=%v", restarted, ok, err)
+	}
+
+	negativeAt := base.Add(2 * time.Minute)
+	negative := positive
+	negative.Active = false
+	negative.ObservedAt, negative.EvidenceAsOf = negativeAt, negativeAt
+	negative.EvidenceFingerprint = alertRegistryFingerprint("authoritative-negative")
+	negative.ProducerDecisionReason = "classified_clear"
+	recovered, err := registry.Apply(t.Context(), alertRegistryEvaluation(negativeAt, alertRegistryCompleteCoverage(negativeAt), negative))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAlertRegistryCandidate(t, recovered, rpc.AlertEpisodeRecovered, rpc.AlertEvidenceCurrent)
+	if recovered.CurrentState != rpc.AlertSnapshotClear || recovered.Candidates[0].OccurrenceKey != occurrence {
+		t.Fatalf("recovery changed occurrence or clear state: %+v", recovered)
+	}
+
+	confirmedAt := base.Add(3 * time.Minute)
+	negative.ObservedAt, negative.EvidenceAsOf = confirmedAt, confirmedAt
+	negative.EvidenceFingerprint = alertRegistryFingerprint("still-clear")
+	clear, err := registry.Apply(t.Context(), alertRegistryEvaluation(confirmedAt, alertRegistryCompleteCoverage(confirmedAt), negative))
+	if err != nil || clear.CurrentState != rpc.AlertSnapshotClear || len(clear.Candidates) != 0 {
+		t.Fatalf("confirmed clear snapshot=%+v err=%v", clear, err)
+	}
+
+	reopenAt := base.Add(4 * time.Minute)
+	positive.ObservedAt, positive.EvidenceAsOf = reopenAt, reopenAt
+	positive.EvidenceFingerprint = alertRegistryFingerprint("reopened")
+	reopened, err := registry.Apply(t.Context(), alertRegistryEvaluation(reopenAt, alertRegistryCompleteCoverage(reopenAt), positive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAlertRegistryCandidate(t, reopened, rpc.AlertEpisodeOpen, rpc.AlertEvidenceCurrent)
+	if reopened.Candidates[0].OccurrenceKey == occurrence {
+		t.Fatal("reopen reused recovered occurrence")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func alertRegistryTestPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "daemon.db")
+}
+
+func openAlertRegistryTestStore(t *testing.T, path string) *corestore.Store {
+	t.Helper()
+	store, err := corestore.Open(context.Background(), corestore.Options{Path: path})
+	if err != nil {
+		t.Fatalf("open alert registry test store: %v", err)
+	}
+	return store
+}
+
+func alertRegistryObservation(t *testing.T, identity string, at time.Time, active bool) alertEpisodeObservation {
+	t.Helper()
+	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return alertEpisodeObservation{
+		EpisodeKey: episode, Source: rpc.AlertSourceStress, Kind: rpc.AlertKindPortfolioRisk,
+		PresentationCode: rpc.AlertPresentationPortfolioStress, Active: active, Severity: rpc.AlertSeverityWatch,
+		EvidenceFingerprint: alertRegistryFingerprint("evidence-" + identity), EvidenceHealth: rpc.AlertEvidenceCurrent,
+		Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: at, ObservedAt: at,
+		PolicyFingerprint: alertRegistryFingerprint("policy-v1"), ProducerDecisionReason: "classified_active",
+	}
+}
+
+func alertRegistryEvaluation(at time.Time, coverage rpc.AlertCoverage, observations ...alertEpisodeObservation) alertEpisodeEvaluation {
+	if observations == nil {
+		observations = []alertEpisodeObservation{}
+	}
+	return alertEpisodeEvaluation{AuthorityScope: alertRegistryAuthority(), AsOf: at, Coverage: coverage, Observations: observations}
+}
+
+func alertRegistryAuthority() string {
+	authority, err := rpc.BuildAlertAuthorityScope("DU-REGISTRY", rpc.AccountModePaper)
+	if err != nil {
+		panic(err)
+	}
+	return authority
+}
+
+func alertRegistryCompleteCoverage(at time.Time) rpc.AlertCoverage {
+	return rpc.AlertCoverage{
+		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent, AsOf: at,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress}, CoveredSources: []rpc.AlertSource{rpc.AlertSourceStress},
+	}
+}
+
+func alertRegistryFingerprint(seed string) string {
+	digest := sha256.Sum256([]byte(seed))
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+func assertAlertRegistryCandidate(t *testing.T, snapshot rpc.AlertCandidateSnapshot, state rpc.AlertEpisodeState, health rpc.AlertEvidenceHealth) {
+	t.Helper()
+	if err := rpc.ValidateAlertCandidateSnapshot(snapshot); err != nil {
+		t.Fatalf("invalid snapshot: %v", err)
+	}
+	if len(snapshot.Candidates) != 1 || snapshot.Candidates[0].State != state || snapshot.Candidates[0].EvidenceHealth != health {
+		t.Fatalf("candidate=%+v want state=%s health=%s", snapshot.Candidates, state, health)
+	}
+}
+
+func alertShadowTestBrokerScope(t *testing.T) alertShadowBrokerScope {
+	t.Helper()
+	scope, err := newAlertShadowBrokerScope(brokerStateScope{Account: "DU-SHADOW", Mode: rpc.AccountModePaper})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scope
+}
+
+func TestProtectionPersistenceUncertaintyIsPartialAndCannotClear(t *testing.T) {
+	base := time.Date(2026, 7, 21, 15, 0, 0, 0, time.UTC)
+	summary := rpc.ProtectionCoverageSummary{
+		AsOf: base, Status: "ok", Counts: rpc.ProtectionCoverageCounts{Covered: 1},
+		ByUnderlying: []rpc.ProtectionCoverageRow{{Underlying: "AAA", State: rpc.ProtectionCoverageStateCovered}},
+	}
+	markProtectionSummaryPersistenceUncertain(&summary)
+	batch := alertShadowMapProtection(alertShadowProtectionInput{
+		AsOf: base, EvidenceAsOf: base, OrderSnapshotAsOf: base, OrderSnapshotComplete: true,
+		OrderUniverse: protectionOrderUniverseJournaledAPI, Status: orderIntegrityHealthCurrent,
+		Scope: alertShadowTestBrokerScope(t), Summary: summary,
+	}, base.Add(time.Second))
+	if batch.Covered || batch.NegativeReady || batch.Status != alertShadowStatusPartial || batch.EvidenceHealth != rpc.AlertEvidencePartial {
+		t.Fatalf("uncertain lifecycle persistence was trusted as a negative: %+v", batch)
+	}
+	journalUnknown := false
+	for _, row := range summary.ByUnderlying {
+		journalUnknown = journalUnknown || row.Underlying == "ORDER_JOURNAL" && row.State == rpc.ProtectionCoverageStateUnknown
+	}
+	if len(summary.ByUnderlying) != 2 || !journalUnknown {
+		t.Fatalf("uncertain journal row was not projected explicitly: %+v", summary)
+	}
+}
+
+func TestDailyPnLCloseCaptureAuthorityPersistsAcrossRestart(t *testing.T) {
+	databasePath := filepath.Join(privateTestDir(t), "daemon.db")
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: databasePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := dailyPnLCloseCaptureAuthority{}
+	if err := first.bindCore(t.Context(), store); err != nil {
+		t.Fatal(err)
+	}
+	source := "paper|DU123"
+	capture := persistedDailyPnLCloseCapture{
+		SessionKey: "2026-07-31", DailyPnL: -433.7, BaseCurrency: "EUR",
+		SessionClose: time.Date(2026, 7, 31, 20, 0, 0, 0, time.UTC),
+		CapturedAt:   time.Date(2026, 7, 31, 20, 0, 9, 0, time.UTC),
+	}
+	if err := first.capture(t.Context(), source, capture); err != nil {
+		t.Fatal(err)
+	}
+	doc, ok, err := store.GetStateDocument(t.Context(), daemonStateScope, dailyPnLCloseCaptureStateKind)
+	if err != nil || !ok {
+		t.Fatalf("persisted capture document missing: ok=%v err=%v", ok, err)
+	}
+	if bytes.Contains(doc.JSON, []byte("DU123")) {
+		t.Fatalf("persisted capture exposed account identity: %s", doc.JSON)
+	}
+
+	drifted := capture
+	drifted.DailyPnL = -500
+	if err := first.capture(t.Context(), source, drifted); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := first.captureFor(source); got.DailyPnL != capture.DailyPnL {
+		t.Fatalf("same-session recapture overwrote the close print: %+v", got)
+	}
+
+	liveCapture := capture
+	liveCapture.DailyPnL = 12
+	if err := first.capture(t.Context(), "live|U999", liveCapture); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restartedStore, err := corestore.Open(t.Context(), corestore.Options{Path: databasePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restartedStore.Close() })
+	restarted := dailyPnLCloseCaptureAuthority{}
+	if err := restarted.bindCore(t.Context(), restartedStore); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := restarted.captureFor(source)
+	if !ok || got != capture {
+		t.Fatalf("restarted capture = %+v ok=%v, want %+v", got, ok, capture)
+	}
+	if live, ok := restarted.captureFor("live|U999"); !ok || live.DailyPnL != 12 {
+		t.Fatalf("second scope capture = %+v ok=%v", live, ok)
+	}
+
+	next := capture
+	next.SessionKey = "2026-08-03"
+	next.DailyPnL = 88.25
+	if err := restarted.capture(t.Context(), source, next); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := restarted.captureFor(source); got.SessionKey != "2026-08-03" || got.DailyPnL != 88.25 {
+		t.Fatalf("newer session did not replace retained capture: %+v", got)
+	}
+}
+
+func TestRestartAfterRawRetentionResumesProjectionWithoutRedownload(t *testing.T) {
+	now := berlinTestTime(t, 2026, 7, 21, 7, 0)
+	stateHome := privateTestDir(t)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	dbPath := filepath.Join(stateHome, "daemon.db")
+	firstCore, err := corestore.Open(t.Context(), corestore.Options{Path: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := &Server{now: func() time.Time { return now }, cfg: &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}}, logger: NewLogger(&bytes.Buffer{}, "error")}
+	if err := first.flexFetch.bindCore(t.Context(), firstCore); err != nil {
+		t.Fatal(err)
+	}
+	writeFlexFixture(t, "flex-crash.xml", "20260721;070000", "20260714", "20260720", "")
+	dir, _ := flexStatementsDirPath()
+	if err := os.Chtimes(filepath.Join(dir, "flex-crash.xml"), now, now); err != nil {
+		t.Fatal(err)
+	}
+	target, _ := flexDailyWindow(now)
+	first.flexFetch.mu.Lock()
+	first.flexFetch.state.Stage = rpc.ReconReportStateChecking
+	first.flexFetch.state.LastAttempt = now
+	first.flexFetch.state.TargetDate = target
+	if err := first.flexFetch.persistLocked(t.Context()); err != nil {
+		first.flexFetch.mu.Unlock()
+		t.Fatal(err)
+	}
+	first.flexFetch.mu.Unlock()
+	if err := firstCore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(flexRetryAfterFail - time.Second)
+	restartedCore, err := corestore.Open(t.Context(), corestore.Options{Path: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restartedCore.Close() })
+	restarted := &Server{now: func() time.Time { return now }, cfg: first.cfg, logger: NewLogger(&bytes.Buffer{}, "error")}
+	if err := restarted.flexFetch.bindCore(t.Context(), restartedCore); err != nil {
+		t.Fatal(err)
+	}
+	if got := restarted.flexFetchStatusAt(now); got.State != rpc.ReconReportStateRetryScheduled || got.Reason != rpc.ReconReportReasonProjectionFailed {
+		t.Fatalf("recovered post-retain status = %+v, want scheduled projection retry", got)
+	}
+	now = now.Add(time.Second)
+	var fetchCalls, projectionCalls int
+	restarted.flexFetchOnceFn = func(context.Context, time.Time) (flexFetchOutcome, error) {
+		fetchCalls++
+		return flexFetchOutcome{}, errors.New("broker redownload must not run")
+	}
+	restarted.flexProjectionFn = func(context.Context) error { projectionCalls++; return nil }
+	if !restarted.startFlexFetch(t.Context(), false) {
+		t.Fatal("projection recovery did not start")
+	}
+	restarted.flexFetch.wg.Wait()
+	if fetchCalls != 0 || projectionCalls != 1 || restarted.flexFetchStatusAt(now).State != rpc.ReconReportStateCurrent {
+		t.Fatalf("recovery fetch=%d projection=%d status=%+v", fetchCalls, projectionCalls, restarted.flexFetchStatusAt(now))
+	}
+}
+
+func berlinTestTime(t *testing.T, year int, month time.Month, day, hour, minute int) time.Time {
+	t.Helper()
+	berlin, err := time.LoadLocation(flexScheduleZone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return time.Date(year, month, day, hour, minute, 0, 0, berlin)
+}
+
+func writeFlexFixture(t *testing.T, name, whenGenerated, from, to, body string) {
+	writeFlexFixtureForAccount(t, name, "U1234567", whenGenerated, from, to, body)
+}
+
+func writeFlexFixtureForAccount(t *testing.T, name, account, whenGenerated, from, to, body string) {
+	t.Helper()
+	dir, err := flexStatementsDirPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	doc := fmt.Sprintf(`<FlexQueryResponse queryName="recon" type="AF">
+ <FlexStatements count="1">
+  <FlexStatement accountId="%s" fromDate="%s" toDate="%s" whenGenerated="%s">
+%s
+  </FlexStatement>
+ </FlexStatements>
+</FlexQueryResponse>`, account, from, to, whenGenerated, body)
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func cashLine(id, typ string, amount float64, date string) string {
+	return fmt.Sprintf(`   <CashTransactions><CashTransaction transactionID=%q type=%q currency="EUR" fxRateToBase="1" amount="%f" dateTime="%s;120000" settleDate=%q description="FIXTURE" /></CashTransactions>`, id, typ, amount, date, date)
+}
+
+func equityRow(date string, total float64) string {
+	return fmt.Sprintf(`   <EquitySummaryInBase><EquitySummaryByReportDateInBase reportDate=%q total="%f" /></EquitySummaryInBase>`, date, total)
+}
+
+func newReconTestServer(t *testing.T) *Server {
+	t.Helper()
+	s := newRiskPolicyTestServer(t, validRiskPolicyTOML)
+	return s
+}
+
+func newReconV3TestServer(t *testing.T) *Server {
+	t.Helper()
+	s := newRiskPolicyTestServer(t, validRiskPolicyV3TOML())
+	return s
+}
+
+func declare(t *testing.T, s *Server, typ string, amount float64, effectiveAt string) {
+	t.Helper()
+	var eff time.Time
+	if effectiveAt != "" {
+		var err error
+		if eff, err = time.Parse("2006-01-02", effectiveAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.riskCapital.ApplyCapitalEventForPolicy(rpc.CapitalEventParams{Type: typ, AmountBase: amount, EffectiveAt: eff}, rpc.OrderOriginHumanTTY,
+		s.riskPolicies.snapshot().policy); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func recentGenerated() string { return time.Now().UTC().Format("20060102") + ";060000" }
+
+func seedReconRuntime(s *Server, genesis time.Time) {
+	s.riskCapital.mu.Lock()
+	defer s.riskCapital.mu.Unlock()
+	s.riskCapital.state.GenesisAt = genesis
+	s.riskCapital.state.Seeded = true
+}
+
+func TestReconFiltersSiblingAccountsBeforeMerge(t *testing.T) {
+	s := newReconV3TestServer(t)
+	generated := recentGenerated()
+	writeFlexFixtureForAccount(t, "flex-selected.xml", "U1234567", generated, "20260708", "20260708",
+		cashLine("selected-flow", "Deposits/Withdrawals", 100, "20260708")+"\n"+equityRow("20260708", 1000))
+	writeFlexFixtureForAccount(t, "flex-sibling.xml", "SIBLING-SECRET", generated, "20260708", "20260708",
+		cashLine("sibling-flow", "Deposits/Withdrawals", 900, "20260708")+"\n"+equityRow("20260708", 9000))
+
+	report := s.buildReconReport()
+	if report.Status != rpc.ReconStatusActive || report.Counts[reconSkippedSiblingStatementsCount] != 1 {
+		t.Fatalf("account-scoped report status=%s counts=%v", report.Status, report.Counts)
+	}
+	if report.StatementCumFlowsBase == nil || *report.StatementCumFlowsBase != 100 || len(report.Confirmed) != 1 || report.Confirmed[0].LineID != "cash-selected-flow" {
+		t.Fatalf("sibling statement participated in reconciliation: %+v", report)
+	}
+	if report.Equity == nil || report.Equity.StatementTotalBase != 1000 {
+		t.Fatalf("sibling equity won the selected account's day: %+v", report.Equity)
+	}
+
+	backtest := s.buildReconBacktest()
+	if backtest.Status != rpc.ReconStatusActive || backtest.FlowCounts[reconSkippedSiblingStatementsCount] != 1 || len(backtest.Flows) != 1 || backtest.Flows[0].LineID != "cash-selected-flow" || backtest.EquityDays != 1 {
+		t.Fatalf("account-scoped backtest = %+v", backtest)
+	}
+	raw, err := json.Marshal(struct {
+		Report   *rpc.ReconResult
+		Backtest *rpc.ReconBacktestResult
+	}{report, backtest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"SIBLING-SECRET", "sibling-flow", "9000"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("account-scoped result leaked sibling detail %q: %s", forbidden, raw)
+		}
+	}
+}
+
+func TestReconAmbiguityNeverAutoResolves(t *testing.T) {
+	s := newReconTestServer(t)
+	writeFlexFixture(t, "flex-20260710-000001.xml", recentGenerated(), "20260706", "20260712",
+		cashLine("amb1", "Deposits/Withdrawals", 10000, "20260708"))
+	declare(t, s, "deposit", 10000, "2026-07-08")
+	declare(t, s, "deposit", 10001, "2026-07-09")
+
+	rep := s.buildReconReport()
+	if rep.Counts[rpc.ReconAmbiguous] != 1 {
+		t.Fatalf("counts = %v, want one ambiguous", rep.Counts)
+	}
+	if rep.Counts["matched"] != 0 {
+		t.Fatalf("ambiguous line must not also match (counts %v)", rep.Counts)
+	}
+}
+
+func TestReconV3StatementAuthorityAndBridgeBoundary(t *testing.T) {
+	s := newReconV3TestServer(t)
+	seedReconRuntime(s, time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC))
+	writeFlexFixture(t, "flex-bridge.xml", recentGenerated(), "20260701", "20260710",
+		cashLine("matched", "Deposits/Withdrawals", 1000, "20260705"))
+	declare(t, s, "deposit", 1005, "2026-07-05")
+	declare(t, s, "withdrawal", 200, "2026-07-10")
+	declare(t, s, "deposit", 300, "2026-07-11")
+	declare(t, s, "deposit", 400, "2026-06-30")
+
+	rep := s.buildReconReport()
+	if rep.StatementCumFlowsBase == nil || *rep.StatementCumFlowsBase != 1300 {
+		t.Fatalf("statement-authoritative flows = %v, want 1300", rep.StatementCumFlowsBase)
+	}
+	if rep.Counts["matched"] != 1 || rep.Counts[rpc.ReconLedgerOnly] != 2 || rep.Unresolved != 2 {
+		t.Fatalf("counts=%v unresolved=%d", rep.Counts, rep.Unresolved)
+	}
+	for _, ex := range rep.Exceptions {
+		if ex.EventAt.Format("2006-01-02") == "2026-07-11" {
+			t.Fatalf("bridge declaration became an exception: %+v", ex)
+		}
+	}
+}
+
+var testLiveObserveScope = brokerStateScope{Account: "U111", Mode: rpc.AccountModeLive}
+
+func testConstitution() *risk.Constitution {
+	return &risk.Constitution{
+		Kind:          risk.ConstitutionKind,
+		SchemaVersion: 1,
+		PolicyID:      "risk-constitution",
+		PolicyVersion: 1,
+		Capital: risk.ConstitutionCapital{
+			BaseCurrency:        "EUR",
+			ProtectedFloor:      new(200000.0),
+			DeclaredRiskCapital: new(50000.0),
+			MaxEquityAgeMinutes: new(240),
+			MaxUnreconciledDays: new(7),
+		},
+		Drawdown: risk.ConstitutionDrawdown{
+			WarnConsumedPct:  new(15.0),
+			BlockConsumedPct: new(30.0),
+		},
+		Override: risk.ConstitutionOverride{MaxDurationHours: new(24)},
+		Recon: risk.ConstitutionRecon{
+			AmountTolerancePct:     new(0.5),
+			AmountToleranceMin:     new(5.0),
+			DateWindowBusinessDays: new(3),
+			MaxReportAgeDays:       new(4),
+		},
+		Cadence: risk.ConstitutionCadence{
+			Morning: risk.ConstitutionArtefact{Class: risk.EnforcementAdvisory},
+		},
+	}
+}
+
+func newTestRiskCapitalStore(t *testing.T) *riskCapitalStore {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	return &riskCapitalStore{now: time.Now}
+}
+
+func reconcileNow(t *testing.T, st *riskCapitalStore) {
+	t.Helper()
+	if _, err := st.ApplyCapitalEvent(rpc.CapitalEventParams{Type: "reconcile"}, rpc.OrderOriginHumanTTY, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitution()
+	reconcileNow(t, st)
+	now := time.Now()
+
+	st.Observe(260000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("tier = %s (%v), want ok", rep.Tier, rep.Reasons)
+	}
+	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 260000 {
+		t.Fatalf("peak = %v, want 260000", rep.AdjustedPeakBase)
+	}
+
+	st.Observe(252000, now.Add(-time.Minute), c, testLiveObserveScope)
+	rep = st.Report(c, nil, testLiveObserveScope)
+	if rep.Tier != risk.CapitalTierWarn {
+		t.Fatalf("tier = %s, want warn", rep.Tier)
+	}
+	if rep.BlockLatched {
+		t.Fatal("warn tier must not latch")
+	}
+
+	st.Observe(258000, now, c, testLiveObserveScope)
+	if rep = st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("tier after recovery = %s, want ok (warn is self-clearing)", rep.Tier)
+	}
+}
+
+func TestRiskCapitalBlockLatchPersistsAndResets(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitution()
+	reconcileNow(t, st)
+	now := time.Now()
+
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if rep.Tier != risk.CapitalTierBlock || !rep.BlockLatched {
+		t.Fatalf("tier = %s latched = %v, want block/true", rep.Tier, rep.BlockLatched)
+	}
+
+	st.Observe(262000, now.Add(-time.Minute), c, testLiveObserveScope)
+	if rep = st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierBlock {
+		t.Fatalf("tier after recovery = %s, want block (latched)", rep.Tier)
+	}
+
+	st2 := &riskCapitalStore{now: time.Now}
+	if rep = st2.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
+		t.Fatal("latch must survive a restart via risk-capital-state.json")
+	}
+
+	if err := st2.ResetDrawdown("", c); err == nil {
+		t.Fatal("reset without a reason must fail")
+	}
+	if err := st2.ResetDrawdown("weekly review 2026-07-12: de-risked, resuming at reduced size", c); err != nil {
+		t.Fatal(err)
+	}
+	rep = st2.Report(c, nil, testLiveObserveScope)
+	if rep.BlockLatched || rep.Tier == risk.CapitalTierBlock {
+		t.Fatalf("after reset: tier = %s latched = %v, want unlatched", rep.Tier, rep.BlockLatched)
+	}
+	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 262000 {
+		t.Fatalf("peak after reset = %v, want re-based to last equity 262000", rep.AdjustedPeakBase)
+	}
+}
+
+func newRiskPolicyTestServer(t *testing.T, policyTOML string) *Server {
+	t.Helper()
+	m, _ := newTestRiskPolicyManager(t, policyTOML)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s := &Server{
+		now:          time.Now,
+		riskPolicies: m,
+		riskCapital:  &riskCapitalStore{now: time.Now},
+		endpoint:     discover.Endpoint{Port: 7496, Account: "U1234567"},
+	}
+	return s
+}
+
+func rawParams(t *testing.T, v any) *rpc.Request {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &rpc.Request{Params: raw}
+}
+
+func TestRiskPolicyWritesRejectAgentOrigin(t *testing.T) {
+	s := newRiskPolicyTestServer(t, validRiskPolicyTOML)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		call func(origin string) error
+	}{
+		{"capital_event", func(origin string) error {
+			_, err := s.handleRiskPolicyCapitalEvent(ctx, rawParams(t, rpc.CapitalEventParams{Type: "deposit", AmountBase: 100, Origin: origin}))
+			return err
+		}},
+		{"override", func(origin string) error {
+			_, err := s.handleRiskPolicyOverride(ctx, rawParams(t, rpc.OverrideParams{Control: "drawdown.warn_consumed_pct", Reason: "r", Hours: 1, Origin: origin}))
+			return err
+		}},
+		{"reset_drawdown", func(origin string) error {
+			_, err := s.handleRiskPolicyResetDrawdown(ctx, rawParams(t, rpc.ResetDrawdownParams{Reason: "r", Origin: origin}))
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, origin := range []string{rpc.OrderOriginAgent, "", "made-up-origin"} {
+				if err := tc.call(origin); err == nil || !strings.Contains(err.Error(), "human-only") {
+					t.Fatalf("origin %q: err = %v, want human-only rejection", origin, err)
+				}
+			}
+			if err := tc.call(rpc.OrderOriginHumanTTY); err != nil {
+				t.Fatalf("human origin: err = %v, want success", err)
+			}
+		})
+	}
+}
+
+const validRiskPolicyTOML = `
+kind = "ibkr.risk_policy"
+schema_version = 1
+policy_id = "risk-constitution"
+policy_version = 1
+
+[capital]
+base_currency = "EUR"
+protected_floor = 200000.0
+declared_risk_capital = 50000.0
+max_equity_age_minutes = 240
+max_unreconciled_days = 7
+
+[drawdown]
+warn_consumed_pct = 15.0
+block_consumed_pct = 30.0
+block_enforcement = "shadow"
+
+[override]
+max_duration_hours = 24
+
+[recon]
+amount_tolerance_pct = 0.5
+amount_tolerance_min = 5.0
+date_window_business_days = 3
+max_report_age_days = 4
+
+[cadence.morning]
+class = "advisory"
+`
+
+func validRiskPolicyV3TOML() string {
+	v3 := strings.Replace(validRiskPolicyTOML, "policy_version = 1", "policy_version = 3", 1)
+	return strings.Replace(v3, "max_report_age_days = 4", "max_report_age_days = 4\nmax_equity_divergence_pct = 1.0", 1)
+}
+
+func newTestRiskPolicyManager(t *testing.T, contents string) (*riskPolicyManager, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "risk-policy.toml")
+	if contents != "" {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := newRiskPolicyManager(path, time.Second, time.Now)
+	m.reload()
+	return m, path
+}
+
+func TestRiskPolicyManagerLoadsV3AndRejectsV3KeyUnderV2(t *testing.T) {
+	m, _ := newTestRiskPolicyManager(t, validRiskPolicyV3TOML())
+	snap := m.snapshot()
+	if snap.status != rpc.RiskPolicyStatusActive || snap.policy == nil || snap.policy.PolicyVersion != 3 || snap.policy.Recon.MaxEquityDivergencePct == nil {
+		t.Fatalf("v3 snapshot = %+v", snap)
+	}
+	v2WithKey := strings.Replace(validRiskPolicyTOML, "max_report_age_days = 4", "max_report_age_days = 4\nmax_equity_divergence_pct = 1.0", 1)
+	m, _ = newTestRiskPolicyManager(t, v2WithKey)
+	snap = m.snapshot()
+	if snap.status != rpc.RiskPolicyStatusError || !strings.Contains(snap.message, "requires policy_version >= 3") {
+		t.Fatalf("v2 key snapshot status=%s message=%q", snap.status, snap.message)
 	}
 }

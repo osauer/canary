@@ -1,11 +1,14 @@
+// Package apphttp registers the Canary app's authenticated HTTP routes and
+// maps internal state and daemon RPC values onto explicit browser DTOs. It owns
+// request validation, redaction, and paired-device attribution, while runtime
+// policy and broker-write authority remain daemon-owned.
 package apphttp
 
 import (
-	nethttp "net/http"
-	"time"
-
 	"github.com/osauer/canary/v2/internal/app/state"
 	"github.com/osauer/canary/v2/internal/rpc"
+	nethttp "net/http"
+	"time"
 )
 
 // App status route and schema constants define the local operator contract.

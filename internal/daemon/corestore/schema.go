@@ -26,15 +26,12 @@ type migration struct {
 	// migration that needs no exception, which is the normal case.
 	destructive *destructiveApproval
 	// maintenance is frozen execution metadata for a migration whose effect
-	// requires physical artifact work after its transaction commits. It is nil
 	// for ordinary migrations.
 	maintenance *migrationMaintenance
 }
 
 // migrationMaintenance binds one exact, typed observation discard to its
-// required physical follow-up. The selector is converted to one canonical
 // DELETE by validation and must be covered by the same migration's exact
-// destructive approval; it cannot become a general retention rule.
 type migrationMaintenance struct {
 	ObservationDiscard *ObservationDiscardSelector
 	EventDiscard       *EventDiscardSelector
@@ -43,7 +40,6 @@ type migrationMaintenance struct {
 	RetireSourceBackup bool
 	// PreserveAuthorityHead is an explicit exception to the normal out-of-place
 	// upgrade rule. It is valid only for a maintenance migration whose statements
-	// leave store_meta and event_log untouched. A pending batch preserves the head
 	// only when every pending migration carries this reviewed exception.
 	PreserveAuthorityHead bool
 }
@@ -52,9 +48,7 @@ type migrationMaintenance struct {
 // statement guard in validateMigrationStatements. It names the exact
 // statements one migration may run and records, in prose a human wrote, what
 // the exception costs and why it was accepted. The exception never generalizes:
-// a destructive statement the approval does not name is still rejected, and an
 // approval that names a statement the migration does not run, or a statement
-// that is not destructive at all, is itself a plan error — so an approval
 // cannot quietly outlive the migration it was written for.
 type destructiveApproval struct {
 	reason     string
@@ -316,7 +310,6 @@ var migrations = []migration{{
 }}
 
 // migrationV1AppendOnlyTables is the append-only set exactly as migration 1
-// created it. init() derives v1's trigger statements from this list and
 // migrationChecksum hashes them, so every name here is frozen: editing one
 // rewrites v1's checksum and every existing authority database would refuse to
 // open with "migration checksum drift at version 1". Later renames belong in a
@@ -331,14 +324,6 @@ var migrationV1AppendOnlyTables = []string{
 
 // appendOnlyTables is the append-only set after the whole migration plan has
 // been applied: v1's tables with migration 2's canary→stress rename.
-var appendOnlyTables = []string{
-	"schema_migrations", "broker_scopes", "event_log", "observations",
-	"consumed_preview_tokens", "regime_decisions", "regime_indicators",
-	"rule_transitions", "stress_transitions", "capital_events",
-	"risk_policy_events", "proposal_outcomes", "order_events",
-	"statement_file_versions", "statement_equity_day_versions",
-}
-
 func appendOnlyUpdateTrigger(table string) string {
 	return fmt.Sprintf(`CREATE TRIGGER %s_no_update BEFORE UPDATE ON %s BEGIN SELECT RAISE(ABORT, '%s is append-only'); END`, table, table, table)
 }
@@ -348,30 +333,20 @@ func appendOnlyDeleteTrigger(table string) string {
 }
 
 // stressRenameMigration is migration 2: the portfolio-stress sensor's
-// persisted names move from canary to stress, matching the same rename in the
-// derived history index. The table and its rows are carried by ALTER TABLE
 // RENAME rather than copied, so no evidence row is ever rewritten; only the
 // event_log label column is rewritten, in place, for the exact event type
-// being renamed.
-//
-// SQLite re-quotes a renamed table in sqlite_schema, so the stored DDL reads
-// CREATE TABLE "stress_transitions". Both the on-disk database and the
-// canonical manifest replay this same plan, so the two agree.
 func stressRenameMigration() migration {
 	return migration{
 		version: 2,
 		name:    "stress_sensor_rename",
 		statements: []string{
 			// Unarm the append-only pair, carry the table and every row to the
-			// new name, then re-arm under the new names. Dropping first avoids
-			// depending on how SQLite rewrites trigger bodies across a rename.
 			`DROP TRIGGER canary_transitions_no_update`,
 			`DROP TRIGGER canary_transitions_no_delete`,
 			`ALTER TABLE canary_transitions RENAME TO stress_transitions`,
 			appendOnlyUpdateTrigger("stress_transitions"),
 			appendOnlyDeleteTrigger("stress_transitions"),
 			// Relabel the persisted event type. event_log's UPDATE guard has to
-			// come off for the single UPDATE below and goes straight back on;
 			// its DELETE guard is never touched.
 			`DROP TRIGGER event_log_no_update`,
 			`UPDATE event_log SET event_type = 'stress_decision' WHERE event_type = 'canary_decision'`,
@@ -399,17 +374,8 @@ func stressRenameMigration() migration {
 }
 
 // legacyStressMeasurementRename is migration 3: the observations the SQLite
-// cutover imported from the pre-rename portfolio-stress decision journal are
-// relabelled from canary to stress. The daemon identifies those rows by the
 // exact (scope_key, source, kind) triple its importer wrote, so the UPDATE is
-// predicated on all three and can touch nothing else — no payload, no digest,
-// no observed_at, and no row from any other importer.
-//
-// Renaming rather than re-importing is the point: the journal files these rows
 // came from are sealed into legacy-sealed/<cutover-id>/ and the derived
-// history.db is discarded at cutover, so these observations are the only
-// remaining queryable copy. Leaving them under the old labels would orphan them
-// from every stress-named reader.
 func legacyStressMeasurementRename() migration {
 	const relabel = `UPDATE observations
    SET scope_key = 'market/legacy/stress-measurements',
@@ -445,12 +411,6 @@ func legacyStressMeasurementRename() migration {
 
 // contractCacheObservationPrune is migration 4. A defect copied the current
 // IBKR contract cache into the retained observation ledger on every refresh.
-// That row class is refetchable acceleration state, has no reader, is cited by
-// no decision, and is not referenced by a foreign key. The current cache stays
-// in state_documents under contract_cache.current.v3.
-//
-// The selector and three-statement shape are deliberately frozen here. This is
-// one reviewed repair, not a general observation-retention mechanism.
 var contractCachePruneSelector = ObservationDiscardSelector{
 	ScopeKey: "market/contracts",
 	Source:   "ibkr.tws.contract_details",
@@ -496,15 +456,7 @@ var alertEpisodeNonTransitionSelector = EventDiscardSelector{
 }
 
 // alertEpisodeEventPrune is migration 5. The alert registry is authoritative
-// in state_documents, but the original writer also appended a full decision
 // snapshot on every 30-second evaluation. Only lifecycle transitions are audit
-// events; refreshed, confirmed-negative, and held evaluations are current-state
-// updates and commissioning counters already retained in the registry document.
-//
-// The selector and JSON predicate are frozen here. Released payload versions 3
-// and 4 used the same action vocabulary. Unknown payload versions, malformed or
-// unknown decision members, other scopes, other event types, and all lifecycle
-// transitions are retained. The current registry document is untouched.
 func alertEpisodeEventPrune() migration {
 	selector := alertEpisodeNonTransitionSelector
 	dropDeleteGuard := `DROP TRIGGER event_log_no_delete`
@@ -536,16 +488,9 @@ const betaOperationalPrunePredicate = "beta_operational_history.v1"
 var betaOperationalPruneSelector = OperationalPruneSelector{Predicate: betaOperationalPrunePredicate}
 
 // betaOperationalHistoryPrune is migration 6. Canary's beta writers retained
-// raw market refreshes and analytical histories without a bounded operational
 // reader. Current state, outage fallbacks, broker/order continuity, token
-// tombstones, capital and risk governance, reconciliation, statements,
 // receipt-bound earnings identity observations, terminal-evidence changes,
-// quarantined gamma recovery rows, operational proposal/opportunity events,
-// and the newest two regime events all survive.
-//
 // The exact statements are frozen by validateMigrationMaintenance. This is a
-// one-time semantic epoch reset, not a configurable retention engine: unknown
-// observation kinds, unknown event types/actions, and near matches survive.
 func betaOperationalHistoryPrune() migration {
 	selector := betaOperationalPruneSelector
 	statements := betaOperationalPruneStatements()
@@ -591,7 +536,6 @@ BEGIN SELECT RAISE(ABORT, 'authority head cannot decrease'); END`,
 WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decrease'); END`,
 	)
 	// v1's trigger statements are generated, so the plan is completed here
-	// rather than in the composite literal above.
 	migrations = append(migrations,
 		stressRenameMigration(),
 		legacyStressMeasurementRename(),
@@ -602,9 +546,6 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 }
 
 // migrationChecksum is the ledger identity of an applied migration: version,
-// name, every statement in order, and non-nil maintenance metadata. A
-// destructive approval is deliberately not hashed — it constrains what the
-// plan may contain, it is not part of what the database had applied to it — so
 // its prose can be clarified later without making every existing authority
 // database fail to open. Maintenance is appended only when present, preserving
 // the already-shipped checksums of migrations that predate this field.
@@ -1027,11 +968,8 @@ func isDestructiveStatement(stmt string) bool {
 }
 
 // approvedDestructiveStatements returns the exact statements this migration's
-// approval exempts from the destructive-statement guard. An approval must
 // carry a reason, must name at least one statement, and may only name
 // statements that this migration actually runs and that are actually
-// destructive — so the exception stays tied to the work it was written for and
-// cannot silently widen into a blanket waiver.
 func approvedDestructiveStatements(m migration) (map[string]struct{}, error) {
 	if m.destructive == nil {
 		return nil, nil
@@ -1061,12 +999,6 @@ func approvedDestructiveStatements(m migration) (map[string]struct{}, error) {
 
 // validateSchemaObjects compares every application-owned table, index, and
 // trigger against a database built from the canonical migration plan. SQLite
-// owns sqlite_* objects (including implicit autoindexes and sqlite_sequence),
-// so they are deliberately excluded from the application manifest.
-func validateSchemaObjects(ctx context.Context, db *sql.DB, expectedVersion int) error {
-	return validateSchemaObjectsWithPlan(ctx, db, expectedVersion, currentMigrationPlan())
-}
-
 func validateSchemaObjectsWithPlan(ctx context.Context, db *sql.DB, expectedVersion int, plan []migration) error {
 	if err := validateMigrationPlan(plan); err != nil {
 		return err
@@ -1123,11 +1055,7 @@ func validateSchemaObjectsWithPlan(ctx context.Context, db *sql.DB, expectedVers
 }
 
 // canonicalSchemaManifests memoizes the manifest each validated plan prefix
-// produces. The manifest is a pure function of the statements that prefix
 // runs, and the ledger checksums already identify those statements exactly,
-// so a hit is as strong a derivation as the rebuild it replaces. Building it
-// migrates a throwaway in-memory database, which every inspection, open,
-// backup verification, and upgrade step would otherwise pay for again.
 var canonicalSchemaManifests sync.Map
 
 func canonicalSchemaManifestWithPlan(ctx context.Context, version int, plan []migration) ([]schemaObject, error) {
@@ -1217,8 +1145,6 @@ func schemaManifestFingerprint(objects []schemaObject) string {
 
 // normalizeSchemaSQL removes formatting and keyword-case differences while
 // retaining token, quoted-identifier, and string-literal boundaries. That
-// makes manifests portable across SQLite versions without accepting a
-// semantically different definition.
 func normalizeSchemaSQL(input string) (string, error) {
 	var tokens []string
 	for i := 0; i < len(input); {
@@ -1280,7 +1206,6 @@ func normalizeSchemaSQL(input string) (string, error) {
 // migrate brings db up to the plan's current version and reports how many
 // migrations it had to apply. Callers use that count to decide whether
 // post-migration work is warranted: on an ordinary open the database is already
-// current, nothing runs, and nothing downstream needs re-proving.
 func migrate(ctx context.Context, db *sql.DB, plan []migration, now time.Time) (int, error) {
 	if err := validateMigrationPlan(plan); err != nil {
 		return 0, err

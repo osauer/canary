@@ -18,7 +18,6 @@ function renderBriefCard(snap = state.snapshot || {}) {
   $("briefAsOf").textContent = dateTimeValue(brief.as_of);
   const sections = $("briefSections");
   // The daemon composes the narrative; an older daemon serves none and the
-  // row render below stays the surface.
   const narrative = servedNarrative(brief);
   sections.classList.toggle("brief-sections--narrative", Boolean(narrative));
   if (narrative) {
@@ -93,8 +92,6 @@ function briefPlacard(text) {
 }
 
 // The placard row carries the brief's own stamp line and the served stress
-// severity, printed in the daemon's vocabulary. An unreadable stress row shows
-// its status word instead of an implied calm.
 function briefPlacardRow(brief) {
   const row = document.createElement("div");
   row.className = "pd-placard pd-placard--row";
@@ -143,12 +140,10 @@ function renderBriefSource(source = {}) {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // House-style 24×24 phase glyphs (stroke via CSS): a sunrise for the pre-trade
-// Ready movement, a history clock for the post-trade Review movement.
 const REVIEW_ICON = ["M12 7v5l3 2", "M5.2 8.5A7.5 7.5 0 1 1 4.5 12", "M4.5 7.5v3.2h3.2"];
 const READY_ICON = ["M4 17h16", "M8.5 17a3.5 3.5 0 0 1 7 0", "M12 10V7", "M6.8 11.8 5 10", "M17.2 11.8 19 10"];
 
 // Review — post-trade since the last regular close. Rows are rendered
-// verbatim from the daemon-composed movement.
 function renderReviewSection(section, brief) {
   const account = section.session_pnl || {};
   const currency = account.base_currency || "";
@@ -244,8 +239,6 @@ function heldNameEventsUnavailable(sources) {
 }
 
 // The daemon reports stress action and severity as separate fields that are
-// usually the same word; printing "watch · watch" reads as a stutter, so the
-// pair collapses when equal and labels itself when it genuinely differs.
 function stressHeadline(stress = {}) {
   const action = String(stress?.action || "").trim();
   const severity = String(stress?.severity || "").trim();

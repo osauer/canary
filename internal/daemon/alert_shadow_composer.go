@@ -92,16 +92,9 @@ const (
 	alertShadowCursorStress = "stress"
 
 	// stressEpisodeIdentity is hashed into the portfolio-stress episode key, so
-	// it is a persisted lifecycle identity rather than a name. It stays
-	// "portfolio_canary" because BuildAlertEpisodeKey is a SHA-256 over its
-	// parts: changing this value produces a different key for the same
-	// condition, with no way to map an old key to a new one. Every open
-	// portfolio-stress episode would be abandoned mid-flight and reopen as a
-	// fresh occurrence, re-paging the operator for an alert they already have.
 	// It is only ever compared against itself, never displayed.
 	stressEpisodeIdentity = "portfolio_canary"
 	// marginEpisodeIdentity keys the independent margin-cushion episode
-	// (2026-07-30 operator decision). Same persistence rule as
 	// stressEpisodeIdentity: never change it.
 	marginEpisodeIdentity               = "margin_cushion"
 	alertShadowCursorNudges             = "nudges"
@@ -152,10 +145,6 @@ var alertShadowCanonicalRulebookHealth = [...]string{
 }
 
 // alertShadowComposer is the source-neutral candidate producer boundary. It
-// has no sender, pageability, cooldown, dwell, or threshold policy. Producers
-// submit already classified typed snapshots; the composer maintains
-// source-scoped coverage and lets alertEpisodeRegistry own durable lifecycle
-// identity.
 type alertShadowComposer struct {
 	mu       sync.Mutex
 	registry *alertEpisodeRegistry
@@ -185,7 +174,6 @@ type alertShadowInputCursor struct {
 
 // alertShadowBrokerScope is a validated, normalized account/mode authority
 // value. Raw parts exist only in memory and enter BuildAlertEpisodeKey; only
-// the helper's opaque digest is persisted.
 type alertShadowBrokerScope struct {
 	account   string
 	mode      string
@@ -193,7 +181,6 @@ type alertShadowBrokerScope struct {
 }
 
 // alertShadowNudgeInput binds candidates, the exact constitution authority,
-// and durable nudge-store health captured by one daemon composition call.
 // Callers must not assemble these fields via independent later reads.
 type alertShadowNudgeInput struct {
 	Snapshot          rpc.NudgesSnapshotResult
@@ -231,7 +218,6 @@ const (
 )
 
 // alertShadowDataHealthInput is one complete status.health evaluation. AsOf
-// is the daemon observation time, not an upstream data timestamp: absence and
 // failed due work can therefore remain distinct without fabricating evidence.
 type alertShadowDataHealthInput struct {
 	AsOf                  time.Time
@@ -260,7 +246,6 @@ type alertShadowSourceBatch struct {
 	Covered                     bool
 	NegativeReady               bool
 	// MarginEvidenceObserved reports whether a stress batch carried any
-	// margin-cushion evidence (margin signals or observed cushion values).
 	// When false, the synthesized source-level negative must not recover
 	// the margin-safety episode: an unobserved cushion is an omission,
 	// never evidence that the account is safe.
@@ -269,19 +254,13 @@ type alertShadowSourceBatch struct {
 	Observations           []alertEpisodeObservation
 	// UncoveredRules lists canonical rulebook rule IDs whose per-rule coverage
 	// failed this cycle (unknown row, or an evaluated row resting on a not-ok
-	// relevant input). The source stays covered with these gaps disclosed;
 	// rule IDs are policy vocabulary, never account or candidate identity.
 	UncoveredRules []string
 	// NegativeHold carries the episode keys whose absence-of-observation proves
-	// nothing this cycle because their rule is uncovered. The negative for a
-	// held episode is emitted with non-current evidence so the registry retains
-	// it instead of recovering on ignorance.
 	NegativeHold map[string]struct{}
 }
 
 // alertShadowStatusReport is the producer operational view. Counts are
-// descriptive registry measurements only: human precision and recall stay
-// explicitly unlabelled until an operator supplies outcome labels.
 type alertShadowStatusReport struct {
 	AsOf                  time.Time                 `json:"as_of,omitzero"`
 	ExpectedSources       []rpc.AlertSource         `json:"expected_sources"`
@@ -385,9 +364,6 @@ func (c *alertShadowComposer) scopeStateLocked(scope alertShadowBrokerScope) (*a
 			batch.InputAsOf, batch.ObservedAt, batch.EvidenceAsOf = sourceState.InputAsOf, sourceState.ObservedAt, sourceState.EvidenceAsOf
 			batch.EvidenceHealth, batch.FreshUntil = sourceState.EvidenceHealth, sourceState.FreshUntil
 			// Coverage is current-process knowledge. Durable producer evidence
-			// remains available for audit and active-episode retention, but restart
-			// cannot resurrect a trustworthy negative or omission boundary before
-			// this process observes the source again.
 			batch.Covered = false
 			if sourceState.Covered {
 				batch.Status, batch.Reason = alertShadowStatusNotObserved, alertShadowReasonNotObserved
@@ -403,7 +379,6 @@ func (c *alertShadowComposer) scopeStateLocked(scope alertShadowBrokerScope) (*a
 // ObserveStress consumes the daemon-authored Stress result. Eligibility is the
 // existing legacy occurrence gate exactly, including its nil-relevance
 // fail-open for positives. A missing relevance stamp can never authorize a
-// negative or source coverage.
 func (c *alertShadowComposer) ObserveStress(ctx context.Context, scope alertShadowBrokerScope, result rpc.StressResult) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
@@ -444,7 +419,6 @@ func (c *alertShadowComposer) ObserveStress(ctx context.Context, scope alertShad
 
 // ObserveNudges splits the canonical Nudge snapshot into three non-overlapping
 // producer owners. policyFingerprint must be the current constitution semantic
-// fingerprint, not candidate copy or rendered text.
 func (c *alertShadowComposer) ObserveNudges(ctx context.Context, input alertShadowNudgeInput) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
@@ -500,7 +474,6 @@ func (c *alertShadowComposer) ObserveNudges(ctx context.Context, input alertShad
 }
 
 // ObserveRegime consumes the validated daemon-served last-good snapshot. Its
-// cursor uses the evaluation time rather than the retained market-data as_of:
 // authority health can become stale while the same semantic last-good remains
 // served, and that transition must not be misclassified as timestamp
 // equivocation. Only current early warning, confirmed stress, and panic are
@@ -552,7 +525,6 @@ func (c *alertShadowComposer) ObserveRegime(ctx context.Context, scope alertShad
 }
 
 // ObserveRulebook consumes the complete, unfiltered daemon rulebook result.
-// The rulebook already owns every threshold and row classification; this
 // adapter only projects watch/act facts into the source-neutral lifecycle.
 // Degraded inputs may retain an active breach but can never authorize a clear.
 func (c *alertShadowComposer) ObserveRulebook(ctx context.Context, scope alertShadowBrokerScope, result rpc.RulesResult) (rpc.AlertCandidateSnapshot, error) {
@@ -596,8 +568,6 @@ func (c *alertShadowComposer) ObserveRulebook(ctx context.Context, scope alertSh
 // ObserveProtection consumes a complete, unfiltered protection ledger plus
 // the matching portfolio-stream receipt. The v1 producer policy opens
 // only orphaned-order and reconciliation-required episodes. Partial and
-// unprotected rows remain visible context and are authoritative negatives for
-// this deliberately narrow producer; no universal stop obligation is implied.
 func (c *alertShadowComposer) ObserveProtection(ctx context.Context, input alertShadowProtectionInput) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
@@ -641,7 +611,6 @@ func (c *alertShadowComposer) ObserveProtection(ctx context.Context, input alert
 }
 
 // ObserveOrderIntegrity mirrors the established two-consecutive-pass mismatch
-// gate inside the source-neutral candidate path. The app dispatcher owns
 // delivery. A negative is trusted only when the daemon's portfolio stream
 // receipts and scoped order journal were current at the same read.
 func (c *alertShadowComposer) ObserveOrderIntegrity(ctx context.Context, scope alertShadowBrokerScope, input orderIntegrityEvaluation) (rpc.AlertCandidateSnapshot, error) {
@@ -688,7 +657,6 @@ func (c *alertShadowComposer) ObserveOrderIntegrity(ctx context.Context, scope a
 
 // ObserveDataHealth consumes the complete typed status projection. It creates
 // one source-neutral episode per failing root source in the approved allowlist;
-// not_due, computing, and intentionally disabled states are not outages.
 func (c *alertShadowComposer) ObserveDataHealth(ctx context.Context, input alertShadowDataHealthInput) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
@@ -726,7 +694,6 @@ func (c *alertShadowComposer) ObserveDataHealth(ctx context.Context, input alert
 		state.sources[rpc.AlertSourceDataHealth] = previous
 		// Data Health diagnoses the same SQLite authority that persists this
 		// registry. Do not synchronously retry a failed store from the status
-		// path; retain the measurement in memory for the next successful apply.
 		state.pendingApplyFailures++
 		return rpc.AlertCandidateSnapshot{}, err
 	}
@@ -831,8 +798,6 @@ func (c *alertShadowComposer) handleInputCursorLocked(ctx context.Context, state
 			resultErr = errors.New("alert producer input timestamp equivocation")
 		} else if alertShadowSourcesNeedObservation(state, sources) {
 			// The first identical producer read after restart is a real process
-			// observation, not a duplicate. Re-evaluate it once so current-process
-			// coverage can be re-established without waiting for semantic churn.
 			return rpc.AlertCandidateSnapshot{}, false, nil
 		} else {
 			disposition = alertShadowDispositionDuplicate
@@ -849,10 +814,7 @@ func (c *alertShadowComposer) handleInputCursorLocked(ctx context.Context, state
 }
 
 // handleUnchangedInputThrottleLocked keeps five-second app polling from
-// turning semantically identical Protection or Data Health reads into a
 // SQLite write storm. It never suppresses the first observation after restart
-// and the refresh interval remains comfortably inside each producer's silence
-// horizon.
 func (c *alertShadowComposer) handleUnchangedInputThrottleLocked(state *alertShadowScopeState, cursor *alertShadowInputCursor, fingerprint string, sources []rpc.AlertSource, observedAt time.Time, interval time.Duration) (rpc.AlertCandidateSnapshot, bool, error) {
 	if state == nil || cursor == nil || cursor.AsOf.IsZero() || cursor.Fingerprint != fingerprint ||
 		!observedAt.After(cursor.AsOf) || observedAt.Sub(cursor.AsOf) >= interval || alertShadowSourcesNeedObservation(state, sources) {
@@ -980,9 +942,6 @@ func alertSourceCoverageFromBatches(asOf time.Time, sources map[rpc.AlertSource]
 
 func (c *alertShadowComposer) recordApplyFailureLocked(ctx context.Context, state *alertShadowScopeState, at time.Time) {
 	// The failed evaluation context may already be cancelled. A bounded,
-	// cancellation-detached follow-up may still persist measurement evidence
-	// without advancing producer cursors or lifecycle. If SQLite itself remains
-	// unavailable, retain an in-memory pending count for the next successful
 	// evaluation; there is no alternate file authority.
 	persistContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
@@ -1063,14 +1022,11 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 			}
 			if candidate.Kind == rpc.AlertKindMarginSafety && !batch.MarginEvidenceObserved {
 				// An unobserved margin cushion is an omission: the episode
-				// holds on aging evidence instead of recovering on a
 				// source-level negative that never saw the cushion.
 				continue
 			}
 			// The retired Protection classifier cannot be recovered by a successor
 			// authority universe merely because the new classifier omitted it. Other
-			// sources use stable episode identities across legitimate policy changes,
-			// so their current negative is the authoritative recovery evidence.
 			if policy := durablePolicyByEpisode[candidate.EpisodeKey]; !alertShadowPolicyMayRecover(candidate.Source, policy, batch.PolicyFingerprint) {
 				continue
 			}
@@ -1080,7 +1036,6 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 				if _, held := batch.NegativeHold[candidate.EpisodeKey]; held {
 					// This episode's rule is uncovered this cycle, so its
 					// absence proves nothing: the negative stays untrusted and
-					// non-current, and the registry retains the episode.
 					negativeHealth = rpc.AlertEvidencePartial
 				} else {
 					reason = alertShadowDecisionClassifiedClear
@@ -1090,7 +1045,6 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 			if evidenceFingerprint == "" && !batch.Covered {
 				// An untrusted negative may update health/source time, but must
 				// retain the producer identity needed to prove broker scope on a
-				// later authoritative observation.
 				evidenceFingerprint = candidate.EvidenceFingerprint
 			}
 			if evidenceFingerprint == "" {
@@ -1371,11 +1325,8 @@ func alertShadowRegimeSourceEvidence(result rpc.RegimeSnapshotResult, name strin
 		// Producer-authored scheduled window: closed (not_due) or refresh in
 		// flight inside a bounded grace (pending). Accepted as current
 		// evidence only when the currency model re-derives the same class
-		// from the snapshot's own typed rows — RegimeClusterScheduledContext
 		// is the single authority on which clusters may sit in a scheduled
 		// window, so a stamp it does not corroborate is untrusted input: an
-		// uncorroborated not_due keeps the raw age/status evaluation below,
-		// an uncorroborated pending stays unrecognized vocabulary.
 		class := rpc.RegimeFreshnessNotDue
 		if source.RefreshState == rpc.SourceRefreshPending {
 			class = rpc.RegimeFreshnessPending
@@ -1390,7 +1341,6 @@ func alertShadowRegimeSourceEvidence(result rpc.RegimeSnapshotResult, name strin
 		}
 	case rpc.SourceRefreshFetchFailed, rpc.SourceRefreshFetchFailedBackoff:
 		// A failed due refresh is a data-health fact. The retained source row
-		// still decides whether Regime evidence is stale or unavailable.
 	default:
 		return rpc.AlertEvidenceError, alertShadowReasonSourceHealthError, false
 	}
@@ -1835,8 +1785,6 @@ func alertShadowDataHealthFacts(input alertShadowDataHealthInput) ([]alertShadow
 			storageSeen = true
 		}
 		// v1 keeps only independent root capabilities here. Gateway-derived
-		// quote/history/chain rows and normal computing/disabled work would
-		// multiply one outage into several noisy episodes.
 		if name != "storage" && name != "proposals" && name != "opportunities" {
 			continue
 		}
@@ -1942,7 +1890,6 @@ func alertShadowDataFarmAggregate(input alertShadowDataHealthInput, subsystems m
 		case "degraded":
 			// A degraded readiness row can mean only that this daemon did not
 			// observe TWS's informational farm-connected notice. Absence of a
-			// positive notice is diagnostic uncertainty, not evidence that a
 			// farm failed. Explicit broken/disconnected rows below own incidents.
 		case "unavailable", "error":
 			subsystemUnavailable = true
@@ -2092,15 +2039,10 @@ func alertShadowMapStress(scope alertShadowBrokerScope, result rpc.StressResult,
 }
 
 // alertShadowMarginObservation is the independent account-risk producer
-// (2026-07-30 operator decision): a low margin cushion alerts on its own
 // authority, without the market confirmation the top-level stress verdict
 // requires — the alert channel must not stay silent through an
 // account-only emergency in a calm market. Severity comes from the margin
-// signals the stress engine already stamped with its policy row thresholds
-// (MarginUrgentPct/ActPct/WatchPct), so this producer owns no thresholds
 // and the policy keeps exactly one copy. Recovery rides the synthesized
-// source-level negative, gated by MarginEvidenceObserved: an observed
-// healthy cushion recovers the episode, an unobserved cushion holds it.
 func alertShadowMarginObservation(scope alertShadowBrokerScope, result rpc.StressResult, batch alertShadowSourceBatch, observedAt time.Time) (observation alertEpisodeObservation, active, observed bool) {
 	var worst risk.SignalSeverity
 	for _, sig := range result.Signals {
@@ -2292,9 +2234,6 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 		return batch
 	}
 	// worst tracks only source-fatal conditions: a malformed shape, a forged
-	// vocabulary, or evidence already expired when observed. Honest per-source
-	// degradations no longer poison the batch — they become per-rule coverage
-	// gaps through the relevance map below (operator decision 2026-08-03:
 	// an alert is held back only when its own rule is broken).
 	worst := rpc.AlertEvidenceCurrent
 	reason := alertShadowReasonCurrent
@@ -2347,7 +2286,6 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 				}
 				if observedAt.UTC().After(expiresAt) {
 					// Expired at observation time is whole-snapshot staleness,
-					// not a scoped gap: nothing downstream may trust it.
 					fatal(rpc.AlertEvidenceStale, alertShadowReasonSourceHealthStale)
 					continue
 				}
@@ -2369,10 +2307,6 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 		}
 	}
 	// The producer stamps "degraded" exactly when some input health is not ok,
-	// so each direction of disagreement identifies a snapshot the real producer
-	// cannot emit: a forged all-ok "degraded" (including the deliberately
-	// uncovered unbound-evaluation clone) or an "ok" hiding a bad input.
-	// Neither may recover an episode or claim any coverage.
 	if worst == rpc.AlertEvidenceCurrent && (result.Status == "ok") == declaredNotOK {
 		batch.Status, batch.Reason, batch.EvidenceHealth = alertShadowStatusError, alertShadowReasonSnapshotInconsistent, rpc.AlertEvidenceError
 		return batch
@@ -2414,8 +2348,6 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 				fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
 			}
 			// A safely-not-evaluated claim rests on in-result typed authority
-			// (session calendar, book shape, earnings proofs), not on the
-			// input healths — the rule stays covered.
 			continue
 		default:
 			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
@@ -2456,7 +2388,6 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 	}
 	if worst != rpc.AlertEvidenceCurrent {
 		// A fatally malformed snapshot reports the worst of everything it
-		// declared: the shape defect and the declared input degradations rank
 		// together, exactly as the scalar model did.
 		if alertShadowEvidenceRank(declaredWorst) > alertShadowEvidenceRank(worst) {
 			worst, reason = declaredWorst, declaredReason
@@ -2498,10 +2429,6 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 }
 
 // alertShadowRulebookHealthRelevance is the conservative operator-approved map
-// (2026-08-03) from canonical input healths to the rules whose evaluated
-// verdicts rest on them. Safely-not-evaluated rows bypass it, and rule 11 is
-// deliberately absent: it is coverage-neutral. Regime staleness un-covers only
-// the regime-conditional rules, which evaluate against carried thresholds.
 var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleSingleNameExposure: {"account", "positions"},
 	risk.RuleOptionLinePremium:  {"account", "positions"},
@@ -2572,7 +2499,6 @@ func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResul
 		return row.Reason == risk.RuleReasonNoLongBook
 	default:
 		// Rule 11 never reaches here: it is coverage-neutral and skipped
-		// before status inspection.
 		return false
 	}
 }
@@ -2588,7 +2514,6 @@ const (
 
 // alertShadowRulebookSafeEarningsNotEvaluated verifies the same-result typed
 // authority behind every exempt name. A row reason is disclosure, not proof,
-// and cannot by itself recover an active alert episode.
 func alertShadowRulebookSafeEarningsNotEvaluated(row risk.RuleRow, result rpc.RulesResult) bool {
 	if result.AsOf.IsZero() || len(row.Exempt) == 0 || len(row.Offenders) != 0 {
 		return false
@@ -2702,9 +2627,7 @@ func alertShadowRulebookEarningsAuthorityFor(info rpc.EarningsInfo, asOf time.Ti
 
 // validRulebookSecurityTypeEarningsAuthority accepts the typed classification
 // the daemon emits for a security with no issuer. It carries no timestamps
-// because it depends on nothing that expires: an index does not acquire an
 // issuer later. The security type itself is the whole authority, so it must be
-// present and inside the closed vocabulary — Source alone proves nothing.
 func validRulebookSecurityTypeEarningsAuthority(info rpc.EarningsInfo) bool {
 	if strings.TrimSpace(info.Symbol) == "" || strings.TrimSpace(info.Symbol) != info.Symbol || info.Stale ||
 		info.Source != "security_type" || info.Status != rpc.EarningsStatusNotApplicable ||
@@ -3032,10 +2955,6 @@ func alertShadowNudgeInputEvidence(input rpc.NudgeInputHealth) (rpc.AlertEvidenc
 		return rpc.AlertEvidenceCurrent, alertShadowReasonCurrent
 	case rpc.NudgeInputStatusInactive:
 		// An explicitly inactive reminder dependency is authoritative negative
-		// evidence, not missing evidence. This is how a valid v3 policy says that
-		// v4 cadence and confirmed-flow producers are outside its candidate
-		// universe while independent policy, drawdown, and reconciliation facts
-		// remain evaluable.
 		return rpc.AlertEvidenceCurrent, alertShadowReasonCurrent
 	case rpc.NudgeInputStatusUnapproved:
 		return rpc.AlertEvidencePartial, alertShadowReasonHealthUnapproved
@@ -3115,11 +3034,8 @@ func alertShadowCandidateMatchesScope(candidate rpc.AlertCandidate, scope alertS
 		return false
 	}
 	// Rulebook and order-integrity observations use stable producer identities
-	// (rule ID and journal route) rather than the evidence fingerprint as the
-	// final episode-key component. The registry snapshot was already selected by
 	// this exact opaque account/mode authority, and a covered batch is a complete
 	// source-wide read for that authority, so omission is an explicit negative
-	// for every prior episode owned by the same source.
 	if candidate.Source == rpc.AlertSourceRegime || candidate.Source == rpc.AlertSourceRulebook ||
 		candidate.Source == rpc.AlertSourceProtection || candidate.Source == rpc.AlertSourceOrderIntegrity ||
 		candidate.Source == rpc.AlertSourceDataHealth {

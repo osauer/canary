@@ -10,13 +10,7 @@ import (
 
 // AccountDailyPnL is the most recent account-level frame from an IBKR reqPnL
 // subscription. Monetary values are expressed in the account's base currency,
-// and AsOf is the UTC time at which this process received the frame.
-//
-// DailyPnL covers the current trading day. UnrealizedTotalPnL and
-// RealizedTotalPnL are lifetime totals carried on the same frame, not
-// components of DailyPnL, and therefore do not sum to it. Pointer fields
 // distinguish an observed zero from a missing, unavailable, or IBKR sentinel
-// value.
 type AccountDailyPnL struct {
 	DailyPnL           *float64
 	UnrealizedTotalPnL *float64
@@ -27,7 +21,6 @@ type AccountDailyPnL struct {
 
 // DailyPnLFrameStatus distinguishes a usable Daily P&L value from a gateway
 // placeholder and from malformed wire data. Callers must not infer those
-// states from a nil value alone.
 type DailyPnLFrameStatus string
 
 // Daily P&L frame statuses reported by the connector.
@@ -39,9 +32,7 @@ const (
 
 // PositionDailyPnL is the most recent per-contract frame from an IBKR
 // reqPnLSingle subscription. Monetary values are expressed in the account's
-// base currency, and AsOf is the UTC receive time. Pointer fields use the same
 // missing-versus-zero semantics as [AccountDailyPnL]. UnrealizedTotalPnL and
-// RealizedTotalPnL are lifetime totals, not components of DailyPnL.
 type PositionDailyPnL struct {
 	DailyPnL           *float64
 	UnrealizedTotalPnL *float64
@@ -50,20 +41,16 @@ type PositionDailyPnL struct {
 }
 
 // pnlCache holds account and per-position subscription identities and the
-// immutable snapshots published by their handlers.
 type pnlCache struct {
 	mu sync.RWMutex
 
 	accountReqID int // 0 means no active subscription
 	accountAcct  string
 	// accountStartedAt distinguishes a healthy subscription still awaiting
-	// its first frame from one that has been silent beyond the repair window.
 	accountStartedAt time.Time
 	account          AccountDailyPnL
 
 	// positionReqIDs maps conId -> reqID. positionByReqID is the
-	// reverse map so the inbound handler (which sees reqID, not
-	// conId) can find the cache entry to update.
 	positionReqIDs   map[int]int
 	positionByReqID  map[int]int
 	positionSnapshot map[int]PositionDailyPnL
@@ -79,12 +66,9 @@ func newPnLCache() *pnlCache {
 
 // dblMaxNotSent is IBKR's "not yet computed" sentinel for double
 // fields. The wire emits the exact DBL_MAX value (1.7976931348623157e+308);
-// we accept anything within an eyelash of that to absorb gateway-side
-// float-printing variance.
 const dblMaxNotSent = 1e300
 
 // parsePnLFloat converts a wire field to a pointer-or-nil. Empty
-// strings, unparseable values, and the DBL_MAX sentinel all become nil.
 // We don't surface parse errors — IBKR's gateway is the source of truth;
 // a malformed field is something to be silent about, not a hard fail.
 func parsePnLFloat(s string) *float64 {
@@ -118,7 +102,6 @@ func parseDailyPnLFloat(s string) (*float64, DailyPnLFrameStatus) {
 // RequestPnL starts a reqPnL stream for account using reqID. modelCode is empty
 // for accounts without a Financial Advisor model. The caller owns reqID,
 // response handling, and cancellation; [Connector.SubscribeAccountPnL]
-// provides those lifecycle and caching responsibilities.
 func (c *Connection) RequestPnL(reqID int, account, modelCode string) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
@@ -140,8 +123,6 @@ func (c *Connection) RequestPnL(reqID int, account, modelCode string) error {
 }
 
 // CancelPnL requests cancellation of the reqPnL stream identified by reqID.
-// It returns nil when the connection is already down because socket closure
-// also terminates the stream.
 func (c *Connection) CancelPnL(reqID int) error {
 	if reqID <= 0 || reqID > maxProtoInt32 {
 		return fmt.Errorf("reqPnL request ID must be a positive signed 32-bit integer")
@@ -155,8 +136,6 @@ func (c *Connection) CancelPnL(reqID int) error {
 
 // RequestPnLSingle starts a reqPnLSingle stream for conID on account using
 // reqID. modelCode is empty for accounts without a Financial Advisor model.
-// The caller owns request-ID correlation, response handling, and cancellation;
-// [Connector.SubscribePositionDailyPnL] provides those responsibilities.
 func (c *Connection) RequestPnLSingle(reqID int, account, modelCode string, conID int) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
@@ -181,7 +160,6 @@ func (c *Connection) RequestPnLSingle(reqID int, account, modelCode string, conI
 }
 
 // CancelPnLSingle requests cancellation of the reqPnLSingle stream identified
-// by reqID. It returns nil when the connection is already down.
 func (c *Connection) CancelPnLSingle(reqID int) error {
 	if reqID <= 0 || reqID > maxProtoInt32 {
 		return fmt.Errorf("reqPnLSingle request ID must be a positive signed 32-bit integer")
@@ -194,16 +172,8 @@ func (c *Connection) CancelPnLSingle(reqID int) error {
 }
 
 // parseAccountPnLFields parses an inbound msgPnL frame. The wire layout
-// after the leading msgID is:
-//
-//	[reqId] [dailyPnL] [unrealizedPnL] [realizedPnL]
-//
 // unrealizedPnL / realizedPnL (fields 3 & 4) are the account's TOTAL
-// unrealized / realized P&L (inception to now), not a decomposition of
 // dailyPnL — see AccountDailyPnL. Older gateways (server < 150) emit only
-// the first two fields after reqId; we accept the short form and leave the
-// remaining pointers nil. Returns reqID and a populated snapshot; ok=false
-// on a malformed frame.
 func parseAccountPnLFields(fields []string) (reqID int, snap AccountDailyPnL, ok bool) {
 	// fields[0] = msgID; fields[1] = reqId; fields[2+] = payload.
 	if len(fields) < 3 {
@@ -225,20 +195,9 @@ func parseAccountPnLFields(fields []string) (reqID int, snap AccountDailyPnL, ok
 }
 
 // parsePositionPnLFields parses an inbound msgPnLSingle frame. Wire
-// layout after the leading msgID:
-//
-//	[reqId] [pos] [dailyPnL] [unrealizedPnL] [realizedPnL] [value]
-//
-// pos and value are not surfaced — pos is just a sanity check on
 // position size (we already have it from reqAccountUpdates), and value
-// is a stale snapshot of MarketValue. unrealizedPnL / realizedPnL
-// (fields 4 & 5) are the position's TOTAL unrealized / realized P&L, not
-// a decomposition of dailyPnL. Older gateways may omit those two fields;
-// same nil-as-unknown semantics.
 func parsePositionPnLFields(fields []string) (reqID int, snap PositionDailyPnL, ok bool) {
 	// fields[0] = msgID; fields[1] = reqId; fields[2] = pos;
-	// fields[3] = dailyPnL; fields[4] = unrealizedPnL; fields[5] = realizedPnL;
-	// fields[6] = value.
 	if len(fields) < 4 {
 		return 0, PositionDailyPnL{}, false
 	}
@@ -260,7 +219,6 @@ func parsePositionPnLFields(fields []string) (reqID int, snap PositionDailyPnL, 
 // SubscribeAccountPnL starts and caches a streaming reqPnL subscription for
 // account. account must be non-empty. Repeated calls for the same account are
 // idempotent; changing the account cancels the previous stream, clears its
-// cached snapshot, and starts a new one. [Connector.Stop] cancels the active
 // stream. Use [Connector.AccountDailyPnL] for non-blocking cache reads. Callers
 // must serialize attempts to switch one connector between different accounts.
 func (c *Connector) SubscribeAccountPnL(account string) error {
@@ -283,7 +241,6 @@ func (c *Connector) SubscribeAccountPnL(account string) error {
 		return nil
 	}
 	// Account changed (rare): tear down the old subscription before
-	// claiming the new reqID slot.
 	oldReqID := c.pnl.accountReqID
 	c.pnl.mu.Unlock()
 	if oldReqID != 0 {
@@ -325,8 +282,6 @@ func (c *Connector) SubscribeAccountPnL(account string) error {
 // AccountDailyPnL returns the most recently received account Daily P&L
 // snapshot. ok is false until [Connector.SubscribeAccountPnL] is active and a
 // frame has been received. The method neither blocks nor issues wire traffic.
-// Handlers replace snapshots rather than mutating their pointed-to values, so
-// the returned shallow copy remains stable.
 func (c *Connector) AccountDailyPnL() (AccountDailyPnL, bool) {
 	c.pnl.mu.RLock()
 	defer c.pnl.mu.RUnlock()
@@ -334,14 +289,11 @@ func (c *Connector) AccountDailyPnL() (AccountDailyPnL, bool) {
 		return AccountDailyPnL{}, false
 	}
 	// Defensive copy; the snapshot holds pointers but they aren't
-	// mutated in place — handlers always rebuild the struct.
 	return c.pnl.account, true
 }
 
 // SubscribePositionDailyPnL starts and caches a reqPnLSingle stream for conID
 // on account. account must be non-empty and conID must be positive. Streams are
-// keyed by conID, so repeated calls for an already subscribed contract are
-// idempotent. [Connector.Stop] cancels all active position streams. The method
 // returns [ErrIBKRUnavailable] when the connector is disconnected. One
 // connector must not reuse the same conID for different accounts.
 func (c *Connector) SubscribePositionDailyPnL(account string, conID int) error {
@@ -380,7 +332,6 @@ func (c *Connector) SubscribePositionDailyPnL(account string, conID int) error {
 	c.pnl.positionReqIDs[conID] = reqID
 	c.pnl.positionByReqID[reqID] = conID
 	// Pre-populate an empty snapshot so AccountDailyPnL-style "exists
-	// but unknown" reads can disambiguate from "never subscribed".
 	c.pnl.positionSnapshot[conID] = PositionDailyPnL{}
 	c.pnl.mu.Unlock()
 
@@ -398,11 +349,7 @@ func (c *Connector) SubscribePositionDailyPnL(account string, conID int) error {
 }
 
 // PositionDailyPnL returns the cached per-contract Daily P&L snapshot for
-// conID. ok is false when no subscription exists. ok may be true while all
-// value pointers are nil, meaning the stream is active but has not supplied
 // usable values. The method neither blocks nor issues wire traffic. Handlers
-// replace snapshots rather than mutating their pointed-to values, so the
-// returned shallow copy remains stable.
 func (c *Connector) PositionDailyPnL(conID int) (PositionDailyPnL, bool) {
 	c.pnl.mu.RLock()
 	defer c.pnl.mu.RUnlock()
@@ -420,7 +367,6 @@ func (c *Connector) ActiveDailyPnLSubscriptions() int {
 
 // AccountID returns the account code most recently received from IBKR's
 // managedAccounts frame. It returns an empty string before that frame is
-// observed or when the connector has no connection.
 func (c *Connector) AccountID() string {
 	c.mu.RLock()
 	conn := c.conn
@@ -432,9 +378,6 @@ func (c *Connector) AccountID() string {
 }
 
 // cancelAllPnL is called from Connector.Stop to tear down every
-// outstanding PnL subscription. Best-effort: the gateway drops
-// subscriptions on socket close anyway, so cancel-time errors are
-// logged at debug and otherwise ignored.
 func (c *Connector) cancelAllPnL() {
 	c.mu.RLock()
 	conn := c.conn
@@ -469,12 +412,6 @@ func (c *Connector) cancelAllPnL() {
 }
 
 // dailyPnLStaleResubscribe bounds how long the account daily-P&L stream may go
-// without its first frame or a later update, during market hours, before
-// MaybeResubscribeStaleDailyPnL treats it as silently dead and force-rebuilds
-// it. It also doubles as the throttle window between rebuild attempts. reqPnL
-// pushes on change and, during regular hours on an active book, ticks every
-// few seconds, so silence this old is a genuine anomaly rather than a quiet
-// market.
 const dailyPnLStaleResubscribe = 90 * time.Second
 
 func (c *Connector) pnlResubClock() time.Time {
@@ -486,10 +423,6 @@ func (c *Connector) pnlResubClock() time.Time {
 
 // MaybeResubscribeStaleDailyPnL rebuilds all Daily P&L streams when marketOpen
 // is true and the account stream has not produced its first frame or its last
-// frame is stale. The caller owns the market calendar; off-hours inactivity is
-// not treated as stale. It returns true when a rebuild attempt is issued, not
-// when a replacement frame is received. Attempts are throttled to one per
-// internal staleness window.
 func (c *Connector) MaybeResubscribeStaleDailyPnL(marketOpen bool) bool {
 	if !marketOpen || !c.isConnected() {
 		return false
@@ -528,9 +461,7 @@ func (c *Connector) MaybeResubscribeStaleDailyPnL(marketOpen bool) bool {
 // forceResubscribeDailyPnL tears down and re-issues the account and per-position
 // daily-P&L subscriptions, preserving the same account/conId set. Unlike the
 // idempotent SubscribeAccountPnL / SubscribePositionDailyPnL, it revives a
-// stream the gateway has stopped feeding: the cache identity is cleared first so
 // the idempotency guards re-arm, then the old wire subscriptions are cancelled
-// and fresh ones requested. Inbound frames from the cancelled reqIDs are ignored
 // by handlePnL (reqID mismatch), so no stale frame races the rebuild.
 func (c *Connector) forceResubscribeDailyPnL() {
 	c.mu.RLock()
@@ -584,7 +515,6 @@ func (c *Connector) forceResubscribeDailyPnL() {
 
 // handlePnL is the connector-side msgPnL handler. Decodes the frame
 // and updates the cache so AccountDailyPnL reads see fresh values.
-// Registered via registerHandlers.
 func (c *Connector) handlePnL(fields []string) {
 	reqID, snap, ok := parseAccountPnLFields(fields)
 	if !ok {
@@ -593,10 +523,7 @@ func (c *Connector) handlePnL(fields []string) {
 	c.pnl.mu.Lock()
 	if c.pnl.accountReqID == 0 || c.pnl.accountReqID != reqID {
 		// Stale frame from a previous subscription (or we never
-		// subscribed). Drop silently — re-subscribing after a
 		// reconnect can race with the last few frames of the prior
-		// connector's subscription if the gateway is slow to honor
-		// the cancel.
 		c.pnl.mu.Unlock()
 		return
 	}

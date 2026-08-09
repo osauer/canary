@@ -29,8 +29,6 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
     : "signed";
   renderAccountDailyPnlPct(account);
   // The account id is demoted to a quiet subtitle and masked by the eye toggle;
-  // money values are the headline. An unresolved placeholder renders
-  // plainly since it is not a sensitive id.
   renderSensitiveAccountId("accountLabel", accountContext.accountId, accountContext.accountLabel);
   renderTradingEnvPill(accountContext.modeClass);
   renderAccountFreshness(account, state.snapshot?.sources?.account || {});
@@ -63,7 +61,6 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
 
 
 // The Net $ Delta window is a flush readout: no lamp slot, because a delta is
-// a reading, not an alarm. Every figure is a served portfolio field and
 // stays behind the account privacy mask.
 function renderDeltaTile(portfolio = {}, baseCurrency = "") {
   const lead = $("deltaTileLead");
@@ -359,8 +356,6 @@ function renderUnderlyingPnlSummary(totals) {
   setUnderlyingSummaryPnl("underlyingWinnerPnl", totals.winner, totals.winnerCurrency);
   setUnderlyingSummaryPnl("underlyingLoserPnl", totals.loser, totals.loserCurrency);
   // The winner/loser buckets and the brief's Movers row share one basis —
-  // daily P/L attributed per underlying — and this line says so on screen,
-  // with the session context, so the two surfaces reconcile by inspection.
   const basis = $("underlyingPnlBasis");
   if (basis) {
     const hasTotals = hasNumericValue(totals.winner) || hasNumericValue(totals.loser);
@@ -370,7 +365,6 @@ function renderUnderlyingPnlSummary(totals) {
 }
 
 // The movers row on the Monitor face: the same daily-P/L-by-underlying basis
-// the Underlyings hero uses, largest movement first, with the remainder
 // disclosed as one residual clause so the row never implies it is the whole
 // book. Money keeps the 60% tints and the account privacy mask.
 function renderMovers(rows, baseCurrency) {
@@ -379,9 +373,6 @@ function renderMovers(rows, baseCurrency) {
   if (!placard || !strip) return;
   const movers = moverRows(rows);
   // The movers row is also the Underlyings sheet's opener: on a flat or
-	// flat book the row would hide and strand the book behind no
-  // control at all, so a held book keeps the placard with an honest
-  // no-movement reading instead.
   const heldBook = Array.isArray(rows) && rows.length > 0;
   placard.hidden = movers.length === 0 && !heldBook;
   strip.hidden = movers.length === 0 && !heldBook;
@@ -431,9 +422,7 @@ function moverCell(label, value, currency) {
 
 // marketSessionClosed reads the served official us-equity calendar (never the
 // market-strip selection override). The broker's daily P/L does NOT freeze at
-// the close — it keeps moving on extended/overnight marks and rolls to the
 // next trading day — so closed-session totals are labeled since-close, never
-// as a completed-session result.
 function marketSessionClosed() {
   const session = state.snapshot?.market_calendar?.session;
   return Boolean(session && session.is_open === false);
@@ -547,7 +536,6 @@ function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
       quote,
       quoteError: quoteState.error,
       // Mirrors rpc.ExpectsMarketDataGroup: an option leg still needs a quote
-      // even when its underlying stock is defunct.
       expectsQuote: optionCount > 0 || !group.stock || group.stock.quote_expectation !== "none",
       held: true,
       stockCount,
@@ -837,7 +825,6 @@ function currentAccountContext(account = {}) {
   const visibleAccountLabel = accountLabel || (scopesConflict ? "Account mismatch" : "Account unresolved");
   return {
     // accountId is the concrete broker id (masked by the eye toggle); it is
-    // empty for an unresolved/mismatch placeholder, which is not sensitive.
     accountId: accountLabel,
     accountLabel: visibleAccountLabel,
     modeClass: String(modeLabel).toLowerCase().includes("paper") ? "paper" : String(modeLabel).toLowerCase().includes("live") ? "live" : "neutral",
@@ -847,14 +834,6 @@ function currentAccountContext(account = {}) {
 }
 
 // Operator decision (supersedes the earlier hide-in-live stance): the account
-// strip ALWAYS states the mode. A plate that goes silent in live asks the
-// reader to infer the loudest fact on the panel from an absence.
-//
-// LIVE reads in the plate's own engraved register — it is the normal state,
-// and normal states do not shout. PAPER is the one deliberate identity
-// exception: red field, white text, the TWS simulated-trading convention a
-// trader already reads without thinking. It is a dedicated modifier, not a
-// severity lamp: nothing is wrong when the desk is on paper, the numbers are
 // simply not real money. An unresolved mode renders a muted "mode?" — fail
 // visible, never silently resemble live.
 function renderTradingEnvPill(modeClass) {

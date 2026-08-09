@@ -25,7 +25,6 @@ import (
 // Daily IBKR Flex statement ingestion (internal-docs/design/post-trade-truth.md).
 // Read-only toward the broker. The Flex token is read from its own 0600
 // file at fetch time and must never appear in any error, log line, journal,
-// RPC result, or saved artifact — errors are built from Flex status codes,
 // never from request URLs.
 
 const (
@@ -38,9 +37,6 @@ const (
 	flexFetchProjecting   = "projecting"
 	flexScheduleZone      = "Europe/Berlin"
 	// IBKR says securities statements are available around midnight
-	// Eastern. 06:30 Europe/Berlin is at least 30 minutes later throughout
-	// the year (and later during the short DST-mismatch windows). It is the
-	// first attempt, not a claim of real-time payment finality.
 	flexMorningHour   = 6
 	flexMorningMinute = 30
 	flexPollInterval  = 10 * time.Second
@@ -48,7 +44,6 @@ const (
 	flexHTTPTimeout   = 30 * time.Second
 	// One SendRequest plus every documented GetStatement attempt may each
 	// consume the HTTP timeout. Keep the outer budget larger than that exact
-	// contract instead of silently cutting the poll loop short.
 	flexFetchTimeout     = (flexPollAttempts+1)*flexHTTPTimeout + (flexPollAttempts-1)*flexPollInterval + time.Minute
 	flexRetryAfterFail   = 30 * time.Minute
 	flexManualRetryFloor = time.Minute
@@ -76,8 +71,6 @@ type flexFetchStateV2 struct {
 	LastRetryable bool      `json:"last_retryable,omitempty"`
 	// TargetDate is the Berlin calendar day whose one daily broker check is
 	// being attempted. CoverageTo is deliberately separate: IBKR activity
-	// reports carry the last business date, which can remain Friday through a
-	// weekend or remain unchanged on a holiday.
 	TargetDate  time.Time `json:"target_date,omitzero"`
 	CoverageTo  time.Time `json:"coverage_to,omitzero"`
 	NextAttempt time.Time `json:"next_attempt,omitzero"`
@@ -181,8 +174,6 @@ func (st *flexFetchState) bindCore(ctx context.Context, core *corestore.Store) e
 		}
 	}
 	// A daemon that stopped mid-request cannot still be checking after a
-	// restart. Recover it as an automatic retry without trusting the former
-	// process's unfinished stage.
 	recoveredProjecting := state.Stage == flexFetchProjecting
 	recoveredInterrupted := state.Stage == rpc.ReconReportStateChecking || recoveredProjecting
 	if recoveredInterrupted {
@@ -254,8 +245,6 @@ func (st *flexFetchState) isBusy() bool {
 }
 
 // runFlexFetchLoop checks a once-per-Berlin-day morning schedule. Durable attempt
-// state makes every daemon restart a catch-up opportunity; the paired app's
-// standing poll naturally autospawns the short-lived daemon when needed.
 func (s *Server) runFlexFetchLoop(ctx context.Context) {
 	if s == nil || s.cfg == nil || !s.cfg.Flex.Enabled {
 		return
@@ -352,7 +341,6 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 	var outcome flexFetchOutcome
 	var err error
 	// Projection failures are retried locally from retained broker evidence on
-	// the same daily target; do not redownload a report that was already saved.
 	st.mu.Lock()
 	localRetry := st.state.LastReason == rpc.ReconReportReasonProjectionFailed &&
 		failedTarget.Equal(targetDate) && evidenceOK
@@ -434,10 +422,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 }
 
 // fetchFlexOnce runs the two-step Flex protocol: SendRequest returns a
-// reference code, GetStatement is polled until the report is generated.
-// The saved raw file is validated through the parser before retention so a
 // service envelope can never sit in the statements dir pretending to be a
-// week with no activity.
 func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutcome, error) {
 	cfg := s.cfg.Flex
 	queryID := strings.TrimSpace(cfg.QueryID)
@@ -499,9 +484,7 @@ func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutco
 
 // retainFlexStatement accepts every complete, typed broker report, even when
 // its coverage date or generation timestamp has not advanced. IBKR activity
-// reports are business-day reports, and the configured query may change while
 // IBKR keeps the same generation timestamp. Exact bytes reuse retained
-// evidence; changed bytes at the same generation are retained as the latest
 // query result. Strictly older broker generations remain rejected.
 func retainFlexStatement(raw []byte) (flexFetchOutcome, error) {
 	statements, err := flexstmt.Parse(raw)
@@ -681,8 +664,6 @@ func flexDailyWindow(now time.Time) (targetDate, firstAttempt time.Time) {
 	firstAttempt = time.Date(local.Year(), local.Month(), local.Day(), flexMorningHour, flexMorningMinute, 0, 0, location)
 	// The job runs every calendar day, including weekends and holidays, but
 	// does not invent an expected broker coverage date. IBKR's own report says
-	// what business date it covers. Canonical UTC midnight makes the daily job
-	// identity independent of the host timezone.
 	targetDate = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	return targetDate, firstAttempt.UTC()
 }
@@ -758,7 +739,6 @@ func (s *Server) flexFetchStatusAt(now time.Time) rpc.ReconFetchStatus {
 			return status
 		}
 		// Retry immediately only for the same daily target. On a new
-		// calendar day, keep the automatic job behind the 06:30 window.
 		if persisted.TargetDate.Equal(targetDate) {
 			next := persisted.NextAttempt
 			if next.IsZero() {
@@ -812,7 +792,6 @@ func flexReasonMessage(reason string) string {
 
 // loadRetainedFlexStatements parses every retained raw statement, newest
 // file first. A file that no longer parses is reported, never skipped
-// silently.
 func loadRetainedFlexStatements() ([]flexstmt.Statement, []string, error) {
 	return loadRetainedFlexStatementsContext(context.Background(), nil)
 }

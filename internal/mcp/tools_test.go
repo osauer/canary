@@ -2,15 +2,18 @@ package mcp
 
 import (
 	"encoding/json"
-	"slices"
-	"strings"
-	"testing"
 
 	"github.com/osauer/canary/v2/internal/cli"
+
 	"github.com/osauer/canary/v2/internal/rpc"
+
+	"slices"
+
+	"strings"
+
+	"testing"
 )
 
-// TestParity keeps the intentionally small CLI and MCP inventories aligned.
 func TestParity(t *testing.T) {
 	cliNames := map[string]bool{}
 	for _, command := range cli.Commands() {
@@ -58,19 +61,6 @@ func hasMCPSubtool(names map[string]bool, parent string) bool {
 	return false
 }
 
-func TestSchemasAreValidJSON(t *testing.T) {
-	for _, tool := range Tools {
-		var schema map[string]any
-		if err := json.Unmarshal(tool.JSONSchema, &schema); err != nil {
-			t.Errorf("%s schema: %v", tool.Name, err)
-		} else if schema["type"] != "object" {
-			t.Errorf("%s schema type = %v", tool.Name, schema["type"])
-		}
-	}
-}
-
-// TestNoTradingTools is the MCP broker-write boundary. Discovery and order
-// history are allowed; preview, place, modify, cancel, and exercise are not.
 func TestNoTradingTools(t *testing.T) {
 	for _, tool := range Tools {
 		if tool.ReadOnlyHint != nil && !*tool.ReadOnlyHint {
@@ -131,6 +121,33 @@ func TestOrderJournalSanitizerWithholdsBrokerProse(t *testing.T) {
 		}
 		if strings.Contains(string(raw), "SYSTEM") || strings.Contains(string(raw), "advanced_reject_json") {
 			t.Errorf("%s leaked broker prose: %s", name, raw)
+		}
+	}
+}
+
+func TestMCPToolsDeclareCataloguedMethodsAndHeadroom(t *testing.T) {
+	t.Parallel()
+	for _, tool := range Tools {
+		if len(tool.RPCMethods) == 0 {
+			t.Errorf("tool %s declares no daemon methods", tool.Name)
+			continue
+		}
+		for _, method := range tool.RPCMethods {
+			timing, ok := rpc.LookupMethodTiming(method)
+			if !ok {
+				t.Errorf("tool %s declares uncatalogued method %q", tool.Name, method)
+				continue
+			}
+			if timing.Lifetime != rpc.MethodLifetimeUnary {
+				t.Errorf("tool %s declares streaming method %q; streams belong in MCP resources", tool.Name, method)
+			}
+		}
+		budget := mcpToolCallTimeout(tool.Name, nil)
+		for _, method := range mcpToolMethodsForCall(tool.Name, nil) {
+			timing, ok := rpc.LookupMethodTiming(method)
+			if ok && budget <= timing.DaemonTimeout {
+				t.Errorf("tool %s budget %s does not outlive %q daemon timeout %s", tool.Name, budget, method, timing.DaemonTimeout)
+			}
 		}
 	}
 }

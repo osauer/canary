@@ -385,18 +385,9 @@ const context = await browser.newContext({
   hasTouch: mobile,
 });
 // The operator's real unread attention is human-only evidence: this smoke
-// drives the real shared host in a headless page that reports itself
-// "visible", so opening the Alerts tab would POST /api/alerts/attention/read with
-// the real high-water and silently mark the operator's unread as read. Intercept the
 // POST before any page interaction, never forward it, and answer with the
-// shape the SPA expects so its state machine stays coherent.
-// The SPA's service worker claims its clients immediately (skipWaiting +
 // clients.claim), and WebKit never surfaces SW-controlled page fetches to
-// Playwright's network routes — a context.route here silently lets the POST
-// reach the real host. The primary guard therefore diverts the POST inside
-// the page's wrapped fetch (init script below), before any network layer can
 // see it; this route stays only as a second net for engines and windows
-// where routing does observe the request.
 let attentionReadIntercepted = 0;
 let attentionReadRouted = 0;
 await context.route(`${baseURL}/api/alerts/attention/read`, async (route) => {
@@ -431,7 +422,6 @@ if (noNotification) {
       });
     } catch {
       // Some engines make host globals non-configurable. The smoke still
-      // catches ordinary browser errors through pageerror/console.
     }
   });
 }
@@ -471,9 +461,6 @@ await context.addInitScript(() => {
     const method = String((typeof request === "string" ? fetchArgs[1]?.method : request?.method || fetchArgs[1]?.method) || "GET").toUpperCase();
     if (method === "POST" && url.endsWith("/api/alerts/attention/read")) {
       // The QA page must never mark the operator's real unread as read.
-      // Divert before any network layer (service-worker control hides this
-      // request from Playwright routing in WebKit) and answer with the
-      // current full DTO shape the SPA expects without advancing the cursor.
       let throughSeq = 0;
       try {
         const raw = typeof request === "string" ? fetchArgs[1]?.body : await request.clone().text();
@@ -509,11 +496,7 @@ await context.addInitScript(() => {
     const es = new NativeEventSource(url, options);
     globalThis.__canarySmoke.openedEvents++;
     // Fixture phases freeze the live stream for the APP's listeners only: a
-    // real SSE snapshot landing between applySnapshotPatch and its assertion
-    // repaints the operator's actual desk state over the fixture (the
     // governance monthly-pulse assertion caught exactly that). The smoke's
-    // own counting listeners below register through nativeAdd and keep
-    // observing the wire while frozen.
     const nativeAdd = es.addEventListener.bind(es);
     es.addEventListener = (type, listener, ...rest) => {
       nativeAdd(type, (event) => {
@@ -592,7 +575,6 @@ try {
   // Prove the attention-read guard was armed and effective: the alerts tab
   // was just exercised in a visible headless page, so the SPA must have
   // attempted the acknowledge POST, and every attempt must have been
-  // intercepted rather than reaching the real host.
   const attentionGuardDeadline = Date.now() + 10000;
   attentionReadIntercepted = await attentionReadInterceptedCount(page);
   while (attentionReadIntercepted === 0 && Date.now() < attentionGuardDeadline) {
@@ -602,7 +584,6 @@ try {
   const attentionReadFetches = await page.evaluate(() => globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/attention/read")).length);
   // The ack deliberately skips its POST when nothing is unread, so on a
   // clean desk the guard proves itself differently: the ack path must have
-  // read the attention DTO from the alerts view, and zero POSTs may have
   // reached the wire. Any POST that did fire must have been diverted.
   if (attentionReadIntercepted === 0) {
     const attentionState = await page.evaluate(() => ({
@@ -630,8 +611,6 @@ try {
   const smokeState = await page.evaluate(() => globalThis.__canarySmoke);
   // The crypto-less pairing path used to mint a readable bearer secret here.
   // It no longer does — the HttpOnly device cookie is that path's only
-  // credential — so any value under this key means the fallback came back.
-  // The --no-webcrypto run is what makes this assertion worth anything.
   const plaintextDeviceSecret = await page.evaluate(() => !!localStorage.getItem("ibkrDeviceSecret"));
   if (plaintextDeviceSecret) {
     throw new Error("ibkrDeviceSecret is set: the plaintext device-secret fallback was reintroduced");
@@ -755,14 +734,10 @@ async function exerciseAccountPanel(page) {
   }
   // Freshness runs quiet-when-fresh: a hidden empty badge is the healthy
   // state; visible text is required only when the badge is shown (stale or
-  // missing timestamp).
   if (!panel.accountLabel || !panel.dailyPnlPct || panel.riskValues.some((value) => !value)) {
     throw new Error(`account panel is missing values: ${JSON.stringify(panel)}`);
   }
   // Operator decision: the plate ALWAYS states the mode — LIVE in the plate's
-  // engraved register, a loud red PAPER, or a muted "mode?" when the
-  // environment is unresolved. A hidden or empty plate is a bug: an absence
-  // is not a mode.
   if (panel.pillHidden || !["LIVE", "PAPER", "mode?"].includes(panel.pill)) {
     throw new Error(`unexpected trading-env plate state: ${JSON.stringify(panel)}`);
   }
@@ -959,8 +934,6 @@ async function assertVisibleRenameContract(page) {
 
 async function exerciseMarketLayout(page) {
   // Panel Dark session chip: "RTH · closes 3:59:04" while open, and the
-  // served closure word beside the countdown when shut ("Weekend · opens in
-  // 2d 14:30:07") — a seconds-precision countdown in both directions.
   await page.waitForFunction(() => {
     const text = document.getElementById("sessionPhase")?.textContent?.trim() || "";
     return /\b(closes|opens in) \d+d? ?\d*:\d{2}:\d{2}\b/i.test(text);
@@ -977,8 +950,6 @@ async function exerciseMarketLayout(page) {
     const accountAfterMarketStrip = !!(marketStrip && accountPanel && (marketStrip.compareDocumentPosition(accountPanel) & Node.DOCUMENT_POSITION_FOLLOWING));
     const phase = document.getElementById("sessionPhase")?.textContent?.trim() || "";
     // The market dot's title is the other rendering of the same served
-    // session state, so it is the oracle for whether the chip owes a closure
-    // word — no state this script invented enters the comparison.
     const sessionDotTitle = document.getElementById("marketStateDot")?.getAttribute("title") || "";
     const strip = document.querySelector(".market-strip");
     const stripStyle = strip ? getComputedStyle(strip) : null;
@@ -1054,7 +1025,6 @@ async function exerciseMarketLayout(page) {
     throw new Error(`market line should not repeat the selected market label: ${JSON.stringify(layout.phase)}`);
   }
   // A closed market states WHY in chip text, not only in the title: a
-  // countdown alone cannot tell a weekend from a holiday from a coverage gap.
   if (/closed for (the weekend|a holiday)/i.test(layout.sessionDotTitle) && /^opens\b/i.test(layout.phase)) {
     throw new Error(`closed session chip should lead with its served closure word: ${JSON.stringify(layout)}`);
   }
@@ -1081,7 +1051,6 @@ async function assertNoViewportOverflow(page) {
       const signalPanel = document.getElementById("signalPanel")?.getBoundingClientRect();
       const dashboard = document.getElementById("dashboard")?.getBoundingClientRect();
       // A tile the SPA hides (no rules payload yet) measures 0x0; drop it so
-      // the geometry assertions describe what is actually on the panel.
       const measured = (selector) => [...document.querySelectorAll(selector)]
         .map((tile) => tile.getBoundingClientRect())
         .filter((box) => box.width > 0);
@@ -1092,8 +1061,6 @@ async function assertNoViewportOverflow(page) {
       const regimeGrid = document.getElementById("regimeSummaryCard")?.getBoundingClientRect();
       const stress = document.getElementById("stressHero")?.getBoundingClientRect();
       // Panel Dark: the master annunciator spans the panel above two fixed
-      // instrument grids (six regime clusters 3x2, then the desk windows
-      // 2xN), and signalPanel itself spans the full dashboard width.
       const signalLayout = regimeTiles.length > 0 ? {
         regimeTiles: regimeTiles.length,
         regimeColumns: columns(regimeTiles),
@@ -1206,9 +1173,6 @@ async function exerciseUnderlyingPanelFixture(page) {
 
 async function exerciseStressDetail(page) {
   // Quiet-when-fresh blanks and hides the badge while the snapshot is fresh;
-  // that is the healthy state, not a missing timestamp. Badge and hero are
-  // sampled in one evaluate so the no-data decision cannot straddle the
-  // re-render when a fresh instance's first stress poll lands mid-exercise.
   const readStressHead = () => page.evaluate(() => {
     const badge = document.getElementById("stressAsOf");
     const text = badge?.textContent?.trim() || "";
@@ -1222,8 +1186,6 @@ async function exerciseStressDetail(page) {
   if (!head.quietFresh && stressTimestampMissing(head.timestamp)) {
     try {
       // Wait for either rendered outcome of the first stress poll: a visible
-      // real timestamp, or the quiet-when-fresh blank+hidden badge that a
-      // just-landed fresh snapshot renders.
       await page.waitForFunction(() => {
         const badge = document.getElementById("stressAsOf");
         if (!badge) return false;
@@ -1233,7 +1195,6 @@ async function exerciseStressDetail(page) {
       }, { timeout: 30000 });
     } catch {
       // A first stress poll can legitimately outlast this wait (fresh app
-      // instance against an off-hours live session); the pending-copy
       // assertion below still pins the rendered no-data contract.
     }
     head = await readStressHead();
@@ -1246,8 +1207,6 @@ async function exerciseStressDetail(page) {
   }
   if (timestampMissing) {
     // Panel Dark's pending stress window states "cushion pending" (WP1); the
-    // pre-instrument copy said "waiting for stress snapshot". Both are honest
-    // no-data renders on a freshly restarted daemon.
     if (!/waiting for stress snapshot|cushion pending/i.test(head.hero)) {
       throw new Error(`stress timestamp is missing without pending copy: ${JSON.stringify({ timestamp, pending: head.hero })}`);
     }
@@ -1282,9 +1241,6 @@ function stressTimestampMissing(value) {
 
 async function exerciseRulesCard(page) {
   // The rules card renders only once snapshot.rules arrives (stress
-  // cadence); a fresh instance may legitimately not have it yet. Absent
-  // card + no rules payload = pass with exercised:false, but a payload
-  // without a card is a rendering bug.
   const hasPayload = await page.evaluate(() => (globalThis.__canarySmoke?.latestRulesCount || 0) > 0);
   const visible = await page.locator("#stressRulesCard").evaluate((el) => !el.hidden).catch(() => false);
   if (!visible) {
@@ -1302,7 +1258,6 @@ async function exerciseRulesCard(page) {
     throw new Error("rules detail should be collapsed by default");
   }
   // The checklist lives in a tap-through sheet now: the Monitor Rules window
-  // is the way in, and opening the sheet is what expands the detail.
   await page.locator("#stressRulesCard").click();
   await page.waitForFunction(() => {
     const panel = document.getElementById("stressRulesDetailPanel");
@@ -1337,13 +1292,11 @@ async function exerciseRulesCard(page) {
 
 // Panel Dark tap-through: the Monitor is glance-only, so depth must live in
 // sheets opened from the instruments — and Opportunities must be
-// exception-shaped, with no standing surface on a clean book.
 async function exerciseSheetLayer(page) {
   const before = await page.evaluate(() => ({
     protectionSheetOpen: Boolean(document.getElementById("protectionSheet")?.open),
     underlyingsSheetOpen: Boolean(document.getElementById("underlyingsSheet")?.open),
     // A hidden ancestor means no boxes at all, which is exactly how a closed
-    // sheet keeps the reseated panels off the Monitor face.
     protectionOnMonitor: Boolean(document.getElementById("protectionPanel")?.offsetParent),
     underlyingsOnMonitor: Boolean(document.getElementById("underlyingPanel")?.offsetParent),
     opportunitiesHidden: Boolean(document.getElementById("opportunitiesPanel")?.hidden),
@@ -1367,7 +1320,6 @@ async function exerciseSheetLayer(page) {
   const protectionSheet = await page.evaluate(() => ({
     title: document.getElementById("protectionSheetTitle")?.textContent?.trim() || "",
     // The trim control keeps its own hidden gate (it needs reduce-eligible
-    // holdings), so its presence in the sheet is what is asserted here, not
     // that it is offered on this account.
     deriskSeated: Boolean(document.querySelector("#protectionSheet #protectionDerisk")),
     previewSeated: Boolean(document.querySelector("#protectionSheet #protectionDeriskPreview")),
@@ -1478,7 +1430,6 @@ async function exerciseMarketContext(page) {
   }
   // Regime and stress detail now expand independently (no mutual exclusion):
   // opening regime must not touch stress, and opening stress afterward must
-  // leave regime open too — both can be visible together in the shared deck.
   await page.locator("#regimeDetailToggle").click();
   await page.waitForFunction(() => {
     const panel = document.getElementById("regimeDetailPanel");
@@ -1524,14 +1475,10 @@ async function exerciseMarketContext(page) {
 
 
 // Panel Dark instrument contract: fixed cluster windows that never reorder,
-// a readout-class delta tile with no lamp slot, a lamp-test stamp that
 // reports served source health, and the master law — a lit red window can
 // never sit under a master that neither lamps nor discloses it.
 async function assertPanelDarkInstruments(page) {
   // Declared inside the function: the smoke invokes itself through a
-  // top-level await mid-file, so module-level consts below that line are
-  // still in the temporal dead zone when assertions run.
-  // One window per cluster the daemon ranks, in fixed positions.
   const REGIME_WINDOW_LEGENDS = ["Breadth", "Volatility", "Credit", "Dealer gamma", "Funding", "FX"];
   const instruments = await page.evaluate(() => {
     const litClass = (el) => [...(el?.classList || [])].find((name) => name.startsWith("pd-tile--")) || "";
@@ -1567,7 +1514,6 @@ async function assertPanelDarkInstruments(page) {
     }
   }
   // Trip anchors are SERVED or absent. A window may legitimately carry none
-  // (its producer served no trigger, or the window is dead), but a rendered
   // anchor must never be an empty stub the reader has to interpret.
   const blankTrip = instruments.clusters.find((cluster) => cluster.trip === "--");
   if (blankTrip) {
@@ -1583,18 +1529,11 @@ async function assertPanelDarkInstruments(page) {
     throw new Error("master annunciator should carry an action subline");
   }
   // Master law, first half: an act-lit window under an unlit master must
-  // still be disclosed by the master itself — either the governor hold that
-  // kept its severity down ("severity held ...") or an explicit red clause.
-  // A quiet master over a red window with neither is the silent disagreement
-  // the law exists to ban.
   const redWindows = instruments.clusters.filter((cluster) => cluster.lit === "pd-tile--act").length;
   if (redWindows > 0 && !instruments.master.lit && !/severity held|\b\d+ red:/i.test(instruments.master.sub)) {
     throw new Error(`master and panel disagree: ${redWindows} red window(s) under an unlit, undisclosed master: ${JSON.stringify(instruments.master)}`);
   }
   // Second half, after every daemon cluster got a window of its own: a lit red
-  // is disclosed BY its window, so the subline's "N red" clause is reserved
-  // for reds the panel genuinely cannot show. Naming a tiled cluster there
-  // would be the master repeating the panel back at the reader.
   const namedReds = /\b\d+ red: ([^·]+)/i.exec(instruments.master.sub);
   if (namedReds) {
     const legendsLower = legends.map((legend) => legend.toLowerCase());
@@ -1868,7 +1807,6 @@ async function exerciseAlertHistory(page) {
       poster: document.querySelector("#currentSignalList .pd-poster__word")?.textContent?.trim() || "",
       quiet: document.querySelector("#currentSignalList .empty-row")?.textContent?.trim() || "",
       // A placard row carries its count or chip alongside the legend; the
-      // legend is the first span, so read that rather than the whole row.
       placards: [...document.querySelectorAll("#alertsTab .pd-placard")].map((el) => (el.querySelector("span") || el).textContent?.trim() || ""),
       historyHidden: document.getElementById("alertsHistorySection")?.hidden !== false,
       activeLegendHidden: document.getElementById("currentSignalPlacard")?.hidden !== false,
@@ -1906,7 +1844,6 @@ async function exerciseAlertHistory(page) {
   }
   // Process evidence lives on the Settings back panel since WP5; the log
   // carries only its own placards, and the old one reappearing here would
-  // mean the relocation regressed.
   if (!info.placards.includes("Active") || info.placards.includes("Process evidence")) {
     throw new Error(`alerts placards are incomplete or carry relocated sections: ${JSON.stringify(info.placards)}`);
   }
@@ -1992,15 +1929,10 @@ async function exerciseLampTestDetail(page) {
 }
 
 // Briefing contract: the daemon composes the prose, the SPA renders it
-// verbatim. Either render is accepted (an older daemon serves no narrative and
-// the row sections stay the surface), but when the narrative IS served the
 // Panel Dark register must hold: movement placards, typed runs rendered as
-// text rather than markup, and the reconcile sign-off reachable inside the
 // Review movement exactly when the served row says it is signable.
 async function assertBriefNarrative(page) {
   // Declared inside the function: the smoke invokes itself through a
-  // top-level await mid-file, so module-level consts below that line are
-  // still in the temporal dead zone when assertions run.
   const MOVEMENT_PLACARDS = ["Review \u00b7 last session", "Ready \u00b7 next open"];
   const SEVERITY_WORDS = ["observe", "watch", "act", "ok", "attention", "degraded", "unavailable"];
   const MARKUP_LEAKS = ["[f]", "[/f]", "[w]", "[/w]", "[a]", "[/a]", "<span", "<b>"];
@@ -2010,7 +1942,6 @@ async function assertBriefNarrative(page) {
   await page.waitForFunction(() => document.getElementById("briefTab")?.hidden === false, { timeout: 5000 });
   await page.waitForSelector("#briefPanel:not([hidden])", { timeout: 5000 });
   // A brief source that is down renders its own empty state; report that as
-  // what it is instead of timing out on a selector that cannot appear.
   const settled = await (await page.waitForFunction(() => {
     const sections = document.getElementById("briefSections");
     if (sections?.querySelector(".pd-brf-lead")) return "narrative";
@@ -2027,7 +1958,6 @@ async function assertBriefNarrative(page) {
   const served = await page.evaluate(async () => {
     // A freshly restarted app host can fail the first fetch at the network
     // layer (WebKit reports a bare "Load failed"); one transient miss must
-    // not take down the whole smoke.
     let body = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -2109,10 +2039,6 @@ async function assertBriefNarrative(page) {
 
 
 // Orders lives on its own bottom-nav tab (Monitor, Brief, Alerts, Orders,
-// Settings) rather than an inline <details> panel — visibility is
-// tab-driven, not a per-panel open/closed toggle, and the panel itself is
-// always present once the tab is active (emptiness is signaled by the
-// ordersOpenCount badge and an .empty-row message, not by hiding the panel).
 async function exerciseOpenOrders(page) {
   await page.locator("#tabOrders").click();
   await page.waitForFunction(() => document.getElementById("ordersTab")?.hidden === false, { timeout: 5000 });
@@ -2128,7 +2054,6 @@ async function exerciseOpenOrders(page) {
       rows: document.querySelectorAll("#ordersOpenList .open-order-row").length,
       empty: document.getElementById("ordersOpenList")?.textContent?.includes("None working.") || false,
       // Panel Dark order bars: every row is a machined tile carrying an
-      // engraved identity legend and a served reading line.
       bars: document.querySelectorAll("#ordersOpenList .open-order-row.pd-tile.pd-order").length,
       legends: [...document.querySelectorAll("#ordersOpenList .open-order-row .pd-tile__legend")].map((el) => el.textContent?.trim() || ""),
       readings: [...document.querySelectorAll("#ordersOpenList .open-order-row .pd-tile__reading")].map((el) => el.textContent?.trim() || ""),

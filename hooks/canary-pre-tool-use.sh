@@ -58,11 +58,7 @@ has_re() {
 }
 
 # A CLI name is an invocation only where a segment actually runs it. A path
-# argument that merely ends in the name — `git -C /Users/osauer/dev/ibkr status`
 # — is not, and blocking it broke read-only tooling. Segments begin at the head
-# and after every shell separator; environment prefixes, leading flags, and
-# wrapper words do not consume the position, so neither `FOO=1 canary …` nor a
-# `sh -c` payload can hide an invocation.
 cli_command_names() {
   local line="$command_line" token sep
   local -a tokens=()
@@ -101,12 +97,7 @@ cli_command_names() {
 }
 
 # The write gates below stay deliberately broad: a name anywhere on the line
-# still reaches them, because a false block costs a retry and a false allow
 # reaches a broker. Only the retired-name rejection and the executable this
-# hook itself runs are narrowed to command position.
-#
-# The word regex alone misses a name opening a substitution or subshell, where
-# the preceding character is `(` rather than space or slash, so command
 # position is a second way in — never a way out.
 cli_mentioned() {
   has_re '(^|[[:space:]/])(ibkr|canary)([[:space:]]|$)' || [[ -n "$(cli_command_names)" ]]
@@ -255,8 +246,6 @@ fi
 
 # The plural `orders` noun is a read-only journal surface end to end (open/
 # history listings); only the singular `order` verb tree can reach broker
-# writes. Allow the whole plural tree so flags like `canary orders --json`
-# don't fall through to the write gate.
 if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+orders([[:space:]]|$)'; then
   exit 0
 fi

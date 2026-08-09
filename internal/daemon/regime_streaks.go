@@ -17,12 +17,6 @@ import (
 )
 
 // StreakEntry is one indicator's persisted band history. LastBand is
-// the band classification observed on the most recent successful tick;
-// LastSession is the NY-tz session key (YYYY-MM-DD) the tick happened
-// in. Sessions counts how many NY sessions in a row the indicator has
-// reported LastBand. LastValue is the raw measurement at LastSession
-// — kept for diagnostics so a human inspecting the file can verify the
-// classification.
 type StreakEntry struct {
 	LastBand    string  `json:"last_band"`
 	SinceDate   string  `json:"since_date"`
@@ -30,27 +24,14 @@ type StreakEntry struct {
 	Sessions    int     `json:"sessions"`
 	LastValue   float64 `json:"last_value"`
 	// EligibleLatched records that this red streak earned confirmation
-	// eligibility (depth + persistence + freshness) at some point in its
-	// life. Once latched, eligibility holds until the band exits red even
-	// if the measurement wobbles back inside the minimum depth — the
-	// depth-boundary churn guard from internal-docs/design/regime-calibration.md.
-	// Cleared on any band change. Freshness is NOT latched: overdue data
-	// drops eligibility regardless.
 	EligibleLatched bool `json:"eligible_latched,omitempty"`
 	// LastBandAt is when LastBand was last measured from live inputs. It
-	// dates a band held across an input outage so the row can say how old
-	// its reading is instead of implying it is current. Entries written
-	// before the field existed decode to the zero value, which means the age
-	// is unknown — the row says that rather than inventing one.
 	LastBandAt time.Time `json:"last_band_at"`
 }
 
 // streakStoreFile is the on-disk shape. Version field for future
 // migrations; Notes documents the daemon-side band classification
-// choice so a human reading the file knows it's spec-default bands
 // (a slight violation of the daemon's "no derived bands on the wire"
-// posture, accepted because streak persistence requires a stable
-// daemon-side classification).
 type streakStoreFile struct {
 	Version             int                    `json:"version"`
 	AsOf                time.Time              `json:"as_of"`
@@ -72,22 +53,12 @@ const (
 )
 
 // StreakStore persists the streak counters across daemon restarts.
-// Storage shape matches the contract-store convention from 2fbd614:
-// a single JSON file with a version field, atomic temp+rename writes,
 // per-indicator entries keyed on a stable token.
-//
-// The store is its own persistence domain — distinct from the contract
-// store, gamma cache, and breadth windows — because the invalidation
-// rules differ. Streak entries don't expire on calendar tickover;
 // they persist across days and only change band on a band transition
-// or reset on a long gap (which the Tick logic handles via session
-// counting).
 type StreakStore struct {
 	dir       string // sealed legacy cache; never used after UseCoreStore
 	authority *corestore.Store
 	// volatile marks a detached evaluation clone. It applies the exact Tick
-	// and latch semantics in memory but cannot publish until the enclosing
-	// regime snapshot wins its authoritative SQLite compare-and-swap.
 	volatile bool
 
 	mu      sync.Mutex
@@ -96,16 +67,12 @@ type StreakStore struct {
 	asOf    time.Time
 	// publication is the exact authoritative snapshot tuple carried by the
 	// current SQLite projection. Revision zero is confined to legacy file and
-	// unit-helper writes which predate the snapshot publication barrier.
 	publication regimeSnapshotPublication
 	stateExists bool
 	loadErr     error
 }
 
 // NewStreakStore returns a store rooted at dir. Construction is lazy
-// — the on-disk file is read on the first Tick or Get call, not at
-// construction time, so a daemon that constructs the store before
-// touching disk doesn't pay the read cost upfront.
 func NewStreakStore(dir string) *StreakStore {
 	return &StreakStore{
 		dir:     dir,
@@ -136,11 +103,7 @@ func (s *StreakStore) UseCoreStore(store *corestore.Store) error {
 
 // load reads the on-disk file into s.entries. Idempotent — subsequent
 // calls after the first are no-ops. Caller MUST hold s.mu.
-//
-// Cold-start (file missing) is non-error: every counter begins at zero
-// on a fresh install. Unknown versions are treated as no-cache so a
 // future format bump triggers a graceful rebuild rather than corrupting
-// the counters.
 func (s *StreakStore) loadLocked() {
 	if s.loaded {
 		return
@@ -319,27 +282,8 @@ func (s *StreakStore) saveLockedContextPublication(ctx context.Context, publicat
 }
 
 // Tick advances the streak counter for indicatorKey using the supplied
-// (value, band) observation, returns a *StreakInfo representing the
 // updated state, and persists the file. Empty band freezes the counter
-// — pass band="" for computing/unavailable/error states so a stale tick
-// doesn't reset a real streak.
-//
-// nowNY is the wall-clock-now interpreted in America/New_York; the
-// session key is derived from its date portion. Injected for tests.
-//
-// Logic:
-//   - First call ever for this key: insert {band, today, sessions: 1,
-//     value} → return Sessions: 1.
-//   - Same band as last call AND last call was on a previous trading
-//     day: increment sessions.
-//   - Same band as last call AND last call was today: leave alone
-//     (multiple calls on the same day = same streak, no double-counting).
-//   - Different band: reset to {band: newBand, since: today, sessions:
-//     1, value: newValue}.
 //   - Empty band (indicator computing / unavailable / error): freeze
-//     the counter — return the existing entry unchanged. The renderer
-//     still sees the previous band's streak; a stale tick shouldn't
-//     end a streak.
 func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowNY time.Time) *StreakInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -347,8 +291,6 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 
 	// Sessions are NY TRADING days. A weekend or holiday poll keys to the
 	// most recent trading day, so it can never inflate the counter — the
-	// pre-fix behavior counted bare calendar dates and a Saturday call
-	// added a phantom session.
 	today := nyTradingSessionKey(nowNY)
 
 	// Empty band = freeze: return whatever's already there without
@@ -374,17 +316,14 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 		}
 	case entry.LastBand == band && entry.LastSession == today:
 		// Same band, same session — no-op. Multiple calls within one
-		// NY session shouldn't inflate the counter.
 		entry.LastValue = value
 	case entry.LastBand == band:
 		// Same band, new session — increment. EligibleLatched survives:
-		// the latch lives for the streak's whole life.
 		entry.LastSession = today
 		entry.Sessions++
 		entry.LastValue = value
 	default:
 		// Band change — reset to day 1 of the new band and drop the
-		// eligibility latch (it is a property of the ended red streak).
 		entry = StreakEntry{
 			LastBand:    band,
 			SinceDate:   today,
@@ -399,14 +338,11 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 	s.entries[indicatorKey] = entry
 	// Legacy direct Tick callers retain best-effort persistence. Production
 	// evaluates on a volatile clone and commits through the exact publication
-	// barrier instead.
 	_ = s.saveLocked()
 	return entryToInfo(entry)
 }
 
 // Get returns the current StreakInfo for an indicator without
-// modifying it. Used by tests and diagnostics; the production fetch
-// path goes through Tick.
 func (s *StreakStore) Get(indicatorKey string) *StreakInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -428,7 +364,6 @@ func (s *StreakStore) PrevBand(indicatorKey string) string {
 }
 
 // PrevBandAt returns when PrevBand was last measured from live inputs. Zero
-// when the indicator has no entry or the entry predates the field.
 func (s *StreakStore) PrevBandAt(indicatorKey string) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -445,9 +380,7 @@ func (s *StreakStore) Latched(indicatorKey string) bool {
 }
 
 // Latch marks the indicator's current red streak as having earned
-// confirmation eligibility. No-op when the entry is missing or not red —
 // the latch only ever decorates a live red streak. Best-effort persist,
-// same contract as Tick.
 func (s *StreakStore) Latch(indicatorKey string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -470,13 +403,10 @@ func entryToInfo(e StreakEntry) *rpc.StreakInfo {
 }
 
 // StreakInfo is the in-package alias for rpc.StreakInfo so callers in
-// the daemon package can avoid importing the rpc package solely for
-// the type name.
 type StreakInfo = rpc.StreakInfo
 
 // Indicator keys for the streak store. Stable strings; each maps to
 // one regime row. Constants here so a typo at a call site fails at
-// compile time rather than silently writing to a misnamed key.
 const (
 	StreakKeyVIXTerm   = "vix_term"
 	StreakKeyVolOfVol  = "vol_of_vol"
@@ -489,8 +419,6 @@ const (
 )
 
 // classifyVIXTermBand maps a VIX/VIX3M ratio to its band per the spec's
-// default thresholds (docs/docs/internals/regime-dashboard.md §1). Empty
-// string when the ratio is nil — caller passes that case through as
 // "freeze the counter".
 func classifyVIXTermBand(ratio *float64) string {
 	if ratio == nil {
@@ -521,12 +449,6 @@ func classifyVolOfVolBand(vvix *float64) string {
 }
 
 // classifyHYGSPYBand maps the HYG/50DMA + SPY/52w-high pair to its
-// band per the spec's §2 thresholds. Daemon-side simplification: the
-// "5+ sessions below" red trigger requires session history we don't
-// track separately, so the daemon classifies on the same-day signal
-// (HYG vs 50dma + SPY proximity to 52w high) and the consecutive-
-// sessions count emerges naturally from the streak counter itself —
-// "red · day 5" reads the same as the spec's "5+ sessions" requirement.
 func classifyHYGSPYBand(r rpc.RegimeHYGSPYDivergence) string {
 	if r.HYGPrice == nil || r.HYG50DMA == nil {
 		return ""
@@ -574,8 +496,6 @@ func classifyFundingStressBand(spreadBps *float64) string {
 }
 
 // classifyUSDJPYBand maps the weekly USD/JPY change to its band per
-// the spec's §3 thresholds. Convention: WeeklyChange negative = yen
-// strengthening = the stress signal.
 func classifyUSDJPYBand(weeklyChange *float64) string {
 	if weeklyChange == nil {
 		return ""
@@ -592,9 +512,6 @@ func classifyUSDJPYBand(weeklyChange *float64) string {
 }
 
 // classifyGammaBand maps a (gap_pct, sign) pair to its band per the
-// spec's §4 thresholds. Three paths matching the renderer's gamma-row
-// logic: a real crossing reads on gap distance; no-crossing reads on
-// the signed-profile sign.
 func classifyGammaBand(gapPct *float64, gammaSign string) string {
 	if gapPct != nil {
 		const yellowGap = 2.0 // ±2% of zero-gamma
@@ -693,10 +610,6 @@ func gammaComputedStreakValue(c *rpc.GammaZeroComputed) float64 {
 }
 
 // classifyBreadthBand maps the % above 50-DMA reading to its band.
-// Simplified value-only classification for streak purposes — the
-// spec's "SPX near highs" modifier (red trigger requires breadth < 40
-// AND SPX within 3% of 52w high) is left to the renderer for display
-// colour. The streak counter just tracks raw-breadth-band transitions.
 func classifyBreadthBand(value float64) string {
 	switch {
 	case value < 40:
@@ -709,7 +622,6 @@ func classifyBreadthBand(value float64) string {
 }
 
 // DefaultStreakStoreDir returns the on-disk cache root for the streak
-// store. Matches the layout used by the contract store and breadth
 // engine ($XDG_CACHE_HOME/ibkr/) so all daemon caches live together.
 func DefaultStreakStoreDir() (string, error) {
 	if v := os.Getenv("XDG_CACHE_HOME"); v != "" {
@@ -723,9 +635,6 @@ func DefaultStreakStoreDir() (string, error) {
 }
 
 // nyDateNow returns time.Now() interpreted in NY local time. Mirrors
-// the breadth engine's nySessionKey helper but returns the full time
-// value so callers can ask for both the session key (date portion) and
-// other date arithmetic from the same source.
 func nyDateNow() time.Time {
 	now := time.Now()
 	if loc, err := time.LoadLocation("America/New_York"); err == nil {
@@ -743,16 +652,13 @@ func nyTime(t time.Time) time.Time {
 }
 
 // usEquityRTHOpen reports whether the regular US cash-equity session is open
-// at the given instant.
 func usEquityRTHOpen(now time.Time) bool {
 	s, err := marketcal.New().SessionAt(marketcal.MarketUSEquity, now)
 	return err == nil && s.IsOpen
 }
 
 // nyTradingSessionKey returns the YYYY-MM-DD key of the current NY trading
-// day: today when US equities trade today, otherwise the most recent
 // trading day (weekends and holidays key backwards, never forwards). Falls
-// back to the bare calendar date outside the embedded calendar coverage.
 func nyTradingSessionKey(nowNY time.Time) string {
 	cal := marketcal.New()
 	for i := range 7 {

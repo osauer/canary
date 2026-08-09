@@ -10,37 +10,11 @@ import (
 
 // composite-building logic. Mirrors the CLI's tallyComposite +
 // verdict() exactly so wire consumers (MCP, dashboard generators)
-// don't have to recompute the rollup from per-row status. The CLI
-// keeps its own renderer-local tally for layout reasons, but both
-// paths read off this helper's tallying conventions:
-//
-//   - Bands are derived from the same spec-default classifiers used
-//     for streak persistence (regime_streaks.go) so the daemon stays
-//     internally consistent between "what counts as a band transition"
-//     and "what counts as a ranked row in the composite".
-//   - HYG/SPY can rank red when credit breaks below its 50dma while SPY
-//     remains near highs; the streak counter exposes whether that
-//     divergence is new or sustained.
-//   - Rows in computing / unavailable / error state stay unranked and
-//     do not contribute to the green/yellow/red tally.
 
 // verdictFloor is the minimum ranked-row count required to claim a
-// verdict above "insufficient signal." Mirrors cli.verdictFloor —
-// kept in sync by hand at v1; if a third reader appears, lift to a
-// shared package.
 const verdictFloor = 3
 
 // buildRegimeComposite returns the same {verdict, green, yellow, red,
-// ranked, unranked} rollup the CLI renders above the indicator rows,
-// computed from the daemon-side classifiers. Always non-zero shape:
-// when every row is unranked the verdict still surfaces honestly
-// ("No ranked indicators — see rows below for state").
-// buildRegimeComposite tallies the SERVED row bands (post-hysteresis, set by
-// annotateRegimeMetadata) and fills the cluster counts through the shared
-// rpc combination — the single copy of rescue/eligibility policy. Verdict is
-// intentionally left empty here: the unified headline needs the lifecycle
-// stage, so the handler assigns it via rpc.RegimeHeadline after
-// BuildRegimeLifecycle runs.
 func buildRegimeComposite(r *rpc.RegimeSnapshotResult) rpc.RegimeComposite {
 	if r == nil {
 		return rpc.RegimeComposite{Verdict: "No usable signal yet"}
@@ -328,9 +302,6 @@ func joinHuman(parts []string) string {
 }
 
 // regimeClusterScheduled reports a cluster whose non-fresh currency is its own
-// publication schedule — window closed, or refresh in flight inside its bounded
-// window. Neither is a source warning: the row's freshness class and the
-// source's refresh state already carry the state.
 func regimeClusterScheduled(r rpc.RegimeSnapshotResult, cluster string) bool {
 	_, ok := rpc.RegimeClusterScheduledContext(r, cluster)
 	return ok
@@ -366,9 +337,7 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 }
 
 // warningForVIX3MCrossCheck names what the two independent VIX3M sources
-// established. A stale row alone reads as ordinary off-hours context, so the
 // one case an operator must act on — a broker leg that has stopped tracking the
-// index — needs to say so in its own words.
 func warningForVIX3MCrossCheck(row rpc.RegimeVIXTerm) (rpc.RegimeWarning, bool) {
 	switch row.VIX3MCrossCheck {
 	case rpc.VIX3MCrossCheckDisagree:
@@ -529,8 +498,6 @@ func plural(n int, one, many string) string {
 }
 
 // bandForVIX classifies the VIX/VIX3M row. Mirrors the CLI's
-// rowVIXTerm path: unranked when status is anything other than ok/stale
-// or when the ratio is missing.
 func bandForVIX(r rpc.RegimeVIXTerm) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
@@ -546,8 +513,6 @@ func bandForVolOfVol(r rpc.RegimeVolOfVol) string {
 }
 
 // bandForHYGSPY classifies the HYG vs SPY row. HYG below its 50dma
-// while SPY remains near highs is a current credit/equity divergence;
-// the streak field carries the persistence context separately.
 func bandForHYGSPY(r rpc.RegimeHYGSPYDivergence) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
@@ -559,7 +524,6 @@ func bandForHYGSPY(r rpc.RegimeHYGSPYDivergence) string {
 		return "green"
 	}
 	// HYG below 50dma. Red requires SPY near highs; otherwise the row is
-	// yellow. The unranked case is "SPY 52w-high context missing".
 	if r.SPY52WHigh == nil || r.SPYPrice == nil {
 		return ""
 	}
@@ -584,8 +548,6 @@ func bandForFundingStress(r rpc.RegimeFundingStress) string {
 }
 
 // bandForUSDJPY classifies the USD/JPY row. Unranked on
-// unavailable/error/computing rows or when the weekly change didn't
-// land.
 func bandForUSDJPY(r rpc.RegimeUSDJPY) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
@@ -594,8 +556,6 @@ func bandForUSDJPY(r rpc.RegimeUSDJPY) string {
 }
 
 // bandForGamma classifies the gamma row. Three paths matching the
-// CLI's rowGamma logic: a real crossing reads on gap distance;
-// no-crossing reads on the signed-profile sign; no data stays unranked.
 func bandForGamma(r rpc.RegimeGammaZero) string {
 	if r.Status != rpc.RegimeStatusOK || r.Envelope.Result == nil {
 		return ""
@@ -605,8 +565,6 @@ func bandForGamma(r rpc.RegimeGammaZero) string {
 }
 
 // bandForBreadth classifies the SPX breadth row. Gated on
-// status=ok/stale AND envelope state=ready — the CLI does the same
-// gate before pulling the value cell.
 func bandForBreadth(r rpc.RegimeBreadth) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
@@ -618,6 +576,3 @@ func bandForBreadth(r rpc.RegimeBreadth) string {
 }
 
 // Cluster combination (raw worst-of bands, isolated-red downgrades,
-// eligibility-keyed independence) lives in internal/rpc/regime_policy.go —
-// the single copy the daemon, lifecycle builder, CLI, Stress, and historical verification
-// all share.

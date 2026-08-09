@@ -2,14 +2,9 @@
 #
 # upload-release-assets.sh - upload a locally verified asset set to the
 # STAGED DRAFT release for a tag, in bounded parallel batches.
-#
 # Fail-closed on the draft: this refuses to run unless exactly one draft
 # release carries the tag, so it can never mutate a published release. The
 # caller's draft verification and the publish flip stay the only path that
-# makes anything public, and parallelism is safe precisely because nothing
-# uploaded here is visible until that flip.
-#
-# Usage:
 #   upload-release-assets.sh <vX.Y.Z> <asset-path> [asset-path...]
 
 set -euo pipefail

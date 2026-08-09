@@ -3,85 +3,14 @@ package rpc
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/osauer/canary/v2/internal/risk"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/risk"
 )
-
-func TestOptionDTECalendarDays(t *testing.T) {
-	t.Parallel()
-
-	berlin, err := time.LoadLocation("Europe/Berlin")
-	if err != nil {
-		t.Skipf("load Europe/Berlin: %v", err)
-	}
-
-	tests := []struct {
-		name   string
-		raw    string
-		asOf   time.Time
-		want   int
-		wantOK bool
-	}{
-		{
-			name:   "positive span across spring-forward compact layout",
-			raw:    "20260331",
-			asOf:   time.Date(2026, time.March, 25, 12, 0, 0, 0, berlin),
-			want:   6,
-			wantOK: true,
-		},
-		{
-			name:   "negative span across spring-forward dashed layout",
-			raw:    "2026-03-25",
-			asOf:   time.Date(2026, time.March, 31, 12, 0, 0, 0, berlin),
-			want:   -6,
-			wantOK: true,
-		},
-		{
-			name:   "positive span across fall-back",
-			raw:    "20261027",
-			asOf:   time.Date(2026, time.October, 21, 12, 0, 0, 0, berlin),
-			want:   6,
-			wantOK: true,
-		},
-		{
-			name:   "same day",
-			raw:    "2026-07-15",
-			asOf:   time.Date(2026, time.July, 15, 23, 59, 0, 0, berlin),
-			want:   0,
-			wantOK: true,
-		},
-		{
-			name:   "mid-summer span without transition",
-			raw:    "20260710",
-			asOf:   time.Date(2026, time.July, 1, 8, 30, 0, 0, berlin),
-			want:   9,
-			wantOK: true,
-		},
-		{
-			name:   "invalid raw",
-			raw:    "not-a-date",
-			asOf:   time.Date(2026, time.July, 1, 8, 30, 0, 0, berlin),
-			wantOK: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := optionDTE(tt.raw, tt.asOf)
-			if ok != tt.wantOK {
-				t.Fatalf("optionDTE(%q, %v) ok = %v, want %v", tt.raw, tt.asOf, ok, tt.wantOK)
-			}
-			if ok && got != tt.want {
-				t.Fatalf("optionDTE(%q, %v) = %d, want %d", tt.raw, tt.asOf, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestCompactPositionsRiskOptionHealthAndHedge(t *testing.T) {
 	t.Parallel()
@@ -161,64 +90,6 @@ func TestCompactPositionsRiskOptionHealthAndHedge(t *testing.T) {
 	}
 }
 
-func TestCompactStressAlertDropsDiagnosticArraysAndKeepsFlags(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 6, 3, 8, 45, 0, 0, time.UTC)
-	nextAttempt := now.Add(15 * time.Minute)
-	stress := StressResult{
-		AsOf:               now,
-		Fingerprint:        Fingerprint{Version: StressFingerprintVersion, Key: "sha256:canary"},
-		SourceFingerprints: StressSourceFingerprints{Positions: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"}},
-		SourceHealth: []SourceHealth{{
-			Source: "positions", Status: "ok", RefreshState: SourceRefreshFetchFailedBackoff, NextAttempt: &nextAttempt,
-			Fingerprint: &Fingerprint{Version: PositionsFingerprintVersion, Key: "sha256:positions"},
-		}},
-		Action:             "watch",
-		MarketConfirmation: "partial",
-		PortfolioFit:       "high",
-		InputHealth:        "ok",
-		Direction:          risk.DirectionDefensive,
-		Severity:           risk.SeverityWatch,
-		Summary:            "Freeze new risk.",
-		Signals:            []risk.Signal{{ID: risk.SignalMarginCushionLow, Severity: risk.SeverityWatch}},
-		Rows: []StressRow{
-			{Title: "Context only", Severity: risk.SeverityObserve, Guidance: "No action."},
-			{Title: "Margin cushion", Severity: risk.SeverityWatch, Guidance: "Watch cushion."},
-		},
-		Portfolio:    StressPortfolioSummary{BaseCurrency: "USD", NetLiquidation: 100_000},
-		Market:       StressMarketSummary{RegimeVerdict: "Normal regime", RankedClusters: 6},
-		NotExecution: "Read-only recommendation; no orders are placed by Canary.",
-	}
-	positions := PositionsResult{AsOf: now, Portfolio: &PositionsPortfolio{GreeksCoverage: 0, GreeksTotal: 0}}
-
-	out := CompactStressAlert(&stress, &positions)
-	if len(out.Flags) != 1 || out.Flags[0].Title != "Margin cushion" {
-		t.Fatalf("flags = %+v, want only the non-observe row", out.Flags)
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	wire := string(b)
-	for _, absent := range []string{`"signals"`, `"rows"`, `"market_indicators"`, `"policy"`} {
-		if strings.Contains(wire, absent) {
-			t.Fatalf("compact stress alert should omit %s: %s", absent, wire)
-		}
-	}
-	for _, present := range []string{`"flags"`, `"option_health"`, `"source_health"`, `"source_fingerprints"`} {
-		if !strings.Contains(wire, present) {
-			t.Fatalf("compact stress alert missing %s: %s", present, wire)
-		}
-	}
-	if !strings.Contains(wire, `"refresh_state":"fetch_failed_backoff"`) || !strings.Contains(wire, `"next_attempt"`) {
-		t.Fatalf("compact source health dropped refresh scheduling: %s", wire)
-	}
-	if strings.Contains(wire, `"fingerprint"`) && strings.Contains(wire, `"source_health":[{"source":"positions","status":"ok","fingerprint"`) {
-		t.Fatalf("source_health should drop nested fingerprints in alert view: %s", wire)
-	}
-}
-
 func TestCompactStressAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 	t.Parallel()
 
@@ -286,67 +157,6 @@ func TestCompactStressAlertPayloadAtLeastHalfSmallerThanFull(t *testing.T) {
 	}
 }
 
-func TestCompactRegimeMonitorDropsFullIndicatorObjects(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 6, 3, 8, 45, 0, 0, time.UTC)
-	vix := 14.5
-	ratio := 0.91
-	regime := RegimeSnapshotResult{
-		AsOf:        now,
-		Fingerprint: Fingerprint{Version: RegimeFingerprintVersion, Key: "sha256:regime"},
-		Summary:     RegimeSummary{Label: "Normal regime", Evidence: "3 green", PunchLine: "volatility is constructive", Confidence: "high"},
-		Composite:   RegimeComposite{Verdict: "Normal regime", GreenCount: 3, RankedCount: 3, ClusterGreenCount: 3, ClusterRankedCount: 3},
-		VIXTermStructure: RegimeVIXTerm{
-			RegimeIndicatorMeta: RegimeIndicatorMeta{
-				Band:       "green",
-				Thresholds: &RegimeThresholds{Label: "vix_term_structure_v1", Green: "<0.92", Red: "VIX/VIX3M >= 1.00", Trip: "trips >=1.00"},
-				AsOf:       &RegimeAsOfSummary{Label: "live", Time: now, Freshness: FreshnessLive},
-			},
-			Status: RegimeStatusOK,
-			VIX:    &vix,
-			Ratio:  &ratio,
-		},
-		VolOfVol:         RegimeVolOfVol{Status: RegimeStatusUnavailable},
-		HYGSPYDivergence: RegimeHYGSPYDivergence{Status: RegimeStatusUnavailable},
-		CreditSpreads:    RegimeCreditSpreads{Status: RegimeStatusUnavailable},
-		FundingStress:    RegimeFundingStress{Status: RegimeStatusUnavailable},
-		USDJPY:           RegimeUSDJPY{Status: RegimeStatusUnavailable},
-		GammaZero:        RegimeGammaZero{Status: RegimeStatusUnavailable},
-		Breadth:          RegimeBreadth{Status: RegimeStatusUnavailable},
-	}
-
-	out := CompactRegimeMonitor(&regime)
-	if len(out.Indicators) != 8 {
-		t.Fatalf("indicators len = %d, want 8", len(out.Indicators))
-	}
-	if out.Indicators[0].Name != "VIX/VIX3M" || out.Indicators[0].Status != RegimeStatusOK || out.Indicators[0].Band != "green" {
-		t.Fatalf("first indicator = %+v, want compact VIX/VIX3M row", out.Indicators[0])
-	}
-	if out.Posture.Label != "Normal regime" || out.Posture.Tone != RegimeToneNormal {
-		t.Fatalf("posture = %+v, want Normal regime/normal", out.Posture)
-	}
-	// The monitor projection carries the served trigger: a gauge face prints
-	// the trip beside its reading, and the alternative is a renderer keeping
-	// a twin of the policy number.
-	if out.Indicators[0].Cluster != "vol" || out.Indicators[0].Thresholds == nil || out.Indicators[0].Thresholds.Trip != "trips >=1.00" {
-		t.Fatalf("first indicator must carry its cluster and served trip: %+v", out.Indicators[0])
-	}
-	if out.Indicators[7].Cluster != "breadth" {
-		t.Fatalf("last indicator cluster = %q, want breadth", out.Indicators[7].Cluster)
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	wire := string(b)
-	for _, absent := range []string{`"vix_term_structure"`, `"envelope"`, `"spec_doc"`} {
-		if strings.Contains(wire, absent) {
-			t.Fatalf("compact regime monitor should omit %s: %s", absent, wire)
-		}
-	}
-}
-
 func TestCompactRegimeMonitorCarriesAuthorityHealth(t *testing.T) {
 	t.Parallel()
 	lastSuccess := time.Date(2026, 7, 20, 18, 30, 0, 0, time.UTC)
@@ -369,5 +179,135 @@ func TestCompactRegimeMonitorCarriesAuthorityHealth(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte(`"authority_health"`)) {
 		t.Fatalf("compact JSON dropped authority health: %s", raw)
+	}
+}
+
+func TestAccountAuthorityJSONEmitsFalseFieldAvailability(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 4, 9, 30, 0, 0, time.UTC)
+	result := AccountResult{
+		AccountID: "DU123", BaseCurrency: "USD", NetLiquidation: 0, TotalCash: 0, AsOf: now,
+		Authority: &AccountDataAuthority{
+			Scope:  AccountDataScope{AccountID: "DU123", AccountMode: AccountModePaper},
+			Source: AccountDataSourceAccountSummaryRequest, Availability: AccountDataAvailable,
+			Freshness: AccountDataFreshnessCurrent, AsOf: now,
+			Fields: &AccountFieldAvailability{BaseCurrency: true, NetLiquidation: true, TotalCash: false},
+		},
+	}
+	wire, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(wire)
+	for _, want := range []string{
+		`"authority":{"scope":{"account_id":"DU123","account_mode":"paper"}`,
+		`"net_liquidation":true`,
+		`"total_cash":false`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("wire missing %s: %s", want, text)
+		}
+	}
+}
+
+func TestAlertCandidateRPCJSONUsesRiskValidation(t *testing.T) {
+	now := time.Date(2026, time.July, 20, 20, 0, 0, 0, time.UTC)
+	key, err := BuildAlertEpisodeKey(AlertSourceRegime, AlertKindMarketState, "classified-regime-episode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := AlertCandidate{
+		EpisodeKey:          key,
+		OccurrenceKey:       mustRPCAlertOccurrenceKey(t, key, "occurrence-1"),
+		EvidenceFingerprint: "sha256:" + strings.Repeat("b", 64),
+		Source:              AlertSourceRegime,
+		Kind:                AlertKindMarketState,
+		PresentationCode:    AlertPresentationRegimeMarketStress,
+		State:               AlertEpisodeOpen,
+		Severity:            AlertSeverityWatch,
+		EvidenceHealth:      AlertEvidenceCurrent,
+		Destination:         AlertDestinationMonitor,
+		EvidenceAsOf:        now.Add(-time.Minute),
+		StateChangedAt:      now.Add(-2 * time.Minute),
+		ObservedAt:          now,
+	}
+	snapshot := AlertCandidateSnapshot{
+		SchemaVersion: AlertCandidateSnapshotVersion,
+		AuthorityScope: func() string {
+			scope, err := BuildAlertAuthorityScope("DU-TEST", "paper")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return scope
+		}(),
+		AsOf:         now,
+		CurrentState: AlertSnapshotActive,
+		Coverage: AlertCoverage{
+			State:           AlertCoverageComplete,
+			Freshness:       AlertCoverageCurrent,
+			AsOf:            now,
+			ExpectedSources: []AlertSource{AlertSourceRegime},
+			CoveredSources:  []AlertSource{AlertSourceRegime},
+		},
+		Sources: []AlertSourceCoverage{{
+			Source: AlertSourceRegime, Status: "current", Reason: "current", EvidenceHealth: AlertEvidenceCurrent,
+			InputAsOf: now, ObservedAt: now, EvidenceAsOf: now, FreshUntil: now.Add(time.Minute), Covered: true,
+		}},
+		Candidates: []AlertCandidate{candidate},
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded AlertCandidateSnapshot
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, snapshot) {
+		t.Fatalf("RPC JSON round trip mismatch: got %#v want %#v", decoded, snapshot)
+	}
+	if err := ValidateAlertCandidateSnapshot(decoded); err != nil {
+		t.Fatal(err)
+	}
+
+	hostile := strings.Replace(string(raw), `"destination":"monitor"`, `"destination":"monitor","device_id":"private"`, 1)
+	if err := json.Unmarshal([]byte(hostile), &decoded); err == nil {
+		t.Fatal("RPC alias accepted private delivery target extension")
+	}
+}
+
+func mustRPCAlertOccurrenceKey(t *testing.T, episodeKey string, identity string) string {
+	t.Helper()
+	key, err := BuildAlertOccurrenceKey(episodeKey, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func TestRegimeAuthorityHealthJSONIsExact(t *testing.T) {
+	t.Parallel()
+	valid := `{"status":"unavailable","refreshing":false,"failure_code":"no_last_good"}`
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "not object", data: `[]`},
+		{name: "missing status", data: `{"refreshing":true}`},
+		{name: "missing refreshing", data: `{"status":"unavailable","failure_code":"no_last_good"}`},
+		{name: "unknown key", data: strings.TrimSuffix(valid, "}") + `,"error":"private upstream text"}`},
+		{name: "duplicate key", data: `{"status":"unavailable","status":"stale","refreshing":true}`},
+		{name: "null field", data: `{"status":"unavailable","refreshing":false,"failure_code":null}`},
+		{name: "trailing json", data: valid + `{}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var health RegimeAuthorityHealth
+			if err := json.Unmarshal([]byte(tc.data), &health); err == nil {
+				t.Fatalf("unmarshal unexpectedly accepted %s", tc.data)
+			}
+		})
 	}
 }

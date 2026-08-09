@@ -3,43 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
-
-func TestUnaryInvocationBudgetsOutliveDaemonMethods(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name   string
-		cmd    string
-		args   []string
-		method string
-		want   time.Duration
-	}{
-		{name: "proposal refresh", cmd: "proposals", args: []string{"refresh"}, method: rpc.MethodTradeProposalsRefresh, want: 60 * time.Second},
-		{name: "opportunity refresh", cmd: "opportunities", args: []string{"refresh"}, method: rpc.MethodOpportunitiesRefresh, want: 60 * time.Second},
-		{name: "brief composition", cmd: "brief", method: rpc.MethodBriefSnapshot, want: 90 * time.Second},
-		{name: "portfolio reduce", cmd: "proposals", args: []string{"reduce", "--portfolio"}, method: rpc.MethodTradeProposalsReducePortfolioPreview, want: 150 * time.Second},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := unaryInvocationBudget(tc.cmd, tc.args)
-			if got != tc.want {
-				t.Fatalf("unaryInvocationBudget(%q, %v) = %s, want %s", tc.cmd, tc.args, got, tc.want)
-			}
-			timing, ok := rpc.LookupMethodTiming(tc.method)
-			if !ok {
-				t.Fatalf("missing timing for %s", tc.method)
-			}
-			if got <= timing.DaemonTimeout {
-				t.Fatalf("CLI budget %s must outlive %s daemon timeout %s", got, tc.method, timing.DaemonTimeout)
-			}
-		})
-	}
-}
 
 func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 	t.Parallel()

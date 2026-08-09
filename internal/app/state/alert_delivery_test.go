@@ -1,18 +1,18 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
-
+	"github.com/osauer/canary/v2/internal/rpc"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
+
 	"testing"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 var defaultTestAlertAuthorityScope = func() string {
@@ -90,189 +90,6 @@ func TestAlertDeliveryCutoverIdentityRedactionAndLegacyIsolation(t *testing.T) {
 	}
 }
 
-func TestAlertDeliveryAuthorityScopeChangeRetiresPreviousContextWithoutRecoveryOrClear(t *testing.T) {
-	dir := t.TempDir()
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopeA, err := rpc.BuildAlertAuthorityScope("ACCOUNT-A", "paper")
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopeB, err := rpc.BuildAlertAuthorityScope("ACCOUNT-B", "live")
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := time.Date(2026, 7, 21, 7, 0, 0, 0, time.UTC)
-	oldCandidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "scope-a", "open-a", base)
-	oldSnapshot := testAlertSnapshot(base, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, oldCandidate)
-	oldSnapshot.AuthorityScope = scopeA
-	oldView, err := store.ObserveAlertSnapshot(oldSnapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldDisplay := oldView.Occurrences[0].DisplayID
-	oldAttentionHighWater := oldView.Attention.HighWaterSeq
-
-	changedAt := base.Add(time.Minute)
-	newUnknown := testAlertSnapshot(changedAt, []rpc.AlertSource{rpc.AlertSourceStress}, nil, rpc.AlertCoverageUnknown)
-	newUnknown.AuthorityScope = scopeB
-	view, err := store.ObserveAlertSnapshot(newUnknown)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.AuthorityScope != scopeB || view.CurrentState != rpc.AlertSnapshotUnknown || view.Coverage.Freshness != rpc.AlertCoverageUnknown {
-		t.Fatalf("new scope did not start unknown and clean: %+v", view)
-	}
-	if len(view.Occurrences) != 1 {
-		t.Fatalf("dormant live occurrence escaped instead of one previous-context row: %+v", view.Occurrences)
-	}
-	previous := view.Occurrences[0]
-	if previous.DisplayID == oldDisplay || previous.AttentionSeq != oldAttentionHighWater || view.Attention.HighWaterSeq != oldAttentionHighWater {
-		t.Fatalf("scope archive lost the unread cursor or reused live identity: occurrence=%+v attention=%+v", previous, view.Attention)
-	}
-	if previous.State != rpc.AlertEpisodeOpen || previous.EndReason != AlertDeliveryEndAuthorityScopeChanged || !previous.EndedAt.Equal(changedAt) {
-		t.Fatalf("previous scope was recovered/cleared instead of archived: %+v", previous)
-	}
-	privateA, privateAEpisode, ok := findAlertDeliveryOccurrence(store.data.AlertDelivery, scopeA, oldCandidate.OccurrenceKey)
-	if !ok || !alertDeliveryOccurrenceActive(privateA, privateAEpisode) || !privateA.EndedAt.IsZero() || privateA.EndReason != "" {
-		t.Fatalf("scope archive mutated producer lifecycle: occurrence=%+v episode=%+v", privateA, privateAEpisode)
-	}
-	if len(view.SourceWatermarks) != 0 || len(store.AlertDeliveriesDue(changedAt)) != 0 {
-		t.Fatalf("previous scope retained authority or delivery work: watermarks=%+v due=%+v", view.SourceWatermarks, store.AlertDeliveriesDue(changedAt))
-	}
-	public, err := json.Marshal(view)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, forbidden := range []string{`"authority_scope"`, scopeA, scopeB} {
-		if strings.Contains(string(public), forbidden) {
-			t.Fatalf("public view leaked authority scope %q: %s", forbidden, public)
-		}
-	}
-
-	currentAt := changedAt.Add(time.Minute)
-
-	currentCandidate := reviseAlertCandidate(oldCandidate, currentAt, "b", rpc.AlertEpisodeOpen, rpc.AlertSeverityWatch)
-	currentSnapshot := testAlertSnapshot(currentAt, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, currentCandidate)
-	currentSnapshot.AuthorityScope = scopeB
-	view, err = store.ObserveAlertSnapshot(currentSnapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.CurrentState != rpc.AlertSnapshotActive || len(view.Occurrences) != 2 {
-		t.Fatalf("current scope did not start independently: %+v", view)
-	}
-	previous = occurrenceByDisplay(t, view, previous.DisplayID)
-	if previous.State != rpc.AlertEpisodeOpen || previous.EndReason != AlertDeliveryEndAuthorityScopeChanged {
-		t.Fatalf("later current coverage reinterpreted previous context: %+v", previous)
-	}
-	currentBDisplay := alertDeliveryDisplayID(scopeB, currentCandidate.OccurrenceKey)
-	if currentBDisplay == oldDisplay || occurrenceByDisplay(t, view, currentBDisplay).EndReason != "" || view.Attention.HighWaterSeq != oldAttentionHighWater+1 {
-		t.Fatalf("scope B did not receive an independent live identity: %+v", view)
-	}
-
-	returnAt := currentAt.Add(time.Minute)
-	resumedA := reviseAlertCandidate(oldCandidate, returnAt, "c", rpc.AlertEpisodeOpen, rpc.AlertSeverityWatch)
-	returnSnapshot := testAlertSnapshot(returnAt, []rpc.AlertSource{rpc.AlertSourceStress}, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent, resumedA)
-	returnSnapshot.AuthorityScope = scopeA
-	view, err = store.ObserveAlertSnapshot(returnSnapshot)
-	if err != nil {
-		t.Fatalf("A -> B -> A re-entry rejected producer occurrence: %v", err)
-	}
-	currentA := occurrenceByDisplay(t, view, oldDisplay)
-	if currentA.State != rpc.AlertEpisodeOpen || !currentA.EndedAt.IsZero() || currentA.EndReason != "" || view.Attention.HighWaterSeq != oldAttentionHighWater+1 {
-		t.Fatalf("scope A lifecycle was not resumed intact: occurrence=%+v attention=%+v", currentA, view.Attention)
-	}
-	if len(view.Occurrences) != 3 || len(view.Attention.UnreadRefs) != 2 {
-		t.Fatalf("re-entry did not preserve bounded context and coherent attention: %+v", view)
-	}
-	publicDisplays := make(map[string]bool, len(view.Occurrences))
-	for _, occurrence := range view.Occurrences {
-		publicDisplays[occurrence.DisplayID] = true
-	}
-	for _, ref := range view.Attention.UnreadRefs {
-		if !publicDisplays[ref.DisplayID] {
-			t.Fatalf("attention references hidden dormant identity: ref=%+v occurrences=%+v", ref, view.Occurrences)
-		}
-	}
-
-	reopened, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	durable := reopened.AlertDelivery(returnAt)
-	if durable.AuthorityScope != scopeA || occurrenceByDisplay(t, durable, oldDisplay).EndReason != "" || durable.Attention.HighWaterSeq != oldAttentionHighWater+1 {
-		t.Fatalf("scope partition and re-entry were not durable: %+v", durable)
-	}
-}
-
-func TestAlertDeliveryInterruptedUncertaintySurvivesAuthorityScopeChange(t *testing.T) {
-	dir := t.TempDir()
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopeA, err := rpc.BuildAlertAuthorityScope("ACCOUNT-A", "paper")
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopeB, err := rpc.BuildAlertAuthorityScope("ACCOUNT-B", "live")
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := time.Now().UTC().Add(-time.Minute)
-	source := rpc.AlertSourceStress
-	baseline := testAlertSnapshot(base, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent)
-	baseline.AuthorityScope = scopeA
-	if _, err := store.ObserveAlertSnapshot(baseline); err != nil {
-		t.Fatal(err)
-	}
-	candidateAt := base.Add(10 * time.Second)
-	candidate := testAlertCandidate(t, source, rpc.AlertKindPortfolioRisk, "scope-a-uncertain", "open-a", candidateAt)
-	active := testAlertSnapshot(candidateAt, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent, candidate)
-	active.AuthorityScope = scopeA
-	if _, err := store.ObserveAlertSnapshot(active); err != nil {
-		t.Fatal(err)
-	}
-	target := AlertDeliveryTargetRef("scope-a-device", "scope-a-subscription")
-	reservation, send, err := store.BeginAlertDelivery(candidate.OccurrenceKey, target, candidateAt.Add(time.Second))
-	if err != nil || !send {
-		t.Fatalf("scope A reservation send=%v err=%v", send, err)
-	}
-	if _, confirmed, err := store.ConfirmAlertTransport(reservation.AttemptID, candidateAt.Add(2*time.Second)); err != nil || !confirmed {
-		t.Fatalf("scope A confirmation confirmed=%v err=%v", confirmed, err)
-	}
-
-	recovered, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if health := recovered.AlertDelivery(time.Now().UTC()).DeliveryHealth; health.State != AlertDeliveryHealthDegraded || health.Class != AlertDeliveryHealthClassInterrupted {
-		t.Fatalf("restart did not expose scope A uncertainty: %+v", health)
-	}
-	changedAt := time.Now().UTC().Add(time.Second)
-	unknownB := testAlertSnapshot(changedAt, []rpc.AlertSource{source}, nil, rpc.AlertCoverageUnknown)
-	unknownB.AuthorityScope = scopeB
-	if _, err := recovered.ObserveAlertSnapshot(unknownB); err != nil {
-		t.Fatal(err)
-	}
-	currentBAt := changedAt.Add(time.Second)
-	currentB := testAlertSnapshot(currentBAt, []rpc.AlertSource{source}, []rpc.AlertSource{source}, rpc.AlertCoverageCurrent)
-	currentB.AuthorityScope = scopeB
-	view, err := recovered.ObserveAlertSnapshot(currentB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.DeliveryHealth.State != AlertDeliveryHealthDegraded || view.DeliveryHealth.Class != AlertDeliveryHealthClassInterrupted || view.AttemptTotals.Interrupted != 1 {
-		t.Fatalf("scope B refresh concealed unresolved scope A uncertainty: %+v", view)
-	}
-	if due := recovered.AlertDeliveriesDue(currentBAt); len(due) != 0 {
-		t.Fatalf("old-scope uncertainty reactivated delivery work: %+v", due)
-	}
-}
-
 func TestAlertDeliveryRestartAfterAuthorityScopeChangeKeepsInterruptedUncertainty(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir)
@@ -329,124 +146,6 @@ func TestAlertDeliveryRestartAfterAuthorityScopeChangeKeepsInterruptedUncertaint
 	}
 	if due := restarted.AlertDeliveriesDue(time.Now().UTC()); len(due) != 0 {
 		t.Fatalf("restart reactivated old-scope delivery work: %+v", due)
-	}
-}
-
-func TestAlertDeliveryAuthorityRecoveryReopenAndEscalation(t *testing.T) {
-	store, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC)
-	canary := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "book", "canary-open-1", base)
-	regime := testAlertCandidate(t, rpc.AlertSourceRegime, rpc.AlertKindMarketState, "market", "regime-open-1", base)
-	expected := []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceRegime}
-	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, expected, expected, rpc.AlertCoverageCurrent, canary, regime))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.Generation != 1 || view.Attention.HighWaterSeq != 2 {
-		t.Fatalf("initial authority view = %+v", view)
-	}
-
-	partialAt := base.Add(time.Minute)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(partialAt, expected, []rpc.AlertSource{rpc.AlertSourceStress}, rpc.AlertCoverageCurrent))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if occurrenceBySource(t, view, rpc.AlertSourceStress).EndReason != AlertDeliveryEndOmitted || !occurrenceBySource(t, view, rpc.AlertSourceRegime).EndedAt.IsZero() {
-		t.Fatalf("partial authority did not resolve only Canary: %+v", view.Occurrences)
-	}
-	if !view.SourceWatermarks[rpc.AlertSourceStress].Equal(partialAt) || !view.SourceWatermarks[rpc.AlertSourceRegime].Equal(base) {
-		t.Fatalf("source watermarks = %+v", view.SourceWatermarks)
-	}
-
-	staleAt := base.Add(2 * time.Minute)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(staleAt, expected, expected, rpc.AlertCoverageStale))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !occurrenceBySource(t, view, rpc.AlertSourceRegime).EndedAt.IsZero() || !view.SourceWatermarks[rpc.AlertSourceRegime].Equal(base) {
-		t.Fatalf("stale coverage falsely resolved or advanced Regime authority: %+v", view)
-	}
-
-	recoveredAt := base.Add(3 * time.Minute)
-	recovered := reviseAlertCandidate(regime, recoveredAt, "c", rpc.AlertEpisodeRecovered, rpc.AlertSeverityWatch)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(recoveredAt, expected, expected, rpc.AlertCoverageCurrent, recovered))
-	if err != nil {
-		t.Fatal(err)
-	}
-	view = store.AlertDelivery(recoveredAt)
-	if occurrenceBySource(t, view, rpc.AlertSourceRegime).EndReason != AlertDeliveryEndRecovered || view.CurrentState != rpc.AlertSnapshotClear {
-		t.Fatalf("exact recovery was not applied: %+v", view)
-	}
-
-	reopenAt := base.Add(4 * time.Minute)
-	reopened := reviseAlertCandidate(regime, reopenAt, "d", rpc.AlertEpisodeOpen, rpc.AlertSeverityWatch)
-	reopened.OccurrenceKey = mustAlertOccurrenceKey(t, regime.EpisodeKey, "regime-reopen-2")
-	reopened.StateChangedAt = reopenAt
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(reopenAt, expected, expected, rpc.AlertCoverageCurrent, reopened))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Occurrences) != 3 || view.Attention.HighWaterSeq != 3 {
-		t.Fatalf("reopen did not create one occurrence and attention item: %+v", view)
-	}
-
-	revisionAt := base.Add(5 * time.Minute)
-	revision := reviseAlertCandidate(reopened, revisionAt, "e", rpc.AlertEpisodeOpen, rpc.AlertSeverityAct)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(revisionAt, expected, expected, rpc.AlertCoverageCurrent, revision))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Occurrences) != 3 || view.Attention.HighWaterSeq != 3 || occurrenceByDisplay(t, view, alertDeliveryDisplayID(defaultTestAlertAuthorityScope, reopened.OccurrenceKey)).Severity != rpc.AlertSeverityAct {
-		t.Fatalf("evidence revision created attention/send identity churn: %+v", view)
-	}
-
-	nonQualifiedAt := base.Add(6 * time.Minute)
-	nonQualified := reviseAlertCandidate(reopened, nonQualifiedAt, "f", rpc.AlertEpisodeEscalated, rpc.AlertSeverityAct)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(nonQualifiedAt, expected, expected, rpc.AlertCoverageCurrent, nonQualified))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Occurrences) != 3 || view.Attention.HighWaterSeq != 3 {
-		t.Fatalf("same-occurrence escalation created a new occurrence: %+v", view)
-	}
-
-	qualifiedAt := base.Add(7 * time.Minute)
-	qualified := reviseAlertCandidate(nonQualified, qualifiedAt, "a", rpc.AlertEpisodeEscalated, rpc.AlertSeverityUrgent)
-	qualified.OccurrenceKey = mustAlertOccurrenceKey(t, regime.EpisodeKey, "qualified-escalation-3")
-	qualified.StateChangedAt = qualifiedAt
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(qualifiedAt, expected, expected, rpc.AlertCoverageCurrent, qualified))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Occurrences) != 4 || view.Attention.HighWaterSeq != 4 || occurrenceByDisplay(t, view, alertDeliveryDisplayID(defaultTestAlertAuthorityScope, reopened.OccurrenceKey)).EndReason != AlertDeliveryEndSuperseded {
-		t.Fatalf("qualified escalation lifecycle incorrect: %+v", view)
-	}
-	stableGeneration := view.Generation
-
-	oldAt := base.Add(6500 * time.Millisecond)
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(oldAt, expected, expected, rpc.AlertCoverageStale)); !errors.Is(err, ErrAlertDeliveryOldSnapshot) {
-		t.Fatalf("candidate-less view rewind was not rejected: %v", err)
-	}
-	mismatchedRecovery := reviseAlertCandidate(qualified, base.Add(8*time.Minute), "b", rpc.AlertEpisodeRecovered, rpc.AlertSeverityUrgent)
-	mismatchedRecovery.OccurrenceKey = mustAlertOccurrenceKey(t, regime.EpisodeKey, "wrong-recovery-key")
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base.Add(8*time.Minute), expected, expected, rpc.AlertCoverageCurrent, mismatchedRecovery)); !errors.Is(err, ErrAlertDeliveryInvalidTransition) {
-		t.Fatalf("non-exact recovery was accepted: %v", err)
-	}
-	refused := store.AlertDelivery(base.Add(8 * time.Minute))
-	if refused.Generation != stableGeneration+1 {
-		t.Fatalf("refused producer snapshot did not publish one health edge: got %d want %d", refused.Generation, stableGeneration+1)
-	}
-	if refused.DeliveryHealth.State != AlertDeliveryHealthDegraded || refused.DeliveryHealth.Class != AlertDeliveryHealthClassObservation {
-		t.Fatalf("refused intake stayed invisible in delivery health: %+v", refused.DeliveryHealth)
-	}
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base.Add(9*time.Minute), expected, expected, rpc.AlertCoverageCurrent, mismatchedRecovery)); !errors.Is(err, ErrAlertDeliveryInvalidTransition) {
-		t.Fatalf("repeated non-exact recovery was accepted: %v", err)
-	}
-	if got := store.AlertDelivery(base.Add(9 * time.Minute)).Generation; got != refused.Generation {
-		t.Fatalf("repeated refusal republished the same health: got %d want %d", got, refused.Generation)
 	}
 }
 
@@ -677,371 +376,6 @@ func TestAlertDeliveryReserveConfirmRetryReceiptAndActiveRecheck(t *testing.T) {
 	}
 }
 
-func TestAlertDeliveryCompactionAndIndependentAttentionGeneration(t *testing.T) {
-	store, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC)
-	openedAt := now.Add(-100 * 24 * time.Hour)
-	candidate := testAlertCandidate(t, rpc.AlertSourceGovernance, rpc.AlertKindGovernance, "governance", "open-1", openedAt)
-	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(openedAt, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate))
-	if err != nil {
-		t.Fatal(err)
-	}
-	recoveredAt := openedAt.Add(time.Hour)
-	recovered := reviseAlertCandidate(candidate, recoveredAt, "e", rpc.AlertEpisodeRecovered, candidate.Severity)
-	view, err = store.ObserveAlertSnapshot(testAlertSnapshot(recoveredAt, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, recovered))
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := store.Attention()
-	attention, err := store.MarkAlertDeliveryAttentionRead(view.Attention.HighWaterSeq)
-	if err != nil || attention.UnreadCount != 0 {
-		t.Fatalf("v2 attention read failed: %+v err=%v", attention, err)
-	}
-	readGeneration := store.AlertDelivery(now).Generation
-	if !reflect.DeepEqual(store.Attention(), legacy) {
-		t.Fatal("v2 attention read changed legacy cursor")
-	}
-	if err := store.CompactAlertDelivery(now); err != nil {
-		t.Fatal(err)
-	}
-	compacted := store.AlertDelivery(now)
-	if len(compacted.Occurrences) != 0 || compacted.Generation != readGeneration+1 || compacted.Attention.HighWaterSeq != 1 || compacted.Attention.ReadThroughSeq != 1 {
-		t.Fatalf("compaction/cursor state = %+v", compacted)
-	}
-}
-
-func TestAlertDeliveryFirstSnapshotSaveFailureIsTypedAndRecoversMonotonically(t *testing.T) {
-	store, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := time.Date(2026, 7, 20, 19, 11, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceDelivery, rpc.AlertKindDeliveryHealth, "delivery", "cold-start-failure", base)
-	store.saveHook = func(string) error { return errors.New("injected first snapshot failure") }
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err == nil {
-		t.Fatal("first snapshot persistence failure was ignored")
-	}
-	failed := store.AlertDelivery(base)
-	if failed.Initialized || failed.Generation != 1 || failed.DeliveryHealth.State != AlertDeliveryHealthUnavailable || failed.DeliveryHealth.Class != AlertDeliveryHealthClassStateWrite || !failed.DeliveryHealth.UpdatedAt.Equal(base) {
-		t.Fatalf("cold-start failure was hidden: %+v", failed)
-	}
-	store.saveHook = nil
-	recovered, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !recovered.Initialized || recovered.Generation <= failed.Generation || recovered.DeliveryHealth.State != AlertDeliveryHealthHealthy {
-		t.Fatalf("cold-start recovery was not monotonic: failed=%+v recovered=%+v", failed, recovered)
-	}
-}
-
-func TestAlertDeliveryRecoverySkipsOwnedTransportUnderConcurrentSweeps(t *testing.T) {
-	store, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	enableTestAlertDelivery(t, store)
-	base := time.Date(2026, 7, 20, 19, 15, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceDelivery, rpc.AlertKindDeliveryHealth, "delivery", "owned", base)
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
-		t.Fatal(err)
-	}
-	reservation, send, err := store.BeginAlertDelivery(candidate.OccurrenceKey, AlertDeliveryTargetRef("device", "subscription"), base.Add(time.Second))
-	if err != nil || !send {
-		t.Fatalf("begin send=%v err=%v", send, err)
-	}
-	var wg sync.WaitGroup
-	for i := range 32 {
-		wg.Add(1)
-		go func(offset int) {
-			defer wg.Done()
-			if err := store.RecoverAlertDeliveries(base.Add(time.Duration(offset+2) * time.Second)); err != nil {
-				t.Errorf("recover: %v", err)
-			}
-		}(i)
-	}
-	wg.Wait()
-	if attempt := store.data.AlertDelivery.Attempts[0]; attempt.Class != AlertDeliveryAttemptReserved || !attempt.CompletedAt.IsZero() {
-		t.Fatalf("owned reservation was recovered: %+v", attempt)
-	}
-	if _, allowed, err := store.ConfirmAlertTransport(reservation.AttemptID, base.Add(time.Minute)); err != nil || !allowed {
-		t.Fatalf("confirm allowed=%v err=%v", allowed, err)
-	}
-	if _, err := store.CompleteAlertDelivery(reservation.AttemptID, AlertDeliveryCompletionAccepted, base.Add(time.Minute+time.Second)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestAlertDeliveryPrerequisiteHealthPersistsAndAutoClears(t *testing.T) {
-	dir := t.TempDir()
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enableTestAlertDelivery(t, store)
-	base := time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceDelivery, rpc.AlertKindDeliveryHealth, "delivery", "prerequisites", base)
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
-		t.Fatal(err)
-	}
-	classes := []string{AlertDeliveryHealthClassNoSubscription, AlertDeliveryHealthClassSigningKeys, AlertDeliveryHealthClassSender}
-	for i, healthClass := range classes {
-		at := base.Add(time.Duration(i+1) * time.Second)
-		if err := store.SetAlertDeliveryPrerequisiteHealth(healthClass, at); err != nil {
-			t.Fatal(err)
-		}
-		view := store.AlertDelivery(at)
-		if view.DeliveryHealth.State != AlertDeliveryHealthUnavailable || view.DeliveryHealth.Class != healthClass || len(store.AlertDeliveriesDue(at)) != 1 {
-			t.Fatalf("class %q view=%+v due=%d", healthClass, view.DeliveryHealth, len(store.AlertDeliveriesDue(at)))
-		}
-	}
-	reopened, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if health := reopened.AlertDelivery(base.Add(time.Minute)).DeliveryHealth; health.State != AlertDeliveryHealthUnavailable || health.Class != AlertDeliveryHealthClassSender {
-		t.Fatalf("prerequisite outage was not durable: %+v", health)
-	}
-	if err := store.SetAlertDeliveryPrerequisiteHealth("", base.Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	if health := store.AlertDelivery(base.Add(time.Minute)).DeliveryHealth; health.State != AlertDeliveryHealthHealthy || health.Class != "" {
-		t.Fatalf("prerequisite recovery did not auto-clear: %+v", health)
-	}
-	if err := store.SetAlertDeliveryPrerequisiteHealth("free_text", base.Add(2*time.Minute)); err == nil {
-		t.Fatal("unallowlisted prerequisite class was accepted")
-	}
-}
-
-func TestAlertDeliveryPersistedPublicEnumsRejectTamperingOnReopen(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		mutate func(*alertDeliveryData, time.Time)
-	}{
-		{
-			name: "arbitrary degraded health class",
-			mutate: func(data *alertDeliveryData, at time.Time) {
-				data.Health = AlertDeliveryHealth{State: AlertDeliveryHealthDegraded, Class: "raw transport prose", UpdatedAt: at}
-			},
-		},
-		{
-			name: "arbitrary occurrence end reason",
-			mutate: func(data *alertDeliveryData, at time.Time) {
-				data.Occurrences[0].EndedAt = at
-				data.Occurrences[0].EndReason = "raw producer prose"
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			store, err := Open(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			at := time.Date(2026, 7, 20, 20, 15, 0, 0, time.UTC)
-			candidate := testAlertCandidate(t, rpc.AlertSourceDelivery, rpc.AlertKindDeliveryHealth, "delivery", tc.name, at)
-			if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
-				t.Fatal(err)
-			}
-			tc.mutate(store.data.AlertDelivery, at.Add(time.Second))
-			if err := store.save(); err != nil {
-				t.Fatal(err)
-			}
-			reopened, err := Open(dir)
-			if err != nil {
-				t.Fatalf("alert-only tampering did not isolate cleanly: %v", err)
-			}
-			assertAlertDeliveryQuarantined(t, reopened)
-		})
-	}
-}
-
-func TestAlertDeliveryPersistedReceiptAcceptanceCoherence(t *testing.T) {
-	for _, mutation := range []string{"accepted without receipt", "receipt without latest acceptance"} {
-		t.Run(mutation, func(t *testing.T) {
-			dir := t.TempDir()
-			store, err := Open(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			enableTestAlertDelivery(t, store)
-			base := time.Date(2026, 7, 20, 20, 20, 0, 0, time.UTC)
-			candidate := testAlertCandidate(t, rpc.AlertSourceDelivery, rpc.AlertKindDeliveryHealth, "delivery", mutation, base)
-			if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
-				t.Fatal(err)
-			}
-			reservation, send, err := store.BeginAlertDelivery(candidate.OccurrenceKey, AlertDeliveryTargetRef("device", "subscription"), base.Add(time.Second))
-			if err != nil || !send {
-				t.Fatalf("begin send=%v err=%v", send, err)
-			}
-			if _, allowed, err := store.ConfirmAlertTransport(reservation.AttemptID, base.Add(2*time.Second)); err != nil || !allowed {
-				t.Fatalf("confirm allowed=%v err=%v", allowed, err)
-			}
-			if _, err := store.CompleteAlertDelivery(reservation.AttemptID, AlertDeliveryCompletionAccepted, base.Add(3*time.Second)); err != nil {
-				t.Fatal(err)
-			}
-			if mutation == "accepted without receipt" {
-				store.data.AlertDelivery.Receipts = nil
-			} else {
-				store.data.AlertDelivery.Attempts[0].Class = AlertDeliveryAttemptRejected
-			}
-			if err := store.save(); err != nil {
-				t.Fatal(err)
-			}
-			reopened, err := Open(dir)
-			if err != nil {
-				t.Fatalf("incoherent transport truth did not isolate cleanly: %v", err)
-			}
-			assertAlertDeliveryQuarantined(t, reopened)
-		})
-	}
-}
-
-func TestAlertDeliveryPersistedAttemptSequenceAndIdentityRejectsCorruption(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		mutate func(*Store, int)
-	}{
-		{name: "first number is not one", mutate: func(store *Store, index int) {
-			a := &store.data.AlertDelivery.Attempts[index]
-			a.AttemptNumber = 2
-			a.ID = alertDeliveryAttemptID(a.ReceiptKey, a.AttemptNumber, a.ReservedAt)
-		}},
-		{name: "number gap", mutate: func(store *Store, index int) {
-			a := &store.data.AlertDelivery.Attempts[index]
-			a.AttemptNumber = 3
-			a.ID = alertDeliveryAttemptID(a.ReceiptKey, a.AttemptNumber, a.ReservedAt)
-		}},
-		{name: "persisted order reversed", mutate: func(store *Store, _ int) { slices.Reverse(store.data.AlertDelivery.Attempts) }},
-		{name: "deterministic id mismatch", mutate: func(store *Store, index int) {
-			a := &store.data.AlertDelivery.Attempts[index]
-			a.ID = alertDeliveryAttemptID(a.ReceiptKey, a.AttemptNumber, a.ReservedAt.Add(time.Second))
-		}},
-		{name: "terminal predecessor", mutate: func(store *Store, _ int) {
-			a := &store.data.AlertDelivery.Attempts[0]
-			a.Class = AlertDeliveryAttemptRejected
-			a.RetryAt = time.Time{}
-			a.Disposition = AlertDeliveryCompletionApplied
-		}},
-		{name: "successor precedes retry", mutate: func(store *Store, index int) {
-			a := &store.data.AlertDelivery.Attempts[index]
-			a.ReservedAt = store.data.AlertDelivery.Attempts[index-1].RetryAt.Add(-time.Second)
-			a.ID = alertDeliveryAttemptID(a.ReceiptKey, a.AttemptNumber, a.ReservedAt)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			number := 2
-			if tc.name == "first number is not one" || tc.name == "deterministic id mismatch" {
-				number = 1
-			}
-			_, store, index := newAlertDeliveryAttemptValidationFixture(t, AlertDeliveryAttemptReserved, number, "", false)
-			tc.mutate(store, index)
-			if err := store.validateAlertDeliveryState(); !errors.Is(err, ErrInvalidPersistedState) {
-				t.Fatalf("corrupt attempt sequence validated: %v", err)
-			}
-		})
-	}
-}
-
-func newAlertDeliveryAttemptValidationFixture(t *testing.T, class string, number int, disposition AlertDeliveryCompletionDisposition, retired bool) (string, *Store, int) {
-	t.Helper()
-	dir := t.TempDir()
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
-	candidate := testAlertCandidate(t, rpc.AlertSourceDelivery, rpc.AlertKindDeliveryHealth, "validator", class, base)
-	if _, err := store.ObserveAlertSnapshot(testAlertSnapshot(base, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate)); err != nil {
-		t.Fatal(err)
-	}
-	target := AlertDeliveryTargetRef("validator-device", "validator-subscription")
-	receiptKey := alertDeliveryReceiptKey(defaultTestAlertAuthorityScope, candidate.OccurrenceKey, target)
-	reservedAt := base.Add(time.Second)
-	attempts := make([]alertDeliveryAttempt, 0, number)
-	for attemptNumber := 1; attemptNumber < number; attemptNumber++ {
-		completedAt := reservedAt.Add(time.Second)
-		delay, ok := alertDeliveryRetryDelay(attemptNumber)
-		if !ok {
-			t.Fatalf("invalid predecessor number %d", attemptNumber)
-		}
-		attempts = append(attempts, alertDeliveryAttempt{
-			AuthorityScope: defaultTestAlertAuthorityScope,
-			ID:             alertDeliveryAttemptID(receiptKey, attemptNumber, reservedAt), OccurrenceKey: candidate.OccurrenceKey,
-			TargetRef: target, ReceiptKey: receiptKey, AttemptNumber: attemptNumber, ReservedAt: reservedAt,
-			CompletedAt: completedAt, Class: AlertDeliveryAttemptRetry, Disposition: AlertDeliveryCompletionApplied,
-			RetryAt: completedAt.Add(delay),
-		})
-		reservedAt = completedAt.Add(delay)
-	}
-	final := alertDeliveryAttempt{
-		AuthorityScope: defaultTestAlertAuthorityScope,
-		ID:             alertDeliveryAttemptID(receiptKey, number, reservedAt), OccurrenceKey: candidate.OccurrenceKey,
-		TargetRef: target, ReceiptKey: receiptKey, AttemptNumber: number, ReservedAt: reservedAt,
-		Class: class, Disposition: disposition,
-	}
-	completedAt := reservedAt.Add(time.Second)
-	if class != AlertDeliveryAttemptReserved && class != AlertDeliveryAttemptConfirmed {
-		final.CompletedAt = completedAt
-	}
-	if retired {
-		final.RetiredAt = completedAt.Add(time.Second)
-		store.data.AlertDelivery.RetiredTargets[target] = final.RetiredAt
-	}
-	switch class {
-	case AlertDeliveryAttemptConfirmed:
-		if retired {
-			final.Disposition = AlertDeliveryCompletionRetired
-		}
-	case AlertDeliveryAttemptAccepted, AlertDeliveryAttemptRejected:
-
-	case AlertDeliveryAttemptRetry:
-		if disposition == "" || disposition == AlertDeliveryCompletionApplied {
-			delay, _ := alertDeliveryRetryDelay(number)
-			final.RetryAt = completedAt.Add(delay)
-		}
-	case AlertDeliveryAttemptInterrupted:
-		if disposition == "" {
-			if delay, ok := alertDeliveryRetryDelay(number); ok {
-				final.RetryAt = completedAt.Add(delay)
-			}
-		}
-	case AlertDeliveryAttemptRetired:
-		final.Disposition = AlertDeliveryCompletionRetired
-	case AlertDeliveryAttemptInactive:
-		final.Disposition = AlertDeliveryCompletionInactive
-	}
-	attempts = append(attempts, final)
-	if retired {
-		for i := range attempts[:len(attempts)-1] {
-			attempts[i].Class = AlertDeliveryAttemptRetired
-			attempts[i].CompletedAt = final.RetiredAt
-			attempts[i].RetryAt = time.Time{}
-			attempts[i].RetiredAt = final.RetiredAt
-			attempts[i].Disposition = AlertDeliveryCompletionRetired
-		}
-	}
-	store.data.AlertDelivery.Attempts = attempts
-	store.data.AlertDelivery.Receipts = nil
-	if class == AlertDeliveryAttemptAccepted {
-		store.data.AlertDelivery.Receipts = []alertDeliveryReceipt{{
-			AuthorityScope: defaultTestAlertAuthorityScope,
-			OccurrenceKey:  candidate.OccurrenceKey, TargetRef: target, ReceiptKey: receiptKey,
-			AcceptedAt: final.CompletedAt, RetiredAt: final.RetiredAt,
-		}}
-	}
-	if err := store.validateAlertDeliveryState(); err != nil {
-		t.Fatalf("invalid test fixture: %v\n%+v", err, final)
-	}
-	if err := store.save(); err != nil {
-		t.Fatal(err)
-	}
-	return dir, store, len(attempts) - 1
-}
-
 func testAlertCandidate(t *testing.T, source rpc.AlertSource, kind rpc.AlertKind, episodeIdentity, occurrenceIdentity string, at time.Time) rpc.AlertCandidate {
 	t.Helper()
 	episode, err := rpc.BuildAlertEpisodeKey(source, kind, episodeIdentity)
@@ -1175,24 +509,89 @@ func testAlertSnapshot(at time.Time, expected, covered []rpc.AlertSource, freshn
 	}
 }
 
-func occurrenceBySource(t *testing.T, view AlertDeliveryView, source rpc.AlertSource) AlertDeliveryOccurrenceView {
-	t.Helper()
-	for _, occurrence := range slices.Backward(view.Occurrences) {
-		if occurrence.Source == source {
-			return occurrence
-		}
+func TestOpenQuarantinesUnsupportedAlertLedgerWithoutClearingIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"typed decode", json.RawMessage(`{"version":17,"generation":9,"private_marker":"typed"}`)},
+		{"unsupported schema", json.RawMessage(`{"version":"alert-delivery-v3","generation":41,"private_marker":"old"}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeAlertDeliveryQuarantineFixture(t, dir, tc.raw)
+			store, err := Open(dir)
+			if err != nil {
+				t.Fatalf("Open isolated alert ledger: %v", err)
+			}
+			assertAlertDeliveryQuarantined(t, store)
+			if history := store.AlertHistory(10); len(history) != 1 || history[0].ID != "existing-alert" {
+				t.Fatalf("unrelated app state unavailable after quarantine: %+v", history)
+			}
+			artifact := filepath.Join(dir, alertDeliveryQuarantineArtifactName(tc.raw))
+			assertExactPrivateFile(t, artifact, tc.raw)
+
+			if err := store.SetAlertMode(AlertModeNone); err != nil {
+				t.Fatalf("save unrelated state: %v", err)
+			}
+			persisted, err := os.ReadFile(filepath.Join(dir, "state.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var top map[string]json.RawMessage
+			if err := json.Unmarshal(persisted, &top); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(top["alert_delivery"], tc.raw) {
+				t.Fatalf("unsupported alert ledger was normalized or cleared: %s", top["alert_delivery"])
+			}
+		})
 	}
-	t.Fatalf("occurrence for source %s not found: %+v", source, view.Occurrences)
-	return AlertDeliveryOccurrenceView{}
 }
 
-func occurrenceByDisplay(t *testing.T, view AlertDeliveryView, displayID string) AlertDeliveryOccurrenceView {
+func writeAlertDeliveryQuarantineFixture(t *testing.T, dir string, alertDelivery json.RawMessage) {
 	t.Helper()
-	for _, occurrence := range view.Occurrences {
-		if occurrence.DisplayID == displayID {
-			return occurrence
-		}
+	raw := append([]byte(`{"alert_settings":{"mode":"watch_and_act"},"alert_history":[{"id":"existing-alert","title":"existing","body":"usable"}],"alert_delivery":`), alertDelivery...)
+	raw = append(raw, '}')
+	if !json.Valid(raw) {
+		t.Fatalf("invalid state fixture: %s", raw)
 	}
-	t.Fatalf("occurrence %s not found: %+v", displayID, view.Occurrences)
-	return AlertDeliveryOccurrenceView{}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertAlertDeliveryQuarantined(t *testing.T, store *Store) {
+	t.Helper()
+	if store == nil || !store.alertDeliveryQuarantinedLocked() || store.data.AlertDelivery != nil {
+		t.Fatalf("store did not retain quarantine boundary: %+v", store)
+	}
+	view := store.AlertDelivery(time.Now().UTC())
+	if view.Initialized || view.Generation != alertDeliveryQuarantineGeneration || len(view.Occurrences) != 0 ||
+		view.Attention.UnreadCount != 0 || view.DeliveryHealth.State != AlertDeliveryHealthUnavailable ||
+		view.DeliveryHealth.Class != AlertDeliveryHealthClassInvalidPersistedState {
+		t.Fatalf("quarantine view is not uninitialized/default-deny: %+v", view)
+	}
+	if due := store.AlertDeliveriesDue(time.Now().UTC()); len(due) != 0 {
+		t.Fatalf("quarantined delivery produced due work: %+v", due)
+	}
+}
+
+func assertExactPrivateFile(t *testing.T, path string, want []byte) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("preserved bytes changed\ngot: %q\nwant: %q", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Fatalf("preserved artifact mode=%v", info.Mode())
+	}
 }

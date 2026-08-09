@@ -11,8 +11,6 @@ function ruleTone(status) {
 }
 
 // Rules card: advisory 14-rule daily checklist from snapshot.rules
-// (daemon-owned verdicts and ranking; this renderer adds no policy). The
-// brief row shows the worst three non-pass rows hardest-first; the detail
 // grid shows all rows. Read-only by design — no order actions here.
 function renderRulesCard(rules) {
   const card = $("stressRulesCard");
@@ -31,7 +29,6 @@ function renderRulesCard(rules) {
   strip.hidden = false;
   $("stressRulesCounts").textContent = rulesTileFigure(rules);
   // The sheet opens on its own tally: the same served breach_counts figure
-  // the Monitor window carries, restated where the checklist begins.
   if (tally) tally.textContent = rulesTileFigure(rules);
 
   const order = Array.isArray(rules.ranked) && rules.ranked.length === rules.rules.length
@@ -77,7 +74,6 @@ function renderRulesCard(rules) {
 }
 
 // The tile figure states the served tally over its denominator, so "2 watch"
-// is read against the size of the daemon's checklist rather than alone.
 function rulesTileFigure(rules = {}) {
   const rows = Array.isArray(rules.rules) ? rules.rules : [];
   const pass = typeof rules.breach_counts?.pass === "number"
@@ -107,8 +103,6 @@ function renderRulesTileState(rules, order) {
 
 
 // The note builders return five independent degradation notices; joining them
-// into one paragraph is what made them unreadable. Each keeps its own block,
-// behind an info affordance so the ranked rule chips keep the strip.
 function renderRulesNotes(parts, attention) {
   const trigger = $("stressRulesNotesToggle");
   const list = $("stressRulesNotesList");
@@ -130,9 +124,6 @@ function renderRulesNotes(parts, attention) {
 }
 
 // The Rules sheet is a checklist, not a card deck: one dot-leader line per
-// rule — number, title, leader dots, then the daemon's own status word. A
-// pass carries the nominal tick and nothing else; a flagged row is tinted
-// and states its served evidence beneath; an info row carries the advisory
 // dot so it never reads as a breach. One element per rule, keeping the tone
 // class, so "unknown" can still never render with the pass tone.
 function renderRulesGrid(rules, order) {
@@ -301,13 +292,6 @@ function stressExplanationCards(stress, snap = state.snapshot || {}) {
 }
 
 // The Stress window: served severity as the caption, served action and the
-// portfolio cushion as the figure. The full served summary stays one hover
-// (and one tap into the detail panel) away rather than crowding the tile.
-//
-// When the served transport says the stress payload is stale or unavailable
-// the window goes dead instead of lamping a severity nobody measured: the
-// retained last-good reading stays, stamped with the served time it was last
-// good, and the caption names the fault in the daemon's own word.
 function renderStressStatus(stress, snap = state.snapshot || {}) {
   const fault = sourceTransportFault(snap, "stress");
   applyTileSeverity($("stressHero"), fault ? "stale" : String(stress.severity || "").toLowerCase());
@@ -328,12 +312,6 @@ function renderStressStatus(stress, snap = state.snapshot || {}) {
 
 
 // The figure names the served binding driver: primary_drivers is the daemon's
-// own severity-ranked list, and the first driver with a typed reading in the
-// portfolio summary wins. A driver this map cannot read (market-side, or one
-// the payload serves no number for) falls through to the margin cushion, the
-// tile's long-standing default — so an exposure-driven verdict is no longer
-// captioned by the healthiest metric on the book. Exposure readings carry no
-// trip point because the payload serves none.
 function stressHeroFigure(stress = {}) {
   return stressLeadDriverFigure(stress) || stressCushionFigure(stress);
 }
@@ -380,9 +358,7 @@ function staleFigure(reading, asOf) {
 
 
 // sourceTransportFault reads the app snapshot's served per-source transport
-// record: state/reason say whether the retained payload is current, stale or
 // unavailable. The lamp-test stamp names exactly these faults, so a window
-// derived from this cannot contradict the stamp above it.
 function sourceTransportFault(snap = {}, name) {
   const meta = snap.sources?.[name];
   if (!meta) return null;
@@ -396,8 +372,6 @@ function sourceTransportFault(snap = {}, name) {
 
 
 // The cushion reading against its served trip: the stress policy's own watch
-// floor, the level at which the cushion row leaves observe. When the payload
-// serves no floor the figure states the measurement and stops there — a
 // threshold this renderer invented would be policy the daemon never published.
 function stressCushionFigure(stress = {}) {
   const cushion = stress.portfolio?.cushion_pct;
@@ -422,7 +396,6 @@ function stressStageLabel(stress) {
 
 
 // First sentence or semicolon-clause of a summary, with terminal punctuation
-// normalized to a period.
 function firstClause(text) {
   const s = String(text || "").trim();
   const m = s.match(/^[^.;]*[.;]/);
@@ -503,7 +476,6 @@ function marketExplanation(stress) {
     }
     if (stressGovernedHold(stress)) {
       // Served fact, not reinterpretation: stage confirmed_stress with
-      // governed severity watch is the governor's own verdict, and this card
       // must agree with the amber Regime panel above it.
       return {
         label: "Market",
@@ -525,10 +497,7 @@ function marketExplanation(stress) {
   };
   const verdict = cleanDetail(posture.label || stress.market?.regime_verdict);
   // Trust the server's posture.tone outright — same pattern renderMarketWeather
-  // uses for the Regime panel's own weather chip. This card used to escalate
   // to "warn" locally whenever it saw a data gap, which is exactly the kind
-  // of client-side reinterpretation that let closed-session gamma staleness
-  // read amber here even when the canonical posture read normal.
   const tone = regimePostureDetailTone(posture);
   const hasGaps = marketHasDataGaps(stress.market || {}) ||
     ["blocked", "degraded", "failed", "partial", "warming"].includes(String(posture.readiness || "").toLowerCase()) ||
@@ -618,8 +587,6 @@ function renderStressTimestamp(stress) {
 
 
 // The Market & Portfolio head shows two freshness spans (regime + stress).
-// When both render the same text, showing the pair reads as a stutter
-// ("now · now"), so collapse to the regime span alone.
 function reconcileSignalPanelTimes() {
   const regime = $("regimeAsOf");
   const stress = $("stressAsOf");
@@ -627,7 +594,6 @@ function reconcileSignalPanelTimes() {
   const duplicate = regime.textContent === stress.textContent;
   stress.hidden = stress.hidden || duplicate;
   // The separator only earns ink when both sides render text (quiet-when-
-  // fresh can blank either side independently).
   const sep = stress.parentElement?.querySelector(".panel-time-sep");
   if (sep) sep.hidden = duplicate || regime.hidden || stress.hidden || !regime.textContent;
 }
@@ -723,7 +689,6 @@ function marketQuoteSourceLine(quote, marketQuotes, fallback) {
   const uniqueParts = [...new Set(parts)];
   // A healthy live quote is the default state; naming the source 6× across
   // the rail is noise. The label only appears when there is no quote yet;
-  // degraded states (stale/frozen/delayed) keep their explicit words.
   if (uniqueParts.length === 0 && !quote) uniqueParts.push(fallback || "Quote pending");
   const at = quote?.quote_price_at || quote?.price_at || quote?.as_of || marketQuotes?.as_of;
   if (at) uniqueParts.push(quoteTime(at));
@@ -748,15 +713,11 @@ function renderRegimePanel(snap) {
   summary.textContent = subline;
   // The subline clamps; its title keeps the full text plus the freshness or
   // authority explanation behind it, so nothing disclosed here is truncated
-  // out of reach.
   summary.title = [subline, regimeStatus.title || regimeStatus.detail || regimeStatus.summary]
     .filter(Boolean).join(" — ");
   applyTileSeverity($("masterAnnunciator"), masterSeverity(snap, stress));
   renderLampTest(snap, stress);
   // marketRegimeMix now lives in the expanded detail deck and shows only the
-  // governed-severity note (a real policy downgrade disclosure) — not a
-  // repeat of the freshness badge or the itemized data-gap list, both of
-  // which already have their own home (regimeAsOf and regimeQualityRemarks).
   const governedNote = regimeGovernedNote(snap, market);
   const mixNote = $("marketRegimeMix");
   mixNote.hidden = !governedNote;
@@ -773,8 +734,6 @@ function renderRegimePanel(snap) {
 
 
 // Severity ranking for the annunciator lamps. Only the daemon's own severity
-// words appear here; the rank exists so the master can light on the worst
-// SERVED verdict rather than inventing one.
 const SEVERITY_RANK = { observe: 1, watch: 2, act: 3, urgent: 4 };
 
 function severityRank(value) {
@@ -787,10 +746,7 @@ function worstSeverity(...values) {
 
 
 // masterSeverity is the worst severity the daemon serves across the two
-// verdicts this panel shows — portfolio stress and the regime posture. A
-// master annunciator that stayed dark while a subordinate window was lit
 // would be a lie, so the master takes the maximum; it never derives a
-// severity of its own.
 function masterSeverity(snap = {}, stress = {}) {
   const regime = snap.regime || {};
   return String(worstSeverity(
@@ -802,8 +758,6 @@ function masterSeverity(snap = {}, stress = {}) {
 
 
 // applyTileSeverity is the one place a severity word becomes a lamp class.
-// "stale" is the dead-window treatment: a darker face with no severity tint,
-// used when the served cluster health says the reading cannot be trusted.
 function applyTileSeverity(el, severity) {
   if (!el) return;
   el.classList.remove("pd-tile--watch", "pd-tile--act", "pd-tile--info", "pd-tile--stale");
@@ -817,21 +771,15 @@ function applyTileSeverity(el, severity) {
 
 // masterSubline states the action first, then anything the panel would
 // otherwise disclose only in a subordinate window, then the served timing
-// word. The red-window clause is the master law in code: when cluster
-// windows are lit red while the master is not at act grade, the master says
-// so instead of letting the two surfaces disagree in silence.
 function masterSubline(snap = {}, stress = {}) {
   const action = stressStageLabel(stress);
   const parts = [action === "--" ? "" : action, masterSeverity(snap, stress)];
   // Every cluster the daemon ranks now has a window, so this clause fires
   // only for a red the panel genuinely cannot show: a cluster name the served
-  // list carries that no window covers. The mechanism stays because the
-  // daemon's cluster set is its own to extend, and a red with nowhere to
   // appear must still be named rather than silently dropped.
   const reds = offPanelRedClusters(stress);
   if (reds.length > 0) parts.push(`${reds.length} red: ${reds.join(", ")}`);
   // A dead window under a quiet master is the same silent disagreement as a
-  // lit one, so the master names the windows it cannot read.
   const dark = REGIME_CLUSTERS
     .filter((cluster) => regimeClusterBand(cluster, snap, stress) === "stale")
     .map((cluster) => cluster.legend.toLowerCase());
@@ -844,8 +792,6 @@ function masterSubline(snap = {}, stress = {}) {
 
 
 // offPanelRedClusters lists served red cluster names that no window on this
-// panel covers. Names matched by a window are already lit there; naming them
-// again in the subline would be the master repeating what the panel says.
 function offPanelRedClusters(stress = {}) {
   return (stress.market?.red_cluster_names || []).filter((name) => {
     const key = String(name || "").trim().toLowerCase();
@@ -855,7 +801,6 @@ function offPanelRedClusters(stress = {}) {
 
 
 // The lamp test is the panel's own self-report: how many served feeds are
-// healthy, and which ones are not. The count covers the daemon's regime and
 // stress source-health entries (the instrument's feeds); app-transport
 // failures are named as faults but never silently change the feed count.
 function renderLampTest(snap = {}, stress = {}) {
@@ -899,9 +844,7 @@ function lampTestSources(snap = {}, stress = {}) {
     faults.push(`${clusterInputLabel(name)} ${status}`);
   }
   // App-transport failures arrive two ways: a served error string, or a served
-  // state of stale/unavailable with no error at all (how stress, regime, rules
   // and brief report a failed poll). Reading only the first left a dead window
-  // sitting under a silent stamp, so both are named here.
   for (const [name, meta] of Object.entries(snap.sources || {})) {
     const transport = String(meta?.state || "").trim().toLowerCase();
     if (!meta?.error && transport !== "unavailable" && transport !== "stale") continue;
@@ -917,11 +860,6 @@ function snapshotSourceName(name) {
 
 
 // The six regime windows, in fixed positions — one per cluster the daemon
-// ranks (rpc.RegimeClusterNames). Nothing here is reordered by severity: an
-// instrument that moves cannot be read by muscle memory, and the lamps
-// already say which window needs attention. The first four keep the positions
-// they have always had; Funding and FX are appended rather than interleaved so
-// no window a reader already knows changes seat.
 const REGIME_CLUSTERS = [
   { key: "breadth", legend: "Breadth", sources: ["breadth"], match: ["breadth"] },
   { key: "vol", legend: "Volatility", sources: ["vol", "volatility"], match: ["vix", "vol"] },
@@ -958,7 +896,6 @@ function regimeClusterTile(cluster, snap = {}, stress = {}) {
   fig.textContent = clusterFigure(lead, band, fault);
   tile.append(bar, legend, cap, fig);
   // Third line: the served trip anchor, engraved beneath the reading so the
-  // figure is read against its own trigger. A window whose lead indicator
   // serves no trip stays figure-only — this renderer never supplies a cutoff.
   const trip = clusterTrip(lead, band);
   if (trip) {
@@ -977,9 +914,6 @@ function regimeClusterTile(cluster, snap = {}, stress = {}) {
 
 
 // The trip anchor is served text: the daemon's own compact trigger wording
-// for this indicator, or — for dealer gamma, whose trigger is a crossing —
-// the served spot/γ-zero pair. A dead window shows none: a trigger printed
-// beside a reading nobody trusts would imply the comparison still holds.
 function clusterTrip(lead = {}, band = "") {
   if (band === "stale") return "";
   const trip = cleanDetail(lead.trip);
@@ -988,13 +922,7 @@ function clusterTrip(lead = {}, band = "") {
 
 
 // The caption is served text: the indicator's own worded comment, falling
-// back to its reading and then to the served band word. Nothing is composed
-// from the numbers here — a caption this renderer wrote would be analysis
 // the daemon never published.
-//
-// A dead window is the exception: a served comment describing a reading the
-// daemon no longer trusts would read as a live verdict, so the caption states
-// the fault and its served reason word instead.
 function clusterCaption(lead = {}, band = "", fault = null) {
   if (band === "stale") return faultCaption(fault);
   for (const source of [lead.comment, lead.reading]) {
@@ -1006,7 +934,6 @@ function clusterCaption(lead = {}, band = "", fault = null) {
 
 
 // The caption is one clause of served text, without the sentence punctuation
-// that a caps annunciator legend would carry as visual noise.
 function leadingClause(value) {
   const text = firstClause(humanizeStalenessSeconds(cleanDetail(value))).replace(/[.;,]+$/, "").trim();
   return text === "--" ? "" : text;
@@ -1015,7 +942,6 @@ function leadingClause(value) {
 function clusterFigure(lead = {}, band = "", fault = null) {
   const reading = humanizeStalenessSeconds(cleanDetail(lead.reading));
   // Dead window: keep the last-good figure and stamp it with the served
-  // as-of, so the number stays available without pretending to be current.
   if (band === "stale") return staleFigure(reading, lead.as_of || fault?.asOf);
   if (reading !== "--") return reading;
   return "Reading pending";
@@ -1024,7 +950,6 @@ function clusterFigure(lead = {}, band = "", fault = null) {
 
 // The daemon's own data-quality cluster lists, each with the word it puts on
 // the window when the cluster is named in it. The word is the daemon's, never
-// this renderer's.
 const CLUSTER_FAULT_LISTS = [
   ["stale_clusters", "stale"],
   ["degraded_clusters", "degraded"],
@@ -1036,8 +961,6 @@ const CLUSTER_FAULT_LISTS = [
 
 // clusterFault is the served reason a window cannot be read: the stress
 // market summary's data-quality lists first, then the per-cluster source
-// health the lamp-test stamp counts. Both are served; nothing is timed here,
-// so there is no client-side staleness threshold to drift from the daemon's.
 function clusterFault(cluster, snap = {}, stress = {}) {
   const market = stress.market || {};
   for (const [field, word] of CLUSTER_FAULT_LISTS) {
@@ -1049,7 +972,6 @@ function clusterFault(cluster, snap = {}, stress = {}) {
 
 // The served source-health rows for this cluster's inputs, deduplicated the
 // same way the lamp-test stamp deduplicates them (first served row per source
-// name wins) so the window and the stamp read the same evidence.
 function clusterSourceRows(cluster, snap = {}, stress = {}) {
   const rows = new Map();
   for (const source of [...(snap.regime?.source_health || []), ...(stress.source_health || [])]) {
@@ -1063,7 +985,6 @@ function clusterSourceRows(cluster, snap = {}, stress = {}) {
 
 // A source is faulted whenever its served status is anything but ok — exactly
 // the predicate lampTestSources counts. Reading the same field twice is what
-// keeps a dead window from ever sitting under a stamp that says all lit.
 function clusterSourceFault(cluster, snap = {}, stress = {}) {
   for (const source of clusterSourceRows(cluster, snap, stress)) {
     const status = String(source?.status || "").trim().toLowerCase();
@@ -1079,7 +1000,6 @@ function clusterSourceAsOf(cluster, snap = {}, stress = {}) {
 
 
 // The band is the daemon's own cluster verdict, in served-authority order:
-// the regime lifecycle's per-cluster evidence, then the stress market
 // summary's cluster-name lists, and only then the worst served indicator
 // status inside the cluster. Served data-quality wins over all of them — a
 // window whose input is stale must read as a dead window, not as calm.
@@ -1112,8 +1032,6 @@ function clusterIndicators(cluster, stress = {}) {
 
 
 // The lead indicator is the worst-reading window inside the cluster: the one
-// whose evidence explains why the cluster lamp is lit. Ties keep served
-// order.
 function clusterLeadIndicator(cluster, stress = {}) {
   const indicators = clusterIndicators(cluster, stress);
   let lead = indicators[0] || {};
@@ -1146,7 +1064,6 @@ function bandRank(band) {
 // Regime authority health is response/cache metadata, not market evidence.
 // The SPA therefore preserves the daemon-authored verdict and changes only
 // its data-quality treatment when either the authority or the app transport
-// says that the retained result is stale or unavailable.
 function regimeAuthorityView(snap = {}) {
   const health = snap.regime?.authority_health || {};
   const source = snap.sources?.regime || {};
@@ -1266,10 +1183,6 @@ function renderRegimeAuthorityTimestamp(snap = {}, fallbackTimestamp = null) {
 
 // The stale-badge threshold derives from the SERVED per-cluster staleness
 // policy (regime.source_health[].max_age_seconds) — same no-hardcoded-twins
-// pattern as renderProtectionTimestamp. The timestamp shown is the freshest
-// indicator read, so its budget is the tightest served max-age, floored at
-// 60 minutes so an intraday tick lull doesn't flap the badge. Fallback when
-// no policy is served: the historical 60m.
 function regimeStaleBudgetMinutes(snap) {
   const entries = snap.regime?.source_health || [];
   let tightest = null;
@@ -1285,9 +1198,7 @@ function regimeStaleBudgetMinutes(snap) {
 
 
 // regimeGovernedNote surfaces the confirmation-policy detail: provisional
-// (visible-but-unconfirmed) stress signals and any severity-governor caps,
 // so the panel never shows an unqualified red while the engine itself is
-// withholding confirmation.
 function regimeGovernedNote(snap, market) {
   const parts = [];
   const unconfirmed = market?.unconfirmed_red_cluster_names || [];
@@ -1317,8 +1228,6 @@ function marketSourceIssueLabels(snap = {}) {
   };
 
   // A refused subscription is the cause behind the vaguer per-symbol quote
-  // error, so it is named first and the symbol's "quote unavailable" line is
-  // dropped: two lines about one symbol read as two separate faults.
   const refused = marketAccessBySymbol(snap);
   for (const label of refused.values()) add(label);
 
@@ -1346,10 +1255,7 @@ function marketSourceIssueLabels(snap = {}) {
 }
 
 // marketAccessBySymbol maps each symbol the gateway is currently refusing
-// market data for to its display label, from status.market_data_access.
-//
 // This is an observation with a retry window, not a record of the account's
-// entitlements: nothing here disables a panel or hides a value, a symbol
 // nothing asked for never appears, and a data-farm outage can list a symbol
 // the account does hold. Panels holding a cached result keep rendering it.
 function marketAccessBySymbol(snap = {}) {
@@ -1365,7 +1271,6 @@ function marketAccessBySymbol(snap = {}) {
 // marketAccessReasonLabel renders the daemon's typed reason. The broker's own
 // free text never reaches the wire, so the code is the only classification
 // input, and 354 — the account is not subscribed — is the one a user can act
-// on directly.
 function marketAccessReasonLabel(row = {}) {
   const reason = String(row.reason || "").toLowerCase();
   const phrase = reason === "not_subscribed" ? "not subscribed" : "market data refused";
@@ -1675,9 +1580,6 @@ function gatewayDataStatus(snap = {}) {
     String(subsystem.status || "").toLowerCase() === "ready"
   );
   // A refused subscription leaves the socket connected and the quote
-  // subsystem ready, so the unqualified "live quotes OK" was true of the
-  // link and wrong about the data. Name the symbols instead of dropping
-  // the reading — everything else on the feed is still fine.
   const refused = [...marketAccessBySymbol(snap).values()];
   const qualify = (reading) => refused.length === 0 ? reading : `${reading}; ${humanList(refused, 2)}`;
   if (status.connected && quoteReady && mode.includes("paper")) return qualify("Paper gateway live quotes OK");
@@ -1770,7 +1672,6 @@ function indicatorAsOfLabel(value) {
 
 
 // Daemon staleness estimates arrive as raw seconds ("est 68519s"); render
-// them as approximate human durations.
 function humanizeStalenessSeconds(text) {
   return String(text).replace(/\b(\d{3,})s\b/g, (all, secs) => {
     const s = Number(secs);

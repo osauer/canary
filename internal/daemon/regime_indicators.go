@@ -11,37 +11,22 @@ import (
 )
 
 // streakIndicator is the per-indicator surface populateStreaks iterates.
-// Each implementation is a zero-state struct — pure dispatch, no fields.
-// Variations between indicators (status gate, classifier inputs, value
-// extraction, slot to attach the streak to) are encapsulated here so
-// populateStreaks itself is one loop.
-//
-// The confirmation-policy methods (displayBand, depth, fresh, exitHoldsRed)
-// implement internal-docs/design/regime-calibration.md: classification + hysteresis
-// run HERE, once, daemon-side; every downstream consumer reads the served
-// post-hysteresis band and eligibility verdict.
 type streakIndicator interface {
 	key() string
 	// bandAndValue inspects res and returns the band/value the streak
 	// counter should tick with. Returns ("", 0) to freeze the counter —
-	// status not usable or required fields missing.
 	bandAndValue(res *rpc.RegimeSnapshotResult) (band string, value float64)
 	// attachStreak writes s into the indicator's slot in res.
 	attachStreak(res *rpc.RegimeSnapshotResult, s *rpc.StreakInfo)
 	// displayBand is the band shown on the row's meta. Usually identical
-	// to bandAndValue's band; gamma diverges on stale (band stays visible
 	// for awareness while the streak freezes and the cluster unranks).
 	displayBand(res *rpc.RegimeSnapshotResult) string
 	// depth extracts the eligibility depth metric in the indicator's gate
-	// units (rpc.RegimeGateFor). Nil when the indicator has none — the
-	// band threshold itself is the depth gate.
 	depth(res *rpc.RegimeSnapshotResult) *float64
 	// fresh is the cadence-relative freshness verdict: no newer
-	// observation should exist under the indicator's native cadence.
 	fresh(res *rpc.RegimeSnapshotResult, nowNY time.Time) bool
 	// exitHoldsRed reports whether the red-exit hysteresis threshold
 	// still holds — consulted only when the previous tick was red and the
-	// fresh classification left red, to prevent boundary flapping.
 	exitHoldsRed(res *rpc.RegimeSnapshotResult) bool
 }
 
@@ -178,7 +163,6 @@ func (usdJpyStreaks) attachStreak(res *rpc.RegimeSnapshotResult, s *rpc.StreakIn
 }
 
 // gammaZeroStreaks gates on OK-only because the gamma envelope's Stale
-// path doesn't carry a Result pointer; the nested-pointer check is
 // meaningful and must precede classifier invocation.
 type gammaZeroStreaks struct{}
 
@@ -197,8 +181,6 @@ func (gammaZeroStreaks) attachStreak(res *rpc.RegimeSnapshotResult, s *rpc.Strea
 }
 
 // breadthStreaks — S&P 500 breadth pct-above-50DMA. Additionally gates
-// on Envelope.State == BreadthStateReady; value is a plain float64
-// (not a pointer) so no nil check is needed.
 type breadthStreaks struct{}
 
 func (breadthStreaks) key() string { return StreakKeyBreadth }
@@ -217,10 +199,6 @@ func (breadthStreaks) attachStreak(res *rpc.RegimeSnapshotResult, s *rpc.StreakI
 }
 
 // ---------------------------------------------------------------------------
-// Confirmation-policy methods (eligibility depth, cadence freshness,
-// red-exit hysteresis, display band). Gate values live in
-// internal/rpc/regime_policy.go; exit thresholds here mirror the design
-// doc's per-indicator table.
 
 func (v vixTermStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
 	band, _ := v.bandAndValue(res)
@@ -233,28 +211,17 @@ func (vixTermStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 
 // VIX freshness: live rows are fresh at any hour. Frozen rows remain
 // confirmation-ineligible. VIX3M is disseminated only during Cboe regular
-// trading hours (approximately 09:31-16:15 ET), so a prior close is not due
-// before 09:31 ET or on an official closed date; it becomes overdue once a
-// newer VIX3M observation should exist.
 func (vixTermStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.VIXTermStructure.Status == rpc.RegimeStatusOK
 }
 
 // Cboe keeps publishing VIX3M for a quarter hour past the equity close, so the
-// dissemination window runs 09:31 to close+15m.
 const vix3mDisseminationTail = 15 * time.Minute
 
 // vix3mCrossSourceTolerance is how far the broker's VIX3M may sit from Cboe's
-// published close for the same session before the leg is called stuck, in index
-// points (Cboe quotes the file to two decimals). Heuristic and operator-owned,
-// like the band thresholds: sized to clear any rounding or mark-versus-
-// settlement difference while still catching a leg serving another session's
-// value, which normally moves VIX3M by several tenths of a point.
 const vix3mCrossSourceTolerance = 0.25
 
 // vix3mWindow is the single definition of one session's VIX3M publication
-// window. Every VIX3M schedule question — cadence class, honest age, carry
-// bound — resolves through it.
 func vix3mWindow(session marketcal.Session) (start, end time.Time) {
 	open := session.Open
 	start = time.Date(open.Year(), open.Month(), open.Day(), 9, 31, 0, 0, open.Location())
@@ -273,8 +240,6 @@ func vix3mDisseminating(nowNY time.Time) bool {
 }
 
 // vix3mLastDisseminationWindow is the most recently completed publication
-// window. A frozen leg's value comes from it, and a carried value observed
-// before its start means a dead subscription rather than a slow one.
 func vix3mLastDisseminationWindow(now time.Time) (start, end time.Time, ok bool) {
 	date, _, found := lastCompletedOptionsSession(now)
 	if !found {
@@ -298,11 +263,6 @@ func vix3mLastDisseminationWindow(now time.Time) (start, end time.Time, ok bool)
 }
 
 // In-session VIX3M carry tolerance. A carried leg distorts the printed ratio
-// by the VIX3M drift since its observation, which a VIX move bounds from above
-// because VIX3M is the slower leg: 1% keeps a true 1.02 ratio printing near
-// 1.03 rather than the 1.05 that would read as backwardation. The 15-minute
-// ceiling is three regime polls, past which a thin index that keeps missing is
-// a gap rather than a slow tick. Operator decision, 2026-07-31.
 const (
 	vix3mCarryMaxVIXMovePct = 1.0
 	vix3mCarryMaxAge        = 15 * time.Minute
@@ -323,10 +283,7 @@ func vix3mCurrentWindow(nowNY time.Time) (start, end time.Time, ok bool) {
 }
 
 // vix3mCarryWithinTolerance reports whether a VIX3M leg observed earlier in the
-// current publication window may still stand in for a missed poll. It is the
 // single authority for that question: the carry site applies it before keeping
-// a value, and the cadence classifier applies it again before typing the row,
-// so a row assembled anywhere else cannot slip past the gate.
 func vix3mCarryWithinTolerance(row rpc.RegimeVIXTerm, nowNY time.Time) bool {
 	if row.VIX == nil || row.VIX3M == nil || row.VIX3MQuality == nil || row.VIX3MAnchorVIX == nil {
 		return false
@@ -347,8 +304,6 @@ func vix3mCarryWithinTolerance(row rpc.RegimeVIXTerm, nowNY time.Time) bool {
 }
 
 // vix3mTickQuality stamps a live leg when its tick arrived and a frozen leg at
-// the end of the window that produced it. A frozen quote's arrival instant is
-// essentially read time — the gateway re-sends the last known value on
 // request — so only the window end shows a frozen leg's true vintage.
 func vix3mTickQuality(observedAt, now time.Time, dataType string) *rpc.Quality {
 	q := firmTickQuality(observedAt, now, dataType, "VIX3M tick (thin CBOE; off-hours typically frozen)")
@@ -388,7 +343,6 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 				return rpc.RegimeFreshnessFresh
 			}
 			// A missed poll inside the window is a failed refresh: stale while
-			// the print is from this window and inside the carry tolerance,
 			// overdue past it. Never not_due — the window is open.
 			if vixClass == rpc.FreshnessLive && vix3mCarryWithinTolerance(row, local) {
 				return rpc.RegimeFreshnessStale
@@ -401,16 +355,7 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 	// Outside VIX3M's dissemination window no newer observation can exist, so
 	// the row is context, never a defect. Neither leg's class is consulted
 	// here: IBKR reports the subscription's mode, not an observation's age,
-	// and it flips both Cboe index legs between live and frozen off-window
-	// without anything going missing. Confirmable freshness is unreachable
-	// outside the window regardless, so an off-window "live" label still
-	// cannot become confirming evidence. A genuinely absent leg is already
-	// overdue above, via the row status and typed-quality checks.
-	//
-	// What the window alone cannot say is how old the value behind a frozen leg
-	// really is. not_due exempts the row from every age bound, so it is granted
 	// only once Cboe's dated close has established the leg's vintage; an
-	// uncorroborated or contradicted leg is overdue.
 	if !rpc.VIX3MCrossCheckVouches(row.VIX3MCrossCheck) {
 		return rpc.RegimeFreshnessOverdue
 	}
@@ -425,8 +370,6 @@ func regimeTickQualityClass(quality *rpc.Quality, now time.Time) (string, bool) 
 	switch class {
 	// Derived covers the official close serving as the off-window VIX3M leg.
 	// It is a typed dated observation, and since only a live class reaches
-	// confirmable freshness inside the window, accepting it here cannot let
-	// end-of-day evidence confirm anything.
 	case rpc.FreshnessLive, rpc.FreshnessFrozen, rpc.FreshnessDerived:
 		return class, true
 	default:
@@ -450,9 +393,6 @@ func gammaCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 		}
 	case rpc.DataCadenceMissedSession:
 		// The session's first compute is in flight inside its bounded window,
-		// so the last completed session's result is still the newest that
-		// exists. Non-confirming context, and overdue the moment the typed
-		// in-flight marker or the window goes away.
 		if served && gammaPublicationPending(&res.GammaZero.Envelope, now) {
 			return rpc.RegimeFreshnessPending
 		}
@@ -461,11 +401,6 @@ func gammaCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 }
 
 // breadthCadenceClass keeps the raw row honest (the served snapshot is stale
-// once CompletedSessionKey rolls) while identifying the one expected gap: the
-// immediately prior last-good is typed pending while an active HMDS refresh is
-// still inside its bounded, calendar-based publication window. Pending rather
-// than not_due since the session's own observation is genuinely due — it is
-// being computed — which is the same state gamma reaches at the options open.
 func breadthCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	if res == nil {
 		return rpc.RegimeFreshnessOverdue
@@ -485,12 +420,7 @@ func breadthCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 }
 
 // idealproTrading reports whether IBKR's IDEALPRO FX session is trading at
-// nowET. IDEALPRO runs one continuous weekly session rather than daily ones:
 // the broker publishes 17:15-to-next-day-17:00 blocks with Saturday CLOSED
-// (USD.JPY contract-details tradingHours, timezone US/Eastern), so FX is shut
-// for a 15-minute daily changeover and from Friday 17:00 until Sunday 17:15.
-// Holiday closures are not modelled — on one the row reads overdue, which is
-// the conservative direction and no worse than treating every gap that way.
 func idealproTrading(nowET time.Time) bool {
 	const (
 		sessionEnd   = 17 * 60    // 17:00 ET
@@ -511,8 +441,6 @@ func idealproTrading(nowET time.Time) bool {
 
 // USD/JPY freshness: the cadence question for a continuous market is simply
 // whether it is trading. While IDEALPRO is open only a live tick is current,
-// so a frozen one is a real gap. While it is shut the last tick — or the HMDS
-// midpoint close the row falls back to — is the newest observation that can
 // exist, exactly like an equity row off-hours.
 func usdJpyCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string {
 	if res == nil || nowNY.IsZero() {
@@ -575,13 +503,11 @@ func (hygSpyStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 }
 
 // HYG freshness: an RTH tick or the latest official close (the off-hours
-// banding input) is the newest possible observation — both land status ok.
 func (hygSpyStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.HYGSPYDivergence.Status == rpc.RegimeStatusOK
 }
 
 // Exit hysteresis: leave red only after HYG closes back above its 50DMA —
-// SPY drifting off the near-high line alone does not end a credit break.
 func (hygSpyStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 	r := res.HYGSPYDivergence
 	return r.HYGPrice != nil && r.HYG50DMA != nil && *r.HYGPrice < *r.HYG50DMA
@@ -593,8 +519,6 @@ func (c creditSpreadsStreaks) displayBand(res *rpc.RegimeSnapshotResult) string 
 }
 
 // Depth is the HY OAS level itself. It measures how bad, not whether: the
-// gate's MinDepth is zero because the band's 20-day-widening trigger can go
-// red at a much lower level.
 func (creditSpreadsStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 	return res.CreditSpreads.HYOAS
 }
@@ -604,7 +528,6 @@ func (creditSpreadsStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bo
 }
 
 // Exit hysteresis: leave red when HY OAS < 5.25 and the 20-obs widening
-// < 0.85 pp.
 func (creditSpreadsStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 	r := res.CreditSpreads
 	if r.HYOAS != nil && *r.HYOAS >= 5.25 {
@@ -638,7 +561,6 @@ func (u usdJpyStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
 }
 
 // Speed is the depth for the carry proxy — weekly yen strengthening, the sign
-// convention classifyUSDJPYBand bands on. The 2%/week red band stays the gate.
 func (usdJpyStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 	if res.USDJPY.WeeklyChange == nil {
 		return nil
@@ -661,7 +583,6 @@ func (usdJpyStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 
 // gamma's display band stays visible on STALE rows (prior-trading-date
 // cache): the red is awareness evidence even though the streak freezes, the
-// cluster unranks, and eligibility reports data_overdue.
 func (gammaZeroStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
 	if res.GammaZero.Status != rpc.RegimeStatusOK && res.GammaZero.Status != rpc.RegimeStatusStale {
 		return ""
@@ -678,7 +599,6 @@ func (gammaZeroStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 }
 
 // Gamma freshness: fetchRegimeGamma already downgrades prior-trading-date
-// computes to status stale, so status ok ⇔ cadence-fresh.
 func (gammaZeroStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.GammaZero.Status == rpc.RegimeStatusOK && res.GammaZero.Envelope.Result != nil
 }
@@ -704,8 +624,6 @@ func (breadthStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 }
 
 // Breadth freshness: the post-close compute of the last completed session
-// is inherently the newest possible observation; the session-key staleness
-// check already runs in fetchRegimeBreadth, so status ok ⇔ fresh.
 func (breadthStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 	return res.Breadth.Status == rpc.RegimeStatusOK
 }
@@ -716,7 +634,6 @@ func (breadthStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 }
 
 // officialDateWithinDays reports whether a YYYY-MM-DD observation date is
-// within n calendar days of nowNY. Unparseable/empty dates are not fresh.
 func officialDateWithinDays(date string, nowNY time.Time, n int) bool {
 	d, err := time.Parse("2006-01-02", date)
 	if err != nil {

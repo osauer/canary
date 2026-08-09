@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 #
 # build-mcpb.sh - assemble the release MCP Bundle from the native tarballs.
-#
 # Called by `make release-mcpb` after `make release-binaries` has produced
-# dist/canary-vX.Y.Z-<os>-<arch>.tar.gz. The bundle reuses those tarball
-# binaries so the one-click MCPB path and the direct-download path ship the
-# same stamped executables.
 
 set -euo pipefail
 

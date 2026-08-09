@@ -15,25 +15,12 @@ import (
 
 // defaultCoalesceInterval is the cadence at which the per-symbol tick loop
 // reads the IBKR market-data cache and (on change) emits a frame to its
-// taps. Matches the value used by the pre-fan-out implementation; chosen
-// to amortize render churn without lagging visibly behind the gateway.
 const defaultCoalesceInterval = 150 * time.Millisecond
 
 // defaultGenericTicks is the generic-tick list the daemon requests on every
-// symbol subscription. Picked to cover the fields the CLI / MCP consumers
-// expect to render: 100 = option volume, 101 = option open interest,
-// 104 = historical volatility, 106 = option implied volatility (averaged
-// across the chain — the "IV of the underlying" retail platforms display),
-// 165 = Misc Stats (delivers 13w/26w/52w highs/lows as tickPrice msgs
-// with tick types 15-20), and 236 = shortable shares. 236 is evidence for
-// the market-event borrow-inventory flag.
 var defaultGenericTicks = []string{"100", "101", "104", "106", "165", "236"}
 
 // ibkrMarketConnector is the slice of *ibkrlib.Connector that subManager
-// touches. Defining it as an interface lets unit tests drive the manager
-// with a fake instead of a real gateway connection — required by the
-// project's "no mocks for daemon-internal data, but transport seams are
-// fair game" rule.
 type ibkrMarketConnector interface {
 	SubscribeMarketData(ctx context.Context, symbol string, fields []string) error
 	SubscribeMarketDataWithContract(ctx context.Context, contract ibkrlib.Contract, fields []string) (string, error)
@@ -45,21 +32,10 @@ type ibkrMarketConnector interface {
 type marketSubscribeFunc func(context.Context, ibkrMarketConnector) (string, error)
 
 // subManager owns the daemon's per-symbol market-data subscriptions and
-// fans tick frames out to multiple consumers (CLI watch + MCP subscribers
 // + concurrent snapshot polls). At most one IBKR market-data line is held
-// per symbol regardless of consumer count; the line is released the moment
-// the last consumer goes away.
-//
-// Locking:
 //   - subsMu guards the `subs` map only — held briefly for lookup/insert/
-//     delete operations.
-//   - Per-symbol init locks (initLocks, guarded by initMu) serialise the
 //     IBKR Subscribe/Unsubscribe call for each symbol. Two cold-Subscribes
-//     for different symbols proceed in parallel; two cold-Subscribes for
 //     the same symbol serialise (only the first does the IBKR call).
-//   - Per-entry locks (subEntry.mu) guard refcount, taps, and the cached
-//     change-detection state. Tick fan-out and refcount changes for symbol
-//     A do not block any operation on symbol B.
 type subManager struct {
 	subsMu   sync.Mutex
 	subs     map[string]*subEntry
@@ -69,10 +45,6 @@ type subManager struct {
 	initLocks map[string]*sync.Mutex
 
 	// connector is re-fetched on every tick so a daemon-side reconnect
-	// (gatewayConnector returning a fresh *Connector) is observed without
-	// having to thread the new pointer through every active subscription.
-	// nil return means the gateway is currently unavailable and tick loops
-	// translate that into a terminal gateway_lost frame.
 	connector func() ibkrMarketConnector
 }
 
@@ -81,7 +53,6 @@ type subEntry struct {
 	stop chan struct{}
 
 	// mu guards everything below. Per-symbol scope so fan-out and
-	// release on one symbol don't block operations on another.
 	mu       sync.Mutex
 	refcount int
 	taps     map[*frameTap]struct{}
@@ -109,7 +80,6 @@ func newSubManager(connector func() ibkrMarketConnector) *subManager {
 // symInitLock returns (creating on demand) the per-symbol init mutex.
 // Callers hold it for the duration of an IBKR SubscribeMarketData /
 // UnsubscribeMarketData call so the IBKR-side state for that symbol is
-// serialised, without blocking operations on other symbols.
 func (m *subManager) symInitLock(sym string) *sync.Mutex {
 	m.initMu.Lock()
 	defer m.initMu.Unlock()
@@ -126,14 +96,8 @@ func (m *subManager) symInitLock(sym string) *sync.Mutex {
 
 // acquire is the shared body of Subscribe and Hold. addTap=true attaches a
 // frame channel; addTap=false (Hold) keeps the IBKR line open without
-// receiving frames.
-//
 // ctx bounds the underlying pkg/ibkr.SubscribeMarketData call. Per-request
-// callers (RPC handlers serving a deadline) should pass their request ctx
-// so a saturated slot pool honours the deadline; long-lived background
-// holders may pass context.Background(). Subsequent references to the
 // same symbol skip the IBKR-side subscribe (refcount bump only), so ctx
-// is effectively a no-op past the first call.
 func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subscribe marketSubscribeFunc) (*frameTap, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -160,8 +124,6 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 	if !exists {
 		// First reference for this symbol — open the IBKR line outside
 		// any cross-symbol lock. pkg/ibkr's SubscribeMarketData is itself
-		// idempotent, so a duplicate call from a stale prior session
-		// resolves without surfacing an error here.
 		key, err := subscribe(ctx, c)
 		if err != nil {
 			return nil, "", fmt.Errorf("subscribe %s: %w", sym, err)
@@ -216,15 +178,8 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 }
 
 // Subscribe acquires a market-data reference for sym and returns a frame
-// channel that delivers coalesced ticks until release is called or a
 // terminal error frame arrives. release is always safe to call exactly
-// once (typically via defer).
-//
 // When this is the first reference to sym, an IBKR market-data line is
-// opened and the per-symbol tick loop spins up. Subsequent Subscribe
-// callers attach a new tap onto the existing fan-out.
-//
-// ctx bounds the cold-path slot-acquire on first reference; see acquire.
 func (m *subManager) Subscribe(ctx context.Context, sym string) (<-chan rpc.Frame, func(), error) {
 	sym = strings.ToUpper(strings.TrimSpace(sym))
 	if sym == "" {
@@ -271,10 +226,6 @@ func (m *subManager) SubscribeContract(ctx context.Context, contract ibkrlib.Con
 
 // Hold acquires a market-data reference without subscribing to the frame
 // fan-out. Used by the snapshot path: it wants the IBKR line to stay open
-// while it polls the cached tick state via Connector.MarketDataSnapshot(), but
-// it doesn't consume per-tick frames.
-//
-// ctx bounds the cold-path slot-acquire; see acquire.
 func (m *subManager) Hold(ctx context.Context, sym string) (func(), error) {
 	sym = strings.ToUpper(strings.TrimSpace(sym))
 	if sym == "" {
@@ -298,7 +249,6 @@ func (m *subManager) Hold(ctx context.Context, sym string) (func(), error) {
 
 // release drops a reference. If tap is non-nil it is also removed from the
 // fan-out and its channel closed. On the last reference, the IBKR line is
-// unsubscribed and the tick loop stopped.
 func (m *subManager) release(sym string, tap *frameTap) {
 	initLock := m.symInitLock(sym)
 	initLock.Lock()
@@ -316,7 +266,6 @@ func (m *subManager) release(sym string, tap *frameTap) {
 		if _, present := e.taps[tap]; present {
 			delete(e.taps, tap)
 			// Closing the tap's channel signals the consumer's range
-			// loop to exit. Safe because the tick loop also takes e.mu
 			// before sending, so no concurrent send can race the close.
 			close(tap.ch)
 		}
@@ -334,9 +283,6 @@ func (m *subManager) release(sym string, tap *frameTap) {
 }
 
 // teardown stops the tick loop and unsubscribes the IBKR line. The IBKR
-// call happens under the per-symbol init lock (held by the caller) so a
-// concurrent Subscribe for the same symbol waits for unsubscribe to
-// complete before issuing a fresh subscribe.
 func (m *subManager) teardown(e *subEntry, sym string) {
 	close(e.stop)
 	if c := m.connector(); c != nil {
@@ -345,12 +291,6 @@ func (m *subManager) teardown(e *subEntry, sym string) {
 }
 
 // tickLoop reads the IBKR market-data cache on the coalesce cadence and
-// fans out a Frame to every tap whenever a tick field, the size, or the
-// data-type-notice changes. Exits when sub.stop is closed.
-//
-// Gateway-loss detection is the connector() returning nil mid-stream: in
-// that case the loop emits a terminal gateway_lost frame to every tap,
-// closes them, and returns.
 func (m *subManager) tickLoop(e *subEntry) {
 	coalesce := m.coalesce
 	if coalesce <= 0 {
@@ -391,8 +331,6 @@ func (m *subManager) tickLoop(e *subEntry) {
 				case tap.ch <- frame:
 				default:
 					// Backpressure: tap is full (consumer not draining
-					// fast enough). Drop this frame for that tap; the
-					// next change-tick will retry. Honest > stalling.
 				}
 			}
 			e.lastBid, e.lastAsk, e.lastLast = md.Bid, md.Ask, md.Last
@@ -406,8 +344,6 @@ func (m *subManager) tickLoop(e *subEntry) {
 
 // emitError sends a terminal error frame to every tap on sym, closes the
 // tap channels, removes the entry, and unsubscribes the IBKR line. Idempotent
-// against double-call: a second invocation against an already-torn-down sym
-// is a no-op.
 func (m *subManager) emitError(sym string, code, message string) {
 	initLock := m.symInitLock(sym)
 	initLock.Lock()
@@ -433,9 +369,6 @@ func (m *subManager) emitError(sym string, code, message string) {
 		case tap.ch <- frame:
 		default:
 			// Consumer hasn't drained the buffer — fall back to closing
-			// without the explicit frame. The closed channel still signals
-			// "stream over"; the consumer just won't see the structured
-			// reason. Better than blocking the teardown.
 		}
 		close(tap.ch)
 	}
@@ -445,8 +378,6 @@ func (m *subManager) emitError(sym string, code, message string) {
 }
 
 // Close emits a daemon_shutdown frame to every active subscription and
-// tears them down. Called from Server.Stop so MCP clients and CLI watchers
-// see a structured terminal frame instead of an opaque socket close.
 func (m *subManager) Close() {
 	m.subsMu.Lock()
 	syms := make([]string, 0, len(m.subs))
@@ -460,7 +391,6 @@ func (m *subManager) Close() {
 }
 
 // activeCount reports the number of distinct symbols currently held by
-// the manager. Used by tests; safe to call concurrently.
 func (m *subManager) activeCount() int {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -468,10 +398,7 @@ func (m *subManager) activeCount() int {
 }
 
 // buildFrame projects an *ibkrlib.MarketData snapshot into the wire frame
-// shape, using nil pointers for fields the gateway hasn't delivered yet.
-// Note: the original code lifted on `!= 0` for all fields, but bid/ask/last
 // only carry positive prices and negative values would be a protocol bug,
-// so ptrIfPos is the safer semantic.
 func buildFrame(md *ibkrlib.MarketData, dt string) rpc.Frame {
 	return rpc.Frame{
 		T:        time.Now(),

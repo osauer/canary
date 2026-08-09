@@ -10,15 +10,7 @@ import (
 )
 
 // optionExpiryFetch coalesces the per-exchange msg-75 frames that IBKR emits
-// in response to a single reqSecDefOptParams (78). The gateway sends one frame
-// per (exchange, trading-class) pair followed by a single msg-76 end marker.
-//
 // Two views are maintained side-by-side. The legacy `strikes` map dedupes
-// across BOTH exchange and trading class for back-compat with single-class
-// callers (SPY, equities — `FetchOptionExpiryStrikes`). The `classed` map
-// preserves the trading-class qualifier so multi-class callers (SPX's
-// `SPX` AM-monthlies + `SPXW` PM-weeklies) can disambiguate same-date
-// contracts via `FetchOptionExpiryStrikesClassed`.
 type optionExpiryFetch struct {
 	mu          sync.Mutex
 	expirations map[string]struct{}                        // YYYYMMDD set, deduped across exchanges and classes
@@ -38,19 +30,12 @@ func newOptionExpiryFetch() *optionExpiryFetch {
 
 // ExpiryClassedStrikes contains the sorted, deduplicated strike grid for one
 // trading class on an expiry date. TradingClass preserves the broker's class
-// discriminator when an underlying lists multiple contract classes.
 type ExpiryClassedStrikes struct {
 	TradingClass string    `json:"trading_class"`
 	Strikes      []float64 `json:"strikes"`
 }
 
 // fetchOptionExpiriesData runs one reqSecDefOptParams round trip and returns
-// the deduped expirations (YYYY-MM-DD), the per-expiry strike sets (merged
-// across classes for back-compat), and the per-expiry per-class strike sets
-// for callers that need the class qualifier. Internal helper shared by
-// FetchOptionExpiries, FetchOptionExpiryStrikes, and
-// FetchOptionExpiryStrikesClassed so the three public APIs share one round
-// trip.
 func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration) ([]string, map[string][]float64, map[string][]ExpiryClassedStrikes, error) {
 	if !c.IsReady() {
 		return nil, nil, nil, ErrIBKRUnavailable
@@ -74,8 +59,6 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 	}
 
 	// Resolve the underlying conID via the existing contract cache. The chain
-	// command and the rest of the daemon already drive contracts through this
-	// path; reuse it so option-chain lookups share the same warm cache.
 	detail, err := c.ensureContractDetails(symbol, 5*time.Second)
 	if err != nil || detail == nil || detail.ConID == 0 {
 		// Fall back to the late-arrival grace window historical uses.
@@ -106,7 +89,6 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 	)
 
 	// Register handlers BEFORE the request goes on the wire, but key on the
-	// reqID so other in-flight reqSecDefOptParams calls (if any) don't fan in.
 	beforeSend := func(reqID int) {
 		registeredReqID = reqID
 		dataHandlerID = conn.RegisterHandler(msgSecurityDefinitionOptionalParameter, func(fields []string) {
@@ -136,9 +118,7 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 	defer timer.Stop()
 
 	// Wait for end marker or timeout. On timeout we still return whatever we
-	// observed across exchanges — partial data is more useful than nothing for
 	// the listing UX, and the IBKR-spec end marker is best-effort during
-	// degraded data-farm conditions.
 	timedOut := false
 	select {
 	case <-fetch.done:
@@ -154,10 +134,6 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 }
 
 // FetchOptionExpiries returns a newly allocated, sorted, deduplicated list of
-// option expiry dates for symbol in YYYY-MM-DD form. A timeout of zero or less
-// uses ten seconds. If the timeout expires after at least one response, the
-// partial list is returned without an error; an empty timeout returns an error.
-// An unavailable or inactive Connector returns the corresponding sentinel.
 func (c *Connector) FetchOptionExpiries(symbol string, timeout time.Duration) ([]string, error) {
 	expiries, _, _, err := c.fetchOptionExpiriesData(symbol, timeout)
 	if err != nil {
@@ -167,10 +143,6 @@ func (c *Connector) FetchOptionExpiries(symbol string, timeout time.Duration) ([
 }
 
 // FetchOptionExpiryStrikes returns newly allocated, sorted, deduplicated strike
-// slices keyed by YYYY-MM-DD expiry. It merges strikes across exchanges and
-// trading classes; callers that require class identity should use
-// [Connector.FetchOptionExpiryStrikesClassed]. Timeout, partial-result, and
-// availability semantics match [Connector.FetchOptionExpiries].
 func (c *Connector) FetchOptionExpiryStrikes(symbol string, timeout time.Duration) (map[string][]float64, error) {
 	_, strikes, _, err := c.fetchOptionExpiriesData(symbol, timeout)
 	if err != nil {
@@ -181,9 +153,6 @@ func (c *Connector) FetchOptionExpiryStrikes(symbol string, timeout time.Duratio
 
 // FetchOptionExpiryStrikesClassed returns newly allocated strike grids grouped
 // first by YYYY-MM-DD expiry and then by broker trading class. Both class entries
-// and strikes are sorted. This preserves distinct contracts that share a date
-// and strike but have different trading classes. Timeout, partial-result, and
-// availability semantics match [Connector.FetchOptionExpiries].
 func (c *Connector) FetchOptionExpiryStrikesClassed(symbol string, timeout time.Duration) (map[string][]ExpiryClassedStrikes, error) {
 	_, _, classed, err := c.fetchOptionExpiriesData(symbol, timeout)
 	if err != nil {
@@ -195,19 +164,8 @@ func (c *Connector) FetchOptionExpiryStrikesClassed(symbol string, timeout time.
 // handleSecDefOptParam decodes one msg-75 frame and merges its expirations
 // and strikes into the shared fetch state. Per the IBKR Python ibapi
 // reference (decoder.processSecurityDefinitionOptionParameterMsg), the wire
-// fields after the msgID are:
-//
-//	[reqID, exchange, underlyingConId, tradingClass, multiplier,
-//	 expCount, expirations*expCount, strikeCount, strikes*strikeCount]
-//
 // Note: there is no version field — msg 78 was added after IBKR moved to the
-// versionless request-numbered protocol.
-//
-// We capture `tradingClass` from fields[4] and write the strike grid into
 // BOTH the legacy `strikes` map (deduped across classes, for back-compat) and
-// the new `classed` map (per-class, for the SPX path). The dual write keeps
-// FetchOptionExpiryStrikes byte-for-byte unchanged while
-// FetchOptionExpiryStrikesClassed surfaces the SPX vs SPXW split.
 func (c *Connector) handleSecDefOptParam(expectedReqID int, fetch *optionExpiryFetch, fields []string) {
 	if len(fields) < 7 {
 		return
@@ -218,7 +176,6 @@ func (c *Connector) handleSecDefOptParam(expectedReqID int, fetch *optionExpiryF
 		return
 	}
 	// fields[2] = exchange (we keep it implicit — dedupe across all exchanges)
-	// fields[3] = underlyingConId, fields[4] = tradingClass, fields[5] = multiplier
 	tradingClass := strings.TrimSpace(fields[4])
 	idx := 6
 	expCount, err := strconv.Atoi(fields[idx])
@@ -273,7 +230,6 @@ func (c *Connector) handleSecDefOptParam(expectedReqID int, fetch *optionExpiryF
 		}
 		// Classed: keyed by tradingClass so SPX vs SPXW stay separated.
 		// Empty tradingClass (unexpected — IBKR always fills it in
-		// practice) buckets under "" rather than merging into a sibling.
 		byClass, ok := fetch.classed[exp]
 		if !ok {
 			byClass = make(map[string]map[float64]struct{})
@@ -312,8 +268,6 @@ func (c *Connector) handleSecDefOptParamEnd(expectedReqID int, fetch *optionExpi
 
 // snapshot returns the deduped, normalised expiry list (YYYY-MM-DD,
 // ascending), the per-expiry sorted strike list (legacy, merged across
-// classes), and the per-expiry per-class slice (new, SPX-aware). Safe to
-// call multiple times.
 func (f *optionExpiryFetch) snapshot() ([]string, map[string][]float64, map[string][]ExpiryClassedStrikes) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -338,7 +292,6 @@ func (f *optionExpiryFetch) snapshot() ([]string, map[string][]float64, map[stri
 		}
 		slices.Sort(out)
 		// Multiple raw expiries from different exchanges can normalise to the
-		// same key; merge instead of overwriting.
 		if existing, ok := strikes[normalised]; ok {
 			merged := append(existing, out...)
 			slices.Sort(merged)
@@ -355,7 +308,6 @@ func (f *optionExpiryFetch) snapshot() ([]string, map[string][]float64, map[stri
 			continue
 		}
 		// Stable class ordering so the gamma compute's two-pass prewarm
-		// sees the same class order across runs; aids debugging.
 		classNames := make([]string, 0, len(byClass))
 		for cls := range byClass {
 			classNames = append(classNames, cls)
@@ -378,8 +330,6 @@ func (f *optionExpiryFetch) snapshot() ([]string, map[string][]float64, map[stri
 }
 
 // normaliseExpiry8 converts IBKR's YYYYMMDD wire form into the YYYY-MM-DD
-// canonical form used elsewhere in the project (matches barDate). Returns
-// false for malformed input so callers can drop the row.
 func normaliseExpiry8(raw string) (string, bool) {
 	if len(raw) != 8 {
 		return "", false

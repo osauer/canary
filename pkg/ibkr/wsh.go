@@ -19,7 +19,6 @@ const (
 )
 
 // WSHErrorKind is a stable, sanitized classification for a failed Wall Street
-// Horizon request. Gateway prose is deliberately not retained: consumers can
 // branch on Kind and Code without persisting an untrusted broker message.
 type WSHErrorKind string
 
@@ -85,7 +84,6 @@ func (e *WSHError) Unwrap() error {
 }
 
 // WSHEarningsResult pairs WSH event JSON with an optional exact broker stock
-// identity. StockIdentity is nil unless a fresh positive-ConID contract-details
 // row matched the requested ConID, stock security type, and symbol.
 type WSHEarningsResult struct {
 	EventJSON     string
@@ -94,7 +92,6 @@ type WSHEarningsResult struct {
 
 // FetchWSHEarnings returns the raw WSH earnings-event JSON for a stock symbol.
 // It preserves the legacy symbol-resolution and temporary-inactive-cache
-// behavior. Call [Connector.FetchWSHEarningsWithIdentity] when the caller has a
 // positive held contract ID and needs fresh broker identity evidence.
 func (c *Connector) FetchWSHEarnings(ctx context.Context, symbol string) (string, error) {
 	result, err := c.fetchWSHEarnings(ctx, symbol, 0, false)
@@ -103,9 +100,7 @@ func (c *Connector) FetchWSHEarnings(ctx context.Context, symbol string) (string
 
 // FetchWSHEarningsWithIdentity reads WSH earnings events using a caller-proven
 // positive held contract ID and independently attempts an exact contract-
-// details lookup by that ID. A symbol-level temporary inactive mark does not
 // suppress this exact lookup. If exact details are unavailable or contradict
-// the request, the event read may still succeed but StockIdentity remains nil;
 // callers must not infer issuer classification from the supplied ID or cache.
 func (c *Connector) FetchWSHEarningsWithIdentity(ctx context.Context, symbol string, conID int) (WSHEarningsResult, error) {
 	if conID <= 0 {
@@ -115,8 +110,6 @@ func (c *Connector) FetchWSHEarningsWithIdentity(ctx context.Context, symbol str
 }
 
 // ResolveWSHStockIdentity independently reads exact broker contract details
-// for a caller-proven positive held contract ID. It deliberately bypasses the
-// symbol-level temporary inactive cache and does not make a WSH metadata or
 // event request. All failures are returned as sanitized WSH errors.
 func (c *Connector) ResolveWSHStockIdentity(ctx context.Context, symbol string, conID int) (*ContractDetailsLite, error) {
 	if ctx == nil {
@@ -128,8 +121,6 @@ func (c *Connector) ResolveWSHStockIdentity(ctx context.Context, symbol string, 
 // fetchWSHEarnings performs no broker write: it establishes daily WSH metadata
 // readiness for the current broker session, then issues a serialized event-
 // calendar read filtered to the broker-resolved event tag. IBKR permits only
-// one WSH request of each kind for a client; the gate covers the complete
-// contract-details -> metadata -> event sequence.
 func (c *Connector) fetchWSHEarnings(ctx context.Context, symbol string, exactConID int, exactIdentity bool) (WSHEarningsResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -150,8 +141,6 @@ func (c *Connector) fetchWSHEarnings(ctx context.Context, symbol string, exactCo
 		return WSHEarningsResult{}, &WSHError{Kind: WSHErrorUnsupportedSecurity, Operation: "resolve_contract"}
 	}
 	// A positive contract cache entry can outlive a later broker-confirmed
-	// inactive mark. Check the mark before consulting that cache or acquiring
-	// the serialized WSH gate so a dead contract cannot keep reaching either
 	// contract resolution or the event-calendar wire path.
 	if !exactIdentity && c.IsSymbolInactive(symbol) {
 		return WSHEarningsResult{}, &WSHError{Kind: WSHErrorConnectorInactive, Operation: "resolve_contract"}
@@ -245,8 +234,6 @@ func (c *Connector) fetchWSHEarnings(ctx context.Context, symbol string, exactCo
 			return result, err
 		}
 		// TWS can invalidate its metadata cache without dropping the socket.
-		// Clear our matching latch before retrying once so 10282 cannot trap
-		// every subsequent refresh on the stale event-only path.
 		c.resetWSHMetadataReadiness()
 		if attempt == 1 {
 			return result, err
@@ -370,7 +357,6 @@ func (c *Connector) resolveWSHExactStockContract(ctx context.Context, symbol str
 	lookup := Contract{ConID: conID, SecType: "STK"}
 	// A position-seeded cache row may supply a currency constraint, but it is
 	// never returned as identity evidence. The exact response must independently
-	// carry every classification field used by callers.
 	if cached := c.cachedContractDetail(symbol); cached != nil && cached.ConID == conID &&
 		(cached.SecType == "" || strings.EqualFold(cached.SecType, "STK")) {
 		lookup.Currency = strings.TrimSpace(cached.Currency)
@@ -561,7 +547,6 @@ func (c *Connection) sendWSHEventDataRequest(ctx context.Context, reqID int, req
 	}
 	if serverVersion >= minServerVerWSHEventFilterDates {
 		// Filter mode and conId/date mode are mutually exclusive. The conId is
-		// inside the allowlisted watchlist filter, so date bounds stay empty.
 		fields = append(fields, "", "", request.limit)
 	}
 	return c.sendMessageWithTypeContext(ctx, c.encodeMsg(fields...), RequestTypeGeneral)

@@ -20,10 +20,8 @@ const (
 	// activity so it never races an in-flight place, modify, or cancel.
 	orderReconcileGrace = 10 * time.Minute
 	// orderReconcileSnapshotWait bounds the reqAllOpenOrders round trip; on
-	// expiry the snapshot is incomplete and the sweep proves nothing.
 	orderReconcileSnapshotWait = 15 * time.Second
 	// orderReconcileConnectDelay lets the gateway's own post-connect order
-	// re-binds land (and refresh journal rows) before the first sweep.
 	orderReconcileConnectDelay = 45 * time.Second
 	// orderReconcileInterval paces the standing sweep while open rows exist.
 	orderReconcileInterval = 30 * time.Minute
@@ -31,18 +29,12 @@ const (
 
 // reconcileOrderJournalWithBroker closes journal rows the broker no longer
 // reports. IBKR does not replay missed terminal callbacks (a cancel that
-// landed while the daemon was offline is gone for good), so absence from a
 // COMPLETE open-order snapshot is the only broker-truth signal a stale row
 // will ever get. The sweep is read-only at the broker: its single wire
-// interaction is the snapshot request; rows are closed by appending terminal
 // reconciled-absent events to the append-only journal, never by rewriting.
-//
 // Fail-safe rules: no complete snapshot → no action; only rows in the
 // current concrete account/mode scope; only rows the broker once accepted
 // (PermID set); never rows with journal activity inside the grace window.
-// Rows still present in the snapshot are refreshed for free — their
-// openOrder callbacks flow through the normal lifecycle journal handler,
-// which also restores send_state on rows wedged by a missed cancel ack.
 func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 	if s == nil || s.orderJournal == nil {
 		return
@@ -94,8 +86,6 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 
 	// Snapshot callbacks are journaled synchronously before openOrderEnd. Reload
 	// the heads after completion, and bind a compare-and-append to the exact
-	// event frontier so a later local intent/modify cannot be closed from the
-	// pre-snapshot view.
 	currentViews, _, head, err := s.loadOrderViewsAtStableHead()
 	if err != nil {
 		s.warnf("order reconcile: reload current order heads: %v", err)
@@ -115,9 +105,7 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 		}
 		ev := orderJournalEventFromView(v, orderJournalEventReconciledAbsent, s.orderNow())
 		// orderJournalEventFromView copies neither PermID nor a clean Status:
-		// carry the PermID as the row's stable identity key, and carry no
 		// broker Status so the sticky earlier Status stays visibly last-known
-		// while the reconciled-absent lifecycle branch closes the row.
 		ev.PermID = v.PermID
 		ev.Status = ""
 		ev.SendState = orderSendStateTerminal
@@ -149,7 +137,6 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 			s.orderLifecyclePersistenceUncertain.Store(false)
 			// A callback failure publishes generation first, then the latch. If
 			// it raced the clear above, the generation recheck restores the latch;
-			// if it starts afterward, its own Store(true) wins.
 			if s.orderLifecyclePersistenceFailures.Load() != failureStart {
 				s.orderLifecyclePersistenceUncertain.Store(true)
 			}
@@ -165,7 +152,6 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 			// Deterministic tests can model a complete receipt from the current
 			// publication without constructing pkg/ibkr's opaque socket token.
 			// Production never installs either seam and must capture the exact
-			// live Connector frontier below.
 			brokerBinding = ibkrlib.BrokerEvidenceBinding{
 				Session: receiptSession, OrderLifecycleGeneration: snap.Generation,
 			}
@@ -188,7 +174,6 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 		}
 	} else {
 		// Test-only snapshot seams do not carry a live Connector barrier. Keep
-		// the production path strict while retaining deterministic store tests.
 		if s.orderSnapshotFn == nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
 			return
 		}
@@ -202,9 +187,6 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 
 // orderJournalHeadSettle is how long a stable-head reload waits before
 // rereading after it caught the journal mid-write. Back-to-back rereads race
-// the same event burst they just observed; one beat of patience makes the
-// second attempt meaningful while staying negligible against every caller's
-// request budget.
 const orderJournalHeadSettle = 25 * time.Millisecond
 
 func (s *Server) loadOrderViewsAtStableHead() ([]rpc.OrderView, map[string][]rpc.OrderEvent, int64, error) {
@@ -271,8 +253,6 @@ func openOrderSnapshotEventMatches(order ibkrlib.OrderLifecycleEvent, view rpc.O
 }
 
 // runOrderReconcileLoop is the standing sweep, launched once per daemon
-// lifetime from postConnectSetup. The per-connect settle-delay one-shots are
-// scheduled separately on every successful (re)connect.
 func (s *Server) runOrderReconcileLoop(ctx context.Context) {
 	ticker := time.NewTicker(orderReconcileInterval)
 	defer ticker.Stop()

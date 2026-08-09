@@ -29,7 +29,6 @@ var (
 )
 
 // regimeSnapshotStateStore is deliberately the narrow corestore surface the
-// cache needs. Production passes daemon.db's *corestore.Store; tests can use a
 // faulting adapter without introducing a second persistence authority.
 type regimeSnapshotStateStore interface {
 	GetStateDocument(context.Context, string, string) (corestore.StateDocument, bool, error)
@@ -37,9 +36,7 @@ type regimeSnapshotStateStore interface {
 }
 
 // regimeSnapshotAfterPublishFunc commits volatile daemon-side state that was
-// staged while composing a candidate (for example streak state, status
 // quality, the rule-stage latch, and decision journals). It runs exactly once,
-// after SQLite and the in-memory last-good have both accepted the candidate,
 // and before cold joiners are released. It never runs on an incomplete or
 // failed refresh.
 type regimeSnapshotPublication struct {
@@ -51,8 +48,6 @@ type regimeSnapshotPublication struct {
 type regimeSnapshotAfterPublishFunc func(context.Context, regimeSnapshotPublication) error
 
 // regimeSnapshotRefreshFunc acquires and fully composes one candidate regime
-// snapshot. Complete reports orchestration completeness, not whether every
-// upstream row is healthy: a completed fan-out may truthfully contain typed
 // error or unavailable rows. The cache never publishes when Complete is false.
 // The optional afterPublish closure is the only safe place to commit staged
 // daemon-side evidence that must not get ahead of daemon.db authority.
@@ -60,26 +55,19 @@ type regimeSnapshotRefreshFunc func(context.Context) (*rpc.RegimeSnapshotResult,
 
 type regimeSnapshotCacheOptions struct {
 	// FreshFor is an operational cache window supplied by the daemon. It is
-	// intentionally not defaulted here: choosing it belongs with the existing
-	// regime scheduler/cadence policy at the integration site.
 	FreshFor time.Duration
 	// RefreshTimeout is the upper bound for acquisition plus the authoritative
-	// SQLite compare-and-swap. The refresh context is derived from DaemonContext,
 	// never from an observing RPC request.
 	RefreshTimeout time.Duration
 	// FailureRetryAfter is the minimum quiet period after a failed attempt.
-	// It is explicit so a high-frequency observer cannot turn a fast upstream
 	// failure into sequential fan-outs, and so this cache does not invent a
-	// market-evidence cadence of its own.
 	FailureRetryAfter time.Duration
 	// Now is optional and exists for deterministic tests.
 	Now func() time.Time
 }
 
 // regimeSnapshotCacheView is an immutable serve projection. Snapshot is a
-// fresh deep copy on every call and carries the same Health value in its
 // AuthorityHealth field. Revision and Fingerprint are useful to daemon-local
-// diagnostics and tests; adapters should expose the typed health contract.
 type regimeSnapshotCacheView struct {
 	Snapshot    *rpc.RegimeSnapshotResult
 	Health      rpc.RegimeAuthorityHealth
@@ -88,8 +76,6 @@ type regimeSnapshotCacheView struct {
 }
 
 // regimeSnapshotCacheUnavailableError distinguishes a cold authority from a
-// caller timeout or a gateway error. Its public text is deliberately redacted;
-// Unwrap remains available to daemon-local logging and tests.
 type regimeSnapshotCacheUnavailableError struct {
 	cause error
 }
@@ -111,8 +97,6 @@ type regimeSnapshotRefresh struct {
 }
 
 // regimeSnapshotCache owns the sole in-process current-regime authority. Raw
-// canonical JSON, not a shared pointer graph, is the stored representation:
-// ingress cannot retain caller aliases and every egress is a deep copy.
 type regimeSnapshotCache struct {
 	mu sync.Mutex
 
@@ -131,9 +115,7 @@ type regimeSnapshotCache struct {
 	failureCode   rpc.RegimeAuthorityFailureCode
 	lastAttemptAt time.Time
 	// dependencyRefreshPending records a successful publication by a direct
-	// Regime dependency, currently canonical combined gamma. It invalidates
 	// only the refresh schedule: the prior immutable Regime publication stays
-	// authoritative until a complete replacement commits.
 	dependencyRefreshPending bool
 
 	// projectionPending means the snapshot CAS committed but at least one
@@ -144,9 +126,7 @@ type regimeSnapshotCache struct {
 }
 
 // loadRegimeSnapshotCache constructs the cache and strictly hydrates the one
-// versioned daemon.db state document. Missing state is a valid cold start.
 // Malformed state is a startup error; this function never consults a legacy
-// file, history table, observation, or alternate state-document kind.
 func loadRegimeSnapshotCache(
 	startupContext context.Context,
 	daemonContext context.Context,
@@ -214,7 +194,6 @@ func loadRegimeSnapshotCache(
 }
 
 // serve returns fresh last-good state immediately, serves stale last-good
-// immediately while starting/joining one daemon-owned refresh, and bounded-
 // joins that same refresh when the authority is cold. Cancellation of a warm
 // caller never cancels the refresh.
 func (cache *regimeSnapshotCache) serve(
@@ -309,7 +288,6 @@ func (cache *regimeSnapshotCache) current() (regimeSnapshotCacheView, error) {
 }
 
 // refreshing is the allocation-free status hook used by backgroundTasks. It
-// intentionally does not decode the (potentially large) regime document.
 func (cache *regimeSnapshotCache) refreshing() bool {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -317,8 +295,6 @@ func (cache *regimeSnapshotCache) refreshing() bool {
 }
 
 // wait drains the one daemon-owned refresh, if present. Cancellation must be
-// applied to daemonContext before calling wait; serve refuses to admit another
-// refresh after that point, which makes this a stable shutdown barrier.
 func (cache *regimeSnapshotCache) wait() {
 	if cache == nil {
 		return
@@ -334,7 +310,6 @@ func (cache *regimeSnapshotCache) wait() {
 // allowRefreshNow clears only the failed-attempt backoff timestamp. A
 // successful gateway reconnect can call this once so cold or stale authority
 // retries immediately, while the prior stable failure code and every
-// authoritative byte/revision remain visible until that retry succeeds.
 func (cache *regimeSnapshotCache) allowRefreshNow() {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -346,8 +321,6 @@ func (cache *regimeSnapshotCache) allowRefreshNow() {
 
 // invalidateForDependencyPublication makes the next scheduler kick due now
 // without clearing last-good bytes, health, failure detail, or revision. A
-// boolean is sufficient because each refresh reads the latest immutable
-// dependency; repeated publications coalesce while work is in flight.
 func (cache *regimeSnapshotCache) invalidateForDependencyPublication() bool {
 	if cache == nil {
 		return false
@@ -362,12 +335,8 @@ func (cache *regimeSnapshotCache) invalidateForDependencyPublication() bool {
 }
 
 // startRefreshAhead starts one daemon-owned refresh before last-good reaches
-// its hard freshness ceiling, or immediately after a direct dependency
 // publication invalidates the schedule. It never changes health or freshness
-// itself: the retained publication remains fresh until the original deadline
-// and becomes stale at that deadline if this refresh cannot finish. Cold or
 // already-stale authority is due immediately. Single-flight, clock, and
-// projection gates remain binding; a new successful dependency may bypass an
 // older failed-attempt quiet period because it is fresh recovery evidence.
 func (cache *regimeSnapshotCache) startRefreshAhead(refresh regimeSnapshotRefreshFunc, ahead time.Duration) bool {
 	if cache == nil || refresh == nil || ahead <= 0 {
@@ -484,11 +453,7 @@ func (cache *regimeSnapshotCache) runRefresh(job *regimeSnapshotRefresh, refresh
 	}
 
 	// The callback runs after authoritative CAS but before in-memory promotion,
-	// so a warm observer cannot see a snapshot whose staged streak/latch/journal
-	// commit has not run. If it panics or overruns the refresh context, promote
-	// the already-committed SQLite bytes anyway to keep the in-process CAS
 	// revision aligned, but retain publish_failed health and release cold joiners
-	// with a typed unavailable error.
 	var projectionErr error
 	if committed && afterPublish != nil {
 		projectionErr = invokeRegimeSnapshotAfterPublish(refreshContext, regimeSnapshotPublication{
@@ -507,9 +472,6 @@ func (cache *regimeSnapshotCache) runRefresh(job *regimeSnapshotRefresh, refresh
 		cache.raw = bytes.Clone(saved.JSON)
 		cache.revision = saved.Revision
 		// In production Now and corestore's commit clock are the same wall
-		// clock. Using the injected clock here makes the cache's age semantics
-		// deterministic in tests while hydration still trusts daemon.db's
-		// persisted UpdatedAt after a restart.
 		cache.lastSuccessAt = saved.UpdatedAt.UTC()
 		cache.fingerprint = fingerprint
 		if runErr == nil {
@@ -526,11 +488,9 @@ func (cache *regimeSnapshotCache) runRefresh(job *regimeSnapshotRefresh, refresh
 }
 
 // resolveSnapshotCommit distinguishes the two error-bearing outcomes allowed
-// by corestore's mutation boundary: a transaction can prepare a StateDocument
 // and roll back before commit, or it can commit durably and then fail while
 // recording the external authority-head watermark. The returned error remains
 // visible in both cases, but only exact SQLite readback may authorize in-memory
-// promotion and derived-projection repair.
 func (cache *regimeSnapshotCache) resolveSnapshotCommit(
 	expectedRevision int64,
 	raw []byte,
@@ -653,7 +613,6 @@ func (cache *regimeSnapshotCache) healthLocked(now time.Time) rpc.RegimeAuthorit
 		failureCode = rpc.RegimeAuthorityFailureClockInvalid
 	} else if failureCode == rpc.RegimeAuthorityFailureClockInvalid {
 		// A rollback classification is self-healing once wall time again reaches
-		// the retained commit. Non-triggering brief/status readers should not
 		// keep reporting a historical clock fault while the authority is valid.
 		failureCode = rpc.RegimeAuthorityFailureNone
 	}
@@ -701,8 +660,6 @@ func encodeRegimeSnapshotDocument(snapshot *rpc.RegimeSnapshotResult) ([]byte, r
 		return nil, rpc.Fingerprint{}, errors.New("regime snapshot is nil")
 	}
 	// Strip response-only cache metadata on a shallow value copy, then
-	// marshal/unmarshal so the cache cannot retain aliases into the acquisition
-	// result's nested slices, maps, or pointers.
 	withoutResponseMetadata := *snapshot
 	withoutResponseMetadata.AuthorityHealth = nil
 	raw, err := json.Marshal(&withoutResponseMetadata)

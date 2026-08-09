@@ -1,12 +1,16 @@
+// Package app assembles and runs the independently authenticated Canary HTTP
+// and PWA host. It owns the app state directory, its single-process lock,
+// device authentication, live view cache, alert delivery integration, and
+// optional relay connector. Broker connectivity, trading decisions, and risk
+// policy remain behind the typed daemon client and are not reimplemented here.
 package app
 
 import (
+	"github.com/osauer/canary/v2/internal/dial"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/dial"
 )
 
 // Default app-host settings cover the LAN-capable listen address, pairing

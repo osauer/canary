@@ -1,15 +1,7 @@
 #!/bin/sh
 # sign-testdata.sh — produce internal/update/testdata/sample-sha256sums.asc.
-#
-# Signs the checked-in `sample-sha256sums` fixture with the maintainer's
 # current release-signing key (fingerprint pinned in keyring.go) and
-# writes the detached armored signature next to it.
-#
 # Run once at v1.0 setup, and again only when the signing key rotates.
-# The resulting .asc is committed to the repo and consumed by
-# TestEmbeddedKeyAcceptsRealGPGSignature on every `go test`.
-#
-# Requires gpg with the maintainer's secret key in the local keyring.
 
 set -eu
 

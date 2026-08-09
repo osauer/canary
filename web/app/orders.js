@@ -31,8 +31,6 @@ function openOrderRowElement(order) {
   row.className = "open-order-row pd-tile pd-order";
   if (order.reconciliation_severity === "critical") row.classList.add("open-order-row--critical");
   // A journal row the desk previewed and never transmitted is advisory, not a
-  // working order: it takes the advisory lamp, and nothing else on this face
-  // lamps at all. The lamp follows the served lifecycle word.
   if (orderIsPreviewState(order)) {
     row.classList.add("pd-tile--info");
     const bar = document.createElement("span");
@@ -47,9 +45,6 @@ function openOrderRowElement(order) {
   const cancelGate = orderCancelGate(order, trading);
   if (modifyGate.reduceOnly) {
     // The only legal modify for a mismatched protective order is quantity ->
-    // covered position with the trail verbatim; pin the edit state so the
-    // preview body cannot drift from that shape (the daemon rejects any
-    // other shape server-side regardless).
     edit.quantity = orderReduceToQuantity(order);
     edit.limit_price = order.limit_price > 0 ? order.limit_price : null;
     edit.trailing_percent = order.trail?.trailing_percent > 0 ? order.trail.trailing_percent : null;
@@ -115,7 +110,6 @@ function openOrderRowElement(order) {
     : [orderEditField("Limit", orderEditNumberInput(order, edit, modifyGate, "limit_price", "Limit price", "Limit"))];
 
   // The order's fixed shape (type, time in force, side) now reads on the
-  // engraved identity legend and reading line above, so the edit box carries
   // only the fields the desk can actually change.
   editBox.append(orderEditField("Qty", qty), ...priceInputs);
 
@@ -141,7 +135,6 @@ function openOrderRowElement(order) {
 }
 
 // The identity legend is engraved served fact and nothing else: the
-// instrument, the side and size the journal recorded, and the order type.
 function orderIdentityLegend(order = {}) {
   const side = [order.action, order.quantity].filter((part) => part || part === 0).join(" ");
   const parts = [order.symbol || order.order_ref, side, order.order_type]
@@ -152,7 +145,6 @@ function orderIdentityLegend(order = {}) {
 
 
 // The reading line is the order's own figures: served price terms, served
-// time in force, served lifecycle words. No status is re-derived here.
 function orderReadingLine(order = {}) {
   const parts = [
     ...orderPriceFigures(order),
@@ -388,8 +380,6 @@ function orderModifyGate(order, trading) {
   if ("modify_eligible" in order && order.modify_eligible !== true) {
     if (order.open !== false && orderReduceToQuantity(order) > 0) {
       // Position-mismatch rows disable generic modify but keep exactly one
-      // shape: reduce the stop to the covered position, trail unchanged.
-      // The daemon enforces the same constraint server-side.
       return { ready: true, reduceOnly: true, reason: "Position no longer covers this stop; only a reduce to the held quantity is allowed" };
     }
     if (order.reconciliation_kind === "short_entry_full") {

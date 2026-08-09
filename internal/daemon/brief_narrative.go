@@ -10,35 +10,15 @@ import (
 )
 
 // The narrative Briefing.
-//
-// This file is the whole prose surface of the brief, so copy review is one
-// file read. It composes a chief-of-staff reading of the two movements the
-// daemon has ALREADY composed: it takes rpc.BriefResult and returns runs. It
-// reads nothing else - no journals, no snapshots, no clock - so the same
-// payload always yields the same prose, and no sentence can outrun the rows
-// the surfaces render beside it.
-//
-// Three rules bind every template below:
-//
 //  1. Only served facts. Figures are interpolated from the payload with the
-//     payload's own base currency; thresholds, causes, and consequences are
 //     never invented. Where the rows assert a cause ("engaged and remains so
-//     until a human reset"), the prose may repeat that assertion and nothing
-//     stronger.
 //  2. Only served statuses decide tone. A clause may carry the watch or act
 //     role only when its own row is attention-class (or, for stress, when the
-//     served severity is watch or act). Degraded and unavailable are data
 //     conditions: they are stated in plain words and never tinted.
 //  3. Silence is never clean. An unavailable or degraded input is named as
 //     unavailable or degraded; it is never dropped and never folded into a
-//     clean summary clause.
-//
-// Shape: quiet composes short. Each movement is built from blocks, and a
-// block that is entirely unflagged folds into a single summary clause on the
-// previous paragraph instead of opening one of its own.
 
 // briefProse accumulates runs into paragraphs. Callers push text spans in
-// reading order; sentence() marks that a separator is owed before the next
 // span, so templates never carry stray leading or trailing spaces.
 type briefProse struct {
 	paragraphs []rpc.BriefParagraph
@@ -93,7 +73,6 @@ func briefFigureRole(role string) string {
 }
 
 // briefMergeRuns collapses adjacent same-role runs so the wire carries one
-// span per tone change instead of one span per template fragment.
 func briefMergeRuns(runs []rpc.BriefRun) []rpc.BriefRun {
 	out := make([]rpc.BriefRun, 0, len(runs))
 	for _, run := range runs {
@@ -110,9 +89,6 @@ func briefMergeRuns(runs []rpc.BriefRun) []rpc.BriefRun {
 }
 
 // briefTopic is one narrated row: a fixed label, the row state that decides
-// whether it is flagged, and the role its clauses may carry. Posture marks the
-// market reading (stress), which sets the tone of the whole brief but is never
-// something the desk signs off, so it is narrated rather than listed as owed.
 type briefTopic struct {
 	label   string
 	state   rpc.BriefRowState
@@ -126,8 +102,6 @@ func (t briefTopic) unread() bool {
 
 // briefRole maps a row state onto the tint its clauses may carry. Attention
 // is the brief's risk vocabulary, so only attention tints; act is reserved
-// for rows whose own served fields assert the strongest state their vocabulary
-// has (a rule worsened to act, a breached block tier, an engaged latch).
 func briefRole(state rpc.BriefRowState, actClass bool) string {
 	if state.Status != rpc.BriefStatusAttention {
 		return ""
@@ -139,8 +113,6 @@ func briefRole(state rpc.BriefRowState, actClass bool) string {
 }
 
 // briefStressRole reads the tint off the stress row's own served severity -
-// the daemon's severity vocabulary, verbatim - rather than off the row status,
-// which reports input quality for this row.
 func briefStressRole(severity string) string {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case string(risk.SeverityAct):
@@ -155,7 +127,6 @@ func briefStressRole(severity string) string {
 func briefRulesActClass(row rpc.BriefRulesRow) bool { return row.Act > 0 }
 
 // composeBriefNarrative is the entry point: a pure projection of the composed
-// movements onto prose. Nil in, nil out.
 func composeBriefNarrative(res *rpc.BriefResult) *rpc.BriefNarrative {
 	if res == nil {
 		return nil
@@ -170,7 +141,6 @@ func composeBriefNarrative(res *rpc.BriefResult) *rpc.BriefNarrative {
 }
 
 // briefTopics lists every narrated row of both movements in reading order.
-// The lead and the coda count and name flagged topics from this one list, so
 // they can never disagree with the paragraphs below them.
 func briefTopics(res *rpc.BriefResult) []briefTopic {
 	review, ready := res.Review, res.Ready
@@ -218,8 +188,6 @@ func briefTopics(res *rpc.BriefResult) []briefTopic {
 }
 
 // briefFlaggedTopics lists the rows that carry a decision. The posture row is
-// excluded: the lead and the coda state the stress reading in their own words,
-// and a market reading is not something the desk owes an answer to.
 func briefFlaggedTopics(topics []briefTopic) []briefTopic {
 	out := make([]briefTopic, 0, len(topics))
 	for _, topic := range topics {
@@ -266,7 +234,6 @@ func briefNarrativeLead(res *rpc.BriefResult, topics []briefTopic) []rpc.BriefRu
 	p := &briefProse{}
 	ready := res.Ready
 	// One stress sentence, shared with the Ready tape, so the two can never
-	// word the same reading differently or leave an empty reading dangling.
 	briefStressSentence(p, ready.Stress)
 	p.sentence()
 	switch {
@@ -307,7 +274,6 @@ func briefNarrativeLead(res *rpc.BriefResult, topics []briefTopic) []rpc.BriefRu
 
 // briefNarrativeCoda closes on what is owed. It names only topics that are
 // already flagged above; it never predicts, and it never promises that an
-// unread input is fine.
 func briefNarrativeCoda(topics []briefTopic) []rpc.BriefRun {
 	p := &briefProse{}
 	flagged := briefFlaggedTopics(topics)
@@ -348,10 +314,6 @@ func briefNarrativeReview(review rpc.BriefReviewSection, session rpc.BriefSessio
 }
 
 // briefReviewLastSession states the close capture when one exists for the
-// last completed session. Silence would hide a gap, so a resolved session
-// without a capture is named as not captured; when even the session date is
-// unresolved the live sentence's own neutral basis already says everything
-// provable.
 func briefReviewLastSession(p *briefProse, row rpc.BriefLastSessionRow) {
 	if row.SessionDate == "" {
 		return
@@ -366,8 +328,6 @@ func briefReviewLastSession(p *briefProse, row rpc.BriefLastSessionRow) {
 }
 
 // briefCloseCaptureClock renders the capture instant on the session's own
-// exchange clock: the close is a New York fact, and the daemon-side prose
-// cannot know the reader's timezone.
 func briefCloseCaptureClock(capturedAt time.Time) string {
 	if loc, err := time.LoadLocation("America/New_York"); err == nil {
 		return "at " + capturedAt.In(loc).Format("15:04:05") + " ET"
@@ -376,12 +336,8 @@ func briefCloseCaptureClock(capturedAt time.Time) string {
 }
 
 // briefReviewSession opens the movement with the account's money: first the
-// last completed session's close-captured Daily P/L when the daemon holds one,
 // then the broker's running value. The broker's daily P/L is a running
-// recomputation — off-session it keeps moving on extended/overnight marks and
-// rolls to the next trading day — so the prose states the since-close basis
 // when the served calendar says closed and never claims a completed-session
-// result it cannot verify.
 func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rpc.BriefSessionRow) {
 	briefReviewLastSession(p, review.LastSession)
 	p.sentence()
@@ -425,7 +381,6 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 		p.text("No per-underlying daily P/L values are available.")
 	default:
 		// The currency is stated once for the list rather than stamped on
-		// every name: same served fact, less noise in running prose.
 		if currency = strings.TrimSpace(currency); currency != "" {
 			p.text("By name in " + currency + ": ")
 		} else {
@@ -447,8 +402,6 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 }
 
 // briefReviewDeskEvents narrates what the desk did to itself last session:
-// proposals, overrides, current policy adherence, and capital events. Clean, the four fold
-// into one clause; flagged, each grows its own sentence.
 func briefReviewDeskEvents(p *briefProse, review rpc.BriefReviewSection) {
 	proposals, overrides := review.Proposals, review.Overrides
 	rules, events := review.Rules, review.CapitalEvents
@@ -525,7 +478,6 @@ func briefRulesSentence(p *briefProse, row rpc.BriefRulesRow) {
 }
 
 // briefReviewAdmin narrates process evidence. Clean, it is one folded clause
-// on the running paragraph; flagged, it opens its own.
 func briefReviewAdmin(p *briefProse, review rpc.BriefReviewSection) {
 	reconcile, autoExtend := review.Reconcile, review.AutoExtend
 	orders := review.WorkingOrders
@@ -629,9 +581,7 @@ func briefNarrativeReady(ready rpc.BriefReadySection) []rpc.BriefParagraph {
 }
 
 // briefReadyTape narrates the market read: breadth, dealer gamma, the official
-// session. The lead already states the posture, so stress and regime are
 // restated here only when they carry tone or could not be read - the movement
-// grows where the problem is and stays short when there is none.
 func briefReadyTape(p *briefProse, ready rpc.BriefReadySection) {
 	stress := ready.Stress
 	if briefStressRole(stress.Severity) != "" || stress.Status != rpc.BriefStatusOK ||
@@ -722,7 +672,6 @@ func briefStressSentence(p *briefProse, stress rpc.BriefStressRow) {
 }
 
 // briefReadyBook narrates capacity and carry: what the book can lose and what
-// it pays to hold protection.
 func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 	capital := ready.Capital
 	role := briefRole(capital.BriefRowState, capital.Tier == risk.CapitalTierBlock)
@@ -814,7 +763,6 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 }
 
 // briefReadyProposalsSentence states how much protection work is staged for
-// the session ahead. It reports the served counts and nothing else: the prose
 // never says a proposal should be placed, and staging is not authority.
 func briefReadyProposalsSentence(p *briefProse, row rpc.BriefReadyProposalsRow) {
 	role := briefRole(row.BriefRowState, false)
@@ -836,7 +784,6 @@ func briefReadyProposalsSentence(p *briefProse, row rpc.BriefReadyProposalsRow) 
 }
 
 // briefReadyProcess narrates pins, the monthly pulse and held-name events.
-// Clean, they fold into one clause on the book paragraph.
 func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 	drift := ready.PolicyDrift
 	events := ready.MarketEvents
@@ -888,7 +835,6 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 }
 
 // briefMonthlyPulseClause narrates a SERVED pulse row. A policy version that
-// has no monthly pulse omits the row entirely, and the movement stays silent
 // about it exactly like the row render does.
 func briefMonthlyPulseClause(row rpc.BriefMonthlyPulseRow) string {
 	month := strings.TrimSpace(row.Month)
@@ -940,7 +886,6 @@ func briefMarketEventsSentences(p *briefProse, events []rpc.BriefMarketEventRow)
 		p.text("No held-name events.")
 	case clean > 0:
 		// The unflagged kinds were checked and are clean; saying so keeps the
-		// paragraph from leaving their silence ambiguous.
 		p.text("The remaining held-name event " + pluralNoun(clean, "source") + " " + briefVerb(clean, "is", "are") + " clean.")
 	}
 }
@@ -948,8 +893,6 @@ func briefMarketEventsSentences(p *briefProse, events []rpc.BriefMarketEventRow)
 // ---- shared readings and formatting -----------------------------------
 
 // briefStressReading prints the daemon's stress vocabulary verbatim. Action
-// and severity are usually the same word, so the pair collapses instead of
-// stuttering - the same rule the row render uses.
 func briefStressReading(stress rpc.BriefStressRow) string {
 	action := strings.TrimSpace(stress.Action)
 	severity := strings.TrimSpace(stress.Severity)
@@ -978,7 +921,6 @@ func briefRegimeReading(regime rpc.BriefRegimeRow) string {
 }
 
 // briefGammaSignWords keeps the served sign word when there is one and says so
-// plainly when there is not.
 func briefGammaSignWords(sign string) string {
 	if strings.TrimSpace(sign) == "" {
 		return "unclassified"
@@ -1032,9 +974,6 @@ func briefUpperFirst(text string) string {
 }
 
 // briefMoney renders an amount with its served base currency ahead of it, so
-// no figure implies a currency the payload did not state. Amounts below 1000
-// keep two decimals (carry figures such as hedge theta live there); larger
-// amounts round to whole units, which is what the prose is for - the rows
 // beside it carry the exact values.
 func briefMoney(amount float64, currency string, signed bool) string {
 	figure := briefFigure(amount, signed)
@@ -1045,7 +984,6 @@ func briefMoney(amount float64, currency string, signed bool) string {
 }
 
 // briefFigure is the bare money figure, for lists that state their currency
-// once.
 func briefFigure(amount float64, signed bool) string {
 	decimals := 0
 	if amount > -1000 && amount < 1000 {
@@ -1071,8 +1009,6 @@ func briefPrice(value float64) string {
 }
 
 // briefThousands formats a float with grouped thousands. Go has no locale
-// formatter and the brief is deliberately locale-free: one grouping, one
-// decimal point, everywhere.
 func briefThousands(value float64, decimals int) string {
 	text := strconv.FormatFloat(value, 'f', decimals, 64)
 	sign := ""

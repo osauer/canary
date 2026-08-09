@@ -1,3 +1,8 @@
+// Package auth manages Canary device pairing and app-session credentials.
+// Durable device grants and credential hashes belong to the app state store;
+// pairing sessions, challenges, and bearer sessions are process-local,
+// time-bounded values. Callers must treat all raw nonces, secrets, signatures,
+// cookie values, and session tokens as sensitive untrusted input.
 package auth
 
 import (
@@ -14,22 +19,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/osauer/canary/v2/internal/app/state"
 	"maps"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/app/state"
 )
 
 // SessionTTL is the lifetime of an in-memory bearer session minted after
-// successful device authentication.
 const SessionTTL = 12 * time.Hour
 
 // Manager coordinates process-local pairing sessions, challenges, and bearer
-// sessions with durable device grants in the app state store. Its in-memory
-// credential maps are mutex-protected for concurrent HTTP handlers.
 type Manager struct {
 	store        *state.Store
 	deviceWriter DeviceWriter
@@ -43,13 +44,11 @@ type Manager struct {
 }
 
 // DeviceWriter persists paired-device creation and revocation through the
-// app's serialized alert-delivery controller.
 type DeviceWriter interface {
 	AddDevice(state.DeviceGrant) error
 }
 
 // PairingSession is a short-lived, one-use invitation to enroll a device. ID,
-// Nonce, and URL are sensitive because URL embeds both credentials.
 type PairingSession struct {
 	ID        string    `json:"id"`
 	Nonce     string    `json:"nonce"`
@@ -59,7 +58,6 @@ type PairingSession struct {
 }
 
 // Challenge is a two-minute, one-use proof challenge for a previously paired
-// device. Challenge is sensitive until it has been consumed or expired.
 type Challenge struct {
 	DeviceID  string    `json:"device_id"`
 	Challenge string    `json:"challenge"`
@@ -76,9 +74,6 @@ type Session struct {
 }
 
 // CompletePairingRequest contains untrusted device enrollment proof. Nonce and
-// Signature are sensitive. PublicKeyJWK and Signature prove possession of the
-// device key; a client with no WebCrypto omits both and enrolls a cookie-only
-// grant, whose continuity rests entirely on the HttpOnly device cookie.
 type CompletePairingRequest struct {
 	PairingID    string          `json:"pairing_id"`
 	Nonce        string          `json:"nonce"`
@@ -98,7 +93,6 @@ type CompletePairingResult struct {
 // NewManager constructs a Manager backed by store. Device writes are routed
 // through deviceWriter so revocation cannot race confirmed alert transport. A
 // pairingTTL of zero or less uses five minutes. Both authorities must be
-// non-nil before authentication methods are used.
 func NewManager(store *state.Store, deviceWriter DeviceWriter, pairingTTL time.Duration) *Manager {
 	if pairingTTL <= 0 {
 		pairingTTL = 5 * time.Minute
@@ -115,9 +109,6 @@ func NewManager(store *state.Store, deviceWriter DeviceWriter, pairingTTL time.D
 }
 
 // StartPairing creates a one-use pairing ID and nonce using cryptographic
-// randomness. The returned URL appends both values to publicURL and expires
-// after the Manager's pairing TTL. publicURL is trimmed but otherwise trusted
-// as supplied by the caller.
 func (m *Manager) StartPairing(publicURL string) (PairingSession, error) {
 	id, err := randomToken(18)
 	if err != nil {
@@ -142,8 +133,6 @@ func (m *Manager) StartPairing(publicURL string) (PairingSession, error) {
 }
 
 // CompletePairing consumes the referenced pairing session, validates its
-// expiry, nonce, and device proof, persists a new device grant, and returns a
-// [SessionTTL] bearer session. Any completion attempt consumes a known pairing
 // ID even when later validation fails, so the invitation cannot be retried.
 func (m *Manager) CompletePairing(req CompletePairingRequest) (CompletePairingResult, error) {
 	now := m.now().UTC()
@@ -163,10 +152,7 @@ func (m *Manager) CompletePairing(req CompletePairingRequest) (CompletePairingRe
 		return CompletePairingResult{}, errors.New("pairing nonce mismatch")
 	}
 	// An enrolling client either registers a key and proves it, or registers
-	// nothing at all. Consumed nonce possession is what gates both; the
 	// signature only binds the grant to the key it just registered, so its
-	// absence widens nothing an attacker holding the pairing URL could not
-	// already do by generating a key of their own.
 	if len(bytes.TrimSpace(req.PublicKeyJWK)) > 0 {
 		if err := VerifyJWKSignature(req.PublicKeyJWK, []byte(req.Nonce), req.Signature); err != nil {
 			return CompletePairingResult{}, fmt.Errorf("verify device proof: %w", err)
@@ -200,7 +186,6 @@ func (m *Manager) CompletePairing(req CompletePairingRequest) (CompletePairingRe
 }
 
 // StartChallenge creates a two-minute, one-use challenge for a device that is
-// present in the durable grant store. The challenge uses cryptographic
 // randomness and is held only in memory.
 func (m *Manager) StartChallenge(deviceID string) (Challenge, error) {
 	if _, ok := m.store.Device(deviceID); !ok {
@@ -218,10 +203,7 @@ func (m *Manager) StartChallenge(deviceID string) (Challenge, error) {
 }
 
 // CompleteChallenge consumes challenge and verifies the paired device against
-// its stored P-256 public key. A successful proof returns a new [SessionTTL]
-// bearer session. A known challenge is consumed even when device, expiry, or
 // proof validation fails. A cookie-only grant holds no key and is rejected
-// here; its continuity path is the device cookie, not this challenge.
 func (m *Manager) CompleteChallenge(deviceID, challenge, signature string) (Session, error) {
 	now := m.now().UTC()
 	m.mu.Lock()
@@ -252,7 +234,6 @@ func (m *Manager) CompleteChallenge(deviceID, challenge, signature string) (Sess
 // IssueDeviceCookie creates a durable continuity credential for a paired
 // device, stores only its SHA-256 hash on the device grant, and returns the raw
 // deviceID.secret value once. The returned value is a bearer secret and must be
-// protected by the HTTP cookie layer. This method does not mint a session.
 func (m *Manager) IssueDeviceCookie(deviceID string) (string, error) {
 	if _, ok := m.store.Device(deviceID); !ok {
 		return "", errors.New("unknown device")
@@ -272,8 +253,6 @@ func (m *Manager) IssueDeviceCookie(deviceID string) (string, error) {
 }
 
 // AuthenticateDeviceCookie verifies a deviceID.secret continuity credential
-// against the hashes on the durable grant and returns a new [SessionTTL]
-// session. It updates the device's last-seen time on a best-effort basis. The
 // input and returned token are bearer secrets and must not be logged.
 func (m *Manager) AuthenticateDeviceCookie(value string) (Session, error) {
 	deviceID, secret, ok := strings.Cut(strings.TrimSpace(value), ".")
@@ -303,8 +282,6 @@ func (m *Manager) AuthenticateDeviceCookie(value string) (Session, error) {
 }
 
 // Authenticate validates a process-local bearer token, removes it if expired,
-// and confirms that its durable device grant still exists. On success it
-// returns a copy of the Session and best-effort updates device last-seen time.
 func (m *Manager) Authenticate(token string) (Session, bool) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -329,8 +306,6 @@ func (m *Manager) Authenticate(token string) (Session, bool) {
 }
 
 // StartReaper blocks while periodically removing expired pairing sessions,
-// challenges, and bearer sessions. An every value of zero or less uses one
-// minute. The loop returns when ctx is cancelled.
 func (m *Manager) StartReaper(ctx context.Context, every time.Duration) {
 	if every <= 0 {
 		every = time.Minute
@@ -408,8 +383,6 @@ type jwkP256 struct {
 
 // VerifyJWKSignature verifies a SHA-256 ECDSA signature over message using an
 // EC P-256 public JWK. sigB64 must use unpadded base64url and may contain either
-// a 64-byte raw r||s signature or an ASN.1 DER signature. Invalid JSON, key
-// coordinates, encoding, curve, or signature returns an error.
 func VerifyJWKSignature(raw json.RawMessage, message []byte, sigB64 string) error {
 	var jwk jwkP256
 	if err := json.Unmarshal(raw, &jwk); err != nil {

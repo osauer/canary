@@ -31,7 +31,6 @@ const (
 // orderFXBasePriority is the conventional major-FX base-currency ordering
 // accepted by IBKR's CASH/IDEALPRO contracts. The lower-ranked currency is
 // the wire symbol and the higher-ranked currency is the wire quote currency.
-// Keep this deliberately limited to the same G10-major set accepted by
 // pkg/ibkr.FxPair; an unknown pair fails closed instead of guessing a route.
 var orderFXBasePriority = map[string]int{
 	"EUR": 0,
@@ -45,8 +44,6 @@ var orderFXBasePriority = map[string]int{
 }
 
 // orderNotionalAuthority is the typed measurement used by the account-base
-// max_notional gate. QuoteNotional remains in the contract currency for user
-// disclosure; BaseNotional is the value actually compared with the configured
 // account-currency cap. Cross-currency evidence must come from an exact-session
 // TWS CASH/IDEALPRO quote, never a streaming ledger inference or stale FX cache.
 type orderNotionalAuthority struct {
@@ -120,7 +117,6 @@ func (s *Server) resolvePreviewOrderContract(ctx context.Context, authority *ord
 	}
 	// Existing unit tests may replace the complete quote/position/WhatIf
 	// authority without constructing a socket. Production never takes this
-	// path because no test seam is installed.
 	if authority == nil {
 		return contract, nil
 	}
@@ -218,14 +214,7 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 	}
 	// A position-only close/reduce classification does not grant a risk
 	// exemption. reqAllOpenOrders cannot prove future manual-TWS activity for
-	// this non-client-0 daemon, so another working order may already consume the
-	// apparent exit capacity. Every order therefore binds current base-currency
-	// evidence and the ordinary size controls; sell-side apparent exits also
-	// pass the short/sell-to-open gates below under worst-case exposure.
 	// Account base currency is immutable for one concrete broker account and
-	// socket session. Capture it from a completed one-shot request inside that
-	// session, then prove the session is still current before returning it.
-	// Reconnect invalidates the whole binding; an unstamped streaming cache or
 	// ExchangeRate=1 inference is never authority for an order cap.
 	account, provenance, err := connector.RequestAccountSummaryWithProvenance(ctx, 3*time.Second)
 	if err != nil {
@@ -251,9 +240,7 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 // preview-token redemption; the first-byte guard deliberately reuses that
 // binding instead of issuing a broker request or reparsing unstamped cache.
 // The real transport calls this while WithBoundBrokerSession owns
-// publicationBarrier.R and the protected Connection send owns
 // evidenceBarrier.W. It must never issue a broker request or recursively take
-// either barrier.
 func (s *Server) captureWireOrderPositionAuthority(binding brokerWriteTransactionBinding, status rpc.TradingStatus, draft rpc.OrderDraft) (orderPositionAuthority, error) {
 	if binding.testOnly && s.orderRiskAuthorityForTest == nil && s.orderPreviewPositionImpact == nil {
 		return orderPositionAuthority{
@@ -301,9 +288,7 @@ func (s *Server) captureWireOrderPositionAuthority(binding brokerWriteTransactio
 // exactRiskPositionQuantity deliberately has no symbol/fallback matching.
 // A broker-positive ConID is required to classify current effect truthfully,
 // but position evidence alone never grants a close/reduce exemption. Same-
-// symbol instruments, ticker reuse, malformed
 // zero IDs, duplicate rows, or conflicting secType/currency evidence fail
-// closed instead of being aggregated into another contract's position.
 func exactRiskPositionQuantity(positions []*ibkrlib.RawPosition, contract rpc.ContractParams) (float64, error) {
 	if contract.ConID <= 0 {
 		return 0, fmt.Errorf("contract ConID must be positive")
@@ -357,7 +342,6 @@ func riskSecTypeConsistent(want, got string) bool {
 		return true
 	}
 	// TWS reports exchange-traded funds as STK contracts even when the public
-	// order surface preserves ETF as the trader-facing classification.
 	return (want == "ETF" && got == "STK") || (want == "STK" && got == "ETF")
 }
 
@@ -450,9 +434,6 @@ func validOrderFXDataType(dataType string) bool {
 }
 
 // conservativeOrderFXRate converts one unit of contract currency into account
-// base currency without understating the absolute order cap. A direct
-// ContractCurrency/BaseCurrency quote uses the ask. An inverse
-// BaseCurrency/ContractCurrency quote uses 1/bid.
 func conservativeOrderFXRate(quote rpc.OrderQuoteSnapshot, inverted bool) float64 {
 	if inverted {
 		if quote.Bid == nil || !positiveFinite(*quote.Bid) {
@@ -497,8 +478,6 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 	riskEffect := position.Effect
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) {
 		// Incomplete manual-order visibility means the apparent long exit may
-		// arrive after another sell consumed that capacity. Apply the same
-		// explicit short-opening permission as a zero-position sell.
 		riskEffect = rpc.OrderPositionEffectOpenShort
 	}
 	switch {
@@ -570,7 +549,6 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	// Focused test fixtures that mint payloads directly predate the v4
 	// authority fields. Production v4 tokens are minted only by previewOrder
 	// and always carry all three; this compatibility branch is reachable only
-	// through an explicit in-process position seam.
 	if current.TestOnly && expectedGeneration == 0 && expectedAccount == "" && expectedBase == "" {
 		expectedGeneration = current.Generation
 		expectedAccount = current.Health.Account

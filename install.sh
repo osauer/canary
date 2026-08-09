@@ -1,18 +1,6 @@
 #!/bin/sh
 # Canary installer — one-shot binary install for Darwin and Linux.
-#
-#   curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
-#
-# Detects your OS/arch, downloads the matching pre-built tarball from the
 # latest GitHub release, verifies the SHA-256 checksum, installs the binary
-# to ~/.local/bin/canary, clears the macOS quarantine flag, and adds
-# ~/.local/bin to your PATH if it's not there yet. Idempotent — safe to
-# re-run to upgrade.
-#
-# Paranoid? Download and inspect first instead of piping:
-#   curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh -o install.sh
-#   less install.sh   # read it
-#   sh install.sh
 
 set -eu
 
@@ -20,7 +8,6 @@ REPO="osauer/canary"
 INSTALL_DIR="${CANARY_INSTALL_DIR:-$HOME/.local/bin}"
 
 # --- pretty printing ---------------------------------------------------------
-# Detect a TTY for color output. Pipes / CI lose the colors gracefully.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
 	BOLD=$(printf '\033[1m')
 	GREEN=$(printf '\033[32m')
@@ -46,7 +33,6 @@ command -v curl >/dev/null 2>&1 || fail "curl is required but not on PATH"
 command -v tar  >/dev/null 2>&1 || fail "tar is required but not on PATH"
 
 # Pick a checksum verifier — macOS has shasum, most Linux distros have
-# sha256sum. We need one or the other.
 if command -v shasum >/dev/null 2>&1; then
 	SHA256_CMD="shasum -a 256"
 elif command -v sha256sum >/dev/null 2>&1; then
@@ -92,11 +78,8 @@ esac
 info "Latest version:    $BOLD$VERSION$RESET"
 
 # --- download tarball + checksums into a scratch dir ------------------------
-# Publication-order bootstrap: main may contain this installer before the
 # first Canary-named release exists. The latest release at that boundary is
 # exactly v2.3.1 and publishes only the pre-rename archive shape. Accept that
-# one immutable version, install its executable bytes under the canonical
-# `canary` path, and require Canary asset names for every other version. This
 # is deliberately not a general legacy-asset fallback.
 archive_product="canary"
 archive_binary="canary"
@@ -204,8 +187,6 @@ if [ -s "$tmp/SHA256SUMS.asc" ]; then
 	else
 		step "Verifying PGP signature on SHA256SUMS..."
 		# Fetch the release-signing public key from the tagged source tree, then
-		# pin it by fingerprint before trusting it. A keyring lives in $tmp/gnupg
-		# so we don't pollute the user's keystore.
 		mkdir -p "$tmp/gnupg" && chmod 700 "$tmp/gnupg"
 		if curl -fsSL "$KEY_URL" | GNUPGHOME="$tmp/gnupg" gpg --batch --quiet --import 2>/dev/null; then
 			got_fp=$(GNUPGHOME="$tmp/gnupg" gpg --batch --with-colons --fingerprint 2>/dev/null \
@@ -266,10 +247,7 @@ mkdir -p "$INSTALL_DIR"
 canonical="$INSTALL_DIR/canary"
 pre_upgrade="$INSTALL_DIR/ibkr"
 # The pre-rename installer allowed an arbitrary IBKR_INSTALL_DIR. If that old
-# directory is still on PATH, silently installing Canary somewhere else would
 # leave two forward-incompatible binaries able to address the same daemon
-# state. Do not delete outside the caller's chosen target; require the caller
-# to reuse that directory so the transaction below can retire ibkr atomically.
 legacy_on_path=$(command -v ibkr 2>/dev/null || true)
 case "$legacy_on_path" in
 	"")
@@ -356,13 +334,10 @@ if [ -n "$pre_upgrade_retired" ]; then
 fi
 
 # macOS Gatekeeper marks downloads with com.apple.quarantine; clearing it
-# avoids "cannot verify developer" prompts on first run. Silent on linux.
 xattr -d com.apple.quarantine "$canonical" 2>/dev/null || true
 
 # --- PATH handling -----------------------------------------------------------
 # Auto-edit shell rc files ONLY when installing to the default location.
-# A user who set CANARY_INSTALL_DIR is doing something custom; touching their
-# shell config without asking would be rude (and was a real bug pre-v0.6.2).
 DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 
 if [ "$INSTALL_DIR" = "$DEFAULT_INSTALL_DIR" ]; then

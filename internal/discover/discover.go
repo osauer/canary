@@ -1,8 +1,6 @@
 // Package discover finds an IB Gateway or TWS endpoint on the local host
-// when the user hasn't pinned one in config. The probe is TCP-only with a
 // short timeout — we do not exchange the IBKR handshake here. The actual
 // handshake runs against the winner through the daemon's broker connector,
-// whose bounded connect path reports non-responsive listeners explicitly.
 package discover
 
 import (
@@ -15,17 +13,11 @@ import (
 
 // StandardPorts is the IBKR-default probe order.
 //
-//	4001  IB Gateway live
-//	4002  IB Gateway paper
 //	7496  TWS live
 //	7497  TWS paper
-//
-// First-hit-wins. The user can override entirely by pinning a port in
-// config; discovery then short-circuits.
 var StandardPorts = []int{4001, 4002, 7496, 7497}
 
 // Origin records why a dimension has its current value: was it pinned in
-// config (binding), discovered by probe, or filled from a built-in default.
 type Origin string
 
 // Origin values classify how endpoint settings were resolved.
@@ -48,7 +40,6 @@ type Endpoint struct {
 
 	// EnableTLSFallback flips the SDK's tlsAttempts to retry the alternate
 	// TLS mode on failure. We set this true only when the user left TLS
-	// unpinned (auto). Pinned tls (true or false) → strict, no fallback.
 	EnableTLSFallback bool
 
 	ClientID int
@@ -57,13 +48,10 @@ type Endpoint struct {
 	// Alternates lists other ports that responded during the probe but
 	// lost the first-hit race. Surface them in `canary status` so the user
 	// knows e.g. "I'm on Gateway live but TWS is also up." Empty when the
-	// port was pinned (discovery skipped) or no other ports responded.
 	Alternates []int
 }
 
 // Probe tests TCP connectivity to host:port with the given timeout. Returns
-// nil on success (the connection is closed immediately). Exposed as a
-// package var so tests can stub it; production code uses dialTCP.
 var Probe = dialTCP
 
 func dialTCP(ctx context.Context, host string, port int, timeout time.Duration) error {
@@ -78,8 +66,6 @@ func dialTCP(ctx context.Context, host string, port int, timeout time.Duration) 
 }
 
 // PartialGateway is the minimal subset of config.Gateway this package needs.
-// Defined here (not imported) so internal/config doesn't get a dependency
-// on internal/discover and so tests can construct one trivially.
 type PartialGateway struct {
 	Host         string
 	Port         *int
@@ -91,11 +77,7 @@ type PartialGateway struct {
 }
 
 // Resolve produces a concrete Endpoint by combining pinned values from g
-// with TCP-probe discovery for whichever dimension is left auto. The probe
-// runs concurrently across all candidate ports; the lowest-index responder
 // wins. Returns an error only if g.Host is unreachable for every candidate
-// (i.e. no listeners at all) — in which case the daemon still starts but
-// publishes the error via the watchdog.
 func Resolve(ctx context.Context, g PartialGateway) (Endpoint, error) {
 	host := g.Host
 	if host == "" {
@@ -113,7 +95,6 @@ func Resolve(ctx context.Context, g PartialGateway) (Endpoint, error) {
 	}
 
 	// TLS dimension: pinned → strict, no fallback. Auto → start with plain
-	// (Gateway 10.37+ default), let SDK fall back to TLS on handshake-no-data.
 	if g.TLS != nil {
 		ep.TLS = *g.TLS
 		ep.TLSOrigin = OriginPinned
@@ -158,17 +139,8 @@ func Resolve(ctx context.Context, g PartialGateway) (Endpoint, error) {
 // noListenerError builds the verdict the daemon surfaces (via log + status
 // LastError) when no canonical IBKR port responded. Combines the bare TCP
 // fact with a DetectIBKRApp pre-flight so the user sees a specific next
-// action instead of a generic timeout.
 //
-// Three branches map to the three states a user can land in:
-//
-//	app running, no listener  → API socket closed (checkbox / mid-login / custom port)
 //	no app running            → start TWS, Gateway, or IBKR Desktop
-//	lookup unavailable        → fall back to the bare TCP fact
-//
-// We can't positively distinguish "checkbox unchecked" from "still logging
-// in" or "custom port" — the symptom is identical from outside the
-// process. The hint names all three so the user picks the right one.
 func noListenerError(ctx context.Context, host string, ports []int, timeout time.Duration) error {
 	base := fmt.Sprintf("no IBKR listener found on %s ports %v (probe timeout %s)", host, ports, timeout)
 	app := DetectIBKRApp(ctx)
@@ -181,10 +153,6 @@ func noListenerError(ctx context.Context, host string, ports []int, timeout time
 }
 
 // probeAll runs Probe in parallel against every candidate port and returns
-// the responders in the order of `ports` (preserving the user's preference).
-// We probe concurrently so a stuck port doesn't block faster ones; we order
-// the result by candidate index so first-hit-wins matches the published
-// preference order, not the OS scheduler.
 func probeAll(ctx context.Context, host string, ports []int, perPortTimeout time.Duration) ([]int, error) {
 	type result struct {
 		idx int

@@ -257,28 +257,3 @@ func (c *Connector) finishOpenOrderSnapshotFrom(conn *Connection, epoch uint64) 
 	c.openOrderSnapshotMu.Unlock()
 	collector.finish(c.OrderLifecycleGeneration())
 }
-
-// collectOpenOrderSnapshotFields and finishOpenOrderSnapshot are synchronous
-// test-seam helpers. Production callbacks carry the exact Connection epoch
-// through Connection's open-order observer.
-func (c *Connector) collectOpenOrderSnapshotFields(fields []string) {
-	ev, ok := ParseOrderLifecycleEvent(fields)
-	if !ok || ev.WhatIf || ev.Type != OrderLifecycleEventOpenOrder {
-		return
-	}
-	c.openOrderSnapshotMu.Lock()
-	flight := c.openOrderSnapshot
-	c.openOrderSnapshotMu.Unlock()
-	if flight != nil {
-		c.collectOpenOrderSnapshotFrom(flight.binding.conn, flight.binding.epoch, ev)
-	}
-}
-
-func (c *Connector) finishOpenOrderSnapshot() {
-	c.openOrderSnapshotMu.Lock()
-	flight := c.openOrderSnapshot
-	c.openOrderSnapshotMu.Unlock()
-	if flight != nil {
-		c.finishOpenOrderSnapshotFrom(flight.binding.conn, flight.binding.epoch)
-	}
-}

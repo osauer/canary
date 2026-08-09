@@ -98,7 +98,6 @@ function protectionWriteConfirmationLabel() {
 
 
 // Blockers arrive as machine {code, message}. Users read the sentence; the
-// code stays as a greppable suffix instead of leading the line.
 function blockerText(blocker) {
   if (!blocker) return "";
   const msg = String(blocker.message || "").trim() || labelize(String(blocker.code || ""));
@@ -119,7 +118,6 @@ function readJSONOrText(res) {
 
 
 // money never invents a currency: an unknown/mixed currency renders the
-// bare amount (optionally suffixed with a non-ISO label such as MIX) so a
 // EUR-base account can never see a $ label on an unlabeled number.
 function money(value, currency) {
   if (!hasNumericValue(value)) return "--";
@@ -133,8 +131,6 @@ function money(value, currency) {
 
 
 // signedMoneyRead formats a P&L amount with an explicit leading +/- so the
-// sign is legible without relying on color (NO_COLOR, color-blindness),
-// mirroring the CLI proposal renderer.
 function signedMoneyRead(value, currency) {
   if (!hasNumericValue(value)) return "--";
   const formatted = money(Math.abs(value), currency);
@@ -179,7 +175,6 @@ function compactWholeMoney(value, currency) {
 
 
 // "risk" (red) is reserved for a breached threshold; "alert" (amber) marks
-// actionable-but-not-breached metrics so red keeps its scarcity value.
 function setMetricTone(el, tone = "neutral") {
   if (!el) return;
   el.classList.remove("metric-risk", "metric-alert", "metric-neutral");
@@ -219,9 +214,7 @@ function renderSensitiveText(id, value, hasValue) {
 }
 
 // The account id is the one sensitive string the eye toggle also masks. Unlike
-// money values (fully hidden as "******"), an id keeps its first and last two
 // characters — the operator still recognizes which account is shown, without
-// the full identifier sitting on screen or in a screenshot.
 function maskAccountId(id) {
   const value = String(id || "").trim();
   if (!value) return "";
@@ -230,7 +223,6 @@ function maskAccountId(id) {
 }
 
 // renderSensitiveAccountId mirrors renderSensitiveText, but hides the account id
-// with the id-preserving mask instead of the full money mask. A placeholder
 // (e.g. "Account unresolved") is not a sensitive id and renders as-is.
 function renderSensitiveAccountId(elementId, accountId, placeholder = "--") {
   const el = $(elementId);
@@ -341,7 +333,6 @@ function renderFreshnessTimestamp(target, value, options = {}) {
   const el = typeof target === "string" ? $(target) : target;
   if (!el) return;
   // Markup may pin a static explanatory title (e.g. "Market regime
-  // freshness"); keep it as a prefix instead of clobbering it.
   if (el.dataset.freshnessLabel === undefined) {
     el.dataset.freshnessLabel = el.title || "";
   }
@@ -349,7 +340,6 @@ function renderFreshnessTimestamp(target, value, options = {}) {
   const at = value instanceof Date ? value : parseDate(value);
   if (!at) {
     // A missing timestamp is a degraded state, so it stays visible even for
-    // quiet-when-fresh callers.
     el.hidden = false;
     el.textContent = options.fallback || "no timestamp";
     el.title = label;
@@ -362,7 +352,6 @@ function renderFreshnessTimestamp(target, value, options = {}) {
   const stale = ageMinutes >= staleMinutes;
   const absolute = shortTime(at.toISOString());
   // Monitor panel heads run quiet: freshness is the expected state, so only
-  // staleness earns ink. The footer sync strip stays the one always-on clock.
   if (options.quietWhenFresh) {
     el.hidden = !stale;
     if (!stale) {

@@ -11,20 +11,12 @@ import (
 )
 
 // reduceOrderSource tags the order journal so a discretionary percentage trim
-// is distinguishable from a daemon-generated protection proposal in audit.
 const reduceOrderSource = "manual_reduce"
 
 // isProtectiveShort reports whether a holding carries short (bearish) delta
-// and is therefore treated as a protective hedge: long puts, short calls, or
 // short stock. Used only by the single-position reduce path (IncludeHedges
-// opts a specific holding in deliberately); the portfolio sweep instead
-// excludes opposite-sign-to-net positions structurally via dollar-delta
 // sign-matching, with no separate hedge flag. When the broker delta is known
-// we trust its sign; otherwise we fall back to the option right and position
-// sign, which is deterministic and always present (Greeks can be nil
-// off-hours). A nil delta on an option still classifies as a hedge so the
 // exclusion fails safe toward protecting the position rather than silently
-// exposing it to a trim.
 func isProtectiveShort(row rpc.PositionView) bool {
 	if row.Quantity == 0 {
 		return false
@@ -43,8 +35,6 @@ func isProtectiveShort(row rpc.PositionView) bool {
 }
 
 // reduceEligible scopes the discretionary trim to stocks/ETFs (long or short)
-// and long options, matching the agreed feature scope. Short options are out of
-// scope; daemon-generated theta/trailing proposals cover them.
 func reduceEligible(row rpc.PositionView) bool {
 	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
 	case rpc.SecTypeOption, "OPT":
@@ -58,7 +48,6 @@ func reduceEligible(row rpc.PositionView) bool {
 
 // findReducePosition resolves the holding the trim acts on. ConID is the
 // unambiguous key; a bare Symbol is accepted only when it matches exactly one
-// stock position (options always require ConID because a symbol spans legs).
 func findReducePosition(pos *rpc.PositionsResult, conID int, symbol string) (rpc.PositionView, []rpc.TradingBlocker) {
 	if pos == nil {
 		return rpc.PositionView{}, []rpc.TradingBlocker{{Code: "positions_unavailable", Message: "current positions are unavailable", Action: "Retry once the daemon has refreshed positions."}}
@@ -96,7 +85,6 @@ func findReducePosition(pos *rpc.PositionsResult, conID int, symbol string) (rpc
 
 // reduceQuantityForPercent floors percent×|position| to whole units so the trim
 // never rounds up into a flip, and treats 100 as an exact close. It returns a
-// blocker when the position is not reducible or the percentage rounds to zero.
 func reduceQuantityForPercent(position float64, percent int) (int, []rpc.TradingBlocker) {
 	posAbsInt, _ := closeReduceQuantity(position)
 	unit := "shares"
@@ -135,7 +123,6 @@ type preparedReduce struct {
 // prepareReduce resolves the holding for a single-position trim and delegates to
 // prepareReduceForRow. Any returned blockers are terminal (no token minted) and
 // carry remediation. It performs no broker write — the caller routes the result
-// through previewOrder/placeOrder.
 func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReduceParams) (preparedReduce, []rpc.TradingBlocker, error) {
 	posResult, err := s.handlePositionsList(ctx, &rpc.Request{})
 	if err != nil {
@@ -150,10 +137,8 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 }
 
 // prepareReduceForRow applies the hedge exclusion, sizes the order, and builds
-// the gated preview params for an already-resolved position row. It is the
 // single-position trim's primitive: it never reads positions or writes to the
 // broker. Terminal blockers (not_reducible, hedge_excluded, percent_too_small,
-// ...) come back with the row echoed so callers can disclose what was acted on.
 func prepareReduceForRow(row rpc.PositionView, p rpc.TradeProposalReduceParams) (preparedReduce, []rpc.TradingBlocker) {
 	hedge := isProtectiveShort(row)
 	if !reduceEligible(row) {
@@ -172,9 +157,6 @@ func prepareReduceForRow(row rpc.PositionView, p rpc.TradeProposalReduceParams) 
 }
 
 // buildPreparedReduce assembles the gated order-preview params for a row whose
-// quantity has already been resolved — by reduceQuantityForPercent (single
-// position) or by the portfolio sweep's dollar-delta pro-rata allocator. It is
-// the shared tail both sizing paths converge on.
 func buildPreparedReduce(row rpc.PositionView, qty int, timeoutMs int) preparedReduce {
 	secType := positionWireSecType(row.SecType)
 	action := rpc.OrderActionSell
@@ -195,11 +177,7 @@ func buildPreparedReduce(row rpc.PositionView, qty int, timeoutMs int) preparedR
 }
 
 // preparedReduceWithQty is the portfolio sweep's entry point: qty is already
-// sized by the caller's dollar-delta pro-rata allocation, so this only
-// re-checks eligibility and a positive quantity (defense-in-depth — the
 // caller should never offer an out-of-scope row or a zero qty) before
-// building the same gated order shape prepareReduceForRow produces from a
-// percent.
 func preparedReduceWithQty(row rpc.PositionView, qty int, timeoutMs int) (preparedReduce, []rpc.TradingBlocker) {
 	if !reduceEligible(row) {
 		return preparedReduce{row: row}, []rpc.TradingBlocker{{Code: "not_reducible", Message: fmt.Sprintf("%s %s is not eligible for a portfolio trim", row.Symbol, positionWireSecType(row.SecType)), Action: "The sweep covers stocks/ETFs and long options."}}
@@ -219,9 +197,6 @@ func (s *Server) reduceClock() time.Time {
 }
 
 // reduceResultBase seeds the result with the resolved disclosure fields shared
-// by preview and submit. It derives the holding identity from the resolved row
-// so blocker-only results (hedge_excluded, percent_too_small) still disclose
-// what was being acted on.
 func reduceResultBase(prep preparedReduce, percent int, now time.Time) rpc.TradeProposalReduceResult {
 	secType := prep.secType
 	if secType == "" && prep.row.SecType != "" {
@@ -348,8 +323,6 @@ func (s *Server) handleTradeProposalsReduceSubmit(ctx context.Context, req *rpc.
 		return nil, err
 	}
 	// Serialize the check-then-act broker write against every other writer,
-	// matching handleTradeProposalsSubmit/handleOrderPlace. proposalPlaceOrder
-	// -> placeOrder does not self-lock; the handler holds the mutex.
 	s.brokerWriteMu.Lock()
 	defer s.brokerWriteMu.Unlock()
 	return s.tradeProposalReduceSubmit(ctx, p)

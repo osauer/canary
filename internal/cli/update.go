@@ -17,8 +17,6 @@ import (
 )
 
 // updateOptions is the parsed flag state for `canary update`. Carries
-// the four orthogonal axes plus the installed-version string the
-// caller injects (cmd/canary/main.go stamps it from `var version`).
 type updateOptions struct {
 	check     bool
 	force     bool
@@ -26,32 +24,18 @@ type updateOptions struct {
 	noRestart bool
 
 	// installedVersion is the running binary's version string (e.g.
-	// "v0.32.0" or "dev"). Injected via RunUpdate so this package
-	// stays buildable without a circular dependency on cmd/canary.
 	installedVersion string
 
 	// in/out/err are the I/O streams. Stdin is read for the
-	// interactive [Y/n] prompt; tests inject a buffer.
 	in  io.Reader
 	out io.Writer
 	err io.Writer
 
 	// isTTY is the result of TTY detection for in. Tests inject
-	// directly rather than touching os.Stdin.Fd().
 	isTTY bool
 }
 
 // RunUpdate is the entrypoint cmd/canary/main.go dispatches to. It does
-// not match the CommandFunc signature because update has no Env (no
-// daemon connection) — `update` is registered in cli.commands with
-// Fn=nil and the binary's main.go calls this function directly, the
-// same pattern `setup` uses.
-//
-// args are the raw CLI args after `canary update`. version is the
-// installed binary's version string (cmd/canary stamps it at build).
-// stdin / stdout / stderr are the process I/O streams.
-//
-// Returns the process exit code.
 func RunUpdate(ctx context.Context, args []string, version string, stdin io.Reader, stdout, stderr io.Writer) int {
 	opts := updateOptions{
 		installedVersion: version,
@@ -67,7 +51,6 @@ func RunUpdate(ctx context.Context, args []string, version string, stdin io.Read
 }
 
 // parseUpdateFlags wires a flag.FlagSet against opts. Returns
-// (exit-code, ok); ok=false means the caller should return exit-code
 // immediately (flag parse failure or --help).
 func parseUpdateFlags(args []string, opts *updateOptions, stdout, stderr io.Writer) (int, bool) {
 	env := &Env{Stdout: stdout, Stderr: stderr}
@@ -87,18 +70,12 @@ func parseUpdateFlags(args []string, opts *updateOptions, stdout, stderr io.Writ
 }
 
 // runUpdateCore is the testable core: takes injectable adapters for
-// the three side-effectful operations (fetch metadata, run install,
-// restart the local stack) so unit tests can exercise the flag matrix and
-// version branches without HTTP / disk / signals.
 type fetchFunc func(ctx context.Context, installedVersion string) (*update.Release, error)
 type installFunc func(ctx context.Context, plan *update.Plan) error
 type stackRestartFunc func(ctx context.Context, installedExecutable string, stdout, stderr io.Writer) int
 
 func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, doInstall installFunc, restart stackRestartFunc) int {
 	// TTY ambiguity gate: in non-interactive mode without an explicit
-	// restart decision, refuse to install. Silent default-to-N would
-	// be a footgun for systemd timers expecting auto-restart. The
-	// `--check` flag is a query, not an install, so it is exempt.
 	if !opts.check && !opts.isTTY && !opts.restart && !opts.noRestart {
 		fmt.Fprintf(opts.err, "%s update: ambiguous in non-interactive mode — pass --restart or --no-restart\n", productidentity.Executable)
 		return 2
@@ -114,8 +91,6 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 	latest := normalizeVersion(rel.TagName)
 
 	// Version-compare decision. --force always installs (bypasses).
-	// Otherwise: install iff latest > installed. Equal or behind
-	// prints "already on latest" and exits 0.
 	needsInstall := opts.force || versionNewer(latest, installed)
 
 	if opts.check {
@@ -152,7 +127,6 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 
 	// Local stack restart decision. This deliberately reuses the canonical
 	// app-first restart path: a running app must be on the newly-installed
-	// binary before the daemon is stopped and started.
 	doRestart := opts.restart
 	if !opts.restart && !opts.noRestart && opts.isTTY {
 		doRestart = promptRestart(opts.in, opts.out)
@@ -177,8 +151,6 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 }
 
 // promptRestart reads stdin for a [Y/n] response. Defaults to Y on
-// enter / EOF (matches the design's "Default Y on enter" matrix
-// entry). Returns true to restart.
 func promptRestart(in io.Reader, out io.Writer) bool {
 	fmt.Fprint(out, "Restart the local app/daemon stack now? [Y/n] ")
 	br := bufio.NewReader(in)
@@ -195,10 +167,7 @@ func promptRestart(in io.Reader, out io.Writer) bool {
 }
 
 // renderCheck prints the dry-run summary. Exit code per design
-// (open-decision #1): 0 on already-latest, 0 on update-available
 // (informational), non-zero only on actual fetch failures. So
-// `canary update --check && canary update` is the idiomatic confirm-then-
-// install pattern.
 func renderCheck(w io.Writer, installed, latest string, needsInstall bool, forced bool) {
 	switch {
 	case forced:
@@ -211,9 +180,6 @@ func renderCheck(w io.Writer, installed, latest string, needsInstall bool, force
 }
 
 // normalizeVersion canonicalises a version string so semver.Compare
-// works regardless of whether the source ("dev", "0.32.0", "v0.32.0")
-// included the v prefix. "dev" stays as-is and triggers the
-// "installed unknown" branch in versionNewer.
 func normalizeVersion(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" || v == "dev" {
@@ -226,9 +192,6 @@ func normalizeVersion(v string) string {
 }
 
 // versionNewer reports whether latest > installed. A "dev" or empty
-// installed version is treated as "always older than any tagged
-// release" — a dev build should still be willing to install a
-// shipped tagged release on demand.
 func versionNewer(latest, installed string) bool {
 	if installed == "" || installed == "dev" {
 		// Any tagged release is newer than the dev placeholder.
@@ -237,16 +200,13 @@ func versionNewer(latest, installed string) bool {
 	if !semver.IsValid(latest) || !semver.IsValid(installed) {
 		// Can't compare — be conservative and say "not newer" so
 		// we don't install on a parse failure. --force overrides
-		// this branch via runUpdateCore.
 		return false
 	}
 	return semver.Compare(latest, installed) > 0
 }
 
 // isStdinTTY reports whether stdin is a real terminal. Mirrors the
-// pattern used in internal/cli/color.go (os.ModeCharDevice). Tests
 // pass a *bytes.Buffer so the type assertion fails and isTTY=false,
-// which matches headless / piped-input behaviour.
 func isStdinTTY(in io.Reader) bool {
 	f, ok := in.(*os.File)
 	if !ok {

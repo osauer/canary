@@ -14,8 +14,6 @@ import (
 )
 
 // Store persists the engine's current snapshot, constituent windows, and
-// rolling history. UseCoreStore binds normal daemon operation to typed
-// daemon.db state and observations. The directory supplied to NewStore remains
 // for explicit legacy import and isolated codec use.
 type Store struct {
 	dir       string // sealed legacy cache; never used after UseCoreStore
@@ -34,10 +32,7 @@ const (
 )
 
 // NewStore returns a Store rooted at dir. The directory is created on
-// first write (lazy mkdir keeps tests that pass an unwritable dir
 // from failing at construction time). dir must be an absolute path
-// or relative to the daemon's working directory; the store does not
-// resolve XDG paths itself — that's the caller's job (see DefaultDir).
 func NewStore(dir string) *Store {
 	return &Store{dir: dir}
 }
@@ -70,7 +65,6 @@ func (s *Store) LoadSnapshot() (*Snapshot, error) {
 	}
 	if snap.Method != methodConstituentFanout {
 		// Methodology mismatch: treat as no-cache. The next refresh tick
-		// rebuilds from scratch with the current methodology.
 		return nil, nil
 	}
 	return &snap, nil
@@ -99,9 +93,6 @@ func (s *Store) SaveSnapshot(snap Snapshot) error {
 }
 
 // LoadWindows returns the persisted constituent windows, or (nil, nil)
-// when no file exists or the on-disk schema version doesn't match. The
-// version-mismatch case is intentionally non-fatal: a future format
-// bump triggers a cold-rebuild rather than a daemon error.
 func (s *Store) LoadWindows() (map[string]ConstituentWindow, error) {
 	data, ok, err := s.load("windows.json", breadthWindowsStateKind)
 	if err != nil || !ok {
@@ -113,7 +104,6 @@ func (s *Store) LoadWindows() (map[string]ConstituentWindow, error) {
 	}
 	if set.Version != CurrentWindowSetVersion {
 		// Future-version files are treated as no-cache: safer to
-		// cold-rebuild than to mis-interpret an unknown schema.
 		return nil, nil
 	}
 	return set.Windows, nil
@@ -145,9 +135,6 @@ func (s *Store) SaveWindows(windows map[string]ConstituentWindow, asOf time.Time
 }
 
 // checkpointWindows replaces the resumable window projection without
-// appending a full-map immutable observation. The finalise path calls
-// SaveWindows once per completed pass to retain the canonical observation;
-// interim batches are crash-recovery coordination, not separate market
 // evidence. Legacy standalone mode keeps the same atomic-file behavior.
 func (s *Store) checkpointWindows(windows map[string]ConstituentWindow, asOf time.Time) error {
 	set := WindowSet{
@@ -184,9 +171,6 @@ func (s *Store) checkpointWindows(windows map[string]ConstituentWindow, asOf tim
 }
 
 // LoadHistory returns the persisted rolling-history series or (nil,
-// nil) when no file exists yet. Like the other loaders, an unknown
-// schema version triggers a cold rebuild rather than an error so a
-// future format bump doesn't poison startup.
 func (s *Store) LoadHistory() ([]HistoryPoint, error) {
 	data, ok, err := s.load("history.json", breadthHistoryStateKind)
 	if err != nil || !ok {
@@ -203,7 +187,6 @@ func (s *Store) LoadHistory() ([]HistoryPoint, error) {
 }
 
 // SaveHistory persists the rolling history. Pass an empty slice to
-// wipe.
 func (s *Store) SaveHistory(points []HistoryPoint) error {
 	set := HistorySet{Version: CurrentHistorySetVersion, Points: points}
 	if s.authority != nil {
@@ -283,29 +266,8 @@ func (s *Store) saveAuthorityPayload(ctx context.Context, stateKind, observation
 	return fmt.Errorf("save breadth authority %s: %w", stateKind, corestore.ErrRevisionConflict)
 }
 
-// ImportLegacySnapshot/Windows/History are compatibility hooks for the
-// cutover preflight. Schema 6 intentionally retires these beta caches after
-// validation, so they publish neither history nor current state.
-func ImportLegacySnapshot(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
-	return nil
-}
-
-// ImportLegacyWindows validates through the caller and retains no beta row.
-func ImportLegacyWindows(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
-	return nil
-}
-
-// ImportLegacyHistory validates through the caller and retains no beta row.
-func ImportLegacyHistory(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
-	_, _, _, _, _ = ctx, authority, payload, metadata, observedAt
-	return nil
-}
-
 // UseCoreStore attaches daemon.db and loads the engine projection from it.
 // Production constructs the engine with Options.DeferStoreLoad so no legacy
-// cache is read before the daemon acquires its persistence lock.
 func (e *Engine) UseCoreStore(store *corestore.Store) error {
 	if e == nil || e.store == nil {
 		return errors.New("breadth engine: nil store")
@@ -339,8 +301,6 @@ func (e *Engine) UseCoreStore(store *corestore.Store) error {
 }
 
 // writeAtomic encodes v as JSON and replaces dir/name with the result
-// in a single atomic os.Rename. Pretty-printed (indent=2) so a human
-// debugging the cache can `cat` the file and read it.
 func (s *Store) writeAtomic(name string, v any) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", s.dir, err)
@@ -352,7 +312,6 @@ func (s *Store) writeAtomic(name string, v any) error {
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
-	// we don't litter the cache dir.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()
@@ -377,12 +336,8 @@ func (s *Store) writeAtomic(name string, v any) error {
 // DefaultDir returns the on-disk cache root the daemon uses by
 // default: $XDG_CACHE_HOME/ibkr/breadth-spx/, falling back to
 // $HOME/.cache/ibkr/breadth-spx/ when XDG_CACHE_HOME is unset (the
-// XDG spec's documented default).
-//
 // Returns an error only if neither XDG_CACHE_HOME nor HOME is set,
 // which on a real OS user account doesn't happen. Tests that need
-// a deterministic path should construct NewStore directly with
-// t.TempDir() rather than relying on this function.
 func DefaultDir() (string, error) {
 	if v := os.Getenv("XDG_CACHE_HOME"); v != "" {
 		return filepath.Join(v, "ibkr", "breadth-spx"), nil

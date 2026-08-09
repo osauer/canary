@@ -1,7 +1,4 @@
 // Package dial connects local adapters to the daemon's typed, newline-delimited
-// JSON protocol over a Unix socket. A Conn serializes one unary call or stream
-// at a time; connection recovery and autospawn coordinate process availability
-// without taking ownership of daemon state.
 package dial
 
 import (
@@ -26,10 +23,6 @@ import (
 )
 
 // ErrSocketMissing indicates the daemon is not reachable: either the socket
-// file does not exist, or it exists but no daemon is listening on it (a
-// stale socket left behind by a crashed predecessor). Both cases are mapped
-// to the same sentinel because every caller — autospawn in cmd/canary,
-// retry in WaitForSocket — treats them identically.
 var ErrSocketMissing = errors.New("daemon socket missing")
 
 // DefaultSocketPath returns the canonical socket location.
@@ -46,18 +39,12 @@ func DefaultSocketPath() string {
 }
 
 // SocketPathOverridden reports whether CANARY_SOCKET points the CLI at a
-// non-default daemon scope. Commands that manage system-wide state by
-// process name (e.g. `canary restart`'s implicit app management) use this
-// to stay hands-off: a process found by name cannot be attributed to the
-// overridden scope, so signaling it would cross scopes.
 func SocketPathOverridden() bool {
 	// docgen:env CANARY_SOCKET | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`.
 	return os.Getenv("CANARY_SOCKET") != ""
 }
 
 // DefaultAuthorityPath returns the canonical daemon authority database
-// location. The daemon verifies this file end to end before it publishes its
-// socket, so callers waiting on a daemon start size it to budget that wait.
 func DefaultAuthorityPath() (string, error) {
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
 		return filepath.Join(v, productidentity.PersistentNamespace, "daemon.db"), nil
@@ -71,7 +58,6 @@ func DefaultAuthorityPath() (string, error) {
 
 // DefaultLogPath returns the canonical daemon log location. It reads
 // XDG_STATE_HOME the way DefaultAuthorityPath does, so a desk that moves its
-// state directory keeps the log beside the database it describes.
 func DefaultLogPath() string {
 	// docgen:env CANARY_LOG | Override the daemon log file path. Defaults to `$XDG_STATE_HOME/ibkr/ibkr-daemon.log` or `$HOME/.local/state/ibkr/ibkr-daemon.log`.
 	if v := os.Getenv("CANARY_LOG"); v != "" {
@@ -85,9 +71,7 @@ func DefaultLogPath() string {
 }
 
 // DisplayPath renders p for a human-facing hint, abbreviating the home
-// directory to ~. Hints name the path Canary will actually use; spelling the
 // home directory out puts the account name into terminal output and
-// screenshots without telling the reader anything.
 func DisplayPath(p string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -109,8 +93,6 @@ type Conn struct {
 }
 
 // Connect opens the socket. Returns ErrSocketMissing if path doesn't exist
-// OR if it exists but no daemon is listening (ECONNREFUSED) — both of
-// those mean "no daemon", and the caller's response is identical.
 func Connect(path string) (*Conn, error) {
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -133,12 +115,6 @@ func Connect(path string) (*Conn, error) {
 }
 
 // DaemonVersion runs a one-shot status.health call against the open Conn and
-// returns the daemon's stamped version string. Short timeout so a wedged
-// daemon doesn't delay the user's actual command — the caller (typically
-// main.go) emits a non-fatal warning on mismatch, not an error.
-//
-// Defined here rather than in main.go so internal/mcp can run the same
-// check at boot if it ever wants to.
 func (c *Conn) DaemonVersion(ctx context.Context) (string, error) {
 	var h struct {
 		DaemonVersion string `json:"daemon_version"`
@@ -158,12 +134,7 @@ func (c *Conn) Close() error {
 }
 
 // Call performs a unary request/response round trip and decodes result into
-// out. ctx cancellation forces an immediate read deadline so the in-flight
-// read returns and Call surfaces ctx.Err(), matching Stream cancellation.
-//
 // The socket deadline is cleared on return, success or failure, so a
-// subsequent caller, including a long-lived stream, starts with fresh timing
-// state rather than inheriting the unary call's deadline.
 func (c *Conn) Call(ctx context.Context, method string, params any, out any) error {
 	req, err := newRequest(method, params)
 	if err != nil {
@@ -213,7 +184,6 @@ func (c *Conn) Call(ctx context.Context, method string, params any, out any) err
 }
 
 // Stream sends a subscribe-style request and invokes onFrame for each frame
-// until {"end":true}, the underlying socket closes, or ctx is cancelled.
 func (c *Conn) Stream(ctx context.Context, method string, params any, onFrame func(json.RawMessage) error) error {
 	req, err := newRequest(method, params)
 	if err != nil {
@@ -296,9 +266,7 @@ func (c *Conn) applyDeadline(ctx context.Context) error {
 }
 
 // installCancelWatcher spawns a goroutine that, on ctx cancellation, forces
-// an immediate read deadline so any in-flight ReadBytes returns. Returns a
 // cleanup function the caller must defer — defers don't compose with bare
-// goroutine + channel-close patterns cleanly otherwise.
 func (c *Conn) installCancelWatcher(ctx context.Context) func() {
 	stop := make(chan struct{})
 	go func() {

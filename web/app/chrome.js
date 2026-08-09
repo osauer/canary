@@ -74,7 +74,6 @@ function syncAccountPrivacyState() {
 function resetViewportScroll() {
   // The Panel Dark shell scrolls inside #appScroll, not the window or the
   // .shell wrapper — resetting only the latter two leaves the real container
-  // where it was.
   for (const el of [document.getElementById("appScroll"), document.querySelector(".shell")]) {
     if (el && (el.scrollTop !== 0 || el.scrollLeft !== 0)) {
       el.scrollTo(0, 0);
@@ -94,11 +93,6 @@ function ensureRegimeStressExpansion(stress = {}) {
 
 
 // Regime and stress detail can now open independently (or together) — both
-// live inside one shared deck below the split, so opening one no longer
-// changes the other's position on the page. See docs/design note in the
-// merged-panel spec: the mutual-exclusion this used to enforce existed to
-// stop two independently-tall sibling panels from fighting for vertical
-// rhythm, and that premise no longer holds once they share one deck.
 function setRegimeStressExpansion(which, open) {
   state.detailPreferenceSet = true;
   if (which === "regime") {
@@ -110,10 +104,6 @@ function setRegimeStressExpansion(which, open) {
   renderStressDetail(state.snapshot?.stress || {});
   if (open) {
     // The shared deck sits below the whole Desk grid, so on a phone the
-    // opened panel can land entirely below the fold and the toggle reads as
-    // dead. Bring the panel to its toggle instead. Instant scroll on
-    // purpose: WebKit (incl. iOS) silently ignores behavior:"smooth" on
-    // this nested scroll container.
     $(which === "regime" ? "regimeDetailPanel" : "stressDetailPanel")?.scrollIntoView({ block: "nearest" });
   }
 }
@@ -186,15 +176,6 @@ function setOpportunitiesExpansion(open) {
 
 
 // One sheet primitive for the whole panel: a full-height <dialog> in the
-// Panel Dark register. The native modal is the right underlying element —
-// it brings focus containment, Escape, the backdrop, and a top layer that
-// no tab panel can hide underneath — so a sheet is a styled .app-dialog,
-// not a second overlay mechanism.
-//
-// Opening a sheet also opens the depth surface it seats: the panels below
-// already gate their rendering (and, for proposals, their snapshot refresh)
-// on those expansion flags, so the sheet's own open state drives them
-// rather than a parallel flag that could drift.
 function sheetElement(id) {
   const sheet = $(id);
   return sheet && typeof sheet.showModal === "function" ? sheet : null;

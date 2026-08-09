@@ -2,12 +2,8 @@
 
 # Prove that an assembled release output holds the exact published payload
 # inventory the release contract fixes: for each canonical target one read-only
-# and one trading tarball, plus the versioned and the floating MCP bundle, plus
 # a signed SHA256SUMS covering exactly those ten payloads and nothing else.
-#
 # The matrix below is a constant, deliberately not read from RELEASE_TARGETS.
-# A caller-narrowed matrix builds a smaller set that every assembly step then
-# reports as complete, so the inventory proof has to come from somewhere the
 # caller cannot move. check-release-boundary.sh pins this literal against the
 # Makefile's RELEASE_TARGETS so the two can never drift apart.
 
@@ -54,7 +50,6 @@ expected_payloads="$(
 )"
 
 # On-disk payloads must be exactly the canonical set: no missing target, and
-# no extra archive left over from an earlier or wider build.
 actual_payloads="$(
 	find "$dist_dir" -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.mcpb' \) \
 		-exec basename {} \; | sort

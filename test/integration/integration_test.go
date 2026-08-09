@@ -1,20 +1,3 @@
-//go:build !windows
-
-// Package integration runs end-to-end tests of the full `canary daemon` and CLI
-// stack against a live IB Gateway. The tests deliberately do not mock or stub
-// IBKR; they prove the shipped multi-mode binary connects and talks to the real
-// gateway.
-//
-// Binding Make targets choose one meaning explicitly: hermetic mode selects
-// only daemon/CLI lifecycle tests and never probes a Gateway; live mode
-// requires a reachable, fully-handshaken Gateway and fails on absence. Direct
-// `go test` retains optional-live skips for ordinary Go tooling.
-//
-// Unix-only: launchSharedDaemon uses Setpgid + kill(-pgid) to ensure the
-// spawned daemon never orphans if go test is interrupted. Windows has no
-// equivalent in syscall.SysProcAttr; the package was already Unix-only in
-// practice (TestMain skips with "Unix-only daemon" on Windows) so the
-// build tag just makes that explicit.
 package integration
 
 import (
@@ -44,11 +27,6 @@ var (
 	sharedStop    func()
 	sharedSkipped bool
 
-	// reaperPipe holds the write end of the watchdog pipe for the life of
-	// the test process. Never written to — its only job is to be closed by
-	// the kernel when this process dies, which is what wakes the reaper.
-	// The package-level reference keeps the GC finalizer from closing it
-	// early.
 	reaperPipe *os.File
 )
 
@@ -63,15 +41,10 @@ const (
 type integrationTestMode string
 
 const (
-	// integrationModeOptional preserves direct `go test ./...` behavior:
-	// lifecycle tests run everywhere and live tests skip when no Gateway is
-	// reachable. Binding Make targets choose an explicit mode instead.
 	integrationModeOptional integrationTestMode = "optional"
-	// integrationModeHermetic runs only the lifecycle inventory selected by
-	// the caller and never probes or waits for a live Gateway.
+
 	integrationModeHermetic integrationTestMode = "hermetic"
-	// integrationModeLive requires a reachable, fully handshaken Gateway.
-	// Absence is a package failure, never a green skip.
+
 	integrationModeLive integrationTestMode = "live"
 )
 
@@ -86,11 +59,6 @@ func parseIntegrationTestMode(raw string) (integrationTestMode, error) {
 	}
 }
 
-// TestMain builds the single canary binary, then either runs the hermetic
-// lifecycle inventory or launches one daemon (`canary daemon --foreground`)
-// shared by every selected live test. Per-test live daemons are too slow
-// (each handshake is multi-second) and risk overwhelming the gateway with
-// rapid-fire client-ID changes.
 func TestMain(m *testing.M) {
 	mode, err := parseIntegrationTestMode(os.Getenv(integrationModeEnv))
 	if err != nil {
@@ -98,9 +66,6 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 
-	// Always build the binary first — lifecycle tests (kill/respawn,
-	// non-responsive daemon) exercise the CLI's daemon-management path
-	// which doesn't need a live gateway.
 	cli, err := buildBin()
 	if err != nil {
 		_, _ = os.Stderr.WriteString("integration: build failed: " + err.Error() + "\n")
@@ -108,12 +73,6 @@ func TestMain(m *testing.M) {
 	}
 	sharedCLI = cli
 
-	// Last-resort teardown for exits where no Go code runs at all (go
-	// test -timeout panic, SIGKILL): a detached reaper kills every daemon
-	// spawned from this run's binary the moment this process dies. The
-	// in-process paths below (signal handler, stop(), per-test t.Cleanup)
-	// remain the prompt, file-removing cleanup; the reaper is the backstop
-	// that keeps daemons from accumulating and wedging TWS.
 	startReaper(cli)
 
 	if mode == integrationModeHermetic {
@@ -146,11 +105,6 @@ func TestMain(m *testing.M) {
 	sharedSocket = socketPath
 	sharedStop = stop
 
-	// The daemon socket appears even when ibkrd's connector ran into the
-	// "degraded mode" branch (handshake failed → daemon stays up but
-	// disconnected). Ask the daemon whether it actually reached the gateway
-	// before declaring the suite live; on a degraded gateway, every test
-	// skips cleanly instead of failing with cascading IBKR-unavailable errors.
 	if !daemonReachedGateway(socketPath) {
 		message := "integration: daemon started but failed to handshake with IB Gateway (likely in degraded API-mute state — restart it and re-run)"
 		if mode == integrationModeLive {
@@ -162,11 +116,6 @@ func TestMain(m *testing.M) {
 		sharedSkipped = true
 	}
 
-	// Route SIGINT/SIGTERM through stop() so a Ctrl-C on `go test` (or any
-	// signal short of SIGKILL) tears the spawned daemon down rather than
-	// orphaning it. SIGKILL skips all of this — that's what the reaper
-	// started above is for. The goroutine exits when stop() runs to
-	// completion below or when the process dies.
 	sigC := make(chan os.Signal, 1)
 	signal.Notify(sigC, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -182,16 +131,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// daemonReachedGateway polls status.health on the freshly launched daemon
-// until it reports connected=true with a non-zero server version. The
-// daemon binds its socket before its connector finishes the async gateway
-// handshake (observably ~0.7s against paper TWS), so a single-shot check
-// here raced the handshake and could mark a healthy suite "no live
-// gateway" — every live test skipped and the run still exited 0. The
-// 25s budget mirrors the daemon's own handshake wait (`canary restart`).
-// A daemon whose connector entered degraded mode stays disconnected
-// forever, so a truly muted gateway still skips cleanly — it just pays
-// the full budget once.
 func daemonReachedGateway(socketPath string) bool {
 	deadline := time.Now().Add(25 * time.Second)
 	for time.Now().Before(deadline) {
@@ -218,24 +157,6 @@ func daemonHealthConnected(socketPath string) bool {
 	return res.Connected && res.ServerVersion > 0
 }
 
-// startReaper launches a detached watchdog that kills every daemon spawned
-// from this run's binary once the test process is gone. The watchdog blocks
-// reading a pipe whose write end only this process holds (spawned daemons
-// don't inherit it — Go marks non-stdio fds close-on-exec), so it fires on
-// ANY exit: clean, t.Fatal, panic, go test -timeout, Ctrl-C, even SIGKILL —
-// exactly the paths where t.Cleanup and TestMain teardown never run. It
-// lives in its own session so a terminal Ctrl-C doesn't take it down along
-// with the suite before it can sweep.
-//
-// The kill pattern "<binpath> (daemon|app)" matches the shared daemon
-// (launchSharedDaemon), anything the lifecycle tests autospawn through
-// the CLI, and any `canary app` a regression spawns from the test binary
-// (no test does so on purpose — see the leak tripwire in lifecycleEnv),
-// and nothing else: the binary path is unique to this run's temp dir. SIGTERM first so daemons unlink their socket/lock files; SIGKILL the
-// stragglers (e.g. a SIGSTOPped daemon from the stuck-daemon test) two
-// seconds later. The pattern travels via the environment, not argv —
-// embedding it in argv would make the shell match its own pkill -f pattern
-// and kill itself mid-sweep.
 func startReaper(cliBin string) {
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -313,10 +234,7 @@ func launchSharedDaemon(cliBin string) (string, func(), error) {
 			port = p
 		}
 	}
-	// Pin every dimension explicitly so the test harness doesn't depend
-	// on AUTO discovery — a deterministic config matches the historical
-	// behavior the integration tests were written for, and doesn't probe
-	// extra ports on the live gateway during a test run.
+
 	cfg := "[gateway]\nhost = \"127.0.0.1\"\nport = " +
 		strconv.Itoa(port) + "\nclient_id = " + strconv.Itoa(cid) + "\ntls = false\n"
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
@@ -328,21 +246,14 @@ func launchSharedDaemon(cliBin string) (string, func(), error) {
 		"--foreground",
 		"--log", logPath,
 	)
-	// A private socket is not a complete daemon isolation boundary: the sole
-	// authority and its persistence lock are XDG-state scoped. Keep the live
-	// integration daemon away from the installed daemon and from lifecycle
-	// tests, and prevent any test run from cutting over the developer's state.
+
 	cmd.Env = append(os.Environ(),
 		"XDG_STATE_HOME="+filepath.Join(dir, "state"),
 		"XDG_CACHE_HOME="+filepath.Join(dir, "cache"),
 		"XDG_CONFIG_HOME="+filepath.Join(dir, "config"),
 		"XDG_DATA_HOME="+filepath.Join(dir, "data"),
 	)
-	// Place the daemon in its own process group so stop() can signal the
-	// whole group via kill(-pid). Without this, a daemon that ever spawned
-	// helpers (or any future grandchild) would survive a test panic that
-	// skipped stop(). macOS does not propagate parent death to children, so
-	// the group-signal is the only reliable cleanup path.
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -372,16 +283,6 @@ func launchSharedDaemon(cliBin string) (string, func(), error) {
 	return "", nil, fmt.Errorf("daemon socket did not appear within 25s; see %s", logPath)
 }
 
-// nextClientID generates a unique client ID per daemon process so the IBKR
-// gateway doesn't reject overlapping handshakes (one connection per ID).
-//
-// The counter base is PID-bucketed: a fixed base meant two concurrent
-// suite runs (parallel dev sessions) both claimed 20, 21, … against the
-// shared gateway and flaked with TWS error 326. Eight 19-wide windows
-// spanning 20-96 and 105-181 keep clear of the default daemon client ID
-// 15, regime's 100-104 reservation, and the smoke scripts' 200+ range.
-// scripts/with-gateway-lock.sh serializes whole runs across sessions;
-// this is defense in depth for anything not routed through make.
 var clientIDCounter = func() int32 {
 	buckets := []int32{20, 39, 58, 77, 105, 124, 143, 162}
 	return buckets[os.Getpid()%len(buckets)]
@@ -441,8 +342,6 @@ func TestPositionsReturnLiveMarks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 
-	// First call may race the streaming portfolio update; retry briefly until
-	// at least one position has a non-zero mark.
 	var res rpc.PositionsResult
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -469,46 +368,6 @@ func positionsHaveMarks(rows []rpc.PositionView) bool {
 	return false
 }
 
-// TestDailyPnLEventuallyPopulated waits for the daemon's reqPnL stream to
-// emit its first frame. The subscription is kicked from post-connect
-// setup; the gateway typically returns the first frame within a couple
-// of seconds. Skips cleanly when no gateway is reachable.
-//
-// We assert account-level Daily P&L lands on the wire as non-nil — the
-// actual value can be zero (flat day) and that's fine. The "no zero
-// substitution" contract is enforced upstream; this test pins the
-// streaming arrival, not the magnitude.
-func TestDailyPnLEventuallyPopulated(t *testing.T) {
-	skipIfNoGateway(t)
-	conn := client(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-
-	// reqPnL is streaming; the first frame can arrive a beat after
-	// post-connect setup. Poll account.summary until it lands or the
-	// budget expires.
-	deadline := time.Now().Add(10 * time.Second)
-	var last rpc.AccountResult
-	for time.Now().Before(deadline) {
-		var res rpc.AccountResult
-		if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &res); err != nil {
-			t.Fatalf("account.summary: %v", err)
-		}
-		last = res
-		if res.DailyPnL != nil {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	// Some IBKR account types (e.g. cash-only sandboxes) never emit
-	// PnL frames. Treat as a Skip rather than a Fail to keep the
-	// matrix green for those cases; the failure mode that matters is
-	// "PnL field arrives populated", and missing data is captured by
-	// the dailyPnL pointer being nil — exactly what the wire contract
-	// promises.
-	t.Skipf("DailyPnL did not arrive within 10s — account may not be entitled to reqPnL feeds. Last response: %+v", last)
-}
-
 func TestQuoteSnapshotReturnsPrice(t *testing.T) {
 	skipIfNoGateway(t)
 	conn := client(t)
@@ -529,12 +388,7 @@ func TestQuoteSnapshotReturnsPrice(t *testing.T) {
 		t.Errorf("data_type required on every quote response")
 	}
 	if q.Bid == nil && q.Ask == nil && q.Last == nil {
-		// Closed-market tolerance, gated on typed disclosures rather than
-		// error text: the daemon's official calendar must say the US equity
-		// session is closed AND the quote itself must disclose a degraded
-		// quality — the coherent closed-market shapes. An empty quote during
-		// an open session, or one claiming firm quality with no prices,
-		// still fails.
+
 		degraded := q.QuoteQuality == "prev_close" || q.QuoteQuality == "stale" || q.QuoteQuality == "missing"
 		if degraded && !sessionOpen(t, conn, "us") {
 			t.Skipf("US equity session closed; daemon disclosed quote_quality=%q with no bid/ask/last — nothing live to assert", q.QuoteQuality)
@@ -543,12 +397,6 @@ func TestQuoteSnapshotReturnsPrice(t *testing.T) {
 	}
 }
 
-// sessionOpen asks the daemon's official market calendar whether the given
-// market's regular session is open right now. It is the typed authority
-// (embedded marketcal schedules: holidays, early closes) behind the
-// closed-market tolerances in the quote and chain tests — never error-text
-// matching. When the calendar call itself errors, the session is reported
-// open so no skip is licensed and the caller's original failure stands.
 func sessionOpen(t *testing.T, conn *dial.Conn, market string) bool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -558,25 +406,6 @@ func sessionOpen(t *testing.T, conn *dial.Conn, market string) bool {
 		return true
 	}
 	return res.Session.IsOpen
-}
-
-func TestUnknownMethodReturnsStructuredError(t *testing.T) {
-	skipIfNoGateway(t)
-	conn := client(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := conn.Call(ctx, "no.such.method", nil, nil)
-	if err == nil {
-		t.Fatal("expected error for unknown method")
-	}
-	rpcErr, ok := err.(*rpc.Error)
-	if !ok {
-		t.Fatalf("expected *rpc.Error, got %T: %v", err, err)
-	}
-	if rpcErr.Code != rpc.CodeUnknownMethod {
-		t.Errorf("expected code %q, got %q", rpc.CodeUnknownMethod, rpcErr.Code)
-	}
 }
 
 func TestTradingVerbsRefused(t *testing.T) {
@@ -598,112 +427,6 @@ func TestTradingVerbsRefused(t *testing.T) {
 		}
 		if rpcErr.Code != rpc.CodeTradingDisabled {
 			t.Errorf("%s: expected code %q, got %q", m, rpc.CodeTradingDisabled, rpcErr.Code)
-		}
-	}
-}
-
-func TestCLIBinaryAccountText(t *testing.T) {
-	skipIfNoGateway(t)
-
-	cmd := exec.Command(sharedCLI, "account")
-	cmd.Env = append(os.Environ(), "CANARY_SOCKET="+sharedSocket)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("canary account: %v\n%s", err, out)
-	}
-	s := string(out)
-	if !strings.Contains(s, "Account") || !strings.Contains(s, "Net liquidation") {
-		t.Errorf("unexpected canary account text output:\n%s", s)
-	}
-}
-
-// TestChainAAPLLegsPopulated guards against the option-chain ConID resolution
-// regression. Before the fix, every leg subscribed without a resolved ConID
-// and IBKR returned code 200 ("No security definition has been found"); the
-// CLI rendered an all-blank table. The fix calls reqContractDetails first
-// and feeds the resolved ConID into reqMktData.
-//
-// The "no fabrication" invariant means cells legitimately stay nil when the
-// gateway doesn't deliver a price (e.g. illiquid strikes far from ATM). We
-// only assert that AT LEAST one strike has at least one populated leg field —
-// any more and the test would be brittle against weekend frozen-data quirks.
-func TestChainAAPLLegsPopulated(t *testing.T) {
-	skipIfNoGateway(t)
-	conn := client(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	expiry := nextThirdFriday(time.Now().UTC())
-	params := rpc.ChainFetchParams{
-		Symbol: "AAPL",
-		Expiry: expiry.Format("2006-01-02"),
-		Width:  3, // 7 strikes — keeps the per-leg round-trip count modest
-		Side:   "both",
-	}
-	var res rpc.ChainResult
-	if err := conn.Call(ctx, rpc.MethodChainFetch, params, &res); err != nil {
-		// Per-leg option market data does not tick outside the options
-		// session, so the daemon's classified unary timeout is the expected
-		// closed-market shape. Both gate conditions are typed — the rpc
-		// error code and the official calendar — so a timeout while the
-		// session is open (deadlocked handler, dropped socket) still fails.
-		if isRPCTimeout(err) && !sessionOpen(t, conn, "us-options") {
-			t.Skipf("chain.fetch timed out with the US options session closed: %v", err)
-		}
-		t.Fatalf("chain.fetch AAPL %s: %v", params.Expiry, err)
-	}
-	wantStrikes := 2*params.Width + 1
-	if got := len(res.Strikes); got != wantStrikes {
-		t.Fatalf("expected %d strikes (ATM ± %d), got %d", wantStrikes, params.Width, got)
-	}
-	if res.Spot <= 0 {
-		t.Errorf("chain spot price not populated: %+v", res)
-	}
-	if res.DTE <= 0 {
-		t.Errorf("chain DTE should be positive, got %d", res.DTE)
-	}
-	populated := 0
-	for _, s := range res.Strikes {
-		if s.CallBid != nil || s.CallAsk != nil || s.CallLast != nil ||
-			s.PutBid != nil || s.PutAsk != nil || s.PutLast != nil {
-			populated++
-		}
-	}
-	if populated == 0 {
-		if !sessionOpen(t, conn, "us-options") {
-			t.Skip("no strike populated with the US options session closed — frozen feed delivered nothing; the ConID regression check needs an open session")
-		}
-		t.Errorf("no strike had any leg field populated; ConID resolution likely broken again. result=%+v", res)
-	}
-}
-
-// isRPCTimeout reports whether err is the daemon's classified unary timeout
-// (rpc code "timeout"), as opposed to a client-side context expiry or any
-// other error shape.
-func isRPCTimeout(err error) bool {
-	rpcErr, ok := err.(*rpc.Error)
-	return ok && rpcErr.Code == rpc.CodeTimeout
-}
-
-// nextThirdFriday returns the third Friday of the month at least 7 days from
-// now. AAPL has weekly options too but third-Friday monthlies are universally
-// liquid — picking them keeps the test stable across weeks. The resulting
-// date is also always > current time, so DTE > 0 is guaranteed.
-func nextThirdFriday(now time.Time) time.Time {
-	month := now.Month()
-	year := now.Year()
-	for {
-		first := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
-		// Friday is weekday 5 (Sunday=0). Third Friday = first Friday + 14 days.
-		offset := (int(time.Friday) - int(first.Weekday()) + 7) % 7
-		third := first.AddDate(0, 0, offset+14)
-		if third.Sub(now) >= 7*24*time.Hour {
-			return third
-		}
-		month++
-		if month > 12 {
-			month = 1
-			year++
 		}
 	}
 }

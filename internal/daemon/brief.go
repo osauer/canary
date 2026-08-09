@@ -52,8 +52,6 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 
 	rules := s.evaluateRulesMode(ctx, false, false)
 	// The brief boundary is captured after its input reads. In particular,
-	// Stress source snapshots are stamped while those reads are in flight; a
-	// boundary captured before them makes healthy evidence look future-dated
 	// and causes the alert producer to fail closed with source_time_invalid.
 	now := s.briefNow()
 	res := &rpc.BriefResult{AsOf: now}
@@ -64,15 +62,11 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	recon := s.buildReconReport()
 
 	// A closed official session downgrades expected coldness (paused event
-	// sources, an idle gamma cache) from degraded to disclosed-normal; an
-	// unavailable calendar conservatively counts as open so real gaps keep
-	// their full weight.
 	sessionOpen := calErr != nil || cal == nil || cal.Session.IsOpen
 
 	market, can := composeBriefMarket(now, acct, pos, regime, breadth, gamma, marketEvents,
 		acctErr, posErr, regimeErr, breadthErr, marketEventsErr, sessionOpen)
 	// Brief-hook stress evidence: the same computed result the brief row
-	// rendered, journaled with dedupe (internal-docs/design/history-index.md).
 	s.journalStressDecision(&can)
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
 	portfolio := s.composeBriefPortfolio(acct, pos, acctErr, posErr, sessionOpen)
@@ -80,19 +74,13 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	process := s.composeBriefProcessForAuthority(policy, constitution, recon, rules, renderAuthority, now)
 
 	// The five domain sections above are composition intermediates: the two
-	// rendered movements regroup their rows without changing any row's
-	// severity/status semantics or the worst-child rollup behavior.
 	res.Review = s.composeBriefReview(portfolio, riskLimits, process, now)
 	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process, s.briefReadyProposals())
 	res.BriefFingerprint = briefContentFingerprint(res)
 	// The narrative is a deterministic projection of the two movements above
-	// (internal/daemon/brief_narrative.go): it states served facts and their
-	// served statuses and adds none of its own. It is composed after the
-	// fingerprint and stays outside it — the identity hashes Review and Ready
 	// only, so revised prose can never invalidate the brief identity.
 	res.Narrative = composeBriefNarrative(res)
 	// Bind v4 brief identity to the current constitution even when a policy-only
-	// revision happens not to alter a visible row.
 	if constitution != nil && constitution.PolicyVersion >= 4 {
 		res.BriefFingerprint = opaqueIdentity("v4-brief", res.BriefFingerprint, renderAuthority.policyIdentity)
 	}
@@ -149,9 +137,6 @@ func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr 
 }
 
 // composeBriefReview assembles the post-trade Review movement from the existing
-// portfolio, risk, and process composition intermediates plus the read-only
-// proposals-offered-vs-acted derivation. Row severities and the worst-child
-// rollup are unchanged from the domain composers.
 func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLimits rpc.BriefRiskSection, process rpc.BriefProcessSection, now time.Time) rpc.BriefReviewSection {
 	out := rpc.BriefReviewSection{
 		SessionPnL:    portfolio.Account,
@@ -177,7 +162,6 @@ func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLim
 // completed session's Daily P&L. It never substitutes: a retained capture for
 // any other session date, a non-concrete broker scope, or an unresolvable
 // calendar all read as not captured, because everything the broker serves off
-// the close is a running value at off-session marks.
 func (s *Server) composeBriefLastSession(now time.Time) rpc.BriefLastSessionRow {
 	row := rpc.BriefLastSessionRow{}
 	date, ok := lastCompletedUSEquitySessionDate(now)
@@ -205,8 +189,6 @@ func (s *Server) composeBriefLastSession(now time.Time) rpc.BriefLastSessionRow 
 }
 
 // composeBriefReady assembles the pre-trade Ready movement from the existing
-// market, calendar, risk, portfolio, and process intermediates plus the
-// read-only actionable-proposal projection.
 func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendarSection,
 	riskLimits rpc.BriefRiskSection, portfolio rpc.BriefPortfolioSection, process rpc.BriefProcessSection,
 	proposals rpc.BriefReadyProposalsRow) rpc.BriefReadySection {
@@ -249,7 +231,6 @@ func briefReadySectionState(ready rpc.BriefReadySection) rpc.BriefRowState {
 
 // briefCapitalEvents frames the current latch and adjusted-peak provenance as
 // the Review movement's capital-events row. It regroups existing facts only —
-// no new journal read — and inherits the latch/capital condition so an engaged
 // latch or an absent constitution never reads as a clean "no events" line.
 func briefCapitalEvents(capital rpc.BriefCapitalRow, latch rpc.BriefLatchRow) rpc.BriefCapitalEventsRow {
 	row := rpc.BriefCapitalEventsRow{
@@ -272,7 +253,6 @@ func briefCapitalEvents(capital rpc.BriefCapitalRow, latch rpc.BriefLatchRow) rp
 }
 
 // briefProposals derives protection-proposal offered-vs-acted counts read-only
-// from the trade-proposal-outcomes journal. It is the one new derivation this
 // restructure adds; only counts and the covered day reach the wire.
 func (s *Server) briefProposals(_ time.Time) rpc.BriefProposalsRow {
 	if s == nil || s.proposalOutcomes == nil {
@@ -292,10 +272,6 @@ func (s *Server) briefProposals(_ time.Time) rpc.BriefProposalsRow {
 }
 
 // briefReadyProposals projects the CURRENT protection-proposal snapshot into
-// the Ready movement: how much work is staged for the session ahead. It is a
-// pure read of the engine's last-installed snapshot (show=false, so it emits
-// no shown events and advances no clock) and it carries counts only. Staged
-// work is a decision the desk owes, so a non-zero actionable count is an
 // attention row — never an authorization: submission keeps every gate it has.
 func (s *Server) briefReadyProposals() rpc.BriefReadyProposalsRow {
 	if s == nil || s.tradeProposals == nil {
@@ -317,8 +293,6 @@ func (s *Server) briefReadyProposals() rpc.BriefReadyProposalsRow {
 }
 
 // composeBriefMarket stays pure: it also returns the computed stress
-// result so composeBrief (the method) can journal it as stress evidence
-// without this function taking on daemon state.
 func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.PositionsResult,
 	regime *rpc.RegimeSnapshotResult, breadth *rpc.BreadthSPXResult, gamma *rpc.GammaZeroSPXResult,
 	events *rpc.MarketEventsResult, acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.StressResult) {
@@ -356,17 +330,12 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 		out.Breadth.BriefRowState = briefDegraded("breadth source is " + string(breadth.State))
 	} else {
 		// Name the session on every row. A reading is one trading day's close
-		// and the engine keeps serving the last converged one rather than
-		// publishing below its coverage threshold, so an undated row shows a
-		// stalled lane's numbers as if they were today's.
 		detail := "S&P 500 constituent breadth · " + breadth.SessionKey + " session"
 		switch {
 		case !breadth.Stale:
 			out.Breadth.BriefRowState = briefOK(detail)
 		case spx.PublicationPending(breadth.SessionKey, breadth.Refreshing, now):
 			// The ordinary post-close window: the newer session's fan-out is
-			// running and still inside its bounded deadline. Degrading here
-			// would light the row for ~90 min after every close.
 			out.Breadth.BriefRowState = briefOK(detail + "; the newer session is still computing")
 		default:
 			out.Breadth.BriefRowState = briefDegraded(detail + "; a newer session is overdue")
@@ -477,7 +446,6 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 	if rules != nil {
 		for _, e := range rules.Earnings {
 			// A terminal non-reporting issuer has no earnings to await; the
-			// applicability summary below already discloses it as excluded.
 			if e.Status == rpc.EarningsStatusTerminalNonReporting {
 				continue
 			}
@@ -527,7 +495,6 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 			(kind != "borrow" || (refreshState == rpc.SourceRefreshNotDue && worst == rpc.SourceStatusUnknown)):
 			// Only stale/unknown are quiet-eligible while closed: no fresh
 			// update is expected, and the copy claims only what the code
-			// verified — counts come from the last good data, not a fresh
 			// check, so a zero is never asserted as current fact.
 			inLast := fmt.Sprintf("%d held %s flagged in the last good data", len(syms), pluralNoun(len(syms), "symbol"))
 			if len(syms) == 0 {
@@ -536,8 +503,6 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 			state = briefOK(inLast + "; no fresh update expected while the market is closed (source health " + worst + briefLastChecked(lastChecked) + ")")
 		default:
 			// Everything else — degraded, partial, any status outside the
-			// known vocabulary, or any non-ok state during an open session —
-			// keeps its weight: a source that misbehaved is not idle.
 			state = briefDegraded(flagged + "; source health is " + worst + briefLastChecked(lastChecked))
 		}
 		if kind == "earnings" && len(syms) > 0 {
@@ -631,7 +596,6 @@ func briefWSHEntitlementNotice(rules *rpc.RulesResult) string {
 
 // briefBorrowFeeRelevant returns nil when positions are unavailable, false for
 // a known all-long book, and true only for actual short-stock exposure. Option
-// positions do not make the stock-borrow fee source decision-relevant.
 func briefBorrowFeeRelevant(pos *rpc.PositionsResult, posErr error) *bool {
 	if posErr != nil || pos == nil {
 		return nil
@@ -657,14 +621,10 @@ func briefBorrowFeeRelevant(pos *rpc.PositionsResult, posErr error) *bool {
 func briefPositionIsStock(position rpc.PositionView) bool {
 	secType := strings.ToUpper(strings.TrimSpace(position.SecType))
 	// Empty is a legacy stock projection. Explicit non-stock security types
-	// cannot make the stock-borrow fee source decision-relevant.
 	return secType == "" || secType == rpc.SecTypeStock || secType == "STK" || secType == "ETF"
 }
 
 // briefEventKindHealth maps one brief event kind to its own source-health rows
-// so an unrelated source (for example an unreachable borrow-fee feed) cannot
-// degrade every event row. It returns the worst matching status and the newest
-// matching observation time; empty means no matching source reported.
 func briefEventKindHealth(events *rpc.MarketEventsResult, kind string) (string, string, time.Time) {
 	if events == nil {
 		return "", "", time.Time{}
@@ -717,7 +677,6 @@ func pluralNoun(count int, noun string) string {
 
 // briefUnknownEarningsRules cross-links the earnings event row to the rules
 // that govern earnings behavior. This is disclosure only — it names which
-// governing rules cannot currently be evaluated; it gates nothing.
 func briefUnknownEarningsRules(rules *rpc.RulesResult) []string {
 	if rules == nil {
 		return nil
@@ -798,9 +757,7 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 		out.PremiumAtRisk = briefPremiumAtRisk(pos, out.Account.BaseCurrency)
 		out.HedgeCost = briefHedgeCost(pos, out.Account.BaseCurrency)
 		// The premium-at-risk headline includes every long option leg. When a
-		// hedge-candidate leg cannot be classified, the protective share of
 		// that premium is unknown, so the row's confidence must say so even
-		// though the amount itself is complete.
 		if out.HedgeCost.ExcludedLegs > 0 && out.PremiumAtRisk.Status == rpc.BriefStatusOK {
 			out.PremiumAtRisk.BriefRowState = briefDegraded(fmt.Sprintf(
 				"long-option market value in base currency; %d hedge-candidate %s cannot be classified, so the protective share of this premium is unknown",
@@ -814,9 +771,7 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 }
 
 // briefMovers aggregates daily P&L by underlying — the same basis as the
-// Underlyings panel — so the two surfaces reconcile. The residual beyond the
 // top rows is disclosed so the row's implied total matches the account-level
-// daily attribution instead of silently truncating.
 func briefMovers(pos *rpc.PositionsResult, sessionOpen bool) rpc.BriefMoversRow {
 	detail := "daily P&L by underlying, largest absolute first; position-level sums can differ from the account row by fees and FX"
 	if !sessionOpen {
@@ -939,8 +894,6 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 		AdjustedPeakBase: c.AdjustedPeakBase, PeakAsOf: c.PeakAsOf, BaseCurrency: c.BaseCurrency}
 	// The capital status derives from the values it shows: a breached tier or
 	// a fully consumed budget can never render ok, whatever produced it. In
-	// shadow enforcement the copy says so plainly rather than implying a
-	// block that does not exist yet.
 	blockDetail := "drawdown block tier is breached; risk-increasing orders are the enforcement target"
 	if strings.EqualFold(c.Enforcement, "shadow") {
 		blockDetail = "drawdown block tier is breached; shadow enforcement journals what would block — nothing is blocked yet, and reductions and closes stay available"
@@ -961,7 +914,6 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 		age := max(int(now.Sub(c.LatchedAt).Hours()/24), 0)
 		out.Latch.AgeDays = &age
 		// An engaged latch is an active risk state, not a healthy steady
-		// state; it holds attention until the journaled human reset.
 		out.Latch.BriefRowState = briefAttention("drawdown latch is engaged and remains so until a human reset")
 	}
 	out.Overrides.BriefRowState = briefOK("no active overrides")
@@ -1045,7 +997,6 @@ func briefProcessSectionState(process rpc.BriefProcessSection) rpc.BriefRowState
 
 // briefMonthlyPulseRollupState maps the monthly-pulse status vocabulary onto a
 // section-rollup row state. Shared so the Ready movement and the legacy process
-// rollup treat a blocked pulse identically.
 func briefMonthlyPulseRollupState(status string) rpc.BriefRowState {
 	switch status {
 	case rpc.BriefMonthlyPulseNotDue, rpc.BriefMonthlyPulseCompleted:
@@ -1125,7 +1076,6 @@ func briefUnavailable(detail string) rpc.BriefRowState {
 }
 
 // briefSectionState rolls a section up to its worst child — attention
-// outranks data problems — and states completeness separately in the detail
 // so an all-green header can never sit above a row that needs eyes.
 func briefSectionState(name string, rows ...rpc.BriefRowState) rpc.BriefRowState {
 	ok, attention, unavailable := 0, 0, 0

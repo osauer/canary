@@ -1,3 +1,15 @@
+// Package corestore owns the daemon's authoritative SQLite state in daemon.db.
+//
+// The store exposes typed transactions for mutable state, append-only evidence,
+// broker-scoped order safety, retained observations, and statement projections.
+// Every durable mutation advances a monotonic authority head. Opening,
+// inspection, backup, and upgrade paths validate schema, integrity, content
+// hashes, and any caller-supplied rollback floor; they never repair or recreate
+// an existing authority after a validation failure.
+//
+// Store serializes mutations internally. Callers never receive the underlying
+// SQL handle and must use the combined operations when state and evidence need
+// to become visible atomically.
 package corestore
 
 import (
@@ -8,7 +20,6 @@ import (
 )
 
 // Store errors classify authority, concurrency, and durability failures that
-// callers may handle without parsing error text.
 var (
 	ErrRevisionConflict       = errors.New("corestore: revision conflict")
 	ErrPreviewTokenConsumed   = errors.New("corestore: preview token already consumed")
@@ -26,7 +37,6 @@ var (
 )
 
 // Options configures the authoritative store. Path is required; the daemon
-// integration decides where daemon.db lives.
 type Options struct {
 	Path        string
 	BusyTimeout time.Duration
@@ -34,15 +44,11 @@ type Options struct {
 	// authority. It is intended for restore/backup selection boundaries.
 	MinimumHead *AuthorityHead
 	// CommitObserver runs synchronously after every successful durable
-	// mutation while the store's write lock is still held. Production uses it
 	// to persist an external monotonic head; an observer failure is returned
-	// to the caller and latches the store unhealthy without rolling back the
-	// already-committed SQLite transaction.
 	CommitObserver func(AuthorityHead) error
 }
 
 // AuthorityHead is the rollback-detection identity and monotonic write head
-// carried inside every database and backup.
 type AuthorityHead struct {
 	AuthorityEpoch   string
 	HeadGeneration   int64
@@ -51,7 +57,6 @@ type AuthorityHead struct {
 }
 
 // UpgradeRequiredError reports a valid, supported authority that must be
-// upgraded out of place before this build can open it for service.
 type UpgradeRequiredError struct {
 	CurrentVersion int
 	TargetVersion  int
@@ -66,7 +71,6 @@ func (e *UpgradeRequiredError) Error() string {
 func (e *UpgradeRequiredError) Is(target error) bool { return target == ErrUpgradeRequired }
 
 // InspectionStatus classifies whether a validated authority is directly
-// serviceable by this build or requires an out-of-place upgrade.
 type InspectionStatus string
 
 // Inspection statuses returned by Inspect.
@@ -76,8 +80,6 @@ const (
 )
 
 // InspectOptions configures a non-mutating authority inspection. Path must
-// already exist. MinimumHead, when non-nil, enforces the external monotonic
-// watermark while the database is still opened read-only. TargetVersion
 // selects one frozen migration-plan prefix; zero means the current version.
 type InspectOptions struct {
 	Path          string
@@ -99,7 +101,6 @@ type Inspection struct {
 
 // ObservationDiscardSelector identifies one exact class of derived
 // observations that a reviewed migration may discard. All three fields are
-// required; this is not a general retention or expiry surface.
 type ObservationDiscardSelector struct {
 	ScopeKey string
 	Source   string
@@ -108,11 +109,7 @@ type ObservationDiscardSelector struct {
 
 // ObservationDiscardSummary is deterministic evidence of the rows one
 // maintenance migration removed from its disposable working snapshot.
-// OrderedDigestSHA256 uses the domain "canary.observation-discard.v1\x00",
-// then each selector string as an 8-byte big-endian length plus bytes, then
-// each observation ID as 8-byte big-endian plus its stored 32-byte payload
 // digest in ascending ID order. Payload bytes are never copied into
-// coordination state.
 type ObservationDiscardSummary struct {
 	MigrationVersion    int
 	MigrationName       string
@@ -124,7 +121,6 @@ type ObservationDiscardSummary struct {
 
 // EventDiscardSelector identifies the one reviewed class of event snapshots a
 // migration may discard. Predicate is a frozen implementation identifier, not
-// caller-supplied SQL and not a general event-retention surface.
 type EventDiscardSelector struct {
 	ScopeKey  string
 	EventType string
@@ -133,11 +129,7 @@ type EventDiscardSelector struct {
 
 // EventDiscardSummary is deterministic evidence of the event rows one
 // maintenance migration removed from its disposable working snapshot.
-// OrderedDigestSHA256 uses the domain "canary.event-discard.v1\x00", then the
-// selector strings as 8-byte big-endian lengths plus bytes, then each event
-// sequence as 8-byte big-endian plus its stored 32-byte payload digest in
 // ascending sequence order. Payload bytes are never copied into coordination
-// state.
 type EventDiscardSummary struct {
 	MigrationVersion    int
 	MigrationName       string
@@ -149,17 +141,11 @@ type EventDiscardSummary struct {
 
 // OperationalPruneSelector identifies the one reviewed beta-history reset.
 // Predicate is a frozen implementation identifier; it is never caller input
-// and does not establish a general retention or age-based deletion surface.
 type OperationalPruneSelector struct {
 	Predicate string
 }
 
 // OperationalPruneSummary is the deterministic receipt for the v6
-// operational-only compaction. Observation and event digests bind the ordered
-// row identities to their already-stored payload hashes. Projection rows are
-// derived from those event payloads, so fixed per-table counts prove that the
-// matching children were removed before their parent events without copying
-// private payloads into coordination state.
 type OperationalPruneSummary struct {
 	MigrationVersion int
 	MigrationName    string
@@ -180,9 +166,6 @@ type OperationalPruneSummary struct {
 
 // UpgradeMaintenanceResult reports physical work required by pending
 // migration metadata and the exact discard evidence produced while building
-// the candidate. SourceBackupRetirementRequired is an instruction to the outer
-// crash-recovery coordinator: the large old-head backup may be retired only
-// after publication and independent target-head backup verification.
 type UpgradeMaintenanceResult struct {
 	Discards                       []ObservationDiscardSummary
 	EventDiscards                  []EventDiscardSummary
@@ -194,7 +177,6 @@ type UpgradeMaintenanceResult struct {
 // UpgradeHeadTransition is the only authority-head effect an out-of-place
 // schema upgrade may report. Ordinary pending migrations advance exactly once.
 // A batch preserves the head only when every pending migration is an explicitly
-// reviewed maintenance operation that leaves store_meta and event_log alone.
 type UpgradeHeadTransition string
 
 // Supported upgrade head transitions.
@@ -205,14 +187,9 @@ const (
 
 // UpgradeOptions describes an out-of-place schema upgrade. BackupPath is an
 // immutable exact-old-head snapshot. CandidatePath is an unpublished,
-// independent database for the caller to atomically publish after any outer
-// coordination state is durable. The target-head backup is deliberately a
-// post-publication operation so source backup plus candidate stays within the
 // large-authority space bound. TargetVersion zero means current.
 // ResetUnboundArtifacts is only for a preparing intent whose candidate has not
-// been durably fingerprint-bound: with ReplaceCandidate it revalidates the
 // exact source, durably removes all deterministic candidate and source-backup
-// artifacts, and rebuilds from the source.
 type UpgradeOptions struct {
 	SourcePath            string
 	BackupPath            string
@@ -224,8 +201,6 @@ type UpgradeOptions struct {
 }
 
 // RecomputeUpgradeMaintenanceOptions identifies an exact immutable source
-// backup and frozen target plan. RecomputeUpgradeMaintenance derives the same
-// discard evidence as candidate preparation without changing any file.
 type RecomputeUpgradeMaintenanceOptions struct {
 	SourcePath            string
 	ExpectedSchemaVersion int
@@ -246,9 +221,7 @@ type UpgradeTargetBackupOptions struct {
 // UpgradeResult contains independently verified artifacts. Source and Backup
 // remain at the old version and exact old head. HeadTransition says whether
 // Candidate preserves that head or advances HeadGeneration exactly once.
-// TargetBackup remains nil during preparation. A maintenance coordinator calls
 // PrepareUpgradeTargetBackup only after publishing and verifying Candidate;
-// this ordering keeps the promised two-source-footprint space bound honest.
 type UpgradeResult struct {
 	Source         Inspection
 	Backup         BackupInfo
@@ -259,9 +232,7 @@ type UpgradeResult struct {
 }
 
 // QuiesceOptions identifies the exact old authority that may be physically
-// checkpointed immediately before an atomic candidate replacement. The caller
 // must hold the state-root persistence lock and must have closed every Store
-// handle; SQLite cannot prove that process-level ownership from a pathname.
 type QuiesceOptions struct {
 	Path                  string
 	ExpectedSchemaVersion int
@@ -271,9 +242,7 @@ type QuiesceOptions struct {
 // Health is fail-closed mutation health. Critical failures caused by a full,
 // busy, readonly, corrupt, or I/O-failing SQLite store remain latched until an
 // explicit reopen. RecoveryEligible is true only for the narrow case where a
-// mutation committed but reading its post-commit head hit the bounded context
 // deadline; the live store may clear that latch only after an integrity,
-// identity, monotonic-head, and external-watermark proof succeeds.
 type Health struct {
 	Ready            bool
 	Code             string
@@ -282,8 +251,6 @@ type Health struct {
 }
 
 // StateDocument is the current revision of one scope- and kind-addressed JSON
-// document. JSON contains verified stored bytes and UpdatedAt is the commit
-// timestamp.
 type StateDocument struct {
 	ScopeKey  string
 	Kind      string
@@ -294,7 +261,6 @@ type StateDocument struct {
 
 // StateDocumentCAS requests a compare-and-swap update. ExpectedRevision zero
 // creates a missing document at revision one; a positive value updates exactly
-// that revision. UpdatedAtNotBefore can reject a commit whose clock would move
 // behind a retained authority timestamp.
 type StateDocumentCAS struct {
 	ScopeKey         string
@@ -304,12 +270,10 @@ type StateDocumentCAS struct {
 	// UpdatedAtNotBefore is an optional atomic commit-clock floor. The store
 	// compares it with the exact timestamp it will persist inside the same
 	// critical mutation, before touching the document or authority head. It is
-	// zero for ordinary callers.
 	UpdatedAtNotBefore time.Time
 }
 
 // RevisionConflictError reports the actual state observed after a failed
-// compare-and-swap.
 type RevisionConflictError struct {
 	Expected int64
 	Actual   int64
@@ -341,7 +305,6 @@ type ObservationInput struct {
 }
 
 // ObservationReceipt identifies one immutable observation and the exact
-// payload digest recorded for it.
 type ObservationReceipt struct {
 	ID            int64
 	PayloadSHA256 [sha256.Size]byte
@@ -367,8 +330,6 @@ type Observation struct {
 }
 
 // ObservationQuery filters observations within one required scope. Time bounds
-// are inclusive Unix milliseconds, AfterObservationID provides forward
-// pagination, and a nil DecisionEligible includes both eligibility classes.
 type ObservationQuery struct {
 	ScopeKey           string
 	Source             string
@@ -382,7 +343,6 @@ type ObservationQuery struct {
 
 // BrokerScope binds an authority namespace to all broker identity pins. A
 // ScopeKey can never be rebound, and one binding cannot be aliased by a second
-// ScopeKey.
 type BrokerScope struct {
 	ScopeKey string
 	Endpoint string
@@ -402,7 +362,6 @@ func HashPreviewTokenID(previewTokenID string) PreviewTokenDigest {
 }
 
 // ActionKind classifies the broker-side action represented by durable order
-// evidence.
 type ActionKind string
 
 // Supported broker action kinds.
@@ -417,7 +376,6 @@ const (
 )
 
 // TransmitOrigin identifies the allowlisted path that initiated a broker-side
-// action.
 type TransmitOrigin string
 
 // Supported broker-write origins.
@@ -429,7 +387,6 @@ const (
 
 // OrderEventRecord is one append-only order lifecycle event bound to an exact
 // broker scope. RawJSON is retained evidence and is not interpreted as
-// authorization.
 type OrderEventRecord struct {
 	EventSeq        int64
 	Scope           BrokerScope
@@ -447,8 +404,6 @@ type OrderEventRecord struct {
 }
 
 // OrderQuery filters order events in ascending event-sequence order.
-// AfterEventSeq provides forward pagination; nil order-ID pointers omit those
-// filters, while zero-valued time bounds are open.
 type OrderQuery struct {
 	ScopeKey        string
 	FromAtMS        int64
@@ -471,7 +426,6 @@ type PreTransmitRequest struct {
 	RequestedOrderIDFloor int64
 	ReservedOrderID       int64
 	// ExpectedOrderEventSeq binds a modify to the exact durable per-order
-	// frontier it validated. Nil leaves place/cancel/other actions unconditional.
 	ExpectedOrderEventSeq *int64
 	Action                ActionKind
 	Origin                TransmitOrigin
@@ -479,7 +433,6 @@ type PreTransmitRequest struct {
 }
 
 // LifecycleCommit couples order lifecycle events with an optional state CAS in
-// one transaction.
 type LifecycleCommit struct {
 	Scope  BrokerScope
 	Events []OrderEventRecord
@@ -503,14 +456,12 @@ type PreTransmitResult struct {
 }
 
 // IntegrityReport combines SQLite structural and foreign-key results. Content
-// hash mismatches are returned as errors rather than represented in this value.
 type IntegrityReport struct {
 	QuickCheckResults    []string
 	ForeignKeyViolations []ForeignKeyViolation
 }
 
 // OK reports whether SQLite returned exactly one successful quick-check row
-// and no foreign-key violations.
 func (r IntegrityReport) OK() bool {
 	return len(r.QuickCheckResults) == 1 && r.QuickCheckResults[0] == "ok" && len(r.ForeignKeyViolations) == 0
 }
@@ -532,7 +483,6 @@ type BackupInfo struct {
 }
 
 // StatementFileRecord is one file in the current retained-statement inventory.
-// The digest, rather than the file name or size, identifies a restatement.
 type StatementFileRecord struct {
 	ScopeKey             string
 	FileKey              string
@@ -567,7 +517,6 @@ type CheckpointResult struct {
 }
 
 // EventInput is one append-only event and an optional typed projection written
-// in the same transaction. PayloadJSON is retained byte-for-byte.
 type EventInput struct {
 	ScopeKey    string
 	EventKey    string
@@ -580,7 +529,6 @@ type EventInput struct {
 }
 
 // EventReceipt identifies a committed event and the single resulting authority
-// head shared by its mutation batch.
 type EventReceipt struct {
 	EventSeq   int64
 	RecordedAt time.Time
@@ -601,7 +549,6 @@ type EventRecord struct {
 }
 
 // EventQuery filters append-only events. Zero-valued filters are open and
-// AfterEventSeq provides forward pagination.
 type EventQuery struct {
 	ScopeKey      string
 	Type          string
@@ -612,7 +559,6 @@ type EventQuery struct {
 }
 
 // EventProjection is a typed tagged union; zero values append only the
-// canonical event_log row. At most one member may be non-nil.
 type EventProjection struct {
 	RegimeDecision   *RegimeDecisionProjection
 	RuleTransition   *RuleTransitionProjection
@@ -623,7 +569,6 @@ type EventProjection struct {
 }
 
 // RegimeDecisionProjection is the typed searchable projection of a regime
-// decision event.
 type RegimeDecisionProjection struct {
 	DecisionKey string
 	Stage       string
@@ -636,7 +581,6 @@ type RegimeDecisionProjection struct {
 }
 
 // RegimeIndicatorProjection is one indicator row attached to a projected
-// regime decision.
 type RegimeIndicatorProjection struct {
 	Indicator       string
 	Status          string
@@ -651,30 +595,25 @@ type RegimeIndicatorProjection struct {
 }
 
 // RuleTransitionProjection is the typed searchable projection of a rule
-// transition event.
 type RuleTransitionProjection struct {
 	RuleID, Status, PreviousStatus, PolicyID, PolicyFingerprint string
 	PolicyVersion                                               *int64
 }
 
 // StressTransitionProjection is the typed searchable projection of a
-// portfolio-stress transition event.
 type StressTransitionProjection struct {
 	Action, Severity, Direction, MarketStage, InputHealth string
 	PortfolioAlertRelevant                                *bool
 }
 
 // CapitalEventProjection is the typed searchable projection of a capital
-// event.
 type CapitalEventProjection struct{ Kind, AmountBaseText, EffectiveAt, ReportID string }
 
 // RiskPolicyEventProjection is the typed searchable projection of a risk-policy
-// governance event.
 type RiskPolicyEventProjection struct {
 	Kind, PolicyID, PolicyFingerprint string
 	PolicyVersion                     *int64
 }
 
 // ProposalOutcomeProjection is the typed searchable projection of a proposal
-// outcome event.
 type ProposalOutcomeProjection struct{ ProposalKey, Revision, Bucket, Symbol, SecType, Action, State string }

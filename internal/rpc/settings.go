@@ -1,6 +1,8 @@
 package rpc
 
-import "time"
+import (
+	"time"
+)
 
 // Settings access and source values state whether a field is mutable and which
 // authority supplied it.
@@ -48,7 +50,6 @@ type SettingsString struct {
 }
 
 // PlatformSettings is the typed, daemon-authored settings view. It combines
-// writable runtime preferences with read-only config, build, and observations.
 type PlatformSettings struct {
 	Kind       string                    `json:"kind"`
 	Features   PlatformFeatureSettings   `json:"features"`
@@ -63,28 +64,21 @@ type PlatformSettings struct {
 }
 
 // PlatformRegimeSettings holds the regime engine's runtime preferences.
-// Deliberately one knob: the confirmation-gate values (depth, streaks,
-// co-sign, max ages) are code-owned pending_backtest policy — user-tunable
-// gates would fork the decision corpus's comparability
-// (internal-docs/design/regime-calibration.md Part 6).
 type PlatformRegimeSettings struct {
 	Journal RegimeJournalSettings `json:"journal"`
 }
 
 // RegimeJournalSettings retains its public name while controlling
-// forward collection of typed regime-decision events in daemon.db.
 type RegimeJournalSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 }
 
 // PlatformStressSettings holds the portfolio-stress evidence-collection
-// runtime preference (internal-docs/design/history-index.md).
 type PlatformStressSettings struct {
 	Journal StressJournalSettings `json:"journal"`
 }
 
 // StressJournalSettings controls typed stress-decision event collection in
-// daemon.db, mirroring RegimeJournalSettings.
 type StressJournalSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 }
@@ -100,7 +94,6 @@ type PlatformHistorySettings struct {
 type HistoryRotationSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 	// KeepRawMonths is retained for wire compatibility and has no live
-	// journal-retention effect.
 	KeepRawMonths SettingsInt `json:"keep_raw_months"`
 }
 
@@ -117,20 +110,14 @@ type StockProtectionSettings struct {
 }
 
 // RulebookSettings controls the advisory trading rulebook
-// (internal-docs/design/trading-rulebook.md): the 14-rule daily checklist plus its
-// manual earnings-date overrides. Disabling hides the SPA card, empties
-// rules.snapshot, and stops advisory rule_* preview warnings; it cannot
 // affect broker-write gating in either direction.
 type RulebookSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 	// EarningsOverrides maps SYMBOL → "YYYY-MM-DD" (optional "Tamc"/"Tbmo"
-	// suffix). Overrides are authoritative over fetched dates for rules
-	// 6-8; set a symbol to null to clear it.
 	EarningsOverrides SettingsStringMap `json:"earnings_overrides"`
 }
 
 // SettingsStringMap is a map-valued setting with the standard
-// access/source/reason contract.
 type SettingsStringMap struct {
 	Value  map[string]string `json:"value,omitempty"`
 	Access string            `json:"access"`
@@ -139,10 +126,8 @@ type SettingsStringMap struct {
 }
 
 // PlatformTradingSettings combines the runtime freeze brake with read-only
-// trading configuration, build capability, and limits.
 type PlatformTradingSettings struct {
 	// Freeze is the runtime trading brake: true blocks every new broker
-	// write while cancels stay allowed. Toggled via
 	// `canary settings set trading.freeze=true|false`.
 	Freeze               SettingsBool         `json:"freeze"`
 	Mode                 SettingsString       `json:"mode"`
@@ -167,7 +152,6 @@ type PlatformAutoTradeSettings struct {
 }
 
 // TradingLimitSettings reports effective safety limits with per-field access
-// and source metadata.
 type TradingLimitSettings struct {
 	MaxNotional           SettingsFloat `json:"max_notional"`
 	MaxOptionContracts    SettingsInt   `json:"max_option_contracts"`
@@ -182,7 +166,6 @@ type PlatformMarketDataSetting struct {
 }
 
 // PlatformMarketDataQuality summarizes current observed feed quality. A zero
-// ObservedAt means no observation is available.
 type PlatformMarketDataQuality struct {
 	Status      string              `json:"status"`
 	Summary     string              `json:"summary,omitempty"`
@@ -199,4 +182,99 @@ type PlatformBuildSettings struct {
 	Channel                 SettingsString `json:"channel"`
 	TradingWritesAvailable  SettingsBool   `json:"trading_writes_available"`
 	ExperimentalTradingNote string         `json:"experimental_trading_note,omitempty"`
+}
+
+// This file is the single registry of writable runtime platform settings.
+// The daemon's patch validation, the CLI's `settings set` key list, and the
+// generated configuration reference (scripts/docgen/config-ref) all consume
+// it, so a key added here is automatically accepted, advertised, and
+// documented — and a key missing here is rejected everywhere. Read-only
+// observed fields (mode, endpoint, market-data quality, ...) are not
+// settings and do not belong in this registry.
+
+// SettingsKeyKind is the value grammar of a writable runtime setting.
+type SettingsKeyKind string
+
+const (
+	// SettingsKindBool accepts true, false, or null (clear the override).
+	SettingsKindBool SettingsKeyKind = "bool"
+	// SettingsKindFloat accepts a positive number or null.
+	SettingsKindFloat SettingsKeyKind = "float"
+	// SettingsKindInt accepts a positive integer or null.
+	SettingsKindInt SettingsKeyKind = "int"
+	// SettingsKindDateMap accepts an object of SYMBOL → "YYYY-MM-DD" (optional
+	// Tamc/Tbmo suffix) entries; a null entry clears that symbol, a null map
+	// clears all of them, and patches merge per symbol.
+	SettingsKindDateMap SettingsKeyKind = "date-map"
+)
+
+// Writability classes the daemon enforces beyond per-kind parsing.
+const (
+	// SettingsClassRuntime keys are runtime-owned. Individual keys may add a
+	// stricter origin policy; trading.freeze is human-terminal-only in every mode.
+	SettingsClassRuntime = "runtime"
+	// SettingsClassTradingLimit keys are writable only while trading limits
+	// are writable (experimental trading build with paper/live mode), and every
+	// write requires a human-terminal origin in every mode.
+	SettingsClassTradingLimit = "trading-limit"
+)
+
+// SettingsKeySpec declares one writable runtime setting.
+type SettingsKeySpec struct {
+	// Key is the dotted path used by the CLI, the JSON patch body, and the
+	// generated docs, e.g. "features.rulebook.enabled".
+	Key string
+	// Kind selects the value grammar.
+	Kind SettingsKeyKind
+	// Class selects the writability gate.
+	Class string
+	// Doc is the one-sentence plain-English description rendered in
+	// `canary settings set --help` and the generated configuration reference.
+	Doc string
+}
+
+// SettingsKeys returns the registry in stable display order.
+func SettingsKeys() []SettingsKeySpec {
+	return []SettingsKeySpec{
+		{
+			Key: "features.stock_protection.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
+			Doc: "Allows stock/ETF protection proposal actions; false blocks them with a stock_protection_disabled blocker while proposal snapshots stay readable (default true).",
+		},
+		{
+			Key: "features.rulebook.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
+			Doc: "Turns the advisory daily trading-rulebook checklist on; false hides the SPA card, empties rules.snapshot, and stops advisory rule_* preview warnings — it can never affect broker-write gating (default true).",
+		},
+		{
+			Key: "features.rulebook.earnings_overrides", Kind: SettingsKindDateMap, Class: SettingsClassRuntime,
+			Doc: "Manual SYMBOL → YYYY-MM-DD (optional Tamc/Tbmo suffix) earnings pins, authoritative over fetched dates for rules 6-8; patches merge per symbol.",
+		},
+		{
+			Key: "trading.freeze", Kind: SettingsKindBool, Class: SettingsClassRuntime,
+			Doc: "Runtime trading brake: true blocks every new broker write while cancels stay allowed; human-only by policy, and the write origin is audited (default false).",
+		},
+		{
+			Key: "trading.limits.max_notional", Kind: SettingsKindFloat, Class: SettingsClassTradingLimit,
+			Doc: "Runtime override of [trading].max_notional, the notional cap for every equity/ETF order including apparent exits; null falls back to the TOML value.",
+		},
+		{
+			Key: "trading.limits.max_option_contracts", Kind: SettingsKindInt, Class: SettingsClassTradingLimit,
+			Doc: "Runtime override of [trading].max_option_contracts, the quantity cap for every single-leg option order including apparent exits; null falls back to the TOML value.",
+		},
+		{
+			Key: "trading.limits.allow_stock_short", Kind: SettingsKindBool, Class: SettingsClassTradingLimit,
+			Doc: "Runtime override of [trading].allow_stock_short; null falls back to the TOML value.",
+		},
+		{
+			Key: "trading.limits.allow_option_sell_to_open", Kind: SettingsKindBool, Class: SettingsClassTradingLimit,
+			Doc: "Runtime override of [trading].allow_option_sell_to_open; null falls back to the TOML value.",
+		},
+		{
+			Key: "regime.journal.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
+			Doc: "Turns forward regime decision-event collection in daemon.db on (default true).",
+		},
+		{
+			Key: "stress.journal.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
+			Doc: "Turns forward portfolio-stress decision-event collection in daemon.db on, mirroring regime.journal.enabled (default true).",
+		},
+	}
 }

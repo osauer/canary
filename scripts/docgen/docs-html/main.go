@@ -1,11 +1,7 @@
 // Command docs-html renders the public documentation site from its Markdown
 // sources into a build directory. Markdown is the only prose authority;
 // generated HTML is never tracked.
-//
-// Markdown sits beside the HTML it produces, so a source path is the published
 // URL and there is nothing to keep in step. The manifest below adds only what
-// the file system cannot say: which section a page belongs to, how it is
-// described on the handbook index, and which retired URLs still redirect to it.
 package main
 
 import (
@@ -32,14 +28,12 @@ import (
 const (
 	publicBaseURL = "https://osauer.dev/canary/"
 	// hubOutput is the handbook index. The site root is docs/, so the public
-	// /canary/docs/ prefix lands at docs/docs/ on disk.
 	hubOutput = "docs/docs/index.html"
 	hubHref   = "docs/"
 )
 
 // pageStatus separates pages that render from pages that are only announced on
 // the handbook index. A planned page has no HTML output and never reaches the
-// sitemap, so nothing thin is ever indexed.
 type pageStatus string
 
 const (
@@ -54,7 +48,6 @@ type sectionSpec struct {
 }
 
 // sections run from "get it running" to "how it is built". Order is the
-// reading order on the handbook index.
 var sections = []sectionSpec{
 	{
 		Slug:  "start",
@@ -88,15 +81,9 @@ type pageSpec struct {
 	Source string
 	// Draft points at the repository stub that holds the scope of a planned
 	// page. It is never rendered and never served. Page is where that draft
-	// will publish once written; published pages derive it from Source.
 	Draft string
 	Page  string
 	// Section keys into sections; NavTitle and Summary drive the handbook index
-	// and the navigation tree. NavTitle normally equals the page's H1. The
-	// Reference section is the deliberate exception: its nav labels drop the
-	// word "reference" because the section heading right above them already
-	// says it, while each H1 keeps it because a page title has to stand alone
-	// in a browser tab and a search result.
 	Section  string
 	NavTitle string
 	Summary  string
@@ -107,15 +94,12 @@ type pageSpec struct {
 	SocialImage string
 	Status      pageStatus
 	// Legacy lists paths that used to serve this page. Each one is rendered as
-	// a redirect stub so old links and search results keep working.
 	Legacy []string
 }
 
 func (p pageSpec) planned() bool { return p.Status == statusPlanned }
 
 // output is the published HTML path. Markdown sits beside the HTML it
-// produces, so the source path is the URL and there is no mapping to keep
-// honest. Planned pages declare Page directly because they have no source yet.
 func (p pageSpec) output() string {
 	if p.planned() {
 		return p.Page
@@ -392,8 +376,6 @@ var pages = []pageSpec{
 }
 
 // navItems is the one definition of the site navigation. The generated pages
-// render it directly; a test asserts the hand-written landing page carries the
-// same items in the same order, so the two navigations cannot drift.
 var navItems = []struct{ Label, Href string }{
 	{"Documentation", hubHref},
 	{"MCP tools", "docs/reference/mcp-tools.html"},
@@ -454,7 +436,6 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
 `))
 
 // The notice is passed as data rather than written inline: html/template
-// strips comments that appear in the template text itself.
 var redirectTemplate = template.Must(template.New("redirect").Parse(`<!doctype html>
 {{.Notice}}
 <html lang="en">
@@ -517,20 +498,7 @@ func navHTML(rootPrefix string) string {
 }
 
 // sideNavHTML renders the between-page navigation tree that every generated
-// page carries. It reads the same manifest as the handbook index, so a page
-// added there reaches the tree with no second edit, and a planned page appears
 // without a link exactly as the index shows it. current is the
-// repository-relative output path of the page being rendered; hubOutput asks
-// for the handbook index itself.
-//
-// The tree ships no JavaScript. <details> collapses it on a phone, and wide
-// screens force it open through ::details-content; a browser without that
-// pseudo-element keeps a collapsed control that still opens on click.
-//
-// Each section is its own <details>, open on the section being read. Fully
-// expanded the tree runs about 1100px against a 720px laptop viewport, so a
-// reader on the last section could not see their own position without
-// scrolling the sidebar, which is the question the tree exists to answer.
 func sideNavHTML(rootPrefix, current string) (string, error) {
 	currentDir := filepath.Dir(current)
 
@@ -551,7 +519,6 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 	out.WriteString("      <summary class=\"sidenav-summary\">Documentation")
 	if hereTitle != "" {
 		// The closed control on a phone says which section the reader is in,
-		// so the tree does not have to be opened to answer "where am I".
 		fmt.Fprintf(&out, "<span class=\"sidenav-here\">%s</span>", template.HTMLEscapeString(hereTitle))
 	}
 	out.WriteString("</summary>\n")
@@ -602,8 +569,6 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 	}
 	out.WriteString("        </ul>\n")
 	// The key belongs only where something is dimmed. Nine pages open a
-	// section that is fully written (the eight under "Under the hood", plus
-	// the index, which opens nothing), and a legend with no referent is noise.
 	for _, page := range pages {
 		if page.Section == here && page.planned() {
 			out.WriteString("        <p class=\"sidenav-note\">Dimmed entries are not written yet.</p>\n")
@@ -709,7 +674,6 @@ const generatorNotice = template.HTML("<!-- Generated from Markdown by scripts/d
 const hubDescription = "The Canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath."
 
 // renderHub builds the handbook index from the manifest. Planned pages appear
-// with their scope but without a link, so a reader can see the whole shape
 // while only finished pages are reachable and indexable.
 func (r *siteRenderer) renderHub() ([]byte, error) {
 	rootPrefix := relativeRootPrefix(hubOutput)
@@ -847,11 +811,6 @@ func headingText(heading *ast.Heading, source []byte) string {
 }
 
 // rewriteDestination maps a relative Markdown link onto the published site.
-// Markdown sits beside the HTML it produces, so a link that is correct in the
-// source is already correct on the site: a link to another generated page only
-// swaps its extension, and a link to a tracked asset under docs/ is left
-// alone. Anything else tracked in the repository becomes a GitHub blob link,
-// because it ships in the repository rather than on the site.
 func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []byte {
 	raw := string(destination)
 	parsed, err := url.Parse(raw)
@@ -882,9 +841,6 @@ func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []b
 		return []byte(github.String())
 	}
 	// A relative link that resolves to nothing tracked is dead on the site.
-	// Passing it through silently is how moving docs/design/ out of the web
-	// root shipped 22 broken links: the page still rendered, and the link
-	// still looked like a link.
 	r.unresolved = append(r.unresolved, fmt.Sprintf("%s -> %s", page.Source, raw))
 	return destination
 }
@@ -950,7 +906,6 @@ func trackedFiles(root string) (map[string]bool, error) {
 }
 
 // validateManifest checks that every source is tracked and every generated
-// output is not. Publication consumes the build artifact, so a checked-in HTML
 // twin is duplicate authority rather than evidence that a page will ship.
 func validateManifest(tracked map[string]bool) error {
 	known := map[string]bool{}

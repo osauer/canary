@@ -347,8 +347,6 @@ function ingestAlertsEvent(raw) {
     // must retire the failure copy too. Without this the line outlives the
     // outage that set it: the feed reconnects and keeps delivering while the
     // panel still reads "retained state shown", and the only other clears —
-    // a stress event or an attention-context change — can stay silent for
-    // hours on a closed session.
     if (result.status !== "rejected" && state.attentionStatus.state === ALERTS_REFRESH_FAILED_COPY) {
       setAttentionStatus("");
     }
@@ -384,12 +382,7 @@ function timeLabel(value) {
 }
 
 // Panel clock: the day and the minute, on the same 24-hour register the
-// lamp-test stamp already keeps. The annunciator log spans days, so the day
 // earns its place; the seconds never do. Inside the week the weekday reads
-// fastest, but the extinguished register runs to seven days and a retained
-// unread lamp can be far older, so anything beyond the week is dated —
-// "Thu" a week out names two different days and the operator cannot tell
-// which.
 const WEEKDAY_CLOCK_MS = 6 * 24 * 60 * 60 * 1000;
 
 function clockLabel(value) {
@@ -410,7 +403,6 @@ function alertSourceLabel(source) {
 // The engraved source placard is the daemon's own vocabulary and nothing
 // else: the display label for the served source, plus the served kind where
 // the kind says something the source does not. No invented geography, no
-// re-derived severity, no sensor ids.
 function alertPlacard(occurrence) {
   const source = alertSourceLabel(occurrence.source);
   const kind = String(occurrence.kind || "").replaceAll("_", " ");
@@ -418,10 +410,7 @@ function alertPlacard(occurrence) {
 }
 
 // The age line reads the served timestamps back as words. A lit annunciator
-// says when it lit; an extinguished one says when it lit, when it went out,
-// and how long it burned. Lifecycle state and evidence health are appended in
 // the daemon's vocabulary only when they are not the nominal case, so a row
-// that says nothing extra is genuinely ordinary.
 function alertAgeLine(occurrence) {
   const parts = occurrence.ended_at === null
     ? [`Lit ${clockLabel(occurrence.first_seen_at)}`]
@@ -471,9 +460,6 @@ function emptyRow(copy) {
 }
 
 // One annunciator tile. Lit rows carry the lamp bar and the severity wash;
-// the title takes the 60% tint so the lamp reads as a lamp and the sentence
-// stays readable. An extinguished row is the same tile unlit — engraved, no
-// bar, no wash — which is what a register of past events should look like.
 const SEVERITY_TINT = { urgent: "pd-tile--act", act: "pd-tile--act", watch: "pd-tile--watch" };
 
 function alertRowElement(occurrence) {
@@ -512,9 +498,6 @@ function alertRowElement(occurrence) {
 }
 
 // The queue is a presentation over existing authorities, not a new policy
-// engine. Alerts keep their served lifecycle and severity; proposals,
-// exercises, and process reminders keep their own keys and remain subject to
-// their existing review/preview gates.
 function actionQueueItems(activeAlerts = []) {
   const snapshot = state.snapshot || {};
   const items = activeAlerts.map((alert) => ({ kind: "alert", severity: alert.severity, at: alert.last_seen_at, alert }));
@@ -582,8 +565,6 @@ function actionQueueRowElement(item) {
 }
 
 // The engraved unlit poster: the quiet desk stated as a fact, and only when
-// the feed can actually assert it. Incomplete or stale coverage keeps the
-// honest sentence instead — a dark panel and an unreadable panel look the
 // same, and only one of them means nothing is wrong.
 function allDarkPoster(value) {
   const poster = document.createElement("div");
@@ -599,7 +580,6 @@ function allDarkPoster(value) {
 }
 
 // Act above watch, and the served order kept inside each band: the operator
-// reads the loudest lamp first, and nothing below it moves between renders.
 const SEVERITY_ORDER = { urgent: 0, act: 1, watch: 2, observe: 3 };
 
 function bySeverity(left, right) {
@@ -609,10 +589,7 @@ function bySeverity(left, right) {
 const EXTINGUISHED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 // The extinguished register is the last seven days off the SERVED clock. An
-// occurrence the served attention set still counts as unread stays in the
-// register whatever its age: the acknowledge guard requires every unread
 // reference to have been rendered, and a display window must never quietly
-// satisfy that with a row the operator cannot see.
 function extinguishedRegister(value, ended) {
   const asOf = Date.parse(value.as_of);
   const unread = new Set(value.attention.unread_refs.map((ref) => ref.display_id));
@@ -647,7 +624,6 @@ function renderAttention() {
     badge.classList.toggle("bottom-tab__badge--watch", severity === "watch");
   }
   // An invalidated feed makes the unread state unknown, not zero: never
-  // announce "no unread alerts" or clear the OS icon badge on it.
   if (tab) tab.setAttribute("aria-label", queueCount > 0 ? `Action queue, ${queueCount} open` : feedInvalid ? "Action queue, alert state unknown" : "Action queue, empty");
   if (!feedInvalid) syncAppIconBadge(known ? unread : 0);
   const status = $("attentionStatus");
@@ -658,9 +634,6 @@ function renderAttention() {
 }
 
 // The tab badge follows the loudest ACTIVE alert, read straight off the
-// validated inbox feed — no new client-side severity policy. act and urgent
-// lamp red, watch lamps amber, everything else stays a neutral count chip.
-// An invalidated feed asserts nothing about severity and stays neutral.
 function highestActiveAlertSeverity() {
   if (state.alertsFeedValid === false) return "";
   const active = (state.alerts?.occurrences || []).filter((item) => item.ended_at === null);
@@ -733,7 +706,6 @@ function renderAlerts() {
     renderSources(null);
     // Delivery health shares the feed's authority: an invalid or
     // uninitialized feed must not keep presenting the retained health as
-    // current.
     renderDelivery(null);
     renderAttention();
     return { state: "unknown", active: [], ended: [] };
@@ -751,8 +723,6 @@ function renderAlerts() {
   setText("alertCoverageSummary", `${value.coverage.state} coverage · ${value.coverage.freshness} · ${value.coverage.covered_sources.length}/${value.coverage.expected_sources.length} sources · ${timeLabel(value.coverage.as_of)}`);
   const extinguished = extinguishedRegister(value, ended);
   // The poster is the count: an engraved ALL DARK under an "ACTIVE 0" legend
-  // says the same thing twice and dilutes the one word that matters. Every
-  // other quiet state keeps the legend, because a sentence is not a poster.
   const posted = queue.length === 0 && clear;
   if (placard) placard.hidden = posted;
   if (currentList) {
@@ -781,8 +751,6 @@ function renderAlerts() {
 
 function renderSelectedAlert() {
   // An invalid feed quarantines the detail panel with the other alert
-  // surfaces; the selection id survives in state and the panel returns
-  // when the feed revalidates.
   const occurrence = state.alertsFeedValid === false
     ? null
     : state.alerts?.occurrences?.find((item) => item.display_id === state.selectedAlertID);
@@ -876,7 +844,6 @@ async function refreshAlerts(options = {}) {
     } catch {
       // A failed or timed-out recovery GET is weaker evidence than the
       // retained validated feed: keep the last accepted authority (the
-      // ingest path already invalidated it if the body itself was
       // malformed or equivocating) and surface the failure as status.
       setAttentionStatus(ALERTS_REFRESH_FAILED_COPY, true);
       renderAlerts();
@@ -970,7 +937,6 @@ function handleAttentionContextChange() {
     // The typed SSE feed owns passive authority; a context change away
     // from the alerts view only needs a coalesced recovery read through
     // the scheduler, never a per-event direct GET (stress bursts used to
-    // fan out one fetch per event here).
     return scheduleAlertsRefresh();
   }
   if (attentionDwellTimer) return true;

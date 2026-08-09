@@ -27,21 +27,12 @@ const (
 
 // AlertSource names the daemon authority that produced a candidate. These are
 // product subsystem names, never broker, account, symbol, order, or device
-// identifiers.
 type AlertSource string
 
 // AlertSourceStress and the related constants identify candidate-producing
-// subsystems without carrying private subject identity.
-//
 // AlertSourceStress keeps the wire value "canary" for the same reason
-// stressEpisodeIdentity keeps "portfolio_canary": BuildAlertEpisodeKey hashes
-// the source into the episode key, so changing this string produces a different
-// key for the same condition with no mapping from the old one. The identity
 // parts are raw account/mode values that no stored document carries, so no
 // registry or ledger migration can recompute the new key from the old — every
-// open portfolio-stress episode would be abandoned mid-flight and reopen as a
-// fresh occurrence, re-paging the operator for an alert they already hold.
-// The Go identifier is the name; this literal is a persisted identity.
 const (
 	AlertSourceStress         AlertSource = "canary"
 	AlertSourceRegime         AlertSource = "regime"
@@ -56,11 +47,9 @@ const (
 )
 
 // AlertKind is the redacted semantic class of an operator condition. Source
-// and kind remain independent so adapters do not recreate producer policy.
 type AlertKind string
 
 // AlertKindMarketState and the related constants classify the root operator
-// condition independently of its producer.
 const (
 	AlertKindMarketState             AlertKind = "market_state"
 	AlertKindPortfolioRisk           AlertKind = "portfolio_risk"
@@ -78,12 +67,10 @@ const (
 // AlertEpisodeState is the daemon producer's lifecycle state. The daemon owns
 // dwell, escalation, recovery, and re-arm; the app only persists delivery and
 // receipt state for the producer-authored occurrence. A new opening/reopen or
-// daemon-qualified page-worthy escalation starts a new occurrence; evidence-
 // only revisions and recovery do not.
 type AlertEpisodeState string
 
 // AlertEpisodeOpen and the related constants describe a producer-owned episode
-// transition.
 const (
 	AlertEpisodeOpen      AlertEpisodeState = "open"
 	AlertEpisodeEscalated AlertEpisodeState = "escalated"
@@ -91,7 +78,6 @@ const (
 )
 
 // AlertSeverity expresses the producer-classified urgency of an alert
-// candidate. The zero value is invalid.
 type AlertSeverity string
 
 // AlertSeverityObserve and the related constants rank candidate urgency.
@@ -108,8 +94,6 @@ type AlertPresentationCode string
 
 // Alert presentation codes cover every producer-owned candidate class. The
 // generic condition codes exist only to preserve lifecycle identity while a
-// version-2 registry is upgraded; the next producer observation replaces them
-// with the precise code without opening a new occurrence.
 const (
 	AlertPresentationPortfolioStress                  AlertPresentationCode = "portfolio_stress"
 	AlertPresentationMarginCushion                    AlertPresentationCode = "margin_cushion"
@@ -154,11 +138,9 @@ const (
 )
 
 // AlertEvidenceHealth describes whether a candidate's supporting observation
-// is usable and current. The zero value is invalid.
 type AlertEvidenceHealth string
 
 // AlertEvidenceCurrent and the related constants classify the supporting
-// evidence's usability.
 const (
 	AlertEvidenceCurrent     AlertEvidenceHealth = "current"
 	AlertEvidencePartial     AlertEvidenceHealth = "partial"
@@ -168,11 +150,9 @@ const (
 )
 
 // AlertDestination names a redacted product surface, not a device or target.
-// Per-target delivery identity belongs to the app delivery ledger.
 type AlertDestination string
 
 // AlertDestinationMonitor and the related constants name redacted product
-// surfaces rather than delivery targets.
 const (
 	AlertDestinationMonitor AlertDestination = "monitor"
 	AlertDestinationAlerts  AlertDestination = "alerts"
@@ -180,11 +160,9 @@ const (
 )
 
 // AlertCoverageState describes how much of the expected source set was
-// evaluated. The zero value is invalid.
 type AlertCoverageState string
 
 // AlertCoverageComplete and the related constants classify expected-source
-// coverage.
 const (
 	AlertCoverageComplete    AlertCoverageState = "complete"
 	AlertCoveragePartial     AlertCoverageState = "partial"
@@ -203,7 +181,6 @@ const (
 )
 
 // AlertSnapshotState is the state derived from validated candidates and
-// coverage. Clear requires complete, current coverage.
 type AlertSnapshotState string
 
 // AlertSnapshotClear and the related constants are derived snapshot states.
@@ -215,16 +192,8 @@ const (
 
 // AlertCandidate contains classified, redacted semantics only. It deliberately
 // has no display copy, source subject, account, symbol, order, route, display
-// ID, target ID, device ID, or delivery-attempt ID.
-//
-// EpisodeKey is stable for the same root problem. EvidenceFingerprint changes
-// when classified supporting evidence changes. OccurrenceKey changes when the
-// daemon opens/reopens the root problem or classifies an escalation as a new
-// page-worthy occurrence; it stays stable for evidence-only revisions and the
-// occurrence's recovery. App delivery records bind this private occurrence key
 // and create their own per-target attempt IDs; they never infer re-arm,
 // page-worthy escalation, or use a display ID as authority. StateChangedAt is
-// the daemon's semantic transition time.
 type AlertCandidate struct {
 	EpisodeKey          string                `json:"episode_key"`
 	OccurrenceKey       string                `json:"occurrence_key"`
@@ -258,7 +227,6 @@ type AlertSourceCoverage struct {
 
 // AlertCoverage makes the universe behind an empty candidate list explicit.
 // CoveredSources must be a subset of ExpectedSources. Complete means the two
-// sets are equal; unavailable means CoveredSources is empty.
 type AlertCoverage struct {
 	State           AlertCoverageState     `json:"state"`
 	Freshness       AlertCoverageFreshness `json:"freshness"`
@@ -268,7 +236,6 @@ type AlertCoverage struct {
 }
 
 // AlertCandidateSnapshot is the versioned daemon-side measurement contract.
-// CurrentState is validated from candidates and coverage: an empty result is
 // Clear only with complete, current coverage; otherwise it is Unknown.
 type AlertCandidateSnapshot struct {
 	SchemaVersion  string                `json:"schema_version"`
@@ -282,7 +249,6 @@ type AlertCandidateSnapshot struct {
 
 // BuildAlertAuthorityScope binds private alert state to one normalized broker
 // account/mode context without exposing either raw value. The canonicalization
-// is intentionally part of the builder so case or surrounding whitespace
 // cannot split one authority. Callers must still reject aggregate or unknown
 // broker scopes before invoking it.
 func BuildAlertAuthorityScope(account, mode string) (string, error) {
@@ -312,7 +278,6 @@ func BuildAlertAuthorityScope(account, mode string) (string, error) {
 
 // ValidateAlertAuthorityScope accepts only the opaque value produced by
 // BuildAlertAuthorityScope. Raw account or mode values never belong in a
-// candidate snapshot, daemon registry document, or app inbox.
 func ValidateAlertAuthorityScope(value string) error {
 	if !validOpaqueSHA256(value, alertAuthorityScopePrefix) {
 		return errors.New("invalid alert authority_scope")
@@ -321,9 +286,7 @@ func ValidateAlertAuthorityScope(value string) error {
 }
 
 // BuildAlertEpisodeKey hashes a producer-approved semantic identity into an
-// opaque stable key. identityParts may contain sensitive source identities;
 // callers must not persist or log them. Only the returned key belongs on the
-// alert contract. Part order is significant.
 func BuildAlertEpisodeKey(source AlertSource, kind AlertKind, identityParts ...string) (string, error) {
 	if !validAlertSource(source) {
 		return "", errors.New("invalid alert episode source")
@@ -361,12 +324,8 @@ func BuildAlertEpisodeKey(source AlertSource, kind AlertKind, identityParts ...s
 }
 
 // BuildAlertOccurrenceKey hashes a daemon-authored occurrence identity for one
-// EpisodeKey. The daemon decides when opening, re-arm, or a page-worthy
 // escalation starts a new occurrence; this helper only makes that decision
 // opaque and stable across transport. The identity parts must not be persisted
-// or logged outside the owning runtime. Because both keys are opaque digests,
-// candidate validation cannot reconstruct this relationship; producers must
-// use this helper and persist the result.
 func BuildAlertOccurrenceKey(episodeKey string, identityParts ...string) (string, error) {
 	if !validOpaqueSHA256(episodeKey, alertEpisodeKeyPrefix) {
 		return "", errors.New("invalid alert occurrence episode_key")
@@ -399,7 +358,6 @@ func BuildAlertOccurrenceKey(episodeKey string, identityParts ...string) (string
 }
 
 // Validate checks the candidate's opaque identities, enum values, timestamps,
-// and recovery coherence.
 func (candidate AlertCandidate) Validate() error {
 	if !validOpaqueSHA256(candidate.EpisodeKey, alertEpisodeKeyPrefix) {
 		return errors.New("invalid alert candidate episode_key")
@@ -447,8 +405,6 @@ func (candidate AlertCandidate) Validate() error {
 }
 
 // Validate checks one source row without interpreting producer-specific status
-// or reason codes. Those codes remain bounded lowercase identifiers and cannot
-// carry free text or private identity.
 func (source AlertSourceCoverage) Validate(snapshotAsOf time.Time) error {
 	if !validAlertSource(source.Source) {
 		return errors.New("invalid alert source coverage source")
@@ -543,7 +499,6 @@ func (coverage AlertCoverage) Validate() error {
 }
 
 // Validate checks the complete snapshot contract and verifies that
-// CurrentState is the state implied by its candidates and coverage.
 func (snapshot AlertCandidateSnapshot) Validate() error {
 	if snapshot.SchemaVersion != AlertCandidateSnapshotVersion {
 		return errors.New("invalid alert candidate snapshot schema_version")
@@ -641,7 +596,6 @@ func (snapshot AlertCandidateSnapshot) Validate() error {
 }
 
 // IsClear reports a trustworthy clear only for a fully valid snapshot. It is
-// intentionally false for empty snapshots with incomplete or stale coverage.
 func (snapshot AlertCandidateSnapshot) IsClear() bool {
 	return snapshot.CurrentState == AlertSnapshotClear && snapshot.Validate() == nil
 }
@@ -656,7 +610,6 @@ func (candidate AlertCandidate) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON rejects unknown or missing fields and validates the decoded
-// candidate before assigning it to the receiver.
 func (candidate *AlertCandidate) UnmarshalJSON(data []byte) error {
 	type wire AlertCandidate
 	var decoded wire
@@ -678,8 +631,6 @@ func (candidate *AlertCandidate) UnmarshalJSON(data []byte) error {
 // MarshalJSON validates source coverage before encoding it.
 func (source AlertSourceCoverage) MarshalJSON() ([]byte, error) {
 	// Snapshot validation supplies the authoritative upper time bound. Use the
-	// row's latest known time here so standalone encoding still rejects shape
-	// errors without inventing a later observation.
 	latest := source.ObservedAt
 	if source.EvidenceAsOf.After(latest) {
 		latest = source.EvidenceAsOf
@@ -695,7 +646,6 @@ func (source AlertSourceCoverage) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON rejects unknown or missing fields. Snapshot validation applies
-// the final timestamp and aggregate-coverage coherence checks.
 func (source *AlertSourceCoverage) UnmarshalJSON(data []byte) error {
 	type wire AlertSourceCoverage
 	var decoded wire
@@ -729,7 +679,6 @@ func (coverage AlertCoverage) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON rejects unknown or missing fields and validates the decoded
-// coverage before assigning it to the receiver.
 func (coverage *AlertCoverage) UnmarshalJSON(data []byte) error {
 	type wire AlertCoverage
 	var decoded wire
@@ -756,7 +705,6 @@ func (snapshot AlertCandidateSnapshot) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON rejects unknown or missing fields and validates the decoded
-// snapshot before assigning it to the receiver.
 func (snapshot *AlertCandidateSnapshot) UnmarshalJSON(data []byte) error {
 	type wire AlertCandidateSnapshot
 	var decoded wire

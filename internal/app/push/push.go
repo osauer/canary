@@ -1,3 +1,6 @@
+// Package push validates app-owned subscriptions and sends redacted Web Push
+// payloads. It classifies transport outcomes for the app's durable delivery
+// ledgers but does not decide alert eligibility or retain delivery state.
 package push
 
 import (
@@ -5,15 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"strings"
-	"time"
-
 	webpush "github.com/SherClockHolmes/webpush-go"
-
 	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"net/http"
+	"time"
 )
 
 // Sender transports one caller-selected, redacted payload and returns a
@@ -35,41 +34,6 @@ type Payload struct {
 	URL         string `json:"url,omitempty"`
 	AlertID     string `json:"alert_id,omitempty"`
 	Action      string `json:"action,omitempty"`
-}
-
-// GovernancePayload is the only constructor for governance Web Push copy.
-// Canonicalization replaces every caller-supplied display field with the
-// shared enum template, while the returned struct populates only the explicit
-// lock-screen allowlist.
-func GovernancePayload(candidate rpc.NudgeCandidate, displayID string) (Payload, error) {
-	canonical, err := risk.CanonicalizeNudgeCandidate(risk.NudgeCandidate{
-		Fingerprint: candidate.Fingerprint, Kind: candidate.Kind, State: candidate.State,
-		Severity: candidate.Severity, Title: candidate.Title, Body: candidate.Body,
-		OccurredAt: candidate.OccurredAt, DueAt: candidate.DueAt, ExpiresAt: candidate.ExpiresAt,
-		Destination: candidate.Destination,
-	})
-	if err != nil {
-		return Payload{}, err
-	}
-	if !validGovernanceDisplayID(displayID) {
-		return Payload{}, errors.New("invalid governance display id")
-	}
-	return Payload{
-		Title: canonical.Title, Body: canonical.Body, Severity: canonical.Severity,
-		Kind: canonical.Kind, Destination: canonical.Destination, DisplayID: displayID,
-	}, nil
-}
-
-func validGovernanceDisplayID(displayID string) bool {
-	if len(displayID) != len("gov-")+16 || !strings.HasPrefix(displayID, "gov-") {
-		return false
-	}
-	for _, char := range displayID[len("gov-"):] {
-		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
-			return false
-		}
-	}
-	return true
 }
 
 // SafeDiagnosticPayload returns a fixed notification test containing no

@@ -2,11 +2,18 @@ package ibkr
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,15 +21,6 @@ import (
 
 type partialOrderWriteError struct {
 	calls atomic.Int32
-}
-
-type zeroOrderWriteError struct {
-	calls atomic.Int32
-}
-
-func (w *zeroOrderWriteError) Write([]byte) (int, error) {
-	w.calls.Add(1)
-	return 0, io.ErrClosedPipe
 }
 
 type protectedTransportOperation struct {
@@ -139,150 +137,6 @@ func TestProtectedBrokerWireGuardRejectsQueuedAuthorityDrift(t *testing.T) {
 	}
 }
 
-func TestProtectedBrokerOperationsHonorCallerCancellationWhileQueued(t *testing.T) {
-	for _, operation := range protectedTransportOperations() {
-		t.Run(operation.name, func(t *testing.T) {
-			conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-			binding, ok := connector.CaptureSession()
-			if !ok {
-				t.Fatal("capture exact connector session")
-			}
-			conn.pauseTransport()
-			t.Cleanup(conn.resumeTransport)
-			before := conn.rateLimiter.GetMetrics().TotalRequests
-			ctx, cancel := context.WithCancel(context.Background())
-			done := make(chan error, 1)
-			go func() { done <- operation.run(ctx, connector, binding, gate, nil) }()
-			waitForProtectedDispatch(t, conn, before)
-			cancel()
-			conn.resumeTransport()
-			select {
-			case err := <-done:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("queued %s err=%v, want caller cancellation", operation.name, err)
-				}
-			case <-time.After(time.Second):
-				t.Fatalf("queued %s did not return after cancellation", operation.name)
-			}
-			assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
-		})
-	}
-}
-
-func TestProtectedBrokerOperationsHonorLimiterTimeoutAfterAdmission(t *testing.T) {
-	for _, operation := range protectedTransportOperations() {
-		t.Run(operation.name, func(t *testing.T) {
-			conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-			binding, ok := connector.CaptureSession()
-			if !ok {
-				t.Fatal("capture exact connector session")
-			}
-			conn.rateLimiter.submitTimeoutFn = func(RequestType) time.Duration { return 20 * time.Millisecond }
-			conn.pauseTransport()
-			t.Cleanup(conn.resumeTransport)
-			before := conn.rateLimiter.GetMetrics().TotalRequests
-			done := make(chan error, 1)
-			go func() { done <- operation.run(context.Background(), connector, binding, gate, nil) }()
-			waitForProtectedDispatch(t, conn, before)
-			select {
-			case err := <-done:
-				if err == nil || !strings.Contains(err.Error(), "request timeout") {
-					t.Fatalf("queued %s err=%v, want limiter timeout", operation.name, err)
-				}
-			case <-time.After(time.Second):
-				t.Fatalf("queued %s did not return at limiter timeout", operation.name)
-			}
-			conn.resumeTransport()
-			time.Sleep(20 * time.Millisecond)
-			assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
-		})
-	}
-}
-
-func TestProtectedBrokerOperationsRecheckCancellationAfterWireGuard(t *testing.T) {
-	for _, operation := range protectedTransportOperations() {
-		t.Run(operation.name, func(t *testing.T) {
-			conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-			binding, ok := connector.CaptureSession()
-			if !ok {
-				t.Fatal("capture exact connector session")
-			}
-			before := conn.rateLimiter.GetMetrics().TotalRequests
-			ctx, cancel := context.WithCancel(context.Background())
-			guardEntered := make(chan struct{})
-			releaseGuard := make(chan struct{})
-			done := make(chan error, 1)
-			go func() {
-				done <- operation.run(ctx, connector, binding, gate, func() error {
-					close(guardEntered)
-					<-releaseGuard
-					return nil
-				})
-			}()
-			select {
-			case <-guardEntered:
-			case <-time.After(time.Second):
-				t.Fatalf("%s wire guard was not reached", operation.name)
-			}
-			cancel()
-			close(releaseGuard)
-			select {
-			case err := <-done:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("guard-paused %s err=%v, want cancellation", operation.name, err)
-				}
-			case <-time.After(time.Second):
-				t.Fatalf("guard-paused %s did not return", operation.name)
-			}
-			assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
-		})
-	}
-}
-
-func TestProtectedBrokerOperationsRejectSameEpochConnectionLossAndStop(t *testing.T) {
-	for _, lifecycle := range []string{"connection_loss", "stop"} {
-		for _, operation := range protectedTransportOperations() {
-			t.Run(lifecycle+"/"+operation.name, func(t *testing.T) {
-				conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-				binding, ok := connector.CaptureSession()
-				if !ok {
-					t.Fatal("capture exact connector session")
-				}
-				conn.pauseTransport()
-				before := conn.rateLimiter.GetMetrics().TotalRequests
-				done := make(chan error, 1)
-				go func() { done <- operation.run(context.Background(), connector, binding, gate, nil) }()
-				waitForProtectedDispatch(t, conn, before)
-
-				lifecycleDone := make(chan struct{})
-				go func() {
-					if lifecycle == "stop" {
-						_ = conn.Disconnect()
-					} else {
-						conn.handleDisconnection(io.EOF)
-						conn.resumeTransport()
-					}
-					close(lifecycleDone)
-				}()
-				select {
-				case err := <-done:
-					if err == nil || (lifecycle != "stop" && brokerSendMayHaveBeenWritten(err)) {
-						t.Fatalf("same-epoch %s %s err=%v, want zero-wire refusal", lifecycle, operation.name, err)
-					}
-				case <-time.After(2 * time.Second):
-					t.Fatalf("same-epoch %s %s did not return", lifecycle, operation.name)
-				}
-				select {
-				case <-lifecycleDone:
-				case <-time.After(2 * time.Second):
-					t.Fatalf("%s did not finish", lifecycle)
-				}
-				assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
-			})
-		}
-	}
-}
-
 func TestOutboundSessionRevocationRejectsSendersStartingBeforeTransportLock(t *testing.T) {
 	for _, lifecycle := range []string{"disconnect", "reconnect"} {
 		t.Run(lifecycle, func(t *testing.T) {
@@ -333,63 +187,6 @@ func TestOutboundSessionRevocationRejectsSendersStartingBeforeTransportLock(t *t
 			case <-time.After(time.Second):
 				t.Fatalf("post-revocation %s sender did not return", lifecycle)
 			}
-			assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
-		})
-	}
-}
-
-func TestStaleOutboundActivationCannotClearConcurrentRevocation(t *testing.T) {
-	conn := NewConnection(nil)
-	t.Cleanup(conn.rateLimiter.Stop)
-	stale := conn.beginOutboundSession()
-	newer := conn.publishRevokedOutboundSession()
-	if conn.activateOutboundSession(stale) {
-		t.Fatal("stale outbound generation unexpectedly activated")
-	}
-	if got := conn.outboundSessionState.Load(); got != newer || got&1 == 0 {
-		t.Fatalf("outbound state=%d, want newer revoked state %d", got, newer)
-	}
-	conn.resumeTransport()
-}
-
-func TestWhatIfPreviewHonorsCancellationAndLimiterTimeoutWhileQueued(t *testing.T) {
-	for _, mode := range []string{"caller_cancel", "limiter_timeout"} {
-		t.Run(mode, func(t *testing.T) {
-			conn, connector, oldSocket, newSocket, _ := newQueuedInstructionReconnectFixture(t)
-			conn.pauseTransport()
-			t.Cleanup(conn.resumeTransport)
-			if mode == "limiter_timeout" {
-				conn.rateLimiter.submitTimeoutFn = func(RequestType) time.Duration { return 20 * time.Millisecond }
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			before := conn.rateLimiter.GetMetrics().TotalRequests
-			type outcome struct {
-				result OrderWhatIfResult
-				err    error
-			}
-			done := make(chan outcome, 1)
-			go func() {
-				result, err := connector.PreviewOrderWhatIf(ctx,
-					&Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-					&RawOrder{Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: "DU7654321"},
-				)
-				done <- outcome{result: result, err: err}
-			}()
-			waitForProtectedDispatch(t, conn, before)
-			if mode == "caller_cancel" {
-				cancel()
-			}
-			select {
-			case got := <-done:
-				if got.err != nil || got.result.Status != OrderWhatIfStatusUnavailable {
-					t.Fatalf("queued WhatIf result=%+v err=%v, want unavailable", got.result, got.err)
-				}
-			case <-time.After(time.Second):
-				t.Fatalf("queued WhatIf did not return for %s", mode)
-			}
-			conn.resumeTransport()
-			time.Sleep(20 * time.Millisecond)
 			assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
 		})
 	}
@@ -498,114 +295,6 @@ func TestBrokerInstructionTransportsDoNotRetryPartialWrites(t *testing.T) {
 	})
 }
 
-func TestProtectedSendPreWireErrorKeepsDefiniteDisposition(t *testing.T) {
-	conn := NewConnection(nil)
-	t.Cleanup(conn.rateLimiter.Stop)
-	conn.status = StatusConnected
-	setServerVersionReady(conn, maxClientVersion)
-	conn.writer = nil
-	err := conn.sendMessageWithType(conn.encodeMsg(reqAllOpenOrders, "1"), RequestTypeOrder)
-	if err == nil {
-		t.Fatal("send without writer unexpectedly succeeded")
-	}
-	if brokerSendMayHaveBeenWritten(err) {
-		t.Fatalf("pre-wire writer absence reported uncertain: %v", err)
-	}
-	if _, ok := errors.AsType[*brokerSendDispositionError](err); !ok {
-		t.Fatalf("pre-wire protected send lacked typed disposition: %v", err)
-	}
-}
-
-func TestBrokerInstructionZeroByteWriterFailureIsDefinitelyUnsent(t *testing.T) {
-	cfg := &ConnectionConfig{Host: "127.0.0.1", Port: 7497, ClientID: 41, Account: "DU7654321"}
-	conn := NewConnection(cfg)
-	t.Cleanup(conn.rateLimiter.Stop)
-	conn.status = StatusConnected
-	setServerVersionReady(conn, minServerVerProtoBufPlaceOrder)
-	conn.observeNextValidOrderID(100)
-	writer := &zeroOrderWriteError{}
-	conn.writer = bufio.NewWriterSize(writer, 64*1024)
-	gate := PaperOrderGate{Mode: "paper", Account: cfg.Account, Host: cfg.Host, Port: cfg.Port, ClientID: cfg.ClientID}
-	err := conn.PlacePaperOrder(gate, &IBKROrder{
-		Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD",
-		Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account,
-	})
-	if err == nil || SendDispositionOf(err) != SendDispositionDefinitelyUnsent || !errors.Is(err, io.ErrClosedPipe) {
-		t.Fatalf("zero-byte place err=%v disposition=%q", err, SendDispositionOf(err))
-	}
-	if writer.calls.Load() != 1 {
-		t.Fatalf("underlying writes=%d, want one zero-byte attempt", writer.calls.Load())
-	}
-}
-
-func TestConnectorRetainsOnlyPossiblyWrittenOrderCorrelation(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		guard      func() error
-		partial    bool
-		wantRetain bool
-	}{
-		{name: "definite guard refusal rolls back", guard: func() error { return errors.New("refused") }},
-		{name: "partial write retains", partial: true, wantRetain: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			conn, connector, _, _, gate := newQueuedInstructionReconnectFixture(t)
-			if tc.partial {
-				conn.writer = bufio.NewWriterSize(&partialOrderWriteError{}, 64*1024)
-			}
-			binding, ok := connector.CaptureSession()
-			if !ok {
-				t.Fatal("capture session")
-			}
-			order := &RawOrder{OrderID: 150, OrderRef: "ord-correlation", Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account}
-			err := connector.SubmitPaperOrderForSessionGuarded(context.Background(), binding, gate,
-				&Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"}, order, tc.guard)
-			if err == nil {
-				t.Fatal("order unexpectedly succeeded")
-			}
-			connector.orderMu.RLock()
-			_, hasOrder := connector.openOrders["ord-correlation"]
-			indexed := connector.brokerOrderIndex["150"] == "ord-correlation"
-			connector.orderMu.RUnlock()
-			if hasOrder != tc.wantRetain || indexed != tc.wantRetain {
-				t.Fatalf("correlation retained order=%v index=%v, want %v (disposition %q)", hasOrder, indexed, tc.wantRetain, SendDispositionOf(err))
-			}
-			if tc.wantRetain && order.OrderID != 150 {
-				t.Fatalf("uncertain order id=%d, want 150", order.OrderID)
-			}
-		})
-	}
-}
-
-func TestCancelWireSuccessDoesNotFabricateTerminalState(t *testing.T) {
-	conn, connector, _, _, gate := newQueuedInstructionReconnectFixture(t)
-	binding, ok := connector.CaptureSession()
-	if !ok {
-		t.Fatal("capture session")
-	}
-	conn.ordersMu.Lock()
-	conn.openOrders[99] = &IBKROrder{OrderID: 99, Status: "Submitted"}
-	conn.ordersMu.Unlock()
-	connector.orderMu.Lock()
-	connector.openOrders["99"] = &trackedOrder{ID: "99", BrokerID: "99", Status: OrderStatusSubmitted}
-	connector.orderMu.Unlock()
-	if err := connector.CancelPaperOrderForSessionGuarded(context.Background(), binding, gate, 99, nil); err != nil {
-		t.Fatal(err)
-	}
-	conn.ordersMu.RLock()
-	connectionOrder := conn.openOrders[99]
-	conn.ordersMu.RUnlock()
-	connector.orderMu.RLock()
-	tracked := connector.openOrders["99"]
-	connector.orderMu.RUnlock()
-	if connectionOrder == nil || connectionOrder.Status != "Submitted" || connectionOrder.CancelledTime != nil {
-		t.Fatalf("connection fabricated cancel state: %+v", connectionOrder)
-	}
-	if tracked == nil || tracked.Status != OrderStatusSubmitted || tracked.CancelledAt != nil {
-		t.Fatalf("connector fabricated cancel state: %+v", tracked)
-	}
-}
-
 func newQueuedInstructionReconnectFixture(t *testing.T) (*Connection, *Connector, *safeBuffer, *safeBuffer, PaperOrderGate) {
 	t.Helper()
 	cfg := &ConnectionConfig{Host: "127.0.0.1", Port: 7497, ClientID: 41, Account: "DU7654321"}
@@ -633,289 +322,566 @@ func newQueuedInstructionReconnectFixture(t *testing.T) (*Connection, *Connector
 	return conn, connector, oldSocket, newSocket, gate
 }
 
-func reconnectBeforeQueuedInstructionWrite(t *testing.T, conn *Connection, newSocket *safeBuffer, requestsBefore uint64) {
+func readyBrokerEvidenceTestConnector(t *testing.T) *Connector {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for conn.rateLimiter.GetMetrics().TotalRequests == requestsBefore && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if got := conn.rateLimiter.GetMetrics().TotalRequests; got != requestsBefore+1 {
-		t.Fatalf("queued broker-instruction dispatches=%d, want %d", got, requestsBefore+1)
-	}
-
-	oldEpoch := conn.BrokerSessionEpoch()
-	conn.resetOrderIDReadiness()
-	newEpoch := conn.BrokerSessionEpoch()
-	if newEpoch == oldEpoch {
-		t.Fatalf("socket epoch did not advance: %d", oldEpoch)
-	}
-	conn.writer = bufio.NewWriter(newSocket)
-	conn.observeNextValidOrderIDAtEpoch(500, newEpoch)
-	conn.resumeTransport()
+	connector := NewConnector(&ConnectorConfig{})
+	t.Cleanup(func() { connector.conn.rateLimiter.Stop() })
+	connector.conn.setStatus(StatusConnected)
+	connector.conn.resetOrderIDReadiness()
+	connector.mu.Lock()
+	connector.ready = true
+	connector.mu.Unlock()
+	return connector
 }
 
-func assertNoQueuedInstructionCrossedEpoch(t *testing.T, conn *Connection, oldSocket, newSocket *safeBuffer, requestsBefore uint64) {
+func assertBrokerEvidenceMutationBlocked(t *testing.T, connector *Connector, mutate func(), assertAfter func()) {
 	t.Helper()
-	if got := oldSocket.Len(); got != 0 {
-		t.Fatalf("queued instruction wrote %d bytes on old socket", got)
+	binding, ok := connector.CaptureBrokerEvidence()
+	if !ok {
+		t.Fatal("ready connector did not produce broker evidence binding")
 	}
-	if got := newSocket.Len(); got != 0 {
-		t.Fatalf("queued instruction wrote %d bytes on new socket", got)
-	}
-	if got := conn.rateLimiter.GetMetrics().TotalRequests - requestsBefore; got != 1 {
-		t.Fatalf("queued instruction dispatches=%d, want exactly one without retry", got)
-	}
-}
-
-func TestBrokerInstructionsQueuedBeforeReconnectNeverWriteNewSocket(t *testing.T) {
-	t.Run("place", func(t *testing.T) {
-		conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-		conn.pauseTransport()
-		t.Cleanup(conn.resumeTransport)
-		before := conn.rateLimiter.GetMetrics().TotalRequests
-		done := make(chan error, 1)
-		go func() {
-			done <- connector.SubmitPaperOrder(gate,
-				&Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-				&RawOrder{Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account},
-			)
-		}()
-
-		reconnectBeforeQueuedInstructionWrite(t, conn, newSocket, before)
-		select {
-		case err := <-done:
-			if err == nil {
-				t.Fatal("cross-epoch place unexpectedly succeeded")
-			}
-			if brokerSendMayHaveBeenWritten(err) {
-				t.Fatalf("cross-epoch place reported possible wire write: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("cross-epoch place did not return")
-		}
-		assertNoQueuedInstructionCrossedEpoch(t, conn, oldSocket, newSocket, before)
-	})
-
-	t.Run("what-if", func(t *testing.T) {
-		conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-		conn.pauseTransport()
-		t.Cleanup(conn.resumeTransport)
-		before := conn.rateLimiter.GetMetrics().TotalRequests
-		type outcome struct {
-			result OrderWhatIfResult
-			err    error
-		}
-		done := make(chan outcome, 1)
-		go func() {
-			result, err := connector.PreviewOrderWhatIf(context.Background(),
-				&Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-				&RawOrder{Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account},
-			)
-			done <- outcome{result: result, err: err}
-		}()
-
-		reconnectBeforeQueuedInstructionWrite(t, conn, newSocket, before)
-		select {
-		case got := <-done:
-			if got.err != nil || got.result.Status != OrderWhatIfStatusUnavailable {
-				t.Fatalf("cross-epoch WhatIf result=%+v err=%v, want unavailable", got.result, got.err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("cross-epoch WhatIf did not return")
-		}
-		assertNoQueuedInstructionCrossedEpoch(t, conn, oldSocket, newSocket, before)
-	})
-
-	t.Run("cancel", func(t *testing.T) {
-		conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-		conn.pauseTransport()
-		t.Cleanup(conn.resumeTransport)
-		before := conn.rateLimiter.GetMetrics().TotalRequests
-		done := make(chan error, 1)
-		go func() { done <- connector.CancelPaperOrder(gate, 99) }()
-
-		reconnectBeforeQueuedInstructionWrite(t, conn, newSocket, before)
-		select {
-		case err := <-done:
-			if err == nil {
-				t.Fatal("cross-epoch cancel unexpectedly succeeded")
-			}
-			if brokerSendMayHaveBeenWritten(err) {
-				t.Fatalf("cross-epoch cancel reported possible wire write: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("cross-epoch cancel did not return")
-		}
-		assertNoQueuedInstructionCrossedEpoch(t, conn, oldSocket, newSocket, before)
-	})
-
-	t.Run("exercise", func(t *testing.T) {
-		conn, _, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-		conn.pauseTransport()
-		t.Cleanup(conn.resumeTransport)
-		before := conn.rateLimiter.GetMetrics().TotalRequests
-		done := make(chan error, 1)
-		go func() {
-			tickerID, epoch, err := conn.nextRequestIDForForwardingWithEpoch()
-			if err != nil {
-				done <- err
-				return
-			}
-			defer conn.discardRequestIDReservation(tickerID)
-			done <- conn.exerciseOptionsForEpoch(OptionExerciseRequest{
-				TickerID: tickerID,
-				Contract: &Contract{
-					ConID: 12345, Symbol: "TEST", SecType: "OPT", Expiry: "20260717", Strike: 100,
-					Right: "C", Multiplier: 100, Exchange: "SMART", Currency: "USD", TradingClass: "TEST",
-				},
-				ExerciseAction: OptionExerciseActionExercise, ExerciseQuantity: 1, Account: gate.Account,
-			}, &epoch)
-		}()
-
-		reconnectBeforeQueuedInstructionWrite(t, conn, newSocket, before)
-		select {
-		case err := <-done:
-			if err == nil {
-				t.Fatal("cross-epoch exercise unexpectedly succeeded")
-			}
-			if brokerSendMayHaveBeenWritten(err) {
-				t.Fatalf("cross-epoch exercise reported possible wire write: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("cross-epoch exercise did not return")
-		}
-		assertNoQueuedInstructionCrossedEpoch(t, conn, oldSocket, newSocket, before)
-	})
-}
-
-func TestRequestAllOpenOrdersQueuedBeforeReconnectNeverWritesNewSocket(t *testing.T) {
-	conn, _, oldSocket, newSocket, _ := newQueuedInstructionReconnectFixture(t)
-	conn.pauseTransport()
-	t.Cleanup(conn.resumeTransport)
-	before := conn.rateLimiter.GetMetrics().TotalRequests
-	done := make(chan error, 1)
-	go func() { done <- conn.RequestAllOpenOrders() }()
-
-	reconnectBeforeQueuedInstructionWrite(t, conn, newSocket, before)
+	commitEntered := make(chan struct{})
+	releaseCommit := make(chan struct{})
+	commitDone := make(chan bool, 1)
+	go func() {
+		commitDone <- connector.WithStableBrokerEvidence(binding, func() bool {
+			close(commitEntered)
+			<-releaseCommit
+			return true
+		})
+	}()
+	<-commitEntered
+	mutationDone := make(chan struct{})
+	go func() {
+		mutate()
+		close(mutationDone)
+	}()
 	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("cross-epoch reqAllOpenOrders unexpectedly succeeded")
-		}
-		if brokerSendMayHaveBeenWritten(err) {
-			t.Fatalf("cross-epoch reqAllOpenOrders reported possible wire write: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("cross-epoch reqAllOpenOrders did not return")
+	case <-mutationDone:
+		t.Fatal("broker evidence mutation crossed an in-progress stable commit")
+	case <-time.After(25 * time.Millisecond):
 	}
-	assertNoQueuedInstructionCrossedEpoch(t, conn, oldSocket, newSocket, before)
+	close(releaseCommit)
+	if committed := <-commitDone; !committed {
+		t.Fatal("exact broker evidence binding did not commit")
+	}
+	select {
+	case <-mutationDone:
+	case <-time.After(time.Second):
+		t.Fatal("broker evidence mutation remained blocked after commit")
+	}
+	assertAfter()
 }
 
-func TestBoundQueuedOrderAllowsDisconnectAndNeverWrites(t *testing.T) {
-	conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-	conn.SetOnDisconnect(func(error) { connector.onConnectionLost(conn) })
+func TestBrokerEvidenceBarrierBlocksLifecyclePortfolioAndSessionMutationAtCommit(t *testing.T) {
+	connector := readyBrokerEvidenceTestConnector(t)
+
+	orderGeneration := connector.OrderLifecycleGeneration()
+	assertBrokerEvidenceMutationBlocked(t, connector, func() {
+		connector.dispatchOrderLifecycle(OrderLifecycleEvent{Type: OrderLifecycleEventStatus, OrderID: 101, Status: "Submitted"})
+	}, func() {
+		if got := connector.OrderLifecycleGeneration(); got != orderGeneration+1 {
+			t.Fatalf("order lifecycle generation=%d, want %d", got, orderGeneration+1)
+		}
+	})
+
+	portfolioGeneration := connector.PortfolioProjectionGeneration()
+	assertBrokerEvidenceMutationBlocked(t, connector, func() {
+		connector.conn.handlePortfolioValue([]string{
+			"7", "8", "265598", "AAA", "STK", "", "0", "", "1",
+			"NASDAQ", "USD", "AAA", "AAA", "10", "24", "240", "25", "0", "0", "DU123",
+		})
+	}, func() {
+		if got := connector.PortfolioProjectionGeneration(); got != portfolioGeneration+1 {
+			t.Fatalf("portfolio projection generation=%d, want %d", got, portfolioGeneration+1)
+		}
+	})
+
+	published := false
+	assertBrokerEvidenceMutationBlocked(t, connector, func() {
+		connector.WithBrokerEvidenceMutation(func() { published = true })
+	}, func() {
+		if !published {
+			t.Fatal("external connector publication mutation did not run")
+		}
+	})
+
+	session, ok := connector.CaptureSession()
+	if !ok {
+		t.Fatal("ready connector did not produce session binding")
+	}
+	assertBrokerEvidenceMutationBlocked(t, connector, connector.conn.resetOrderIDReadiness, func() {
+		if connector.SessionCurrent(session) {
+			t.Fatal("socket epoch reset did not invalidate prior session")
+		}
+	})
+
+	managedConnector := readyBrokerEvidenceTestConnector(t)
+	assertBrokerEvidenceMutationBlocked(t, managedConnector, func() {
+		managedConnector.conn.processMessage(managedConnector.conn.encodeMsg(msgManagedAccts, "1", "DU-MANAGED"))
+	}, func() {
+		if got := managedConnector.AccountID(); got != "DU-MANAGED" {
+			t.Fatalf("managed-account mutation = %q, want DU-MANAGED", got)
+		}
+	})
+
+	summaryConnector := readyBrokerEvidenceTestConnector(t)
+	assertBrokerEvidenceMutationBlocked(t, summaryConnector, func() {
+		summaryConnector.conn.handleAccountSummary([]string{"63", "2", "7", "DU-SUMMARY", "NetLiquidation", "100000", "USD"})
+	}, func() {
+		if got := summaryConnector.AccountID(); got != "DU-SUMMARY" {
+			t.Fatalf("account-summary seed mutation = %q, want DU-SUMMARY", got)
+		}
+	})
+}
+
+func TestSnapshotOpenOrdersPartialWriteAttemptsOnceAndPoisonsEpoch(t *testing.T) {
+	c := NewConnector(&ConnectorConfig{})
+	conn := c.conn
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.status = StatusConnected
+	setServerVersionReady(conn, maxClientVersion)
+	conn.observeNextValidOrderID(100)
+	writer := &partialOrderWriteError{}
+	conn.writer = bufio.NewWriterSize(writer, 64*1024)
+
+	before := conn.rateLimiter.GetMetrics().TotalRequests
+	if _, err := c.SnapshotOpenOrders(context.Background()); err == nil || !brokerSendMayHaveBeenWritten(err) {
+		t.Fatalf("partial reqAllOpenOrders err=%v, want uncertain send", err)
+	}
+	if got := conn.rateLimiter.GetMetrics().TotalRequests - before; got != 1 {
+		t.Fatalf("reqAllOpenOrders dispatches=%d, want exactly one", got)
+	}
+	if got := writer.calls.Load(); got != 1 {
+		t.Fatalf("reqAllOpenOrders underlying writes=%d, want exactly one", got)
+	}
+	if _, err := c.SnapshotOpenOrders(context.Background()); !errors.Is(err, ErrOpenOrderSnapshotPoisoned) {
+		t.Fatalf("same-epoch retry err=%v, want poisoned socket generation", err)
+	}
+}
+
+func validOptionExerciseRequestForTest() OptionExerciseRequest {
+	return OptionExerciseRequest{
+		TickerID: 41,
+		Contract: &Contract{
+			ConID:        12345,
+			Symbol:       "TEST",
+			SecType:      "OPT",
+			Expiry:       "20260717",
+			Strike:       100,
+			Right:        "C",
+			Multiplier:   100,
+			Exchange:     "SMART",
+			Currency:     "USD",
+			TradingClass: "TEST",
+		},
+		ExerciseAction:   OptionExerciseActionExercise,
+		ExerciseQuantity: 1,
+		Account:          "TEST-ACCOUNT",
+	}
+}
+
+func assertExerciseSendDisposition(t *testing.T, err error, want SendDisposition, cause error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("error=nil, want disposition %q", want)
+	}
+	if got := SendDispositionOf(err); got != want {
+		t.Fatalf("SendDispositionOf(%v)=%q, want %q", err, got, want)
+	}
+	if cause != nil && !errors.Is(err, cause) {
+		t.Fatalf("error=%v, want errors.Is(..., %v)", err, cause)
+	}
+}
+
+type partialExerciseWriteError struct {
+	calls atomic.Int32
+}
+
+func (w *partialExerciseWriteError) Write(p []byte) (int, error) {
+	w.calls.Add(1)
+	if len(p) == 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	n := len(p) / 2
+	if n == 0 {
+		n = 1
+	}
+	return n, io.ErrUnexpectedEOF
+}
+
+func newExerciseTransportFixture(t *testing.T, namespaceReady bool) (*Connection, *Connector, ConnectorSessionBinding, *partialExerciseWriteError) {
+	t.Helper()
+	conn := NewConnection(&ConnectionConfig{
+		Host:     "127.0.0.1",
+		Port:     7497,
+		ClientID: 41,
+		Account:  "TEST-ACCOUNT",
+	})
+	t.Cleanup(conn.rateLimiter.Stop)
+	conn.serverVersion = 99
+	conn.signalHandshakeReady()
+	if namespaceReady {
+		conn.observeNextValidOrderID(1)
+	}
+	conn.setStatus(StatusConnected)
+	writer := &partialExerciseWriteError{}
+	conn.writer = bufio.NewWriterSize(writer, 64*1024)
+
+	connector := &Connector{conn: conn, ready: true}
 	binding, ok := connector.CaptureSession()
 	if !ok {
-		t.Fatal("ready connector did not capture session")
+		t.Fatal("capture exercise transport session")
 	}
-	conn.pauseTransport()
-	t.Cleanup(conn.resumeTransport)
-	before := conn.rateLimiter.GetMetrics().TotalRequests
-	done := make(chan error, 1)
-	go func() {
-		ran, err := connector.WithBoundBrokerSession(binding, func() error {
-			return connector.SubmitPaperOrderForSession(binding, gate,
-				&Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-				&RawOrder{OrderID: 100, Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account},
-			)
+	return conn, connector, binding, writer
+}
+
+func TestExerciseOptionsTransportDispositionIsPreserved(t *testing.T) {
+	if !tradingEnabled {
+		t.Skip("trading-build wire contract")
+	}
+	for _, tc := range []struct {
+		name string
+		run  func(context.Context, *Connection, *Connector, ConnectorSessionBinding, OptionExerciseRequest) error
+	}{
+		{name: "connection", run: func(_ context.Context, conn *Connection, _ *Connector, _ ConnectorSessionBinding, req OptionExerciseRequest) error {
+			return conn.ExerciseOptions(req)
+		}},
+		{name: "connector", run: func(ctx context.Context, _ *Connection, connector *Connector, _ ConnectorSessionBinding, req OptionExerciseRequest) error {
+			req.TickerID = 0
+			return connector.ExerciseOptions(ctx, req)
+		}},
+		{name: "session", run: func(ctx context.Context, _ *Connection, connector *Connector, binding ConnectorSessionBinding, req OptionExerciseRequest) error {
+			req.TickerID = 0
+			return connector.ExerciseOptionsForSession(ctx, binding, req)
+		}},
+		{name: "guarded_session", run: func(ctx context.Context, _ *Connection, connector *Connector, binding ConnectorSessionBinding, req OptionExerciseRequest) error {
+			req.TickerID = 0
+			return connector.ExerciseOptionsForSessionGuarded(ctx, binding, req, func() error { return nil })
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, connector, binding, writer := newExerciseTransportFixture(t, true)
+			err := tc.run(context.Background(), conn, connector, binding, validOptionExerciseRequestForTest())
+			assertExerciseSendDisposition(t, err, SendDispositionMayHaveWritten, io.ErrUnexpectedEOF)
+			if got := writer.calls.Load(); got != 1 {
+				t.Fatalf("wire writes=%d, want 1", got)
+			}
 		})
-		if !ran && err == nil {
-			err = ErrIBKRUnavailable
-		}
-		done <- err
-	}()
-
-	deadline := time.Now().Add(time.Second)
-	for conn.rateLimiter.GetMetrics().TotalRequests == before && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if got := conn.rateLimiter.GetMetrics().TotalRequests; got != before+1 {
-		t.Fatalf("queued dispatches=%d, want %d", got, before+1)
-	}
-
-	disconnected := make(chan struct{})
-	go func() {
-		conn.handleDisconnection(io.EOF)
-		close(disconnected)
-	}()
-	select {
-	case <-disconnected:
-	case <-time.After(time.Second):
-		t.Fatal("disconnect deadlocked behind bound broker-session read lock")
-	}
-	conn.resetOrderIDReadiness()
-	conn.writer = bufio.NewWriter(newSocket)
-	conn.resumeTransport()
-
-	select {
-	case err := <-done:
-		if err == nil || brokerSendMayHaveBeenWritten(err) {
-			t.Fatalf("disconnected bound order err=%v, want definite pre-wire refusal", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("bound queued order did not return after disconnect")
-	}
-	if oldSocket.Len() != 0 || newSocket.Len() != 0 {
-		t.Fatalf("disconnected bound order wrote bytes old=%d new=%d", oldSocket.Len(), newSocket.Len())
 	}
 }
 
-func TestBoundQueuedOrderDoesNotDeadlockUnpublicationWhileTransportPaused(t *testing.T) {
-	conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
-	binding, ok := connector.CaptureSession()
-	if !ok {
-		t.Fatal("ready connector did not capture session")
+func TestValidateOptionExerciseRequest(t *testing.T) {
+	t.Parallel()
+	valid := OptionExerciseRequest{
+		TickerID: 1,
+		Contract: &Contract{
+			Symbol:   "AAPL",
+			SecType:  "OPT",
+			Expiry:   "20260619",
+			Strike:   100,
+			Right:    "C",
+			Currency: "USD",
+		},
+		ExerciseAction:   OptionExerciseActionExercise,
+		ExerciseQuantity: 1,
+		Account:          "DU123",
 	}
-	conn.pauseTransport()
-	before := conn.rateLimiter.GetMetrics().TotalRequests
-	done := make(chan error, 1)
+	if err := validateOptionExerciseRequest(valid); err != nil {
+		t.Fatalf("valid exercise request failed: %v", err)
+	}
+	invalid := valid
+	invalid.Override = 2
+	if err := validateOptionExerciseRequest(invalid); err == nil || !strings.Contains(err.Error(), "override") {
+		t.Fatalf("invalid override err=%v, want override", err)
+	}
+	invalid = valid
+	invalid.ExerciseAction = 9
+	if err := validateOptionExerciseRequest(invalid); err == nil || !strings.Contains(err.Error(), "action") {
+		t.Fatalf("invalid action err=%v, want action", err)
+	}
+}
+
+func TestPreviewOrderWhatIfModernServerSendsProtobufWhatIfAndWaitsForOpenOrder(t *testing.T) {
+	conn := NewConnection(DefaultConfig())
+	defer conn.rateLimiter.Stop()
+	conn.status = StatusConnected
+	setServerVersionReady(conn, minServerVerProtoBufPlaceOrder)
+	conn.observeNextValidOrderID(77)
+
+	var buf safeBuffer
+	conn.writer = bufio.NewWriter(&buf)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	type outcome struct {
+		result OrderWhatIfResult
+		err    error
+	}
+	done := make(chan outcome, 1)
 	go func() {
-		ran, err := connector.WithBoundBrokerSession(binding, func() error {
-			return connector.SubmitPaperOrderForSession(binding, gate,
-				&Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"},
-				&RawOrder{OrderID: 100, Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account},
-			)
+		result, err := conn.PreviewOrderWhatIf(ctx, &IBKROrder{
+			Symbol:    "MSFT",
+			SecType:   "STK",
+			Exchange:  "SMART",
+			Currency:  "USD",
+			Action:    "BUY",
+			TotalQty:  2,
+			OrderType: "LMT",
+			LmtPrice:  425.50,
+			TIF:       "DAY",
+			Account:   "DU123456",
+			OrderRef:  "preview-test",
+			Transmit:  false,
 		})
-		if !ran && err == nil {
-			err = ErrIBKRUnavailable
-		}
-		done <- err
+		done <- outcome{result: result, err: err}
 	}()
-	waitForProtectedDispatch(t, conn, before)
 
-	// Reconnect first revokes the old outbound generation and leaves transport
-	// paused. Daemon unpublication must still acquire the exclusive publication
-	// barrier; Stop releases the parked sender only after that transition.
-	conn.invalidateOutboundSession(true)
-	unpublished := make(chan struct{})
-	go func() {
-		connector.WithBrokerEvidenceMutation(func() {})
-		close(unpublished)
-	}()
-	select {
-	case <-unpublished:
-	case <-time.After(time.Second):
-		t.Fatal("connector unpublication deadlocked behind paused bound sender")
+	waitForWhatIfFrame(t, &buf)
+	payload := extractFramePayload(t, &buf)
+	if got := binary.BigEndian.Uint32(payload[:4]); got != uint32(protoPlaceOrderMsgID) {
+		t.Fatalf("protobuf msgID = %d, want %d", got, protoPlaceOrderMsgID)
+	}
+	if bytes.Contains(payload, []byte("1.7976931348623157e+308")) {
+		t.Fatalf("protobuf placeOrder payload contains ASCII max-float sentinel: %x", payload)
+	}
+	maxFloat := make([]byte, 8)
+	binary.LittleEndian.PutUint64(maxFloat, math.Float64bits(math.MaxFloat64))
+	if bytes.Contains(payload, maxFloat) {
+		t.Fatalf("protobuf placeOrder payload contains binary max-float sentinel: %x", payload)
 	}
 
-	conn.invalidateOutboundSession(false)
+	summary, err := parsePlaceOrderProtoSummary(payload[4:])
+	if err != nil {
+		t.Fatalf("parse protobuf placeOrder summary: %v", err)
+	}
+	if summary.orderID != 77 || summary.symbol != "MSFT" || summary.secType != "STK" {
+		t.Fatalf("protobuf contract summary = %+v, want order 77 MSFT STK", summary)
+	}
+	if summary.action != "BUY" || summary.quantity != "2" || summary.orderType != "LMT" || summary.lmtPrice != 425.5 || summary.tif != "DAY" {
+		t.Fatalf("protobuf order summary = %+v, want BUY 2 LMT 425.5 DAY", summary)
+	}
+	if summary.account != "DU123456" || summary.orderRef != "preview-test" {
+		t.Fatalf("protobuf account/ref summary = %+v, want DU123456 preview-test", summary)
+	}
+	if !summary.whatIf || !summary.transmit {
+		t.Fatalf("protobuf flags whatIf=%v transmit=%v, want true true", summary.whatIf, summary.transmit)
+	}
+
+	expected := loadHexFixture(t, "place_order_whatif_v203.hex")
+	if !bytes.Equal(payload, expected) {
+		t.Fatalf("protobuf placeOrder fixture mismatch\n got: %x\nwant: %x", payload, expected)
+	}
+
+	logFields := conn.decodeOutboundMessage(payload)
+	if logFields[0] != strconv.Itoa(protoPlaceOrderMsgID) || logFields[1] != "protobuf" {
+		t.Fatalf("outbound log fields = %#v, want protobuf summary", logFields)
+	}
+	if summaryFieldValue(logFields, "orderId=") != "77" || summaryFieldValue(logFields, "symbol=") != "MSFT" {
+		t.Fatalf("outbound log fields missing order summary: %#v", logFields)
+	}
+
+	conn.processMessage(encodeOpenOrderProtoCallbackForTest(testOpenOrderProtoCallback{
+		OrderID:            77,
+		PermID:             987654,
+		ClientID:           31,
+		Symbol:             "MSFT",
+		SecType:            "STK",
+		Exchange:           "SMART",
+		PrimaryExch:        "NASDAQ",
+		Currency:           "USD",
+		LocalSymbol:        "MSFT",
+		TradingClass:       "MSFT",
+		Action:             "BUY",
+		Quantity:           "2",
+		OrderType:          "LMT",
+		LimitPrice:         425.5,
+		TIF:                "DAY",
+		Account:            "DU123456",
+		OrderRef:           "preview-test",
+		WhatIf:             true,
+		Transmit:           true,
+		Status:             "Submitted",
+		InitMarginBefore:   1000,
+		MaintMarginBefore:  500,
+		EquityBefore:       10000,
+		InitMarginAfter:    1025,
+		MaintMarginAfter:   510,
+		EquityAfter:        9574.5,
+		Commission:         1.25,
+		MinCommission:      1.25,
+		MaxCommission:      1.25,
+		CommissionCurrency: "USD",
+		MarginCurrency:     "USD",
+	}))
+
 	select {
-	case err := <-done:
-		if err == nil || brokerSendMayHaveBeenWritten(err) {
-			t.Fatalf("retired paused order err=%v, want definite zero-wire refusal", err)
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("PreviewOrderWhatIf err = %v", got.err)
+		}
+		if got.result.Status != OrderWhatIfStatusAccepted || got.result.BrokerStatus != "Submitted" {
+			t.Fatalf("result status = %+v, want accepted Submitted", got.result)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("retired paused order did not return after final invalidation")
+		t.Fatal("PreviewOrderWhatIf did not return after matching openOrder")
 	}
-	assertProtectedZeroWire(t, conn, oldSocket, newSocket, before)
+}
+
+func waitForWhatIfFrame(t *testing.T, buf *safeBuffer) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if buf.Len() > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for outbound whatIf frame")
+}
+
+func extractFramePayload(t *testing.T, buf *safeBuffer) []byte {
+	t.Helper()
+	data := buf.Bytes()
+	if len(data) < 4 {
+		t.Fatalf("payload too short: %d bytes", len(data))
+	}
+	msgLen := binary.BigEndian.Uint32(data[:4])
+	if uint32(len(data[4:])) < msgLen {
+		t.Fatalf("payload length = %d, want at least %d", len(data[4:]), msgLen)
+	}
+	return data[4 : 4+msgLen]
+}
+
+func loadHexFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/wire/" + name)
+	if err != nil {
+		t.Fatalf("read hex fixture %s: %v", name, err)
+	}
+	compact := strings.Join(strings.Fields(string(raw)), "")
+	decoded, err := hex.DecodeString(compact)
+	if err != nil {
+		t.Fatalf("decode hex fixture %s: %v", name, err)
+	}
+	return decoded
+}
+
+func TestSessionBoundWhatIfRejectsRolloverBeforeBrokerIDClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		orderID int
+	}{
+		{name: "allocate"},
+		{name: "explicit_modify_id", orderID: 700},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, connector, oldSocket, newSocket, gate := newQueuedInstructionReconnectFixture(t)
+			binding, ok := connector.CaptureSession()
+			if !ok {
+				t.Fatal("capture session A")
+			}
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			connector.whatIfBeforeBrokerIDClaim = func() {
+				close(entered)
+				<-release
+			}
+			type outcome struct {
+				result OrderWhatIfResult
+				err    error
+			}
+			done := make(chan outcome, 1)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			go func() {
+				contract := &Contract{ConID: 1, Symbol: "TEST", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+				order := &RawOrder{Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1, TIF: "DAY", Account: gate.Account}
+				var result OrderWhatIfResult
+				var err error
+				if tc.orderID > 0 {
+					result, err = connector.PreviewOrderWhatIfWithOrderIDForSession(ctx, binding, contract, order, tc.orderID)
+				} else {
+					result, err = connector.PreviewOrderWhatIfForSession(ctx, binding, contract, order)
+				}
+				done <- outcome{result: result, err: err}
+			}()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("WhatIf did not reach broker ID claim seam")
+			}
+			conn.resetOrderIDReadiness()
+			conn.writer = bufio.NewWriter(newSocket)
+			conn.observeNextValidOrderIDAtEpoch(500, conn.BrokerSessionEpoch())
+			close(release)
+			select {
+			case got := <-done:
+				if got.err == nil && got.result.Status != OrderWhatIfStatusUnavailable {
+					t.Fatalf("rolled WhatIf result=%+v err=%v, want refusal", got.result, got.err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("rolled WhatIf did not return")
+			}
+			if oldSocket.Len() != 0 || newSocket.Len() != 0 {
+				t.Fatalf("rolled WhatIf wrote bytes old=%d new=%d", oldSocket.Len(), newSocket.Len())
+			}
+		})
+	}
+}
+
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *safeBuffer) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Len()
+}
+
+func (s *safeBuffer) Bytes() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.buf.Bytes()...)
+}
+
+func setServerVersionReady(c *Connection, version int) {
+	c.serverVersion = version
+	c.signalHandshakeReady()
+	c.observeNextValidOrderID(1)
+}
+
+func TestOrderMethodsDisabledByDefault(t *testing.T) {
+	if tradingEnabled {
+		t.Skip("default disabled guard is not active in trading-tag builds")
+	}
+
+	conn := NewConnection(DefaultConfig())
+	defer conn.rateLimiter.Stop()
+	conn.status = StatusConnected
+	setServerVersionReady(conn, minServerVerProtoBufPlaceOrder)
+
+	if err := conn.PlaceOrder(&IBKROrder{Symbol: "MSFT", SecType: "STK", Exchange: "SMART", Currency: "USD", Action: "BUY", TotalQty: 1, OrderType: "MKT", TIF: "DAY"}); !errors.Is(err, ErrTradingDisabled) {
+		t.Fatalf("Connection.PlaceOrder err = %v, want ErrTradingDisabled", err)
+	}
+	if err := conn.CancelOrder(1); !errors.Is(err, ErrTradingDisabled) {
+		t.Fatalf("Connection.CancelOrder err = %v, want ErrTradingDisabled", err)
+	}
+
+	c := NewConnector(&ConnectorConfig{BaseConfig: DefaultConfig()})
+	if err := c.SubmitOrder(&Contract{Symbol: "MSFT", SecType: "STK", Exchange: "SMART", Currency: "USD"}, &RawOrder{Action: "BUY", TotalQty: 1, OrderType: "MKT", TIF: "DAY"}); !errors.Is(err, ErrTradingDisabled) {
+		t.Fatalf("Connector.SubmitOrder err = %v, want ErrTradingDisabled", err)
+	}
+	if err := c.CancelOrder(1); !errors.Is(err, ErrTradingDisabled) {
+		t.Fatalf("Connector.CancelOrder err = %v, want ErrTradingDisabled", err)
+	}
 }

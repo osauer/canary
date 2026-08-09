@@ -1,25 +1,9 @@
 #!/usr/bin/env bash
 # lib-daemon-control.sh — shared helpers for the smoke scripts to spin
-# up an isolated `canary daemon` under /tmp without colliding with the
 # user's canonical daemon. Sourced by release-verify.sh, release-smoke.sh,
-# and wire-smoke.sh.
-#
-# Provides:
-#   stop_existing_daemons <label>
-#       SIGTERM (with SIGKILL fallback) every running canonical
-#       `canary daemon` or still-running pre-upgrade `ibkr daemon` process. The IBKR
-#       gateway accepts one connection per client ID,
 #       so running two daemons with the same ID makes the second fail
-#       with "code 326 / client id already in use" — this aborted the
 #       v0.16.0 release on first run before the workaround was added.
-#       Survivors auto-spawn on the next CLI call, so the cost is one
-#       bounce. <label> is the prefix for the user-facing banner
 #       ("release-verify", "release-smoke", "wire-smoke", …).
-#
-#   kill_daemon_from_lockfile <lockfile>
-#       SIGTERM the daemon whose PID is recorded in <lockfile>; wait up
-#       to 3s for graceful exit; SIGKILL stragglers. Silent no-op when
-#       the lockfile is unreadable (daemon already exited cleanly).
 
 stop_existing_daemons() {
     local label="${1:-smoke}"
@@ -64,14 +48,7 @@ stop_existing_daemons() {
         done
     fi
     # TWS-side cool-down. Killing the daemon closes the TCP connection,
-    # but TWS retains the client-ID slot for ~1-3s after the FIN before
-    # accepting a new connection with the same ID — without this pause
-    # the smoke daemon races TWS and hits code=326 "client id already
-    # in use" on the very next handshake. Observed on the v0.27.12
     # release-verify attempt. The CLI's autospawn behaviour (an MCP
-    # request can respawn the daemon mid-kill) makes this race common
-    # rather than rare; 5s is conservative — TWS typically clears in
-    # 1-2s but a busy gateway can stretch it.
     sleep 5
 }
 

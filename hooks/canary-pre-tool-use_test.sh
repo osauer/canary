@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 # Table-driven behavior test for canary-pre-tool-use.sh.
-#
 # The hook is a broker guardrail: false-allow lets an agent reach a write
 # path, false-block breaks read-only workflows (the v1.14.0 cache blocked
-# plain `canary orders --json` for weeks). Every row here is one payload and
 # the exit code the hook must produce. Write-path rows stub the matching
 # `canary trading status --json` executable on PATH; read-only rows must decide
-# without invoking the binary (the stub records invocations).
 set -u
 
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -127,7 +124,6 @@ run_cli_case composed-chain 2 "$live_ready" none 'CLI order status 42; CLI order
 run_cli_case command-substitution 2 "$live_ready" none 'CLI order cancel $(cat order-id)'
 
 # Every retired executable spelling is rejected before read/write
-# classification or trading-status lookup.
 run_case retired-read 2 "$live_ready" none 'ibkr status --json'
 run_case retired-help 2 "$live_ready" none 'ibkr order --help'
 run_case retired-write 2 "$live_ready" none 'ibkr order cancel 42'
@@ -143,7 +139,6 @@ run_case retired-piped 2 "$live_ready" none 'echo x | ibkr status'
 run_case retired-subshell 2 "$live_ready" none 'echo $(ibkr status)'
 
 # A path or argument that merely ends in a CLI name is not an invocation. The
-# repo itself lives under a directory named ibkr, so substring matching here
 # blocked ordinary read-only tooling.
 run_case path-arg-git 0 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status --short'
 run_case path-arg-nested 0 "$live_ready" none 'ls /Users/osauer/dev/ibkr/.claude/worktrees'
@@ -155,9 +150,6 @@ run_case path-arg-canary 0 "$live_ready" none 'git -C /srv/canary log --oneline 
 run_case path-arg-then-write 2 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status; canary settings set trading.freeze=true'
 
 # A bare `cd` into the primary working directory must pass. Substring matching
-# blocked it, `cd <path>/` slipped through on the trailing slash, and a blocked
-# cd is worse than a retry: the shell silently stays in the wrong tree, so the
-# next command reads another worktree's state.
 run_case cd-primary-tree 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr'
 run_case cd-trailing-slash 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr/'
 run_case cd-then-read 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr && canary status --json'

@@ -105,10 +105,6 @@ func (c *Connection) ExerciseOptions(req OptionExerciseRequest) error {
 	return c.exerciseOptionsForEpochGuarded(context.Background(), req, nil, nil)
 }
 
-func (c *Connection) exerciseOptionsForEpoch(req OptionExerciseRequest, expectedEpoch *uint64) error {
-	return c.exerciseOptionsForEpochGuarded(context.Background(), req, expectedEpoch, nil)
-}
-
 func (c *Connection) exerciseOptionsForEpochGuarded(ctx context.Context, req OptionExerciseRequest, expectedEpoch *uint64, guard func() error) error {
 	if ctx == nil {
 		return definitelyUnsent(fmt.Errorf("exerciseOptions context is nil"))

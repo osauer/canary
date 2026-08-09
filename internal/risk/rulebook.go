@@ -9,7 +9,6 @@ import (
 )
 
 // RuleStatusPass and the related constants are rule-row outcomes. Missing,
-// pending, or partial inputs cannot produce a false pass.
 const (
 	RuleStatusPass         = "pass"
 	RuleStatusInfo         = "info"
@@ -20,8 +19,6 @@ const (
 )
 
 // These are the closed, policy-owned reasons that can make one canonical
-// Rulebook row not applicable. Alert recovery accepts no free-form or future
-// reason without an explicit policy change.
 const (
 	EarningsReasonTerminalNonReporting = "terminal_non_reporting"
 	EarningsReasonBrokerNonIssuer      = "broker_nonissuer"
@@ -33,7 +30,6 @@ const (
 )
 
 // RuleSingleNameExposure and the related constants identify rules in stable
-// display order.
 const (
 	RuleSingleNameExposure = "single_name_exposure"
 	RuleOptionLinePremium  = "option_line_premium"
@@ -52,7 +48,6 @@ const (
 )
 
 // UnderlyingSourceGreeksTick and UnderlyingSourceStockLegMark identify how a
-// LegInput obtained its underlying price. The empty value has greeks-tick
 // semantics for compatibility.
 const (
 	UnderlyingSourceGreeksTick   = "greeks_tick"
@@ -60,13 +55,9 @@ const (
 )
 
 // MarketValueBaseSourceSubstituted marks a leg whose MarketValueBase is the
-// raw contract-currency figure rather than a converted one, because no FX rate
 // was available. The number is only meaningful when the leg's currency IS the
-// base currency; otherwise it is wrong by the exchange rate, in whichever
-// direction the pair happens to run. Every threshold that reads MarketValueBase
 // must therefore treat such a leg as unmeasured rather than compare it, because
 // an understating pair silences the comparison instead of failing it. The empty
-// value means the figure was converted and may be compared.
 const MarketValueBaseSourceSubstituted = "substituted_unconverted"
 
 // RuleOffender is one name or leg contributing to a breach, worst first.
@@ -104,25 +95,19 @@ type EarningsInput struct {
 	Known bool
 	// NotApplicable marks fresh exact broker identity proving that this held
 	// contract is a nonissuer security. It is independent from reviewed
-	// terminal/non-reporting issuer evidence.
 	NotApplicable bool
 	// NonIssuerSecurity marks a holding whose security type has no issuer
-	// earnings at all — an index, future, fund, or cash instrument. It rests on
 	// the position's own security type rather than an exact broker proof, so it
 	// is a weaker authority than NotApplicable and stays a separate field: a
 	// reader must never mistake a typed classification for a proven contract.
 	NonIssuerSecurity bool
 	// TerminalNonReporting marks reviewed exact-contract evidence that no
-	// future issuer earnings event applies. It is neither a known date nor an
-	// unknown: rules 6-8 disclose an exemption for the relevant name.
 	TerminalNonReporting bool
 	Date                 time.Time // ET calendar date (midnight ET)
 	TimeOfDay            string    // "amc" | "bmo" | "" (unspecified)
 	Estimated            bool
 	Stale                bool
 	// SessionsUntil is the number of US equity sessions from today (ET) to
-	// the earnings date inclusive, computed by the daemon via marketcal.
-	// nil when unknown.
 	SessionsUntil *int
 	// Source is the daemon's closed provenance vocabulary. verified_terminal
 	// means exact-contract authority was present; TerminalNonReporting is true
@@ -148,24 +133,15 @@ type LegInput struct {
 	// MarketValueBase is the signed base-currency mark value of the leg.
 	MarketValueBase float64
 	// MarketValueBaseSource discloses whether MarketValueBase was converted or
-	// substituted: empty for a converted figure,
-	// MarketValueBaseSourceSubstituted when no FX rate existed and the raw
-	// contract-currency value stands in. Follows UnderlyingSource's shape.
 	MarketValueBaseSource string
 	// ExtrinsicBase is the base-currency extrinsic value for long legs;
 	// nil when uncomputable (missing underlying or mark) — never zero it.
 	ExtrinsicBase *float64
 	// CostBasisBase is the base-currency premium paid for the leg (avg cost
-	// is multiplier-inclusive on options — do not re-multiply); nil when the
-	// gateway didn't deliver it.
 	CostBasisBase *float64
 	// FXToBase converts the leg's quote currency into base; nil when the FX
-	// path is unknown (rule 1's lower bound then treats the leg as
-	// unbounded).
 	FXToBase *float64
 	// UnderlyingSource discloses where Underlying came from: empty or
-	// UnderlyingSourceGreeksTick for the per-leg model tick,
-	// UnderlyingSourceStockLegMark for the same-name stock-leg join. Derived
 	// spots support OTM-ness and extrinsic; they never classify hedge legs.
 	UnderlyingSource string
 	// HedgeListed marks the underlying as being on the policy hedge list.
@@ -174,7 +150,6 @@ type LegInput struct {
 
 // NameInput is the per-underlying aggregation the daemon maps from
 // PositionGroup/UnderlyingExposure. ExposureBase must be the same value the
-// canary's concentration check reads.
 type NameInput struct {
 	Symbol string
 	// StockConID and StockSecType preserve the held underlying stock's broker
@@ -183,20 +158,13 @@ type NameInput struct {
 	StockConID   int
 	StockSecType string
 	// UnderlyingSecType is the canonical security type of the held non-option
-	// row for this name ("STOCK", "INDEX", "FUTURE", "FUND", ...). Unlike
-	// StockSecType it is not narrowed to equities, because its job is to
-	// recognize the types that have no issuer earnings. Empty for option-only
-	// groups, which carry no such row and therefore no typed classification.
 	UnderlyingSecType string
 	// ExposureBase = stock + Σ delta×contracts×multiplier×spot, base ccy.
 	ExposureBase float64
 	// ExposureBaseComplete reports whether ExposureBase covers every leg the
-	// aggregator saw (false when any priced leg was excluded: delta without
-	// spot, markless stock, missing FX). Rule 1's lower bound refuses to
 	// build on a partial sum — "proven ≥" must never overstate.
 	ExposureBaseComplete bool
 	// GreeksGapNotionalBase is |notional| of option legs missing delta —
-	// exposure understatement risk.
 	GreeksGapNotionalBase float64
 	MarketValueBase       float64
 	HasStockLeg           bool
@@ -234,24 +202,18 @@ type RuleInputs struct {
 	Earnings map[string]EarningsInput
 
 	// RegimeStage is the bucketed regime lifecycle stage (RegimeBucket*);
-	// empty when no stage has ever been observed. RegimeStageCarried marks a
-	// stage older than the policy max age or restored from the persisted
-	// store — carried stages evaluate worse-of(carried set, calm set).
 	RegimeStage        string
 	RegimeStageAsOf    time.Time
 	RegimeStageCarried bool
 
 	// NonBaseNLVBase is the base-currency net liquidation held in non-base
-	// currencies (rule 14). nil = unavailable (absent currency report,
 	// missing FX) — never zero it: an empty currency report on a book with
-	// non-base legs is a data gap, not a base-only book.
 	NonBaseNLVBase *float64
 	// NonBaseCurrencies names the currencies behind NonBaseNLVBase.
 	NonBaseCurrencies []string
 }
 
 // Evaluation is the pure result: rows in rulebook order plus the
-// hardest-first ranking (indexes into Rows).
 type Evaluation struct {
 	Rows   []RuleRow
 	Ranked []int
@@ -263,12 +225,10 @@ type ruleContext struct {
 	nlv    float64
 	hasNLV bool
 	// overHedged suppresses rule 5's hedge exemption (a "hedge" bigger than
-	// the band protects nothing extra; it may be a directional bet).
 	overHedged bool
 }
 
 // EvaluateRulebook computes all 14 rules. It never returns fewer than 14
-// rows; degraded inputs degrade statuses, not row presence.
 func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 	pol.Normalize()
 	ctx := &ruleContext{in: in, pol: pol}
@@ -278,8 +238,6 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 	}
 
 	// Rule 12 runs first: its over-hedged verdict feeds rule 5's exemption
-	// suppression. Rule 11 runs last: it reads the other rows' statuses
-	// (including rules 13 and 14, already present in the slice).
 	r12 := ctx.hedgeIntegrity()
 	rows := []RuleRow{
 		ctx.singleNameExposure(),
@@ -302,11 +260,7 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 }
 
 // regimeEval runs a regime-conditional rule body under the applicable
-// threshold set(s). A fresh stage selects its set. A carried or never-seen
-// stage evaluates BOTH the carried (or middle, for unrecognized buckets) set
-// and the calm set and keeps the worse verdict: stale regime data may hold
 // or tighten a verdict, never relax it — in either band direction (a stale
-// "confirmed" hedge band is wider than calm and would otherwise acquit).
 func (c *ruleContext) regimeEval(eval func(RegimeThresholds) RuleRow) RuleRow {
 	stage := c.in.RegimeStage
 	switch {
@@ -362,8 +316,6 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 	for _, n := range c.in.Names {
 		if c.greeksGapMaterial(n) {
 			// Partial data may indict, never acquit: when the provable
-			// minimum exposure alone breaches, report the breach as a
-			// disclosed lower bound instead of hiding it behind unknown.
 			if bound, ok := nameExposureLowerBound(n); ok {
 				if bp := pct(bound, c.nlv); bp >= watch {
 					worstBound = math.Max(worstBound, bp)
@@ -377,10 +329,6 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 			continue
 		}
 		// A name whose base exposure could not be fully measured — missing FX
-		// on a leg, a markless stock, an unpaired delta, or a whole group the
-		// aggregator could not convert — degrades to a partial or zero sum. A
-		// fully-delta'd name carries no greeks gap, so the branch above never
-		// catches it, and comparing the degraded sum asserts "0.0% of NLV"
 		// over a book nobody measured. Disclosed unknown, never exposure 0.
 		if !n.ExposureBaseComplete {
 			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol,
@@ -388,11 +336,7 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 			continue
 		}
 		// A policy-hedge index name carrying net-short delta is the hedge:
-		// rule 12 owns its sizing, and double-flagging it here would bury
 		// the real concentration offenders. Exempt only what rule 12 can
-		// actually size (long puts with delta); short stock or short calls
-		// in a hedge symbol are directional shorts, not a sized hedge, and
-		// any residual beyond the sized legs stays a concentration input.
 		// Disclosed via Exempt, never silently dropped.
 		if c.pol.IsHedgeSymbol(n.Symbol) && n.ExposureBase < 0 {
 			sized := 0.0
@@ -465,9 +409,6 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 		row.Evidence = fmt.Sprintf("Largest name %.1f%% of NLV, under the %.0f%% cap.", round1(worst), act)
 	}
 	// Disclosure is unconditional: a measured breach stands, and the names
-	// that could not be measured ride the same row rather than vanishing
-	// under it. They carry no ImpactBase, so the impact sum below is
-	// unchanged and an unmeasured name claims no weight it cannot prove.
 	if row.Status != RuleStatusUnknown && len(gaps)+len(unmeasured) > 0 {
 		row.Offenders = append(append(row.Offenders, gaps...), unmeasured...)
 		row.Notes = append(row.Notes, fmt.Sprintf("%d name(s) additionally not fully assessable (delta or FX missing) — the breach above is proven regardless.", len(gaps)+len(unmeasured)))
@@ -479,13 +420,7 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 }
 
 // nameExposureLowerBound computes a provable minimum |net delta-dollar|
-// exposure for a name whose material legs miss delta. Known legs are already
-// summed into ExposureBase; each delta-less leg contributes a signed
-// interval: a long call at least its intrinsic (delta·S ≥ C ≥ intrinsic) and
-// at most its notional; a long put between −notional and 0; shorts mirrored.
-// Put intrinsic is NOT a bound on |delta·S| (deep-ITM K−S can exceed S) and
 // is never used. Any delta-less leg missing underlying or FX makes the
-// interval unbounded — nothing is provable.
 func nameExposureLowerBound(n NameInput) (bound float64, ok bool) {
 	if !n.ExposureBaseComplete {
 		return 0, false // partial known sum — nothing is provable from it
@@ -545,11 +480,6 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 				continue
 			}
 			// A substituted base value is wrong by the exchange rate, and an
-			// understating pair would simply keep the leg under the tier and
-			// report a quiet pass on a line that breaches. This rule has no
-			// unknown tier of its own — tierStatus returns pass, watch or act —
-			// so an unmeasurable leg is collected and forces the row to unknown
-			// below rather than being compared or silently skipped.
 			if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted {
 				unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
 					Note: "premium not convertible to base — no FX rate for the leg's currency"})
@@ -558,9 +488,6 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 			p := pct(math.Abs(l.MarketValueBase), c.nlv)
 			// Hedge-classified legs measure against their own premium tier:
 			// rule 12 owns the hedge's sizing; this tier only bounds how much
-			// premium one hedge line puts at vol-crush risk. Unclassifiable
-			// legs (no delta yet) stay on the normal tier — no relief without
-			// classification.
 			if rule12HedgeLeg(l) {
 				hedgeWorst = math.Max(hedgeWorst, p)
 				if p >= hWatch {
@@ -591,21 +518,13 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 		status = hedge
 		// Observed and Threshold are the generic renderer contract. When the
 		// hedge tier drives the verdict, they must describe that tier rather
-		// than pairing a hedge breach with the normal 5% control.
 		row.Observed = new(round1(hedgeWorst))
 		row.Threshold = new(hWatch)
 	}
 	// No input condition may produce a pass by absence of data. A leg whose
 	// premium could not be converted was never compared against either tier, so
-	// a pass here would be asserted over a line nobody measured. Watch and act
-	// stand: those were earned by legs that were measured, and a real breach
 	// must not be downgraded to unknown by an unrelated leg's missing rate.
 	// Disclosure is unconditional; only the status is conditional. Appending
-	// these inside the pass branch would drop them on watch or act, so a row
-	// naming a measured breach would silently omit a leg nobody could measure —
-	// the same suppression as the floor above, reached through a conditional
-	// instead of a threshold. They carry no ImpactBase, so the impact sum below
-	// is unchanged and an unmeasurable leg claims no weight it cannot prove.
 	row.Offenders = append(offenders, unmeasured...)
 	if len(unmeasured) > 0 && status == RuleStatusPass {
 		status = RuleStatusUnknown
@@ -613,13 +532,10 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 	}
 	row.Status = status
 	// The headline names the offender of the tier that produced the status,
-	// with that tier's cap — an impact-sorted offenders[0] could caption the
-	// hedge line with the speculative 5% cap, misdirecting the operator to
 	// cut the hedge (the exact confusion the tier split exists to end).
 	switch {
 	case status == RuleStatusUnknown:
 		// Must precede the tier cases: with every leg unconvertible both
-		// offender slices are empty, and they are what those cases index.
 		row.Evidence = fmt.Sprintf("%d option leg(s) have no FX rate to base — their premium was not measured, so no pass is asserted.", len(unmeasured))
 	case status == RuleStatusPass:
 		row.Evidence = fmt.Sprintf("Largest option line %.1f%% of NLV, under the %.0f%% cap.", round1(worst), watch)
@@ -638,7 +554,6 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 }
 
 // tierStatus maps an observed percentage onto pass/watch/act for one
-// threshold tier.
 func tierStatus(observed, watch, act float64) string {
 	switch {
 	case observed > act:
@@ -689,10 +604,6 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 			}
 			if l.ExtrinsicBase == nil {
 				// The materiality floor decides whether an uncomputable leg is
-				// disclosed at all. A substituted base value cannot be measured
-				// against it: an understating currency pair drops the leg below
-				// the floor and suppresses the very disclosure this branch
-				// exists to make. Such a leg is therefore always listed.
 				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
 					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
 					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
@@ -701,9 +612,6 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 				continue
 			}
 			// The budget bounds speculative decay; the hedge's premium is
-			// governed by rule 2's hedge tier and rule 12's band. An
-			// unclassifiable leg (no delta yet) counts against the budget —
-			// no relief without classification.
 			if rule12HedgeLeg(l) {
 				hedgeTotal += *l.ExtrinsicBase
 				continue
@@ -828,7 +736,6 @@ func (c *ruleContext) terminalEarningsFor(sym string) (EarningsInput, bool) {
 // nonIssuerSecurityEarningsFor recognizes a holding whose security type has no
 // issuer earnings concept. The daemon classifies the type; this only accepts
 // its closed vocabulary. Unlike the broker-identity path it needs no exact
-// contract, because an index or a fund has no issuer to report at any conID.
 func (c *ruleContext) nonIssuerSecurityEarningsFor(sym string) (EarningsInput, bool) {
 	e, found := c.in.Earnings[sym]
 	if !found || !e.NonIssuerSecurity || e.Stale || e.Source != "security_type" {
@@ -841,7 +748,6 @@ func (c *ruleContext) brokerNonIssuerEarningsFor(name NameInput) (EarningsInput,
 	e, found := c.in.Earnings[name.Symbol]
 	// The broker proof identifies the held stock contract only. Without each
 	// option leg's exact underlying ConID, a mixed symbol group must use the
-	// ordinary issuer-event evidence path.
 	if len(name.Legs) != 0 || !found || !e.NotApplicable || e.Stale || e.Source != "broker_identity" || e.Reason != EarningsReasonBrokerNonIssuer {
 		return e, false
 	}
@@ -849,10 +755,7 @@ func (c *ruleContext) brokerNonIssuerEarningsFor(name NameInput) (EarningsInput,
 }
 
 // unresolvedTerminalEarningsFor identifies exact-contract terminal authority
-// that was present but could not grant the exemption (expired, stale, identity
-// conflict, or date-source conflict). The daemon's Source vocabulary is the
 // typed boundary; these states must fail closed before option-side or size
-// relevance can turn absence into a pass.
 func (c *ruleContext) unresolvedTerminalEarningsFor(sym string) (EarningsInput, bool) {
 	e, found := c.in.Earnings[sym]
 	if !found || e.Source != "verified_terminal" {
@@ -952,8 +855,6 @@ func (c *ruleContext) catalystCoverage() RuleRow {
 		}
 		if e, ok := c.earningsFor(n.Symbol); !ok {
 			// Unknown ordinary issuers are unresolved before option relevance.
-			// Absence of a long option is not evidence that earnings do not
-			// apply to the held name.
 			earningsDrove = true
 			unknowns = append(unknowns, unresolvedIssuerEarningsOffender(n.Symbol, e))
 			continue
@@ -977,8 +878,6 @@ func (c *ruleContext) catalystCoverage() RuleRow {
 			}
 			if l.Underlying == nil {
 				// OTM-ness unassessable — a named unknown, never a silent
-				// skip: skipping here once produced a false pass on a leg
-				// that expired before its earnings date.
 				unassessable++
 				continue
 			}
@@ -1073,7 +972,6 @@ func (c *ruleContext) overwriteEarnings() RuleRow {
 		}
 		if e, ok := c.earningsFor(n.Symbol); !ok {
 			// Resolve ordinary issuer applicability before short-option
-			// relevance so a stock-only name cannot pass by omission.
 			unknowns = append(unknowns, unresolvedIssuerEarningsOffender(n.Symbol, e))
 			continue
 		}
@@ -1119,10 +1017,7 @@ func (c *ruleContext) overwriteEarnings() RuleRow {
 				ImpactBase: math.Abs(l.MarketValueBase), Note: note})
 		}
 		// Short puts spanning the print: watch by default, act when the
-		// assignment notional would move the book (a gap through the strike
-		// is a forced size-up on earnings day). FX unknown ⇒ the notional
 		// tier is unassessable — stay at watch, disclosed, never quietly
-		// escalate or drop.
 		var namePutOffenders []RuleOffender
 		namePutPct, nameTierKnown := 0.0, true
 		for _, l := range shortPuts {
@@ -1227,15 +1122,12 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		}
 		if e, ok := c.earningsFor(n.Symbol); !ok {
 			// Resolve ordinary issuer applicability before the size threshold.
-			// A small holding is not proof that issuer earnings do not apply.
 			unknowns = append(unknowns, unresolvedIssuerEarningsOffender(n.Symbol, e))
 			continue
 		}
 		assessed++
 		if c.greeksGapMaterial(n) {
 			// Exposure not assessable — the freeze cannot be ruled out
-			// unless earnings are provably beyond the window. A silent skip
-			// here is a pass by absence of data (the rule-6 bug class).
 			if e, ok := c.earningsFor(n.Symbol); ok && e.SessionsUntil != nil &&
 				(*e.SessionsUntil < 0 || *e.SessionsUntil > freeze) {
 				continue // earnings provably outside the freeze window
@@ -1245,10 +1137,8 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 			continue
 		}
 		// Same escape and same duty for a name whose exposure was never fully
-		// measured (missing FX or price): its degraded sum sits under the size
 		// floor by construction, so comparing it silently skips exactly the
 		// oversized-into-earnings name this rule exists to freeze. Earnings
-		// provably outside the window still clear it — size is then moot.
 		if !n.ExposureBaseComplete {
 			if e, ok := c.earningsFor(n.Symbol); ok && e.SessionsUntil != nil &&
 				(*e.SessionsUntil < 0 || *e.SessionsUntil > freeze) {
@@ -1294,7 +1184,6 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		row.Reason = "earnings_unknown"
 		row.Offenders = unknowns
 		// Each offender note names what failed — the earnings date, the delta,
-		// or the exposure measurement — so the sentence stays neutral.
 		row.Evidence = fmt.Sprintf("%d name(s) could not complete the pre-earnings size check.", len(unknowns))
 	case assessed == 0 && len(exempt) > 0:
 		row.Status = RuleStatusNotEvaluated
@@ -1383,13 +1272,10 @@ func (c *ruleContext) winnerTrim() RuleRow {
 		}
 		if *n.StockDayChangePct < c.pol.WinnerTrimDayUpPct {
 			// Not up past the trigger — a true negative on the measured tape,
-			// whatever the name's size.
 			continue
 		}
 		// The name is up past the trigger, so the size floor decides. A name
 		// whose exposure was never fully measured (missing FX or price, no
-		// greeks gap to catch it) degrades to a sum under the floor by
-		// construction — comparing it silently skips a winner the rule may
 		// exist to trim. Disclosed unknown, never exposure 0.
 		if !n.ExposureBaseComplete && !c.greeksGapMaterial(n) {
 			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Observed: round1(*n.StockDayChangePct),
@@ -1408,7 +1294,6 @@ func (c *ruleContext) winnerTrim() RuleRow {
 	case len(offenders) > 0:
 		row.Status = RuleStatusWatch
 		// A measured breach stands; the unmeasured winners stay disclosed on
-		// the same row with no ImpactBase — no weight they cannot prove.
 		row.Offenders = append(offenders, unmeasured...)
 		row.Evidence = fmt.Sprintf("%d oversized name(s) up hard today — sell strength while the bid is there.", len(offenders))
 		for _, o := range offenders {
@@ -1453,20 +1338,12 @@ func (c *ruleContext) greenDayAction(rows []RuleRow) RuleRow {
 }
 
 // rule12HedgeLeg reports whether rule 12 sizes this leg as a hedge: a long
-// put on a hedge-listed underlying with delta and underlying present. Rule
-// 1's concentration exemption uses the same predicate so nothing is exempted
-// from the cap that rule 12 cannot size; rules 2, 4, and 13 use it for their
-// hedge tiers/exemptions. A derived underlying (stock-leg join) never
-// classifies a hedge: pairing a greeks-tick delta with a different-source
-// spot is the apples-and-oranges sizing the join exists to avoid.
 func rule12HedgeLeg(l LegInput) bool {
 	return RulebookHedgeLeg(l)
 }
 
 // RulebookHedgeLeg exposes the policy-owned hedge classification to daemon
-// composition without duplicating rule 12's predicate. Callers map their
 // typed position row into LegInput and receive the exact classification used
-// by rules 1, 2, 4, 5, 12, and 13.
 func RulebookHedgeLeg(l LegInput) bool {
 	return l.HedgeListed && isPut(l.Right) && l.Quantity > 0 && l.Delta != nil && l.Underlying != nil &&
 		l.UnderlyingSource != UnderlyingSourceStockLegMark
@@ -1486,10 +1363,6 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 			continue
 		}
 		// A name whose base exposure was never fully measured (missing FX or
-		// price, no greeks gap to catch it) contributes a degraded or zero
-		// sum. Dropping it from grossLong shrinks the ratio's denominator, so
-		// an under-hedged book reads adequately hedged — the quiet direction.
-		// Like a delta gap, it poisons the ratio itself: whole row unknown.
 		if !n.ExposureBaseComplete {
 			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol,
 				Note: "exposure not fully measured (FX or price missing) — gross long exposure cannot be trusted"})
@@ -1537,8 +1410,6 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 		r.Threshold = new(minB)
 		if ratio > maxB {
 			// Set for every applicable threshold set: rule 5's hedge
-			// exemption stays suppressed if the book is over-band under ANY
-			// set the worse-of evaluation consulted.
 			c.overHedged = true
 		}
 		switch {
@@ -1580,8 +1451,6 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 			}
 			if l.CostBasisBase == nil || *l.CostBasisBase <= 0 {
 				// Same materiality floor, same reason it cannot be trusted on a
-				// substituted base value: an understating pair would drop the leg
-				// below the floor and hide an unassessable position.
 				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
 					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
 					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
@@ -1659,8 +1528,6 @@ func (c *ruleContext) fxExposure() RuleRow {
 	}
 	if p >= watch {
 		// Watch-only by design: at structurally high non-base exposure a
-		// permanent act would be pure alarm fatigue. The rule exists to make
-		// the exposure explicit — hedge it or accept it, on purpose.
 		row.Status = RuleStatusWatch
 		row.ImpactBase = math.Abs(*c.in.NonBaseNLVBase)
 		row.Evidence = fmt.Sprintf("%.1f%% of NLV is held in %s (threshold %.0f%%) — hedge or accept this FX exposure explicitly; a 1%% move is ~%.1f%% of NLV.", round1(p), ccys, watch, round1(p/100))
@@ -1676,10 +1543,6 @@ func (c *ruleContext) greeksGapMaterial(n NameInput) bool {
 }
 
 // expiresBeforeCatalyst: rule 6 — an OTM long that dies before its name's
-// earnings gap. AMC on expiry day: the option expires at the close, the gap
-// happens after → dies before the catalyst → true. BMO on expiry day: the
-// gap happened pre-open → option lived through it → false. Unknown time of
-// day on expiry day is conservative (true, disclosed by caller).
 func expiresBeforeCatalyst(expiry time.Time, e EarningsInput) bool {
 	ed, xd := dateOnly(e.Date), dateOnly(expiry)
 	if xd.Before(ed) {
@@ -1697,7 +1560,6 @@ func expiresBeforeCatalyst(expiry time.Time, e EarningsInput) bool {
 }
 
 // spansEarningsGap: rule 7 — a short call alive through the earnings gap.
-// ambiguous=true when the verdict hinged on an unknown time-of-day.
 func spansEarningsGap(now, expiry time.Time, e EarningsInput) (spans, ambiguous bool) {
 	ed, xd, today := dateOnly(e.Date), dateOnly(expiry), dateOnly(now)
 	if ed.Before(today) || xd.Before(ed) {
@@ -1717,7 +1579,6 @@ func spansEarningsGap(now, expiry time.Time, e EarningsInput) (spans, ambiguous 
 }
 
 // statusWeight orders rule statuses by severity for ranking and worse-of
-// comparisons (regime worse-of, rule 2's two tiers).
 func statusWeight(s string) int {
 	switch s {
 	case RuleStatusAct:

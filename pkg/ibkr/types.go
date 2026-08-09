@@ -14,7 +14,6 @@ type Greeks struct {
 // MarketData is the latest set of market-data observations for a symbol.
 // Callers must use the accompanying observed, timestamp, and data-type fields
 // where provided; a numeric zero alone does not always prove the broker
-// reported a zero value.
 type MarketData struct {
 	Symbol    string    `json:"symbol"`
 	Timestamp time.Time `json:"timestamp"`
@@ -25,7 +24,6 @@ type MarketData struct {
 	Mid  float64 `json:"mid"`
 	// MarkPrice is tick 37 from IBKR — the gateway's calculated fair
 	// price. Populated for every symbol, but only load-bearing for
-	// indices (VIX, VIX3M, SPX), which don't emit bid/ask/last.
 	MarkPrice float64 `json:"mark_price,omitempty"`
 	Open      float64 `json:"open"`
 	High      float64 `json:"high"`
@@ -46,14 +44,8 @@ type MarketData struct {
 	Volume    int64 `json:"volume"`
 	AvgVolume int64 `json:"avg_volume,omitempty"`
 	// LastTickAt is when this process last received a tick on the
-	// subscription, or zero when none has ever arrived. See
-	// [Subscription.LastTickAt] for the two limits that bind every reader:
-	// it is an arrival instant rather than the instant the value was struck,
-	// and it advances on any tick, size and volume included.
 	LastTickAt time.Time `json:"last_tick_at,omitzero"`
 	// LastPriceTickAt is when this process last accepted a positive price
-	// tick on the subscription, or zero when none has arrived. It excludes
-	// blank and rejected prices plus non-price traffic, but remains an arrival
 	// instant rather than proof of broker-source freshness.
 	LastPriceTickAt   time.Time `json:"last_price_tick_at,omitzero"`
 	LastTradeTime     time.Time `json:"last_trade_time,omitzero"`

@@ -14,7 +14,6 @@ import (
 )
 
 // stressDecisionJournal appends one typed SQLite event per decision-relevant
-// portfolio-stress snapshot. It mirrors regimeDecisionJournal's fingerprint
 // dedupe and hourly heartbeat. The path branch and writer lock remain only for
 // legacy unit/import oracles.
 type stressDecisionJournal struct {
@@ -27,21 +26,13 @@ type stressDecisionJournal struct {
 }
 
 // legacyStressDecisionsFile is the pre-rename on-disk name of the portfolio-
-// stress decision journal. It is deliberately NOT renamed to stress-decisions.
 // The daemon has not appended to this file since the SQLite authority cutover
-// (append() takes the corestore branch whenever core is bound, which production
 // Start always does). What remains on an operator's disk is frozen legacy
 // evidence that the cutover importer reads once and then seals under this exact
 // basename into legacy-sealed/<cutover-id>/.
-//
-// Renaming it is not merely low-value, it is unsafe: rotation derives its
-// archive prefix from this basename (journalArchiveBase), so a renamed live
-// file makes every rotated canary-decisions-*.jsonl.gz archive invisible to
-// existingArchiveNames and backfillArchives, and makes validateRotationArchives
 // reject any rotation intent a crash left pending. recoverLegacyDecisionRotations
 // treats an unresolvable intent as a hard startup failure, so the rename would
 // brick startup for exactly the operator who crashed mid-rotation. The name is
-// an evidence identifier, not a sensor name.
 const legacyStressDecisionsFile = "canary-decisions.jsonl"
 
 func stressDecisionsDefaultPath() (string, error) {
@@ -51,15 +42,10 @@ func stressDecisionsDefaultPath() (string, error) {
 const (
 	stressDecisionHeartbeat = time.Hour
 	// stressEvaluationEvery is the daemon-owned decision cadence. It matches
-	// the established app refresh without depending on an app process being
-	// present. Journaling is a retention choice and cannot stop evaluation.
 	stressEvaluationEvery = time.Minute
 	// A cold daemon starts the loop before the gateway handshake. Retry the
-	// cheap prerequisite check promptly; once an evaluation is attempted, the
-	// normal minute cadence resumes even if some inputs are degraded.
 	stressEvaluationRetryEvery = 5 * time.Second
 	// stressJournalEvery remains the five-minute Regime authority window used
-	// by regimeSnapshotFreshFor. Stress evaluation no longer runs on it.
 	stressJournalEvery = 5 * time.Minute
 )
 
@@ -72,8 +58,6 @@ type stressDecisionPolicy struct {
 }
 
 // stressDecisionLine is the v1 journal record: the stress sensor's decision
-// output, its market/portfolio evidence, and the classified upstream
-// fingerprints — enough to replay an alert decision offline.
 type stressDecisionLine struct {
 	V                      int                          `json:"v"`
 	TS                     time.Time                    `json:"ts"`
@@ -113,15 +97,12 @@ func (s *Server) installStressDecisionJournal() {
 // journalStressDecision appends the stress snapshot when its semantic
 // fingerprint changed or the heartbeat interval elapsed. Failures degrade
 // to warnings — journaling must never fail a snapshot or brief. Disabled
-// via `canary settings set stress.journal.enabled=false`. Always ends with
-// the data-free history-index kick.
 func (s *Server) journalStressDecision(res *rpc.StressResult) {
 	if s == nil || res == nil {
 		return
 	}
 	// Capture the broker authority scope once so the source-neutral alert episode
 	// and the legacy calibration journal cannot disagree across a reconnect.
-	// Raw scope parts remain inside their owning adapters; the alert registry
 	// persists only the opaque episode key derived from them.
 	scope := s.currentBrokerStateScope()
 	s.observeStressAlertShadow(res, scope)
@@ -140,8 +121,6 @@ func (s *Server) stressJournalEnabled() bool {
 }
 
 // append journals one deduped stress decision. The mutex is held across
-// marshal, directory ensure, open, write, and close — the writer-quiescence
-// contract rotation relies on (a live-file rename is invisible to an
 // open-per-append writer only while no append is in flight).
 func (j *stressDecisionJournal) append(now time.Time, account, accountMode string, res *rpc.StressResult) error {
 	if j == nil || res == nil {
@@ -226,8 +205,6 @@ func (j *stressDecisionJournal) append(now time.Time, account, accountMode strin
 }
 
 // startStressEvaluationLoop starts the daemon-owned Stress evaluator. The
-// immediate first attempt removes the former five-minute startup blind spot;
-// gateway connection and each new Regime publication also wake the loop.
 func (s *Server) startStressEvaluationLoop(ctx context.Context) {
 	if s == nil || ctx == nil {
 		return
@@ -253,7 +230,6 @@ func (s *Server) runStressEvaluationLoop(ctx context.Context) {
 type stressEvaluation func(context.Context) bool
 
 // stressEvaluationSourceReader keeps the production tick on the same typed
-// daemon RPC builders used by request-driven Stress recomputation. Tests swap
 // this one narrow seam to exercise the real tick without a broker socket.
 type stressEvaluationSourceReader interface {
 	ready() bool
@@ -293,7 +269,6 @@ func (r daemonStressEvaluationSourceReader) now() time.Time {
 }
 
 // runStressEvaluationLoopWith keeps the scheduler deterministic in tests. A
-// capacity-one wake channel coalesces repeated publications while an
 // evaluation is in flight; the evaluation always reads the newest authority.
 func runStressEvaluationLoopWith(ctx context.Context, wake <-chan struct{}, every, retry time.Duration, evaluate stressEvaluation) {
 	if ctx == nil || evaluate == nil || every <= 0 || retry <= 0 {
@@ -309,7 +284,6 @@ func runStressEvaluationLoopWith(ctx context.Context, wake <-chan struct{}, ever
 		case <-timer.C:
 		}
 		// A timer and a publication may become ready together. One evaluation
-		// covers both because it reads the latest immutable Regime publication.
 		select {
 		case <-wake:
 		default:
@@ -323,7 +297,6 @@ func runStressEvaluationLoopWith(ctx context.Context, wake <-chan struct{}, ever
 }
 
 // stressEvaluationTick composes and publishes one Stress decision exactly as
-// composeBrief does. The journal setting is intentionally absent: it controls
 // only the optional retained event inside journalStressDecision.
 func (s *Server) stressEvaluationTick(ctx context.Context) bool {
 	if s == nil || ctx == nil || ctx.Err() != nil {

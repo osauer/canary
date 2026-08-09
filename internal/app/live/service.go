@@ -1,18 +1,21 @@
+// Package live maintains the app host's refreshable daemon snapshot and
+// publishes change events to local subscribers. It owns polling cadence,
+// source freshness, cloning, and SSE fanout; the cached snapshot is an adapter
+// view, not daemon runtime or policy authority.
 package live
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/osauer/canary/v2/internal/app/daemonclient"
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/app/daemonclient"
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 type alertCandidateClient interface {
@@ -21,15 +24,12 @@ type alertCandidateClient interface {
 
 // AlertSnapshotAuthority is the single app-side owner of durable candidate
 // observation and delivery. Live reads its redacted current view only for
-// restart priming; every producer observation goes through Observe.
 type AlertSnapshotAuthority interface {
 	Observe(context.Context, rpc.AlertCandidateSnapshot) (state.AlertDeliveryView, error)
 	Current(time.Time) state.AlertDeliveryView
 }
 
 // Service owns the app host's refreshable daemon snapshot, poll serialization,
-// source-freshness metadata, and best-effort event subscribers. Values stored
-// in the snapshot are treated as immutable after publication.
 type Service struct {
 	client      daemonclient.Client
 	pollEvery   time.Duration
@@ -76,8 +76,6 @@ type Snapshot struct {
 }
 
 // publicNudgesSnapshot is the browser/SSE projection. Reconciliation uses the
-// same allowlisted DTO as its explicit HTTP routes; keeping the full daemon RPC
-// value here would let future private fields bypass that boundary.
 type publicNudgesSnapshot struct {
 	AsOf                  time.Time                       `json:"as_of"`
 	Candidates            []rpc.NudgeCandidate            `json:"candidates"`
@@ -88,8 +86,6 @@ type publicNudgesSnapshot struct {
 }
 
 // Reconciliation is the allowlisted browser projection of the Flex report
-// schedule and comparison result. It is shared by bootstrap, SSE, and the
-// explicit check/status routes so the app has one process-evidence contract.
 type Reconciliation struct {
 	Report     ReconciliationReport     `json:"report"`
 	Evaluation ReconciliationEvaluation `json:"evaluation"`
@@ -115,7 +111,6 @@ type ReconciliationEvaluation struct {
 }
 
 // ProjectReconciliation validates the daemon contract before exposing its
-// fixed, redacted subset to the paired app.
 func ProjectReconciliation(status *rpc.ReconAutomationStatus) (*Reconciliation, error) {
 	if status == nil {
 		return nil, nil
@@ -176,7 +171,6 @@ func projectPublicNudges(value *rpc.NudgesSnapshotResult) *publicNudgesSnapshot 
 }
 
 // MarshalJSON is the one public snapshot boundary shared by bootstrap,
-// snapshot reads, and full-snapshot SSE messages.
 func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 	type snapshotAlias Snapshot
 	return json.Marshal(struct {
@@ -186,7 +180,6 @@ func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 }
 
 // MarketQuotes holds observed underlying-market prices and per-symbol fetch
-// errors. These market moves are not Daily, Open, Unrealized, or Realized P/L.
 type MarketQuotes struct {
 	AsOf   time.Time            `json:"as_of,omitzero"`
 	Quotes map[string]rpc.Quote `json:"quotes,omitempty"`
@@ -202,8 +195,6 @@ type SourceError struct {
 }
 
 // SourceMeta distinguishes the last app observation from the last successful
-// refresh. State and Reason say whether retained data is current, stale, never
-// observed, or unavailable.
 type SourceMeta struct {
 	UpdatedAt     time.Time `json:"updated_at,omitzero"`
 	LastSuccessAt time.Time `json:"last_success_at,omitzero"`
@@ -240,22 +231,12 @@ var (
 )
 
 // Event carries one typed live-cache change to SSE adapters. Subscribers must
-// recover from dropped events by reading a full snapshot.
 type Event struct {
 	Type string `json:"type"`
 	Data any    `json:"data"`
 }
 
-// Diagnostics is a concurrency-safe snapshot of live subscriber count, event
-// timestamps, and cache version.
-type Diagnostics struct {
-	Subscribers int                  `json:"subscribers"`
-	LastEventAt map[string]time.Time `json:"last_event_at,omitempty"`
-	Version     int64                `json:"version"`
-}
-
 // New constructs an unstarted live service. Non-positive intervals select the
-// default poll cadences.
 func New(client daemonclient.Client, pollEvery, stressEvery time.Duration) *Service {
 	if pollEvery <= 0 {
 		pollEvery = 5 * time.Second
@@ -285,9 +266,7 @@ func New(client daemonclient.Client, pollEvery, stressEvery time.Duration) *Serv
 }
 
 // SetAlertSnapshotAuthority wires the sole durable alert observer. A prior
-// durable view is synchronously invalidated through that observer before the
 // app can serve it after restart; startup fails if the transition cannot be
-// persisted.
 func (s *Service) SetAlertSnapshotAuthority(authority AlertSnapshotAuthority) error {
 	s.alertMu.Lock()
 	defer s.alertMu.Unlock()
@@ -336,8 +315,6 @@ func sourceUnavailableWithReason(prior SourceMeta, now time.Time, reason string)
 }
 
 // Start performs initial refreshes, starts quote and alert-freshness workers,
-// and blocks on periodic polling until ctx is canceled. Cancellation closes all
-// subscriber channels.
 func (s *Service) Start(ctx context.Context) {
 	go s.runAlertFreshnessGuard(ctx)
 	_ = s.pollStatus(ctx)
@@ -426,7 +403,6 @@ func (s *Service) runMarketQuoteStream(ctx context.Context, item marketQuoteCont
 
 // PollOnce serializes one full refresh, preserves last-known values beside
 // explicit source failure metadata, publishes change/full-snapshot events, and
-// returns a cloned post-poll view.
 func (s *Service) PollOnce(ctx context.Context) Snapshot {
 	s.pollMu.Lock()
 	defer s.pollMu.Unlock()
@@ -620,9 +596,6 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 		// Rules ride the stress cadence: same inputs (positions/account),
-		// same daily-discipline freshness needs, no extra poll knob. Observe
-		// them before reading the source-neutral snapshot so the snapshot
-		// includes this cycle's complete unfiltered Rulebook evaluation.
 		if rules, err := s.client.Rules(ctx); err != nil {
 			errors = append(errors, sourceErr("rules", err, now))
 			snap.Sources["rules"] = sourceUnavailable(snap.Sources["rules"], now)
@@ -637,11 +610,9 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 		// The daemon observes Order Integrity from this same read. The app does
-		// not run a parallel order-mismatch watch; the composed candidate
 		// snapshot below is the only alert input.
 		_, _ = s.client.OrdersOpen(ctx, rpc.OrdersOpenParams{})
 		// Stress, Rulebook, and Order Integrity have now all observed this
-		// cycle. Read their composed source-neutral snapshot without a second
 		// broker evaluation or a full-cycle lag.
 		if alertClient, ok := s.client.(alertCandidateClient); ok {
 			alertSnapshot, source, err := s.pollAlertCandidates(ctx, alertClient, now)
@@ -656,7 +627,6 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 		// The brief composes stress and other daily-discipline inputs, so it
-		// shares this one-minute cadence instead of the five-second app poll.
 		if brief, err := s.client.Brief(ctx); err != nil {
 			errors = append(errors, sourceErr("brief", err, now))
 			snap.Sources["brief"] = sourceUnavailable(snap.Sources["brief"], now)
@@ -698,7 +668,6 @@ func (s *Service) pollAlertCandidates(ctx context.Context, client alertCandidate
 	s.alertMu.Lock()
 	defer s.alertMu.Unlock()
 	// Reserve observation order before the RPC. Otherwise the freshness guard
-	// can persist a later synthetic AsOf while this producer read is in flight.
 	snapshot, err := client.AlertCandidates(ctx)
 	s.mu.Lock()
 	prior := cloneAlertCandidateSnapshot(s.snapshot.AlertCandidates)
@@ -963,8 +932,6 @@ func liveMarketEventSymbols(positions *rpc.PositionsResult) []string {
 
 // publishSnapshot commits one mid-poll snapshot and returns a separate working
 // copy for the rest of the poll. The published value must not share map fields
-// with that working copy: the caller keeps writing source metadata while SSE
-// subscribers marshal what was already published.
 func (s *Service) publishSnapshot(now time.Time, snap Snapshot, errors []SourceError, events []Event) Snapshot {
 	s.mu.Lock()
 	snap.UpdatedAt = now
@@ -1463,7 +1430,6 @@ func (s *Service) expireAlertSnapshot(now time.Time) {
 
 // Snapshot returns a cloned cache view without performing daemon RPC. It ages
 // source metadata at read time and may fail-close an expired alert-candidate
-// snapshot through the configured app store.
 func (s *Service) Snapshot() Snapshot {
 	now := s.now().UTC()
 	s.expireAlertSnapshot(now)
@@ -1529,17 +1495,7 @@ func staleAlertCandidateSnapshot(now time.Time, snapshot *rpc.AlertCandidateSnap
 	return out
 }
 
-// Diagnostics returns copied subscriber and publication metadata.
-func (s *Service) Diagnostics() Diagnostics {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	last := make(map[string]time.Time, len(s.lastEventAt))
-	maps.Copy(last, s.lastEventAt)
-	return Diagnostics{Subscribers: len(s.subs), LastEventAt: last, Version: s.snapshot.Version}
-}
-
 // Subscribe registers a bounded best-effort event channel and returns an
-// idempotent release function that unregisters and closes it. Slow subscribers
 // may miss events and must resynchronize from [Service.Snapshot].
 func (s *Service) Subscribe() (<-chan Event, func()) {
 	ch := make(chan Event, 32)
@@ -1597,7 +1553,6 @@ func sourceErr(source string, _ error, at time.Time) SourceError {
 	// Errors originate at broker, transport, and daemon boundaries and are
 	// therefore untrusted browser input. Preserve the source and observation
 	// time for operator diagnostics, but expose only a stable allowlisted
-	// message on the app snapshot. Raw causes belong in local logs.
 	return SourceError{Source: source, Message: "Source temporarily unavailable.", At: at}
 }
 

@@ -14,24 +14,10 @@ import (
 )
 
 // expiryGridStore keeps the last successfully fetched classed
-// expiry/strike grid per underlying so the gamma compute can survive a
-// sec-def data-farm outage. reqSecDefOptParams has no cache anywhere in
 // the stack; when IBKR's secdefil farm broke at 09:33 ET on 2026-06-09
-// (code 2157), every SPX compute of the day died at the expiries fetch
-// and the canonical dealer-gamma signal stayed degraded until the next
-// session. A grid from any recent prior session is perfectly
-// serviceable: the expiry-selection logic re-applies date and
 // settlement-cutoff filters at compute time, so a stale grid only loses
 // dailies listed since the snapshot — never produces an already-settled
-// pick.
-//
-// Layering mirrors gammaOpenInterestStore: in-memory map in front,
-// JSON-per-symbol files behind (same cache dir as the gamma-zero
-// result store), lazy disk reads. The fallback path is the ONLY
-// consumer — a successful live fetch always wins, so this cache can
 // never serve stale data while the gateway is healthy. Persistence
-// matters because the June 9 daemon restarted mid-outage; a memory-only
-// grid would not have survived to help.
 type expiryGridStore struct {
 	dir       string // sealed legacy cache; never used after UseCoreStore
 	authority *corestore.Store
@@ -39,8 +25,6 @@ type expiryGridStore struct {
 	mu  sync.Mutex
 	mem map[string]expiryGridEntry
 	// diskChecked marks symbols whose file was already read (or found
-	// absent) so repeated fallbacks during one outage don't re-stat the
-	// disk on every compute.
 	diskChecked map[string]bool
 }
 
@@ -51,7 +35,6 @@ type expiryGridEntry struct {
 
 // expiryGridPersistEnvelope is the on-disk shape. Version bumps on
 // incompatible changes; the classed map reuses the wire type the
-// connector returns so load → use needs no conversion.
 type expiryGridPersistEnvelope struct {
 	Version int                                       `json:"version"`
 	Symbol  string                                    `json:"symbol"`
@@ -72,9 +55,6 @@ func expiryGridAuthorityScope(sym string) string {
 }
 
 // gammaExpiryGridMaxAge bounds how old a fallback grid may be. Five
-// calendar days covers a long weekend plus a full-day outage; CBOE
-// lists SPX dailies weeks out, so even the oldest acceptable grid
-// still contains today's near expiries.
 const gammaExpiryGridMaxAge = 5 * 24 * time.Hour
 
 func newExpiryGridStore(dir string) *expiryGridStore {
@@ -103,15 +83,7 @@ func (g *expiryGridStore) UseCoreStore(store *corestore.Store) error {
 }
 
 // noteFetched records a successful live fetch, in memory and on disk.
-// Nil-safe receiver so the compute path needs no store wiring in tests.
-//
-// Poisoning guard: fetchOptionExpiriesData returns partial frames as
-// success when the end marker times out, so a flapping farm can hand
-// over a grid with a handful of dates. Accepting that would overwrite
-// a good grid and then serve the husk as the fallback for days. A new
 // grid only replaces the held one when it has at least half as many
-// dates — generous enough for legitimate shrinkage (an expiry rolling
-// off), strict enough to reject single-exchange fragments.
 func (g *expiryGridStore) noteFetched(sym string, classed map[string][]ibkrlib.ExpiryClassedStrikes, now time.Time) error {
 	if g == nil || len(classed) == 0 {
 		return nil
@@ -134,8 +106,6 @@ func (g *expiryGridStore) noteFetched(sym string, classed map[string][]ibkrlib.E
 }
 
 // fallback returns the freshest known grid for sym when it is no older
-// than gammaExpiryGridMaxAge. Memory first, then a lazy one-time disk
-// read. Nil-safe receiver.
 func (g *expiryGridStore) fallback(sym string, now time.Time) (map[string][]ibkrlib.ExpiryClassedStrikes, time.Time, bool) {
 	if g == nil {
 		return nil, time.Time{}, false
@@ -154,7 +124,6 @@ func (g *expiryGridStore) fallback(sym string, now time.Time) (map[string][]ibkr
 }
 
 // heldLocked returns the in-memory entry, hydrating it from disk on the
-// first miss. Caller holds g.mu.
 func (g *expiryGridStore) heldLocked(sym string) (expiryGridEntry, bool) {
 	if entry, ok := g.mem[sym]; ok {
 		return entry, true
@@ -176,8 +145,6 @@ func (g *expiryGridStore) heldLocked(sym string) (expiryGridEntry, bool) {
 		data, err = os.ReadFile(filepath.Join(g.dir, expiryGridFilename(sym)))
 		if err != nil {
 			// Missing file is the normal cold case; read errors degrade to
-			// "no fallback available" — the caller already holds the live
-			// fetch error, which is the one worth surfacing.
 			return expiryGridEntry{}, false
 		}
 	}
@@ -194,8 +161,6 @@ func (g *expiryGridStore) heldLocked(sym string) (expiryGridEntry, bool) {
 }
 
 // writeAtomicLocked mirrors gammaZeroStore.writeAtomic — per the
-// convention there, the small duplication is preferred over a generic
-// shared store layer. Caller holds g.mu.
 func (g *expiryGridStore) writeAtomicLocked(sym string, env expiryGridPersistEnvelope) error {
 	if g.authority != nil {
 		payload, err := json.Marshal(env)
@@ -260,17 +225,12 @@ func expiryGridFilename(sym string) string {
 }
 
 // expiryGridFallbackInfo travels from buildPickedExpirations back to
-// the compute when the picked expirations came from the cache rather
-// than a live fetch: the grid's age feeds the expiries_stale warning
-// and the live error is preserved for the log line.
 type expiryGridFallbackInfo struct {
 	asOf    time.Time
 	liveErr error
 }
 
 // staleDays buckets the grid age into whole days (minimum 1) for the
-// warning code — coarse on purpose so semantically identical runs keep
-// identical warning strings.
 func (f *expiryGridFallbackInfo) staleDays(now time.Time) int {
 	if f == nil {
 		return 0

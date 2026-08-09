@@ -2,13 +2,7 @@
 #
 # release-smoke.sh - run the release JSON contract checks and wire-level
 # invariants against one isolated reachable TWS/Gateway daemon.
-#
 # This folds the release path's former `release-verify` + `smoke-only`
-# sequence into a single daemon session. That keeps the same quality
-# gates while avoiding the second daemon bounce, second TWS client-ID
-# cooldown, and duplicate command matrix.
-#
-# Usage:
 #   scripts/release-smoke.sh <bin-path> <expected-version> <wire-assert-path>
 
 set -euo pipefail
@@ -85,7 +79,6 @@ run_cli() {
     if (( rc != 0 )); then
         # timeout(1) reports 124 for a deadline kill; keep that distinct from
         # the command's own failure — the two have different remedies and the
-        # merged wording sent the 2026-08-02/03 fire forensics chasing both.
         local why="exited rc=$rc"
         if (( rc == 124 )); then
             why="timed out at ${timeout_seconds}s"
@@ -143,8 +136,6 @@ assert_wire() {
 echo "release-smoke: smoke matrix against $BIN expecting $EXPECTED"
 
 # Version is offline and cheap; fail here before probing TWS so an
-# accidentally dirty or unstamped binary is obvious even on a laptop
-# without a gateway.
 echo "  [1] version stamp..."
 version_json="$(run_cli version "$JSON_TIMEOUT" version --json)"
 actual_version="$(json_field version "$version_json")"
@@ -211,7 +202,6 @@ export CANARY_SOCKET="$SOCKET"
 export CANARY_LOG="$LOG"
 export CANARY_CONFIG="$CONFIG"
 # Isolated trading state: marks, journals, and tokens must not touch the
-# user's canonical daemon state (nor inherit it — a false inactive mark
 # in operator state failed the v1.15.0 release smoke, 2026-07-08).
 export XDG_STATE_HOME="$SMOKE_DIR/state"
 export XDG_CACHE_HOME="$SMOKE_DIR/cache"
@@ -348,10 +338,6 @@ case "$data_type" in
         ;;
 esac
 # Quote snapshots intentionally share the daemon's refcounted SPY line with
-# startup gamma/regime prewarm when it already exists. Validate the command's
-# JSON above, then scan the isolated daemon's boot window for the underlying
-# SPY STK market-data request instead of requiring a duplicate request inside
-# this command's byte slice.
 assert_wire quote-spy "$boot_offset"
 
 echo "  [4] account.summary..."
@@ -360,13 +346,7 @@ echo "  [4] account.summary..."
 # accountSnapshotFreshFor), so Rulebook, Canary, brief, app, and CLI reads
 # arriving together cost one reqAccountSummary instead of a burst. An
 # `canary account` issued seconds after the boot/status read is therefore
-# served from that snapshot and emits no request of its own.
-#
-# Unlike the shared SPY line above — a live subscription whose data keeps
 # flowing — this is a time-boxed cache, and a cache is exactly what can go
-# silently stale. So this step does NOT widen its scan to the boot window:
-# it waits the snapshot out, which keeps the per-command assertion honest
-# and additionally proves the snapshot expires instead of serving forever.
 account_fresh_secs="$(sed -n 's/^const accountSnapshotFreshFor = \([0-9][0-9]*\) \* time\.Second$/\1/p' \
     "$SCRIPT_DIR/../internal/daemon/account_authority.go" 2>/dev/null || true)"
 if [[ -z "$account_fresh_secs" ]]; then
@@ -376,17 +356,10 @@ fi
 account_wait=$((account_fresh_secs + 3))
 # The daemon's account P&L monitor refreshes the snapshot on its own cadence
 # (accountPnLMonitorEvery, 15s — the same length as the freshness window), so
-# a read issued after the expiry wait is routinely served by a periodic
-# refresh that landed moments before it, and emits no request of its own.
-# Anchoring the assertion window after the wait therefore starves it against
-# perfectly healthy wire traffic — both v2.6.2 fire aborts (2026-08-02) died
 # here, and a preserved-scratch reproduction showed reqAccountSummary every
-# ~30s with a serve-time as_of and zero frames after the post-wait offset.
-# The window now opens BEFORE the wait: the wait exceeds the freshness bound,
 # so serving fresh at the read requires at least one reqAccountSummary inside
 # the window. A wedged one-shot path and a cache serving forever both still
 # fail, and the response's own as_of is bounded below so stale data cannot
-# ride an unrelated frame through the window.
 account_window_offset="$(wire_offset)"
 echo "    waiting ${account_wait}s for the shared account snapshot to expire..."
 sleep "$account_wait"
@@ -466,18 +439,9 @@ fi
 echo "    $breadth_check"
 
 # Steps [7]/[8] restore the regime and chain coverage that 73cf1e4 removed,
-# without the deliberate mid-fan-out contention repro that made them flaky:
-# both reads prefer a session whose primary-client startup computes have
 # drained. The settle watches only the tasks that share the primary client's
-# request queue — gamma-zero's option-board fan-out and the regime prewarm.
-# breadth-spx is deliberately NOT watched: it runs on its own gateway client
 # (breadth_client_id), so it never queues ahead of an interactive read, and
 # its 503-name sweep outlasts any budget a release should sit on — the
-# 2026-08-03 22:31 CEST green fire burned the full 480s+60s budgets against
-# it and every read then passed unsettled, because the interactive-priority
-# fix (9b5ad15) stops small reads starving behind background work anyway.
-# The wait is event-driven: it returns the moment the watched tasks drain,
-# and a session still draining past the budget is slow rather than broken —
 # the reads go ahead with the remaining tasks named. Only a status surface
 # we cannot read stops the release here.
 SETTLE_TASKS="gamma-zero regime-prewarm"
@@ -491,8 +455,6 @@ run_wire_cli regime_1 30 regime --json
 regime_json_1="$LAST_CMD_OUTPUT"
 # Regime also shares market-data lines with startup prewarm and earlier quote
 # probes. The JSON checks below pin the command result; the wire invariant is
-# scoped to the isolated daemon session so shared SPY/HYG subscriptions do not
-# look like missing fan-out.
 assert_wire regime-subs "$boot_offset"
 run_wire_cli regime_2 30 regime --json
 regime_json_2="$LAST_CMD_OUTPUT"
@@ -557,7 +519,6 @@ if ! release_smoke_settle_or_fail release_status_provider "$SETTLE_TASKS" 30 cha
 fi
 # The listing call gets its own loud, fatal guard. The previous shape —
 # CLI | awk | head | tail inside a set -euo pipefail substitution with stderr
-# discarded — died silently on a nonzero CLI exit (and could die on head's
 # SIGPIPE), before its own FAIL diagnostic was reachable: the v2.6.2 fire of
 # 2026-08-02 21:38 CEST ended exactly there, with nothing on the record but
 # the cleanup dump. Failure stays fatal in every case; it now says why.
@@ -578,7 +539,6 @@ if [[ -z "$expiries" ]]; then
 fi
 run_wire_cli chain-iv "$WIRE_TIMEOUT" chain SPY --expiry "$expiries" --width 1 --side both --json
 # The response decides the check when the daemon needed no new subscribe
-# because a concurrent gamma prewarm already holds the board.
 CHAIN_ENV="$SMOKE_DIR/chain-iv-envelope.json"
 printf '%s' "$LAST_CMD_OUTPUT" > "$CHAIN_ENV"
 assert_wire chain-iv-source "$LAST_WIRE_OFFSET" "$CHAIN_ENV"

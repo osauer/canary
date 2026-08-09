@@ -7,7 +7,6 @@ import (
 )
 
 // Lifecycle stages, timing classes, and fingerprint stability are the stable
-// vocabulary used by regime and Stress monitor projections.
 const (
 	LifecycleQuiet           = "quiet"
 	LifecycleEarlyWarning    = "early_warning"
@@ -26,7 +25,6 @@ const (
 )
 
 // Source-health statuses distinguish complete observations from partial,
-// stale, unknown, and degraded evidence.
 const (
 	SourceStatusOK       = "ok"
 	SourceStatusPartial  = "partial"
@@ -45,9 +43,6 @@ const (
 )
 
 // LifecycleState is the stable monitor/orchestration surface for regime and
-// Stress payloads. Stage is intentionally a small state machine, while
-// Evidence preserves weak/unconfirmed inputs without letting them dominate the
-// trigger.
 type LifecycleState struct {
 	Stage       string              `json:"stage,omitempty"`
 	Scope       string              `json:"scope,omitempty"`
@@ -61,9 +56,6 @@ type LifecycleState struct {
 	Suppressed  []string            `json:"suppressed,omitempty"`
 	RejectedBy  []string            `json:"rejected_by,omitempty"`
 	// Governors discloses every policy downgrade applied after stage
-	// selection (provenance gate, evidence-keyed quality cap). Nothing is
-	// silently weakened: when severity reads lower than the stage suggests,
-	// this is where the reason lives.
 	Governors    []GovernorAction `json:"governors,omitempty"`
 	Fingerprint  Fingerprint      `json:"fingerprint,omitzero"`
 	NotExecution string           `json:"not_execution,omitempty"`
@@ -71,9 +63,7 @@ type LifecycleState struct {
 
 // GovernorAction is one disclosed policy downgrade. Reasons are stable
 // tokens: "pending_backtest_no_tape_cosign" (heuristic threshold sets
-// confirmed the stage but no fresh tape co-signature was present) and
 // "confirming_cluster_quality" (a confirming cluster's data quality is
-// stale/partial/degraded).
 type GovernorAction struct {
 	Action   string   `json:"action"`
 	From     string   `json:"from,omitempty"`
@@ -83,7 +73,6 @@ type GovernorAction struct {
 }
 
 // LifecycleEvidence is one classified input to a lifecycle decision. Confirmed
-// distinguishes qualifying evidence from context retained for explanation.
 type LifecycleEvidence struct {
 	Source    string `json:"source,omitempty"`
 	Signal    string `json:"signal,omitempty"`
@@ -94,8 +83,6 @@ type LifecycleEvidence struct {
 }
 
 // SourceHealth is the source-level freshness and confidence contract for
-// scheduled monitors. FingerprintStability says why downstream dedupe should
-// key off Fingerprint rather than wall-clock AsOf churn.
 type SourceHealth struct {
 	Source               string       `json:"source"`
 	Status               string       `json:"status"`
@@ -106,7 +93,6 @@ type SourceHealth struct {
 	Fingerprint          *Fingerprint `json:"fingerprint,omitempty"`
 	FingerprintStability string       `json:"fingerprint_stability,omitempty"`
 	// RefreshState separates source scheduling from evidence quality. A
-	// source can be not_due with no current negative, or stale because a due
 	// fetch failed and is waiting for its bounded retry.
 	RefreshState string     `json:"refresh_state,omitempty"`
 	NextAttempt  *time.Time `json:"next_attempt,omitempty"`
@@ -118,8 +104,6 @@ type SourceHealth struct {
 
 // SourceFailure identifies where and how the most recent source attempt
 // failed without carrying untrusted upstream text. FailedAt and Retryable are
-// scheduling context; Code and Stage are stable semantic values suitable for
-// persistence, rendering, and fingerprints.
 type SourceFailure struct {
 	Code      string    `json:"code"`
 	Stage     string    `json:"stage"`
@@ -165,7 +149,6 @@ const (
 
 // ValidSourceFailure enforces the shared allowlist. Persistence and adapters
 // call this before accepting a failure so upstream prose cannot masquerade as
-// a typed code or stage.
 func ValidSourceFailure(f *SourceFailure) bool {
 	if f == nil {
 		return true
@@ -200,7 +183,6 @@ func ValidSourceFailure(f *SourceFailure) bool {
 }
 
 // Source-refresh states describe scheduler progress separately from the
-// observation's evidence quality.
 const (
 	SourceRefreshCurrent            = "current"
 	SourceRefreshNotDue             = "not_due"
@@ -210,20 +192,9 @@ const (
 )
 
 // BuildRegimeLifecycle classifies broad-market-only regime evidence into the
-// stress lifecycle used by downstream orchestration. It does not look at
 // account, position, margin, or execution state.
-//
 // Confirmation policy (internal-docs/design/regime-calibration.md): only ELIGIBLE
-// reds — deep, persistent, cadence-fresh evidence per the shared gates —
-// count toward confirmed_stress/panic and confirmed_by. Provisional reds
 // stay visible and land in unconfirmed. They drive early_warning only while
-// the required input set is usable; broken or overdue evidence produces an
-// explicit data_quality state instead of masquerading as a market warning.
-// Independently current confirmed stress/panic is preserved even when an
-// unrelated source is impaired. A severity governor then applies the provenance gate (heuristic
-// pending_backtest evidence without a tape co-signature is capped one rung
-// down) and the evidence-keyed quality cap, disclosing every downgrade in
-// Governors.
 func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	if r == nil {
 		return LifecycleState{Stage: LifecycleDataQuality, Scope: "market", Severity: "watch", Readiness: "blocked", Timing: LifecycleTimingDataQuality, Confidence: "low"}
@@ -319,7 +290,6 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 
 // regimeLifecycleHasIndependentCurrentStress permits a stress/panic stage to
 // survive an unrelated broken input only when the stage has its own current
-// confirmation. A tape panic is self-confirming; cluster-driven confirmation
 // survives only when none of its confirming clusters is impaired.
 func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands) bool {
 	if state.Stage != LifecycleConfirmedStress && state.Stage != LifecyclePanic {
@@ -355,8 +325,6 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 }
 
 // regimeClusterTally is the lifecycle's working view of the combined cluster
-// bands. red/yellow/green count CONFIRMED bands; eligibleRed and
-// provisionalRed split the raw reds by confirmation eligibility.
 type regimeClusterTally struct {
 	ranked         int
 	green          int
@@ -392,22 +360,16 @@ func tallyRegimeClusters(cb RegimeClusterBands) regimeClusterTally {
 
 // atLeastYellow counts confirmed clusters at yellow or worse. Lower-bound
 // corroboration counts must use it rather than yellow alone: a cluster that
-// deteriorates from yellow to red would otherwise leave the yellow bucket and
-// quiet the stage.
 func (t regimeClusterTally) atLeastYellow() int {
 	return t.yellow + t.red
 }
 
 // applyRegimeSeverityGovernor applies, in order, the provenance gate and the
-// evidence-keyed quality cap. Pure-tape panic (SPY ≤ −4% / −7%) is exempt
-// from both — the tape is its own co-signature and its own evidence quality.
 func applyRegimeSeverityGovernor(state *LifecycleState, r *RegimeSnapshotResult, tally regimeClusterTally) {
 	if state.Stage != LifecycleConfirmedStress && state.Stage != LifecyclePanic {
 		return
 	}
 	// The exemption requires a confirmable tape: a frozen closed-date print
-	// is neither its own co-signature nor its own evidence quality, so a
-	// cluster-driven panic on a closed date stays governable.
 	tapePanic := state.Stage == LifecyclePanic && regimeLifecycleSPYTapeCurrent(*r) && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0)
 	pending := regimePendingBacktestClusters(r, state.ConfirmedBy)
 	if len(pending) > 0 && !tapePanic && !regimeTapeCosign(r) {
@@ -458,11 +420,6 @@ func severityRank(severity string) int {
 }
 
 // regimeTapeCosign reports whether the tape itself corroborates stress in
-// this snapshot: SPY down 1.5%+, VIX up 10%+, or a fresh same-session
-// VIX-term inversion. While threshold sets are pending_backtest, "act"
-// requires one of these as the second witness. The SPY/VIX change arms
-// (arms 1-2) require a confirmable tape — a frozen closed-date print cannot
-// co-sign. Arm 3 keeps its own status gate unchanged.
 func regimeTapeCosign(r *RegimeSnapshotResult) bool {
 	if regimeLifecycleSPYTapeCurrent(*r) && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) {
 		return true
@@ -474,22 +431,13 @@ func regimeTapeCosign(r *RegimeSnapshotResult) bool {
 }
 
 // regimeTapeConfirmable reports whether direct SPY/VIX day-change prints may
-// enter or hold tape-driven lifecycle terms for this snapshot. On an official
-// closed date (weekend/holiday per TapeSessionFor) the day-change anchors are
-// frozen last-session values, so tape terms evaluate as not firing; the
-// cluster-driven terms are untouched. Empty state — outside embedded calendar
 // coverage, or a builder that never stamped the session — fails open to full
 // effect, so historical replay and older corpora behave exactly as before.
-// Weekday pre/post/overnight prints are live (VIX prints overnight on
-// weekdays) and keep full effect by design.
 func regimeTapeConfirmable(r RegimeSnapshotResult) bool {
 	return r.TapeSessionState != TapeSessionClosedDate
 }
 
 // regimePendingBacktestClusters returns the confirming clusters whose red
-// rows classify on threshold sets still flagged pending_backtest. The flag
-// finally becomes load-bearing here: per-set promotion with versioned
-// calibration evidence relaxes the gate without policy edits.
 func regimePendingBacktestClusters(r *RegimeSnapshotResult, confirmedBy []string) []string {
 	var out []string
 	for _, name := range confirmedBy {
@@ -504,9 +452,6 @@ func regimePendingBacktestClusters(r *RegimeSnapshotResult, confirmedBy []string
 }
 
 // regimeImpairedConfirmingClusters returns confirming clusters whose source
-// health or typed data-quality row is non-current — the evidence-keyed
-// readiness cap and the independent-confirmation gate.
-// Deliberately scoped to the CONFIRMING clusters: one dead unrelated feed
 // must not mute a fresh multi-cluster confirmation.
 func regimeImpairedConfirmingClusters(r *RegimeSnapshotResult, confirmedBy []string) []string {
 	var out []string
@@ -573,7 +518,6 @@ func regimeClusterNamesWithBand(bands []string, want string) []string {
 }
 
 // BuildRegimePosture derives a stable display posture from the daemon-authored
-// snapshot. A nil snapshot produces a blocked data-quality posture.
 func BuildRegimePosture(r *RegimeSnapshotResult) RegimePosture {
 	if r == nil {
 		return RegimePosture{
@@ -603,9 +547,6 @@ func BuildRegimePosture(r *RegimeSnapshotResult) RegimePosture {
 }
 
 // regimePostureTone maps the unified headline + lifecycle state to the display
-// tone. Stage keeps the condition label honest, while severity owns urgency:
-// governed confirmed stress with severity watch remains an amber watch so red
-// stays available for act-grade stress and true risk-off conditions.
 func regimePostureTone(c RegimeComposite, lifecycle LifecycleState) string {
 	label := RegimeHeadline(c, lifecycle.Stage)
 	if label == "Full risk-off conditions" {
@@ -677,7 +618,6 @@ func regimeLifecycleReadinessDegraded(readiness string) bool {
 }
 
 // BuildRegimeSourceHealth derives per-cluster freshness and confidence. It
-// returns nil for a nil snapshot; nil therefore means unavailable, not healthy.
 func BuildRegimeSourceHealth(r *RegimeSnapshotResult, now time.Time) []SourceHealth {
 	if r == nil {
 		return nil
@@ -711,9 +651,6 @@ func BuildRegimeSourceHealth(r *RegimeSnapshotResult, now time.Time) []SourceHea
 		refreshState := ""
 		if class, scheduled := RegimeClusterScheduledContext(*r, row.name); scheduled {
 			// Keep the raw row stale for evidence honesty, but normalize the
-			// aggregate source state: no newer observation is being served
-			// because the window is closed (not_due) or its refresh is in
-			// flight inside a bounded window (pending).
 			status = SourceStatusOK
 			refreshState = SourceRefreshNotDue
 			if class == RegimeFreshnessPending {
@@ -735,11 +672,6 @@ func BuildRegimeSourceHealth(r *RegimeSnapshotResult, now time.Time) []SourceHea
 }
 
 // RegimeSourceMaxAgeSeconds is the served per-cluster staleness policy for
-// the cluster's weakest-leg as_of: older than this is unambiguously overdue.
-// Wall-clock documentation values sized to each cluster's slowest native
-// cadence (VVIX daily close over a weekend, FRED publication lag, a Friday
-// gamma compute read on Monday pre-open); the binding eligibility gate uses
-// trading-date logic daemon-side. Served so renderers derive their stale
 // badges from the wire instead of hardcoding twins.
 func RegimeSourceMaxAgeSeconds(source string) int64 {
 	const day = int64(24 * 60 * 60)
@@ -762,15 +694,12 @@ func RegimeSourceMaxAgeSeconds(source string) int64 {
 }
 
 // BuildLifecycleFingerprint returns a semantic identity that ignores
-// continuous values and wall-clock churn while retaining classified changes.
 func BuildLifecycleFingerprint(state LifecycleState) Fingerprint {
 	return lifecycleFingerprint(state)
 }
 
 func lifecycleFingerprint(state LifecycleState) Fingerprint {
 	// Governors enter the projection as action:reason tokens only — never
-	// ages, depths, or other continuous values, which would churn the
-	// fingerprint (and downstream alert dedupe) without a semantic change.
 	governors := make([]string, 0, len(state.Governors))
 	for _, g := range state.Governors {
 		governors = append(governors, strings.ToLower(strings.TrimSpace(g.Action))+":"+strings.ToLower(strings.TrimSpace(g.Reason)))
@@ -803,15 +732,11 @@ func lifecycleFingerprint(state LifecycleState) Fingerprint {
 		Governors:   cleanSorted(governors),
 	}
 	// lifecycle-fp-v2: eligibility-aware evidence (Confirmed now means
-	// eligible-confirmed) + governors. The version bump re-fires active
-	// alerts once on upgrade — accepted and changelog-noted.
 	return semanticFingerprint("lifecycle-fp-v2", projection)
 }
 
 // regimeLifecyclePanic: three deep/fresh/persistent independent reds, or
 // tape-grade crashes. Eligible reds only — provisional evidence never
-// reaches the panic tally. Tape arms require a confirmable session: a frozen
-// closed-date print cannot enter (or, on re-evaluation, hold) panic.
 func regimeLifecyclePanic(r RegimeSnapshotResult, t regimeClusterTally) bool {
 	if t.eligibleRed >= 3 {
 		return true
@@ -833,8 +758,6 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 
 // regimeLifecycleEarlyWarning is the home of provisional reds: any raw red
 // (eligible or not) warns immediately, even though only eligible reds may
-// confirm. The direct tape triggers require a confirmable session; cluster
-// evidence warns on any date.
 func regimeLifecycleEarlyWarning(r RegimeSnapshotResult, t regimeClusterTally, unconfirmed []string) bool {
 	return t.eligibleRed+t.provisionalRed >= 1 ||
 		t.red >= 1 ||
@@ -846,8 +769,6 @@ func regimeLifecycleEarlyWarning(r RegimeSnapshotResult, t regimeClusterTally, u
 }
 
 // Opportunity and stabilization are tape-driven recovery stages: a frozen
-// closed-date rally print is last session's news, so neither stage is
-// enterable on a closed date and the machine reads quiet instead.
 func regimeLifecycleOpportunity(r RegimeSnapshotResult, t regimeClusterTally) bool {
 	return t.red == 0 &&
 		t.yellow <= 1 &&
@@ -877,24 +798,10 @@ func regimeLifecycleConfidence(t regimeClusterTally) string {
 }
 
 // RegimeCurrencyBlankFloor is how many clusters may be defective or impaired
-// before the whole market state blanks to data_quality instead of standing with
-// degraded readiness. One dead or stale feed degrades and is named; two
-// independent ones mean the read no longer describes the market. Operator
-// decision, 2026-07-31: the tolerance was set for defects, and applies to the
-// impaired grade too because two clusters that cannot supply current evidence
-// leave the same hole whichever grade got them there.
 const RegimeCurrencyBlankFloor = 2
 
 // regimeLifecycleInputVerdict classifies every input defect once, by cluster,
-// so the lifecycle can ask whether the defect touches what it is claiming
-// rather than blanking on any defect anywhere.
-//
-// Defects are fatal-grade: an overdue or untyped unit, or a typed data-quality
-// row that is not an exempt scheduled state. Impairments are degrade-grade: a
-// stale unit, or a cluster whose evidence is stale but present. A defect that
 // cannot be attributed to one of the six clusters — authority health, a
-// surface-wide degradation — is global and always blanks: it describes the
-// publication itself, not one input.
 type regimeLifecycleInputs struct {
 	defects  []string
 	impaired []string
@@ -929,8 +836,6 @@ func regimeLifecycleInputVerdict(r RegimeSnapshotResult) regimeLifecycleInputs {
 		}
 		for _, name := range item.DegradedClusters {
 			// A cluster degraded only by its own publication cadence, while its
-			// currency is a scheduled state, is not an input defect: it is the
-			// schedule. Anything else — coverage, model, OI, entitlement — still
 			// fails closed.
 			if regimeClusterCadenceOnlyDegraded(r, name) {
 				continue
@@ -977,7 +882,6 @@ func regimeLifecycleInputVerdict(r RegimeSnapshotResult) regimeLifecycleInputs {
 }
 
 // regimeSourceHealthGrade grades the cluster's aggregate source contract, which
-// the row currency does not cover: a missing health row is untyped evidence and
 // fails closed, an age past the served policy is overdue however the rows read,
 // and a failed or unknown refresh state is a gap.
 func regimeSourceHealthGrade(r RegimeSnapshotResult, name string) string {
@@ -993,7 +897,6 @@ func regimeSourceHealthGrade(r RegimeSnapshotResult, name string) string {
 	case SourceStatusOK:
 	case SourceStatusStale:
 		// A scheduled cluster serves its last publication on purpose; the
-		// aggregate reading stale is the schedule, not a gap.
 		if !isScheduled {
 			return RegimeCurrencyGradeDegrade
 		}
@@ -1003,8 +906,6 @@ func regimeSourceHealthGrade(r RegimeSnapshotResult, name string) string {
 	refresh := strings.ToLower(strings.TrimSpace(health.RefreshState))
 	if isScheduled {
 		// The typed contract must agree with itself: a cluster whose currency
-		// is a scheduled state and whose scheduler says otherwise is not
-		// evidence anyone can reason about.
 		if (scheduled == RegimeFreshnessNotDue && refresh == SourceRefreshNotDue) ||
 			(scheduled == RegimeFreshnessPending && refresh == SourceRefreshPending) {
 			return RegimeCurrencyGradeNone
@@ -1026,10 +927,6 @@ func regimeClusterKnown(name string) bool {
 }
 
 // regimeClusterCadenceOnlyDegraded reports a degraded cluster whose only
-// blocker is its own publication cadence while its currency is a scheduled
-// state. Gamma at the options open is the case this exists for: a
-// current-session compute is in flight, so the served prior-session result is
-// rankability-blocked on session mismatch alone.
 func regimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if _, scheduled := RegimeClusterScheduledContext(r, name); !scheduled {
@@ -1042,17 +939,12 @@ func regimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool 
 }
 
 // regimeLifecycleStageEvidenceCurrent reports whether the stage stands on its
-// own current evidence. This generalizes the confirmed-stress escape hatch to
-// every stage: a defect elsewhere degrades the read, a defect in what the stage
-// is claiming blanks it.
 func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands, inputs regimeLifecycleInputs) bool {
 	switch state.Stage {
 	case LifecycleConfirmedStress, LifecyclePanic:
 		return regimeLifecycleHasIndependentCurrentStress(state, r, cb)
 	case LifecycleEarlyWarning:
 		// A warning needs at least one non-defective cluster carrying the
-		// visible evidence, or a current tape arm. An overdue red is not a
-		// market warning — it is missing evidence, and stays data_quality.
 		for i, name := range RegimeClusterNames {
 			if i >= len(cb.Raw) || (cb.Raw[i] != "red" && cb.Raw[i] != "yellow") {
 				continue
@@ -1065,8 +957,6 @@ func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotR
 			(regimeLifecycleVIXTapeCurrent(r) && pctAtLeast(r.VIXTermStructure.VIXChangePct, 10.0))
 	default:
 		// quiet, opportunity, and stabilization claim an absence. There is no
-		// single witness to check; the tolerated-defect count is what sizes
-		// how much darkness an absence claim survives.
 		return true
 	}
 }
@@ -1102,21 +992,10 @@ func regimeLifecycleClusterRows(r RegimeSnapshotResult, name string) []regimeLif
 }
 
 // RegimeClusterScheduledContext reports a cluster whose non-fresh currency is
-// a scheduled publication state rather than a defect, and which state it is:
-//
-//   - not_due — the source's publication window is closed, so no newer
-//     observation can exist yet.
-//   - pending — the current period's refresh is in flight, evidenced by a
-//     typed marker, inside a bounded window anchored to the period start.
-//
 // It is the single exact-cluster exemption used by source health, data-quality
 // projection, warnings, and lifecycle readiness. Every caller must consult the
-// pair through this function rather than one class alone: the two states carry
 // identical authority (visible context, never confirmation) and differ only in
-// why no newer observation is being served. Malformed, partial, stale, and
 // overdue clusters still fail closed, and the currency roll-up has already
-// applied the served max-age bound, so a dead subscription cannot hold a
-// scheduled state open indefinitely.
 func RegimeClusterScheduledContext(r RegimeSnapshotResult, name string) (string, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	class := RegimeClusterCurrency(r, name)
@@ -1154,14 +1033,6 @@ func RegimeClusterScheduledContext(r RegimeSnapshotResult, name string) (string,
 	return class, true
 }
 
-// RegimeClusterExpectedNotDue reports the closed-window half of the scheduled
-// pair. Prefer RegimeClusterScheduledContext unless the caller genuinely means
-// "the window is closed" rather than "no newer observation is being served".
-func RegimeClusterExpectedNotDue(r RegimeSnapshotResult, name string) bool {
-	class, ok := RegimeClusterScheduledContext(r, name)
-	return ok && class == RegimeFreshnessNotDue
-}
-
 func regimeLifecycleRowCurrent(row regimeLifecycleRequiredRow) bool {
 	return strings.EqualFold(strings.TrimSpace(row.status), RegimeStatusOK) &&
 		row.freshness != nil && row.freshness.Class == RegimeFreshnessFresh
@@ -1188,10 +1059,7 @@ func regimeLifecycleClusterInDataQuality(r RegimeSnapshotResult, name string) bo
 }
 
 // regimeLifecycleClusterCurrent is the strict, cluster-scoped currency test:
-// every row fresh, no typed data-quality row against the cluster, and source
 // health agreeing. Used where a widened test would widen authority — the
-// clean-red tally, the SPY tape arms, and the severity cap on an impaired
-// confirming cluster.
 func regimeLifecycleClusterCurrent(r RegimeSnapshotResult, name string) bool {
 	if !RegimeCurrencyMayConfirm(RegimeClusterCurrency(r, name)) {
 		return false
@@ -1220,9 +1088,6 @@ func regimeLifecycleSPYTapeCurrent(r RegimeSnapshotResult) bool {
 }
 
 // regimeLifecycleVIXTapeCurrent gates the arms that read only the VIX
-// day-change print. Scoped to that leg, not to the vol cluster: VIX3M is a thin
-// index that misses polls and is not due pre-open, and neither event says
-// anything about a live VIX print. The ratio arm keeps cluster scope below.
 func regimeLifecycleVIXTapeCurrent(r RegimeSnapshotResult) bool {
 	return regimeTapeConfirmable(r) &&
 		RegimeCurrencyMayConfirm(RegimeVIXTapeCurrency(r)) &&
@@ -1230,9 +1095,6 @@ func regimeLifecycleVIXTapeCurrent(r RegimeSnapshotResult) bool {
 }
 
 // regimeLifecycleVIXTermCurrent gates the term-inversion co-sign, which reads
-// the ratio and therefore depends on both legs. Deliberately cluster-scoped:
-// narrowing it to the VIX-term row alone would widen a severity co-signature
-// with no observed defect asking for it.
 func regimeLifecycleVIXTermCurrent(r RegimeSnapshotResult) bool {
 	return regimeTapeConfirmable(r) && regimeLifecycleClusterCurrent(r, "vol") &&
 		r.VIXTermStructure.Ratio != nil
@@ -1263,9 +1125,7 @@ func regimeLifecycleEvidence(cb RegimeClusterBands, r RegimeSnapshotResult) []Li
 		}
 		band := cb.Raw[i]
 		// Timing honesty: only an ELIGIBLE confirmed red is contemporaneous
-		// act-grade evidence. Provisional measurements stay visible but are
 		// never confirmation; if one is overdue, the required-input gate
-		// makes the top-level state data_quality rather than a market warning.
 		confirmedSignal := band == "red" &&
 			i < len(cb.Confirmed) && cb.Confirmed[i] == "red" &&
 			i < len(cb.Eligible) && cb.Eligible[i]
@@ -1329,9 +1189,7 @@ func tapeLifecycleEvidence(source string, observed, watch, act float64, confirma
 		}
 	}
 	// Closed-date demotion mirrors the Stress tape row: the bucket keeps the
-	// frozen print's factual magnitude, but a print that cannot confirm is
 	// never contemporaneous act-grade evidence — it reads as a forward
-	// warning to re-check at the next open, severity observe, unconfirmed.
 	if !confirmable && ev.Bucket != "green" {
 		ev.Timing = LifecycleTimingForwardWarning
 		ev.Severity = "observe"
@@ -1362,11 +1220,7 @@ func strongestLifecycleBand(bands ...string) string {
 }
 
 // isolatedLifecycleEquityVolConfirmed corroborates an isolated equity-vol
-// red inside cluster-band combination (BuildRegimeClusterBands). The SPY/VIX
 // change terms here deliberately stay session-blind: they only preserve a red that live-session
-// banding already produced, and with the stage tape arms closed-date-gated
-// the worst residual is cluster-grade early warning. Revisit with journal
-// evidence if weekend audits show frozen corroboration mattering.
 func isolatedLifecycleEquityVolConfirmed(r RegimeSnapshotResult) bool {
 	if r.VIXTermStructure.Band == "red" {
 		return true

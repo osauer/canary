@@ -22,21 +22,15 @@ import (
 )
 
 // DefaultWorkerURL is the public relay origin used when WorkerOptions.BaseURL
-// is empty.
 const DefaultWorkerURL = "https://remote.osauer.dev"
 
 // defaultRouteTTL mirrors ROUTE_TTL_MS in the Cloudflare relay worker. The
-// relay slides the route's expiry window on every authenticated connector
-// connection, so reconnecting at half the TTL keeps an idle-but-connected
-// route alive indefinitely without minting a new route_id.
 const defaultRouteTTL = 7 * 24 * time.Hour
 
 // minCycleEvery floors the forced reconnect interval so a misbehaving relay
-// (tiny or clock-skewed expires_at) cannot make the connector hot-cycle.
 const minCycleEvery = time.Minute
 
 // errRouteExpired marks a connect or resume attempt rejected with HTTP 410:
-// the relay reaped the route (e.g. the Mac was offline past the TTL).
 var errRouteExpired = errors.New("remote relay route expired")
 
 // errRouteRejected marks a connect or resume attempt the relay refused as
@@ -45,9 +39,7 @@ var errRouteExpired = errors.New("remote relay route expired")
 var errRouteRejected = errors.New("remote relay route rejected")
 
 // WorkerOptions configures one outbound relay connector. OriginURL is the local
-// app-host origin to which allowlisted requests are forwarded. ResumeRouteID
 // and ResumeConnectorToken must be supplied together; the token is a bearer
-// secret. OnRoute receives new or extended route credentials for durable
 // app-local storage and must protect ConnectorToken.
 type WorkerOptions struct {
 	BaseURL              string
@@ -61,7 +53,6 @@ type WorkerOptions struct {
 
 // RouteRegistration contains relay-issued transport coordinates. RouteID is a
 // non-authorizing route selector; ConnectorToken is a bearer secret used only
-// by the outbound connector. ExpiresAt is the relay-reported route expiry.
 type RouteRegistration struct {
 	RouteID        string
 	PublicURL      string
@@ -72,8 +63,6 @@ type RouteRegistration struct {
 
 // Worker maintains one outbound relay registration and WebSocket connection to
 // the local app host. It forwards only package-allowlisted paths and delegates
-// authentication and authorization to the local HTTP server. Status, PairingURL,
-// and PublicURL may be called concurrently with Run; Run itself should be
 // started only once.
 type Worker struct {
 	baseURL    string
@@ -83,7 +72,6 @@ type Worker struct {
 	onRoute    func(RouteRegistration) error
 
 	// mu guards the route fields too: register() runs again after a 410
-	// while HTTP handlers concurrently read PairingURL/PublicURL/Status.
 	mu           sync.RWMutex
 	routeID      string
 	publicURL    string
@@ -168,9 +156,7 @@ func (s *requestCancelSet) cancel(id string) {
 }
 
 // NewWorker validates opts and constructs a stopped Worker without performing
-// network I/O. An empty BaseURL uses [DefaultWorkerURL], OriginURL is required,
 // and resume route ID and connector token must be either both present or both
-// absent. A nil HTTPClient uses the package's dual-stack client.
 func NewWorker(opts WorkerOptions) (*Worker, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(opts.BaseURL), "/")
 	if baseURL == "" {
@@ -196,7 +182,6 @@ func NewWorker(opts WorkerOptions) (*Worker, error) {
 		httpClient: httpClient,
 		onRoute:    opts.OnRoute,
 		// The worker serves phones from its own origin, so the public URL
-		// is known before the first registration succeeds.
 		publicURL:  baseURL,
 		routeTTL:   defaultRouteTTL,
 		cycleEvery: defaultRouteTTL / 2,
@@ -209,7 +194,6 @@ func NewWorker(opts WorkerOptions) (*Worker, error) {
 	}
 	// Registration happens inside Run: a relay or DNS outage at startup
 	// must not kill the app (boot races here used to be fatal), and the
-	// held route already lets pairing URLs carry the stable route id.
 	return w, nil
 }
 
@@ -222,7 +206,6 @@ func connectorURLFor(baseURL, routeID, token string) string {
 // registerCurrent (re)registers at the relay, resuming the held route when
 // one exists. Only a definitive relay rejection (401/403/404/410) abandons
 // the held route for a fresh registration; transient failures keep the
-// route so paired phones survive relay or network outages.
 func (w *Worker) registerCurrent(ctx context.Context) error {
 	w.mu.RLock()
 	routeID, token := w.routeID, w.token
@@ -317,16 +300,12 @@ func (w *Worker) register(ctx context.Context, rrq registerRequest) error {
 }
 
 // Run registers or resumes the relay route and maintains its outbound
-// WebSocket until ctx is cancelled. Transient registration and connection
 // failures are retried with bounded backoff and reported through
-// [Worker.Status]. Definitive route rejection triggers fresh registration.
 // Run returns no error and must not be invoked concurrently on one Worker.
 func (w *Worker) Run(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		// Register lazily and retryably: startup must survive a relay or
-		// DNS outage, and a held route resumes (and revives) at the relay
-		// rather than minting a new route id.
 		if !w.hasRoute() {
 			if err := w.registerCurrent(ctx); err != nil {
 				if ctx.Err() != nil {
@@ -342,9 +321,7 @@ func (w *Worker) Run(ctx context.Context) {
 			backoff = time.Second
 		}
 		// Force the connection to cycle at half the route TTL: the relay
-		// slides the route's expiry window on every authenticated connector
 		// connection, so a long-lived quiet connection must reconnect
-		// periodically or the route ages into the 410 reaper.
 		attemptCtx, cancelAttempt := context.WithCancel(ctx)
 		cycleTimer := time.AfterFunc(w.cycleDuration(), cancelAttempt)
 		err := w.connectOnce(attemptCtx)
@@ -472,9 +449,6 @@ func (w *Worker) connectOnce(ctx context.Context) error {
 						return err
 					}
 					// A per-request cancellation must not become the write
-					// context for the shared relay socket. Some WebSocket
-					// clients close the connection after any canceled write,
-					// which would take unrelated requests down with it.
 					return send(connCtx, response)
 				}
 				_ = w.serveRequest(requestCtx, requestFrame, requestSend)
@@ -551,7 +525,6 @@ func (w *Worker) serveRequest(ctx context.Context, reqFrame frame, send frameSen
 }
 
 // Status returns a detached, concurrency-safe snapshot of the relay connection.
-// Connected describes the WebSocket transport only; it does not establish
 // device authentication, daemon availability, or broker readiness.
 func (w *Worker) Status() Status {
 	w.mu.RLock()
@@ -565,7 +538,6 @@ func (w *Worker) Status() Status {
 }
 
 // PairingURL adds the current non-authorizing route ID as the remote query
-// parameter unless raw already supplies one. It returns raw unchanged for a nil
 // Worker, an unavailable route, or an invalid URL, and never includes the
 // connector token.
 func (w *Worker) PairingURL(raw string) string {
@@ -591,8 +563,6 @@ func (w *Worker) PairingURL(raw string) string {
 }
 
 // PublicURL returns the current public relay origin. Before registration this
-// is the configured base URL; after registration it is the relay-issued URL. A
-// nil Worker returns an empty string.
 func (w *Worker) PublicURL() string {
 	if w == nil {
 		return ""
@@ -649,8 +619,6 @@ func forwardableAppPath(raw string) bool {
 	}
 	p := u.Path
 	// Local-control surfaces must not be reachable through the relay:
-	// forwarded requests arrive at the app from 127.0.0.1 and would pass
-	// its local-Mac gate.
 	if p == "/api/pairing/sessions" || p == "/api/devices" || strings.HasPrefix(p, "/api/devices/") || p == "/api/app-status" {
 		return false
 	}

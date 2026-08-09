@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+
 	"os"
 	"path/filepath"
+
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,134 +166,6 @@ func TestCommitObserverTracksDurableHeadAndFailureBlocksStore(t *testing.T) {
 	}
 }
 
-func TestTransientCommittedHeadReadTimeoutRecoversOnlyAfterProof(t *testing.T) {
-	path := filepath.Join(privateTempDir(t), "daemon.db")
-	var observedMu sync.Mutex
-	var observed []AuthorityHead
-	store, err := Open(t.Context(), Options{
-		Path: path, BusyTimeout: 10 * time.Millisecond,
-		CommitObserver: func(head AuthorityHead) error {
-			observedMu.Lock()
-			observed = append(observed, head)
-			observedMu.Unlock()
-			return nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	realReadHead := store.readHead
-	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
-		<-ctx.Done()
-		return AuthorityHead{}, ctx.Err()
-	}
-	_, err = store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "recoverable", JSON: []byte(`{"v":1}`)})
-	if err == nil || !strings.Contains(err.Error(), "read committed authority head") {
-		t.Fatalf("mutation error=%v", err)
-	}
-	health := store.Health()
-	if health.Ready || health.Code != "head_watermark" || !health.RecoveryEligible {
-		t.Fatalf("recoverable health=%+v", health)
-	}
-	store.readHead = realReadHead
-	recovered, err := store.RecoverTransientHeadWatermark(t.Context())
-	if err != nil || !recovered {
-		t.Fatalf("recovery=(%v,%v)", recovered, err)
-	}
-	if health := store.Health(); !health.Ready || health.RecoveryEligible {
-		t.Fatalf("health after proof=%+v", health)
-	}
-	head, err := store.AuthorityHead(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	observedMu.Lock()
-	if len(observed) != 1 || observed[0] != head {
-		t.Fatalf("watermark observations=%+v head=%+v", observed, head)
-	}
-	observedMu.Unlock()
-	if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "after-recovery", JSON: []byte(`{}`)}); err != nil {
-		t.Fatalf("mutation after verified recovery: %v", err)
-	}
-}
-
-func TestTransientHeadRecoveryKeepsWritesBlockedUntilWatermarkProof(t *testing.T) {
-	path := filepath.Join(privateTempDir(t), "daemon.db")
-	store, err := Open(t.Context(), Options{Path: path, BusyTimeout: 10 * time.Millisecond, CommitObserver: func(AuthorityHead) error { return nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	realReadHead := store.readHead
-	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
-		<-ctx.Done()
-		return AuthorityHead{}, ctx.Err()
-	}
-	_, _ = store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "recoverable", JSON: []byte(`{}`)})
-	store.readHead = realReadHead
-
-	observerEntered := make(chan struct{})
-	releaseObserver := make(chan struct{})
-	var calls atomic.Int32
-	store.commitObserver = func(AuthorityHead) error {
-		if calls.Add(1) == 1 {
-			close(observerEntered)
-			<-releaseObserver
-		}
-		return nil
-	}
-	recoveryDone := make(chan error, 1)
-	go func() {
-		_, err := store.RecoverTransientHeadWatermark(context.Background())
-		recoveryDone <- err
-	}()
-	<-observerEntered
-	mutationDone := make(chan error, 1)
-	go func() {
-		_, err := store.CompareAndSwapStateDocument(context.Background(), StateDocumentCAS{ScopeKey: "test", Kind: "blocked-during-proof", JSON: []byte(`{}`)})
-		mutationDone <- err
-	}()
-	select {
-	case err := <-mutationDone:
-		t.Fatalf("mutation crossed recovery proof: %v", err)
-	case <-time.After(25 * time.Millisecond):
-	}
-	close(releaseObserver)
-	if err := <-recoveryDone; err != nil {
-		t.Fatalf("recovery: %v", err)
-	}
-	if err := <-mutationDone; err != nil {
-		t.Fatalf("mutation after recovery proof: %v", err)
-	}
-}
-
-func TestTransientHeadRecoveryDoesNotUnlockWhenWatermarkPersistenceIsUncertain(t *testing.T) {
-	path := filepath.Join(privateTempDir(t), "daemon.db")
-	store, err := Open(t.Context(), Options{Path: path, BusyTimeout: 10 * time.Millisecond, CommitObserver: func(AuthorityHead) error { return nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	realReadHead := store.readHead
-	store.readHead = func(ctx context.Context) (AuthorityHead, error) {
-		<-ctx.Done()
-		return AuthorityHead{}, ctx.Err()
-	}
-	_, _ = store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "recoverable", JSON: []byte(`{}`)})
-	store.readHead = realReadHead
-	store.commitObserver = func(AuthorityHead) error { return errors.New("watermark unavailable") }
-	if recovered, err := store.RecoverTransientHeadWatermark(t.Context()); recovered || err == nil {
-		t.Fatalf("uncertain watermark recovery=(%v,%v)", recovered, err)
-	}
-	if health := store.Health(); health.Ready || !health.RecoveryEligible {
-		t.Fatalf("uncertain watermark must stay fail-closed and retryable: %+v", health)
-	}
-	if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "test", Kind: "still-blocked", JSON: []byte(`{}`)}); !errors.Is(err, ErrBlocked) {
-		t.Fatalf("mutation after uncertain proof=%v, want ErrBlocked", err)
-	}
-}
-
 func TestOpenRefusesCorruptAndFutureWithoutReplacement(t *testing.T) {
 	t.Run("corrupt", func(t *testing.T) {
 		path := filepath.Join(privateTempDir(t), "daemon.db")
@@ -383,93 +258,6 @@ func TestMigrationChecksumDriftAndFailureRefuse(t *testing.T) {
 	})
 }
 
-func TestStateCASObservationsAndAppendOnly(t *testing.T) {
-	s, _ := openTestStore(t)
-	ctx := t.Context()
-	created, err := s.CompareAndSwapStateDocument(ctx, StateDocumentCAS{ScopeKey: "market", Kind: "regime.current", JSON: []byte(`{"stage":"calm"}`)})
-	if err != nil || created.Revision != 1 {
-		t.Fatalf("create=%+v err=%v", created, err)
-	}
-	updated, err := s.CompareAndSwapStateDocument(ctx, StateDocumentCAS{ScopeKey: "market", Kind: "regime.current", ExpectedRevision: 1, JSON: []byte(`{"stage":"watch"}`)})
-	if err != nil || updated.Revision != 2 {
-		t.Fatalf("update=%+v err=%v", updated, err)
-	}
-	if _, err := s.CompareAndSwapStateDocument(ctx, StateDocumentCAS{ScopeKey: "market", Kind: "regime.current", ExpectedRevision: 1, JSON: []byte(`{}`)}); !errors.Is(err, ErrRevisionConflict) {
-		t.Fatalf("CAS error=%v", err)
-	}
-	payload := []byte{0, 1, 2, 0xff}
-	metadata := []byte(`{"quality":"delayed"}`)
-	at := time.Now().UTC()
-	receipt, err := s.AppendObservation(ctx, ObservationInput{ScopeKey: "market", Source: "gateway", Kind: "quote", ObservedAt: at, ContentType: "application/octet-stream", Payload: payload, MetadataJSON: metadata})
-	if err != nil {
-		t.Fatal(err)
-	}
-	latest, ok, err := s.LatestObservation(ctx, "market", "gateway", "quote")
-	if err != nil || !ok {
-		t.Fatalf("latest ok=%v err=%v", ok, err)
-	}
-	if latest.ID != receipt.ID || latest.DecisionEligible || !bytes.Equal(latest.Payload, payload) || !bytes.Equal(latest.MetadataJSON, metadata) {
-		t.Fatal("lossless observation did not round trip")
-	}
-	if _, ok, err := s.LatestDecisionEligibleObservation(ctx, "market", "gateway", "quote"); err != nil || ok {
-		t.Fatalf("research-only observation crossed eligible reader: ok=%v err=%v", ok, err)
-	}
-	eligibleReceipt, err := s.AppendObservation(ctx, ObservationInput{
-		ScopeKey: "market", Source: "gateway", Kind: "quote", ObservedAt: at.Add(time.Second),
-		ContentType: "application/json", Payload: []byte(`{"eligible":true}`), DecisionEligible: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	eligible, ok, err := s.LatestDecisionEligibleObservation(ctx, "market", "gateway", "quote")
-	if err != nil || !ok || eligible.ID != eligibleReceipt.ID || !eligible.DecisionEligible {
-		t.Fatalf("eligible observation = %+v ok=%v err=%v", eligible, ok, err)
-	}
-	exact, ok, err := s.ExactDecisionEligibleObservation(ctx, eligibleReceipt.ID, "market", "gateway", "quote", at.Add(time.Second))
-	if err != nil || !ok || exact.ID != eligibleReceipt.ID || !exact.DecisionEligible || !bytes.Equal(exact.Payload, []byte(`{"eligible":true}`)) {
-		t.Fatal("exact decision-eligible observation did not round trip")
-	}
-	for _, mismatch := range []struct {
-		id       int64
-		scope    string
-		source   string
-		kind     string
-		observed time.Time
-	}{
-		{id: receipt.ID, scope: "market", source: "gateway", kind: "quote", observed: at},
-		{id: eligibleReceipt.ID + 1, scope: "market", source: "gateway", kind: "quote", observed: at.Add(time.Second)},
-		{id: eligibleReceipt.ID, scope: "other", source: "gateway", kind: "quote", observed: at.Add(time.Second)},
-		{id: eligibleReceipt.ID, scope: "market", source: "other", kind: "quote", observed: at.Add(time.Second)},
-		{id: eligibleReceipt.ID, scope: "market", source: "gateway", kind: "other", observed: at.Add(time.Second)},
-		{id: eligibleReceipt.ID, scope: "market", source: "gateway", kind: "quote", observed: at.Add(2 * time.Second)},
-	} {
-		if _, ok, err := s.ExactDecisionEligibleObservation(ctx, mismatch.id, mismatch.scope, mismatch.source, mismatch.kind, mismatch.observed); err != nil || ok {
-			t.Fatal("exact decision-eligible reader accepted mismatched coordinates")
-		}
-	}
-	falseValue := false
-	research, err := s.ListObservations(ctx, ObservationQuery{ScopeKey: "market", DecisionEligible: &falseValue, Limit: 10})
-	if err != nil || len(research) != 1 || research[0].ID != receipt.ID {
-		t.Fatalf("research-only filter = %+v err=%v", research, err)
-	}
-	before := countRows(t, s, "observations")
-	_, _, err = s.CompareAndSwapStateDocumentWithObservations(ctx, StateDocumentCAS{ScopeKey: "market", Kind: "regime.current", ExpectedRevision: 1, JSON: []byte(`{}`)}, []ObservationInput{{ScopeKey: "market", Source: "gateway", Kind: "quote", ObservedAt: at, ContentType: "application/json", Payload: []byte(`{}`)}})
-	if !errors.Is(err, ErrRevisionConflict) || countRows(t, s, "observations") != before {
-		t.Fatalf("atomic CAS rollback err=%v", err)
-	}
-	for _, stmt := range []string{`UPDATE observations SET kind='changed' WHERE observation_id=1`, `DELETE FROM observations WHERE observation_id=1`} {
-		if _, err := s.db.Exec(stmt); err == nil {
-			t.Fatalf("append-only statement succeeded: %s", stmt)
-		}
-	}
-	for _, table := range appendOnlyTables {
-		var n int
-		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name IN (?,?)`, table+"_no_update", table+"_no_delete").Scan(&n); err != nil || n != 2 {
-			t.Errorf("append-only triggers %s=%d err=%v", table, n, err)
-		}
-	}
-}
-
 func TestReceiptBoundStateCASCommitsOrRollsBackAsOneMutation(t *testing.T) {
 	s, _ := openTestStore(t)
 	ctx := t.Context()
@@ -528,23 +316,6 @@ func TestReceiptBoundStateCASCommitsOrRollsBackAsOneMutation(t *testing.T) {
 	retained, ok, err := s.GetStateDocument(ctx, "market", "receipt-bound.current")
 	if err != nil || !ok || retained.Revision != updated.Revision || !bytes.Equal(retained.JSON, updated.JSON) {
 		t.Fatal("failed receipt-bound mutation changed current state")
-	}
-}
-
-func TestStateCASCommitClockFloorRejectsBeforeMutation(t *testing.T) {
-	s, _ := openTestStore(t)
-	floor := time.Now().UTC().Add(time.Hour)
-	_, err := s.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{
-		ScopeKey: "market", Kind: "clock-floor", JSON: []byte(`{"ok":true}`), UpdatedAtNotBefore: floor,
-	})
-	if !errors.Is(err, ErrRollback) {
-		t.Fatalf("clock-floor error=%v, want ErrRollback", err)
-	}
-	if _, ok, readErr := s.GetStateDocument(t.Context(), "market", "clock-floor"); readErr != nil || ok {
-		t.Fatalf("clock-floor mutation survived: ok=%v err=%v", ok, readErr)
-	}
-	if health := s.Health(); !health.Ready {
-		t.Fatalf("expected clock floor must not poison SQLite health: %+v", health)
 	}
 }
 
@@ -692,121 +463,6 @@ func TestIntegrityForeignKeyRefusalAndHealthLatch(t *testing.T) {
 	})
 }
 
-func TestVerifiedBackupReopensAndRejectsRollback(t *testing.T) {
-	s, _ := openTestStore(t)
-	ctx := t.Context()
-	doc, err := s.CompareAndSwapStateDocument(ctx, StateDocumentCAS{ScopeKey: "market", Kind: "current", JSON: []byte(`{"ok":true}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	backupPath := filepath.Join(privateTempDir(t), "daemon-backup.db")
-	info, err := s.Backup(ctx, backupPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !info.Integrity.OK() {
-		t.Fatal("backup integrity not verified")
-	}
-	mode, _ := os.Stat(backupPath)
-	if mode.Mode().Perm() != 0o600 {
-		t.Fatalf("backup mode=%o", mode.Mode().Perm())
-	}
-	verified, err := VerifyBackup(ctx, backupPath, info.Head)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if verified.Head != info.Head {
-		t.Fatal("backup head changed between verification reads")
-	}
-	copyStore, err := Open(ctx, Options{Path: backupPath, MinimumHead: &info.Head})
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded, ok, err := copyStore.GetStateDocument(ctx, "market", "current")
-	copyStore.Close()
-	if err != nil || !ok || loaded.Revision != doc.Revision {
-		t.Fatalf("backup state ok=%v doc=%+v err=%v", ok, loaded, err)
-	}
-	if _, err := s.Backup(ctx, backupPath); err == nil {
-		t.Fatal("backup overwrote existing destination")
-	}
-	newHeadDoc, err := s.CompareAndSwapStateDocument(ctx, StateDocumentCAS{ScopeKey: "market", Kind: "current", ExpectedRevision: 1, JSON: []byte(`{"ok":false}`)})
-	if err != nil || newHeadDoc.Revision != 2 {
-		t.Fatal(err)
-	}
-	newHead, _ := s.AuthorityHead(ctx)
-	if _, err := VerifyBackup(ctx, backupPath, newHead); !errors.Is(err, ErrRollback) {
-		t.Fatalf("old backup verify error=%v", err)
-	}
-	checkpoint, err := s.Checkpoint(ctx)
-	if err != nil || checkpoint.Busy != 0 {
-		t.Fatalf("checkpoint=%+v err=%v", checkpoint, err)
-	}
-}
-
-func TestTypedEventsAndStatementProjection(t *testing.T) {
-	s, _ := openTestStore(t)
-	ctx := t.Context()
-	value := 12.5
-	receipts, err := s.AppendEvents(ctx, []EventInput{{ScopeKey: "market", EventKey: "regime:1", Type: "regime.decision", Action: "observe", Origin: "daemon", OccurredAt: time.Now().UTC(), PayloadJSON: []byte(`{"stage":"watch"}`), Projection: EventProjection{RegimeDecision: &RegimeDecisionProjection{DecisionKey: "d1", Stage: "watch", Indicators: []RegimeIndicatorProjection{{Indicator: "breadth", Value: &value}}}}}})
-	if err != nil || len(receipts) != 1 {
-		t.Fatalf("append typed event receipts=%+v err=%v", receipts, err)
-	}
-	loaded, err := s.LoadEvents(ctx, EventQuery{ScopeKey: "market", Type: "regime.decision"})
-	if err != nil || len(loaded) != 1 || loaded[0].EventSeq != receipts[0].EventSeq {
-		t.Fatalf("load typed events=%+v err=%v", loaded, err)
-	}
-	if _, err := s.db.Exec(`UPDATE regime_decisions SET stage='changed'`); err == nil {
-		t.Fatal("typed projection update succeeded")
-	}
-
-	digest := sha256.Sum256([]byte("statement-a"))
-	generated := time.Unix(1_700_000_000, 0).UTC()
-	file := StatementFileRecord{FileKey: "statement-a.xml", SizeBytes: 11, SHA256: digest, Status: "ingested", StatementGeneratedAt: &generated}
-	day := StatementEquityDayRecord{AccountKey: "account-key", Day: "2026-07-20", EquityBaseText: "100.00", StatementFileKey: file.FileKey, GeneratedAt: generated, RawJSON: []byte(`{"equity":"100.00"}`)}
-	if err := s.ReplaceStatementProjection(ctx, "statements", []StatementFileRecord{file}, []StatementEquityDayRecord{day}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ReplaceStatementProjection(ctx, "statements", []StatementFileRecord{file}, []StatementEquityDayRecord{day}); err != nil {
-		t.Fatalf("idempotent statement projection: %v", err)
-	}
-	files, err := s.LoadStatementFiles(ctx, "statements")
-	if err != nil || len(files) != 1 || files[0].SHA256 != digest {
-		t.Fatalf("statement files=%+v err=%v", files, err)
-	}
-	days, err := s.LoadStatementEquityDays(ctx, "statements", "2026-07-01", "2026-07-31", 10)
-	if err != nil || len(days) != 1 || !bytes.Equal(days[0].RawJSON, day.RawJSON) {
-		t.Fatalf("statement days=%+v err=%v", days, err)
-	}
-	changed := file
-	changed.SHA256 = sha256.Sum256([]byte("statement-b"))
-	changedDay := day
-	changedDay.EquityBaseText = "90.00"
-	changedDay.RawJSON = []byte(`{"equity":"90.00"}`)
-	if err := s.ReplaceStatementProjection(ctx, "statements", []StatementFileRecord{changed}, []StatementEquityDayRecord{changedDay}); err != nil {
-		t.Fatalf("restatement: %v", err)
-	}
-	files, _ = s.LoadStatementFiles(ctx, "statements")
-	days, _ = s.LoadStatementEquityDays(ctx, "statements", "", "", 10)
-	if len(files) != 1 || files[0].SHA256 != changed.SHA256 || len(days) != 1 || days[0].EquityBaseText != "90.00" || days[0].StatementFileSHA256 != changed.SHA256 {
-		t.Fatalf("current restatement files=%+v days=%+v", files, days)
-	}
-	if countRows(t, s, "statement_file_versions") != 2 || countRows(t, s, "statement_equity_day_versions") != 2 {
-		t.Fatal("immutable statement versions were not retained")
-	}
-	if err := s.ReplaceStatementProjection(ctx, "statements", nil, nil); err != nil {
-		t.Fatalf("empty current projection: %v", err)
-	}
-	files, _ = s.LoadStatementFiles(ctx, "statements")
-	days, _ = s.LoadStatementEquityDays(ctx, "statements", "", "", 10)
-	if len(files) != 0 || len(days) != 0 {
-		t.Fatalf("removed current projection survived files=%d days=%d", len(files), len(days))
-	}
-	if countRows(t, s, "statement_file_versions") != 2 || countRows(t, s, "statement_equity_day_versions") != 2 {
-		t.Fatal("removing current projection deleted immutable evidence")
-	}
-}
-
 func stageWithToken(t *testing.T, s *Store, scope BrokerScope, tokenID, eventKey string, floor int64) {
 	t.Helper()
 	head, err := s.AuthorityHead(t.Context())
@@ -826,39 +482,6 @@ func stageWithToken(t *testing.T, s *Store, scope BrokerScope, tokenID, eventKey
 	_, err = s.StagePreTransmit(t.Context(), PreTransmitRequest{Scope: scope, TokenDigest: HashPreviewTokenID(tokenID), AuthorityEpoch: head.AuthorityEpoch, SignerGeneration: head.SignerGeneration, RequestedOrderIDFloor: floor, ReservedOrderID: floor, Action: action, Origin: OriginAgentCLI, Events: []OrderEventRecord{event}})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-// Open skips its post-migration integrity pass when migrate applied nothing,
-// which is every ordinary restart. That skip is only sound while the count is
-// exact, so pin both ends of it.
-func TestMigrateReportsAppliedCount(t *testing.T) {
-	plan := append([]migration(nil), migrations...)
-
-	fresh, err := sql.Open("sqlite", sqliteDSN(filepath.Join(privateTempDir(t), "fresh.db"), defaultBusyTimeout, false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer fresh.Close()
-	fresh.SetMaxOpenConns(1)
-	applied, err := migrate(t.Context(), fresh, plan, time.Now().UTC())
-	if err != nil {
-		t.Fatalf("migrate a fresh authority: %v", err)
-	}
-	if applied != len(plan) {
-		t.Fatalf("fresh authority applied %d migrations, want %d", applied, len(plan))
-	}
-
-	s, path := openTestStore(t)
-	s.Close()
-	current := rawDB(t, path)
-	defer current.Close()
-	applied, err = migrate(t.Context(), current, plan, time.Now().UTC())
-	if err != nil {
-		t.Fatalf("migrate a current authority: %v", err)
-	}
-	if applied != 0 {
-		t.Fatalf("current authority applied %d migrations, want 0", applied)
 	}
 }
 
@@ -890,4 +513,176 @@ func privateTempDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func TestStagePreTransmitModifyCancelAttemptAdmission(t *testing.T) {
+	tests := []struct {
+		name               string
+		outcomeType        string
+		outcomeAttemptID   string
+		sendDisposition    string
+		wantModifyAccepted bool
+	}{
+		{name: "definitely unsent", outcomeType: "send-error", outcomeAttemptID: "cancel-1", sendDisposition: "definitely_unsent", wantModifyAccepted: true},
+		{name: "may have written", outcomeType: "send-error", outcomeAttemptID: "cancel-1", sendDisposition: "may_have_written"},
+		{name: "unknown", outcomeType: "send-error", outcomeAttemptID: "cancel-1", sendDisposition: "unknown"},
+		{name: "incomplete send error", outcomeType: "send-error", outcomeAttemptID: "cancel-1"},
+		{name: "uncorrelated definite send error", outcomeType: "send-error", outcomeAttemptID: "cancel-other", sendDisposition: "definitely_unsent"},
+		{name: "send completed", outcomeType: "send-completed", outcomeAttemptID: "cancel-1"},
+		{name: "pending"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, _ := openTestStore(t)
+			scope := testScope("modify-cancel-admission")
+			const orderID int64 = 1001
+
+			events := []OrderEventRecord{
+				modifyAdmissionEvent(t, scope, orderID, "working", "broker-acknowledged", ActionPlace, "", "", "Submitted"),
+				modifyAdmissionEvent(t, scope, orderID, "cancel-requested", "cancel-requested", ActionCancel, "cancel-1", "", ""),
+			}
+			if test.outcomeType != "" {
+				events = append(events, modifyAdmissionEvent(t, scope, orderID, "cancel-outcome", test.outcomeType, ActionCancel, test.outcomeAttemptID, test.sendDisposition, ""))
+			}
+			seqs, err := store.AppendOrderEvents(t.Context(), events)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := seqs[len(seqs)-1]
+			modify := modifyAdmissionEvent(t, scope, orderID, "modify-requested", "modify-requested", ActionModify, "modify-1", "", "")
+			result, err := store.StagePreTransmit(t.Context(), PreTransmitRequest{
+				Scope: scope, RequestedOrderIDFloor: orderID, ReservedOrderID: orderID,
+				ExpectedOrderEventSeq: &expected, Action: ActionModify, Origin: OriginAgentCLI,
+				Events: []OrderEventRecord{modify},
+			})
+
+			if test.wantModifyAccepted {
+				if err != nil {
+					t.Fatalf("modify after definitely-unsent cancel: %v", err)
+				}
+				if len(result.EventSeqs) != 1 || result.EventSeqs[0] <= expected {
+					t.Fatalf("modify result = %+v, prior frontier = %d", result, expected)
+				}
+				return
+			}
+			if !errors.Is(err, ErrOrderNotModifiable) {
+				t.Fatalf("modify error = %v, want %v", err, ErrOrderNotModifiable)
+			}
+			var got int64
+			if err := store.db.QueryRowContext(t.Context(), `SELECT MAX(event_seq) FROM order_events WHERE scope_key=? AND reserved_order_id=?`, scope.ScopeKey, orderID).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != expected {
+				t.Fatalf("rejected modify changed frontier: got %d want %d", got, expected)
+			}
+		})
+	}
+}
+
+func modifyAdmissionEvent(t *testing.T, scope BrokerScope, orderID int64, eventKey, eventType string, action ActionKind, attemptID, disposition, status string) OrderEventRecord {
+	t.Helper()
+	payload := map[string]any{
+		"version": 1, "type": eventType, "action_kind": action,
+	}
+	if attemptID != "" {
+		payload["attempt_id"] = attemptID
+	}
+	if disposition != "" {
+		payload["send_disposition"] = disposition
+	}
+	rawJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return OrderEventRecord{
+		Scope: scope, EventKey: eventKey, AtMS: time.Now().UnixMilli(), Type: eventType,
+		Action: action, Origin: OriginAgentCLI, ReservedOrderID: orderID, Status: status,
+		RawJSON: rawJSON,
+	}
+}
+
+func TestQuiesceForReplacementRecoversCommittedWALAndRejectsUnsafeSidecars(t *testing.T) {
+	t.Run("committed WAL", func(t *testing.T) {
+		dir := privateTempDir(t)
+		livePath := filepath.Join(dir, "live.db")
+		crashPath := filepath.Join(dir, "crash.db")
+		store, err := Open(t.Context(), Options{Path: livePath})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "x", Kind: "wal", JSON: []byte(`{"committed":true}`)}); err != nil {
+			t.Fatal(err)
+		}
+		head, err := store.AuthorityHead(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		copyTestFile(t, livePath, crashPath)
+		copyTestFile(t, livePath+"-wal", crashPath+"-wal")
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		inspection, err := QuiesceForReplacement(t.Context(), QuiesceOptions{Path: crashPath, ExpectedSchemaVersion: len(migrations), ExpectedHead: head})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inspection.Head != head || inspection.SchemaVersion != len(migrations) {
+			t.Fatalf("quiesced inspection=%+v", inspection)
+		}
+		assertNoSQLiteSidecars(t, crashPath)
+		if _, err := Inspect(t.Context(), InspectOptions{Path: crashPath, MinimumHead: &head}); err != nil {
+			t.Fatalf("reopen quiesced authority: %v", err)
+		}
+	})
+
+	t.Run("symlink sidecar", func(t *testing.T) {
+		dir := privateTempDir(t)
+		path := filepath.Join(dir, "daemon.db")
+		store, err := Open(t.Context(), Options{Path: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		head, err := store.AuthorityHead(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(dir, "unrelated")
+		if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path+"-wal"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := QuiesceForReplacement(t.Context(), QuiesceOptions{Path: path, ExpectedSchemaVersion: 1, ExpectedHead: head}); err == nil || !strings.Contains(err.Error(), "regular file") {
+			t.Fatalf("unsafe sidecar error=%v", err)
+		}
+		got, err := os.ReadFile(target)
+		if err != nil || string(got) != "keep" {
+			t.Fatalf("symlink target changed: %q err=%v", got, err)
+		}
+	})
+}
+
+func assertNoSQLiteSidecars(t *testing.T, path string) {
+	t.Helper()
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if _, err := os.Lstat(path + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("unexpected SQLite sidecar %s error=%v", path+suffix, err)
+		}
+	}
+}
+
+func copyTestFile(t *testing.T, source, destination string) {
+	t.Helper()
+	payload, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

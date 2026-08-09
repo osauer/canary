@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 #
 # release-auth-preflight.sh - fail-fast auth checks before the release
-# pipeline spends ~10 minutes on gates. What can actually be verified at
-# minute 0:
 #   - gh CLI auth (release-publish creates the GitHub Release page); goes
 #     stale between releases and used to surface only at the last legs.
 #   - The registry leg's local fallback preconditions. The normal release path
 #     waits for the registry-publish Actions workflow to publish via OIDC. If
 #     that workflow does not deliver, registry-publish-with-login.sh is the
 #     backstop. Its GitHub device-code JWTs live only ~5 minutes (observed
-#     v2.1.0, 2026-07-18; originally assumed hours), so refreshing one here is
 #     meaningless. This preflight verifies that fallback is armed (publisher
-#     binary present, MCP_REGISTRY_AUTO_LOGIN not disabled); the operator needs
 #     a browser only if the OIDC workflow fails.
 
 set -euo pipefail
@@ -40,7 +36,6 @@ token_file="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-publisher/token.json"
 
 registry_jwt_remaining_minutes() {
     # Prints whole minutes of validity left on the stored registry JWT
-    # (negative when expired); nonzero exit when missing or unreadable.
     python3 - "$token_file" <<'PY'
 import base64, json, sys, time
 try:

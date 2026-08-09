@@ -1,15 +1,10 @@
 const ROUTE_COOKIE = "ibkr_remote_route";
 // These route/storage identifiers and the deployed Worker/DO names are
-// continuity pins. Renaming them is a separate state-transfer deployment,
 // not part of Canary's source-level product rename.
 const CONNECTOR_TOKEN_KEY = "connector_token";
 const EXPIRES_AT_KEY = "expires_at";
 const ROUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // The route cookie only names the route; it grants nothing without the Mac
-// connector plus per-device auth. 400 days is the browser cookie cap and
-// keeps an installed PWA addressable across long idle gaps. The SPA also
-// mirrors the route id in localStorage ("ibkrRemoteRoute") so the recovery
-// page below can rebuild the cookie after it is evicted.
 const ROUTE_COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
 const ROUTE_ID_RE = /^r_[A-Za-z0-9_-]{16,128}$/;
 
@@ -32,8 +27,6 @@ export default {
     const routeID = url.searchParams.get("remote") || readCookie(request.headers.get("Cookie") || "", ROUTE_COOKIE);
     if (!routeID) {
       // A navigation without a route cookie is an installed PWA whose
-      // cookie was evicted, not an unpaired phone: serve a page that
-      // rebuilds the cookie from the SPA's localStorage mirror instead of
       // a JSON dead end that reads as "you must re-pair".
       if (wantsHTML(request)) return recoveryPage();
       return json({ error: "remote route required" }, 400);
@@ -42,12 +35,10 @@ export default {
     let response = await routeStub(env, routeID).fetch(request);
     // While the Mac connector is down or the route aged out, a navigation
     // must keep polling instead of stranding the user on raw JSON: the Mac
-    // revives the route on its next connect and the page then loads.
     if (wantsHTML(request) && (response.status === 503 || response.status === 410)) {
       response = retryPage(response.status);
     }
     // Re-set the route cookie on every addressed request, cookie- or
-    // query-addressed: the installed PWA (start_url "/") addresses the
     // relay by cookie only, so each visit must renew the cookie's clock.
     const routed = new Response(response.body, {
       status: response.status,
@@ -122,8 +113,6 @@ export class RelaySession {
         return json({ error: "unauthorized route resume" }, 401);
       }
       // A token-matched resume always revives the route, even past its
-      // expiry: the Mac still holds the credential, and a stable route_id
-      // is what keeps every paired phone valid. A resume against empty
       // storage adopts the presented token so a relay redeploy or DO
       // migration cannot permanently orphan the paired fleet.
       await this.state.storage.put(CONNECTOR_TOKEN_KEY, body.token);
@@ -144,10 +133,7 @@ export class RelaySession {
     }
     // Slide the route TTL on every authenticated connector (re)connection —
     // even one past its expiry: route identity must survive any Mac
-    // downtime, because a new route_id orphans every paired phone. Expiry
     // only gates phone-side forwards while the Mac is away. The Go
-    // connector force-cycles its connection at half the TTL to keep this
-    // sliding even when idle.
     await this.slideExpiry();
     if (request.headers.get("Upgrade") !== "websocket") {
       return json({ error: "websocket upgrade required" }, 426);

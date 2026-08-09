@@ -14,37 +14,12 @@ import (
 )
 
 // combineGammaResults builds the SPY+SPX result envelope from the two
-// single-underlying GammaZeroComputed payloads.
-//
-// What it DOES surface:
-//
-//   - PerIndex: the two single-underlying GammaZeroComputed payloads,
-//     each fully formed with their own ZeroGamma / GapPct / Profile.
-//     This is the load-bearing decision surface for the user.
-//   - RegimeAgreement: classifies whether SPY and SPX agree on the
-//     gamma regime (long-γ / short-γ / transition) or disagree
-//     (one stabilising, one amplifying).
-//   - GammaTotalAbs: the sum across both indices, framed as "total
-//     dealer-book size" — a diagnostic, not a regime headline.
-//   - TopStrikes: merged + sorted + top-K. With the 100× per-contract
-//     scaling SPX rows will dominate; the renderer's INDEX column
-//     makes the imbalance visible rather than hidden.
-//   - Expirations, LegCount, PricedLegCount, IV-source counters, and
-//     LegDiagnostics: unioned / summed for the diagnostic footer.
-//   - Warnings: unioned across spy + spx then deduped. They hydrate into
-//     WarningDetails before the result leaves the cache.
-//
-// What it DOES NOT surface: a top-level spot, gamma sign, or zero-gamma
-// price. SPY and SPX live on different price scales, so those fields are
 // per-index only in combined scope.
 func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed {
 	if spy == nil && spx == nil {
 		return nil
 	}
 	// One-sided fallbacks. The entitlement-graceful path in
-	// computeGammaCombined returns the SPY-only result directly when
-	// SPX errors, so these branches are defensive — they should not
-	// fire on a healthy combined run.
 	if spy == nil {
 		return spx
 	}
@@ -53,8 +28,6 @@ func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed
 	}
 
 	// Top strikes: merge, sort by AbsGEX descending, take top-K. SPX
-	// rows will dominate per the spot² scaling; the renderer surfaces
-	// the INDEX column so the imbalance is visible.
 	allTop := append(append([]rpc.StrikeConcentration{}, spy.TopStrikes...), spx.TopStrikes...)
 	sort.SliceStable(allTop, func(i, j int) bool {
 		return allTop[i].AbsGEX > allTop[j].AbsGEX
@@ -114,8 +87,6 @@ func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed
 	sort.Strings(out.Expirations)
 
 	// A combined SPY+SPX gamma-zero level is intentionally not
-	// interpolated: the two underlyings live on different spot scales.
-	// Per-index profiles remain available under PerIndex.
 	if len(spy.Profile) > 0 && len(spx.Profile) > 0 && sameProfileGrid(spy.Profile, spx.Profile) {
 		var combinedWarnings []string
 		out.Profile, combinedWarnings = combineProfileBuckets(spy.Profile, spx.Profile, "", nil)
@@ -125,9 +96,6 @@ func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed
 }
 
 // gammaInputAsOf returns the oldest spot observation the model was built on.
-// SPY and SPX compute serially, so the result is published minutes after its
-// inputs were sampled; ageing the freshness badge from completion time hides
-// that gap and understates how stale the published level really is.
 func gammaInputAsOf(c *rpc.GammaZeroComputed) time.Time {
 	if c == nil {
 		return time.Time{}
@@ -161,21 +129,9 @@ func combinedGammaAsOf(spyAsOf, spxAsOf time.Time) time.Time {
 }
 
 // combineProfileBuckets sums the GEX values of two sweep profiles
-// bucket-by-bucket on the assumption they share the same Spot grid.
-// Returns nil + a warning appended to warnings when:
-//   - the two lengths differ;
 //   - any pair of corresponding Spot values is not exactly equal;
-//   - either side is empty (no useful sum is possible).
 //
 // The exact-equality spot check is intentional: dealer GEX has no
-// natural interpretation across spot scales, so any drift means we
-// can't be sure the buckets represent the same scenario, and an
-// incorrect sum is worse than a missing one. In SPY+SPX production
-// the grids will always differ (SPY anchors ~540, SPX anchors ~5400)
-// so this path is effectively "bail with a warning" today. The
-// summed path exists for future per-index combinations where the
-// grids align by construction (e.g. two trading classes of the same
-// underlying).
 func combineProfileBuckets(a, b []rpc.GammaProfilePoint, mismatchWarn string, warnings []string) ([]rpc.GammaProfilePoint, []string) {
 	if len(a) == 0 || len(b) == 0 {
 		return nil, warnings
@@ -214,23 +170,6 @@ func sameProfileGrid(a, b []rpc.GammaProfilePoint) bool {
 }
 
 // classifyRegimeAgreement labels the SPY/SPX regime relationship by
-// comparing per-index γ-zero sweep outcomes. Returns one of
-// "agree:long-gamma", "agree:short-gamma", "agree:transition-gamma",
-// "disagree", or "" (unknown — at least one bucket has no_data).
-//
-// The classification reads GammaSign plus the zero-gamma gap rather
-// than fetching any external state:
-//
-//	per-index regime ∈ { long-gamma, short-gamma, transition-gamma, no-data }
-//	  long-gamma:  GammaSign == "positive"    (whole sweep > 0)
-//	  short-gamma: GammaSign == "negative"    (whole sweep < 0)
-//	  transition:  ZeroGamma != nil and spot is within ±2% of it
-//	  no-data:     GammaSign == "no_data" or anything else
-//
-// disagree fires whenever the two indices land in different non-no_data
-// regimes — the actionable case where one book is amplifying while the
-// other is stabilizing, regardless of whether the underlying prices
-// happen to be correlated.
 func classifyRegimeAgreement(spy, spx *rpc.GammaZeroComputed) string {
 	spyR := perIndexRegime(spy)
 	spxR := perIndexRegime(spx)
@@ -244,7 +183,6 @@ func classifyRegimeAgreement(spy, spx *rpc.GammaZeroComputed) string {
 }
 
 // perIndexRegime maps a single-underlying GammaZeroComputed to a
-// regime label. Returns "" on no-data or nil input.
 func perIndexRegime(c *rpc.GammaZeroComputed) string {
 	if c == nil {
 		return ""
@@ -278,34 +216,13 @@ func dedupeStrings(in []string) []string {
 }
 
 // runGammaUnderlyingPhase is a package seam over runUnderlyingPhase so
-// computeGammaCombined's abort-vs-degrade decision is testable without a
 // live connector (same pattern as fetchIBKRBorrowFees).
 var runGammaUnderlyingPhase = runUnderlyingPhase
 
 // computeGammaCombined runs SPY then SPX serially under separate
-// underlying-holds and combines the two halves into one envelope.
-//
-// Underlying-hold transition (per design §7.1 audit checklist item 6):
-// each half's Hold is scoped to its own function call so a panic or
-// error in the SPX half cannot leak the SPY hold. The two halves'
-// holds DO NOT overlap — SPY releases at SPY-phase end before SPX
-// acquires. This bounds market-data subscription footprint to one
-// underlying at a time.
-//
 // Availability-graceful degradation (per design §8.2): if one side
 // fails because the gateway could not produce a usable OI/IV/GEX slice
-// (354 entitlement, 200 contract, no-data, zero magnitude, etc.) but
-// the other side succeeds, return the successful side with a structured
 // warning rather than failing the whole default/regime gamma row.
-//
-// Degradation is a data-availability verdict, so it is forbidden when
-// the combined job's own context is dead: then the phase error is our
-// cancellation (daemon shutdown or a force() supersede), and degrading
-// would hand spawnJob a half-fetched "success" that gets promoted and
-// persisted as the session-final result. Observed 2026-06-10: the
-// post-release daemon shutdown cancelled the SPX phase mid-fetch, the
-// SPY-only context_only result was persisted at 21:56:23, and every
-// daemon start the next day reloaded it as 5/6-ranked regime evidence.
 func computeGammaCombined(
 	bgCtx context.Context,
 	s *Server,
@@ -376,18 +293,10 @@ func gammaOneSidedFallbackUsableForCombined(result *rpc.GammaZeroComputed, now t
 }
 
 // summarizeSPXFailure turns an SPX-phase error into the short token
-// the warning-list embeds. Strips the verbose context that's helpful
-// in logs but noisy in the renderer banner. Looks for the canonical
 // IBKR error code in the message; falls back to "unavailable" for
 // non-IBKR errors (gateway disconnect, ctx cancel).
-//
 // Token formats:
 //
-//	354       → entitlement gap (most common)
-//	200       → contract not found / SPX chain restricted
-//	fetch_canceled → compute context was cancelled before SPX landed
-//	timeout        → deadline / timeout before SPX landed
-//	zero_magnitude → legs landed but all gamma magnitude was zero
 //	unavailable → every unclassified failure; raw causes remain local-log only
 func summarizeGammaPhaseFailure(err error) string {
 	if err == nil {
@@ -418,7 +327,6 @@ func summarizeGammaPhaseFailure(err error) string {
 }
 
 // canonicalGammaWarningUnion protects the wire warning surface from raw or
-// persisted free text. Known warning codes retain their decision semantics;
 // every unrecognised value collapses to one fail-visible stable token.
 func canonicalGammaWarningUnion(groups ...[]string) []string {
 	var out []string
@@ -497,10 +405,6 @@ func gammaDigitsWithSuffix(value string, suffix byte, minDigits, maxDigits int) 
 }
 
 // runUnderlyingPhase wraps a (Hold underlying → computeGammaZeroFor →
-// release underlying) cycle and, after a typed RTH 354 only, one delayed
-// retry of that full cycle. Progress baseline is the starting %
-// (0 for SPY phase, 50 for SPX phase) so the existing 0-100 atomic
-// reports cleanly across both halves.
 func runUnderlyingPhase(
 	bgCtx context.Context,
 	s *Server,
@@ -514,10 +418,6 @@ func runUnderlyingPhase(
 		return nil, fmt.Errorf("server is nil")
 	}
 	// Every gamma compute — startup prewarm, scheduler refresh, and
-	// RPC-kicked — funnels its per-underlying fan-out through here, and
-	// that fan-out is hundreds of contract-detail and subscription sends.
-	// Ride the connector's background pacing lane so an interactive read
-	// arriving mid-fan-out is not queued behind it.
 	bgCtx = ibkrlib.WithRequestPriority(bgCtx, ibkrlib.PriorityBackground)
 	result, err := runUnderlyingPhaseOnce(bgCtx, s, c, underlying, params, prog, progressBase)
 	if err == nil || !shouldRetryGammaWithDelayed(err, time.Now()) {
@@ -528,9 +428,6 @@ func runUnderlyingPhase(
 	}
 
 	// IBKR 354 kills the original reqID and the connector remembers that
-	// terminal verdict for 30 minutes. The lease deliberately rearms only
-	// this symbol, requests delayed mode, and force-refreshes the underlying
-	// before one bounded retry. Option legs remain clock-aligned because the
 	// production fetcher accepts only delayed model tick 83 beside a delayed
 	// spot. No other cause and no off-hours failure takes this path.
 	releaseMode, fallbackErr := c.BeginDelayedMarketDataFallback(bgCtx, underlying)
@@ -613,8 +510,6 @@ func runUnderlyingPhaseOnce(
 }
 
 // gammaScopeForRequest maps the requested scope onto the actual
-// scope the daemon will compute. Empty defaults to combined.
-// Unknown scopes surface as an error to the caller.
 func gammaScopeForRequest(scope string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "":

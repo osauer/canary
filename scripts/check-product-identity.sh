@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 
 # Keep current product authorities on the Canary identity after the breaking
-# rename. Historical changelog prose is intentionally out of scope. Durable
 # storage/IPC identifiers, broker-source identifiers, and migration assertions
-# stay pinned and are either outside these narrow detectors or explicitly
-# count-bounded in product-identity-allowlist.tsv.
 
 set -euo pipefail
 
@@ -81,11 +78,7 @@ scan_line() {
 }
 
 # `ls-files --cached` below lists an unmerged path once per stage, so a
-# conflicted index scans the same file up to three times and spends a
-# count-bounded allowance three times over — then blames the file's content,
 # which was never wrong. Refuse the tree instead of reporting on it: mid-merge
-# content is not what will be committed, so a pass here would attest to
-# something indeterminate. The index is the finding.
 unmerged="$(git -C "$root" ls-files --unmerged | cut -f2 | sort -u)"
 if [ -n "$unmerged" ]; then
 	echo "check-product-identity: refusing to scan an unmerged index; resolve and stage these paths, then re-run:" >&2

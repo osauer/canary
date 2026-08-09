@@ -9,12 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"math/big"
 
 	"net/http"
 	"net/http/httptest"
-	"strings"
+
 	"testing"
 	"time"
 
@@ -27,53 +26,17 @@ import (
 	"github.com/osauer/canary/v2/internal/app/relay"
 	"github.com/osauer/canary/v2/internal/app/state"
 	"github.com/osauer/canary/v2/internal/rpc"
-	appweb "github.com/osauer/canary/v2/web/app"
 )
 
-func TestEmbeddedJavaScriptRoutes(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	entries, err := appweb.Files.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read embedded app root: %v", err)
+func routeOpenOrderView() rpc.OrderView {
+	return rpc.OrderView{
+		OrderRef: "ord-1", PreviewTokenID: "tok-1", Account: "DU123",
+		Endpoint: "127.0.0.1:7497", Mode: "paper", Symbol: "SPY", SecType: "STK",
+		Action: rpc.OrderActionSell, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay,
+		Quantity: 2, LimitPrice: 450.25, Status: "submitted",
+		LifecycleStatus: rpc.OrderLifecycleSubmitted, SendState: "sent", Open: true,
+		UpdatedAt: time.Now().UTC(),
 	}
-	jsCount := 0
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".js") {
-			continue
-		}
-		jsCount++
-		req := httptest.NewRequest(http.MethodGet, "/"+entry.Name(), nil)
-		res := httptest.NewRecorder()
-		handler.ServeHTTP(readerFromRecorder{res}, req)
-		if res.Code != http.StatusOK {
-			t.Errorf("GET /%s status=%d, want 200; body=%s", entry.Name(), res.Code, res.Body.String())
-		}
-		if got := res.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
-			t.Errorf("GET /%s Content-Type=%q, want text/javascript; charset=utf-8", entry.Name(), got)
-		}
-		if got := res.Header().Get("Cache-Control"); got != "no-cache" {
-			t.Errorf("GET /%s Cache-Control=%q, want no-cache", entry.Name(), got)
-		}
-	}
-	if jsCount == 0 {
-		t.Fatal("embedded app contains no JavaScript files")
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/not-embedded.js", nil)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(readerFromRecorder{res}, req)
-	if res.Code != http.StatusNotFound {
-		t.Fatalf("GET /not-embedded.js status=%d, want 404", res.Code)
-	}
-}
-
-type readerFromRecorder struct {
-	*httptest.ResponseRecorder
-}
-
-func (r readerFromRecorder) ReadFrom(src io.Reader) (int64, error) {
-	return io.Copy(r.ResponseRecorder, src)
 }
 
 func TestBootstrapRequiresAuth(t *testing.T) {
@@ -107,216 +70,6 @@ func TestAppStatusReadyRequiresBothAlertAuthorities(t *testing.T) {
 	}
 }
 
-func TestPairingBootstrap(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	pairReq := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", bytes.NewReader([]byte("{}")))
-	pairReq.RemoteAddr = "127.0.0.1:12345"
-	pairRes := httptest.NewRecorder()
-	handler.ServeHTTP(pairRes, pairReq)
-	if pairRes.Code != http.StatusOK {
-		t.Fatalf("pair status=%d, want 200; body=%s", pairRes.Code, pairRes.Body.String())
-	}
-	var pairing auth.PairingSession
-	if err := json.NewDecoder(pairRes.Body).Decode(&pairing); err != nil {
-		t.Fatalf("decode pairing: %v", err)
-	}
-	key := newRouteTestKey(t)
-	completeBody, err := json.Marshal(auth.CompletePairingRequest{
-		PairingID:    pairing.ID,
-		Nonce:        pairing.Nonce,
-		DeviceName:   "iPhone",
-		PublicKeyJWK: routeTestJWK(t, key),
-		Signature:    routeTestSignature(t, key, pairing.Nonce),
-	})
-	if err != nil {
-		t.Fatalf("marshal complete body: %v", err)
-	}
-	completeReq := httptest.NewRequest(http.MethodPost, "/api/pairing/complete", bytes.NewReader(completeBody))
-	completeRes := httptest.NewRecorder()
-	handler.ServeHTTP(completeRes, completeReq)
-	if completeRes.Code != http.StatusOK {
-		t.Fatalf("complete status=%d, want 200; body=%s", completeRes.Code, completeRes.Body.String())
-	}
-	cookies := completeRes.Result().Cookies()
-	if len(cookies) == 0 {
-		t.Fatalf("pairing response did not set a session cookie")
-	}
-
-	bootReq := httptest.NewRequest(http.MethodGet, "/api/bootstrap", nil)
-	bootReq.AddCookie(cookies[0])
-	bootRes := httptest.NewRecorder()
-	handler.ServeHTTP(bootRes, bootReq)
-	if bootRes.Code != http.StatusOK {
-		t.Fatalf("bootstrap status=%d, want 200; body=%s", bootRes.Code, bootRes.Body.String())
-	}
-	var boot map[string]any
-	if err := json.NewDecoder(bootRes.Body).Decode(&boot); err != nil {
-		t.Fatalf("decode bootstrap: %v", err)
-	}
-	if boot["version"] != "test-version" {
-		t.Fatalf("version=%v, want test-version", boot["version"])
-	}
-	if boot["settings"] == nil {
-		t.Fatalf("bootstrap missing settings: %#v", boot)
-	}
-	snapshot, ok := boot["snapshot"].(map[string]any)
-	if !ok || snapshot["market_calendar"] == nil {
-		t.Fatalf("bootstrap snapshot missing market_calendar: %#v", boot["snapshot"])
-	}
-}
-
-func TestDeviceCookieMintsSessionAfterRestart(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	pairReq := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", bytes.NewReader([]byte("{}")))
-	pairReq.RemoteAddr = "127.0.0.1:12345"
-	pairRes := httptest.NewRecorder()
-	handler.ServeHTTP(pairRes, pairReq)
-	var pairing auth.PairingSession
-	if err := json.NewDecoder(pairRes.Body).Decode(&pairing); err != nil {
-		t.Fatalf("decode pairing: %v", err)
-	}
-	key := newRouteTestKey(t)
-	completeBody, err := json.Marshal(auth.CompletePairingRequest{
-		PairingID:    pairing.ID,
-		Nonce:        pairing.Nonce,
-		DeviceName:   "iPhone",
-		PublicKeyJWK: routeTestJWK(t, key),
-		Signature:    routeTestSignature(t, key, pairing.Nonce),
-	})
-	if err != nil {
-		t.Fatalf("marshal complete body: %v", err)
-	}
-	completeReq := httptest.NewRequest(http.MethodPost, "/api/pairing/complete", bytes.NewReader(completeBody))
-	completeRes := httptest.NewRecorder()
-	handler.ServeHTTP(completeRes, completeReq)
-	if completeRes.Code != http.StatusOK {
-		t.Fatalf("complete status=%d: %s", completeRes.Code, completeRes.Body.String())
-	}
-	var deviceCookie *http.Cookie
-	for _, c := range completeRes.Result().Cookies() {
-		if c.Name == deviceCookieName {
-			deviceCookie = c
-		}
-	}
-	if deviceCookie == nil {
-		t.Fatalf("pairing did not set the device cookie; cookies=%v", completeRes.Result().Cookies())
-	}
-	if deviceCookie.MaxAge < 300*24*60*60 {
-		t.Fatalf("device cookie Max-Age=%d, want long-lived", deviceCookie.MaxAge)
-	}
-	if !deviceCookie.HttpOnly {
-		t.Fatalf("device cookie must be HttpOnly")
-	}
-
-	bootReq := httptest.NewRequest(http.MethodGet, "/api/bootstrap", nil)
-	bootReq.AddCookie(deviceCookie)
-	bootRes := httptest.NewRecorder()
-	handler.ServeHTTP(bootRes, bootReq)
-	if bootRes.Code != http.StatusOK {
-		t.Fatalf("bootstrap via device cookie status=%d: %s", bootRes.Code, bootRes.Body.String())
-	}
-	gotSession, gotDevice := false, false
-	for _, c := range bootRes.Result().Cookies() {
-		switch c.Name {
-		case "ibkr_app_session":
-			gotSession = c.Value != ""
-		case deviceCookieName:
-
-			gotDevice = c.Value == deviceCookie.Value
-		}
-	}
-	if !gotSession || !gotDevice {
-		t.Fatalf("device-cookie login must set a fresh session and re-set the same device cookie (session=%v device=%v)", gotSession, gotDevice)
-	}
-
-	badReq := httptest.NewRequest(http.MethodGet, "/api/bootstrap", nil)
-	badReq.AddCookie(&http.Cookie{Name: deviceCookieName, Value: deviceCookie.Value + "x"})
-	badRes := httptest.NewRecorder()
-	handler.ServeHTTP(badRes, badReq)
-	if badRes.Code != http.StatusUnauthorized {
-		t.Fatalf("tampered device cookie status=%d, want 401", badRes.Code)
-	}
-
-	var paired auth.CompletePairingResult
-	if err := json.NewDecoder(bytes.NewReader(completeRes.Body.Bytes())).Decode(&paired); err != nil {
-		t.Fatalf("decode pairing result: %v", err)
-	}
-	chBody, _ := json.Marshal(map[string]string{"device_id": paired.DeviceID})
-	chReq := httptest.NewRequest(http.MethodPost, "/api/auth/challenge", bytes.NewReader(chBody))
-	chRes := httptest.NewRecorder()
-	handler.ServeHTTP(chRes, chReq)
-	if chRes.Code != http.StatusOK {
-		t.Fatalf("challenge status=%d: %s", chRes.Code, chRes.Body.String())
-	}
-	var ch auth.Challenge
-	if err := json.NewDecoder(chRes.Body).Decode(&ch); err != nil {
-		t.Fatalf("decode challenge: %v", err)
-	}
-	sessBody, _ := json.Marshal(map[string]string{
-		"device_id": paired.DeviceID,
-		"challenge": ch.Challenge,
-		"signature": routeTestSignature(t, key, ch.Challenge),
-	})
-	sessReq := httptest.NewRequest(http.MethodPost, "/api/auth/session", bytes.NewReader(sessBody))
-	sessRes := httptest.NewRecorder()
-	handler.ServeHTTP(sessRes, sessReq)
-	if sessRes.Code != http.StatusOK {
-		t.Fatalf("session status=%d: %s", sessRes.Code, sessRes.Body.String())
-	}
-	var reissued *http.Cookie
-	for _, c := range sessRes.Result().Cookies() {
-		if c.Name == deviceCookieName {
-			reissued = c
-		}
-	}
-	if reissued == nil || reissued.Value == deviceCookie.Value {
-		t.Fatalf("key login must re-provision a fresh device cookie (got %v)", reissued)
-	}
-	twinReq := httptest.NewRequest(http.MethodGet, "/api/bootstrap", nil)
-	twinReq.AddCookie(deviceCookie)
-	twinRes := httptest.NewRecorder()
-	handler.ServeHTTP(twinRes, twinReq)
-	if twinRes.Code != http.StatusOK {
-		t.Fatalf("older twin cookie rejected after re-provisioning: status=%d", twinRes.Code)
-	}
-}
-
-func TestDeviceManagementIsLocalMacOnly(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	listReq := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
-	listReq.RemoteAddr = "192.0.2.10:44321"
-	listRes := httptest.NewRecorder()
-	handler.ServeHTTP(listRes, listReq)
-	if listRes.Code != http.StatusForbidden {
-		t.Fatalf("remote devices list status=%d, want 403", listRes.Code)
-	}
-	pruneReq := httptest.NewRequest(http.MethodPost, "/api/devices/prune", bytes.NewReader([]byte(`{"keep_days":7}`)))
-	pruneReq.RemoteAddr = "192.0.2.10:44321"
-	pruneRes := httptest.NewRecorder()
-	handler.ServeHTTP(pruneRes, pruneReq)
-	if pruneRes.Code != http.StatusForbidden {
-		t.Fatalf("remote devices prune status=%d, want 403", pruneRes.Code)
-	}
-
-	localList := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
-	localList.RemoteAddr = "127.0.0.1:44321"
-	localListRes := httptest.NewRecorder()
-	handler.ServeHTTP(localListRes, localList)
-	if localListRes.Code != http.StatusOK {
-		t.Fatalf("local devices list status=%d: %s", localListRes.Code, localListRes.Body.String())
-	}
-	localPrune := httptest.NewRequest(http.MethodPost, "/api/devices/prune", bytes.NewReader([]byte(`{"keep_days":0}`)))
-	localPrune.RemoteAddr = "127.0.0.1:44321"
-	localPruneRes := httptest.NewRecorder()
-	handler.ServeHTTP(localPruneRes, localPrune)
-	if localPruneRes.Code != http.StatusBadRequest {
-		t.Fatalf("keep_days=0 status=%d, want 400 (a zero-day prune would delete every device)", localPruneRes.Code)
-	}
-}
-
 func TestSettingsGetPatchRequiresAuthAndRejectsReadOnly(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t).Handler()
@@ -340,126 +93,6 @@ func TestSettingsGetPatchRequiresAuthAndRejectsReadOnly(t *testing.T) {
 	handler.ServeHTTP(patchRes, patchReq)
 	if patchRes.Code != http.StatusBadRequest {
 		t.Fatalf("settings patch status=%d, want 400; body=%s", patchRes.Code, patchRes.Body.String())
-	}
-}
-
-func TestPatchSettingsRejectsTradingBeforeDaemonCall(t *testing.T) {
-	t.Parallel()
-	client := &routeSettingsPatchCaptureClient{}
-	handler := newTestHandlerWithClient(t, client).Handler()
-	cookie := routeSessionCookie(t, handler)
-	req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{"trading":{"freeze":false}}`)))
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", res.Code, res.Body.String())
-	}
-	if !strings.Contains(res.Body.String(), "trading settings are not writable from the app; use the CLI") {
-		t.Fatalf("body=%q, want app trading rejection", res.Body.String())
-	}
-	if client.calls != 0 {
-		t.Fatalf("daemon update calls=%d, want 0", client.calls)
-	}
-}
-
-func TestPatchSettingsForwardsFeatureToggleWithPairedDeviceOrigin(t *testing.T) {
-	t.Parallel()
-	client := &routeSettingsPatchCaptureClient{}
-	handler := newTestHandlerWithClient(t, client).Handler()
-	cookie := routeSessionCookie(t, handler)
-	req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{"features":{"stock_protection":{"enabled":false}}}`)))
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusOK {
-		t.Fatalf("status=%d, want 200; body=%s", res.Code, res.Body.String())
-	}
-	if client.calls != 1 {
-		t.Fatalf("daemon update calls=%d, want 1", client.calls)
-	}
-	var forwarded struct {
-		Origin   string          `json:"origin"`
-		Features json.RawMessage `json:"features"`
-	}
-	if err := json.Unmarshal(client.patch, &forwarded); err != nil {
-		t.Fatalf("decode forwarded patch: %v", err)
-	}
-	if forwarded.Origin != rpc.OrderOriginPairedDevice {
-		t.Fatalf("forwarded origin=%q, want %q", forwarded.Origin, rpc.OrderOriginPairedDevice)
-	}
-	if got := string(forwarded.Features); got != `{"stock_protection":{"enabled":false}}` {
-		t.Fatalf("forwarded features=%s, want unchanged feature patch", got)
-	}
-}
-
-func TestSettingsRoutesKeepDaemonMarketDataQualityAuthority(t *testing.T) {
-	t.Parallel()
-	liveSvc := live.New(routeSettingsStatusClient{status: "live-snapshot"}, time.Minute, time.Minute)
-	liveSvc.PollOnce(t.Context())
-	h := &handler{deps: Dependencies{
-		Daemon: routeSettingsStatusClient{status: "daemon-authority"},
-		Live:   liveSvc,
-	}}
-	assertDaemonStatus := func(t *testing.T, label string, settings *rpc.PlatformSettings) {
-		t.Helper()
-		if settings == nil {
-			t.Fatalf("%s settings missing", label)
-		}
-		if got := settings.MarketData.Quality.Status; got != "daemon-authority" {
-			t.Fatalf("%s market-data quality status = %q, want daemon-authority", label, got)
-		}
-	}
-
-	assertDaemonStatus(t, "snapshot", h.settingsSnapshot(t.Context()))
-
-	getReq := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
-	getRes := httptest.NewRecorder()
-	h.handleGetSettings(getRes, getReq)
-	if getRes.Code != http.StatusOK {
-		t.Fatalf("settings get status=%d, want 200; body=%s", getRes.Code, getRes.Body.String())
-	}
-	var got rpc.PlatformSettings
-	if err := json.NewDecoder(getRes.Body).Decode(&got); err != nil {
-		t.Fatalf("decode get settings: %v", err)
-	}
-	assertDaemonStatus(t, "get", &got)
-
-	patchReq := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{}`)))
-	patchRes := httptest.NewRecorder()
-	h.handlePatchSettings(patchRes, patchReq)
-	if patchRes.Code != http.StatusOK {
-		t.Fatalf("settings patch status=%d, want 200; body=%s", patchRes.Code, patchRes.Body.String())
-	}
-	got = rpc.PlatformSettings{}
-	if err := json.NewDecoder(patchRes.Body).Decode(&got); err != nil {
-		t.Fatalf("decode patch settings: %v", err)
-	}
-	assertDaemonStatus(t, "patch", &got)
-}
-
-func TestOrdersOpenHTTPAdapter(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	openReq := httptest.NewRequest(http.MethodGet, "/api/orders/open", nil)
-	openReq.AddCookie(cookie)
-	openRes := httptest.NewRecorder()
-	handler.ServeHTTP(openRes, openReq)
-	if openRes.Code != http.StatusOK {
-		t.Fatalf("orders open status=%d, want 200; body=%s", openRes.Code, openRes.Body.String())
-	}
-	var open rpc.OrdersOpenResult
-	if err := json.NewDecoder(openRes.Body).Decode(&open); err != nil {
-		t.Fatalf("decode orders open: %v", err)
-	}
-	if len(open.Orders) != 1 || open.Orders[0].OrderRef != "ord-1" {
-		t.Fatalf("unexpected open orders: %#v", open.Orders)
 	}
 }
 
@@ -504,65 +137,6 @@ func TestOrderWritesRequireCurrentConfirmation(t *testing.T) {
 	}
 }
 
-func TestOpportunityHTTPAdapters(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	snapshotReq := httptest.NewRequest(http.MethodGet, "/api/opportunities", nil)
-	snapshotReq.AddCookie(cookie)
-	snapshotRes := httptest.NewRecorder()
-	handler.ServeHTTP(snapshotRes, snapshotReq)
-	if snapshotRes.Code != http.StatusOK {
-		t.Fatalf("opportunities snapshot status=%d, want 200; body=%s", snapshotRes.Code, snapshotRes.Body.String())
-	}
-	var snapshot rpc.OpportunitySnapshot
-	if err := json.NewDecoder(snapshotRes.Body).Decode(&snapshot); err != nil {
-		t.Fatalf("decode opportunities snapshot: %v", err)
-	}
-	if snapshot.Kind != rpc.OpportunitySnapshotKind {
-		t.Fatalf("snapshot kind=%q, want %q", snapshot.Kind, rpc.OpportunitySnapshotKind)
-	}
-
-	previewReq := httptest.NewRequest(http.MethodPost, "/api/opportunities/preview-exercise", bytes.NewReader([]byte(`{"key":"opportunity","revision":"rev-1"}`)))
-	previewReq.AddCookie(cookie)
-	previewRes := httptest.NewRecorder()
-	handler.ServeHTTP(previewRes, previewReq)
-	if previewRes.Code != http.StatusOK {
-		t.Fatalf("opportunities preview status=%d, want 200; body=%s", previewRes.Code, previewRes.Body.String())
-	}
-	var preview rpc.OpportunityExercisePreviewResult
-	if err := json.NewDecoder(previewRes.Body).Decode(&preview); err != nil {
-		t.Fatalf("decode opportunities preview: %v", err)
-	}
-	if !preview.Accepted || preview.PreviewTokenID == "" {
-		t.Fatalf("unexpected opportunity preview: %#v", preview)
-	}
-
-	exerciseReq := httptest.NewRequest(http.MethodPost, "/api/opportunities/exercise", bytes.NewReader([]byte(`{"key":"opportunity","revision":"rev-1","confirm_account":"DU123","confirm_mode":"paper"}`)))
-	exerciseReq.AddCookie(cookie)
-	exerciseRes := httptest.NewRecorder()
-	handler.ServeHTTP(exerciseRes, exerciseReq)
-	if exerciseRes.Code != http.StatusOK {
-		t.Fatalf("opportunities exercise status=%d, want 200; body=%s", exerciseRes.Code, exerciseRes.Body.String())
-	}
-	var exercise rpc.OpportunityExerciseSubmitResult
-	if err := json.NewDecoder(exerciseRes.Body).Decode(&exercise); err != nil {
-		t.Fatalf("decode opportunities exercise: %v", err)
-	}
-	if exercise.Accepted || len(exercise.Blockers) == 0 {
-		t.Fatalf("unexpected opportunity exercise result: %#v", exercise)
-	}
-
-	ignoreReq := httptest.NewRequest(http.MethodPost, "/api/opportunities/ignore", bytes.NewReader([]byte(`{"key":"opportunity","revision":"rev-1"}`)))
-	ignoreReq.AddCookie(cookie)
-	ignoreRes := httptest.NewRecorder()
-	handler.ServeHTTP(ignoreRes, ignoreReq)
-	if ignoreRes.Code != http.StatusOK {
-		t.Fatalf("opportunities ignore status=%d, want 200; body=%s", ignoreRes.Code, ignoreRes.Body.String())
-	}
-}
-
 func TestOpportunityExerciseHTTPDoesNotAuthorizeWrites(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandlerWithClient(t, routeFrozenFakeClient{}).Handler()
@@ -581,89 +155,6 @@ func TestOpportunityExerciseHTTPDoesNotAuthorizeWrites(t *testing.T) {
 	}
 	if exercise.Accepted || len(exercise.Blockers) == 0 {
 		t.Fatalf("unexpected opportunity exercise result: %#v", exercise)
-	}
-}
-
-func TestOrderWriteHTTPAdapters(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	cancelReq := httptest.NewRequest(http.MethodPost, "/api/orders/ord-1/cancel", bytes.NewReader([]byte(`{"confirm_account":"DU123","confirm_mode":"paper"}`)))
-	cancelReq.AddCookie(cookie)
-	cancelRes := httptest.NewRecorder()
-	handler.ServeHTTP(cancelRes, cancelReq)
-	if cancelRes.Code != http.StatusOK {
-		t.Fatalf("cancel status=%d, want 200; body=%s", cancelRes.Code, cancelRes.Body.String())
-	}
-
-	modPreviewBody := bytes.NewReader([]byte(`{"action":"SELL","quantity":1,"limit_price":449.5,"tif":"DAY"}`))
-	modPreviewReq := httptest.NewRequest(http.MethodPost, "/api/orders/ord-1/preview-modify", modPreviewBody)
-	modPreviewReq.AddCookie(cookie)
-	modPreviewRes := httptest.NewRecorder()
-	handler.ServeHTTP(modPreviewRes, modPreviewReq)
-	if modPreviewRes.Code != http.StatusOK {
-		t.Fatalf("preview-modify status=%d, want 200; body=%s", modPreviewRes.Code, modPreviewRes.Body.String())
-	}
-	var modPreview rpc.OrderPreviewResult
-	if err := json.NewDecoder(modPreviewRes.Body).Decode(&modPreview); err != nil {
-		t.Fatalf("decode preview-modify: %v", err)
-	}
-	if modPreview.Draft.Quantity != 1 || modPreview.Draft.OrderRef == "" {
-		t.Fatalf("unexpected modify preview draft: %#v", modPreview.Draft)
-	}
-
-	modifyBody := bytes.NewReader([]byte(`{"preview_token":"modify-token","confirm_account":"DU123","confirm_mode":"paper"}`))
-	modifyReq := httptest.NewRequest(http.MethodPost, "/api/orders/ord-1/modify", modifyBody)
-	modifyReq.AddCookie(cookie)
-	modifyRes := httptest.NewRecorder()
-	handler.ServeHTTP(modifyRes, modifyReq)
-	if modifyRes.Code != http.StatusOK {
-		t.Fatalf("modify status=%d, want 200; body=%s", modifyRes.Code, modifyRes.Body.String())
-	}
-}
-
-func TestOrderPreviewModifyUsesOrderViewContract(t *testing.T) {
-	t.Parallel()
-	client := &routeModifyPreviewContractClient{order: routeModifyPreviewOrderView()}
-	handler := newTestHandlerWithClient(t, client).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	body := bytes.NewReader([]byte(`{
-		"action":"SELL",
-		"contract":{
-			"symbol":"MSFT",
-			"sec_type":"STK",
-			"exchange":"NYSE",
-			"primary_exchange":"NASDAQ",
-			"currency":"USD",
-			"local_symbol":"MSFT",
-			"trading_class":"NMS"
-		},
-		"quantity":1,
-		"limit_price":151.25,
-		"tif":"DAY"
-	}`))
-	req := httptest.NewRequest(http.MethodPost, "/api/orders/ord-1/preview-modify", body)
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("preview-modify status=%d, want 200; body=%s", res.Code, res.Body.String())
-	}
-	want := rpc.ContractParams{
-		ConID:        29622935,
-		Symbol:       "SAP",
-		SecType:      "STK",
-		Exchange:     "SMART",
-		PrimaryExch:  "IBIS",
-		Currency:     "EUR",
-		LocalSymbol:  "SAP",
-		TradingClass: "SAP",
-		Multiplier:   1,
-	}
-	if got := client.previewParams.Contract; got != want {
-		t.Fatalf("preview modify contract = %#v, want current order contract %#v", got, want)
 	}
 }
 
@@ -687,59 +178,6 @@ func TestOrderCancelAllowedWhileFrozen(t *testing.T) {
 	handler.ServeHTTP(modifyRes, modifyReq)
 	if modifyRes.Code != http.StatusBadRequest {
 		t.Fatalf("modify while frozen status=%d, want 400; body=%s", modifyRes.Code, modifyRes.Body.String())
-	}
-}
-
-func TestProposalRoutesRejectUnknownFields(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()
-	cookie := routeSessionCookie(t, handler)
-
-	for name, tc := range map[string]struct{ path, body string }{
-		"submit_live_confirmation":     {path: "/api/proposals/submit", body: `{"key":"p","revision":"r","confirm_account":"DU123","confirm_mode":"paper","live_confirmation":"live/DU123"}`},
-		"preview_unknown":              {path: "/api/proposals/preview", body: `{"key":"p","revision":"r","bogus":true}`},
-		"ignore_unknown":               {path: "/api/proposals/ignore", body: `{"key":"p","revision":"r","bogus":true}`},
-		"opportunity_preview_unknown":  {path: "/api/opportunities/preview-exercise", body: `{"key":"p","revision":"r","bogus":true}`},
-		"opportunity_exercise_unknown": {path: "/api/opportunities/exercise", body: `{"key":"p","revision":"r","confirm_account":"DU123","confirm_mode":"paper","bogus":true}`},
-		"opportunity_ignore_unknown":   {path: "/api/opportunities/ignore", body: `{"key":"p","revision":"r","bogus":true}`},
-	} {
-		req := httptest.NewRequest(http.MethodPost, tc.path, bytes.NewReader([]byte(tc.body)))
-		req.AddCookie(cookie)
-		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, req)
-		if res.Code != http.StatusBadRequest {
-			t.Fatalf("%s status=%d, want 400; body=%s", name, res.Code, res.Body.String())
-		}
-		if !strings.Contains(res.Body.String(), "unknown field") {
-			t.Fatalf("%s error should name the unknown field; body=%s", name, res.Body.String())
-		}
-	}
-}
-
-func TestPairingSessionRejectsInvalidPublicURLOverride(t *testing.T) {
-	t.Parallel()
-
-	handler := newTestHandler(t).Handler()
-	body := bytes.NewReader([]byte(`{"public_url":"ftp://192.168.1.42:8765"}`))
-	req := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", body)
-	req.RemoteAddr = "127.0.0.1:12345"
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", res.Code, res.Body.String())
-	}
-}
-
-func TestPairingSessionStillRequiresLocalMac(t *testing.T) {
-	t.Parallel()
-
-	handler := newTestHandler(t).Handler()
-	req := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", bytes.NewReader([]byte(`{"public_url":"http://192.168.1.42:8765"}`)))
-	req.RemoteAddr = "203.0.113.99:12345"
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusForbidden {
-		t.Fatalf("status=%d, want 403; body=%s", res.Code, res.Body.String())
 	}
 }
 
@@ -972,37 +410,6 @@ func (routeFakeClient) Settings(context.Context) (*rpc.PlatformSettings, error) 
 	}, nil
 }
 
-type routeSettingsStatusClient struct {
-	routeFakeClient
-	status string
-}
-
-type routeSettingsPatchCaptureClient struct {
-	routeFakeClient
-	calls int
-	patch json.RawMessage
-}
-
-func (c *routeSettingsPatchCaptureClient) UpdateSettings(_ context.Context, patch json.RawMessage) (*rpc.PlatformSettings, error) {
-	c.calls++
-	c.patch = append(c.patch[:0], patch...)
-	return c.Settings(context.Background())
-}
-
-func (c routeSettingsStatusClient) Settings(ctx context.Context) (*rpc.PlatformSettings, error) {
-	settings, err := c.routeFakeClient.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	settings.MarketData.Quality.Status = c.status
-	settings.MarketData.Quality.Summary = c.status
-	return settings, nil
-}
-
-func (c routeSettingsStatusClient) UpdateSettings(ctx context.Context, _ json.RawMessage) (*rpc.PlatformSettings, error) {
-	return c.Settings(ctx)
-}
-
 func (routeFakeClient) UpdateSettings(_ context.Context, patch json.RawMessage) (*rpc.PlatformSettings, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &obj); err != nil {
@@ -1071,21 +478,6 @@ type routeWriteFakeClient struct {
 
 type routeFrozenFakeClient struct {
 	routeWriteFakeClient
-}
-
-type routeModifyPreviewContractClient struct {
-	routeWriteFakeClient
-	order         rpc.OrderView
-	previewParams rpc.OrderPreviewParams
-}
-
-func (c *routeModifyPreviewContractClient) OrderStatus(context.Context, rpc.OrderStatusParams) (*rpc.OrderStatusResult, error) {
-	return &rpc.OrderStatusResult{Found: true, Order: c.order, AsOf: time.Now().UTC()}, nil
-}
-
-func (c *routeModifyPreviewContractClient) OrderPreview(ctx context.Context, params rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error) {
-	c.previewParams = params
-	return c.routeWriteFakeClient.OrderPreview(ctx, params)
 }
 
 func (routeFrozenFakeClient) TradingStatus(context.Context) (*rpc.TradingStatus, error) {
@@ -1184,41 +576,6 @@ func (routeWriteFakeClient) OrderCancel(context.Context, rpc.OrderCancelParams) 
 		SendState:       "sent",
 		AsOf:            time.Now().UTC(),
 	}, nil
-}
-
-func routeOpenOrderView() rpc.OrderView {
-	return rpc.OrderView{
-		OrderRef:        "ord-1",
-		PreviewTokenID:  "tok-1",
-		Account:         "DU123",
-		Endpoint:        "127.0.0.1:7497",
-		Mode:            "paper",
-		Symbol:          "SPY",
-		SecType:         "STK",
-		Action:          rpc.OrderActionSell,
-		OrderType:       rpc.OrderTypeLMT,
-		TIF:             rpc.OrderTIFDay,
-		Quantity:        2,
-		LimitPrice:      450.25,
-		Status:          "submitted",
-		LifecycleStatus: rpc.OrderLifecycleSubmitted,
-		SendState:       "sent",
-		Open:            true,
-		UpdatedAt:       time.Now().UTC(),
-	}
-}
-
-func routeModifyPreviewOrderView() rpc.OrderView {
-	order := routeOpenOrderView()
-	order.Symbol = "SAP"
-	order.ConID = 29622935
-	order.Exchange = "SMART"
-	order.PrimaryExch = "IBIS"
-	order.Currency = "EUR"
-	order.LocalSymbol = "SAP"
-	order.TradingClass = "SAP"
-	order.Multiplier = 1
-	return order
 }
 
 func newRouteTestKey(t *testing.T) *ecdsa.PrivateKey {

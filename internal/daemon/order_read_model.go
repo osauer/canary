@@ -275,7 +275,6 @@ func (s *Server) loadScopedOrderHistoryEvents(since, until time.Time, scope brok
 		return nil, fmt.Errorf("%w: order journal is unavailable", ErrTradingDisabled)
 	}
 	// daemon.db is the sole authority. The exact Go predicates remain the
-	// semantics-defining range/scope filter over event_seq-ordered rows.
 	events, err := s.orderJournal.LoadEvents(0)
 	if err != nil {
 		return nil, err
@@ -369,7 +368,6 @@ func (s *Server) loadOrderViews() ([]rpc.OrderView, map[string][]rpc.OrderEvent,
 		return nil, nil, fmt.Errorf("%w: order journal is unavailable", ErrTradingDisabled)
 	}
 	// Rows arrive in authoritative event_seq order; the fold below remains
-	// the single semantics implementation shared by reads and import parity.
 	events, err := s.loadOrderJournalEventsForRead("orders.open")
 	if err != nil {
 		return nil, nil, err
@@ -422,7 +420,6 @@ func (s *Server) captureOrderIntegrityEvidenceBinding() (daemonBrokerEvidenceBin
 // readOrderIntegrityCachedPositions is deliberately narrower than the
 // positions RPC. It reads the atomic portfolio cache and receipt only: no
 // quote/history/Greeks/FX/account/PnL enrichment belongs in the 30-second
-// integrity cadence.
 func (s *Server) readOrderIntegrityCachedPositions(ctx context.Context) ([]*ibkrlib.RawPosition, ibkrlib.PortfolioStreamHealth, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, ibkrlib.PortfolioStreamHealth{}, err
@@ -472,7 +469,6 @@ func (s *Server) reconcileOrderViewsFromCachedPositionsBound(ctx context.Context
 }
 
 // orderIntegrityPositionsFromCache projects only the identity fields read by
-// positionViewMatchesOrderView plus quantity. Any non-zero row from another
 // account makes the atomic cache unusable for a scoped negative.
 func orderIntegrityPositionsFromCache(raw []*ibkrlib.RawPosition, scope brokerStateScope, asOf time.Time) (*rpc.PositionsResult, bool) {
 	result := &rpc.PositionsResult{AsOf: asOf.UTC(), Stocks: []rpc.PositionView{}, Options: []rpc.PositionView{}}
@@ -499,9 +495,7 @@ func orderIntegrityPositionsFromCache(raw []*ibkrlib.RawPosition, scope brokerSt
 }
 
 // cachedPositionsMatchBrokerScope is the shared fail-closed boundary for
-// unattended consumers of the streaming portfolio cache. The connector keeps
 // foreign rows as conflict evidence; a strict consumer must reject the whole
-// projection instead of filtering those rows into an apparently clean book.
 func cachedPositionsMatchBrokerScope(raw []*ibkrlib.RawPosition, scope brokerStateScope) bool {
 	if !brokerScopeConcrete(scope) {
 		return false
@@ -533,7 +527,6 @@ func classifyPortfolioStreamHealth(scope brokerStateScope, health ibkrlib.Portfo
 
 // classifyPortfolioStreamHealthArm is classifyPortfolioStreamHealth plus the
 // name of the first failing condition (empty when current) so heartbeat
-// transition logs can say which arm opened an unavailable window; the arm
 // carries no account identity and never reaches a wire contract.
 func classifyPortfolioStreamHealthArm(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, now time.Time) (string, string) {
 	evidenceAt := health.InitialCompletedAt.UTC()
@@ -600,9 +593,6 @@ func reconcileFlatPositionProtectiveOrders(views []rpc.OrderView, pos *rpc.Posit
 }
 
 // classifyProtectiveMismatch grades a position_mismatch by its consequence.
-// coverage is the position magnitude available in the order's closing
-// direction; whatever the order's remaining quantity exceeds it by would open
-// a position in the opposite direction on trigger. Both kinds are critical —
 // the damaging event is the same — they differ only in the offered fix:
 // no coverage → cancel; partial coverage → reduce to exactly the coverage.
 func classifyProtectiveMismatch(view *rpc.OrderView, current, remaining float64) {
@@ -619,9 +609,6 @@ func classifyProtectiveMismatch(view *rpc.OrderView, current, remaining float64)
 }
 
 // protectiveCloseCoverage is the position quantity available in the order's
-// closing direction: long shares for a SELL close, short magnitude for a BUY
-// cover. Zero or negative means the position cannot absorb any part of the
-// order.
 func protectiveCloseCoverage(view rpc.OrderView, current float64) float64 {
 	switch strings.ToUpper(strings.TrimSpace(view.Action)) {
 	case rpc.OrderActionSell:
@@ -709,12 +696,8 @@ func positionViewMatchesOrderView(row rpc.PositionView, view rpc.OrderView) bool
 }
 
 // inferDayOrderExpiry marks non-terminal stock/ETF DAY orders whose effective
-// session closed well in the past as expired_inferred. It complements the
 // broker open-order snapshot reconcile (order_reconcile.go): calendar
-// inference closes DAY rows immediately after their session, without waiting
-// for the next snapshot sweep, and works even while disconnected. The state
 // is local calendar inference, never broker-confirmed: rows are closed for
-// display and duplicate-suppression but stay cancel-ineligible.
 func inferDayOrderExpiry(views []rpc.OrderView, eventsByKey map[string][]rpc.OrderEvent, now time.Time) {
 	cal := marketcal.New()
 	for i := range views {
@@ -752,9 +735,6 @@ func orderViewPlacedAt(view rpc.OrderView, eventsByKey map[string][]rpc.OrderEve
 }
 
 // dayOrderSessionDeadline returns the close of the first session whose close
-// follows placement. An order placed off-hours works the *next* session, so
-// placement-day inference would mark it dead prematurely and let the
-// duplicate-suppression layer place a doubled order at the open.
 func dayOrderSessionDeadline(cal *marketcal.Calendar, view rpc.OrderView, placed time.Time) (time.Time, bool) {
 	market := quoteMarketForStockContract(rpc.ContractParams{
 		Exchange:    view.Exchange,
@@ -824,8 +804,6 @@ func (f *orderViewFold) merge(ev orderJournalEvent) {
 	}
 	if f.terminal && !orderJournalEventIsTerminal(ev) {
 		// Terminal broker evidence is sticky. A delayed local send return or a
-		// nonterminal status callback can add audit history, but cannot resurrect
-		// the product row.
 		return
 	}
 
@@ -841,7 +819,6 @@ func (f *orderViewFold) merge(ev orderJournalEvent) {
 		attempt := f.attempts[ev.AttemptID]
 		if attempt == nil {
 			// A typed outcome without its staged half is corrupted/incomplete
-			// evidence. Keep it conservative instead of guessing an action.
 			attempt = &orderAttemptFold{action: ev.ActionKind, before: f.view, beforeLast: f.last, uncertain: true}
 			f.attempts[ev.AttemptID] = attempt
 		}
@@ -850,7 +827,6 @@ func (f *orderViewFold) merge(ev orderJournalEvent) {
 		}
 		if attempt.resolved || f.terminal {
 			// A broker acknowledgement or terminal callback can race ahead of the
-			// local send return. That stronger evidence dominates late uncertainty.
 			return
 		}
 		if ev.Type == orderJournalEventSendCompleted {
@@ -967,7 +943,6 @@ func (f *orderViewFold) finish() (rpc.OrderView, orderJournalEvent, bool) {
 			}
 			// A stage without a correlated local return means the process may have
 			// died on either side of the wire call. Explicit may-have/unknown errors
-			// are the same conservative product state.
 			f.view.SendState = orderSendStateUncertainSend
 			attemptUncertain = true
 			break
@@ -1018,13 +993,10 @@ func buildOrderEventsByKey(events []orderJournalEvent) map[string][]rpc.OrderEve
 	}
 	// Input is authoritative event_seq order. Do not reorder callbacks by
 	// their untrusted broker timestamp: clock regressions must not rewrite the
-	// append-only lifecycle sequence.
 	return out
 }
 
 // orderJournalEventFromView projects a folded view back into a journal event
-// carrying the row's full identity. Lives untagged (not in the trading-build
-// file) because the reconcile sweep needs it in read-only builds too.
 func orderJournalEventFromView(view rpc.OrderView, eventType string, at time.Time) orderJournalEvent {
 	return orderJournalEvent{
 		At:              at,
@@ -1468,13 +1440,10 @@ func mapOrderViewLifecycleStatus(view rpc.OrderView, last orderJournalEvent, att
 		status := mapBrokerErrorLifecycleStatus(last.ErrorCode, last.Status)
 		if status == rpc.OrderLifecycleInactive {
 			// Error 135 says the targeted order is not on the broker's books.
-			// The fill-vs-cancelled outcome remains unknown, but a stale GTC
 			// row must not remain locally open forever.
 			return status
 		}
 		// A rejected modify/cancel request does not prove the already-working
-		// order terminal. mergeOrderJournalEventIntoView marks that case
-		// uncertain even when the request error itself is allowlisted.
 		if view.SendState == orderSendStateUncertainSend {
 			return rpc.OrderLifecycleUnknownReconcileRequired
 		}
@@ -1535,10 +1504,8 @@ func mapOrderViewLifecycleStatus(view rpc.OrderView, last orderJournalEvent, att
 
 // mapBrokerErrorLifecycleStatus is the only broker-error terminal classifier.
 // ErrorCode and Status are durable typed fields; Message is untrusted audit
-// text and deliberately has no path into lifecycle state.
 func mapBrokerErrorLifecycleStatus(errorCode int, status string) string {
 	// Older journals did not persist ErrorCode. Even an apparently terminal
-	// status on such a row may have been derived from free text, so it stays
 	// uncertain and is retained through migration.
 	if errorCode == 0 {
 		return rpc.OrderLifecycleUnknownReconcileRequired
@@ -1557,7 +1524,6 @@ func mapBrokerErrorLifecycleStatus(errorCode int, status string) string {
 	}
 	// Unknown future codes may still carry an explicit broker lifecycle
 	// status. Only exact terminal statuses are accepted; pending/unknown
-	// values remain reconcile-required.
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "filled":
 		return rpc.OrderLifecycleFilled
@@ -1653,7 +1619,6 @@ func orderViewModifyEligible(view rpc.OrderView) bool {
 	case rpc.OrderTypeTRAIL, rpc.OrderTypeTRAILLIMIT:
 		// Protective trails are amended in place (same broker order ID) so a
 		// re-price never opens an unprotected cancel/replace window. Live
-		// protection policy issues GTC trails, so GTC stays modify-eligible.
 		return strings.EqualFold(view.TIF, rpc.OrderTIFDay) || strings.EqualFold(view.TIF, rpc.OrderTIFGTC)
 	default:
 		return false
@@ -1666,7 +1631,6 @@ func orderViewCancelEligibleWithAttemptTruth(view rpc.OrderView, attemptUncertai
 	}
 	if attemptUncertain {
 		// An exact positive broker ID is enough to issue the one safe recovery
-		// instruction: cancel. It is deliberately not enough to modify.
 		return true
 	}
 	return orderViewBrokerConfirmedForWrite(view)

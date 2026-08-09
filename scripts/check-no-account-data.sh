@@ -1,17 +1,10 @@
 #!/bin/sh
 # check-no-account-data.sh — fail the pre-commit gate when tracked/staged
 # files carry real IBKR account data. Scratch pages and screenshots are the
-# historical leak vector here, so the gate is deliberately paranoid about
 # root-level HTML, scratch-style filenames, and account-id shapes.
-#
 # Three checks, all over the git index (tracked + staged-for-add files):
-#   1. No HTML files at the repo root — real pages live under docs/ or
-#      web/; root HTML is a scratch page by definition here.
-#   2. No scratch-page names anywhere (*lab*.html, *scratch*).
 #   3. No IBKR account IDs (U / DU followed by 6-9 digits) anywhere,
 #      including Go files and binary blobs. Only conspicuous synthetic
-#      documentation/test placeholders (U1234567-style dummies) are
-#      allowlisted.
 set -eu
 
 # Byte-wise grep: the locale-aware path is ~5x slower over the docs tree.
@@ -24,7 +17,6 @@ self=scripts/check-no-account-data.sh
 status=0
 
 # Index contents, minus files staged for deletion / missing on disk
-# (same scope rationale as gofmt-check in the Makefile).
 files=$(git ls-files --cached | while IFS= read -r f; do
   [ -e "$f" ] && printf '%s\n' "$f"
 done)
@@ -46,12 +38,8 @@ if [ -n "$scratch" ]; then
 fi
 
 # 3) Account IDs anywhere in the index. git grep scans staged blob
-#    contents (multithreaded, ~3x faster than xargs grep over the worktree
-#    here). Boundary classes instead of \b for BSD/GNU regex portability;
-#    the trailing class rejects longer digit runs.
 id_re='(^|[^[:alnum:]_])D?U[0-9]{6,9}([^[:alnum:]]|$)'
 # Repdigit IDs join the sequence dummies: a real account never reads as
-# seven identical digits, so they stay safe fixtures for tests that need
 # several distinct accounts at once.
 allow_re='D?U1234567|D?U7654321|DU123456|DU0000000|D?U1111111|D?U2222222|D?U6666666|D?U9999999'
 candidates=$(git grep --cached -laEi "$id_re" -- ":!$self" || true)
@@ -67,7 +55,6 @@ for f in $candidates; do
 done
 
 # 4) No compiled executables in the index (Mach-O / ELF magic). A stray
-#    `go build` output at the repo root has been committed before; images
 #    and other checked-in assets pass — only executable container magic
 #    fails. Size-gated so the magic sniff touches a handful of files.
 bins=$(printf '%s\n' "$files" | while IFS= read -r f; do

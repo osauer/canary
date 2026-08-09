@@ -1,6 +1,12 @@
+// Package alerts turns daemon-authored alert state into redacted app inbox
+// records and Web Push work. It owns app-side observation, durable-before-send
+// dispatch ordering, and presentation; it does not evaluate risk policy or own
+// daemon delivery authority.
 package alerts
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import (
+	"github.com/osauer/canary/v2/internal/rpc"
+)
 
 // Presentation is fixed app-authored copy selected only by the daemon's
 // closed presentation code. It contains no producer free text or private

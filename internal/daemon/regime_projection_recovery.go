@@ -30,9 +30,6 @@ const (
 )
 
 // regimeProjectionReceipt is written only after streaks, the rule-stage
-// latch, and the decision journal have all accepted one authoritative Regime
-// publication. Its snapshot revision and SQLite commit timestamp form a stable
-// recovery identity across restart; wall-clock snapshot as_of alone does not.
 type regimeProjectionReceipt struct {
 	Version             int             `json:"version"`
 	SnapshotRevision    int64           `json:"snapshot_revision"`
@@ -45,7 +42,6 @@ type regimeProjectionReceipt struct {
 // already match the current publication, or may advance exactly once from the
 // prior receipted publication (missing/legacy metadata is accepted only for a
 // first publication with no receipt). When the receipt already names current,
-// validateOnly forbids every content or metadata repair.
 type regimeProjectionPlan struct {
 	publication      regimeSnapshotPublication
 	receipt          regimeProjectionReceipt
@@ -93,7 +89,6 @@ func (cache *regimeSnapshotCache) publication() (regimeSnapshotPublication, *rpc
 }
 
 // reconcileRegimeSnapshotProjections repairs the narrow crash window between
-// the authoritative snapshot CAS and its derived projector commits. It runs
 // before the RPC socket is published. Replays are idempotent and the receipt is
 // advanced only after every projector succeeds.
 func (s *Server) reconcileRegimeSnapshotProjections(ctx context.Context, cache *regimeSnapshotCache) error {
@@ -137,7 +132,6 @@ func (s *Server) reconcileRegimeSnapshotProjections(ctx context.Context, cache *
 
 // commitRegimeSnapshotProjections is the normal after-publish barrier. The
 // rule-stage candidate is durable before the decision disposition and receipt,
-// but cannot become the in-memory rulebook latch until both have committed.
 func (s *Server) commitRegimeSnapshotProjections(ctx context.Context, snapshot *rpc.RegimeSnapshotResult, evaluated *StreakStore, publication regimeSnapshotPublication) error {
 	plan, err := s.prepareRegimeProjectionPlan(ctx, publication)
 	if err != nil {
@@ -431,10 +425,7 @@ func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.
 			return nil, fmt.Errorf("reconcile regime streak %s: reset state has session count %d", key, streak.Sessions)
 		}
 		// Tick freezes a row measured off its own cadence: it returns the stored
-		// entry untouched, so the persisted value is the last fresh
-		// publication's, not this snapshot's. Re-deriving it from the snapshot
 		// claims a write the live path never made — vix_term is not_due every
-		// evening while the VIX leg keeps moving the ratio — and the
 		// current-position compare then fails closed with no repair path.
 		lastValue := value
 		if existed && sameStreak && meta.Freshness != nil && meta.Freshness.Class != rpc.RegimeFreshnessFresh {
@@ -443,17 +434,12 @@ func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.
 		latched := streak.Band == "red" && sameStreak && prior.EligibleLatched
 		// A newly earned latch is applied after eligibility is attached to the
 		// wire, so Eligibility.Latched can still be false on that publication.
-		// Eligibility.Eligible is therefore the recovery proof for the newly
-		// latched case; an existing same-streak latch is preserved when overdue
-		// evidence temporarily makes Eligible false.
 		if streak.Band == "red" && meta.Eligibility != nil && meta.Eligibility.Eligible {
 			latched = true
 		}
 		// LastBandAt is a wall-clock measurement time the persisted snapshot
-		// does not carry and the projection cannot re-derive. Zeroing it claims
 		// a write the live path never made, and the current-position compare
 		// then fails closed with no repair path — the trap the lastValue carry
-		// above already avoids.
 		next[key] = StreakEntry{
 			LastBand: streak.Band, SinceDate: streak.Since, LastSession: lastSessionForTarget,
 			Sessions: streak.Sessions, LastValue: lastValue, EligibleLatched: latched,
@@ -823,18 +809,12 @@ func validateRegimeDecisionProjectionEvent(event corestore.EventRecord, line reg
 	}
 	if line.CurrencyPolicy != rpc.RegimeCurrencyPolicyVersion {
 		// The line was rendered under a prior input-currency policy. Its key,
-		// publication time and fingerprint above prove it belongs to this
-		// publication; recomputing it under the current policy would produce
 		// legitimately different content, so byte equality is only demanded
-		// within one policy version. History partitions on the marker rather
-		// than blocking the upgrade boot.
 		return nil
 	}
 	if line.V > 0 && line.V < regimeDecisionLineVersion {
 		// The event key, publication time, and typed fingerprint above bind an
 		// immutable older payload to this exact snapshot. Its rendered fields
-		// belong to that payload version: recomputing them with newer depth,
-		// label, or replay fields can legitimately produce different bytes.
 		// Current-version lines remain byte-exact below.
 		return nil
 	}
@@ -857,10 +837,7 @@ func validateRegimeDecisionProjectionEvent(event corestore.EventRecord, line reg
 }
 
 // regimeDecisionPublicationCanSkip decides only new publications. A transition,
-// first publication, or re-enabled journal always records. Equal fingerprints
 // may skip only while an exact prior event remains inside the hourly heartbeat
-// window; the durable marker then records that the missing revision event is
-// intentional rather than a crash gap.
 func regimeDecisionPublicationCanSkip(events []corestore.EventRecord, publication regimeSnapshotPublication, plan regimeProjectionPlan) (bool, error) {
 	if plan.previous == nil || plan.previousDecision == regimeDecisionEventDisabled ||
 		plan.previous.Fingerprint != publication.Fingerprint {
@@ -873,8 +850,6 @@ func regimeDecisionPublicationCanSkip(events []corestore.EventRecord, publicatio
 }
 
 // regimeDecisionSkipAnchorEligible validates the latest recorded authoritative
-// event as the heartbeat anchor for a skipped revision. It intentionally does
-// not accept a same-fingerprint event older than the heartbeat or a loose event
 // tuple: restart recovery must distinguish an intentional skip from missing
 // evidence using only durable state.
 func regimeDecisionSkipAnchorEligible(events []corestore.EventRecord, publication regimeSnapshotPublication) (bool, error) {

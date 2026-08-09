@@ -56,7 +56,6 @@ type restartDeps struct {
 
 // signalPolicy is the graceful-stop budget shared by `restart` and `stop`:
 // SIGTERM, wait up to timeout, and escalate to SIGKILL only when force is
-// set. quiet suppresses progress lines for the machine-readable modes.
 type signalPolicy struct {
 	force   bool
 	quiet   bool
@@ -101,9 +100,6 @@ type appRestartDeps struct {
 	start           func(context.Context, []string) (int, error)
 	executablePaths map[string]struct{}
 	// supervisor reports a loaded launchd job owning the app. migrate performs
-	// the one-shot pre-rename executable rewrite/reload; kickstart restarts an
-	// already-canonical job in place. All are nil outside macOS wiring and most
-	// tests.
 	supervisor func(context.Context) (appSupervisor, bool)
 	migrate    func(context.Context, appSupervisor) error
 	kickstart  func(context.Context, string) error
@@ -142,7 +138,6 @@ var (
 
 // RunRestart is the top-level `canary restart` entrypoint. It intentionally does
 // not take an Env: restart is local process management and must run before the
-// normal autospawn+dial path in cmd/canary/main.go.
 func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	opts := restartOptions{
 		timeout: restartDefaultTimeout,
@@ -258,11 +253,8 @@ func runRestartAllCore(ctx context.Context, opts *restartOptions, daemonDeps res
 
 func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps restartDeps, appDeps appRestartDeps, behavior restartStackBehavior) int {
 	// App discovery is by process name (findAppProcess) and cannot tell
-	// which daemon scope a found app belongs to. When CANARY_SOCKET points
 	// at a non-default scope, the only app this command could find is one
 	// outside that scope, so implicit app management must stay hands-off.
-	// Decide that before either process can be mutated. `canary restart --app`
-	// remains available as the explicit, separate path.
 	var appRes *appRestartResult
 	var appPlan appStackRestartPlan
 	if dial.SocketPathOverridden() {
@@ -336,7 +328,6 @@ type appStackRestartPlan struct {
 }
 
 // quiesceAppForDaemonRestart removes every running app instance managed by a
-// stack restart before the daemon socket can disappear. A running app is a
 // daemon client with autospawn authority; restarting it before the daemon
 // creates a race in which the app and restart command compete for the daemon
 // lock. The app is resumed only after daemon health succeeds.
@@ -356,17 +347,11 @@ func quiesceAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps 
 			}
 			if findErr == nil {
 				// A different --state-dir isolates the app lock, not the daemon
-				// socket. The independent process and the loaded shared supervisor
-				// can therefore both autospawn the default daemon. This single-result
-				// restart contract cannot stop and faithfully restore both app
-				// lifecycles, so leave every process untouched rather than restart
-				// the daemon under one still-loaded client.
 				fmt.Fprintf(opts.err, "%s: an independent app process and the shared launchd supervisor %s are both present; refusing stack restart because both may autospawn the default daemon (stop the isolated app or its supervisor, then rerun)\n", prefix, sup.Target)
 				return plan, 1
 			}
 			// Ambiguous or failed process discovery retains its exact error and
 			// flows to the fail-closed switch below. It is not evidence that
-			// launchd safely owns every possible app.
 		}
 	}
 	switch {
@@ -496,9 +481,6 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 
 	// --timeout is the graceful-stop budget and stays tight; readiness is a
 	// different quantity that scales with the authority the daemon verifies
-	// before it serves. Taking the larger of the two keeps --timeout usable
-	// as an upward override without letting a 15s stop budget declare a
-	// healthy 50s boot dead.
 	startupBudget := max(dial.StartupBudget(), opts.timeout)
 
 	proc, err := deps.find(ctx, socketPath)
@@ -672,7 +654,6 @@ func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, 
 }
 
 // stopAppWithPolicy SIGTERMs pid with the graceful/force policy shared by
-// the supervised and unsupervised restart paths, reporting forced=true when
 // SIGKILL was needed. A non-zero exit means the stop failed.
 func stopAppWithPolicy(policy signalPolicy, deps appRestartDeps, prefix string, pid int) (forced bool, exit int) {
 	return signalProcessWithPolicy(policy, deps.stop, deps.kill, errAppStopTimeout, prefix, "app", pid)
@@ -713,13 +694,6 @@ func signalProcessWithPolicy(policy signalPolicy, stop, kill func(int, time.Dura
 }
 
 // supervisedRestartApplies reports whether the launchd job owns this
-// restart. The app lock lives in the state directory, so lock identity —
-// not pid or argv equality — is the orphan test: a found process that
-// resolves to the job's state dir is the supervised app or its orphan,
-// while one resolving elsewhere is an independent instance (an isolated
-// smoke or preview app with its own --state-dir) — kickstarting the
-// shared host in its place would restart the wrong app and strand the
-// instance the caller asked about.
 func supervisedRestartApplies(proc appProcess, findErr error, sup appSupervisor) bool {
 	if findErr != nil {
 		return errors.Is(findErr, errAppNotRunning)
@@ -731,9 +705,6 @@ func supervisedRestartApplies(proc appProcess, findErr error, sup appSupervisor)
 }
 
 // appArgsStateDir resolves the state directory a `canary app` argv locks:
-// the --state-dir value when present, else the shared default (a plist
-// whose arguments could not be parsed resolves to the default too).
-// Symlinked spellings (macOS /tmp vs /private/tmp) resolve to one
 // canonical path so equal locks never read as different.
 func appArgsStateDir(args []string) string {
 	dir := strings.TrimSpace(appValueArg(args, "state-dir"))
@@ -750,7 +721,6 @@ func appArgsStateDir(args []string) string {
 // restartSupervisedApp restarts the app through its launchd job. Stopping
 // the supervised process by hand races launchd's KeepAlive respawn: whoever
 // loses the race leaves an orphan holding the app state lock while launchd
-// crash-loops against it, and the app then runs without any supervisor.
 func restartSupervisedApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, prefix string, startedAt time.Time, proc appProcess, findErr error, sup appSupervisor) (appRestartResult, bool, int) {
 	res := appRestartResult{Action: "restarted", Target: "app", Supervisor: sup.Target, Args: sup.Args}
 	if sup.ParseError != "" || !isAppServerArgs(sup.Args) {
@@ -773,7 +743,6 @@ func restartSupervisedApp(ctx context.Context, opts *restartOptions, deps appRes
 		res.OldCommand = proc.Command
 		if proc.PID != sup.PID {
 			// Orphan from an earlier hand-spawned restart: it holds the app
-			// state lock, so launchd's respawns crash-loop until it is gone.
 			if !opts.jsonOut {
 				fmt.Fprintf(opts.out, "%s: stopping unsupervised app pid %d so the launchd job can own the app again\n", prefix, proc.PID)
 			}
@@ -1034,7 +1003,6 @@ func waitForAppRespawn(ctx context.Context, find func(context.Context) (appProce
 		}
 		// An ambiguous find (other app instances, e.g. the shared host or
 		// a preview) means "no unambiguous respawn yet", not a failure —
-		// aborting here would leave the just-stopped app stopped.
 		if !errors.Is(err, errAppNotRunning) && !errors.Is(err, errAppUnverified) {
 			return appProcess{}, false, err
 		}

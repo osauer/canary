@@ -19,18 +19,10 @@ import (
 )
 
 // Runtime capital state for the risk constitution (internal-docs/design/risk-policy.md):
-// the cash-flow-adjusted equity peak, the drawdown latch, declared capital
-// events, statement-authoritative v3 facts, and one-shot overrides.
-//
 // Authority split: risk-policy.toml owns the numbers, internal/risk owns the
-// evaluation, this store owns observed/derived runtime facts. Aggregates that
-// can be re-derived from SQLite capital events (declared flows, reconcile
-// evidence) are replayed on every bind; statement facts come from retained
 // broker evidence. A versioned CAS document owns what those sources cannot
-// rebuild: peak, latch, applied statement corrections, daily equity samples,
 // overrides. Legacy files below are importer/test
 // oracles only after cutover.
-//
 // Nothing in this file may influence submit eligibility, blockers, freeze,
 // pins, or tokens: v1 is advisory/shadow end to end.
 
@@ -41,10 +33,8 @@ const (
 	riskCapitalStateVer      = 1
 	riskCapitalSQLiteDocVer  = 2
 	// riskCapitalDailySampleKeep bounds the per-day equity sample cache
-	// feeding the same-day recon equity check and the backtest replay.
 	riskCapitalDailySampleKeep = 45 * 24 * time.Hour
 	// riskCapitalPersistEvery throttles equity-cache persistence; latch,
-	// peak, and event writes always persist immediately.
 	riskCapitalPersistEvery = time.Minute
 	riskCapitalAutoOrigin   = "daemon-auto"
 	riskCapitalScopeVersion = "risk-capital-scope-v1"
@@ -59,9 +49,7 @@ type riskCapitalStateFileV1 struct {
 	Seeded    bool      `json:"seeded"`
 	// AccountID/AccountMode bind this capital document to one broker identity.
 	// SQLite gives every account/mode its own document; the legacy file helper
-	// adopts the first accepted live scope and then refuses every other one.
 	// A non-live observation can never write a live peak
-	// (2026-07-19 incident: a paper-pinned rehearsal daemon sharing this
 	// state dir ratcheted the live peak with the paper account's equity).
 	AccountID                         string               `json:"account_id,omitempty"`
 	AccountMode                       string               `json:"account_mode,omitempty"`
@@ -114,8 +102,6 @@ type capitalEventReplay struct {
 }
 
 // riskCapitalSQLiteDocument is the complete authoritative capital state.
-// Capital declarations and governance evidence live with the current facts
-// so a state transition and the evidence explaining it commit under one CAS.
 // The old JSONL files are read only by the explicit cutover importer.
 type riskCapitalSQLiteDocument struct {
 	Version     int                    `json:"version"`
@@ -137,7 +123,6 @@ type riskCapitalStore struct {
 	nudges                 *nudgeStateStore
 	observeConfirmedFlows  func(nudgeConfirmedFlowSnapshot)
 	// nudgeCaptureHook is a test-only barrier invoked while mu is held before
-	// the atomic capital-report/latch capture.
 	nudgeCaptureHook func()
 	loaded           bool
 	state            riskCapitalStateFileV1
@@ -389,7 +374,6 @@ func (st *riskCapitalStore) installSQLiteDocumentLocked(doc riskCapitalSQLiteDoc
 }
 
 // selectScopeLocked installs the current document for one explicit account
-// and mode. The mutex makes a scope switch one serialized generation: pending
 // writes from the old account are committed before the new account can load.
 func (st *riskCapitalStore) selectScopeLocked(scope brokerStateScope) error {
 	if st.core == nil {
@@ -546,7 +530,6 @@ func (st *riskCapitalStore) loadLocked() {
 	st.state.Version = riskCapitalStateVer
 	if st.state.BlockLatched && st.state.LatchEpisodeSeq == 0 {
 		// Backward-compatible replay for a latch created before the opaque
-		// episode counter existed. Snapshot reads do not persist this upgrade.
 		st.state.LatchEpisodeSeq = 1
 	}
 	// Journal replay owns flows and reconciliation recency.
@@ -642,7 +625,6 @@ func (st *riskCapitalStore) persistLocked(force bool) error {
 			}
 		}
 		// The mutex keeps the uncommitted state private; restore the last
-		// committed generation before any caller can observe it.
 		st.installSQLiteDocumentLocked(cloneRiskCapitalDocument(st.committed))
 		st.capitalEvents = append([]capitalEventV1(nil), st.committedCapitalEvents...)
 		replayed := replayCapitalEventSlice(st.capitalEvents)
@@ -719,10 +701,7 @@ func (st *riskCapitalStore) effectiveFlowsLocked(c *risk.Constitution) (effectiv
 }
 
 // Observe folds one equity reading into the state: seeds or raises the
-// cash-flow-adjusted peak, evaluates the tier under the active constitution,
-// engages the latch on a block breach, and journals tier transitions.
 // Called from the account-summary success path — observation cadence is
-// usage cadence; there is deliberately no new scheduler in v1. The scope is
 // the caller's connected broker identity: SQLite selects that account's own
 // document; an unresolved or non-live scope is refused. The legacy file helper
 // also refuses a different account after first adoption.
@@ -737,7 +716,6 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 	now := st.now()
 	if st.core != nil {
 		// Preserve the existing live-only observation guard before selecting a
-		// document. A paper observation cannot even create a live-like ladder.
 		if !brokerScopeConcrete(scope) || scope.Mode != rpc.AccountModeLive {
 			return false
 		}
@@ -756,7 +734,6 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 	}
 	if st.state.AccountID == "" {
 		// The binding must hit disk immediately: until it persists, a
-		// mis-pinned daemon sharing this state dir could adopt instead.
 		st.state.AccountID = scope.Account
 		st.state.AccountMode = scope.Mode
 		force = true
@@ -787,9 +764,7 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 	adjusted := equityBase - flows
 	if !st.state.Seeded || adjusted > st.state.AdjustedPeakBase {
 		// Every peak ratchet is journaled: the peak is monotonic runtime
-		// state that a single bad equity observation (e.g. a reconnect-window
 		// glitch) can poison, and an unexplained jump must be diagnosable
-		// after the fact from the journal alone.
 		st.appendRiskPolicyJournal(map[string]any{
 			"version": 1, "at": now.UTC(), "kind": "adjusted_peak_advanced",
 			"from_base": st.state.AdjustedPeakBase, "to_base": adjusted,
@@ -846,7 +821,6 @@ func (st *riskCapitalStore) observationScopeRejectionLocked(scope brokerStateSco
 
 // journalScopeRejectionLocked records a refused observation once per
 // (reason, account) per process — loud enough to diagnose, quiet enough that
-// a mis-pinned daemon polling every few seconds cannot flood the journal.
 func (st *riskCapitalStore) journalScopeRejectionLocked(scope brokerStateScope, equityBase float64, asOf time.Time, reason string, c *risk.Constitution, now time.Time) {
 	key := reason + "\x00" + strings.ToUpper(scope.Account)
 	if st.scopeRejectionsJournaled == nil {
@@ -866,10 +840,7 @@ func (st *riskCapitalStore) journalScopeRejectionLocked(scope brokerStateScope, 
 }
 
 // CorrectPeak lowers a corrupted adjusted peak to an evidence-anchored value.
-// Human-only (caller-verified); reason mandatory. It deliberately never
-// touches the latch: the latch records a real engagement, and clearing it
 // stays ResetDrawdown's job. Corrections may only lower the peak — higher
-// peaks come exclusively from scoped observations.
 func (st *riskCapitalStore) CorrectPeak(peakBase float64, peakAsOf time.Time, source, reason string, c *risk.Constitution) (float64, error) {
 	return st.CorrectPeakForScope(peakBase, peakAsOf, source, reason, c, brokerStateScope{})
 }
@@ -917,11 +888,7 @@ func (st *riskCapitalStore) CorrectPeakForScope(peakBase float64, peakAsOf time.
 }
 
 // ApplyCapitalEvent journals a declared capital fact and folds it into the
-// derived aggregates. A deposit whose effective time precedes the recorded
-// peak corrects the peak downward: the peak was observed with the deposit
-// already in equity, and an inflated peak would overstate drawdown against
 // money that was never earned (never-inflate discipline; the symmetric
-// withdrawal case cannot inflate the peak, so no correction is needed).
 func (st *riskCapitalStore) ApplyCapitalEvent(p rpc.CapitalEventParams, origin string, refs ...*capitalReconRef) (capitalEventV1, error) {
 	return st.ApplyCapitalEventForPolicy(p, origin, nil, refs...)
 }
@@ -1005,9 +972,6 @@ func (st *riskCapitalStore) ApplyCapitalEventForPolicyScope(p rpc.CapitalEventPa
 }
 
 // ApplyAutomaticReconcile appends daemon-owned evidence while holding the
-// same serialization lock as human capital events. The report id is checked
-// and recorded atomically, so concurrent startup/fetch evaluations cannot
-// append the same pinned report twice.
 func (st *riskCapitalStore) ApplyAutomaticReconcile(reportID string, coverageTo time.Time) (capitalEventV1, bool, error) {
 	return st.ApplyAutomaticReconcileForScope(reportID, coverageTo, brokerStateScope{})
 }
@@ -1060,8 +1024,6 @@ type statementCapitalSnapshot struct {
 }
 
 // IncorporateStatementSnapshot installs one fully healthy reconstruction.
-// The first v3 incorporation is an activation baseline: existing lines are
-// marked seen without changing peak/latch state. Later new deposits use their
 // broker value dates for the one-time R4 peak correction.
 func (st *riskCapitalStore) IncorporateStatementSnapshot(snap statementCapitalSnapshot) {
 	_ = st.IncorporateStatementSnapshotForScope(snap)
@@ -1108,7 +1070,6 @@ func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementC
 	persisted := persistErr == nil
 	st.mu.Unlock()
 	// The nudge store has its own lock and persistence boundary. Observe only
-	// after capital state is installed so neither store is held while writing
 	// the other, and never let advisory nudge persistence alter capital truth.
 	if persisted && st.observeConfirmedFlows != nil {
 		st.observeConfirmedFlows(snap.NudgeConfirmedFlows)
@@ -1140,8 +1101,6 @@ func (st *riskCapitalStore) ActivateStatementAuthorityWithoutStatementsForScope(
 }
 
 // GrantOverride records a one-shot, expiring exception against one named
-// control. The caller has already verified a human origin; this layer
-// enforces the policy's lifetime cap and journals the grant.
 func (st *riskCapitalStore) GrantOverride(p rpc.OverrideParams, c *risk.Constitution) (rpc.OverrideRecord, error) {
 	return st.GrantOverrideForScope(p, c, brokerStateScope{})
 }
@@ -1204,7 +1163,6 @@ func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.
 }
 
 // ResetDrawdown clears the latch and re-bases the adjusted peak to the
-// current equity reading. Human-only (caller-verified); reason mandatory.
 func (st *riskCapitalStore) ResetDrawdown(reason string, c *risk.Constitution) error {
 	return st.ResetDrawdownForScope(reason, c, brokerStateScope{})
 }
@@ -1241,8 +1199,6 @@ func (st *riskCapitalStore) ResetDrawdownForScope(reason string, c *risk.Constit
 }
 
 // Report evaluates the current state under the active constitution for the
-// snapshot surface. obs may be nil (no fresh reading): the persisted last
-// equity serves with its own timestamp so staleness is honest. scope is the
 // caller's connected broker identity, the same one Observe takes: a session
 // whose account or mode differs from the document's adopted binding is served
 // Tier unknown with the binding disclosed, never a drawdown computed from one
@@ -1294,8 +1250,6 @@ type riskCapitalNudgeSnapshot struct {
 }
 
 // NudgeSnapshot captures the policy-derived capital report and latch episode
-// from one state generation. Snapshot composition cannot pair an old capital
-// magnitude with a reset or rearmed latch.
 func (st *riskCapitalStore) NudgeSnapshot(c *risk.Constitution, obs *risk.CapitalObservation) riskCapitalNudgeSnapshot {
 	return st.NudgeSnapshotForScope(c, obs, brokerStateScope{})
 }
@@ -1316,9 +1270,7 @@ func (st *riskCapitalStore) NudgeSnapshotForScope(c *risk.Constitution, obs *ris
 		st.nudgeCaptureHook()
 	}
 	// The nudge path passes no fresh observation, so the report pairs the
-	// document's own persisted equity with its own peak — self-consistent for
 	// the bound account regardless of the current session. An empty scope is
-	// therefore correct here, not an oversight.
 	report := st.reportLocked(c, obs, brokerStateScope{})
 	open, episode, occurredAt := st.nudgeLatchLocked()
 	return riskCapitalNudgeSnapshot{Report: report, LatchOpen: open, Episode: episode, OccurredAt: occurredAt}
@@ -1329,11 +1281,7 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 
 	if reason := st.reportScopeMismatchLocked(scope); reason != "" {
 		// No drawdown across accounts: computing this document's peak against
-		// a mismatched session's equity fabricates a tier in either direction
-		// (a smaller sibling equity manufactures a block, a larger one
-		// collapses it to ok). The document facts stay visible and attributed
 		// — a latched block must not vanish from view behind a repin — but
-		// the computed magnitudes do not cross the binding.
 		rep := rpc.CapitalStateReport{
 			Tier:             risk.CapitalTierUnknown,
 			Enforcement:      constitutionEnforcement(c),
@@ -1350,7 +1298,6 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 	}
 	// A fresh observation with no resolvable session identity cannot be
 	// attributed to the bound account; the persisted last equity below is
-	// self-consistent with the document and serves instead, staleness honest.
 	if obs != nil && st.state.AccountID != "" && !brokerScopeConcrete(scope) {
 		obs = nil
 	}
@@ -1394,8 +1341,6 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 	if st.state.Seeded {
 		peak := st.state.AdjustedPeakBase
 		// Preserve the existing wire field's declared-ledger meaning. The
-		// evaluator receives effectiveFlows; the additive dual-compute fields
-		// disclose both inputs and FlowSource identifies the selected one.
 		flows := declared
 		rep.AdjustedPeakBase = &peak
 		rep.PeakAsOf = st.state.PeakAsOf
@@ -1405,10 +1350,7 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 }
 
 // reportScopeMismatchLocked names why the calling session may not read this
-// capital document as its own, or "" when it may. Unlike observation
-// rejection, an unresolved scope serves: with no session identity the report
 // pairs the bound account's persisted equity with its own peak, which is
-// self-consistent. The hazard this guards is a resolved session handing a
 // different account's fresh equity to this document's peak (audit A1).
 func (st *riskCapitalStore) reportScopeMismatchLocked(scope brokerStateScope) string {
 	if st.state.AccountID == "" || !brokerScopeConcrete(scope) {
@@ -1424,8 +1366,6 @@ func (st *riskCapitalStore) reportScopeMismatchLocked(scope brokerStateScope) st
 }
 
 // latchConsumedPct discloses the consumed share recorded at latch engagement,
-// so a later data glitch inflating the live consumed percentage cannot
-// retroactively misrepresent why the latch fired.
 func latchConsumedPct(state riskCapitalStateFileV1) *float64 {
 	if !state.BlockLatched || state.LatchConsumedPct == 0 {
 		return nil
@@ -1435,7 +1375,6 @@ func latchConsumedPct(state riskCapitalStateFileV1) *float64 {
 }
 
 // ActiveOverrides prunes expired overrides and returns the full record list
-// (active first ordering is the caller's concern; expiry is journaled once).
 func (st *riskCapitalStore) ActiveOverrides() []rpc.OverrideRecord {
 	return st.ActiveOverridesForScope(brokerStateScope{})
 }
@@ -1470,8 +1409,6 @@ func (st *riskCapitalStore) ActiveOverridesForScope(scope brokerStateScope) []rp
 }
 
 // OverridesSnapshot returns the persisted override rows without expiring or
-// journaling them. Read-only compositions use this instead of ActiveOverrides,
-// whose expiry maintenance is intentionally write-bearing.
 func (st *riskCapitalStore) OverridesSnapshot() []rpc.OverrideRecord {
 	return st.OverridesSnapshotForScope(brokerStateScope{})
 }
@@ -1491,7 +1428,6 @@ func (st *riskCapitalStore) OverridesSnapshotForScope(scope brokerStateScope) []
 }
 
 // UnreconciledClock returns the evaluator's exact deadline projection without
-// mutating runtime state.
 func (st *riskCapitalStore) UnreconciledClock(c *risk.Constitution, now time.Time) risk.UnreconciledClock {
 	return st.UnreconciledClockForScope(c, now, brokerStateScope{})
 }
@@ -1585,7 +1521,6 @@ func (st *riskCapitalStore) DailySampleForScope(day string, scope brokerStateSco
 }
 
 // capitalReplayContext is the read-only snapshot the backtest replay
-// consumes.
 type capitalReplayContext struct {
 	GenesisAt        time.Time
 	Seeded           bool
@@ -1597,7 +1532,6 @@ type capitalReplayContext struct {
 }
 
 // ReplayContext returns an isolated copy of the runtime facts used by the
-// capital-ladder backtest.
 func (st *riskCapitalStore) ReplayContext() capitalReplayContext {
 	ctx, _ := st.ReplayContextForScope(brokerStateScope{})
 	return ctx
@@ -1754,7 +1688,6 @@ func appendCapitalEvent(ev capitalEventV1) error {
 }
 
 // appendRiskPolicyJournal is the legacy file-backed test/import seam. Runtime
-// governance events use the riskCapitalStore method and daemon.db. The payload
 // always carries the policy fingerprint so replay can prove which exact policy
 // produced a transition. Best-effort: journaling never fails the caller.
 func appendRiskPolicyJournal(entry map[string]any) {
@@ -1795,7 +1728,6 @@ func (st *riskCapitalStore) RecordGovernanceEventForScope(entry map[string]any, 
 
 // RecordDeskGovernanceEvent keeps accountless policy-manager lifecycle facts
 // in the daemon scope. Account-derived tiers, dismissals, overrides, and
-// capital events use RecordGovernanceEventForScope instead.
 func (st *riskCapitalStore) RecordDeskGovernanceEvent(entry map[string]any) error {
 	if st == nil {
 		return fmt.Errorf("risk capital persistence is unavailable")
@@ -1839,7 +1771,6 @@ func (st *riskCapitalStore) RecordDeskGovernanceEvent(entry map[string]any) erro
 }
 
 // journalRiskPolicyTransition records manager status transitions
-// (active/absent/drift/error) with full policy identity.
 func (s *Server) journalRiskPolicyTransition(prev, next string, c *risk.Constitution) {
 	entry := map[string]any{
 		"version": 1, "at": time.Now().UTC(), "kind": "policy_status", "from": prev, "to": next,
@@ -1854,7 +1785,6 @@ func (s *Server) journalRiskPolicyTransition(prev, next string, c *risk.Constitu
 		_ = s.riskCapital.RecordDeskGovernanceEvent(entry)
 	} else {
 		// Legacy unit/import helper only. A started daemon always binds the
-		// risk capital store before policy reload can emit transitions.
 		appendRiskPolicyJournal(entry)
 	}
 }

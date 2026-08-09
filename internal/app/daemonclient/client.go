@@ -1,3 +1,7 @@
+// Package daemonclient adapts the app host to the daemon's typed RPC surface.
+// It can carry read, preview, and paired-device action requests, but capability
+// to call a method is not authority: the daemon retains policy, preview-token,
+// account, mode, freeze, and broker-write enforcement.
 package daemonclient
 
 import (
@@ -5,15 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/stress"
+	"time"
 )
 
 // Client is the app host's typed daemon capability surface. Implementations
-// transport requests only; callers and the daemon retain their respective
 // authentication, confirmation, policy, and broker-write gates.
 type Client interface {
 	Status(context.Context) (*rpc.HealthResult, error)
@@ -65,7 +67,6 @@ type ReconciliationClient interface {
 }
 
 // Real opens a short-lived daemon connection for each typed call and can
-// optionally autospawn the daemon when its socket is absent.
 type Real struct {
 	SocketPath string
 	AutoSpawn  bool
@@ -74,7 +75,6 @@ type Real struct {
 const appQuoteSnapshotTimeout = 2500 * time.Millisecond
 
 // Result-validation errors identify daemon responses rejected at the app RPC
-// boundary without including private payload data.
 var (
 	ErrInvalidAlertCandidateSnapshot = errors.New("invalid alert candidate snapshot")
 )
@@ -135,7 +135,6 @@ func (c Real) Quote(ctx context.Context, contract rpc.ContractParams) (*rpc.Quot
 }
 
 // StreamQuote forwards decoded quote frames until ctx, the daemon stream, or
-// onFrame terminates. A nil onFrame consumes frames without a callback.
 func (c Real) StreamQuote(ctx context.Context, contract rpc.ContractParams, onFrame func(rpc.Frame) error) error {
 	conn, err := c.connect(ctx)
 	if err != nil {
@@ -179,7 +178,6 @@ func (c Real) Stress(ctx context.Context) (*rpc.StressResult, error) {
 }
 
 // StressWithRegime fetches one coordinated stress/regime snapshot and compacts
-// the regime result for app consumption.
 func (c Real) StressWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
@@ -195,7 +193,6 @@ func (c Real) StressWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.Reg
 }
 
 // AlertCandidates is an optional capability rather than part of Client so
-// app adapters compiled against older daemon surfaces continue to work. The
 // live service discovers it explicitly and keeps failures fail-closed.
 func (c Real) AlertCandidates(ctx context.Context) (*rpc.AlertCandidateSnapshot, error) {
 	return alertCandidates(ctx, c.call)
@@ -241,7 +238,6 @@ func (c Real) NudgesSnapshot(ctx context.Context) (*rpc.NudgesSnapshotResult, er
 }
 
 // ReconcileStatus returns and validates the daemon's reconciliation automation
-// status.
 func (c Real) ReconcileStatus(ctx context.Context) (*rpc.ReconStatusResult, error) {
 	var out rpc.ReconStatusResult
 	if err := c.call(ctx, rpc.MethodReconStatus, rpc.ReconStatusParams{}, &out); err != nil {
@@ -254,7 +250,6 @@ func (c Real) ReconcileStatus(ctx context.Context) (*rpc.ReconStatusResult, erro
 }
 
 // ReconcileCheck requests a daemon reconciliation check and validates the
-// typed result.
 func (c Real) ReconcileCheck(ctx context.Context) (*rpc.ReconCheckResult, error) {
 	var out rpc.ReconCheckResult
 	if err := c.call(ctx, rpc.MethodReconCheck, rpc.ReconCheckParams{}, &out); err != nil {
@@ -377,7 +372,6 @@ func (c Real) TradeProposalsSubmit(ctx context.Context, params rpc.TradeProposal
 }
 
 // TradeProposalsReducePreview requests the daemon's guarded single-proposal
-// reduction preview.
 func (c Real) TradeProposalsReducePreview(ctx context.Context, params rpc.TradeProposalReduceParams) (*rpc.TradeProposalReduceResult, error) {
 	var out rpc.TradeProposalReduceResult
 	if err := c.call(ctx, rpc.MethodTradeProposalsReducePreview, params, &out); err != nil {
@@ -397,7 +391,6 @@ func (c Real) TradeProposalsReduceSubmit(ctx context.Context, params rpc.TradePr
 }
 
 // TradeProposalsReducePortfolioPreview requests the daemon's guarded portfolio
-// reduction preview.
 func (c Real) TradeProposalsReducePortfolioPreview(ctx context.Context, params rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error) {
 	var out rpc.TradeProposalReducePortfolioResult
 	if err := c.call(ctx, rpc.MethodTradeProposalsReducePortfolioPreview, params, &out); err != nil {
@@ -435,7 +428,6 @@ func (c Real) Settings(ctx context.Context) (*rpc.PlatformSettings, error) {
 }
 
 // UpdateSettings transports an opaque JSON merge patch to the daemon's typed
-// settings handler; this adapter does not reinterpret or authorize fields.
 func (c Real) UpdateSettings(ctx context.Context, patch json.RawMessage) (*rpc.PlatformSettings, error) {
 	var out rpc.PlatformSettings
 	if err := c.call(ctx, rpc.MethodSettingsUpdate, patch, &out); err != nil {

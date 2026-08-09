@@ -1,549 +1,39 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
-	"net/http"
+
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+
 	"testing"
 	"time"
-
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
-
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-func TestParseNasdaqRegSHOThresholdList(t *testing.T) {
-	t.Parallel()
-	raw := strings.NewReader(strings.Join([]string{
-		"Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Rule3210",
-		"CRWV|CoreWeave Inc.|Q|Y|N",
-		"MSFT|Microsoft Corp.|Q|N|N",
-		"20260605180000",
-		"",
-	}, "\n"))
-	got, err := parseNasdaqRegSHO(raw)
+func openMarketTestCoreStore(t *testing.T) *corestore.Store {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod market authority dir: %v", err)
+	}
+	store, err := corestore.Open(context.Background(), corestore.Options{
+		Path: filepath.Join(dir, "daemon.db"),
+	})
 	if err != nil {
-		t.Fatalf("parse Reg SHO: %v", err)
+		t.Fatalf("open market authority: %v", err)
 	}
-	if _, ok := got.Symbols["CRWV"]; !ok {
-		t.Fatalf("CRWV threshold row missing: %+v", got.Symbols)
-	}
-	if _, ok := got.Symbols["MSFT"]; ok {
-		t.Fatalf("non-threshold row should not be flagged: %+v", got.Symbols)
-	}
-	if got.AsOf.IsZero() {
-		t.Fatalf("as_of not parsed")
-	}
-}
-
-func TestParseNasdaqRegSHOAllowsValidEmptyThresholdList(t *testing.T) {
-	t.Parallel()
-	raw := strings.NewReader(strings.Join([]string{
-		"Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Rule3210",
-		"MSFT|Microsoft Corp.|Q|N|N",
-		"20260605180000",
-		"",
-	}, "\n"))
-	got, err := parseNasdaqRegSHO(raw)
-	if err != nil {
-		t.Fatalf("parse empty threshold list: %v", err)
-	}
-	if len(got.Symbols) != 0 {
-		t.Fatalf("threshold symbols=%+v, want empty", got.Symbols)
-	}
-}
-
-func TestParseNasdaqTradeHaltsClassifiesActiveAndRecent(t *testing.T) {
-	t.Parallel()
-	raw := strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?>
-<rss><channel>
-<pubDate>Fri, 05 Jun 2026 14:30:00 GMT</pubDate>
-<item>
-	<IssueSymbol>CRWV</IssueSymbol>
-	<IssueName>CoreWeave Inc.</IssueName>
-	<Market>NASDAQ</Market>
-	<ReasonCode>T7</ReasonCode>
-	<HaltDate>06/05/2026</HaltDate>
-	<HaltTime>10:15:00.000</HaltTime>
-	<PauseThresholdPrice>123.45</PauseThresholdPrice>
-</item>
-<item>
-	<IssueSymbol>MSFT</IssueSymbol>
-	<IssueName>Microsoft Corp.</IssueName>
-	<Market>NASDAQ</Market>
-	<ReasonCode>T1</ReasonCode>
-	<HaltDate>06/05/2026</HaltDate>
-	<HaltTime>09:15:00.000</HaltTime>
-	<ResumptionDate>06/05/2026</ResumptionDate>
-	<ResumptionTradeTime>09:45:00.000</ResumptionTradeTime>
-</item>
-</channel></rss>`)
-	entry, err := parseNasdaqTradeHalts(raw)
-	if err != nil {
-		t.Fatalf("parse halts: %v", err)
-	}
-	if len(entry.Records) != 2 {
-		t.Fatalf("records=%d, want 2", len(entry.Records))
-	}
-	now := time.Date(2026, 6, 5, 16, 0, 0, 0, time.UTC)
-	luld, ok := marketEventHaltFlag("CRWV", entry.Records[0], entry, now)
-	if !ok || luld.ID != rpc.MarketEventLULDRecent || luld.Status != rpc.MarketEventStatusActive || luld.Severity != rpc.MarketEventSeverityBlock {
-		t.Fatalf("active LULD flag = %+v ok=%v", luld, ok)
-	}
-	halt, ok := marketEventHaltFlag("MSFT", entry.Records[1], entry, now)
-	if !ok || halt.ID != rpc.MarketEventHaltRegulatoryOrNews || halt.Status != rpc.MarketEventStatusRecent || halt.Severity != rpc.MarketEventSeverityWatch {
-		t.Fatalf("recent halt flag = %+v ok=%v", halt, ok)
-	}
-}
-
-func TestHaltsOKHealthAgesTheFetchNotTheFeedStamp(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 6, 5, 16, 0, 0, 0, time.UTC)
-	entry := marketEventHaltsEntry{
-		AsOf:      now.Add(-91 * time.Second), // quiet-feed pubDate lag past the 60s cadence
-		FetchedAt: now.Add(-5 * time.Second),
-	}
-	health := haltsOKHealth(entry, now, marketEventsHaltsFreshFor)
-	if health.Status != rpc.SourceStatusOK {
-		t.Fatalf("status = %q, want ok", health.Status)
-	}
-	if health.AgeSeconds != 5 {
-		t.Fatalf("age_seconds = %d, want the 5s fetch age, not the 91s feed lag", health.AgeSeconds)
-	}
-	if health.AgeSeconds >= health.MaxAgeSeconds {
-		t.Fatalf("ok row reads stale to consumers: age %d >= max %d", health.AgeSeconds, health.MaxAgeSeconds)
-	}
-	if !health.AsOf.Equal(entry.AsOf) {
-		t.Fatalf("as_of = %v, want the feed stamp preserved for display", health.AsOf)
-	}
-}
-
-func TestMarketEventBorrowInventoryFlagThresholds(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
-	observedAt := now.Add(-3 * time.Second)
-	if _, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableShares: 500}, now); ok {
-		t.Fatal("unobserved shortable shares should be unknown, not false-active")
-	}
-	flag, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 500, ShortableTickAt: observedAt}, now)
-	if !ok || flag.Severity != rpc.MarketEventSeverityAct || flag.Label != "Borrow scarce" {
-		t.Fatalf("scarce flag = %+v ok=%v", flag, ok)
-	}
-	if !flag.AsOf.Equal(observedAt) {
-		t.Fatalf("scarce flag as_of = %s, want shortable tick at %s", flag.AsOf, observedAt)
-	}
-	flag, ok = marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 5_000, ShortableTickAt: observedAt}, now)
-	if !ok || flag.Severity != rpc.MarketEventSeverityWatch || flag.Label != "Borrow tight" {
-		t.Fatalf("tight flag = %+v ok=%v", flag, ok)
-	}
-	if _, ok := marketEventBorrowInventoryFlag("CRWV", ibkrlib.MarketData{ShortableObserved: true, ShortableShares: 50_000, ShortableTickAt: observedAt}, now); ok {
-		t.Fatal("ample borrow inventory should not emit an inactive false flag")
-	}
-}
-
-func TestParseIBKRBorrowFeesAndEmitExtremeFlag(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
-	raw := strings.NewReader(strings.Join([]string{
-		"#BOF|2026.06.06|11:45:03",
-		"#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|",
-		"CRWV|USD|COREWEAVE INC|123456789|US0000000001|-70.2500|75.2500|1500|",
-		"MSFT|USD|MICROSOFT CORP|272093|US5949181045|4.7500|0.2500|8000000|",
-		"",
-	}, "\n"))
-	entry, err := parseIBKRBorrowFees(raw)
-	if err != nil {
-		t.Fatalf("parse IBKR borrow fees: %v", err)
-	}
-	if entry.AsOf.IsZero() {
-		t.Fatal("as_of not parsed")
-	}
-	flag, ok := marketEventBorrowFeeFlag("CRWV", entry.Symbols["CRWV"], entry, now)
-	if !ok {
-		t.Fatal("expected borrow_fee_extreme flag")
-	}
-	if flag.ID != rpc.MarketEventBorrowFeeExtreme || flag.Severity != rpc.MarketEventSeverityAct || flag.Role != rpc.MarketEventRoleProposalModifier {
-		t.Fatalf("borrow fee flag classification = %+v", flag)
-	}
-	if flag.Unit != "pct_annualized" || flag.Value == nil || *flag.Value != 75.25 {
-		t.Fatalf("borrow fee value/unit = value %v unit %q", flag.Value, flag.Unit)
-	}
-	if flag.AsOf.IsZero() || flag.Source == "" {
-		t.Fatalf("borrow fee source/as_of missing: %+v", flag)
-	}
-	if _, ok := marketEventBorrowFeeFlag("MSFT", entry.Symbols["MSFT"], entry, now); ok {
-		t.Fatal("low borrow fee should not emit an inactive false flag")
-	}
-}
-
-func TestParseIBKRBorrowFeesRejectsMalformedEnvelopes(t *testing.T) {
-	t.Parallel()
-	tests := map[string]string{
-		"missing BOF": strings.Join([]string{
-			"#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|",
-			"CRWV|USD|COREWEAVE INC|123|US0000000001|-70|75|1500|",
-		}, "\n"),
-		"invalid BOF": strings.Join([]string{
-			"#BOF|not-a-date|not-a-time",
-			"#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|",
-			"CRWV|USD|COREWEAVE INC|123|US0000000001|-70|75|1500|",
-		}, "\n"),
-		"missing header": strings.Join([]string{
-			"#BOF|2026.06.06|11:45:03",
-			"CRWV|USD|COREWEAVE INC|123|US0000000001|-70|75|1500|",
-		}, "\n"),
-		"invalid header": strings.Join([]string{
-			"#BOF|2026.06.06|11:45:03",
-			"#SYM|CUR|NAME|CON|ISIN|REBATERATE|CHANGED|AVAILABLE|",
-			"CRWV|USD|COREWEAVE INC|123|US0000000001|-70|75|1500|",
-		}, "\n"),
-		"zero usable rows": strings.Join([]string{
-			"#BOF|2026.06.06|11:45:03",
-			"#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|",
-			"CRWV|USD|COREWEAVE INC|123|US0000000001|-70|not-a-fee|1500|",
-		}, "\n"),
-	}
-	for name, raw := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			_, err := parseIBKRBorrowFees(strings.NewReader(raw))
-			var sourceErr *borrowFeeFetchError
-			if !errors.As(err, &sourceErr) {
-				t.Fatalf("error=%v, want typed borrow-fee failure", err)
-			}
-			if sourceErr.code != rpc.SourceFailureInvalidPayload || sourceErr.stage != rpc.SourceFailureStageBorrowParse {
-				t.Fatalf("typed failure=%+v", sourceErr)
-			}
-		})
-	}
-}
-
-func TestFTPPassiveAddrRejectsOutOfRangeParts(t *testing.T) {
-	t.Parallel()
-
-	got, err := ftpPassiveAddr("227 Entering Passive Mode (127,0,0,1,195,80)")
-	if err != nil {
-		t.Fatalf("valid PASV address: %v", err)
-	}
-	if got != "127.0.0.1:50000" {
-		t.Fatalf("valid PASV address = %q, want 127.0.0.1:50000", got)
-	}
-
-	for _, line := range []string{
-		"227 Entering Passive Mode (256,0,0,1,1,2)",
-		"227 Entering Passive Mode (127,0,0,999,1,2)",
-		"227 Entering Passive Mode (127,0,0,1,1,999)",
-	} {
-		if _, err := ftpPassiveAddr(line); err == nil {
-			t.Fatalf("ftpPassiveAddr(%q) succeeded; want byte-range error", line)
-		}
-	}
-}
-
-func TestMarketEventBorrowFeesSnapshotIndexesBySymbol(t *testing.T) {
-	now := time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-	cache.regSHO = marketEventRegSHOEntry{FetchedAt: now, AsOf: now, Symbols: map[string]marketEventRegSHORecord{}}
-	cache.halts = marketEventHaltsEntry{FetchedAt: now, AsOf: now}
-	cache.borrowFees = marketEventBorrowFeeEntry{
-		FetchedAt: now,
-		AsOf:      now.Add(-5 * time.Minute),
-		SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-		Symbols: map[string]marketEventBorrowFeeRecord{
-			"CRWV": {Symbol: "CRWV", Currency: "USD", Name: "COREWEAVE INC", FeeRate: 55.5, Available: 10_000},
-		},
-	}
-
-	res := cache.snapshot(context.Background(), []string{"CRWV"}, nil, nil)
-	flags := res.BySymbol["CRWV"]
-	if len(flags) == 0 {
-		t.Fatalf("by_symbol missing CRWV flag: %+v", res)
-	}
-	found := false
-	for _, flag := range flags {
-		if flag.ID == rpc.MarketEventBorrowFeeExtreme {
-			found = true
-			if flag.Value == nil || *flag.Value != 55.5 {
-				t.Fatalf("borrow fee flag value = %v, want 55.5", flag.Value)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("borrow_fee_extreme flag missing from by_symbol: %+v", flags)
-	}
-}
-
-func TestMarketEventBorrowFeeStaleCacheFallback(t *testing.T) {
-	now := time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-	cache.borrowFees = marketEventBorrowFeeEntry{
-		FetchedAt: now.Add(-marketEventsBorrowFeeFreshFor - time.Minute),
-		AsOf:      now.Add(-marketEventsBorrowFeeFreshFor - time.Minute),
-		SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-		Symbols:   map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65}},
-	}
-	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		return marketEventBorrowFeeEntry{}, errors.New("network down")
-	}
-	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
-
-	entry, health, err := cache.loadBorrowFees(context.Background(), now)
-	if err != nil {
-		t.Fatalf("stale borrow-fee cache fallback should not fail: %v", err)
-	}
-	if _, ok := entry.Symbols["CRWV"]; !ok {
-		t.Fatalf("cached symbol missing: %+v", entry.Symbols)
-	}
-	if health.Status != rpc.SourceStatusStale || health.RefreshState != rpc.SourceRefreshFetchFailed || health.NextAttempt == nil {
-		t.Fatalf("health=%+v, want stale first-fetch failure with retry", health)
-	}
-}
-
-func TestMarketEventBorrowFeeNotDueSkipsFetch(t *testing.T) {
-	now := time.Date(2026, 7, 20, 5, 5, 0, 0, time.UTC) // Monday 01:05 ET.
-	cache := newMarketEventCache(func() time.Time { return now })
-	var fetchCalls int
-	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		fetchCalls++
-		return marketEventBorrowFeeEntry{}, errors.New("must not fetch before the regular session")
-	}
-	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
-
-	entry, health, err := cache.loadBorrowFees(context.Background(), now)
-	if err != nil || len(entry.Symbols) != 0 || fetchCalls != 0 {
-		t.Fatalf("not-due read entry=%+v health=%+v calls=%d err=%v", entry, health, fetchCalls, err)
-	}
-	if health.Status != rpc.SourceStatusUnknown || health.RefreshState != rpc.SourceRefreshNotDue || health.NextAttempt != nil {
-		t.Fatalf("not-due health=%+v", health)
-	}
-
-	cache.borrowFees = marketEventBorrowFeeEntry{
-		FetchedAt: time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC), AsOf: time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC),
-		Symbols: map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65}},
-	}
-	entry, health, err = cache.loadBorrowFees(context.Background(), now)
-	if err != nil || len(entry.Symbols) != 1 || fetchCalls != 0 || health.Status != rpc.SourceStatusOK || health.RefreshState != rpc.SourceRefreshNotDue {
-		t.Fatalf("not-due last-good entry=%+v health=%+v calls=%d err=%v", entry, health, fetchCalls, err)
-	}
-	tuesdayPreopen := time.Date(2026, 7, 21, 5, 5, 0, 0, time.UTC)
-	entry, health, err = cache.loadBorrowFees(context.Background(), tuesdayPreopen)
-	if err != nil || len(entry.Symbols) != 1 || fetchCalls != 0 || health.Status != rpc.SourceStatusStale || health.RefreshState != rpc.SourceRefreshNotDue {
-		t.Fatalf("missed-session last-good entry=%+v health=%+v calls=%d err=%v", entry, health, fetchCalls, err)
-	}
-}
-
-func TestMarketEventFingerprintIgnoresBorrowFeeTimestampChurn(t *testing.T) {
-	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
-	build := func(asOf time.Time) rpc.MarketEventsResult {
-		value := 75.25
-		res := rpc.MarketEventsResult{
-			Kind:          rpc.MarketEventsKind,
-			SchemaVersion: rpc.MarketEventsSchemaVersion,
-			AsOf:          now,
-			Symbols:       []string{"CRWV"},
-			Flags: []rpc.MarketEventFlag{{
-				ID:         rpc.MarketEventBorrowFeeExtreme,
-				Symbol:     "CRWV",
-				Label:      "Fee extreme",
-				Status:     rpc.MarketEventStatusActive,
-				Severity:   rpc.MarketEventSeverityAct,
-				Role:       rpc.MarketEventRoleProposalModifier,
-				Source:     "IBKR short stock availability",
-				AsOf:       asOf,
-				ObservedAt: now,
-				Value:      &value,
-				Unit:       "pct_annualized",
-			}},
-		}
-		res.Fingerprint = rpc.BuildMarketEventsFingerprint(&res)
-		return res
-	}
-	a := build(now.Add(-time.Minute))
-	b := build(now.Add(-2 * time.Minute))
-	if !reflect.DeepEqual(a.Flags[0].Value, b.Flags[0].Value) {
-		t.Fatal("test setup value mismatch")
-	}
-	if a.Fingerprint.Key != b.Fingerprint.Key {
-		t.Fatalf("fingerprint churned on timestamp only: %q != %q", a.Fingerprint.Key, b.Fingerprint.Key)
-	}
-}
-
-func TestMarketEventRegSHOStaleCacheFallback(t *testing.T) {
-	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-	cache.regSHO = marketEventRegSHOEntry{
-		FetchedAt: now.Add(-13 * time.Hour),
-		AsOf:      now.Add(-13 * time.Hour),
-		Symbols:   map[string]marketEventRegSHORecord{"CRWV": {Symbol: "CRWV"}},
-	}
-	orig := marketEventsHTTPClient
-	marketEventsHTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("network down")
-	})}
-	t.Cleanup(func() { marketEventsHTTPClient = orig })
-
-	entry, health, err := cache.loadRegSHO(context.Background(), now)
-	if err != nil {
-		t.Fatalf("stale cache fallback should not fail: %v", err)
-	}
-	if _, ok := entry.Symbols["CRWV"]; !ok {
-		t.Fatalf("cached symbol missing: %+v", entry.Symbols)
-	}
-	if health.Status != rpc.SourceStatusStale {
-		t.Fatalf("health status=%q, want stale", health.Status)
-	}
-}
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
-
-// TestMarketEventCacheShortableAbsence pins the TTL'd negative cache
-// behind the borrow-inventory polls: a symbol observed absent is skipped
-// for marketEventsShortableAbsentRetry, then re-probed (a pre-market
-// absence must not blind borrow inventory for the whole trading day),
-// and a gateway reconnect (clearShortableAbsence) re-arms the probe
-// immediately. Without this memory, every market-events snapshot
-// re-burned the full poll budget per non-US name whose shortable tick
-// never arrives.
-func TestMarketEventCacheShortableAbsence(t *testing.T) {
-	t.Parallel()
-	cache := newMarketEventCache(nil)
-	observedAt := time.Date(2026, 6, 11, 8, 30, 0, 0, time.UTC)
-	withinTTL := observedAt.Add(marketEventsShortableAbsentRetry - time.Minute)
-	pastTTL := observedAt.Add(marketEventsShortableAbsentRetry)
-
-	if cache.shortableAbsentRecently("DTE", observedAt) {
-		t.Fatal("fresh cache should not report absence")
-	}
-	cache.rememberShortableAbsent("DTE", observedAt)
-	if !cache.shortableAbsentRecently("DTE", withinTTL) {
-		t.Error("absence within the retry TTL should skip the probe")
-	}
-	if cache.shortableAbsentRecently("DTE", pastTTL) {
-		t.Error("absence past the retry TTL must re-arm the probe")
-	}
-	if cache.shortableAbsentRecently("SAP", withinTTL) {
-		t.Error("absence is per-symbol")
-	}
-
-	cache.rememberShortableAbsent("DTE", observedAt)
-	cache.clearShortableAbsence()
-	if cache.shortableAbsentRecently("DTE", withinTTL) {
-		t.Error("clearShortableAbsence (reconnect) should re-arm the probe")
-	}
-}
-
-// TestMarketEventBorrowFeeFailureMemory pins the retry-suppression
-// window: after a failed fetch (observed live: ftp3.interactivebrokers
-// port 21 filtered → full dial-timeout hang), snapshots within
-// marketEventsBorrowFeeRetryAfter must NOT re-attempt the fetch — the
-// hang was being re-paid on every canary run. Past the window, exactly
-// one retry fires; success clears the memory.
-func TestMarketEventBorrowFeeFailureMemory(t *testing.T) {
-	now := time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-
-	var fetchCalls int
-	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		fetchCalls++
-		return marketEventBorrowFeeEntry{}, errors.New("dial tcp: i/o timeout")
-	}
-	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
-
-	if _, health, err := cache.loadBorrowFees(context.Background(), now); err == nil || health.Status != rpc.SourceStatusUnknown || health.RefreshState != rpc.SourceRefreshFetchFailed || health.NextAttempt == nil {
-		t.Fatalf("first failure: err=%v status=%s", err, health.Status)
-	}
-	if fetchCalls != 1 {
-		t.Fatalf("first call: fetch ran %d times, want 1", fetchCalls)
-	}
-
-	// Within the retry window: no fetch attempt, same degraded health.
-	within := now.Add(marketEventsBorrowFeeRetryAfter - time.Minute)
-	if _, health, err := cache.loadBorrowFees(context.Background(), within); err == nil || health.Status != rpc.SourceStatusUnknown || health.RefreshState != rpc.SourceRefreshFetchFailedBackoff || health.NextAttempt == nil {
-		t.Fatalf("suppressed call: err=%v status=%s", err, health.Status)
-	}
-	if fetchCalls != 1 {
-		t.Fatalf("suppressed call must not re-fetch: fetch ran %d times", fetchCalls)
-	}
-
-	// Past the window: one retry, now succeeding, clears the memory.
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		fetchCalls++
-		return marketEventBorrowFeeEntry{
-			AsOf:      now.Add(marketEventsBorrowFeeRetryAfter + time.Minute),
-			SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-			Symbols:   map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65}},
-		}, nil
-	}
-	past := now.Add(marketEventsBorrowFeeRetryAfter + time.Minute)
-	if _, health, err := cache.loadBorrowFees(context.Background(), past); err != nil || health.Status != rpc.SourceStatusOK || health.RefreshState != rpc.SourceRefreshCurrent || health.NextAttempt != nil {
-		t.Fatalf("recovery call: err=%v status=%s", err, health.Status)
-	}
-	if fetchCalls != 2 {
-		t.Fatalf("recovery: fetch ran %d times, want 2", fetchCalls)
-	}
-	if cache.borrowFeesLastAttempt == nil || cache.borrowFeesLastAttempt.Outcome != marketEventBorrowFeeOutcomeSuccess || cache.borrowFeesLastAttempt.Failure != nil {
-		t.Fatalf("success should supersede failure memory: %+v", cache.borrowFeesLastAttempt)
-	}
-
-	// Stale-cache variant: a later failure serves the cached list
-	// without retrying inside the window.
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		fetchCalls++
-		return marketEventBorrowFeeEntry{}, errors.New("network down again")
-	}
-	expired := past.Add(marketEventsBorrowFeeFreshFor + time.Minute)
-	if entry, health, err := cache.loadBorrowFees(context.Background(), expired); err != nil || health.Status != rpc.SourceStatusStale || health.RefreshState != rpc.SourceRefreshFetchFailed || health.NextAttempt == nil || len(entry.Symbols) == 0 {
-		t.Fatalf("stale fallback after failure: err=%v status=%s symbols=%d", err, health.Status, len(entry.Symbols))
-	}
-	if fetchCalls != 3 {
-		t.Fatalf("stale-fallback failure: fetch ran %d times, want 3", fetchCalls)
-	}
-	if entry, health, err := cache.loadBorrowFees(context.Background(), expired.Add(time.Minute)); err != nil || health.Status != rpc.SourceStatusStale || health.RefreshState != rpc.SourceRefreshFetchFailedBackoff || health.NextAttempt == nil || len(entry.Symbols) == 0 {
-		t.Fatalf("suppressed stale fallback: err=%v status=%s symbols=%d", err, health.Status, len(entry.Symbols))
-	}
-	if fetchCalls != 3 {
-		t.Fatalf("suppressed stale fallback must not re-fetch: fetch ran %d times", fetchCalls)
-	}
-}
-
-func TestMarketEventBorrowFeeFreshnessUsesProviderAsOf(t *testing.T) {
-	now := time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-	cache.borrowFees = marketEventBorrowFeeEntry{
-		FetchedAt: now,
-		AsOf:      now.Add(-marketEventsBorrowFeeFreshFor - time.Minute),
-		SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-		Symbols:   map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65}},
-	}
-	var fetchCalls int
-	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		fetchCalls++
-		return marketEventBorrowFeeEntry{
-			AsOf: now, SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-			Symbols: map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65}},
-		}, nil
-	}
-	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
-
-	_, health, err := cache.loadBorrowFees(context.Background(), now)
-	if err != nil || fetchCalls != 1 || health.Status != rpc.SourceStatusOK {
-		t.Fatalf("provider-age refresh calls=%d health=%+v err=%v", fetchCalls, health, err)
-	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
 func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t *testing.T) {
@@ -628,275 +118,688 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 	}
 }
 
-func TestMarketEventBorrowFeeDownloadParseSQLiteReopenRecovery(t *testing.T) {
+func TestGammaQualityRankableCombinedSPYSPX(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)
+	combined := rankableCombinedGammaFixture(now.Add(-10 * time.Minute))
+
+	annotateGammaQuality(combined, now)
+	refreshGammaSummaries(combined)
+
+	if got := combined.Quality.Rankability; got != rpc.GammaRankabilityRankable {
+		t.Fatalf("rankability = %q, want rankable: %+v", got, combined.Quality)
+	}
+	row := rpc.RegimeGammaZero{Status: rpc.RegimeStatusOK, Envelope: rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusReady, Result: combined}}
+	if got := bandForGamma(row); got != "red" {
+		t.Fatalf("bandForGamma = %q, want red for rankable short-gamma fixture", got)
+	}
+}
+
+func TestGammaQualityClosedSessionCachePredatingLastCompletedSessionBlocksRanking(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 3, 11, 55, 0, 0, time.UTC)
+
+	combined := rankableCombinedGammaFixture(now.Add(-25 * time.Hour))
+
+	annotateGammaQuality(combined, now)
+	refreshGammaSummaries(combined)
+
+	if got := combined.Quality.Rankability; got != rpc.GammaRankabilityBlocked {
+		t.Fatalf("rankability = %q, want blocked for stale closed-session cache: %+v", got, combined.Quality)
+	}
+	row := rpc.RegimeGammaZero{Status: rpc.RegimeStatusOK, Envelope: rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusReady, Result: combined}}
+	if got := bandForGamma(row); got != "" {
+		t.Fatalf("bandForGamma = %q, want unranked for stale closed-session cache", got)
+	}
+}
+
+func TestGammaQualityPartialFanoutIsContextOnly(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)
+	spx := rankableGammaFixture(rpc.GammaZeroScopeSPX, now.Add(-5*time.Minute))
+
+	spx.CollectionDiagnostics = []rpc.GammaCollectionDiagnostic{
+		{Underlying: "SPX", RequestedLegs: 578},
+	}
+
+	annotateGammaQuality(spx, now)
+
+	if got := spx.Quality.Coverage.RequestedLegs; got != 578 {
+		t.Fatalf("requested legs = %d, want 578 summed from collection diagnostics", got)
+	}
+	if got := spx.Quality.Coverage.FanoutCompletePct; got >= gammaContextFanoutPct {
+		t.Fatalf("fanout complete = %.1f%%, want below the %.0f%% bar", got, gammaContextFanoutPct)
+	}
+	if got := spx.Quality.Rankability; got != rpc.GammaRankabilityContextOnly {
+		t.Fatalf("rankability = %q, want context_only for a 34.6%% chain: %+v", got, spx.Quality)
+	}
+}
+
+func rankableCombinedGammaFixture(asOf time.Time) *rpc.GammaZeroComputed {
+	return hydrateGammaComputed(combineGammaResults(
+		rankableGammaFixture(rpc.GammaZeroScopeSPY, asOf),
+		rankableGammaFixture(rpc.GammaZeroScopeSPX, asOf),
+	))
+}
+
+func rankableGammaFixture(scope string, asOf time.Time) *rpc.GammaZeroComputed {
+	label := "SPY"
+	spot := 750.0
+	if scope == rpc.GammaZeroScopeSPX {
+		label = "SPX"
+		spot = 7500.0
+	}
+	return &rpc.GammaZeroComputed{
+		Scope:                   scope,
+		SpotUnderlying:          spot,
+		GammaSign:               "negative",
+		GammaTotalAbs:           4_000_000_000,
+		GammaTotalAbsConvention: "sign-agnostic",
+		TopConcentrationPct:     10,
+		TopStrikes: []rpc.StrikeConcentration{{
+			Underlying: label,
+			Strike:     spot,
+			Expiry:     "2026-06-02",
+			Right:      "P",
+			AbsGEX:     400_000_000,
+			OI:         10_000,
+		}},
+		Expirations:    []string{"2026-06-02", "2026-06-05", "2026-06-19"},
+		LegCount:       180,
+		PricedLegCount: 200,
+		DerivedIVLegs:  10,
+		LegDiagnostics: &rpc.GammaLegDiagnostics{Total: rpc.GammaLegDiagnosticCounts{
+			PricedLegs:               200,
+			OpenInterestObservedLegs: 198,
+			OpenInterestLegs:         180,
+			GammaPositiveLegs:        200,
+			AbsGEXLegs:               180,
+		}},
+		GammaSign0DTE: "negative",
+		LegCount0DTE:  40,
+		GammaSign1to7: "negative",
+		LegCount1to7:  100,
+		GammaSignTerm: "negative",
+		LegCountTerm:  40,
+		SkewFitQuality: map[string]rpc.SkewFitInfo{
+			"20260602": {Points: 100, RSquared: 0.92},
+			"20260605": {Points: 100, RSquared: 0.90},
+			"20260619": {Points: 100, RSquared: 0.88},
+		},
+		Params: rpc.GammaZeroParams{
+			ExpiryCount:    6,
+			StrikeWidthPct: 0.10,
+			SweepRangePct:  0.15,
+			WorkerCount:    4,
+		},
+		Source: "test gamma fixture " + label,
+		Method: gammaMethodToken,
+		AsOf:   asOf,
+	}
+}
+
+func hygSpyRedSnapshot(at time.Time) *rpc.RegimeSnapshotResult {
+	return &rpc.RegimeSnapshotResult{
+		AsOf: at,
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{
+			Status:     rpc.RegimeStatusOK,
+			HYGPrice:   new(78.0),
+			HYG50DMA:   new(80.0),
+			SPYPrice:   new(757.67),
+			SPY52WHigh: new(760.40),
+			HYGQuality: &rpc.Quality{AsOf: at, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm},
+		},
+	}
+}
+
+func hygSpyBlindSnapshot(at time.Time) *rpc.RegimeSnapshotResult {
+	return &rpc.RegimeSnapshotResult{
+		AsOf: at,
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{
+			Status:       rpc.RegimeStatusError,
+			ErrorMessage: "HYG or SPY spot missing",
+		},
+	}
+}
+
+func TestRegimeBandHeldWhenInputsUnavailable(t *testing.T) {
+	ny := newYorkLocation()
+	store := NewStreakStore(t.TempDir())
+	measured := time.Date(2026, 8, 4, 2, 24, 0, 0, ny)
+
+	if p := (&Server{}).populateStreaksWithStore(hygSpyRedSnapshot(measured), store)[rpc.RegimeIndicatorHYGSPY]; p.band != "red" || p.held {
+		t.Fatalf("live pass: band=%q held=%v, want a computed red", p.band, p.held)
+	}
+	latchedBefore := store.Latched(StreakKeyHYGSPY)
+	sessionsBefore := 0
+	if info := store.Get(StreakKeyHYGSPY); info != nil {
+		sessionsBefore = info.Sessions
+	}
+
+	blind := hygSpyBlindSnapshot(measured.Add(4 * time.Minute))
+	policy := (&Server{}).populateStreaksWithStore(blind, store)[rpc.RegimeIndicatorHYGSPY]
+
+	if policy.band != "red" {
+		t.Fatalf("band=%q, want the last measured red held", policy.band)
+	}
+	if !policy.held {
+		t.Fatal("band must be marked held, or a consumer cannot tell memory from measurement")
+	}
+	if !policy.heldAt.Equal(measured) {
+		t.Errorf("heldAt=%v, want the time of the last live measurement %v", policy.heldAt, measured)
+	}
+
+	if policy.eligibility != nil {
+		t.Errorf("held band carried eligibility %+v, want nil — memory must never confirm", policy.eligibility)
+	}
+	if store.Latched(StreakKeyHYGSPY) != latchedBefore {
+		t.Errorf("hold changed the eligibility latch (%v -> %v); memory must not advance confirmation state",
+			latchedBefore, store.Latched(StreakKeyHYGSPY))
+	}
+	if info := store.Get(StreakKeyHYGSPY); info != nil && info.Sessions != sessionsBefore {
+		t.Errorf("hold banked a persistence session (%d -> %d); an outage is not evidence of persistence",
+			sessionsBefore, info.Sessions)
+	}
+
+	annotateRegimeMetadata(blind, map[string]regimeRowPolicy{rpc.RegimeIndicatorHYGSPY: policy})
+	got := blind.HYGSPYDivergence.BandReason
+	if !strings.Contains(got, "held from the last measured reading") {
+		t.Errorf("band_reason=%q, want it to disclose the band is held", got)
+	}
+	if !strings.Contains(got, measured.UTC().Format("2006-01-02 15:04Z")) {
+		t.Errorf("band_reason=%q, want it to date the held reading", got)
+	}
+
+	if partial := partialRegimeClusters(blind); !slices.Contains(partial, "credit") {
+		t.Errorf("partial clusters=%v, want credit still reported while the band is held", partial)
+	}
+}
+
+func openRegimeSnapshotTestStore(t *testing.T) *corestore.Store {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatalf("secure test corestore dir: %v", err)
+		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "daemon.db")
-	authority, err := corestore.Open(context.Background(), corestore.Options{Path: path})
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(dir, "daemon.db")})
 	if err != nil {
-		t.Fatalf("open corestore: %v", err)
+		t.Fatalf("open daemon SQLite authority: %v", err)
 	}
-	authorityOpen := true
-	t.Cleanup(func() {
-		if authorityOpen {
-			_ = authority.Close()
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+func regimeSnapshotTestNow() time.Time {
+	return time.Now().UTC().Add(time.Second)
+}
+
+func regimeSnapshotCacheFixture(at time.Time, label string) *rpc.RegimeSnapshotResult {
+	snapshot := &rpc.RegimeSnapshotResult{
+		AsOf:             at.UTC(),
+		Summary:          rpc.RegimeSummary{Label: label, DominantRisks: []string{"credit", "volatility"}},
+		VIXTermStructure: rpc.RegimeVIXTerm{Status: rpc.RegimeStatusOK},
+		VolOfVol:         rpc.RegimeVolOfVol{Status: rpc.RegimeStatusOK},
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{Status: rpc.RegimeStatusOK},
+		CreditSpreads:    rpc.RegimeCreditSpreads{Status: rpc.RegimeStatusOK},
+		FundingStress:    rpc.RegimeFundingStress{Status: rpc.RegimeStatusOK},
+		USDJPY:           rpc.RegimeUSDJPY{Status: rpc.RegimeStatusOK, Symbol: "USD.JPY"},
+		GammaZero: rpc.RegimeGammaZero{
+			Status: rpc.RegimeStatusOK,
+			Envelope: rpc.GammaZeroSPXResult{Status: "ready", Result: &rpc.GammaZeroComputed{
+				Scope: "combined", LegDiagnostics: &rpc.GammaLegDiagnostics{ByUnderlying: map[string]rpc.GammaLegDiagnosticCounts{
+					"SPX": {PricedLegs: 10, OpenInterestLegs: 8},
+				}},
+			}},
+		},
+		Breadth:        rpc.RegimeBreadth{Status: rpc.RegimeStatusOK},
+		WarningDetails: []rpc.RegimeWarning{{Code: "fixture", Scope: "test", Severity: "info", Message: "fixture warning"}},
+		SpecDoc:        "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
+	}
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	return snapshot
+}
+
+func TestRegimeProjectionReceiptIdentityAndGapRejection(t *testing.T) {
+	tests := []struct {
+		name            string
+		snapshotRevs    int
+		receiptRevision int64
+		mutateReceipt   func(regimeSnapshotPublication) regimeSnapshotPublication
+		wantErr         string
+		wantRevision    int64
+	}{
+		{name: "first snapshot bootstraps missing receipt", snapshotRevs: 1, wantRevision: 1},
+		{name: "exact receipt", snapshotRevs: 3, receiptRevision: 3, wantRevision: 3},
+		{name: "one revision crash gap", snapshotRevs: 3, receiptRevision: 2, wantRevision: 3},
+		{name: "missing receipt only valid for first snapshot", snapshotRevs: 3, wantErr: "receipt is missing"},
+		{name: "gap larger than one", snapshotRevs: 3, receiptRevision: 1, wantErr: "cannot safely recover"},
+		{name: "receipt ahead", snapshotRevs: 3, receiptRevision: 4, wantErr: "ahead of snapshot"},
+		{
+			name:            "same revision different fingerprint",
+			snapshotRevs:    3,
+			receiptRevision: 3,
+			mutateReceipt: func(publication regimeSnapshotPublication) regimeSnapshotPublication {
+				publication.Fingerprint.Key = "sha256:wrong-publication"
+				return publication
+			},
+			wantErr: "cannot safely recover",
+		},
+		{
+			name:            "same revision different publication time",
+			snapshotRevs:    3,
+			receiptRevision: 3,
+			mutateReceipt: func(publication regimeSnapshotPublication) regimeSnapshotPublication {
+				publication.PublishedAt = publication.PublishedAt.Add(-time.Second)
+				return publication
+			},
+			wantErr: "cannot safely recover",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := openRegimeSnapshotTestStore(t)
+			snapshot := regimeSnapshotCacheFixture(regimeSnapshotTestNow(), test.name)
+			snapshot.Lifecycle.Stage = rpc.LifecycleQuiet
+			snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+			cache := projectionRecoveryPersistSnapshot(t, store, snapshot, test.snapshotRevs)
+			publication, _, err := cache.publication()
+			if err != nil {
+				t.Fatalf("read snapshot publication: %v", err)
+			}
+
+			server := &Server{
+				coreStore:              store,
+				rulesRegimeStageLoaded: true,
+				logger:                 NewLogger(&bytes.Buffer{}, "error"),
+			}
+			if test.receiptRevision > 0 {
+				receiptPublication := publication
+				receiptPublication.Revision = test.receiptRevision
+				receiptPublication.PublishedAt = publication.PublishedAt.Add(-time.Duration(publication.Revision-test.receiptRevision) * time.Second)
+				projectionRecoverySeedExactProjections(t, server, snapshot, receiptPublication, regimeDecisionEventRecorded)
+				if test.mutateReceipt != nil {
+					receiptPublication = test.mutateReceipt(receiptPublication)
+				}
+				if err := server.recordRegimeProjectionReceipt(t.Context(), receiptPublication); err != nil {
+					t.Fatalf("seed projection receipt: %v", err)
+				}
+			}
+
+			err = server.reconcileRegimeSnapshotProjections(t.Context(), cache)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("reconcile error=%v, want containing %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("reconcile projections: %v", err)
+			}
+			receipt, ok, err := server.loadRegimeProjectionReceipt(t.Context())
+			if err != nil || !ok {
+				t.Fatalf("load reconciled receipt: ok=%v err=%v", ok, err)
+			}
+			if receipt.SnapshotRevision != test.wantRevision ||
+				!receipt.SnapshotPublishedAt.Equal(publication.PublishedAt) ||
+				receipt.SnapshotFingerprint != publication.Fingerprint {
+				t.Fatalf("receipt=%+v, publication=%+v", receipt, publication)
+			}
+		})
+	}
+}
+
+func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
+	ny := newYorkLocation()
+
+	asOf := time.Date(2026, 7, 20, 1, 5, 0, 0, ny)
+	frozenRatio, movedRatio := 0.8632345293811753, 0.8633766233766235
+	prior := StreakEntry{
+		LastBand: "green", SinceDate: "2026-07-15", LastSession: "2026-07-17",
+		Sessions: 3, LastValue: frozenRatio,
+	}
+	previous := regimeSnapshotPublication{
+		Revision: 1, PublishedAt: asOf.Add(-time.Hour).UTC(),
+		Fingerprint: rpc.Fingerprint{Version: "test", Key: "prior-publication"},
+	}
+
+	store := openRegimeSnapshotTestStore(t)
+	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "not-due-freeze")
+	snapshot.VIXTermStructure = rpc.RegimeVIXTerm{
+		Status: rpc.RegimeStatusStale, Ratio: &movedRatio,
+		VIX3MCrossCheck: rpc.VIX3MCrossCheckAgree,
+		VIXQuality:      &rpc.Quality{AsOf: asOf, FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm},
+		VIX3MQuality:    &rpc.Quality{AsOf: asOf, FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm},
+	}
+	streaks := projectionRecoverySeedStreakStore(t, store, previous, map[string]StreakEntry{StreakKeyVIXTerm: prior})
+
+	evaluated := streaks.cloneForRegimeEvaluation()
+	annotateRegimeMetadata(snapshot, (&Server{}).populateStreaksWithStore(snapshot, evaluated))
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
+	plan := regimeProjectionPlan{publication: publication, previous: &previous}
+
+	if class := snapshot.VIXTermStructure.Freshness; class == nil || class.Class != rpc.RegimeFreshnessNotDue {
+		t.Fatalf("vix_term freshness=%+v, want not_due", class)
+	}
+	if snapshot.VIXTermStructure.Streak == nil {
+		t.Fatal("vix_term served no streak; the frozen row cannot be reconciled")
+	}
+	if err := streaks.commitRegimeEvaluation(t.Context(), evaluated, plan); err != nil {
+		t.Fatalf("commit regime evaluation: %v", err)
+	}
+
+	restarted := NewStreakStore("")
+	if err := restarted.UseCoreStore(store); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.reconcileRegimeProjection(t.Context(), snapshot, plan); err != nil {
+		t.Fatalf("startup reconcile after a not_due freeze: %v", err)
+	}
+	restarted.mu.Lock()
+	got := restarted.entries[StreakKeyVIXTerm]
+	restarted.mu.Unlock()
+	if !reflect.DeepEqual(got, prior) {
+		t.Fatalf("frozen entry=%+v, want unchanged %+v", got, prior)
+	}
+
+	fresh := regimeSnapshotCacheFixture(asOf.UTC(), "fresh-row")
+	fresh.VIXTermStructure = rpc.RegimeVIXTerm{
+		Status: rpc.RegimeStatusOK, Ratio: &movedRatio,
+		Streak: &rpc.StreakInfo{Band: prior.LastBand, Sessions: prior.Sessions, Since: prior.SinceDate},
+		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
+			Band: prior.LastBand, Freshness: &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
+		},
+	}
+	fresh.Fingerprint = rpc.BuildRegimeFingerprint(fresh)
+	freshPublication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: fresh.Fingerprint}
+	stale := projectionRecoverySeedStreakStore(t, openRegimeSnapshotTestStore(t), freshPublication,
+		map[string]StreakEntry{StreakKeyVIXTerm: prior})
+	err := stale.reconcileRegimeProjection(t.Context(), fresh, regimeProjectionPlan{publication: freshPublication})
+	if err == nil || !strings.Contains(err.Error(), "content mismatch at snapshot revision 2") {
+		t.Fatalf("fresh row with a stale stored value err=%v, want a content mismatch", err)
+	}
+}
+
+func projectionRecoveryPersistSnapshot(t *testing.T, store *corestore.Store, snapshot *rpc.RegimeSnapshotResult, revisions int) *regimeSnapshotCache {
+	t.Helper()
+	raw, _, err := encodeRegimeSnapshotDocument(snapshot)
+	if err != nil {
+		t.Fatalf("encode snapshot: %v", err)
+	}
+	var saved corestore.StateDocument
+	for revision := range revisions {
+		saved, err = store.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{
+			ScopeKey: daemonStateScope, Kind: regimeSnapshotStateKind,
+			ExpectedRevision: int64(revision), JSON: raw,
+		})
+		if err != nil {
+			t.Fatalf("persist snapshot revision %d: %v", revision+1, err)
 		}
+	}
+	daemonContext, cancelDaemon := context.WithCancel(context.Background())
+	t.Cleanup(cancelDaemon)
+	cache, err := loadRegimeSnapshotCache(t.Context(), daemonContext, store, regimeSnapshotCacheOptions{
+		FreshFor: time.Minute, RefreshTimeout: time.Second, FailureRetryAfter: time.Minute,
+		Now: func() time.Time { return saved.UpdatedAt.Add(time.Second) },
 	})
-
-	now := time.Date(2026, 6, 8, 16, 1, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-	if err := cache.UseCoreStore(authority); err != nil {
-		t.Fatalf("UseCoreStore: %v", err)
-	}
-	raw := strings.Join([]string{
-		"#BOF|2026.06.08|12:00:00",
-		"#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|",
-		"CRWV|USD|COREWEAVE INC|123456789|US0000000001|-70.2500|75.2500|1500|",
-		"MSFT|USD|MICROSOFT CORP|272093|US5949181045|4.7500|0.2500|8000000|",
-	}, "\n")
-	var fetchCalls int
-	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		fetchCalls++
-		return parseIBKRBorrowFeeDownload(raw, "ftp://ftp3.interactivebrokers.com/usa.txt")
-	}
-	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
-
-	entry, health, err := cache.loadBorrowFees(context.Background(), now)
-	if err != nil || fetchCalls != 1 || len(entry.Symbols) != 2 || health.Status != rpc.SourceStatusOK {
-		t.Fatalf("download/parse/persist calls=%d entry=%+v health=%+v err=%v", fetchCalls, entry, health, err)
-	}
-	if entry.AsOf != time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC) {
-		t.Fatalf("provider as_of=%s", entry.AsOf)
-	}
-	if _, ok, err := authority.LatestObservation(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind); err != nil || ok {
-		t.Fatalf("fetch outcome observation retained ok=%v err=%v", ok, err)
-	}
-	if err := authority.Close(); err != nil {
-		t.Fatalf("close corestore: %v", err)
-	}
-	authorityOpen = false
-
-	reopened, err := corestore.Open(context.Background(), corestore.Options{Path: path})
 	if err != nil {
-		t.Fatalf("reopen corestore: %v", err)
+		t.Fatalf("load snapshot cache: %v", err)
 	}
-	t.Cleanup(func() { _ = reopened.Close() })
-	afterRestart := newMarketEventCache(func() time.Time { return now.Add(2 * time.Minute) })
-	if err := afterRestart.UseCoreStore(reopened); err != nil {
-		t.Fatalf("restart UseCoreStore: %v", err)
+	return cache
+}
+
+func projectionRecoverySeedStreakStore(t *testing.T, store *corestore.Store, publication regimeSnapshotPublication, entries map[string]StreakEntry) *StreakStore {
+	t.Helper()
+	streaks := NewStreakStore("")
+	if err := streaks.UseCoreStore(store); err != nil {
+		t.Fatal(err)
 	}
-	recovered, health, err := afterRestart.loadBorrowFees(context.Background(), now.Add(2*time.Minute))
-	if err != nil || fetchCalls != 1 || len(recovered.Symbols) != 2 || health.Status != rpc.SourceStatusOK || health.LastFailure != nil {
-		t.Fatalf("restart recovery calls=%d entry=%+v health=%+v err=%v", fetchCalls, recovered, health, err)
+	streaks.mu.Lock()
+	streaks.entries = cloneStreakEntries(entries)
+	streaks.loaded = true
+	err := streaks.saveLockedContextPublication(t.Context(), publication)
+	streaks.mu.Unlock()
+	if err != nil {
+		t.Fatalf("seed streak state: %v", err)
+	}
+	return streaks
+}
+
+func projectionRecoverySeedExactProjections(t *testing.T, server *Server, snapshot *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication, decisionEvent string) {
+	t.Helper()
+	streaks := NewStreakStore("")
+	if err := streaks.UseCoreStore(server.coreStore); err != nil {
+		t.Fatal(err)
+	}
+	streaks.mu.Lock()
+	streaks.loaded = true
+	if err := streaks.saveLockedContextPublication(t.Context(), publication); err != nil {
+		streaks.mu.Unlock()
+		t.Fatalf("seed exact streak projection: %v", err)
+	}
+	streaks.mu.Unlock()
+	server.streaks = streaks
+
+	projectionRecoverySeedRuleProjection(t, server.coreStore, snapshot, publication)
+	server.regimeDecisions = &regimeDecisionJournal{core: server.coreStore}
+	if decisionEvent == regimeDecisionEventRecorded {
+		if err := server.regimeDecisions.appendPublicationContext(t.Context(), publication.PublishedAt, snapshot, publication); err != nil {
+			t.Fatalf("seed exact decision event: %v", err)
+		}
+	}
+	if err := server.persistRegimeDecisionProjectionState(t.Context(), corestore.StateDocument{}, false, publication, decisionEvent); err != nil {
+		t.Fatalf("seed exact decision projection marker: %v", err)
 	}
 }
 
-func TestMarketEventBorrowFeeDoesNotPublishMemoryWhenAuthorityCommitFails(t *testing.T) {
-	authority := openMarketTestCoreStore(t)
-	now := time.Date(2026, 6, 8, 16, 0, 0, 0, time.UTC)
-	cache := newMarketEventCache(func() time.Time { return now })
-	if err := cache.UseCoreStore(authority); err != nil {
-		t.Fatalf("UseCoreStore: %v", err)
+func projectionRecoverySeedRuleProjection(t *testing.T, store *corestore.Store, snapshot *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication) {
+	t.Helper()
+	ruleBase := rulesRegimeStageState{Version: rulesRegimeStageStateVer}
+	if publication.Revision > 1 {
+		ruleBase = rulesRegimeStageState{
+			Version: rulesRegimeStageStateVer, Bucket: risk.RegimeBucketCalm,
+			Stage: rpc.LifecycleQuiet, AsOf: publication.PublishedAt.Add(-time.Second),
+			publication: regimeSnapshotPublication{
+				Revision: publication.Revision - 1, PublishedAt: publication.PublishedAt.Add(-time.Second),
+				Fingerprint: publication.Fingerprint,
+			},
+		}
 	}
-	old := marketEventBorrowFeeEntry{
-		FetchedAt: now.Add(-time.Hour), AsOf: now.Add(-time.Hour), SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-		Symbols: map[string]marketEventBorrowFeeRecord{"OLD": {Symbol: "OLD", FeeRate: 65, Available: 10}},
-	}
-	if err := cache.persistBorrowFees(context.Background(), old); err != nil {
-		t.Fatalf("persist initial last-good: %v", err)
-	}
-	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
-		return marketEventBorrowFeeEntry{
-			AsOf: now, SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-			Symbols: map[string]marketEventBorrowFeeRecord{"NEW": {Symbol: "NEW", FeeRate: 75, Available: 20}},
-		}, nil
-	}
-	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	entry, health, err := cache.loadBorrowFees(canceled, now)
-	if err != nil {
-		t.Fatalf("stale last-good fallback should remain usable: %v", err)
-	}
-	if health.LastFailure == nil || health.LastFailure.Code != rpc.SourceFailureAuthorityWriteFailed || health.LastFailure.Stage != rpc.SourceFailureStageAuthorityPersist {
-		t.Fatalf("authority failure health=%+v", health)
-	}
-	if _, ok := entry.Symbols["OLD"]; !ok {
-		t.Fatalf("returned last-good was replaced before commit: %+v", entry.Symbols)
-	}
-	if _, ok := cache.borrowFees.Symbols["OLD"]; !ok {
-		t.Fatalf("memory was replaced before commit: %+v", cache.borrowFees.Symbols)
-	}
-	if _, ok := cache.borrowFees.Symbols["NEW"]; ok {
-		t.Fatalf("uncommitted entry leaked into memory: %+v", cache.borrowFees.Symbols)
-	}
-	observations, err := authority.ListObservations(context.Background(), corestore.ObservationQuery{
-		ScopeKey: marketEventBorrowFeesScope, Source: marketEventBorrowFeesSource, Kind: marketEventBorrowFeesObservationKind,
-	})
-	if err != nil || len(observations) != 0 {
-		t.Fatalf("failed commit appended an observation: count=%d err=%v", len(observations), err)
-	}
-}
-
-func TestMarketEventBorrowFeeAuthorityMigratesV1InPlace(t *testing.T) {
-	authority := openMarketTestCoreStore(t)
-	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	legacy := marketEventBorrowFeesStateV1{Version: marketEventStateVersion, Entry: marketEventBorrowFeeEntry{
-		FetchedAt: now, AsOf: now.Add(-time.Minute), SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",
-		Symbols: map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65, Available: 1500}},
-	}}
-	raw, err := json.Marshal(legacy)
+	ruleState := projectedRulesRegimeStageState(ruleBase, snapshot, publication)
+	raw, err := json.Marshal(ruleState)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeMalformedMarketState(t, authority, marketEventBorrowFeesScope, marketEventBorrowFeesStateKind, raw)
-
-	cache := newMarketEventCache(func() time.Time { return now })
-	if err := cache.UseCoreStore(authority); err != nil {
-		t.Fatalf("migrate v1 borrow-fee authority: %v", err)
-	}
-	if _, ok := cache.borrowFees.Symbols["CRWV"]; !ok {
-		t.Fatalf("migrated last-good missing: %+v", cache.borrowFees)
-	}
-	doc, ok, err := authority.GetStateDocument(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesStateKind)
-	if err != nil || !ok {
-		t.Fatalf("migrated document ok=%v err=%v", ok, err)
-	}
-	var state marketEventBorrowFeesState
-	if err := decodeStrictMarketEventJSON(doc.JSON, &state); err != nil {
-		t.Fatalf("decode migrated state: %v", err)
-	}
-	if state.Version != marketEventBorrowFeesStateVersion || state.LastGood == nil || state.LastAttempt != nil {
-		t.Fatalf("migrated state=%+v", state)
-	}
-	if _, ok, err := authority.LatestObservation(context.Background(), marketEventBorrowFeesScope, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind); err != nil || ok {
-		t.Fatalf("schema-only migration must not invent a fetch observation: ok=%v err=%v", ok, err)
+	if _, err := store.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{
+		ScopeKey: daemonStateScope, Kind: stateKindRulesRegimeStage, JSON: raw,
+	}); err != nil {
+		t.Fatalf("seed exact rule-stage projection: %v", err)
 	}
 }
 
-// TestRegSHODatedWalkSkipsRedirect pins the 302 handling: Nasdaq
-// redirects missing dated threshold files to an HTML error page, and
-// following it parsed as an EMPTY success — caching "no threshold
-// symbols" for 12h and never reaching the newest real file. The
-// no-redirect policy turns the 302 into a status error so the walk
-// proceeds to the prior day.
-func TestRegSHODatedWalkSkipsRedirect(t *testing.T) {
-	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	body := strings.Join([]string{
-		"Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Rule3210",
-		"CRWV|CoreWeave Inc.|Q|Y|N",
-		"20260609180000",
-		"",
-	}, "\n")
-	orig := marketEventsHTTPClient
-	marketEventsHTTPClient = &http.Client{
-		CheckRedirect: marketEventsNoRedirect,
-		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			if strings.Contains(req.URL.Path, "20260610") {
-				return &http.Response{
-					StatusCode: http.StatusFound,
-					Header:     http.Header{"Location": []string{"https://www.nasdaqtrader.com/Error.aspx"}},
-					Body:       io.NopCloser(strings.NewReader("")),
-				}, nil
-			}
-			if strings.Contains(req.URL.Path, "20260609") {
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Body:       io.NopCloser(strings.NewReader(body)),
-				}, nil
-			}
-			return nil, errors.New("unexpected URL " + req.URL.String())
-		}),
+func TestRegimeSnapshotDataQualityCombinesGammaAndRegime(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.May, 30, 12, 0, 0, 0, time.UTC)
+	res := &rpc.RegimeSnapshotResult{
+		AsOf: now,
+		VIXTermStructure: rpc.RegimeVIXTerm{
+			Status: rpc.RegimeStatusStale,
+		},
+		VolOfVol: rpc.RegimeVolOfVol{
+			Status: rpc.RegimeStatusOK,
+		},
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{
+			Status: rpc.RegimeStatusOK,
+		},
+		CreditSpreads: rpc.RegimeCreditSpreads{
+			Status: rpc.RegimeStatusOK,
+		},
+		FundingStress: rpc.RegimeFundingStress{
+			Status: rpc.RegimeStatusOK,
+		},
+		USDJPY: rpc.RegimeUSDJPY{
+			Status: rpc.RegimeStatusOK,
+		},
+		GammaZero: rpc.RegimeGammaZero{
+			Status: rpc.RegimeStatusOK,
+			Envelope: rpc.GammaZeroSPXResult{
+				Status: rpc.GammaZeroStatusReady,
+				Result: &rpc.GammaZeroComputed{
+					AsOf:    now,
+					Summary: &rpc.GammaZeroSummary{Confidence: "degraded"},
+					WarningDetails: []rpc.GammaWarningDetail{{
+						Code: "spx_unavailable:354",
+					}},
+				},
+			},
+		},
+		Breadth: rpc.RegimeBreadth{
+			Status: rpc.RegimeStatusOK,
+		},
 	}
-	t.Cleanup(func() { marketEventsHTTPClient = orig })
 
-	entry, err := fetchLatestNasdaqRegSHO(context.Background(), now)
+	got := regimeSnapshotDataQuality(res)
+	if len(got) != 2 {
+		t.Fatalf("regimeSnapshotDataQuality len=%d, want 2: %+v", len(got), got)
+	}
+	if got[0].Surface != "gamma" || got[0].Summary != "degraded: SPX excluded" {
+		t.Fatalf("first quality = %+v, want gamma degraded", got[0])
+	}
+	if got[1].Surface != "regime" || got[1].Summary != "stale: vol" {
+		t.Fatalf("second quality = %+v, want regime stale vol", got[1])
+	}
+}
+
+type stressAuthorityTestReader struct {
+	at            time.Time
+	accountResult *rpc.AccountResult
+	positionsBook *rpc.PositionsResult
+	regimeResult  *rpc.RegimeSnapshotResult
+	eventsResult  *rpc.MarketEventsResult
+	eventSymbols  []string
+}
+
+func (r *stressAuthorityTestReader) ready() bool { return true }
+
+func (r *stressAuthorityTestReader) account(context.Context) (*rpc.AccountResult, error) {
+	return r.accountResult, nil
+}
+
+func (r *stressAuthorityTestReader) positions(context.Context) (*rpc.PositionsResult, error) {
+	return r.positionsBook, nil
+}
+
+func (r *stressAuthorityTestReader) regime(context.Context) (*rpc.RegimeSnapshotResult, error) {
+	return r.regimeResult, nil
+}
+
+func (r *stressAuthorityTestReader) marketEvents(_ context.Context, symbols []string) (*rpc.MarketEventsResult, error) {
+	r.eventSymbols = slices.Clone(symbols)
+	return r.eventsResult, nil
+}
+
+func (r *stressAuthorityTestReader) now() time.Time { return r.at }
+
+func TestStressEvaluationTickRejectsRestampedCachedAccountFallback(t *testing.T) {
+	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
+	account := stressAuthorityTestAccount(now)
+
+	account.GrossPositionValue = 200_000
+
+	account.AsOf = accountResultAuthorityAsOf(accountSummaryAuthority{
+		Provenance: ibkrlib.AccountSummaryProvenanceCachedFallback,
+		AsOf:       now,
+	}, now)
+	positions := &rpc.PositionsResult{
+		AsOf:      positionsResultAuthorityAsOf(stressAuthorityTestScope(), stressAuthorityCurrentPortfolioHealth(now), now),
+		Stocks:    []rpc.PositionView{},
+		Options:   []rpc.PositionView{},
+		Portfolio: &rpc.PositionsPortfolio{},
+	}
+	reader := &stressAuthorityTestReader{
+		at: now, accountResult: account, positionsBook: positions,
+		regimeResult: stressAuthorityHealthyRegime(now),
+		eventsResult: stressAuthorityHealthyMarketEvents(now),
+	}
+
+	line := runStressAuthorityTick(t, reader)
+	if !line.SourceAsOf.Account.IsZero() {
+		t.Fatalf("cached account fallback source_as_of = %s, want unavailable", line.SourceAsOf.Account)
+	}
+	if line.InputHealth != "degraded" || line.Action != "confirm_inputs" || line.PortfolioFit != "unknown" {
+		t.Fatalf("cached account fallback decision = %s/%s fit=%s, want degraded/confirm_inputs/unknown", line.InputHealth, line.Action, line.PortfolioFit)
+	}
+	if line.PortfolioAlertRelevant == nil || !*line.PortfolioAlertRelevant {
+		t.Fatalf("cached account fallback was treated as a clean irrelevant book: %+v", line.PortfolioAlertRelevant)
+	}
+}
+
+func runStressAuthorityTick(t *testing.T, reader *stressAuthorityTestReader) stressDecisionLine {
+	t.Helper()
+	server := &Server{
+		logger:                              NewLogger(&bytes.Buffer{}, "error"),
+		stressDecisions:                     &stressDecisionJournal{path: filepath.Join(t.TempDir(), "canary-decisions.jsonl")},
+		stressEvaluationSourceReaderForTest: reader,
+	}
+	if !server.stressEvaluationTick(t.Context()) {
+		t.Fatal("stress evaluation tick did not publish")
+	}
+	raw, err := os.ReadFile(server.stressDecisions.path)
 	if err != nil {
-		t.Fatalf("dated walk should land on the prior day's file: %v", err)
+		t.Fatalf("read stress decision: %v", err)
 	}
-	if _, ok := entry.Symbols["CRWV"]; !ok {
-		t.Fatalf("expected the 2026-06-09 file's symbols, got %+v", entry.Symbols)
+	var line stressDecisionLine
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &line); err != nil {
+		t.Fatalf("decode stress decision: %v", err)
+	}
+	return line
+}
+
+func stressAuthorityTestScope() brokerStateScope {
+	return brokerStateScope{Account: "DU123", Mode: rpc.AccountModePaper}
+}
+
+func stressAuthorityCurrentPortfolioHealth(now time.Time) ibkrlib.PortfolioStreamHealth {
+	return ibkrlib.PortfolioStreamHealth{Account: "DU123", InitialCompletedAt: now.Add(-time.Minute)}
+}
+
+func stressAuthorityTestAccount(now time.Time) *rpc.AccountResult {
+	dailyPnL := 0.0
+	return &rpc.AccountResult{
+		AccountID: "DU123", BaseCurrency: "USD", NetLiquidation: 100_000,
+		DailyPnL: &dailyPnL, AsOf: now,
 	}
 }
 
-func TestMarketEventSQLitePersistsNormalizedSnapshotsAndRestarts(t *testing.T) {
-	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	authority := openMarketTestCoreStore(t)
-	cache := newMarketEventCache(func() time.Time { return now })
-	if err := cache.UseCoreStore(authority); err != nil {
-		t.Fatalf("UseCoreStore: %v", err)
-	}
-	regSHO := marketEventRegSHOEntry{
-		FetchedAt: now, AsOf: now.Add(-time.Hour), SourceURL: "https://example.test/regsho.txt",
-		Symbols: map[string]marketEventRegSHORecord{
-			"CRWV": {Symbol: "CRWV", SecurityName: "CoreWeave"},
+func stressAuthorityHealthyRegime(now time.Time) *rpc.RegimeSnapshotResult {
+	green := rpc.RegimeIndicatorMeta{Band: "green"}
+	return &rpc.RegimeSnapshotResult{
+		AsOf:             now,
+		Composite:        rpc.RegimeComposite{ClusterGreenCount: 6, ClusterRankedCount: 6},
+		VIXTermStructure: rpc.RegimeVIXTerm{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
+		VolOfVol:         rpc.RegimeVolOfVol{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
+		CreditSpreads:    rpc.RegimeCreditSpreads{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
+		FundingStress:    rpc.RegimeFundingStress{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
+		USDJPY:           rpc.RegimeUSDJPY{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
+		GammaZero: rpc.RegimeGammaZero{
+			RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK,
+			Envelope: rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusReady, Result: &rpc.GammaZeroComputed{
+				Quality: &rpc.GammaSignalQuality{Rankability: rpc.GammaRankabilityRankable},
+			}},
 		},
-	}
-	halts := marketEventHaltsEntry{
-		FetchedAt: now, AsOf: now, SourceURL: "https://example.test/halts.xml",
-		Records: []marketEventHaltRecord{{Symbol: "CRWV", ReasonCode: "T1", HaltedAt: now.Add(-time.Minute)}},
-	}
-	fees := marketEventBorrowFeeEntry{
-		FetchedAt: now, AsOf: now.Add(-time.Minute), SourceURL: "ftp://example.test/usa.txt",
-		Symbols: map[string]marketEventBorrowFeeRecord{
-			"CRWV": {Symbol: "CRWV", Currency: "USD", FeeRate: 55, Available: 1000},
-		},
-	}
-	inventory := map[string]marketEventBorrowInventoryRecord{
-		"CRWV": {Symbol: "CRWV", ShortableShares: 500, AsOf: now, DataType: "live"},
-	}
-	if err := cache.persistRegSHO(context.Background(), regSHO); err != nil {
-		t.Fatalf("persist Reg SHO: %v", err)
-	}
-	if err := cache.persistHalts(context.Background(), halts); err != nil {
-		t.Fatalf("persist halts: %v", err)
-	}
-	if err := cache.persistBorrowFees(context.Background(), fees); err != nil {
-		t.Fatalf("persist borrow fees: %v", err)
-	}
-	if err := cache.persistBorrowInventory(context.Background(), now, inventory); err != nil {
-		t.Fatalf("persist borrow inventory: %v", err)
-	}
-	assertStateWithoutObservation(t, authority, marketEventRegSHOScope, marketEventRegSHOStateKind, marketEventRegSHOSource, marketEventRegSHOObservationKind)
-	assertStateWithoutObservation(t, authority, marketEventHaltsScope, marketEventHaltsStateKind, marketEventHaltsSource, marketEventHaltsObservationKind)
-	assertStateWithoutObservation(t, authority, marketEventBorrowFeesScope, marketEventBorrowFeesStateKind, marketEventBorrowFeesSource, marketEventBorrowFeesObservationKind)
-	assertStateWithoutObservation(t, authority, marketEventBorrowInventoryScope, marketEventBorrowInventoryStateKind, marketEventBorrowInventorySource, marketEventBorrowInventoryObservationKind)
-
-	restarted := newMarketEventCache(func() time.Time { return now.Add(time.Hour) })
-	if err := restarted.UseCoreStore(authority); err != nil {
-		t.Fatalf("restart UseCoreStore: %v", err)
-	}
-	if _, ok := restarted.regSHO.Symbols["CRWV"]; !ok {
-		t.Fatalf("Reg SHO state did not survive restart: %+v", restarted.regSHO)
-	}
-	if len(restarted.halts.Records) != 1 || restarted.halts.Records[0].Symbol != "CRWV" {
-		t.Fatalf("halts state did not survive restart: %+v", restarted.halts)
-	}
-	if _, ok := restarted.borrowFees.Symbols["CRWV"]; !ok {
-		t.Fatalf("borrow-fee state did not survive restart: %+v", restarted.borrowFees)
-	}
-	if restarted.shortableAbsent != nil || !restarted.regSHOFailedAt.IsZero() || !restarted.haltsFailedAt.IsZero() {
-		t.Fatal("ephemeral retry/absence state should not persist")
-	}
-	if restarted.borrowFeesLastAttempt == nil || restarted.borrowFeesLastAttempt.Outcome != marketEventBorrowFeeOutcomeSuccess {
-		t.Fatalf("borrow-fee success attempt did not survive restart: %+v", restarted.borrowFeesLastAttempt)
+		Breadth: rpc.RegimeBreadth{RegimeIndicatorMeta: green, Status: rpc.RegimeStatusOK},
 	}
 }
 
-func TestMarketEventSQLiteRejectsMalformedRowWithoutReplacingCache(t *testing.T) {
-	authority := openMarketTestCoreStore(t)
-	writeMalformedMarketState(t, authority, marketEventRegSHOScope, marketEventRegSHOStateKind, []byte(`{"version":1,"entry":{"fetched_at":"2026-07-20T12:00:00Z","as_of":"2026-07-20T11:00:00Z","source_url":"https://example.test","symbols":{"CRWV":{"symbol":"WRONG"}}}}`))
-	cache := newMarketEventCache(nil)
-	cache.regSHO = marketEventRegSHOEntry{Symbols: map[string]marketEventRegSHORecord{"KEEP": {Symbol: "KEEP"}}}
-	if err := cache.UseCoreStore(authority); err == nil {
-		t.Fatal("malformed market-event row attached")
-	}
-	if _, ok := cache.regSHO.Symbols["KEEP"]; !ok {
-		t.Fatal("failed attachment mutated existing cache projection")
+func stressAuthorityHealthyMarketEvents(now time.Time, symbols ...string) *rpc.MarketEventsResult {
+	return &rpc.MarketEventsResult{
+		Kind: rpc.MarketEventsKind, SchemaVersion: rpc.MarketEventsSchemaVersion,
+		AsOf: now, Symbols: slices.Clone(symbols), BySymbol: map[string][]rpc.MarketEventFlag{},
+		SourceHealth: []rpc.SourceHealth{
+			{Source: "reg_sho_threshold", Status: rpc.SourceStatusOK, AsOf: now, MaxAgeSeconds: 3600},
+			{Source: "trading_halts", Status: rpc.SourceStatusOK, AsOf: now, MaxAgeSeconds: 3600},
+		},
 	}
 }

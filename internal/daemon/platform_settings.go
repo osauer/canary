@@ -30,11 +30,6 @@ type platformSettingsStore struct {
 }
 
 // Persisted shape versions of the platform-settings state document. Version 1
-// spelled the portfolio-stress journal preference "canary"; version 2 spells it
-// "stress". Runtime preferences live in daemon.db and change without a restart,
-// so an installed daemon.db still holds a version-1 document: every decode goes
-// through platformSettingsDocument.upgrade, which carries the stored value into
-// the new spelling, and the next settings write persists it as version 2.
 const (
 	platformSettingsDocVersion       = 2
 	platformSettingsDocVersionCanary = 1
@@ -51,19 +46,14 @@ type platformSettingsData struct {
 }
 
 // platformSettingsDocument is the decode shape of a persisted settings
-// document: the current fields plus version 1's "canary" spelling of Stress.
 // The legacy field lives here rather than on platformSettingsData so the stored
 // shape never carries a transitional field — and so the strict cutover decoder
-// still accepts a pre-rename file instead of rejecting "canary" as unknown.
 type platformSettingsDocument struct {
 	platformSettingsData
 	LegacyCanary *platformStressSettingsData `json:"canary,omitempty"`
 }
 
 // platformSettingsDocumentV1 is the complete persisted version-1 shape.
-// Keeping it separate from platformSettingsData is what makes the spelling
-// boundary enforceable: a v1 document cannot smuggle in "stress", and a v2
-// document cannot retain "canary".
 type platformSettingsDocumentV1 struct {
 	Version                  int                         `json:"version,omitempty"`
 	TradingControlGeneration uint64                      `json:"trading_control_generation"`
@@ -74,60 +64,8 @@ type platformSettingsDocumentV1 struct {
 	History                  platformHistorySettingsData `json:"history"`
 }
 
-type platformSettingsDataJSON platformSettingsData
-
-func (d platformSettingsData) MarshalJSON() ([]byte, error) {
-	switch d.Version {
-	case 0, platformSettingsDocVersionCanary:
-		legacy, err := d.legacyDocument(nil)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(legacy)
-	case platformSettingsDocVersion:
-		return json.Marshal(platformSettingsDataJSON(d))
-	default:
-		return nil, fmt.Errorf("unsupported platform settings version %d", d.Version)
-	}
-}
-
-func (d platformSettingsDocument) MarshalJSON() ([]byte, error) {
-	switch d.Version {
-	case 0, platformSettingsDocVersionCanary:
-		legacy, err := d.platformSettingsData.legacyDocument(d.LegacyCanary)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(legacy)
-	case platformSettingsDocVersion:
-		if d.LegacyCanary != nil {
-			return nil, errors.New(`platform settings version 2 cannot encode legacy field "canary"`)
-		}
-		return json.Marshal(platformSettingsDataJSON(d.platformSettingsData))
-	default:
-		return nil, fmt.Errorf("unsupported platform settings version %d", d.Version)
-	}
-}
-
-func (d platformSettingsData) legacyDocument(canary *platformStressSettingsData) (platformSettingsDocumentV1, error) {
-	if d.Stress.Journal.Enabled != nil {
-		return platformSettingsDocumentV1{}, errors.New(`platform settings version 1 cannot encode current field "stress"`)
-	}
-	return platformSettingsDocumentV1{
-		Version:                  d.Version,
-		TradingControlGeneration: d.TradingControlGeneration,
-		Features:                 d.Features,
-		Trading:                  d.Trading,
-		Regime:                   d.Regime,
-		Canary:                   canary,
-		History:                  d.History,
-	}, nil
-}
-
 // UnmarshalJSON keeps legacy-file cutover on the same version-specific decode
-// contract as live daemon.db reads. Without this hook readOptionalJSON would
 // strictly decode only against the transitional union above, which would still
-// accept both spellings in one document.
 func (d *platformSettingsDocument) UnmarshalJSON(raw []byte) error {
 	doc, err := decodePlatformSettingsDocument(raw)
 	if err != nil {
@@ -139,10 +77,6 @@ func (d *platformSettingsDocument) UnmarshalJSON(raw []byte) error {
 
 // upgrade returns the runtime value for a decoded document. A document with no
 // version at all predates versioning and is read as version 1, whose authority
-// for the portfolio-stress journal preference is its "canary" object: that
-// value is carried over verbatim, so an operator who disabled the journal
-// before the rename stays disabled after it. An unknown version is refused
-// rather than guessed.
 func (d platformSettingsDocument) upgrade() (platformSettingsData, error) {
 	data := d.platformSettingsData
 	if data.Version == 0 {
@@ -231,7 +165,6 @@ func decodeStrictPlatformSettingsJSON(raw []byte, dst any) error {
 }
 
 // decodePlatformSettings decodes one persisted settings document and upgrades
-// it to the current version.
 func decodePlatformSettings(raw []byte) (platformSettingsData, error) {
 	var doc platformSettingsDocument
 	if err := doc.UnmarshalJSON(raw); err != nil {
@@ -283,8 +216,6 @@ type platformFeatureSettingsData struct {
 }
 
 // UnmarshalJSON accepts the retired purge_restore preference so v2 settings
-// documents remain upgradeable. The field is deliberately discarded and is
-// therefore absent from every subsequent write.
 func (d *platformFeatureSettingsData) UnmarshalJSON(raw []byte) error {
 	var stored struct {
 		StockProtection platformStockProtectionSettingsData `json:"stock_protection"`
@@ -302,7 +233,6 @@ func (d *platformFeatureSettingsData) UnmarshalJSON(raw []byte) error {
 type platformRulebookSettingsData struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	// EarningsOverrides maps SYMBOL → "YYYY-MM-DD" or "YYYY-MM-DDTamc"/
-	// "Tbmo"; overrides are authoritative over fetched dates (rules 6-8).
 	EarningsOverrides map[string]string `json:"earnings_overrides,omitempty"`
 }
 
@@ -316,9 +246,7 @@ type platformTradingSettingsData struct {
 	AllowStockShort       *bool    `json:"allow_stock_short,omitempty"`
 	AllowOptionSellToOpen *bool    `json:"allow_option_sell_to_open,omitempty"`
 	// Freeze is the runtime trading brake: true blocks every new broker
-	// write (place/modify/proposals) via
 	// brokerWriteAuthorization while cancels stay allowed. Unlike the
-	// limits above it is not gated on tradingLimitWritability — a brake
 	// must engage even when order entry is otherwise misconfigured.
 	Freeze *bool `json:"freeze,omitempty"`
 }
@@ -336,7 +264,6 @@ func newPlatformSettingsStore(path string) (*platformSettingsStore, error) {
 }
 
 // bindCore switches the live store to SQLite authority. The legacy path is
-// deliberately ignored after binding; cutover imports happen before this
 // method and runtime never falls back to the old file.
 func (s *platformSettingsStore) bindCore(ctx context.Context, core *corestore.Store) error {
 	if s == nil || core == nil {
@@ -350,8 +277,6 @@ func (s *platformSettingsStore) bindCore(ctx context.Context, core *corestore.St
 		return fmt.Errorf("platform settings are missing from SQLite; cutover bootstrap was not completed")
 	}
 	// A stored version-1 document is upgraded in memory here and rewritten in the
-	// new shape by the next settings write; the daemon reports the operator's
-	// stored preference from the first read either way.
 	data, err := decodePlatformSettings(doc.JSON)
 	if err != nil {
 		return fmt.Errorf("decode platform settings from SQLite: %w", err)
@@ -395,7 +320,6 @@ func (s *platformSettingsStore) snapshot() platformSettingsData {
 // runtime controls that can change whether a broker write is permitted:
 // freeze, both size caps, stock shorting, and option sell-to-open. It is a
 // store property rather than an RPC revision so wire guards can compare one
-// monotonic value without depending on publication timing at another surface.
 func (s *platformSettingsStore) tradingControlGeneration() uint64 {
 	if s == nil {
 		return 0
@@ -409,7 +333,6 @@ func (s *platformSettingsStore) tradingControlGeneration() uint64 {
 // overrides and returns them with the exact generation observed under the
 // same lock. Freeze is intentionally not a config.Trading field, but every
 // freeze change still advances the returned generation so a caller binding
-// this pair cannot miss a concurrent brake transition.
 func (s *platformSettingsStore) tradingControlSnapshot(base config.Trading, applyOverrides bool) (config.Trading, uint64) {
 	if s == nil {
 		return base, 0
@@ -437,8 +360,6 @@ func (s *platformSettingsStore) tradingControlSnapshot(base config.Trading, appl
 // caller must invoke release after the protected broker send returns. Runtime
 // settings remain fully concurrent while an order waits in pacing; only the
 // final authority check plus frame write/flush excludes a control commit.
-//
-//lint:ignore U1000 Used by the trading-tagged physical write guard.
 func (s *platformSettingsStore) lockTradingControlSnapshot(base config.Trading, applyOverrides bool) (cfg config.Trading, generation uint64, frozen bool, release func()) {
 	if s == nil {
 		return base, 0, false, func() {}
@@ -697,7 +618,6 @@ func (s *Server) applyPlatformSettingsPatch(ctx context.Context, patch map[strin
 	for key := range flat {
 		// Freeze and limit authority is terminal-only in every mode. A paired
 		// device is a human broker-write origin, but it is not authorized to
-		// change the controls that govern later writes.
 		if strings.HasPrefix(key, "trading.") && !settingsTradingOriginAuthorized(origin) {
 			return errBadRequest("trading safety settings are terminal-only; use an interactive human terminal to change freeze or limits")
 		}
@@ -733,8 +653,6 @@ func settingsSpecsByKey() map[string]rpc.SettingsKeySpec {
 }
 
 // flattenSettingsPatch walks the nested patch object and returns raw values
-// keyed by dotted registry key. Descent stops at registry keys (the
-// earnings-overrides map value is a terminal object), so registry keys are
 // the only writable paths and everything else fails with a targeted error.
 func flattenSettingsPatch(patch map[string]json.RawMessage) (map[string]json.RawMessage, error) {
 	specs := settingsSpecsByKey()
@@ -783,7 +701,6 @@ func flattenSettingsPatch(patch map[string]json.RawMessage) (map[string]json.Raw
 
 // applySettingsKey writes one flattened registry key into the store data.
 // Every key in the rpc settings registry must have a case here; the
-// registry parity test enforces that, so registry and store cannot drift.
 func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessage) error {
 	boolField := func(dst **bool) error {
 		v, err := nullableBool(raw)
@@ -835,10 +752,7 @@ func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessag
 }
 
 // mergeEarningsOverrides applies a SYMBOL → date patch onto the current
-// overrides: null clears all overrides, a null value clears that one symbol,
-// and mentioned symbols upsert — unmentioned symbols survive, so a per-symbol
 // `settings set` cannot silently drop the rest of the map. Dates must be
-// "YYYY-MM-DD" optionally suffixed with "Tamc"/"Tbmo" — a bad override must
 // fail loudly here, not silently skew rules 6-8 later. cur is cloned, never
 // mutated, so a failed patch leaves the store snapshot intact.
 func mergeEarningsOverrides(cur map[string]string, raw json.RawMessage) (map[string]string, error) {
@@ -1010,9 +924,6 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 }
 
 // regimeJournalEnabledFrom is the single default for forward regime-decision
-// collection: the reported setting and the writer's own gate both resolve
-// through here, so the settings surface cannot describe a daemon that is
-// journaling as disabled.
 func regimeJournalEnabledFrom(data platformSettingsData) bool {
 	if data.Regime.Journal.Enabled == nil {
 		return true

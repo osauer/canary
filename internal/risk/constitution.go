@@ -14,7 +14,6 @@ import (
 const ConstitutionKind = "ibkr.risk_policy"
 
 // CapitalTierOK and the related constants are capital-evaluation outcomes.
-// Missing observations and unapproved policy remain explicit non-OK tiers.
 const (
 	CapitalTierOK         = "ok"
 	CapitalTierWarn       = "warn"
@@ -24,7 +23,6 @@ const (
 )
 
 // EnforcementShadow and EnforcementAdvisory are the enforcement classes a
-// constitution control may declare. Validation rejects unsupported classes.
 const (
 	EnforcementShadow   = "shadow"
 	EnforcementAdvisory = "advisory"
@@ -47,28 +45,19 @@ type Constitution struct {
 }
 
 // ConstitutionCapital anchors the capital authority: an internal protected
-// equity floor and a declared (human-authorized) risk capital, both in the
 // account base currency. Effective risk capital =
-// min(declared_risk_capital, equity − protected_floor); nothing —
-// deposits, profits, live events — raises the declared number without a
-// fingerprinted policy revision.
 type ConstitutionCapital struct {
 	BaseCurrency        string   `toml:"base_currency" json:"base_currency"`
 	ProtectedFloor      *float64 `toml:"protected_floor" json:"protected_floor"`
 	DeclaredRiskCapital *float64 `toml:"declared_risk_capital" json:"declared_risk_capital"`
 	// MaxEquityAgeMinutes bounds trust in the last equity observation;
-	// beyond it the evaluator marks the capital state stale and does not pass it.
 	MaxEquityAgeMinutes *int `toml:"max_equity_age_minutes" json:"max_equity_age_minutes"`
 	// MaxUnreconciledDays bounds trust in the declared capital-event ledger
-	// between reconciliation evidence; expiry is reported as stale.
 	MaxUnreconciledDays *int `toml:"max_unreconciled_days" json:"max_unreconciled_days"`
 }
 
 // ConstitutionDrawdown is the two-tier response ladder. Both thresholds are
-// percentages of declared risk capital consumed from the cash-flow-adjusted
-// equity peak. Warn is advisory and self-clearing; block latches in daemon
 // state and clears only through a journaled human reset that re-bases the
-// peak.
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
@@ -77,32 +66,24 @@ type ConstitutionDrawdown struct {
 }
 
 // ConstitutionOverride caps the one-shot exception mechanism: human-only,
-// single named control, reason required, hard expiry. The mechanism itself
 // (origin gating, journaling) is code-owned; only the lifetime cap is
-// policy.
 type ConstitutionOverride struct {
 	MaxDurationHours *int `toml:"max_duration_hours" json:"max_duration_hours"`
 }
 
 // ConstitutionRecon sets what counts as a reconciliation exception when
 // broker statement flows are matched against the declared capital-event
-// ledger (internal-docs/design/post-trade-truth.md). These are policy, not
 // plumbing: they decide which differences the operator must look at.
 type ConstitutionRecon struct {
 	// A statement flow and a declared event match on amount when they
-	// differ by at most max(amount_tolerance_pct% of the statement
-	// amount, amount_tolerance_min in base currency).
 	AmountTolerancePct *float64 `toml:"amount_tolerance_pct" json:"amount_tolerance_pct"`
 	AmountToleranceMin *float64 `toml:"amount_tolerance_min" json:"amount_tolerance_min"`
 	// DateWindowBusinessDays bounds how far apart the statement value
-	// date and the declared effective date may sit (weekday count).
 	DateWindowBusinessDays *int `toml:"date_window_business_days" json:"date_window_business_days"`
 	// MaxReportAgeDays bounds how old the newest ingested statement may
-	// be for a recon report to back a reconcile sign-off.
 	MaxReportAgeDays *int `toml:"max_report_age_days" json:"max_report_age_days"`
 	// MaxEquityDivergencePct bounds the absolute same-day difference between
 	// broker statement equity and the runtime observation before v3 may
-	// automatically accept a clean report as reconcile evidence.
 	MaxEquityDivergencePct *float64 `toml:"max_equity_divergence_pct" json:"max_equity_divergence_pct"`
 }
 
@@ -113,25 +94,17 @@ type ConstitutionCadence struct {
 	EOD     ConstitutionArtefact `toml:"eod" json:"eod"`
 	Weekly  ConstitutionArtefact `toml:"weekly" json:"weekly"`
 	// Nudges and Monthly are policy-version-4-only. Pointers preserve the
-	// distinction between an absent table and an explicitly authored one, so
-	// old policies can reject the new keys and v4 can report missing material.
 	Nudges  *ConstitutionNudgeCadence   `toml:"nudges" json:"nudges,omitempty"`
 	Monthly *ConstitutionMonthlyCadence `toml:"monthly" json:"monthly,omitempty"`
 }
 
 // ConstitutionNudgeCadence carries optional overrides for cadence-driven
-// nudges. Both fields default in code (operator decision 2026-08-03: the
-// desk clock and warning horizon are operating cadence, not risk policy):
-// an absent Timezone means the machine's local timezone, an absent
-// ReconcileWarningDays means DefaultReconcileWarningDays.
 type ConstitutionNudgeCadence struct {
 	Timezone             *string `toml:"timezone" json:"timezone"`
 	ReconcileWarningDays *int    `toml:"reconcile_warning_days" json:"reconcile_warning_days"`
 }
 
 // ConstitutionMonthlyCadence declares the one standing monthly touchpoint.
-// DayOfMonth is the Nth working day of the month — Monday through Friday,
-// weeks starting Monday — limited to 1..20 so every month has the day.
 type ConstitutionMonthlyCadence struct {
 	Class        *string `toml:"class" json:"class"`
 	DayOfMonth   *int    `toml:"day_of_month" json:"day_of_month"`
@@ -145,14 +118,12 @@ const (
 	// DefaultReconcileWarningDays is the rolling reconcile warning horizon.
 	DefaultReconcileWarningDays = 2
 	// DefaultMonthlyPulseWorkingDay is the Nth working day of the month the
-	// monthly pulse becomes due (Monday through Friday, weeks start Monday).
 	DefaultMonthlyPulseWorkingDay = 1
 	// DefaultMonthlyPulseAtLocal is the local wall time the pulse fires.
 	DefaultMonthlyPulseAtLocal = "09:00"
 )
 
 // NudgeLocation resolves the clock cadence-driven nudges run on: the
-// machine's local timezone unless the policy authors an explicit override.
 func (c ConstitutionCadence) NudgeLocation() (*time.Location, error) {
 	if c.Nudges != nil && c.Nudges.Timezone != nil {
 		return loadConstitutionLocation(*c.Nudges.Timezone)
@@ -161,7 +132,6 @@ func (c ConstitutionCadence) NudgeLocation() (*time.Location, error) {
 }
 
 // ResolvedReconcileWarningDays returns the authored override when present,
-// else the code default.
 func (c ConstitutionCadence) ResolvedReconcileWarningDays() int {
 	if c.Nudges != nil && c.Nudges.ReconcileWarningDays != nil {
 		return *c.Nudges.ReconcileWarningDays
@@ -170,7 +140,6 @@ func (c ConstitutionCadence) ResolvedReconcileWarningDays() int {
 }
 
 // ResolvedMonthlyWorkingDay returns the authored override when present, else
-// the code default.
 func (c ConstitutionCadence) ResolvedMonthlyWorkingDay() int {
 	if c.Monthly != nil && c.Monthly.DayOfMonth != nil {
 		return *c.Monthly.DayOfMonth
@@ -179,7 +148,6 @@ func (c ConstitutionCadence) ResolvedMonthlyWorkingDay() int {
 }
 
 // ResolvedMonthlyNudgeAtLocal returns the authored override when present,
-// else the code default.
 func (c ConstitutionCadence) ResolvedMonthlyNudgeAtLocal() string {
 	if c.Monthly != nil && c.Monthly.NudgeAtLocal != nil {
 		return *c.Monthly.NudgeAtLocal
@@ -189,15 +157,11 @@ func (c ConstitutionCadence) ResolvedMonthlyNudgeAtLocal() string {
 
 // ConstitutionArtefact declares one cadence artefact. An empty Class means the
 // artefact is undeclared; validation accepts advisory as the only non-empty
-// class.
 type ConstitutionArtefact struct {
 	Class string `toml:"class" json:"class,omitempty"`
 }
 
 // ConstitutionInventory pins the sibling policies by identity so the policy
-// view can disclose drift between what the constitution was approved
-// against and what is live. Pins are identity references, not threshold
-// copies: the siblings stay authoritative for their own numbers.
 type ConstitutionInventory struct {
 	Rulebook   *ConstitutionPolicyPin `toml:"rulebook" json:"rulebook,omitempty"`
 	Protection *ConstitutionPolicyPin `toml:"protection" json:"protection,omitempty"`
@@ -205,16 +169,12 @@ type ConstitutionInventory struct {
 }
 
 // ConstitutionPolicyPin identifies one sibling policy version. Version is a
-// string so integer-versioned (rulebook, protection) and string-versioned
-// (stress) policies pin uniformly.
 type ConstitutionPolicyPin struct {
 	ID      string `toml:"id" json:"id"`
 	Version string `toml:"version" json:"version"`
 }
 
 // Validate rejects a structurally unusable constitution. It never backfills
-// material keys: a file that is valid but incomplete loads with unapproved
-// gaps, which is the intended state until the operator writes each number.
 func (c Constitution) Validate() error {
 	if c.Kind != ConstitutionKind {
 		return fmt.Errorf("risk policy kind %q is invalid (want %s)", c.Kind, ConstitutionKind)
@@ -341,8 +301,6 @@ func (c Constitution) Validate() error {
 }
 
 // loadConstitutionLocation rejects process-local and non-canonical raw input.
-// Validation and cadence evaluation share this helper so accepted behavior and
-// fingerprinted policy text cannot disagree.
 func loadConstitutionLocation(raw string) (*time.Location, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("must be a non-empty IANA timezone")
@@ -371,7 +329,6 @@ func (c Constitution) EffectiveBlockEnforcement() string {
 }
 
 // UnapprovedKeys lists the material keys the operator has not chosen yet.
-// Order matches the explain view.
 func (c Constitution) UnapprovedKeys() []string {
 	var out []string
 	if strings.TrimSpace(c.Capital.BaseCurrency) == "" {
@@ -414,16 +371,11 @@ func (c Constitution) UnapprovedKeys() []string {
 		out = append(out, "recon.max_equity_divergence_pct")
 	}
 	// cadence.* keys are deliberately not approval material: the timezone
-	// reads from the machine and every other cadence value defaults in code;
-	// authored keys are overrides (operator decision, 2026-08-03). Invalid
 	// overrides fail Validate, never this list.
 	return out
 }
 
 // FingerprintKey hashes an explicit JSON projection of the full policy
-// (risk.Policy / protection-policy discipline — the rulebook's %.4f
-// variant is the outlier, not the model). Absent material keys marshal as
-// null and are part of the identity: an unapproved gap is policy state.
 func (c Constitution) FingerprintKey() string {
 	type fingerprintBase struct {
 		Kind          string
@@ -556,28 +508,22 @@ type CapitalObservation struct {
 }
 
 // CapitalRuntime is the daemon-owned runtime state the evaluator consumes:
-// the cash-flow-adjusted peak, effective cumulative external flows, the
-// drawdown latch, and reconciliation recency. The daemon owns mutation; the
 // evaluator only reads.
 type CapitalRuntime struct {
 	// AdjustedPeakBase is the peak of (equity − cumulative external flows).
 	AdjustedPeakBase float64
 	PeakAsOf         time.Time
 	// CumExternalFlowsBase is the policy-version-selected cumulative flow
-	// input: declared events through v2, statement truth plus bridges in v3.
 	CumExternalFlowsBase float64
 	// Seeded is false until the first equity observation establishes the
 	// peak; an unseeded state evaluates unknown, never ok.
 	Seeded bool
 	// BlockLatched persists across restarts and mark recovery; only a
-	// journaled human reset clears it.
 	BlockLatched bool
 	// LastReconciledAt is the last human or automatic reconcile evidence;
 	// zero means never reconciled.
 	LastReconciledAt time.Time
 	// UnreconciledOverrideUntil is populated only from an active, unexpired
-	// one-shot override on capital.max_unreconciled_days. No other override
-	// control reaches evaluation.
 	UnreconciledOverrideUntil time.Time
 }
 
@@ -585,10 +531,8 @@ type CapitalRuntime struct {
 type CapitalVerdict struct {
 	Tier string
 	// EffectiveRiskCapitalBase = min(declared, equity − floor); nil when
-	// unapproved inputs or no usable equity observation.
 	EffectiveRiskCapitalBase *float64
 	// DrawdownBase and ConsumedPct measure from the cash-flow-adjusted
-	// peak; ConsumedPct is drawdown / declared risk capital × 100.
 	DrawdownBase *float64
 	ConsumedPct  *float64
 	EquityStale  bool
@@ -600,9 +544,6 @@ type CapitalVerdict struct {
 }
 
 // UnreconciledClock is the shared pure projection of the constitution's
-// unreconciled horizon. Approved is false when the operator has not declared
-// capital.max_unreconciled_days. A zero LastReconciledAt is stale with no
-// fabricated year-one deadline.
 type UnreconciledClock struct {
 	Approved      bool
 	Deadline      time.Time
@@ -635,8 +576,6 @@ func EvaluateUnreconciledClock(maxDays *int, lastReconciledAt, overrideUntil, no
 // EvaluateCapital applies the constitution to the runtime state and the
 // latest observation. Invariants: absence of data or of approved numbers
 // never yields ok; the latch dominates everything except unapproved
-// disclosure; risk-reducing exemptions are the caller's concern (order
-// classification lives on the preview path, not here).
 func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation, now time.Time) CapitalVerdict {
 	v := CapitalVerdict{Tier: CapitalTierUnknown}
 	if c == nil {
@@ -680,7 +619,6 @@ func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation
 	}
 
 	// The latch dominates: a breached block stays block until a human
-	// reset, regardless of recovery, staleness, or later policy edits.
 	if rt.BlockLatched {
 		v.Tier = CapitalTierBlock
 		v.Reasons = append(v.Reasons, "drawdown block is latched; a journaled human reset (with re-based peak) is required to resume risk")

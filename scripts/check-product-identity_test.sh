@@ -75,7 +75,6 @@ git -C "$test_root" rm -q -f internal/update/daemon_test.go
 
 # An unmerged index must be named as the cause. `ls-files --cached` repeats a
 # conflicted path once per stage, which previously multiplied its allowlisted
-# hits past the reviewed bound and reported the file's content as stale.
 git -C "$test_root" -c user.email=test@example.com -c user.name=test commit -q -m base
 base_branch="$(git -C "$test_root" rev-parse --abbrev-ref HEAD)"
 git -C "$test_root" checkout -q -b conflicting
@@ -85,10 +84,7 @@ git -C "$test_root" checkout -q "$base_branch"
 printf 'const namespace = "canary-desk"\n' > "$test_root/pins.go"
 git -C "$test_root" -c user.email=test@example.com -c user.name=test commit -q -am "trunk spelling"
 # The identity is required even though a conflicting merge never reaches a
-# commit: git resolves the committer up front and exits before merging when it
-# cannot. On a developer machine the global config hides that; a CI runner has
 # no identity, so the merge failed, no conflict was produced, and the fixture
-# reported itself broken instead of testing the guard.
 git -C "$test_root" -c user.email=test@example.com -c user.name=test merge conflicting >/dev/null 2>&1 || true
 if [ -z "$(git -C "$test_root" ls-files --unmerged)" ]; then
 	echo "check-product-identity test: fixture did not produce an unmerged index" >&2

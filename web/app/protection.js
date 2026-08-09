@@ -54,7 +54,6 @@ function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = st
   reasonEl.textContent = reasonText;
   reasonEl.hidden = !reasonText;
   // The de-risk control lives in the always-visible header, so it renders
-  // before the fold early-return below.
   renderProtectionDerisk();
   if (!state.protectionOpen) return;
   const visibleRows = protectionVisibleRows(rows, marketEvents);
@@ -68,7 +67,6 @@ function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = st
 
 
 // The Protection window on the Monitor desk grid. The caption is the served
-// bucket of the first proposal the daemon ranked as workable — its own word
 // for what it staged — and the figure is the served counts plus the served
 // theta. The lamp follows actionability only: staged work deserves
 // attention, and no severity is derived here that the daemon did not publish.
@@ -94,12 +92,8 @@ function renderProtectionTile(proposals = {}, rows = [], theta = {}) {
 
 
 // reduceEligibleHoldings lists the positions the discretionary trim could
-// touch: stocks/ETFs (long or short) and long options, matching the daemon's
-// reduceEligible scope. This is a cheap "is the sweep worth offering"
 // precondition only — it does not replicate the daemon's net-delta
 // direction/sign-matching logic, which is the real source of truth for which
-// legs actually trim. A Preview can still legitimately return zero candidates
-// (e.g. net delta is immaterial) even when this list is non-empty.
 function reduceEligibleHoldings() {
   const positions = state.snapshot?.positions || {};
   const stocks = Array.isArray(positions.stocks) ? positions.stocks : [];
@@ -110,8 +104,6 @@ function reduceEligibleHoldings() {
     const qty = Number(row.quantity || 0);
     if (qty === 0) continue;
     // Skip defunct rows the enricher flagged stale (delisted/zero-value): they
-    // are position truth but not tradable. Stale is the deliberate signal — a
-    // live row can carry a zero/absent mark off-hours and is still tradable.
     if (row.stale) continue;
     const isOption = reduceIsOption(row);
     if (isOption && qty <= 0) continue; // long options only
@@ -128,8 +120,6 @@ function reduceIsOption(row = {}) {
 
 // renderProtectionDerisk draws the always-visible header "Trim delta-adjusted
 // risk" control: a percentage + a Preview button, plus the basket once
-// previewed. It lives outside the foldable detail panel so it is reachable
-// whether the panel is open or not. The daemon computes the basket legs; this
 // is display only.
 function renderProtectionDerisk() {
   syncDeriskValidityTicker();
@@ -137,14 +127,10 @@ function renderProtectionDerisk() {
   if (!section) return;
   const d = state.protectionDerisk;
   // Offer the sweep only when something is scope-eligible to trim, so the
-  // header stays calm for an empty book. The daemon's net-delta direction
-  // logic — which decides which of these actually trim — runs at Preview.
   const eligible = reduceEligibleHoldings();
   section.hidden = eligible.length === 0;
   if (eligible.length === 0) return;
   // The trim sizes by Δ-adjusted risk; when the portfolio delta itself is
-  // unavailable the control would be flying blind, so it greys out and says
-  // why on the control instead of offering a preview that cannot size.
   const portfolio = state.snapshot?.positions?.portfolio || {};
   const deltaUnavailable = !hasNumericValue(portfolio.dollar_delta_base ?? portfolio.dollar_delta_ccy);
   const percentPicker = $("protectionDeriskPercent");
@@ -171,16 +157,12 @@ function renderProtectionDerisk() {
 
 
 // The preview's quotes/WhatIf numbers are already sweep-duration old (tens of
-// seconds for a wide basket) when the basket first renders, and Submit makes
-// the daemon re-run the whole sweep fresh anyway — so displayed numbers and
-// placed orders diverge as the market moves. The validity window is honest-UI:
 // after it lapses the human must re-anchor on fresh numbers before submitting.
 // It is a behavioral nudge, not a safety gate (the daemon is the gate).
 const DERISK_PREVIEW_VALID_MS = 10_000;
 
 
 // Remaining validity in ms, or null when no countdown applies (no preview,
-// already submitted, busy, or nothing submit-eligible to protect).
 function deriskPreviewRemainingMs() {
   const d = state.protectionDerisk;
   if (!d.result || d.submitted || d.busy !== "" || !d.previewedAt) return null;
@@ -195,9 +177,6 @@ function deriskPreviewExpired() {
 
 // Ticker re-renders once per second while a live countdown is showing.
 // Remaining time is always derived from the previewedAt timestamp — never a
-// decremented counter — so background-tab interval throttling cannot make the
-// display lie after a tab switch. Rendering is state-derived and idempotent,
-// so the SSE-driven re-renders and this ticker can interleave freely.
 let deriskValidityTicker = 0;
 
 function syncDeriskValidityTicker() {
@@ -259,9 +238,7 @@ function renderProtectionDeriskBasket() {
   const children = [];
   for (const b of basketBlockers) children.push(deriskBasketLine(blockerText(b), "blocked"));
   // Only render a leg that will be/was trimmed (reduce_quantity > 0, no
-  // blocker) or that carries a disclosed problem (a blocker — e.g.
   // delta_unavailable, wide_spread, preview_failed). The daemon already omits
-  // candidates that round to zero, so this is mostly defense-in-depth against
   // a leg that should never reach the basket in the first place.
   for (const leg of legs) {
     const hasBlocker = (leg.blockers || []).length > 0;
@@ -270,7 +247,6 @@ function renderProtectionDeriskBasket() {
     children.push(deriskLegRow(leg, Boolean(d.submitted), res.base_currency || ""));
   }
   // Two-gesture flow: the header Preview never writes. The Submit button only
-  // appears after a preview that surfaced eligible legs, and is minted with a
   // literal id so the contract test can pin it. An expired preview withdraws
   // Submit entirely: the path back to a broker write is a fresh Preview.
   if (!d.submitted && (res.eligible_count || 0) > 0 && !deriskPreviewExpired()) {
@@ -344,9 +320,6 @@ function deriskLegRow(leg = {}, submitted = false, baseCurrency = "") {
 
 
 // deriskRequestRef is a per-preview idempotency key so a double-tapped Submit
-// (or a client retry) replays the daemon's basket result instead of placing it
-// twice. Not cryptographic — uniqueness within a session is all that is needed,
-// and crypto.randomUUID is unavailable on non-secure LAN origins.
 function deriskRequestRef() {
   return `derisk-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -374,7 +347,6 @@ async function previewProtectionDerisk() {
     if (d.abort !== abort) return; // cancelled/superseded while in flight
     d.result = body;
     // The validity clock starts when the basket lands, not when the sweep
-    // started — the earliest legs are already sweep-duration old here.
     d.previewedAt = Date.now();
   } catch (err) {
     if (d.abort === abort && !abort.signal.aborted) {
@@ -391,9 +363,7 @@ async function previewProtectionDerisk() {
 
 
 // cancelProtectionDerisk returns the panel to idle from any non-write state:
-// it aborts an in-flight preview fetch, discards a rendered basket, or
 // dismisses a submitted result. Aborting the fetch only frees the UI and the
-// app-layer wait — the daemon dispatch loop is synchronous per connection, so
 // an already-running sweep quietly finishes server-side (read-only, no
 // orders). A busy submit is never cancellable from here.
 function cancelProtectionDerisk() {
@@ -413,7 +383,6 @@ async function submitProtectionDerisk() {
   if (!d.result || (d.result.eligible_count || 0) === 0) return;
   // Belt-and-braces against stale DOM: the Submit button is withdrawn at
   // expiry by the next render, but a click racing that render must not slip
-  // through on lapsed numbers.
   if (deriskPreviewExpired()) {
     renderProtectionDerisk();
     return;
@@ -454,10 +423,6 @@ async function submitProtectionDerisk() {
 
 
 // Theta/day prefers the daemon's base-currency aggregate so the panel's
-// money metrics share one currency. Every branch that returns a numeric
-// value also names its currency — back when money(value, "") coerced to
-// USD, "$729.87" sat next to "€12K" in one panel; money() now renders
-// unknown currencies bare, but naming the currency per branch stays the
 // contract.
 function protectionThetaSummary(proposals = {}, rows = []) {
   const counts = proposals.counts || {};
@@ -495,7 +460,6 @@ function protectionThetaSummary(proposals = {}, rows = []) {
   }
   if ((proposals.blockers || []).length === 0 && counts.theta_hygiene === 0) {
     // "€0.00 pending" is only honest when the engine could actually see the
-    // book's Greeks; with partial coverage a zero means "could not evaluate",
     // which must render as unavailable rather than as comfort.
     const portfolio = state.snapshot?.positions?.portfolio || {};
     const total = Number(portfolio.greeks_total || 0);
@@ -527,11 +491,7 @@ function protectionThetaSummary(proposals = {}, rows = []) {
 
 function renderProtectionTimestamp(proposals = {}) {
   // The badge threshold derives from the served refresh cadence
-  // ([auto_trade].proposal_cadence rides inside the proposal snapshot), so
   // the SPA never hardcodes a twin of daemon policy: one full cycle plus
-  // grace — max(3m, cadence/3) — keeps a healthy panel out of "stale"
-  // while a genuinely missed cycle flags within minutes. 30s cadence → 4m
-  // threshold; a 15m override keeps the historical 20m.
   const cadence = goDurationMinutes(proposals.auto_trade?.proposal_cadence) ?? 0.5;
   const staleMinutes = Math.ceil(cadence + Math.max(3, cadence / 3));
   renderFreshnessTimestamp("protectionAsOf", proposals.as_of, { staleMinutes, quietWhenFresh: true });
@@ -539,7 +499,6 @@ function renderProtectionTimestamp(proposals = {}) {
 
 
 // goDurationMinutes parses a Go time.Duration string ("2m0s", "1h2m3s",
-// "90s") into minutes; null when unparseable so callers keep a fallback.
 function goDurationMinutes(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -559,8 +518,6 @@ function goDurationMinutes(value) {
 
 // Single-name "% of NLV" figures are concentration vs equity — under
 // margin they legitimately sum past 100%. Surfacing the account's served
-// gross exposure beside them lets the panel arithmetic reconcile on
-// sight instead of looking like broken math.
 function renderProtectionExposure() {
   const el = $("protectionExposure");
   if (!el) return;
@@ -646,9 +603,6 @@ async function syncProtectionSnapshot() {
 }
 
 // A staged proposal is an order bar: the Orders-screen tile shape, with an
-// engraved symbol/action plate over the served reading lines. The lamp is
-// the one the Protection window already derives — actionable work reads as
-// watch, a blocked proposal stays unlit — so no severity is invented here
 // that the daemon did not publish.
 function protectionRow(proposal) {
   const row = document.createElement("div");
@@ -656,7 +610,6 @@ function protectionRow(proposal) {
   const effectiveBlockers = protectionEffectiveBlockers(proposal, marketEvents);
   const blocked = effectiveBlockers.length > 0;
   // Lamp only. The gating below reads `blocked` exactly as it always did;
-  // the served state is what the Protection window counts as blocked, so
   // the bar mirrors that and never lamps a proposal the daemon parked.
   const stateBlocked = String(proposal.state || "").toLowerCase() === "blocked";
   row.className = "protection-row pd-tile pd-order" + (blocked || stateBlocked ? "" : " pd-tile--watch");
@@ -677,7 +630,6 @@ function protectionRow(proposal) {
   const bucket = document.createElement("span");
   bucket.className = "protection-row__bucket pd-tile__legend";
   // Identity plate, in the Orders register: instrument, the daemon's own
-  // action word (a reducing short BUY reads "Buy to cover"), and the bucket
   // it was staged under.
   bucket.textContent = [proposal.symbol || "--", protectionActionLabel(proposal), protectionBucketLabel(proposal)].filter(Boolean).join(" · ");
   const title = document.createElement("b");
@@ -822,7 +774,6 @@ function protectionBucketLabel(proposal = {}) {
 function protectionActionLabel(proposal = {}) {
   if (proposalIsBuyToCover(proposal)) {
     // "Buy to cover" is stock-borrow terminology; a reducing BUY on a
-    // short option is a buy-to-close.
     const secType = String(proposal.sec_type || proposal.contract?.sec_type || "").toUpperCase();
     return secType === "OPT" || secType === "OPTION" ? "Buy to close" : "Buy to cover";
   }
@@ -857,17 +808,13 @@ function protectionMarketStateHint(proposal = {}) {
   }
   const label = marketSessionLabel(calendar);
   // The session chip's phase is a bare countdown ("opens in 17:12:05"), so the
-  // sentence leads with the session's words and keeps the countdown as detail.
   const market = [label.text, label.phase].filter(Boolean).join(" · ") || `${marketName} is closed`;
   return `${market}; broker may queue after fresh WhatIf.`;
 }
 
 
 // protectionReasonText keeps reason prose off rows where it restates what
-// the row already shows: trailing-stop reasons were constant boilerplate
 // (the mechanics live in the action-button titles), and the theta/risk
-// reason sentences duplicate the metric line. The prose remains as the
-// fallback when the typed fields behind the metric line are missing.
 function protectionReasonText(proposal = {}, { metricShown = false } = {}) {
   if (proposal.bucket === "trailing_stop") return "";
   if (metricShown) return "";
@@ -876,9 +823,7 @@ function protectionReasonText(proposal = {}, { metricShown = false } = {}) {
 
 
 // protectionMetricText renders the one decision number per bucket:
-// trailing stop → live stop level + offset + TIF; theta hygiene → daily
 // theta burn + DTE; risk reduction → concentration vs NLV + excess to
-// trim. Parts vanish individually when their typed field is missing —
 // never fabricated.
 function protectionMetricText(proposal = {}) {
   if (proposal.bucket === "trailing_stop") {
@@ -973,7 +918,6 @@ function protectionExecutionTriggerLabel(semantics = {}) {
 // losses carry the risk block's base currency (account base as fallback),
 // contract-currency losses carry the row currency. Never coerce a
 // base-converted amount to the contract currency, or anything to USD —
-// unknown stays "" and renders as a bare number.
 function protectionLossCurrency(usedBase, risk = {}) {
   if (usedBase) return risk.base_currency || accountBaseCurrency(state.snapshot?.account || {});
   return risk.currency || "";
@@ -1128,9 +1072,7 @@ function protectionProposalDTE(proposal = {}) {
 
 
 // protectionDecisionFlags keeps only the flag chips that bear on acting
-// on this row: hard blockers (halt/LULD) and execution friction (borrow
 // tight, fee extreme, Reg SHO). Context-only and stale/unknown-source
-// chips stay on the hero rail and detail surfaces — repeated per row they
 // are noise, not risk disclosure.
 function protectionDecisionFlags(proposal = {}, events = {}) {
   return protectionEffectiveMarketFlags(proposal, events).filter((flag) => {
@@ -1141,10 +1083,7 @@ function protectionDecisionFlags(proposal = {}, events = {}) {
 
 
 // protectionQuoteFor resolves the live quote a row's action would execute
-// against: stocks/ETFs read the shared market-quote poller (~15s tick);
-// option rows read the position leg's own premium bid/ask from the greeks
 // cache (~60s tick). Null when unavailable — nil means unavailable, the
-// row simply shows no quote line.
 function protectionQuoteFor(proposal = {}) {
   const action = String(proposal.action || "").toUpperCase();
   const secType = String(proposal.sec_type || proposal.contract?.sec_type || "").toUpperCase();
@@ -1194,7 +1133,6 @@ function protectionOptionLeg(proposal = {}) {
 
 // protectionQuoteFrozen mirrors the muted-gray rule for stale/unknown
 // data: anything not firm+live renders muted and never tick-colored, so
-// a frozen close can't masquerade as a live tick.
 function protectionQuoteFrozen(quote = {}) {
   const quality = String(quote.quote_quality || "").trim().toLowerCase();
   const dataType = String(quote.data_type || "").trim().toLowerCase();
@@ -1203,12 +1141,7 @@ function protectionQuoteFrozen(quote = {}) {
 
 
 // protectionPositionLine renders holding-level decision context: the
-// exposure being acted on (position market value and its share of NLV) and
-// today's P&L move, colored green/red by sign with an explicit +/- sign so
-// direction reads without relying on color. Distinct from the metric line,
 // which is the per-bucket decision number. Risk reduction acts on a whole
-// single-name group, so it omits a leg share count and leads with the dollar
-// exposure — the dollar value is the size there. Parts vanish individually
 // when their typed field is missing; never fabricated.
 function protectionPositionLine(proposal = {}) {
   const currency = proposal.contract?.currency || "";
@@ -1282,11 +1215,6 @@ function protectionQuoteLine(proposal = {}) {
 
 
 // protectionQuoteTickDir colors the latest observed move: green up, red
-// down, neutral (inherited gray) on first observation or when fresh data
-// repeats the price. "Settled" means a NEWER data timestamp served the
-// same price — re-renders without fresh data keep the current color, so
-// expanding an unrelated panel doesn't wipe a flash; option legs without
-// timestamps keep their direction until the premium actually changes.
 function protectionQuoteTickDir(key, price, at = "") {
   const ticks = state.protectionQuoteTicks;
   const prev = ticks[key];
@@ -1309,8 +1237,6 @@ function protectionQuoteTickDir(key, price, at = "") {
 // protectionQuantityStepper lets the trader trim more or less than the
 // daemon proposed on risk-reduction rows. The choice is presentation
 // state only: the daemon re-clamps to [1, max_quantity] at preview and
-// submit, and the override dies with the proposal revision so a newly
-// generated proposal always starts from its own quantity.
 function protectionQuantityStepper(proposal = {}) {
   if (proposal.bucket !== "risk_reduction") return null;
   const max = Number(proposal.max_quantity || 0);
@@ -1761,7 +1687,6 @@ function protectionRiskExcessSummary(counts = {}) {
 function protectionRiskExcessCurrency(counts = {}) {
   const currency = String(counts.risk_reduction_excess_currency || "").trim().toUpperCase();
   // "MIX" marked a raw sum across currencies in pre-2026-06-12 persisted
-  // snapshots — not a number in any currency. An absent currency on a
   // present notional is equally unrenderable; never coerce either to USD.
   if (currency === "MIX") return "";
   return currency;
@@ -1802,9 +1727,6 @@ async function submitProtectionProposal(proposal) {
     return;
   }
   // The trader-adjusted quantity rides into the submit body and the
-  // pending record so every surface (title, busy badge, confirmation)
-  // shows the size actually being sent. The daemon re-clamps to
-  // [1, max_quantity] regardless.
   const submitQuantity = protectionEffectiveQuantity(proposal);
   state.protectionSubmitBusy = previewKey;
   state.protectionSubmits = {

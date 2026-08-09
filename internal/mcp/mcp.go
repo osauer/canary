@@ -1,9 +1,6 @@
 // Package mcp adapts Canary's read-only desk tools to the Model Context
 // Protocol over stdio. It exposes no broker-write or streaming surface.
-//
 // Wire: newline-delimited JSON-RPC 2.0 over stdin/stdout, no framing headers.
-// The MCP lifecycle is initialize → initialized (notification) → repeated
-// tools/list + tools/call → EOF on stdin shuts the server down.
 package mcp
 
 import (
@@ -23,11 +20,9 @@ import (
 )
 
 // ProtocolVersion is the MCP spec revision we advertise. 2025-03-26 is the
-// stable revision Claude Desktop and the official Go/TypeScript SDKs target.
 const ProtocolVersion = "2025-03-26"
 
 // Server hosts the MCP loop. Tool calls open short-lived daemon connections
-// through dialer when available, or fall back to conn in tests.
 type Server struct {
 	conn    *dial.Conn
 	version string
@@ -37,15 +32,10 @@ type Server struct {
 	out *bufio.Writer
 
 	// dialer opens daemon connections for tools. Nil means operations
-	// requiring the daemon fall back to conn when present, otherwise return an
-	// internal-error response.
 	dialer func(context.Context) (*dial.Conn, error)
 }
 
 // NewServer wires the MCP server to an optional daemon connection and the
-// version string the binary was built with (stamped via -ldflags). Production
-// stdio uses SetContextDialer instead of a long-lived conn so an idle MCP
-// process does not keep the daemon alive.
 func NewServer(conn *dial.Conn, version string) *Server {
 	return &Server{
 		conn:    conn,
@@ -55,7 +45,6 @@ func NewServer(conn *dial.Conn, version string) *Server {
 }
 
 // SetProfile selects the tool profile exposed by the server.
-// An empty profile selects [ProfileFull].
 func (s *Server) SetProfile(profile Profile) {
 	if profile == "" {
 		profile = ProfileFull
@@ -63,22 +52,7 @@ func (s *Server) SetProfile(profile Profile) {
 	s.profile = profile
 }
 
-// SetDialer wires the function used to open daemon connections for tools. It
-// is kept for tests and integrations that do not need
-// context-aware dialing; production stdio should use SetContextDialer.
-func (s *Server) SetDialer(d func() (*dial.Conn, error)) {
-	if d == nil {
-		s.dialer = nil
-		return
-	}
-	s.dialer = func(context.Context) (*dial.Conn, error) {
-		return d()
-	}
-}
-
 // SetContextDialer wires the function used to open daemon connections with the
-// current request/server context. Prefer this in production paths so shutdown
-// can abort autospawn waits promptly.
 func (s *Server) SetContextDialer(d func(context.Context) (*dial.Conn, error)) {
 	s.dialer = d
 }
@@ -89,30 +63,13 @@ type ServeOptions struct {
 	IdleTimeout time.Duration
 }
 
-// Serve runs the MCP loop until in returns io.EOF (client disconnect), ctx is
-// cancelled, or the client sends the MCP shutdown/exit lifecycle.
-func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	return s.ServeWithOptions(ctx, in, out, ServeOptions{})
-}
-
 // ServeWithOptions is Serve with explicit lifecycle controls for production
-// stdio hosts. Tests and in-process integrations usually call Serve directly.
-//
-// The scan loop runs in a goroutine because bufScan.Scan() is a blocking
-// read on stdin and on darwin os.Stdin uses a blocking syscall.read (not
-// the runtime poller), so closing the fd from another goroutine doesn't
-// unblock the read. We instead drive the main loop off the scanned-line
-// channel and ctx.Done(), and on cancel we return immediately — the
-// reader goroutine stays parked on the kernel read and is reaped when the
-// process exits. This keeps context and signal cancellation authoritative even
-// when stdin itself cannot be interrupted.
 func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writer, opts ServeOptions) error {
 	s.out = bufio.NewWriter(out)
 	defer s.out.Flush()
 
 	reader := bufio.NewReader(in)
 	// Generous line buffer — MCP messages can include large tool results.
-	// 4 MB matches the daemon's per-request payload ceiling.
 	bufScan := bufio.NewScanner(reader)
 	bufScan.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
@@ -182,8 +139,6 @@ func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writ
 				continue
 			}
 			// Each request is handled inline. Tools call the daemon, which may
-			// take seconds; that's fine — MCP clients send one request at a
-			// time over stdio and wait for the response.
 			if s.handle(ctx, line) {
 				return nil
 			}
@@ -213,7 +168,6 @@ type rpcError struct {
 }
 
 // JSON-RPC error codes used by the MCP server. The MCP spec inherits the
-// JSON-RPC 2.0 error model verbatim.
 const (
 	codeParseError     = -32700
 	codeInvalidRequest = -32600
@@ -223,7 +177,6 @@ const (
 )
 
 // handle dispatches one MCP JSON-RPC message. It returns true when the
-// protocol lifecycle has ended and Serve should exit after this message.
 func (s *Server) handle(ctx context.Context, line []byte) bool {
 	var req rpcRequest
 	if err := json.Unmarshal(line, &req); err != nil {
@@ -266,7 +219,6 @@ func (s *Server) handle(ctx context.Context, line []byte) bool {
 }
 
 // initializeResult is the MCP server-info payload. Capabilities advertise the
-// tools surface; we don't currently expose resources or prompts.
 type initializeResult struct {
 	ProtocolVersion string            `json:"protocolVersion"`
 	Capabilities    map[string]any    `json:"capabilities"`
@@ -343,16 +295,13 @@ func (s *Server) handleToolsList(id json.RawMessage) {
 }
 
 // callParams is the input to tools/call. We accept missing arguments as an
-// empty object; some clients omit the field for zero-arg tools.
 type callParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 // toolResultPayload mirrors the MCP tools/call response. Content is always a
-// single text block carrying the daemon's JSON, stringified. IsError flags
 // daemon/RPC errors so the LLM can distinguish them from on-the-wire success
-// with empty payloads.
 type toolResultPayload struct {
 	Content []contentBlock `json:"content"`
 	IsError bool           `json:"isError,omitempty"`
@@ -407,12 +356,6 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 }
 
 // dialForRequest opens the daemon connection a tool call or resource read
-// needs, under the daemon's own readiness budget instead of the caller's
-// per-call budget. A daemon that is starting verifies its database before it
-// publishes the socket, and that verification scales with the file, so
-// charging the wait to a 2-second tool budget reports a healthy boot as a
-// tool timeout. dial.StartupBudget tracks the same file, and autospawn
-// enforces it internally, so this deadline is a backstop for the paths that
 // never reach autospawn; ctx still aborts the wait when the MCP host exits.
 func (s *Server) dialForRequest(ctx context.Context) (*dial.Conn, func(), error) {
 	budget := dial.StartupBudget()
@@ -474,11 +417,7 @@ func toolCallTimedOut(ctx context.Context, err error) bool {
 
 func (s *Server) writeToolError(id json.RawMessage, err error) {
 	// Tool-level errors land inside a non-error JSON-RPC response with
-	// isError=true, per the MCP spec — clients distinguish protocol
 	// errors (codeMethodNotFound, codeInvalidParams) from tool failures
-	// (gateway down, symbol inactive, bounded timeout). Surfacing these
-	// as JSON-RPC errors would mislead the LLM into thinking the protocol
-	// broke.
 	payload := toolResultPayload{
 		IsError: true,
 		Content: []contentBlock{{Type: "text", Text: err.Error()}},
@@ -523,8 +462,6 @@ func mcpMethodBudget(methods []string, headroom, floor time.Duration) time.Durat
 }
 
 // mcpToolMethodsForCall narrows handlers with more than one possible daemon
-// route to the route selected by this call. All possible methods remain
-// declared on Tool.RPCMethods for parity checks.
 func mcpToolMethodsForCall(name string, args json.RawMessage) []string {
 	tool, ok := lookupTool(name)
 	if !ok {
@@ -607,7 +544,6 @@ func (s *Server) write(resp rpcResponse) {
 	b, err := json.Marshal(resp)
 	if err != nil {
 		// json.Marshal of a fixed struct only fails on cycles — none here.
-		// Fall back to a minimal in-band error so the client doesn't hang.
 		b = fmt.Appendf(nil, `{"jsonrpc":"2.0","id":null,"error":{"code":%d,"message":%q}}`, codeInternalError, err.Error())
 	}
 	s.mu.Lock()

@@ -2,7 +2,6 @@
 
 // Deterministic, dependency-free renderer for the public architecture diagrams.
 // Visual tokens mirror docs/shared.css so the diagrams read as part of the site.
-// Generic component symbols are derived from Tabler Icons 3.45.0 (MIT).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -10,7 +9,6 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Diagrams are published assets, so they are written into the site tree rather
-// than beside this renderer.
 const outDir = path.join(repoRoot, "docs/diagrams");
 const canary = fs.readFileSync(path.join(repoRoot, "docs/social/canary-icon.png")).toString("base64");
 
@@ -40,8 +38,6 @@ const icons = {
 };
 
 // Tokens mirror docs/shared.css. Flow hues (green/blue/amber) are validated
-// for CVD separation and contrast on the paper surface; slate is the
-// deliberately recessive neutral and carries dash/weight redundancy.
 const C = {
   paper: "#f7f5ef",
   panel: "#fffdf7",
@@ -121,7 +117,6 @@ function textLines(x, y, lines, className, gap = 16) {
 }
 
 // Borderless component: icon tile, title, plain sub lines, optional mono line,
-// and a hairline base to seat the group on.
 function component({ x, y, iconName, color, iconColor = "#ffffff", title, subtitle = [], mono = "", width = 190 }) {
   const labelX = x + 56;
   const monoY = y + 36 + subtitle.length * 15;
@@ -695,10 +690,6 @@ function erSemantic(d, label, labelX, labelY) {
 
 // coreStoreSchemaInventory reports the table and foreign-key inventory a
 // daemon.db carries once the whole migration plan has been applied, which is
-// the database an operator actually opens. CREATE TABLE names the table at
-// creation time; a later `ALTER TABLE ... RENAME TO ...` moves it, so the
-// renames are replayed over the created set in file order. The highest
-// `version:` in the plan is the schema version that inventory belongs to.
 function coreStoreSchemaInventory() {
   const source = fs.readFileSync(path.join(repoRoot, "internal/daemon/corestore/schema.go"), "utf8");
   let tables = [];

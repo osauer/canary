@@ -109,8 +109,6 @@ function renderTopbar(snap) {
   const phase = $("sessionPhase");
   phase.textContent = label.phase;
   // The chip now prints the served closure word beside the countdown — a
-  // countdown alone cannot tell a weekend from a holiday from a coverage gap.
-  // The fuller sentence stays reachable as its title.
   phase.title = label.text || "";
   const marketDot = $("marketStateDot");
   if (marketDot) {
@@ -188,8 +186,6 @@ function renderSyncStrip(snap) {
         ? "stale"
         : "live";
   // Panel Dark foot plate: "Snapshot HH:MM:SS · Auto" in the engraved
-  // register. The transport word moved into the plate's title so the line
-  // stays a stamp rather than a status paragraph.
   $("syncStatusLabel").textContent = dataGaps ? "Data gaps" : "Snapshot";
   $("syncStatusTime").textContent = shortTimeWithZone(snap.updated_at);
   $("syncStatusState").textContent = labelize(stateLabel);
@@ -309,12 +305,7 @@ function marketSessionLabel(calendar) {
 }
 
 // closureWord is the served reason a closed market is closed, in the chip's
-// short register: "Weekend", "Thanksgiving Day", "Outside Embedded Official
-// Calendar Coverage". A countdown alone cannot distinguish a weekend from a
-// holiday from a coverage gap, so the state word is chip text now rather than
 // title-only. The word is the calendar's; the fallback fires only when the
-// calendar served no reason at all. Long official reasons are truncated by
-// the chip's own ellipsis, and the full text stays in its title.
 function closureWord(session, fallback) {
   const reason = cleanDetail(session?.reason);
   return reason === "--" ? fallback : labelize(reason);
@@ -322,10 +313,7 @@ function closureWord(session, fallback) {
 
 
 // Session chip register: "RTH · closes 3:59:04" while the market trades,
-// "Weekend · opens in 1d 0:16:32" or "opens in 17:12:05" otherwise. The chip
-// carries the market code itself (the #marketSelect control), so the phrase
 // never repeats it, and a missing countdown degrades to the phase word rather
-// than printing "opens in --".
 function marketStatusPhrase(phase, verb, countdown) {
   const timing = countdown ? `${verb} ${countdown}` : "";
   return [phase, timing].filter(Boolean).join(" · ") || "closed";
@@ -350,8 +338,6 @@ function marketSessionNow(session) {
 }
 
 // Seconds precision: the ticking seconds digit is the proof the readout is
-// alive. The live refresh loop re-renders the topbar every second, so the
-// countdown advances visibly between snapshot updates.
 function countdownLabel(target) {
   if (!target) return "";
   const ms = target.getTime() - Date.now();

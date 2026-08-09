@@ -21,17 +21,12 @@ const dailyPnLCloseCaptureStateKind = "daily_pnl_close_capture"
 
 // dailyPnLCloseCaptureWindow bounds how long after the official close a frame
 // may still be captured as that session's result. The broker's daily P&L keeps
-// recomputing at extended-hours marks, so a late capture is a drifted one; a
-// daemon that was not running and connected inside this window leaves the
 // session uncaptured, and the brief must say so rather than substitute a
 // drifted value. The window also ends well before TWS's own trading-day
-// rollover and scheduled restarts, so a relogin recomputation cannot masquerade
-// as a close print.
 const dailyPnLCloseCaptureWindow = 10 * time.Minute
 
 // dailyPnLScopeSource is the broker-scope identity behind the daily P&L
 // observation authority and the close-capture authority. It is persisted only
-// as an opaque fingerprint (dailyPnLObservationSourceKey).
 func dailyPnLScopeSource(scope brokerStateScope) string {
 	return scope.Mode + "|" + strings.TrimSpace(scope.Account)
 }
@@ -44,7 +39,6 @@ type dailyPnLCloseCaptureDocument struct {
 }
 
 // persistedDailyPnLCloseCapture pins one broker scope's account Daily P&L to
-// one session's official close.
 type persistedDailyPnLCloseCapture struct {
 	SessionKey   string    `json:"session_key"`
 	DailyPnL     float64   `json:"daily_pnl"`
@@ -54,11 +48,8 @@ type persistedDailyPnLCloseCapture struct {
 }
 
 // dailyPnLCloseCaptureAuthority retains, per broker scope, the account-level
-// reqPnL Daily P&L observed at (or on the first frame after) each official
 // US-equity close. The value is the desk's only honest "last completed
 // session" figure: everything the broker serves later moves on off-session
-// marks. A session with no capture stays absent — serving surfaces report it
-// as not captured instead of substituting a running value.
 type dailyPnLCloseCaptureAuthority struct {
 	mu       sync.Mutex
 	core     *corestore.Store
@@ -67,8 +58,6 @@ type dailyPnLCloseCaptureAuthority struct {
 }
 
 // bindCore loads retained captures before the daemon publishes its socket.
-// Invalid persisted semantics block startup instead of becoming an empty,
-// falsely clean state.
 func (a *dailyPnLCloseCaptureAuthority) bindCore(ctx context.Context, core *corestore.Store) error {
 	if a == nil || core == nil {
 		return fmt.Errorf("daily P&L close-capture SQLite authority is unavailable")
@@ -105,8 +94,6 @@ func (a *dailyPnLCloseCaptureAuthority) bindCore(ctx context.Context, core *core
 }
 
 // capture persists record as source's newest close capture. Re-capturing the
-// same session for the same scope is an idempotent no-op, so the monitor loop
-// cannot overwrite the first eligible frame with a later, more drifted one.
 func (a *dailyPnLCloseCaptureAuthority) capture(ctx context.Context, source string, record persistedDailyPnLCloseCapture) error {
 	if a == nil {
 		return fmt.Errorf("daily P&L close-capture authority is unavailable")
@@ -186,8 +173,6 @@ func validateDailyPnLCloseCaptureDocument(doc dailyPnLCloseCaptureDocument) erro
 }
 
 // dailyPnLCloseCaptureEligible reports whether now sits inside sess's
-// close-capture window: a regular or early-close trading date whose official
-// close is at most dailyPnLCloseCaptureWindow behind now. Holidays, weekends,
 // unknown-coverage dates, and pre-close instants are never eligible.
 func dailyPnLCloseCaptureEligible(sess marketcal.Session, now time.Time) bool {
 	if sess.State != marketcal.StateRegular && sess.State != marketcal.StateEarlyClose {
@@ -200,10 +185,6 @@ func dailyPnLCloseCaptureEligible(sess marketcal.Session, now time.Time) bool {
 }
 
 // dailyPnLCloseFrameUsable reports whether snap can stand as the close print.
-// A frame older than the connector's own staleness window predates the close
-// and may be a mid-session value from a wedged stream; the post-close
-// self-heal is deliberately off (the market is closed), so such a frame stays
-// unusable and the session reads not captured.
 func dailyPnLCloseFrameUsable(snap ibkrlib.AccountDailyPnL, hasFrame bool, sessionClose, now time.Time) bool {
 	if !hasFrame || snap.DailyPnL == nil || math.IsNaN(*snap.DailyPnL) || math.IsInf(*snap.DailyPnL, 0) {
 		return false
@@ -219,7 +200,6 @@ func dailyPnLCloseFrameUsable(snap ibkrlib.AccountDailyPnL, hasFrame bool, sessi
 
 // dailyPnLCloseCaptureSource is the connector slice the capture needs: the
 // newest account reqPnL frame and the streaming account cache that proves the
-// base currency the frame is denominated in.
 type dailyPnLCloseCaptureSource interface {
 	AccountDailyPnL() (ibkrlib.AccountDailyPnL, bool)
 	CachedAccountSummary() *ibkrlib.RawAccountSummary
@@ -228,8 +208,6 @@ type dailyPnLCloseCaptureSource interface {
 // maybeCaptureDailyPnLClose runs on the account P&L monitor cadence and pins
 // the account Daily P&L to sess's official close, once per scope and session.
 // Every guard fails toward absence: no concrete scope, no eligible window, no
-// usable frame, or no proven base currency leaves the session uncaptured
-// rather than recording a value that cannot be proven to be the close print.
 func (s *Server) maybeCaptureDailyPnLClose(ctx context.Context, source dailyPnLCloseCaptureSource, sess marketcal.Session, now time.Time) {
 	if s == nil || source == nil || !dailyPnLCloseCaptureEligible(sess, now) {
 		return
@@ -249,7 +227,6 @@ func (s *Server) maybeCaptureDailyPnLClose(ctx context.Context, source dailyPnLC
 	// The capture is durable, so its currency label must be proven rather than
 	// inferred: RawAccountSummary.Currency is the legacy numeric-row fallback,
 	// and on the flat streaming map this reads it can name a currency no broker
-	// field established.
 	summary := source.CachedAccountSummary()
 	if summary == nil || !summary.BaseCurrencyProvenance.Proven() {
 		return
@@ -270,9 +247,6 @@ func (s *Server) maybeCaptureDailyPnLClose(ctx context.Context, source dailyPnLC
 }
 
 // lastCompletedUSEquitySessionDate resolves which official session date the
-// brief may call "last completed" at now: today once today's close has passed,
-// otherwise the newest completed prior trading date. False when embedded
-// calendar coverage cannot prove one.
 func lastCompletedUSEquitySessionDate(now time.Time) (string, bool) {
 	sess, err := marketcal.New().SessionAt(marketcal.MarketUSEquity, now)
 	if err != nil || sess.State == marketcal.StateUnknown {

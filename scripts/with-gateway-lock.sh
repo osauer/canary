@@ -1,33 +1,9 @@
 #!/usr/bin/env bash
 #
-# with-gateway-lock.sh — serialize gateway-touching gates across concurrent
-# dev sessions.
-#
-# TWS accepts one connection per client ID, and the integration suite,
 # wire smoke, and release smokes each spawn daemons against the same
-# gateway. Two sessions overlapping used to mean TWS error 326 ("client
-# id already in use") and a full re-run of a multi-minute gate. This
-# wrapper turns that collision into a short wait: the second session
-# blocks on an exclusive flock until the first finishes.
-#
-# Usage:
-#   scripts/with-gateway-lock.sh <command> [args...]
-#
-# Environment hooks:
-#   IBKR_GATEWAY_LOCK_FILE — lock path (default: $TMPDIR/ibkr-gateway.lock,
-#                            per-user on macOS so multi-user hosts isolate)
-#   IBKR_GATEWAY_LOCK_WAIT — max seconds to wait for the lock (default: 900,
 #                            sized for a worst-case off-hours release smoke)
-#
-# Implementation notes:
-#   - macOS ships no flock(1), so the lock is taken via perl's flock on an
 #     fd the shell already holds. perl exiting does NOT release the lock:
-#     fd 9 stays open in this shell, and flock locks belong to the open
-#     file description, not the process.
-#   - The wrapped command runs with fd 9 closed (9>&-) so long-lived
-#     children it spawns (autospawned daemons!) cannot inherit the fd and
 #     hold the lock after the gate finishes. The lock lifetime is exactly
-#     this wrapper's lifetime.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then

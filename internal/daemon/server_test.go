@@ -1,27 +1,33 @@
 package daemon
 
 import (
-	"bufio"
 	"bytes"
 	"context"
+
 	"encoding/json"
 	"errors"
+	"fmt"
+
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"net"
+	"io/fs"
+	"math"
+
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func shortTempDir(t *testing.T) string {
@@ -32,71 +38,6 @@ func shortTempDir(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(d) })
 	return d
-}
-
-func TestOpenSocketRemovesStaleSocketFile(t *testing.T) {
-	t.Parallel()
-	dir := shortTempDir(t)
-	sockPath := filepath.Join(dir, "ibkrd.sock")
-
-	staleListener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("seed stale socket: %v", err)
-	}
-	ul, ok := staleListener.(*net.UnixListener)
-	if !ok {
-		t.Fatalf("expected *net.UnixListener, got %T", staleListener)
-	}
-	ul.SetUnlinkOnClose(false)
-	_ = staleListener.Close()
-
-	fi, err := os.Stat(sockPath)
-	if err != nil {
-		t.Fatalf("staged stale socket missing after Close: %v", err)
-	}
-	if fi.Mode()&os.ModeSocket == 0 {
-		t.Fatalf("staged path is not a socket inode: mode=%v", fi.Mode())
-	}
-
-	srv := &Server{socketPath: sockPath}
-	if err := srv.openSocket(); err != nil {
-		t.Fatalf("openSocket: %v", err)
-	}
-	defer func() {
-		if srv.listener != nil {
-			_ = srv.listener.Close()
-		}
-	}()
-	if srv.listener == nil {
-		t.Fatal("listener nil after openSocket")
-	}
-
-	conn, err := net.DialTimeout("unix", sockPath, 500*time.Millisecond)
-	if err != nil {
-		t.Fatalf("dial fresh listener: %v", err)
-	}
-	_ = conn.Close()
-}
-
-func TestOpenSocketRefusesToEvictLivePeer(t *testing.T) {
-	t.Parallel()
-	dir := shortTempDir(t)
-	sockPath := filepath.Join(dir, "ibkrd.sock")
-
-	livePeer, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("seed live peer: %v", err)
-	}
-	defer livePeer.Close()
-
-	srv := &Server{socketPath: sockPath}
-	err = srv.openSocket()
-	if err == nil {
-		t.Fatalf("expected openSocket to refuse evicting a live peer")
-	}
-	if !strings.Contains(err.Error(), "already serving") {
-		t.Fatalf("expected 'already serving' diagnostic, got %v", err)
-	}
 }
 
 func TestDispatchMethodsMatchRPCTimingCatalog(t *testing.T) {
@@ -205,30 +146,6 @@ func dispatchMethodValues(t *testing.T, constants map[string]string) map[string]
 	return out
 }
 
-func TestUnaryDeadlineCoversAllUnaryMethods(t *testing.T) {
-	t.Parallel()
-	for _, timing := range rpc.MethodTimings() {
-		got := unaryDeadline(timing.Method)
-		if timing.Lifetime == rpc.MethodLifetimeStreaming {
-			if got != 0 {
-				t.Errorf("unaryDeadline(%q) = %s, want 0 for streaming method", timing.Method, got)
-			}
-			continue
-		}
-		if got != timing.DaemonTimeout {
-			t.Errorf("unaryDeadline(%q) = %s, want catalog timeout %s", timing.Method, got, timing.DaemonTimeout)
-		}
-	}
-}
-
-func TestOrderPreviewUnaryDeadlineCoversBrokerWhatIf(t *testing.T) {
-	t.Parallel()
-
-	if got := unaryDeadline(rpc.MethodOrderPreview); got < 50*time.Second || got >= 60*time.Second {
-		t.Fatalf("order.preview deadline = %s, want enough room for broker WhatIf but below the CLI 60s ceiling", got)
-	}
-}
-
 func TestStartOpensSocketBeforeGatewayHandshake(t *testing.T) {
 	t.Parallel()
 	dir := shortTempDir(t)
@@ -318,271 +235,7 @@ func TestStartOpensSocketBeforeGatewayHandshake(t *testing.T) {
 	srv.Stop()
 }
 
-func TestRunIdleWatcherReturnsOnIdleFire(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Resolved{}
-	cfg.Daemon.SetIdleTimeout(50 * time.Millisecond)
-	srv := &Server{
-		cfg:      cfg,
-		streams:  map[string]context.CancelFunc{},
-		idleStop: make(chan struct{}),
-		logger:   NewLogger(&bytes.Buffer{}, "error"),
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		srv.runIdleWatcher(context.Background())
-	}()
-
-	select {
-	case <-done:
-
-	case <-time.After(2 * time.Second):
-		t.Fatal("runIdleWatcher did not return within 2s of idle timer firing")
-	}
-}
-
-func TestRunIdleWatcherDefersShutdownWhileBreadthRefreshing(t *testing.T) {
-	t.Parallel()
-
-	cfg := &config.Resolved{}
-	cfg.Daemon.SetIdleTimeout(40 * time.Millisecond)
-
-	fetcher := &spx.FakeBarFetcher{
-		Bars:    map[string][]spx.Bar{"AAA": {{Date: "2026-05-18", Close: 100}}},
-		Latency: 400 * time.Millisecond,
-	}
-	engine := spx.New(spx.NewStore(t.TempDir()), fetcher, spx.Options{Workers: 1024})
-
-	refreshDone := make(chan struct{})
-	go func() {
-		defer close(refreshDone)
-		_ = engine.Refresh(context.Background())
-	}()
-
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && !engine.IsRefreshing() {
-		time.Sleep(2 * time.Millisecond)
-	}
-	if !engine.IsRefreshing() {
-		t.Fatal("engine.IsRefreshing() never became true; test setup is broken")
-	}
-
-	srv := &Server{
-		cfg:      cfg,
-		streams:  map[string]context.CancelFunc{},
-		idleStop: make(chan struct{}),
-		logger:   NewLogger(&bytes.Buffer{}, "error"),
-		breadth:  engine,
-	}
-	if !srv.isBusy() {
-		t.Fatal("srv.isBusy() should be true while the engine refresh is in flight")
-	}
-
-	watcherDone := make(chan struct{})
-	go func() {
-		defer close(watcherDone)
-		srv.runIdleWatcher(context.Background())
-	}()
-
-	select {
-	case <-watcherDone:
-		t.Fatal("runIdleWatcher returned while breadth refresh was in flight")
-	case <-time.After(120 * time.Millisecond):
-
-	}
-
-	<-refreshDone
-	select {
-	case <-watcherDone:
-
-	case <-time.After(2 * time.Second):
-		t.Fatal("runIdleWatcher did not return within 2 s after the busy condition cleared")
-	}
-}
-
-func TestIsBusyIncludesGammaCompute(t *testing.T) {
-	t.Parallel()
-	srv := &Server{
-		zeroGamma: newGammaZeroCache(),
-	}
-	if srv.isBusy() {
-		t.Error("isBusy() should be false with no gamma compute in flight")
-	}
-
-	srv.zeroGamma.slots = map[string]*gammaSlot{
-		rpc.GammaZeroScopeCombined: {current: &gammaComputation{
-			sessionKey: "2026-05-19",
-			scope:      rpc.GammaZeroScopeCombined,
-			startedAt:  time.Now(),
-			done:       make(chan struct{}),
-		}},
-	}
-	if !srv.isBusy() {
-		t.Error("isBusy() should be true with gamma compute in flight (regression: gamma was not in isBusy() at v0.27.3)")
-	}
-}
-
-func TestBackgroundTasksRegistry_isBusyAndHandlerAgree(t *testing.T) {
-	t.Parallel()
-	srv := &Server{
-		logger:    NewLogger(&bytes.Buffer{}, "error"),
-		version:   "test",
-		startedAt: time.Now(),
-		zeroGamma: newGammaZeroCache(),
-	}
-
-	if srv.isBusy() {
-		t.Error("idle daemon: isBusy() should be false")
-	}
-	if len(srv.handleStatusHealth().BackgroundTasks) != 0 {
-		t.Error("idle daemon: BackgroundTasks should be empty")
-	}
-
-	fakeJob := &gammaComputation{
-		sessionKey: "2026-05-19",
-		scope:      rpc.GammaZeroScopeCombined,
-		startedAt:  time.Now(),
-		done:       make(chan struct{}),
-	}
-	srv.zeroGamma.slots = map[string]*gammaSlot{
-		rpc.GammaZeroScopeCombined: {current: fakeJob},
-	}
-	if !srv.isBusy() {
-		t.Error("with gamma in flight: isBusy() should be true")
-	}
-	if got := srv.handleStatusHealth().BackgroundTasks; len(got) != 1 || got[0].Name != "gamma-zero" {
-		t.Errorf("with gamma in flight: BackgroundTasks=%+v, want [gamma-zero]", got)
-	}
-
-	close(fakeJob.done)
-	if srv.isBusy() {
-		t.Error("after gamma done: isBusy() should be false")
-	}
-	if got := srv.handleStatusHealth().BackgroundTasks; len(got) != 0 {
-		t.Errorf("after gamma done: BackgroundTasks=%+v, want []", got)
-	}
-
-	srv.regimePrewarming.Store(true)
-	if !srv.isBusy() {
-		t.Error("with regime-prewarm in flight: isBusy() should be true")
-	}
-	if got := srv.handleStatusHealth().BackgroundTasks; len(got) != 1 || got[0].Name != "regime-prewarm" {
-		t.Errorf("with regime-prewarm in flight: BackgroundTasks=%+v, want [regime-prewarm]", got)
-	}
-	srv.regimePrewarming.Store(false)
-	if srv.isBusy() {
-		t.Error("after regime-prewarm flag cleared: isBusy() should be false")
-	}
-}
-
-func TestServerIdleShutdownReleasesListenerAndSocket(t *testing.T) {
-	t.Parallel()
-	dir := shortTempDir(t)
-	cfg := &config.Resolved{}
-	cfg.Daemon.SetIdleTimeout(50 * time.Millisecond)
-	srv := &Server{
-		cfg:        cfg,
-		socketPath: filepath.Join(dir, "ibkrd.sock"),
-		streams:    map[string]context.CancelFunc{},
-		idleStop:   make(chan struct{}),
-		logger:     NewLogger(&bytes.Buffer{}, "error"),
-	}
-	if err := srv.openSocket(); err != nil {
-		t.Fatalf("openSocket: %v", err)
-	}
-
-	go srv.acceptLoop(context.Background(), srv.listener)
-	srv.runIdleWatcher(context.Background())
-	srv.closeListener()
-
-	time.Sleep(50 * time.Millisecond)
-
-	srv.Stop()
-
-	if _, err := os.Stat(srv.socketPath); !os.IsNotExist(err) {
-		t.Fatalf("socket file should be removed after idle shutdown + Stop; stat err=%v", err)
-	}
-	if srv.listener != nil {
-		t.Fatal("listener should be nil after Stop")
-	}
-}
-
-func TestReconnectFlow_RepublishesEndpointOnNewProbeWinner(t *testing.T) {
-
-	saved := discover.Probe
-	discover.Probe = func(_ context.Context, _ string, port int, _ time.Duration) error {
-		if port == 7496 {
-			return nil
-		}
-		return errors.New("refused")
-	}
-	t.Cleanup(func() { discover.Probe = saved })
-
-	srv := &Server{
-		cfg:      &config.Resolved{Gateway: config.Gateway{Host: "127.0.0.1", ClientID: new(15)}},
-		endpoint: discover.Endpoint{Host: "127.0.0.1", Port: 4001, ClientID: 15, PortOrigin: discover.OriginDiscovered},
-		streams:  map[string]context.CancelFunc{},
-		logger:   NewLogger(&bytes.Buffer{}, "error"),
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-
-	srv.reconnectFlow(ctx)
-
-	srv.mu.Lock()
-	got := srv.endpoint
-	srv.mu.Unlock()
-	if got.Port != 7496 {
-		t.Fatalf("after reconnectFlow, endpoint.Port = %d, want 7496 (the new probe winner)", got.Port)
-	}
-	if got.PortOrigin != discover.OriginDiscovered {
-		t.Fatalf("after reconnectFlow, endpoint.PortOrigin = %q, want discovered", got.PortOrigin)
-	}
-}
-
-func TestServeConnExitsCleanlyAfterStreamingRequest(t *testing.T) {
-	t.Parallel()
-	srv := &Server{
-		cfg:      &config.Resolved{Gateway: config.Gateway{Host: "127.0.0.1", Port: new(4001), ClientID: new(15)}},
-		endpoint: discover.Endpoint{Host: "127.0.0.1", Port: 4001, ClientID: 15},
-		streams:  map[string]context.CancelFunc{},
-		logger:   NewLogger(&bytes.Buffer{}, "error"),
-	}
-	srv.installSubs()
-
-	clientSide, daemonSide := net.Pipe()
-	t.Cleanup(func() { _ = clientSide.Close(); _ = daemonSide.Close() })
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		srv.serveConn(context.Background(), daemonSide)
-	}()
-
-	params, _ := json.Marshal(rpc.QuoteSubscribeParams{Contract: rpc.ContractParams{Symbol: "AAPL"}})
-	req := &rpc.Request{ID: "test-1", Method: rpc.MethodQuoteSubscribe, Params: params}
-	if err := json.NewEncoder(clientSide).Encode(req); err != nil {
-		t.Fatalf("encode subscribe request: %v", err)
-	}
-
-	if _, err := bufio.NewReader(clientSide).ReadBytes('\n'); err != nil {
-		t.Fatalf("read response: %v", err)
-	}
-	_ = clientSide.Close()
-
-	select {
-	case <-done:
-
-	case <-time.After(2 * time.Second):
-		t.Fatalf("serveConn did not return within 2s after client disconnect")
-	}
-}
-
 type fakeAttempter struct {
-	port              int
 	connectOk         bool
 	startErr          error
 	lastError         string
@@ -633,220 +286,762 @@ func (f *fakeAttempter) SubscribeAccountPnL(account string) error {
 	return nil
 }
 
-func TestConnectWithFailover_AlternateWinsWhenPrimaryFails(t *testing.T) {
-	t.Parallel()
-
-	built := make([]int, 0, 2)
-	var attempters []*fakeAttempter
-
-	srv := &Server{
-		logger:  NewLogger(&bytes.Buffer{}, "error"),
-		streams: map[string]context.CancelFunc{},
-	}
-	srv.attempterFactory = func(ep discover.Endpoint) connectAttempter {
-		built = append(built, ep.Port)
-		a := &fakeAttempter{
-			port:      ep.Port,
-			connectOk: ep.Port == 7496,
-		}
-		attempters = append(attempters, a)
-		return a
-	}
-
-	primary := discover.Endpoint{
-		Host:       "127.0.0.1",
-		Port:       4001,
-		ClientID:   15,
-		Alternates: []int{7496},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	srv.connectWithFailover(ctx, primary)
-
-	if len(built) != 2 || built[0] != 4001 || built[1] != 7496 {
-		t.Fatalf("built ports = %v, want [4001 7496]", built)
-	}
-
-	if got := attempters[0].stopCalls.Load(); got != 1 {
-		t.Fatalf("primary stopCalls = %d, want 1", got)
-	}
-	if got := attempters[1].stopCalls.Load(); got != 0 {
-		t.Fatalf("alternate stopCalls = %d, want 0 (still live)", got)
-	}
-
-	if got := attempters[1].setMarketDataType.Load(); got != 2 {
-		t.Fatalf("alternate.SetMarketDataType arg = %d, want 2 (frozen-aware)", got)
-	}
-
-	srv.mu.Lock()
-	gotEp := srv.endpoint
-	gotErr := srv.lastConnectError
-	srv.mu.Unlock()
-	if gotEp.Port != 7496 {
-		t.Fatalf("endpoint.Port = %d after failover, want 7496", gotEp.Port)
-	}
-	if gotErr != "" {
-		t.Fatalf("lastConnectError = %q, want empty after success", gotErr)
-	}
-}
-
-func TestConnectWithFailover_ExhaustionPublishesNamedVerdict(t *testing.T) {
-	t.Parallel()
-
-	srv := &Server{
-		logger:  NewLogger(&bytes.Buffer{}, "error"),
-		streams: map[string]context.CancelFunc{},
-	}
-	srv.attempterFactory = func(ep discover.Endpoint) connectAttempter {
-		return &fakeAttempter{port: ep.Port, connectOk: false}
-	}
-
-	primary := discover.Endpoint{
-		Host:       "127.0.0.1",
-		Port:       4001,
-		ClientID:   15,
-		Alternates: []int{7496},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	srv.connectWithFailover(ctx, primary)
-
-	srv.mu.Lock()
-	gotErr := srv.lastConnectError
-	srv.mu.Unlock()
-	if !strings.Contains(gotErr, "none of 2 discovered endpoint(s)") {
-		t.Fatalf("lastConnectError = %q, want exhaustion verdict naming 2 endpoints", gotErr)
-	}
-	if !strings.Contains(gotErr, "127.0.0.1:4001") || !strings.Contains(gotErr, "127.0.0.1:7496") {
-		t.Fatalf("lastConnectError = %q, want it to name both 4001 and 7496", gotErr)
-	}
-}
-
-func TestDispatchMethodCancelCancelsRegisteredStream(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-
-	cancelled := make(chan struct{}, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	srv.mu.Lock()
-	srv.streams["stream-id"] = func() {
-		cancel()
-		cancelled <- struct{}{}
-	}
-	srv.mu.Unlock()
-
-	params, _ := json.Marshal(rpc.CancelParams{ID: "stream-id"})
-	req := &rpc.Request{ID: "req-1", Method: rpc.MethodCancel, Params: params}
-
-	var encOut bytes.Buffer
-	enc := json.NewEncoder(&encOut)
-	r := bufio.NewReader(strings.NewReader(""))
-
-	terminal := srv.dispatch(context.Background(), req, enc, r)
-	if terminal {
-		t.Fatalf("cancel should not be terminal — it's a unary op on the same connection")
-	}
-	select {
-	case <-cancelled:
-	case <-time.After(time.Second):
-		t.Fatalf("registered cancel func was never invoked")
-	}
-	if ctx.Err() == nil {
-		t.Fatalf("expected stream context to be cancelled")
-	}
-
-	var resp rpc.Response
-	if err := json.Unmarshal(encOut.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v (raw %q)", err, encOut.String())
-	}
-	if !resp.Ok || resp.Error != nil || resp.ID != "req-1" {
-		t.Fatalf("unexpected response: %+v err=%+v", resp, resp.Error)
-	}
-}
-
-func TestRecoverHandlerWritesErrorAndDoesNotPropagate(t *testing.T) {
-	t.Parallel()
-	var encOut bytes.Buffer
-	enc := json.NewEncoder(&encOut)
-	req := &rpc.Request{ID: "req-1", Method: "fake.panic"}
-	logger := NewLogger(&bytes.Buffer{}, "error")
-
-	func() {
-		defer recoverHandler(logger, enc, req)
-		panic("simulated handler panic")
-	}()
-
-	var resp rpc.Response
-	if err := json.Unmarshal(encOut.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v raw=%q", err, encOut.String())
-	}
-	if resp.Ok || resp.Error == nil {
-		t.Fatalf("expected error response, got %+v", resp)
-	}
-	if resp.Error.Code != rpc.CodeInternal {
-		t.Fatalf("expected CodeInternal, got %q", resp.Error.Code)
-	}
-	if resp.ID != "req-1" {
-		t.Fatalf("expected id to echo request, got %q", resp.ID)
-	}
-}
-
-func TestReadBoundedLineRejectsOversize(t *testing.T) {
-	t.Parallel()
-
-	const cap = 1024
-	big := bytes.Repeat([]byte{'x'}, cap+16)
-	r := bufio.NewReaderSize(bytes.NewReader(big), 256)
-	_, err := readBoundedLine(r, cap)
-	if !errors.Is(err, errFrameTooLarge) {
-		t.Fatalf("expected errFrameTooLarge, got %v", err)
-	}
-}
-
-func TestReadBoundedLineAcceptsAtCap(t *testing.T) {
-	t.Parallel()
-	const cap = 64
-
-	line := append(bytes.Repeat([]byte{'x'}, cap-1), '\n')
-	r := bufio.NewReaderSize(bytes.NewReader(line), 32)
-	got, err := readBoundedLine(r, cap)
+func TestMajorBridgeAcceptsCompletedV2AndRejectsInterruptedV2(t *testing.T) {
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
 	if err != nil {
-		t.Fatalf("unexpected error at cap: %v", err)
+		t.Fatal(err)
 	}
-	if !bytes.Equal(got, line) {
-		t.Fatalf("got %q, want %q", got, line)
+	t.Cleanup(func() { _ = store.Close() })
+	s := &Server{productionStateDatabase: true}
+	write := func(status string, revision int64) {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]any{"status": status, "created_at": time.Now().UTC()})
+		if _, err := store.CompareAndSwapStateDocument(t.Context(), corestore.StateDocumentCAS{
+			ScopeKey: daemonStateScope, Kind: legacyCutoverManifestKind, ExpectedRevision: revision, JSON: raw,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pending_seal", 0)
+	if err := s.validateMajorBridge(t.Context(), store); err == nil {
+		t.Fatal("interrupted v2 cutover was accepted")
+	}
+	write("sealed", 1)
+	if err := s.validateMajorBridge(t.Context(), store); err != nil {
+		t.Fatalf("completed v2 bridge: %v", err)
 	}
 }
 
-func TestServeConnRejectsOversizedFrame(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t)
-	serverSide, clientSide := net.Pipe()
-	t.Cleanup(func() { _ = clientSide.Close() })
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		srv.serveConn(context.Background(), serverSide)
-	}()
-
-	big := bytes.Repeat([]byte{'x'}, 2*maxFrameBytes)
-	go func() { _, _ = clientSide.Write(big) }()
-
-	dec := json.NewDecoder(clientSide)
-	var resp rpc.Response
-	if err := dec.Decode(&resp); err != nil {
-		t.Fatalf("expected bad_request response, decode error: %v", err)
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if resp.Ok || resp.Error == nil || resp.Error.Code != rpc.CodeBadRequest {
-		t.Fatalf("expected bad_request, got %+v", resp)
+	return dir
+}
+
+func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampingHead(t *testing.T) {
+	phases := []string{
+		coreSchemaPhaseIntent,
+		coreSchemaPhaseCandidate,
+		coreSchemaPhaseWatermark,
+		coreSchemaPhaseQuiesced,
+		coreSchemaPhaseRenamed,
+		coreSchemaPhaseSynced,
+		coreSchemaPhaseVerified,
+		coreSchemaPhaseTarget,
+		coreSchemaPhaseReceipt,
+		coreSchemaPhaseRetired,
+		coreSchemaPhaseRetireSync,
+	}
+	for _, phase := range phases {
+		t.Run(phase, func(t *testing.T) {
+			databasePath, source := newFakeMaintenanceSchemaAuthority(t, 2)
+			watermarkPath := databasePath + ".head"
+			fixedModTime := time.Unix(1_700_000_000, 123_000_000)
+			if err := os.Chtimes(watermarkPath, fixedModTime, fixedModTime); err != nil {
+				t.Fatal(err)
+			}
+			watermarkBefore, err := os.ReadFile(watermarkPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			watermarkInfoBefore, err := os.Stat(watermarkPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			minimum := source.Head
+			ops := fakeCoreSchemaUpgradeOps()
+			ops.after = func(reached string) error {
+				if reached == phase {
+					return errors.New("injected crash")
+				}
+				return nil
+			}
+			if _, err := ensureCoreStoreSchemaCurrentWithOps(t.Context(), databasePath, &minimum, time.Now(), ops); err == nil {
+				t.Fatalf("maintenance upgrade did not stop after %s", phase)
+			}
+			manifest, exists, err := loadCoreSchemaUpgradeManifest(databasePath)
+			if err != nil || !exists {
+				t.Fatalf("durable maintenance manifest after %s: exists=%v err=%v", phase, exists, err)
+			}
+			artifacts, err := coreSchemaUpgradeArtifactPaths(databasePath, manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			resumedMinimum, err := loadAuthorityWatermark(watermarkPath)
+			if err != nil || resumedMinimum == nil {
+				t.Fatalf("load preserved watermark: head=%+v err=%v", resumedMinimum, err)
+			}
+			gotHead, err := ensureCoreStoreSchemaCurrentWithOps(t.Context(), databasePath, resumedMinimum, time.Now(), fakeCoreSchemaUpgradeOps())
+			if err != nil {
+				t.Fatalf("resume maintenance after %s: %v", phase, err)
+			}
+			if gotHead == nil || *gotHead != source.Head {
+				t.Fatalf("maintenance head=%+v want preserved %+v", gotHead, source.Head)
+			}
+			published := readFakeSchemaFile(t, databasePath)
+			if published.Version != contractCachePruneMigrationVersion ||
+				published.Head != source.Head ||
+				published.Evidence != source.Evidence {
+				t.Fatalf("published maintenance authority=%+v", published)
+			}
+			watermarkAfter, err := os.ReadFile(watermarkPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(watermarkBefore, watermarkAfter) {
+				t.Fatal("head-preserving maintenance rewrote watermark bytes")
+			}
+			info, err := os.Stat(watermarkPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !info.ModTime().Equal(fixedModTime) {
+				t.Fatalf("head-preserving maintenance restamped watermark mtime: got %s want %s", info.ModTime(), fixedModTime)
+			}
+			if !os.SameFile(watermarkInfoBefore, info) {
+				t.Fatal("head-preserving maintenance replaced watermark inode")
+			}
+			if pending, err := coreSchemaUpgradePending(databasePath); err != nil || pending {
+				t.Fatalf("maintenance manifest pending=%v err=%v", pending, err)
+			}
+			if _, err := os.Lstat(artifacts.backup); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("oversized source backup was not retired: %v", err)
+			}
+			if _, err := os.Stat(artifacts.targetBackup); err != nil {
+				t.Fatalf("compact target backup missing: %v", err)
+			}
+			receipt, ok, err := loadCoreSchemaMaintenanceReceipt(artifacts.receipt)
+			if err != nil || !ok {
+				t.Fatalf("maintenance receipt: ok=%v err=%v", ok, err)
+			}
+			if receipt.UpgradeID != manifest.UpgradeID ||
+				receipt.Version != 1 ||
+				receipt.Discard.MigrationVersion != contractCachePruneMigrationVersion ||
+				receipt.EventDiscard != nil ||
+				receipt.Discard.Selector != contractCachePruneSelector ||
+				receipt.Discard.RemovedRows != 2 ||
+				receipt.Discard.PayloadBytes != 200 ||
+				receipt.Source.SchemaVersion != contractCachePruneMigrationVersion-1 ||
+				receipt.Source.Head != source.Head ||
+				receipt.Target.SchemaVersion != contractCachePruneMigrationVersion ||
+				receipt.Target.Head != source.Head {
+				t.Fatalf("maintenance receipt does not bind exact repair: %+v", receipt)
+			}
+			targetDigest, targetBytes, err := hashPrivateUpgradeArtifact(artifacts.targetBackup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if receipt.Target.SHA256 != targetDigest || receipt.Target.Bytes != targetBytes {
+				t.Fatalf("maintenance receipt target fingerprint=%+v want %s/%d", receipt.Target, targetDigest, targetBytes)
+			}
+			if err := requireIndependentUpgradeArtifacts(databasePath, artifacts.targetBackup); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestCoreSchemaMaintenanceFailsClosedWithoutReceiptAfterPublication(t *testing.T) {
+	databasePath, source := newFakeMaintenanceSchemaAuthority(t, 1)
+	minimum := source.Head
+	ops := fakeCoreSchemaUpgradeOps()
+	ops.after = func(phase string) error {
+		if phase == coreSchemaPhaseVerified {
+			return errors.New("injected crash")
+		}
+		return nil
+	}
+	if _, err := ensureCoreStoreSchemaCurrentWithOps(t.Context(), databasePath, &minimum, time.Now(), ops); err == nil {
+		t.Fatal("maintenance did not stop after publication verification")
+	}
+	manifest, exists, err := loadCoreSchemaUpgradeManifest(databasePath)
+	if err != nil || !exists {
+		t.Fatal(err)
+	}
+	artifacts, err := coreSchemaUpgradeArtifactPaths(databasePath, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(artifacts.backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ensureCoreStoreSchemaCurrentWithOps(t.Context(), databasePath, &minimum, time.Now(), fakeCoreSchemaUpgradeOps()); err == nil {
+		t.Fatal("missing source backup without receipt was accepted")
+	}
+	if pending, err := coreSchemaUpgradePending(databasePath); err != nil || !pending {
+		t.Fatalf("failed-closed maintenance manifest pending=%v err=%v", pending, err)
+	}
+}
+
+func newFakeMaintenanceSchemaAuthority(t *testing.T, rows int64) (string, fakeSchemaFile) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "daemon.db")
+	source := fakeSchemaFile{
+		Version:       contractCachePruneMigrationVersion - 1,
+		TargetVersion: contractCachePruneMigrationVersion,
+		Head: corestore.AuthorityHead{
+			AuthorityEpoch:   "ffeeddccbbaa99887766554433221100",
+			HeadGeneration:   12,
+			LastEventSeq:     91,
+			SignerGeneration: 4,
+		},
+		Evidence:        "preserved-state-and-near-match-evidence",
+		MaintenanceRows: rows,
+	}
+	writeFakeSchemaFile(t, path, source)
+	if err := writeAuthorityWatermark(path+".head", source.Head); err != nil {
+		t.Fatal(err)
+	}
+	return path, source
+}
+
+type fakeSchemaFile struct {
+	Version         int                     `json:"version"`
+	TargetVersion   int                     `json:"target_version,omitempty"`
+	Head            corestore.AuthorityHead `json:"head"`
+	Evidence        string                  `json:"evidence"`
+	MaintenanceRows int64                   `json:"maintenance_rows,omitempty"`
+}
+
+func fakeCoreSchemaUpgradeOps() coreSchemaUpgradeOps {
+	return coreSchemaUpgradeOps{
+		inspect:      fakeInspectSchema,
+		prepare:      fakePrepareSchemaUpgrade,
+		recompute:    fakeRecomputeSchemaUpgradeMaintenance,
+		targetBackup: fakePrepareSchemaTargetBackup,
+		quiesce: func(ctx context.Context, opts corestore.QuiesceOptions) (corestore.Inspection, error) {
+			inspection, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.Path, MinimumHead: &opts.ExpectedHead})
+			if err != nil {
+				return corestore.Inspection{}, err
+			}
+			if inspection.SchemaVersion != opts.ExpectedSchemaVersion || inspection.Head != opts.ExpectedHead {
+				return corestore.Inspection{}, fmt.Errorf("fake quiesce identity mismatch")
+			}
+			return inspection, nil
+		},
+	}
+}
+
+func fakeRecomputeSchemaUpgradeMaintenance(
+	ctx context.Context,
+	opts corestore.RecomputeUpgradeMaintenanceOptions,
+) (corestore.UpgradeMaintenanceResult, error) {
+	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.SourcePath, MinimumHead: &opts.ExpectedHead, TargetVersion: opts.TargetVersion,
+	})
+	if err != nil {
+		return corestore.UpgradeMaintenanceResult{}, err
+	}
+	if source.SchemaVersion != opts.ExpectedSchemaVersion || source.Head != opts.ExpectedHead {
+		return corestore.UpgradeMaintenanceResult{}, fmt.Errorf("fake maintenance-proof source mismatch")
+	}
+	if opts.TargetVersion != contractCachePruneMigrationVersion {
+		return corestore.UpgradeMaintenanceResult{}, nil
+	}
+	file, err := readFakeSchemaFileE(opts.SourcePath)
+	if err != nil {
+		return corestore.UpgradeMaintenanceResult{}, err
+	}
+	return corestore.UpgradeMaintenanceResult{
+		Discards: []corestore.ObservationDiscardSummary{{
+			MigrationVersion:    contractCachePruneMigrationVersion,
+			MigrationName:       contractCachePruneMigrationName,
+			Selector:            contractCachePruneSelector,
+			RemovedRows:         file.MaintenanceRows,
+			PayloadBytes:        file.MaintenanceRows * 100,
+			OrderedDigestSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		}},
+		Compacted:                      true,
+		SourceBackupRetirementRequired: file.MaintenanceRows > 0,
+	}, nil
+}
+
+func fakeInspectSchema(_ context.Context, opts corestore.InspectOptions) (corestore.Inspection, error) {
+	info, err := os.Lstat(opts.Path)
+	if err != nil {
+		return corestore.Inspection{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return corestore.Inspection{}, fmt.Errorf("fake authority is not regular")
+	}
+	raw, err := os.ReadFile(opts.Path)
+	if err != nil {
+		return corestore.Inspection{}, err
+	}
+	var file fakeSchemaFile
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return corestore.Inspection{}, err
+	}
+	targetVersion := file.TargetVersion
+	if targetVersion == 0 {
+		targetVersion = contractCachePruneMigrationVersion
+	}
+	if opts.TargetVersion != 0 {
+		if opts.TargetVersion > targetVersion {
+			return corestore.Inspection{}, fmt.Errorf("unsupported fake target version %d", opts.TargetVersion)
+		}
+		targetVersion = opts.TargetVersion
+	}
+	if file.Version < 1 || file.Version > targetVersion {
+		return corestore.Inspection{}, fmt.Errorf("unsupported fake schema version %d", file.Version)
+	}
+	if opts.MinimumHead != nil {
+		minimum := *opts.MinimumHead
+		if file.Head.AuthorityEpoch != minimum.AuthorityEpoch || file.Head.HeadGeneration < minimum.HeadGeneration || file.Head.LastEventSeq < minimum.LastEventSeq || file.Head.SignerGeneration < minimum.SignerGeneration {
+			return corestore.Inspection{}, corestore.ErrRollback
+		}
+	}
+	status := corestore.InspectionUpgradeRequired
+	if file.Version == targetVersion {
+		status = corestore.InspectionCurrent
+	}
+	var transition corestore.UpgradeHeadTransition
+	if status == corestore.InspectionUpgradeRequired {
+		transition = corestore.UpgradeHeadTransitionAdvanceOnce
+		if file.Version == 3 && targetVersion == 4 {
+			transition = corestore.UpgradeHeadTransitionPreserve
+		}
+	}
+	return corestore.Inspection{
+		Path: opts.Path, SchemaVersion: file.Version, TargetVersion: targetVersion,
+		Status: status, Head: file.Head,
+		Integrity:      corestore.IntegrityReport{QuickCheckResults: []string{"ok"}},
+		HeadTransition: transition,
+	}, nil
+}
+
+func fakePrepareSchemaUpgrade(ctx context.Context, opts corestore.UpgradeOptions) (corestore.UpgradeResult, error) {
+	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.SourcePath, MinimumHead: opts.MinimumHead, TargetVersion: opts.TargetVersion,
+	})
+	if err != nil {
+		return corestore.UpgradeResult{}, err
+	}
+	if source.Status != corestore.InspectionUpgradeRequired {
+		return corestore.UpgradeResult{}, fmt.Errorf("fake source is already current")
+	}
+	if opts.ResetUnboundArtifacts {
+		for _, path := range []string{opts.CandidatePath, opts.BackupPath} {
+			if info, err := os.Lstat(path); err == nil {
+				if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+					return corestore.UpgradeResult{}, fmt.Errorf("fake unbound artifact is invalid")
+				}
+				if err := os.Remove(path); err != nil {
+					return corestore.UpgradeResult{}, err
+				}
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return corestore.UpgradeResult{}, err
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(opts.BackupPath), 0o700); err != nil {
+		return corestore.UpgradeResult{}, err
+	}
+	if _, err := os.Lstat(opts.BackupPath); errors.Is(err, fs.ErrNotExist) {
+		file, readErr := readFakeSchemaFileE(opts.SourcePath)
+		if readErr != nil {
+			return corestore.UpgradeResult{}, readErr
+		}
+		if err := writeFakeSchemaFileE(opts.BackupPath, file); err != nil {
+			return corestore.UpgradeResult{}, err
+		}
+	} else if err != nil {
+		return corestore.UpgradeResult{}, err
+	}
+	backupInspection, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.BackupPath, MinimumHead: &source.Head, TargetVersion: opts.TargetVersion,
+	})
+	if err != nil || backupInspection.SchemaVersion != source.SchemaVersion || backupInspection.Head != source.Head {
+		return corestore.UpgradeResult{}, fmt.Errorf("fake backup mismatch: %w", err)
+	}
+	if info, err := os.Lstat(opts.CandidatePath); err == nil {
+		if !opts.ReplaceCandidate || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return corestore.UpgradeResult{}, fmt.Errorf("fake candidate cannot be replaced")
+		}
+		if err := os.Remove(opts.CandidatePath); err != nil {
+			return corestore.UpgradeResult{}, err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return corestore.UpgradeResult{}, err
+	}
+	sourceFile, err := readFakeSchemaFileE(opts.SourcePath)
+	if err != nil {
+		return corestore.UpgradeResult{}, err
+	}
+	targetVersion := sourceFile.TargetVersion
+	if targetVersion == 0 {
+		targetVersion = contractCachePruneMigrationVersion
+	}
+	if opts.TargetVersion != 0 {
+		targetVersion = opts.TargetVersion
+	}
+	transition := corestore.UpgradeHeadTransitionAdvanceOnce
+	if sourceFile.Version == 3 && targetVersion == 4 {
+		transition = corestore.UpgradeHeadTransitionPreserve
+	} else {
+		sourceFile.Head.HeadGeneration++
+	}
+	sourceFile.Version = targetVersion
+	if err := writeFakeSchemaFileE(opts.CandidatePath, sourceFile); err != nil {
+		return corestore.UpgradeResult{}, err
+	}
+	candidate, err := fakeInspectSchema(ctx, corestore.InspectOptions{
+		Path: opts.CandidatePath, MinimumHead: &sourceFile.Head, TargetVersion: targetVersion,
+	})
+	if err != nil {
+		return corestore.UpgradeResult{}, err
+	}
+	result := corestore.UpgradeResult{
+		Source:         source,
+		Backup:         corestore.BackupInfo{Path: opts.BackupPath, SchemaVersion: source.SchemaVersion, Head: source.Head, Integrity: source.Integrity},
+		Candidate:      candidate,
+		HeadTransition: transition,
+	}
+	if targetVersion == contractCachePruneMigrationVersion {
+		result.Maintenance = corestore.UpgradeMaintenanceResult{
+			Discards: []corestore.ObservationDiscardSummary{{
+				MigrationVersion:    contractCachePruneMigrationVersion,
+				MigrationName:       contractCachePruneMigrationName,
+				Selector:            contractCachePruneSelector,
+				RemovedRows:         sourceFile.MaintenanceRows,
+				PayloadBytes:        sourceFile.MaintenanceRows * 100,
+				OrderedDigestSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			}},
+			Compacted:                      true,
+			SourceBackupRetirementRequired: sourceFile.MaintenanceRows > 0,
+		}
+	}
+	return result, nil
+}
+
+func fakePrepareSchemaTargetBackup(ctx context.Context, opts corestore.UpgradeTargetBackupOptions) (corestore.BackupInfo, error) {
+	source, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.SourcePath, MinimumHead: &opts.ExpectedHead})
+	if err != nil {
+		return corestore.BackupInfo{}, err
+	}
+	if source.Status != corestore.InspectionCurrent ||
+		source.SchemaVersion != opts.ExpectedSchemaVersion ||
+		source.Head != opts.ExpectedHead {
+		return corestore.BackupInfo{}, fmt.Errorf("fake target-backup source mismatch")
+	}
+	if _, err := os.Lstat(opts.BackupPath); errors.Is(err, fs.ErrNotExist) {
+		file, readErr := readFakeSchemaFileE(opts.SourcePath)
+		if readErr != nil {
+			return corestore.BackupInfo{}, readErr
+		}
+		if err := writeFakeSchemaFileE(opts.BackupPath, file); err != nil {
+			return corestore.BackupInfo{}, err
+		}
+	} else if err != nil {
+		return corestore.BackupInfo{}, err
+	}
+	backup, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.BackupPath, MinimumHead: &opts.ExpectedHead})
+	if err != nil {
+		return corestore.BackupInfo{}, err
+	}
+	if backup.Status != corestore.InspectionCurrent ||
+		backup.SchemaVersion != opts.ExpectedSchemaVersion ||
+		backup.Head != opts.ExpectedHead {
+		return corestore.BackupInfo{}, fmt.Errorf("fake target backup mismatch")
+	}
+	return corestore.BackupInfo{
+		Path:          opts.BackupPath,
+		SchemaVersion: backup.SchemaVersion,
+		Head:          backup.Head,
+		Integrity:     backup.Integrity,
+	}, nil
+}
+
+func writeFakeSchemaFile(t *testing.T, path string, file fakeSchemaFile) {
+	t.Helper()
+	if err := writeFakeSchemaFileE(path, file); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFakeSchemaFileE(path string, file fakeSchemaFile) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(raw, '\n'), 0o600)
+}
+
+func readFakeSchemaFile(t *testing.T, path string) fakeSchemaFile {
+	t.Helper()
+	file, err := readFakeSchemaFileE(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func readFakeSchemaFileE(path string) (fakeSchemaFile, error) {
+	var file fakeSchemaFile
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return file, err
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return file, err
+	}
+	return file, nil
+}
+
+func TestDecorateQuoteMarksOldLivePriceStale(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	loc := mustLocation(t, "America/New_York")
+	last, prev := 652.10, 650.25
+	asOf := time.Date(2026, 5, 26, 10, 30, 0, 0, loc)
+	q := &rpc.Quote{
+		Symbol:    "SPY",
+		Last:      &last,
+		PrevClose: &prev,
+		DataType:  rpc.MarketDataLive,
+		PriceAt:   asOf.Add(-20 * time.Minute),
+		AsOf:      asOf,
+	}
+
+	srv.decorateQuote(q, marketcal.MarketUSEquity)
+
+	if q.Price == nil || *q.Price != last {
+		t.Fatalf("Price = %v, want last %.2f", q.Price, last)
+	}
+	if q.PriceSource != "last" {
+		t.Fatalf("PriceSource = %q, want last", q.PriceSource)
+	}
+	if q.Change == nil || math.Abs(*q.Change-1.85) > 0.0001 {
+		t.Fatalf("Change = %v, want 1.85", q.Change)
+	}
+	if !q.Stale {
+		t.Fatal("expected stale quote during open market")
+	}
+	if !strings.Contains(q.StaleReason, "20m old") {
+		t.Fatalf("StaleReason = %q, want age detail", q.StaleReason)
+	}
+	if got, want := q.PriceAsOf, "Frozen: May 26 at 10:10:00 AM EDT"; got != want {
+		t.Fatalf("PriceAsOf = %q, want %q", got, want)
+	}
+	if q.DataType != rpc.MarketDataFrozen {
+		t.Fatalf("DataType = %q, want frozen for stale selected price", q.DataType)
+	}
+}
+
+func mustLocation(t *testing.T, name string) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatalf("load location %q: %v", name, err)
+	}
+	return loc
+}
+
+type fakeConnector struct {
+	mu             sync.Mutex
+	cache          map[string]*ibkrlib.MarketData
+	dataType       int
+	subscribed     map[string]int
+	contracts      map[string]ibkrlib.Contract
+	unsubscribed   map[string]int
+	subscribeError error
+
+	subscribeDelay time.Duration
+}
+
+func newFakeConnector() *fakeConnector {
+	return &fakeConnector{
+		cache:        map[string]*ibkrlib.MarketData{},
+		subscribed:   map[string]int{},
+		contracts:    map[string]ibkrlib.Contract{},
+		unsubscribed: map[string]int{},
+		dataType:     1,
+	}
+}
+
+func (f *fakeConnector) SubscribeMarketData(ctx context.Context, symbol string, _ []string) error {
+	if f.subscribeError != nil {
+		return f.subscribeError
+	}
+	if f.subscribeDelay > 0 {
+
+		select {
+		case <-time.After(f.subscribeDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.subscribed[symbol]++
+	return nil
+}
+
+func (f *fakeConnector) SubscribeMarketDataWithContract(ctx context.Context, contract ibkrlib.Contract, _ []string) (string, error) {
+	if f.subscribeError != nil {
+		return "", f.subscribeError
+	}
+	if f.subscribeDelay > 0 {
+		select {
+		case <-time.After(f.subscribeDelay):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	key := ibkrlib.MarketDataKeyForContract(contract)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.subscribed[key]++
+	f.contracts[key] = contract
+	return key, nil
+}
+
+func (f *fakeConnector) UnsubscribeMarketData(symbol string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unsubscribed[symbol]++
+	return nil
+}
+
+func (f *fakeConnector) MarketDataSnapshot() map[string]*ibkrlib.MarketData {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[string]*ibkrlib.MarketData, len(f.cache))
+	for k, v := range f.cache {
+		copy := *v
+		out[k] = &copy
+	}
+	return out
+}
+
+func (f *fakeConnector) MarketDataTypeForSymbol(_ string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.dataType
+}
+
+func (f *fakeConnector) putTick(symbol string, bid, ask, last float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cache[symbol] = &ibkrlib.MarketData{Bid: bid, Ask: ask, Last: last}
+}
+
+func (f *fakeConnector) subCount(symbol string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.subscribed[symbol]
+}
+
+type testManager struct {
+	*subManager
+	gatewayUp *atomic.Bool
+}
+
+func newTestManager(fake *fakeConnector) *testManager {
+	gatewayUp := &atomic.Bool{}
+	gatewayUp.Store(true)
+	m := &subManager{
+		subs:     map[string]*subEntry{},
+		coalesce: 5 * time.Millisecond,
+		connector: func() ibkrMarketConnector {
+			if !gatewayUp.Load() {
+				return nil
+			}
+			return fake
+		},
+	}
+	return &testManager{subManager: m, gatewayUp: gatewayUp}
+}
+
+func TestFanoutSharesIBKRLine(t *testing.T) {
+	t.Parallel()
+	fake := newFakeConnector()
+	m := newTestManager(fake)
+	defer m.Close()
+
+	a, releaseA, err := m.Subscribe(context.Background(), "AAPL")
+	if err != nil {
+		t.Fatalf("Subscribe A: %v", err)
+	}
+	defer releaseA()
+	b, releaseB, err := m.Subscribe(context.Background(), "AAPL")
+	if err != nil {
+		t.Fatalf("Subscribe B: %v", err)
+	}
+	defer releaseB()
+
+	if got := fake.subCount("AAPL"); got != 1 {
+		t.Fatalf("SubscribeMarketData called %d times, want 1 (refcount must collapse)", got)
+	}
+	if got := m.activeCount(); got != 1 {
+		t.Fatalf("activeCount: got %d, want 1", got)
+	}
+
+	fake.putTick("AAPL", 100.0, 100.05, 100.02)
+	fA := receiveFrame(t, a, 200*time.Millisecond)
+	fB := receiveFrame(t, b, 200*time.Millisecond)
+	if *fA.Bid != *fB.Bid || *fA.Ask != *fB.Ask || *fA.Last != *fB.Last {
+		t.Errorf("subscribers got different frames: A=%+v B=%+v", fA, fB)
+	}
+}
+
+func TestGatewayLostEmitsTerminalFrame(t *testing.T) {
+	t.Parallel()
+	fake := newFakeConnector()
+	m := newTestManager(fake)
+	defer m.Close()
+
+	frames, release, err := m.Subscribe(context.Background(), "AAPL")
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer release()
+
+	fake.putTick("AAPL", 100.0, 100.1, 100.05)
+	receiveFrame(t, frames, 200*time.Millisecond)
+
+	m.gatewayUp.Store(false)
+
+	terminal := receiveFrame(t, frames, 200*time.Millisecond)
+	if terminal.Error == nil {
+		t.Fatalf("expected terminal error frame, got %+v", terminal)
+	}
+	if terminal.Error.Code != rpc.FrameErrGatewayLost {
+		t.Errorf("error code: got %q, want %q", terminal.Error.Code, rpc.FrameErrGatewayLost)
 	}
 
 	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatalf("serveConn did not return after oversize-frame rejection")
+	case _, ok := <-frames:
+		if ok {
+			t.Errorf("frame channel should be closed after gateway_lost")
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Errorf("frame channel did not close after gateway_lost")
+	}
+}
+
+func receiveFrame(t *testing.T, ch <-chan rpc.Frame, timeout time.Duration) rpc.Frame {
+	t.Helper()
+	select {
+	case f, ok := <-ch:
+		if !ok {
+			t.Fatalf("frame channel closed prematurely")
+		}
+		return f
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for frame after %s", timeout)
+		return rpc.Frame{}
 	}
 }

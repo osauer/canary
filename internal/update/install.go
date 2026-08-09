@@ -24,19 +24,12 @@ import (
 )
 
 // ErrInstallInProgress signals that another `canary update` already holds
-// the install-time flock. Re-exported as a typed sentinel so the CLI
-// command can detect it without string-matching the error message.
 var ErrInstallInProgress = errors.New("another Canary update is already running")
 
 // defaultInstallSubdir is the user-default install root when no explicit
-// override is provided. It matches `make install` and install.sh.
 const defaultInstallSubdir = ".local/bin"
 
 // ResolveInstallDir returns the directory where the updated `canary`
-// binary should land. CANARY_INSTALL_DIR overrides — used by the
-// release pipeline to sandbox dog-food installs into a tmp dir, and by
-// tests to avoid touching the host's real ~/.local/bin. Falls back to
-// $HOME/.local/bin otherwise.
 func ResolveInstallDir() (string, error) {
 	// docgen:env CANARY_INSTALL_DIR | Override the install directory for `canary update`. Defaults to `$HOME/.local/bin`. The release pipeline uses this to sandbox dog-food installs to a temporary directory.
 	if _, retired := os.LookupEnv("IBKR_INSTALL_DIR"); retired {
@@ -53,21 +46,12 @@ func ResolveInstallDir() (string, error) {
 }
 
 // CacheDir returns the update cache directory: where the tarball,
-// SHA256SUMS, extracted binary, and lock file live for the duration of
-// an install. Thin wrapper around xdgcache.CacheDir so callers in this
-// package can reference one constant ("update").
 func CacheDir() (string, error) {
 	return xdgcache.CacheDir("update")
 }
 
 // AcquireLock takes the install-time flock at <cacheDir>/update.lock.
-// Returns ErrInstallInProgress on contention so the CLI can print the
-// friendly message without unwrapping a wrapped syscall error.
-//
-// The lock covers the full flow (download + verify + extract + rename +
-// transaction staging cleanup). Two parallel `canary update` invocations
 // queue rather than race on publication — the loser exits immediately with the friendly
-// "another update is running" message.
 func AcquireLock(cacheDir string) (*xdgcache.Lock, error) {
 	lock, err := xdgcache.OpenLock(filepath.Join(cacheDir, "update.lock"))
 	if err != nil {
@@ -80,14 +64,8 @@ func AcquireLock(cacheDir string) (*xdgcache.Lock, error) {
 }
 
 // VerifySignature verifies that sumsSigPath is a valid PGP detached
-// signature over sumsPath, produced by the embedded release-signing key.
-// Returns nil on success; ErrSignatureInvalid (wrapped with the openpgp
 // failure reason) on any mismatch.
-//
 // MUST run BEFORE VerifyChecksum: without this, a same-release attacker
-// could swap both SHA256SUMS and the tarball and the SHA check alone
-// would still pass. Signing SHA256SUMS is what binds the published hash
-// list to a key the attacker doesn't have.
 func VerifySignature(sumsPath, sumsSigPath string) error {
 	signed, err := os.Open(sumsPath)
 	if err != nil {
@@ -103,13 +81,6 @@ func VerifySignature(sumsPath, sumsSigPath string) error {
 }
 
 // VerifyChecksum reads SHA256SUMS (one `<sha>  <filename>` line per
-// asset), looks up assetName, and compares against the SHA256 of the
-// file at tarballPath. Returns nil on match.
-//
-// The two-space-separator format is what shasum / sha256sum / GNU
-// coreutils produce by default and what the release pipeline emits.
-// Lines for other assets are ignored — the same SHA256SUMS file may
-// list every published artefact for the release.
 func VerifyChecksum(tarballPath, sumsPath, assetName string) error {
 	expected, err := lookupChecksum(sumsPath, assetName)
 	if err != nil {
@@ -133,8 +104,6 @@ func VerifyChecksum(tarballPath, sumsPath, assetName string) error {
 }
 
 // lookupChecksum scans the SHA256SUMS file for assetName and returns
-// the hex SHA. Tolerates the optional binary-mode "*" prefix that GNU
-// sha256sum may emit before the filename.
 func lookupChecksum(sumsPath, assetName string) (string, error) {
 	f, err := os.Open(sumsPath)
 	if err != nil {
@@ -165,9 +134,6 @@ func lookupChecksum(sumsPath, assetName string) (string, error) {
 }
 
 // magicNumbers are the leading bytes a freshly-extracted Linux or
-// macOS binary should start with. The smoke check rejects garbage
-// (e.g. an HTML 404 page mistakenly tarred up) before we hand the
-// file to os.Rename and inherit it as the live Canary binary.
 var magicNumbers = [][]byte{
 	{0x7F, 0x45, 0x4C, 0x46}, // ELF (Linux)
 	{0xFE, 0xED, 0xFA, 0xCE}, // Mach-O 32-bit LE
@@ -180,7 +146,6 @@ var magicNumbers = [][]byte{
 
 // hasExecutableMagic reports whether the first bytes of the file at
 // path match a known ELF or Mach-O magic. False on read failure too —
-// caller treats that as "not executable; reject" rather than crashing.
 func hasExecutableMagic(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -201,21 +166,8 @@ func hasExecutableMagic(path string) bool {
 }
 
 // ExtractTarball untars+ungzips tarballPath into destDir, expecting a single
-// regular `canary` binary either at the archive root (older fixtures) or
-// directly under archiveRoot (the current release layout). It returns the
-// absolute path of the extracted binary on success, or an error if the archive
-// is malformed, the binary entry is missing, or the magic-byte smoke check
-// rejects the extracted file as non-executable.
 //
-// Hardening:
-//   - Reject any entry whose resolved path escapes destDir
-//     (path-traversal defence — the tarball isn't fully trusted
-//     even after SHA verification because verification only proves
-//     the bytes match what we asked for, not that they're benign).
-//   - Cap per-entry read at 200MiB so a malformed tar header
-//     (size: math.MaxInt64) can't OOM the CLI.
-//   - File mode is forced to 0o755 — the archive's stored mode is
-//     taken as informational only.
+//	even after SHA verification because verification only proves
 func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
 	executable := productidentity.Executable
 	archiveRoot = archivepath.Clean(strings.TrimSpace(archiveRoot))
@@ -250,14 +202,12 @@ func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
 			return "", fmt.Errorf("read tar header: %w", err)
 		}
 		// Tar headers always use slash-separated paths, independent of the
-		// host OS. Reject traversal before considering the entry basename.
 		name := archivepath.Clean(hdr.Name)
 		if archivepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
 			return "", fmt.Errorf("tar entry %q escapes archive root", hdr.Name)
 		}
 		if hdr.Typeflag != tar.TypeReg {
 			// Skip safe directories, symlinks, etc. — only the expected
-			// regular executable entry is extracted.
 			continue
 		}
 		rootEntry := executable
@@ -289,13 +239,11 @@ func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
 			return "", fmt.Errorf("close %s: %w", out, err)
 		}
 		// Force the mode — archive/tar would have set it from the
-		// header but we want a single source of truth here.
 		if err := os.Chmod(out, 0o755); err != nil {
 			return "", fmt.Errorf("chmod %s: %w", out, err)
 		}
 		binPath = out
 		// Do not break: scanning the rest lets us reject a duplicate entry
-		// instead of silently selecting whichever payload appeared last.
 	}
 	if binPath == "" {
 		return "", fmt.Errorf("tarball did not contain a %q binary entry", executable)
@@ -307,17 +255,9 @@ func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
 }
 
 // StripQuarantine removes the com.apple.quarantine extended attribute
-// from path on macOS. On other platforms the call is a no-op.
-//
 // Critically this MUST run on the staging binary BEFORE the os.Rename
-// into place — strip-after-rename leaves a quarantined live binary
 // with no rollback signal if the strip fails. Strip-before-rename
 // gives us a single point of failure with the prior binary intact.
-//
-// The xattr command exits non-zero with "No such xattr" when the
-// attribute isn't present (e.g. binary was built locally and never
-// downloaded through Gatekeeper). That's the steady state we expect
-// in tests and on Linux — tolerated.
 func StripQuarantine(path string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
@@ -328,12 +268,6 @@ func StripQuarantine(path string) error {
 		return nil
 	}
 	// xattr's stderr language is "No such xattr" on macOS 10.13+ —
-	// matched case-insensitively across the combined output. If the
-	// xattr binary itself is missing (stripped macOS) exec.Command
-	// returns an *exec.Error; treat that as a non-fatal warning so
-	// the install can still proceed (the binary wasn't downloaded
-	// through Gatekeeper if there's no xattr tool, so there's no
-	// quarantine attr to remove either).
 	combined := strings.ToLower(string(out))
 	if strings.Contains(combined, "no such xattr") {
 		return nil
@@ -346,9 +280,7 @@ func StripQuarantine(path string) error {
 }
 
 // InstallCanonical installs srcBinary only as the canonical canary executable.
-// Existing canonical or pre-upgrade executables are moved to transaction-local
 // hidden paths and restored only if canonical publication fails. After success,
-// those bytes are made non-executable and removed. No durable rollback binary
 // is retained because daemon state migrations are forward-only.
 func InstallCanonical(srcBinary, installDir string) error {
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
@@ -497,15 +429,6 @@ func copyBinaryIntoDir(srcBinary, destDir string) (string, error) {
 }
 
 // CleanupOnSignal installs a SIGTERM/SIGINT handler that removes the
-// given tempfiles when the signal fires. Returns a cancel function the
-// caller should defer — calling cancel removes the signal handler
-// AND removes the tempfiles, so the same cleanup path runs on both
-// successful exit (defer cancel) and signal interruption.
-//
-// The handler exits the process after cleanup so a Ctrl-C during
-// download doesn't leave the user dropped back at a half-installed
-// state. Cleanup is best-effort; remove errors are swallowed because
-// the user already wants out.
 func CleanupOnSignal(paths ...string) (cancel func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -517,7 +440,6 @@ func CleanupOnSignal(paths ...string) (cancel func()) {
 				_ = os.Remove(p)
 			}
 			// Exit non-zero so callers wrapping `canary update` see
-			// the interruption. 130 == 128 + SIGINT by convention.
 			os.Exit(130)
 		case <-done:
 			return
@@ -533,8 +455,6 @@ func CleanupOnSignal(paths ...string) (cancel func()) {
 }
 
 // Plan is the full sequence of artefacts an install touches. Exposed
-// so tests can construct partial state and exercise per-step branches
-// without re-running the network layer.
 type Plan struct {
 	CacheDir    string // ~/.cache/ibkr/update/ (durable namespace compatibility pin)
 	TarballPath string // CacheDir/<asset>.tar.gz
@@ -544,7 +464,6 @@ type Plan struct {
 	InstallDir  string // $CANARY_INSTALL_DIR or ~/.local/bin
 	DestPath    string // InstallDir/canary
 	// ArchiveRoot is the exact top-level directory derived from AssetName
-	// (for example canary-vX-darwin-arm64).
 	ArchiveRoot string
 	AssetName   string // <asset>.tar.gz (used for SHA lookup)
 	AssetURL    string // GitHub asset URL
@@ -553,14 +472,6 @@ type Plan struct {
 }
 
 // PlanFor builds a Plan for the given release on the current host. The
-// caller has already confirmed the release has an asset for this host;
-// this is structure-only, no I/O.
-//
-// SHA256SUMS.asc is required: a release without a PGP signature is
-// refused, full stop. The trust model is "every shipped binary verifies
-// the next release via the embedded maintainer key" — relaxing this to
-// "skip when missing" would silently downgrade trust on every install
-// that happened to land between a signing breakage and its fix.
 func PlanFor(rel *Release) (*Plan, error) {
 	assetName, assetURL, ok := rel.AssetForHost()
 	if !ok {
@@ -601,14 +512,6 @@ func PlanFor(rel *Release) (*Plan, error) {
 }
 
 // RunInstall executes the install flow end-to-end against a planned
-// release: download → verify → extract → quarantine-strip → atomic
-// install. Holds an exclusive flock for the duration. Cleans up
-// tempfiles on success, error, and SIGINT/SIGTERM. Returns nil on
-// success; the prior binary is intact on every error path.
-//
-// The CLI wrapper layers version comparison and TTY-aware restart on
-// top; this function is the pure transport+install primitive so the
-// install_test exercises the whole flow with a synthetic tarball.
 func RunInstall(ctx context.Context, plan *Plan) error {
 	if err := os.MkdirAll(plan.CacheDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir cache: %w", err)
@@ -620,8 +523,6 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 	defer lock.Release()
 
 	// Signal-handler cleanup. Tempfiles get removed on Ctrl-C, on
-	// SIGTERM (e.g. systemd timer killing the process), and on the
-	// happy-path defer below.
 	cleanup := CleanupOnSignal(plan.TarballPath, plan.SumsPath, plan.SumsSigPath, plan.ExtractDir)
 	defer cleanup()
 
@@ -632,8 +533,6 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 		return fmt.Errorf("download SHA256SUMS.asc: %w", err)
 	}
 	// Signature MUST verify before we trust SHA256SUMS — without this
-	// step, an attacker who could swap both files past the same
-	// HTTPS endpoint would still pass the SHA check.
 	if err := VerifySignature(plan.SumsPath, plan.SumsSigPath); err != nil {
 		return err
 	}
@@ -644,8 +543,6 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 		return err
 	}
 	// Fresh extract dir per install — prior runs may have left
-	// artefacts. The signal-handler cleanup also removes the dir
-	// on exit.
 	if err := os.RemoveAll(plan.ExtractDir); err != nil {
 		return fmt.Errorf("clear extract dir: %w", err)
 	}
@@ -654,7 +551,6 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 		return err
 	}
 	// MUST strip quarantine BEFORE rename: strip-after-rename leaves
-	// a quarantined live binary with no rollback signal if the strip
 	// fails. See StripQuarantine doc.
 	if err := StripQuarantine(binPath); err != nil {
 		return err

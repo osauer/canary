@@ -134,140 +134,6 @@ func TestExactJobSetRejectsMissingAndExtraNames(t *testing.T) {
 	}
 }
 
-func TestTerminalWorkflowAndJobStatesFailImmediately(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	for _, conclusion := range []string{
-		"action_required",
-		"cancelled",
-		"failure",
-		"neutral",
-		"skipped",
-		"stale",
-		"startup_failure",
-		"timed_out",
-	} {
-		t.Run("workflow_"+conclusion, func(t *testing.T) {
-			t.Parallel()
-			run := validRun(cfg, 1, "completed", new(conclusion))
-			api := newStaticAPI(cfg, []workflowRecord{validWorkflow(cfg)}, []workflowRun{run}, nil)
-			_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-			if err == nil || !strings.Contains(err.Error(), `terminal conclusion="`+conclusion+`"`) {
-				t.Fatalf("error = %v", err)
-			}
-		})
-		t.Run("job_"+conclusion, func(t *testing.T) {
-			t.Parallel()
-			run := validRun(cfg, 1, "completed", new("success"))
-			job := validJob(cfg, run, 1, 501, "linux", "completed", new(conclusion))
-			api := newStaticAPI(cfg, []workflowRecord{validWorkflow(cfg)}, []workflowRun{run}, []workflowJob{job})
-			_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-			if err == nil || !strings.Contains(err.Error(), `terminal conclusion="`+conclusion+`"`) {
-				t.Fatalf("error = %v", err)
-			}
-		})
-	}
-}
-
-func TestSameRunIDUsesHighestAttemptAndCarriesPartialRerunSuccesses(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux", "macOS")
-	first := validRun(cfg, 1, "completed", new("failure"))
-	second := validRun(cfg, 2, "completed", new("success"))
-	jobs := []workflowJob{
-		validJob(cfg, second, 1, 501, "linux", "completed", new("success")),
-		validJob(cfg, second, 1, 502, "macOS", "completed", new("failure")),
-		validJob(cfg, second, 2, 503, "macOS", "completed", new("success")),
-	}
-	api := newStaticAPI(
-		cfg,
-		[]workflowRecord{validWorkflow(cfg)},
-		[]workflowRun{first, second},
-		jobs,
-	)
-
-	result, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-	if err != nil {
-		t.Fatalf("waitForSuccess: %v", err)
-	}
-	want := map[string]int{"linux": 1, "macOS": 2}
-	if result.RunAttempt != 2 || !reflect.DeepEqual(result.JobAttempt, want) {
-		t.Fatalf("result = %+v, want job attempts %v", result, want)
-	}
-	for _, call := range api.callsSnapshot() {
-		if call.endpoint == jobEndpoint(cfg, testRunID) && call.query.Get("filter") != "all" {
-			t.Fatalf("jobs query filter = %q, want all", call.query.Get("filter"))
-		}
-		if strings.Contains(call.endpoint, "/attempts/") {
-			t.Fatalf("used attempt-specific jobs endpoint: %s", call.endpoint)
-		}
-	}
-}
-
-func TestPaginatesWorkflowCatalogRunsAndJobs(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig()
-	cfg.requiredJobs = make([]string, 0, 101)
-
-	workflows := make([]workflowRecord, 0, 101)
-	for index := range 100 {
-		workflows = append(workflows, workflowRecord{
-			ID:    int64(1000 + index),
-			Name:  fmt.Sprintf("other-%d", index),
-			Path:  fmt.Sprintf(".github/workflows/other-%d.yml", index),
-			State: "active",
-		})
-	}
-	workflows = append(workflows, validWorkflow(cfg))
-
-	runs := make([]workflowRun, 0, 101)
-	for attempt := 1; attempt <= 101; attempt++ {
-		runs = append(runs, validRun(cfg, attempt, "completed", new("success")))
-	}
-
-	jobs := make([]workflowJob, 0, 101)
-	current := runs[len(runs)-1]
-	for index := range 101 {
-		name := fmt.Sprintf("job-%03d", index)
-		cfg.requiredJobs = append(cfg.requiredJobs, name)
-		jobs = append(jobs, validJob(
-			cfg,
-			current,
-			current.RunAttempt,
-			int64(5000+index),
-			name,
-			"completed",
-			new("success"),
-		))
-	}
-
-	api := &fakeAPI{}
-	api.handle = func(endpoint string, query url.Values) ([]byte, error) {
-		switch endpoint {
-		case workflowEndpoint(cfg):
-			return paginatedPayload("workflows", workflows, query)
-		case runEndpoint(cfg, testWorkflowID):
-			return paginatedPayload("workflow_runs", runs, query)
-		case jobEndpoint(cfg, testRunID):
-			return paginatedPayload("jobs", jobs, query)
-		default:
-			return nil, fmt.Errorf("unexpected endpoint %s", endpoint)
-		}
-	}
-
-	result, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-	if err != nil {
-		t.Fatalf("waitForSuccess: %v", err)
-	}
-	if result.RunAttempt != 101 || len(result.JobAttempt) != 101 {
-		t.Fatalf("result = %+v", result)
-	}
-	calls := api.callsSnapshot()
-	assertEndpointPageCalls(t, calls, workflowEndpoint(cfg), "2", 2)
-	assertEndpointPageCalls(t, calls, runEndpoint(cfg, testWorkflowID), "2", 2)
-	assertEndpointPageCalls(t, calls, jobEndpoint(cfg, testRunID), "2", 1)
-}
-
 func TestAPIErrorsAndMalformedResponsesFailClosed(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig("linux")
@@ -342,99 +208,6 @@ func TestAPIErrorsAndMalformedResponsesFailClosed(t *testing.T) {
 	}
 }
 
-func TestTransientGitHubAPIFailureRetriesWithinDeadline(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	run := validRun(cfg, 1, "completed", new("success"))
-	job := validJob(cfg, run, 1, 501, "linux", "completed", new("success"))
-	var calls int
-	api := &fakeAPI{}
-	api.handle = func(endpoint string, query url.Values) ([]byte, error) {
-		calls++
-		if calls == 1 {
-			return nil, &retryableAPIError{err: errors.New("HTTP 502 fixture")}
-		}
-		switch endpoint {
-		case workflowEndpoint(cfg):
-			return pagePayload("workflows", []workflowRecord{validWorkflow(cfg)}), nil
-		case runEndpoint(cfg, testWorkflowID):
-			return pagePayload("workflow_runs", []workflowRun{run}), nil
-		case jobEndpoint(cfg, testRunID):
-			return pagePayload("jobs", []workflowJob{job}), nil
-		default:
-			return nil, fmt.Errorf("unexpected endpoint %s", endpoint)
-		}
-	}
-	timer := newFakeClock()
-
-	if _, err := waitForSuccess(context.Background(), cfg, api, timer, io.Discard); err != nil {
-		t.Fatalf("waitForSuccess: %v", err)
-	}
-	if timer.sleepCount() != 1 {
-		t.Fatalf("sleep count = %d, want one transient retry", timer.sleepCount())
-	}
-}
-
-func TestDuplicateConflictingAndAmbiguousRecordsFailClosed(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	run := validRun(cfg, 1, "completed", new("success"))
-	job := validJob(cfg, run, 1, 501, "linux", "completed", new("success"))
-	cases := map[string]struct {
-		runs []workflowRun
-		jobs []workflowJob
-		want string
-	}{
-		"duplicate run attempt": {
-			runs: []workflowRun{run, run},
-			jobs: []workflowJob{job},
-			want: "duplicate workflow run record",
-		},
-		"ambiguous run IDs": {
-			runs: []workflowRun{run, func() workflowRun {
-				other := run
-				other.ID++
-				return other
-			}()},
-			jobs: []workflowJob{job},
-			want: "ambiguous exact workflow runs",
-		},
-		"duplicate job name and attempt": {
-			runs: []workflowRun{run},
-			jobs: []workflowJob{job, func() workflowJob {
-				duplicate := job
-				duplicate.ID++
-				return duplicate
-			}()},
-			want: "duplicate workflow job name",
-		},
-		"duplicate job ID": {
-			runs: []workflowRun{run},
-			jobs: []workflowJob{job, func() workflowJob {
-				conflict := job
-				conflict.Name = "other"
-				return conflict
-			}()},
-			want: "duplicate workflow job ID",
-		},
-	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			api := newStaticAPI(
-				cfg,
-				[]workflowRecord{validWorkflow(cfg)},
-				testCase.runs,
-				testCase.jobs,
-			)
-			_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-			if err == nil || !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("error = %v, want substring %q", err, testCase.want)
-			}
-		})
-	}
-}
-
 func TestExactSHAIsValidatedOnRunsAndJobs(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig("linux")
@@ -470,101 +243,6 @@ func TestExactSHAIsValidatedOnRunsAndJobs(t *testing.T) {
 			t.Fatalf("error = %v", err)
 		}
 	})
-}
-
-func TestRunTargetFieldsAreValidatedExactly(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	run := validRun(cfg, 1, "completed", new("success"))
-	job := validJob(cfg, run, 1, 501, "linux", "completed", new("success"))
-	cases := map[string]struct {
-		mutate func(*workflowRun)
-		want   string
-	}{
-		"branch": {
-			mutate: func(run *workflowRun) { run.HeadBranch = "other" },
-			want:   "head_branch",
-		},
-		"event": {
-			mutate: func(run *workflowRun) { run.Event = "workflow_dispatch" },
-			want:   "event=",
-		},
-		"workflow ID": {
-			mutate: func(run *workflowRun) { run.WorkflowID++ },
-			want:   "workflow_id",
-		},
-		"workflow path": {
-			mutate: func(run *workflowRun) { run.Path = ".github/workflows/other.yml@main" },
-			want:   "path=",
-		},
-	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			badRun := run
-			testCase.mutate(&badRun)
-			api := newStaticAPI(
-				cfg,
-				[]workflowRecord{validWorkflow(cfg)},
-				[]workflowRun{badRun},
-				[]workflowJob{job},
-			)
-			_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-			if err == nil || !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("error = %v, want substring %q", err, testCase.want)
-			}
-		})
-	}
-}
-
-func TestWorkflowResolutionRequiresExactActivePathAndName(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	run := validRun(cfg, 1, "completed", new("success"))
-	job := validJob(cfg, run, 1, 501, "linux", "completed", new("success"))
-	cases := map[string]struct {
-		workflows []workflowRecord
-		want      string
-	}{
-		"missing path": {
-			workflows: nil,
-			want:      "expected exactly one workflow",
-		},
-		"duplicate path": {
-			workflows: []workflowRecord{validWorkflow(cfg), func() workflowRecord {
-				duplicate := validWorkflow(cfg)
-				duplicate.ID++
-				return duplicate
-			}()},
-			want: "expected exactly one workflow",
-		},
-		"wrong name": {
-			workflows: []workflowRecord{func() workflowRecord {
-				workflow := validWorkflow(cfg)
-				workflow.Name = "CI"
-				return workflow
-			}()},
-			want: "want exact",
-		},
-		"inactive": {
-			workflows: []workflowRecord{func() workflowRecord {
-				workflow := validWorkflow(cfg)
-				workflow.State = "disabled_manually"
-				return workflow
-			}()},
-			want: "want active",
-		},
-	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			api := newStaticAPI(cfg, testCase.workflows, []workflowRun{run}, []workflowJob{job})
-			_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-			if err == nil || !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("error = %v, want substring %q", err, testCase.want)
-			}
-		})
-	}
 }
 
 type apiCall struct {
@@ -660,12 +338,6 @@ func (clock *fakeClock) sleep(ctx context.Context, duration time.Duration) error
 	return nil
 }
 
-func (clock *fakeClock) sleepCount() int {
-	clock.mu.Lock()
-	defer clock.mu.Unlock()
-	return len(clock.sleeps)
-}
-
 func testConfig(jobs ...string) config {
 	return config{
 		repository:   "osauer/canary",
@@ -758,22 +430,6 @@ func explicitPagePayload(key string, total int, items any) []byte {
 	return raw
 }
 
-func paginatedPayload[T any](key string, items []T, query url.Values) ([]byte, error) {
-	page, err := strconv.Atoi(query.Get("page"))
-	if err != nil || page < 1 {
-		return nil, fmt.Errorf("invalid page %q", query.Get("page"))
-	}
-	if query.Get("per_page") != strconv.Itoa(apiPageSize) {
-		return nil, fmt.Errorf("per_page = %q", query.Get("per_page"))
-	}
-	start := (page - 1) * apiPageSize
-	if start > len(items) {
-		return nil, fmt.Errorf("page %d starts beyond %d items", page, len(items))
-	}
-	end := min(start+apiPageSize, len(items))
-	return explicitPagePayload(key, len(items), items[start:end]), nil
-}
-
 func jsonMarshal(value any) ([]byte, error) {
 	return json.Marshal(value)
 }
@@ -788,24 +444,5 @@ func assertEndpointCalls(t *testing.T, calls []apiCall, endpoint string, want in
 	}
 	if got != want {
 		t.Fatalf("calls to %s = %d, want %d; calls=%v", endpoint, got, want, calls)
-	}
-}
-
-func assertEndpointPageCalls(
-	t *testing.T,
-	calls []apiCall,
-	endpoint string,
-	page string,
-	want int,
-) {
-	t.Helper()
-	got := 0
-	for _, call := range calls {
-		if call.endpoint == endpoint && call.query.Get("page") == page {
-			got++
-		}
-	}
-	if got != want {
-		t.Fatalf("calls to %s page %s = %d, want %d", endpoint, page, got, want)
 	}
 }

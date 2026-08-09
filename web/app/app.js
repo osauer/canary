@@ -85,8 +85,6 @@ async function main() {
   const remote = params.get("remote");
   if (remote) {
     // The relay addresses this phone's route by an HttpOnly cookie; mirror
-    // the route id so the relay's recovery page can rebuild the cookie
-    // after eviction instead of forcing a re-pair.
     localStorage.setItem("ibkrRemoteRoute", remote);
   }
   let bootstrapped = false;
@@ -195,9 +193,6 @@ $("stressRulesToggle").addEventListener("click", () => {
   renderRulesCard(state.snapshot?.rules);
 });
 // Tap-through: the instrument that reports a subject is the way into the
-// sheet that explains it. The tiles stay tiles (role/tabindex, not real
-// buttons, so the annunciator face is unchanged), so Enter and Space are
-// wired to match the tap.
 for (const [openerID, setSheet] of [
   ["protectionTile", setProtectionSheetOpen],
   ["stressRulesCard", setRulesSheetOpen],
@@ -212,7 +207,6 @@ for (const [openerID, setSheet] of [
   });
 }
 // Escape and backdrop dismissal never run the Close handler, so the dialog's
-// own close event is what returns the seated depth surface to folded.
 for (const [sheetID, closeID, setSheet] of [
   ["protectionSheet", "protectionSheetClose", setProtectionSheetOpen],
   ["rulesSheet", "rulesSheetClose", setRulesSheetOpen],
@@ -225,9 +219,7 @@ for (const [sheetID, closeID, setSheet] of [
   });
 }
 // The lamp-test stamp opens the panel's own self-report: which alert sources
-// are covered, whether delivery is reaching the phone, and where the daily
 // broker report stands. Detail behind the stamp that reports it, not a
-// standing block on the log.
 $("lampTestButton").addEventListener("click", () => {
   $("lampTestDialog").showModal();
 });
@@ -287,8 +279,6 @@ $("stockProtectionToggle").addEventListener("change", (event) => {
 $("protectionDeriskPercent").addEventListener("change", (event) => {
   state.protectionDerisk.percent = Number(event.currentTarget.value) || 25;
   // A different percentage is a different sweep: abandon any in-flight
-  // preview and rendered basket rather than letting a stale-percent result
-  // land later.
   cancelProtectionDerisk();
 });
 $("protectionDeriskPreview").addEventListener("click", previewProtectionDerisk);

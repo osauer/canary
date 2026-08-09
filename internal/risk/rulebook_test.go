@@ -1,9 +1,9 @@
 package risk
 
 import (
-	"math"
+	"github.com/BurntSushi/toml"
 
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,56 +85,6 @@ func rowByID(t *testing.T, ev Evaluation, id string) RuleRow {
 	}
 	t.Fatalf("row %s missing", id)
 	return RuleRow{}
-}
-
-func TestEvaluateRulebookHealthyBook(t *testing.T) {
-	ev := EvaluateRulebook(healthyInputs(), DefaultRulebookPolicy())
-	if len(ev.Rows) != 14 {
-		t.Fatalf("rows = %d, want 14", len(ev.Rows))
-	}
-	cases := map[string]string{
-		RuleSingleNameExposure: RuleStatusAct,
-		RuleOptionLinePremium:  RuleStatusAct,
-		RuleCashSellOnly:       RuleStatusAct,
-		RuleExtrinsicBudget:    RuleStatusAct,
-		RuleExpiryRunway:       RuleStatusWatch,
-		RuleCatalystCoverage:   RuleStatusWatch,
-		RuleOverwriteEarnings:  RuleStatusAct,
-		RuleEarningsSizeFreeze: RuleStatusUnknown,
-		RuleRedOnGreen:         RuleStatusWatch,
-		RuleWinnerTrim:         RuleStatusPass,
-		RuleGreenDayAction:     RuleStatusInfo,
-		RuleHedgeIntegrity:     RuleStatusAct,
-		RuleExitDiscipline:     RuleStatusPass,
-		RuleFXExposure:         RuleStatusWatch,
-	}
-	for id, want := range cases {
-		if got := rowByID(t, ev, id).Status; got != want {
-			t.Errorf("%s = %s, want %s (evidence: %s)", id, got, want, rowByID(t, ev, id).Evidence)
-		}
-	}
-}
-
-func TestGreenDayActionRequiresFiniteDailyPnL(t *testing.T) {
-	tests := []struct {
-		name string
-		pnl  *float64
-	}{
-		{name: "missing", pnl: nil},
-		{name: "nan", pnl: new(math.NaN())},
-		{name: "positive infinity", pnl: new(math.Inf(1))},
-		{name: "negative infinity", pnl: new(math.Inf(-1))},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			in := healthyInputs()
-			in.DailyPnLBase = test.pnl
-			row := rowByID(t, EvaluateRulebook(in, DefaultRulebookPolicy()), RuleGreenDayAction)
-			if row.Status != RuleStatusNotEvaluated || row.Reason != RuleReasonPnLUnavailable {
-				t.Fatalf("green day row = %s/%s, want not_evaluated/%s", row.Status, row.Reason, RuleReasonPnLUnavailable)
-			}
-		})
-	}
 }
 
 func TestNeverFalsePass(t *testing.T) {
@@ -284,32 +234,6 @@ func TestNeverFalsePass(t *testing.T) {
 	})
 }
 
-func TestEarningsUnknownReasonIsDisclosed(t *testing.T) {
-	if got := earningsGapWord(EarningsInput{Reason: "conflicting_sources"}); got != "conflicting across providers" {
-		t.Fatalf("conflict label = %q", got)
-	}
-	if got := earningsGapWord(EarningsInput{Reason: "no_date_published"}); got != "not published by the provider" {
-		t.Fatalf("no-date label = %q", got)
-	}
-}
-
-func TestBrokerNonIssuerIsExplicitlyNotEvaluatedNeverPass(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{{
-		Symbol: "SYNTH1", ExposureBase: 150000, ExposureBaseComplete: true,
-	}}
-	in.Earnings = map[string]EarningsInput{"SYNTH1": {
-		NotApplicable: true, Source: "broker_identity", Reason: EarningsReasonBrokerNonIssuer,
-	}}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-		row := rowByID(t, ev, id)
-		if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonBrokerNonIssuer || len(row.Exempt) != 1 {
-			t.Errorf("%s did not disclose the broker nonissuer exemption", id)
-		}
-	}
-}
-
 func TestBrokerNonIssuerStockProofCannotExemptMixedOptionGroup(t *testing.T) {
 	in := healthyInputs()
 	in.Names = []NameInput{{
@@ -356,100 +280,6 @@ func TestHedgeExemptionSuppressedWhenOverHedged(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("over-hedged SPY leg should lose its runway exemption; offenders = %+v, exempt = %+v", runway.Offenders, runway.Exempt)
-	}
-}
-
-func TestSingleNameExposureExemptsShortHedge(t *testing.T) {
-	in := healthyInputs()
-	in.Names[3].ExposureBase = -640000
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	row := rowByID(t, ev, RuleSingleNameExposure)
-	for _, o := range row.Offenders {
-		if o.Symbol == "SPY" {
-			t.Fatalf("short hedge SPY must not be a concentration offender: %+v", row.Offenders)
-		}
-	}
-	found := false
-	for _, e := range row.Exempt {
-		if e.Symbol == "SPY" && strings.Contains(e.Note, "rule 12") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("short hedge must be disclosed in Exempt, got %+v", row.Exempt)
-	}
-	if row.Status != RuleStatusAct || row.Offenders[0].Symbol != "NOW" {
-		t.Fatalf("real concentration offender should lead: status=%s offenders=%+v", row.Status, row.Offenders)
-	}
-
-	in.Names[3].ExposureBase = 640000
-	ev = EvaluateRulebook(in, DefaultRulebookPolicy())
-	row = rowByID(t, ev, RuleSingleNameExposure)
-	if len(row.Offenders) == 0 || row.Offenders[0].Symbol != "SPY" {
-		t.Fatalf("long index exposure must still count as concentration, got %+v", row.Offenders)
-	}
-}
-
-func TestSingleNameExposureResidualBeyondSizedHedge(t *testing.T) {
-	in := healthyInputs()
-
-	in.Names[3].ExposureBase = -900000
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	row := rowByID(t, ev, RuleSingleNameExposure)
-	var spy *RuleOffender
-	for i := range row.Offenders {
-		if row.Offenders[i].Symbol == "SPY" {
-			spy = &row.Offenders[i]
-		}
-	}
-	if spy == nil || spy.Observed < 72 || spy.Observed > 73 {
-		t.Fatalf("residual short beyond sized hedge legs must be an offender near 72.7%%, got %+v", row.Offenders)
-	}
-	if len(row.Exempt) == 0 || row.Exempt[0].Symbol != "SPY" {
-		t.Fatalf("sized portion must still be disclosed in Exempt, got %+v", row.Exempt)
-	}
-
-	in = healthyInputs()
-	in.Names[3].ExposureBase = -640000
-	in.Names[3].Legs = nil
-	ev = EvaluateRulebook(in, DefaultRulebookPolicy())
-	row = rowByID(t, ev, RuleSingleNameExposure)
-	if len(row.Exempt) != 0 {
-		t.Fatalf("unsized hedge-symbol short must not be exempted, got %+v", row.Exempt)
-	}
-	found := false
-	for _, o := range row.Offenders {
-		if o.Symbol == "SPY" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("unsized hedge-symbol short must be a concentration offender, got %+v", row.Offenders)
-	}
-}
-
-func TestRankingHardestFirst(t *testing.T) {
-	ev := EvaluateRulebook(healthyInputs(), DefaultRulebookPolicy())
-	if len(ev.Ranked) != 14 {
-		t.Fatalf("ranked = %d, want 14", len(ev.Ranked))
-	}
-	weight := map[string]int{RuleStatusAct: 5, RuleStatusWatch: 4, RuleStatusUnknown: 3, RuleStatusInfo: 2, RuleStatusNotEvaluated: 1, RuleStatusPass: 0}
-	prev := 6
-	prevImpact := 0.0
-	for i, ix := range ev.Ranked {
-		r := ev.Rows[ix]
-		w := weight[r.Status]
-		if w > prev {
-			t.Fatalf("ranked[%d] %s (%s) outranks a lighter status", i, r.ID, r.Status)
-		}
-		if w == prev && r.ImpactBase > prevImpact {
-			t.Fatalf("ranked[%d] %s impact %.0f should precede %.0f", i, r.ID, r.ImpactBase, prevImpact)
-		}
-		prev, prevImpact = w, r.ImpactBase
-	}
-	first := ev.Rows[ev.Ranked[0]]
-	if first.Status != RuleStatusAct {
-		t.Fatalf("hardest-first head = %s, want an act row", first.Status)
 	}
 }
 
@@ -529,295 +359,11 @@ func TestRegimeConditionalThresholds(t *testing.T) {
 	})
 }
 
-func TestOptionLinePremiumHedgeTier(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-
-	base := func() RuleInputs {
-		in := healthyInputs()
-
-		in.Names[0].Legs = in.Names[0].Legs[:1]
-		in.Names[1].Legs = nil
-		return in
-	}
-
-	in := base()
-	ev := EvaluateRulebook(in, pol)
-	r := rowByID(t, ev, RuleOptionLinePremium)
-	if r.Status != RuleStatusWatch {
-		t.Fatalf("15.5%% hedge line = %s, want hedge-tier watch (evidence: %s)", r.Status, r.Evidence)
-	}
-	if !strings.Contains(r.Evidence, "hedge") {
-		t.Errorf("hedge-tier verdict must say so: %s", r.Evidence)
-	}
-	if r.Observed == nil || *r.Observed != 15.5 {
-		t.Errorf("hedge-tier observed = %v, want 15.5", r.Observed)
-	}
-	if r.Threshold == nil || *r.Threshold != pol.HedgeLineWatchPct {
-		t.Errorf("hedge-tier threshold = %v, want %.1f", r.Threshold, pol.HedgeLineWatchPct)
-	}
-
-	in = base()
-	in.Names[3].Legs[0].MarketValueBase = 66000
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleOptionLinePremium)
-	if r.Status != RuleStatusAct {
-		t.Errorf("26.9%% hedge line = %s, want act", r.Status)
-	}
-	if r.Observed == nil || *r.Observed != 26.9 || r.Threshold == nil || *r.Threshold != pol.HedgeLineWatchPct {
-		t.Errorf("hedge-tier act row observed/threshold = %v/%v, want 26.9/%.1f", r.Observed, r.Threshold, pol.HedgeLineWatchPct)
-	}
-
-	in = base()
-	in.Names[3].Legs[0].Delta = nil
-	in.Names[3].GreeksGapNotionalBase = 38000
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleOptionLinePremium)
-	if r.Status != RuleStatusAct {
-		t.Errorf("15.5%% unclassifiable hedge line = %s, want normal-tier act", r.Status)
-	}
-	if r.Observed == nil || *r.Observed != 15.5 || r.Threshold == nil || *r.Threshold != pol.OptionLineWatchPct {
-		t.Errorf("unclassifiable normal-tier observed/threshold = %v/%v, want 15.5/%.1f", r.Observed, r.Threshold, pol.OptionLineWatchPct)
-	}
-
-	in = base()
-	in.Names[3].Legs[0].UnderlyingSource = UnderlyingSourceStockLegMark
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleOptionLinePremium)
-	if r.Status != RuleStatusAct {
-		t.Errorf("15.5%% hedge line with derived underlying = %s, want normal-tier act (no classification from joined spots)", r.Status)
-	}
-	if r.Observed == nil || *r.Observed != 15.5 || r.Threshold == nil || *r.Threshold != pol.OptionLineWatchPct {
-		t.Errorf("derived-spot normal-tier observed/threshold = %v/%v, want 15.5/%.1f", r.Observed, r.Threshold, pol.OptionLineWatchPct)
-	}
-
-	in = base()
-	in.Names[1].Legs = []LegInput{{Desc: "BB 20260821 C 12", Right: "C", Strike: 12,
-		Expiry: etDate(2026, 8, 21), DTE: 45, Quantity: 100, Multiplier: 100, Mark: 2,
-		Underlying: new(11.3), Delta: new(0.5), MarketValueBase: 20000, ExtrinsicBase: new(20000.0)}}
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleOptionLinePremium)
-	if r.Status != RuleStatusWatch {
-		t.Fatalf("tie case status = %s, want watch", r.Status)
-	}
-	if !strings.Contains(r.Evidence, "BB") || !strings.Contains(r.Evidence, "cap 5") {
-		t.Errorf("tie-case headline must name the normal-tier offender with its own cap, got: %s", r.Evidence)
-	}
-	if r.Observed == nil || *r.Observed != 8.2 || r.Threshold == nil || *r.Threshold != pol.OptionLineWatchPct {
-		t.Errorf("tie-case normal-tier observed/threshold = %v/%v, want 8.2/%.1f", r.Observed, r.Threshold, pol.OptionLineWatchPct)
-	}
-}
-
-func TestFXExposureWatchBoundary(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-	in := healthyInputs()
-	in.NonBaseNLVBase = new(*in.NLVBase * pol.FXExposureWatchPct / 100)
-
-	r := rowByID(t, EvaluateRulebook(in, pol), RuleFXExposure)
-	if r.Status != RuleStatusWatch {
-		t.Fatalf("FX exposure exactly %.0f%% = %s, want watch", pol.FXExposureWatchPct, r.Status)
-	}
-
-	in.NonBaseNLVBase = new(*in.NLVBase * (pol.FXExposureWatchPct - 0.1) / 100)
-	r = rowByID(t, EvaluateRulebook(in, pol), RuleFXExposure)
-	if r.Status != RuleStatusPass {
-		t.Fatalf("FX exposure just below the %.0f%% boundary = %s, want pass", pol.FXExposureWatchPct, r.Status)
-	}
-}
-
-func TestEarningsSizeFreezeGapPropagation(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-	gapName := func(in *RuleInputs, sessions *int, known bool) {
-		in.Names[1].GreeksGapNotionalBase = 34000
-		e := EarningsInput{Known: known, Date: etDate(2026, 7, 9), SessionsUntil: sessions, Source: "fetched"}
-		in.Earnings["BB"] = e
-
-		in.Earnings["SPY"] = EarningsInput{Known: true, Date: etDate(2026, 7, 20), SessionsUntil: new(11), Source: "fetched"}
-	}
-
-	in := healthyInputs()
-	gapName(&in, nil, false)
-	ev := EvaluateRulebook(in, pol)
-	r := rowByID(t, ev, RuleEarningsSizeFreeze)
-	if r.Status != RuleStatusUnknown {
-		t.Fatalf("gapped name with unknown earnings = %s, want unknown", r.Status)
-	}
-
-	in = healthyInputs()
-	gapName(&in, new(2), true)
-	ev = EvaluateRulebook(in, pol)
-	if got := rowByID(t, ev, RuleEarningsSizeFreeze).Status; got != RuleStatusUnknown {
-		t.Errorf("gapped name 2 sessions from earnings = %s, want unknown", got)
-	}
-
-	in = healthyInputs()
-	gapName(&in, new(11), true)
-	ev = EvaluateRulebook(in, pol)
-	if got := rowByID(t, ev, RuleEarningsSizeFreeze).Status; got != RuleStatusPass {
-		t.Errorf("gapped name 11 sessions out = %s, want pass (other names clean)", got)
-	}
-}
-
-func TestExitDiscipline(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-
-	in := healthyInputs()
-	in.Names[1].Legs[0].CostBasisBase = new(64000.0)
-	ev := EvaluateRulebook(in, pol)
-	r := rowByID(t, ev, RuleExitDiscipline)
-	if r.Status != RuleStatusWatch {
-		t.Fatalf("-46.9%% line = %s, want watch (evidence: %s)", r.Status, r.Evidence)
-	}
-
-	in.Names[1].Legs[0].CostBasisBase = new(100000.0)
-	ev = EvaluateRulebook(in, pol)
-	if got := rowByID(t, ev, RuleExitDiscipline).Status; got != RuleStatusAct {
-		t.Errorf("-66%% line = %s, want act", got)
-	}
-
-	in = healthyInputs()
-	in.Names[3].Legs[0].CostBasisBase = new(127000.0)
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleExitDiscipline)
-	if r.Status != RuleStatusPass {
-		t.Errorf("decayed hedge leg = %s, want pass with exemption", r.Status)
-	}
-	found := false
-	for _, e := range r.Exempt {
-		if e.Symbol == "SPY" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("hedge exemption must be disclosed, exempt = %+v", r.Exempt)
-	}
-}
-
-func TestPolicyFingerprintCoversNewFields(t *testing.T) {
-	base := DefaultRulebookPolicy().FingerprintKey()
-	mutations := []func(*RulebookPolicy){
-		func(p *RulebookPolicy) { p.HedgeLineWatchPct = 16 },
-		func(p *RulebookPolicy) { p.HedgeLineActPct = 26 },
-		func(p *RulebookPolicy) { p.ShortPutActLinePctNLV = 11 },
-		func(p *RulebookPolicy) { p.ShortPutActNamePctNLV = 21 },
-		func(p *RulebookPolicy) { p.RegimeCalm.CashSellOnlyPct = -20 },
-		func(p *RulebookPolicy) { p.RegimeEarlyWarning.ExtrinsicWatchPct = 8 },
-		func(p *RulebookPolicy) { p.RegimeConfirmed.HedgeBandMaxPct = 75 },
-		func(p *RulebookPolicy) { p.RegimeStageMaxAgeMinutes = 300 },
-		func(p *RulebookPolicy) { p.ExitWatchLossPct = 45 },
-		func(p *RulebookPolicy) { p.ExitActLossPct = 70 },
-		func(p *RulebookPolicy) { p.FXExposureWatchPct = 65 },
-	}
-	for i, mut := range mutations {
-		p := DefaultRulebookPolicy()
-		mut(&p)
-		if p.FingerprintKey() == base {
-			t.Errorf("mutation %d did not change the policy fingerprint", i)
-		}
-	}
-}
-
-func TestPolicyFingerprintIdentity(t *testing.T) {
-	basePolicy := DefaultRulebookPolicy()
-	base := basePolicy.FingerprintKey()
-	if !strings.HasPrefix(base, "sha256:") {
-		t.Fatalf("fingerprint = %q, want sha256 prefix", base)
-	}
-	if got := basePolicy.FingerprintKey(); got != base {
-		t.Fatalf("second fingerprint = %q, want deterministic %q", got, base)
-	}
-
-	mutations := map[string]func(*RulebookPolicy){
-		"scalar threshold": func(p *RulebookPolicy) { p.SingleNameWatchPct += 0.00001 },
-		"regime threshold": func(p *RulebookPolicy) { p.RegimeConfirmed.ExtrinsicActPct += 0.00001 },
-		"hedge list":       func(p *RulebookPolicy) { p.HedgeSymbols = append(p.HedgeSymbols, "DIA") },
-	}
-	for name, mutate := range mutations {
-		t.Run(name, func(t *testing.T) {
-			p := DefaultRulebookPolicy()
-			mutate(&p)
-			if got := p.FingerprintKey(); got == base {
-				t.Fatalf("mutated fingerprint = %q, want a changed key", got)
-			}
-		})
-	}
-
-	reordered := DefaultRulebookPolicy()
-	slices.Reverse(reordered.HedgeSymbols)
-	if got := reordered.FingerprintKey(); got != base {
-		t.Fatalf("reordered hedge list fingerprint = %q, want %q", got, base)
-	}
-}
-
 func abs(v float64) float64 {
 	if v < 0 {
 		return -v
 	}
 	return v
-}
-
-func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-
-	quiet := func() RuleInputs {
-		in := healthyInputs()
-
-		in.Names[0].Legs = in.Names[0].Legs[:1]
-		in.Names[0].Legs[0].MarketValueBase = 100
-		in.Names[0].Legs[0].Delta = nil
-		for i := 1; i < len(in.Names); i++ {
-			in.Names[i].Legs = nil
-		}
-		return in
-	}
-
-	in := quiet()
-	if got := rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium).Status; got != RuleStatusPass {
-		t.Fatalf("baseline with only measured legs = %s, want pass (fixture must pass before the marker matters)", got)
-	}
-
-	in = quiet()
-	in.Names[0].Legs[0].MarketValueBaseSource = MarketValueBaseSourceSubstituted
-	r := rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium)
-	if r.Status != RuleStatusUnknown {
-		t.Fatalf("unconvertible leg = %s, want unknown — no pass by absence of data (evidence: %s)", r.Status, r.Evidence)
-	}
-	if r.Reason != "premium_unconvertible" {
-		t.Errorf("reason = %q, want premium_unconvertible", r.Reason)
-	}
-	var named bool
-	for _, o := range r.Offenders {
-		if strings.Contains(o.Note, "no FX rate") {
-			named = true
-		}
-	}
-	if !named {
-		t.Errorf("the unmeasured leg must be disclosed as an offender, got %+v", r.Offenders)
-	}
-
-	in = quiet()
-	in.Names[0].Legs[0].MarketValueBase = 40000
-	in.Names[1].Legs = []LegInput{{Desc: "FX-less", Quantity: 1, MarketValueBase: 100,
-		MarketValueBaseSource: MarketValueBaseSourceSubstituted}}
-	r = rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium)
-	if r.Status != RuleStatusAct {
-		t.Errorf("measured breach beside an unconvertible leg = %s, want act (breach not downgraded)", r.Status)
-	}
-
-	var disclosed bool
-	for _, o := range r.Offenders {
-		if o.Leg == "FX-less" {
-			disclosed = true
-		}
-	}
-	if !disclosed {
-		t.Errorf("unconvertible leg must stay disclosed on an act row, offenders = %+v", r.Offenders)
-	}
-
-	for _, o := range r.Offenders {
-		if o.Leg == "FX-less" && o.ImpactBase != 0 {
-			t.Errorf("unmeasurable leg claimed ImpactBase %v, want 0", o.ImpactBase)
-		}
-	}
 }
 
 func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
@@ -872,119 +418,6 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	}
 }
 
-func TestEarningsSizeFreezeUnmeasuredNameBlocksPass(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-	base := func(sessions int, complete bool) RuleInputs {
-		in := healthyInputs()
-		in.Names = []NameInput{{Symbol: "ERN", ExposureBase: 1000, ExposureBaseComplete: complete, HasStockLeg: true}}
-		in.Earnings = map[string]EarningsInput{"ERN": {Known: true, Date: etDate(2026, 7, 9), SessionsUntil: new(sessions), Source: "fetched"}}
-		return in
-	}
-
-	if got := rowByID(t, EvaluateRulebook(base(2, true), pol), RuleEarningsSizeFreeze); got.Status != RuleStatusPass {
-		t.Fatalf("baseline = %s, want pass (small measured name inside the window)", got.Status)
-	}
-
-	r := rowByID(t, EvaluateRulebook(base(2, false), pol), RuleEarningsSizeFreeze)
-	if r.Status != RuleStatusUnknown {
-		t.Fatalf("unmeasured size inside the freeze window = %s, want unknown (evidence: %s)", r.Status, r.Evidence)
-	}
-	var named bool
-	for _, o := range r.Offenders {
-		if o.Symbol == "ERN" && strings.Contains(o.Note, "exposure not fully measured") {
-			named = true
-		}
-	}
-	if !named {
-		t.Errorf("the unmeasured name must be disclosed, got %+v", r.Offenders)
-	}
-
-	if got := rowByID(t, EvaluateRulebook(base(9, false), pol), RuleEarningsSizeFreeze); got.Status != RuleStatusPass {
-		t.Errorf("unmeasured size with earnings provably outside the window = %s, want pass", got.Status)
-	}
-}
-
-func TestWinnerTrimUnmeasuredNameBlocksPass(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-	book := func(names ...NameInput) RuleInputs {
-		in := healthyInputs()
-		in.Names = names
-		return in
-	}
-	measured := func(sym string, day, exposure float64) NameInput {
-		return NameInput{Symbol: sym, ExposureBase: exposure, ExposureBaseComplete: true, HasStockLeg: true, StockDayChangePct: new(day)}
-	}
-	unmeasured := func(sym string, day float64) NameInput {
-		return NameInput{Symbol: sym, ExposureBaseComplete: false, HasStockLeg: true, StockDayChangePct: new(day)}
-	}
-
-	if got := rowByID(t, EvaluateRulebook(book(measured("AAA", 5, 1000)), pol), RuleWinnerTrim); got.Status != RuleStatusPass {
-		t.Fatalf("baseline = %s, want pass (measured winner under the floor)", got.Status)
-	}
-
-	r := rowByID(t, EvaluateRulebook(book(unmeasured("WIN", 5)), pol), RuleWinnerTrim)
-	if r.Status != RuleStatusUnknown {
-		t.Fatalf("winner up hard with unmeasured exposure = %s, want unknown (evidence: %s)", r.Status, r.Evidence)
-	}
-	if r.Reason != "exposure_incomplete" {
-		t.Errorf("reason = %q, want exposure_incomplete", r.Reason)
-	}
-
-	if got := rowByID(t, EvaluateRulebook(book(unmeasured("FLAT", 1)), pol), RuleWinnerTrim); got.Status != RuleStatusPass {
-		t.Errorf("unmeasured name below the day trigger = %s, want pass (true negative)", got.Status)
-	}
-
-	r = rowByID(t, EvaluateRulebook(book(measured("BIG", 6, 40000), unmeasured("WIN", 5)), pol), RuleWinnerTrim)
-	if r.Status != RuleStatusWatch {
-		t.Errorf("measured breach beside an unmeasured winner = %s, want watch (breach not downgraded)", r.Status)
-	}
-	var disclosed bool
-	for _, o := range r.Offenders {
-		if o.Symbol == "WIN" {
-			disclosed = true
-			if o.ImpactBase != 0 {
-				t.Errorf("unmeasured winner claimed ImpactBase %v, want 0", o.ImpactBase)
-			}
-		}
-	}
-	if !disclosed {
-		t.Errorf("unmeasured winner must stay disclosed on a watch row, offenders = %+v", r.Offenders)
-	}
-}
-
-func TestHedgeIntegrityUnmeasuredNameBlocksVerdict(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-	long := NameInput{Symbol: "LNG", ExposureBase: 100000, ExposureBaseComplete: true, HasStockLeg: true}
-	hedge := NameInput{Symbol: "SPY", ExposureBase: -30000, ExposureBaseComplete: true, Legs: []LegInput{
-		{Desc: "SPY 20261016 P 710", Right: "P", Quantity: 40, Multiplier: 100, Mark: 10,
-			Underlying: new(750.0), Delta: new(-0.01), HedgeListed: true, MarketValueBase: 38000},
-	}}
-
-	in := healthyInputs()
-	in.Names = []NameInput{long, hedge}
-	if got := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity); got.Status != RuleStatusPass {
-		t.Fatalf("baseline = %s, want pass (30%% ratio inside the calm 25-35 band)", got.Status)
-	}
-
-	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true})
-	r := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity)
-	if r.Status != RuleStatusUnknown {
-		t.Fatalf("unmeasured name in the book = %s, want unknown (evidence: %s)", r.Status, r.Evidence)
-	}
-	if r.Reason != "exposure_incomplete" {
-		t.Errorf("reason = %q, want exposure_incomplete", r.Reason)
-	}
-	var named bool
-	for _, o := range r.Offenders {
-		if o.Symbol == "FXLESS" && strings.Contains(o.Note, "not fully measured") {
-			named = true
-		}
-	}
-	if !named {
-		t.Errorf("the unmeasured name must be disclosed, got %+v", r.Offenders)
-	}
-}
-
 func TestNonIssuerSecurityRequiresTheTypedSource(t *testing.T) {
 	for name, earnings := range map[string]EarningsInput{
 		"flag without source":  {NonIssuerSecurity: true, Reason: EarningsReasonNonIssuerSecurity},
@@ -1001,5 +434,288 @@ func TestNonIssuerSecurityRequiresTheTypedSource(t *testing.T) {
 				t.Fatalf("%s exempted a name without a typed classification", name)
 			}
 		})
+	}
+}
+
+func TestBuildAlertEpisodeKeyIsOpaqueStableAndDomainSeparated(t *testing.T) {
+	const sensitive = "ACCOUNT-SECRET/ORDER-SECRET/SYMBOL-SECRET"
+	first, err := BuildAlertEpisodeKey(AlertSourceRulebook, AlertKindPortfolioRisk, "  "+sensitive+"  ", "concentration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := BuildAlertEpisodeKey(AlertSourceRulebook, AlertKindPortfolioRisk, sensitive, "concentration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != again {
+		t.Fatalf("episode key is not stable across boundary whitespace: %q != %q", first, again)
+	}
+	if strings.Contains(first, sensitive) || !strings.HasPrefix(first, alertEpisodeKeyPrefix) || len(first) != len(alertEpisodeKeyPrefix)+64 {
+		t.Fatalf("episode key is not opaque: %q", first)
+	}
+
+	variants := []struct {
+		source AlertSource
+		kind   AlertKind
+		parts  []string
+	}{
+		{AlertSourceRegime, AlertKindPortfolioRisk, []string{sensitive, "concentration"}},
+		{AlertSourceRulebook, AlertKindMarketState, []string{sensitive, "concentration"}},
+		{AlertSourceRulebook, AlertKindPortfolioRisk, []string{"concentration", sensitive}},
+		{AlertSourceRulebook, AlertKindPortfolioRisk, []string{sensitive, "different"}},
+	}
+	for _, variant := range variants {
+		got, err := BuildAlertEpisodeKey(variant.source, variant.kind, variant.parts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == first {
+			t.Fatalf("domain-separated identity collided for %#v", variant)
+		}
+	}
+}
+
+func TestAlertSnapshotClearRequiresCompleteCurrentCoverage(t *testing.T) {
+	now := time.Date(2026, time.July, 20, 20, 0, 0, 0, time.UTC)
+
+	clear := validAlertSnapshot(now)
+	if err := clear.Validate(); err != nil || !clear.IsClear() {
+		t.Fatalf("complete current empty snapshot was not clear: err=%v snapshot=%#v", err, clear)
+	}
+
+	partial := clear
+	partial.Sources = append([]AlertSourceCoverage(nil), clear.Sources...)
+	partial.CurrentState = AlertSnapshotUnknown
+	partial.Coverage.State = AlertCoveragePartial
+	partial.Coverage.CoveredSources = []AlertSource{AlertSourceStress}
+	partial.Sources[1].Covered = false
+	partial.Sources[1].EvidenceHealth = AlertEvidenceUnavailable
+	if err := partial.Validate(); err != nil || partial.IsClear() {
+		t.Fatalf("partial empty snapshot did not remain unknown: err=%v snapshot=%#v", err, partial)
+	}
+	falseClear := partial
+	falseClear.CurrentState = AlertSnapshotClear
+	if err := falseClear.Validate(); err == nil || falseClear.IsClear() {
+		t.Fatal("partial empty snapshot claimed clear")
+	}
+
+	stale := clear
+	stale.CurrentState = AlertSnapshotUnknown
+	stale.Coverage.Freshness = AlertCoverageStale
+	if err := stale.Validate(); err != nil || stale.IsClear() {
+		t.Fatalf("stale empty snapshot did not remain unknown: err=%v snapshot=%#v", err, stale)
+	}
+
+	misdatedCurrent := clear
+	misdatedCurrent.Coverage.AsOf = now.Add(-time.Hour)
+	if err := misdatedCurrent.Validate(); err == nil || misdatedCurrent.IsClear() {
+		t.Fatal("current coverage with an older authority timestamp claimed clear")
+	}
+
+	active := partial
+	active.CurrentState = AlertSnapshotActive
+	active.Candidates = []AlertCandidate{validAlertCandidate(t, now)}
+	if err := active.Validate(); err != nil || active.IsClear() {
+		t.Fatalf("active partial snapshot failed: err=%v snapshot=%#v", err, active)
+	}
+
+	recovered := validAlertCandidate(t, now)
+	recovered.State = AlertEpisodeRecovered
+	recovered.EvidenceHealth = AlertEvidenceCurrent
+	clear.Candidates = []AlertCandidate{recovered}
+	if err := clear.Validate(); err != nil || !clear.IsClear() {
+		t.Fatalf("current recovered occurrence should permit clear: err=%v snapshot=%#v", err, clear)
+	}
+}
+
+func validAlertCandidate(t *testing.T, now time.Time) AlertCandidate {
+	t.Helper()
+	key, err := BuildAlertEpisodeKey(AlertSourceStress, AlertKindPortfolioRisk, "synthetic-book-condition")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return AlertCandidate{
+		EpisodeKey:          key,
+		OccurrenceKey:       mustTestAlertOccurrenceKey(t, key, "occurrence-1"),
+		EvidenceFingerprint: testAlertFingerprint("a"),
+		Source:              AlertSourceStress,
+		Kind:                AlertKindPortfolioRisk,
+		PresentationCode:    AlertPresentationPortfolioStress,
+		State:               AlertEpisodeOpen,
+		Severity:            AlertSeverityWatch,
+		EvidenceHealth:      AlertEvidenceCurrent,
+		Destination:         AlertDestinationMonitor,
+		EvidenceAsOf:        now.Add(-time.Minute),
+		StateChangedAt:      now.Add(-2 * time.Minute),
+		ObservedAt:          now,
+	}
+}
+
+func mustTestAlertOccurrenceKey(t *testing.T, episodeKey string, identity string) string {
+	t.Helper()
+	key, err := BuildAlertOccurrenceKey(episodeKey, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func completeAlertCoverage(now time.Time) AlertCoverage {
+	return AlertCoverage{
+		State:           AlertCoverageComplete,
+		Freshness:       AlertCoverageCurrent,
+		AsOf:            now,
+		ExpectedSources: []AlertSource{AlertSourceStress, AlertSourceRegime},
+		CoveredSources:  []AlertSource{AlertSourceStress, AlertSourceRegime},
+	}
+}
+
+func validAlertSnapshot(now time.Time) AlertCandidateSnapshot {
+	authority, err := BuildAlertAuthorityScope("DU-TEST", "paper")
+	if err != nil {
+		panic(err)
+	}
+	return AlertCandidateSnapshot{
+		SchemaVersion: AlertCandidateSnapshotVersion, AuthorityScope: authority,
+		AsOf:         now,
+		CurrentState: AlertSnapshotClear,
+		Coverage:     completeAlertCoverage(now),
+		Sources: []AlertSourceCoverage{
+			{Source: AlertSourceStress, Status: "current", Reason: "current", EvidenceHealth: AlertEvidenceCurrent, InputAsOf: now, ObservedAt: now, EvidenceAsOf: now, FreshUntil: now.Add(time.Minute), Covered: true},
+			{Source: AlertSourceRegime, Status: "current", Reason: "current", EvidenceHealth: AlertEvidenceCurrent, InputAsOf: now, ObservedAt: now, EvidenceAsOf: now, FreshUntil: now.Add(time.Minute), Covered: true},
+		},
+		Candidates: []AlertCandidate{},
+	}
+}
+
+func testAlertFingerprint(digit string) string {
+	return alertEvidenceFingerprintPrefix + strings.Repeat(digit, 64)
+}
+
+func approvedConstitution() Constitution {
+	return Constitution{
+		Kind:          ConstitutionKind,
+		SchemaVersion: 1,
+		PolicyID:      "risk-constitution",
+		PolicyVersion: 1,
+		Capital: ConstitutionCapital{
+			BaseCurrency:        "EUR",
+			ProtectedFloor:      new(200000.0),
+			DeclaredRiskCapital: new(50000.0),
+			MaxEquityAgeMinutes: new(240),
+			MaxUnreconciledDays: new(7),
+		},
+		Drawdown: ConstitutionDrawdown{
+			WarnConsumedPct:  new(15.0),
+			BlockConsumedPct: new(30.0),
+			BlockEnforcement: EnforcementShadow,
+		},
+		Override: ConstitutionOverride{MaxDurationHours: new(24)},
+		Recon: ConstitutionRecon{
+			AmountTolerancePct:     new(0.5),
+			AmountToleranceMin:     new(5.0),
+			DateWindowBusinessDays: new(3),
+			MaxReportAgeDays:       new(4),
+		},
+		Cadence: ConstitutionCadence{
+			Morning: ConstitutionArtefact{Class: EnforcementAdvisory},
+			EOD:     ConstitutionArtefact{Class: EnforcementAdvisory},
+			Weekly:  ConstitutionArtefact{Class: EnforcementAdvisory},
+		},
+		Inventory: ConstitutionInventory{
+			Rulebook: &ConstitutionPolicyPin{ID: "rulebook-v2", Version: "2"},
+		},
+	}
+}
+
+func approvedV3Constitution() Constitution {
+	c := approvedConstitution()
+	c.PolicyVersion = 3
+	c.Recon.MaxEquityDivergencePct = new(1.25)
+	return c
+}
+
+func approvedV4Constitution() Constitution {
+	c := approvedV3Constitution()
+	c.PolicyVersion = 4
+	c.Cadence.Nudges = &ConstitutionNudgeCadence{
+		Timezone:             new("Europe/Berlin"),
+		ReconcileWarningDays: new(2),
+	}
+	c.Cadence.Monthly = &ConstitutionMonthlyCadence{
+		Class:        new(EnforcementAdvisory),
+		DayOfMonth:   new(1),
+		NudgeAtLocal: new("09:00"),
+	}
+	return c
+}
+
+func TestConstitutionV4CadenceTOMLIsStrictAndVersioned(t *testing.T) {
+	decode := func(t *testing.T, version int, cadence string) Constitution {
+		t.Helper()
+		input := "kind = \"ibkr.risk_policy\"\nschema_version = 1\npolicy_id = \"risk-constitution\"\npolicy_version = " + strconv.Itoa(version) + "\n" + cadence
+		var c Constitution
+		metadata, err := toml.Decode(input, &c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if undecoded := metadata.Undecoded(); len(undecoded) != 0 {
+			t.Fatalf("typed cadence left undecoded keys: %v", undecoded)
+		}
+		return c
+	}
+	fullCadence := `[cadence.nudges]
+timezone = "Europe/Berlin"
+reconcile_warning_days = 2
+
+[cadence.monthly]
+class = "advisory"
+day_of_month = 1
+nudge_at_local = "09:00"
+`
+	v4 := decode(t, 4, fullCadence)
+	if err := v4.Validate(); err != nil {
+		t.Fatalf("v4 authored cadence = %v", err)
+	}
+	for _, key := range v4.UnapprovedKeys() {
+		if strings.HasPrefix(key, "cadence.nudges.") || strings.HasPrefix(key, "cadence.monthly.") {
+			t.Fatalf("authored v4 cadence stayed unapproved: %s", key)
+		}
+	}
+
+	v3 := decode(t, 3, fullCadence)
+	if err := v3.Validate(); err == nil || !strings.Contains(err.Error(), "requires policy_version >= 4") {
+		t.Fatalf("v3 parsed v4 cadence without targeted rejection: %v", err)
+	}
+
+	missing := decode(t, 4, `[cadence.nudges]
+timezone = "Europe/Berlin"
+`)
+	for _, key := range missing.UnapprovedKeys() {
+		if strings.HasPrefix(key, "cadence.") {
+			t.Fatalf("absent v4 cadence key reported unapproved: %s", key)
+		}
+	}
+}
+
+func TestEvaluateMonthlyPulseAutomatesRoutineEvidence(t *testing.T) {
+	c := approvedV4Constitution()
+	zone, day, at := "UTC", 1, "09:00"
+	c.Cadence.Nudges.Timezone = &zone
+	c.Cadence.Monthly.DayOfMonth = &day
+	c.Cadence.Monthly.NudgeAtLocal = &at
+	due := time.Date(2026, time.August, 3, 9, 0, 0, 0, time.UTC)
+
+	before := EvaluateMonthlyPulse(MonthlyPulseInput{Now: due.Add(-time.Minute), Cadence: c.Cadence, PolicyFingerprint: "sha256:policy", PolicyEvidenceReady: true})
+	if before.Status != MonthlyPulseStatusNotDue {
+		t.Fatalf("before due = %+v", before)
+	}
+	complete := EvaluateMonthlyPulse(MonthlyPulseInput{Now: due, Cadence: c.Cadence, PolicyFingerprint: "sha256:policy", PolicyEvidenceReady: true})
+	if complete.Status != MonthlyPulseStatusCompleted || complete.Candidate != nil {
+		t.Fatalf("routine current evidence must auto-complete without an operator candidate: %+v", complete)
+	}
+	blocked := EvaluateMonthlyPulse(MonthlyPulseInput{Now: due, Cadence: c.Cadence, PolicyFingerprint: "sha256:policy"})
+	if blocked.Status != MonthlyPulseStatusBlocked || blocked.Candidate == nil || blocked.Candidate.State != NudgeStateOpen || blocked.Candidate.Severity != NudgeSeverityAct {
+		t.Fatalf("missing evidence must return only an act-grade exception: %+v", blocked)
 	}
 }

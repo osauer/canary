@@ -31,10 +31,6 @@ type SendDispositionError struct {
 	disposition SendDisposition
 }
 
-// brokerSendDispositionError keeps package-internal compatibility for older
-// focused tests while the exported contract is SendDispositionError.
-type brokerSendDispositionError = SendDispositionError
-
 // Error returns the underlying broker-send error text.
 func (e *SendDispositionError) Error() string { return e.err.Error() }
 

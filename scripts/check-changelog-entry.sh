@@ -39,7 +39,6 @@ case "$head" in
 esac
 
 # The heading is the release record, not the day the entry was first drafted.
-# Requiring today's local date makes a delayed cut update the public timestamp
 # instead of publishing a stale preparation date.
 if [ "$historical" = 0 ]; then
   entry_date=$(printf '%s\n' "$head" | sed -n 's/^## v[^ ]* — \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) .*/\1/p')
@@ -89,9 +88,6 @@ has_kac=$(awk -v ver="$ver" '
 }
 
 # 4) If `### Engineering notes` is present, content must be <= 15 lines.
-#    Long Engineering notes are almost always duplicating Changed/Fixed
-#    bullets or restating commit-message context — neither earns its keep
-#    in a CHANGELOG.
 eng_lines=$(awk -v ver="$ver" '
   /^## v[0-9]/ { if (in_ver) exit; in_ver = ($0 ~ "^## "ver" "); next }
   in_ver && /^### Engineering notes$/ { in_eng = 1; next }
@@ -107,9 +103,6 @@ if [ "$eng_lines" -gt 15 ]; then
 fi
 
 # 5) No internal finding IDs (F-NN, F#NN, finding-N) inside KaC bullets.
-#    These are maintainer-internal handles with no value for the section's
-#    reader. The finding ID belongs in the commit message or the issue
-#    tracker, not in the user-facing changelog.
 finding=$(awk -v ver="$ver" '
   /^## v[0-9]/ { if (in_ver) exit; in_ver = ($0 ~ "^## "ver" "); next }
   in_ver && /^### (Added|Changed|Deprecated|Removed|Fixed|Security)$/ { in_kac = 1; next }

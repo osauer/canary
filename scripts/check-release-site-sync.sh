@@ -49,13 +49,7 @@ fi
 plain=${version#v}
 
 # Machine-readable MCP discovery metadata ships on EVERY release, patch
-# included, so it is gated before the patch short-circuit below. v2.3.1 cut
-# with all three files lagging at 2.3.0 because this loop used to sit after
 # the early return, where no patch release ever reached it.
-# One hint per file, because they are not fixed the same way. server.json is a
-# copy the generator makes; the card's serverInfo.version is hand-maintained and
-# written by nothing — `-write` round-trips serverInfo as opaque bytes — so the
-# old shared hint sent whoever hit the card to run a generator that could not
 # produce the stamp, and the gate failed again with the identical message.
 for f in docs/mcp-server.json docs/.well-known/mcp/server.json docs/.well-known/mcp/server-card.json; do
   if ! grep -q "\"version\": \"$plain\"" "$f"; then
@@ -78,9 +72,7 @@ done
 # The issue-template placeholder is the version a bug reporter sees as the
 # example to overwrite, so it ships on every release too. It has tracked the
 # tag at every release since v2.3.0, but nothing gated it: `make check` has no
-# view of this file at all, and a stale placeholder invites reports filed
 # against a version that is no longer current. A missing file fails here the
-# same way the discovery stamps above do.
 template=.github/ISSUE_TEMPLATE/bug_report.yml
 if ! grep -q "placeholder: \"$version\"" "$template"; then
   echo "release-site-check: $template placeholder is not $version" >&2
@@ -117,7 +109,6 @@ if ! grep -q "\"softwareVersion\": \"$plain\"" docs/index.html; then
 fi
 
 # Every public version stamp must move together: spoke-page JSON-LD alongside
-# the landing page (the v1.10.0 prep caught these lagging at the previous
 # release version while only index.html was gated). The MCP discovery JSONs
 # are gated above, on every release.
 if ! grep -q "\"softwareVersion\": \"$plain\"" docs/interactive-brokers-mcp-server/index.html; then

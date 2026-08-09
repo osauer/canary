@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 # Verify that release publication authority stays in the guarded internal
-# Makefile targets. Packaging helpers and Actions workflows may assemble or
 # verify artifacts, but they must not grow an independent tag/push/release
 # path. Canonical shape: `release` (worktree orchestrator, owns no
 # publication command) → `_release-run` (pipeline body: tag, tag push,
@@ -10,7 +9,6 @@
 # publication command) → `_release-resume-run` (exact-SHA Actions
 # re-verification, then idempotent re-entry: plugin tag, may re-invoke
 # `_release-publish`). Every internal target must reject top-level invocation
-# and stay out of `make help`.
 
 set -euo pipefail
 
@@ -222,16 +220,8 @@ for workflow in ci.yml pages-check.yml; do
 done
 
 # Every check below this point runs once per line of the Makefile and of every
-# scanned script and workflow, so the matcher is the gate's hot loop. It is
-# bash's built-in `[[ =~ ]]` rather than a `printf | grep -Eq` pipeline, which
-# cost two processes per test. Both engines are POSIX ERE and every pattern
 # string here is byte-identical to the one grep -E was handed, so only the
-# engine changed. Anchors keep grep's meaning too: the subject is always a
-# single `read -r` line and therefore newline-free, so `^` and `$` mean the same
-# thing whether they anchor a line or a string.
-#
 # THE RIGHT-HAND SIDE OF `=~` MUST STAY AN UNQUOTED VARIABLE REFERENCE. Writing
-# `=~ "$re_..."` makes bash match the pattern as a literal string. Nothing
 # fails, nothing warns: every check below silently stops matching and the
 # release boundary reports OK while verifying nothing.
 re_publication_command='(^|[;&|[:space:]])(git[[:space:]]+(tag|push)|gh[[:space:]]+release[[:space:]]+(create|edit|upload)|claude[[:space:]]+plugin[[:space:]]+tag)([;&|[:space:]]|$)'
@@ -292,7 +282,6 @@ check_file() {
 		fi
 		# The uploader's whole safety case is that it cannot touch a
 		# published release. Pin the draft resolution and its exactly-one
-		# guard so a refactor cannot quietly widen its reach.
 		if ! grep -Fq 'select(.draft == true and .tag_name == \"$version\")' "$file" \
 			|| ! grep -Fq 'expected exactly one staged draft' "$file"; then
 			printf 'check-release-boundary: %s must resolve exactly one staged draft before uploading\n' \
@@ -616,7 +605,6 @@ while IFS= read -r line; do
 			fi
 			# Draft-then-publish (2026-08-04): the create must stage a
 			# draft so the release is never public with a partial asset
-			# set; the verified flip below is the publication moment.
 			if [ "$draft_count" -ne 1 ]; then
 				printf 'check-release-boundary: _release-publish must create the release as a staged --draft\n' >&2
 				failure=1
@@ -1152,10 +1140,8 @@ while IFS= read -r line; do
 		case "$target" in
 			release)
 				# The release front door may land the candidate on
-				# origin/MAIN_BRANCH before worktree prep (2026-08-04:
 				# starts hosted CI ~90s earlier) — exactly that one push
 				# shape and nothing else. Tags, releases, and plugin tags
-				# stay confined to the pipeline bodies below.
 				if [[ "$code" =~ $re_main_push ]]; then
 					release_early_push_count=$((release_early_push_count + 1))
 				else
@@ -1349,7 +1335,6 @@ if [ "$run_target_seen" -eq 1 ]; then
 		failure=1
 	fi
 	# plugin-check reaches the version stamps hosted CI drops, so it has to
-	# run before anything irreversible. It used to be anchored ahead of
 	# release-smoke; with that leg gone the anchor is the pre-tag CI wait.
 	if [ "$run_plugin_check_count" -ne 1 ] \
 		|| [ "$run_ci_wait_line1" -eq 0 ] \
@@ -1360,10 +1345,7 @@ if [ "$run_target_seen" -eq 1 ]; then
 	# The release is hermetic as of 2026-08-06 by operator decision: it must
 	# depend on no broker session and no external service. This asserted the
 	# opposite until then — that release-smoke ran exactly once with pinned
-	# strictness — and is inverted rather than deleted so the new property is
-	# held as firmly as the old one was. The paper preflight and round-trip
 	# are retired; release-smoke remains invocable by hand but may not run
-	# inside the pipeline.
 	if [ "$run_release_smoke_count" -ne 0 ]; then
 		printf 'check-release-boundary: _release-run must not invoke release-smoke; the release is hermetic and takes no broker dependency\n' >&2
 		failure=1

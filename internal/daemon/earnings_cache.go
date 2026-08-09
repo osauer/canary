@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,8 +23,6 @@ import (
 
 // earningsCache serves per-symbol next-earnings dates for the trading
 // rulebook (rules 6-8). Fetches never run on the snapshot path. Provider
-// attempts, their last-good values, and the aggregate resolution are committed
-// atomically before readers can observe them. Ambiguity is always unknown,
 // never a guessed date.
 
 const (
@@ -36,14 +33,8 @@ const (
 	earningsLegacyVersion              = 1
 	earningsNasdaqParserContractLegacy = 1
 	// v2 accepted a nested no-date announcement, so only its no-date outcomes
-	// need re-reading under a stricter grammar. v3 additionally demanded a
-	// nested data.status for a dated announcement, an envelope the endpoint
 	// does not serve; v4 reads the top-level status as the one authority for
-	// dated and no-date announcements alike. v5 reads an elapsed announcement
-	// date as no-date-published rather than a grammar break, so every v4
-	// format_change is re-read at once. Previous is the due rule's "re-read
 	// this" mark; FirstExact is the oldest label a persisted attempt may still
-	// carry. They move independently.
 	earningsNasdaqParserContractPrevious   = 2
 	earningsNasdaqParserContractFirstExact = 2
 	earningsNasdaqParserContract           = 5
@@ -53,24 +44,16 @@ const (
 	earningsFailureRetry                   = 15 * time.Minute
 	earningsAuthorityCommitRetry           = time.Minute
 	// A temporary connector-inactive mark is not a provider verdict. Keep its
-	// durable retry inside the connector's bounded 12-hour mark lifetime so a
-	// restart cannot turn that session-local observation into the 45-day
 	// unsupported-security quiet period below.
 	earningsContractResolutionRetry = 5 * time.Minute
 	// Format, entitlement, protocol, and other non-retryable provider failures
 	// remain due failures, but one failed read is enough for the daily source
-	// cadence. Their typed outcome and next attempt survive daemon restart.
 	earningsNonRetryableFailureRetry = 24 * time.Hour
 	earningsFetchConcurrency         = 4
 	earningsAuthorityScope           = "market/events/earnings"
 	// Keep the established state kind: a newer payload under the same key makes
 	// older binaries reject the authority instead of silently reading a stale
-	// sibling document.
 	earningsStateKind = "earnings_dates.current.v1"
-
-	// Legacy observations are immutable evidence from the former JSON cache.
-	earningsObservationKind   = "earnings_dates.snapshot.v1"
-	earningsObservationSource = "nasdaq.earnings_calendar"
 
 	earningsProviderObservationKind = "earnings_dates.provider_outcome.v3"
 	earningsNasdaqProvider          = "nasdaq"
@@ -134,7 +117,6 @@ type earningsProviderState struct {
 }
 
 // earningsIdentityAttempt is independent broker contract-details evidence.
-// ConID and SecType bind the proof to one current held stock identity. Outcome
 // is deliberately closed and never retains the broker's raw StockType.
 type earningsIdentityAttempt struct {
 	ConID       int                `json:"con_id"`
@@ -166,8 +148,6 @@ type earningsIdentityObservationPayload struct {
 }
 
 // earningsResolution is persisted as the exact cross-provider decision made
-// at commit time. Readers re-resolve against the current clock so TTL expiry
-// cannot leave a formerly valid date usable forever.
 type earningsResolution struct {
 	Status string         `json:"status"`
 	Reason string         `json:"reason,omitempty"`
@@ -197,8 +177,6 @@ type earningsProviderStateLegacy struct {
 }
 
 // The v2 and v3 state shapes are pinned for strict in-place migration. Keeping
-// separate provider types prevents an older document from smuggling the v4
-// parser-contract field.
 type earningsSymbolStateV2 struct {
 	Resolution earningsResolution                     `json:"resolution"`
 	Providers  map[string]earningsProviderStateLegacy `json:"providers"`
@@ -223,7 +201,6 @@ type earningsPersistEnvelopeV3 struct {
 }
 
 // earningsResolutionView is the cache's typed rulebook integration surface.
-// Provider data is already redacted and ordered deterministically.
 type earningsResolutionView struct {
 	Status    string
 	Reason    string
@@ -272,23 +249,10 @@ type earningsCache struct {
 	secondaryFetch    earningsProviderFetcher
 	identityFetch     earningsIdentityFetcher
 	// authorityRetryNotBefore is an ephemeral publication-failure gate. It
-	// prevents a due provider result from being fetched on every snapshot while
-	// SQLite is unavailable without publishing or changing a durable deadline.
 	authorityRetryNotBefore map[string]time.Time
 }
 
-func newEarningsCache(dir string, logf func(string, ...any)) *earningsCache {
-	c := newEarningsCacheCold(dir, logf)
-	if loaded, err := c.store.loadLegacy(c.clock()); err != nil {
-		c.logf("earnings cache load failed (cold start): %v", err)
-	} else if loaded != nil {
-		c.symbols = migrateEarningsV1(loaded, c.clock())
-	}
-	return c
-}
-
 // newEarningsCacheCold installs the legacy codec without reading it. Server
-// construction runs before the persistence lock, so production uses this and
 // leaves legacy reads exclusively to the unpublished cutover importer.
 func newEarningsCacheCold(dir string, logf func(string, ...any)) *earningsCache {
 	c := newEarningsCacheMemory(logf)
@@ -313,7 +277,6 @@ func newEarningsCacheMemory(logf func(string, ...any)) *earningsCache {
 
 // setSecondaryProvider installs the approved independent provider. Production
 // uses ibkr_wsh; the narrow hook also permits deterministic provider-agreement
-// tests without network or Gateway access.
 func (c *earningsCache) setSecondaryProvider(provider string, fetch earningsProviderFetcher) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider != earningsWSHProvider {
@@ -340,9 +303,7 @@ func (c *earningsCache) setIdentityFetcher(fetch earningsIdentityFetcher) error 
 }
 
 // UseCoreStore replaces any legacy JSON projection loaded by construction
-// with the current daemon.db document. Missing state initializes a cold v4
 // document. Failure is returned before the authority pointer or in-memory
-// projection changes.
 func (c *earningsCache) UseCoreStore(store *corestore.Store) error {
 	if c == nil {
 		return errors.New("earnings cache: nil cache")
@@ -369,10 +330,8 @@ const nasdaqProviderSymbolMaxLen = 32
 
 // nasdaqSymbol maps IBKR symbols to the provider's spelling: broker spaces
 // become dots. Only the provider's bounded ASCII symbol grammar may reach the
-// request URL or shape an accepted announcement prefix.
 func nasdaqSymbol(sym string) string {
 	// Only ordinary broker padding is normalized. Keeping every other byte lets
-	// the canonical validator reject controls and non-ASCII whitespace instead
 	// of silently deleting untrusted input.
 	sym = strings.ToUpper(strings.Trim(sym, " "))
 	sym = strings.ReplaceAll(sym, " ", ".")
@@ -403,22 +362,12 @@ func validNasdaqProviderSymbol(sym string) bool {
 }
 
 // get returns the aggregate usable date and whether its evidence is degraded
-// or stale. Conflicts and all typed unknown outcomes return ok=false.
-func (c *earningsCache) get(sym string) (entry earningsEntry, stale, ok bool) {
-	view, ok := c.resolution(sym)
-	if !ok || view.Status != rpc.EarningsStatusDate {
-		return earningsEntry{}, false, false
-	}
-	return view.Entry, view.Stale, true
-}
-
 func (c *earningsCache) resolution(sym string) (earningsResolutionView, bool) {
 	return c.resolutionWithIdentity(sym, 0, "")
 }
 
 // resolutionForIdentity projects broker applicability only when it is bound
 // to the caller's current exact stock identity. A changed or missing identity
-// invalidates the proof immediately without erasing provider outcomes.
 func (c *earningsCache) resolutionForIdentity(sym string, conID int, secType string) (earningsResolutionView, bool) {
 	return c.resolutionWithIdentity(sym, conID, secType)
 }
@@ -566,10 +515,6 @@ type earningsCompletedProvider struct {
 	localErr error
 }
 
-func (c *earningsCache) refreshOne(ctx context.Context, sym string) {
-	c.refreshTarget(ctx, earningsRefreshTarget{Symbol: sym})
-}
-
 func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefreshTarget) {
 	sym := strings.ToUpper(strings.TrimSpace(target.Symbol))
 	target.Symbol = sym
@@ -679,7 +624,6 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 			}
 
 			// Merge into the newest committed symbol snapshot. Other symbols may
-			// have committed while provider calls were in flight; the store revision
 			// is global and is intentionally consumed only under this lock.
 			candidate := cloneEarningsSymbols(c.symbols)
 			symbolState := cloneEarningsSymbolState(candidate[sym])
@@ -885,7 +829,6 @@ func transportFailureResult(code, stage string, retryable bool, at time.Time) ea
 }
 
 // fetchOne preserves the original focused fetch seam while returning typed
-// provider errors that refreshOne can safely project into persistence.
 func (c *earningsCache) fetchOne(ctx context.Context, sym string) (earningsEntry, error) {
 	providerSymbol := nasdaqSymbol(sym)
 	if providerSymbol == "" {
@@ -899,11 +842,7 @@ func (c *earningsCache) fetchOne(ctx context.Context, sym string) (earningsEntry
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusTransportFailure, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqRequest, false, err)
 	}
 	// Nasdaq's edge rejects any client that names itself, including an honest
-	// project agent, so the request carries no User-Agent rather than claiming
-	// to be a browser. An explicitly empty value suppresses Go's default. Do
-	// not restore a Mozilla string, an Origin, or a Referer: measured against
 	// the live endpoint, those headers never affected acceptance, and they
-	// asserted that the request came from Nasdaq's own web app.
 	for k, v := range map[string]string{
 		"User-Agent":      "",
 		"Accept":          "application/json, text/plain, */*",
@@ -929,12 +868,8 @@ func (c *earningsCache) fetchOne(ctx context.Context, sym string) (earningsEntry
 
 // parseNasdaqEarnings accepts only the observed authority envelope and typed
 // announcement grammar for the exact provider symbol requested. Both a strict
-// future date and a no-date publication require data.status to be absent and
 // top-level status.rCode=200; they differ only in whether a date follows the
 // exactly one trailing ASCII space after the symbol-bound prefix. Missing,
-// null, empty, elapsed, or any other announcement is a format change.
-// Top-level status is also authoritative for the explicit data:null
-// unsupported envelope.
 func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (earningsEntry, error) {
 	if !json.Valid(body) {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqDecode, false, errors.New("nasdaq payload is not valid JSON"))
@@ -997,23 +932,14 @@ func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (ear
 	}
 	if t.Format(time.DateOnly) < earningsCalendarDate(now) {
 		// The vendor still carries last quarter's date. That is the ordinary gap
-		// between a report and the next date being published — the same fact the
-		// resolution ladder already reads as date_elapsed on a cached entry, not
-		// a grammar break. Calling it a format change cost the name a 24-hour
-		// non-retryable lockout and degraded the whole earnings source with it.
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusNoDatePublished, "", "", false, errors.New("nasdaq announcement date has elapsed"))
 	}
 	return earningsEntry{Date: t.Format(time.DateOnly), ObservedAt: now}, nil
 }
 
 // matchNasdaqAnnouncementPrefix returns the symbol-bound prefix the
-// announcement actually carries. Nasdaq answers a dotted class-share request
-// but echoes some issuers with a slash: `BRK.B` comes back as `BRK/B` while
-// `BF.B` and `LEN.B` keep the dot, so it is per-issuer and cannot be decided
 // from the symbol's shape. The slash is accepted only where the requested
-// symbol had a dot, position for position, which leaves the announcement
 // bound to the security that was asked for: every other byte must still match,
-// so a different class, a missing separator, or an unrelated symbol is a
 // refusal exactly as before.
 func matchNasdaqAnnouncementPrefix(announcement, providerSymbol string) (string, bool) {
 	spellings := []string{providerSymbol}
@@ -1030,9 +956,7 @@ func matchNasdaqAnnouncementPrefix(announcement, providerSymbol string) (string,
 }
 
 // parseNasdaqAnnouncementDate reads the two spellings the endpoint publishes:
-// a scheduled date carries a zero-padded day, a Zacks-estimated one does not.
 // Each spelling must round-trip its own layout exactly, so anything else stays
-// a refusal rather than a guess.
 func parseNasdaqAnnouncementDate(dateText string) (time.Time, bool) {
 	for _, layout := range []string{"Jan 2, 2006", "Jan 02, 2006"} {
 		if t, err := time.Parse(layout, dateText); err == nil && t.Format(layout) == dateText {
@@ -1122,7 +1046,6 @@ func jsonRawIsNull(raw json.RawMessage) bool {
 
 // rejectDuplicateJSONKeys closes the duplicate-key gap left by encoding/json's
 // last-value-wins behavior. Errors never echo object keys because persisted
-// maps may be keyed by private held symbols.
 func rejectDuplicateJSONKeys(raw []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -1268,11 +1191,7 @@ func resolveEarningsProviders(providers map[string]earningsProviderState, now ti
 }
 
 // earningsNasdaqObservedWithoutSecondOpinion accepts Nasdaq's definitive
-// no-date or unsupported verdict when nothing can contradict it: either no
-// second provider is configured, or the configured one is permanently unusable
-// because the entitlement is not held. Operator policy (2026-08-03): an
 // unentitled provider is nonexistent and must not influence any decision. A
-// second source that is merely down still withholds the verdict — a temporary
 // outage of an entitled feed must not be laundered into a definitive answer.
 func earningsNasdaqObservedWithoutSecondOpinion(providers map[string]earningsProviderState) (string, bool) {
 	nasdaq, hasNasdaq := providers[earningsNasdaqProvider]
@@ -1292,8 +1211,6 @@ func earningsNasdaqObservedWithoutSecondOpinion(providers map[string]earningsPro
 }
 
 // earningsProviderUnentitled reports the one permanently-unusable provider
-// state: a non-retryable entitlement refusal. This is the single shared
-// definition — the daemon's resolution ladder and the rulebook's source health
 // must agree on what "we do not hold this feed" looks like.
 func earningsProviderUnentitled(status string, failure *rpc.SourceFailure) bool {
 	return status == rpc.EarningsStatusTransportFailure && failure != nil &&
@@ -1626,17 +1543,6 @@ func (s *earningsStore) commitBound(
 	return candidate, nil
 }
 
-func (s *earningsStore) loadLegacy(now time.Time) (map[string]earningsEntry, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, earningsStoreFilename))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read earnings cache: %w", err)
-	}
-	return decodeEarningsEnvelopeV1(data, now, false)
-}
-
 func decodeEarningsEnvelopeV1(data []byte, now time.Time, strict bool) (map[string]earningsEntry, error) {
 	var env earningsPersistEnvelopeV1
 	var err error
@@ -1942,7 +1848,6 @@ func validNasdaqParserContract(status string, version int) bool {
 	default:
 		// Every exact contract labels its own outcomes coherently, so a
 		// superseded one stays readable; a version this binary never wrote is
-		// not a contract it can vouch for.
 		return version >= earningsNasdaqParserContractFirstExact && version <= earningsNasdaqParserContract
 	}
 }

@@ -90,7 +90,6 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 	}
 	// Realized P&L is only rendered when at least one row carries a non-zero
 	// value — most accounts in a same-day snapshot have all zeros, and an
-	// always-on column adds dead width to the table.
 	showRealized := anyRealized(r.Stocks) || anyRealized(r.Options)
 	renderPortfolioSummaryTo(env, out, r)
 	if len(r.Stocks) > 0 {
@@ -132,12 +131,6 @@ func positionsDisplayAsOf(r *rpc.PositionsResult) time.Time {
 
 // renderStocksTable prints the stocks block. The DAY column carries IBKR's
 // per-conId start-of-trading-day P&L from reqPnLSingle (TWS msg 95) — the
-// same metric across stocks and options. Always rendered; nil rows show
-// the "subscribing" placeholder on the first call after a daemon restart
-// and a value on the next refresh.
-//
-// Column widths are sized from the rows being rendered, with the header as
-// the floor. That keeps small books compact while preserving right-aligned
 // money and quantity columns when a larger account needs more room.
 func renderStocksTable(env *Env, out io.Writer, rows []rpc.PositionView, dataType string, showRealized bool, quoteDetails bool) {
 	fmt.Fprintf(out, "Stocks & ETFs%s\n", env.suffixBadge(dataType))
@@ -209,9 +202,6 @@ func renderStocksTable(env *Env, out io.Writer, rows []rpc.PositionView, dataTyp
 }
 
 // renderOptionsTable prints the options block in the same column language
-// as renderStocksTable. The DAY P&L column matches stocks — same source
-// (reqPnLSingle), same alignment — so a reader can scan one column down
-// to see "today's P&L" across the whole book.
 func renderOptionsTable(env *Env, out io.Writer, rows []rpc.PositionView, dataType string, showRealized bool) {
 	fmt.Fprintf(out, "Options%s\n", env.suffixBadge(dataType))
 	cols := []positionTableColumn{
@@ -455,7 +445,6 @@ func (e *Env) formatPositionPnLPtr(v *float64) string {
 }
 
 // renderPortfolioSummaryTo prints the daemon-computed aggregate block when
-// at least one component is populated. Empty when there are no options
 // (Greeks coverage zero AND no FX rollup) so single-stock accounts don't
 // see an empty header. Lines render only when their pointer is non-nil
 // — never zero-substituted.
@@ -472,11 +461,6 @@ func renderPortfolioSummaryTo(env *Env, out io.Writer, r *rpc.PositionsResult) {
 	}
 	fmt.Fprintln(out, heroSummaryStyle(env, "Summary"))
 	// All numeric values right-align to col (labelStart + labelWidth +
-	// space + valueWidth) so the unit text (share-equivalents, USD,
-	// / day, etc.) lands at a single column regardless of value
-	// magnitude. labelWidth covers the widest label ("FX sensitivity /
-	// 1%" = 19); valueWidth covers a 5-digit gamma with commas and a
-	// sign (e.g. "+12,584.6938" = 12).
 	const labelWidth = 22
 	const valueWidth = 14
 	if p.EffectiveDelta != nil {
@@ -493,9 +477,6 @@ func renderPortfolioSummaryTo(env *Env, out io.Writer, r *rpc.PositionsResult) {
 	}
 	if p.DailyTheta != nil {
 		// Match the Dollar delta line's pattern: render bare (no symbol)
-		// and name the currency to the right. MIX → render bare with an
-		// explicit "(mixed currencies)" tail so a reader knows the sum
-		// spans multiple ccys and can't be stamped with a single symbol.
 		ccy := p.DailyThetaCurrency
 		val := padLeftVisible(formatMoneyBare(*p.DailyTheta), valueWidth)
 		switch {
@@ -558,15 +539,6 @@ func anyRealized(rows []rpc.PositionView) bool {
 }
 
 // renderPositionsByUnderlyingTo prints one block per underlying with the
-// stock leg (if any), the option legs (with inline Greeks), and a
-// per-underlying Total row when there's more than one leg.
-//
-// Every row uses the same column layout — LEG, QTY, AVG, MARK,
-// CHANGE/GREEKS, MKT VALUE, UNREAL P&L — so the eye reads down each
-// column instead of zigzagging across row-type-specific layouts. Money
-// columns right-align so decimal points line up; sign-coloured cells
-// (day change, unrealised P&L, Δ) pad before colour wrap so visible
-// widths stay correct under ANSI escapes.
 func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResult) int {
 	fmt.Fprintln(out)
 	unavailable := renderPositionsAuthority(env, out, r)
@@ -582,9 +554,6 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 	fmt.Fprintln(out)
 
 	// Column header.  Widths chosen to fit realistic data: identifier
-	// holds "2026-06-18 C 1191.67" (~20); change/greeks holds the
-	// compact greek tuple "Δ+0.62 Γ+0.31 Θ-0.01 ν+0.01" (27 cells) or
-	// the stock day-change cell "+1.32 (+0.64%)" (~14 cells).
 	const (
 		wLeg    = 22
 		wQty    = 9
@@ -594,12 +563,7 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 		wUnreal = 13
 	)
 	// wChange sizes itself to the widest CHANGE/GREEKS cell actually
-	// rendered in this call: header width floor ("CHANGE / GREEKS" =
-	// 15 cells), full greek tuple at the ceiling (27 cells). When no
-	// option carries captured Greeks — the gateway pipeline goes silent
 	// OOH, or the model-computation tick never landed — every greek
-	// cell is the 15-cell placeholder, so the column shrinks to 15 and
-	// the eye stops reading the trailing pad as an empty column.
 	wChange := len("CHANGE / GREEKS")
 	for _, g := range r.ByUnderlying {
 		if g.Stock != nil {
@@ -656,8 +620,6 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 		}
 
 		// Total row only when there's more than one leg — for a single
-		// stock or a single option the per-leg row already carries the
-		// values that would otherwise be duplicated.
 		legs := 0
 		if g.Stock != nil {
 			legs++
@@ -679,17 +641,6 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 }
 
 // formatDayChange renders the combined "+$132.00 (+0.64%)" cell — the
-// dollar impact on the position (qty × per-share move for stocks; qty ×
-// multiplier × move for options) followed by the underlying's percent.
-// Money leads because it's the answer most traders are scanning for;
-// percent stays for cross-symbol comparability. Both painted by sign as
-// a unit. Em-dash placeholder of width w when money is unavailable —
-// per-share change without size is misleading on options (a $0.10 leg
-// move on 10 contracts is $100, not $0.10).
-//
-// money carries position currency for the money side; pct is unitless.
-// Padding lives outside the ANSI wrap so visible width matches w
-// regardless of color state.
 func (e *Env) formatDayChange(money, pct *float64, ccy string, w int) string {
 	if money == nil || pct == nil {
 		return padDash(w)
@@ -706,16 +657,6 @@ func (e *Env) formatDayChange(money, pct *float64, ccy string, w int) string {
 }
 
 // formatGreeksLine renders a per-leg Greeks tuple in the most compact
-// form that stays readable: no space between symbol and number, single
-// space between greeks, 2 decimals everywhere ("Δ+0.62 Γ+0.31 Θ-0.01
-// ν+0.01" — 27 cells). Delta carries sign coloring (the headline risk
-// component); gamma / theta / vega print with sign but no color so the
-// eye is drawn to delta first.
-//
-// Greeks that the daemon didn't capture render as a dim "Δ  —" / "Γ  —"
-// / "Θ  —" / "ν  —" placeholder so the column shape stays consistent
-// across rows — a blank cell would otherwise read as "Greeks don't
-// apply here" rather than the truth ("not yet captured, retry").
 func (e *Env) formatGreeksLine(o rpc.PositionView) string {
 	delta := e.dim("Δ —")
 	if o.Delta != nil {
@@ -745,12 +686,8 @@ func (e *Env) formatGreeksLine(o rpc.PositionView) string {
 
 // avgCostPerShare normalises AvgCost to per-share units for visual
 // comparison with Mark in the same row. IBKR's averageCost is per-share
-// for stocks but per-contract (multiplier-inclusive) for options — so a
 // $3.00 premium call comes off the wire as $300, which reads like a typo
-// next to a $3 mark. Dividing by multiplier on OPT restores symmetry.
 // JSON output stays IBKR-faithful; only the rendered column normalises.
-//
-// The SecType comparison uses rpc.SecTypeOption as the single source of truth
 // for the wire value.
 func avgCostPerShare(p rpc.PositionView) float64 {
 	if p.SecType == rpc.SecTypeOption && p.Multiplier > 0 {

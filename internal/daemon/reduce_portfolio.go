@@ -11,20 +11,13 @@ import (
 )
 
 // maxBasketLegs bounds how many real orders one portfolio sweep can fan out
-// to. A book whose sweep would touch more eligible positions than this
-// returns a basket-level blocker and places nothing — a sanity backstop
-// against a runaway one-tap action. Disclosure-only rows (delta_unavailable)
 // never count toward this cap.
 const maxBasketLegs = 25
 
 // reduceBasketDedupeTTL is how long a submit RequestRef is remembered so a
-// double-tap or client retry replays the prior result instead of placing again.
 const reduceBasketDedupeTTL = 90 * time.Second
 
 // minNetDeltaForSweepFraction is the materiality floor for net portfolio
-// dollar-delta, expressed as a fraction of net liquidation value: below this,
-// longs and shorts are considered to roughly offset and there is no dominant
-// direction to trim. A fixed dollar figure would be material for a small
 // account and noise for a large one, so this scales with NLV when available.
 const minNetDeltaForSweepFraction = 0.001 // 0.1% of NLV
 
@@ -38,11 +31,8 @@ type reduceBasketDedupeEntry struct {
 }
 
 // reduceSweepCandidate is one position the sweep will act on. dollarDelta is
-// its signed, base-currency delta-adjusted exposure (same sign as net
 // portfolio delta, since opposite-sign rows never become candidates); qty is
-// the already-sized reduce quantity; allocatedDollars is the (positive)
 // dollar-delta this qty is expected to remove. blockers is set only for a
-// disclosure-only row (e.g. delta_unavailable) that carries no qty and will
 // never be placed.
 type reduceSweepCandidate struct {
 	row              rpc.PositionView
@@ -53,12 +43,6 @@ type reduceSweepCandidate struct {
 }
 
 // netPortfolioDollarDelta sums every non-stale position's base-currency
-// dollar-delta (positionDollarDelta converted via positionBaseRate). complete
-// is false when one or more non-stale rows had no computable delta or no
-// resolvable FX rate and were excluded from the sum. The net is still usable
-// in that case — disclosed as a partial-book estimate — rather than nulling
-// the whole computation the way an all-or-nothing aggregate would; a single
-// stale-FX row should not block the entire sweep from having a direction.
 func netPortfolioDollarDelta(pos *rpc.PositionsResult) (net float64, complete bool) {
 	if pos == nil {
 		return 0, false
@@ -94,8 +78,6 @@ func netPortfolioDollarDelta(pos *rpc.PositionsResult) (net float64, complete bo
 }
 
 // reduceSweepMaterialityFloor scales the net-delta materiality floor off net
-// liquidation value when available, falling back to a small fixed-dollar
-// floor.
 func reduceSweepMaterialityFloor(pos *rpc.PositionsResult) float64 {
 	if pos != nil && pos.Portfolio != nil && pos.Portfolio.NetLiquidationBase != nil && *pos.Portfolio.NetLiquidationBase > 0 {
 		return *pos.Portfolio.NetLiquidationBase * minNetDeltaForSweepFraction
@@ -104,17 +86,7 @@ func reduceSweepMaterialityFloor(pos *rpc.PositionsResult) float64 {
 }
 
 // reduceSweepCandidates implements the delta-adjusted risk-contribution
-// sweep. It computes net portfolio dollar-delta, derives a target dollar
-// amount to remove from percent, then selects positions in reduceEligible
-// scope whose dollar-delta shares the net's sign — same-direction
-// contributors. Opposite-sign positions are protective hedges and are never
-// selected: trimming them would increase net risk, not reduce it, so the
-// sign-matched ranking structurally excludes them without any separate flag.
-// Each selected candidate's reduce quantity is sized proportional to its own
-// share of total contributing risk (pro-rata, not greedy-largest-first), so a
 // tiny-delta long option is never force-trimmed to hit the aggregate target —
-// its allocated share is naturally small, and a share that floors to less
-// than one unit is omitted entirely rather than padded up.
 func reduceSweepCandidates(pos *rpc.PositionsResult, percent int) (cands []reduceSweepCandidate, netDelta float64, netComplete bool, targetDollarDelta float64, blockers []rpc.TradingBlocker) {
 	if pos == nil {
 		return nil, 0, false, 0, []rpc.TradingBlocker{{Code: "positions_unavailable", Message: "current positions are unavailable", Action: "Retry once the daemon has refreshed positions."}}
@@ -194,8 +166,6 @@ func reduceSweepCandidates(pos *rpc.PositionsResult, percent int) (cands []reduc
 }
 
 // reduceLegBase seeds a leg's disclosure fields from a sweep candidate,
-// including basis-blind position context: DollarDelta/RiskContributionCut
-// describe the risk being cut, PositionUnrealizedPnL(Base) is annotation only
 // and is never read by reduceSweepCandidates' selection or sizing.
 func reduceLegBase(c reduceSweepCandidate) rpc.TradeProposalReduceLeg {
 	row := c.row
@@ -232,10 +202,7 @@ func legContext(parent context.Context, timeoutMs int) (context.Context, context
 }
 
 // reduceLegPrepare sizes and previews one candidate through the gated order
-// path. It returns the leg (with disclosure + per-leg blockers) and, when the
 // leg is submit-eligible, the raw preview so the caller can redeem its token.
-// A nil preview means the leg is terminal (blocked/not eligible) — never
-// placed.
 func (s *Server) reduceLegPrepare(ctx context.Context, c reduceSweepCandidate, timeoutMs int) (rpc.TradeProposalReduceLeg, *rpc.OrderPreviewResult) {
 	leg := reduceLegBase(c)
 	if len(c.blockers) > 0 {
@@ -296,8 +263,6 @@ func (s *Server) reduceLegSubmit(ctx context.Context, c reduceSweepCandidate, ti
 }
 
 // aggregateBasket fills the counts, base-currency total, achieved risk
-// removal, and Accepted verdict. submit=true counts placed legs as eligible;
-// preview counts submit-eligible legs.
 func aggregateBasket(res *rpc.TradeProposalReducePortfolioResult, submit bool) {
 	res.LegCount = len(res.Legs)
 	eligible, blocked := 0, 0
@@ -401,7 +366,6 @@ func (s *Server) reducePortfolioSubmit(ctx context.Context, p rpc.TradeProposalR
 	// Write gate before the dedupe replay: a freeze engaged between the
 	// original call and a RequestRef retry must surface as a blocker, not
 	// replay a pre-freeze "ok" result. Blocked results are never cached, so
-	// a retry after unfreezing re-attempts rather than replaying.
 	if blockers := s.proposalSubmitWriteBlockers(p.Origin); len(blockers) > 0 {
 		res.Blockers = blockers
 		return res, nil
@@ -438,7 +402,6 @@ func (s *Server) reducePortfolioSubmit(ctx context.Context, p rpc.TradeProposalR
 
 // reduceSweepActionableCount counts candidates that will become a real
 // broker order (qty > 0); disclosure-only delta_unavailable rows never count
-// toward the basket leg cap.
 func reduceSweepActionableCount(cands []reduceSweepCandidate) int {
 	n := 0
 	for _, c := range cands {
@@ -450,7 +413,6 @@ func reduceSweepActionableCount(cands []reduceSweepCandidate) int {
 }
 
 // reduceBasketReplay returns a prior submit result for a repeated RequestRef
-// (marked Replayed), sweeping expired entries on the way.
 func (s *Server) reduceBasketReplay(ref string) (*rpc.TradeProposalReducePortfolioResult, bool) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -500,7 +462,6 @@ func (s *Server) handleTradeProposalsReducePortfolioSubmit(ctx context.Context, 
 		return nil, err
 	}
 	// Serialize the whole basket against every other broker writer (R1): one
-	// lock around all legs, matching handleTradeProposalsSubmit's discipline.
 	s.brokerWriteMu.Lock()
 	defer s.brokerWriteMu.Unlock()
 	return s.reducePortfolioSubmit(ctx, p)

@@ -14,7 +14,6 @@ import (
 var rateLimiterLogger = logging.Component("IBKR RateLimiter")
 
 // RateLimiter manages rate limiting for IBKR API requests. The IBKR limits it
-// enforces are recorded on the individual buckets and semaphores below.
 type RateLimiter struct {
 	// Token buckets for different rate limits
 	messageRate    *TokenBucket // General messages: 40/sec (safe from 50/sec max)
@@ -47,8 +46,6 @@ type RateLimiter struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	// submitTimeoutFn is an internal test seam for proving that a request
-	// canceled by the limiter's own completion deadline cannot run later.
-	// Production leaves it nil and uses submitTimeout.
 	submitTimeoutFn func(RequestType) time.Duration
 }
 
@@ -65,10 +62,6 @@ type RateLimiterMetrics struct {
 }
 
 // RateLimitedRequest wraps a request with rate limiting metadata.
-//
-// Deprecated: RateLimitedRequest is internal to the scheduler — no exported
-// API accepts or returns it — and it will be unexported in the next major
-// version.
 type RateLimitedRequest struct {
 	Type       RequestType
 	Priority   RequestPriority
@@ -93,33 +86,19 @@ const (
 )
 
 // RequestPriority selects the pacing lane for a submitted request. The
-// default (PriorityInteractive) is right for caller-facing work; bulk
-// prewarm/fan-out traffic opts into PriorityBackground via
-// WithRequestPriority so a cold-boot fan-out cannot starve an interactive
-// read that arrives mid-flight.
 type RequestPriority int
 
 const (
 	// PriorityInteractive requests reserve pacing tokens immediately, in
-	// arrival order. This is the default for any context without an
-	// explicit priority.
 	PriorityInteractive RequestPriority = iota
 	// PriorityBackground requests must hold one of a small pool of
 	// in-flight slots before reserving pacing tokens. The pool bounds how
 	// many token reservations a fan-out can book ahead of an interactive
-	// arrival, so the interactive request waits behind at most the pool,
 	// not the whole fan-out. Token reservations stay FIFO across lanes and
-	// slots release as sends complete, so background work keeps the full
-	// bucket rate whenever no interactive request is competing — bounded
-	// interactive delay, no starvation in either direction.
 	PriorityBackground
 )
 
 // Background-lane pool sizes. A background request's token debt is capped
-// at the pool size, so the worst-case interactive wait becomes
-// (pool+1)/refill — ~225 ms on the 40/s message bucket and ~30 s on the
-// 0.1/s historical bucket — instead of the fan-out's full drain time.
-// The pools are sized to keep each bucket's refill rate saturated by
 // background work alone (slots turn over as fast as tokens refill).
 const (
 	backgroundMessageSlots    = 8
@@ -129,8 +108,6 @@ const (
 type requestPriorityContextKey struct{}
 
 // WithRequestPriority returns a context whose connector requests submit on
-// the given pacing lane. The priority travels with ctx through the
-// connector's send paths; contexts without it submit as PriorityInteractive.
 func WithRequestPriority(ctx context.Context, p RequestPriority) context.Context {
 	return context.WithValue(ctx, requestPriorityContextKey{}, p)
 }
@@ -147,8 +124,6 @@ func requestPriorityFrom(ctx context.Context) RequestPriority {
 
 // effectivePriority reads the context's pacing lane. Broker writes and
 // heartbeats never queue behind the background pool, whatever their
-// context says: orders because interactive latency is part of the write
-// contract, heartbeats because they keep the session alive.
 func effectivePriority(ctx context.Context, reqType RequestType) RequestPriority {
 	switch reqType {
 	case RequestTypeOrder, RequestTypeHeartbeat:
@@ -299,8 +274,6 @@ func (s *Semaphore) TryAcquire() bool {
 }
 
 // Release frees a slot. Panics if the semaphore is empty — an over-release
-// is always a bookkeeping bug at the caller (mismatched Acquire/Release pair),
-// and silently absorbing it would mask the root cause.
 func (s *Semaphore) Release() {
 	select {
 	case <-s.ch:
@@ -356,8 +329,6 @@ func NewRateLimiter(ctx context.Context) *RateLimiter {
 
 // Stop gracefully shuts down the rate limiter. The request queue is not
 // closed: producers (Submit and the retry goroutine) race with shutdown and
-// would panic on send to a closed channel. Instead, ctx cancellation signals
-// both producers and consumers to exit, and the queue is GC'd once unreferenced.
 func (rl *RateLimiter) Stop() {
 	rl.cancel()
 	rl.wg.Wait()
@@ -365,34 +336,19 @@ func (rl *RateLimiter) Stop() {
 
 // Submit submits a request for rate-limited execution with the default
 // retry count (3). For one-shot requests where any failure should bubble
-// straight back to the caller (heartbeat path, test fixtures), use
-// SubmitWithRetries(reqType, sendFunc, 0).
 func (rl *RateLimiter) Submit(reqType RequestType, sendFunc func() error) error {
 	return rl.SubmitWithRetries(reqType, sendFunc, 3)
 }
 
 // SubmitContext submits a request for rate-limited execution and cancels the
 // queue/token wait when ctx is done. The send function should also check ctx
-// if it may block after the limiter admits it.
 func (rl *RateLimiter) SubmitContext(ctx context.Context, reqType RequestType, sendFunc func() error) error {
 	return rl.SubmitWithRetriesContext(ctx, reqType, sendFunc, 3)
 }
 
 // submitTimeout caps how long Submit waits for a queued request to
-// complete before giving up. The cap is type-aware: RequestTypeHistorical
 // must accommodate the slow historicalRate bucket (60 tokens, refills at
 // 0.1/sec — IBKR's 60-per-10-min pacing window). When a fan-out empties
-// the bucket — common during the breadth-spx 500-name cold-start — the
-// next refill arrives 10 s later, and with multiple workers competing
-// the back-of-queue wait can approach the bucket's full drain time
-// (~10 min). 12 min gives one minute of headroom past that worst case.
-//
-// The previous unconditional 30 s cap silently rejected most historical
-// requests in any large fan-out: the engine at internal/breadth/spx/engine.go
-// documented a ~60 min cold-start expectation that the 30 s cap made
-// unachievable. General and market-data requests retain the original 30 s
-// budget — those buckets refill fast enough that a longer wait would
-// hide a genuine stall.
 func submitTimeout(reqType RequestType) time.Duration {
 	switch reqType {
 	case RequestTypeHistorical:
@@ -404,19 +360,14 @@ func submitTimeout(reqType RequestType) time.Duration {
 
 // SubmitWithRetries submits a request with a custom retry count. Requests
 // dispatch in arrival order; the only scheduling distinction is the
-// context-carried pacing lane (see WithRequestPriority), which bounds how
 // many token reservations PriorityBackground work may hold at once. A
 // "queue jump" parameter existed before v0.16.0 but was never wired and
-// was removed; the background lane is the deliberate replacement.
 func (rl *RateLimiter) SubmitWithRetries(reqType RequestType, sendFunc func() error, maxRetries int) error {
 	return rl.SubmitWithRetriesContext(context.Background(), reqType, sendFunc, maxRetries)
 }
 
 // SubmitWithRetriesContext is SubmitWithRetries plus caller-owned
-// cancellation. This matters for interactive historical reads: the historical
-// bucket can legitimately wait minutes during breadth fan-out, but a CLI/RPC
 // request with a 60 s budget must leave that queue promptly when its caller is
-// gone.
 func (rl *RateLimiter) SubmitWithRetriesContext(ctx context.Context, reqType RequestType, sendFunc func() error, maxRetries int) error {
 	return rl.SubmitWithRetriesContextFunc(ctx, reqType, func(context.Context) error {
 		return sendFunc()
@@ -424,9 +375,6 @@ func (rl *RateLimiter) SubmitWithRetriesContext(ctx context.Context, reqType Req
 }
 
 // SubmitWithRetriesContextFunc passes the limiter-owned request context to the
-// admitted callback. In addition to caller cancellation, that context is
-// canceled synchronously by the limiter's own completion timeout, so work
-// already admitted but parked behind another transport cannot run late.
 func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType RequestType, sendFunc func(context.Context) error, maxRetries int) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -448,7 +396,6 @@ func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType
 	}
 
 	// Try to queue the request. Check ctx first so a shutdown in progress
-	// returns immediately instead of racing the send.
 	select {
 	case <-rl.ctx.Done():
 		return fmt.Errorf("rate limiter stopped")
@@ -470,7 +417,6 @@ func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType
 			return err
 		case <-timer.C:
 			// Revoke the queued dispatch synchronously before returning. This
-			// closes the scheduler gap where the caller could observe a timeout
 			// and the request could still acquire a token and reach SendFunc.
 			cancelRequest()
 			rl.incrementRejected()
@@ -495,20 +441,9 @@ func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType
 }
 
 // processRequests dispatches each queued request to its own goroutine.
-// Per-request goroutines remove head-of-line blocking: a slow request
 // stuck in WaitForTokens (e.g. a historical-data request waiting on the
-// 0.1/sec refill of historicalRate) no longer blocks unrelated requests
-// behind it in the FIFO. Before this dispatcher change, a 500-name
-// breadth-spx fan-out would jam the queue so badly that contract-detail
-// requests (RequestTypeGeneral, expected to clear in milliseconds) sat
 // behind historical waits and failed their 5 s caller timeouts —
-// surfacing as "contract details unresolved" in the daemon log.
-//
-// Per-request concurrency is bounded by the rate-limit primitives
 // themselves: messageRate (40 tokens/sec) for every type, historicalRate
-// (0.1/sec) and historicalConcurrent (50 slots) for historical, and the
-// queue's own 1000-deep buffer for the dispatcher itself. All three are
-// thread-safe, so spawning is the simplest correct change here.
 func (rl *RateLimiter) processRequests() {
 	defer rl.wg.Done()
 
@@ -524,9 +459,6 @@ func (rl *RateLimiter) processRequests() {
 }
 
 // dispatch runs one request's rate-limited execution. Extracted from the
-// processRequests loop body so per-request goroutines have a clean
-// completion-and-retry boundary. Always closes the request out via
-// req.ResultChan unless the request is re-queued for retry.
 func (rl *RateLimiter) dispatch(req *RateLimitedRequest) {
 	defer rl.wg.Done()
 
@@ -534,8 +466,6 @@ func (rl *RateLimiter) dispatch(req *RateLimitedRequest) {
 	if err != nil && rl.shouldRetry(req, err) {
 		req.Retries++
 		// Re-queue with exponential backoff. Honor rl.ctx so a
-		// shutdown mid-backoff doesn't leak a goroutine sleeping
-		// out the remainder of the delay.
 		rl.wg.Add(1)
 		go func(backoff time.Duration) {
 			defer rl.wg.Done()
@@ -581,9 +511,6 @@ func (rl *RateLimiter) executeRequest(req *RateLimitedRequest) error {
 
 	// Background-lane admission: hold a pool slot before booking any
 	// tokens, so a fan-out's pending reservations can never queue more
-	// than the pool ahead of an interactive arrival. Held through the
-	// send (the send is a socket write, not the response wait), released
-	// between retry attempts.
 	if req.Priority == PriorityBackground {
 		pool := rl.backgroundMessage
 		if req.Type == RequestTypeHistorical {

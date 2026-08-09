@@ -1212,11 +1212,6 @@ func checkpointUpgradeWorkingSnapshot(ctx context.Context, db *sql.DB, path stri
 	return nil
 }
 
-func migratePendingAtomically(ctx context.Context, db *sql.DB, plan []migration, now time.Time) (AuthorityHead, AuthorityHead, error) {
-	execution, err := migratePendingAtomicallyDetailed(ctx, db, plan, now)
-	return execution.before, execution.after, err
-}
-
 func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []migration, now time.Time) (pendingMigrationExecution, error) {
 	if err := validateMigrationPlan(plan); err != nil {
 		return pendingMigrationExecution{}, err

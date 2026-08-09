@@ -12,8 +12,6 @@ import (
 )
 
 // alertShadowObservationEvery is an engineering heartbeat, not a market or
-// delivery threshold. It keeps alert producer coverage inside the
-// shortest one-minute silence horizon even when no UI or CLI client is open.
 const alertShadowObservationEvery = 30 * time.Second
 
 func (s *Server) startAlertShadowObservationLoops(ctx context.Context) {
@@ -92,7 +90,6 @@ func (s *Server) runAlertShadowDataHealthLoop(ctx context.Context) {
 }
 
 // Risk Policy, Reconciliation, and Governance deliberately share the one
-// canonical Nudge evaluation. Keeping this heartbeat on that boundary avoids
 // reassembling policy gates or treating a skipped/failed dependency as clean.
 func (s *Server) runAlertShadowNudgesLoop(ctx context.Context) {
 	ticker := time.NewTicker(alertShadowObservationEvery)
@@ -136,8 +133,6 @@ func (s *Server) observeNudgesAlertShadowHeartbeatWith(ctx context.Context, comp
 	}
 
 	// Keep the same mandatory canonical wire boundary as nudges.snapshot.
-	// This heartbeat is another caller of the composition, not another owner
-	// of Nudge copy or validation semantics.
 	wire, err := json.Marshal(result)
 	if err != nil {
 		s.debugf("alert producer: Nudge heartbeat canonical marshal unavailable: %v", err)
@@ -156,8 +151,6 @@ func (s *Server) observeNudgesAlertShadowHeartbeatWith(ctx context.Context, comp
 }
 
 // The 30-second heartbeat is projection-only. It never issues account,
-// positions, quote, Greeks, earnings, or regime reads; it projects the latest
-// scope/generation-bound canonical result or an explicit uncovered result.
 func (s *Server) runAlertShadowRulebookLoop(ctx context.Context) {
 	ticker := time.NewTicker(alertShadowObservationEvery)
 	defer ticker.Stop()
@@ -229,8 +222,6 @@ func (s *Server) observeRulebookAlertShadowHeartbeatWithReadContext(ctx context.
 	}
 	if binding.connector == nil {
 		// A Connector may appear while an unbound evaluation is in flight. Even
-		// if that read happens to look complete, it has no before/after session
-		// frontier and therefore cannot recover an episode.
 		unavailable := cloneRulesResult(result)
 		if unavailable.Status == "ok" {
 			unavailable.Status = "degraded"
@@ -259,8 +250,6 @@ func (s *Server) observeRulebookAlertShadowHeartbeatWithReadContext(ctx context.
 // orders.open. The read is scoped only after reconciliation, just as the RPC
 // handler is, and only current portfolio-stream evidence can make an empty
 // open-order set a trustworthy negative. A failed read is observed explicitly
-// as unavailable so it cannot recover a prior mismatch during the silence
-// horizon.
 func (s *Server) runAlertShadowOrderIntegrityLoop(ctx context.Context) {
 	ticker := time.NewTicker(alertShadowObservationEvery)
 	defer ticker.Stop()
@@ -281,7 +270,6 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeat(ctx context.Context) 
 	// commit dropped for advancing broker or journal evidence starves the
 	// silence horizon if the only retry is the next 30s tick. The final
 	// attempt is marked so a still-failing transient read is observed as
-	// honestly unavailable instead of silently dropped.
 	for attempt := range protectionHeartbeatStableAttempts {
 		final := attempt == protectionHeartbeatStableAttempts-1
 		settled := s.observeOrderIntegrityAlertShadowHeartbeatWith(ctx, final, func(readCtx context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
@@ -301,9 +289,7 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWith(ctx context.Conte
 }
 
 // The false return means nothing was observed this pass — the stable-evidence
-// commit dropped the observation because evidence advanced mid-flight, or a
 // non-final transient read failure is being retried; every other outcome
-// reports true.
 func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx context.Context, final bool, read alertShadowOrderIntegrityRead, derive alertShadowReadContext) bool {
 	if s == nil || s.alertShadow == nil || ctx == nil || ctx.Err() != nil || read == nil || derive == nil {
 		return true
@@ -319,7 +305,6 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 	cancel()
 	if ctx.Err() != nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
 		// Same starvation shape as a commit drop: nothing was observed this
-		// pass. Let the bounded retry rebuild against the current scope.
 		return false
 	}
 	if readErr != nil {
@@ -369,7 +354,6 @@ type alertEvidenceArmState struct {
 }
 
 // orderViewReadArm names the failure class of an order-view/journal read for
-// the transition log; fallback labels the unclassified case per call site.
 func orderViewReadArm(err error, fallback string) string {
 	switch {
 	case errors.Is(err, errOrderJournalHeadUnstable):
@@ -385,8 +369,6 @@ func orderViewReadArm(err error, fallback string) string {
 
 // orderViewReadTransient reports whether a failed order-view read is a
 // liveness race worth one in-tick rebuild: the journal head moving under the
-// reload, or the read budget expiring under machine load. Anything else is
-// treated as real and observed immediately.
 func orderViewReadTransient(err error) bool {
 	return errors.Is(err, errOrderJournalHeadUnstable) ||
 		errors.Is(err, context.DeadlineExceeded) ||
@@ -394,11 +376,7 @@ func orderViewReadTransient(err error) bool {
 }
 
 // noteAlertEvidenceArm logs one line per unavailable-window transition on an
-// alert source's evidence heartbeat: which arm opened the window, when the arm
-// changes, and how long the window lasted on recovery. Arm names describe
 // conditions, never account identities, so the lines are safe in a shared log.
-// It reports whether this call was a transition, so callers can attach one
-// Info-level detail line per window instead of per tick.
 func (s *Server) noteAlertEvidenceArm(source rpc.AlertSource, arm string) bool {
 	if s == nil {
 		return false
@@ -433,12 +411,8 @@ func suppressProtectionAlertShadowObservation(ctx context.Context) context.Conte
 }
 
 // protectionHeartbeatStableAttempts bounds the immediate rebuilds after a
-// stable-evidence commit drop. A busy portfolio stream can advance its
 // generation inside every read-to-commit window; with only the 30s tick to
-// retry, consecutive drops starve the one-minute silence horizon and the
-// composer reports producer_silent for a healthy producer. Retrying rebuilds
 // from the advanced evidence — never re-submitting the dropped observation —
-// and the bound keeps a hot stream from pinning the loop.
 const protectionHeartbeatStableAttempts = 3
 
 func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
@@ -454,15 +428,10 @@ func (s *Server) observeProtectionAlertShadowHeartbeat(ctx context.Context) {
 }
 
 // observeProtectionAlertShadowHeartbeatOnce rebuilds only the protection facts
-// needed by the alert producer. It reads the portfolio cache and SQLite order
 // journal; it never requests quotes, Greeks, account summaries, or broker
-// writes. The canonical cache read may exercise the connector's existing,
 // throttled account-updates re-subscription when a held account has no cached
 // rows. That is a read-side stream repair, not an order or account mutation.
-// The false return means nothing was observed this pass — the stable-evidence
-// commit dropped the observation because evidence advanced mid-flight, or a
 // non-final transient journal read failure is being retried; every other
-// outcome reports true.
 func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context, final bool) bool {
 	if s == nil || s.alertShadow == nil {
 		return true
@@ -528,8 +497,6 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context, 
 	input.Summary.AsOf = now
 	if ctx == nil || ctx.Err() != nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
 		// A mid-heartbeat scope move is the same starvation shape as a commit
-		// drop: nothing was observed this pass. Let the bounded retry rebuild
-		// against whatever scope is current now.
 		return false
 	}
 	if snapshotErr != nil || !snapshot.Complete || snapshot.AsOf.IsZero() || snapshot.AsOf.After(now) {
@@ -770,9 +737,7 @@ func protectionHeartbeatPositions(raw []*ibkrlib.RawPosition, scope brokerStateS
 }
 
 // protectionHeartbeatIdentityAmbiguous rejects every relevant match that would
-// fall back to a symbol because either side lacks a contract ID. Distinct
 // positive ConIDs remain safe because the coverage matcher uses exact contract
-// identity first.
 func protectionHeartbeatIdentityAmbiguous(positions *rpc.PositionsResult, orders []rpc.OrderView) bool {
 	if positions == nil {
 		return true

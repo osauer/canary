@@ -40,53 +40,29 @@ const (
 	marketEventsBorrowExtremeShares = 1_000
 
 	// marketEventsBorrowPollWorkers bounds the concurrent shortable-tick
-	// polls. Each worker is a passive tick-wait on one held market-data
-	// subscription, so 8 in flight is negligible against the gateway's
-	// slot pool; runBounded caps workers at len(symbols) for small books.
-	// Sequential polling made every Stress run pay symbols ×
 	// marketEventsBorrowPollBudget for books whose names never deliver
-	// tick 236 (observed: 3 EUR names → +7.5 s per run, and the proposal
-	// engine's 8 s market-events context expiring mid-snapshot).
 	marketEventsBorrowPollWorkers = 8
 
 	// marketEvents*RetryAfter gate re-fetch attempts after a source
 	// failure. Without failure memory a blocked endpoint re-burns its
-	// full timeout on EVERY market-events snapshot — observed with
 	// ftp3.interactivebrokers.com:21 filtered by the local network: a
-	// 10 s dial hang per Stress run, forever. Halts retries sooner than
-	// the others because it is the active-halt/LULD detector — a
 	// transient failure shouldn't blind it for long — and one timeout
-	// per minute is an acceptable cap.
 	marketEventsHaltsRetryAfter     = time.Minute
 	marketEventsRegSHORetryAfter    = 15 * time.Minute
 	marketEventsBorrowFeeRetryAfter = 15 * time.Minute
 
 	// marketEventsShortableAbsentRetry bounds how long a "tick 236 never
-	// arrived" observation suppresses re-polling that symbol. Pre-market
-	// and off-hours probes legitimately see no shortable tick, so the
 	// absence must be re-tested once the tape can plausibly have changed;
-	// 30 minutes keeps the dead-symbol protection (a never-ticking EUR
-	// name costs one extra 2.5 s parallel probe per half hour) while
-	// letting borrow inventory heal intra-session.
 	marketEventsShortableAbsentRetry = 30 * time.Minute
 
 	// marketEventsFTPDialTimeout bounds the borrow-fee FTP connect. A
-	// healthy connect is ~100 ms; filtered networks silently drop the
-	// SYN, and the previous 10 s dial timeout gated the first snapshot
-	// of every retry window. The transfer itself keeps the wider 10 s
-	// deadline — usa.txt is a multi-MB file.
 	marketEventsFTPDialTimeout = 4 * time.Second
 )
 
 var marketEventsHTTPClient = &http.Client{
 	Timeout: 10 * time.Second,
 	// Nasdaq's symdir endpoints 302-redirect to an HTML error page when
-	// a dated file does not exist (e.g. today's Reg SHO threshold list
-	// before its evening publication). Following the redirect yields an
-	// HTTP 200 HTML body that parses as an EMPTY success — caching "no
 	// threshold symbols" for 12 h and never reaching the most recent
-	// real file. Refusing redirects turns the 302 into a status error
-	// so the dated-file walk proceeds to the prior day.
 	CheckRedirect: marketEventsNoRedirect,
 }
 
@@ -120,31 +96,19 @@ type marketEventCache struct {
 	now                       func() time.Time
 
 	// shortableAbsent remembers symbols whose shortable tick (236) did
-	// not arrive within a full poll budget. Non-US listings never
-	// deliver the tick, so without this memory every market-events
-	// snapshot re-burns marketEventsBorrowPollBudget per dead symbol.
-	// The memory expires after marketEventsShortableAbsentRetry: the
-	// original whole-NY-session scope turned a legitimately quiet
-	// pre-market probe into "Borrow Unknown" for the entire trading day
-	// (observed 2026-06-11 — all six held US names stayed unknown
-	// through RTH). A gateway/farm reconnect still clears the map
-	// early via clearShortableAbsence from postConnectSetup.
 	shortableAbsent map[string]time.Time // symbol → when observed absent
 
 	// *FailedAt remember the last failed fetch per external source so
-	// the marketEvents*RetryAfter windows can suppress immediate
 	// re-fetches. Zero value = no recent failure. Cleared on success.
 	regSHOFailedAt time.Time
 	haltsFailedAt  time.Time
 
 	// authority is the sole durable runtime store after startup attachment.
 	// Borrow-fee failure/backoff is durable; Reg SHO/halt retry timestamps and
-	// shortableAbsent remain memory-only control state.
 	authority *corestore.Store
 }
 
 // shortableAbsentRecently reports whether sym's shortable tick was
-// observed absent within the last marketEventsShortableAbsentRetry.
 func (c *marketEventCache) shortableAbsentRecently(sym string, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -153,7 +117,6 @@ func (c *marketEventCache) shortableAbsentRecently(sym string, now time.Time) bo
 }
 
 // rememberShortableAbsent records that sym ran a full poll budget at now
-// without the shortable tick arriving.
 func (c *marketEventCache) rememberShortableAbsent(sym string, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -164,8 +127,6 @@ func (c *marketEventCache) rememberShortableAbsent(sym string, now time.Time) {
 }
 
 // clearShortableAbsence drops all absence records. Called on gateway
-// (re)connect: a fresh handshake is the event after which a previously
-// silent shortable feed can plausibly start delivering.
 func (c *marketEventCache) clearShortableAbsence() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -355,9 +316,6 @@ func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs 
 		res.BySymbol = nil
 	}
 	// Snapshot authority is the completion boundary, not request start. Broker
-	// fallbacks can spend seconds in bounded reads and stamp attempts on
-	// completion; keeping the earlier start time would make source evidence
-	// appear to come from the future and produce negative ages.
 	res.AsOf = c.now().UTC()
 	res.Fingerprint = rpc.BuildMarketEventsFingerprint(&res)
 	return res
@@ -401,14 +359,9 @@ func (c *marketEventCache) loadRegSHO(ctx context.Context, now time.Time) (marke
 }
 
 // errMarketEventRetrySuppressed marks the "recent failure, retry window
-// still open" path: the source served stale-or-unknown WITHOUT paying
-// another fetch timeout. The message lands in source-health notes and
-// warning details so the suppression is visible, not silent.
 var errMarketEventRetrySuppressed = errors.New("recent fetch failure; retry suppressed")
 
 // regSHOFallback serves the stale cached list when one exists, the
-// unknown-health envelope otherwise. Shared by the fetch-error and
-// retry-suppressed paths so both degrade identically.
 func regSHOFallback(cached marketEventRegSHOEntry, now time.Time, cause error) (marketEventRegSHOEntry, rpc.SourceHealth, error) {
 	if len(cached.Symbols) > 0 {
 		health := marketEventSourceHealth("reg_sho_threshold", rpc.SourceStatusStale, cached.AsOf, now, marketEventsRegSHOMaxAge, "medium-low", []string{"using stale cached Nasdaq Reg SHO threshold list: " + cause.Error()})
@@ -456,11 +409,6 @@ func (c *marketEventCache) loadHalts(ctx context.Context, now time.Time) (market
 }
 
 // haltsOKHealth ages the successful row by the fetch, not the feed's own
-// pubDate: MaxAgeSeconds describes the fetch cadence, and the RSS channel
-// stamp routinely lags it by a minute or more on a quiet tape, which read as
-// a stale flap downstream. AsOf keeps the feed stamp for display; AgeSeconds
-// is the authoritative scale consumers compare against MaxAgeSeconds, the
-// same convention the fallback paths already use.
 func haltsOKHealth(entry marketEventHaltsEntry, now time.Time, freshFor time.Duration) rpc.SourceHealth {
 	health := marketEventSourceHealth("trading_halts", rpc.SourceStatusOK, entry.AsOf, now, freshFor, "high", nil)
 	if !entry.FetchedAt.IsZero() {
@@ -582,7 +530,6 @@ func borrowFeesNotDue(cached marketEventBorrowFeeEntry, lastAttempt *marketEvent
 }
 
 // borrowFeesFallback mirrors regSHOFallback for the IBKR short-stock
-// availability file.
 func borrowFeesFallback(cached marketEventBorrowFeeEntry, now time.Time, failure *rpc.SourceFailure) (marketEventBorrowFeeEntry, rpc.SourceHealth, error) {
 	cause := borrowFeeFailureError(failure)
 	if len(cached.Symbols) > 0 {
@@ -1276,7 +1223,6 @@ func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string
 	}
 	// Per-symbol probe results land in index-addressed slots so the
 	// bounded workers never share mutable state; flags are merged after
-	// the fan-out (res.Flags gets a global sort downstream anyway).
 	type borrowProbe struct {
 		observed bool
 		hasFlag  bool
@@ -1319,9 +1265,6 @@ func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string
 			return
 		}
 		// Tick absent. Record the absence only when this probe genuinely
-		// ran out its own budget (or the gateway terminally rejected the
-		// subscription) while the parent request was still alive — an
-		// expired parent context says nothing about the symbol.
 		if ctx.Err() == nil && pollErr != nil {
 			c.rememberShortableAbsent(sym, now)
 		}

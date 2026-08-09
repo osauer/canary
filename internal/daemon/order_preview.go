@@ -9,17 +9,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
-
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -105,7 +103,6 @@ type orderTokenSigner struct {
 
 // orderTokenKeyPathForDatabase keeps test/offline authorities self-contained:
 // a custom daemon.db can never create or read the production state-root key.
-// The production default database naturally resolves to the same XDG sibling.
 func orderTokenKeyPathForDatabase(databasePath string) (string, error) {
 	databasePath = strings.TrimSpace(databasePath)
 	if databasePath == "" {
@@ -120,7 +117,6 @@ func newOrderTokenSigner(path string, now func() time.Time) (*orderTokenSigner, 
 		return nil, err
 	}
 	// Standalone construction is used by focused unit tests. The daemon binds
-	// these fields to daemon.db's head before it serves any preview request.
 	return &orderTokenSigner{key: key, now: now, authorityEpoch: "standalone", signerGeneration: 1}, nil
 }
 
@@ -359,8 +355,6 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		contract.MinTick = s.resolveContractMinTick(ctx, contract, previewMinTickTimeout)
 	}
 	// Position impact resolves before the size caps so sell-side apparent exits
-	// can also pass the worst-case short/STO gates. Every order remains subject
-	// to the ordinary notional/quantity caps: this client cannot prove that a
 	// manual TWS order has not already consumed the apparent exit capacity.
 	var positionAuthority orderPositionAuthority
 	if previewAuthority != nil {
@@ -382,7 +376,6 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	tif := strings.ToUpper(strings.TrimSpace(p.TIF))
 	if tif == "" && scope == rpc.OrderTokenScopeModify {
 		// Modify previews freeze TIF to the open order; defaulting to DAY here
-		// would reject every GTC protective-trail replacement at the draft gate.
 		tif = strings.ToUpper(strings.TrimSpace(replaceView.TIF))
 	}
 	if tif == "" {
@@ -434,7 +427,6 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		}
 		// Position-mismatch gate: position.Before is this preview's fresh
 		// positions read (the preview already failed closed above if
-		// positions were unavailable).
 		if err := validateProtectiveModifyQuantity(replaceView, draft, position.Before); err != nil {
 			return nil, err
 		}
@@ -1116,10 +1108,6 @@ func (s *Server) previewExactSessionQuote(ctx context.Context, authority *orderP
 }
 
 // previewExactSessionFXQuote captures one direct CASH/IDEALPRO pair from the
-// same physical session as the order preview. Currency-pair identity is fully
-// specified by Symbol/Currency/SecType/Exchange; unlike stocks and options it
-// does not need a contract-details round trip or positive ConID before market
-// data can be requested.
 func (s *Server) previewExactSessionFXQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
 	if authority == nil || authority.connector == nil ||
 		!strings.EqualFold(strings.TrimSpace(contract.SecType), "CASH") ||
@@ -1244,8 +1232,6 @@ func priceTick(price float64) float64 {
 }
 
 // US option exchanges enforce minimum price variations in bands: $0.01 below
-// $3.00 and $0.05 at/above for penny-program classes, coarser for the rest.
-// Contract-details MinTick is the cross-venue minimum (the penny grid), so it
 // alone under-rounds above the band boundary — broker error 110 at WhatIf.
 const (
 	optionPennyBandCeiling = 3.00
@@ -1253,11 +1239,7 @@ const (
 )
 
 // patientLimitTick returns the price grid a patient-limit draft must land on.
-// Stocks keep the static grid. Options step on the banded MPV grid above:
-// $0.05 at/above $3.00 unless the live tape proves the class quotes pennies
 // there, never finer than $0.01, and never finer than the broker-reported
-// MinTick. reqMarketRule would be the precise per-class source; until that
-// plumbing exists this conservative band keeps drafts on the enforceable grid
 // and broker WhatIf stays the fail-closed backstop.
 func patientLimitTick(contract rpc.ContractParams, quote rpc.OrderQuoteSnapshot, mid float64) float64 {
 	if strings.ToUpper(strings.TrimSpace(contract.SecType)) != "OPT" {
@@ -1271,18 +1253,13 @@ func patientLimitTick(contract rpc.ContractParams, quote rpc.OrderQuoteSnapshot,
 }
 
 // quoteProvesPennyIncrements reports whether the live tape shows the venue
-// accepting penny option prices at/above the band boundary: a bid or ask
 // at/above $3.00 sitting off the nickel grid can only print for a class
-// quoting pennies at that level. Quote sides below $3.00 prove nothing —
-// penny-program classes quote pennies there yet still step $0.05 above.
 func quoteProvesPennyIncrements(quote rpc.OrderQuoteSnapshot) bool {
 	for _, side := range []*float64{quote.Bid, quote.Ask} {
 		if side == nil || *side < optionPennyBandCeiling {
 			continue
 		}
 		// Wire quotes arrive float32-truncated (19.05 reads back as
-		// 19.049999...): snap to the penny grid before testing nickel
-		// alignment, or the noise itself reads as penny proof.
 		cents := math.Round(*side * 100)
 		if math.Mod(cents, 5) != 0 {
 			return true
@@ -1297,7 +1274,6 @@ func roundPrice(price float64) float64 {
 
 func trailMinimumTick(contract rpc.ContractParams, price float64) float64 {
 	// Prefer the broker-reported venue increment (MiFID-banded grids on
-	// Xetra make the static 0.01 wrong for e.g. EUR names above €100 —
 	// broker error 110 at WhatIf/place). Zero means unresolved: fall back
 	// to the static US-style grid and let WhatIf fail closed.
 	if contract.MinTick > 0 {
@@ -1392,7 +1368,6 @@ func stockShortOrFlip(effect string) bool {
 }
 
 // isRiskReducing describes the arithmetic effect against the current position.
-// It does not itself grant a control exemption: open-order visibility is not
 // account-global for this daemon, so pre-trade enforcement evaluates apparent
 // exits conservatively in validateOrderRiskAuthority.
 func isRiskReducing(effect string) bool {
@@ -1515,4 +1490,97 @@ func replaceTargetFromView(view rpc.OrderView) orderPreviewReplaceTarget {
 		Trail:           cloneTrailSpec(view.Trail),
 		OutsideRTH:      view.OutsideRTH,
 	}
+}
+
+// previewMinTickTimeout bounds the one-off broker contract-details fetch a
+// preview pays on a cold cache. Trail rounding falls back to the static grid
+// when it expires; broker WhatIf stays the fail-closed backstop.
+const previewMinTickTimeout = 2 * time.Second
+
+// resolveContractMinTick returns the venue minimum price increment for a
+// contract: the cached value when known, otherwise one broker
+// contract-details fetch per conID, cached for the daemon lifetime (venue
+// ticks are static for practical purposes). Returns 0 when unresolved.
+//
+// Generation and preview must round trail prices on the same grid — the
+// proposal-vs-preview drift gate compares them exactly — which is why both
+// paths resolve through this single cache.
+func (s *Server) resolveContractMinTick(ctx context.Context, contract rpc.ContractParams, timeout time.Duration) float64 {
+	if s == nil {
+		return 0
+	}
+	if tick := s.cachedContractMinTick(contract.ConID); tick > 0 {
+		return tick
+	}
+	c := s.gatewayConnector()
+	if c == nil || contract.Symbol == "" {
+		return 0
+	}
+	detail, err := c.ContractDetailsFirst(ctx, *previewIBKRContract(contract), timeout)
+	if err != nil || detail == nil || detail.MinTick <= 0 {
+		return 0
+	}
+	tick := detail.MinTick
+	// IBKR's contract-details MinTick is the minimum across *all* valid
+	// venues (midpoint/dark pools report 0.0001 for EUR names) — finer than
+	// the lit-venue trading grid. Clamp stocks to the cent floor so
+	// resolution can only coarsen rounding, never emit sub-cent prices the
+	// venue rejects; broker WhatIf remains the fail-closed arbiter.
+	switch strings.ToUpper(strings.TrimSpace(contract.SecType)) {
+	case "STK", "ETF":
+		tick = max(tick, 0.01)
+	}
+	conID := contract.ConID
+	if conID == 0 {
+		conID = detail.ConID
+	}
+	s.storeContractMinTick(conID, tick)
+	return tick
+}
+
+func (s *Server) cachedContractMinTick(conID int) float64 {
+	if s == nil || conID == 0 {
+		return 0
+	}
+	s.minTickMu.Lock()
+	defer s.minTickMu.Unlock()
+	return s.minTickByConID[conID]
+}
+
+// trailRedemptionGuard re-checks a trailing-stop draft against the live
+// market at token redemption so a moved market cannot turn a protective
+// stop into an immediate trigger.
+//
+//lint:ignore U1000 used by the trading-tag order redemption path
+func (s *Server) trailRedemptionGuard(ctx context.Context, draft rpc.OrderDraft) string {
+	if draft.Trail == nil || draft.Trail.InitialStopPrice <= 0 {
+		return ""
+	}
+	quote, err := s.fetchPreviewQuote(ctx, draft.Contract, previewMinTickTimeout)
+	if err != nil {
+		return ""
+	}
+	stop := draft.Trail.InitialStopPrice
+	if strings.EqualFold(draft.Action, rpc.OrderActionSell) {
+		if quote.Bid != nil && *quote.Bid > 0 && stop >= *quote.Bid {
+			return fmt.Sprintf("stale trail reference: initial stop %.4f is at/above the current bid %.4f and would trigger immediately; preview again", stop, *quote.Bid)
+		}
+		return ""
+	}
+	if quote.Ask != nil && *quote.Ask > 0 && stop <= *quote.Ask {
+		return fmt.Sprintf("stale trail reference: initial stop %.4f is at/below the current ask %.4f and would trigger immediately; preview again", stop, *quote.Ask)
+	}
+	return ""
+}
+
+func (s *Server) storeContractMinTick(conID int, tick float64) {
+	if s == nil || conID == 0 || tick <= 0 {
+		return
+	}
+	s.minTickMu.Lock()
+	defer s.minTickMu.Unlock()
+	if s.minTickByConID == nil {
+		s.minTickByConID = map[int]float64{}
+	}
+	s.minTickByConID[conID] = tick
 }

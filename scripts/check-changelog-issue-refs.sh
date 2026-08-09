@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 
 # A fix that closes a public issue has to tell users which release carries it.
-# GitHub closes the issue when `Fixes #N` lands on main, which leaves the issue
-# saying "closed" and nothing saying "shipped in vX.Y.Z" — the question the
-# person who found the issue actually has.
-#
 # Every issue-closing reference in the release range must therefore be named in
 # the release's changelog entry. Deliberately local: it reads git and the
 # changelog, never GitHub, so it works offline, needs no auth, and cannot fail
 # a release for a network reason. The reverse direction — a fix that closed an
 # issue without ever referencing it — is judgement, and belongs to the release
-# skill's reconciliation sweep rather than to a gate.
 
 set -euo pipefail
 
@@ -25,9 +20,7 @@ fi
 
 # The candidate is not tagged yet, so the newest reachable release tag is the
 # previous release. A first release has none and has no range to check. The
-# match filter matters: the repository also carries a separately named plugin
 # tag (`canary--vX.Y.Z`), and an unfiltered describe picks whichever is newer,
-# which silently shifts the range if the two ever stop agreeing.
 previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$range_end" 2>/dev/null || true)"
 if [ -z "$previous_tag" ]; then
 	echo "changelog-issue-refs: no previous tag reachable; nothing to reconcile"

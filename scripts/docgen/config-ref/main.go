@@ -1,19 +1,8 @@
 // Command config-ref emits docs/docs/reference/config.md from two kinds of
-// sources:
 //
-//   - Struct tables (structSources): AST-parse a Go file's root struct
-//     and every nested struct it references, recursively, collecting
-//     each field with a `toml:"..."` tag. Dotted path + Go doc comment
-//   - type become a row. Covers the TOML config plus the protection
-//     and opportunity policy files.
-//   - Environment variables: scan all .go files under the repo root
-//     for `// docgen:env NAME | description` comments. Name + the
-//     description after `|` become a row.
+//	for `// docgen:env NAME | description` comments. Name + the
 //
-// Invoked by `make docs-regen` (writes the file) and `make docs-check`
 // (writes to a tempfile, diffs against the checked-in copy, fails CI
-// if they drift). Convention is: add a field or env var, add the
-// docgen comment in the same patch, regenerate, commit together.
 package main
 
 import (
@@ -39,7 +28,6 @@ const (
 )
 
 // structSource is one generated table: a Go file, the root struct to
-// walk, and the markdown framing around the emitted rows.
 type structSource struct {
 	Path    string // Go source file, repo-relative
 	Root    string // root struct name inside that file
@@ -48,8 +36,6 @@ type structSource struct {
 }
 
 // structSources drives the generated reference. Adding a settings
-// surface is one entry here plus doc comments on the struct fields.
-// The risk policy (internal/risk/constitution.go) joins once it ships.
 var structSources = []structSource{
 	{
 		Path:    "internal/config/config.go",
@@ -85,7 +71,6 @@ type tomlField struct {
 }
 
 // Section is everything before the last path segment ("" for a
-// top-level key); Field is the last segment.
 func (f tomlField) Section() string {
 	if i := strings.LastIndex(f.Path, "."); i >= 0 {
 		return f.Path[:i]
@@ -145,11 +130,6 @@ func fatal(format string, args ...any) {
 }
 
 // parseStructRows walks the AST of path starting at the root struct
-// and extracts every field with a toml tag, recursively. A field whose
-// (possibly pointer) type is a struct declared in the same file
-// becomes a path prefix rather than a row; map[string]Struct recurses
-// with a `<name>` placeholder segment.
-// Returns rows sorted by (section, field).
 func parseStructRows(path, root string) ([]tomlField, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
@@ -236,7 +216,6 @@ func forEachStruct(file *ast.File, fn func(name string, st *ast.StructType, doc 
 			}
 			// Prefer the per-spec doc, fall back to the GenDecl doc
 			// (Go puts the comment on GenDecl when there's exactly
-			// one spec in a `type T struct {}` block).
 			doc := ts.Doc
 			if doc == nil {
 				doc = gen.Doc
@@ -255,8 +234,6 @@ func stripOmit(s string) string {
 }
 
 // goTypeName renders an ast.Expr type back to source-form text.
-// Handles the shapes we see in config.go: identifiers, pointer,
-// selector (e.g. time.Duration), map.
 func goTypeName(e ast.Expr) string {
 	switch t := e.(type) {
 	case *ast.Ident:
@@ -275,7 +252,6 @@ func goTypeName(e ast.Expr) string {
 }
 
 // commentText flattens a CommentGroup to a single line of prose,
-// stripping leading "//" markers.
 func commentText(cg *ast.CommentGroup) string {
 	if cg == nil {
 		return ""
@@ -292,9 +268,6 @@ func commentText(cg *ast.CommentGroup) string {
 }
 
 // firstSentence returns the first sentence-ish chunk of s. Heuristic:
-// split on ". " and return the first segment. The full Go comment
-// often has multiple paragraphs of context; the reference table only
-// wants the headline.
 func firstSentence(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.Index(s, ". "); i > 0 {
@@ -355,7 +328,6 @@ func scanEnvVars(root string) ([]envVar, error) {
 		return nil, err
 	}
 	// Dedup by name (in case the same env var is referenced from
-	// multiple files — take the first sighting).
 	seen := map[string]bool{}
 	uniq := make([]envVar, 0, len(out))
 	for _, e := range out {
@@ -370,10 +342,8 @@ func scanEnvVars(root string) ([]envVar, error) {
 }
 
 // validateDocumentedEnvReads makes the docgen comment convention enforceable.
-// It finds production os.Getenv/os.LookupEnv calls whose argument is an
 // CANARY_* or broker-specific IBKR_* string literal or package constant and requires a matching
 // // docgen:env row. Dynamic/test-only environment reads are outside the public
-// config reference.
 func validateDocumentedEnvReads(root string, documented []envVar) error {
 	type sourceFile struct {
 		path string
@@ -386,8 +356,6 @@ func validateDocumentedEnvReads(root string, documented []envVar) error {
 		documentedNames[env.Name] = true
 	}
 	// Retired inputs may still be read solely to fail closed or preserve an
-	// anti-bypass restriction. They are deliberately absent from the canonical
-	// configuration reference because they are not supported aliases.
 	retiredInputs := map[string]bool{
 		"IBKR_AGENT_CONTEXT": true,
 		"IBKR_INSTALL_DIR":   true,

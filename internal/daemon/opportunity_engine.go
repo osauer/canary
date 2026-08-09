@@ -7,30 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const opportunityRefreshRetryBase = 30 * time.Second
 
 // opportunityRefreshBackoffCap bounds sustained-failure retries independently
-// of the 2m refresh cadence, mirroring proposalRefreshBackoffCap. Before this
-// cap the Run loop retried (and warned) every 2m for the whole outage — a
-// multi-hour gateway-down stretch logged ~30 "refresh blocked" WARN/hour
-// (observed 652 over one weekend day) while the proposals engine, already
-// capped at 15m, logged ~4/hour for the identical outage. Capping the retry at
-// 15m thins the trail to match with no lost signal: the onset warn, the
-// per-cap heartbeat, the recovery info line, and the status "degraded" row all
-// remain, and recovery is kick-driven (postConnectSetup kicks both engines), so
-// the wider cap adds no recovery lag. (2026-07-12)
 const opportunityRefreshBackoffCap = 15 * time.Minute
 
 type opportunityEngine struct {
@@ -52,8 +42,6 @@ type opportunityEngine struct {
 }
 
 // opportunityRefreshHealth is the engine's refresh-streak view for the
-// status.health opportunities subsystem row, mirroring
-// proposalRefreshHealth.
 type opportunityRefreshHealth struct {
 	Streak     int
 	Since      time.Time
@@ -113,8 +101,6 @@ func (e *opportunityEngine) Run(ctx context.Context) {
 		}
 		// Refresh records the outcome itself (noteRefreshOutcome); a second
 		// call here would double-count the failure streak, halving the
-		// warn threshold and inflating the "blocked N consecutive times"
-		// status trail.
 		snap, err := e.Refresh(ctx, false)
 		wait := next
 		if err != nil || opportunityRefreshTransient(snap) {
@@ -167,8 +153,6 @@ func (e *opportunityEngine) Refresh(ctx context.Context, show bool) (rpc.Opportu
 }
 
 // RefreshHealth reports the current transient-failure streak and the as_of
-// of the snapshot being served. Zero streak means the last refresh
-// installed cleanly.
 func (e *opportunityEngine) RefreshHealth() opportunityRefreshHealth {
 	if e == nil {
 		return opportunityRefreshHealth{}
@@ -184,16 +168,10 @@ func (e *opportunityEngine) RefreshHealth() opportunityRefreshHealth {
 }
 
 // noteRefreshOutcome advances the transient-failure streak after every
-// refresh, regardless of caller, and emits the throttled log trail.
 // Transient failures preserve the last-good snapshot and return err == nil
 // — the blocker codes are the only signal — so this is where a stalled
-// panel becomes diagnosable. Quiet below proposalRefreshWarnStreak, then
 // one warn per failed attempt: Run's backoff (refreshBackoff) paces those at
-// 30s/1m/2m/… doubling up to opportunityRefreshBackoffCap, so a persistent
-// outage logs once per escalation and then once per cap (15m), not once per
-// poll. One info line closes the streak when a refresh finally lands. Shares
 // refreshBackoff with the proposals engine so both broker-state feeds diagnose
-// the same way.
 func (e *opportunityEngine) noteRefreshOutcome(snap rpc.OpportunitySnapshot, err error) {
 	if e == nil {
 		return
@@ -227,11 +205,7 @@ func (e *opportunityEngine) noteRefreshOutcome(snap rpc.OpportunitySnapshot, err
 
 // opportunityRefreshTransient reports whether the installed snapshot is
 // blocked on a condition the next broker heartbeat can clear (connection
-// not yet up, session identity not yet concrete, session switch still
 // settling). Refresh failures that preserve a last-good snapshot return
-// err == nil but still carry these blocker codes, so the codes are the
-// signal, not the returned error. Deliberately excludes
-// opportunities_disabled and policy drift/error blockers: those are
 // operator-owned states, not outages, and must not count as refresh
 // failures.
 func opportunityRefreshTransient(snap rpc.OpportunitySnapshot) bool {
@@ -245,7 +219,6 @@ func opportunityRefreshTransient(snap rpc.OpportunitySnapshot) bool {
 }
 
 // opportunityBlockerCodes flattens the installed snapshot's blocker codes
-// for the refresh-streak trail; the raw fetch error stands in when a
 // failure path produced no blockers.
 func opportunityBlockerCodes(snap rpc.OpportunitySnapshot, err error) []string {
 	var out []string
@@ -588,8 +561,6 @@ func optionExerciseOpportunity(policy opportunityPolicy, status rpc.OpportunityP
 }
 
 // applyExerciseFundingPreflight adds current account funding evidence to call
-// exercises that buy stock to close or reduce a short. Puts deliver existing
-// long shares and therefore do not consume strike cash. This is a local,
 // account-scoped preflight; IBKR remains authoritative for final acceptance.
 func applyExerciseFundingPreflight(opp *rpc.Opportunity, account *rpc.AccountResult) {
 	if opp == nil || !strings.EqualFold(opp.Contract.Right, "C") ||
@@ -984,10 +955,7 @@ func (e *opportunityEngine) installSnapshot(snap rpc.OpportunitySnapshot, show b
 
 // preserveSnapshotOnRefreshFailure keeps serving the last-good snapshot
 // through a transient fetch failure instead of clobbering it with an empty
-// blocker shell — without it, every daemon boot wiped the snapshot just
 // re-adopted from disk because the startup kick races the gateway connect.
-// The transient blockers are merged in so callers still see why the data
-// is stale. Mirrors the proposals engine's guard.
 func (e *opportunityEngine) preserveSnapshotOnRefreshFailure(scope brokerStateScope, status rpc.OpportunityStatus, policyStatus rpc.OpportunityPolicyStatus, blockers []rpc.TradingBlocker, show bool) (rpc.OpportunitySnapshot, bool) {
 	e.mu.Lock()
 	snap := cloneOpportunitySnapshot(e.snapshot)
@@ -997,8 +965,6 @@ func (e *opportunityEngine) preserveSnapshotOnRefreshFailure(scope brokerStateSc
 	}
 	// Preserving last-good opportunities through a transient fetch failure
 	// is only safe when they were generated for the same session: a paper
-	// snapshot preserved through the reconnect blips of a paper→live
-	// switch would resurface paper opportunities under live.
 	if !sameBrokerScope(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}, scope) {
 		if e.server != nil {
 			e.server.warnf("opportunities: dropping preserved snapshot on refresh failure: snapshot scope %q/%q does not match connected session %q/%q", snap.AccountID, snap.AccountMode, scope.Account, scope.Mode)
@@ -1018,8 +984,6 @@ func (e *opportunityEngine) preserveSnapshotOnRefreshFailure(scope brokerStateSc
 }
 
 // opportunitySnapshotUsable reports whether snap carries generated
-// opportunities worth preserving; blocker shells and never-generated
-// snapshots regenerate instead.
 func opportunitySnapshotUsable(snap rpc.OpportunitySnapshot) bool {
 	return snap.Kind == rpc.OpportunitySnapshotKind && snap.Revision != "" && snap.Revision != "empty" && len(snap.Opportunities) > 0
 }
@@ -1040,7 +1004,6 @@ func sameOpportunityPolicy(snap rpc.OpportunitySnapshot, status rpc.OpportunityP
 // installPreservedSnapshot swaps the served snapshot without persisting:
 // the preserved copy carries transient blockers that must not survive a
 // restart, and the on-disk last-good copy is exactly what preservation is
-// protecting.
 func (e *opportunityEngine) installPreservedSnapshot(snap rpc.OpportunitySnapshot, show bool) {
 	e.replaceSnapshot(snap)
 	if show {
@@ -1204,4 +1167,100 @@ func cloneOpportunitySnapshot(in rpc.OpportunitySnapshot) rpc.OpportunitySnapsho
 func shortStableHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:8])
+}
+
+func (s *Server) handleOpportunitiesStatus() *rpc.OpportunityStatus {
+	st := s.opportunityStatus()
+	return &st
+}
+
+func (s *Server) handleOpportunitiesSnapshot(req *rpc.Request) *rpc.OpportunitySnapshot {
+	var p rpc.OpportunitySnapshotParams
+	_ = decodeParams(req.Params, &p)
+	if s.opportunities == nil {
+		snap := emptyOpportunitySnapshot(s.orderNow())
+		return &snap
+	}
+	snap := s.opportunities.Snapshot(p.Show)
+	return &snap
+}
+
+func (s *Server) handleOpportunitiesRefresh(ctx context.Context, req *rpc.Request) (*rpc.OpportunitySnapshot, error) {
+	var p rpc.OpportunityRefreshParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if s.opportunities == nil {
+		snap := emptyOpportunitySnapshot(s.orderNow())
+		return &snap, nil
+	}
+	snap, err := s.opportunities.Refresh(ctx, p.Show)
+	return &snap, err
+}
+
+func (s *Server) handleOpportunitiesPreviewExercise(ctx context.Context, req *rpc.Request) (*rpc.OpportunityExercisePreviewResult, error) {
+	var p rpc.OpportunityExercisePreviewParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if s.opportunities == nil {
+		return &rpc.OpportunityExercisePreviewResult{Accepted: false, AsOf: s.orderNow(), Blockers: []rpc.TradingBlocker{{Code: "opportunity_engine_unavailable", Message: "opportunity engine is unavailable"}}}, nil
+	}
+	res, err := s.opportunities.Preview(ctx, p)
+	return &res, err
+}
+
+func (s *Server) handleOpportunitiesSubmitExercise(ctx context.Context, req *rpc.Request) (*rpc.OpportunityExerciseSubmitResult, error) {
+	var p rpc.OpportunityExerciseSubmitParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if s.opportunities == nil {
+		return &rpc.OpportunityExerciseSubmitResult{Accepted: false, AsOf: s.orderNow(), Blockers: []rpc.TradingBlocker{{Code: "opportunity_engine_unavailable", Message: "opportunity engine is unavailable"}}}, nil
+	}
+	s.brokerWriteMu.Lock()
+	defer s.brokerWriteMu.Unlock()
+	res, err := s.opportunities.Submit(ctx, p)
+	return &res, err
+}
+
+func (s *Server) handleOpportunitiesIgnore(req *rpc.Request) *rpc.OpportunityIgnoreResult {
+	var p rpc.OpportunityIgnoreParams
+	_ = decodeParams(req.Params, &p)
+	if s.opportunities == nil {
+		return &rpc.OpportunityIgnoreResult{Accepted: false, Key: p.Key, Revision: p.Revision, Message: "opportunity engine is unavailable", AsOf: s.orderNow()}
+	}
+	res := s.opportunities.Ignore(p)
+	return &res
+}
+
+func (s *Server) opportunityStatus() rpc.OpportunityStatus {
+	now := s.orderNow()
+	cfg := s.cfg.Opportunities.WithDefaults()
+	s.mu.Lock()
+	ep := s.endpoint
+	s.mu.Unlock()
+	trading := s.tradingStatus(ep)
+	policy := rpc.OpportunityPolicyStatus{Status: rpc.OpportunityPolicyStatusDisabled}
+	if s.opportunityPolicies != nil {
+		policy = s.opportunityPolicies.Status()
+	}
+	out := rpc.OpportunityStatus{
+		Kind:           rpc.OpportunityStatusKind,
+		AsOf:           now,
+		Enabled:        cfg.EnabledResolved(),
+		HotReload:      cfg.HotReloadEnabled(),
+		ReloadInterval: cfg.ReloadIntervalDuration().String(),
+		RefreshCadence: cfg.RefreshCadenceDuration().String(),
+		Policy:         policy,
+		Trading:        trading,
+	}
+	if !out.Enabled {
+		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "opportunities_disabled", Message: "opportunities are disabled by config"})
+	}
+	if policy.Status == rpc.OpportunityPolicyStatusDrift || policy.Status == rpc.OpportunityPolicyStatusError {
+		out.Blockers = append(out.Blockers, policy.Blockers...)
+	}
+	out.Blocked = len(out.Blockers) > 0
+	return out
 }

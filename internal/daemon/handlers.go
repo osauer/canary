@@ -26,9 +26,6 @@ import (
 // result into the wire shape exposed to the CLI.
 // dailyPnLStaleGrace is how old the account daily-P&L frame may be before
 // handleAccountSummary asks the connector to self-heal the reqPnL stream (see
-// Connector.MaybeResubscribeStaleDailyPnL). Matches the connector's own
-// staleness window; the daemon pre-checks it to skip the calendar lookup on the
-// common fresh path.
 const dailyPnLStaleGrace = 90 * time.Second
 
 func (s *Server) handleAccountSummary(ctx context.Context) (*rpc.AccountResult, error) {
@@ -44,7 +41,6 @@ type accountSummaryAuthority struct {
 }
 
 // buildAccountSummary shares the account wire builder with read-only daemon
-// compositions. observe=false suppresses the risk-capital observation write;
 // the returned typed account result is otherwise identical.
 func (s *Server) buildAccountSummary(ctx context.Context, observe bool) (*rpc.AccountResult, error) {
 	result, _, err := s.buildAccountSummaryWithAuthority(ctx, observe)
@@ -52,9 +48,7 @@ func (s *Server) buildAccountSummary(ctx context.Context, observe bool) (*rpc.Ac
 }
 
 // buildAccountSummaryWithAuthority preserves the public account fallback but
-// also returns the typed availability and source provenance strict consumers
 // need. A cached fallback is usable display context, never fresh Rulebook
-// evidence.
 func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe bool) (*rpc.AccountResult, accountSummaryAuthority, error) {
 	c := s.gatewayConnector()
 	if c == nil {
@@ -150,14 +144,10 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		res.CurrencyExposure = buildCurrencyExposure(ledger, res.BaseCurrency)
 	}
 	// Daily P&L: read the connector's most-recent reqPnL frame. ok=false
-	// before the first frame arrives — leave pointers nil (no fabrication).
-	// Subscribe lazily on the first call when the cache is empty: post-
 	// connect setup skips the subscribe in auto-detect mode (ep.Account is
 	// empty until the gateway emits managedAccounts after handshake), so
 	// the first `account` call doubles as the kickoff. SubscribeAccountPnL
 	// is idempotent — subsequent calls for the same account are no-ops. After
-	// kicking the subscription, wait briefly so cold-start Stress does not
-	// falsely report missing P&L while the first frame is in flight.
 	snap, ok := c.AccountDailyPnL()
 	if !ok {
 		if account := scope.Account; brokerScopeAccountConcrete(account) {
@@ -172,12 +162,8 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		res.PnLUnrealizedTotal = snap.UnrealizedTotalPnL
 		res.PnLRealizedTotal = snap.RealizedTotalPnL
 		// Self-heal a silently-stalled reqPnL stream. The gateway can stop
-		// feeding the daily-P&L subscription (observed after a pre-market
 		// subscribe that never resumed post-open) while account-updates keep
 		// flowing — NLV stays live but daily P&L freezes. SubscribeAccountPnL is
-		// idempotent and cannot revive it, so the connector force-rebuilds, gated
-		// on market hours (off-hours the stream idles legitimately) and throttled.
-		// When it fires, wait briefly for the fresh frame before returning.
 		if !snap.AsOf.IsZero() && time.Since(snap.AsOf) >= dailyPnLStaleGrace {
 			marketOpen := false
 			if ses, sErr := marketcal.New().SessionAt(marketcal.MarketUSEquity, time.Now()); sErr == nil {
@@ -210,9 +196,6 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	res.Authority = accountResultDataAuthority(scope, raw, provenance, res)
 	// Feed the risk-constitution capital state: observation cadence is
 	// usage cadence — every successful account read updates the cash-flow-
-	// adjusted peak and drawdown tier; there is deliberately no scheduler
-	// in v1. Skipped on a base-currency mismatch: capital math in the
-	// wrong currency is worse than none.
 	if observe && s.riskCapital != nil && res.NetLiquidation > 0 {
 		var pol *risk.Constitution
 		if s.riskPolicies != nil {
@@ -222,9 +205,6 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 			strings.EqualFold(pol.Capital.BaseCurrency, res.BaseCurrency) {
 			if firstDailyObservation := s.riskCapital.Observe(res.NetLiquidation, res.AsOf, pol, s.currentBrokerStateScope()); firstDailyObservation {
 				// The broker report can arrive before today's runtime account
-				// value. Re-evaluate once when that missing daily counterpart
-				// first appears; the report-id gate keeps automatic extension
-				// idempotent.
 				s.evaluateRiskPolicyV3Reconciliation()
 			}
 		}
@@ -235,7 +215,6 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 // accountResultDataAuthority projects the daemon's internal account summary
 // evidence onto the shared RPC truth contract. The legacy scalar values remain
 // float64 for compatibility; Fields is what distinguishes missing from a real
-// zero for every consumer outside the daemon.
 func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountSummary, provenance ibkrlib.AccountSummaryProvenance, res *rpc.AccountResult) *rpc.AccountDataAuthority {
 	authority := &rpc.AccountDataAuthority{
 		Scope:        accountDataScope(scope),
@@ -294,7 +273,6 @@ func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountS
 // accountResultAuthorityAsOf keeps display context separate from decision
 // authority. Cached account-update rows are reparsed and stamped at read time,
 // so only a completed one-shot request has an observation time that consumers
-// may use as current evidence.
 func accountResultAuthorityAsOf(authority accountSummaryAuthority, completedAt time.Time) time.Time {
 	asOf := authority.AsOf.UTC()
 	if authority.Provenance != ibkrlib.AccountSummaryProvenanceRequest ||
@@ -324,10 +302,7 @@ func waitForAccountDailyPnL(ctx context.Context, reader accountDailyPnLReader, d
 // buildCurrencyExposure flattens RawAccountSummary.CurrencyLedger into the
 // wire-shape CurrencyExposure rows, sorted by currency for stable output.
 // Drops the row whose currency matches the account base (it duplicates
-// the top-level totals and exposure is by definition "non-base") and
-// also drops rows with missing/invalid exchange rates. When the caller
 // didn't supply a base, rows whose ExchangeRate is exactly 1.0 are dropped
-// as a defense-in-depth fallback because the row may be the base currency.
 func buildCurrencyExposure(ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) []rpc.CurrencyExposure {
 	if len(ledger) == 0 {
 		return nil
@@ -343,7 +318,6 @@ func buildCurrencyExposure(ledger map[string]ibkrlib.CurrencyLedger, baseCcy str
 			continue
 		}
 		// ExchangeRate==1 fallback for accounts where the base
-		// currency couldn't be resolved upstream.
 		if baseCcy == "" && row.ExchangeRate == 1.0 {
 			continue
 		}
@@ -365,7 +339,6 @@ func buildCurrencyExposure(ledger map[string]ibkrlib.CurrencyLedger, baseCcy str
 }
 
 // handlePositionsList fetches all positions, splits stocks vs options, and
-// applies the optional symbol/type filter.
 func (s *Server) handlePositionsList(ctx context.Context, req *rpc.Request) (*rpc.PositionsResult, error) {
 	return s.handlePositionsListCaptured(ctx, req, nil)
 }
@@ -413,9 +386,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	wantType := strings.ToLower(strings.TrimSpace(p.Type))
 
 	// conIDByPositionKey lets fillDailyPnL look up the IBKR conId for
-	// each rendered view without threading it through PositionView (which
 	// stays focused on the user-visible wire shape). Key is built by
-	// positionViewKey so it survives sort + group passes.
 	conIDByPositionKey := map[string]int{}
 
 	for _, pos := range positions {
@@ -448,13 +419,6 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 			Mark:          pos.MarketPrice,
 			ValuationMark: pos.MarketPrice,
 			// The broker's own market value, not price × quantity. IB quotes a
-			// bond as a percentage of par against a face-value quantity, so the
-			// product overstates such a row by roughly 100× — a bill at 98.5 on
-			// 10,000 face reads 985,000 instead of 9,850. Equities were unaffected
-			// because the two agree there, which is why it stayed hidden. The
-			// portfolio frame's own value is already parsed and validated: a row
-			// whose market value is missing or non-finite discards the whole
-			// generation, so there is nothing to fall back to and no fallback here.
 			MarketValue:   pos.MarketValue,
 			UnrealizedPnL: pos.UnrealizedPNL,
 			RealizedPnL:   pos.RealizedPNL,
@@ -483,30 +447,21 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	})
 
 	// Pre-warm quote summaries for held stock underlyings, then fill
-	// DayChange/DayChangePct on each row. This supersedes the older
-	// prev-close-only probe for stock rows while still feeding the same
-	// prev-close cache options use as their underlying anchor.
 	s.prewarmStockQuoteSummaries(ctx, c, res.Stocks)
 	flagZeroValueStockPositions(res.Stocks)
 	s.fillDailyChange(res.Stocks)
 	// Options group with their underlying so stock prev close feeds the
-	// option's underlying field too — useful as a contextual anchor even
-	// though we don't compute per-option DayChange yet.
 	s.fillOptionUnderlyingPrevClose(res.Options)
 	// Greeks: brief subscribe to each option leg, harvest model-
-	// computation tick within budget, fill per-leg Delta/Gamma/Theta/
-	// Vega. Same bounded fan-out and TTL-cached pattern as prev close.
 	s.prewarmOptionGreeks(ctx, c, res.Options)
 	s.fillOptionGreeks(c, res.Options)
 	// Option day-change-money runs after Greeks because fillOptionGreeks
-	// is where OptionPrevClose is read from the per-leg tick stream.
 	fillOptionDayChangeMoney(res.Options)
 
 	// FX/base-currency decoration: prefer the per-currency snapshot
 	// maintained by the daemon's reqAccountUpdates subscription. If that
 	// startup cache lacks account-base, NLV, or a held non-base currency,
 	// take one bounded account-summary refresh before filling FXRate /
-	// *_base fields; otherwise downstream math would use a partial ledger.
 	baseCcy := ""
 	var netLiquidationBase *float64
 	ledger := c.CurrencyLedgerSnapshot()
@@ -524,9 +479,6 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	missing := missingPositionFXCurrencies(res.Stocks, res.Options, ledger, baseCcy)
 	if baseCcy == "" || netLiquidationBase == nil || len(missing) > 0 {
 		// Reuse the daemon's shared account-snapshot flight rather than issuing a
-		// new one-shot request on every positions --watch poll. The caller keeps
-		// the old three-second enrichment budget; a timed-out shared flight may
-		// complete in the background and the next poll can reuse it for 15s.
 		refreshCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		snapshot, err := s.readAccountSnapshot(refreshCtx, c)
 		cancel()
@@ -549,10 +501,6 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	fillFXRates(res.Options, ledger, baseCcy)
 
 	// Daily P&L: kick off reqPnLSingle subscriptions (idempotent — the
-	// connector cache shorts repeated calls) and fill view.DailyPnL from
-	// whatever the connector has cached so far. First call after daemon
-	// startup pre-warms; subsequent calls within a few seconds read fresh
-	// values. Nil pointer means "no frame yet" / "no entitlement" /
 	// "DBL_MAX sentinel" — never zero-substituted.
 	s.fillDailyPnL(c, res.Stocks, conIDByPositionKey, expectedScope.Account)
 	s.fillDailyPnL(c, res.Options, conIDByPositionKey, expectedScope.Account)
@@ -647,9 +595,6 @@ func positionsAccountDataReason(arm string) rpc.AccountDataReason {
 }
 
 // positionsResultAuthorityAsOf stamps only a complete, current, account-scoped
-// portfolio projection. Cached rows remain useful context when the stream is
-// unprimed or stale, but a zero timestamp makes that uncertainty explicit to
-// Stress and every other consumer instead of laundering the handler time into
 // a fresh empty-book receipt.
 func positionsResultAuthorityAsOf(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, completedAt time.Time) time.Time {
 	if classifyPortfolioStreamHealth(scope, health, completedAt.UTC()) != orderIntegrityHealthCurrent {
@@ -659,16 +604,9 @@ func positionsResultAuthorityAsOf(scope brokerStateScope, health ibkrlib.Portfol
 }
 
 // positionStockQuoteBudget is the per-symbol wait for enriching held stock
-// positions with the same quote summary fields watchlist/quote render.
-// Short by design: positions already have portfolio marks, so this path is
-// opportunistic context, not the source of truth for holdings.
 const positionStockQuoteBudget = 1500 * time.Millisecond
 
 // prewarmStockQuoteSummaries dispatches brief refcounted market-data holds
-// for held stock rows and copies quote-context fields onto the position
-// views. It also writes the latest completed regular-session close into the
-// existing cache so fillDailyChange and option-underlying context reuse the
-// same value.
 func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Connector, stocks []rpc.PositionView) {
 	if c == nil || len(stocks) == 0 {
 		return
@@ -681,11 +619,7 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 	seen := map[string]bool{}
 	for i := range stocks {
 		// The non-option slice carries every secType that is not OPT — bonds,
-		// bills, funds, futures, cash. They share the slice, not the
-		// semantics: probing one as STK on its bare symbol returns the
-		// same-ticker equity, and a treasury symbolled "T" would be decorated
 		// with, and day-changed against, AT&T. Those rows keep the broker's
-		// own mark and no quote context.
 		if !positionQuotesAsStock(stocks[i]) {
 			continue
 		}
@@ -695,8 +629,6 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 		}
 		// Zero-value rows are probed too: the probe is the evidence that
 		// either disproves inactivity (live quote) or reaches the broker's
-		// terminal verdict; the connector's inactive marks keep repeat
-		// probes of genuinely dead names cheap.
 		seen[sym] = true
 		jobs = append(jobs, job{
 			index: i,
@@ -838,9 +770,6 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 // semantics PositionView reports. Stocks may carry 100 on the wire where the
 // wire-shape contract is per-share, so that one case is coerced to 1. The
 // coercion is scoped to STK on purpose: a future's multiplier of exactly 100 is
-// contractual, and coercing it understates the position's notional by two
-// orders of magnitude. Absent or zero multipliers normalise to a single unit,
-// which is what the CLI and rulebook renderers already assumed.
 func positionViewMultiplier(secType string, raw int) int {
 	multiplier := max(raw, 1)
 	if secType == "STK" && multiplier == 100 {
@@ -864,38 +793,21 @@ func positionSecType(raw string) string {
 }
 
 // positionViewKey produces a stable identifier for a PositionView,
-// usable as a map key to associate auxiliary state (conId, daily P&L
 // pointer) without threading those fields through the wire shape. Two
-// views built from the same underlying position produce the same key.
-//
 // Every identity field participates. SecType namespaces the security
-// types against each other, and ConID separates contracts that share a
-// Symbol: IB repeats a base symbol across treasury issues, and futures
-// repeat one across expiries, so Symbol alone is not an identity.
 func positionViewKey(v rpc.PositionView) string {
 	return fmt.Sprintf("%s|%s|%d|%s|%s|%.4f", v.SecType, v.Symbol, v.ConID, v.Expiry, v.Right, v.Strike)
 }
 
 // maxDailyPnLSubscriptions caps the per-positions-call fan-out of
 // reqPnLSingle subscriptions. IBKR doesn't document a hard limit, but
-// community reporting puts the gateway's tolerance around 50 streams;
 // accounts with more positions than that get daily P&L on the first 50
-// and nil on the rest. Honest, not silent-zero. Renders as em-dash.
 const maxDailyPnLSubscriptions = 50
 
 // fillDailyPnL subscribes (if needed) to reqPnLSingle for each row's
-// conId and copies the connector's most-recent cached value into
-// view.DailyPnL. Idempotent — repeat invocations within a single
-// positions call (stocks then options) build on the same cache.
-//
-// Two branches per row:
-//   - cache already populated → just copy the value
 //   - cache empty → subscribe (if we have an account and we're under
-//     maxDailyPnLSubscriptions), copy nil
 //
 // Subscribing requires an account; if account is unknown the
-// subscribe branch is skipped, but the read branch still fires —
-// which matters for unit tests that seed the cache directly.
 func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, conIDs map[string]int, account string) {
 	if c == nil || len(rows) == 0 {
 		return
@@ -925,8 +837,6 @@ func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, con
 }
 
 // activeDailyPnLCount is a thin probe of how many per-conId PnL
-// subscriptions the connector currently holds. Exposed via the
-// connector's cache; the daemon uses it to honor maxDailyPnLSubscriptions
 // without reaching into pkg/ibkr internals.
 func (s *Server) activeDailyPnLCount(c *ibkrlib.Connector) int {
 	return c.ActiveDailyPnLSubscriptions()
@@ -937,11 +847,6 @@ const fxRepairQuoteBudget = 1200 * time.Millisecond
 type currencyRateResolver func(context.Context, string, string, time.Duration) (float64, bool)
 
 // repairCurrencyLedgerFXRates fixes a live-gateway quirk where streaming
-// $LEDGER rows sometimes report ExchangeRate=1 for non-base currencies.
-// Downstream exposure math treats ExchangeRate as BASE per CCY, so a fake
-// unit rate is worse than missing data. Keep valid non-unit rates, resolve
-// missing or suspicious unit rates through bounded FX snapshots, and mark
-// unresolved rates as unavailable (0) so consumers skip them.
 func repairCurrencyLedgerFXRates(ctx context.Context, c *ibkrlib.Connector, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) map[string]ibkrlib.CurrencyLedger {
 	return repairCurrencyLedgerFXRatesWithResolver(ctx, ledger, baseCcy, fxRepairQuoteBudget, func(ctx context.Context, baseCcy, ccy string, timeout time.Duration) (float64, bool) {
 		return resolveBasePerCurrencyFXRate(ctx, c, baseCcy, ccy, timeout)
@@ -1074,8 +979,6 @@ func missingPositionFXCurrencies(stocks, options []rpc.PositionView, ledger map[
 }
 
 // fillFXRates copies the per-currency ExchangeRate into each non-base
-// position's FXRate field. Same-currency rows keep it nil because the
-// conversion is implicitly 1.0.
 func fillFXRates(rows []rpc.PositionView, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) {
 	for i := range rows {
 		p := &rows[i]
@@ -1175,11 +1078,7 @@ func flagOptionMarkOutsideBidAsk(options []rpc.PositionView) {
 }
 
 // flagZeroValueStockPositions marks rows whose quote probe left them with
-// zero marks and no quote fields. Numeric zeros are a data-quality flag, not
 // authority: only the broker's terminal non-reporting verdict (stamped by
-// prewarmStockQuoteSummaries from the connector's guarded inactive marks) may
-// mint QuoteExpectationNone, so a transiently zeroed real holding stays
-// visible as unresolved exposure instead of being sealed as expected-silent.
 func flagZeroValueStockPositions(stocks []rpc.PositionView) {
 	for i := range stocks {
 		p := &stocks[i]
@@ -1226,8 +1125,6 @@ func optionWarningScope(p rpc.PositionView) string {
 }
 
 // addFXSensitivity computes the portfolio-wide 1%-FX-move sensitivity
-// in base currency: Σ (non-base NetLiquidation × ExchangeRate × 0.01).
-// Skips when the ledger is empty (single-currency book or pre-handshake)
 // — never fabricates a zero when the answer is "unknown".
 func addFXSensitivity(p *rpc.PositionsPortfolio, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) {
 	if p == nil || len(ledger) == 0 {
@@ -1258,24 +1155,12 @@ func addFXSensitivity(p *rpc.PositionsPortfolio, ledger map[string]ibkrlib.Curre
 }
 
 // fillDailyChange populates PrevClose / DayChange / DayChangePct /
-// DayChangeMoney on each stock row from the row's regular-close field or
-// the cache. Rows whose underlying has no positive close anchor (cache
-// miss, dead stream) are left untouched — pointers stay nil and the renderer
-// shows an em-dash.
-//
-// DayChangeMoney is qty × DayChange (stocks have multiplier 1; the
-// dollar impact on the position equals the per-share move times shares
-// held). Computed inline rather than in computePositionDayChange so the
-// option path can supply its own (Mark − OptionPrevClose) inputs without
-// duplicating the price-level math.
 func (s *Server) fillDailyChange(stocks []rpc.PositionView) {
 	now := time.Now()
 	for i := range stocks {
 		p := &stocks[i]
 		// prevCloses is keyed by bare symbol, so a held equity's close would
-		// reach a bond or future sharing its ticker even once the quote probe
 		// stops fetching one. Same rule as the probe: only equities carry a
-		// day change here.
 		if !positionQuotesAsStock(*p) {
 			continue
 		}
@@ -1305,17 +1190,8 @@ func (s *Server) fillDailyChange(stocks []rpc.PositionView) {
 }
 
 // fillOptionDayChangeMoney computes the position-level dollar move on
-// each option leg using the contract's own prev close (OptionPrevClose,
-// populated by fillOptionGreeks from the per-leg tick stream — not the
-// underlying's PrevClose, which would give the wrong answer). Skips legs
-// where either input is missing; pointers stay nil and the renderer
-// shows an em-dash.
-//
-// Formula: qty × multiplier × (Mark − OptionPrevClose). Multiplier
 // defaults to 100 when the wire value is zero — matches the convention
 // in avgCostPerShare and IBKR's per-contract pricing for standard equity
-// options (a real zero would mean a non-standard contract spec we can't
-// price honestly).
 func fillOptionDayChangeMoney(options []rpc.PositionView) {
 	for i := range options {
 		p := &options[i]
@@ -1332,9 +1208,6 @@ func fillOptionDayChangeMoney(options []rpc.PositionView) {
 }
 
 // fillOptionUnderlyingPrevClose copies the cached underlying regular close
-// onto each option leg's PrevClose field — useful as a contextual anchor
-// when the renderer groups by underlying. The option's own DayChange
-// stays nil because we don't track contract-level prev close.
 func (s *Server) fillOptionUnderlyingPrevClose(options []rpc.PositionView) {
 	if s.prevCloses == nil {
 		return
@@ -1353,23 +1226,12 @@ func (s *Server) fillOptionUnderlyingPrevClose(options []rpc.PositionView) {
 }
 
 // positionsPrewarmWorkers bounds the per-positions-call market-data
-// fan-out. 4 mirrors handleChainFetch — the gateway throttles
-// aggressive subscribe churn beyond that.
 const positionsPrewarmWorkers = 4
 
 // optionGreeksBudget is the per-leg deadline for capturing the IBKR
-// model-computation tick. Long enough for the gateway's typical 200-
-// 800 ms latency between subscribe and the first tick-21 row, short
-// enough that a 15-leg book cold-fetch stays under ~6 s wall time at
-// 4-way parallelism. Negative-cache means subsequent calls within the
-// TTL pay zero for legs that already returned empty.
 const optionGreeksBudget = 2500 * time.Millisecond
 
 // prewarmOptionGreeks dispatches up to positionsPrewarmWorkers concurrent
-// brief subscribes for each option leg, harvests the model-computation
-// Greeks (msg 21 tickType 13), then unsubscribes. Caches into s.greeks
-// keyed by the OPRA-style option key. Skips legs whose Greeks are
-// already cached (positive or negative entry) within the TTL.
 func (s *Server) prewarmOptionGreeks(ctx context.Context, c *ibkrlib.Connector, options []rpc.PositionView) {
 	if s.greeks == nil || c == nil || len(options) == 0 {
 		return
@@ -1411,17 +1273,12 @@ func (s *Server) prewarmOptionGreeks(ctx context.Context, c *ibkrlib.Connector, 
 }
 
 // captureOptionGreeks runs one option subscribe → poll → unsubscribe
-// cycle and returns a cache entry. The entry is negative (ok=false)
-// when no valid model-computation tick arrived before the deadline.
-// Honors ctx cancellation so a daemon-shutdown mid-prewarm tears the
-// subscription down promptly.
 func captureOptionGreeks(ctx context.Context, c *ibkrlib.Connector, under, expiryYMD string, strike float64, right string, budget time.Duration) greeksEntry {
 	out := greeksEntry{}
 	if under == "" || expiryYMD == "" || strike <= 0 || right == "" {
 		return out
 	}
 	// Single-class default — captureOptionGreeks is called from the
-	// chain-prewarm path which doesn't disambiguate SPX vs SPXW today.
 	key, _, err := c.SubscribeOption(ctx, under, under, expiryYMD, strike, right)
 	if err != nil {
 		return out
@@ -1444,9 +1301,6 @@ func captureOptionGreeks(ctx context.Context, c *ibkrlib.Connector, under, expir
 }
 
 // fillOptionGreeks copies cached Greeks onto each option leg's
-// Delta/Gamma/Theta/Vega fields, plus the option-contract-level bid/ask,
-// IV, and prev_close pulled from the connector's tick maps (populated by
-// the prewarm subscription). Legs whose data is absent keep nil pointers —
 // never zero-substituted.
 func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionView) {
 	if s.greeks == nil {
@@ -1462,8 +1316,6 @@ func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionVi
 		e, ok := s.greeks.get(key, now)
 		if ok && e.ok {
 			// e.ok is the cache's "captured tick" gate; per the wire
-			// contract on PositionView.Delta etc. ("never zero-substituted"),
-			// a genuine zero from the model — deep-ITM theta ≈ 0, ATM-
 			// straddle delta ≈ 0 — must surface as a non-nil pointer.
 			g := e.value
 			p.Delta = &g.Delta
@@ -1471,9 +1323,6 @@ func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionVi
 			p.Theta = &g.Theta
 			p.Vega = &g.Vega
 			// Underlying spot from the same model-computation tick that
-			// produced the Greeks. The aggregator pairs it with delta so
-			// dollar delta is computed against the spot the delta was
-			// modelled at — see rpc.PositionView.Underlying doc.
 			if e.underlying > 0 {
 				u := e.underlying
 				p.Underlying = &u
@@ -1504,20 +1353,10 @@ func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionVi
 }
 
 // optionGreeksKey builds the same OPRA-style key that
-// Connector.SubscribeOption returns. Mirrors:
-//
-//	fmt.Sprintf("%s_%s%s%.0f", upper(under), expiryYMD[2:], right, strike)
-//
-// Returns "" when any required field is missing (e.g. a malformed
-// position string we couldn't parse).
-//
-// Accepts both rpc.SecTypeOption ("OPTION" — the AssetType enum value
 // stamped by pkg/ibkr's convertIBKRPositions, the canonical wire value)
 // and "OPT" (the IBKR API request-side short form, here as a defensive
-// fallback for any code path that still threads the short form through).
 // The original v0.10.0 release had only the "OPT" check and reported
 // greeks_coverage 0/N for every option-bearing account, because
-// positions came through as "OPTION"; this dual-tolerance is the
 // belt-and-braces fix.
 func optionGreeksKey(p rpc.PositionView) string {
 	if p.SecType != rpc.SecTypeOption && p.SecType != "OPT" {
@@ -1531,21 +1370,8 @@ func optionGreeksKey(p rpc.PositionView) string {
 }
 
 // buildPortfolioAggregates rolls per-leg Greeks and currency exposure
-// into one PositionsPortfolio block.
-//
-// Sign convention: Quantity carries the position sign (long calls +qty,
-// short puts -qty). EffectiveDelta sums per-leg delta × qty × multiplier
-// plus stock qty. DollarDelta uses the model-computation underlying
 // price IBKR sent alongside the Greeks (kept in lockstep so the dollar
-// figure is consistent with the delta it was computed against).
-//
-// Currency mixing is honest: we report DollarDeltaCurrency as the
 // single contract currency only when every contributing option leg
-// agrees. A truly mixed-currency option book gets "MIX" so the
-// caller knows not to compare to a single FX rate.
-//
-// Always returns a non-nil result (the renderer relies on this), but
-// individual pointer fields stay nil when their inputs were absent.
 func buildPortfolioAggregatesWithBase(stocks, options []rpc.PositionView, baseCcy string) *rpc.PositionsPortfolio {
 	acc := newPortfolioAggregateAccumulator(baseCcy)
 	for _, o := range options {
@@ -1618,8 +1444,6 @@ func (a *portfolioAggregateAccumulator) addStock(st rpc.PositionView) {
 		return
 	}
 	// Stock legs add raw share-equivalent exposure to effective + dollar
-	// delta (delta=1 for stock by definition). positionDollarDelta rejects
-	// mark=0 zombie rows so this aggregate stays stable across calls.
 	a.effectiveDelta += st.Quantity
 	a.haveEffectiveDelta = true
 	a.addDollarDelta(localDollarDelta, st)
@@ -1695,14 +1519,9 @@ func trackAggregateCurrency(current *string, mixed *bool, ccy string) {
 }
 
 // optionMultiplier returns the contract multiplier used to scale a per-
-// option Greek into a share-equivalent quantity. PositionView.Multiplier
 // is populated from the wire (msgPortfolioValue → pos.Asset.Multiplier),
-// reliable across standard equity options (100), minis (10), and index
 // options (sometimes 50 or 1000). Falls back to 100 only when the wire
-// didn't carry a value — the safe default for retail equity options.
 // Without this fallback an account that never received a multiplier tick
-// would zero out every option contribution to effective_delta /
-// dollar_delta / daily_theta.
 func optionMultiplier(p rpc.PositionView) int {
 	if p.Multiplier > 0 {
 		return p.Multiplier
@@ -1711,12 +1530,7 @@ func optionMultiplier(p rpc.PositionView) int {
 }
 
 // groupByUnderlying produces one PositionGroup per underlying symbol present
-// in either the equity-stock or options projection. PositionsResult.Stocks is
-// the historical name of the flat non-option slice and can also contain bonds,
 // futures, and indices; those exact contracts remain authoritative there but
-// cannot masquerade as the singular equity leg in this ticker-level view.
-// Stock + option totals contribute to GroupMarketValue /
-// GroupUnrealizedPnL; the stock leg is optional.
 func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLiquidationBase *float64) []rpc.PositionGroup {
 	groups := map[string]*rpc.PositionGroup{}
 	getOrInit := func(under string) *rpc.PositionGroup {
@@ -1728,11 +1542,6 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 		return g
 	}
 	// A symbol can arrive as more than one equity row — a dual-listed share
-	// held in two currencies is the reachable case. PositionGroup.Stock holds
-	// one of them for display, so the group's own rows are tracked here and
-	// handed to finalizePositionGroup whole: deriving the base-currency totals
-	// from Stock alone counted one row while the raw totals below counted every
-	// one, and the undercounted side is what feeds the concentration rule.
 	stockRows := map[string][]rpc.PositionView{}
 	for i := range stocks {
 		s := stocks[i]
@@ -1764,7 +1573,6 @@ func groupByUnderlying(stocks, options []rpc.PositionView, baseCcy string, netLi
 }
 
 // positionCanAnchorUnderlyingGroup accepts only the equity aliases carried by
-// current PositionView output. Unknown and explicit non-equity types always
 // remain flat-only; absence of a type is not stock authority.
 func positionCanAnchorUnderlyingGroup(row rpc.PositionView) bool {
 	return positionQuotesAsStock(row)
@@ -1772,10 +1580,6 @@ func positionCanAnchorUnderlyingGroup(row rpc.PositionView) bool {
 
 // positionQuotesAsStock reports whether a non-option row is an equity — the
 // only secType in that slice for which a SMART/USD stock quote on the bare
-// symbol describes the holding. Everything else there (BOND, BILL, FUND, FUT,
-// CASH) shares the slice because it is not an option, not because it is a
-// stock. The classification itself lives in rpc so the CLI and MCP watchlist
-// holdings joins apply the identical rule instead of re-deriving it.
 func positionQuotesAsStock(row rpc.PositionView) bool {
 	return rpc.PositionQuotesAsStock(row)
 }
@@ -1805,9 +1609,7 @@ func (s convertedSum) ptr() *float64 {
 }
 
 // finalizePositionGroup derives the group's base-currency totals and delta.
-// stockRows is every equity row the group represents, not g.Stock: that field
 // holds one row for display, and a symbol can arrive as several. The wire shape
-// still shows one of them, which is a display gap tracked separately.
 func finalizePositionGroup(g *rpc.PositionGroup, stockRows []rpc.PositionView, baseCcy string, netLiquidationBase *float64) {
 	if g == nil {
 		return
@@ -1915,8 +1717,6 @@ func addPortfolioBaseContext(p *rpc.PositionsPortfolio, groups []rpc.PositionGro
 
 // buildUnderlyingExposureBase projects the groups the aggregator could value in
 // the account base currency, and names the ones it could not. A group with no
-// base market value is dropped rather than zeroed, so the names are the only
-// evidence a consumer has that the returned rows are not the whole book.
 func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) ([]rpc.UnderlyingExposure, []string) {
 	baseCcy = normCcy(baseCcy)
 	out := make([]rpc.UnderlyingExposure, 0, len(groups))
@@ -1948,10 +1748,7 @@ func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) ([]
 }
 
 // handleQuoteSnapshot resolves a contract, briefly subscribes to streaming
-// market data, harvests whatever ticks arrive within the timeout window, and
 // returns a snapshot. We avoid IBKR's true snapshot mode (snapshot=true)
-// because it does not reliably emit tickSnapshotEnd for frozen/closed-market
-// requests, leaving snapshot calls hanging until the deadline.
 func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rpc.Quote, error) {
 	var p rpc.QuoteSnapshotParams
 	if err := decodeParams(req.Params, &p); err != nil {
@@ -1988,10 +1785,7 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		AsOf:     time.Now(),
 	}
 	// FX pairs (USD.JPY / USD/JPY) route through CASH/IDEALPRO regardless
-	// of what the caller stamped on the request. Override the echoed
-	// Contract so JSON consumers see the canonical routing — the actual
 	// IBKR subscription is driven by pkg/ibkr.classifySymbol(sym) inside
-	// the connector and is correct either way.
 	if _, quote, ok := ibkrlib.FxPair(sym); ok {
 		q.Contract.SecType = "CASH"
 		q.Contract.Exchange = "IDEALPRO"
@@ -2013,10 +1807,7 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		releaseSub = func() { _ = c.UnsubscribeMarketData(key) }
 	} else {
 		// Route through the daemon's subscription manager so a snapshot
-		// running concurrently with `quote --watch` (or another snapshot, or
 		// an MCP subscriber) shares the same IBKR market-data line via the
-		// refcount. Without this, the snapshot's deferred unsubscribe used
-		// to cancel the watcher's sub mid-stream.
 		release, err := s.subs.Hold(ctx, sym)
 		if err != nil && !errors.Is(err, ibkrlib.ErrIBKRUnavailable) {
 			if shell := s.absentQuoteShell(q, err, sessionMarket, hasSessionMarket); shell != nil {
@@ -2035,11 +1826,7 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		fallback := quoteFallbackReady(q, pollStarted, timeout)
 		if ready || fallback {
 			// Capture the gateway's feed state while the subscription is
-			// still live — once the deferred unsubscribe fires, the
-			// connector's symbol→reqID mapping is gone and the type would
 			// always read "". When IBKR omits that notice but only
-			// fallback ticks landed, label the row frozen so JSON consumers
-			// don't mistake mark/close-only data for a live quote.
 			q.DataType = quoteDataTypeName(c.MarketDataTypeForSymbol(pollKey), ready, fallback)
 		}
 		return ready || fallback
@@ -2057,10 +1844,6 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 			}
 		case IsSubscriptionRejected(err):
 			// Terminal gateway rejection (354/200): this is the
-			// once-per-absence-window honest probe. Fall through to the
-			// same shell + historical-fallback shape a quiet timeout
-			// produces — a hard error here would red-flag the app's
-			// whole market_quotes source over one dead symbol.
 			q.Stale = true
 			q.StaleReason = err.Error()
 		default:
@@ -2087,13 +1870,6 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 }
 
 // absentQuoteShell converts a MarketDataAbsenceError from a subscribe
-// path into the honest shell quote callers received before the absence
-// memory existed (then: after burning the full poll budget): symbol and
-// contract echo, no prices, stale with the stored gateway rejection as
-// the reason. Returns nil when err is not an absence error, letting the
-// caller propagate normally. A hard RPC error would be dishonest in the
-// other direction: the app folds any per-symbol quote error into a red
-// market_quotes source-health state for the whole snapshot.
 func (s *Server) absentQuoteShell(q *rpc.Quote, err error, market marketcal.Market, hasSessionMarket bool) *rpc.Quote {
 	var absent *ibkrlib.MarketDataAbsenceError
 	if !errors.As(err, &absent) {
@@ -2202,8 +1978,6 @@ func (s *Server) handleOptionQuoteSnapshot(ctx context.Context, c *ibkrlib.Conne
 	sym := contract.Symbol
 
 	// Hold the underlying while the option line is open. IBKR's model-
-	// computation ticks are more reliable when the underlier is also
-	// subscribed, and the hold shares any concurrent stock quote/watch line.
 	releaseUnder := func() {}
 	if release, err := s.subs.Hold(ctx, sym); err == nil {
 		releaseUnder = release
@@ -2251,8 +2025,6 @@ func (s *Server) handleOptionQuoteSnapshot(ctx context.Context, c *ibkrlib.Conne
 		return q.Bid != nil || q.Ask != nil || q.Last != nil || q.PrevClose != nil || q.IV != nil
 	}); err != nil && err != context.DeadlineExceeded {
 		// A terminal gateway rejection degrades to the same decorated
-		// shell a quiet timeout produces (no fabricated values, stale
-		// reason carries the rejection) — mirrors the stock path.
 		if !IsSubscriptionRejected(err) {
 			return nil, err
 		}
@@ -2352,14 +2124,7 @@ func normaliseOptionQuoteContract(in rpc.ContractParams) (rpc.ContractParams, er
 // handleCancel terminates a streaming subscription previously started via
 // MethodQuoteSubscribe. The wire contract is intentionally strict: an
 // unknown id returns CodeBadRequest because callers only ever cancel ids
-// the daemon handed them, and "silent success" would mask client-side
 // programming errors. Cancel is idempotent against itself only via the
-// underlying context cancel — re-cancelling the same id after it has
-// already been released returns the same bad_request, which is fine.
-//
-// Returning an empty result keeps the JSON-RPC shape uniform with other
-// unary methods (Ok: true, Result: {}); callers that don't care about
-// the body can ignore it.
 func (s *Server) handleCancel(req *rpc.Request) (struct{}, error) {
 	var p rpc.CancelParams
 	if err := decodeParams(req.Params, &p); err != nil {
@@ -2379,15 +2144,7 @@ func (s *Server) handleCancel(req *rpc.Request) (struct{}, error) {
 }
 
 // handleQuoteSubscribe attaches a fan-out tap to the daemon's per-symbol
-// market-data subscription and streams coalesced frames to the caller
-// until the client disconnects, the daemon shuts down, or a terminal
-// error frame arrives from the manager.
-//
-// Client disconnect is detected by an EOF watcher reading from r: any
-// read result (a stray byte or EOF) cancels streamCtx. Multiple concurrent
 // subscribers to the same symbol share one IBKR market-data line via the
-// subManager refcount; the line is released when the last subscriber
-// releases its tap.
 func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc *json.Encoder, r *bufio.Reader) {
 	var p rpc.QuoteSubscribeParams
 	if err := json.Unmarshal(req.Params, &p); err != nil {
@@ -2433,9 +2190,6 @@ func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc
 	}()
 
 	// EOF watcher: streaming clients are silent after the initial subscribe
-	// request, so any read result on r means either a stray byte (rare) or
-	// connection close (the common case). Either way cancel the stream so
-	// release() runs and the refcount drops.
 	go func() {
 		_, _ = r.ReadByte()
 		cancel()
@@ -2449,8 +2203,6 @@ func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc
 		case frame, ok := <-frames:
 			if !ok {
 				// Manager torn the tap down (daemon_shutdown, gateway_lost, etc).
-				// The terminal error frame, if any, was the last frame delivered
-				// before close. Signal stream end to the client envelope.
 				_ = enc.Encode(rpc.Response{ID: req.ID, Ok: true, Stream: true, End: true})
 				return
 			}
@@ -2471,7 +2223,6 @@ func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc
 
 // fillQuoteMarketData projects the connector's current tick cache onto the
 // Quote wire shape. Pointer fields preserve the nil-vs-zero contract: absent
-// ticks stay nil, genuine positive gateway values are surfaced.
 func fillQuoteMarketData(q *rpc.Quote, d *ibkrlib.MarketData) {
 	if q == nil || d == nil {
 		return
@@ -3320,10 +3071,6 @@ func formatQuoteAge(d time.Duration) string {
 }
 
 // computeQuoteChange returns (change, change_pct) pointers given a current
-// price and prevClose. Both stay nil unless price and prevClose are present
-// and prevClose is strictly positive — no fabrication, no divide-by-zero.
-// Centralised here so quote, watchlist, scan, and position callers share
-// one formula.
 func computeQuoteChange(price, prevClose *float64) (*float64, *float64) {
 	if price == nil || prevClose == nil || *prevClose <= 0 {
 		return nil, nil
@@ -3334,9 +3081,7 @@ func computeQuoteChange(price, prevClose *float64) (*float64, *float64) {
 }
 
 // marketDataTypeName maps the gateway's numeric data-type notice
-// (1=RealTime, 2=Frozen, 3=Delayed, 4=DelayedFrozen) to a stable
 // lower-case string used on the wire and in the CLI badge. Empty for
-// unknown so callers can omit the field via omitempty.
 func marketDataTypeName(t int) string {
 	switch t {
 	case 1:
@@ -3374,27 +3119,14 @@ func quoteDataTypeName(notice int, hasCurrentPrice, hasFallbackPrice bool) strin
 // handleStatusHealth describes daemon + gateway state for status command.
 // Takes connector + endpoint snapshots under mu so all IBKR-side fields
 // describe the same point in time even if reconnectFlow races with this
-// call (reconnect rewrites s.endpoint and s.connector).
-//
-// PortOrigin / TLSOrigin / Alternates come from the discovery layer and
-// let `canary status` show whether the endpoint was pinned in config or
-// found by probe — the user-visible contract for the AUTO-by-default
-// design.
-//
-// When the daemon is currently degraded, kick off a background
-// rediscover+reconnect (triggerReconnect throttles itself via the
-// in-flight gate). Clearing lastConnectError as part of that turns this
-// status response into "handshake in flight," which prompts the CLI's
 // 25s status wait loop to keep polling — so a user who just moved IBKR
 // from Gateway (4001) to TWS (7496) gets recovery in a single `ibkr
-// status` invocation instead of having to restart the daemon.
 func (s *Server) handleStatusHealth() *rpc.HealthResult {
 	s.triggerReconnect()
 	return s.statusHealthSnapshot()
 }
 
 // statusHealthSnapshot composes only daemon-owned cached state. Alert
-// heartbeats use it so observation cannot trigger discovery, reconnect, or any
 // broker request. User-invoked status retains self-heal in handleStatusHealth.
 func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	s.mu.Lock()
@@ -3433,24 +3165,9 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		}
 		// Report IsReady, not IsConnected: the gateway being TCP-reachable
 		// is not enough — handlers must be armed (post-handshake) for any
-		// data verb to succeed. Reporting IsConnected here while every
-		// other verb gates on IsReady made `status` lie when the connector
 		// got stuck in the {ready=false, conn=true} state (overnight TWS
-		// hiccups, market-data farm reconnects). User-invoked status triggers
-		// recovery before entering this pure projection; heartbeats do not.
-		//
-		// AND gated on postConnectSetupDone: c.ready is flipped by the
 		// connection read-loop goroutine in pkg/ibkr independently of
-		// postConnectSetup's synchronous prewarm sentinel-setting. A
-		// status RPC landing in the brief window between c.ready=true
-		// and postConnectSetup's tail would otherwise see Connected=true
-		// with an empty BackgroundTasks list — the symptom the user
-		// reported on 2026-05-21 (gamma + regime missing on the first
-		// status, present on the second). The latch is one-way: once
 		// postConnectSetup completes once, the daemon never re-enters
-		// "starting up" state from the user's point of view, even
-		// across reconnects (the prewarm Once guards mean reconnect
-		// doesn't re-fire them anyway).
 		res.Connected = c.IsReady() && setupComplete
 		res.ServerVersion = c.ServerVersion()
 		res.NegotiatedTLS = c.UsingTLS()
@@ -3480,11 +3197,6 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	res.AccountMode = accountModeForStatus(ep.Port, accountForMode)
 
 	// BackgroundTasks lists daemon-internal long-running computes
-	// running RIGHT NOW. Presence-as-state: a task appears here iff
-	// its accessor returns busy; idle/ready/cold tasks are omitted.
-	// Always emitted as a (possibly empty) slice so consumers can
-	// rely on `len() == 0` to mean idle. Read from s.backgroundTasks
-	// — the same source isBusy() and the regime partial-envelope
 	// contention message ride, so the three surfaces never diverge.
 	res.BackgroundTasks = s.backgroundTasks()
 	res.Subsystems = s.subsystemHealth(res.Connected, farmStatuses)
@@ -3504,10 +3216,6 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	// advertises the comma-joined managedAccounts list, which is a session
 	// inventory rather than an account code, and every consumer that reads this
 	// field wants the account the session is scoped to: the CLI already
-	// guarded their rendering, but the SPA and the MCP status tool served the
-	// list through unchanged. Guarding those two instead would have left the
-	// same key carrying different values in `canary status --json` and in
-	// canary_status, from one daemon. The pin is served instead, and scope
 	// resolution above keeps the raw value. A single-account login is
 	// byte-identical; an unpinned multi-account login serves nothing, which is
 	// honest — there is no account to name. Naming the inventory as well needs a
@@ -3529,7 +3237,6 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 
 // statusGatewayPhase classifies the exact connectivity boundary without
 // parsing broker or dial error text. Startup grace preserves the existing
-// connecting state before the first local socket verdict arrives.
 func statusGatewayPhase(localConnected, apiReady, setupComplete, connectInFlight, backendDown bool, lastError string, uptime time.Duration) string {
 	if localConnected {
 		if backendDown {
@@ -3580,13 +3287,6 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 }
 
 // breadthSubsystemHealth reports the breadth lane against the connection
-// breadth actually uses. The gateway-derived status this row used to carry
-// came from the PRIMARY connector, and breadth's ~503-name fan-out rides a
-// second one (see Server.breadthConnector): on 2026-08-03 the bulk socket
-// died, the primary recovered 26 s later, and this row read "ready" for the
-// seven hours breadth published nothing. gatewayStatus still wins when the
-// primary is down — a dead primary is the larger fact and the bulk lane
-// cannot outlive it.
 func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealth {
 	sub := rpc.SubsystemHealth{Name: "breadth", Status: gatewayStatus}
 	if gatewayStatus == "ready" {
@@ -3599,8 +3299,6 @@ func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealt
 			sub.LastError = "breadth_bulk_connector_down"
 			// The dial attempt, never the next-retry time: a LastErrorAt
 			// ahead of the health snapshot's as_of fails the whole
-			// data-health alert source closed (alertShadowDataHealthFacts
-			// checks every row before it filters down to its three roots).
 			sub.LastErrorAt = lastAttempt
 			return sub
 		}
@@ -3613,11 +3311,7 @@ func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealt
 }
 
 // proposalSubsystemHealth reports the protection-proposal engine's refresh
-// health. The engine preserves the last-good snapshot through transient
 // refresh failures (err == nil, served as_of frozen), so the gateway can
-// look healthy while the protection panel serves stale data — this row
-// makes that state diagnosable from `canary status` alone. It stays "ready"
-// below proposalRefreshWarnStreak because the first refreshes after a
 // daemon start race the gateway connect by design.
 func (s *Server) proposalSubsystemHealth() (rpc.SubsystemHealth, bool) {
 	if s.tradeProposals == nil {
@@ -3674,10 +3368,6 @@ func (s *Server) opportunitySubsystemHealth() (rpc.SubsystemHealth, bool) {
 }
 
 // membersHealth assembles the rpc.MembersHealth wire shape for the
-// status response. Source is "cache" when the engine loaded from the
-// runtime-refreshed file, "embedded" otherwise. RefreshState reflects
-// the refresher's current health, or empty when the refresher is
-// disabled / nil (the CLI uses Source alone to render the row).
 func (s *Server) membersHealth() rpc.MembersHealth {
 	if s.breadth == nil {
 		return rpc.MembersHealth{}
@@ -3689,9 +3379,6 @@ func (s *Server) membersHealth() rpc.MembersHealth {
 		Count:  len(current),
 	}
 	// Prefer the runtime-refreshed file as the source signal when it
-	// exists and parses cleanly. A stale file (older than the embedded
-	// baseline) still counts as "cache" — the user sees the date and
-	// can decide if it's stale; we don't second-guess them.
 	if s.membersCachePath != "" {
 		if _, asOf, ok := spx.LoadExternal(s.membersCachePath); ok {
 			mh.Source = "cache"
@@ -3705,15 +3392,12 @@ func (s *Server) membersHealth() rpc.MembersHealth {
 }
 
 // sp500EmbeddedAsOf returns the asOf of the embedded list. Wrapped in
-// a helper so the per-call type-cast stays out of the status hot path.
 func sp500EmbeddedAsOf() time.Time {
 	_, asOf := spx.MemberList()
 	return asOf
 }
 
 // handleMarketCalendar returns official exchange-session context for the
-// supported first-release markets: U.S. cash equities, U.S. listed options,
-// and Xetra cash equities.
 func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResult, error) {
 	var p rpc.MarketCalendarParams
 	if err := decodeParams(req.Params, &p); err != nil {
@@ -3773,8 +3457,6 @@ func marketSessionToRPC(s marketcal.Session) rpc.MarketSession {
 
 // handleHistoryDaily returns N days of daily OHLCV bars for a symbol.
 // Calendar lookback (matching IBKR HMDS): the gateway returns whatever
-// trading days fall inside the window, so an N=90 request typically yields
-// ~63 bars. Days defaults to 90.
 func (s *Server) handleHistoryDaily(ctx context.Context, req *rpc.Request) (*rpc.HistoryDailyResult, error) {
 	var p rpc.HistoryDailyParams
 	if err := decodeParams(req.Params, &p); err != nil {
@@ -3841,29 +3523,9 @@ func normalizeHistoryWhatToShowParam(value string) (string, error) {
 }
 
 // handleBreadthSPX returns the current S&P 500 stocks-above-50DMA reading
-// plus a trailing daily series for sparkline rendering. The headline
-// number is the percentage of S&P 500 constituents trading above their
-// own 50-day SMA, in [0, 100]. The dashboard generator uses this as
-// Indicator 5 of the risk-regime panel.
-//
-// Methodology — spx.MethodConstituentFanout: we compute S5FI locally
 // from constituent daily closes pulled via IBKR's HMDS feed. IBKR
-// does not redistribute S&P DJI's S5FI index on retail subscriptions
 // (verified via reqContractDetails — see pkg/ibkr/symbols.go), so the
-// daemon reproduces the math from data it already has access to. The
-// engine runs a once-daily refresh post-close (16:35 ET) and serves
-// the cached snapshot to readers.
-//
 // The handler is a thin projection of the engine state onto the wire
-// envelope: the long-running fetch happens off this code path entirely.
-// Cold-start callers receive an empty envelope (Value=0, History=[]);
-// the fetchRegimeBreadth wrapper checks IsRefreshing to map that to
-// status="computing" rather than "unavailable".
-//
-// Threshold derivation (green / yellow / red) is intentionally not on
-// this result. The spec itself flags those bands as user-tunable, so
-// the daemon stays out of policy and the renderer applies whatever
-// cuts the user has configured.
 func (s *Server) handleBreadthSPX(_ context.Context, req *rpc.Request) (*rpc.BreadthSPXResult, error) {
 	return s.buildBreadthSPX(req, true)
 }
@@ -3884,18 +3546,10 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 	if s.breadth == nil {
 		// Engine construction failed at New (e.g. unresolvable cache
 		// dir). Match the pre-engine wire contract: surface as
-		// gateway-unavailable so clients render a consistent "daemon
-		// I/O dependency missing" state.
 		return nil, ibkrlib.ErrIBKRUnavailable
 	}
 
 	// Opportunistic refresh trigger: on the first breadth call after
-	// the NY-date rolls over, kick the members refresher if its
-	// on-disk file is stale. Belt-and-suspenders against the 02:30
-	// ET ticker missing (network outage, daemon paused). No-op when
-	// the refresher is pinned off, or when the loaded file is
-	// already from today, or when a fetch is already in flight
-	// (singleflighted by the refresher).
 	if allowRefresh && s.membersRefresher != nil && s.serverCtx != nil {
 		s.membersRefresher.TriggerIfRolledOver(s.serverCtx)
 	}
@@ -3948,25 +3602,9 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 
 // classifyBreadthState projects the engine's (snapshot exists, refresh
 // active) pair onto the wire-visible BreadthState. This is the
-// single source of truth — handleBreadthSPX and any future consumer
 // must derive State the same way. The four states:
-//
-//   - ready: snapshot exists; Refreshing reports whether a newer refresh
-//     is active
-//   - computing: no snapshot exists and a refresh is in flight or waiting
-//     to retry
 //   - cold: no snapshot AND no active refresh/retry — rare; only seen
-//     briefly between daemon Start and postConnectSetup launching the
 //     engine, or after a coverage-threshold-failed refresh exhausts
-//     its retry budget
-//   - degraded: reserved, and staying that way. The obvious use — a
-//     snapshot whose session is no longer the current one — belongs on
-//     BreadthSPXResult.Stale instead, because every downstream consumer
-//     gates on State == ready — regime's envelope map, the regime
-//     indicators, the composite, the brief, and historical verification — and would silently
-//     drop a stale-but-real close from the market read. regime.go also
-//     maps this value to RegimeStatusUnavailable, which is stricter than
-//     the RegimeStatusStale a stale envelope earns today.
 func classifyBreadthState(snapshotExists, active bool) rpc.BreadthState {
 	switch {
 	case snapshotExists:
@@ -3979,7 +3617,6 @@ func classifyBreadthState(snapshotExists, active bool) rpc.BreadthState {
 }
 
 // barDate returns the bar's date as YYYY-MM-DD. IBKR's daily bar dates arrive
-// as YYYYMMDD strings; the parsed Time field is best-effort.
 func barDate(b ibkrlib.HistoricalBar) string {
 	if !b.Time.IsZero() {
 		return b.Time.Format("2006-01-02")
@@ -3991,7 +3628,6 @@ func barDate(b ibkrlib.HistoricalBar) string {
 }
 
 // errBadRequest tags a typed error so dispatch can map it to CodeBadRequest
-// instead of falling through to the catch-all internal classification.
 type badRequestError struct{ msg string }
 
 func (e *badRequestError) Error() string { return e.msg }
@@ -3999,7 +3635,6 @@ func (e *badRequestError) Error() string { return e.msg }
 func errBadRequest(msg string) error { return &badRequestError{msg: msg} }
 
 // decodeParams unmarshals req.Params into dst and tags failures as bad-request
-// errors so classifyError surfaces them as CodeBadRequest instead of internal.
 func decodeParams[T any](raw json.RawMessage, dst *T) error {
 	if len(raw) == 0 {
 		return nil

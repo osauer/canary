@@ -1,6 +1,8 @@
 package rpc
 
-import "time"
+import (
+	"time"
+)
 
 // AccountDataAuthority is the shared truth envelope for account-scoped reads.
 // Scope names the one account and paper/live mode the values belong to. Source
@@ -108,4 +110,118 @@ type AccountFieldAvailability struct {
 	PnLUnrealizedTotal   bool `json:"pnl_unrealized_total"`
 	PnLRealizedTotal     bool `json:"pnl_realized_total"`
 	CurrencyExposure     bool `json:"currency_exposure"`
+}
+
+// A data-quality signal claims that reality is unobserved. Where reality is
+// observed to be nothing — a cancelled equity, a defunct issuer — that is a
+// fact, not a gap. QuoteExpectationNone carries that distinction across every
+// surface so each consumer does not have to re-derive it from warning codes.
+// Only the broker's terminal non-reporting verdict may mint it; numeric zeros
+// in account rows are a data-quality warning, never expectation authority.
+const (
+	QuoteExpectationNone = "none"
+
+	QuoteExpectationReasonTerminal = "terminal_non_reporting"
+)
+
+// ExpectsMarketData reports whether a quote, mark, or market-event flag should
+// exist for this position. Absence is a defect only when this returns true.
+func ExpectsMarketData(p PositionView) bool {
+	return p.QuoteExpectation != QuoteExpectationNone
+}
+
+// ExpectsMarketDataGroup reports whether an underlying group should be
+// subscribed for market data. Only a stock-only group whose stock expects no
+// data is skipped: an option leg on a defunct underlying still needs its own
+// quote, and the group's other rows are unaffected.
+func ExpectsMarketDataGroup(g PositionGroup) bool {
+	if len(g.Options) > 0 {
+		return true
+	}
+	if g.Stock == nil {
+		return true
+	}
+	return ExpectsMarketData(*g.Stock)
+}
+
+// Protection-coverage states distinguish reconciled coverage from partial,
+// absent, orphaned, uncertain, reconciliation-required, and unprotectable
+// observations.
+const (
+	ProtectionCoverageStateCovered           = "covered"
+	ProtectionCoverageStatePartial           = "partial"
+	ProtectionCoverageStateUnprotected       = "unprotected"
+	ProtectionCoverageStateOrphanedOrder     = "orphaned_order"
+	ProtectionCoverageStateReconcileRequired = "reconcile_required"
+	ProtectionCoverageStateUnknown           = "unknown"
+	// ProtectionCoverageStateNotProtectable marks a defunct or unquoted
+	// holding: it has no mark to stop out against, so the proposal engine
+	// already declines to propose for it. Counting such a row as unprotected
+	// raises an alarm the protection panel cannot answer.
+	ProtectionCoverageStateNotProtectable = "not_protectable"
+)
+
+// ProtectionCoverageSummary is the read-only coverage ledger for stock/ETF
+// protection. Quantities count only open close-protective orders that still
+// reconcile with the current position; stale/orphaned orders are surfaced but
+// never counted as protection.
+type ProtectionCoverageSummary struct {
+	AsOf                            time.Time                 `json:"as_of,omitzero"`
+	Status                          string                    `json:"status,omitempty"`
+	ByUnderlying                    []ProtectionCoverageRow   `json:"by_underlying,omitempty"`
+	Counts                          ProtectionCoverageCounts  `json:"counts,omitzero"`
+	UnprotectedNotionalBase         *float64                  `json:"unprotected_notional_base,omitempty"`
+	UnprotectedNotionalBaseCurrency string                    `json:"unprotected_notional_base_currency,omitempty"`
+	LargestUnprotected              []ProtectionCoverageRow   `json:"largest_unprotected,omitempty"`
+	OrphanedOrders                  []ProtectionCoverageOrder `json:"orphaned_orders,omitempty"`
+	ReconcileRequiredOrders         []ProtectionCoverageOrder `json:"reconcile_required_orders,omitempty"`
+	WarningCodes                    []string                  `json:"warning_codes,omitempty"`
+	Message                         string                    `json:"message,omitempty"`
+}
+
+// ProtectionCoverageCounts summarizes the mutually exclusive coverage rows.
+type ProtectionCoverageCounts struct {
+	Covered           int `json:"covered,omitempty"`
+	Partial           int `json:"partial,omitempty"`
+	Unprotected       int `json:"unprotected,omitempty"`
+	OrphanedOrder     int `json:"orphaned_order,omitempty"`
+	ReconcileRequired int `json:"reconcile_required,omitempty"`
+	Unknown           int `json:"unknown,omitempty"`
+	NotProtectable    int `json:"not_protectable,omitempty"`
+}
+
+// ProtectionCoverageRow reports reconciled coverage for one held underlying.
+// Pointer notionals are nil when base-currency conversion is unavailable.
+type ProtectionCoverageRow struct {
+	Underlying                      string                    `json:"underlying"`
+	State                           string                    `json:"state"`
+	PositionQuantity                float64                   `json:"position_quantity,omitempty"`
+	ProtectedQuantity               float64                   `json:"protected_quantity,omitempty"`
+	UnprotectedQuantity             float64                   `json:"unprotected_quantity,omitempty"`
+	MarketValueBase                 *float64                  `json:"market_value_base,omitempty"`
+	MarketValuePctNLV               *float64                  `json:"market_value_pct_nlv,omitempty"`
+	UnprotectedNotionalBase         *float64                  `json:"unprotected_notional_base,omitempty"`
+	UnprotectedNotionalBaseCurrency string                    `json:"unprotected_notional_base_currency,omitempty"`
+	Orders                          []ProtectionCoverageOrder `json:"orders,omitempty"`
+	WarningCodes                    []string                  `json:"warning_codes,omitempty"`
+	Message                         string                    `json:"message,omitempty"`
+}
+
+// ProtectionCoverageOrder is a redacted protective-order observation. Its
+// coverage and reconciliation flags are daemon-derived, not broker authority.
+type ProtectionCoverageOrder struct {
+	OrderRef            string    `json:"order_ref,omitempty"`
+	Symbol              string    `json:"symbol,omitempty"`
+	SecType             string    `json:"sec_type,omitempty"`
+	Action              string    `json:"action,omitempty"`
+	OrderType           string    `json:"order_type,omitempty"`
+	TIF                 string    `json:"tif,omitempty"`
+	Remaining           float64   `json:"remaining,omitempty"`
+	Quantity            float64   `json:"quantity,omitempty"`
+	StopPrice           *float64  `json:"stop_price,omitempty"`
+	LimitPrice          *float64  `json:"limit_price,omitempty"`
+	LifecycleStatus     string    `json:"lifecycle_status,omitempty"`
+	ReconciliationState string    `json:"reconciliation_state,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at,omitzero"`
+	LastMessage         string    `json:"last_message,omitempty"`
 }

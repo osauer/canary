@@ -18,17 +18,9 @@ import (
 )
 
 // ContractStore serializes snapshots of resolved contracts for reuse across
-// connector lifetimes. It is safe for concurrent use.
-//
 // Before [ContractStore.UseAuthority] succeeds, the store uses the legacy
-// JSON codec at dir/contracts.json. That path exists for cutover and isolated
 // tests, not as runtime authority. After an authority is attached, every load
-// and save uses it exclusively; the store does not merge or fall back to the
 // legacy file.
-//
-// Ordinary contracts are keyed by symbol. Options are keyed by their
-// normalized symbol, trading class, expiry, strike, and right. Expired option
-// entries are excluded from loaded and saved snapshots.
 type ContractStore struct {
 	dir string
 
@@ -38,11 +30,8 @@ type ContractStore struct {
 
 // ContractCacheAuthority stores the encoded contract-cache envelope for a
 // [ContractStore]. SaveContractCache must publish payload and observedAt as one
-// logical update; observedAt is the same UTC timestamp encoded in the payload.
-//
 // Once [ContractStore.UseAuthority] succeeds, the store never reads or writes
 // its legacy JSON path. An authority that reports ok=false represents an empty
-// cache, not permission to fall back to that file.
 type ContractCacheAuthority interface {
 	LoadContractCache() (payload []byte, ok bool, err error)
 	SaveContractCache(payload []byte, observedAt time.Time) error
@@ -56,7 +45,6 @@ func NewContractStore(dir string) *ContractStore {
 }
 
 // UseAuthority validates authority's current payload and, on success, switches
-// all subsequent loads and saves to it. A missing payload is a valid cold
 // start. A nil store, nil authority, load failure, or invalid current envelope
 // returns an error and leaves the existing backend unchanged. UseAuthority
 // does not import or merge the legacy JSON file.
@@ -83,7 +71,6 @@ func (s *ContractStore) UseAuthority(authority ContractCacheAuthority) error {
 }
 
 // contractStoreVersion is the current encoded payload version. Legacy-file
-// reads accept older envelopes and migrate their option keys in memory; newer
 // envelopes produce a cold-cache result. Authority payloads must match the
 // current version exactly.
 const contractStoreVersion = 3
@@ -101,10 +88,8 @@ type contractCacheFile struct {
 }
 
 // Load returns a caller-owned symbol-to-contract map and the membership hash
-// stored with it. Calls are serialized with [ContractStore.Save]. A nil store,
 // missing payload, or newer legacy-file envelope returns (nil, "", nil) as a
 // cold cache. Read and decode failures return an error. Older legacy envelopes
-// are accepted; attached authorities are validated as current by
 // [ContractStore.UseAuthority].
 func (s *ContractStore) Load() (map[string]ContractDetailsLite, string, error) {
 	if s == nil {
@@ -117,7 +102,6 @@ func (s *ContractStore) Load() (map[string]ContractDetailsLite, string, error) {
 		return nil, "", err
 	}
 	// Older legacy envelopes remain readable; newer ones produce a cold result
-	// rather than being interpreted with an older schema.
 	if f.Version > contractStoreVersion {
 		return nil, "", nil
 	}
@@ -125,11 +109,9 @@ func (s *ContractStore) Load() (map[string]ContractDetailsLite, string, error) {
 }
 
 // LoadOptions returns a caller-owned option-key-to-contract map. Options whose
-// expiry precedes the current New York date are omitted from the returned
 // snapshot without rewriting persistence. Legacy keys without a trading class
 // are migrated in memory to an empty class segment; malformed legacy keys are
 // skipped. A nil store, missing payload, newer legacy envelope, or a snapshot
-// containing no live options returns an empty non-nil map. Read and decode
 // failures return an error. Calls are serialized with [ContractStore.Save].
 func (s *ContractStore) LoadOptions() (map[string]ContractDetailsLite, error) {
 	if s == nil {
@@ -154,7 +136,6 @@ func (s *ContractStore) LoadOptions() (map[string]ContractDetailsLite, error) {
 			continue
 		}
 		// Migrate the legacy key shape, which omitted the trading-class
-		// segment. Any other shape is malformed and skipped.
 		if pipes := strings.Count(k, "|"); pipes == 3 {
 			parts := strings.SplitN(k, "|", 2)
 			if len(parts) == 2 {
@@ -220,8 +201,6 @@ func decodeContractCache(raw []byte, strictCurrent bool) (contractCacheFile, err
 }
 
 // normalizeCurrentOptionDetail makes the canonical cache key the source of
-// truth for tuple fields omitted from the value. Malformed keys, zero ConIDs,
-// and fields that contradict the key remain errors.
 func normalizeCurrentOptionDetail(key string, detail ContractDetailsLite) (ContractDetailsLite, error) {
 	parts := strings.Split(key, "|")
 	if len(parts) != 5 {
@@ -270,10 +249,7 @@ func normalizeCurrentOptionDetail(key string, detail ContractDetailsLite) (Contr
 }
 
 // nyDateString returns the New York trading-session date as YYYYMMDD.
-// Used to compare option Expiry strings (also YYYYMMDD) for GC.
 // Falls back to UTC date if the zone fails to load — keeps the GC
-// pass conservative (might keep a freshly-expired entry one extra
-// day, but won't drop a still-live one).
 func nyDateString(now time.Time) string {
 	if loc, err := time.LoadLocation("America/New_York"); err == nil {
 		return now.In(loc).Format("20060102")
@@ -282,14 +258,9 @@ func nyDateString(now time.Time) string {
 }
 
 // Save publishes one filtered contract-cache snapshot. It copies its map
-// inputs and does not mutate them. Contracts with a zero ConID and options
-// expired before the current New York date are omitted. Every option key and
 // value must form a valid, matching tuple; otherwise Save returns an error
-// without publishing. membersHash may be empty when membership is not tracked.
-//
 // Calls on one store are serialized. An attached authority receives one
 // encoded envelope; the legacy codec writes a temporary file and renames it
-// over dir/contracts.json.
 func (s *ContractStore) Save(contracts map[string]ContractDetailsLite, options map[string]ContractDetailsLite, membersHash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -303,7 +274,6 @@ func (s *ContractStore) Save(contracts map[string]ContractDetailsLite, options m
 
 	// Validate and normalize every option before publication so a bad producer
 	// cannot poison durable state and defer the failure until the next restart.
-	// Option GC then drops entries whose expiry has already passed in NY time.
 	filteredOptions := make(map[string]ContractDetailsLite, len(options))
 	today := nyDateString(time.Now())
 	for k, detail := range options {
@@ -343,7 +313,6 @@ func (s *ContractStore) Save(contracts map[string]ContractDetailsLite, options m
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
-	// we don't litter the cache dir.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()
@@ -373,14 +342,8 @@ func shouldPersistContract(d ContractDetailsLite) bool {
 }
 
 // MembersHash returns the first 16 lowercase hexadecimal characters of a
-// SHA-256 hash of members. It trims and uppercases each element before sorting,
-// so input order, case, and surrounding whitespace do not affect the result.
-// Duplicate elements remain significant.
 func MembersHash(members []string) string {
 	// Normalise BEFORE sorting so case/whitespace variants collapse to
-	// the same sort position. Sort-then-normalise would have left
-	// " BRK.b" sorting under leading-space, ahead of "AAPL", while the
-	// canonical "BRK.B" sorts after — different hash for the same set.
 	normalised := make([]string, len(members))
 	for i, m := range members {
 		normalised[i] = strings.ToUpper(strings.TrimSpace(m))
@@ -410,9 +373,6 @@ func DefaultContractStoreDir() (string, error) {
 }
 
 // SnapshotContracts returns a caller-owned copy of the connector's resolved
-// ordinary-contract cache. Entries with a zero ConID are omitted. Concurrent
-// cache updates are synchronized, and mutating the returned map does not affect
-// the connector.
 func (c *Connector) SnapshotContracts() map[string]ContractDetailsLite {
 	c.contractMu.RLock()
 	defer c.contractMu.RUnlock()
@@ -426,11 +386,6 @@ func (c *Connector) SnapshotContracts() map[string]ContractDetailsLite {
 }
 
 // SnapshotOptionContracts returns a caller-owned copy of the active
-// connection's resolved option-contract cache, keyed by normalized symbol,
-// trading class, expiry, strike, and right. Entries with a zero ConID are
-// omitted. It returns nil when no connection is attached. Concurrent cache
-// updates are synchronized, and mutating the returned map does not affect the
-// connection.
 func (c *Connector) SnapshotOptionContracts() map[string]ContractDetailsLite {
 	c.mu.RLock()
 	conn := c.conn
@@ -450,10 +405,6 @@ func (c *Connector) SnapshotOptionContracts() map[string]ContractDetailsLite {
 }
 
 // IsOptionContractCached reports whether the active connection has a resolved
-// option entry matching symbol, tradingClass, expiry, strike, and right.
-// Symbol, tradingClass, and right are trimmed and matched case-insensitively;
-// expiry is trimmed, while strike is encoded to six decimal places. It returns
-// false when no connection is attached or the matching entry has a zero ConID.
 func (c *Connector) IsOptionContractCached(symbol, tradingClass, expiry string, strike float64, right string) bool {
 	c.mu.RLock()
 	conn := c.conn
@@ -469,9 +420,6 @@ func (c *Connector) IsOptionContractCached(symbol, tradingClass, expiry string, 
 }
 
 // SeedOptionContracts copies resolved entries into the active connection's
-// option cache and returns the number inserted. Entries with a zero ConID are
-// ignored, and an existing resolved entry always wins. The input map is not
-// retained or mutated. It returns zero when no connection is attached.
 func (c *Connector) SeedOptionContracts(options map[string]ContractDetailsLite) int {
 	c.mu.RLock()
 	conn := c.conn

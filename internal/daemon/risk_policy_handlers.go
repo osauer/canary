@@ -169,10 +169,6 @@ func (s *Server) handleRiskPolicyCapitalEvent(_ context.Context, req *rpc.Reques
 // 2026-07-13, no shadow period). The sanctioned escape during statement
 // outages is a one-shot override on capital.max_unreconciled_days, not a
 // soft mode here.
-func (s *Server) reconcileReportGate(reportID string) (*rpc.ReconResult, error) {
-	return s.reconcileReportGateForScope(reportID, s.currentBrokerStateScope())
-}
-
 func (s *Server) reconcileReportGateForScope(reportID string, scope brokerStateScope) (*rpc.ReconResult, error) {
 	rep, blockers := s.reconcileReportAssessmentForScope(reportID, scope)
 	if len(blockers) > 0 {

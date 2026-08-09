@@ -689,20 +689,3 @@ func orderJournalEventLabel(ev orderJournalEvent) string {
 	}
 	return "unknown-order"
 }
-
-func maxReservedBrokerOrderID(store *orderJournalStore) (int, error) {
-	if store == nil {
-		return 0, nil
-	}
-	events, err := store.LoadEvents(0)
-	if err != nil {
-		return 0, err
-	}
-	var maxID int
-	for _, ev := range events {
-		if ev.ReservedOrderID > maxID {
-			maxID = ev.ReservedOrderID
-		}
-	}
-	return maxID, nil
-}

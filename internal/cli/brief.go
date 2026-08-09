@@ -156,8 +156,6 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 }
 
 // briefLastSessionValue renders the close-captured last-session P&L. The
-// capture instant prints on the local clock like every other CLI timestamp;
-// a resolved session without a capture says so instead of showing a number.
 func briefLastSessionValue(row rpc.BriefLastSessionRow) string {
 	if row.SessionDate == "" {
 		return "—"
@@ -196,7 +194,6 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	}
 	briefLine(env, "dealer gamma", ready.Gamma.BriefRowState, gamma)
 	// Action and severity are usually the same word; printing both reads as a
-	// stutter, so the pair collapses when equal (the SPA does the same).
 	severity := ready.Stress.Severity
 	if strings.EqualFold(severity, ready.Stress.Action) {
 		severity = ""
@@ -260,7 +257,6 @@ func briefLine(env *Env, label string, state rpc.BriefRowState, value string) {
 		value = "—"
 	}
 	// Detail and value carry broker-sourced text (symbols, blockers); the same
-	// control-byte hazard the narrative render strips applies here.
 	fmt.Fprintf(env.Stdout, "  %-18s %-11s %s\n", label, state.Status, sanitizeRunText(value))
 	fmt.Fprintf(env.Stdout, "    %s\n", sanitizeRunText(state.Detail))
 }
@@ -283,26 +279,16 @@ func briefMoney(row rpc.BriefMoneyCoverageRow) string {
 }
 
 // ---- narrative render -------------------------------------------------
-//
 // The daemon composes the brief's prose; this renderer only projects the typed
-// runs onto a terminal. It invents no sentence, re-derives no role, and states
-// no fact the payload did not serve. When the daemon serves no narrative — an
-// older daemon, or a payload whose movements did not compose — the row render
-// above stays the surface.
 
 const (
 	// briefProseMeasure caps the prose line length. Long measures read badly
-	// even on a wide terminal, and the cap keeps a render comparable between
-	// windows.
 	briefProseMeasure = 80
 	// briefProseIndent sets prose in from the section headers, matching the
-	// row render's own indent.
 	briefProseIndent = "  "
 )
 
 // briefProseWidth resolves the measure for one render. The width is passed
-// into the renderer explicitly: an ambient terminal read inside the renderer
-// would make every rendered line depend on the caller's environment.
 func briefProseWidth(w io.Writer) int {
 	cols := outputColumns(w)
 	if cols <= 0 {
@@ -314,7 +300,6 @@ func briefProseWidth(w io.Writer) int {
 // briefNarrativeView is a served narrative: runs and paragraphs that survived
 // filtering. It mirrors servedNarrative in web/app/brief.js exactly — empty
 // runs drop, empty paragraphs drop, and a narrative counts as served only when
-// the lead or one of the movements survives. A coda-only narrative is absent,
 // so the two surfaces can never disagree about what "served" means.
 type briefNarrativeView struct {
 	lead   []rpc.BriefRun
@@ -373,7 +358,6 @@ func renderBriefNarrative(env *Env, narrative *briefNarrativeView, res rpc.Brief
 }
 
 // briefProseParagraphs separates paragraphs with a blank line and leaves none
-// before the first, so a section header stays attached to its opening sentence.
 func briefProseParagraphs(env *Env, paragraphs [][]rpc.BriefRun, width int) {
 	for i, runs := range paragraphs {
 		if i > 0 {
@@ -391,9 +375,6 @@ func briefProseParagraph(env *Env, runs []rpc.BriefRun, width int) {
 
 // briefDegradedFooter keeps the brief's per-row disclosure contract alive under
 // prose. The narrative names an unread input but never carries the row's own
-// reason, and the terminal has no tap-through to reach it, so every degraded or
-// unavailable row states its reason beneath the prose. A brief whose inputs all
-// read prints nothing here.
 func briefDegradedFooter(env *Env, res rpc.BriefResult, width int) {
 	rows := briefDegradedRows(res)
 	if len(rows) == 0 {
@@ -406,7 +387,6 @@ func briefDegradedFooter(env *Env, res rpc.BriefResult, width int) {
 }
 
 // briefLabelLine prints one "label: value" line beneath the prose, wrapped to
-// the measure with a hanging indent so a long reason stays inside it.
 func briefLabelLine(env *Env, label, value string, width int) {
 	hanging := briefProseIndent + briefProseIndent
 	for i, line := range wrapVisibleText(label+": "+value, width-len(hanging)) {
@@ -419,12 +399,9 @@ func briefLabelLine(env *Env, label, value string, width int) {
 }
 
 // briefDisclosure is one row's degradation, labelled as the row render labels
-// it so the two modes name the same input the same way.
 type briefDisclosure struct{ label, detail string }
 
 // briefDegradedRows walks every leaf row the brief carries, in render order,
-// and keeps the ones whose input did not fully read. Section rollups are
-// skipped: they restate their children and would double-count.
 func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 	var out []briefDisclosure
 	add := func(label string, state rpc.BriefRowState) {
@@ -466,9 +443,7 @@ func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 }
 
 // briefSeg is one tinted fragment. briefWord is one unbreakable token, which
-// may span runs: the composer emits "AAPL ", a figure "+900.00", then ", NVDA ",
 // so a token can carry fragments of two runs and a plain split on spaces would
-// lose the boundary between them.
 type briefSeg struct{ text, role string }
 
 type briefWord []briefSeg
@@ -563,9 +538,7 @@ func splitBriefWord(word briefWord, width int) (briefWord, briefWord) {
 }
 
 // briefLineText renders one packed line. Adjacent fragments sharing a role
-// coalesce into a single span so a composed run stays inside one escape pair,
 // and every open span closes before the caller's newline: an escape must never
-// survive a line break.
 func briefLineText(env *Env, line []briefWord) string {
 	var out strings.Builder
 	open := ""
@@ -598,7 +571,6 @@ func briefLineText(env *Env, line []briefWord) string {
 }
 
 // briefSeparatorRole keeps the space that once sat inside a run inside that
-// run's span; a space between two differently-tinted words stays plain.
 func briefSeparatorRole(prev, next briefWord) string {
 	if len(prev) == 0 || len(next) == 0 {
 		return ""
@@ -610,11 +582,7 @@ func briefSeparatorRole(prev, next briefWord) string {
 }
 
 // briefRunSGR maps a run role onto one combined SGR code. Roles are claims
-// about the row beneath them, and the terminal answers watch with amber and act
-// with red, the same severity mapping the stress render uses. Figures and body
-// prose keep the terminal's own ink: a brief carries too many figures for
 // emphasis to stay signal. One code per span, never nested, so a single reset
-// always closes it.
 func briefRunSGR(role string) string {
 	switch role {
 	case rpc.BriefRunRoleWatch:
@@ -628,7 +596,6 @@ func briefRunSGR(role string) string {
 
 // sanitizeRunText drops control bytes from composed text. The daemon builds run
 // text from broker-sourced symbols and policy identifiers, and this renderer is
-// the one path that gives text an ANSI meaning — an escape arriving inside a
 // broker field must never reach the terminal as a command.
 func sanitizeRunText(text string) string {
 	return strings.Map(func(r rune) rune {

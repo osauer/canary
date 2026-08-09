@@ -13,13 +13,9 @@ import (
 )
 
 // handshakeWaitBudget bounds how long `canary status` waits for the daemon's
-// IB Gateway handshake to land. The daemon publishes a bounded connection
-// error when TCP succeeds but the API handshake does not; this larger budget
-// also covers TLS fallback and slow healthy gateways.
 const handshakeWaitBudget = 25 * time.Second
 
 // handshakePollInterval is the cadence at which `status` re-asks the
-// daemon for its health snapshot during the wait.
 const handshakePollInterval = 500 * time.Millisecond
 
 func runStatus(ctx context.Context, env *Env, args []string) int {
@@ -57,8 +53,6 @@ func runStatus(ctx context.Context, env *Env, args []string) int {
 }
 
 // renderStatusText prints the health snapshot as the user-facing status
-// screen. Split out from runStatus so the preview tool and future tests
-// can exercise the rendering without a live socket.
 func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidateSnapshot) {
 	out := env.Stdout
 	cliVersion := env.Version
@@ -124,9 +118,6 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 }
 
 // formatAlertCoverageValue is the push-delivery readiness headline: delivery
-// waits on every expected alert source claiming coverage at once, so the row
-// names the stragglers instead of a bare fraction. `canary alerts` has the
-// per-source and per-rule detail.
 func formatAlertCoverageValue(env *Env, coverage rpc.AlertCoverage) string {
 	total := len(coverage.ExpectedSources)
 	if total == 0 {
@@ -230,7 +221,6 @@ func nextConcern(res rpc.HealthResult, cliVersion string) statusConcern {
 	case len(res.DataFarms) > 0:
 		return statusConcern{Text: "Data farm issue: " + formatDataFarmsValue(res.DataFarms), Level: statusConcernWarn}
 	// Ranked below the farms it can be an artifact of: while a market-data
-	// farm is down, "the gateway refused this name" is a symptom of the
 	// outage, not of the account's subscriptions.
 	case len(res.MarketDataAccess) > 0:
 		return statusConcern{Text: "Market data access: " + formatMarketDataAccessValue(res.MarketDataAccess), Level: statusConcernWarn}
@@ -321,9 +311,7 @@ func formatSessionValue(env *Env, res rpc.HealthResult) string {
 func statusAccountID(res rpc.HealthResult) string {
 	// A login carrying several accounts advertises the comma-joined
 	// managedAccounts list, which is a session inventory rather than an account
-	// code. Printing it would name every sibling and claim the session is
 	// scoped to all of them; the configured pin is the account it is actually
-	// scoped to.
 	if account := strings.TrimSpace(res.ConnectedAccount); account != "" && !strings.ContainsAny(account, ", \t") {
 		return account
 	}
@@ -389,14 +377,11 @@ func formatDataFarmsValue(farms []rpc.DataFarmHealth) string {
 }
 
 // marketDataAccessNamed bounds how many refused route keys the one-line
-// status row names before collapsing the rest into a count.
 const marketDataAccessNamed = 3
 
 // formatMarketDataAccessValue renders the route keys the gateway is currently
 // refusing market data for. It reports the observation and the window, never a
 // verdict about the account's entitlements: a name absent from this list was
-// not necessarily requested, and features holding cached results keep serving
-// while their key is listed.
 func formatMarketDataAccessValue(items []rpc.MarketDataAccessHealth) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
@@ -489,8 +474,6 @@ func formatBackgroundTasks(tasks []rpc.BackgroundTaskStatus) string {
 }
 
 // formatMembersValue renders the S&P 500 members metadata that lives
-// under the breadth surface. Returns the empty string when the daemon
-// hasn't populated the field yet.
 func formatMembersValue(m rpc.MembersHealth) string {
 	if m.Source == "" {
 		return ""
@@ -512,7 +495,6 @@ func formatMembersValue(m rpc.MembersHealth) string {
 
 func formatSubsystemsValue(env *Env, subs []rpc.SubsystemHealth) string {
 	// Ten "name:ready" entries carry no information; only the exceptions do.
-	// Collapse the healthy majority and keep every non-ready entry verbatim.
 	ready := 0
 	parts := make([]string, 0, len(subs))
 	for _, s := range subs {
@@ -604,8 +586,6 @@ func membersRefreshNeedsAttention(m rpc.MembersHealth) bool {
 }
 
 // isHandshakeInFlight reports whether the daemon has reported neither a
-// successful connection nor a connect error yet — i.e. the gateway
-// handshake goroutine started but hasn't produced a verdict.
 func isHandshakeInFlight(res rpc.HealthResult) bool {
 	switch res.GatewayPhase {
 	case rpc.GatewayPhaseConnecting, rpc.GatewayPhaseAPINotReady:
@@ -617,10 +597,7 @@ func isHandshakeInFlight(res rpc.HealthResult) bool {
 }
 
 // backgroundTaskPhrase renders a stable wire token (the one the
-// daemon's backgroundTasks() emits) as a short verb phrase suitable
 // for the status row. Unknown tokens fall through verbatim so a
-// daemon shipping a new task name still appears in `canary status`
-// even before the CLI has been updated.
 func backgroundTaskPhrase(token string) string {
 	switch token {
 	case "breadth-spx":
@@ -635,13 +612,10 @@ func backgroundTaskPhrase(token string) string {
 }
 
 // healthFetcher is the closure waitForHandshake uses to re-poll the
-// daemon. Indirected so tests can drive the wait deterministically
-// without a live socket.
 type healthFetcher func(ctx context.Context) (rpc.HealthResult, error)
 
 // waitForStatusVerdict waits out the daemon's first IB Gateway handshake
 // verdict. JSON output must stay clean, so its progress UI is discarded
-// instead of being mixed into stdout.
 func waitForStatusVerdict(ctx context.Context, progress io.Writer, jsonOut bool, initial rpc.HealthResult, fetch healthFetcher) rpc.HealthResult {
 	if !isHandshakeInFlight(initial) {
 		return initial
@@ -653,7 +627,6 @@ func waitForStatusVerdict(ctx context.Context, progress io.Writer, jsonOut bool,
 }
 
 // waitForHandshake polls fetch until it returns a verdict (Connected, or
-// LastError set) or budget elapses.
 func waitForHandshake(ctx context.Context, w io.Writer, fetch healthFetcher, initial rpc.HealthResult, budget, pollInterval time.Duration) rpc.HealthResult {
 	fmt.Fprintf(w, "canary: waiting for IB Gateway handshake (up to %s)", budget)
 	defer fmt.Fprintln(w)
@@ -680,16 +653,8 @@ func waitForHandshake(ctx context.Context, w io.Writer, fetch healthFetcher, ini
 }
 
 // formatGatewayBadge renders the TLS state and the discovery origin
-// compactly. Examples:
-//
-//	(tls=false, discovered)
-//	(tls=true, pinned)
-//	(tls=true, configured=false ⚠ fallback)
-//
 // The fallback marker only fires when configured ≠ negotiated, which can
 // only happen when EnableTLSFallback is on (i.e. TLS auto). Pinned TLS
-// (true or false) suppresses fallback entirely, so configured always
-// equals negotiated.
 func formatGatewayBadge(res rpc.HealthResult) string {
 	tlsTok := fmt.Sprintf("tls=%v", res.GatewayTLS)
 	if res.Connected && res.GatewayTLS != res.NegotiatedTLS {

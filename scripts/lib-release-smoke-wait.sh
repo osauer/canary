@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 
 # release_smoke_wait_for_task_absent polls a typed status provider until every
-# named background task is absent. Task names arrive as ONE space-separated
-# argument, so callers can settle on a whole fan-out family in a single wait.
-# The provider is a shell function or command that receives one variable name
-# and writes the JSON payload with printf -v. Malformed or unavailable status
 # is never interpreted as settled.
 release_smoke_wait_for_task_absent() {
     local provider="${1:?status provider required}"
@@ -32,16 +28,8 @@ release_smoke_wait_for_task_absent() {
 }
 
 # release_smoke_settle_or_fail waits for the named background tasks to drain
-# and then separates the two ways that wait can end. The smoke daemon starts
 # cold, so a full S&P-500 fan-out routinely outlasts any budget a release
-# should sit on; a task that is still legitimately running says the session is
-# slow, not that the artifact is broken, and the caller proceeds against the
-# unsettled session — naming what is still running, because the read that
 # follows contends with exactly those tasks and its failure is otherwise
-# indistinguishable from a broken artifact (the 2026-08-03 v2.7.0 fire aborts
-# looked like a wedged gateway until the drain trace was read). A status
-# surface that stays unreadable or malformed is the case this guard exists to
-# catch, and it stays fatal.
 release_smoke_settle_or_fail() {
     local provider="${1:?status provider required}"
     local task_names="${2:?background task name(s) required}"
@@ -108,8 +96,6 @@ sys.exit(0)
 }
 
 # release_smoke_status_tasks_present prints the comma-joined subset of the
-# named tasks that are still listed in the payload, in the caller's order.
-# Malformed status prints nothing and returns 1.
 release_smoke_status_tasks_present() {
     local task_names="$1"
     local payload="$2"

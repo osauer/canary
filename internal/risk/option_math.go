@@ -23,19 +23,6 @@ func OptionIntrinsicPerShare(right string, underlying, strike float64) float64 {
 	}
 }
 
-// OptionSpreadPct is the bid/ask spread as a percentage of mid. Returns
-// ok=false when either side is missing or the quote is crossed/locked.
-func OptionSpreadPct(bid, ask *float64) (float64, bool) {
-	if bid == nil || ask == nil {
-		return 0, false
-	}
-	mid := (*bid + *ask) / 2
-	if mid <= 0 || *ask < *bid {
-		return 0, false
-	}
-	return (*ask - *bid) / mid * 100, true
-}
-
 // OptionExtrinsicPerShare is mark minus intrinsic, floored at zero (a stale
 // mark below intrinsic means the quote, not negative time value). ok=false
 // when the underlying spot is unavailable or the mark is non-positive —

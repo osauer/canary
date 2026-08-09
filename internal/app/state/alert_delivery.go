@@ -15,8 +15,6 @@ import (
 )
 
 // Alert-delivery constants version the app-local ledger and classify durable
-// attempt transitions, aggregate health, occurrence endings, and completion
-// dispositions. They do not grant transport eligibility.
 const (
 	AlertDeliveryVersion = "alert-delivery-v4"
 
@@ -51,8 +49,6 @@ const (
 	AlertDeliveryEndSuperseded = "qualified_escalation"
 	// AlertDeliveryEndAuthorityScopeChanged labels an immutable public boundary
 	// projection when the daemon moves to another opaque account/mode authority.
-	// The private producer occurrence stays active and resumable: a context
-	// switch is neither evidence of recovery nor a trustworthy clear.
 	AlertDeliveryEndAuthorityScopeChanged = "authority_scope_changed"
 
 	AlertDeliveryCompletionAccepted  AlertDeliveryCompletion = "accepted"
@@ -65,9 +61,7 @@ const (
 	AlertDeliveryCompletionRetired         AlertDeliveryCompletionDisposition = "target_retired"
 
 	// AlertDispositionEligible and the related occurrence dispositions are
-	// sampled when a producer occurrence is first persisted. An eligible
 	// occurrence may only move to terminal suppression at the final mode gate;
-	// no later mode upgrade can arm it again.
 	AlertDispositionEligible        = "eligible"
 	AlertDispositionModeSuppressed  = "mode_suppressed"
 	AlertDispositionObserveOnly     = "observe_inbox_only"
@@ -80,7 +74,6 @@ const (
 )
 
 // Alert-delivery errors expose bounded, redacted failure classes while
-// occurrence, target, attempt, and persisted artifact identities stay private.
 var (
 	ErrAlertDeliveryOverflow          = errors.New("alert delivery evidence overflow")
 	ErrAlertDeliveryOldSnapshot       = errors.New("alert delivery snapshot is older than source authority")
@@ -91,7 +84,6 @@ var (
 )
 
 // alertDeliveryData is an optional, independently versioned section of the
-// existing app state file. It is the sole current inbox, attention, delivery
 // health, and Web Push authority.
 type alertDeliveryData struct {
 	Version                  string                                   `json:"version"`
@@ -109,9 +101,6 @@ type alertDeliveryData struct {
 	Baselines                map[string]alertDeliveryBaseline         `json:"baselines"`
 	Health                   AlertDeliveryHealth                      `json:"delivery_health"`
 	// ObservationRejectedAt stamps the first producer snapshot refused since the
-	// last accepted one. Transport health cannot express this: nothing is ever
-	// attempted while intake is refused, so an empty attempt ledger would
-	// otherwise read as healthy for as long as the refusal lasts.
 	ObservationRejectedAt   time.Time `json:"observation_rejected_at,omitzero"`
 	AttentionHighWaterSeq   uint64    `json:"attention_high_water_seq"`
 	AttentionReadThroughSeq uint64    `json:"attention_read_through_seq"`
@@ -119,7 +108,6 @@ type alertDeliveryData struct {
 
 // alertDeliveryBaseline records the first complete/current producer snapshot
 // observed for one opaque account/mode scope. Until it exists, every active
-// occurrence is visible but permanently classified as cutover_existing.
 type alertDeliveryBaseline struct {
 	EstablishedAt time.Time `json:"established_at"`
 	SnapshotAsOf  time.Time `json:"snapshot_as_of"`
@@ -162,8 +150,6 @@ type alertDeliveryOccurrence struct {
 
 // alertDeliveryPreviousContext is an immutable, allowlisted audit projection
 // created when the app moves away from an account/mode authority. It records
-// that an alert was still active at the context boundary without changing the
-// producer-owned occurrence lifecycle or minting v2 attention.
 type alertDeliveryPreviousContext struct {
 	AuthorityScope    string                    `json:"authority_scope"`
 	ArchiveSeq        uint64                    `json:"archive_seq"`
@@ -212,7 +198,6 @@ type alertDeliveryReceipt struct {
 
 // AlertDeliveryOccurrenceView is safe for HTTP/SSE projection. Producer keys,
 // evidence fingerprints, target identities, attempt IDs, and receipt keys are
-// deliberately absent.
 type AlertDeliveryOccurrenceView struct {
 	DisplayID        string                    `json:"display_id"`
 	Source           rpc.AlertSource           `json:"source"`
@@ -233,7 +218,6 @@ type AlertDeliveryOccurrenceView struct {
 }
 
 // AlertDeliveryAttentionRef identifies one redacted unread occurrence without
-// exposing its private producer key or evidence fingerprint.
 type AlertDeliveryAttentionRef struct {
 	DisplayID string          `json:"display_id"`
 	Source    rpc.AlertSource `json:"source"`
@@ -241,7 +225,6 @@ type AlertDeliveryAttentionRef struct {
 }
 
 // AlertDeliveryAttention is the source-neutral ledger's durable unread cursor.
-// UnreadCount counts references above ReadThroughSeq through HighWaterSeq.
 type AlertDeliveryAttention struct {
 	UnreadCount    int                         `json:"unread_count"`
 	HighWaterSeq   uint64                      `json:"high_water_seq"`
@@ -250,7 +233,6 @@ type AlertDeliveryAttention struct {
 }
 
 // AlertDeliveryAttemptTotals is a redacted projection of durable attempt
-// dispositions; RetryPending is derived from current retained evidence.
 type AlertDeliveryAttemptTotals struct {
 	Attempts       int `json:"attempts"`
 	Confirmed      int `json:"confirmed_pending_outcome"`
@@ -265,7 +247,6 @@ type AlertDeliveryAttemptTotals struct {
 }
 
 // AlertDeliveryHealth summarizes app-local delivery readiness and outcomes.
-// LastAcceptedAt records push-service acceptance, not device display or read.
 type AlertDeliveryHealth struct {
 	State          string    `json:"state"`
 	Class          string    `json:"class,omitempty"`
@@ -296,7 +277,6 @@ type AlertDeliveryView struct {
 
 // AlertDeliveryReservation is the durable-before-send handoff for one
 // occurrence-target attempt. Candidate is populated only after confirmation
-// rechecks current eligibility under the store lock.
 type AlertDeliveryReservation struct {
 	AttemptID     string    `json:"-"`
 	DisplayID     string    `json:"display_id"`
@@ -305,21 +285,17 @@ type AlertDeliveryReservation struct {
 	RetryAt       time.Time `json:"retry_at,omitzero"`
 	// Candidate is populated only by a successful ConfirmAlertTransport.
 	// It is the exact current candidate checked under the same store lock as
-	// the persisted confirmed-pending-outcome transition. Dispatchers must
 	// build transport copy from this value, never from a prior due-work scan.
 	Candidate rpc.AlertCandidate `json:"-"`
 }
 
 // AlertDeliveryCompletion classifies the transport result supplied when a
-// confirmed reservation is completed.
 type AlertDeliveryCompletion string
 
 // AlertDeliveryCompletionDisposition reports whether completion was applied,
-// already known, inactive, or reconciled after target retirement.
 type AlertDeliveryCompletionDisposition string
 
 // AlertDeliveryCompletionOutcome reports the durable disposition and retry
-// state produced by completing one reservation.
 type AlertDeliveryCompletionOutcome struct {
 	Disposition AlertDeliveryCompletionDisposition `json:"disposition"`
 	Class       string                             `json:"class"`
@@ -327,7 +303,6 @@ type AlertDeliveryCompletionOutcome struct {
 }
 
 // AlertDeliveryDueWork is an app-internal dispatch record. The private
-// producer occurrence and validated candidate are available to Go callers but
 // are excluded from JSON; DisplayID is the only public identity.
 type AlertDeliveryDueWork struct {
 	OccurrenceKey string             `json:"-"`
@@ -367,7 +342,6 @@ func (s *Store) bumpAlertDeliveryGenerationLocked(data *alertDeliveryData) error
 		return err
 	}
 	// A volatile state-write failure is itself a public health generation.
-	// Skip over it when persistence recovers so SSE consumers see both edges.
 	if s.alertDeliveryVolatile != nil {
 		return bumpAlertDeliveryGeneration(data)
 	}
@@ -375,8 +349,6 @@ func (s *Store) bumpAlertDeliveryGenerationLocked(data *alertDeliveryData) error
 }
 
 // noteAlertObservationRejectedLocked stamps the first producer snapshot refused
-// since the last accepted one. Repeat refusals in the same episode carry no new
-// information, so they are not persisted and cannot amplify writes.
 func (s *Store) noteAlertObservationRejectedLocked(prior *alertDeliveryData, at time.Time) {
 	if prior == nil || !prior.ObservationRejectedAt.IsZero() {
 		return
@@ -398,9 +370,6 @@ func (s *Store) noteAlertObservationRejectedLocked(prior *alertDeliveryData, at 
 
 func (s *Store) noteAlertDeliverySaveFailureLocked(at time.Time) {
 	// Preserve one stable public outage generation until a successful write
-	// proves recovery. Re-stamping the same persisted generation with a new
-	// timestamp would create equal-generation equivocation for SSE/reconnect
-	// consumers and can hide the later recovery edge.
 	if s.alertDeliveryVolatile != nil {
 		return
 	}
@@ -454,7 +423,6 @@ func (s *Store) setAlertDeliveryOverflowLocked(prior *alertDeliveryData, at time
 
 // ObserveAlertSnapshot validates and commits one complete producer contract.
 // All lifecycle, authority-watermark, attention, and snapshot-view changes are
-// written by the same atomic state-file replacement. Valid observations are
 // persisted even when they only advance generation/coverage.
 func (s *Store) ObserveAlertSnapshot(snapshot rpc.AlertCandidateSnapshot) (AlertDeliveryView, error) {
 	if err := rpc.ValidateAlertCandidateSnapshot(snapshot); err != nil {
@@ -512,9 +480,6 @@ func (s *Store) ObserveAlertSnapshot(snapshot rpc.AlertCandidateSnapshot) (Alert
 		return AlertDeliveryView{}, err
 	}
 	// Only a snapshot carrying producer coverage can attest that intake works
-	// again. The app answers its own refusals with an unavailable-coverage
-	// snapshot, and letting that clear the mark would erase the evidence on the
-	// very next poll.
 	if snapshot.Coverage.State != rpc.AlertCoverageUnavailable {
 		next.ObservationRejectedAt = time.Time{}
 	}
@@ -753,7 +718,6 @@ func (s *Store) applyAlertSnapshotLocked(data *alertDeliveryData, snapshot rpc.A
 			// A new daemon occurrence after exact recovery is a reopen.
 		case candidate.State == rpc.AlertEpisodeEscalated:
 			// Rotating the occurrence key while active is allowed only for a
-			// producer-qualified escalation.
 			current.EndedAt = candidate.StateChangedAt
 			current.EndReason = AlertDeliveryEndSuperseded
 		default:
@@ -803,7 +767,6 @@ func (s *Store) applyAlertSnapshotLocked(data *alertDeliveryData, snapshot rpc.A
 		occurrence := &data.Occurrences[occurrenceIndex]
 		if !occurrence.EndedAt.IsZero() {
 			// A previous-scope or qualified-escalation occurrence is historical
-			// context. Current coverage cannot reinterpret its end as recovery.
 			continue
 		}
 		occurrence.State = rpc.AlertEpisodeRecovered
@@ -869,12 +832,7 @@ func validateAlertCandidateAdvance(current alertDeliveryOccurrence, candidate rp
 		return fmt.Errorf("%w: occurrence timestamps regressed", ErrAlertDeliveryInvalidTransition)
 	}
 	// A cutover occurrence carries evidence times seeded from the retired
-	// pre-baseline producer, which stamped evaluation time where the current
-	// contract stamps the condition's own start. The two scales are not
 	// comparable, so an earlier evidence time on a row that can never be
-	// delivered reads as a re-statement rather than a replay. Observation and
-	// lifecycle order still bind here, and every post-baseline occurrence keeps
-	// the full rule.
 	if candidate.EvidenceAsOf.Before(current.EvidenceAsOf) && current.Disposition != AlertDispositionCutoverExisting {
 		return fmt.Errorf("%w: occurrence timestamps regressed", ErrAlertDeliveryInvalidTransition)
 	}
@@ -990,7 +948,6 @@ func (s *Store) alertDeliveryViewLocked(data *alertDeliveryData, now time.Time) 
 }
 
 // AlertDeliveriesDue reconstructs active transport-eligible work from durable
-// state, including after restart without a fresh daemon snapshot. Per-target
 // receipt/retry dedupe remains authoritative in BeginAlertDelivery.
 func (s *Store) AlertDeliveriesDue(now time.Time) []AlertDeliveryDueWork {
 	now = now.UTC()
@@ -1023,7 +980,6 @@ func (s *Store) AlertDeliveriesDue(now time.Time) []AlertDeliveryDueWork {
 
 // SetAlertDeliveryPrerequisiteHealth persists the current dispatcher's
 // allowlisted prerequisite posture. An empty class clears only a prior
-// prerequisite outage and recomputes health from durable attempts; it cannot
 // clear overflow, a state-write failure, or interrupted transport evidence.
 func (s *Store) SetAlertDeliveryPrerequisiteHealth(class string, now time.Time) error {
 	if class != "" && !validAlertDeliveryPrerequisiteClass(class) {
@@ -1096,7 +1052,6 @@ func alertDeliveryViewLocked(data *alertDeliveryData, now time.Time) AlertDelive
 	for _, occurrence := range data.Occurrences {
 		if occurrence.AuthorityScope != data.Snapshot.AuthorityScope && occurrence.EndedAt.IsZero() {
 			// Active occurrences in another account/mode remain privately live so
-			// the daemon can resume them on re-entry. Their immutable boundary
 			// projection below is the only public representation while dormant.
 			continue
 		}
@@ -1174,7 +1129,6 @@ func alertDeliveryAttentionLocked(data *alertDeliveryData) AlertDeliveryAttentio
 					displayID = previous.DisplayID
 				} else {
 					// Corrupt states are rejected at open. Keep this defensive path
-					// from emitting an unread reference to a hidden public row.
 					continue
 				}
 			}
@@ -1203,7 +1157,6 @@ func latestAlertDeliveryPreviousContext(data *alertDeliveryData, authorityScope,
 
 // MarkAlertDeliveryAttentionRead durably advances the source-neutral inbox
 // cursor only across a complete contiguous set of retained references. It is
-// evidence of rendered app state, not human attention or physical delivery.
 func (s *Store) MarkAlertDeliveryAttentionRead(throughSeq uint64) (AlertDeliveryAttention, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1366,10 +1319,6 @@ func alertDeliveryReservationView(attempt alertDeliveryAttempt, displayID string
 
 // ConfirmAlertTransport is the last durable-authority check immediately before
 // an external Sender.Send call. Reservation alone never grants transport: a
-// recovery or target retirement between Begin and Confirm finalizes the
-// attempt without sending. The store cannot hold its lock across Sender.Send;
-// a transition after Confirm is consequently recorded as interrupted
-// uncertainty rather than proof that transport did or did not occur.
 func (s *Store) ConfirmAlertTransport(attemptID string, now time.Time) (AlertDeliveryReservation, bool, error) {
 	if !validAlertAttemptID(attemptID) {
 		return AlertDeliveryReservation{}, false, errors.New("invalid alert delivery attempt id")
@@ -1465,8 +1414,6 @@ func (s *Store) ConfirmAlertTransport(attemptID string, now time.Time) (AlertDel
 		return alertDeliveryReservationView(*attempt, displayID), false, nil
 	}
 	// Persist the narrow confirmed-pending-outcome window. A crash or a
-	// lifecycle change after this return cannot prove whether Sender.Send ran;
-	// recovery therefore reports interrupted_uncertain for this attempt. The
 	// caller must use the returned DisplayID as the transport collapse/tag key.
 	next := cloneAlertDeliveryData(prior)
 	attempt := &next.Attempts[attemptIndex]
@@ -1492,7 +1439,6 @@ func (s *Store) ConfirmAlertTransport(attemptID string, now time.Time) (AlertDel
 // CompleteAlertDelivery completes only a persisted reservation. It rechecks
 // occurrence and target authority under the store lock before recording a
 // receipt. The caller supplies neither occurrence, target, receipt key nor
-// DisplayID, so it cannot redirect acceptance evidence.
 func (s *Store) CompleteAlertDelivery(attemptID string, completion AlertDeliveryCompletion, now time.Time) (AlertDeliveryCompletionOutcome, error) {
 	if !validAlertAttemptID(attemptID) {
 		return AlertDeliveryCompletionOutcome{}, errors.New("invalid alert delivery attempt id")
@@ -1640,12 +1586,10 @@ func (s *Store) RetireAlertDeliveryTarget(targetRef string, at time.Time) error 
 
 // retireAlertDeliveryTargetsLocked stages one atomic ledger retirement without
 // saving. Callers already hold s.mu and must either persist every surrounding
-// device/subscription mutation in the same save or restore the prior ledger.
 func (s *Store) retireAlertDeliveryTargetsLocked(targets map[string]bool, at time.Time) ([]string, bool, error) {
 	s.initAlertDeliveryRuntime()
 	if s.alertDeliveryQuarantinedLocked() {
 		// Device/subscription lifecycle remains available to legacy Canary.
-		// The quarantined raw ledger is reinserted unchanged by save().
 		return nil, false, nil
 	}
 	prior := s.data.AlertDelivery
@@ -1698,7 +1642,6 @@ func (s *Store) retireAlertDeliveryTargetsLocked(targets map[string]bool, at tim
 			attempt.Disposition = AlertDeliveryCompletionRetired
 		case AlertDeliveryAttemptInterrupted:
 			// An unknown confirmed outcome remains operationally relevant even
-			// after retirement; keep its class while closing future retries.
 			attempt.Disposition = AlertDeliveryCompletionRetired
 			release = append(release, attempt.ID)
 		case AlertDeliveryAttemptReserved, AlertDeliveryAttemptRetry:
@@ -1733,9 +1676,6 @@ func (s *Store) finishAlertDeliveryRetirementLocked(release []string, changed bo
 
 // RecoverAlertDeliveries converts unowned reserve-before-send records into
 // definite no-send retries. Only confirmed-pending-outcome records become
-// interrupted uncertainty because Sender is unreachable before Confirm has
-// durably committed that class. Both paths use the same bounded retry sequence.
-// It is safe both after restart (the ownership map is empty) and in-process
 // after Confirm or Complete persistence failures release their reservation.
 // Genuinely owned work is never rewritten under an active dispatcher.
 func (s *Store) RecoverAlertDeliveries(now time.Time) error {
@@ -1821,7 +1761,6 @@ func (s *Store) RecoverAlertDeliveries(now time.Time) error {
 }
 
 // CompactAlertDelivery removes read, ended evidence older than the retention
-// window and retired targets no longer referenced by active subscriptions or
 // retained attempts. Unread occurrences are never compacted.
 func (s *Store) CompactAlertDelivery(now time.Time) error {
 	now = now.UTC()
@@ -1922,7 +1861,6 @@ func (s *Store) CompactAlertDelivery(now time.Time) error {
 	if recoveredCapacity {
 		// Overflow is fail-loud but not a permanent human ritual. Only the
 		// retention compactor may clear it, and only after every capped ledger
-		// collection is demonstrably below its bound.
 		next.Health = AlertDeliveryHealth{}
 	}
 	s.recomputeAlertDeliveryHealthLocked(next, now)
@@ -2053,9 +1991,6 @@ func alertDeliveryHasAnyReceipt(data *alertDeliveryData, receiptKey string) bool
 }
 
 // recomputeAlertDeliveryHealthLocked derives current transport posture across
-// targets. It deliberately does not use the most recent callback as global
-// truth: a successful target cannot hide another target's pending retry,
-// terminal rejection, or crash ambiguity. Overflow and unavailable are sticky
 // fail-loud states remain sticky until their typed recovery path succeeds.
 func (s *Store) recomputeAlertDeliveryHealthLocked(data *alertDeliveryData, now time.Time) {
 	if data == nil {
@@ -2076,9 +2011,6 @@ func (s *Store) recomputeAlertDeliveryHealthLocked(data *alertDeliveryData, now 
 	for _, attempt := range data.Attempts {
 		// Confirmed transport with an unknown outcome remains operationally
 		// relevant even if recovery, retirement, or an authority-scope change
-		// happened afterward. It is intentional uncertainty, not a scoped
-		// retry/rejection that can be dismissed merely because the occurrence
-		// or target is no longer active.
 		if attempt.Class == AlertDeliveryAttemptInterrupted {
 			interrupted = true
 			continue
@@ -2087,9 +2019,6 @@ func (s *Store) recomputeAlertDeliveryHealthLocked(data *alertDeliveryData, now 
 			continue
 		}
 		// Retired targets are no longer part of current transport posture.
-		// Keep their attempts and terminal outcomes as durable history, but do
-		// not let a dead subscription's retry/rejection degrade every active
-		// target forever. RetiredAt is stamped on historical attempts; the
 		// target map also covers callback races while retirement is persisted.
 		if !attempt.RetiredAt.IsZero() || !data.RetiredTargets[attempt.TargetRef].IsZero() {
 			continue
@@ -2097,7 +2026,6 @@ func (s *Store) recomputeAlertDeliveryHealthLocked(data *alertDeliveryData, now 
 		occurrence, episode, active := findAlertDeliveryOccurrence(data, attempt.AuthorityScope, attempt.OccurrenceKey)
 		if !active || !alertDeliveryOccurrenceCurrent(data, occurrence, episode) {
 			// A completed retry/rejection/exhaustion for an inactive occurrence is
-			// retained as history but can no longer describe current delivery.
 			continue
 		}
 		latest[attempt.ReceiptKey] = attempt
@@ -2285,7 +2213,6 @@ func (s *Store) validateAlertDeliveryState() error {
 		return fmt.Errorf("%w: invalid alert delivery snapshot: %v", ErrInvalidPersistedState, err)
 	}
 	// JSON written before retired_targets became non-omitempty can decode an
-	// empty map as nil. Empty is unambiguous and safe to normalize.
 	if data.SourceWatermarks == nil {
 		data.SourceWatermarks = make(map[rpc.AlertSource]time.Time)
 	}
@@ -2546,10 +2473,7 @@ func validAlertDeliveryAttemptTransition(previous, current alertDeliveryAttempt,
 	}
 
 	// Retirement closes all attempts for a target, including historical retry
-	// evidence. The writer therefore clears RetryAt and rewrites retryable
-	// predecessors after a successor may already have been reserved. Accept
 	// that otherwise-terminal predecessor only when the exact target tombstone
-	// stamps both records and proves the successor existed by retirement time.
 	retiredAt := retiredTargets[previous.TargetRef]
 	if retiredAt.IsZero() || !previous.RetiredAt.Equal(retiredAt) || !current.RetiredAt.Equal(retiredAt) ||
 		previous.Disposition != AlertDeliveryCompletionRetired || !previous.RetryAt.IsZero() || current.ReservedAt.After(retiredAt) {
@@ -2583,7 +2507,6 @@ func validAlertDeliveryAttemptLifecycle(attempt alertDeliveryAttempt) bool {
 		switch attempt.Disposition {
 		case AlertDeliveryCompletionApplied, AlertDeliveryCompletionInactive:
 			// A later target retirement stamps RetiredAt while preserving the
-			// transport-time disposition, so retirement is optional here.
 			return true
 		case AlertDeliveryCompletionRetired:
 			return retired

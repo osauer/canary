@@ -1,8 +1,5 @@
 // Package cli adapts typed daemon contracts and local workflows into Canary
 // commands, machine-readable output, and terminal rendering. Broker-connected
-// and runtime-state commands call the daemon over its typed Unix-socket
-// protocol, while setup, update, and watchlist workflows run locally. Handlers
-// return process exit codes; the daemon remains authoritative
 // for broker state, policy decisions, and gated broker writes.
 package cli
 
@@ -26,7 +23,6 @@ import (
 )
 
 // DaemonConn is the CLI's typed daemon-call surface. *dial.Conn implements
-// it in production; the interface keeps command-flow tests transport-free.
 type DaemonConn interface {
 	Call(context.Context, string, any, any) error
 	Stream(context.Context, string, any, func(json.RawMessage) error) error
@@ -37,21 +33,14 @@ type Env struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	// Stdin is the interactive input used for live-write confirmation
-	// prompts. Nil in tests and non-interactive helper paths.
 	Stdin io.Reader
 	Conn  DaemonConn
 	// Origin is this process's broker-write origin classification
-	// (rpc.OrderOrigin*), resolved once in cmd/canary via DetectWriteOrigin.
 	// Empty classifies as agent at the daemon (fail closed).
 	Origin string
 	// Version is the running CLI version stamped by cmd/canary. Empty in
-	// renderer tests and local-only helper paths that do not need parity
-	// checks against the daemon.
 	Version string
 	// Color is true when ANSI color escapes should be emitted on Stdout.
-	// Computed once in main.go via ShouldColor(Stdout) so renderers don't
-	// re-syscall stat() per value. Defaults to false in tests (Stdout is
-	// usually a *bytes.Buffer), keeping golden-substring assertions stable.
 	Color bool
 }
 
@@ -59,14 +48,7 @@ type Env struct {
 type CommandFunc func(ctx context.Context, env *Env, args []string) int
 
 // Run dispatches the subcommand named by cmd. Returns the process exit code.
-//
-// Args are reordered so all flags come before positional arguments — Go's
 // flag package stops at the first non-flag token, but users naturally write
-// `canary quote AAPL --json` rather than `canary quote --json AAPL`.
-//
-// On an unknown subcommand we print the full top-level usage to stderr,
-// not just the bare hint, so a user who typo'd or guessed wrong sees the
-// real list of verbs immediately. Pattern matches git/kubectl/gh.
 func Run(ctx context.Context, env *Env, cmd string, args []string) int {
 	c, ok := lookupCommand(cmd)
 	if !ok || c.Fn == nil {
@@ -78,8 +60,6 @@ func Run(ctx context.Context, env *Env, cmd string, args []string) int {
 }
 
 // parseExit converts a *flag.FlagSet.Parse error into a process exit code.
-// flag.ErrHelp means --help was passed and Usage already ran cleanly → 0;
-// any other parse error → 2 (matches Go's default ExitOnError behavior).
 func parseExit(err error) int {
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
@@ -103,7 +83,6 @@ func printCommandUsage(env *Env, name string) int {
 }
 
 // hoistFlags moves -flag and --flag tokens (and their values, if separate)
-// to the front of the slice while preserving relative order on each side.
 // Long-form `--flag=value` is treated as a single token.
 func hoistFlags(in []string) []string {
 	flags, positional := []string{}, []string{}
@@ -119,8 +98,6 @@ func hoistFlags(in []string) []string {
 			// Detect "--flag value" (value on next token) vs "--flag=value".
 			if !strings.Contains(a, "=") && i+1 < len(in) && !strings.HasPrefix(in[i+1], "-") {
 				// Heuristic: only treat next as value if the flag is one of the
-				// known value-taking flags. False positives are tolerable since
-				// runQuote's positional parser re-checks shape.
 				if isValueFlag(strings.TrimLeft(a, "-")) {
 					skipNext = true
 				}
@@ -166,7 +143,6 @@ func outputColumns(w io.Writer) int {
 }
 
 // runWatch is the one shared polling loop retained for account and position
-// views. Feature-specific streaming commands were retired in v3.
 func runWatch(ctx context.Context, env *Env, rate time.Duration, label string, render func(io.Writer) int) int {
 	if rate <= 0 {
 		rate = time.Second
@@ -214,10 +190,6 @@ func isTerminal(w io.Writer) bool {
 }
 
 // Command bundles a subcommand's name, one-line summary, optional usage
-// example, and handler. One slice — single source of truth for both the
-// dispatcher and the help table. `status` is listed first because users
-// hitting any other command without a healthy gateway will be redirected
-// here by the gateway_unavailable hint.
 type Command struct {
 	Name    string
 	Summary string
@@ -226,8 +198,6 @@ type Command struct {
 }
 
 // commands is populated in init() to break the package-init cycle that
-// would otherwise form: var → handler → flagSet → lookupCommand → var.
-// Order is load-bearing for the help table (status first).
 var commands []Command
 
 func init() {
@@ -261,8 +231,6 @@ func init() {
 }
 
 // lookupCommand returns the Command with the given name. n=7, scan is fine
-// and avoids the package-init cycle a map var would create (commands →
-// handler → flagSet → map → commands).
 func lookupCommand(name string) (Command, bool) {
 	for _, c := range commands {
 		if c.Name == name {
@@ -273,18 +241,13 @@ func lookupCommand(name string) (Command, bool) {
 }
 
 // IsKnown reports whether name is a registered subcommand. Used by
-// cmd/canary to skip the daemon autospawn for typos and unknown commands —
 // otherwise `canary nonsense` would spawn ibkrd just to fail with
-// "unknown subcommand", which is wasteful and confusing if it tips a
-// dormant install into a long startup.
 func IsKnown(name string) bool {
 	_, ok := lookupCommand(name)
 	return ok
 }
 
 // Commands returns the registered subcommand entries in declaration order.
-// Exported so the MCP server's parity test can assert that every CLI command
-// has an MCP tool counterpart (or is on the documented exclude list).
 func Commands() []Command {
 	out := make([]Command, len(commands))
 	copy(out, commands)
@@ -292,10 +255,6 @@ func Commands() []Command {
 }
 
 // PrintUsage writes the top-level help text. Commands are listed under their
-// catalog group, in registry order inside each one, so `status` stays the
-// first line. The listing shows the catalog's short form and the full summary
-// stays in `canary <subcommand> --help` — a flat list of 36 long summaries
-// wraps into a wall on an 80-column terminal.
 func PrintUsage(w io.Writer) {
 	fmt.Fprintf(w, "%s — local trading harness (Interactive Brokers connectivity; broker writes are gated)\n", productidentity.ProductName)
 	fmt.Fprintln(w)
@@ -318,9 +277,6 @@ func PrintUsage(w io.Writer) {
 }
 
 // flagSet builds a *flag.FlagSet wired to the env's writers and equipped
-// with a custom Usage that matches the top-level help style. Parse errors
-// go to stderr; the Usage output (triggered by --help, after flags are
-// registered) goes to stdout.
 func flagSet(env *Env, name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(productidentity.Executable+" "+name, flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
@@ -354,7 +310,6 @@ func printJSON(env *Env, obj any) int {
 }
 
 // printJSONTo is printJSON with an explicit destination writer. Used by
-// renderers that emit to a buffer (watch loop) before flushing to stdout.
 func printJSONTo(env *Env, out io.Writer, obj any) int {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
@@ -366,10 +321,6 @@ func printJSONTo(env *Env, out io.Writer, obj any) int {
 }
 
 // fail writes a friendly error line and returns code 1. If the underlying
-// message looks like a gateway-unavailable error from the daemon, an extra
-// hint line is appended pointing the user at `canary status`. The hint
-// covers both common cases — a missing/down gateway AND a freshly-spawned
-// daemon whose handshake hasn't completed — without being prescriptive.
 func fail(env *Env, format string, args ...any) int {
 	msg := fmt.Sprintf(format, args...)
 	fmt.Fprintf(env.Stderr, "%s: %s\n", productidentity.Executable, msg)
@@ -382,15 +333,11 @@ func fail(env *Env, format string, args ...any) int {
 }
 
 // isGatewayUnavailable matches the error.Code prefix the daemon emits for
-// CodeGatewayUnavailable. Kept loose because the message arrives flattened.
 func isGatewayUnavailable(msg string) bool {
 	return strings.Contains(msg, "gateway_unavailable")
 }
 
 // failUnexpectedArgs rejects a stray positional argument with the command's
-// usage on top of the error line, suggesting the "--" spelling when the
-// argument names a defined flag — `canary restart app` should teach `--app`,
-// not dead-end. Returns 2, the usage-error exit shared with parseExit.
 func failUnexpectedArgs(env *Env, fs *flag.FlagSet) int {
 	arg := fs.Arg(0)
 	fmt.Fprintf(env.Stderr, "%s: unexpected argument %q", fs.Name(), arg)
@@ -404,24 +351,15 @@ func failUnexpectedArgs(env *Env, fs *flag.FlagSet) int {
 }
 
 // formatMoney renders a USD-style amount with grouping; "$ 248,310.42".
-// Used by renderers that work with intrinsically USD-only data (chain
-// strikes, history, scan rows); position renderers thread the actual
-// currency through formatMoneyCcy.
 func formatMoney(v float64) string {
 	return formatMoneyCcy(v, "USD")
 }
 
 // formatMoneyCcy renders a money amount with the right currency prefix.
-// Symbols ($, €, £) for the common cases; the 3-letter ISO code as a
-// prefix for everything else. Empty currency falls back to "$" to match
-// formatMoney's USD default. The width of the prefix is padded so a
-// column of mixed currencies stays roughly aligned (1 char for symbols,
-// 3 chars for ISO).
 func formatMoneyCcy(v float64, ccy string) string {
 	prefix := moneyPrefix(ccy)
 	if v == 0 {
 		// Em-dash placeholder; width matches the legacy "$         —"
-		// when prefix is "$ " (length 2) so existing tables don't shift.
 		return prefix + "        —"
 	}
 	neg := v < 0
@@ -440,9 +378,6 @@ func formatMoneyCcy(v float64, ccy string) string {
 }
 
 // formatMoneyBare renders the amount with no currency prefix at all.
-// Use this when the currency is already named on the same line (e.g.
-// the Portfolio block in `canary positions` shows "Dollar delta X USD"
-// and the X should be currency-neutral).
 func formatMoneyBare(v float64) string {
 	if v == 0 {
 		return "         —"
@@ -462,9 +397,6 @@ func formatMoneyBare(v float64) string {
 }
 
 // moneyPrefix maps an ISO currency code to a short prefix suitable for
-// inline money rendering. Symbols for the handful of currencies that
-// have one; the ISO code itself for everything else. Always ends in a
-// space so callers can concatenate cleanly without extra glue.
 func moneyPrefix(ccy string) string {
 	switch strings.ToUpper(strings.TrimSpace(ccy)) {
 	case "", "USD":
@@ -505,9 +437,6 @@ func formatTimeShort(t time.Time) string {
 
 // dataTypeBadge surfaces non-live data clearly. On the happy path (live or
 // empty) it returns the empty string — the badge is signal only when data
-// is delayed/frozen and the user needs to know. Tinted yellow when color
-// is enabled so it pops above the table without needing the ⚠ glyph to do
-// all the work.
 func (e *Env) dataTypeBadge(dt string) string {
 	if rpc.IsLiveDataType(dt) {
 		return ""
@@ -516,8 +445,6 @@ func (e *Env) dataTypeBadge(dt string) string {
 }
 
 // suffixBadge prefixes the badge with `  ·  ` when present, returning the
-// empty string otherwise. Callers can append this to a header line without
-// trailing whitespace on the live path.
 func (e *Env) suffixBadge(dt string) string {
 	b := e.dataTypeBadge(dt)
 	if b == "" {
@@ -527,14 +454,8 @@ func (e *Env) suffixBadge(dt string) string {
 }
 
 // colorBySign wraps s with the env's red/green/dim color based on v.
-// Centralises the sign→color rule shared by the money / P&L / day-change
-// / Greeks formatters. signMode picks how zero is treated:
 //
 //	signNeg  — only negative is colored (red); zero/positive plain;
-//	           equal-zero is dim. Used by money displays where positive is
-//	           the resting state.
-//	signPnL  — negative red, positive green, zero dim. Used by P&L,
-//	           DayChange, Greeks delta — anywhere both directions matter.
 func (e *Env) colorBySign(v float64, s string, mode signMode) string {
 	switch mode {
 	case signNeg:
@@ -565,10 +486,7 @@ const (
 )
 
 // formatMoneyNegCcyRight is formatMoneyNegCcy with right-alignment
-// padding to w visible cells, preserving the color wrap. Padding is
-// applied before the ANSI wrap so column alignment holds regardless of
 // color state. Used by the account renderer so a column of mixed
-// magnitudes ("€ 5,968.85" vs "€ 992,841.68") reads as a single column.
 func (e *Env) formatMoneyNegCcyRight(v float64, ccy string, w int) string {
 	s := formatMoneyCcy(v, ccy)
 	if pad := w - len(s); pad > 0 {
@@ -578,10 +496,6 @@ func (e *Env) formatMoneyNegCcyRight(v float64, ccy string, w int) string {
 }
 
 // formatPnLRight is formatPnL but right-aligns the value within the
-// given visible width by prepending spaces. Used by the Portfolio
-// aggregate where numeric columns line up on the right edge — a
-// thousands-grouped money string varies in width and would otherwise
-// leave the trailing unit text at random positions.
 func (e *Env) formatPnLRight(v float64, width int) string {
 	s := formatMoney(v)
 	if pad := width - len(s); pad > 0 {
@@ -592,7 +506,6 @@ func (e *Env) formatPnLRight(v float64, width int) string {
 
 // formatPnLCcyRight is formatPnLRight with a currency prefix attached
 // (using the same prefix table as formatMoneyCcy). For account-level
-// P&L lines where the base currency belongs next to every figure for
 // non-USD accounts. Width counts visible cells of the full prefix+value.
 func (e *Env) formatPnLCcyRight(v float64, ccy string, width int) string {
 	s := formatMoneyCcyForPnL(v, ccy)
@@ -605,8 +518,6 @@ func (e *Env) formatPnLCcyRight(v float64, ccy string, width int) string {
 // formatMoneyCcyForPnL is formatMoneyCcy without the zero-as-em-dash
 // branch — for sign-coloured P&L lines a value of exactly zero is a
 // real result ("flat day") and must render as a number, not a dash.
-// The em-dash for "no data" is reserved for nil pointers handled by
-// the *Ptr* wrappers.
 func formatMoneyCcyForPnL(v float64, ccy string) string {
 	prefix := moneyPrefix(ccy)
 	neg := v < 0
@@ -625,10 +536,6 @@ func formatMoneyCcyForPnL(v float64, ccy string) string {
 }
 
 // formatSignedGrouped renders v with a leading sign and the integer
-// part separated by commas, at the given decimal precision. Use for
-// non-money numeric values (effective delta, gamma, vega) where the
-// magnitude can run into 4-5 digits — bare `%+.Nf` is harder to read
-// at a glance than `+30,572.9`.
 func formatSignedGrouped(v float64, decimals int) string {
 	neg := v < 0
 	abs := v
@@ -651,10 +558,6 @@ func formatSignedGrouped(v float64, decimals int) string {
 }
 
 // visibleLen returns the visible (terminal-cell) length of s, ignoring
-// ANSI CSI escape sequences (\x1b[...m). Box-drawing and currency-
-// symbol runes are counted as one cell each, matching how terminals
-// render them. Use this in lieu of len() when computing widths for
-// strings that may have been color-wrapped.
 func visibleLen(s string) int {
 	n := 0
 	in := false
@@ -689,8 +592,6 @@ func truncateVisible(s string, width int) string {
 }
 
 // padRightVisible pads s on the right with spaces until its visible
-// length is w, preserving any embedded ANSI escapes. No-op when s is
-// already at or beyond width.
 func padRightVisible(s string, w int) string {
 	if d := w - visibleLen(s); d > 0 {
 		return s + strings.Repeat(" ", d)
@@ -707,9 +608,6 @@ func padLeftVisible(s string, w int) string {
 }
 
 // padDash returns a right-aligned em-dash placeholder of visible width w.
-// Em-dash is one terminal column despite being three UTF-8 bytes, so we
-// can't rely on Printf's %Ns width verb (it counts bytes). Used for empty
-// numeric cells so columns stay aligned whether or not data is present.
 func padDash(w int) string {
 	if w <= 1 {
 		return "—"

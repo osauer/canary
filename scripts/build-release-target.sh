@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 #
 # build-release-target.sh - build and package one release target.
-#
 # Called by `make release-binaries` via xargs -P so the OS/arch matrix
-# can compile in parallel. Each target produces two artefacts:
 #   dist/canary-vX.Y.Z-<os>-<arch>.tar.gz          read-only (canonical)
 #   dist/canary-trading-vX.Y.Z-<os>-<arch>.tar.gz  broker-write capable
 
@@ -20,7 +18,6 @@ arch="${target#*-}"
 # Variant capability is pinned by the explicit -tags flags below. Ambient
 # GOFLAGS build tags would silently apply to the read-only build (which
 # passes no -tags of its own) and could ship a broker-write-capable binary
-# in the canonical archive.
 if [[ "${GOFLAGS:-}" == *"-tags"* ]]; then
 	echo "release build refuses ambient GOFLAGS carrying build tags (GOFLAGS=${GOFLAGS})" >&2
 	exit 1
@@ -94,7 +91,6 @@ WARN
 }
 
 # assert_archive_capability capability-checks the exact binary inside the
-# upload archive: `go version -m` reads the embedded build settings, so the
 # check works for every cross-compiled target. The trading archive must
 # carry the trading build tag; the canonical read-only archive must not.
 assert_archive_capability() {

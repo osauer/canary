@@ -267,10 +267,6 @@ func (c *marketEventCache) persistHalts(ctx context.Context, entry marketEventHa
 	return saveMarketEventState(ctx, c.authority, marketEventHaltsScope, marketEventHaltsStateKind, marketEventHaltsSource, marketEventHaltsObservationKind, entry.FetchedAt, state, len(entry.Records), entry.SourceURL)
 }
 
-func (c *marketEventCache) persistBorrowFees(ctx context.Context, entry marketEventBorrowFeeEntry) error {
-	return c.persistBorrowFeeSuccess(ctx, entry, entry.FetchedAt, entry.FetchedAt)
-}
-
 func (c *marketEventCache) persistBorrowFeeSuccess(ctx context.Context, entry marketEventBorrowFeeEntry, attemptedAt, completedAt time.Time) error {
 	if err := validateBorrowFeeEntry(entry); err != nil {
 		return err
