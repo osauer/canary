@@ -56,4 +56,26 @@ if "$checker" "$fixture" >/dev/null 2>&1; then
 	exit 1
 fi
 
+# The binding check job runs reduction-metrics-check against the locked
+# baseline commit, so a shallow checkout cannot provide its evidence.
+copy_fixture shallow-checkout
+python3 - "$fixture/.github/workflows/ci.yml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = """      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+"""
+if old not in text:
+    raise SystemExit("full-history check checkout witness missing")
+path.write_text(text.replace(old, "      - uses: actions/checkout@v4\n", 1))
+PY
+if "$checker" "$fixture" >/dev/null 2>&1; then
+	echo "check-release-ci-contract test: shallow check checkout passed" >&2
+	exit 1
+fi
+
 echo "check-release-ci-contract test: OK"

@@ -892,6 +892,25 @@ def validate_ci_commands(path):
                     fail(f"{path}:{number}: CI {job_name} job may not use {key}")
 
         steps = workflow_step_blocks(path, job_name, job_block)
+        if job_name == "check":
+            checkout_steps = [
+                step
+                for step in steps
+                if step.get("uses") == "actions/checkout@v4"
+            ]
+            if len(checkout_steps) != 1:
+                fail(
+                    f"{path}: check job needs exactly one actions/checkout@v4 step"
+                )
+            checkout_children = [
+                (indent, content)
+                for _number, indent, content in checkout_steps[0]["children"]
+            ]
+            if checkout_children != [(8, "with:"), (10, "fetch-depth: 0")]:
+                fail(
+                    f"{path}:{checkout_steps[0]['number']}: check checkout must "
+                    "fetch full history for reduction-metrics-check"
+                )
         actual_run_steps = {}
         for step in steps:
             direct = direct_step_mapping(path, job_name, step)
