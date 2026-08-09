@@ -1387,3 +1387,70 @@ func TestBriefPremiumDisclosesUnknownHedgeClassification(t *testing.T) {
 		t.Fatalf("closed-session account detail=%q", out.Account.Detail)
 	}
 }
+
+func TestBriefGammaSnapshotServesCurrentCompletedResult(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	asOf := now.Add(-48 * time.Hour)
+	job := &gammaComputation{
+		sessionKey:  "2026-08-07",
+		scope:       rpc.GammaZeroScopeCombined,
+		startedAt:   asOf.Add(-time.Minute),
+		completedAt: asOf,
+		done:        make(chan struct{}),
+		result:      &rpc.GammaZeroComputed{Scope: rpc.GammaZeroScopeCombined, AsOf: asOf},
+	}
+	close(job.done)
+	cache := newGammaZeroCache()
+	cache.slots = map[string]*gammaSlot{rpc.GammaZeroScopeCombined: {current: job}}
+	s := &Server{zeroGamma: cache, now: func() time.Time { return now }}
+
+	got := s.briefGammaSnapshot()
+	if got == nil || got.Status != rpc.GammaZeroStatusReady || got.Result == nil || !got.Result.AsOf.Equal(asOf) {
+		t.Fatalf("brief gamma snapshot=%+v, want completed current cache result", got)
+	}
+}
+
+func TestRulebookEconomicNamesNeutralizesOnlyVerifiedTerminalStock(t *testing.T) {
+	terminal := risk.NameInput{
+		Symbol: "CANCELLED", StockConID: 101, StockSecType: "STK", UnderlyingSecType: "STK",
+		ExposureBase: 9_999, MarketValueBase: 9_999, HasStockLeg: true,
+	}
+	active := risk.NameInput{Symbol: "ACTIVE", ExposureBase: 10_000, ExposureBaseComplete: true, HasStockLeg: true}
+	earnings := map[string]risk.EarningsInput{
+		"CANCELLED": {TerminalNonReporting: true, Source: "verified_terminal", Reason: "equity_interests_cancelled"},
+	}
+
+	projected := rulebookEconomicNames([]risk.NameInput{terminal, active}, earnings)
+	if got := projected[0]; got.Symbol != terminal.Symbol || got.StockConID != terminal.StockConID || got.StockSecType != terminal.StockSecType || !got.ExposureBaseComplete || got.ExposureBase != 0 || got.MarketValueBase != 0 || got.HasStockLeg || len(got.Legs) != 0 {
+		t.Fatalf("terminal projection=%+v", got)
+	}
+	if got := projected[1]; got.Symbol != active.Symbol || got.ExposureBase != active.ExposureBase || got.ExposureBaseComplete != active.ExposureBaseComplete || got.HasStockLeg != active.HasStockLeg {
+		t.Fatalf("active name changed: got=%+v want=%+v", got, active)
+	}
+
+	nlv := 100_000.0
+	eval := risk.EvaluateRulebook(risk.RuleInputs{
+		Positions: risk.SourceState{Healthy: true}, Account: risk.SourceState{Healthy: true}, NLVBase: &nlv,
+		Names: projected, Earnings: earnings,
+	}, risk.DefaultRulebookPolicy())
+	if got := eval.Rows[11]; got.Status == risk.RuleStatusUnknown {
+		t.Fatalf("verified terminal stock still poisoned hedge integrity: %+v", got)
+	}
+	for _, index := range []int{5, 6, 7} {
+		if len(eval.Rows[index].Exempt) != 1 || eval.Rows[index].Exempt[0].Symbol != terminal.Symbol {
+			t.Fatalf("rule %d lost terminal exemption: %+v", index+1, eval.Rows[index])
+		}
+	}
+
+	unverified := rulebookEconomicNames([]risk.NameInput{terminal}, map[string]risk.EarningsInput{})
+	if unverified[0].ExposureBase != terminal.ExposureBase || unverified[0].ExposureBaseComplete {
+		t.Fatalf("unverified terminal candidate was neutralized: %+v", unverified[0])
+	}
+	failedClosed := risk.EvaluateRulebook(risk.RuleInputs{
+		Positions: risk.SourceState{Healthy: true}, Account: risk.SourceState{Healthy: true}, NLVBase: &nlv,
+		Names: unverified,
+	}, risk.DefaultRulebookPolicy())
+	if got := failedClosed.Rows[11]; got.Status != risk.RuleStatusUnknown {
+		t.Fatalf("unverified candidate did not fail closed: %+v", got)
+	}
+}

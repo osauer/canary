@@ -585,7 +585,7 @@ func (s *Server) briefGammaSnapshot() *rpc.GammaZeroSPXResult {
 	if s == nil || s.zeroGamma == nil {
 		return nil
 	}
-	env := s.zeroGamma.snapshotForScope(rpc.GammaZeroScopeCombined, nil, s.briefNow)
+	env := s.zeroGamma.snapshotCurrent(rpc.GammaZeroScopeCombined, s.briefNow)
 	return &env
 }
 
