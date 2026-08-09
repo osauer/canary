@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.0.1 — 2026-08-09 15:51 CEST
+
+### What's new
+
+- **The v3 brief now reports the desk's current evidence without inflating missing-data counts.** Dealer gamma reads the completed current snapshot, and Rulebook totals distinguish checks that do not apply from evidence that is genuinely unknown.
+
+### Fixed
+
+- **A completed dealer-gamma reading now appears in the daily brief.** The brief no longer performs an empty ad-hoc lookup that discarded Friday's cached result and incorrectly said no gamma data was available. (#30)
+- **Rulebook summaries now preserve every canonical status.** Terminal stock-only checks are marked not evaluated when exact current holdings prove they do not apply, while stale, conflicting, option-bearing, or incomplete evidence remains fail-closed. The brief exposes not-evaluated and informational totals instead of folding them into unknown. (#31)
+- **Release recovery now follows the version's owning branch.** v2 recovery controllers prove exact `release/2.x` state while v3 controllers prove exact `main` state, so maintaining the stable v2 line cannot be blocked by a hard-coded v3 branch assertion.
+
 ## v3.0.0 — 2026-08-09 12:34 CEST
 
 ### What's new
