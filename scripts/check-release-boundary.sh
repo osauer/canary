@@ -26,6 +26,12 @@ count_literal() {
 	printf '%s\n' "$count"
 }
 
+require_line_count() {
+	[ "$(grep -Fxc "$2" "$1")" -eq "$3" ] && return
+	echo "check-release-boundary: $4" >&2
+	failure=1
+}
+
 inspect_fail_closed_final_gate() {
 	local gate="$1"
 	awk -v gate="$gate" '
@@ -220,6 +226,14 @@ for workflow in ci.yml pages-check.yml; do
 		failure=1
 	fi
 done
+
+registry_workflow="$root/.github/workflows/registry-publish.yml"
+registry_message="registry exact-SHA proof must follow the tag's major branch"
+require_line_count "$registry_workflow" '            v2.*) release_branch=release/2.x ;;' 1 "$registry_message"
+require_line_count "$registry_workflow" '            *) release_branch=main ;;' 1 "$registry_message"
+require_line_count "$registry_workflow" '          printf '\''release_branch=%s\n'\'' "$release_branch" >> "$GITHUB_OUTPUT"' 1 "$registry_message"
+require_line_count "$registry_workflow" '          RELEASE_BRANCH: ${{ steps.tag.outputs.release_branch }}' 1 "$registry_message"
+require_line_count "$registry_workflow" '            -sha "$release_sha" -branch "$RELEASE_BRANCH" -event push \' 1 "$registry_message"
 
 # Every check below this point runs once per line of the Makefile and of every
 # scanned script and workflow, so the matcher is the gate's hot loop. It is

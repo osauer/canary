@@ -57,6 +57,13 @@ on:
     branches: [main, release/2.x]
 EOF
 done
+cat >"$test_root/.github/workflows/registry-publish.yml" <<'EOF'
+            v2.*) release_branch=release/2.x ;;
+            *) release_branch=main ;;
+          printf 'release_branch=%s\n' "$release_branch" >> "$GITHUB_OUTPUT"
+          RELEASE_BRANCH: ${{ steps.tag.outputs.release_branch }}
+            -sha "$release_sha" -branch "$RELEASE_BRANCH" -event push \
+EOF
 for command in git gh claude; do
 	cat > "$test_root/bin/$command" <<'EOF'
 #!/bin/sh
@@ -356,6 +363,21 @@ EOF
 chmod 0755 "$test_root/scripts/check-release-payload-inventory.sh"
 
 "$checker" "$test_root" >/dev/null
+
+cp "$test_root/.github/workflows/registry-publish.yml" "$test_root/registry-publish.canonical"
+sed 's/v2\.\*) release_branch=release\/2\.x/v2.*) release_branch=main/' \
+	"$test_root/registry-publish.canonical" >"$test_root/.github/workflows/registry-publish.yml"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: v2 registry proof routed through main" >&2
+	exit 1
+fi
+sed 's/-branch "$RELEASE_BRANCH"/-branch main/' \
+	"$test_root/registry-publish.canonical" >"$test_root/.github/workflows/registry-publish.yml"
+if "$checker" "$test_root" >/dev/null 2>&1; then
+	echo "check-release-boundary test: registry proof hardcoded to main" >&2
+	exit 1
+fi
+cp "$test_root/registry-publish.canonical" "$test_root/.github/workflows/registry-publish.yml"
 
 rm -f "$test_root/guard-leaked"
 if fixture_make _release-publish >/dev/null 2>&1; then

@@ -153,8 +153,13 @@ EXPECTED_REGISTRY_COMMANDS = {
         "workflow_dispatch) source_mode=controller ;; "
         '*) echo "unexpected event \'$RELEASE_EVENT\'" >&2; exit 1 ;; '
         "esac "
+        'case "$tag" in '
+        "v2.*) release_branch=release/2.x ;; "
+        "*) release_branch=main ;; "
+        "esac "
         "printf 'tag=%s\\n' \"$tag\" >> \"$GITHUB_OUTPUT\" "
-        "printf 'source_mode=%s\\n' \"$source_mode\" >> \"$GITHUB_OUTPUT\""
+        "printf 'source_mode=%s\\n' \"$source_mode\" >> \"$GITHUB_OUTPUT\" "
+        "printf 'release_branch=%s\\n' \"$release_branch\" >> \"$GITHUB_OUTPUT\""
     ),
     "Hydrate and verify exact release asset set": (
         "set -euo pipefail "
@@ -174,7 +179,7 @@ EXPECTED_REGISTRY_COMMANDS = {
         'python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract" '
         "GOFLAGS= go run ./scripts/release-ci-wait "
         '-contract "$contract" -historical '
-        '-sha "$release_sha" -branch main -event push '
+        '-sha "$release_sha" -branch "$RELEASE_BRANCH" -event push '
         "-poll 15s -timeout 30m "
         './scripts/check-release-tag.sh "$tag" '
         './scripts/check-release-tag.sh --plugin "$tag" '
@@ -1347,6 +1352,7 @@ def validate_registry_workflow(root):
             "GH_TOKEN": "${{ github.token }}",
             "RELEASE_TAG": "${{ steps.tag.outputs.tag }}",
             "RELEASE_SOURCE_MODE": "${{ steps.tag.outputs.source_mode }}",
+            "RELEASE_BRANCH": "${{ steps.tag.outputs.release_branch }}",
         },
         "Install mcp-publisher": {
             "GH_TOKEN": "${{ github.token }}",
@@ -1379,6 +1385,8 @@ def validate_registry_workflow(root):
             'case "$RELEASE_EVENT" in',
             "release) source_mode=tag ;;",
             "workflow_dispatch) source_mode=controller ;;",
+            "v2.*) release_branch=release/2.x ;;",
+            "*) release_branch=main ;;",
             "GITHUB_OUTPUT",
         ),
     )
@@ -1407,7 +1415,7 @@ def validate_registry_workflow(root):
     waiter = (
         "GOFLAGS= go run ./scripts/release-ci-wait "
         '-contract "$contract" -historical '
-        '-sha "$release_sha" -branch main -event push '
+        '-sha "$release_sha" -branch "$RELEASE_BRANCH" -event push '
         "-poll 15s -timeout 30m"
     )
     require_substrings_in_order(

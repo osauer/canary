@@ -102,7 +102,7 @@
     </details>
     <main class="doc">
 <h1 id="updating">Updating</h1>
-<p>Updated: 2026-07-31</p>
+<p>Updated: 2026-08-08</p>
 <p>Four things can affect data freshness: the <strong>binary</strong> (<code>canary</code> itself), the <strong>Claude Desktop MCPB</strong> when installed through Desktop Extensions, the <strong>S&amp;P 500 constituent list</strong> the breadth indicator uses, and the embedded <strong>official market calendars</strong>. They update independently because they have different sources and cadences.</p>
 <h2 id="updating-the-binary-canary-update">Updating the binary: <code>canary update</code></h2>
 <p>Once you have a Canary-named release (v2.5.0 or later), the next binary
@@ -111,7 +111,7 @@ upgrade is one command:</p>
 </code></pre>
 <p>The CLI then:</p>
 <ol>
-<li>Checks the <a href="https://api.github.com/repos/osauer/canary/releases/latest">GitHub <code>/releases/latest</code></a> endpoint and matches your OS/arch against the published tarballs.</li>
+<li>Lists stable GitHub releases, selects the newest release on the installed major line, and matches your OS/arch against its tarballs. A v2 install therefore follows maintained v2 releases and never silently crosses to v3; a development build follows the newest stable line.</li>
 <li>Verifies the <strong>PGP signature on <code>SHA256SUMS</code></strong> against the maintainer's public key embedded in your current <code>canary</code> binary.</li>
 <li>SHA-verifies the tarball.</li>
 <li>Atomically replaces <code>~/.local/bin/canary</code>. Prior bytes exist only in hidden transaction staging and are deleted after publication; no runnable rollback binary is retained because daemon state migrations are forward-only.</li>

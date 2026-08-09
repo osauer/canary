@@ -211,8 +211,13 @@ jobs:
             workflow_dispatch) source_mode=controller ;;
             *) echo "unexpected event '$RELEASE_EVENT'" >&2; exit 1 ;;
           esac
+          case "$tag" in
+            v2.*) release_branch=release/2.x ;;
+            *) release_branch=main ;;
+          esac
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'source_mode=%s\n' "$source_mode" >> "$GITHUB_OUTPUT"
+          printf 'release_branch=%s\n' "$release_branch" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -241,6 +246,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
           RELEASE_SOURCE_MODE: ${{ steps.tag.outputs.source_mode }}
+          RELEASE_BRANCH: ${{ steps.tag.outputs.release_branch }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
@@ -253,7 +259,7 @@ jobs:
           python3 ./scripts/materialize-release-ci-contract.py "$tag" "$contract"
           GOFLAGS= go run ./scripts/release-ci-wait \
             -contract "$contract" -historical \
-            -sha "$release_sha" -branch main -event push \
+            -sha "$release_sha" -branch "$RELEASE_BRANCH" -event push \
             -poll 15s -timeout 30m
           ./scripts/check-release-tag.sh "$tag"
           ./scripts/check-release-tag.sh --plugin "$tag"
@@ -376,6 +382,8 @@ for registry_mutation in \
 	current_contract_historical \
 	missing_historical \
 	wrong_historical_event \
+	wrong_v2_release_branch \
+	hardcoded_registry_branch \
 	auto_login_enabled \
 	early_authority_exit \
 	direct_registry_query \
@@ -442,7 +450,9 @@ replacements = {
         "            -contract scripts/release-ci-contract.json -historical",
     ),
     "missing_historical": (" -historical \\\n", " \\\n"),
-    "wrong_historical_event": ("-branch main -event push", "-branch main -event release"),
+    "wrong_historical_event": ('-branch "$RELEASE_BRANCH" -event push', '-branch "$RELEASE_BRANCH" -event release'),
+    "wrong_v2_release_branch": ("            v2.*) release_branch=release/2.x ;;", "            v2.*) release_branch=main ;;"),
+    "hardcoded_registry_branch": ('-branch "$RELEASE_BRANCH" -event push', '-branch main -event push'),
     "auto_login_enabled": ("MCP_REGISTRY_AUTO_LOGIN=0", "MCP_REGISTRY_AUTO_LOGIN=1"),
     "early_authority_exit": (
         '          release_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"\n',
@@ -495,8 +505,8 @@ replacements = {
         'release_sha="$(git rev-parse HEAD)"',
     ),
     "head_historical_waiter": (
-        '-sha "$release_sha" -branch main -event push',
-        '-sha "$(git rev-parse HEAD)" -branch main -event push',
+        '-sha "$release_sha" -branch "$RELEASE_BRANCH" -event push',
+        '-sha "$(git rev-parse HEAD)" -branch "$RELEASE_BRANCH" -event push',
     ),
 }
 old, new = replacements[mutation]

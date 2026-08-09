@@ -46,6 +46,8 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+major="${version#v}"
+major="${major%%.*}"
 awk -v ver="$version" '
 	/^## v[0-9]/ {
 		if (in_ver) exit
@@ -57,11 +59,16 @@ awk -v ver="$version" '
 	in_new
 ' "$changelog" >"$highlights"
 
-awk -v ver="$version" -v hf="$highlights" '
+awk -v ver="$version" -v major="$major" -v hf="$highlights" '
 	{ gsub(/__VERSION__/, ver) }
 	/__HIGHLIGHTS__/ {
 		while ((getline line < hf) > 0) print line
 		close(hf)
+		next
+	}
+	/__GO_INSTALL__/ {
+		if (major == 2) print "- **`go install` (maintained v2 line)**: `go install github.com/osauer/canary/v2/cmd/canary@" ver "` (or `@latest`)."
+		else print "- **Go module and source-built CLI**: product v3 and later ship through the signed installer and release assets above. The public Go module remains on its maintained v2 line; `go install github.com/osauer/canary/v2/cmd/canary@latest` installs the newest v2 release, not this product release."
 		next
 	}
 	{ print }

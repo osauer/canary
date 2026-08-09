@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v2.8.5 — 2026-08-09 15:09 CEST
+
+### Fixed
+
+- **The daily brief now serves Friday's completed dealer-gamma reading over the weekend.** It previously discarded the daemon's current last-good cache while composing the brief and incorrectly reported a cold start even though the dedicated gamma and status surfaces were ready. The brief remains read-only and does not force an off-hours refresh. ([#30](https://github.com/osauer/canary/issues/30))
+- **A reviewed terminal/non-reporting stock no longer makes exposure rules unknown.** Canary retains the exact contract identity and its explicit earnings exemption, but removes the cancelled stock's stale or zero economics from advisory rule inputs. Missing, expired, conflicted, or option-bearing evidence still fails closed. ([#31](https://github.com/osauer/canary/issues/31))
+- **`canary update` now stays on the maintained v2 release line.** Once v3 is published, a v2 binary selects the newest stable v2 release instead of crossing the product major. The v2 release workflow likewise verifies its exact commit on `release/2.x`; release notes no longer imply that publication exercises a broker order.
+
 ## v2.8.4 — 2026-08-08 11:26 CEST
 
 ### What's new

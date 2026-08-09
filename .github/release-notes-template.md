@@ -27,7 +27,7 @@ If you only want the shell tool, stop after the first command and try:
 
 ~~~sh
 canary account
-canary quote AAPL
+canary technical AAPL
 canary positions --by underlying
 ~~~
 
@@ -39,7 +39,7 @@ See the [README](https://github.com/osauer/canary#readme) for the full feature m
 
 Everything above — the installer, the MCPB bundle, and the plain `canary-__VERSION__-*` tarballs — is **read-only by construction**: order transmission is not compiled in.
 
-The `canary-trading-__VERSION__-*` tarballs are different: **that binary can place, modify, and cancel orders with your broker** once you configure the trading gates (`[trading]` mode plus a pinned gateway endpoint and account, cross-checked against the connected session; every write still needs a submit-eligible preview token). Only download it if you intend to trade through Canary. Before enabling anything, read [SECURITY.md](https://github.com/osauer/canary/blob/__VERSION__/SECURITY.md) and the [trading preview guide](https://github.com/osauer/canary/blob/__VERSION__/docs/docs/operate/orders.md), start against a paper account, and verify with `canary trading status`. Each release's order pipeline is exercised by an automated paper-trading round-trip before tagging.
+The `canary-trading-__VERSION__-*` tarballs are different: **that binary can place, modify, cancel, or exercise constrained orders with your broker** once you configure the trading gates and satisfy the action's fresh preview or preflight contract. Only download it if you intend to trade through Canary. Before enabling anything, read [SECURITY.md](https://github.com/osauer/canary/blob/__VERSION__/SECURITY.md) and the [trading guide](https://github.com/osauer/canary/blob/__VERSION__/docs/docs/operate/orders.md), start against a paper account, and verify with `canary trading status`. Release publication is hermetic and performs no broker preview or write; wire behavior is verified separately with the read-only smoke targets.
 
 ---
 
@@ -53,7 +53,7 @@ sh install.sh
 
 ### Doing something custom?
 
-- **`go install`**: `go install github.com/osauer/canary/v2/cmd/canary@__VERSION__` (or `@latest`).
+__GO_INSTALL__
 - **Different install dir**: `CANARY_INSTALL_DIR=/usr/local/bin sh install.sh`. The installer won't touch your shell rc when you override; manage PATH yourself.
 - **Manual download**: pick a tarball or `.mcpb` from the Assets section below. Verify against `SHA256SUMS`.
 - **Cursor / Continue / Zed / other local MCP clients**: see [Pick your path](https://github.com/osauer/canary#claude-desktop-cursor-continue-zed) in the README for the JSON snippet (config file path differs per client).
