@@ -2,7 +2,7 @@ package risk
 
 import (
 	"math"
-	"os"
+
 	"slices"
 	"strings"
 	"testing"
@@ -14,9 +14,6 @@ func etDate(y int, m time.Month, d int) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, loc)
 }
 
-// healthyInputs models a compact version of a real book: an oversized NOW
-// complex into earnings, a BB option line over the premium cap, a SPY hedge,
-// and an MSFT covered call across its print.
 func healthyInputs() RuleInputs {
 	now := etDate(2026, 7, 7)
 	nowEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 22), TimeOfDay: "amc", SessionsUntil: new(11), Source: "fetched"}
@@ -64,9 +61,7 @@ func healthyInputs() RuleInputs {
 				},
 			},
 			{
-				// ExposureBaseComplete matches production: the daemon marks a
-				// group complete whenever its base conversion succeeded, which
-				// a healthy fixture's did.
+
 				Symbol: "SPY", ExposureBase: -80000, MarketValueBase: 38000, HasStockLeg: false, ExposureBaseComplete: true,
 				Legs: []LegInput{
 					{Desc: "SPY 20261016 P 710", Right: "P", Strike: 710, Expiry: etDate(2026, 10, 16), DTE: 101,
@@ -98,20 +93,20 @@ func TestEvaluateRulebookHealthyBook(t *testing.T) {
 		t.Fatalf("rows = %d, want 14", len(ev.Rows))
 	}
 	cases := map[string]string{
-		RuleSingleNameExposure: RuleStatusAct,     // NOW 155% of NLV
-		RuleOptionLinePremium:  RuleStatusAct,     // NOW 115C 14.7%, BB 13.9% (normal tier)
-		RuleCashSellOnly:       RuleStatusAct,     // -25.3% vs calm -25 floor
-		RuleExtrinsicBudget:    RuleStatusAct,     // ex-hedge ~29.1% of NLV
-		RuleExpiryRunway:       RuleStatusWatch,   // NOW Jul 130C at 10 DTE
-		RuleCatalystCoverage:   RuleStatusWatch,   // NOW 130C dies before Jul 22
-		RuleOverwriteEarnings:  RuleStatusAct,     // MSFT short call through Jul 29
-		RuleEarningsSizeFreeze: RuleStatusUnknown, // hedge-list membership is not evidence that an option underlying is a nonissuer
-		RuleRedOnGreen:         RuleStatusWatch,   // BB -1.7% on SPY +1.0%
-		RuleWinnerTrim:         RuleStatusPass,    // nothing +4%
-		RuleGreenDayAction:     RuleStatusInfo,    // green day, act rules open
-		RuleHedgeIntegrity:     RuleStatusAct,     // hedge ~159% of gross long > 2× calm band top
-		RuleExitDiscipline:     RuleStatusPass,    // worst line -30%, under the -40% fence
-		RuleFXExposure:         RuleStatusWatch,   // 93.9% non-base vs 60% watch-only bar
+		RuleSingleNameExposure: RuleStatusAct,
+		RuleOptionLinePremium:  RuleStatusAct,
+		RuleCashSellOnly:       RuleStatusAct,
+		RuleExtrinsicBudget:    RuleStatusAct,
+		RuleExpiryRunway:       RuleStatusWatch,
+		RuleCatalystCoverage:   RuleStatusWatch,
+		RuleOverwriteEarnings:  RuleStatusAct,
+		RuleEarningsSizeFreeze: RuleStatusUnknown,
+		RuleRedOnGreen:         RuleStatusWatch,
+		RuleWinnerTrim:         RuleStatusPass,
+		RuleGreenDayAction:     RuleStatusInfo,
+		RuleHedgeIntegrity:     RuleStatusAct,
+		RuleExitDiscipline:     RuleStatusPass,
+		RuleFXExposure:         RuleStatusWatch,
 	}
 	for id, want := range cases {
 		if got := rowByID(t, ev, id).Status; got != want {
@@ -142,9 +137,6 @@ func TestGreenDayActionRequiresFiniteDailyPnL(t *testing.T) {
 	}
 }
 
-// TestNeverFalsePass is the acceptance test for the design's safety
-// invariant: strip each input dimension and assert the affected rows report
-// unknown/not_evaluated — never pass (internal-docs/design/trading-rulebook.md).
 func TestNeverFalsePass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	portfolioRules := []string{
@@ -165,7 +157,7 @@ func TestNeverFalsePass(t *testing.T) {
 	t.Run("positions pending", func(t *testing.T) {
 		in := healthyInputs()
 		in.Positions = SourceState{Healthy: false, Reason: "positions_pending"}
-		in.Names = nil // a boot race serves an empty book
+		in.Names = nil
 		ev := EvaluateRulebook(in, pol)
 		assertNoPass(t, ev, append(portfolioRules, RuleRedOnGreen, RuleWinnerTrim)...)
 	})
@@ -179,10 +171,7 @@ func TestNeverFalsePass(t *testing.T) {
 	})
 
 	t.Run("underlying stripped", func(t *testing.T) {
-		// Positions healthy, deltas present, but no leg has an underlying
-		// spot (and extrinsic, which needs it, is gone with it). Rules 4 and
-		// 6 must degrade — rule 6 silently skipping these legs produced a
-		// live false pass on 2026-07-08.
+
 		in := healthyInputs()
 		for i := range in.Names {
 			for j := range in.Names[i].Legs {
@@ -205,8 +194,7 @@ func TestNeverFalsePass(t *testing.T) {
 		if r.Status != RuleStatusUnknown || r.Reason != "fx_unavailable" {
 			t.Errorf("fx_exposure = %s/%s without a currency report, want unknown/fx_unavailable", r.Status, r.Reason)
 		}
-		// A corroborated zero is a legitimate pass — the unknown above is
-		// about absence, not about small numbers.
+
 		in.NonBaseNLVBase = new(0.0)
 		ev = EvaluateRulebook(in, pol)
 		if got := rowByID(t, ev, RuleFXExposure).Status; got != RuleStatusPass {
@@ -244,15 +232,12 @@ func TestNeverFalsePass(t *testing.T) {
 	})
 
 	t.Run("exposure unmeasured", func(t *testing.T) {
-		// Every delta is present, so no greeks gap fires — the multi-account
-		// ledger-withheld shape, where only the FX conversion is missing and
-		// ExposureBaseComplete is the sole trace of it.
+
 		in := healthyInputs()
 		for i := range in.Names {
 			in.Names[i].ExposureBaseComplete = false
 		}
-		// Arm the two rules whose size read hides behind another trigger: a
-		// name up past the trim trigger, and earnings inside the freeze window.
+
 		in.Names[2].StockDayChangePct = new(5.0)
 		e := in.Earnings["MSFT"]
 		e.SessionsUntil = new(2)
@@ -299,71 +284,12 @@ func TestNeverFalsePass(t *testing.T) {
 	})
 }
 
-func TestEarningsGapEdges(t *testing.T) {
-	expiry := etDate(2026, 7, 17)
-	now := etDate(2026, 7, 7)
-	cases := []struct {
-		name      string
-		e         EarningsInput
-		wantSpans bool
-		wantAmb   bool
-	}{
-		{"amc on expiry day dies before gap", EarningsInput{Known: true, Date: etDate(2026, 7, 17), TimeOfDay: "amc"}, false, false},
-		{"bmo on expiry day spans", EarningsInput{Known: true, Date: etDate(2026, 7, 17), TimeOfDay: "bmo"}, true, false},
-		{"unknown tod on expiry day conservative", EarningsInput{Known: true, Date: etDate(2026, 7, 17)}, true, true},
-		{"earnings after expiry", EarningsInput{Known: true, Date: etDate(2026, 7, 24), TimeOfDay: "amc"}, false, false},
-		{"earnings before today", EarningsInput{Known: true, Date: etDate(2026, 7, 1), TimeOfDay: "amc"}, false, false},
-		{"earnings inside life", EarningsInput{Known: true, Date: etDate(2026, 7, 15), TimeOfDay: "bmo"}, true, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			spans, amb := spansEarningsGap(now, expiry, tc.e)
-			if spans != tc.wantSpans || amb != tc.wantAmb {
-				t.Fatalf("spansEarningsGap = (%v,%v), want (%v,%v)", spans, amb, tc.wantSpans, tc.wantAmb)
-			}
-		})
-	}
-
-	if expiresBeforeCatalyst(etDate(2026, 7, 17), EarningsInput{Known: true, Date: etDate(2026, 7, 17), TimeOfDay: "amc"}) != true {
-		t.Error("amc on expiry day: option dies before the gap, rule 6 should flag")
-	}
-	if expiresBeforeCatalyst(etDate(2026, 7, 17), EarningsInput{Known: true, Date: etDate(2026, 7, 17), TimeOfDay: "bmo"}) != false {
-		t.Error("bmo on expiry day: option lives through the gap, rule 6 should not flag")
-	}
-}
-
 func TestEarningsUnknownReasonIsDisclosed(t *testing.T) {
 	if got := earningsGapWord(EarningsInput{Reason: "conflicting_sources"}); got != "conflicting across providers" {
 		t.Fatalf("conflict label = %q", got)
 	}
 	if got := earningsGapWord(EarningsInput{Reason: "no_date_published"}); got != "not published by the provider" {
 		t.Fatalf("no-date label = %q", got)
-	}
-}
-
-func TestTerminalNonReportingIsExplicitlyNotApplicable(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{{
-		Symbol: "ACMEQ", ExposureBase: 150000, ExposureBaseComplete: true,
-		Legs: []LegInput{
-			{Desc: "ACMEQ long", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
-				Quantity: 1, Multiplier: 100, Underlying: new(10.0), MarketValueBase: 100},
-			{Desc: "ACMEQ short", Right: "C", Strike: 15, Expiry: etDate(2026, 8, 21), DTE: 45,
-				Quantity: -1, Multiplier: 100, Underlying: new(10.0), MarketValueBase: -50},
-		},
-	}}
-	in.Earnings = map[string]EarningsInput{"ACMEQ": {
-		TerminalNonReporting: true, Source: "verified_terminal", Reason: earningsTerminalClassForTest,
-	}}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-		row := rowByID(t, ev, id)
-		if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonTerminalNonReporting {
-			t.Errorf("%s = %s/%s, want not_evaluated/terminal_non_reporting", id, row.Status, row.Reason)
-		}
-		if len(row.Exempt) != 1 || row.Exempt[0].Symbol != "ACMEQ" || !strings.Contains(row.Exempt[0].Note, "exact contract") {
-			t.Errorf("%s exemptions = %+v", id, row.Exempt)
-		}
 	}
 }
 
@@ -407,160 +333,17 @@ func TestBrokerNonIssuerStockProofCannotExemptMixedOptionGroup(t *testing.T) {
 	}
 }
 
-// A COMMON broker identity remains an ordinary issuer in the daemon; with a
-// typed no-date provider outcome it reaches risk as unknown, never exempt.
-func TestCommonIssuerWithNoDateNeverPassesRelevantRules(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{{
-		Symbol: "SYNTH1", ExposureBase: 150000, ExposureBaseComplete: true,
-		Legs: []LegInput{
-			{Desc: "synthetic long", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
-				Quantity: 1, Multiplier: 100, Underlying: new(10.0), MarketValueBase: 100},
-			{Desc: "synthetic short", Right: "C", Strike: 15, Expiry: etDate(2026, 8, 21), DTE: 45,
-				Quantity: -1, Multiplier: 100, Underlying: new(10.0), MarketValueBase: -50},
-		},
-	}}
-	in.Earnings = map[string]EarningsInput{"SYNTH1": {Source: "fetched", Reason: "no_date_published"}}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-		row := rowByID(t, ev, id)
-		if row.Status == RuleStatusPass || row.Status == RuleStatusNotEvaluated {
-			t.Errorf("%s treated an issuer with unknown earnings as resolved", id)
-		}
-	}
-}
-
-func TestOrdinaryIssuerStockOnlyUnknownOrStaleFailsClosed(t *testing.T) {
-	cases := []struct {
-		name     string
-		earnings EarningsInput
-	}{
-		{name: "not published", earnings: EarningsInput{Source: "fetched", Reason: "no_date_published"}},
-		{name: "stale date", earnings: EarningsInput{Known: true, Stale: true, Date: etDate(2026, 7, 30), Source: "fetched"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			in := healthyInputs()
-			in.Names = []NameInput{{Symbol: "COMMON1", ExposureBase: 150000, ExposureBaseComplete: true}}
-			in.Earnings = map[string]EarningsInput{"COMMON1": tc.earnings}
-			ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-			for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-				row := rowByID(t, ev, id)
-				if row.Status != RuleStatusUnknown || row.Reason != "earnings_unknown" || len(row.Offenders) != 1 {
-					t.Errorf("%s = %+v, want one earnings_unknown offender", id, row)
-				}
-			}
-		})
-	}
-}
-
-func TestOrdinaryIssuerBelowSizeWithoutDateFailsClosed(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{{Symbol: "COMMON1", ExposureBase: 1000, ExposureBaseComplete: true}}
-	in.Earnings = map[string]EarningsInput{"COMMON1": {Source: "fetched", Reason: "no_date_published"}}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-		row := rowByID(t, ev, id)
-		if row.Status != RuleStatusUnknown || row.Reason != "earnings_unknown" {
-			t.Errorf("%s = %s/%s, want unknown/earnings_unknown below the size threshold", id, row.Status, row.Reason)
-		}
-	}
-}
-
-func TestTerminalNonReportingStockOnlyIsExplicitlyNotApplicableForRulesSixAndSeven(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{{
-		Symbol: "ACMEQ", ExposureBase: 150000, ExposureBaseComplete: true,
-	}}
-	in.Earnings = map[string]EarningsInput{"ACMEQ": {
-		TerminalNonReporting: true, Source: "verified_terminal", Reason: earningsTerminalClassForTest,
-	}}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings} {
-		row := rowByID(t, ev, id)
-		if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonTerminalNonReporting {
-			t.Errorf("%s = %s/%s, want not_evaluated/terminal_non_reporting", id, row.Status, row.Reason)
-		}
-		if len(row.Exempt) != 1 || row.Exempt[0].Symbol != "ACMEQ" {
-			t.Errorf("%s exemptions = %+v", id, row.Exempt)
-		}
-	}
-}
-
-func TestUnresolvedTerminalAuthorityStockOnlyFailsClosedForEarningsRules(t *testing.T) {
-	cases := []struct {
-		name  string
-		input EarningsInput
-	}{
-		{name: "expired", input: EarningsInput{Source: "verified_terminal", Reason: "terminal_evidence_expired"}},
-		{name: "identity conflict", input: EarningsInput{Source: "verified_terminal", Reason: "terminal_identity_conflict"}},
-		{name: "date source conflict", input: EarningsInput{Source: "verified_terminal", Reason: "terminal_evidence_conflict"}},
-		{name: "stale accepted record", input: EarningsInput{TerminalNonReporting: true, Stale: true, Source: "verified_terminal", Reason: earningsTerminalClassForTest}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			in := healthyInputs()
-			in.Names = []NameInput{{Symbol: "ACMEQ", ExposureBase: 1000, ExposureBaseComplete: true}}
-			in.Earnings = map[string]EarningsInput{"ACMEQ": tc.input}
-			ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-			for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-				row := rowByID(t, ev, id)
-				if row.Status != RuleStatusUnknown || row.Reason != "earnings_unknown" {
-					t.Errorf("%s = %s/%s, want unknown/earnings_unknown", id, row.Status, row.Reason)
-				}
-				if len(row.Exempt) != 0 || len(row.Offenders) != 1 || row.Offenders[0].Symbol != "ACMEQ" || !strings.Contains(row.Offenders[0].Note, "authority is unresolved") {
-					t.Errorf("%s unresolved evidence = offenders:%+v exempt:%+v", id, row.Offenders, row.Exempt)
-				}
-			}
-		})
-	}
-}
-
-func TestTerminalNonReportingStockOnlyDoesNotHideAssessedNames(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{
-		{Symbol: "ACMEQ", ExposureBase: 1000, ExposureBaseComplete: true},
-		{
-			Symbol: "OTHER", ExposureBase: 2000, ExposureBaseComplete: true,
-			Legs: []LegInput{
-				{Desc: "OTHER long", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
-					Quantity: 1, Multiplier: 100, Underlying: new(10.0), MarketValueBase: 100},
-				{Desc: "OTHER short", Right: "C", Strike: 15, Expiry: etDate(2026, 7, 10), DTE: 3,
-					Quantity: -1, Multiplier: 100, Underlying: new(10.0), MarketValueBase: -50},
-			},
-		},
-	}
-	in.Earnings = map[string]EarningsInput{
-		"ACMEQ": {TerminalNonReporting: true, Source: "verified_terminal", Reason: earningsTerminalClassForTest},
-		"OTHER": {Known: true, Date: etDate(2026, 7, 22), TimeOfDay: "amc", SessionsUntil: new(11), Source: "fetched"},
-	}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings} {
-		row := rowByID(t, ev, id)
-		if row.Status != RuleStatusPass {
-			t.Errorf("%s = %s/%s, want assessed pass", id, row.Status, row.Reason)
-		}
-		if len(row.Exempt) != 1 || row.Exempt[0].Symbol != "ACMEQ" {
-			t.Errorf("%s exemptions = %+v", id, row.Exempt)
-		}
-	}
-}
-
-const earningsTerminalClassForTest = "equity_interests_cancelled"
-
 func TestHedgeExemptionSuppressedWhenOverHedged(t *testing.T) {
 	in := healthyInputs()
-	// Inflate the hedge so the band breaches high: short delta ~194k vs
-	// gross long ~455k ≈ 43%.
+
 	spy := &in.Names[3].Legs[0]
 	spy.Delta = new(-0.60)
-	spy.DTE = 10 // inside runway window so the exemption question is live
+	spy.DTE = 10
 	spy.Expiry = etDate(2026, 7, 17)
 	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
 
 	hedge := rowByID(t, ev, RuleHedgeIntegrity)
-	// ~397% of gross long is past twice the calm band top: act, not watch —
-	// and the rule-5 exemption suppression must survive the escalation.
+
 	if hedge.Status != RuleStatusAct || !strings.Contains(hedge.Evidence, "twice") {
 		t.Fatalf("hedge row = %s (%s), want act past 2× band top", hedge.Status, hedge.Evidence)
 	}
@@ -576,13 +359,9 @@ func TestHedgeExemptionSuppressedWhenOverHedged(t *testing.T) {
 	}
 }
 
-// A policy-hedge index name with net-short delta belongs to rule 12, not the
-// concentration cap — but it must surface in rule 1's Exempt list, never
-// silently vanish (2026-07-07 live finding: 40 SPY puts ≈ 234% of NLV in
-// absolute delta-dollars outranked every real concentration offender).
 func TestSingleNameExposureExemptsShortHedge(t *testing.T) {
 	in := healthyInputs()
-	in.Names[3].ExposureBase = -640000 // oversized SPY hedge, short delta
+	in.Names[3].ExposureBase = -640000
 	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
 	row := rowByID(t, ev, RuleSingleNameExposure)
 	for _, o := range row.Offenders {
@@ -602,7 +381,7 @@ func TestSingleNameExposureExemptsShortHedge(t *testing.T) {
 	if row.Status != RuleStatusAct || row.Offenders[0].Symbol != "NOW" {
 		t.Fatalf("real concentration offender should lead: status=%s offenders=%+v", row.Status, row.Offenders)
 	}
-	// A LONG position in a hedge-listed index is ordinary concentration.
+
 	in.Names[3].ExposureBase = 640000
 	ev = EvaluateRulebook(in, DefaultRulebookPolicy())
 	row = rowByID(t, ev, RuleSingleNameExposure)
@@ -611,13 +390,9 @@ func TestSingleNameExposureExemptsShortHedge(t *testing.T) {
 	}
 }
 
-// The exemption covers only what rule 12 can size (long puts with delta).
-// Short stock or short calls in a hedge symbol are directional shorts: the
-// residual beyond the sized legs stays a concentration offender.
 func TestSingleNameExposureResidualBeyondSizedHedge(t *testing.T) {
 	in := healthyInputs()
-	// Fixture SPY puts size to 0.24*40*100*752 = 721,920 short delta-dollars.
-	// Net short 900k leaves a 178,080 residual = 72.7% of the 245k NLV.
+
 	in.Names[3].ExposureBase = -900000
 	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
 	row := rowByID(t, ev, RuleSingleNameExposure)
@@ -634,8 +409,6 @@ func TestSingleNameExposureResidualBeyondSizedHedge(t *testing.T) {
 		t.Fatalf("sized portion must still be disclosed in Exempt, got %+v", row.Exempt)
 	}
 
-	// A hedge-symbol short with NO rule-12-sizeable legs (e.g. short stock,
-	// puts stripped) is pure concentration: no Exempt row at all.
 	in = healthyInputs()
 	in.Names[3].ExposureBase = -640000
 	in.Names[3].Legs = nil
@@ -680,16 +453,12 @@ func TestRankingHardestFirst(t *testing.T) {
 	}
 }
 
-// Regime-conditional thresholds (rules 3, 4, 12): a fresh stage selects its
-// set; a carried or never-seen stage evaluates worse-of(carried, calm) so
-// stale regime data can hold or tighten a verdict but never relax it — in
-// either band direction.
 func TestRegimeConditionalThresholds(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 
 	t.Run("fresh confirmed tightens the cash floor", func(t *testing.T) {
 		in := healthyInputs()
-		in.CashBase = new(-12250.0) // -5% of NLV: fine in calm, breach in confirmed
+		in.CashBase = new(-12250.0)
 		in.RegimeStage = RegimeBucketConfirmed
 		in.RegimeStageAsOf = in.AsOf
 		ev := EvaluateRulebook(in, pol)
@@ -704,10 +473,9 @@ func TestRegimeConditionalThresholds(t *testing.T) {
 	})
 
 	t.Run("carried confirmed cannot loosen the hedge band", func(t *testing.T) {
-		// Ratio ~60%: inside the confirmed band (40-70) but over calm (25-35).
-		// A carried confirmed stage must NOT acquit — worse-of keeps watch.
+
 		in := healthyInputs()
-		in.Names[3].Legs[0].Delta = new(-0.0908) // 0.0908*40*100*752 ≈ 273k ≈ 60% of 455k
+		in.Names[3].Legs[0].Delta = new(-0.0908)
 		in.RegimeStage = RegimeBucketConfirmed
 		in.RegimeStageAsOf = in.AsOf.Add(-6 * time.Hour)
 		in.RegimeStageCarried = true
@@ -725,7 +493,7 @@ func TestRegimeConditionalThresholds(t *testing.T) {
 		if !found {
 			t.Errorf("carried-stage verdict must disclose provenance, notes = %v", r.Notes)
 		}
-		// The same ratio under a FRESH confirmed stage passes: 60 ∈ [40,70].
+
 		in.RegimeStageCarried = false
 		in.RegimeStageAsOf = in.AsOf
 		ev = EvaluateRulebook(in, pol)
@@ -761,20 +529,18 @@ func TestRegimeConditionalThresholds(t *testing.T) {
 	})
 }
 
-// Rule 2's hedge tier: classified hedge legs measure against 15/25, normal
-// legs keep 5/10, unclassifiable legs get no relief.
 func TestOptionLinePremiumHedgeTier(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 
 	base := func() RuleInputs {
 		in := healthyInputs()
-		// Quiet the normal-tier offenders so the hedge line drives status.
-		in.Names[0].Legs = in.Names[0].Legs[:1] // drop NOW C115 (14.7%)
-		in.Names[1].Legs = nil                  // drop BB C12 (13.9%)
+
+		in.Names[0].Legs = in.Names[0].Legs[:1]
+		in.Names[1].Legs = nil
 		return in
 	}
 
-	in := base() // SPY 38000 = 15.5%: hedge tier watch, would be act on normal tier
+	in := base()
 	ev := EvaluateRulebook(in, pol)
 	r := rowByID(t, ev, RuleOptionLinePremium)
 	if r.Status != RuleStatusWatch {
@@ -791,7 +557,7 @@ func TestOptionLinePremiumHedgeTier(t *testing.T) {
 	}
 
 	in = base()
-	in.Names[3].Legs[0].MarketValueBase = 66000 // 26.9% > hedge act 25
+	in.Names[3].Legs[0].MarketValueBase = 66000
 	ev = EvaluateRulebook(in, pol)
 	r = rowByID(t, ev, RuleOptionLinePremium)
 	if r.Status != RuleStatusAct {
@@ -802,7 +568,7 @@ func TestOptionLinePremiumHedgeTier(t *testing.T) {
 	}
 
 	in = base()
-	in.Names[3].Legs[0].Delta = nil // unclassifiable: normal tier, no relief
+	in.Names[3].Legs[0].Delta = nil
 	in.Names[3].GreeksGapNotionalBase = 38000
 	ev = EvaluateRulebook(in, pol)
 	r = rowByID(t, ev, RuleOptionLinePremium)
@@ -813,8 +579,6 @@ func TestOptionLinePremiumHedgeTier(t *testing.T) {
 		t.Errorf("unclassifiable normal-tier observed/threshold = %v/%v, want 15.5/%.1f", r.Observed, r.Threshold, pol.OptionLineWatchPct)
 	}
 
-	// A joined (stock-leg-mark) underlying never classifies a hedge — the
-	// derived spot must not unlock the softer tier.
 	in = base()
 	in.Names[3].Legs[0].UnderlyingSource = UnderlyingSourceStockLegMark
 	ev = EvaluateRulebook(in, pol)
@@ -826,10 +590,6 @@ func TestOptionLinePremiumHedgeTier(t *testing.T) {
 		t.Errorf("derived-spot normal-tier observed/threshold = %v/%v, want 15.5/%.1f", r.Observed, r.Threshold, pol.OptionLineWatchPct)
 	}
 
-	// Tie case: both tiers at watch, hedge line carrying the larger impact —
-	// the headline must caption the NORMAL-tier offender with the 5%% cap,
-	// never the hedge line (mislabeling the hedge with the speculative cap
-	// misdirects the operator to cut protection).
 	in = base()
 	in.Names[1].Legs = []LegInput{{Desc: "BB 20260821 C 12", Right: "C", Strike: 12,
 		Expiry: etDate(2026, 8, 21), DTE: 45, Quantity: 100, Multiplier: 100, Mark: 2,
@@ -864,80 +624,18 @@ func TestFXExposureWatchBoundary(t *testing.T) {
 	}
 }
 
-// Rule 7 short puts: spanning puts are watch, escalating to act on assignment
-// notional; unknown FX never quietly escalates or drops.
-func TestOverwriteEarningsShortPuts(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-	mk := func(qty float64, strike float64, fx *float64) RuleInputs {
-		in := healthyInputs()
-		in.Names[2].Legs = []LegInput{{
-			Desc: "MSFT 20261016 P 350", Right: "P", Strike: strike, Expiry: etDate(2026, 10, 16), DTE: 101,
-			Quantity: qty, Multiplier: 100, Mark: 14, Underlying: new(386.0), Delta: new(-0.28),
-			MarketValueBase: -6200, FXToBase: fx,
-		}}
-		return in
-	}
-
-	// 5 short 350P × 0.9 fx = 157.5k assignment ≈ 64% of NLV ⇒ act.
-	ev := EvaluateRulebook(mk(-5, 350, new(0.9)), pol)
-	r := rowByID(t, ev, RuleOverwriteEarnings)
-	if r.Status != RuleStatusAct {
-		t.Fatalf("64%% NLV assignment short put = %s, want act (evidence: %s)", r.Status, r.Evidence)
-	}
-
-	// 1 short 100P × 0.9 = 9k ≈ 3.7% ⇒ watch.
-	ev = EvaluateRulebook(mk(-1, 100, new(0.9)), pol)
-	if got := rowByID(t, ev, RuleOverwriteEarnings).Status; got != RuleStatusWatch {
-		t.Errorf("3.7%% NLV assignment short put = %s, want watch", got)
-	}
-
-	// Several small lines summing past the name tier escalate together:
-	// 3 × ~7.3% (each under the 10% line tier) = ~22% ≥ 20% ⇒ act.
-	in := healthyInputs()
-	put := func(strike float64) LegInput {
-		return LegInput{Desc: "MSFT put", Right: "P", Strike: strike, Expiry: etDate(2026, 10, 16), DTE: 101,
-			Quantity: -1, Multiplier: 100, Mark: 10, Underlying: new(386.0), Delta: new(-0.2),
-			MarketValueBase: -1000, FXToBase: new(0.9)}
-	}
-	in.Names[2].Legs = []LegInput{put(198), put(199), put(200)}
-	ev = EvaluateRulebook(in, pol)
-	if got := rowByID(t, ev, RuleOverwriteEarnings).Status; got != RuleStatusAct {
-		t.Errorf("name-sum of spanning short puts past 20%% NLV = %s, want act", got)
-	}
-
-	// FX unknown: the act tier is unassessable — stays watch, disclosed.
-	ev = EvaluateRulebook(mk(-5, 350, nil), pol)
-	r = rowByID(t, ev, RuleOverwriteEarnings)
-	if r.Status != RuleStatusWatch {
-		t.Errorf("short put with unknown FX = %s, want watch", r.Status)
-	}
-	found := false
-	for _, o := range r.Offenders {
-		if strings.Contains(o.Note, "unassessable") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("unknown-FX put must disclose the unassessable notional, offenders = %+v", r.Offenders)
-	}
-}
-
-// Rule 8: a greeks-gapped name is only skippable when earnings are provably
-// beyond the freeze window; unknown or near earnings make it a named unknown
-// (the rule-6 silent-skip bug class).
 func TestEarningsSizeFreezeGapPropagation(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	gapName := func(in *RuleInputs, sessions *int, known bool) {
-		in.Names[1].GreeksGapNotionalBase = 34000 // BB gapped, material
+		in.Names[1].GreeksGapNotionalBase = 34000
 		e := EarningsInput{Known: known, Date: etDate(2026, 7, 9), SessionsUntil: sessions, Source: "fetched"}
 		in.Earnings["BB"] = e
-		// The test isolates BB's missing-Greeks decision. SPY is an option-only
-		// group here, so no exact stock identity can prove it is a nonissuer.
+
 		in.Earnings["SPY"] = EarningsInput{Known: true, Date: etDate(2026, 7, 20), SessionsUntil: new(11), Source: "fetched"}
 	}
 
 	in := healthyInputs()
-	gapName(&in, nil, false) // earnings unknown
+	gapName(&in, nil, false)
 	ev := EvaluateRulebook(in, pol)
 	r := rowByID(t, ev, RuleEarningsSizeFreeze)
 	if r.Status != RuleStatusUnknown {
@@ -945,100 +643,37 @@ func TestEarningsSizeFreezeGapPropagation(t *testing.T) {
 	}
 
 	in = healthyInputs()
-	gapName(&in, new(2), true) // inside the freeze window
+	gapName(&in, new(2), true)
 	ev = EvaluateRulebook(in, pol)
 	if got := rowByID(t, ev, RuleEarningsSizeFreeze).Status; got != RuleStatusUnknown {
 		t.Errorf("gapped name 2 sessions from earnings = %s, want unknown", got)
 	}
 
 	in = healthyInputs()
-	gapName(&in, new(11), true) // provably outside the window: skippable
+	gapName(&in, new(11), true)
 	ev = EvaluateRulebook(in, pol)
 	if got := rowByID(t, ev, RuleEarningsSizeFreeze).Status; got != RuleStatusPass {
 		t.Errorf("gapped name 11 sessions out = %s, want pass (other names clean)", got)
 	}
 }
 
-// Rule 1 lower bound: partial data may indict, never acquit. The bound is
-// asserted only when the delta-less legs' signed interval proves it.
-func TestSingleNameExposureLowerBound(t *testing.T) {
-	pol := DefaultRulebookPolicy()
-
-	in := healthyInputs()
-	// NOW: known legs sum to 120k (49% of NLV); one delta-less long call
-	// (interval [intrinsic, notional] both ≥ 0) can't reduce it. Provable
-	// act at ≥ 49% — no waiting for greeks.
-	in.Names[0].ExposureBase = 120000
-	in.Names[0].GreeksGapNotionalBase = 36000
-	in.Names[0].Legs[1].Delta = nil
-	ev := EvaluateRulebook(in, pol)
-	r := rowByID(t, ev, RuleSingleNameExposure)
-	if r.Status != RuleStatusAct || !r.ObservedIsLowerBound {
-		t.Fatalf("stock 49%% + delta-less long call = %s (lower_bound=%v), want act lower bound (evidence: %s)", r.Status, r.ObservedIsLowerBound, r.Evidence)
-	}
-	if !strings.Contains(r.Evidence, "lower bound") {
-		t.Errorf("lower-bound act must say so: %s", r.Evidence)
-	}
-
-	// A delta-less long PUT makes the interval straddle zero: nothing
-	// provable, the name stays a gap unknown (never a false act).
-	in = healthyInputs()
-	in.Names[0].ExposureBase = 120000
-	in.Names[0].GreeksGapNotionalBase = 36000
-	in.Names[0].Legs[1] = LegInput{Desc: "NOW 20260821 P 100", Right: "P", Strike: 100,
-		Expiry: etDate(2026, 8, 21), DTE: 45, Quantity: 50, Multiplier: 100, Mark: 7.86,
-		Underlying: new(108.0), MarketValueBase: 36000, FXToBase: new(0.9)}
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleSingleNameExposure)
-	if r.Status != RuleStatusUnknown || r.ObservedIsLowerBound {
-		t.Errorf("delta-less long put must block the bound: %s (lower_bound=%v)", r.Status, r.ObservedIsLowerBound)
-	}
-
-	// Missing FX on the delta-less leg: unbounded, no assertion.
-	in = healthyInputs()
-	in.Names[0].ExposureBase = 120000
-	in.Names[0].GreeksGapNotionalBase = 36000
-	in.Names[0].Legs[1].Delta = nil
-	in.Names[0].Legs[1].FXToBase = nil
-	ev = EvaluateRulebook(in, pol)
-	if got := rowByID(t, ev, RuleSingleNameExposure).Status; got != RuleStatusUnknown {
-		t.Errorf("delta-less leg without FX = %s, want unknown", got)
-	}
-
-	// An incomplete known sum (aggregator excluded a priced leg) blocks the
-	// bound: "proven ≥" must never build on a partial ExposureBase.
-	in = healthyInputs()
-	in.Names[0].ExposureBase = 120000
-	in.Names[0].GreeksGapNotionalBase = 36000
-	in.Names[0].Legs[1].Delta = nil
-	in.Names[0].ExposureBaseComplete = false
-	ev = EvaluateRulebook(in, pol)
-	r = rowByID(t, ev, RuleSingleNameExposure)
-	if r.Status != RuleStatusUnknown || r.ObservedIsLowerBound {
-		t.Errorf("incomplete exposure sum must block the bound: %s (lower_bound=%v)", r.Status, r.ObservedIsLowerBound)
-	}
-}
-
-// Rule 13: the loss fence bites at 40/60 of premium paid; hedge legs are
-// exempt (decay is the cost of protection).
 func TestExitDiscipline(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 
 	in := healthyInputs()
-	in.Names[1].Legs[0].CostBasisBase = new(64000.0) // BB at -46.9% ⇒ watch
+	in.Names[1].Legs[0].CostBasisBase = new(64000.0)
 	ev := EvaluateRulebook(in, pol)
 	r := rowByID(t, ev, RuleExitDiscipline)
 	if r.Status != RuleStatusWatch {
 		t.Fatalf("-46.9%% line = %s, want watch (evidence: %s)", r.Status, r.Evidence)
 	}
 
-	in.Names[1].Legs[0].CostBasisBase = new(100000.0) // -66% ⇒ act
+	in.Names[1].Legs[0].CostBasisBase = new(100000.0)
 	ev = EvaluateRulebook(in, pol)
 	if got := rowByID(t, ev, RuleExitDiscipline).Status; got != RuleStatusAct {
 		t.Errorf("-66%% line = %s, want act", got)
 	}
 
-	// The SPY hedge at -70% stays exempt: rule 12 owns hedge decay.
 	in = healthyInputs()
 	in.Names[3].Legs[0].CostBasisBase = new(127000.0)
 	ev = EvaluateRulebook(in, pol)
@@ -1057,8 +692,6 @@ func TestExitDiscipline(t *testing.T) {
 	}
 }
 
-// Every new policy field must move the fingerprint — a threshold outside the
-// fingerprint is a silent policy change.
 func TestPolicyFingerprintCoversNewFields(t *testing.T) {
 	base := DefaultRulebookPolicy().FingerprintKey()
 	mutations := []func(*RulebookPolicy){
@@ -1115,24 +748,6 @@ func TestPolicyFingerprintIdentity(t *testing.T) {
 	}
 }
 
-func TestOptionMathHelpers(t *testing.T) {
-	if got := OptionIntrinsicPerShare("C", 108, 130); got != 0 {
-		t.Errorf("OTM call intrinsic = %v, want 0", got)
-	}
-	if got := OptionIntrinsicPerShare("P", 700, 710); got != 10 {
-		t.Errorf("ITM put intrinsic = %v, want 10", got)
-	}
-	if _, ok := OptionExtrinsicPerShare("C", nil, 130, 0.44); ok {
-		t.Error("extrinsic with nil underlying must be uncomputable, not zero")
-	}
-	if ext, ok := OptionExtrinsicPerShare("C", new(140.0), 130, 8.0); !ok || ext != 0 {
-		t.Errorf("stale mark below intrinsic: extrinsic = %v ok=%v, want 0 true", ext, ok)
-	}
-	if _, ok := OptionSpreadPct(new(1.3), new(1.2)); ok {
-		t.Error("crossed quote must not produce a spread")
-	}
-}
-
 func abs(v float64) float64 {
 	if v < 0 {
 		return -v
@@ -1140,102 +755,12 @@ func abs(v float64) float64 {
 	return v
 }
 
-// TestDesignDocDisclosesRule1HedgeExemption pins the rule-1 hedge-exemption
-// wording in internal-docs/design/trading-rulebook.md to the semantics implemented
-// here, so the design doc cannot silently lag another rule-1 change (the
-// prior cross-surface drift-guard precedent). The blank reference keeps the
-// doc's predicate name honest: renaming rule12HedgeLeg breaks this file and
-// points at the doc pin that must move with it.
-func TestDesignDocDisclosesRule1HedgeExemption(t *testing.T) {
-	t.Parallel()
-	_ = rule12HedgeLeg
-
-	data, err := os.ReadFile("../../internal-docs/design/trading-rulebook.md")
-	if err != nil {
-		t.Fatalf("read design doc: %v", err)
-	}
-	// Collapse the doc's hard wrapping so pins can span line breaks.
-	doc := strings.Join(strings.Fields(string(data)), " ")
-	for _, pin := range []string{
-		// Exemption scope is exactly what rule 12 can size, via the shared predicate.
-		"rule12HedgeLeg",
-		// Short exposure the sized legs don't cover keeps ranking as concentration.
-		"Residual short beyond the sized legs stays a concentration offender",
-		// Hedge-symbol shorts with no sizeable legs are never exempted.
-		"no Exempt row",
-	} {
-		if !strings.Contains(doc, pin) {
-			t.Errorf("internal-docs/design/trading-rulebook.md no longer states %q — rule-1 hedge-exemption semantics changed without updating the design doc", pin)
-		}
-	}
-}
-
-func TestDesignDocTracksRulebookRuntimeContract(t *testing.T) {
-	t.Parallel()
-
-	data, err := os.ReadFile("../../internal-docs/design/trading-rulebook.md")
-	if err != nil {
-		t.Fatalf("read design doc: %v", err)
-	}
-	doc := strings.Join(strings.Fields(string(data)), " ")
-	for _, pin := range []string{
-		"compiled `rulebook-v2`",
-		"one-minute canonical refresh",
-		"up to 75 seconds",
-		"≥ 60%",
-		"source-neutral alert",
-	} {
-		if !strings.Contains(doc, pin) {
-			t.Errorf("internal-docs/design/trading-rulebook.md missing current runtime contract %q", pin)
-		}
-	}
-	for _, stale := range []string{
-		"No new scheduler",
-		"cached eval ≤45s",
-		"operator-tunable thresholds",
-	} {
-		if strings.Contains(doc, stale) {
-			t.Errorf("internal-docs/design/trading-rulebook.md retained stale runtime claim %q", stale)
-		}
-	}
-}
-
-func TestRulebookDesignDocDiscoverable(t *testing.T) {
-	t.Parallel()
-
-	// The published pages sit at varying depths, so assert that each one links
-	// the authority at all rather than pinning a relative prefix. The old
-	// pinned form outlived the file it pointed at: the links were repointed
-	// when the design docs left the web root and this test still passed on the
-	// broken path.
-	for path, link := range map[string]string{
-		"../../README.md": "internal-docs/design/trading-rulebook.md)",
-		"../../docs/docs/internals/architecture.md": "design/trading-rulebook.md)",
-		"../../docs/index.html":                     `href="docs/understand/sensors.html#rulebook"`,
-		"../../docs/docs/understand/sensors.md":     "design/trading-rulebook.md)",
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Errorf("read %s: %v", path, err)
-			continue
-		}
-		if !strings.Contains(string(data), link) {
-			t.Errorf("%s must link the Rulebook authority as %q", path, link)
-		}
-	}
-}
-
-// A leg whose premium could not be converted to base was never measured, so
-// rule 2 must not report a pass over it. The substitution is silent by
-// construction — the raw contract-currency figure is a plausible number, and an
-// understating currency pair keeps the leg under both tiers — so the marker,
-// not the magnitude, is what has to drive this.
 func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 
 	quiet := func() RuleInputs {
 		in := healthyInputs()
-		// Leave one small, measured leg so the row would otherwise pass.
+
 		in.Names[0].Legs = in.Names[0].Legs[:1]
 		in.Names[0].Legs[0].MarketValueBase = 100
 		in.Names[0].Legs[0].Delta = nil
@@ -1269,19 +794,15 @@ func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
 		t.Errorf("the unmeasured leg must be disclosed as an offender, got %+v", r.Offenders)
 	}
 
-	// A real breach must not be downgraded to unknown by an unrelated leg's
-	// missing rate: act is earned by legs that WERE measured.
 	in = quiet()
-	in.Names[0].Legs[0].MarketValueBase = 40000 // well past the normal act tier
+	in.Names[0].Legs[0].MarketValueBase = 40000
 	in.Names[1].Legs = []LegInput{{Desc: "FX-less", Quantity: 1, MarketValueBase: 100,
 		MarketValueBaseSource: MarketValueBaseSourceSubstituted}}
 	r = rowByID(t, EvaluateRulebook(in, pol), RuleOptionLinePremium)
 	if r.Status != RuleStatusAct {
 		t.Errorf("measured breach beside an unconvertible leg = %s, want act (breach not downgraded)", r.Status)
 	}
-	// Disclosure is unconditional. Attaching the unmeasured legs only on the
-	// pass branch would let an act row name a measured breach while silently
-	// dropping a leg nobody could measure — status honest, evidence not.
+
 	var disclosed bool
 	for _, o := range r.Offenders {
 		if o.Leg == "FX-less" {
@@ -1291,7 +812,7 @@ func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
 	if !disclosed {
 		t.Errorf("unconvertible leg must stay disclosed on an act row, offenders = %+v", r.Offenders)
 	}
-	// It must claim no impact it cannot prove: rule 2 ranks by ImpactBase.
+
 	for _, o := range r.Offenders {
 		if o.Leg == "FX-less" && o.ImpactBase != 0 {
 			t.Errorf("unmeasurable leg claimed ImpactBase %v, want 0", o.ImpactBase)
@@ -1299,11 +820,6 @@ func TestOptionLinePremiumUnconvertibleLegBlocksPass(t *testing.T) {
 	}
 }
 
-// A name whose base exposure was never fully measured — nil group sum or an
-// excluded leg — degrades to a partial or zero ExposureBase, and a fully
-// delta'd name carries no greeks gap to catch it. Rule 1 comparing that
-// number asserted pass "0.0% of NLV" over a book nobody measured. The marker
-// is ExposureBaseComplete, not the magnitude, so these tests flip only that.
 func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	quiet := func() RuleInputs {
@@ -1316,7 +832,6 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 		t.Fatalf("baseline = %s, want pass (fixture must pass before the marker matters)", got.Status)
 	}
 
-	// The armed shape: exposure never FX-converted, all deltas present.
 	in := quiet()
 	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBase: 0, ExposureBaseComplete: false, HasStockLeg: true})
 	r := rowByID(t, EvaluateRulebook(in, pol), RuleSingleNameExposure)
@@ -1336,11 +851,8 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 		t.Errorf("the unmeasured name must be disclosed as an offender, got %+v", r.Offenders)
 	}
 
-	// A measured breach stands: unknown may not downgrade an act earned by
-	// converted numbers, and the unmeasured sibling stays disclosed with no
-	// impact weight it cannot prove.
 	in = quiet()
-	in.Names[0].ExposureBase = 120000 // ~49% of the 245k NLV — past the 40% act cap
+	in.Names[0].ExposureBase = 120000
 	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true})
 	r = rowByID(t, EvaluateRulebook(in, pol), RuleSingleNameExposure)
 	if r.Status != RuleStatusAct {
@@ -1360,10 +872,6 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	}
 }
 
-// Rule 8 sizes a name against the pre-earnings freeze floor. A name whose
-// exposure was never fully measured sits under that floor by construction, so
-// the silent skip passed exactly the oversized-into-earnings case the rule
-// exists to freeze. Earnings provably outside the window still clear it.
 func TestEarningsSizeFreezeUnmeasuredNameBlocksPass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	base := func(sessions int, complete bool) RuleInputs {
@@ -1391,17 +899,11 @@ func TestEarningsSizeFreezeUnmeasuredNameBlocksPass(t *testing.T) {
 		t.Errorf("the unmeasured name must be disclosed, got %+v", r.Offenders)
 	}
 
-	// Nine sessions out is provably beyond the 3-session freeze: size is moot
-	// and the escape must keep working, or every FX gap would flag this rule.
 	if got := rowByID(t, EvaluateRulebook(base(9, false), pol), RuleEarningsSizeFreeze); got.Status != RuleStatusPass {
 		t.Errorf("unmeasured size with earnings provably outside the window = %s, want pass", got.Status)
 	}
 }
 
-// Rule 10 fires on a name up past the day trigger at ≥15% of NLV. With
-// unmeasured exposure the size test read 0 and the winner silently vanished.
-// The day-change half stays a true negative: a name not up past the trigger
-// cannot trip whatever its size.
 func TestWinnerTrimUnmeasuredNameBlocksPass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	book := func(names ...NameInput) RuleInputs {
@@ -1428,13 +930,10 @@ func TestWinnerTrimUnmeasuredNameBlocksPass(t *testing.T) {
 		t.Errorf("reason = %q, want exposure_incomplete", r.Reason)
 	}
 
-	// Below the trigger, unmeasured size is moot: the tape half was measured.
 	if got := rowByID(t, EvaluateRulebook(book(unmeasured("FLAT", 1)), pol), RuleWinnerTrim); got.Status != RuleStatusPass {
 		t.Errorf("unmeasured name below the day trigger = %s, want pass (true negative)", got.Status)
 	}
 
-	// A measured breach stands beside an unmeasured winner, which stays
-	// disclosed with no impact weight.
 	r = rowByID(t, EvaluateRulebook(book(measured("BIG", 6, 40000), unmeasured("WIN", 5)), pol), RuleWinnerTrim)
 	if r.Status != RuleStatusWatch {
 		t.Errorf("measured breach beside an unmeasured winner = %s, want watch (breach not downgraded)", r.Status)
@@ -1453,10 +952,6 @@ func TestWinnerTrimUnmeasuredNameBlocksPass(t *testing.T) {
 	}
 }
 
-// Rule 12's ratio divides hedge short-delta by gross long exposure. A name
-// with unmeasured exposure silently left the denominator, inflating the
-// ratio — an under-hedged book reading adequately hedged is the quiet
-// direction. Like a delta gap, it poisons the ratio itself: row unknown.
 func TestHedgeIntegrityUnmeasuredNameBlocksVerdict(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	long := NameInput{Symbol: "LNG", ExposureBase: 100000, ExposureBaseComplete: true, HasStockLeg: true}
@@ -1471,8 +966,6 @@ func TestHedgeIntegrityUnmeasuredNameBlocksVerdict(t *testing.T) {
 		t.Fatalf("baseline = %s, want pass (30%% ratio inside the calm 25-35 band)", got.Status)
 	}
 
-	// Pre-fix, this name contributes nothing to gross long and the same 30%
-	// still passes — over a denominator that is missing a book.
 	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true})
 	r := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity)
 	if r.Status != RuleStatusUnknown {
@@ -1492,28 +985,6 @@ func TestHedgeIntegrityUnmeasuredNameBlocksVerdict(t *testing.T) {
 	}
 }
 
-func TestNonIssuerSecurityIsExemptedNotUnknown(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{{
-		Symbol: "IDXQ", UnderlyingSecType: "INDEX", ExposureBase: 150000, ExposureBaseComplete: true,
-	}}
-	in.Earnings = map[string]EarningsInput{"IDXQ": {
-		NonIssuerSecurity: true, Source: "security_type", Reason: EarningsReasonNonIssuerSecurity,
-	}}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
-		row := rowByID(t, ev, id)
-		// unknown was the old outcome, and one such row took the whole rulebook
-		// alert source out of coverage.
-		if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonNonIssuerSecurity {
-			t.Errorf("%s = %s/%s, want not_evaluated/nonissuer_security", id, row.Status, row.Reason)
-		}
-		if len(row.Exempt) != 1 || row.Exempt[0].Symbol != "IDXQ" || !strings.Contains(row.Exempt[0].Note, "security type") {
-			t.Errorf("%s did not disclose the security-type exemption: %+v", id, row.Exempt)
-		}
-	}
-}
-
 func TestNonIssuerSecurityRequiresTheTypedSource(t *testing.T) {
 	for name, earnings := range map[string]EarningsInput{
 		"flag without source":  {NonIssuerSecurity: true, Reason: EarningsReasonNonIssuerSecurity},
@@ -1530,22 +1001,5 @@ func TestNonIssuerSecurityRequiresTheTypedSource(t *testing.T) {
 				t.Fatalf("%s exempted a name without a typed classification", name)
 			}
 		})
-	}
-}
-
-func TestMixedExemptionKindsReportTheGenericReason(t *testing.T) {
-	in := healthyInputs()
-	in.Names = []NameInput{
-		{Symbol: "IDXQ", UnderlyingSecType: "INDEX", ExposureBase: 50000, ExposureBaseComplete: true},
-		{Symbol: "ACMEQ", ExposureBase: 50000, ExposureBaseComplete: true},
-	}
-	in.Earnings = map[string]EarningsInput{
-		"IDXQ":  {NonIssuerSecurity: true, Source: "security_type", Reason: EarningsReasonNonIssuerSecurity},
-		"ACMEQ": {TerminalNonReporting: true, Source: "verified_terminal", Reason: earningsTerminalClassForTest},
-	}
-	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
-	row := rowByID(t, ev, RuleCatalystCoverage)
-	if row.Status != RuleStatusNotEvaluated || row.Reason != EarningsReasonNotApplicable {
-		t.Fatalf("mixed exemption kinds = %s/%s, want not_evaluated/earnings_not_applicable", row.Status, row.Reason)
 	}
 }

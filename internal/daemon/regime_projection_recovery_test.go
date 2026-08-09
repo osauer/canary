@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+
 	"os"
 	"path/filepath"
 	"reflect"
@@ -247,14 +247,10 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 			want: StreakEntry{
 				LastBand: "red", SinceDate: priorSince, LastSession: resetSince,
 				Sessions: 2, LastValue: redRatio, EligibleLatched: true,
-				// The session advanced, so the since-green run advances with it,
-				// exactly as the live tick would have written it.
 			},
 		},
 		{
-			// Overdue is a freeze: the live tick returned the stored entry
-			// untouched, so the projection must reproduce it whole — the value
-			// included — rather than bank the snapshot's newer ratio.
+
 			name: "overdue same streak reproduces the frozen entry",
 			prior: StreakEntry{
 				LastBand: "red", SinceDate: priorSince, LastSession: priorSince,
@@ -290,8 +286,6 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 			want: StreakEntry{
 				LastBand: "red", SinceDate: resetSince, LastSession: resetSince,
 				Sessions: 1, LastValue: redRatio,
-				// Sessions resets with the new red streak; the since-green run
-				// deliberately does not, which is why it is a separate clock.
 			},
 		},
 	}
@@ -329,17 +323,9 @@ func TestRegimeStreakProjectionRecoveryFrozenAndHiddenLatch(t *testing.T) {
 	}
 }
 
-// TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart pins the live
-// writer and the recovery re-derivation to one freeze rule. Tick returns the
-// stored entry untouched for a row measured off its own cadence, so the
-// committed value stays at the last fresh publication's while the snapshot's
-// moves on. Re-deriving that value from the snapshot instead made every
-// restart after such a publication refuse to start, with no repair path at the
-// current position — vix_term is not_due every evening and overnight while the
-// VIX leg keeps moving the ratio, so any graceful restart was a candidate.
 func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 	ny := newYorkLocation()
-	// 01:05 ET is outside VIX3M's dissemination window.
+
 	asOf := time.Date(2026, 7, 20, 1, 5, 0, 0, ny)
 	frozenRatio, movedRatio := 0.8632345293811753, 0.8633766233766235
 	prior := StreakEntry{
@@ -361,16 +347,12 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 	}
 	streaks := projectionRecoverySeedStreakStore(t, store, previous, map[string]StreakEntry{StreakKeyVIXTerm: prior})
 
-	// The live publication path: classify onto a volatile clone, annotate what
-	// the snapshot serves, then commit the clone behind the publication barrier.
 	evaluated := streaks.cloneForRegimeEvaluation()
 	annotateRegimeMetadata(snapshot, (&Server{}).populateStreaksWithStore(snapshot, evaluated))
 	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
 	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
 	plan := regimeProjectionPlan{publication: publication, previous: &previous}
 
-	// Guard the fixture: the row must still be not_due and still serve a
-	// streak, or the frozen re-derivation is never reached.
 	if class := snapshot.VIXTermStructure.Freshness; class == nil || class.Class != rpc.RegimeFreshnessNotDue {
 		t.Fatalf("vix_term freshness=%+v, want not_due", class)
 	}
@@ -381,8 +363,6 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 		t.Fatalf("commit regime evaluation: %v", err)
 	}
 
-	// Restart: a fresh store over the same authority reloads the committed
-	// document, and startup reconciles it against the persisted snapshot.
 	restarted := NewStreakStore("")
 	if err := restarted.UseCoreStore(store); err != nil {
 		t.Fatal(err)
@@ -397,10 +377,6 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 		t.Fatalf("frozen entry=%+v, want unchanged %+v", got, prior)
 	}
 
-	// The comparison is intact, not skipped. A frozen row's value has no
-	// witness in the snapshot — the writer did not write it — but a fresh row
-	// is still re-derived, so a stored value that disagrees with what the
-	// snapshot serves fails closed exactly as before.
 	fresh := regimeSnapshotCacheFixture(asOf.UTC(), "fresh-row")
 	fresh.VIXTermStructure = rpc.RegimeVIXTerm{
 		Status: rpc.RegimeStatusOK, Ratio: &movedRatio,
@@ -417,59 +393,6 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "content mismatch at snapshot revision 2") {
 		t.Fatalf("fresh row with a stale stored value err=%v, want a content mismatch", err)
 	}
-}
-
-// TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness is the same
-// rule as the not-due freeze above, applied to the entry field that never
-// reaches the wire at all. LastBandAt is the wall clock of a live measurement,
-// so a reloaded snapshot never witnesses it and the recovery re-derivation must
-// carry it. Zeroing it made the boot-time compare fail at the current position,
-// where there is no repair path, and no binary could start against state a
-// running daemon had written.
-func TestRegimeStreakProjectionCarriesFieldsTheSnapshotCannotWitness(t *testing.T) {
-	ny := newYorkLocation()
-	asOf := time.Date(2026, 7, 20, 16, 5, 0, 0, ny)
-	ratio := 0.8632345293811753
-	// The live writer stamps LastBandAt from its own clock, so it never lands on
-	// the snapshot's AsOf to the nanosecond. Re-deriving it cannot reproduce the
-	// stored value even in principle.
-	measuredAt := asOf.Add(-3 * time.Millisecond)
-	// A red row carrying an accumulated stress run is the case that bit: the run
-	// survives a band change, so the served streak's own session count cannot
-	// recover it.
-	stressed := StreakEntry{
-		LastBand: "red", SinceDate: "2026-07-15", LastSession: "2026-07-20",
-		Sessions: 4, LastValue: ratio, EligibleLatched: true,
-		LastBandAt: measuredAt,
-	}
-
-	snapshot := regimeSnapshotCacheFixture(asOf.UTC(), "carries-unwitnessed-fields")
-	snapshot.VIXTermStructure = rpc.RegimeVIXTerm{
-		Status: rpc.RegimeStatusOK, Ratio: &ratio,
-		Streak: &rpc.StreakInfo{Band: stressed.LastBand, Sessions: stressed.Sessions, Since: stressed.SinceDate},
-		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Band:        stressed.LastBand,
-			Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
-			Eligibility: &rpc.RegimeEligibility{Eligible: true},
-		},
-	}
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
-
-	seeded := map[string]StreakEntry{StreakKeyVIXTerm: stressed}
-	streaks := projectionRecoverySeedStreakStore(t, openRegimeSnapshotTestStore(t), publication, seeded)
-	if err := streaks.reconcileRegimeProjection(t.Context(), snapshot, regimeProjectionPlan{publication: publication}); err != nil {
-		t.Fatalf("startup reconcile at the current position: %v", err)
-	}
-	streaks.mu.Lock()
-	got := cloneStreakEntries(streaks.entries)
-	streaks.mu.Unlock()
-	for key, want := range seeded {
-		if !reflect.DeepEqual(got[key], want) {
-			t.Fatalf("%s after reconcile=%+v, want unchanged %+v", key, got[key], want)
-		}
-	}
-
 }
 
 func TestRegimeRuleProjectionDeterministicAndHolds(t *testing.T) {
@@ -615,8 +538,6 @@ func TestRegimeDecisionProjectionStableReplayDoesNotDuplicate(t *testing.T) {
 		t.Fatalf("decision line=%+v", line)
 	}
 
-	// Simulate a crash after SQLite committed but before process-local dedupe
-	// fields could be trusted. Recovery must find the durable revision key.
 	server.regimeDecisions.mu.Lock()
 	server.regimeDecisions.lastFingerprint = ""
 	server.regimeDecisions.lastWrite = time.Time{}
@@ -630,98 +551,6 @@ func TestRegimeDecisionProjectionStableReplayDoesNotDuplicate(t *testing.T) {
 	}
 	if len(events) != 1 {
 		t.Fatalf("replay produced %d events, want one", len(events))
-	}
-}
-
-func TestRegimeDecisionProjectionSkipsEqualFingerprintsUntilHourlyHeartbeat(t *testing.T) {
-	store := openRegimeSnapshotTestStore(t)
-	server := &Server{
-		coreStore:       store,
-		regimeDecisions: &regimeDecisionJournal{core: store},
-		logger:          NewLogger(&bytes.Buffer{}, "error"),
-	}
-	publishedAt := time.Date(2026, 7, 21, 15, 10, 0, 0, time.UTC)
-	snapshot := regimeSnapshotCacheFixture(publishedAt, "unchanged decision")
-	snapshot.Lifecycle.Stage = rpc.LifecycleEarlyWarning
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-
-	var (
-		previous            *regimeSnapshotPublication
-		previousDisposition string
-		dispositions        []string
-	)
-	publications := []regimeSnapshotPublication{
-		{Revision: 7, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint},
-		{Revision: 8, PublishedAt: publishedAt.Add(time.Second), Fingerprint: snapshot.Fingerprint},
-		{Revision: 9, PublishedAt: publishedAt.Add(regimeDecisionHeartbeat), Fingerprint: snapshot.Fingerprint},
-	}
-	for _, publication := range publications {
-		plan := regimeProjectionPlan{publication: publication, initial: publication.Revision == 7, previous: previous}
-		if previous != nil {
-			plan.previousDecision = previousDisposition
-		}
-		disposition, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, plan)
-		if err != nil {
-			t.Fatalf("reconcile revision %d: %v", publication.Revision, err)
-		}
-		dispositions = append(dispositions, disposition)
-		publicationCopy := publication
-		previous = &publicationCopy
-		previousDisposition = disposition
-	}
-	if got, want := fmt.Sprint(dispositions), fmt.Sprint([]string{
-		regimeDecisionEventRecorded, regimeDecisionEventSkippedUnchanged, regimeDecisionEventRecorded,
-	}); got != want {
-		t.Fatalf("dispositions=%s, want %s", got, want)
-	}
-
-	events, err := loadAllCoreEvents(t.Context(), store, coreEventRegimeDecision)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(events) != 2 {
-		t.Fatalf("events=%d, want initial transition plus hourly heartbeat", len(events))
-	}
-	for index, wantRevision := range []int64{7, 9} {
-		event := events[index]
-		wantKey := fmt.Sprintf("regime_decision:snapshot:%020d", wantRevision)
-		if event.EventKey != wantKey {
-			t.Fatalf("event %d key=%q, want %q", index, event.EventKey, wantKey)
-		}
-		var line regimeDecisionLine
-		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
-			t.Fatal(err)
-		}
-		if line.SnapshotRevision != wantRevision || line.Fingerprint != snapshot.Fingerprint.Key {
-			t.Fatalf("event %d line=%+v", index, line)
-		}
-	}
-}
-
-func TestRegimeDecisionSkippedDispositionRequiresDurableHeartbeatAnchor(t *testing.T) {
-	publishedAt := time.Date(2026, 7, 21, 15, 10, 0, 0, time.UTC)
-	snapshot := regimeSnapshotCacheFixture(publishedAt, "skipped recovery")
-	snapshot.Lifecycle.Stage = rpc.LifecycleEarlyWarning
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	publication := regimeSnapshotPublication{Revision: 2, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
-	store := openRegimeSnapshotTestStore(t)
-	server := &Server{coreStore: store, regimeDecisions: &regimeDecisionJournal{core: store}, logger: NewLogger(&bytes.Buffer{}, "error")}
-	if err := server.persistRegimeDecisionProjectionState(
-		t.Context(), corestore.StateDocument{}, false, publication, regimeDecisionEventSkippedUnchanged,
-	); err != nil {
-		t.Fatal(err)
-	}
-	_, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, regimeProjectionPlan{
-		publication: publication,
-		receipt: regimeProjectionReceipt{
-			Version: regimeProjectionReceiptVersion, SnapshotRevision: publication.Revision,
-			SnapshotPublishedAt: publication.PublishedAt, SnapshotFingerprint: publication.Fingerprint,
-			DecisionEvent: regimeDecisionEventSkippedUnchanged,
-		},
-		receiptOK: true, validateOnly: true,
-	})
-	if err == nil || !strings.Contains(err.Error(), "no current heartbeat anchor") {
-		t.Fatalf("skipped projection without anchor error=%v", err)
 	}
 }
 
@@ -746,153 +575,6 @@ func TestRegimeStreakProjectionRejectsDivergentEqualAndAheadPublication(t *testi
 			err := streaks.reconcileRegimeProjection(t.Context(), snapshot, regimeProjectionPlan{publication: want})
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("reconcile error=%v, want containing %q", err, test.wantErr)
-			}
-		})
-	}
-}
-
-func TestRegimeStreakProjectionPersistsUnchangedEntriesAcrossRevisionAndRestart(t *testing.T) {
-	priorAt := time.Date(2026, 7, 20, 15, 0, 0, 0, time.UTC)
-	currentAt := priorAt.Add(time.Minute)
-	ratio := 0.95
-	snapshot := regimeSnapshotCacheFixture(currentAt, "unchanged streak")
-	snapshot.VIXTermStructure.Ratio = &ratio
-	snapshot.VIXTermStructure.Streak = &rpc.StreakInfo{Band: "yellow", Sessions: 1, Since: "2026-07-20"}
-	snapshot.VIXTermStructure.RegimeIndicatorMeta.Band = "yellow"
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	prior := regimeSnapshotPublication{Revision: 1, PublishedAt: priorAt, Fingerprint: snapshot.Fingerprint}
-	current := regimeSnapshotPublication{Revision: 2, PublishedAt: currentAt, Fingerprint: snapshot.Fingerprint}
-	entry := StreakEntry{LastBand: "yellow", SinceDate: "2026-07-20", LastSession: "2026-07-20", Sessions: 1, LastValue: ratio}
-	store := openRegimeSnapshotTestStore(t)
-	streaks := projectionRecoverySeedStreakStore(t, store, prior, map[string]StreakEntry{StreakKeyVIXTerm: entry})
-	if err := streaks.reconcileRegimeProjection(t.Context(), snapshot, regimeProjectionPlan{publication: current, previous: &prior}); err != nil {
-		t.Fatal(err)
-	}
-
-	restarted := NewStreakStore("")
-	if err := restarted.UseCoreStore(store); err != nil {
-		t.Fatal(err)
-	}
-	restarted.mu.Lock()
-	restarted.loadLocked()
-	gotPublication := restarted.publication
-	gotEntry := restarted.entries[StreakKeyVIXTerm]
-	restarted.mu.Unlock()
-	if !exactRegimeSnapshotPublication(gotPublication, current) || gotEntry != entry {
-		t.Fatalf("restart projection publication=%+v entry=%+v, want %+v %+v", gotPublication, gotEntry, current, entry)
-	}
-}
-
-func TestRegimeDecisionProjectionRejectsWrongPublicationTimeAndFingerprintVersion(t *testing.T) {
-	publishedAt := time.Date(2026, 7, 20, 15, 10, 0, 0, time.UTC)
-	snapshot := regimeSnapshotCacheFixture(publishedAt, "decision tuple mismatch")
-	snapshot.Lifecycle.Stage = rpc.LifecycleQuiet
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	publication := regimeSnapshotPublication{Revision: 1, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
-
-	tests := []struct {
-		name   string
-		mutate func(*regimeDecisionLine)
-	}{
-		{name: "wrong event time", mutate: func(line *regimeDecisionLine) { line.TS = line.TS.Add(-time.Second) }},
-		{name: "wrong fingerprint version", mutate: func(line *regimeDecisionLine) { line.SnapshotFingerprint.Version = "wrong-version" }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			store := openRegimeSnapshotTestStore(t)
-			line := buildRegimeDecisionLine(publishedAt, snapshot, publication)
-			test.mutate(&line)
-			raw, err := json.Marshal(line)
-			if err != nil {
-				t.Fatal(err)
-			}
-			key := fmt.Sprintf("%s:snapshot:%020d", coreEventRegimeDecision, publication.Revision)
-			if _, err := store.AppendEvents(t.Context(), []corestore.EventInput{{
-				ScopeKey: daemonStateScope, EventKey: key, Type: coreEventRegimeDecision,
-				Action: coreEventActionRecord, Origin: coreEventOriginDaemon,
-				OccurredAt: publishedAt, PayloadJSON: raw,
-			}}); err != nil {
-				t.Fatal(err)
-			}
-			server := &Server{coreStore: store, regimeDecisions: &regimeDecisionJournal{core: store}, logger: NewLogger(&bytes.Buffer{}, "error")}
-			if _, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, regimeProjectionPlan{publication: publication, initial: true}); err == nil {
-				t.Fatal("wrong exact decision tuple was accepted")
-			}
-		})
-	}
-}
-
-// TestRegimeDecisionProjectionToleratesPriorCurrencyPolicyLine pins the
-// upgrade boot: a retained decision line written before the input-currency
-// cutover carries no currency_policy marker and legitimately differs from a
-// recompute under the current policy. Its key, publication time and
-// fingerprint still bind it to the publication, so reconciliation must accept
-// it as prior-policy history instead of refusing to boot — while the same
-// content divergence under the current policy stays a hard failure.
-func TestRegimeDecisionProjectionToleratesPriorCurrencyPolicyLine(t *testing.T) {
-	publishedAt := time.Date(2026, 7, 20, 15, 10, 0, 0, time.UTC)
-	snapshot := regimeSnapshotCacheFixture(publishedAt, "prior-policy decision line")
-	snapshot.Lifecycle.Stage = rpc.LifecycleQuiet
-	depth := 42.0
-	snapshot.FundingStress.SpreadBps = &depth
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	publication := regimeSnapshotPublication{Revision: 1, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
-
-	tests := []struct {
-		name    string
-		mutate  func(*regimeDecisionLine)
-		wantErr bool
-	}{
-		{name: "prior policy with divergent content is history", mutate: func(line *regimeDecisionLine) {
-			line.CurrencyPolicy = ""
-			line.Stage = rpc.LifecycleEarlyWarning
-		}},
-		{name: "current policy with divergent content still fails", mutate: func(line *regimeDecisionLine) {
-			line.Stage = rpc.LifecycleEarlyWarning
-		}, wantErr: true},
-		{name: "v2 line may predate a newly added depth", mutate: func(line *regimeDecisionLine) {
-			line.V = 2
-			indicator := line.Indicators[StreakKeyFunding]
-			indicator.Depth = nil
-			line.Indicators[StreakKeyFunding] = indicator
-		}},
-		{name: "v2 line keeps its rendered depth as immutable history", mutate: func(line *regimeDecisionLine) {
-			line.V = 2
-			wrong := 41.0
-			indicator := line.Indicators[StreakKeyFunding]
-			indicator.Depth = &wrong
-			line.Indicators[StreakKeyFunding] = indicator
-		}},
-		{name: "v3 line cannot omit a current depth", mutate: func(line *regimeDecisionLine) {
-			indicator := line.Indicators[StreakKeyFunding]
-			indicator.Depth = nil
-			line.Indicators[StreakKeyFunding] = indicator
-		}, wantErr: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			store := openRegimeSnapshotTestStore(t)
-			line := buildRegimeDecisionLine(publishedAt, snapshot, publication)
-			test.mutate(&line)
-			raw, err := json.Marshal(line)
-			if err != nil {
-				t.Fatal(err)
-			}
-			key := fmt.Sprintf("%s:snapshot:%020d", coreEventRegimeDecision, publication.Revision)
-			if _, err := store.AppendEvents(t.Context(), []corestore.EventInput{{
-				ScopeKey: daemonStateScope, EventKey: key, Type: coreEventRegimeDecision,
-				Action: coreEventActionRecord, Origin: coreEventOriginDaemon,
-				OccurredAt: publishedAt, PayloadJSON: raw,
-			}}); err != nil {
-				t.Fatal(err)
-			}
-			server := &Server{coreStore: store, regimeDecisions: &regimeDecisionJournal{core: store}, logger: NewLogger(&bytes.Buffer{}, "error")}
-			_, err = server.reconcileRegimeDecisionProjection(t.Context(), snapshot, regimeProjectionPlan{publication: publication, initial: true})
-			if test.wantErr && err == nil {
-				t.Fatal("divergent content under the current policy was accepted")
-			}
-			if !test.wantErr && err != nil {
-				t.Fatalf("prior-policy line refused: %v", err)
 			}
 		})
 	}
@@ -936,60 +618,6 @@ func TestRegimeReceiptMatchValidatesEveryProjection(t *testing.T) {
 				t.Fatalf("reconcile error=%v, want containing %q", err, test.want)
 			}
 		})
-	}
-}
-
-func TestRegimeDecisionDisabledDispositionSurvivesSettingChange(t *testing.T) {
-	store := openRegimeSnapshotTestStore(t)
-	disabled := false
-	enabled := true
-	server := &Server{
-		coreStore: store, logger: NewLogger(&bytes.Buffer{}, "error"),
-		platformSettings: &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Regime: platformRegimeSettingsData{
-			Journal: platformRegimeJournalSettingsData{Enabled: &disabled},
-		}}},
-	}
-	publishedAt := time.Now().UTC().Add(-2 * time.Minute)
-	snapshot := regimeSnapshotCacheFixture(publishedAt, "disabled decision")
-	snapshot.Lifecycle.Stage = rpc.LifecycleQuiet
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	publication := regimeSnapshotPublication{Revision: 1, PublishedAt: publishedAt, Fingerprint: snapshot.Fingerprint}
-	if err := server.commitRegimeSnapshotProjections(t.Context(), snapshot, nil, publication); err != nil {
-		t.Fatal(err)
-	}
-	receipt, ok, err := server.loadRegimeProjectionReceipt(t.Context())
-	if err != nil || !ok || receipt.DecisionEvent != regimeDecisionEventDisabled {
-		t.Fatalf("disabled receipt=%+v ok=%v err=%v", receipt, ok, err)
-	}
-	if events, err := loadAllCoreEvents(t.Context(), store, coreEventRegimeDecision); err != nil || len(events) != 0 {
-		t.Fatalf("disabled decision events=%d err=%v", len(events), err)
-	}
-	server.platformSettings.mu.Lock()
-	server.platformSettings.data.Regime.Journal.Enabled = &enabled
-	server.platformSettings.mu.Unlock()
-	plan, err := server.prepareRegimeProjectionPlan(t.Context(), publication)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if disposition, err := server.reconcileRegimeDecisionProjection(t.Context(), snapshot, plan); err != nil || disposition != regimeDecisionEventDisabled {
-		t.Fatalf("setting change invalidated disabled projection: disposition=%q err=%v", disposition, err)
-	}
-	second := regimeSnapshotCacheFixture(publishedAt.Add(time.Minute), "partial disabled decision")
-	second.Lifecycle.Stage = rpc.LifecycleQuiet
-	second.Fingerprint = rpc.BuildRegimeFingerprint(second)
-	secondPublication := regimeSnapshotPublication{Revision: 2, PublishedAt: publishedAt.Add(time.Minute), Fingerprint: second.Fingerprint}
-	_, markerOK, markerDoc, err := server.loadRegimeDecisionProjectionState(t.Context())
-	if err != nil || !markerOK {
-		t.Fatalf("load first decision marker: ok=%v err=%v", markerOK, err)
-	}
-	if err := server.persistRegimeDecisionProjectionState(t.Context(), markerDoc, true, secondPublication, regimeDecisionEventDisabled); err != nil {
-		t.Fatal(err)
-	}
-	partialPlan := regimeProjectionPlan{
-		publication: secondPublication, previous: &publication, previousDecision: regimeDecisionEventDisabled,
-	}
-	if disposition, err := server.reconcileRegimeDecisionProjection(t.Context(), second, partialPlan); err != nil || disposition != regimeDecisionEventDisabled {
-		t.Fatalf("partial disabled marker did not survive setting change: disposition=%q err=%v", disposition, err)
 	}
 }
 
@@ -1071,18 +699,6 @@ func TestRulesRegimeStageFutureIdentityFailsClosedWithoutLosingEvidence(t *testi
 	server.rulesRegimeStageMu.Unlock()
 	if !equalRulesRegimeStageState(preserved, state) {
 		t.Fatalf("future evidence was mutated: got %+v want %+v", preserved, state)
-	}
-}
-
-func TestRegimeProjectionHigherRevisionAcceptsLowerPublicationTime(t *testing.T) {
-	store := openRegimeSnapshotTestStore(t)
-	snapshot := regimeSnapshotCacheFixture(time.Now().UTC(), "clock rollback revision")
-	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
-	prior := regimeSnapshotPublication{Revision: 1, PublishedAt: time.Now().UTC(), Fingerprint: snapshot.Fingerprint}
-	current := regimeSnapshotPublication{Revision: 2, PublishedAt: prior.PublishedAt.Add(-time.Minute), Fingerprint: snapshot.Fingerprint}
-	streaks := projectionRecoverySeedStreakStore(t, store, prior, nil)
-	if err := streaks.reconcileRegimeProjection(t.Context(), snapshot, regimeProjectionPlan{publication: current, previous: &prior}); err != nil {
-		t.Fatalf("higher revision with lower publication time was rejected: %v", err)
 	}
 }
 

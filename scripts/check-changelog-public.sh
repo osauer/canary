@@ -19,7 +19,7 @@ actual=$(awk '
 
 if [ "$actual" != "$expected" ]; then
   echo "check-changelog-public: $path preamble contains non-public or unexpected prose" >&2
-  echo "                        keep maintainer guidance in scripts/changelog-stub.sh output or repo docs," >&2
+  echo "                        keep maintainer guidance in internal-docs/," >&2
   echo "                        not in CHANGELOG.md before the first release entry" >&2
   exit 1
 fi

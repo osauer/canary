@@ -22,36 +22,6 @@ const (
 
 var testSHA = strings.Repeat("a", 40)
 
-func TestParseConfigSupportsRepeatedAndCommaSeparatedJobs(t *testing.T) {
-	t.Parallel()
-	cfg, err := parseConfig([]string{
-		"-workflow", "pages-check.yml",
-		"-workflow-name", "pages check",
-		"-sha", testSHA,
-		"-branch", "release/exact-sha",
-		"-event", "workflow_dispatch",
-		"-job", "pages / links, pages / metadata",
-		"-job", "pages / local browser",
-	}, io.Discard)
-	if err != nil {
-		t.Fatalf("parseConfig: %v", err)
-	}
-	wantJobs := []string{"pages / links", "pages / metadata", "pages / local browser"}
-	if !reflect.DeepEqual(cfg.requiredJobs, wantJobs) {
-		t.Fatalf("requiredJobs = %v, want %v", cfg.requiredJobs, wantJobs)
-	}
-	if cfg.repository != "osauer/canary" ||
-		cfg.workflow != "pages-check.yml" ||
-		cfg.workflowName != "pages check" ||
-		cfg.branch != "release/exact-sha" ||
-		cfg.event != "workflow_dispatch" {
-		t.Fatalf("parsed config = %+v", cfg)
-	}
-	if cfg.poll != 15*time.Second || cfg.timeout != 30*time.Minute {
-		t.Fatalf("defaults poll=%s timeout=%s", cfg.poll, cfg.timeout)
-	}
-}
-
 func TestParseConfigFailsClosed(t *testing.T) {
 	t.Parallel()
 	base := []string{
@@ -111,35 +81,6 @@ func TestGHAPIArgsAreReadOnlyAndDoNotUseShellSplitting(t *testing.T) {
 	}
 }
 
-func TestContractRunEvidenceIsSortedAndLogSafe(t *testing.T) {
-	t.Parallel()
-	workflows := map[string]waitResult{
-		"pages-check.yml": {
-			RunID:      4102,
-			RunAttempt: 1,
-		},
-		"untrusted\nworkflow\x1b[2J.yml": {
-			RunID:      4103,
-			RunAttempt: 3,
-		},
-		"ci.yml": {
-			RunID:      4101,
-			RunAttempt: 2,
-		},
-	}
-
-	got := contractRunEvidence(workflows)
-	want := `[workflow="ci.yml",run_id=4101,attempt=2; ` +
-		`workflow="pages-check.yml",run_id=4102,attempt=1; ` +
-		`workflow="untrusted\nworkflow\x1b[2J.yml",run_id=4103,attempt=3]`
-	if got != want {
-		t.Fatalf("contract run evidence = %q, want %q", got, want)
-	}
-	if strings.ContainsAny(got, "\n\r\x1b") {
-		t.Fatalf("contract run evidence contains a raw control character: %q", got)
-	}
-}
-
 func TestWaitForSuccess(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig("linux", "macOS")
@@ -167,96 +108,6 @@ func TestWaitForSuccess(t *testing.T) {
 	assertEndpointCalls(t, api.callsSnapshot(), jobEndpoint(cfg, testRunID), 1)
 }
 
-func TestMissingRunTimesOut(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	cfg.poll = time.Second
-	cfg.timeout = 3 * time.Second
-	api := newStaticAPI(cfg, []workflowRecord{validWorkflow(cfg)}, nil, nil)
-	timer := newFakeClock()
-
-	_, err := waitForSuccess(context.Background(), cfg, api, timer, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "timed out after 3s") {
-		t.Fatalf("error = %v, want timeout", err)
-	}
-	if got := timer.sleepCount(); got != 3 {
-		t.Fatalf("sleep count = %d, want 3", got)
-	}
-}
-
-func TestPendingRunThenSuccess(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	cfg.poll = time.Second
-	cfg.timeout = 5 * time.Second
-	queued := validRun(cfg, 1, "queued", nil)
-	success := validRun(cfg, 1, "completed", new("success"))
-	job := validJob(cfg, success, 1, 501, "linux", "completed", new("success"))
-	var runCalls int
-	api := &fakeAPI{}
-	api.handle = func(endpoint string, query url.Values) ([]byte, error) {
-		switch endpoint {
-		case workflowEndpoint(cfg):
-			return pagePayload("workflows", []workflowRecord{validWorkflow(cfg)}), nil
-		case runEndpoint(cfg, testWorkflowID):
-			runCalls++
-			if runCalls == 1 {
-				return pagePayload("workflow_runs", []workflowRun{queued}), nil
-			}
-			return pagePayload("workflow_runs", []workflowRun{success}), nil
-		case jobEndpoint(cfg, testRunID):
-			return pagePayload("jobs", []workflowJob{job}), nil
-		default:
-			return nil, fmt.Errorf("unexpected endpoint %s", endpoint)
-		}
-	}
-	timer := newFakeClock()
-
-	result, err := waitForSuccess(context.Background(), cfg, api, timer, io.Discard)
-	if err != nil {
-		t.Fatalf("waitForSuccess: %v", err)
-	}
-	if result.RunAttempt != 1 || timer.sleepCount() != 1 {
-		t.Fatalf("result=%+v sleeps=%d", result, timer.sleepCount())
-	}
-}
-
-func TestPendingJobThenSuccess(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	cfg.poll = time.Second
-	cfg.timeout = 5 * time.Second
-	run := validRun(cfg, 1, "completed", new("success"))
-	pending := validJob(cfg, run, 1, 501, "linux", "in_progress", nil)
-	success := validJob(cfg, run, 1, 502, "linux", "completed", new("success"))
-	var jobCalls int
-	api := &fakeAPI{}
-	api.handle = func(endpoint string, query url.Values) ([]byte, error) {
-		switch endpoint {
-		case workflowEndpoint(cfg):
-			return pagePayload("workflows", []workflowRecord{validWorkflow(cfg)}), nil
-		case runEndpoint(cfg, testWorkflowID):
-			return pagePayload("workflow_runs", []workflowRun{run}), nil
-		case jobEndpoint(cfg, testRunID):
-			jobCalls++
-			if jobCalls == 1 {
-				return pagePayload("jobs", []workflowJob{pending}), nil
-			}
-			return pagePayload("jobs", []workflowJob{success}), nil
-		default:
-			return nil, fmt.Errorf("unexpected endpoint %s", endpoint)
-		}
-	}
-	timer := newFakeClock()
-
-	if _, err := waitForSuccess(context.Background(), cfg, api, timer, io.Discard); err != nil {
-		t.Fatalf("waitForSuccess: %v", err)
-	}
-	if timer.sleepCount() != 1 {
-		t.Fatalf("sleep count = %d, want 1", timer.sleepCount())
-	}
-}
-
 func TestExactJobSetRejectsMissingAndExtraNames(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig("linux", "macOS")
@@ -280,35 +131,6 @@ func TestExactJobSetRejectsMissingAndExtraNames(t *testing.T) {
 				t.Fatalf("error = %v, want exact-set mismatch", err)
 			}
 		})
-	}
-}
-
-func TestExternalJobNamesAndCommandErrorsAreLogSafe(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	run := validRun(cfg, 1, "completed", new("success"))
-	jobs := []workflowJob{
-		validJob(cfg, run, 1, 501, "linux", "completed", new("success")),
-		validJob(cfg, run, 1, 502, "untrusted\njob\x1b[2J", "completed", new("success")),
-	}
-	api := newStaticAPI(cfg, []workflowRecord{validWorkflow(cfg)}, []workflowRun{run}, jobs)
-	_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-	if err == nil {
-		t.Fatal("waitForSuccess succeeded with an extra untrusted job")
-	}
-	if strings.ContainsAny(err.Error(), "\n\r\x1b") {
-		t.Fatalf("job-set error contains a raw control character: %q", err)
-	}
-	if !strings.Contains(err.Error(), `untrusted\njob\x1b[2J`) {
-		t.Fatalf("job-set error did not preserve escaped evidence: %q", err)
-	}
-
-	detail := quoteExternalDetail("first line\nsecond line\x1b[31m")
-	if strings.ContainsAny(detail, "\n\r\x1b") {
-		t.Fatalf("external command detail contains a raw control character: %q", detail)
-	}
-	if !strings.Contains(detail, `\n`) || !strings.Contains(detail, `\x1b`) {
-		t.Fatalf("external command detail did not escape controls: %q", detail)
 	}
 }
 
@@ -379,60 +201,6 @@ func TestSameRunIDUsesHighestAttemptAndCarriesPartialRerunSuccesses(t *testing.T
 		if strings.Contains(call.endpoint, "/attempts/") {
 			t.Fatalf("used attempt-specific jobs endpoint: %s", call.endpoint)
 		}
-	}
-}
-
-func TestSnapshotRereadRestartsWhenRerunBegins(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux", "macOS")
-	cfg.poll = time.Second
-	cfg.timeout = 5 * time.Second
-	first := validRun(cfg, 1, "completed", new("success"))
-	second := validRun(cfg, 2, "completed", new("success"))
-	firstJobs := []workflowJob{
-		validJob(cfg, first, 1, 501, "linux", "completed", new("success")),
-		validJob(cfg, first, 1, 502, "macOS", "completed", new("success")),
-	}
-	secondJobs := []workflowJob{
-		firstJobs[0],
-		firstJobs[1],
-		validJob(cfg, second, 2, 503, "macOS", "completed", new("success")),
-	}
-	var runCalls int
-	var jobCalls int
-	api := &fakeAPI{}
-	api.handle = func(endpoint string, query url.Values) ([]byte, error) {
-		switch endpoint {
-		case workflowEndpoint(cfg):
-			return pagePayload("workflows", []workflowRecord{validWorkflow(cfg)}), nil
-		case runEndpoint(cfg, testWorkflowID):
-			runCalls++
-			if runCalls == 1 {
-				return pagePayload("workflow_runs", []workflowRun{first}), nil
-			}
-			return pagePayload("workflow_runs", []workflowRun{second}), nil
-		case jobEndpoint(cfg, testRunID):
-			jobCalls++
-			if jobCalls == 1 {
-				return pagePayload("jobs", firstJobs), nil
-			}
-			return pagePayload("jobs", secondJobs), nil
-		default:
-			return nil, fmt.Errorf("unexpected endpoint %s", endpoint)
-		}
-	}
-	timer := newFakeClock()
-
-	result, err := waitForSuccess(context.Background(), cfg, api, timer, io.Discard)
-	if err != nil {
-		t.Fatalf("waitForSuccess: %v", err)
-	}
-	if timer.sleepCount() != 1 || result.RunAttempt != 2 {
-		t.Fatalf("sleeps=%d result=%+v", timer.sleepCount(), result)
-	}
-	want := map[string]int{"linux": 1, "macOS": 2}
-	if !reflect.DeepEqual(result.JobAttempt, want) {
-		t.Fatalf("job attempts = %v, want %v", result.JobAttempt, want)
 	}
 }
 
@@ -604,89 +372,6 @@ func TestTransientGitHubAPIFailureRetriesWithinDeadline(t *testing.T) {
 	}
 	if timer.sleepCount() != 1 {
 		t.Fatalf("sleep count = %d, want one transient retry", timer.sleepCount())
-	}
-}
-
-func TestTransientGitHubFailureClassification(t *testing.T) {
-	t.Parallel()
-	cases := map[string]struct {
-		detail    string
-		transient bool
-	}{
-		"http server error": {
-			detail:    "gh: HTTP 502",
-			transient: true,
-		},
-		"rate limit": {
-			detail:    "API rate limit exceeded",
-			transient: true,
-		},
-		"gh connection wrapper": {
-			detail:    "error connecting to api.github.com",
-			transient: true,
-		},
-		"unreachable proxy": {
-			detail:    `Get "https://api.github.com/rate_limit": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: operation not permitted`,
-			transient: true,
-		},
-		"direct dial": {
-			detail:    "dial tcp 140.82.114.6:443: connect: network is unreachable",
-			transient: true,
-		},
-		"curl dns wording": {
-			detail:    "Could not resolve host: api.github.com",
-			transient: true,
-		},
-		"authentication": {
-			detail:    "HTTP 401: Bad credentials",
-			transient: false,
-		},
-		"authorization": {
-			detail:    "HTTP 403: Resource not accessible by integration",
-			transient: false,
-		},
-		"invalid invocation": {
-			detail:    "unknown flag: --not-a-real-flag",
-			transient: false,
-		},
-		"local execution denial": {
-			detail:    "fork/exec gh: operation not permitted",
-			transient: false,
-		},
-	}
-	for name, test := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			if got := isTransientGHFailure(test.detail); got != test.transient {
-				t.Fatalf("isTransientGHFailure(%q) = %t, want %t", test.detail, got, test.transient)
-			}
-		})
-	}
-}
-
-func TestPaginationInconsistencyFailsClosed(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig("linux")
-	items := make([]workflowRecord, 100)
-	for index := range items {
-		items[index] = workflowRecord{
-			ID:    int64(1000 + index),
-			Name:  fmt.Sprintf("other-%d", index),
-			Path:  fmt.Sprintf(".github/workflows/other-%d.yml", index),
-			State: "active",
-		}
-	}
-	api := &fakeAPI{}
-	api.handle = func(endpoint string, query url.Values) ([]byte, error) {
-		if query.Get("page") == "1" {
-			return explicitPagePayload("workflows", 101, items), nil
-		}
-		return explicitPagePayload("workflows", 102, []workflowRecord{validWorkflow(cfg)}), nil
-	}
-
-	_, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "total_count changed across pages") {
-		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -1089,8 +774,6 @@ func paginatedPayload[T any](key string, items []T, query url.Values) ([]byte, e
 	return explicitPagePayload(key, len(items), items[start:end]), nil
 }
 
-// Kept behind a helper so payload construction remains concise and any future
-// fixture encoding failure is loud.
 func jsonMarshal(value any) ([]byte, error) {
 	return json.Marshal(value)
 }

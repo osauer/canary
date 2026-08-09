@@ -49,7 +49,7 @@ Prefer to read it first: `curl -fsSL https://raw.githubusercontent.com/osauer/ca
 canary status
 ```
 
-A healthy install prints something close to this. The values below are synthetic, from the `cmd/_preview` fixtures:
+A healthy install prints something close to this. The values below are synthetic:
 
 ```text
 IBKR Gateway  READY

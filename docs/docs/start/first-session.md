@@ -4,7 +4,7 @@ Updated: 2026-08-04 22:57 CEST
 
 Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; [Install and first run](install.md) covers getting there.
 
-The terminal output below comes from the repository's fixture renderer (`go run cmd/_preview/main.go`), which draws the real CLI screens from synthetic data on the placeholder account `DU0000000`. Your figures will differ. The shape of each screen will not.
+The terminal output below is a synthetic example using the placeholder account `DU0000000`. Your figures will differ. The shape of each screen will not.
 
 ## 1. Prove the gateway is reachable
 

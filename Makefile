@@ -81,7 +81,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check govuln-prewarm-install fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-screenshots cli-screenshots release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical changelog-stub docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-active-alert-inbox-check app-alert-compat-check app-market-events-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -245,18 +245,6 @@ app-refresh-smoke: app-refresh ## Refresh the shared app host, then run the brow
 app-smoke: ## Browser-smoke a running Canary app without scanning a QR code
 	node scripts/app-browser-smoke.mjs --base-url $(APP_SMOKE_URL) --browser $(APP_SMOKE_BROWSER) --no-notification
 
-# The complete monitor snapshot is synthetic before any published image is
-# written, covering positions, symbols, orders, and proposals as well as the
-# account id and balances. See docs/social/canary-app-{mobile,desktop}.png.
-app-screenshots: ## Regenerate the published app screenshots from a running Canary app (fully synthetic data)
-	node scripts/app-screenshots.mjs --base-url $(APP_SMOKE_URL) --browser $(APP_SMOKE_BROWSER) --synthetic
-
-cli-screenshots: ## Regenerate the published CLI screenshots from cmd/_preview fixtures
-	node scripts/cli-screenshots.mjs
-
-social-preview: cli-screenshots ## Regenerate the published social card from synthetic CLI fixtures
-	node scripts/social-preview.mjs
-
 app-render-check: ## Hermetic production-app render with synthetic pairing/reload/auth recovery; never reads desk account data
 	PLAYWRIGHT_NODE_MODULES="$(CURDIR)/web/app/node_modules" node scripts/app-browser-smoke.mjs \
 		--browser $(APP_SMOKE_BROWSER) \
@@ -346,9 +334,6 @@ govulncheck-check: ## Run govulncheck (skipped when deps unchanged and already s
 		mkdir -p "$$(dirname "$(GOVULN_STAMP)")" && \
 		echo "$$depshash $$today" > "$(GOVULN_STAMP)"; \
 	fi
-
-govuln-prewarm-install: ## Install a 06:00 LaunchAgent that pre-warms the daily govulncheck stamp (uninstall: scripts/install-govuln-prewarm.sh --uninstall)
-	@./scripts/install-govuln-prewarm.sh
 
 # Validate the Claude Code plugin + marketplace manifests with the official
 # `claude plugin validate` tool. The TestSkill* gates in internal/cli (run
@@ -1131,13 +1116,6 @@ changelog-lint-historical:
 		CHANGELOG_PATH="$(RELEASE_SOURCE_DIR)/CHANGELOG.md" \
 		CHANGELOG_HISTORICAL=1 \
 		./scripts/check-changelog-entry.sh
-
-changelog-stub: ## Prepend a CHANGELOG.md entry skeleton for RELEASE_VERSION
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "changelog-stub: RELEASE_VERSION is required, e.g. make changelog-stub RELEASE_VERSION=v0.27.12" >&2; \
-		exit 1; \
-	fi
-	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/changelog-stub.sh
 
 all: build test ## build + test
 

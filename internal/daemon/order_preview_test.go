@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"math"
+
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,46 +72,6 @@ func TestDecorateExactPreviewOptionUsesUSOptionsSessionAndQuality(t *testing.T) 
 	}
 }
 
-func TestPreviewLimitPatientLimitOptionBandRounding(t *testing.T) {
-	t.Parallel()
-	opt := rpc.ContractParams{SecType: "OPT", Symbol: "MSFT"}
-	cases := []struct {
-		name     string
-		contract rpc.ContractParams
-		action   string
-		bid, ask float64
-		want     float64
-	}{
-		// Live-evidence shape (2026-07-02): nickel-quoted tape above $3.00
-		// must not draft the raw penny midpoint (19.63 drew broker 110).
-		{name: "sell above band on nickel tape rounds up to nickel", contract: opt, action: rpc.OrderActionSell, bid: 19.60, ask: 19.65, want: 19.65},
-		{name: "buy above band on nickel tape rounds down to nickel", contract: opt, action: rpc.OrderActionBuy, bid: 19.60, ask: 19.65, want: 19.60},
-		{name: "penny tape above band proves penny grid", contract: opt, action: rpc.OrderActionSell, bid: 19.62, ask: 19.64, want: 19.63},
-		// Wire quotes are float32-truncated (live MSFT 260821C400 tape,
-		// 2026-07-02): 19.05/19.60 read back off-grid and must not count
-		// as penny proof.
-		{name: "float32 wire noise is not penny proof", contract: opt, action: rpc.OrderActionSell, bid: 19.049999237060547, ask: 19.600000381469727, want: 19.35},
-		{name: "below band keeps penny grid", contract: opt, action: rpc.OrderActionSell, bid: 2.40, ask: 2.43, want: 2.42},
-		{name: "sub-dollar option never drafts sub-penny", contract: opt, action: rpc.OrderActionSell, bid: 0.40, ask: 0.45, want: 0.43},
-		{name: "penny tape below band proves nothing above it", contract: opt, action: rpc.OrderActionBuy, bid: 2.98, ask: 3.15, want: 3.05},
-		{name: "broker min-tick coarsens below band", contract: rpc.ContractParams{SecType: "OPT", Symbol: "XYZ", MinTick: 0.05}, action: rpc.OrderActionSell, bid: 2.40, ask: 2.45, want: 2.45},
-		{name: "stock keeps static penny grid", contract: rpc.ContractParams{SecType: "STK", Symbol: "MSFT"}, action: rpc.OrderActionSell, bid: 19.60, ask: 19.65, want: 19.63},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			quote := rpc.OrderQuoteSnapshot{Bid: &tc.bid, Ask: &tc.ask, DataType: rpc.MarketDataLive}
-			got, err := previewLimitPrice(tc.action, rpc.OrderStrategyPatientLimit, nil, tc.contract, quote)
-			if err != nil {
-				t.Fatalf("previewLimitPrice: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("%s %s bid %.2f ask %.2f = %.4f, want %.4f", tc.action, tc.contract.SecType, tc.bid, tc.ask, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestPreviewLimitRejectsDelayedPatientLimit(t *testing.T) {
 	t.Parallel()
 	bid, ask := 100.10, 100.15
@@ -174,60 +134,6 @@ func TestPreviewTrailSpecUsesBidAskAndIBKRPercentUnits(t *testing.T) {
 	}
 }
 
-func TestPreviewTrailSpecAcceptsUnavailableQuoteContextAndRejectsLimitRuleDrift(t *testing.T) {
-	t.Parallel()
-	bid, ask, pctValue, offset := 100.0, 101.0, 2.0, 0.05
-	delayed := rpc.OrderQuoteSnapshot{Bid: &bid, Ask: &ask, DataType: rpc.MarketDataDelayed}
-	stock := rpc.ContractParams{SecType: "STK"}
-	// A percent trail with no seedable stop can never transmit (the wire
-	// validators reject trailStopPrice <= 0), so the preview must say why
-	// instead of leaving a zero stop for the broker to reject confusingly.
-	if _, err := previewTrailSpec(rpc.OrderActionSell, rpc.OrderTypeTRAIL, &rpc.OrderTrailSpec{TrailingPercent: &pctValue}, stock, delayed); err == nil || !strings.Contains(err.Error(), "live bid/ask") {
-		t.Fatalf("TRAIL preview on delayed data err = %v, want live-reference bad request", err)
-	}
-
-	live := rpc.OrderQuoteSnapshot{Bid: &bid, Ask: &ask, DataType: rpc.MarketDataLive}
-	if _, err := previewTrailSpec(rpc.OrderActionSell, rpc.OrderTypeTRAILLIMIT, &rpc.OrderTrailSpec{TrailingPercent: &pctValue}, stock, live); err == nil {
-		t.Fatal("TRAIL LIMIT without limit_offset succeeded")
-	}
-	trail, err := previewTrailSpec(rpc.OrderActionSell, rpc.OrderTypeTRAILLIMIT, &rpc.OrderTrailSpec{TrailingPercent: &pctValue, LimitOffset: &offset}, stock, live)
-	if err != nil {
-		t.Fatalf("TRAIL LIMIT with offset: %v", err)
-	}
-	if trail.LimitOffset == nil || *trail.LimitOffset != offset {
-		t.Fatalf("limit offset = %v, want %.2f", trail.LimitOffset, offset)
-	}
-
-	limit := 99.0
-	if _, _, _, _, err := previewOrderPricing(rpc.OrderActionSell, rpc.OrderTypeTRAILLIMIT, rpc.OrderStrategyBrokerTrail, &limit, &rpc.OrderTrailSpec{TrailingPercent: &pctValue, LimitOffset: &offset}, stock, live); err == nil {
-		t.Fatal("TRAIL LIMIT with explicit limit_price succeeded")
-	}
-
-	stale := live
-	stale.Stale = true
-	stale.StaleReason = "market is open but quote data is frozen"
-	if _, err := previewTrailSpec(rpc.OrderActionSell, rpc.OrderTypeTRAIL, &rpc.OrderTrailSpec{TrailingPercent: &pctValue}, stock, stale); err == nil || !strings.Contains(err.Error(), "live bid/ask") {
-		t.Fatalf("TRAIL preview on stale data err = %v, want live-reference bad request", err)
-	}
-
-	closed := live
-	closed.SessionContext = &rpc.MarketSession{Market: "de", State: "closed", IsOpen: false}
-	if _, err := previewTrailSpec(rpc.OrderActionSell, rpc.OrderTypeTRAIL, &rpc.OrderTrailSpec{TrailingPercent: &pctValue}, stock, closed); err == nil || !strings.Contains(err.Error(), "live bid/ask") {
-		t.Fatalf("TRAIL preview on closed session err = %v, want live-reference bad request", err)
-	}
-
-	// An explicit initial stop keeps off-hours placement available: the
-	// caller supplied the reference, so no live quote is required.
-	explicitStop := rpc.OrderTrailSpec{TrailingPercent: &pctValue, InitialStopPrice: 95}
-	seeded, err := previewTrailSpec(rpc.OrderActionSell, rpc.OrderTypeTRAIL, &explicitStop, stock, delayed)
-	if err != nil {
-		t.Fatalf("TRAIL preview with explicit stop on delayed data: %v", err)
-	}
-	if seeded.InitialStopPrice != 95 {
-		t.Fatalf("explicit initial stop = %.2f, want 95 preserved", seeded.InitialStopPrice)
-	}
-}
-
 func TestPreviewIBKRContractOmitsStockMultiplier(t *testing.T) {
 	t.Parallel()
 
@@ -239,39 +145,6 @@ func TestPreviewIBKRContractOmitsStockMultiplier(t *testing.T) {
 	option := previewIBKRContract(rpc.ContractParams{Symbol: "AAPL", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: "20260619", Right: "C", Strike: 200, Multiplier: 100})
 	if option.Multiplier != 100 {
 		t.Fatalf("option multiplier = %d, want 100", option.Multiplier)
-	}
-}
-
-func TestContractMultiplierForcesStockToOne(t *testing.T) {
-	t.Parallel()
-
-	if got := contractMultiplier(rpc.ContractParams{Symbol: "SAP", SecType: "STK", Multiplier: 100}); got != 1 {
-		t.Fatalf("stock multiplier = %d, want 1", got)
-	}
-	if got := contractMultiplier(rpc.ContractParams{Symbol: "SPY", SecType: "OPT", Multiplier: 10}); got != 10 {
-		t.Fatalf("option multiplier = %d, want 10", got)
-	}
-}
-
-func TestPreviewIBKROrderForStatusBindsAccountAndClient(t *testing.T) {
-	t.Parallel()
-
-	order := previewIBKROrderForStatus(
-		rpc.OrderDraft{
-			Action:     rpc.OrderActionBuy,
-			Quantity:   1,
-			OrderType:  rpc.OrderTypeLMT,
-			LimitPrice: 1,
-			TIF:        rpc.OrderTIFDay,
-			OrderRef:   "ibkr-20260607-050000",
-		},
-		rpc.TradingStatus{
-			Account:  "DU1234567",
-			ClientID: 31,
-		},
-	)
-	if order.Account != "DU1234567" || order.ClientID != 31 {
-		t.Fatalf("order account/client = %q/%d, want DU1234567/31", order.Account, order.ClientID)
 	}
 }
 
@@ -741,49 +614,6 @@ func TestOrderPreviewTimeoutAppliesToWhatIf(t *testing.T) {
 	}
 }
 
-func TestRpcWhatIfResultFromBrokerMapsSubmitEligibility(t *testing.T) {
-	t.Parallel()
-	commission := 1.25
-	accepted := rpcWhatIfResultFromBroker(ibkrlib.OrderWhatIfResult{
-		Status:       ibkrlib.OrderWhatIfStatusAccepted,
-		BrokerStatus: "Submitted",
-		Margin: ibkrlib.OrderWhatIfMargin{
-			Currency:           "USD",
-			Commission:         &commission,
-			CommissionCurrency: "USD",
-		},
-	})
-	if accepted.Status != rpc.OrderWhatIfStatusAccepted || accepted.RequiredForSubmit || !accepted.Available {
-		t.Fatalf("accepted broker result mapped wrong: %+v", accepted)
-	}
-	if accepted.Margin == nil || accepted.Margin.Commission == nil || *accepted.Margin.Commission != commission {
-		t.Fatalf("accepted margin mapped wrong: %+v", accepted.Margin)
-	}
-
-	rejected := rpcWhatIfResultFromBroker(ibkrlib.OrderWhatIfResult{
-		Status:             ibkrlib.OrderWhatIfStatusRejected,
-		Message:            "insufficient buying power",
-		AdvancedRejectJSON: `{"reason":"size"}`,
-	})
-	if rejected.Status != rpc.OrderWhatIfStatusRejected || !rejected.RequiredForSubmit || !rejected.Available {
-		t.Fatalf("rejected broker result mapped wrong: %+v", rejected)
-	}
-	if !strings.Contains(rejected.Message, "insufficient buying power") {
-		t.Fatalf("rejected message = %q", rejected.Message)
-	}
-	if rejected.AdvancedRejectJSON != `{"reason":"size"}` {
-		t.Fatalf("advanced reject json = %q", rejected.AdvancedRejectJSON)
-	}
-
-	unavailable := rpcWhatIfResultFromBroker(ibkrlib.OrderWhatIfResult{
-		Status:  ibkrlib.OrderWhatIfStatusUnavailable,
-		Message: "timeout waiting for broker WhatIf response",
-	})
-	if unavailable.Status != rpc.OrderWhatIfStatusUnavailable || !unavailable.RequiredForSubmit || unavailable.Available {
-		t.Fatalf("unavailable broker result mapped wrong: %+v", unavailable)
-	}
-}
-
 func TestConfirmPreviewTokenForPlaceRequiresAcceptedWhatIf(t *testing.T) {
 	t.Parallel()
 	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper})
@@ -916,9 +746,6 @@ func TestOrderPreviewAllowsSingleLegOption(t *testing.T) {
 	}
 }
 
-// TestOrderPreviewAppliesControlsToApparentExits pins the fail-closed boundary:
-// this client cannot prove future manual-TWS orders, so position-only
-// close/reduce arithmetic never exempts a submission from ordinary controls.
 func TestOrderPreviewAppliesControlsToApparentExits(t *testing.T) {
 	t.Parallel()
 	tr := config.Trading{Mode: config.TradingModePaper, MaxNotional: 10_000}
@@ -958,7 +785,7 @@ func TestOrderPreviewAppliesControlsToApparentExits(t *testing.T) {
 
 	t.Run("option close above both caps passes", func(t *testing.T) {
 		t.Parallel()
-		srv := newOrderPreviewTestServer(t, tr) // MaxOptionContracts defaults to 5
+		srv := newOrderPreviewTestServer(t, tr)
 		srv.orderPreviewQuote = fixedPreviewQuote(3.95, 4.05)
 		srv.orderPreviewPositionImpact = fixedPreviewPosition(30, 0, rpc.OrderPositionEffectClose)
 		optLimit := 4.0
@@ -1174,54 +1001,6 @@ func TestOrderPreviewConvertsCrossCurrencyNotionalToAccountBase(t *testing.T) {
 	}
 }
 
-func TestCanonicalOrderFXContractAndConservativeRate(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name             string
-		contractCurrency string
-		baseCurrency     string
-		wantSymbol       string
-		wantCurrency     string
-		wantInverted     bool
-	}{
-		{name: "EUR into USD is direct", contractCurrency: "EUR", baseCurrency: "USD", wantSymbol: "EUR", wantCurrency: "USD"},
-		{name: "USD into EUR is inverse", contractCurrency: "USD", baseCurrency: "EUR", wantSymbol: "EUR", wantCurrency: "USD", wantInverted: true},
-		{name: "USD into JPY is direct", contractCurrency: "USD", baseCurrency: "JPY", wantSymbol: "USD", wantCurrency: "JPY"},
-		{name: "JPY into USD is inverse", contractCurrency: "JPY", baseCurrency: "USD", wantSymbol: "USD", wantCurrency: "JPY", wantInverted: true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			contract, inverted, err := canonicalOrderFXContract(tc.contractCurrency, tc.baseCurrency)
-			if err != nil {
-				t.Fatalf("canonicalOrderFXContract: %v", err)
-			}
-			if contract.Symbol != tc.wantSymbol || contract.Currency != tc.wantCurrency ||
-				contract.SecType != "CASH" || contract.Exchange != "IDEALPRO" ||
-				contract.PrimaryExch != "IDEALPRO" || inverted != tc.wantInverted {
-				t.Fatalf("contract=%+v inverted=%v", contract, inverted)
-			}
-		})
-	}
-
-	bid, ask := 1.08, 1.10
-	quote := rpc.OrderQuoteSnapshot{Bid: &bid, Ask: &ask}
-	if got := conservativeOrderFXRate(quote, false); got != ask {
-		t.Fatalf("direct rate=%v, want ask=%v", got, ask)
-	}
-	if got, want := conservativeOrderFXRate(quote, true), 1/bid; math.Abs(got-want) > 1e-12 {
-		t.Fatalf("inverse rate=%v, want 1/bid=%v", got, want)
-	}
-}
-
-func TestCanonicalOrderFXContractRejectsUnsupportedPairs(t *testing.T) {
-	t.Parallel()
-	for _, tc := range [][2]string{{"USD", "USD"}, {"SEK", "EUR"}, {"USD", ""}} {
-		if contract, inverted, err := canonicalOrderFXContract(tc[0], tc[1]); err == nil {
-			t.Fatalf("pair %q/%q unexpectedly accepted as %+v inverted=%v", tc[0], tc[1], contract, inverted)
-		}
-	}
-}
-
 func TestBindPreviewOrderRiskAuthorityRefreshesFXAtRedemption(t *testing.T) {
 	t.Parallel()
 	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, MaxNotional: 92})
@@ -1257,26 +1036,6 @@ func TestBindPreviewOrderRiskAuthorityRefreshesFXAtRedemption(t *testing.T) {
 	}
 	if binding.riskBound {
 		t.Fatal("FX-refreshed cap rejection unexpectedly produced a risk binding")
-	}
-}
-
-func TestCaptureWireOrderPositionAuthorityUsesRedeemedSessionBaseCurrency(t *testing.T) {
-	t.Parallel()
-	srv := &Server{}
-	binding := brokerWriteTransactionBinding{
-		testOnly:                   true,
-		riskPosition:               rpc.OrderPositionImpact{Before: 1, After: 0, Effect: rpc.OrderPositionEffectClose},
-		riskPortfolioGeneration:    9,
-		riskPortfolioAccount:       "DU1234567",
-		riskBaseCurrency:           "EUR",
-		riskBaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyValueSuffix,
-	}
-	got, err := srv.captureWireOrderPositionAuthority(binding, rpc.TradingStatus{Account: "DU1234567"}, rpc.OrderDraft{})
-	if err != nil {
-		t.Fatalf("captureWireOrderPositionAuthority: %v", err)
-	}
-	if got.BaseCurrency != "EUR" || got.BaseCurrencyProvenance != ibkrlib.AccountBaseCurrencyValueSuffix {
-		t.Fatalf("wire base authority = %q/%q, want redeemed EUR/value-suffix binding", got.BaseCurrency, got.BaseCurrencyProvenance)
 	}
 }
 

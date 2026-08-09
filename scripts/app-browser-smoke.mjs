@@ -513,7 +513,7 @@ await context.addInitScript(() => {
     // repaints the operator's actual desk state over the fixture (the
     // governance monthly-pulse assertion caught exactly that). The smoke's
     // own counting listeners below register through nativeAdd and keep
-    // observing the wire while frozen. Mirror of the app-screenshots.mjs guard.
+    // observing the wire while frozen.
     const nativeAdd = es.addEventListener.bind(es);
     es.addEventListener = (type, listener, ...rest) => {
       nativeAdd(type, (event) => {

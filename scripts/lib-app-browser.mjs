@@ -1,5 +1,5 @@
 // lib-app-browser.mjs — helpers shared by the Playwright-driven app
-// scripts (app-browser-smoke.mjs, app-screenshots.mjs): CLI arg parsing,
+// scripts (currently app-browser-smoke.mjs): CLI arg parsing,
 // Playwright resolution across runtimes, and `canary app` pairing.
 
 import { createRequire } from "node:module";

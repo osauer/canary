@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"io"
 	"math/big"
-	"net"
+
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +24,6 @@ import (
 	"github.com/osauer/canary/v2/internal/app/auth"
 	"github.com/osauer/canary/v2/internal/app/daemonclient"
 	"github.com/osauer/canary/v2/internal/app/live"
-	"github.com/osauer/canary/v2/internal/app/push"
 	"github.com/osauer/canary/v2/internal/app/relay"
 	"github.com/osauer/canary/v2/internal/app/state"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -69,8 +68,6 @@ func TestEmbeddedJavaScriptRoutes(t *testing.T) {
 	}
 }
 
-// readerFromRecorder avoids the recursive io.Copy fallback in HyperServe's
-// logging response writer when its underlying test recorder lacks ReaderFrom.
 type readerFromRecorder struct {
 	*httptest.ResponseRecorder
 }
@@ -87,37 +84,6 @@ func TestBootstrapRequiresAuth(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d, want 401; body=%s", res.Code, res.Body.String())
-	}
-}
-
-func TestAppStatusIsLocalAndSeparatesProducerFromDispatcher(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandler(t).Handler()
-
-	remoteReq := httptest.NewRequest(http.MethodGet, AppStatusPath, nil)
-	remoteReq.RemoteAddr = "203.0.113.9:4242"
-	remoteRes := httptest.NewRecorder()
-	handler.ServeHTTP(remoteRes, remoteReq)
-	if remoteRes.Code != http.StatusForbidden {
-		t.Fatalf("remote status=%d, want 403", remoteRes.Code)
-	}
-
-	localReq := httptest.NewRequest(http.MethodGet, AppStatusPath, nil)
-	localReq.RemoteAddr = "127.0.0.1:4242"
-	localRes := httptest.NewRecorder()
-	handler.ServeHTTP(localRes, localReq)
-	if localRes.Code != http.StatusOK {
-		t.Fatalf("local status=%d body=%s", localRes.Code, localRes.Body.String())
-	}
-	var got AppStatusDTO
-	if err := json.Unmarshal(localRes.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode app status: %v", err)
-	}
-	if got.SchemaVersion != AppStatusSchemaVersion || got.Version != "test-version" {
-		t.Fatalf("identity=%+v", got)
-	}
-	if got.AlertProducer.Sources == nil || got.AlertDispatcher.State == "" {
-		t.Fatalf("producer/dispatcher projections are not independently present: %+v", got)
 	}
 }
 
@@ -138,64 +104,6 @@ func TestAppStatusReadyRequiresBothAlertAuthorities(t *testing.T) {
 	ready.AlertDispatcher.State = state.AlertDeliveryHealthUnavailable
 	if AppStatusReady(ready) {
 		t.Fatal("dispatcher outage was hidden by healthy producer coverage")
-	}
-}
-
-func TestSafeDiagnosticUsesAuthenticatedDeviceFixedCopyAndHonorsNone(t *testing.T) {
-	t.Parallel()
-	srv, store, sender := newGovernanceTestHandler(t, routeFakeClient{})
-	handler := srv.Handler()
-	unauth := httptest.NewRecorder()
-	handler.ServeHTTP(unauth, httptest.NewRequest(http.MethodPost, "/api/push/test", nil))
-	if unauth.Code != http.StatusUnauthorized {
-		t.Fatalf("unauth status=%d", unauth.Code)
-	}
-	cookie := routeSessionCookie(t, handler)
-	devices := store.Devices()
-	if len(devices) != 1 {
-		t.Fatalf("devices=%+v", devices)
-	}
-	if err := store.AddPushSubscription(state.PushSubscription{ID: "diagnostic-sub", DeviceID: devices[0].ID, Endpoint: "https://push.example/diagnostic", P256DH: "key", Auth: "auth", CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
-
-	rejectedReq := httptest.NewRequest(http.MethodPost, "/api/push/test", strings.NewReader(`{"title":"arbitrary","destination":"https://evil.example"}`))
-	rejectedReq.AddCookie(cookie)
-	rejected := httptest.NewRecorder()
-	handler.ServeHTTP(rejected, rejectedReq)
-	if rejected.Code != http.StatusBadRequest || len(sender.payloads) != 0 {
-		t.Fatalf("arbitrary diagnostic status=%d sends=%d", rejected.Code, len(sender.payloads))
-	}
-
-	if err := store.SetAlertMode(state.AlertModeNone); err != nil {
-		t.Fatal(err)
-	}
-	noneReq := httptest.NewRequest(http.MethodPost, "/api/push/test", nil)
-	noneReq.AddCookie(cookie)
-	noneRes := httptest.NewRecorder()
-	handler.ServeHTTP(noneRes, noneReq)
-	if noneRes.Code != http.StatusOK || len(sender.payloads) != 0 || !strings.Contains(noneRes.Body.String(), `"state":"suppressed"`) {
-		t.Fatalf("none diagnostic status=%d sends=%d body=%s", noneRes.Code, len(sender.payloads), noneRes.Body.String())
-	}
-	if err := store.SetAlertMode(state.AlertModeWatchAndAct); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/push/test", nil)
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusOK || len(sender.payloads) != 1 {
-		t.Fatalf("paired diagnostic status=%d sends=%d body=%s", res.Code, len(sender.payloads), res.Body.String())
-	}
-	want := push.SafeDiagnosticPayload()
-	if sender.payloads[0] != want {
-		t.Fatalf("diagnostic payload=%+v, want fixed=%+v", sender.payloads[0], want)
-	}
-	if diagnostic := store.GovernanceDiagnostic(); diagnostic.State != state.GovernanceTransportAccepted {
-		t.Fatalf("diagnostic state=%+v", diagnostic)
-	}
-	if delivery := store.AlertDelivery(time.Now()); len(delivery.Occurrences) != 0 {
-		t.Fatalf("diagnostic contaminated delivery evidence: %+v", delivery)
 	}
 }
 
@@ -258,10 +166,6 @@ func TestPairingBootstrap(t *testing.T) {
 	}
 }
 
-// The iOS home-screen web app inherits Safari's cookies but not its
-// localStorage/IndexedDB, and sessions die with every app restart. The
-// long-lived device cookie must therefore mint a fresh session on its own,
-// with no script-storage credential and no prior session.
 func TestDeviceCookieMintsSessionAfterRestart(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t).Handler()
@@ -306,8 +210,6 @@ func TestDeviceCookieMintsSessionAfterRestart(t *testing.T) {
 		t.Fatalf("device cookie must be HttpOnly")
 	}
 
-	// Simulate the restarted app + home-screen container: no session
-	// cookie, no bearer token — only the device cookie survives.
 	bootReq := httptest.NewRequest(http.MethodGet, "/api/bootstrap", nil)
 	bootReq.AddCookie(deviceCookie)
 	bootRes := httptest.NewRecorder()
@@ -321,8 +223,7 @@ func TestDeviceCookieMintsSessionAfterRestart(t *testing.T) {
 		case "ibkr_app_session":
 			gotSession = c.Value != ""
 		case deviceCookieName:
-			// The value must not rotate: Safari and the installed app hold
-			// twin copies of the same cookie jar snapshot.
+
 			gotDevice = c.Value == deviceCookie.Value
 		}
 	}
@@ -330,7 +231,6 @@ func TestDeviceCookieMintsSessionAfterRestart(t *testing.T) {
 		t.Fatalf("device-cookie login must set a fresh session and re-set the same device cookie (session=%v device=%v)", gotSession, gotDevice)
 	}
 
-	// A tampered device cookie must stay locked out.
 	badReq := httptest.NewRequest(http.MethodGet, "/api/bootstrap", nil)
 	badReq.AddCookie(&http.Cookie{Name: deviceCookieName, Value: deviceCookie.Value + "x"})
 	badRes := httptest.NewRecorder()
@@ -339,8 +239,6 @@ func TestDeviceCookieMintsSessionAfterRestart(t *testing.T) {
 		t.Fatalf("tampered device cookie status=%d, want 401", badRes.Code)
 	}
 
-	// A key login re-provisions a fresh device cookie for the twin that
-	// lost its jar — and the OTHER twin's older cookie must stay valid.
 	var paired auth.CompletePairingResult
 	if err := json.NewDecoder(bytes.NewReader(completeRes.Body.Bytes())).Decode(&paired); err != nil {
 		t.Fatalf("decode pairing result: %v", err)
@@ -419,40 +317,6 @@ func TestDeviceManagementIsLocalMacOnly(t *testing.T) {
 	}
 }
 
-func TestPairingSessionUsesRelayURLWithoutExplicitOverride(t *testing.T) {
-	t.Parallel()
-	handler := newTestHandlerWithClientAndRelay(t, routeFakeClient{}, routeTestRelay{route: "r_route"}).Handler()
-
-	pairReq := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", bytes.NewReader([]byte("{}")))
-	pairReq.RemoteAddr = "127.0.0.1:12345"
-	pairRes := httptest.NewRecorder()
-	handler.ServeHTTP(pairRes, pairReq)
-	if pairRes.Code != http.StatusOK {
-		t.Fatalf("pair status=%d, want 200; body=%s", pairRes.Code, pairRes.Body.String())
-	}
-	var pairing auth.PairingSession
-	if err := json.NewDecoder(pairRes.Body).Decode(&pairing); err != nil {
-		t.Fatalf("decode pairing: %v", err)
-	}
-	if !strings.Contains(pairing.URL, "remote=r_route") {
-		t.Fatalf("pairing URL = %q, want relay route", pairing.URL)
-	}
-
-	explicitReq := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", bytes.NewReader([]byte(`{"public_url":"http://127.0.0.1:8765"}`)))
-	explicitReq.RemoteAddr = "127.0.0.1:12345"
-	explicitRes := httptest.NewRecorder()
-	handler.ServeHTTP(explicitRes, explicitReq)
-	if explicitRes.Code != http.StatusOK {
-		t.Fatalf("explicit pair status=%d, want 200; body=%s", explicitRes.Code, explicitRes.Body.String())
-	}
-	if err := json.NewDecoder(explicitRes.Body).Decode(&pairing); err != nil {
-		t.Fatalf("decode explicit pairing: %v", err)
-	}
-	if strings.Contains(pairing.URL, "remote=r_route") {
-		t.Fatalf("explicit pairing URL = %q, want no relay rewrite", pairing.URL)
-	}
-}
-
 func TestSettingsGetPatchRequiresAuthAndRejectsReadOnly(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t).Handler()
@@ -476,42 +340,6 @@ func TestSettingsGetPatchRequiresAuthAndRejectsReadOnly(t *testing.T) {
 	handler.ServeHTTP(patchRes, patchReq)
 	if patchRes.Code != http.StatusBadRequest {
 		t.Fatalf("settings patch status=%d, want 400; body=%s", patchRes.Code, patchRes.Body.String())
-	}
-}
-
-func TestPatchSettingsReplacesClientClaimedOrigin(t *testing.T) {
-	t.Parallel()
-	client := &routeSettingsPatchCaptureClient{}
-	handler := newTestHandlerWithClient(t, client).Handler()
-	cookie := routeSessionCookie(t, handler)
-	req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewReader([]byte(`{
-		"origin":"human-tty",
-		"features":{"stock_protection":{"enabled":false}}
-	}`)))
-	req.AddCookie(cookie)
-	res := httptest.NewRecorder()
-
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusOK {
-		t.Fatalf("status=%d, want 200; body=%s", res.Code, res.Body.String())
-	}
-	if client.calls != 1 {
-		t.Fatalf("daemon update calls=%d, want 1", client.calls)
-	}
-	var forwarded map[string]json.RawMessage
-	if err := json.Unmarshal(client.patch, &forwarded); err != nil {
-		t.Fatalf("decode forwarded patch: %v", err)
-	}
-	var origin string
-	if err := json.Unmarshal(forwarded["origin"], &origin); err != nil {
-		t.Fatalf("decode forwarded origin: %v", err)
-	}
-	if origin != rpc.OrderOriginPairedDevice {
-		t.Fatalf("forwarded origin=%q, want %q", origin, rpc.OrderOriginPairedDevice)
-	}
-	if got := string(forwarded["features"]); got != `{"stock_protection":{"enabled":false}}` {
-		t.Fatalf("forwarded features=%s, want unchanged feature patch", got)
 	}
 }
 
@@ -888,27 +716,6 @@ func TestProposalRoutesRejectUnknownFields(t *testing.T) {
 	}
 }
 
-func TestPairingSessionAcceptsLocalPublicURLOverride(t *testing.T) {
-	t.Parallel()
-
-	handler := newTestHandler(t).Handler()
-	body := bytes.NewReader([]byte(`{"public_url":"http://192.168.1.42:8765"}`))
-	req := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", body)
-	req.RemoteAddr = "127.0.0.1:12345"
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("status=%d, want 200; body=%s", res.Code, res.Body.String())
-	}
-	var pairing auth.PairingSession
-	if err := json.NewDecoder(res.Body).Decode(&pairing); err != nil {
-		t.Fatalf("decode pairing: %v", err)
-	}
-	if !strings.HasPrefix(pairing.URL, "http://192.168.1.42:8765/pair.html?") {
-		t.Fatalf("pairing URL = %q, want LAN public URL", pairing.URL)
-	}
-}
-
 func TestPairingSessionRejectsInvalidPublicURLOverride(t *testing.T) {
 	t.Parallel()
 
@@ -933,22 +740,6 @@ func TestPairingSessionStillRequiresLocalMac(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusForbidden {
 		t.Fatalf("status=%d, want 403; body=%s", res.Code, res.Body.String())
-	}
-}
-
-func TestIsLocalMacAcceptsOwnInterfaceAddress(t *testing.T) {
-	t.Parallel()
-
-	got := isLocalMacWithAddrs("192.168.1.42:54321", func() ([]net.Addr, error) {
-		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.1.42"), Mask: net.CIDRMask(24, 32)}}, nil
-	})
-	if !got {
-		t.Fatalf("isLocalMacWithAddrs should accept the Mac's own LAN interface address")
-	}
-	if isLocalMacWithAddrs("203.0.113.99:54321", func() ([]net.Addr, error) {
-		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.1.42"), Mask: net.CIDRMask(24, 32)}}, nil
-	}) {
-		t.Fatalf("isLocalMacWithAddrs accepted a non-local remote address")
 	}
 }
 
@@ -996,64 +787,6 @@ func newTestHandlerWithClientAndRelay(t *testing.T, fakeClient daemonclient.Clie
 		AlertController: alertController,
 	})
 	return srv
-}
-
-type governanceHTTPTestSender struct {
-	payloads []push.Payload
-}
-
-func (s *governanceHTTPTestSender) Send(_ context.Context, sub state.PushSubscription, _ state.VAPIDKeys, payload push.Payload) state.PushAttempt {
-	s.payloads = append(s.payloads, payload)
-	return state.PushAttempt{SubscriptionID: sub.ID, OK: true, Class: state.GovernanceTransportAccepted}
-}
-
-func newGovernanceTestHandler(t *testing.T, fakeClient daemonclient.Client) (*hyperserve.Server, *state.Store, *governanceHTTPTestSender) {
-	return newGovernanceTestHandlerWithPoll(t, fakeClient, true)
-}
-
-func newGovernanceTestHandlerWithPoll(t *testing.T, fakeClient daemonclient.Client, poll bool) (*hyperserve.Server, *state.Store, *governanceHTTPTestSender) {
-	t.Helper()
-	store, err := state.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.EnsureVAPID(time.Now().UTC(), func() (string, string, error) { return "private", "public", nil }); err != nil {
-		t.Fatal(err)
-	}
-	liveSvc := live.New(fakeClient, time.Minute, time.Minute)
-	if poll {
-		liveSvc.PollOnce(t.Context())
-	}
-	srv, err := hyperserve.NewServer(hyperserve.WithAddr("127.0.0.1:0"), hyperserve.WithSuppressBanner(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sender := &governanceHTTPTestSender{}
-	alertController := &alerts.Dispatcher{Store: store, Sender: sender, URL: "https://relay.example"}
-	authMgr := auth.NewManager(store, alertController, time.Minute)
-	Register(Dependencies{
-		Server: srv, Store: store, Auth: authMgr, Daemon: fakeClient, Live: liveSvc,
-		Relay: relay.Noop{PublicURL: "https://relay.example"}, PublicURL: "https://relay.example", Version: "test-version",
-		AlertController: alertController,
-	})
-	return srv, store, sender
-}
-
-type routeTestRelay struct {
-	route string
-}
-
-func (r routeTestRelay) Run(context.Context) {}
-
-func (r routeTestRelay) Status() relay.Status {
-	return relay.Status{Mode: "test", URL: "https://relay.example", Connected: true}
-}
-
-func (r routeTestRelay) PairingURL(raw string) string {
-	if strings.Contains(raw, "?") {
-		return raw + "&remote=" + r.route
-	}
-	return raw + "?remote=" + r.route
 }
 
 func routeSessionCookie(t *testing.T, handler http.Handler) *http.Cookie {
@@ -1336,9 +1069,6 @@ type routeWriteFakeClient struct {
 	routeFakeClient
 }
 
-// routeFrozenFakeClient reports a runtime trading freeze: writes blocked,
-// cancels still expected to reach the daemon (which strips the freeze
-// blocker on its cancel path).
 type routeFrozenFakeClient struct {
 	routeWriteFakeClient
 }

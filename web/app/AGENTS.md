@@ -102,7 +102,7 @@ make app-check
 
 `make check` runs `app-contract-check`: the `web/app` Go tests statically pin
 every element id that `scripts/app-browser-smoke.mjs` and
-`scripts/app-screenshots.mjs` assert against `index.html`/`app.js`. Removing
+`scripts/app-browser-smoke.mjs` asserts against `index.html`/`app.js`. Removing
 or renaming an SPA id the scripts reference fails pre-commit — update the
 script assertions in the same change, and keep the `removedSPAIDs` allowlist
 in `web/app/browser_script_ids_test.go` in sync for surfaces the smoke
