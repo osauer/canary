@@ -866,7 +866,7 @@ _release-ci-wait-historical:
 		-poll "$(RELEASE_CI_POLL)" -timeout "$(RELEASE_CI_TIMEOUT)"
 
 # Keep the mutable main-ref assertion separate from exact-SHA Actions evidence:
-# release-resume must verify the tagged SHA even after origin/main advances.
+# release-resume must verify the tagged SHA even after its owning branch advances.
 release-main-candidate-check:
 	$(MAKE) release-origin-check
 	@sha=$$(git rev-parse HEAD) || exit 1; \
@@ -1182,7 +1182,7 @@ release: ## Cut a release from an isolated worktree of committed HEAD: make rele
 # re-enters exactly at that boundary. Local and broker gates do not re-run,
 # but the tagged SHA's immutable, tag-era Actions evidence is re-verified
 # before any publication leg; this rejects tags that were not produced from a
-# fully green candidate. Recovery executes the current committed origin/main
+# fully green candidate. Recovery executes the current committed owning-branch
 # controller while keeping a second clean worktree as immutable tag source.
 # An existing GitHub release is staged from its published signed assets and
 # verified byte-for-byte; only an absent release gets a fresh local assembly.
@@ -1233,7 +1233,7 @@ release-resume: ## Resume a release interrupted after its tag was pushed: make r
 	fi; \
 	controller_sha=$$(git rev-parse --verify "HEAD^{commit}") || exit 1; \
 	if ! git cat-file blob "$$controller_sha:Makefile" | grep -Fqx 'RELEASE_CONTROLLER_CONTRACT = release-controller-v1'; then \
-		echo "release-resume: committed HEAD lacks the current recovery-controller contract; update and commit main first" >&2; \
+		echo "release-resume: committed HEAD lacks the current recovery-controller contract; update and commit $(MAIN_BRANCH) first" >&2; \
 		exit 1; \
 	fi; \
 	controller_wt="$(RELEASE_WORKTREE_ROOT)/canary-resume-$(RELEASE_VERSION)-controller"; \
@@ -1308,8 +1308,8 @@ _release-resume-run:
 	$(MAKE) release-auth-preflight
 	@# A matching version stamp is necessary but not release authority. Prove
 	@# that this exact tagged SHA completed every source-controlled
-	@# push-to-main workflow;
-	@# origin/main and the current workflow catalog may legitimately have
+	@# push workflow on the release line's owning branch;
+	@# The owning branch and current workflow catalog may legitimately have
 	@# advanced since the tag was pushed.
 	$(MAKE) _release-ci-wait-historical RELEASE_PIPELINE_ENTRY=release-resume
 	$(MAKE) release-origin-check

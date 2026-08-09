@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 ./scripts/install_test.sh
 ./scripts/check-changelog-entry_test.sh
 ./scripts/registry-publish-verify-first_test.sh
+./scripts/check-release-source_test.sh
 ./scripts/check-github-release_test.sh
 ./scripts/check-release-ci-contract.sh
 ./scripts/check-release-ci-contract_test.sh

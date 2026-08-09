@@ -1274,7 +1274,7 @@ if [ "$run_target_seen" -eq 1 ]; then
 		|| [ "$controller_source_target_recipe_count" -ne 2 ] \
 		|| [ "$controller_source_target_origin_count" -ne 1 ] \
 		|| [ "$controller_source_target_command_count" -ne 1 ]; then
-		printf 'check-release-boundary: release-controller-source-check must pin origin and exact clean origin/main controller state\n' >&2
+		printf 'check-release-boundary: release-controller-source-check must pin origin and exact clean owning-branch controller state\n' >&2
 		failure=1
 	fi
 	if [ "$mode_source_target_seen" -ne 1 ] \
