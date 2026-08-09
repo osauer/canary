@@ -3,8 +3,7 @@
 Updated: 2026-07-18 17:31 CEST
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); v2 adds
 [recon] 2026-07-13 (internal-docs/design/post-trade-truth.md); v3 2026-07-18 adds
-statement-authoritative flows and the clean-report auto-extend
-(internal-docs/design/operator-ergonomics.md, implementation record). Interview
+statement-authoritative flows and the clean-report auto-extend. Interview
 decisions approved by the operator on 2026-07-12; every numerical threshold
 remains unapproved until the operator writes it into the policy file.
 
@@ -37,18 +36,18 @@ must not duplicate numbers.
 7. **Stale/unreconciled data:** posture follows enforcement class.
    Advisory/shadow: unknown + disclosure, never a silent pass. Promoted
    hard (future): fail closed for risk increases.
-8. **Cadence:** morning/eod/weekly artefacts are declared and journaled,
-   advisory only in v1; reconciliation lapses flow through the staleness
-   posture rather than a separate gate.
+8. **Cadence:** routine brief viewing and clean monthly evidence are automated,
+   never human attestations. Reconciliation lapses flow through the staleness
+   posture; only exceptional repair returns to the operator.
 
 ## Authority
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback or unavailable state |
 |---|---|---|---|---|
-| Capital numbers, ladder, override cap, cadence declarations, sibling pins | `risk-policy.toml` (no embedded default) | `risk.Constitution` | `canary policy show [--explain]` | missing file/key ⇒ `unapproved`, never a code value |
+| Capital numbers, ladder, override cap, process cadence, sibling pins | `risk-policy.toml` (no embedded default) | `risk.Constitution` | `canary policy show [--explain]` | missing file/key ⇒ `unapproved`, never a code value |
 | Schema, validation, evaluation, explain text | code | `internal/risk/constitution*.go` | all | n/a |
 | Policy identity | manager | `rpc.RiskPolicyResult.PolicyFingerprint` (`risk-constitution-fp-v1`) | policy show, journals | absent |
-| Adjusted peak, drawdown tier, latch, flows, overrides, artefacts | daemon runtime state | daemon.db `risk_capital` state document plus `capital_events` | policy show | unseeded ⇒ tier `unknown`; storage failure ⇒ unavailable |
+| Adjusted peak, drawdown tier, latch, flows, overrides | daemon runtime state | daemon.db `risk_capital` state document plus `capital_events` | policy show | unseeded ⇒ tier `unknown`; storage failure ⇒ unavailable |
 | Governance evidence | daemon | daemon.db `risk_policy_events` plus append-only event payload carrying the fingerprint | phase-3 replay | storage failure is disclosed; no file fallback |
 | Equity observation | account summary success path (`handleAccountSummary`) | `AccountResult.NetLiquidation/AsOf` | policy show `input_health` | persisted last reading, disclosed stale |
 | Preview cause | `riskPolicyPreviewWarnings` | `DataWarning{Code:"capital_drawdown", Scope:"risk_policy"}` | order preview | absent when policy nil or tier ok/unknown |
@@ -70,7 +69,7 @@ reconcile event is a human sign-off against a specific, fully resolved
 `canary recon` report — bare attestation is retired, and the `[recon]`
 policy keys define what counts as a matching exception.
 
-Since risk-policy v3 (2026-07-18, internal-docs/design/operator-ergonomics.md):
+Since risk-policy v3 (2026-07-18):
 statement-confirmed post-genesis flows are the authoritative cumFlows
 input; declarations are optional provisional bridge entries covering only
 the fetch lag (matched ones are superseded by the statement value); peak
@@ -87,7 +86,7 @@ displayed side by side until R5.
 - Account/route/client pins, WhatIf, preview tokens, journal integrity,
   freeze, and agent-origin gating have **no keys in this schema**; no
   revision or override can express a change to them.
-- All five policy write methods are human-origin-only (`originIsHuman`);
+- All four policy write methods are human-origin-only (`originIsHuman`);
   agent sessions read but never operate this surface.
 - Nothing in this feature reads or writes `submit_eligible`, blockers,
   freeze, pins, or tokens. v1 is advisory/shadow end to end.
@@ -104,10 +103,10 @@ internal/risk/constitution.go          schema, validation, fingerprint, Evaluate
 internal/risk/constitution_explain.go  ConstitutionLimits (single copy of meanings)
 internal/rpc/risk_policy.go            methods, params, result types
 internal/daemon/risk_policy_manager.go TOML manager (absent/active/drift/error)
-internal/daemon/risk_capital_state.go  peak/latch/events/overrides/artefacts + journals
+internal/daemon/risk_capital_state.go  peak/latch/events/overrides + journals
 internal/daemon/risk_policy_handlers.go RPC handlers + preview cause
 internal/daemon/recon_auto_extend.go   v3 clean-report auto-extend (startup + post-ingest only)
-internal/cli/policy.go                 canary policy show/capital-event/override/reset-drawdown/artefact
+internal/cli/policy.go                 canary policy show/capital-event/override/reset-drawdown/correct-peak
 examples/risk-policy.toml              operator template (all material keys commented out)
 ```
 

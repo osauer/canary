@@ -39,11 +39,8 @@ const (
 	NudgeDestinationBrief = "brief"
 
 	MonthlyPulseStatusNotDue    = "not_due"
-	MonthlyPulseStatusDue       = "due"
 	MonthlyPulseStatusCompleted = "completed"
 	MonthlyPulseStatusBlocked   = "blocked"
-
-	MonthlyPulseEvidenceRender = "render"
 )
 
 // NudgeCandidate is the pure semantic result consumed by daemon adapters. It
@@ -253,20 +250,8 @@ func EvaluateConfirmedFlow(statementRowIdentity string, occurredAt time.Time) *N
 	return newNudgeCandidate(NudgeKindConfirmedFlow, NudgeStateObserved, occurredAt, time.Time{}, time.Time{}, identity)
 }
 
-// MonthlyPulseCompletion carries daemon-authored evidence that the pulse for
-// one policy fingerprint and local calendar month was completed. The pure
-// evaluator validates the evidence fields but cannot establish their origin.
-type MonthlyPulseCompletion struct {
-	Month             string
-	PolicyFingerprint string
-	// CompletedAt and Evidence are daemon-authored from paired brief render
-	// evidence. Origin enforcement remains outside this pure evaluator.
-	CompletedAt time.Time
-	Evidence    string
-}
-
 // MonthlyPulseInput supplies the current instant, approved cadence, policy
-// identity, evidence readiness, and optional completion evidence.
+// identity, and evidence readiness.
 type MonthlyPulseInput struct {
 	Now               time.Time
 	Cadence           ConstitutionCadence
@@ -274,7 +259,6 @@ type MonthlyPulseInput struct {
 	// PolicyEvidenceReady means current readable policy pins all match. Before
 	// due it is ignored; from due onward false blocks both due and completion.
 	PolicyEvidenceReady bool
-	Completion          *MonthlyPulseCompletion
 }
 
 // MonthlyPulseEvaluation reports the local policy month, its resolved due
@@ -287,9 +271,9 @@ type MonthlyPulseEvaluation struct {
 	Candidate *NudgeCandidate
 }
 
-// EvaluateMonthlyPulse derives the monthly cadence state. Completion is
-// accepted only for the current month and policy fingerprint at or after the
-// unambiguous due instant.
+// EvaluateMonthlyPulse derives the monthly cadence state. A routine pulse
+// completes automatically once its due instant and current policy evidence are
+// both present; only missing or invalid evidence returns to the operator.
 func EvaluateMonthlyPulse(input MonthlyPulseInput) MonthlyPulseEvaluation {
 	zone, day, hour, minute, ok := monthlySchedule(input.Cadence)
 	policyFingerprint := strings.TrimSpace(input.PolicyFingerprint)
@@ -310,17 +294,13 @@ func EvaluateMonthlyPulse(input MonthlyPulseInput) MonthlyPulseEvaluation {
 	}
 	if !input.PolicyEvidenceReady {
 		result.Status = MonthlyPulseStatusBlocked
+		result.Candidate = newNudgeCandidate(NudgeKindMonthlyPulse, NudgeStateOpen, dueAt, dueAt, time.Time{}, struct {
+			Month             string `json:"month"`
+			PolicyFingerprint string `json:"policy_fingerprint"`
+		}{month, policyFingerprint})
 		return result
 	}
-	if monthlyCompletionQualifies(input.Completion, month, policyFingerprint, dueAt, input.Now) {
-		result.Status = MonthlyPulseStatusCompleted
-		return result
-	}
-	result.Status = MonthlyPulseStatusDue
-	result.Candidate = newNudgeCandidate(NudgeKindMonthlyPulse, NudgeStateDue, dueAt, dueAt, time.Time{}, struct {
-		Month             string `json:"month"`
-		PolicyFingerprint string `json:"policy_fingerprint"`
-	}{month, policyFingerprint})
+	result.Status = MonthlyPulseStatusCompleted
 	return result
 }
 
@@ -368,16 +348,6 @@ func nthWorkingDayOfMonth(year int, month time.Month, n int) int {
 		}
 	}
 	return 0
-}
-
-func monthlyCompletionQualifies(completion *MonthlyPulseCompletion, month, policyFingerprint string, dueAt, now time.Time) bool {
-	return completion != nil &&
-		completion.Month == month &&
-		completion.PolicyFingerprint == policyFingerprint &&
-		completion.Evidence == MonthlyPulseEvidenceRender &&
-		!completion.CompletedAt.IsZero() &&
-		!completion.CompletedAt.Before(dueAt) &&
-		!completion.CompletedAt.After(now)
 }
 
 // resolveUniqueLocalInstant maps a local wall clock to exactly one instant.
@@ -463,8 +433,8 @@ func candidateTemplate(kind, state string) (title, body, severity string) {
 			return "New cash movement found", "A broker statement contains a new deposit or withdrawal.", NudgeSeverityWatch
 		}
 	case NudgeKindMonthlyPulse:
-		if state == NudgeStateDue {
-			return "Monthly risk review due", "Open the monthly brief and review the current risk settings.", NudgeSeverityWatch
+		if state == NudgeStateOpen {
+			return "Monthly process evidence needs review", "Current policy evidence could not complete the monthly process automatically.", NudgeSeverityAct
 		}
 	}
 	return "", "", ""
@@ -497,7 +467,7 @@ func CanonicalizeNudgeCandidate(candidate NudgeCandidate) (NudgeCandidate, error
 		if candidate.DueAt.IsZero() || !candidate.OccurredAt.Equal(candidate.DueAt) {
 			return NudgeCandidate{}, errors.New("invalid reconcile overdue timestamps")
 		}
-	case candidate.Kind == NudgeKindMonthlyPulse:
+	case candidate.Kind == NudgeKindMonthlyPulse && candidate.State == NudgeStateOpen:
 		if candidate.DueAt.IsZero() || !candidate.OccurredAt.Equal(candidate.DueAt) {
 			return NudgeCandidate{}, errors.New("invalid monthly pulse timestamps")
 		}

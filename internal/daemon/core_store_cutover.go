@@ -492,7 +492,7 @@ func (s *Server) addSkippedLegacySources(manifest *coreCutoverManifest) error {
 		{"proposal_outcomes", "discarded_decision_history", "trade-proposal-outcomes.jsonl"},
 		{"opportunity_current", "discarded_decision_state", "opportunities-current.json"},
 		{"opportunity_events", "discarded_decision_history", "opportunities.jsonl"},
-		{"brief_baselines", "discarded_presentation_baseline", briefStateFile},
+		{"brief_baselines", "discarded_presentation_baseline", "brief-state.json"},
 		{"trading_readiness", "retired_product_state", "trading-readiness.json"},
 		{"legacy_preview_key", "rotated_secret", "order-preview-key"},
 		{"legacy_purge_ledger", "retired_product_state", "purge-ledger.json"},

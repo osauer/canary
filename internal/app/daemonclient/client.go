@@ -29,8 +29,6 @@ type Client interface {
 	Rules(context.Context) (*rpc.RulesResult, error)
 	Brief(context.Context) (*rpc.BriefResult, error)
 	NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResult, error)
-	BriefAck(context.Context, rpc.BriefAckParams) (*rpc.BriefAckResult, error)
-	ReconcileSignoff(context.Context, rpc.CapitalEventParams) (*rpc.RiskPolicyWriteResult, error)
 	TradingStatus(context.Context) (*rpc.TradingStatus, error)
 	AutoTradeStatus(context.Context) (*rpc.AutoTradeStatus, error)
 	OpportunitiesStatus(context.Context) (*rpc.OpportunityStatus, error)
@@ -264,26 +262,6 @@ func (c Real) ReconcileCheck(ctx context.Context) (*rpc.ReconCheckResult, error)
 	}
 	if err := rpc.ValidateReconCheckResult(out); err != nil {
 		return nil, fmt.Errorf("invalid reconciliation check result: %w", err)
-	}
-	return &out, nil
-}
-
-// BriefAck forwards a paired-app acknowledgement to the daemon.
-func (c Real) BriefAck(ctx context.Context, params rpc.BriefAckParams) (*rpc.BriefAckResult, error) {
-	var out rpc.BriefAckResult
-	if err := c.call(ctx, rpc.MethodBriefAck, params, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// ReconcileSignoff records a typed reconciliation capital event through the
-// daemon; it forces the event type to reconcile.
-func (c Real) ReconcileSignoff(ctx context.Context, params rpc.CapitalEventParams) (*rpc.RiskPolicyWriteResult, error) {
-	params.Type = "reconcile"
-	var out rpc.RiskPolicyWriteResult
-	if err := c.call(ctx, rpc.MethodRiskPolicyCapitalEvent, params, &out); err != nil {
-		return nil, err
 	}
 	return &out, nil
 }

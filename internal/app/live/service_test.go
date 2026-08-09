@@ -659,11 +659,10 @@ func TestSnapshotBriefCloneIsIndependent(t *testing.T) {
 		Review: rpc.BriefReviewSection{
 			SessionPnL:    rpc.BriefAccountRow{EquityBase: new(100.0)},
 			Attribution:   rpc.BriefMoversRow{Rows: []rpc.BriefMover{{Symbol: "AAA"}}},
-			RulesDelta:    rpc.BriefRulesDeltaRow{Transitions: []rpc.BriefRuleTransition{{RuleID: "r1"}}, Added: []string{"r2"}, Removed: []string{"r3"}},
+			Rules:         rpc.BriefRulesRow{Pass: 10, Watch: 1},
 			Overrides:     rpc.BriefOverridesRow{Rows: []rpc.BriefOverride{{Control: "limit"}}},
 			CapitalEvents: rpc.BriefCapitalEventsRow{LatchAgeDays: new(2)},
 			Reconcile:     rpc.BriefReconcileRow{DaysRemaining: new(3)},
-			OneTap:        rpc.BriefOneTapRow{Blockers: []string{"blocked"}},
 			WorkingOrders: rpc.BriefCountRow{Count: new(1)},
 		},
 		Ready: rpc.BriefReadySection{
@@ -674,8 +673,7 @@ func TestSnapshotBriefCloneIsIndependent(t *testing.T) {
 			Latch:         rpc.BriefLatchRow{AgeDays: new(2)},
 			PremiumAtRisk: rpc.BriefMoneyCoverageRow{AmountBase: new(10.0)},
 			PolicyDrift:   rpc.BriefPolicyDriftRow{Rows: []rpc.PolicyPinStatus{{Policy: "rules"}}},
-			Artefacts:     rpc.BriefArtefactsRow{Rows: []rpc.BriefArtefact{{Kind: "morning"}}},
-			MonthlyPulse:  &rpc.BriefMonthlyPulseRow{Status: "due", Month: "2026-08"},
+			MonthlyPulse:  &rpc.BriefMonthlyPulseRow{Status: "blocked", Month: "2026-08"},
 		},
 	}
 	svc := New(&fakeClient{}, time.Minute, time.Minute)
@@ -695,11 +693,6 @@ func TestSnapshotBriefCloneIsIndependent(t *testing.T) {
 	got.Brief.Review.Overrides.Rows[0].Control = "MUTATED"
 	got.Brief.Ready.PolicyDrift.Rows[0].Policy = "MUTATED"
 	*got.Brief.Review.Reconcile.DaysRemaining = 0
-	got.Brief.Review.OneTap.Blockers[0] = "MUTATED"
-	got.Brief.Review.RulesDelta.Transitions[0].RuleID = "MUTATED"
-	got.Brief.Review.RulesDelta.Added[0] = "MUTATED"
-	got.Brief.Review.RulesDelta.Removed[0] = "MUTATED"
-	got.Brief.Ready.Artefacts.Rows[0].Kind = "MUTATED"
 	got.Brief.Ready.MonthlyPulse.Status = "MUTATED"
 
 	current := svc.Snapshot().Brief
@@ -710,9 +703,7 @@ func TestSnapshotBriefCloneIsIndependent(t *testing.T) {
 		*current.Ready.Latch.AgeDays != 2 || *current.Review.CapitalEvents.LatchAgeDays != 2 ||
 		current.Review.Overrides.Rows[0].Control != "limit" ||
 		current.Ready.PolicyDrift.Rows[0].Policy != "rules" || *current.Review.Reconcile.DaysRemaining != 3 ||
-		current.Review.OneTap.Blockers[0] != "blocked" || current.Review.RulesDelta.Transitions[0].RuleID != "r1" ||
-		current.Review.RulesDelta.Added[0] != "r2" || current.Review.RulesDelta.Removed[0] != "r3" ||
-		current.Ready.Artefacts.Rows[0].Kind != "morning" || current.Ready.MonthlyPulse.Status != "due" {
+		current.Review.Rules.Pass != 10 || current.Review.Rules.Watch != 1 || current.Ready.MonthlyPulse.Status != "blocked" {
 		t.Fatalf("mutating returned brief changed service snapshot: %#v", current)
 	}
 }
@@ -1736,7 +1727,6 @@ type fakeClient struct {
 	quoteMu     sync.Mutex
 	quoteCalls  []rpc.ContractParams
 	briefCalls  int
-	briefAcks   int
 	nudgeCalls  int
 }
 
@@ -1966,21 +1956,10 @@ func (c *fakeClient) NudgesSnapshot(context.Context) (*rpc.NudgesSnapshotResult,
 	return c.nudges, c.nudgesErr
 }
 
-func (c *fakeClient) BriefAck(context.Context, rpc.BriefAckParams) (*rpc.BriefAckResult, error) {
-	c.quoteMu.Lock()
-	defer c.quoteMu.Unlock()
-	c.briefAcks++
-	return &rpc.BriefAckResult{OK: true}, nil
-}
-
 func (c *fakeClient) BriefCounts() (brief, ack int) {
 	c.quoteMu.Lock()
 	defer c.quoteMu.Unlock()
-	return c.briefCalls, c.briefAcks
-}
-
-func (c *fakeClient) ReconcileSignoff(context.Context, rpc.CapitalEventParams) (*rpc.RiskPolicyWriteResult, error) {
-	return &rpc.RiskPolicyWriteResult{OK: true}, nil
+	return c.briefCalls, 0
 }
 
 func (c *fakeClient) TradingStatus(context.Context) (*rpc.TradingStatus, error) {

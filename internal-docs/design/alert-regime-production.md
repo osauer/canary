@@ -250,5 +250,4 @@ guardrail.
 - [Sensors](../sensors.md)
 - [Daemon SQLite authority](daemon-sqlite-authority.md)
 - [Regime calibration](regime-calibration.md)
-- [Risk governance nudges](risk-governance-nudges.md)
 - [Trading harness development](../guides/trading-harness-development.md)

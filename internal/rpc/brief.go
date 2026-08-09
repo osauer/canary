@@ -2,8 +2,6 @@ package rpc
 
 import (
 	"time"
-
-	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // Brief constants define the daemon methods and the bounded status, kind,
@@ -13,10 +11,6 @@ const (
 	// read: callers do not supply an origin and the daemon must not stamp,
 	// journal, or advance any runtime clock while serving it.
 	MethodBriefSnapshot = "brief.snapshot"
-	// MethodBriefAck records the human attestation associated with a rendered
-	// brief. The daemon accepts human origins only.
-	MethodBriefAck = "brief.ack"
-
 	// BriefStatusOK is the normal member of the brief row status vocabulary.
 	// Brief row statuses separate risk conditions from data conditions:
 	// attention means the underlying VALUES describe a state a trader must
@@ -37,43 +31,15 @@ const (
 
 	// BriefMonthlyPulseNotDue means the monthly pulse has no current action.
 	BriefMonthlyPulseNotDue = "not_due"
-	// BriefMonthlyPulseDue means the current pulse awaits completion.
-	BriefMonthlyPulseDue = "due"
 	// BriefMonthlyPulseCompleted means the current pulse has valid evidence.
 	BriefMonthlyPulseCompleted = "completed"
 	// BriefMonthlyPulseBlocked means completion prerequisites are unavailable.
 	BriefMonthlyPulseBlocked = "blocked"
-
-	// BriefAckEvidenceRender proves only that a paired surface rendered the brief;
-	// origin alone must never be treated as stronger proof of human attention.
-	BriefAckEvidenceRender = risk.MonthlyPulseEvidenceRender
 )
 
 // BriefSnapshotParams is deliberately empty. In particular it carries no
 // origin: reads never gain write authority from their caller.
 type BriefSnapshotParams struct{}
-
-// BriefAckParams identifies the exact rendered brief being attested.
-type BriefAckParams struct {
-	Kind             string `json:"kind"`
-	BriefFingerprint string `json:"brief_fingerprint"`
-	Month            string `json:"month,omitempty"`
-	Evidence         string `json:"evidence,omitempty"`
-	Origin           string `json:"origin,omitempty"`
-}
-
-// BriefAckResult reports a new stamp or an idempotent already-complete no-op.
-type BriefAckResult struct {
-	OK               bool      `json:"ok"`
-	Kind             string    `json:"kind"`
-	Day              string    `json:"day"`
-	At               time.Time `json:"at"`
-	AlreadyStamped   bool      `json:"already_stamped,omitempty"`
-	BriefFingerprint string    `json:"brief_fingerprint,omitempty"`
-	Month            string    `json:"month,omitempty"`
-	Evidence         string    `json:"evidence,omitempty"`
-	Message          string    `json:"message,omitempty"`
-}
 
 // BriefRowState is embedded by every brief row and section. Detail is
 // human-facing disclosure; Status is one of ok, attention, degraded, or
@@ -270,9 +236,7 @@ type BriefProcessSection struct {
 	BriefRowState
 	Reconcile    BriefReconcileRow     `json:"reconcile"`
 	AutoExtend   BriefAutoExtendRow    `json:"auto_extend"`
-	OneTap       BriefOneTapRow        `json:"one_tap"`
-	RulesDelta   BriefRulesDeltaRow    `json:"rules_delta"`
-	Artefacts    BriefArtefactsRow     `json:"artefacts"`
+	Rules        BriefRulesRow         `json:"rules"`
 	MonthlyPulse *BriefMonthlyPulseRow `json:"monthly_pulse,omitempty"`
 }
 
@@ -280,7 +244,7 @@ type BriefProcessSection struct {
 // BriefRowState (whose status is ok|degraded|unavailable). It remains optional
 // until the later daemon composition lands, preserving current brief identity.
 type BriefMonthlyPulseRow struct {
-	Status      string    `json:"status"` // not_due | due | completed | blocked
+	Status      string    `json:"status"` // not_due | completed | blocked
 	Month       string    `json:"month,omitempty"`
 	DueAt       time.Time `json:"due_at,omitzero"`
 	CompletedAt time.Time `json:"completed_at,omitzero"`
@@ -302,48 +266,14 @@ type BriefAutoExtendRow struct {
 	At       time.Time `json:"at,omitzero"`
 }
 
-// BriefOneTapRow reports whether the referenced reconciliation report can be
-// signed and, if not, its stable blockers.
-type BriefOneTapRow struct {
+// BriefRulesRow summarizes current policy adherence. It deliberately uses no
+// acknowledgement or presentation baseline: viewing a brief is a pure read.
+type BriefRulesRow struct {
 	BriefRowState
-	ReportID string   `json:"report_id,omitempty"`
-	Signable bool     `json:"signable"`
-	Blockers []string `json:"blockers,omitempty"`
-}
-
-// BriefRuleTransition records one rule's state change.
-type BriefRuleTransition struct {
-	RuleID string `json:"rule_id"`
-	From   string `json:"from"`
-	To     string `json:"to"`
-}
-
-// BriefRulesDeltaRow compares the current rulebook with its retained baseline.
-type BriefRulesDeltaRow struct {
-	BriefRowState
-	BaselineAt                 time.Time             `json:"baseline_at,omitzero"`
-	Transitions                []BriefRuleTransition `json:"transitions,omitempty"`
-	Added                      []string              `json:"added,omitempty"`
-	Removed                    []string              `json:"removed,omitempty"`
-	RulebookFingerprintChanged bool                  `json:"rulebook_fingerprint_changed"`
-	BaselineFingerprint        string                `json:"baseline_fingerprint,omitempty"`
-	CurrentFingerprint         string                `json:"current_fingerprint,omitempty"`
-}
-
-// BriefArtefact reports declared cadence evidence and completion time.
-type BriefArtefact struct {
-	BriefRowState
-	Kind        string    `json:"kind"`
-	Cadence     string    `json:"cadence"` // daily | weekly
-	Declared    bool      `json:"declared"`
-	Completed   bool      `json:"completed"`
-	CompletedAt time.Time `json:"completed_at,omitzero"`
-}
-
-// BriefArtefactsRow lists cadence artefacts and rolls up their row state.
-type BriefArtefactsRow struct {
-	BriefRowState
-	Rows []BriefArtefact `json:"rows"`
+	Pass    int `json:"pass"`
+	Watch   int `json:"watch"`
+	Act     int `json:"act"`
+	Unknown int `json:"unknown"`
 }
 
 // BriefProposalsRow reports how many protection proposals were offered versus
@@ -413,13 +343,12 @@ type BriefReviewSection struct {
 	SessionPnL    BriefAccountRow       `json:"session_pnl"`
 	LastSession   BriefLastSessionRow   `json:"last_session"`
 	Attribution   BriefMoversRow        `json:"attribution"`
-	RulesDelta    BriefRulesDeltaRow    `json:"rules_delta"`
 	Proposals     BriefProposalsRow     `json:"proposals"`
 	Overrides     BriefOverridesRow     `json:"overrides"`
 	CapitalEvents BriefCapitalEventsRow `json:"capital_events"`
+	Rules         BriefRulesRow         `json:"rules"`
 	Reconcile     BriefReconcileRow     `json:"reconcile"`
 	AutoExtend    BriefAutoExtendRow    `json:"auto_extend"`
-	OneTap        BriefOneTapRow        `json:"one_tap"`
 	WorkingOrders BriefCountRow         `json:"working_orders"`
 }
 
@@ -439,7 +368,6 @@ type BriefReadySection struct {
 	HedgeCost     BriefMoneyCoverageRow  `json:"hedge_cost"`
 	Proposals     BriefReadyProposalsRow `json:"proposals"`
 	PolicyDrift   BriefPolicyDriftRow    `json:"policy_drift"`
-	Artefacts     BriefArtefactsRow      `json:"artefacts"`
 	MonthlyPulse  *BriefMonthlyPulseRow  `json:"monthly_pulse,omitempty"`
 }
 
@@ -471,7 +399,7 @@ type BriefParagraph struct {
 // movements BriefResult already carries. It states served facts and their
 // served statuses in fixed template language and adds no fact of its own, so
 // it stays outside the brief content identity: BriefFingerprint hashes Review
-// and Ready only, and a prose revision can never invalidate a stamped brief.
+// and Ready only, and a prose revision can never invalidate its identity.
 // Absent when an older daemon serves the brief; surfaces fall back to the row
 // render.
 type BriefNarrative struct {
@@ -484,15 +412,12 @@ type BriefNarrative struct {
 // BriefResult is the complete typed daily brief, composed as two process
 // movements: Review (post-trade since the last regular close) and Ready
 // (pre-trade for today). BriefFingerprint hashes the two composed movements
-// only; AsOf, Narrative, and stamp-target state are deliberately outside the
-// content identity. The daemon composes both movements; surfaces render them
-// verbatim.
+// only; AsOf and Narrative are deliberately outside the content identity. The
+// daemon composes both movements; surfaces render them verbatim.
 type BriefResult struct {
-	AsOf              time.Time          `json:"as_of"`
-	BriefFingerprint  string             `json:"brief_fingerprint"`
-	StampTarget       string             `json:"stamp_target,omitempty"`
-	StampTargetReason string             `json:"stamp_target_reason,omitempty"`
-	Review            BriefReviewSection `json:"review"`
-	Ready             BriefReadySection  `json:"ready"`
-	Narrative         *BriefNarrative    `json:"narrative,omitempty"`
+	AsOf             time.Time          `json:"as_of"`
+	BriefFingerprint string             `json:"brief_fingerprint"`
+	Review           BriefReviewSection `json:"review"`
+	Ready            BriefReadySection  `json:"ready"`
+	Narrative        *BriefNarrative    `json:"narrative,omitempty"`
 }

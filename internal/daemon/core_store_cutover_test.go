@@ -83,13 +83,10 @@ func TestOpenCoreStoreProductionEmptyCutoverSealsAndRestarts(t *testing.T) {
 	if err := os.WriteFile(contractPath, []byte(contractSentinel), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	briefPath := filepath.Join(stateRoot, "ibkr", briefStateFile)
-	writeJSONFixture(t, briefPath, briefStateFileV1{
-		Version: briefStateVersion,
-		Stamps: map[string]briefStampState{
-			"daily": {Fingerprint: "legacy-derived-baseline", At: time.Date(2026, 7, 20, 8, 0, 0, 0, time.UTC)},
-		},
-	})
+	briefPath := filepath.Join(stateRoot, "ibkr", "brief-state.json")
+	writeJSONFixture(t, briefPath, map[string]any{"version": 1, "stamps": map[string]any{"daily": map[string]any{
+		"fingerprint": "legacy-derived-baseline", "at": time.Date(2026, 7, 20, 8, 0, 0, 0, time.UTC),
+	}}})
 	legacyBrief, err := os.ReadFile(briefPath)
 	if err != nil {
 		t.Fatal(err)
@@ -132,9 +129,6 @@ func TestOpenCoreStoreProductionEmptyCutoverSealsAndRestarts(t *testing.T) {
 	}
 	if _, err := os.Lstat(briefPath); !os.IsNotExist(err) {
 		t.Fatalf("legacy brief baseline remains live: %v", err)
-	}
-	if _, ok := s.briefState.latestBaseline(); ok {
-		t.Fatal("legacy derived brief baseline seeded the clean SQLite epoch")
 	}
 	for _, name := range []string{"order-preview-key", "order-journal.jsonl"} {
 		info, err := os.Stat(filepath.Join(stateRoot, "ibkr", name))

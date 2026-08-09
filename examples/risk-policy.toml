@@ -63,8 +63,8 @@ block_enforcement = "shadow"
 # permitted before a clean report may extend the reconcile clock automatically.
 #max_equity_divergence_pct = 0.0
 
-# Operating-cadence artefacts (phase 2). Declaring one enables
-# `Canary policy artefact <name>` completion journaling. All advisory in v1.
+# Legacy v2 cadence declarations. Canary v3 parses these while migrating an
+# existing policy, but has no manual completion or acknowledgement surface.
 [cadence.morning]
 class = "advisory"
 [cadence.eod]

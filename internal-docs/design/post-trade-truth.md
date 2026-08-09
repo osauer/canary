@@ -4,7 +4,7 @@ Updated: 2026-07-21 08:30 CEST
 Status: implemented (phase 3a, 2026-07-13) — live since risk-policy v2 with
 the Flex pull configured. R3/R4 flipped 2026-07-18 with risk-policy v3
 (statement-authoritative flows, clean-report auto-extend of the reconcile
-clock); internal-docs/design/operator-ergonomics.md carries that approval record and
+clock); `docs/docs/operate/daily-desk.md` carries the current operator contract and
 implementation detail. This document is also the post-trade authority contract the
 harness guide names as the second First Harness Milestone artifact
 (internal-docs/guides/trading-harness-development.md), alongside the risk

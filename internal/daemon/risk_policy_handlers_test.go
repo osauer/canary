@@ -23,7 +23,6 @@ func newRiskPolicyTestServer(t *testing.T, policyTOML string) *Server {
 		riskCapital:  &riskCapitalStore{now: time.Now},
 		endpoint:     discover.Endpoint{Port: 7496, Account: "U1234567"},
 	}
-	s.installBriefStateStore()
 	return s
 }
 
@@ -55,10 +54,6 @@ func TestRiskPolicyWritesRejectAgentOrigin(t *testing.T) {
 		}},
 		{"reset_drawdown", func(origin string) error {
 			_, err := s.handleRiskPolicyResetDrawdown(ctx, rawParams(t, rpc.ResetDrawdownParams{Reason: "r", Origin: origin}))
-			return err
-		}},
-		{"artefact", func(origin string) error {
-			_, err := s.handleRiskPolicyArtefact(ctx, rawParams(t, rpc.ArtefactParams{Artefact: "morning", Origin: origin}))
 			return err
 		}},
 	} {

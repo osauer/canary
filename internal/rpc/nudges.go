@@ -398,7 +398,7 @@ func validateNudgeCandidateSnapshotTime(asOf time.Time, candidate NudgeCandidate
 		if candidate.DueAt.After(asOf) {
 			return errors.New("reconcile overdue deadline is after snapshot as_of")
 		}
-	case candidate.Kind == NudgeKindMonthlyPulse && candidate.State == NudgeStateDue:
+	case candidate.Kind == NudgeKindMonthlyPulse && candidate.State == NudgeStateOpen:
 		if candidate.DueAt.After(asOf) {
 			return errors.New("monthly pulse deadline is after snapshot as_of")
 		}

@@ -6,202 +6,21 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"math"
-	"os"
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/stress"
 )
 
 const (
-	briefStateFile            = "brief-state.json"
-	briefStateVersion         = 1
-	briefFingerprintMax       = 256
-	briefMoverLimit           = 3
-	monthlyRenderReceiptLimit = 64
-	monthlyRenderReceiptTTL   = 15 * time.Minute
+	briefMoverLimit = 3
 )
-
-type monthlyRenderReceipt struct {
-	Month             string
-	AuthorityIdentity string
-	IssuedAt          time.Time
-	ExpiresAt         time.Time
-}
-
-type briefRuleState struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-}
-
-type briefStampState struct {
-	Fingerprint         string           `json:"fingerprint"`
-	At                  time.Time        `json:"at"`
-	RulebookFingerprint string           `json:"rulebook_fingerprint,omitempty"`
-	Rules               []briefRuleState `json:"rules,omitempty"`
-}
-
-type briefStateFileV1 struct {
-	Version int                        `json:"version"`
-	Stamps  map[string]briefStampState `json:"stamps,omitempty"`
-}
-
-type briefStateStore struct {
-	mu       sync.Mutex
-	path     string // legacy importer/test helper only
-	core     *corestore.Store
-	revision int64
-	loaded   bool
-	state    briefStateFileV1
-}
-
-func (st *briefStateStore) bindCore(ctx context.Context, core *corestore.Store) error {
-	if st == nil || core == nil {
-		return fmt.Errorf("brief state SQLite authority is unavailable")
-	}
-	doc, ok, err := core.GetStateDocument(ctx, daemonStateScope, stateKindBrief)
-	if err != nil {
-		return fmt.Errorf("load brief state from SQLite: %w", err)
-	}
-	state := briefStateFileV1{Version: briefStateVersion, Stamps: map[string]briefStampState{}}
-	revision := int64(0)
-	if ok {
-		if err := json.Unmarshal(doc.JSON, &state); err != nil || state.Version != briefStateVersion {
-			if err == nil {
-				err = fmt.Errorf("unsupported version %d", state.Version)
-			}
-			return fmt.Errorf("decode brief state from SQLite: %w", err)
-		}
-		if state.Stamps == nil {
-			state.Stamps = map[string]briefStampState{}
-		}
-		revision = doc.Revision
-	} else {
-		return fmt.Errorf("brief state is missing from SQLite; cutover bootstrap was not completed")
-	}
-	st.mu.Lock()
-	st.core, st.revision, st.loaded, st.state = core, revision, true, state
-	st.mu.Unlock()
-	return nil
-}
-
-func (s *Server) installBriefStateStore() {
-	if s == nil {
-		return
-	}
-	path, err := defaultTradingStatePath(briefStateFile)
-	if err != nil {
-		s.warnf("brief state: resolve state path: %v (stamp baselines will not survive restart)", err)
-	}
-	s.briefState = &briefStateStore{path: path}
-}
-
-func (st *briefStateStore) loadLocked() {
-	if st.loaded {
-		return
-	}
-	st.loaded = true
-	st.state = briefStateFileV1{Version: briefStateVersion, Stamps: map[string]briefStampState{}}
-	if st.path == "" {
-		return
-	}
-	data, err := osReadFile(st.path)
-	if err != nil {
-		return
-	}
-	var persisted briefStateFileV1
-	if json.Unmarshal(data, &persisted) == nil && persisted.Version == briefStateVersion {
-		st.state = persisted
-		if st.state.Stamps == nil {
-			st.state.Stamps = map[string]briefStampState{}
-		}
-	}
-}
-
-// osReadFile is a package seam kept variable-free in production; tests use
-// ordinary XDG paths and do not need to replace it.
-func osReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
-}
-
-func (st *briefStateStore) latestBaseline() (briefStampState, bool) {
-	if st == nil {
-		return briefStampState{}, false
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	var latest briefStampState
-	for _, stamp := range st.state.Stamps {
-		if stamp.At.After(latest.At) {
-			latest = stamp
-		}
-	}
-	return latest, !latest.At.IsZero()
-}
-
-func (st *briefStateStore) stamp(kind, fingerprint string, at time.Time, rules *rpc.RulesResult) error {
-	if st == nil || (st.core == nil && st.path == "") {
-		return fmt.Errorf("brief state persistence is unavailable")
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	stamp := briefStampState{Fingerprint: fingerprint, At: at.UTC()}
-	if rules != nil {
-		if rules.PolicyFingerprint != nil {
-			stamp.RulebookFingerprint = rules.PolicyFingerprint.Key
-		}
-		stamp.Rules = make([]briefRuleState, 0, len(rules.Rules))
-		for _, row := range rules.Rules {
-			stamp.Rules = append(stamp.Rules, briefRuleState{ID: row.ID, Status: row.Status})
-		}
-	}
-	next := st.state
-	next.Stamps = maps.Clone(st.state.Stamps)
-	next.Stamps[kind] = stamp
-	data, err := json.Marshal(next)
-	if err != nil {
-		return err
-	}
-	if st.core != nil {
-		saved, err := st.core.CompareAndSwapStateDocument(context.Background(), corestore.StateDocumentCAS{
-			ScopeKey: daemonStateScope, Kind: stateKindBrief,
-			ExpectedRevision: st.revision, JSON: data,
-		})
-		if err != nil {
-			return err
-		}
-		st.revision = saved.Revision
-		st.state = next
-		return nil
-	}
-	if err := writePrivateStateAtomic(st.path, data); err != nil {
-		return err
-	}
-	st.state = next
-	return nil
-}
-
-func (st *briefStateStore) stampedToday(kind string, now time.Time) (briefStampState, bool) {
-	if st == nil {
-		return briefStampState{}, false
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	stamp, ok := st.state.Stamps[kind]
-	return stamp, ok && sameLocalDay(stamp.At, now)
-}
 
 func (s *Server) handleBriefSnapshot(ctx context.Context, req *rpc.Request) (*rpc.BriefResult, error) {
 	if len(req.Params) > 0 {
@@ -212,276 +31,6 @@ func (s *Server) handleBriefSnapshot(ctx context.Context, req *rpc.Request) (*rp
 	}
 	res, _ := s.composeBrief(ctx)
 	return res, nil
-}
-
-func (s *Server) handleBriefAck(ctx context.Context, req *rpc.Request) (*rpc.BriefAckResult, error) {
-	var p rpc.BriefAckParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	kind := strings.ToLower(strings.TrimSpace(p.Kind))
-	if kind == rpc.BriefKindMonthly {
-		return s.handleMonthlyBriefAck(ctx, p)
-	}
-	// Origin is checked before any composition or store access that could
-	// lead to a write. Refused agent/empty requests journal nothing.
-	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {
-		return nil, err
-	}
-	if kind != rpc.BriefKindMorning && kind != rpc.BriefKindEOD {
-		return nil, errBadRequest("brief kind must be morning or eod")
-	}
-	fingerprint := strings.TrimSpace(p.BriefFingerprint)
-	if fingerprint == "" || len(fingerprint) > briefFingerprintMax {
-		return nil, errBadRequest(fmt.Sprintf("brief fingerprint must be non-empty and at most %d bytes", briefFingerprintMax))
-	}
-	now := s.briefNow()
-	day := localDay(now)
-	scope := s.currentBrokerStateScope()
-	if rec, ok := artefactCompletedInPeriod(s.riskCapital.ArtefactsForScope(scope), kind, now); ok {
-		return &rpc.BriefAckResult{OK: true, Kind: kind, Day: day, At: rec.CompletedAt,
-			AlreadyStamped: true, BriefFingerprint: rec.BriefFingerprint,
-			Message: fmt.Sprintf("%s artefact already complete for %s", kind, day)}, nil
-	}
-	if stamp, ok := s.briefState.stampedToday(kind, now); ok {
-		return &rpc.BriefAckResult{OK: true, Kind: kind, Day: day, At: stamp.At,
-			AlreadyStamped: true, BriefFingerprint: stamp.Fingerprint,
-			Message: fmt.Sprintf("%s brief already stamped for %s", kind, day)}, nil
-	}
-
-	// Re-evaluate only the rule set at stamp time for the durable delta
-	// baseline. The already-rendered fingerprint is the attested content;
-	// there is no second full brief fan-out on the write path.
-	rules := s.evaluateRulesMode(ctx, false, false)
-	mgr := s.riskPolicies.snapshot()
-	rec, err := s.riskCapital.RecordArtefactForScope(rpc.ArtefactParams{
-		Artefact: kind, Origin: normalizedWriteOrigin(p.Origin), BriefFingerprint: fingerprint,
-	}, mgr.policy, scope)
-	if err != nil {
-		return nil, errBadRequest(err.Error())
-	}
-	if err := s.briefState.stamp(kind, fingerprint, rec.CompletedAt, rules); err != nil {
-		return nil, fmt.Errorf("persist brief stamp baseline: %w", err)
-	}
-	return &rpc.BriefAckResult{OK: true, Kind: kind, Day: day, At: rec.CompletedAt,
-		BriefFingerprint: fingerprint, Message: fmt.Sprintf("stamped %s artefact for %s", kind, day)}, nil
-}
-
-func (s *Server) handleMonthlyBriefAck(ctx context.Context, p rpc.BriefAckParams) (*rpc.BriefAckResult, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	// Monthly completion is narrower than the legacy human-origin stamp: only
-	// the authenticated paired foreground route may supply this origin.
-	if strings.TrimSpace(p.Origin) != rpc.OrderOriginPairedDevice {
-		return nil, errBadRequest("monthly brief completion requires human-paired-device foreground-render evidence; CLI and agent origins are refused")
-	}
-	fingerprint := strings.TrimSpace(p.BriefFingerprint)
-	if fingerprint == "" || len(fingerprint) > briefFingerprintMax {
-		return nil, errBadRequest(fmt.Sprintf("brief fingerprint must be non-empty and at most %d bytes", briefFingerprintMax))
-	}
-	if strings.TrimSpace(p.Evidence) != rpc.BriefAckEvidenceRender {
-		return nil, errBadRequest("monthly brief completion requires render evidence")
-	}
-	if s == nil || s.riskPolicies == nil || s.nudges == nil {
-		return nil, errBadRequest("monthly brief completion state is unavailable")
-	}
-	now := s.briefNow().UTC()
-	authority := s.currentNudgeAuthority(now)
-	policy := authority.policy
-	if !authority.cadenceEligible {
-		return nil, errBadRequest("monthly brief completion is unavailable until current active fully approved v4 authority is present")
-	}
-	report, err := s.buildReconReportContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	day := nudgeLocalDay(policy.Cadence, now)
-	evaluation, completion := s.governanceMonthlyPulseForWrite(authority, policy, report, now)
-	if strings.TrimSpace(p.Month) != evaluation.Month || evaluation.Month == "" {
-		return nil, errBadRequest("monthly brief completion month does not match the current policy month")
-	}
-	if evaluation.Status == risk.MonthlyPulseStatusCompleted && completion != nil {
-		rec, ok := s.nudges.monthlyCompletionRecord(evaluation.Month, authority.policyIdentity)
-		if !ok || rec.BriefIdentity != fingerprint {
-			return nil, errBadRequest("monthly brief completion conflicts with the pinned rendered brief")
-		}
-		return &rpc.BriefAckResult{
-			OK: true, Kind: rpc.BriefKindMonthly, Day: day, At: completion.CompletedAt,
-			AlreadyStamped: true, BriefFingerprint: rec.BriefIdentity, Month: evaluation.Month,
-			Evidence: rpc.BriefAckEvidenceRender, Message: "monthly foreground render already recorded",
-		}, nil
-	}
-	if !policyPinsReady(authority.report.Inventory) {
-		return nil, errBadRequest("monthly brief completion is unavailable until readable matching policy pins are present")
-	}
-	if evaluation.Status != risk.MonthlyPulseStatusDue {
-		return nil, errBadRequest("monthly brief is not currently due with readable matching policy pins")
-	}
-	authorityIdentity := monthlyAuthorityIdentity(authority, evaluation.Month, report, now)
-	receipt, ok := s.monthlyRenderReceipt(fingerprint, evaluation.Month, authorityIdentity, now)
-	if !ok {
-		return nil, errBadRequest("monthly brief fingerprint has no current daemon render receipt; render the monthly brief again")
-	}
-	if s.monthlyAckBeforeWriteLock != nil {
-		s.monthlyAckBeforeWriteLock()
-	}
-	s.nudgeWriteMu.Lock()
-	defer s.nudgeWriteMu.Unlock()
-	if s.nudgeBeforeCommit != nil {
-		s.nudgeBeforeCommit("monthly")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	finalAuthority := s.currentNudgeAuthority(now)
-	if !finalAuthority.cadenceEligible || !policyPinsReady(finalAuthority.report.Inventory) {
-		return nil, errBadRequest("monthly brief completion authority changed before persistence")
-	}
-	finalReport, err := s.buildReconReportContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	finalEvaluation, finalCompletion := s.governanceMonthlyPulseForWrite(finalAuthority, finalAuthority.policy, finalReport, now)
-	finalAuthorityIdentity := monthlyAuthorityIdentity(finalAuthority, finalEvaluation.Month, finalReport, now)
-	if receipt.AuthorityIdentity != finalAuthorityIdentity {
-		return nil, errBadRequest("monthly brief completion conflicts with current authority")
-	}
-	if finalCompletion != nil {
-		if finalEvaluation.Month != evaluation.Month || finalAuthority.policyIdentity != authority.policyIdentity {
-			return nil, errBadRequest("monthly brief completion authority changed before persistence")
-		}
-		rec, ok := s.nudges.monthlyCompletionRecord(finalEvaluation.Month, finalAuthority.policyIdentity)
-		if !ok || rec.BriefIdentity != fingerprint || !rec.CompletedAt.Equal(finalCompletion.CompletedAt) {
-			return nil, errBadRequest("monthly brief completion conflicts with the pinned rendered brief")
-		}
-		s.consumeMonthlyRenderReceipt(fingerprint, now)
-		return &rpc.BriefAckResult{
-			OK: true, Kind: rpc.BriefKindMonthly, Day: day, At: rec.CompletedAt,
-			AlreadyStamped: true, BriefFingerprint: rec.BriefIdentity, Month: rec.Month,
-			Evidence: rec.Evidence, Message: "monthly foreground render already recorded",
-		}, nil
-	}
-	if finalEvaluation.Status != risk.MonthlyPulseStatusDue || finalEvaluation.Month != evaluation.Month {
-		return nil, errBadRequest("monthly brief completion authority changed before persistence")
-	}
-	if s.nudgeAfterValidation != nil {
-		s.nudgeAfterValidation("monthly")
-	}
-	// The test seam represents the last possible authority race before the
-	// filesystem write. Revalidate again so receipt acceptance is still bound
-	// to the exact current policy/pin/report generation at commit time.
-	commitAuthority := s.currentNudgeAuthority(now)
-	if !commitAuthority.cadenceEligible || !policyPinsReady(commitAuthority.report.Inventory) {
-		return nil, errBadRequest("monthly brief completion authority changed before persistence")
-	}
-	commitReport, err := s.buildReconReportContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	commitEvaluation, commitCompletion := s.governanceMonthlyPulseForWrite(commitAuthority, commitAuthority.policy, commitReport, now)
-	commitAuthorityIdentity := monthlyAuthorityIdentity(commitAuthority, commitEvaluation.Month, commitReport, now)
-	if commitCompletion != nil || commitEvaluation.Status != risk.MonthlyPulseStatusDue ||
-		commitEvaluation.Month != finalEvaluation.Month || commitAuthorityIdentity != finalAuthorityIdentity ||
-		receipt.AuthorityIdentity != commitAuthorityIdentity {
-		return nil, errBadRequest("monthly brief completion authority changed before persistence")
-	}
-	rec, already, err := s.nudges.recordMonthlyCompletion(commitEvaluation.Month, commitAuthority.policyIdentity, fingerprint, commitAuthorityIdentity, now)
-	if err != nil {
-		return nil, fmt.Errorf("persist monthly brief completion: %w", err)
-	}
-	if s.nudgeAfterPersist != nil {
-		s.nudgeAfterPersist("monthly")
-	}
-	s.consumeMonthlyRenderReceipt(fingerprint, now)
-	return &rpc.BriefAckResult{
-		OK: true, Kind: rpc.BriefKindMonthly, Day: day, At: rec.CompletedAt,
-		AlreadyStamped: already, BriefFingerprint: rec.BriefIdentity, Month: rec.Month,
-		Evidence: rec.Evidence, Message: "monthly paired-device foreground render recorded",
-	}, nil
-}
-
-func (s *Server) issueMonthlyRenderReceipt(fingerprint, month, authorityIdentity string, now time.Time) {
-	s.issueMonthlyRenderReceiptContext(context.Background(), fingerprint, month, authorityIdentity, now)
-}
-
-func (s *Server) issueMonthlyRenderReceiptContext(ctx context.Context, fingerprint, month, authorityIdentity string, now time.Time) bool {
-	if s == nil || fingerprint == "" || month == "" || authorityIdentity == "" {
-		return false
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if ctx.Err() != nil {
-		return false
-	}
-	s.monthlyRenderMu.Lock()
-	defer s.monthlyRenderMu.Unlock()
-	if ctx.Err() != nil {
-		return false
-	}
-	wasNil := s.monthlyRenderReceipts == nil
-	before := make(map[string]monthlyRenderReceipt, len(s.monthlyRenderReceipts))
-	maps.Copy(before, s.monthlyRenderReceipts)
-	if s.monthlyRenderBeforePersist != nil {
-		s.monthlyRenderBeforePersist()
-	}
-	if ctx.Err() != nil {
-		return false
-	}
-	if s.monthlyRenderReceipts == nil {
-		s.monthlyRenderReceipts = make(map[string]monthlyRenderReceipt)
-	}
-	s.pruneMonthlyRenderReceiptsLocked(now)
-	for len(s.monthlyRenderReceipts) >= monthlyRenderReceiptLimit {
-		oldestKey := ""
-		var oldest time.Time
-		for key, receipt := range s.monthlyRenderReceipts {
-			if oldestKey == "" || receipt.IssuedAt.Before(oldest) {
-				oldestKey, oldest = key, receipt.IssuedAt
-			}
-		}
-		delete(s.monthlyRenderReceipts, oldestKey)
-	}
-	s.monthlyRenderReceipts[fingerprint] = monthlyRenderReceipt{
-		Month: month, AuthorityIdentity: authorityIdentity,
-		IssuedAt: now.UTC(), ExpiresAt: now.UTC().Add(monthlyRenderReceiptTTL),
-	}
-	if ctx.Err() != nil {
-		if wasNil {
-			s.monthlyRenderReceipts = nil
-		} else {
-			s.monthlyRenderReceipts = before
-		}
-		return false
-	}
-	return true
-}
-
-func (s *Server) monthlyRenderReceipt(fingerprint, month, authorityIdentity string, now time.Time) (monthlyRenderReceipt, bool) {
-	if s == nil {
-		return monthlyRenderReceipt{}, false
-	}
-	s.monthlyRenderMu.Lock()
-	defer s.monthlyRenderMu.Unlock()
-	s.pruneMonthlyRenderReceiptsLocked(now)
-	receipt, ok := s.monthlyRenderReceipts[fingerprint]
-	return receipt, ok && receipt.Month == month && receipt.AuthorityIdentity == authorityIdentity
-}
-
-func (s *Server) consumeMonthlyRenderReceipt(fingerprint string, now time.Time) {
-	s.monthlyRenderMu.Lock()
-	defer s.monthlyRenderMu.Unlock()
-	s.pruneMonthlyRenderReceiptsLocked(now)
-	delete(s.monthlyRenderReceipts, fingerprint)
-}
-
-func (s *Server) pruneMonthlyRenderReceiptsLocked(now time.Time) {
-	for fingerprint, receipt := range s.monthlyRenderReceipts {
-		if !now.Before(receipt.ExpiresAt) {
-			delete(s.monthlyRenderReceipts, fingerprint)
-		}
-	}
 }
 
 func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.RulesResult) {
@@ -535,36 +84,17 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// severity/status semantics or the worst-child rollup behavior.
 	res.Review = s.composeBriefReview(portfolio, riskLimits, process, now)
 	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process, s.briefReadyProposals())
-	res.StampTarget, res.StampTargetReason = s.briefStampTarget(policy, constitution, now)
 	res.BriefFingerprint = briefContentFingerprint(res)
 	// The narrative is a deterministic projection of the two movements above
 	// (internal/daemon/brief_narrative.go): it states served facts and their
 	// served statuses and adds none of its own. It is composed after the
 	// fingerprint and stays outside it — the identity hashes Review and Ready
-	// only, so revised prose can never invalidate a stamped brief.
+	// only, so revised prose can never invalidate the brief identity.
 	res.Narrative = composeBriefNarrative(res)
-	// V4 monthly render evidence is bound to the current constitution even
-	// when a policy-only revision happens not to alter a visible brief row.
-	// V1-v3 retain their existing daily-stamp fingerprint byte behavior.
+	// Bind v4 brief identity to the current constitution even when a policy-only
+	// revision happens not to alter a visible row.
 	if constitution != nil && constitution.PolicyVersion >= 4 {
 		res.BriefFingerprint = opaqueIdentity("v4-brief", res.BriefFingerprint, renderAuthority.policyIdentity)
-		if s.monthlyRenderBeforeIssue != nil {
-			s.monthlyRenderBeforeIssue()
-		}
-		currentAuthority := s.currentNudgeAuthority(now)
-		if nudgeAuthorityToken(renderAuthority) != nudgeAuthorityToken(currentAuthority) {
-			return res, rules
-		}
-		monthly, _ := s.governanceMonthlyPulseForAuthority(renderAuthority, constitution, recon, now)
-		if monthly.Status == risk.MonthlyPulseStatusBlocked {
-			if recovery := s.governanceMonthlyPulseForRenderRecovery(renderAuthority, constitution, now); recovery.Status != "" {
-				monthly = recovery
-			}
-		}
-		if monthly.Status == risk.MonthlyPulseStatusDue {
-			s.issueMonthlyRenderReceiptContext(ctx, res.BriefFingerprint, monthly.Month,
-				monthlyAuthorityIdentity(renderAuthority, monthly.Month, recon, now), now)
-		}
 	}
 	return res, rules
 }
@@ -596,10 +126,6 @@ func (s *Server) briefRegimeSnapshotContext(ctx context.Context) (*rpc.RegimeSna
 	return s.currentDecisionReadyRegimeSnapshot(ctx)
 }
 
-func (s *Server) briefPolicyResult(acct *rpc.AccountResult, acctErr error, now time.Time) *rpc.RiskPolicyResult {
-	return s.briefPolicyResultForAuthority(acct, acctErr, s.currentNudgeAuthority(now), now)
-}
-
 func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr error, authority nudgeAuthorityState, now time.Time) *rpc.RiskPolicyResult {
 	value := authority.report
 	res := &value
@@ -619,7 +145,6 @@ func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr 
 	res.Capital = s.riskCapital.Report(authority.policy, obs, scope)
 	res.Limits = risk.ConstitutionLimits(authority.policy)
 	res.Overrides = s.riskCapital.OverridesSnapshotForScope(scope)
-	res.Cadence = s.riskCapital.ArtefactsForScope(scope)
 	return res
 }
 
@@ -632,19 +157,18 @@ func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLim
 		SessionPnL:    portfolio.Account,
 		LastSession:   s.composeBriefLastSession(now),
 		Attribution:   portfolio.Movers,
-		RulesDelta:    process.RulesDelta,
+		Rules:         process.Rules,
 		Proposals:     s.briefProposals(now),
 		Overrides:     riskLimits.Overrides,
 		CapitalEvents: briefCapitalEvents(riskLimits.Capital, riskLimits.Latch),
 		Reconcile:     process.Reconcile,
 		AutoExtend:    process.AutoExtend,
-		OneTap:        process.OneTap,
 		WorkingOrders: portfolio.WorkingOrders,
 	}
 	out.BriefRowState = briefSectionState("review",
-		out.SessionPnL.BriefRowState, out.LastSession.BriefRowState, out.Attribution.BriefRowState, out.RulesDelta.BriefRowState,
+		out.SessionPnL.BriefRowState, out.LastSession.BriefRowState, out.Attribution.BriefRowState, out.Rules.BriefRowState,
 		out.Proposals.BriefRowState, out.Overrides.BriefRowState, out.CapitalEvents.BriefRowState,
-		out.Reconcile.BriefRowState, out.AutoExtend.BriefRowState, out.OneTap.BriefRowState,
+		out.Reconcile.BriefRowState, out.AutoExtend.BriefRowState,
 		out.WorkingOrders.BriefRowState)
 	return out
 }
@@ -699,7 +223,6 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 		HedgeCost:     portfolio.HedgeCost,
 		Proposals:     proposals,
 		PolicyDrift:   riskLimits.PolicyDrift,
-		Artefacts:     process.Artefacts,
 		MonthlyPulse:  process.MonthlyPulse,
 	}
 	out.BriefRowState = briefReadySectionState(out)
@@ -717,7 +240,7 @@ func briefReadySectionState(ready rpc.BriefReadySection) rpc.BriefRowState {
 	rows = append(rows,
 		ready.Capital.BriefRowState, ready.Latch.BriefRowState,
 		ready.PremiumAtRisk.BriefRowState, ready.HedgeCost.BriefRowState,
-		ready.Proposals.BriefRowState, ready.PolicyDrift.BriefRowState, ready.Artefacts.BriefRowState)
+		ready.Proposals.BriefRowState, ready.PolicyDrift.BriefRowState)
 	if ready.MonthlyPulse != nil {
 		rows = append(rows, briefMonthlyPulseRollupState(ready.MonthlyPulse.Status))
 	}
@@ -1469,10 +992,6 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 	return out
 }
 
-func (s *Server) composeBriefProcess(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, recon *rpc.ReconResult, rules *rpc.RulesResult, now time.Time) rpc.BriefProcessSection {
-	return s.composeBriefProcessForAuthority(policy, constitution, recon, rules, s.currentNudgeAuthority(now), now)
-}
-
 func (s *Server) composeBriefProcessForAuthority(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, recon *rpc.ReconResult, rules *rpc.RulesResult, authority nudgeAuthorityState, now time.Time) rpc.BriefProcessSection {
 	out := rpc.BriefProcessSection{}
 	if policy == nil {
@@ -1495,49 +1014,28 @@ func (s *Server) composeBriefProcessForAuthority(policy *rpc.RiskPolicyResult, c
 	}
 	if recon == nil {
 		out.AutoExtend.BriefRowState = briefUnavailable("reconciliation report unavailable")
-		out.OneTap.BriefRowState = briefUnavailable("reconciliation report unavailable")
 	} else {
 		out.AutoExtend = rpc.BriefAutoExtendRow{BriefRowState: briefOK("no automatic extension recorded"),
 			ReportID: recon.LastAutoExtendReportID, At: recon.LastAutoExtendedAt}
 		if recon.LastAutoExtendReportID != "" {
 			out.AutoExtend.Detail = "latest clean-report automatic extension"
 		}
-		_, blockers := s.reconcileReportAssessmentForScope(recon.ReportID, authority.scope)
-		out.OneTap = rpc.BriefOneTapRow{BriefRowState: briefOK("current report is signable"), ReportID: recon.ReportID,
-			Signable: len(blockers) == 0, Blockers: blockers}
-		if len(blockers) > 0 {
-			out.OneTap.BriefRowState = briefDegraded("current report is not signable")
-		}
 	}
-	out.RulesDelta = s.briefRulesDelta(rules)
-	out.Artefacts = composeBriefArtefacts(policy, constitution, now)
+	out.Rules = briefRulesStatus(rules)
 	if constitution != nil && constitution.PolicyVersion >= 4 {
-		evaluation, completion := s.governanceMonthlyPulseForAuthority(authority, constitution, recon, now)
-		if evaluation.Status == risk.MonthlyPulseStatusBlocked {
-			if recovery := s.governanceMonthlyPulseForRenderRecovery(authority, constitution, now); recovery.Status != "" {
-				evaluation = recovery
-			}
-		}
+		evaluation := s.governanceMonthlyPulseForAuthority(authority, constitution, recon, now)
 		out.MonthlyPulse = &rpc.BriefMonthlyPulseRow{
 			Status: evaluation.Status, Month: evaluation.Month, DueAt: evaluation.DueAt,
-		}
-		if completion != nil && evaluation.Status == risk.MonthlyPulseStatusCompleted {
-			out.MonthlyPulse.CompletedAt = completion.CompletedAt
 		}
 	}
 	out.BriefRowState = briefProcessSectionState(out)
 	return out
 }
 
-func (s *Server) briefMonthlyPulse(constitution *risk.Constitution, _ *rpc.RiskPolicyResult, report *rpc.ReconResult, now time.Time) (risk.MonthlyPulseEvaluation, *risk.MonthlyPulseCompletion) {
-	return s.governanceMonthlyPulse(constitution, report, now)
-}
-
 func briefProcessSectionState(process rpc.BriefProcessSection) rpc.BriefRowState {
 	rows := []rpc.BriefRowState{
 		process.Reconcile.BriefRowState, process.AutoExtend.BriefRowState,
-		process.OneTap.BriefRowState, process.RulesDelta.BriefRowState,
-		process.Artefacts.BriefRowState,
+		process.Rules.BriefRowState,
 	}
 	if process.MonthlyPulse != nil {
 		rows = append(rows, briefMonthlyPulseRollupState(process.MonthlyPulse.Status))
@@ -1547,13 +1045,11 @@ func briefProcessSectionState(process rpc.BriefProcessSection) rpc.BriefRowState
 
 // briefMonthlyPulseRollupState maps the monthly-pulse status vocabulary onto a
 // section-rollup row state. Shared so the Ready movement and the legacy process
-// rollup treat a due/blocked pulse identically.
+// rollup treat a blocked pulse identically.
 func briefMonthlyPulseRollupState(status string) rpc.BriefRowState {
 	switch status {
 	case rpc.BriefMonthlyPulseNotDue, rpc.BriefMonthlyPulseCompleted:
 		return briefOK("monthly pulse is current")
-	case rpc.BriefMonthlyPulseDue:
-		return briefDegraded("monthly pulse is due")
 	default:
 		return briefDegraded("monthly pulse is blocked by policy evidence")
 	}
@@ -1578,159 +1074,32 @@ func policyPinsReadable(inventory []rpc.PolicyPinStatus, requireMatch bool) bool
 	return true
 }
 
-func (s *Server) briefRulesDelta(current *rpc.RulesResult) rpc.BriefRulesDeltaRow {
-	row := rpc.BriefRulesDeltaRow{BriefRowState: briefOK("no rule status changes since the last stamped brief")}
+func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
+	row := rpc.BriefRulesRow{BriefRowState: briefOK("all current rulebook checks pass")}
 	if current == nil {
 		row.BriefRowState = briefUnavailable("rulebook snapshot unavailable")
 		return row
 	}
-	if current.PolicyFingerprint != nil {
-		row.CurrentFingerprint = current.PolicyFingerprint.Key
-	}
-	baseline, ok := s.briefState.latestBaseline()
-	if !ok {
-		row.BriefRowState = briefDegraded("no delta baseline yet")
-		return row
-	}
-	row.BaselineAt, row.BaselineFingerprint = baseline.At, baseline.RulebookFingerprint
-	row.RulebookFingerprintChanged = baseline.RulebookFingerprint != row.CurrentFingerprint
-	base := make(map[string]string, len(baseline.Rules))
-	for _, r := range baseline.Rules {
-		base[r.ID] = r.Status
-	}
-	seen := map[string]bool{}
 	for _, r := range current.Rules {
-		seen[r.ID] = true
-		old, exists := base[r.ID]
-		switch {
-		case !exists:
-			row.Added = append(row.Added, r.ID)
-		case old != r.Status:
-			row.Transitions = append(row.Transitions, rpc.BriefRuleTransition{RuleID: r.ID, From: old, To: r.Status})
-		}
-	}
-	for id := range base {
-		if !seen[id] {
-			row.Removed = append(row.Removed, id)
-		}
-	}
-	slices.Sort(row.Added)
-	slices.Sort(row.Removed)
-	actTransitions := 0
-	for _, t := range row.Transitions {
-		if t.To == risk.RuleStatusAct {
-			actTransitions++
+		switch r.Status {
+		case risk.RuleStatusPass:
+			row.Pass++
+		case risk.RuleStatusWatch:
+			row.Watch++
+		case risk.RuleStatusAct:
+			row.Act++
+		default:
+			row.Unknown++
 		}
 	}
 	switch {
-	case actTransitions > 0:
-		// A transition into act is a risk deterioration, not a bookkeeping
-		// delta; it must not hide under data-quality vocabulary.
-		row.BriefRowState = briefAttention(fmt.Sprintf("rulebook changed since the last stamped brief; %d %s worsened to act",
-			actTransitions, pluralNoun(actTransitions, "rule")))
-	case row.RulebookFingerprintChanged || len(row.Transitions)+len(row.Added)+len(row.Removed) > 0:
-		row.BriefRowState = briefDegraded("rulebook changed since the last stamped brief")
+	case row.Act > 0:
+		row.BriefRowState = briefAttention(fmt.Sprintf("%d current %s require action", row.Act, pluralNoun(row.Act, "rule")))
+	case row.Watch > 0 || row.Unknown > 0 || current.Status == "degraded":
+		row.BriefRowState = briefDegraded(fmt.Sprintf("current rulebook: %d watch, %d unknown", row.Watch, row.Unknown))
 	}
 	return row
 }
-
-func composeBriefArtefacts(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, now time.Time) rpc.BriefArtefactsRow {
-	row := rpc.BriefArtefactsRow{BriefRowState: briefOK("declared cadence completion; no overdue judgment")}
-	classes := map[string]string{}
-	if constitution != nil {
-		classes[rpc.BriefKindMorning] = constitution.Cadence.Morning.Class
-		classes[rpc.BriefKindEOD] = constitution.Cadence.EOD.Class
-		classes["weekly"] = constitution.Cadence.Weekly.Class
-	}
-	for _, kind := range []string{rpc.BriefKindMorning, rpc.BriefKindEOD, "weekly"} {
-		cadence := "daily"
-		if kind == "weekly" {
-			cadence = "weekly"
-		}
-		item := rpc.BriefArtefact{BriefRowState: briefUnavailable("artefact cadence is not declared"), Kind: kind, Cadence: cadence, Declared: classes[kind] != ""}
-		if item.Declared {
-			item.BriefRowState = briefOK("declared; completion state only, with no overdue judgment")
-		}
-		if rec, ok := artefactCompletedInPeriod(policyCadence(policy), kind, now); ok {
-			item.Completed, item.CompletedAt = true, rec.CompletedAt
-			item.Declared = rec.Class != ""
-			item.BriefRowState = briefOK("completed in the current cadence period")
-		}
-		row.Rows = append(row.Rows, item)
-	}
-	declared := 0
-	for _, item := range row.Rows {
-		if item.Declared {
-			declared++
-		}
-	}
-	if declared == 0 {
-		row.BriefRowState = briefUnavailable("cadence artefacts are unapproved or undeclared")
-	} else if declared < len(row.Rows) {
-		row.BriefRowState = briefDegraded("one or more cadence artefacts are unapproved or undeclared")
-	}
-	return row
-}
-
-func policyCadence(policy *rpc.RiskPolicyResult) []rpc.ArtefactRecord {
-	if policy == nil {
-		return nil
-	}
-	return policy.Cadence
-}
-
-func briefStampTarget(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, now time.Time) (string, string) {
-	if policy == nil || constitution == nil {
-		return "", "daily artefact cadence is unapproved"
-	}
-	declared := map[string]bool{
-		rpc.BriefKindMorning: constitution.Cadence.Morning.Class != "",
-		rpc.BriefKindEOD:     constitution.Cadence.EOD.Class != "",
-	}
-	for _, kind := range []string{rpc.BriefKindMorning, rpc.BriefKindEOD} {
-		if !declared[kind] {
-			return "", kind + " artefact cadence is unapproved"
-		}
-		if _, done := artefactCompletedInPeriod(policy.Cadence, kind, now); !done {
-			return kind, ""
-		}
-	}
-	return "", "both daily artefacts complete"
-}
-
-func (s *Server) briefStampTarget(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, now time.Time) (string, string) {
-	if constitution != nil && constitution.PolicyVersion >= 4 {
-		monthly, _ := s.briefMonthlyPulse(constitution, policy, s.buildReconReport(), now)
-		switch monthly.Status {
-		case risk.MonthlyPulseStatusDue:
-			return rpc.BriefKindMonthly, ""
-		case risk.MonthlyPulseStatusBlocked:
-			return "", "monthly pulse is blocked by cadence or sibling-pin evidence"
-		}
-	}
-	return briefStampTarget(policy, constitution, now)
-}
-
-func artefactCompletedInPeriod(records []rpc.ArtefactRecord, kind string, now time.Time) (rpc.ArtefactRecord, bool) {
-	for _, rec := range records {
-		if rec.Artefact != kind || rec.CompletedAt.IsZero() {
-			continue
-		}
-		if kind == "weekly" {
-			y1, w1 := rec.CompletedAt.In(time.Local).ISOWeek()
-			y2, w2 := now.In(time.Local).ISOWeek()
-			if y1 == y2 && w1 == w2 {
-				return rec, true
-			}
-		} else if sameLocalDay(rec.CompletedAt, now) {
-			return rec, true
-		}
-	}
-	return rpc.ArtefactRecord{}, false
-}
-
-func sameLocalDay(a, b time.Time) bool { return localDay(a) == localDay(b) }
-func localDay(t time.Time) string      { return t.In(time.Local).Format(time.DateOnly) }
 
 func briefContentFingerprint(res *rpc.BriefResult) string {
 	projection := struct {

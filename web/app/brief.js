@@ -1,36 +1,5 @@
-import { $, money, readJSONOrText } from "./shared.js";
+import { $, money } from "./shared.js";
 import { state } from "./state.js";
-
-const attemptedStampFingerprints = new Set();
-const pendingStampFingerprints = new Set();
-const stampOutcomes = new Map();
-const signoffOutcomes = new Map();
-let visibilityBound = false;
-let briefStampArmed = true;
-let briefStampScheduled = false;
-let briefStampInFlight = false;
-let briefStampLook = 0;
-
-function setupBriefVisibility() {
-  if (visibilityBound) return;
-  visibilityBound = true;
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") {
-      briefStampLook += 1;
-      briefStampArmed = false;
-      return;
-    }
-    briefStampArmed = true;
-    renderBriefCard(state.snapshot || {});
-  });
-  const briefTab = $("briefTab");
-  if (briefTab && typeof MutationObserver !== "undefined") {
-    const tabObserver = new MutationObserver(() => {
-      if (!briefTab.hidden && state.activeTab === "brief") renderBriefCard(state.snapshot || {});
-    });
-    tabObserver.observe(briefTab, { attributes: true, attributeFilter: ["hidden"] });
-  }
-}
 
 function renderBriefCard(snap = state.snapshot || {}) {
   const panel = $("briefPanel");
@@ -43,15 +12,13 @@ function renderBriefCard(snap = state.snapshot || {}) {
   if (!brief) {
     $("briefAsOf").textContent = "--";
     $("briefSections").replaceChildren(briefEmptyState());
-    renderBriefAckStatus(null);
     return;
   }
 
   $("briefAsOf").textContent = dateTimeValue(brief.as_of);
   const sections = $("briefSections");
   // The daemon composes the narrative; an older daemon serves none and the
-  // row render below stays the surface. Both paths keep the render stamp,
-  // the sign-off flow, and the monthly-pulse gating identical.
+  // row render below stays the surface.
   const narrative = servedNarrative(brief);
   sections.classList.toggle("brief-sections--narrative", Boolean(narrative));
   if (narrative) {
@@ -62,8 +29,6 @@ function renderBriefCard(snap = state.snapshot || {}) {
       renderReadySection(brief.ready || {}, snap.sources || {}),
     );
   }
-  renderBriefAckStatus(brief);
-  scheduleBriefStamp(brief);
 }
 
 // Narrative render: the daemon's composed prose, rendered verbatim as typed
@@ -94,8 +59,6 @@ function renderNarrative(narrative, brief) {
   if (narrative.lead.length > 0) nodes.push(runsElement("div", "pd-brf-lead", narrative.lead));
   nodes.push(briefPlacard("Review \u00b7 since last close"));
   for (const runs of narrative.review) nodes.push(runsElement("p", "pd-brf-para", runs));
-  const signoff = renderNarrativeSignoff(brief);
-  if (signoff) nodes.push(signoff);
   nodes.push(briefPlacard("Ready \u00b7 next open"));
   for (const runs of narrative.ready) nodes.push(runsElement("p", "pd-brf-para", runs));
   if (narrative.coda.length > 0) nodes.push(runsElement("p", "pd-brf-coda", narrative.coda));
@@ -156,17 +119,6 @@ function severityChipClass(severity) {
   return "";
 }
 
-// The sign-off control keeps its exact semantics in the narrative render; only
-// its seat changes, from the One-tap row to the Review movement.
-function renderNarrativeSignoff(brief) {
-  const controls = signoffControls(brief.review?.one_tap || {}, brief, brief.review?.rules_delta || {});
-  if (controls.length === 0) return null;
-  const wrap = document.createElement("div");
-  wrap.className = "brief-signoff-seat";
-  wrap.append(...controls);
-  return wrap;
-}
-
 function briefEmptyState() {
   const empty = document.createElement("p");
   empty.className = "brief-empty";
@@ -211,7 +163,7 @@ function renderReviewSection(section, brief) {
       ? [briefRow("Last session close", section.last_session, lastSessionValue(section.last_session))]
       : []),
     briefRow("By underlying", section.attribution, moversValue(section.attribution, currency)),
-    briefRow("Rules delta", section.rules_delta, rulesDeltaValue(section.rules_delta || {})),
+    briefRow("Policy adherence", section.rules, rulesValue(section.rules || {})),
     briefRow("Proposals", section.proposals, proposalsValue(section.proposals || {})),
     briefRow("Overrides used", section.overrides, (section.overrides?.rows || []).map((row) => joinValues(row.control, dateTimeValue(row.expires_at))).join(" · ")),
     briefRow("Capital events", section.capital_events, capitalEventsValue(section.capital_events || {})),
@@ -222,7 +174,6 @@ function renderReviewSection(section, brief) {
       integerValue(section.reconcile, "days_remaining", "Days remaining"),
     )),
     briefRow("Auto-extend", section.auto_extend, joinValues(section.auto_extend?.report_id, dateTimeValue(section.auto_extend?.at))),
-    renderOneTapRow(section.one_tap || {}, brief, section.rules_delta || {}),
     briefRow("Working orders", section.working_orders, integerValue(section.working_orders, "count", "Count")),
   ];
   return briefSection(REVIEW_ICON, "Review", section, rows, "brief-section--review");
@@ -285,10 +236,6 @@ function renderReadySection(section, sources = {}) {
   if (Object.prototype.hasOwnProperty.call(section, "monthly_pulse") && section.monthly_pulse) {
     rows.push(renderMonthlyPulseRow(section.monthly_pulse));
   }
-  rows.push(briefRow("Artefacts", section.artefacts, null));
-  for (const artefact of section.artefacts?.rows || []) {
-    rows.push(briefRow(`Artefact · ${artefact.kind || "--"}`, artefact, artefactValue(artefact), "brief-row--nested"));
-  }
   return briefSection(READY_ICON, "Ready", section, rows, "brief-section--ready");
 }
 
@@ -344,8 +291,6 @@ function monthlyPulseStatus(monthly = {}) {
   switch (monthly.status) {
   case "not_due":
     return "not due";
-  case "due":
-    return "due";
   case "completed":
     return "completed this month";
   case "blocked":
@@ -353,15 +298,6 @@ function monthlyPulseStatus(monthly = {}) {
   default:
     return "blocked by policy evidence";
   }
-}
-
-function artefactValue(artefact) {
-  if (artefact?.declared !== true) return "not declared";
-  if (artefact.completed === true) {
-    const completedAt = dateTimeValue(artefact.completed_at);
-    return completedAt ? `completed ${completedAt}` : "completed";
-  }
-  return artefact.cadence === "weekly" ? "not yet completed this week" : "not yet completed today";
 }
 
 function phaseIcon(paths) {
@@ -418,175 +354,6 @@ function briefRow(label, row = {}, value = "", className = "") {
   return el;
 }
 
-function renderOneTapRow(row, brief, rulesDelta = {}) {
-  const el = briefRow("One-tap sign-off", row, row.report_id || "--");
-  const blockers = document.createElement("ul");
-  blockers.className = "brief-blockers";
-  for (const blocker of row.blockers || []) {
-    const item = document.createElement("li");
-    item.textContent = String(blocker);
-    blockers.append(item);
-  }
-  if (blockers.childElementCount > 0) el.append(blockers);
-
-  el.append(...signoffControls(row, brief, rulesDelta));
-  return el;
-}
-
-// signoffControls builds the reconcile sign-off control, its rulebook caveat,
-// and its receipt. Both renders seat the same elements, so the flow and its
-// gating are one implementation, not two.
-function signoffControls(row = {}, brief = {}, rulesDelta = {}) {
-  const nodes = [];
-  const reportID = String(row.report_id || "");
-  const fingerprint = String(brief.brief_fingerprint || "");
-  const outcome = signoffOutcome(fingerprint, reportID);
-  if (row.signable === true && reportID && !outcome.result?.ok) {
-    const button = document.createElement("button");
-    button.id = "briefSignoffButton";
-    button.type = "button";
-    button.className = "primary brief-signoff";
-    // Whichever seat renders it, the report is already named beside the
-    // control (the row value, or the Review movement's prose); the tap target
-    // speaks trader language, scopes the claim to what the report actually
-    // attests (statement reconcile), and keeps the exact id in its tooltip.
-    button.textContent = outcome.busy ? "Signing off the reconcile report" : "Sign off this reconcile report — statement clean";
-    button.title = `Report ${reportID}`;
-    button.disabled = outcome.busy;
-    button.addEventListener("click", () => submitReconcileSignoff(fingerprint, reportID));
-    nodes.push(button);
-    // Signability is statement-scoped by design; when the rulebook changed
-    // since the last stamped brief — or the delta cannot be verified at all —
-    // the caveat sits on the control so the sign-off cannot borrow the
-    // delta's ambiguity. Unknown is not clean.
-    const deltaStatus = String(rulesDelta.status || "").toLowerCase();
-    const deltaUnknowable = !rulesDeltaUnclean(rulesDelta) && deltaStatus !== "" && deltaStatus !== "ok";
-    if (rulesDeltaUnclean(rulesDelta) || deltaUnknowable) {
-      const caveat = document.createElement("p");
-      caveat.className = "brief-action-message brief-signoff-caveat";
-      caveat.textContent = deltaUnknowable
-        ? "Note: the rulebook delta cannot be verified right now — unknown is not clean; review the Rules delta row before signing."
-        : "Note: the rulebook changed since the last stamped brief — review the Rules delta row before signing.";
-      nodes.push(caveat);
-    }
-  }
-  const message = outcome.error || outcome.result?.message || (outcome.result?.ok ? `Report ${reportID} signed off.` : "");
-  if (message) {
-    const receipt = document.createElement("p");
-    receipt.className = outcome.error ? "brief-action-message brief-action-message--error" : "brief-action-message";
-    receipt.textContent = message;
-    nodes.push(receipt);
-  }
-  return nodes;
-}
-
-async function submitReconcileSignoff(fingerprint, reportID) {
-  const outcome = signoffOutcome(fingerprint, reportID);
-  if (outcome.busy || outcome.result?.ok) return;
-  outcome.busy = true;
-  outcome.error = "";
-  renderBriefCard(state.snapshot || {});
-  try {
-    const res = await fetch("/api/recon/signoff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ report_id: reportID }),
-    });
-    const body = await readJSONOrText(res);
-    if (!res.ok) throw new Error(body.error || body.message || String(body));
-    outcome.result = body;
-  } catch (err) {
-    outcome.error = err.message;
-  } finally {
-    outcome.busy = false;
-    renderBriefCard(state.snapshot || {});
-  }
-}
-
-function signoffOutcome(fingerprint, reportID) {
-  const key = `${fingerprint}\u0000${reportID}`;
-  if (!signoffOutcomes.has(key)) signoffOutcomes.set(key, { busy: false, result: null, error: "" });
-  return signoffOutcomes.get(key);
-}
-
-function scheduleBriefStamp(brief) {
-  const fingerprint = String(brief?.brief_fingerprint || "");
-  if (brief?.stamp_target === "monthly" && !brief?.ready?.monthly_pulse?.month) return;
-  if (!briefStampArmed || briefStampScheduled || briefStampInFlight || !brief?.stamp_target || !fingerprint || attemptedStampFingerprints.has(fingerprint) || pendingStampFingerprints.has(fingerprint)) return;
-  if (!briefStampVisible()) return;
-  const look = briefStampLook;
-  briefStampScheduled = true;
-  pendingStampFingerprints.add(fingerprint);
-  const afterRender = globalThis.requestAnimationFrame || ((callback) => globalThis.setTimeout(callback, 0));
-  afterRender(() => {
-    briefStampScheduled = false;
-    pendingStampFingerprints.delete(fingerprint);
-    if (!briefStampArmed || briefStampInFlight || look !== briefStampLook || !briefStampVisible() || state.snapshot?.brief?.brief_fingerprint !== fingerprint || attemptedStampFingerprints.has(fingerprint)) return;
-    attemptedStampFingerprints.add(fingerprint);
-    briefStampInFlight = true;
-    acknowledgeBrief(brief, fingerprint, look);
-  });
-}
-
-function briefStampVisible() {
-  const panel = $("briefPanel");
-  return state.authenticated === true && state.activeTab === "brief" && panel && !panel.hidden && document.visibilityState === "visible";
-}
-
-async function acknowledgeBrief(brief, fingerprint, look) {
-  try {
-    const res = await fetch("/api/brief/seen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(briefAckBody(brief, fingerprint)),
-    });
-    const body = await readJSONOrText(res);
-    if (!res.ok) throw new Error(body.error || body.message || String(body));
-    if (look === briefStampLook) briefStampArmed = false;
-    stampOutcomes.set(fingerprint, { result: body, error: "" });
-  } catch (err) {
-    stampOutcomes.set(fingerprint, { result: null, error: err.message });
-  } finally {
-    briefStampInFlight = false;
-    renderBriefCard(state.snapshot || {});
-  }
-}
-
-function briefAckBody(brief, fingerprint) {
-  const body = { kind: brief.stamp_target, brief_fingerprint: fingerprint };
-  if (brief.stamp_target === "monthly") {
-    body.month = brief.ready?.monthly_pulse?.month || "";
-    body.evidence = "render";
-  }
-  return body;
-}
-
-function renderBriefAckStatus(brief) {
-  const target = $("briefAckStatus");
-  const outcome = brief ? stampOutcomes.get(String(brief.brief_fingerprint || "")) : null;
-  if (!outcome) {
-    target.hidden = true;
-    target.textContent = "";
-    return;
-  }
-  target.hidden = false;
-  target.classList.toggle("brief-receipt--error", Boolean(outcome.error));
-  if (outcome.error) {
-    target.textContent = brief?.stamp_target === "monthly" ? "Monthly foreground render unavailable." : `Render stamp failed: ${outcome.error}`;
-    return;
-  }
-  const result = outcome.result || {};
-  if (result.kind === "monthly") {
-    target.textContent = result.already_stamped ? "foreground render already recorded" : "foreground render recorded";
-    return;
-  }
-  target.textContent = result.already_stamped
-    ? `${result.kind || "Brief"} artefact · ${result.day || "--"} · already stamped`
-    : `${result.kind || "Brief"} artefact stamped · ${result.day || "--"}`;
-}
-
 function statusBadge(status) {
   const badge = document.createElement("span");
   badge.className = `brief-status ${statusClass(status)}`.trim();
@@ -621,22 +388,12 @@ function moneyCoverageValue(row = {}) {
   );
 }
 
-function rulesDeltaUnclean(row = {}) {
-  return row.rulebook_fingerprint_changed === true ||
-    (row.transitions || []).length > 0 ||
-    (row.added || []).length > 0 ||
-    (row.removed || []).length > 0;
-}
-
-function rulesDeltaValue(row = {}) {
-  const transitions = (row.transitions || []).map((item) => `${item.rule_id || "--"}: ${item.from || "--"} → ${item.to || "--"}`);
-  const added = (row.added || []).map((item) => `added ${item}`);
-  const removed = (row.removed || []).map((item) => `removed ${item}`);
+function rulesValue(row = {}) {
   return joinValues(
-    ...transitions,
-    ...added,
-    ...removed,
-    row.rulebook_fingerprint_changed === true ? "fingerprint changed" : "",
+    integerValue(row, "pass", "Pass"),
+    integerValue(row, "watch", "Watch"),
+    integerValue(row, "act", "Act"),
+    integerValue(row, "unknown", "Unknown"),
   );
 }
 
@@ -722,4 +479,4 @@ function verbatimText(value) {
   return value === undefined || value === null || value === "" ? "--" : String(value);
 }
 
-export { briefAckBody, monthlyPulseStatus, renderBriefCard, scheduleBriefStamp, setupBriefVisibility };
+export { monthlyPulseStatus, renderBriefCard };

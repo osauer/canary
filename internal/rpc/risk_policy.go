@@ -14,7 +14,7 @@ import (
 
 const (
 	// MethodRiskPolicySnapshot returns the effective constitution, capital
-	// state, drawdown tier, overrides, cadence records, and sibling-policy
+	// state, drawdown tier, overrides, and sibling-policy
 	// pin drift. Works without gateway connectivity (state/config-only;
 	// the equity observation degrades to the persisted last reading).
 	MethodRiskPolicySnapshot = "policy.snapshot"
@@ -32,9 +32,6 @@ const (
 	// Corrections may only lower the peak; higher peaks are what the
 	// observation path is for. Human-only.
 	MethodRiskPolicyCorrectPeak = "policy.correct_peak"
-	// MethodRiskPolicyArtefact records completion of a declared cadence
-	// artefact. Human-only.
-	MethodRiskPolicyArtefact = "policy.artefact"
 )
 
 // RiskConstitutionFingerprintVersion labels the constitution fingerprint.
@@ -114,17 +111,6 @@ type ResetDrawdownParams struct {
 	Origin string `json:"origin,omitempty"`
 }
 
-// ArtefactParams records one completed cadence artefact.
-type ArtefactParams struct {
-	// Artefact is morning | eod | weekly.
-	Artefact string `json:"artefact"`
-	Note     string `json:"note,omitempty"`
-	Origin   string `json:"origin,omitempty"`
-	// BriefFingerprint is set only by brief.ack. The existing policy
-	// artefact verb leaves it empty and remains wire-compatible.
-	BriefFingerprint string `json:"brief_fingerprint,omitempty"`
-}
-
 // OverrideRecord is one override, active or expired, as journaled.
 type OverrideRecord struct {
 	ID                string    `json:"id"`
@@ -187,25 +173,6 @@ type PolicyPinStatus struct {
 	Status string `json:"status"`
 }
 
-// ArtefactRecord is the latest journaled completion of one cadence
-// artefact.
-type ArtefactRecord struct {
-	Artefact         string    `json:"artefact"`
-	Class            string    `json:"class,omitempty"`
-	CompletedAt      time.Time `json:"completed_at,omitzero"`
-	Note             string    `json:"note,omitempty"`
-	Origin           string    `json:"origin,omitempty"`
-	BriefFingerprint string    `json:"brief_fingerprint,omitempty"`
-	// PolicyFingerprint is daemon-authored by later monthly brief.ack handling.
-	// A monthly completion applies only to this policy identity; a changed
-	// policy reopens the local month. The generic policy artefact verb does not
-	// populate monthly metadata.
-	PolicyFingerprint string `json:"policy_fingerprint,omitempty"`
-	// Evidence is render-only monthly metadata populated by later brief.ack
-	// handling. Origin alone is never stronger attention proof.
-	Evidence string `json:"evidence,omitempty"`
-}
-
 // RiskPolicyResult is the policy.snapshot payload.
 type RiskPolicyResult struct {
 	AsOf time.Time `json:"as_of"`
@@ -226,7 +193,6 @@ type RiskPolicyResult struct {
 	Capital   CapitalStateReport       `json:"capital"`
 	Limits    []risk.ConstitutionLimit `json:"limits,omitempty"`
 	Overrides []OverrideRecord         `json:"overrides,omitempty"`
-	Cadence   []ArtefactRecord         `json:"cadence,omitempty"`
 	Inventory []PolicyPinStatus        `json:"inventory,omitempty"`
 
 	InputHealth []SourceHealth `json:"input_health,omitempty"`

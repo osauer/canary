@@ -1740,15 +1740,11 @@ func cloneBriefResult(in *rpc.BriefResult) *rpc.BriefResult {
 	out.Review.SessionPnL.DailyPnLBase = cloneValue(in.Review.SessionPnL.DailyPnLBase)
 	out.Review.Attribution.Rows = append([]rpc.BriefMover(nil), in.Review.Attribution.Rows...)
 	out.Review.Attribution.OtherPnLBase = cloneValue(in.Review.Attribution.OtherPnLBase)
-	out.Review.RulesDelta.Transitions = append([]rpc.BriefRuleTransition(nil), in.Review.RulesDelta.Transitions...)
-	out.Review.RulesDelta.Added = append([]string(nil), in.Review.RulesDelta.Added...)
-	out.Review.RulesDelta.Removed = append([]string(nil), in.Review.RulesDelta.Removed...)
 	out.Review.Overrides.Rows = append([]rpc.BriefOverride(nil), in.Review.Overrides.Rows...)
 	out.Review.CapitalEvents.LatchAgeDays = cloneValue(in.Review.CapitalEvents.LatchAgeDays)
 	out.Review.CapitalEvents.ConsumedPctAtLatch = cloneValue(in.Review.CapitalEvents.ConsumedPctAtLatch)
 	out.Review.CapitalEvents.AdjustedPeakBase = cloneValue(in.Review.CapitalEvents.AdjustedPeakBase)
 	out.Review.Reconcile.DaysRemaining = cloneValue(in.Review.Reconcile.DaysRemaining)
-	out.Review.OneTap.Blockers = append([]string(nil), in.Review.OneTap.Blockers...)
 	out.Review.WorkingOrders.Count = cloneValue(in.Review.WorkingOrders.Count)
 
 	// Ready movement (pre-trade).
@@ -1770,7 +1766,6 @@ func cloneBriefResult(in *rpc.BriefResult) *rpc.BriefResult {
 	out.Ready.PremiumAtRisk.AmountBase = cloneValue(in.Ready.PremiumAtRisk.AmountBase)
 	out.Ready.HedgeCost.AmountBase = cloneValue(in.Ready.HedgeCost.AmountBase)
 	out.Ready.PolicyDrift.Rows = append([]rpc.PolicyPinStatus(nil), in.Ready.PolicyDrift.Rows...)
-	out.Ready.Artefacts.Rows = append([]rpc.BriefArtefact(nil), in.Ready.Artefacts.Rows...)
 	if in.Ready.MonthlyPulse != nil {
 		monthly := *in.Ready.MonthlyPulse
 		out.Ready.MonthlyPulse = &monthly

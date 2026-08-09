@@ -11,19 +11,13 @@ import (
 
 func runBrief(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "brief")
-	jsonOut := fs.Bool("json", false, "emit machine-readable JSON (never stamps)")
-	kind := fs.String("kind", "", "stamp morning or eod instead of the first incomplete daily artefact")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
 	if fs.NArg() != 0 {
 		return failUnexpectedArgs(env, fs)
 	}
-	*kind = strings.ToLower(strings.TrimSpace(*kind))
-	if *kind != "" && *kind != rpc.BriefKindMorning && *kind != rpc.BriefKindEOD {
-		return fail(env, "brief: --kind must be morning or eod")
-	}
-
 	var res rpc.BriefResult
 	if err := env.Conn.Call(ctx, rpc.MethodBriefSnapshot, rpc.BriefSnapshotParams{}, &res); err != nil {
 		return fail(env, "brief: %v", err)
@@ -32,38 +26,6 @@ func runBrief(ctx context.Context, env *Env, args []string) int {
 		return printJSON(env, res)
 	}
 	renderBrief(env, res)
-
-	if !briefHumanOrigin(env.Origin) {
-		fmt.Fprintln(env.Stdout, "\nagent-origin render — not stamped")
-		return 0
-	}
-	target := res.StampTarget
-	if *kind != "" {
-		target = *kind
-	}
-	if target == rpc.BriefKindMonthly {
-		fmt.Fprintln(env.Stdout, "\nmonthly foreground render not recorded — paired-device origin required")
-		return 0
-	}
-	if target == "" {
-		fmt.Fprintf(env.Stdout, "\nnot stamped — %s\n", nonEmpty(res.StampTargetReason, "no daily artefact target"))
-		return 0
-	}
-	var ack rpc.BriefAckResult
-	err := env.Conn.Call(ctx, rpc.MethodBriefAck, rpc.BriefAckParams{
-		Kind: target, BriefFingerprint: res.BriefFingerprint, Origin: env.Origin,
-	}, &ack)
-	if err != nil {
-		// Rendering succeeded. Stamping is advisory, but the failure must be
-		// conspicuous and must not turn a useful brief into a failing command.
-		fmt.Fprintf(env.Stderr, "canary: brief rendered but stamp failed: %v\n", err)
-		return 0
-	}
-	if ack.AlreadyStamped {
-		fmt.Fprintf(env.Stdout, "\nstamp: %s artefact for %s — already stamped\n", ack.Kind, ack.Day)
-	} else {
-		fmt.Fprintf(env.Stdout, "\nstamp: %s artefact for %s\n", ack.Kind, ack.Day)
-	}
 	return 0
 }
 
@@ -114,10 +76,6 @@ func splitVisibleWord(word string, width int) (string, string) {
 	return word, ""
 }
 
-func briefHumanOrigin(origin string) bool {
-	return origin == rpc.OrderOriginHumanTTY || origin == rpc.OrderOriginPairedDevice
-}
-
 func renderBrief(env *Env, res rpc.BriefResult) {
 	fmt.Fprintf(env.Stdout, "Daily brief — %s  %s\n", res.AsOf.Local().Format("2006-01-02 15:04 MST"), shortFingerprint(res.BriefFingerprint))
 	narrative := servedBriefNarrative(res.Narrative)
@@ -153,11 +111,8 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 			formatMoneyCcy(*review.Attribution.OtherPnLBase, review.SessionPnL.BaseCurrency)))
 	}
 	briefLine(env, "by underlying", review.Attribution.BriefRowState, strings.Join(movers, " · "))
-	delta := fmt.Sprintf("%d transition(s), %d added, %d removed", len(review.RulesDelta.Transitions), len(review.RulesDelta.Added), len(review.RulesDelta.Removed))
-	if review.RulesDelta.RulebookFingerprintChanged {
-		delta += " · fingerprint changed"
-	}
-	briefLine(env, "rules delta", review.RulesDelta.BriefRowState, delta)
+	briefLine(env, "policy adherence", review.Rules.BriefRowState,
+		fmt.Sprintf("%d pass · %d watch · %d act · %d unknown", review.Rules.Pass, review.Rules.Watch, review.Rules.Act, review.Rules.Unknown))
 	briefLine(env, "proposals", review.Proposals.BriefRowState, fmt.Sprintf("%d offered · %d acted", review.Proposals.Offered, review.Proposals.Acted))
 	briefLine(env, "overrides used", review.Overrides.BriefRowState, fmt.Sprintf("%d", len(review.Overrides.Rows)))
 	capitalEvents := "no capital events"
@@ -193,13 +148,6 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 	}
 	briefLine(env, "reconcile", review.Reconcile.BriefRowState, reconcile)
 	briefLine(env, "auto-extend", review.AutoExtend.BriefRowState, review.AutoExtend.ReportID)
-	oneTap := "blocked"
-	if review.OneTap.Signable {
-		oneTap = briefOneTapSignable
-	} else if len(review.OneTap.Blockers) > 0 {
-		oneTap += " · " + strings.Join(review.OneTap.Blockers, "; ")
-	}
-	briefLine(env, "one-tap sign-off", review.OneTap.BriefRowState, oneTap)
 	orders := "—"
 	if review.WorkingOrders.Count != nil {
 		orders = fmt.Sprintf("%d", *review.WorkingOrders.Count)
@@ -295,16 +243,6 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	briefLine(env, "premium at risk", ready.PremiumAtRisk.BriefRowState, briefMoney(ready.PremiumAtRisk))
 	briefLine(env, "hedge cost / day", ready.HedgeCost.BriefRowState, briefMoney(ready.HedgeCost))
 	briefLine(env, "policy drift", ready.PolicyDrift.BriefRowState, fmt.Sprintf("%d", len(ready.PolicyDrift.Rows)))
-	for _, artefact := range ready.Artefacts.Rows {
-		state := "not declared"
-		if artefact.Declared {
-			state = "not completed"
-		}
-		if artefact.Completed {
-			state = "completed"
-		}
-		briefLine(env, "artefact "+artefact.Kind, artefact.BriefRowState, state)
-	}
 	if monthly := ready.MonthlyPulse; monthly != nil {
 		value := briefJoin(monthly.Status, monthly.Month)
 		if !monthly.DueAt.IsZero() {
@@ -360,9 +298,6 @@ const (
 	// briefProseIndent sets prose in from the section headers, matching the
 	// row render's own indent.
 	briefProseIndent = "  "
-	// briefOneTapSignable is the row view's sign-off wording, shared so the
-	// prose render can name the command in exactly the same words.
-	briefOneTapSignable = "signable · canary policy capital-event reconcile"
 )
 
 // briefProseWidth resolves the measure for one render. The width is passed
@@ -428,12 +363,6 @@ func renderBriefNarrative(env *Env, narrative *briefNarrativeView, res rpc.Brief
 	}
 	fmt.Fprintln(env.Stdout, "\nReview  (since the last close)")
 	briefProseParagraphs(env, narrative.review, width)
-	if res.Review.OneTap.Signable {
-		// The row view is the only place the CLI names the sign-off command;
-		// prose keeps that line in the row view's own words.
-		fmt.Fprintln(env.Stdout)
-		briefLabelLine(env, "one-tap sign-off", briefOneTapSignable, width)
-	}
 	fmt.Fprintln(env.Stdout, "\nReady  (today)")
 	briefProseParagraphs(env, narrative.ready, width)
 	if len(narrative.coda) > 0 {
@@ -510,13 +439,12 @@ func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 	review, ready := res.Review, res.Ready
 	add("session P&L", review.SessionPnL.BriefRowState)
 	add("by underlying", review.Attribution.BriefRowState)
-	add("rules delta", review.RulesDelta.BriefRowState)
+	add("policy adherence", review.Rules.BriefRowState)
 	add("proposals", review.Proposals.BriefRowState)
 	add("overrides used", review.Overrides.BriefRowState)
 	add("capital events", review.CapitalEvents.BriefRowState)
 	add("reconcile", review.Reconcile.BriefRowState)
 	add("auto-extend", review.AutoExtend.BriefRowState)
-	add("one-tap sign-off", review.OneTap.BriefRowState)
 	add("working orders", review.WorkingOrders.BriefRowState)
 	add("regime", ready.Regime.BriefRowState)
 	add("breadth", ready.Breadth.BriefRowState)
@@ -534,9 +462,6 @@ func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 	// disclosure must not inherit that gap.
 	add("protection proposals", ready.Proposals.BriefRowState)
 	add("policy drift", ready.PolicyDrift.BriefRowState)
-	for _, artefact := range ready.Artefacts.Rows {
-		add("artefact "+artefact.Kind, artefact.BriefRowState)
-	}
 	return out
 }
 

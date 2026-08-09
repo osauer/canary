@@ -1,7 +1,7 @@
 import { enablePush, renderAlertMode, renderReconciliationCard, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
 import { renderAlerts, renderSelectedAlert, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
-import { renderBriefCard, setupBriefVisibility } from "./brief.js";
+import { renderBriefCard } from "./brief.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
 import { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
@@ -76,7 +76,6 @@ function installSmokeHooks() {
 async function main() {
   resetViewportScroll();
   setupBottomTabs();
-  setupBriefVisibility();
   setupAttentionVisibility();
   await navigator.serviceWorker?.register("/service-worker.js");
   const params = new URLSearchParams(location.search);

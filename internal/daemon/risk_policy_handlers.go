@@ -65,7 +65,6 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 	res.Capital = s.riskCapital.Report(mgr.policy, obs, scope)
 	res.Limits = risk.ConstitutionLimits(mgr.policy)
 	res.Overrides = s.riskCapital.ActiveOverridesForScope(scope)
-	res.Cadence = s.riskCapital.ArtefactsForScope(scope)
 	res.Inventory = s.riskPolicyInventory(mgr.policy)
 	res.InputHealth = health
 	return res, nil
@@ -437,23 +436,6 @@ func (s *Server) handleRiskPolicyCorrectPeak(_ context.Context, req *rpc.Request
 		OK: true, At: time.Now().UTC(),
 		Message: fmt.Sprintf("adjusted peak corrected %.2f → %.2f (%s) and journaled; the drawdown latch is untouched — clearing it stays a separate reset-drawdown decision", from, peak, source),
 	}, nil
-}
-
-func (s *Server) handleRiskPolicyArtefact(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
-	var p rpc.ArtefactParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {
-		return nil, err
-	}
-	mgr := s.riskPolicies.snapshot()
-	rec, err := s.riskCapital.RecordArtefactForScope(p, mgr.policy, s.currentBrokerStateScope())
-	if err != nil {
-		return nil, errBadRequest(err.Error())
-	}
-	return &rpc.RiskPolicyWriteResult{OK: true, At: rec.CompletedAt,
-		Message: fmt.Sprintf("recorded %s artefact completion", rec.Artefact)}, nil
 }
 
 // riskPolicyPreviewWarnings maps a warn/block capital tier to an advisory

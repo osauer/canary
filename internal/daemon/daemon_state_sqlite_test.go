@@ -50,14 +50,6 @@ func TestDaemonStateCutoverAndCoreBinding(t *testing.T) {
 		map[string]any{"version": 1, "at": now.Add(-3 * time.Hour), "kind": "capital_tier", "to": "warn"},
 		map[string]any{"version": 1, "at": now.Add(-time.Minute), "kind": "recon_dismiss", "line_id": "line-1", "reason": "confirmed"},
 	)
-	briefPath, _ := defaultTradingStatePath(briefStateFile)
-	writeJSONFixture(t, briefPath, briefStateFileV1{
-		Version: briefStateVersion,
-		Stamps: map[string]briefStampState{
-			"daily": {Fingerprint: "legacy-derived-baseline", At: now},
-		},
-	})
-
 	dbPath := filepath.Join(stateHome, "daemon.db")
 	core, err := corestore.Open(context.Background(), corestore.Options{Path: dbPath})
 	if err != nil {
@@ -95,9 +87,6 @@ func TestDaemonStateCutoverAndCoreBinding(t *testing.T) {
 		if err != nil || len(events) != 0 {
 			t.Fatalf("fresh decision stream %s = %d, err=%v", kind, len(events), err)
 		}
-	}
-	if _, ok := s.briefState.latestBaseline(); ok {
-		t.Fatal("legacy derived brief baseline crossed the clean-epoch boundary")
 	}
 
 	if err := s.platformSettings.update(func(next *platformSettingsData) error {
@@ -261,11 +250,6 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 			GrantedAt: base.Add(-time.Hour), ExpiresAt: base.Add(24 * time.Hour),
 			PolicyFingerprint: "policy-fingerprint", Active: true,
 		}},
-		Artefacts: []rpc.ArtefactRecord{{
-			Artefact: "monthly", Class: "governance", CompletedAt: base.Add(-time.Hour),
-			Note: "completed", Origin: rpc.OrderOriginHumanTTY, BriefFingerprint: "brief-fingerprint",
-			PolicyFingerprint: "policy-fingerprint", Evidence: "rendered-and-reviewed",
-		}},
 		StatementFlowsBase: 12500, StatementCoverageTo: base.Add(-24 * time.Hour),
 		StatementAuthorityActive:          true,
 		IncorporatedStatementLineIDs:      []string{"statement-line-1"},
@@ -282,10 +266,6 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 			KnownRows: []string{"row-1"}, CurrentRows: []string{"row-2"},
 		},
 		ConfirmedEvents: []nudgeConfirmedEventState{{ContentIdentity: "event-1", OccurredAt: base.Add(-time.Hour), Superseded: true}},
-		MonthlyCompletions: []nudgeMonthlyCompletion{{
-			Month: "2026-07", PolicyIdentity: "policy-v3", BriefIdentity: "brief-1",
-			CompletedAt: base.Add(-time.Hour), Evidence: "reviewed", AuthorityIdentity: "statement-1",
-		}},
 	}
 	stage := rulesRegimeStageState{
 		Version: rulesRegimeStageStateVer, Bucket: bucketRegimeStage(rpc.LifecycleConfirmedStress),
@@ -328,11 +308,6 @@ func TestDaemonStateCutoverPreservesEverySafetyField(t *testing.T) {
 	})
 	assertStateDocumentEquals(t, core, stateKindNudges, nudges)
 	assertStateDocumentEquals(t, core, stateKindRulesRegimeStage, stage)
-	brief := briefStateFileV1{}
-	loadStateDocument(t, core, stateKindBrief, &brief)
-	if brief.Version != briefStateVersion || len(brief.Stamps) != 0 {
-		t.Fatalf("clean brief state = %+v", brief)
-	}
 }
 
 func assertStateDocumentEquals(t *testing.T, core *corestore.Store, kind string, want any) {

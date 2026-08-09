@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -22,13 +21,12 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 			SessionPnL:    rpc.BriefAccountRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "account down"}},
 			LastSession:   rpc.BriefLastSessionRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "not captured for 2026-07-17"}, SessionDate: "2026-07-17"},
 			Attribution:   rpc.BriefMoversRow{BriefRowState: rpc.BriefRowState{Status: "unavailable", Detail: "positions down"}},
-			RulesDelta:    rpc.BriefRulesDeltaRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "no delta baseline yet"}},
+			Rules:         rpc.BriefRulesRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "current policy has unknown checks"}, Pass: 8, Unknown: 2},
 			Proposals:     rpc.BriefProposalsRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "no proposals"}, Offered: 2, Acted: 1},
 			Overrides:     rpc.BriefOverridesRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "none"}},
 			CapitalEvents: rpc.BriefCapitalEventsRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "no capital events"}},
 			Reconcile:     rpc.BriefReconcileRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "never"}},
 			AutoExtend:    rpc.BriefAutoExtendRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "none"}},
-			OneTap:        rpc.BriefOneTapRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "blocked"}},
 			WorkingOrders: rpc.BriefCountRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "journal"}},
 		},
 		Ready: rpc.BriefReadySection{
@@ -42,12 +40,11 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 			PremiumAtRisk: rpc.BriefMoneyCoverageRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "nil values excluded"}},
 			HedgeCost:     rpc.BriefMoneyCoverageRow{BriefRowState: rpc.BriefRowState{Status: "degraded", Detail: "nil greeks excluded"}},
 			PolicyDrift:   rpc.BriefPolicyDriftRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "match"}},
-			Artefacts:     rpc.BriefArtefactsRow{BriefRowState: rpc.BriefRowState{Status: "ok", Detail: "declared"}},
 		},
 	}
 	renderBrief(env, res)
 	got := stdout.String()
-	for _, want := range []string{"Review  (since the last close)", "Ready  (today)", "session P&L", "by underlying", "proposals", "capital events", "gateway unavailable", "nil greeks excluded", "no delta baseline yet", "attention", "tier block · enforcement shadow", "2 offered · 1 acted", "last session close", "2026-07-17 · not captured"} {
+	for _, want := range []string{"Review  (since the last close)", "Ready  (today)", "session P&L", "by underlying", "proposals", "capital events", "policy adherence", "gateway unavailable", "nil greeks excluded", "current policy has unknown checks", "attention", "tier block · enforcement shadow", "2 offered · 1 acted", "last session close", "2026-07-17 · not captured"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("brief render missing %q:\n%s", want, got)
 		}
@@ -64,146 +61,18 @@ func TestRenderBriefTwoMovementsAndDegradation(t *testing.T) {
 	}
 }
 
-func TestBriefHumanOriginClassification(t *testing.T) {
-	if !briefHumanOrigin(rpc.OrderOriginHumanTTY) || !briefHumanOrigin(rpc.OrderOriginPairedDevice) {
-		t.Fatal("human origins must be stamp-capable")
-	}
-	for _, origin := range []string{"", rpc.OrderOriginAgent, "unknown"} {
-		if briefHumanOrigin(origin) {
-			t.Fatalf("origin %q unexpectedly stamp-capable", origin)
-		}
-	}
-}
-
-func TestRunBriefTextHumanStampsRenderedFingerprint(t *testing.T) {
-	snapshot := rpc.BriefResult{
-		AsOf:             time.Date(2026, 7, 18, 8, 0, 0, 0, time.Local),
-		BriefFingerprint: "sha256:rendered", StampTarget: rpc.BriefKindMorning,
-	}
-	conn := &briefFakeConn{snapshot: snapshot}
-	var stdout, stderr bytes.Buffer
-	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn, Origin: rpc.OrderOriginHumanTTY}
-	if code := runBrief(context.Background(), env, nil); code != 0 {
-		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
-	}
-	got := conn.calls[0]
-	if got.method != rpc.MethodBriefSnapshot {
-		t.Fatalf("first method=%q", got.method)
-	}
-	got = conn.calls[1]
-	if got.method != rpc.MethodBriefAck || got.ack.Kind != rpc.BriefKindMorning ||
-		got.ack.BriefFingerprint != snapshot.BriefFingerprint || got.ack.Origin != rpc.OrderOriginHumanTTY {
-		t.Fatalf("ack call=%+v", got)
-	}
-	if !strings.Contains(stdout.String(), "stamp: morning artefact for 2026-07-18") {
-		t.Fatalf("missing stamp receipt:\n%s", stdout.String())
-	}
-}
-
-func TestRunBriefJSONAndAgentTextNeverStamp(t *testing.T) {
-	snapshot := rpc.BriefResult{
-		AsOf:             time.Date(2026, 7, 18, 8, 0, 0, 0, time.Local),
-		BriefFingerprint: "sha256:rendered", StampTarget: rpc.BriefKindMorning,
-	}
-	for _, tc := range []struct {
-		name   string
-		args   []string
-		origin string
-		want   string
-	}{
-		{name: "json", args: []string{"--json"}, origin: rpc.OrderOriginHumanTTY, want: `"brief_fingerprint": "sha256:rendered"`},
-		{name: "agent text", origin: rpc.OrderOriginAgent, want: "agent-origin render — not stamped"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			conn := &briefFakeConn{snapshot: snapshot}
-			var stdout, stderr bytes.Buffer
-			env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn, Origin: tc.origin}
-			if code := runBrief(context.Background(), env, tc.args); code != 0 {
-				t.Fatalf("exit=%d stderr=%s", code, stderr.String())
-			}
-			if len(conn.calls) != 1 || conn.calls[0].method != rpc.MethodBriefSnapshot {
-				t.Fatalf("calls=%+v", conn.calls)
-			}
-			if !strings.Contains(stdout.String(), tc.want) {
-				t.Fatalf("stdout missing %q:\n%s", tc.want, stdout.String())
-			}
-		})
-	}
-}
-
-func TestRunBriefMonthlyTargetNeverAcknowledgesFromCLI(t *testing.T) {
-	snapshot := rpc.BriefResult{
-		AsOf:             time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
-		BriefFingerprint: "sha256:monthly", StampTarget: rpc.BriefKindMonthly,
-		Ready: rpc.BriefReadySection{MonthlyPulse: &rpc.BriefMonthlyPulseRow{
-			Status: rpc.BriefMonthlyPulseDue, Month: "2026-08",
-		}},
-	}
-	for _, origin := range []string{rpc.OrderOriginHumanTTY, rpc.OrderOriginAgent, rpc.OrderOriginPairedDevice} {
-		conn := &briefFakeConn{snapshot: snapshot}
-		var stdout, stderr bytes.Buffer
-		env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn, Origin: origin}
-		if code := runBrief(context.Background(), env, nil); code != 0 {
-			t.Fatalf("origin=%s exit=%d stderr=%s", origin, code, stderr.String())
-		}
-		if len(conn.calls) != 1 || conn.calls[0].method != rpc.MethodBriefSnapshot {
-			t.Fatalf("origin=%s calls=%+v, CLI must never complete monthly", origin, conn.calls)
-		}
-		want := "paired-device origin required"
-		if origin == rpc.OrderOriginAgent {
-			want = "agent-origin render — not stamped"
-		}
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("origin=%s missing %q:\n%s", origin, want, stdout.String())
-		}
-	}
-}
-
-func TestRunBriefAckFailureIsLoudAndAdvisory(t *testing.T) {
-	conn := &briefFakeConn{
-		snapshot: rpc.BriefResult{
-			AsOf:             time.Date(2026, 7, 18, 8, 0, 0, 0, time.Local),
-			BriefFingerprint: "sha256:rendered", StampTarget: rpc.BriefKindMorning,
-		},
-		ackErr: errors.New("journal unavailable"),
-	}
-	var stdout, stderr bytes.Buffer
-	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn, Origin: rpc.OrderOriginHumanTTY}
-	if code := runBrief(context.Background(), env, nil); code != 0 {
-		t.Fatalf("ack failure exit=%d, want advisory success", code)
-	}
-	if !strings.Contains(stderr.String(), "brief rendered but stamp failed: journal unavailable") {
-		t.Fatalf("stamp failure not reported loudly: %s", stderr.String())
-	}
-}
-
 type briefCLICall struct {
 	method string
-	ack    rpc.BriefAckParams
 }
 
 type briefFakeConn struct {
 	snapshot rpc.BriefResult
 	calls    []briefCLICall
-	ackErr   error
 }
 
-func (c *briefFakeConn) Call(_ context.Context, method string, params, out any) error {
-	call := briefCLICall{method: method}
-	var result any = c.snapshot
-	if method == rpc.MethodBriefAck {
-		raw, _ := json.Marshal(params)
-		_ = json.Unmarshal(raw, &call.ack)
-		c.calls = append(c.calls, call)
-		if c.ackErr != nil {
-			return c.ackErr
-		}
-		result = rpc.BriefAckResult{OK: true, Kind: call.ack.Kind, Day: "2026-07-18"}
-	}
-	if method != rpc.MethodBriefAck {
-		c.calls = append(c.calls, call)
-	}
-	raw, _ := json.Marshal(result)
+func (c *briefFakeConn) Call(_ context.Context, method string, _ any, out any) error {
+	c.calls = append(c.calls, briefCLICall{method: method})
+	raw, _ := json.Marshal(c.snapshot)
 	return json.Unmarshal(raw, out)
 }
 
@@ -217,7 +86,7 @@ func (*briefFakeConn) Stream(context.Context, string, any, func(json.RawMessage)
 // The fixtures below copy sentences from that composer's own table cases
 // (internal/daemon/brief_narrative_test.go) so the CLI can pin only what the
 // CLI owns: the projection of typed runs onto a terminal — wrapping, tints,
-// the sign-off line, the degraded footer, and the fallback boundary. A
+// the degraded footer, and the fallback boundary. A
 // composer copy edit may make a golden read oddly; it can never make the
 // projection wrong, and TestRenderBriefNarrativeIsPureProjection is the
 // assertion that survives such an edit.
@@ -234,8 +103,7 @@ func briefAct(text string) rpc.BriefRun { return rpc.BriefRun{Text: text, Role: 
 func briefPara(runs ...rpc.BriefRun) rpc.BriefParagraph { return rpc.BriefParagraph{Runs: runs} }
 
 // briefNarrativeCase is one payload state: the composed prose plus the rows it
-// was composed from, because the sign-off line and the degraded footer read
-// the rows, not the prose.
+// was composed from, because the degraded footer reads the rows, not the prose.
 type briefNarrativeCase struct {
 	name string
 	res  rpc.BriefResult
@@ -532,7 +400,7 @@ func TestRenderBriefNarrativeTints(t *testing.T) {
 					}
 				}
 			}
-			// Headers, the sign-off line and the disclosure footer are the
+			// Headers and the disclosure footer are the
 			// CLI's own chrome and carry no tint at all.
 			output := renderBriefNarrativeCase(tc, true, 80)
 			for line := range strings.SplitSeq(strings.TrimSuffix(output, "\n"), "\n") {
@@ -549,7 +417,6 @@ func TestRenderBriefNarrativeTints(t *testing.T) {
 func TestRenderBriefNarrativeChromeIsNeverTinted(t *testing.T) {
 	t.Parallel()
 	tc := briefDegradedCase()
-	tc.res.Review.OneTap.Signable = true
 	output := renderBriefNarrativeCase(tc, true, 80)
 	prose, footer, split := strings.Cut(output, "\nDegraded inputs\n")
 	if !split {
@@ -559,8 +426,7 @@ func TestRenderBriefNarrativeChromeIsNeverTinted(t *testing.T) {
 		t.Errorf("the disclosure footer carries an escape:\n%s", footer)
 	}
 	for line := range strings.SplitSeq(prose, "\n") {
-		chrome := strings.HasPrefix(line, "Review  (") || strings.HasPrefix(line, "Ready  (") ||
-			strings.HasPrefix(line, briefProseIndent+"one-tap sign-off:")
+		chrome := strings.HasPrefix(line, "Review  (") || strings.HasPrefix(line, "Ready  (")
 		if chrome && strings.Contains(line, "\x1b") {
 			t.Errorf("chrome line carries an escape: %q", line)
 		}
@@ -572,11 +438,7 @@ func TestRenderBriefNarrativeChromeIsNeverTinted(t *testing.T) {
 // is ever split.
 func TestRenderBriefNarrativeWrapsToWidth(t *testing.T) {
 	t.Parallel()
-	// The sign-off line is the longest fixed string the render carries, so a
-	// signable state joins the table: it must wrap like everything else.
-	signable := briefQuietCase()
-	signable.name, signable.res.Review.OneTap.Signable = "quiet-signable", true
-	for _, tc := range append(briefNarrativeCases(), signable) {
+	for _, tc := range briefNarrativeCases() {
 		for _, width := range []int{60, 80, 100} {
 			for _, color := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%d/color=%t", tc.name, width, color), func(t *testing.T) {
@@ -754,23 +616,6 @@ func TestRenderBriefNarrativeDisclosesDegradedRows(t *testing.T) {
 // TestRenderBriefNarrativeSignoffLine keeps the one line the prose would
 // otherwise drop: the row view is the only place the CLI names the sign-off
 // command, and it renders in the row view's own words.
-func TestRenderBriefNarrativeSignoffLine(t *testing.T) {
-	t.Parallel()
-	want := "  one-tap sign-off: " + briefOneTapSignable
-	tc := briefQuietCase()
-	if got := renderBriefNarrativeCase(tc, false, 80); strings.Contains(got, "one-tap sign-off") {
-		t.Fatalf("an unsignable report offers no sign-off line:\n%s", got)
-	}
-	tc.res.Review.OneTap.Signable = true
-	got := renderBriefNarrativeCase(tc, false, 80)
-	if strings.Count(got, want+"\n") != 1 {
-		t.Fatalf("the sign-off line must render exactly once, verbatim:\n%s", got)
-	}
-	review, ready, _ := strings.Cut(got, "\nReady  (today)\n")
-	if !strings.Contains(review, want) || strings.Contains(ready, want) {
-		t.Fatalf("the sign-off line belongs to Review:\n%s", got)
-	}
-}
 
 // TestRenderBriefNarrativeSanitizesControlCharacters is escape-injection
 // hardening. The daemon composes run text from broker-sourced symbols and
@@ -848,7 +693,7 @@ func TestRunBriefJSONCarriesNarrativeUnchanged(t *testing.T) {
 		t.Fatalf("run roles must survive --json:\n%s", stdout.String())
 	}
 	if len(conn.calls) != 1 || conn.calls[0].method != rpc.MethodBriefSnapshot {
-		t.Fatalf("--json must never stamp: calls=%+v", conn.calls)
+		t.Fatalf("--json must remain a pure brief read: calls=%+v", conn.calls)
 	}
 }
 
@@ -858,139 +703,6 @@ func TestRunBriefJSONCarriesNarrativeUnchanged(t *testing.T) {
 // the disclosure footer. Plain text only — with Color off the render is the
 // composer's sentences and nothing else, which is what makes a golden
 // readable. Width is explicit, so a wide terminal cannot reflow these.
-func TestRenderBriefNarrativeGoldens(t *testing.T) {
-	t.Parallel()
-	signable := briefQuietCase()
-	signable.name = "quiet-signable"
-	signable.res.Review.OneTap.Signable = true
-	cases := append(briefNarrativeCases(), signable)
-	goldens := map[string]string{
-		"quiet": `
-  Stress reads stand down at observe severity. Regime stage quiet, verdict
-  Normal regime. Nothing across Review and Ready needs a decision.
-
-Review  (since the last close)
-  Daily P/L stands at EUR +2,340 on equity of EUR 1,250,000. By name in EUR:
-  AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at -120.00.
-
-Ready  (today)
-  Breadth has 62.0% above the 50-DMA and 58.0% above the 200-DMA, net new highs
-  +1.4%.
-
-  Process folds clean: policy pins match, cadence artefacts are declared with 1
-  of 2 complete, the monthly pulse is not due, and no held-name events.
-
-  Nothing owed before the bell.
-`,
-		"watch": `
-  Stress reads reduce risk at watch severity. 3 rows need a decision: overrides,
-  held-name earnings, protection proposals.
-
-Review  (since the last close)
-  1 active override widens policy controls: hedge_coverage. No rule transitions.
-
-Ready  (today)
-  2 held names carry earnings context: AAPL, NVDA. The remaining held-name event
-  source is clean.
-
-  2 protection proposals are ready to act, with 1 more blocked.
-
-  Owed before the bell: overrides, held-name earnings, protection proposals.
-  Everything else holds.
-`,
-		"act": `
-  Stress reads de-risk at act severity. 4 rows need a decision: rules delta,
-  capital events, capital, drawdown latch. Regime stage quiet, verdict Normal
-  regime.
-
-Review  (since the last close)
-  1 rule worsened to act since the last stamped brief: hedge coverage.
-
-  The drawdown latch engaged this episode and remains open until a human reset.
-  It engaged at 30.4% consumed.
-
-Ready  (today)
-  Capital sits in the block tier under shadow enforcement with 118.0% of the
-  drawdown budget consumed. The drawdown latch is engaged, 2 days old, and
-  remains so until a human reset.
-
-  No protection proposals are staged.
-
-  Owed before the bell: rules delta, capital events, capital, drawdown latch.
-  Everything else holds.
-`,
-		"degraded": `
-  The regime read is unavailable. Nothing across Review and Ready needs a
-  decision. 12 inputs could not be read and are named below: session P/L,
-  attribution, proposals, working orders, regime, breadth, dealer gamma,
-  held-name events, capital, premium at risk, hedge cost, protection proposals.
-
-Review  (since the last close)
-  Account P/L is unavailable, so the session cannot be summarized. Per-name
-  attribution is unavailable.
-
-  The proposal outcome journal is unavailable. The open-orders journal is
-  unavailable.
-
-Ready  (today)
-  Breadth is unavailable, so participation cannot be stated. Dealer gamma is
-  degraded, so the spot-to-zero-gamma relationship cannot be stated.
-
-  The risk constitution is absent, so capital controls are unapproved and the
-  drawdown budget cannot be stated. Premium at risk is unavailable. Hedge cost
-  is unavailable.
-
-  Nothing on the desk needs a decision, but 12 inputs could not be read: unknown
-  is not clean.
-
-Degraded inputs
-  session P&L: account summary unavailable: broker down
-  by underlying: positions unavailable
-  proposals: proposal outcome journal is unavailable
-  working orders: open-orders journal unavailable
-  regime: regime snapshot unavailable
-  breadth: breadth snapshot unavailable
-  dealer gamma: dealer gamma source is stale
-  capital: risk constitution absent
-  premium at risk: positions unavailable
-  hedge cost / day: positions unavailable
-  protection proposals: protection proposal snapshot is unavailable
-`,
-		"quiet-signable": `
-  Stress reads stand down at observe severity. Regime stage quiet, verdict
-  Normal regime. Nothing across Review and Ready needs a decision.
-
-Review  (since the last close)
-  Daily P/L stands at EUR +2,340 on equity of EUR 1,250,000. By name in EUR:
-  AAPL +900.00, NVDA +800.40, SPY +639.60, and 2 other names at -120.00.
-
-  one-tap sign-off: signable · canary policy capital-event reconcile
-
-Ready  (today)
-  Breadth has 62.0% above the 50-DMA and 58.0% above the 200-DMA, net new highs
-  +1.4%.
-
-  Process folds clean: policy pins match, cadence artefacts are declared with 1
-  of 2 complete, the monthly pulse is not due, and no held-name events.
-
-  Nothing owed before the bell.
-`,
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := renderBriefNarrativeCase(tc, false, 80)
-			if got != goldens[tc.name] {
-				t.Fatalf("render drifted\n got:\n%s\nwant:\n%s", got, goldens[tc.name])
-			}
-			for line := range strings.SplitSeq(got, "\n") {
-				if line != strings.TrimRight(line, " \t") {
-					t.Errorf("line carries trailing whitespace: %q", line)
-				}
-			}
-		})
-	}
-}
 
 func TestBriefLastSessionValueRendersCaptureAndAbsence(t *testing.T) {
 	capturedAt := time.Date(2026, 7, 31, 20, 0, 9, 0, time.UTC)

@@ -65,7 +65,6 @@ func initializeFreshDaemonState(ctx context.Context, core *corestore.Store) erro
 			State:   riskCapitalStateFileV1{Version: riskCapitalStateVer},
 		}},
 		{stateKindNudges, nudgeStateFileV1{Version: governanceNudgeStateVersion}},
-		{stateKindBrief, briefStateFileV1{Version: briefStateVersion, Stamps: map[string]briefStampState{}}},
 		{stateKindRulesRegimeStage, rulesRegimeStageState{Version: rulesRegimeStageStateVer}},
 	}
 	present := 0
@@ -134,12 +133,6 @@ func prepareDaemonStateCutover(ctx context.Context, core *corestore.Store) (daem
 		return report, err
 	} else {
 		report.NudgesImported = imported
-	}
-	if _, err := writeInitialState(ctx, core, stateKindBrief, briefStateFileV1{
-		Version: briefStateVersion,
-		Stamps:  map[string]briefStampState{},
-	}); err != nil {
-		return report, fmt.Errorf("initialize clean brief baselines: %w", err)
 	}
 	if imported, err := importRulesStageState(ctx, core, &report.Sources); err != nil {
 		return report, err

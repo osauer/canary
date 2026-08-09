@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func validRiskPolicyV4TOML() string {
@@ -68,15 +66,6 @@ func primeNudgeBlockEpisode(s *Server, now time.Time, consumedKnown bool) {
 	s.riskCapital.state.BlockLatched = true
 	s.riskCapital.state.LatchedAt = now.Add(-2 * time.Hour)
 	s.riskCapital.state.LatchEpisodeSeq = 1
-}
-
-func candidateKindPresent(candidates []rpc.NudgeCandidate, kind string) bool {
-	for _, candidate := range candidates {
-		if candidate.Kind == kind {
-			return true
-		}
-	}
-	return false
 }
 
 func cloneNudgeStateForTest(t *testing.T, state nudgeStateFileV1) nudgeStateFileV1 {

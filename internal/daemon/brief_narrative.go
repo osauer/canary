@@ -152,14 +152,7 @@ func briefStressRole(severity string) string {
 	}
 }
 
-func briefRulesDeltaActClass(row rpc.BriefRulesDeltaRow) bool {
-	for _, transition := range row.Transitions {
-		if transition.To == risk.RuleStatusAct {
-			return true
-		}
-	}
-	return false
-}
+func briefRulesActClass(row rpc.BriefRulesRow) bool { return row.Act > 0 }
 
 // composeBriefNarrative is the entry point: a pure projection of the composed
 // movements onto prose. Nil in, nil out.
@@ -184,13 +177,12 @@ func briefTopics(res *rpc.BriefResult) []briefTopic {
 	topics := []briefTopic{
 		{label: "session P/L", state: review.SessionPnL.BriefRowState, role: briefRole(review.SessionPnL.BriefRowState, false)},
 		{label: "attribution", state: review.Attribution.BriefRowState, role: briefRole(review.Attribution.BriefRowState, false)},
-		{label: "rules delta", state: review.RulesDelta.BriefRowState, role: briefRole(review.RulesDelta.BriefRowState, briefRulesDeltaActClass(review.RulesDelta))},
+		{label: "policy adherence", state: review.Rules.BriefRowState, role: briefRole(review.Rules.BriefRowState, briefRulesActClass(review.Rules))},
 		{label: "proposals", state: review.Proposals.BriefRowState, role: briefRole(review.Proposals.BriefRowState, false)},
 		{label: "overrides", state: review.Overrides.BriefRowState, role: briefRole(review.Overrides.BriefRowState, false)},
 		{label: "capital events", state: review.CapitalEvents.BriefRowState, role: briefRole(review.CapitalEvents.BriefRowState, review.CapitalEvents.Latched)},
 		{label: "reconcile", state: review.Reconcile.BriefRowState, role: briefRole(review.Reconcile.BriefRowState, false)},
 		{label: "auto-extend", state: review.AutoExtend.BriefRowState, role: briefRole(review.AutoExtend.BriefRowState, false)},
-		{label: "sign-off", state: review.OneTap.BriefRowState, role: briefRole(review.OneTap.BriefRowState, false)},
 		{label: "working orders", state: review.WorkingOrders.BriefRowState, role: briefRole(review.WorkingOrders.BriefRowState, false)},
 		{label: "regime", state: ready.Regime.BriefRowState, role: briefRole(ready.Regime.BriefRowState, false)},
 		{label: "breadth", state: ready.Breadth.BriefRowState, role: briefRole(ready.Breadth.BriefRowState, false)},
@@ -217,7 +209,6 @@ func briefTopics(res *rpc.BriefResult) []briefTopic {
 		briefTopic{label: "hedge cost", state: ready.HedgeCost.BriefRowState, role: briefRole(ready.HedgeCost.BriefRowState, false)},
 		briefTopic{label: "protection proposals", state: ready.Proposals.BriefRowState, role: briefRole(ready.Proposals.BriefRowState, false)},
 		briefTopic{label: "policy drift", state: ready.PolicyDrift.BriefRowState, role: briefRole(ready.PolicyDrift.BriefRowState, false)},
-		briefTopic{label: "artefacts", state: ready.Artefacts.BriefRowState, role: briefRole(ready.Artefacts.BriefRowState, false)},
 	)
 	if ready.MonthlyPulse != nil {
 		state := briefMonthlyPulseRollupState(ready.MonthlyPulse.Status)
@@ -456,18 +447,18 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 }
 
 // briefReviewDeskEvents narrates what the desk did to itself last session:
-// proposals, overrides, rule transitions, capital events. Clean, the four fold
+// proposals, overrides, current policy adherence, and capital events. Clean, the four fold
 // into one clause; flagged, each grows its own sentence.
 func briefReviewDeskEvents(p *briefProse, review rpc.BriefReviewSection) {
 	proposals, overrides := review.Proposals, review.Overrides
-	rulesDelta, events := review.RulesDelta, review.CapitalEvents
+	rules, events := review.Rules, review.CapitalEvents
 	clean := proposals.Status == rpc.BriefStatusOK && overrides.Status == rpc.BriefStatusOK &&
-		rulesDelta.Status == rpc.BriefStatusOK && events.Status == rpc.BriefStatusOK &&
+		rules.Status == rpc.BriefStatusOK && events.Status == rpc.BriefStatusOK &&
 		len(overrides.Rows) == 0 && !events.Latched
 
 	if clean {
 		p.sentence()
-		p.text(briefUpperFirst(briefProposalsClause(proposals)) + ", with no overrides, no rule transitions, and no capital events.")
+		p.text(briefUpperFirst(briefProposalsClause(proposals)) + ", with no overrides, all current policy checks passing, and no capital events.")
 		p.sentence()
 		briefAdjustedPeakSentence(p, events)
 		return
@@ -493,7 +484,7 @@ func briefReviewDeskEvents(p *briefProse, review rpc.BriefReviewSection) {
 	}
 
 	p.sentence()
-	briefRulesDeltaSentence(p, rulesDelta)
+	briefRulesSentence(p, rules)
 
 	p.sentence()
 	switch {
@@ -520,45 +511,16 @@ func briefAdjustedPeakSentence(p *briefProse, events rpc.BriefCapitalEventsRow) 
 	p.text(".")
 }
 
-func briefRulesDeltaSentence(p *briefProse, row rpc.BriefRulesDeltaRow) {
+func briefRulesSentence(p *briefProse, row rpc.BriefRulesRow) {
 	switch {
 	case row.Status == rpc.BriefStatusUnavailable:
-		p.text("The rulebook delta is unavailable.")
+		p.text("Current policy adherence is unavailable.")
 	case row.Status == rpc.BriefStatusAttention:
-		worsened := make([]string, 0, len(row.Transitions))
-		for _, transition := range row.Transitions {
-			if transition.To == risk.RuleStatusAct {
-				worsened = append(worsened, briefRuleWords(transition.RuleID))
-			}
-		}
-		if len(worsened) == 0 {
-			p.tinted(rpc.BriefRunRoleAct, "The rulebook delta needs attention since the last stamped brief.")
-			return
-		}
-		p.tinted(rpc.BriefRunRoleAct, briefUpperFirst(briefCountPhrase(len(worsened), "rule", "rules"))+" worsened to act since the last stamped brief: "+strings.Join(worsened, ", ")+".")
-	case row.BaselineAt.IsZero():
-		p.text("There is no rulebook delta baseline yet, so rule changes since the last stamped brief cannot be verified.")
+		p.tinted(rpc.BriefRunRoleAct, briefUpperFirst(briefCountPhrase(row.Act, "current policy check", "current policy checks"))+" require action.")
 	case row.Status == rpc.BriefStatusDegraded:
-		parts := make([]string, 0, 4)
-		if len(row.Transitions) > 0 {
-			parts = append(parts, briefCountPhrase(len(row.Transitions), "status change", "status changes"))
-		}
-		if len(row.Added) > 0 {
-			parts = append(parts, briefCountPhrase(len(row.Added), "rule added", "rules added"))
-		}
-		if len(row.Removed) > 0 {
-			parts = append(parts, briefCountPhrase(len(row.Removed), "rule removed", "rules removed"))
-		}
-		if row.RulebookFingerprintChanged {
-			parts = append(parts, "a changed rulebook fingerprint")
-		}
-		if len(parts) == 0 {
-			p.text("The rulebook delta is degraded.")
-			return
-		}
-		p.text("The rulebook changed since the last stamped brief: " + briefJoinClauses(parts) + ".")
+		p.text("Current policy adherence has " + briefCountPhrase(row.Watch, "watch", "watches") + " and " + briefCountPhrase(row.Unknown, "unknown", "unknowns") + ".")
 	default:
-		p.text("No rule transitions.")
+		p.text("All current policy checks pass.")
 	}
 }
 
@@ -566,15 +528,14 @@ func briefRulesDeltaSentence(p *briefProse, row rpc.BriefRulesDeltaRow) {
 // on the running paragraph; flagged, it opens its own.
 func briefReviewAdmin(p *briefProse, review rpc.BriefReviewSection) {
 	reconcile, autoExtend := review.Reconcile, review.AutoExtend
-	oneTap, orders := review.OneTap, review.WorkingOrders
+	orders := review.WorkingOrders
 	clean := reconcile.Status == rpc.BriefStatusOK && autoExtend.Status == rpc.BriefStatusOK &&
-		oneTap.Status == rpc.BriefStatusOK && orders.Status == rpc.BriefStatusOK && orders.Count != nil
+		orders.Status == rpc.BriefStatusOK && orders.Count != nil
 
 	if clean {
 		clauses := []string{
 			briefReconcileCleanClause(reconcile),
 			briefAutoExtendCleanClause(autoExtend),
-			briefSignoffCleanClause(oneTap),
 			briefWorkingOrdersClause(orders),
 		}
 		p.sentence()
@@ -592,17 +553,6 @@ func briefReviewAdmin(p *briefProse, review rpc.BriefReviewSection) {
 		p.text("The latest clean report extended the reconcile horizon automatically.")
 	default:
 		p.text("Auto-extend needs nothing.")
-	}
-	p.sentence()
-	switch {
-	case oneTap.Status == rpc.BriefStatusUnavailable:
-		p.text("Sign-off availability is unavailable.")
-	case len(oneTap.Blockers) > 0:
-		p.text("The current reconcile report is not signable: " + strings.Join(oneTap.Blockers, "; ") + ".")
-	case oneTap.Signable:
-		p.text("One reconcile report is ready to sign off.")
-	default:
-		p.text("Nothing waits for sign-off.")
 	}
 	p.sentence()
 	if orders.Count == nil {
@@ -639,13 +589,6 @@ func briefAutoExtendCleanClause(row rpc.BriefAutoExtendRow) string {
 		return "the latest clean report extended automatically"
 	}
 	return "auto-extend needs nothing"
-}
-
-func briefSignoffCleanClause(row rpc.BriefOneTapRow) string {
-	if row.Signable {
-		return "one reconcile report is ready to sign off"
-	}
-	return "nothing waits for sign-off"
 }
 
 func briefWorkingOrdersClause(row rpc.BriefCountRow) string {
@@ -892,10 +835,10 @@ func briefReadyProposalsSentence(p *briefProse, row rpc.BriefReadyProposalsRow) 
 	}
 }
 
-// briefReadyProcess narrates pins, cadence, the monthly pulse and held-name
-// events. Clean, all four fold into one clause on the book paragraph.
+// briefReadyProcess narrates pins, the monthly pulse and held-name events.
+// Clean, they fold into one clause on the book paragraph.
 func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
-	drift, artefacts := ready.PolicyDrift, ready.Artefacts
+	drift := ready.PolicyDrift
 	events := ready.MarketEvents
 	eventsClean := len(events) > 0
 	for _, event := range events {
@@ -907,10 +850,10 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 	monthlyClean := ready.MonthlyPulse == nil ||
 		ready.MonthlyPulse.Status == rpc.BriefMonthlyPulseNotDue ||
 		ready.MonthlyPulse.Status == rpc.BriefMonthlyPulseCompleted
-	clean := drift.Status == rpc.BriefStatusOK && artefacts.Status == rpc.BriefStatusOK && eventsClean && monthlyClean
+	clean := drift.Status == rpc.BriefStatusOK && eventsClean && monthlyClean
 
 	if clean {
-		clauses := []string{"policy pins match", briefArtefactsCleanClause(artefacts)}
+		clauses := []string{"policy pins match"}
 		if ready.MonthlyPulse != nil {
 			clauses = append(clauses, briefMonthlyPulseClause(*ready.MonthlyPulse))
 		}
@@ -935,9 +878,6 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 		p.text("Policy pins match.")
 	}
 
-	p.sentence()
-	briefArtefactsSentence(p, artefacts)
-
 	if ready.MonthlyPulse != nil {
 		p.sentence()
 		p.text(briefUpperFirst(briefMonthlyPulseClause(*ready.MonthlyPulse)) + ".")
@@ -945,34 +885,6 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 
 	p.sentence()
 	briefMarketEventsSentences(p, events)
-}
-
-func briefArtefactsCleanClause(row rpc.BriefArtefactsRow) string {
-	completed := 0
-	for _, artefact := range row.Rows {
-		if artefact.Completed {
-			completed++
-		}
-	}
-	return "cadence artefacts are declared with " + strconv.Itoa(completed) + " of " + strconv.Itoa(len(row.Rows)) + " complete"
-}
-
-func briefArtefactsSentence(p *briefProse, row rpc.BriefArtefactsRow) {
-	if row.Status == rpc.BriefStatusUnavailable {
-		p.text("Cadence artefacts are unapproved or undeclared.")
-		return
-	}
-	undeclared := make([]string, 0, len(row.Rows))
-	for _, artefact := range row.Rows {
-		if !artefact.Declared {
-			undeclared = append(undeclared, artefact.Kind)
-		}
-	}
-	if len(undeclared) > 0 {
-		p.text("The " + strings.Join(undeclared, " and ") + " " + briefVerb(len(undeclared), "artefact is", "artefacts are") + " not declared.")
-		return
-	}
-	p.text(briefUpperFirst(briefArtefactsCleanClause(row)) + ".")
 }
 
 // briefMonthlyPulseClause narrates a SERVED pulse row. A policy version that
@@ -983,11 +895,6 @@ func briefMonthlyPulseClause(row rpc.BriefMonthlyPulseRow) string {
 	switch row.Status {
 	case rpc.BriefMonthlyPulseNotDue:
 		return "the monthly pulse is not due"
-	case rpc.BriefMonthlyPulseDue:
-		if month == "" {
-			return "the monthly pulse is due"
-		}
-		return "the monthly pulse is due for " + month
 	case rpc.BriefMonthlyPulseCompleted:
 		if month == "" {
 			return "the monthly pulse is complete"
@@ -1085,10 +992,6 @@ func briefEventKindLabel(kind string) string {
 		return "market event"
 	}
 	return kind
-}
-
-func briefRuleWords(id string) string {
-	return strings.ReplaceAll(strings.TrimSpace(id), "_", " ")
 }
 
 // briefCountPhrase prints "1 day" / "3 days" - the count always leads, so a

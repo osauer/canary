@@ -524,22 +524,4 @@ func TestRiskCapitalReplayReconcileCompatibilityAndProvenance(t *testing.T) {
 	}
 }
 
-func TestRiskCapitalArtefacts(t *testing.T) {
-	st := newTestRiskCapitalStore(t)
-	c := testConstitution() // declares morning only
-
-	if _, err := st.RecordArtefact(rpc.ArtefactParams{Artefact: "weekly"}, c); err == nil ||
-		!strings.Contains(err.Error(), "not declared") {
-		t.Fatalf("undeclared artefact: err = %v, want rejection", err)
-	}
-	rec, err := st.RecordArtefact(rpc.ArtefactParams{Artefact: "morning", Note: "checked ladder"}, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rec.Class != risk.EnforcementAdvisory {
-		t.Fatalf("class = %s, want advisory", rec.Class)
-	}
-	if got := st.Artefacts(); len(got) != 1 || got[0].Artefact != "morning" {
-		t.Fatalf("artefacts = %+v", got)
-	}
-}
+// declares morning only

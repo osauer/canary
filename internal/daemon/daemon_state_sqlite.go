@@ -15,7 +15,6 @@ const (
 	stateKindPlatformSettings = "platform_settings"
 	stateKindRiskCapital      = "risk_capital"
 	stateKindNudges           = "governance_nudges"
-	stateKindBrief            = "brief_baselines"
 	stateKindRulesRegimeStage = "rules_regime_stage"
 	stateKindProposalOutcomes = "proposal_outcomes"
 
@@ -91,12 +90,6 @@ func (s *Server) bindAuthoritativeDaemonState(ctx context.Context, core *coresto
 	}
 	s.riskCapital.nudges = s.nudges
 	s.riskCapital.observeConfirmedFlows = s.observeConfirmedFlows
-	if s.briefState == nil {
-		s.briefState = &briefStateStore{}
-	}
-	if err := s.briefState.bindCore(ctx, core); err != nil {
-		return err
-	}
 	if err := s.flexFetch.bindCore(ctx, core); err != nil {
 		return err
 	}

@@ -102,7 +102,7 @@ async function runRound4SyntheticSmoke() {
           ready: [{ runs: [{ text: "Act only on served synthetic evidence.", role: "act" }] }],
           coda: [{ text: "No account-derived data was loaded.", role: "" }],
         },
-        review: { one_tap: { signable: false }, rules_delta: { status: "ok" } },
+        review: { rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
         ready: { stress: { severity: "watch" } },
       },
       trading: { mode: "disabled", can_preview: false, can_write: false },
@@ -387,8 +387,7 @@ const context = await browser.newContext({
 // The operator's real unread attention is human-only evidence: this smoke
 // drives the real shared host in a headless page that reports itself
 // "visible", so opening the Alerts tab would POST /api/alerts/attention/read with
-// the real high-water and silently mark the operator's unread as read (same
-// hazard class as the guarded /api/brief/seen render stamp). Intercept the
+// the real high-water and silently mark the operator's unread as read. Intercept the
 // POST before any page interaction, never forward it, and answer with the
 // shape the SPA expects so its state machine stays coherent.
 // The SPA's service worker claims its clients immediately (skipWaiting +
@@ -417,28 +416,6 @@ await context.route(`${baseURL}/api/alerts/attention/read`, async (route) => {
     status: 409,
     contentType: "application/json",
     body: JSON.stringify({ error: "browser smoke diverted attention read", through_seq: throughSeq }),
-  });
-});
-// Second net for the render stamp (see the wrapped-fetch divert init script
-// below): the primary guard is the page-level fetch wrapper because WebKit
-// hides SW-controlled fetches from routing, so this route only fires on engines
-// and windows where routing observes the request. It must never forward.
-await context.route(`${baseURL}/api/brief/seen`, async (route) => {
-  if (route.request().method() !== "POST") {
-    await route.fallback();
-    return;
-  }
-  let kind = "morning";
-  try {
-    const parsed = JSON.parse(route.request().postData() || "{}");
-    if (typeof parsed.kind === "string" && parsed.kind) kind = parsed.kind;
-  } catch {
-    // Malformed body still must not reach the real host.
-  }
-  await route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({ ok: true, kind, day: "2026-01-01", already_stamped: false, brief_fingerprint: "smoke-diverted" }),
   });
 });
 async function attentionReadInterceptedCount(page) {
@@ -486,7 +463,6 @@ await context.addInitScript(() => {
     fetches: [],
     openedEvents: 0,
     attentionReadDiverted: 0,
-    briefSeenDiverted: 0,
   };
   const nativeFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (...fetchArgs) => {
@@ -512,27 +488,6 @@ await context.addInitScript(() => {
       return new Response(
         await current.text(),
         { status: current.status, headers: { "Content-Type": "application/json", "X-Smoke-Through-Seq": String(throughSeq) } },
-      );
-    }
-    if (method === "POST" && url.endsWith("/api/brief/seen")) {
-      // The render-stamp is human-only evidence: a QA page that reports itself
-      // visible would stamp the operator's real brief the instant the Brief tab
-      // renders. Divert before any network layer (SW control hides this fetch
-      // from Playwright routing in WebKit, exactly like /api/alerts/attention/read) and
-      // answer with a receipt the render-stamp state machine accepts.
-      let kind = "morning";
-      try {
-        const raw = typeof request === "string" ? fetchArgs[1]?.body : await request.clone().text();
-        const parsed = JSON.parse(raw || "{}");
-        if (typeof parsed.kind === "string" && parsed.kind) kind = parsed.kind;
-      } catch {
-        // Malformed body still must not reach the real host.
-      }
-      globalThis.__canarySmoke.briefSeenDiverted += 1;
-      globalThis.__canarySmoke.fetches.push({ url, status: 200, diverted: true, at: Date.now() });
-      return new Response(
-        JSON.stringify({ ok: true, kind, day: "2026-01-01", already_stamped: false, brief_fingerprint: "smoke-diverted" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
     try {
@@ -2088,7 +2043,6 @@ async function assertBriefNarrative(page) {
     return {
       narrative: Boolean(brief.narrative),
       review: brief.review || {},
-      signable: brief.review?.one_tap?.signable === true && String(brief.review?.one_tap?.report_id || "") !== "",
     };
   });
   const rendered = await page.evaluate(() => {
@@ -2142,35 +2096,6 @@ async function assertBriefNarrative(page) {
     }
   }
 
-  // Sign-off reachability, both directions, against a frozen stream so a live
-  // snapshot cannot repaint the fixture mid-assertion. Nothing is clicked:
-  // /api/recon/signoff stays untouched.
-  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = true; });
-  const signoff = await page.evaluate(({ review, reportID }) => {
-    const apply = globalThis.__canarySmoke?.applySnapshotPatch;
-    if (!apply) throw new Error("smoke snapshot patch hook is unavailable");
-    const read = () => {
-      const button = document.getElementById("briefSignoffButton");
-      return {
-        present: Boolean(button),
-        disabled: button?.disabled === true,
-        title: button?.title || "",
-        inReviewMovement: Boolean(button?.closest(".brief-signoff-seat")),
-      };
-    };
-    apply({ brief: { review: { ...review, one_tap: { status: "ok", detail: "current report is signable", report_id: reportID, signable: true, blockers: [] } } } });
-    const signable = read();
-    apply({ brief: { review } });
-    return { signable, restored: read() };
-  }, { review: served.review, reportID: FIXTURE_REPORT });
-  await page.evaluate(() => { globalThis.__canarySmoke.freezeLiveEvents = false; });
-  if (!signoff.signable.present || signoff.signable.disabled || !signoff.signable.inReviewMovement || !signoff.signable.title.includes(FIXTURE_REPORT)) {
-    throw new Error(`a signable report must seat the sign-off control in the Review movement: ${JSON.stringify(signoff.signable)}`);
-  }
-  if (signoff.restored.present !== served.signable) {
-    throw new Error(`sign-off availability must follow the served row: ${JSON.stringify({ served: served.signable, restored: signoff.restored })}`);
-  }
-
   await page.locator("#tabMonitor").click();
   await page.waitForSelector("#dashboard:not([hidden])", { timeout: 5000 });
   return {
@@ -2179,8 +2104,6 @@ async function assertBriefNarrative(page) {
     paragraphs: rendered.paragraphs.length,
     roles: rendered.roles,
     chip: rendered.chip,
-    signoff_seated: signoff.signable.inReviewMovement,
-    signoff_served: served.signable,
   };
 }
 

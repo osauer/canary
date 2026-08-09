@@ -968,15 +968,6 @@ p {
   line-height: 1.5;
 }
 
-/* The sign-off control sits inside the Review movement, ahead of the Ready
-   placard: the one thing the brief can act on stays with the movement that
-   states it. */
-.brief-signoff-seat {
-  display: grid;
-  gap: 6px;
-  margin: 2px 2px 12px;
-}
-
 .brief-section {
   min-width: 0;
   padding: 10px;
@@ -1017,8 +1008,6 @@ p {
 .brief-section__detail,
 .brief-row__value,
 .brief-row__detail,
-.brief-action-message,
-.brief-receipt,
 .brief-empty {
   overflow-wrap: anywhere;
 }
@@ -1110,44 +1099,6 @@ p {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
-}
-
-.brief-blockers {
-  display: grid;
-  gap: 3px;
-  margin: 7px 0 0;
-  padding-left: 18px;
-  color: var(--red);
-  font-size: 11px;
-}
-
-.brief-signoff {
-  width: 100%;
-  margin-top: 9px;
-  padding: 0 12px;
-}
-
-.brief-signoff:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.brief-action-message,
-.brief-receipt {
-  margin: 7px 0 0;
-  color: var(--pd-money-up);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.brief-action-message--error,
-.brief-receipt--error {
-  color: var(--red);
-}
-
-.brief-receipt {
-  margin-top: 0;
-  padding-top: 2px;
 }
 
 .brief-empty {

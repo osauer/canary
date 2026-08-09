@@ -26,7 +26,7 @@ const (
 	// MethodReconBacktest builds the full-window backtest report: every
 	// statement flow labeled for the operator's flow-list review, plus the
 	// capital-ladder replay over the statement equity series
-	// (internal-docs/design/operator-ergonomics.md, accelerated R3 gate).
+	// (accelerated retained-statement replay gate).
 	// Measurement only — it changes no matching, sign-off, or enforcement.
 	MethodReconBacktest = "recon.backtest"
 	// MethodReconDismiss records a human resolution for one exception

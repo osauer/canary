@@ -1883,8 +1883,8 @@ func alertShadowTestReconcileException(at time.Time) rpc.NudgeCandidate {
 func alertShadowTestMonthlyPulse(at time.Time) rpc.NudgeCandidate {
 	return rpc.NudgeCandidate{
 		Fingerprint: alertShadowTestFingerprint("monthly-pulse"), Kind: rpc.NudgeKindMonthlyPulse,
-		State: rpc.NudgeStateDue, Severity: rpc.NudgeSeverityWatch, OccurredAt: at, DueAt: at,
-		Destination: rpc.NudgeDestinationBrief,
+		State: rpc.NudgeStateOpen, Severity: rpc.NudgeSeverityAct, OccurredAt: at, DueAt: at,
+		Destination: rpc.NudgeDestinationAlerts,
 	}
 }
 

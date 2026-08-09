@@ -237,11 +237,11 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "technical":
 		return []string{rpc.MethodTechnical}, 15 * time.Second, longFloor
 	case "brief":
-		return []string{rpc.MethodBriefSnapshot, rpc.MethodBriefAck}, 15 * time.Second, longFloor
+		return []string{rpc.MethodBriefSnapshot}, 15 * time.Second, longFloor
 	case "rules":
 		return []string{rpc.MethodRulesSnapshot, rpc.MethodRulesHistory}, ordinaryHeadroom, ordinaryFloor
 	case "policy":
-		return []string{rpc.MethodRiskPolicySnapshot, rpc.MethodRiskPolicyCapitalEvent, rpc.MethodRiskPolicyOverride, rpc.MethodRiskPolicyResetDrawdown, rpc.MethodRiskPolicyCorrectPeak, rpc.MethodRiskPolicyArtefact}, ordinaryHeadroom, ordinaryFloor
+		return []string{rpc.MethodRiskPolicySnapshot, rpc.MethodRiskPolicyCapitalEvent, rpc.MethodRiskPolicyOverride, rpc.MethodRiskPolicyResetDrawdown, rpc.MethodRiskPolicyCorrectPeak}, ordinaryHeadroom, ordinaryFloor
 	case "recon":
 		return []string{rpc.MethodReconSnapshot, rpc.MethodReconStatus, rpc.MethodReconCheck, rpc.MethodReconBacktest, rpc.MethodReconDismiss, rpc.MethodReconEquity}, ordinaryHeadroom, ordinaryFloor
 	case "proposals":

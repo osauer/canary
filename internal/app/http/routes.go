@@ -126,8 +126,6 @@ func Register(deps Dependencies) {
 	srv.POST("/api/opportunities/preview-exercise", h.requireAuth(h.handleOpportunitiesPreviewExercise))
 	srv.POST("/api/opportunities/exercise", h.requireAuth(h.handleOpportunitiesSubmitExercise))
 	srv.POST("/api/opportunities/ignore", h.requireAuth(h.handleOpportunitiesIgnore))
-	srv.POST("/api/brief/seen", h.requireAuth(h.handleBriefSeen))
-	srv.POST("/api/recon/signoff", h.requireAuth(h.handleReconcileSignoff))
 	srv.GET("/api/recon/status", h.requireAuth(h.handleReconcileStatus))
 	srv.POST("/api/recon/check", h.requireAuth(h.handleReconcileCheck))
 	srv.POST("/api/push/subscribe", h.requireAuth(h.handlePushSubscribe))

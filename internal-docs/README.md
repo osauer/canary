@@ -25,7 +25,6 @@ and this index needs the fix.
 | [design/post-trade-truth.md](design/post-trade-truth.md) | Statement-authoritative post-trade reporting |
 | [design/protection-trailing-stop-tif.md](design/protection-trailing-stop-tif.md) | Protection proposal trailing-stop and TIF semantics |
 | [design/regime-calibration.md](design/regime-calibration.md) | Regime indicator calibration and journal contract |
-| [design/operator-ergonomics.md](design/operator-ergonomics.md) | Operator interview outcomes shaping CLI/app ergonomics |
 | [design/documentation-ia.md](design/documentation-ia.md) | Public handbook information architecture |
 | [guides/trading-harness-development.md](guides/trading-harness-development.md) | Risk-harness development guide |
 | [guides/canary-spa-dev.md](guides/canary-spa-dev.md) | SPA development guide |
@@ -34,7 +33,6 @@ and this index needs the fix.
 
 | Doc | State |
 |---|---|
-| [design/risk-governance-nudges.md](design/risk-governance-nudges.md) | Approved 2026-07-18; no code yet |
 
 ## Proposed, awaiting decision
 

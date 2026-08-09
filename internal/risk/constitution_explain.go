@@ -147,7 +147,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 			val, src = a.class, "file"
 		}
 		rows = append(rows, get(a.key+".class", val, src,
-			"Operating-cadence artefact. Completions are journaled for adherence measurement; missing one is recorded, never blocking, in v1.", "advisory"))
+			"Legacy v2 cadence declaration retained for policy-file compatibility. Canary v3 has no manual completion or acknowledgement surface.", "advisory"))
 	}
 	if c == nil || c.PolicyVersion >= 4 {
 		var timezone, monthlyClass, monthlyTime *string

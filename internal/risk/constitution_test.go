@@ -665,3 +665,25 @@ func TestConstitutionLimitsAreVersionAware(t *testing.T) {
 		}
 	}
 }
+
+func TestEvaluateMonthlyPulseAutomatesRoutineEvidence(t *testing.T) {
+	c := approvedV4Constitution()
+	zone, day, at := "UTC", 1, "09:00"
+	c.Cadence.Nudges.Timezone = &zone
+	c.Cadence.Monthly.DayOfMonth = &day
+	c.Cadence.Monthly.NudgeAtLocal = &at
+	due := time.Date(2026, time.August, 3, 9, 0, 0, 0, time.UTC)
+
+	before := EvaluateMonthlyPulse(MonthlyPulseInput{Now: due.Add(-time.Minute), Cadence: c.Cadence, PolicyFingerprint: "sha256:policy", PolicyEvidenceReady: true})
+	if before.Status != MonthlyPulseStatusNotDue {
+		t.Fatalf("before due = %+v", before)
+	}
+	complete := EvaluateMonthlyPulse(MonthlyPulseInput{Now: due, Cadence: c.Cadence, PolicyFingerprint: "sha256:policy", PolicyEvidenceReady: true})
+	if complete.Status != MonthlyPulseStatusCompleted || complete.Candidate != nil {
+		t.Fatalf("routine current evidence must auto-complete without an operator candidate: %+v", complete)
+	}
+	blocked := EvaluateMonthlyPulse(MonthlyPulseInput{Now: due, Cadence: c.Cadence, PolicyFingerprint: "sha256:policy"})
+	if blocked.Status != MonthlyPulseStatusBlocked || blocked.Candidate == nil || blocked.Candidate.State != NudgeStateOpen || blocked.Candidate.Severity != NudgeSeverityAct {
+		t.Fatalf("missing evidence must return only an act-grade exception: %+v", blocked)
+	}
+}

@@ -20,8 +20,7 @@ import (
 
 // Runtime capital state for the risk constitution (internal-docs/design/risk-policy.md):
 // the cash-flow-adjusted equity peak, the drawdown latch, declared capital
-// events, statement-authoritative v3 facts, one-shot overrides, and cadence
-// artefact completions.
+// events, statement-authoritative v3 facts, and one-shot overrides.
 //
 // Authority split: risk-policy.toml owns the numbers, internal/risk owns the
 // evaluation, this store owns observed/derived runtime facts. Aggregates that
@@ -29,7 +28,7 @@ import (
 // evidence) are replayed on every bind; statement facts come from retained
 // broker evidence. A versioned CAS document owns what those sources cannot
 // rebuild: peak, latch, applied statement corrections, daily equity samples,
-// overrides, and artefact completions. Legacy files below are importer/test
+// overrides. Legacy files below are importer/test
 // oracles only after cutover.
 //
 // Nothing in this file may influence submit eligibility, blockers, freeze,
@@ -77,7 +76,6 @@ type riskCapitalStateFileV1 struct {
 	LatchEpisodeSeq                   uint64               `json:"latch_episode_seq,omitempty"`
 	LatchConsumedPct                  float64              `json:"latch_consumed_pct,omitempty"`
 	Overrides                         []rpc.OverrideRecord `json:"overrides,omitempty"`
-	Artefacts                         []rpc.ArtefactRecord `json:"artefacts,omitempty"`
 	StatementFlowsBase                float64              `json:"statement_flows_base,omitempty"`
 	StatementCoverageTo               time.Time            `json:"statement_coverage_to,omitzero"`
 	StatementAuthorityActive          bool                 `json:"statement_authority_active,omitempty"`
@@ -244,7 +242,7 @@ func riskCapitalAuthorityHasSafetyContinuity(doc riskCapitalSQLiteDocument, even
 	s := doc.State
 	return len(events) > 0 || s.Seeded || s.BlockLatched || s.AdjustedPeakBase != 0 || s.LastEquityBase != 0 ||
 		!s.GenesisAt.IsZero() || !s.PeakAsOf.IsZero() || !s.LastEquityAsOf.IsZero() || len(s.DailyEquity) > 0 ||
-		len(s.Overrides) > 0 || len(s.Artefacts) > 0 || s.StatementAuthorityActive || s.StatementFlowsBase != 0 ||
+		len(s.Overrides) > 0 || s.StatementAuthorityActive || s.StatementFlowsBase != 0 ||
 		!s.StatementCoverageTo.IsZero() || len(s.IncorporatedStatementLineIDs) > 0 || len(s.AppliedStatementPeakCorrectionIDs) > 0
 }
 
@@ -1242,64 +1240,6 @@ func (st *riskCapitalStore) ResetDrawdownForScope(reason string, c *risk.Constit
 	return st.persistLocked(true)
 }
 
-// RecordArtefact journals completion of one declared cadence artefact.
-func (st *riskCapitalStore) RecordArtefact(p rpc.ArtefactParams, c *risk.Constitution) (rpc.ArtefactRecord, error) {
-	return st.RecordArtefactForScope(p, c, brokerStateScope{})
-}
-
-func (st *riskCapitalStore) RecordArtefactForScope(p rpc.ArtefactParams, c *risk.Constitution, scope brokerStateScope) (rpc.ArtefactRecord, error) {
-	name := strings.ToLower(strings.TrimSpace(p.Artefact))
-	var class string
-	switch name {
-	case "morning":
-		class = artefactDeclaredClass(c, func(cc *risk.Constitution) string { return cc.Cadence.Morning.Class })
-	case "eod":
-		class = artefactDeclaredClass(c, func(cc *risk.Constitution) string { return cc.Cadence.EOD.Class })
-	case "weekly":
-		class = artefactDeclaredClass(c, func(cc *risk.Constitution) string { return cc.Cadence.Weekly.Class })
-	default:
-		return rpc.ArtefactRecord{}, fmt.Errorf("artefact %q is invalid; use morning, eod, or weekly", p.Artefact)
-	}
-	if class == "" {
-		return rpc.ArtefactRecord{}, fmt.Errorf("artefact %q is not declared in the risk policy cadence section", name)
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	if st.core != nil {
-		if err := st.selectScopeLocked(scope); err != nil {
-			return rpc.ArtefactRecord{}, err
-		}
-	}
-	now := st.now().UTC()
-	rec := rpc.ArtefactRecord{
-		Artefact: name, Class: class, CompletedAt: now, Note: strings.TrimSpace(p.Note),
-		Origin: strings.TrimSpace(p.Origin), BriefFingerprint: strings.TrimSpace(p.BriefFingerprint),
-	}
-	kept := st.state.Artefacts[:0:0]
-	for _, a := range st.state.Artefacts {
-		if a.Artefact != name {
-			kept = append(kept, a)
-		}
-	}
-	st.state.Artefacts = append(kept, rec)
-	journal := map[string]any{
-		"version": 1, "at": now, "kind": "artefact_completed", "artefact": name,
-		"note": rec.Note, "policy_fingerprint": constitutionFingerprint(c),
-	}
-	if rec.Origin != "" {
-		journal["origin"] = rec.Origin
-	}
-	if rec.BriefFingerprint != "" {
-		journal["brief_fingerprint"] = rec.BriefFingerprint
-	}
-	st.appendRiskPolicyJournal(journal)
-	if err := st.persistLocked(true); err != nil {
-		return rpc.ArtefactRecord{}, err
-	}
-	return rec, nil
-}
-
 // Report evaluates the current state under the active constitution for the
 // snapshot surface. obs may be nil (no fresh reading): the persisted last
 // equity serves with its own timestamp so staleness is honest. scope is the
@@ -1526,25 +1466,6 @@ func (st *riskCapitalStore) ActiveOverridesForScope(scope brokerStateScope) []rp
 	}
 	out := make([]rpc.OverrideRecord, len(st.state.Overrides))
 	copy(out, st.state.Overrides)
-	return out
-}
-
-// Artefacts returns the latest completion per declared artefact.
-func (st *riskCapitalStore) Artefacts() []rpc.ArtefactRecord {
-	return st.ArtefactsForScope(brokerStateScope{})
-}
-
-func (st *riskCapitalStore) ArtefactsForScope(scope brokerStateScope) []rpc.ArtefactRecord {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	if st.core != nil {
-		if err := st.selectScopeLocked(scope); err != nil {
-			return nil
-		}
-	}
-	out := make([]rpc.ArtefactRecord, len(st.state.Artefacts))
-	copy(out, st.state.Artefacts)
 	return out
 }
 
@@ -1800,13 +1721,6 @@ func (st *riskCapitalStore) EnsureLoaded() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.loadLocked()
-}
-
-func artefactDeclaredClass(c *risk.Constitution, pick func(*risk.Constitution) string) string {
-	if c == nil {
-		return ""
-	}
-	return pick(c)
 }
 
 func constitutionFingerprint(c *risk.Constitution) string {

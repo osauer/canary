@@ -20,7 +20,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary account`](#canary-account) | Desk | Account summary snapshot (NLV, BP, cash, margin, daily P&L) | `read-only` | yes |
 | [`canary positions`](#canary-positions) | Desk | List open positions (stocks + options) | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
-| [`canary brief`](#canary-brief) | Desk | Typed morning/EOD operator brief with disclosed source degradation | `read-only` | yes |
+| [`canary brief`](#canary-brief) | Desk | Combined post- and pre-trade operator brief with disclosed source degradation | `read-only` | yes |
 | [`canary rules`](#canary-rules) | Desk | Advisory 14-rule daily trading checklist, hardest breach first | `read-only` | yes |
 | [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
@@ -121,12 +121,12 @@ canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]
 
 ## `canary brief`
 
-Typed morning/EOD operator brief with disclosed source degradation.
+Combined post- and pre-trade operator brief with disclosed source degradation.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary brief [--json] [--kind morning|eod]
+canary brief [--json]
 ```
 
 **Flags**
@@ -134,7 +134,6 @@ canary brief [--json] [--kind morning|eod]
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
 | `--json` | no | - |
-| `--kind` | yes | `morning`, `eod` |
 
 ## `canary rules`
 
@@ -174,7 +173,6 @@ canary policy capital-event reconcile [--report ID]
 canary policy override --control KEY --reason S --hours N
 canary policy reset-drawdown --reason S
 canary policy correct-peak (--from-statements|--peak F) --reason S
-canary policy artefact morning|eod|weekly [--note S]
 canary policy default protection|opportunity
 ```
 
@@ -187,7 +185,6 @@ canary policy default protection|opportunity
 | `override` | `confirm` |
 | `reset-drawdown` | `confirm` |
 | `correct-peak` | `confirm` |
-| `artefact` | `confirm` |
 | `default` | `local` |
 
 **Flags**

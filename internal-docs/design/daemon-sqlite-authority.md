@@ -47,7 +47,7 @@ not create permission to share one state database.
 - Exact platform settings, especially `trading.freeze`, trading limits,
   feature switches, and rulebook earnings overrides.
 - Risk-capital state required to preserve account binding, adjusted peak,
-  drawdown latch, statement incorporation, overrides, artefacts, and
+  drawdown latch, statement incorporation, overrides, and
   reconciliation continuity. Valid capital/governance events required to
   reproduce that current state are safety state, not imported analytical
   history.

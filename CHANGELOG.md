@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.0.0 — Unreleased
+
+### Changed
+
+- **The daily brief is now a pure read and reports current policy adherence.** Opening it no longer acknowledges, stamps, or completes a process artefact. The post-trade Review movement summarizes current pass/watch/act/unknown rulebook evidence, while routine monthly evidence completes automatically when its due instant and current policy pins are proven. Missing or conflicting evidence remains an exception in the Action Queue.
+
+### Removed
+
+- **Routine desk attestations are gone.** The brief acknowledgement RPC, paired-app reconciliation sign-off, manual morning/EOD/weekly `policy artefact` verb, presentation baseline state, and their compatibility tests were removed. Exceptional reconciliation repair remains available through the explicit human-only policy path; broker-write authority and trading guardrails are unchanged.
+
 ## v2.8.4 — 2026-08-08 11:26 CEST
 
 ### What's new

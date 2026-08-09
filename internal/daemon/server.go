@@ -426,24 +426,9 @@ type Server struct {
 	// nudges owns only opaque governance occurrence state. Eligibility remains
 	// a pure projection over risk/recon/capital/pin authorities.
 	nudges *nudgeStateStore
-	// nudgeWriteMu serializes the final compare-and-persist step for advisory
-	// governance evidence. It does not freeze policy, pins, Flex, recon, or
-	// capital; durable authority identities make a raced write inert.
-	nudgeWriteMu          sync.Mutex
-	monthlyRenderMu       sync.Mutex
-	monthlyRenderReceipts map[string]monthlyRenderReceipt
 	// Test-only deterministic seams. Production leaves all nil.
-	nudgeBeforeCommit          func(string)
-	nudgeAfterValidation       func(string)
-	nudgeAfterPersist          func(string)
-	nudgeScanCheckpoint        func(string)
-	shadowBookkeepingHook      func()
-	monthlyRenderBeforeIssue   func()
-	monthlyRenderBeforePersist func()
-	monthlyAckBeforeWriteLock  func()
-	// briefState persists only human render-stamps and their rulebook delta
-	// baselines. brief.snapshot reads it but never writes it.
-	briefState *briefStateStore
+	nudgeScanCheckpoint   func(string)
+	shadowBookkeepingHook func()
 	// reconMu serializes report-content mutations with report-backed human
 	// and automatic reconcile appends so a report id cannot race a new
 	// declaration or dismissal.
@@ -662,7 +647,6 @@ func New(opts Options) *Server {
 	s.installRiskPolicyManager()
 	s.installRiskCapitalStore()
 	s.installNudgeStateStore()
-	s.installBriefStateStore()
 	s.installProposalEngine()
 	s.installOpportunityPolicyManager()
 	s.installOpportunityEngine()
@@ -2784,8 +2768,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleRulesSnapshot(ctx, req) })
 	case rpc.MethodBriefSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleBriefSnapshot(ctx, req) })
-	case rpc.MethodBriefAck:
-		s.unary(req, enc, func() (any, error) { return s.handleBriefAck(ctx, req) })
 	case rpc.MethodNudgesSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleNudgesSnapshot(ctx, req) })
 	case rpc.MethodRiskPolicySnapshot:
@@ -2798,8 +2780,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyResetDrawdown(ctx, req) })
 	case rpc.MethodRiskPolicyCorrectPeak:
 		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyCorrectPeak(ctx, req) })
-	case rpc.MethodRiskPolicyArtefact:
-		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyArtefact(ctx, req) })
 	case rpc.MethodReconSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleReconSnapshot(ctx, req) })
 	case rpc.MethodReconStatus:

@@ -106,8 +106,8 @@ type ConstitutionRecon struct {
 	MaxEquityDivergencePct *float64 `toml:"max_equity_divergence_pct" json:"max_equity_divergence_pct"`
 }
 
-// ConstitutionCadence declares operating-cadence artefacts whose completion
-// can be journaled. Artefact validation accepts only advisory declarations.
+// ConstitutionCadence retains the v2 daily declaration shape for policy-file
+// parsing while v3 uses only the automated nudge and monthly clocks below.
 type ConstitutionCadence struct {
 	Morning ConstitutionArtefact `toml:"morning" json:"morning"`
 	EOD     ConstitutionArtefact `toml:"eod" json:"eod"`

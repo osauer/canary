@@ -583,7 +583,7 @@ test("TestRegimeAuthorityHealthControlsVisibleDataQualityPosture replacement qua
   assert.equal(stress.regimeAuthorityView({ regime: { authority_health: { status: "fresh" } } }).degraded, false);
 });
 
-test("TestBriefCardStaticContract replacement renders production narrative, safe runs, fallback sections, and sign-off gating", () => {
+test("TestBriefCardStaticContract replacement renders production narrative, safe runs, and fallback sections", () => {
   reset();
   state.authenticated = true;
   state.activeTab = "monitor";
@@ -596,7 +596,7 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
       ready: [{ runs: [{ text: "Act only on served evidence.", role: "act" }] }],
       coda: [{ text: "End of brief.", role: "" }],
     },
-    review: { one_tap: { report_id: "synthetic-report", signable: true, blockers: [] }, rules_delta: { status: "ok" } },
+    review: { rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
     ready: { stress: { severity: "watch" } },
   };
   state.snapshot = { brief: narrative, sources: { brief: {} } };
@@ -608,24 +608,19 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
   assert.equal(byClass(sections, "pd-fig")[0].textContent, "€12K");
   assert.equal(byClass(sections, "pd-wtint")[0].textContent, " <img src=x onerror=boom>");
   assert.equal(descendants(sections).some((node) => node.tagName === "IMG"), false, "served runs must remain text, never markup");
-  const signoff = descendants(sections).find((node) => node.id === "briefSignoffButton");
-  assert.ok(signoff);
-  assert.match(signoff.title, /synthetic-report/);
+  assert.equal(descendants(sections).some((node) => node.id === "briefSignoffButton"), false);
 
   const fallback = {
     as_of: "2026-07-01T08:30:00Z",
     brief_fingerprint: "sha256:synthetic-fallback",
-    review: { status: "ok", one_tap: { signable: false }, session_pnl: { daily_pnl_base: 5, base_currency: "EUR" } },
-    ready: { status: "ok", monthly_pulse: { status: "not_due", month: "2026-07" }, artefacts: { rows: [] } },
+    review: { status: "ok", rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 }, session_pnl: { daily_pnl_base: 5, base_currency: "EUR" } },
+    ready: { status: "ok", monthly_pulse: { status: "not_due", month: "2026-07" } },
   };
   state.snapshot = { brief: fallback, sources: {} };
   brief.renderBriefCard(state.snapshot);
   assert.equal(sections.classList.contains("brief-sections--narrative"), false);
   assert.deepEqual(sections.children.map((node) => byClass(node, "brief-section__head")[0]?.textContent), ["Reviewok", "Readyok"]);
   assert.equal(descendants(sections).some((node) => node.id === "briefSignoffButton"), false);
-  assert.deepEqual(brief.briefAckBody({ stamp_target: "monthly", ready: { monthly_pulse: { month: "2026-07" } } }, "sha256:ack"), {
-    kind: "monthly", brief_fingerprint: "sha256:ack", month: "2026-07", evidence: "render",
-  });
 });
 
 // Breadth is a specific trading session's close, and the daemon keeps serving
@@ -685,7 +680,7 @@ test("brief breadth row shows the session it is reading and flags an overdue one
   const snapshot = {
     as_of: "2026-08-04T21:00:00Z",
     brief_fingerprint: "sha256:synthetic-breadth",
-    review: { status: "ok", one_tap: { signable: false } },
+    review: { status: "ok", rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
     ready: {
       status: "ok",
       breadth: {
@@ -728,7 +723,7 @@ test("brief review row path serves the close capture and names a missing one", (
     brief_fingerprint: "sha256:synthetic-capture",
     review: {
       status: "ok",
-      one_tap: { signable: false },
+      rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 },
       session_pnl: { daily_pnl_base: 5, base_currency: "EUR" },
       last_session: {
         status: "ok", detail: "close capture",
@@ -736,7 +731,7 @@ test("brief review row path serves the close capture and names a missing one", (
         session_close: "2026-07-31T20:00:00Z", captured_at: "2026-07-31T20:00:09Z",
       },
     },
-    ready: { status: "ok", artefacts: { rows: [] } },
+    ready: { status: "ok" },
   };
   state.snapshot = { brief: snapshot, sources: {} };
   brief.renderBriefCard(state.snapshot);

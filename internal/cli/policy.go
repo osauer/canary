@@ -12,8 +12,8 @@ import (
 
 // runPolicy renders and operates the risk constitution
 // (internal-docs/design/risk-policy.md). show is read-only; the write verbs are
-// governance acts (capital events, one-shot overrides, drawdown reset,
-// artefact completions) — the daemon accepts them from human origins only,
+// governance acts (exceptional capital events, one-shot overrides, and
+// drawdown repair) — the daemon accepts them from human origins only,
 // so agent sessions can read this surface but never operate it. No verb
 // here touches broker writes, freeze, or trading limits.
 func runPolicy(ctx context.Context, env *Env, args []string) int {
@@ -52,8 +52,6 @@ func runPolicy(ctx context.Context, env *Env, args []string) int {
 		return runPolicyResetDrawdown(ctx, env, args)
 	case "correct-peak":
 		return runPolicyCorrectPeak(ctx, env, args)
-	case "artefact":
-		return runPolicyArtefact(ctx, env, args)
 	default:
 		return fail(env, "policy: unknown subcommand %q (try `canary policy show --explain`)", sub)
 	}
@@ -71,7 +69,6 @@ func printPolicyUsage(env *Env) {
 	fmt.Fprintln(env.Stdout, "  reset-drawdown   Release a latched drawdown brake and start a new high-water mark.")
 	fmt.Fprintln(env.Stdout, "  correct-peak     Repair a high-water mark that the retained statement history proves is wrong.")
 	fmt.Fprintln(env.Stdout, "  override         Grant one named policy control a temporary, journaled exception.")
-	fmt.Fprintln(env.Stdout, "  artefact         Record completion of a morning, EOD or weekly policy review.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Related read-only/local action:")
 	fmt.Fprintln(env.Stdout, "  default          Print the embedded protection or opportunity policy template; this is not the risk constitution.")
@@ -139,13 +136,6 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Find the exact control key with `canary policy show --explain`. The exception is")
 		fmt.Fprintln(env.Stdout, "journaled, expires automatically, and is capped by the policy's maximum duration.")
 		fmt.Fprintln(env.Stdout, "It cannot change account pins, preview requirements, trading.freeze or broker-write guardrails.")
-	case "artefact":
-		fmt.Fprintln(env.Stdout, "canary policy artefact — record a completed policy review")
-		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "Usage: canary policy artefact morning|eod|weekly [--note TEXT] [--json]")
-		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "This journals completion for policy reporting. It does not clear alerts, change limits")
-		fmt.Fprintln(env.Stdout, "or authorize a broker action.")
 	case "default":
 		fmt.Fprintln(env.Stdout, "canary policy default — print an embedded non-constitution policy template")
 		fmt.Fprintln(env.Stdout)
@@ -154,7 +144,7 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "This read-only local command prints the daemon's embedded protection or opportunity")
 		fmt.Fprintln(env.Stdout, "policy as TOML. It does not print, create or modify your risk constitution.")
 	default:
-		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, artefact, or default)", action)
+		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, or default)", action)
 	}
 	return 0
 }
@@ -278,12 +268,6 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 				state = "active until " + o.ExpiresAt.Local().Format("2006-01-02 15:04")
 			}
 			fmt.Fprintf(env.Stdout, "  %s  %s (%s) — %s\n", o.ID, o.Control, state, o.Reason)
-		}
-	}
-	if len(res.Cadence) > 0 {
-		fmt.Fprintln(env.Stdout, "\nRoutine reviews (recorded, never blocking):")
-		for _, a := range res.Cadence {
-			fmt.Fprintf(env.Stdout, "  %-8s last completed %s %s\n", a.Artefact, a.CompletedAt.Local().Format("2006-01-02 15:04"), a.Note)
 		}
 	}
 	if len(res.Inventory) > 0 {
@@ -441,20 +425,6 @@ func runPolicyCorrectPeak(ctx context.Context, env *Env, args []string) int {
 	}
 	params := rpc.CorrectPeakParams{FromStatements: *fromStatements, PeakBase: *peak, Reason: *reason, Origin: env.Origin}
 	return callPolicyWrite(ctx, env, rpc.MethodRiskPolicyCorrectPeak, params, *jsonOut)
-}
-
-func runPolicyArtefact(ctx context.Context, env *Env, args []string) int {
-	fs := flagSet(env, "policy artefact")
-	note := fs.String("note", "", "free-text note for the journal")
-	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
-	if err := fs.Parse(args); err != nil {
-		return parseExit(err)
-	}
-	if fs.NArg() != 1 {
-		return fail(env, "policy artefact: exactly one of morning|eod|weekly is required")
-	}
-	params := rpc.ArtefactParams{Artefact: fs.Arg(0), Note: *note, Origin: env.Origin}
-	return callPolicyWrite(ctx, env, rpc.MethodRiskPolicyArtefact, params, *jsonOut)
 }
 
 func callPolicyWrite(ctx context.Context, env *Env, method string, params any, jsonOut bool) int {

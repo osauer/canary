@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,11 +27,10 @@ const (
 // facts. Broker/account/report/line identities, amounts, symbols, prose,
 // paths, and tokens never cross this persistence boundary.
 type nudgeStateFileV1 struct {
-	Version            int                          `json:"version"`
-	Shadow             nudgeShadowEpisodeState      `json:"shadow"`
-	ConfirmedCoverage  *nudgeConfirmedCoverageState `json:"confirmed_coverage,omitempty"`
-	ConfirmedEvents    []nudgeConfirmedEventState   `json:"confirmed_events,omitempty"`
-	MonthlyCompletions []nudgeMonthlyCompletion     `json:"monthly_completions,omitempty"`
+	Version           int                          `json:"version"`
+	Shadow            nudgeShadowEpisodeState      `json:"shadow"`
+	ConfirmedCoverage *nudgeConfirmedCoverageState `json:"confirmed_coverage,omitempty"`
+	ConfirmedEvents   []nudgeConfirmedEventState   `json:"confirmed_events,omitempty"`
 }
 
 type nudgeShadowEpisodeState struct {
@@ -57,15 +55,6 @@ type nudgeConfirmedEventState struct {
 	ContentIdentity string    `json:"content_identity"`
 	OccurredAt      time.Time `json:"occurred_at"`
 	Superseded      bool      `json:"superseded,omitempty"`
-}
-
-type nudgeMonthlyCompletion struct {
-	Month             string    `json:"month"`
-	PolicyIdentity    string    `json:"policy_identity"`
-	BriefIdentity     string    `json:"brief_identity"`
-	CompletedAt       time.Time `json:"completed_at"`
-	Evidence          string    `json:"evidence"`
-	AuthorityIdentity string    `json:"authority_identity,omitempty"`
 }
 
 type nudgeStateStore struct {
@@ -239,30 +228,6 @@ func (st *nudgeStateStore) healthOK() bool {
 	return !st.loadErr && !st.fault && (st.core == nil || st.core.Health().Ready)
 }
 
-// writeReady permits an authorized mutation to retry after a transient atomic
-// write failure. Reads remain faulted through healthOK until a successful
-// persist clears fault. A corrupt/unreadable load and an unresolved path are
-// never recoverable through this path.
-func (st *nudgeStateStore) writeReady() bool {
-	if st == nil {
-		return false
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	return !st.loadErr && (st.core != nil || strings.TrimSpace(st.path) != "")
-}
-
-func (st *nudgeStateStore) transientWriteFault() bool {
-	if st == nil {
-		return false
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	return !st.loadErr && st.fault && (st.core != nil || strings.TrimSpace(st.path) != "")
-}
-
 func (st *nudgeStateStore) recordShadow(policyIdentity, latchEpisode string, riskIncreasing, exempt, wouldBlock bool) error {
 	if st == nil {
 		return fmt.Errorf("governance nudge persistence is unavailable")
@@ -423,7 +388,6 @@ func cloneNudgeState(state nudgeStateFileV1) nudgeStateFileV1 {
 		cloned.ConfirmedCoverage = &coverage
 	}
 	cloned.ConfirmedEvents = append([]nudgeConfirmedEventState(nil), state.ConfirmedEvents...)
-	cloned.MonthlyCompletions = append([]nudgeMonthlyCompletion(nil), state.MonthlyCompletions...)
 	return cloned
 }
 
@@ -467,83 +431,6 @@ func (st *nudgeStateStore) confirmedSnapshotContext(ctx context.Context, current
 		events = append(events, event)
 	}
 	return coverage, events, true, nil
-}
-
-func (st *nudgeStateStore) monthlyCompletion(month, policyIdentity string) *risk.MonthlyPulseCompletion {
-	return st.monthlyCompletionForUse(month, policyIdentity, false)
-}
-
-func (st *nudgeStateStore) monthlyCompletionForWrite(month, policyIdentity string) *risk.MonthlyPulseCompletion {
-	return st.monthlyCompletionForUse(month, policyIdentity, true)
-}
-
-func (st *nudgeStateStore) monthlyCompletionForUse(month, policyIdentity string, allowTransientFault bool) *risk.MonthlyPulseCompletion {
-	if st == nil {
-		return nil
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	if st.loadErr || (st.fault && !allowTransientFault) {
-		return nil
-	}
-	for _, rec := range slices.Backward(st.state.MonthlyCompletions) {
-		if rec.Month == month && rec.PolicyIdentity == policyIdentity {
-			return &risk.MonthlyPulseCompletion{
-				Month: month, PolicyFingerprint: policyIdentity,
-				CompletedAt: rec.CompletedAt, Evidence: rec.Evidence,
-			}
-		}
-	}
-	return nil
-}
-
-func (st *nudgeStateStore) monthlyCompletionRecord(month, policyIdentity string) (nudgeMonthlyCompletion, bool) {
-	if st == nil {
-		return nudgeMonthlyCompletion{}, false
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	if st.loadErr || st.fault {
-		return nudgeMonthlyCompletion{}, false
-	}
-	for _, rec := range slices.Backward(st.state.MonthlyCompletions) {
-		if rec.Month == month && rec.PolicyIdentity == policyIdentity {
-			return rec, true
-		}
-	}
-	return nudgeMonthlyCompletion{}, false
-}
-
-func (st *nudgeStateStore) recordMonthlyCompletion(month, policyIdentity, briefFingerprint, authorityIdentity string, at time.Time) (nudgeMonthlyCompletion, bool, error) {
-	if st == nil {
-		return nudgeMonthlyCompletion{}, false, fmt.Errorf("governance nudge persistence is unavailable")
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.loadLocked()
-	if st.loadErr {
-		return nudgeMonthlyCompletion{}, false, fmt.Errorf("governance nudge persistence is unavailable")
-	}
-	for _, rec := range st.state.MonthlyCompletions {
-		if rec.Month == month && rec.PolicyIdentity == policyIdentity {
-			if rec.BriefIdentity != briefFingerprint {
-				return nudgeMonthlyCompletion{}, false, fmt.Errorf("monthly brief completion conflicts with the pinned rendered brief")
-			}
-			return rec, true, nil
-		}
-	}
-	rec := nudgeMonthlyCompletion{
-		Month: month, PolicyIdentity: policyIdentity,
-		BriefIdentity: briefFingerprint, AuthorityIdentity: authorityIdentity,
-		CompletedAt: at.UTC(), Evidence: rpc.BriefAckEvidenceRender,
-	}
-	st.state.MonthlyCompletions = append(st.state.MonthlyCompletions, rec)
-	if err := st.persistLocked(); err != nil {
-		return nudgeMonthlyCompletion{}, false, err
-	}
-	return rec, false, nil
 }
 
 func normalizeOpaqueIdentities(values []string) []string {
@@ -598,54 +485,15 @@ type nudgeAuthorityState struct {
 	capitalNudge          riskCapitalNudgeSnapshot
 }
 
-func (s *Server) governanceMonthlyPulse(constitution *risk.Constitution, report *rpc.ReconResult, now time.Time) (risk.MonthlyPulseEvaluation, *risk.MonthlyPulseCompletion) {
-	return s.governanceMonthlyPulseForAuthority(s.currentNudgeAuthority(now), constitution, report, now)
-}
-
-func (s *Server) governanceMonthlyPulseForAuthority(authority nudgeAuthorityState, constitution *risk.Constitution, report *rpc.ReconResult, now time.Time) (risk.MonthlyPulseEvaluation, *risk.MonthlyPulseCompletion) {
-	return s.governanceMonthlyPulseForAuthorityUse(authority, constitution, report, now, false)
-}
-
-func (s *Server) governanceMonthlyPulseForWrite(authority nudgeAuthorityState, constitution *risk.Constitution, report *rpc.ReconResult, now time.Time) (risk.MonthlyPulseEvaluation, *risk.MonthlyPulseCompletion) {
-	return s.governanceMonthlyPulseForAuthorityUse(authority, constitution, report, now, true)
-}
-
-// governanceMonthlyPulseForRenderRecovery never projects completion from a
-// faulted store. It only keeps a currently due month conservatively due so a
-// fresh exact-authority render receipt can reach the authorized retry write.
-func (s *Server) governanceMonthlyPulseForRenderRecovery(authority nudgeAuthorityState, constitution *risk.Constitution, now time.Time) risk.MonthlyPulseEvaluation {
-	if constitution == nil || constitution.PolicyVersion < 4 || s == nil || s.nudges == nil ||
-		!authority.cadenceEligible || authority.policyIdentity != nudgePolicyIdentity(constitution) || !s.nudges.transientWriteFault() {
+func (s *Server) governanceMonthlyPulseForAuthority(authority nudgeAuthorityState, constitution *risk.Constitution, _ *rpc.ReconResult, now time.Time) risk.MonthlyPulseEvaluation {
+	if constitution == nil || constitution.PolicyVersion < 4 {
 		return risk.MonthlyPulseEvaluation{}
 	}
-	return risk.EvaluateMonthlyPulse(risk.MonthlyPulseInput{
-		Now: now, Cadence: constitution.Cadence, PolicyFingerprint: authority.policyIdentity,
-		PolicyEvidenceReady: policyPinsReady(authority.report.Inventory),
-	})
-}
-
-func (s *Server) governanceMonthlyPulseForAuthorityUse(authority nudgeAuthorityState, constitution *risk.Constitution, report *rpc.ReconResult, now time.Time, allowTransientFault bool) (risk.MonthlyPulseEvaluation, *risk.MonthlyPulseCompletion) {
-	if constitution == nil || constitution.PolicyVersion < 4 {
-		return risk.MonthlyPulseEvaluation{}, nil
-	}
 	identity := nudgePolicyIdentity(constitution)
-	month := nudgeMonth(constitution.Cadence, now)
-	storeReady := s != nil && s.nudges != nil && s.nudges.healthOK()
-	if allowTransientFault {
-		storeReady = s != nil && s.nudges != nil && s.nudges.writeReady()
-	}
-	if !authority.cadenceEligible || authority.policyIdentity != identity || !storeReady {
-		return risk.MonthlyPulseEvaluation{Status: risk.MonthlyPulseStatusBlocked, Month: month}, nil
-	}
-	completion := s.nudges.monthlyCompletion(month, identity)
-	if allowTransientFault {
-		completion = s.nudges.monthlyCompletionForWrite(month, identity)
-	}
-	evaluation := risk.EvaluateMonthlyPulse(risk.MonthlyPulseInput{
+	return risk.EvaluateMonthlyPulse(risk.MonthlyPulseInput{
 		Now: now, Cadence: constitution.Cadence, PolicyFingerprint: identity,
-		PolicyEvidenceReady: completion != nil || policyPinsReady(authority.report.Inventory), Completion: completion,
+		PolicyEvidenceReady: authority.cadenceEligible && authority.policyIdentity == identity && policyPinsReady(authority.report.Inventory),
 	})
-	return evaluation, completion
 }
 
 // currentNudgeAuthority builds the governance view from the daemon's current
@@ -813,54 +661,6 @@ func (s *Server) handleNudgesSnapshot(ctx context.Context, req *rpc.Request) (*r
 	shadowInput.Snapshot = canonical
 	s.observeNudgesAlertShadow(ctx, shadowInput)
 	return &canonical, nil
-}
-
-func nudgeAuthorityToken(authority nudgeAuthorityState) string {
-	parts := []string{authority.policyIdentity, strconv.Itoa(authority.report.PolicyVersion), authority.report.Status, authority.report.Source,
-		strconv.FormatBool(authority.eligible), strconv.FormatBool(authority.cadenceEligible), strconv.FormatBool(authority.confirmedFlowEligible),
-		authority.policyHealth.Status, authority.policyHealth.Reason}
-	for _, pin := range authority.report.Inventory {
-		parts = append(parts, pin.Policy, pin.Status, pin.PinnedID, pin.PinnedVersion, pin.LiveID, pin.LiveVersion)
-	}
-	return opaqueIdentity("nudge-authority", parts...)
-}
-
-func monthlyAuthorityIdentity(authority nudgeAuthorityState, month string, report *rpc.ReconResult, now time.Time) string {
-	parts := []string{nudgeAuthorityToken(authority), month}
-	if report == nil || (report.Status == rpc.ReconStatusUnavailable && strings.TrimSpace(report.ReportID) == "") {
-		parts = append(parts, "report_unavailable")
-		return opaqueIdentity("monthly-authority", parts...)
-	}
-	parts = append(parts,
-		opaqueIdentity("recon-report", report.ReportID), report.Status,
-		report.StatementAsOf.UTC().Format(time.RFC3339Nano),
-		strconv.FormatBool(currentBrokerBackedReconReport(authority.policy, report, now)),
-	)
-	for _, health := range report.InputHealth {
-		parts = append(parts, health.Source, health.Status, health.AsOf.UTC().Format(time.RFC3339Nano))
-	}
-	return opaqueIdentity("monthly-authority", parts...)
-}
-
-func currentBrokerBackedReconReport(policy *risk.Constitution, report *rpc.ReconResult, now time.Time) bool {
-	if report == nil || report.Status != rpc.ReconStatusActive || strings.TrimSpace(report.ReportID) == "" || reconReportStale(policy, report, now) {
-		return false
-	}
-	for _, health := range report.InputHealth {
-		if health.Source == "statements" {
-			return health.Status == "ok" && !health.AsOf.After(now)
-		}
-	}
-	return false
-}
-
-func (s *Server) composeNudgesSnapshot() rpc.NudgesSnapshotResult {
-	result, _ := s.composeNudgesSnapshotContext(context.Background())
-	return result
-}
-
-func (s *Server) composeNudgesSnapshotContext(ctx context.Context) (rpc.NudgesSnapshotResult, error) {
-	return s.composeNudgesSnapshotContextWithAuthority(ctx, nil)
 }
 
 // composeNudgesSnapshotContextWithAuthority captures the exact policy,
@@ -1082,7 +882,7 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 		result.SourceHealth.ConfirmedFlow = setHealth(rpc.NudgeInputStatusError, rpc.NudgeHealthReasonEvaluationError)
 	}
 
-	monthly, _ := s.governanceMonthlyPulseForAuthority(authority, policy, report, now)
+	monthly := s.governanceMonthlyPulseForAuthority(authority, policy, report, now)
 	if monthly.Candidate != nil {
 		result.Candidates = append(result.Candidates, rpcNudgeCandidate(monthly.Candidate))
 	}
@@ -1154,20 +954,4 @@ func rpcNudgeCandidate(candidate *risk.NudgeCandidate) rpc.NudgeCandidate {
 		OccurredAt: candidate.OccurredAt, DueAt: candidate.DueAt,
 		ExpiresAt: candidate.ExpiresAt, Destination: candidate.Destination,
 	}
-}
-
-func nudgeMonth(cadence risk.ConstitutionCadence, now time.Time) string {
-	location, err := cadence.NudgeLocation()
-	if err != nil {
-		return ""
-	}
-	return now.In(location).Format("2006-01")
-}
-
-func nudgeLocalDay(cadence risk.ConstitutionCadence, now time.Time) string {
-	location, err := cadence.NudgeLocation()
-	if err != nil {
-		return ""
-	}
-	return now.In(location).Format(time.DateOnly)
 }
