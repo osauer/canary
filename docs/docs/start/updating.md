@@ -89,22 +89,14 @@ remove the existing config or state directories. `canary restart` then starts
 the new daemon, which performs any required state migration before it connects
 to the broker.
 
-Direct state migration accepts file-backed installations from v1.7.1 through
-v2.2.1 when their retained order evidence carries a complete broker route,
-and SQLite-backed installations from v2.3.0. If a file-backed installation is
-still on v1.7.1, jump directly through the current installer above. Do not
-stage through any binary from v1.8 through v2.2.1: those historical releases
-could delete the v1 purge ledger when they opened it. The current migration
-seals any surviving ledger as retired product state in the cutover backup; it
-does not reactivate that workflow. Installations already running v1.8 through
-v2.2.1 can migrate the supported file state that remains.
-Installations older than v1.7.1 remain outside the direct-migration boundary.
-
-A file-backed cutover imports the supported authority into a new, validated
-database, creates verified backups, seals the retired files, and never falls
-back to them. An existing older database is upgraded through an unpublished,
-validated candidate with an exact-head backup. Ambiguous safety-relevant order
-history stops startup instead of being guessed.
+Version 3 accepts a current SQLite authority or a genuinely fresh state root.
+If the installation still has file-backed authority, install and start the
+latest stable 2.x release once before starting v3. Stable 2.x owns that legacy
+decoder and converts the retained safety state into `daemon.db`; v3 refuses to
+guess or silently ignore those files. Existing databases then advance through
+an unpublished, validated candidate with an exact-head backup. This same
+major-version bridge is the upgrade model for future releases: the last stable
+major remains available while the next major stabilizes.
 
 The v2.6.0 upgrade also removes the defective contract-cache snapshots that
 made some `daemon.db` files unusually large. Before changing anything, startup

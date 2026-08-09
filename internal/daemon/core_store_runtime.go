@@ -54,10 +54,7 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 		return fmt.Errorf("daemon authority anti-rollback watermark is missing; explicit verified recovery is required")
 	}
 
-	var (
-		store *corestore.Store
-		build coreCutoverBuild
-	)
+	var store *corestore.Store
 	if existed {
 		upgradePending, pendingErr := coreSchemaUpgradePending(s.coreStorePath)
 		if pendingErr != nil {
@@ -76,11 +73,8 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 				store, err = corestore.Open(ctx, s.liveCoreStoreOptions(minimum))
 			}
 		}
-		if err == nil {
-			build.manifest, build.doc, err = loadCoreCutoverManifest(ctx, store)
-		}
 	} else {
-		store, build, err = s.createAndPublishCoreStore(ctx)
+		store, err = s.createAndPublishCoreStore(ctx)
 	}
 	if err != nil {
 		if store != nil {
@@ -98,7 +92,7 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 	}
 	s.persistenceLock = lock
 	s.coreStore = store
-	if err := s.repairGammaLastGoodAuthority(ctx, store); err != nil {
+	if err := s.validateMajorBridge(ctx, store); err != nil {
 		return cleanup(err)
 	}
 	if err := s.attachCoreStoreAdapters(ctx, store); err != nil {
@@ -106,22 +100,9 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 	}
 	// Original Flex XML remains broker evidence outside SQLite. Reconcile its
 	// complete fingerprinted projection before serving so offline additions,
-	// restatements, and removals cannot leave daemon.db silently stale. While
-	// the cutover is still pending, update the cutover snapshot and projection
-	// together before any legacy source is sealed.
-	if s.importLegacyAuthority {
-		if build.manifest.Status == coreCutoverStatusPending {
-			build, err = s.reconcilePendingStatementCutover(ctx, store, build)
-			if err != nil {
-				return cleanup(err)
-			}
-		} else if err := s.refreshStatementProjection(ctx); err != nil {
-			return cleanup(fmt.Errorf("refresh retained statement projection: %w", err))
-		}
-	}
-	build, err = s.finishCoreCutover(ctx, store, build)
-	if err != nil {
-		return cleanup(err)
+	// restatements, and removals cannot leave daemon.db silently stale.
+	if err := s.refreshStatementProjection(ctx); err != nil {
+		return cleanup(fmt.Errorf("refresh retained statement projection: %w", err))
 	}
 	head, err := store.AuthorityHead(ctx)
 	if err != nil {

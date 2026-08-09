@@ -431,56 +431,6 @@ func (c *Connector) AccountID() string {
 	return conn.GetAccountCode()
 }
 
-// SeedAccountIDForTest installs the managed-account code returned by
-// [Connector.AccountID]. It is intended only for tests outside package ibkr;
-// runtime callers must obtain the value from IBKR.
-func (c *Connector) SeedAccountIDForTest(account string) {
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	if conn == nil {
-		return
-	}
-	unlockEvidence := conn.lockEvidenceChange()
-	defer unlockEvidence()
-	conn.accountMu.Lock()
-	conn.account = account
-	conn.accountMu.Unlock()
-}
-
-// SeedPositionDailyPnLForTest installs snap for conID without wire traffic and
-// marks that contract as subscribed. It is intended only for tests outside
-// package ibkr; runtime callers must use [Connector.SubscribePositionDailyPnL].
-func (c *Connector) SeedPositionDailyPnLForTest(conID int, snap PositionDailyPnL) {
-	c.pnl.mu.Lock()
-	defer c.pnl.mu.Unlock()
-	c.pnl.positionSnapshot[conID] = snap
-	if _, ok := c.pnl.positionReqIDs[conID]; !ok {
-		// Synthesize a reqID slot so ActiveDailyPnLSubscriptions
-		// counts the seeded entries — matches the production
-		// invariant "snapshot exists ↔ subscription exists".
-		c.pnl.positionReqIDs[conID] = -1 * conID
-	}
-}
-
-// SeedAccountDailyPnLForTest installs an account-level snapshot without wire
-// traffic. It is intended only for tests outside package ibkr.
-func (c *Connector) SeedAccountDailyPnLForTest(account string, snap AccountDailyPnL) {
-	c.pnl.mu.Lock()
-	defer c.pnl.mu.Unlock()
-	c.pnl.accountReqID = -1
-	c.pnl.accountAcct = account
-	c.pnl.accountStartedAt = snap.AsOf.UTC()
-	if snap.DailyPnLStatus == "" {
-		if snap.DailyPnL == nil {
-			snap.DailyPnLStatus = DailyPnLFrameUnavailable
-		} else {
-			snap.DailyPnLStatus = DailyPnLFrameAvailable
-		}
-	}
-	c.pnl.account = snap
-}
-
 // cancelAllPnL is called from Connector.Stop to tear down every
 // outstanding PnL subscription. Best-effort: the gateway drops
 // subscriptions on socket close anyway, so cancel-time errors are

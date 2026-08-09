@@ -10,6 +10,8 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+const gammaAuthorityProvenanceRecoveredObservation = "recovered_legacy_observation"
+
 const (
 	gammaRankableRTHMaxAge        = 60 * time.Minute
 	gammaClosedSessionCacheMaxAge = 24 * time.Hour

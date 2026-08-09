@@ -124,9 +124,18 @@ func TestRiskCapitalMigratesBoundSingletonOnce(t *testing.T) {
 	capitalEvent := capitalEventV1{
 		Version: 1, At: now.Add(-3 * time.Hour), Type: "deposit", AmountBase: 500, EffectiveAt: now.Add(-3 * time.Hour),
 	}
-	capitalInput, err := capitalCutoverEvent(capitalEvent, 1)
+	capitalRaw, err := json.Marshal(capitalEvent)
 	if err != nil {
 		t.Fatal(err)
+	}
+	capitalInput := corestore.EventInput{
+		ScopeKey: daemonStateScope,
+		EventKey: coreEventKey(coreEventCapital, capitalEvent.At, capitalRaw, 1),
+		Type:     coreEventCapital, Action: "import", Origin: "test",
+		OccurredAt: capitalEvent.At, PayloadJSON: capitalRaw,
+		Projection: corestore.EventProjection{CapitalEvent: &corestore.CapitalEventProjection{
+			Kind: capitalEvent.Type, AmountBaseText: "500", EffectiveAt: capitalEvent.EffectiveAt.UTC().Format(time.RFC3339Nano),
+		}},
 	}
 	governancePayload, err := json.Marshal(map[string]any{
 		"version": 1, "at": now.Add(-2 * time.Hour), "kind": "recon_dismiss", "line_id": "legacy-line", "reason": "confirmed",
@@ -136,7 +145,7 @@ func TestRiskCapitalMigratesBoundSingletonOnce(t *testing.T) {
 	}
 	governanceInput := corestore.EventInput{
 		ScopeKey: daemonStateScope, EventKey: coreEventKey(coreEventRiskPolicy, now.Add(-2*time.Hour), governancePayload, 2),
-		Type: coreEventRiskPolicy, Action: "import", Origin: coreEventOriginCutover,
+		Type: coreEventRiskPolicy, Action: "import", Origin: "test",
 		OccurredAt: now.Add(-2 * time.Hour), PayloadJSON: governancePayload,
 		Projection: corestore.EventProjection{RiskPolicyEvent: &corestore.RiskPolicyEventProjection{Kind: "recon_dismiss"}},
 	}

@@ -20,8 +20,6 @@ and this index needs the fix.
 | [design/risk-policy.md](design/risk-policy.md) | Risk-policy constitution and enforcement phases |
 | [design/agent-origin-gating.md](design/agent-origin-gating.md) | Agent-origin classification for broker writes |
 | [design/alert-regime-production.md](design/alert-regime-production.md) | Source-neutral alert inbox and Web Push delivery |
-| [design/daemon-sqlite-authority.md](design/daemon-sqlite-authority.md) | daemon.db as the single mutable state authority |
-| [design/history-index.md](design/history-index.md) | History read surfaces on daemon.db |
 | [design/post-trade-truth.md](design/post-trade-truth.md) | Statement-authoritative post-trade reporting |
 | [design/protection-trailing-stop-tif.md](design/protection-trailing-stop-tif.md) | Protection proposal trailing-stop and TIF semantics |
 | [design/regime-calibration.md](design/regime-calibration.md) | Regime indicator calibration and journal contract |

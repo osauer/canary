@@ -19,7 +19,6 @@ var (
 	ErrOrderIDFloor           = errors.New("corestore: reserved order id does not advance global floor")
 	ErrOrderNotModifiable     = errors.New("corestore: order durable frontier is not modifiable")
 	ErrCheckpointBusy         = errors.New("corestore: WAL checkpoint is busy")
-	ErrLegacyImportConflict   = errors.New("corestore: legacy authority was already imported from a different source")
 	ErrFreshAuthorityConflict = errors.New("corestore: fresh trading authority requires empty order and purge state")
 	ErrProjectionConflict     = errors.New("corestore: immutable projection conflict")
 	ErrUpgradeRequired        = errors.New("corestore: schema upgrade required")
@@ -492,40 +491,6 @@ type LifecycleCommit struct {
 type LifecycleResult struct {
 	EventSeqs []int64
 	State     *StateDocument
-	Head      AuthorityHead
-}
-
-// LegacyConsumedToken is a consumed canonical preview-token identifier and
-// broker scope recovered during one-time legacy import.
-type LegacyConsumedToken struct {
-	Scope          BrokerScope
-	PreviewTokenID string
-	ConsumedAt     time.Time
-}
-
-// LegacyOrderFloor is a broker-scoped conservative order-ID floor recovered
-// during one-time legacy import.
-type LegacyOrderFloor struct {
-	Scope BrokerScope
-	Floor int64
-}
-
-// LegacyOrderImport is the complete one-time order-authority cutover input.
-// SourceFingerprint makes replay of the same source idempotent and rejects a
-// different source after import.
-type LegacyOrderImport struct {
-	SourceFingerprint string
-	GlobalFloor       int64
-	ScopedFloors      []LegacyOrderFloor
-	ConsumedTokens    []LegacyConsumedToken
-	Events            []OrderEventRecord
-}
-
-// LegacyOrderImportResult reports whether this call performed the import and
-// the resulting event sequences and authority head.
-type LegacyOrderImportResult struct {
-	Imported  bool
-	EventSeqs []int64
 	Head      AuthorityHead
 }
 

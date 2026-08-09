@@ -248,6 +248,6 @@ guardrail.
 
 - [Architecture](../architecture.md)
 - [Sensors](../sensors.md)
-- [Daemon SQLite authority](daemon-sqlite-authority.md)
+- [Storage authority](../../docs/docs/internals/storage.md)
 - [Regime calibration](regime-calibration.md)
 - [Trading harness development](../guides/trading-harness-development.md)

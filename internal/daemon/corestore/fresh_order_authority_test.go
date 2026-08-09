@@ -35,16 +35,3 @@ func TestInitializeFreshOrderAuthorityIsAtomicAndAllowsUnrelatedState(t *testing
 		t.Fatalf("second initialization error = %v, want ErrFreshAuthorityConflict", err)
 	}
 }
-
-func TestInitializeFreshOrderAuthorityRejectsExistingImportWithoutMutation(t *testing.T) {
-	store, _ := openTestStore(t)
-	if _, err := store.ImportLegacyOrderAuthority(t.Context(), LegacyOrderImport{SourceFingerprint: "legacy-empty"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.InitializeFreshOrderAuthority(t.Context()); !errors.Is(err, ErrFreshAuthorityConflict) {
-		t.Fatalf("error = %v, want ErrFreshAuthorityConflict", err)
-	}
-	if got := countRows(t, store, "order_id_floors"); got != 1 {
-		t.Fatalf("order ID floor rows = %d, want imported global floor only", got)
-	}
-}

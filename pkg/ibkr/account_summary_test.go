@@ -127,7 +127,9 @@ func TestCachedAccountSummaryParsesStreamingCache(t *testing.T) {
 	c.conn = conn
 	c.running = true
 	c.ready = true
-	c.SeedAccountIDForTest("DU7654321")
+	conn.accountMu.Lock()
+	conn.account = "DU7654321"
+	conn.accountMu.Unlock()
 	conn.accountMu.Lock()
 	conn.accountSummary["NetLiquidation_EUR"] = "1250000.00"
 	conn.accountSummary["BuyingPower_EUR"] = "4800000.00"

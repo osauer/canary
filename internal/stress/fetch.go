@@ -16,12 +16,11 @@ import (
 func FetchStress(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }) (StressResult, error) {
-	res, _, err := FetchStressSnapshot(ctx, conn)
+	res, _, _, err := FetchStressSnapshotWithRegime(ctx, conn)
 	return res, err
 }
 
-// FetchStressSnapshot returns the computed assessment and the positions input
-// used to produce it.
+// FetchStressSnapshot returns the assessment and its positions input.
 func FetchStressSnapshot(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }) (StressResult, rpc.PositionsResult, error) {

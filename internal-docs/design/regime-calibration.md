@@ -556,10 +556,9 @@ regime/rules/stress/proposal/opportunity decision histories clean. Imported
 historic market and gamma measurements are immutable observations stamped
 `decision_eligible=false`, never current state or retrospective decisions.
 
-`canary regime history` and `canary stress history` query the post-cutover event
-corpus directly through typed daemon RPC. There is no derived `history.db`,
-JSONL backfill/tail ingest, raw-month rotation, archive query, file fallback,
-or dual write. See `internal-docs/design/history-index.md`.
+Regime and Stress event history remains internal evidence rather than a product
+surface. There is no derived `history.db`, JSONL backfill/tail ingest,
+raw-month rotation, archive query, file fallback, or dual write.
 
 ### Decision event corpus
 

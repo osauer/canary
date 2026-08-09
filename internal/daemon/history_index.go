@@ -10,9 +10,8 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// History RPC surfaces (regime.history, rules.history, stress.history,
-// recon.equity) render journal evidence from daemon.db and must never feed
-// submit eligibility, freeze, or any broker-write path.
+// History RPC surfaces render journal evidence from daemon.db and never feed
+// submit eligibility, freeze, or broker-write authority.
 
 const (
 	historyIndexDefaultLookback = 7 * 24 * time.Hour
@@ -34,43 +33,6 @@ const (
 // internal): the remediation is always the same because the history read
 // model is derived state.
 var errHistoryIndexUnavailable = errors.New("authoritative history storage unavailable (daemon.db; inspect daemon storage health and logs)")
-
-func (s *Server) handleRegimeHistory(req *rpc.Request) (*rpc.RegimeHistoryResult, error) {
-	var p rpc.RegimeHistoryParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	since, until, err := historyIndexRange(p.Since, p.Until, now)
-	if err != nil {
-		return nil, err
-	}
-	limit, err := historyIndexLimit(p.Limit)
-	if err != nil {
-		return nil, err
-	}
-	if s.coreStore == nil {
-		return nil, errHistoryIndexUnavailable
-	}
-	entries, total, err := s.sqliteRegimeHistory(context.Background(), since, until, strings.TrimSpace(p.Stage), limit)
-	if err != nil {
-		s.logger.Warnf("daemon authority: regime history query failed: %v", err)
-		return nil, errHistoryIndexUnavailable
-	}
-	if entries == nil {
-		entries = []rpc.RegimeHistoryEntry{} // JSON [] like orders.history, never null
-	}
-	return &rpc.RegimeHistoryResult{
-		AsOf:       now,
-		Since:      since,
-		Until:      until,
-		Entries:    entries,
-		Count:      len(entries),
-		TotalCount: total,
-		Limit:      limit,
-		Truncated:  total > len(entries),
-	}, nil
-}
 
 func (s *Server) handleRulesHistory(req *rpc.Request) (*rpc.RulesHistoryResult, error) {
 	var p rpc.RulesHistoryParams
@@ -171,42 +133,7 @@ func historyIndexLimitBounded(limit, def, maxLimit int) (int, error) {
 	return limit, nil
 }
 
-func (s *Server) handleStressHistory(req *rpc.Request) (*rpc.StressHistoryResult, error) {
-	var p rpc.StressHistoryParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	since, until, err := historyIndexRange(p.Since, p.Until, now)
-	if err != nil {
-		return nil, err
-	}
-	limit, err := historyIndexLimit(p.Limit)
-	if err != nil {
-		return nil, err
-	}
-	if s.coreStore == nil {
-		return nil, errHistoryIndexUnavailable
-	}
-	entries, total, err := s.sqliteStressHistory(context.Background(), since, until, strings.TrimSpace(p.Severity), strings.TrimSpace(p.Action), limit)
-	if err != nil {
-		s.logger.Warnf("daemon authority: stress history query failed: %v", err)
-		return nil, errHistoryIndexUnavailable
-	}
-	if entries == nil {
-		entries = []rpc.StressHistoryEntry{} // JSON [] like orders.history, never null
-	}
-	return &rpc.StressHistoryResult{
-		AsOf:       now,
-		Since:      since,
-		Until:      until,
-		Entries:    entries,
-		Count:      len(entries),
-		TotalCount: total,
-		Limit:      limit,
-		Truncated:  total > len(entries),
-	}, nil
-}
+// JSON [] like orders.history, never null
 
 func (s *Server) handleReconEquity(req *rpc.Request) (*rpc.ReconEquityResult, error) {
 	var p rpc.ReconEquityParams

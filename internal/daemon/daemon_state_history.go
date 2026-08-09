@@ -14,37 +14,6 @@ import (
 // The helpers in this file are the typed SQLite replacements for history.db
 // query calls. They return newest-first rows and the pre-limit total.
 
-func (s *Server) sqliteRegimeHistory(ctx context.Context, since, until time.Time, stage string, limit int) ([]rpc.RegimeHistoryEntry, int, error) {
-	events, err := s.sqliteHistoryEvents(ctx, coreEventRegimeDecision, since, until)
-	if err != nil {
-		return nil, 0, err
-	}
-	entries := make([]rpc.RegimeHistoryEntry, 0, len(events))
-	for _, event := range events {
-		var line regimeDecisionLine
-		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
-			return nil, 0, fmt.Errorf("decode regime decision event %d: %w", event.EventSeq, err)
-		}
-		if stage != "" && line.Stage != stage {
-			continue
-		}
-		entries = append(entries, rpc.RegimeHistoryEntry{
-			At: line.TS, SessionKey: line.SessionKey, TapeSession: line.TapeSession,
-			Stage: line.Stage, Severity: line.Severity, Readiness: line.Readiness,
-			Confidence: line.Confidence, Verdict: line.Verdict,
-			ClusterRed:         line.Composite.ClusterRedCount,
-			ClusterYellow:      line.Composite.ClusterYellowCount,
-			ClusterEligibleRed: line.Composite.ClusterEligibleRedCount,
-			Fingerprint:        line.Fingerprint,
-		})
-	}
-	total := len(entries)
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
-	return entries, total, nil
-}
-
 type sqliteRuleTransitionLine struct {
 	At                time.Time `json:"at"`
 	Rule              string    `json:"rule"`
@@ -74,39 +43,6 @@ func (s *Server) sqliteRulesHistory(ctx context.Context, since, until time.Time,
 			At: line.At, Rule: line.Rule, Status: line.Status, Was: line.Was,
 			Evidence: line.Evidence, PolicyID: line.PolicyID,
 			PolicyVersion: line.PolicyVersion, PolicyFingerprint: line.PolicyFingerprint,
-		})
-	}
-	total := len(entries)
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
-	return entries, total, nil
-}
-
-func (s *Server) sqliteStressHistory(ctx context.Context, since, until time.Time, severity, action string, limit int) ([]rpc.StressHistoryEntry, int, error) {
-	events, err := s.sqliteHistoryEvents(ctx, coreEventStressDecision, since, until)
-	if err != nil {
-		return nil, 0, err
-	}
-	entries := make([]rpc.StressHistoryEntry, 0, len(events))
-	for _, event := range events {
-		var line stressDecisionLine
-		if err := json.Unmarshal(event.PayloadJSON, &line); err != nil {
-			return nil, 0, fmt.Errorf("decode stress decision event %d: %w", event.EventSeq, err)
-		}
-		if severity != "" && string(line.Severity) != severity {
-			continue
-		}
-		if action != "" && line.Action != action {
-			continue
-		}
-		entries = append(entries, rpc.StressHistoryEntry{
-			At: line.TS, SessionKey: line.SessionKey, Fingerprint: line.Fingerprint,
-			Account: line.Account, AccountMode: line.AccountMode, Action: line.Action,
-			Severity: string(line.Severity), Direction: string(line.Direction),
-			MarketStage:            line.Market.RegimePosture.Stage,
-			PortfolioAlertRelevant: line.PortfolioAlertRelevant,
-			InputHealth:            line.InputHealth, Summary: line.Summary,
 		})
 	}
 	total := len(entries)

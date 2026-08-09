@@ -2,49 +2,10 @@ package rpc
 
 import "time"
 
-// MethodRegimeHistory serves the post-cutover regime-decision timeline from
-// the daemon's authoritative daemon.db event store. Read-only: these results
-// never feed policy or broker-write authority.
-const MethodRegimeHistory = "regime.history"
-
 // MethodRulesHistory serves the rulebook transition timeline from the same
 // daemon.db authority. Advisory/read-only end to end — nothing in
 // these results touches submit eligibility or any broker-write path.
 const MethodRulesHistory = "rules.history"
-
-// RegimeHistoryParams selects a window of persisted regime decisions.
-// Boundary grammar mirrors orders.history: RFC3339 timestamps or
-// YYYY-MM-DD UTC days.
-type RegimeHistoryParams struct {
-	// Since is the inclusive lower boundary: RFC3339, or YYYY-MM-DD
-	// meaning the start of that UTC day. Empty = 7 days before Until.
-	Since string `json:"since,omitempty"`
-	// Until is the upper boundary: RFC3339 (exclusive), or YYYY-MM-DD
-	// meaning that whole UTC day stays included. Empty = now.
-	Until string `json:"until,omitempty"`
-	// Stage filters on the exact lifecycle stage word (for example
-	// early_warning). Empty matches all stages.
-	Stage string `json:"stage,omitempty"`
-	// Limit caps returned rows, newest first; default 50, max 500.
-	Limit int `json:"limit,omitempty"`
-}
-
-// RegimeHistoryEntry is one persisted regime decision. Free-text fields
-// (Verdict) are event data for display, never parsed into authority.
-type RegimeHistoryEntry struct {
-	At                 time.Time `json:"at"`
-	SessionKey         string    `json:"session_key,omitempty"`
-	TapeSession        string    `json:"tape_session,omitempty"`
-	Stage              string    `json:"stage"`
-	Severity           string    `json:"severity,omitempty"`
-	Readiness          string    `json:"readiness,omitempty"`
-	Confidence         string    `json:"confidence,omitempty"`
-	Verdict            string    `json:"verdict,omitempty"`
-	ClusterRed         int       `json:"cluster_red_count"`
-	ClusterYellow      int       `json:"cluster_yellow_count"`
-	ClusterEligibleRed int       `json:"cluster_eligible_red_count"`
-	Fingerprint        string    `json:"fingerprint,omitempty"`
-}
 
 // HistoryIndexHealth is retained in history result shapes for wire
 // compatibility. The daemon.db authority has no asynchronous JSONL ingest or
@@ -60,23 +21,8 @@ type HistoryIndexHealth struct {
 	JournalBytes int64 `json:"journal_bytes"`
 }
 
-// RegimeHistoryResult is the regime.history envelope: the filtered window,
-// newest first, with total-vs-returned counts and a legacy-shaped compatibility
-// health block.
-type RegimeHistoryResult struct {
-	AsOf       time.Time            `json:"as_of"`
-	Since      time.Time            `json:"since"`
-	Until      time.Time            `json:"until"`
-	Entries    []RegimeHistoryEntry `json:"entries"`
-	Count      int                  `json:"count"`
-	TotalCount int                  `json:"total_count"`
-	Limit      int                  `json:"limit"`
-	Truncated  bool                 `json:"truncated"`
-	Index      HistoryIndexHealth   `json:"index"`
-}
-
 // RulesHistoryParams selects a window of persisted rulebook transitions;
-// boundary and limit semantics match RegimeHistoryParams.
+// boundaries accept RFC3339 timestamps or YYYY-MM-DD UTC days.
 type RulesHistoryParams struct {
 	Since string `json:"since,omitempty"`
 	Until string `json:"until,omitempty"`
@@ -99,8 +45,7 @@ type RuleTransitionEntry struct {
 	PolicyFingerprint string    `json:"policy_fingerprint,omitempty"`
 }
 
-// RulesHistoryResult is the rules.history envelope — the same shape as
-// RegimeHistoryResult with rule-transition entries.
+// RulesHistoryResult is the rules.history envelope.
 type RulesHistoryResult struct {
 	AsOf       time.Time             `json:"as_of"`
 	Since      time.Time             `json:"since"`
@@ -113,58 +58,6 @@ type RulesHistoryResult struct {
 	Index      HistoryIndexHealth    `json:"index"`
 }
 
-// MethodStressHistory serves the post-cutover stress-decision timeline from
-// daemon.db. Read-only event evidence — nothing here touches submit eligibility
-// or any broker-write path.
-const MethodStressHistory = "stress.history"
-
-// StressHistoryParams selects a window of persisted stress decisions;
-// boundary and limit semantics match RegimeHistoryParams.
-type StressHistoryParams struct {
-	Since string `json:"since,omitempty"`
-	Until string `json:"until,omitempty"`
-	// Severity filters on the exact decision severity word (for example
-	// watch, act). Empty matches all severities.
-	Severity string `json:"severity,omitempty"`
-	// Action filters on the exact decision action word (for example defend,
-	// watch). Empty matches all actions.
-	Action string `json:"action,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-}
-
-// StressHistoryEntry is one persisted stress decision. Summary is event free
-// text for display, never parsed into authority.
-type StressHistoryEntry struct {
-	At          time.Time `json:"at"`
-	SessionKey  string    `json:"session_key,omitempty"`
-	Fingerprint string    `json:"fingerprint,omitempty"`
-	Account     string    `json:"account,omitempty"`
-	AccountMode string    `json:"account_mode,omitempty"`
-	Action      string    `json:"action,omitempty"`
-	Severity    string    `json:"severity"`
-	Direction   string    `json:"direction,omitempty"`
-	MarketStage string    `json:"market_stage,omitempty"`
-	// PortfolioAlertRelevant mirrors the producer-stamped verdict; nil
-	// means the event predates the stamp.
-	PortfolioAlertRelevant *bool  `json:"portfolio_alert_relevant,omitempty"`
-	InputHealth            string `json:"input_health,omitempty"`
-	Summary                string `json:"summary,omitempty"`
-}
-
-// StressHistoryResult is the stress.history envelope — the phase-1 history
-// envelope with stress entries.
-type StressHistoryResult struct {
-	AsOf       time.Time            `json:"as_of"`
-	Since      time.Time            `json:"since"`
-	Until      time.Time            `json:"until"`
-	Entries    []StressHistoryEntry `json:"entries"`
-	Count      int                  `json:"count"`
-	TotalCount int                  `json:"total_count"`
-	Limit      int                  `json:"limit"`
-	Truncated  bool                 `json:"truncated"`
-	Index      HistoryIndexHealth   `json:"index"`
-}
-
 // MethodReconEquity serves the daemon.db statement-derived daily equity series
 // joined with authoritative capital events. Read-only: retained Flex XML stays
 // the original broker evidence, while SQLite holds its transactionally
@@ -172,7 +65,7 @@ type StressHistoryResult struct {
 const MethodReconEquity = "recon.equity"
 
 // ReconEquityParams selects a window of equity days. Boundary grammar
-// matches RegimeHistoryParams; the default lookback is 90 days because
+// uses the same boundary grammar; the default lookback is 90 days because
 // the series is daily-granular.
 type ReconEquityParams struct {
 	Since string `json:"since,omitempty"`

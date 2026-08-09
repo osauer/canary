@@ -238,8 +238,8 @@ mutable JSON documents carry independent, kind-specific payload versions and
 typed migrations. Append-only events are not rewritten to fit a new shape; a new
 event or payload version retains a compatible reader or feeds a new projection.
 
-The full crash-boundary protocol lives in the
-[SQLite implementation contract](../../../internal-docs/design/daemon-sqlite-authority.md). Migration 1
+The crash-boundary protocol is implemented and tested in
+`internal/daemon/corestore` and the daemon's upgrade coordinator. Migration 1
 creates the schema. Migrations 2 and 3 rename the portfolio-stress sensor's
 projection table, its `event_log` label, and the observations imported from the
 pre-rename decision journal; they are the first transitions the general
@@ -294,8 +294,6 @@ or a change stream from each authoritative daemon.
 - [Architecture](architecture.md): process, broker, RPC, and state ownership.
 - [Sensors](../understand/sensors.md): measurement authority, source cadence, last-good
   behavior, and safe operator checks.
-- [SQLite Implementation Contract](../../../internal-docs/design/daemon-sqlite-authority.md): cutover,
-  durability, upgrade, and recovery mechanics.
 - [Platform Settings](../../../internal-docs/design/platform-settings.md): the typed daemon document for
   live preferences.
 - [Trading Policy](../understand/policy.md): human-authored limits, and the applied

@@ -462,35 +462,6 @@ func (s *platformSettingsStore) lockTradingControlSnapshot(base config.Trading, 
 	return base, s.data.TradingControlGeneration, frozen, s.mu.RUnlock
 }
 
-func (s *platformSettingsStore) update(fn func(*platformSettingsData) error) error {
-	if s == nil {
-		return errBadRequest("runtime settings store is unavailable")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	next := s.data
-	if next.Version == 0 {
-		next.Version = platformSettingsDocVersion
-	}
-	if err := fn(&next); err != nil {
-		return err
-	}
-	// The callback cannot assign or roll back this authority counter. Derive it
-	// solely from the committed predecessor and the semantic before/after
-	// values. A patch that changes several controls advances once; reapplying
-	// an equal value does not advance merely because it allocated a new pointer.
-	if err := deriveTradingControlGeneration(s.data, &next); err != nil {
-		return err
-	}
-	if err := s.saveLocked(next); err != nil {
-		return err
-	}
-	// Publish only after the authoritative write commits. A full/busy/corrupt
-	// database therefore cannot relax an in-memory freeze or limit.
-	s.data = next
-	return nil
-}
-
 func (s *platformSettingsStore) updateWithAudit(ctx context.Context, at time.Time, origin string, requestedKeys []string, fn func(*platformSettingsData) error) error {
 	if s == nil {
 		return errBadRequest("runtime settings store is unavailable")

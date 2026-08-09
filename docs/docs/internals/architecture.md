@@ -196,9 +196,9 @@ durability and upgrade mechanics, and current recovery limits.
 
 ### History and imported observations
 
-The four history commands (`canary regime history`, `canary rules history`,
-`canary stress history`, and `canary recon equity`) query `daemon.db` through typed
-daemon RPC; MCP and the app currently expose no history surface. Order reads use
+The two operator-valued history commands (`canary rules history` and
+`canary recon equity`) query `daemon.db` through typed daemon RPC. Regime and
+Stress history remain internal event evidence rather than product surfaces. Order reads use
 the same database authority. There is no `history.db` ingest path, journal scan
 fallback, rotation job, or dual write after cutover, and the legacy decision
 histories deliberately start empty.

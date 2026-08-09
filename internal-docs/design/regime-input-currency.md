@@ -328,7 +328,7 @@ and legitimately differs from a recompute under the current policy. Boot-time
 reconciliation demands byte equality only within one policy version;
 `TestUpgradeBootReachesReadyOnPriorVersionStores` boots the daemon over such a
 line and requires it to reach ready. Bumping `RegimeCurrencyPolicyVersion` adds
-a fixture there — see `internal-docs/design/daemon-sqlite-authority.md`.
+a fixture in the schema-upgrade regression spine.
 
 Gates: `make test` (binding for Go behaviour, includes `check`), then `make check`
 before commit; `docs-check` / `docs-html-check` for the `docs/` edits.

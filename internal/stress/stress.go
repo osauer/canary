@@ -3258,6 +3258,12 @@ func formatProtectionCoverageEvidence(c *rpc.ProtectionCoverageSummary) string {
 	return strings.Join(parts, "; ")
 }
 
+// FormatProtectionCoverageEvidence formats the current protection coverage
+// for the CLI without exporting Stress's internal evaluation machinery.
+func FormatProtectionCoverageEvidence(c *rpc.ProtectionCoverageSummary) string {
+	return formatProtectionCoverageEvidence(c)
+}
+
 // largestUnprotectedPhrase names the single largest unprotected position and
 // its uncovered amount ("MSFT € 12,345.67") for row guidance. The daemon
 // orders LargestUnprotected by uncovered notional; a row without a valued

@@ -744,35 +744,6 @@ func TestVerifiedBackupReopensAndRejectsRollback(t *testing.T) {
 	}
 }
 
-func TestLegacyOrderAuthorityImportIsOneEpochAndLossless(t *testing.T) {
-	s, _ := openTestStore(t)
-	scope := testScope("legacy-paper")
-	tokenID := "legacy-preview-id"
-	input := LegacyOrderImport{SourceFingerprint: "source-a", GlobalFloor: 70, ScopedFloors: []LegacyOrderFloor{{Scope: scope, Floor: 60}}, ConsumedTokens: []LegacyConsumedToken{{Scope: scope, PreviewTokenID: tokenID, ConsumedAt: time.Unix(1_700_000_000, 0).UTC()}}, Events: []OrderEventRecord{orderEvent(scope, "source-a:17", tokenID, 60)}}
-	result, err := s.ImportLegacyOrderAuthority(t.Context(), input)
-	if err != nil || !result.Imported {
-		t.Fatalf("import=%+v err=%v", result, err)
-	}
-	if got, _ := s.GlobalOrderIDFloor(t.Context()); got != 70 {
-		t.Fatalf("global floor=%d want 70", got)
-	}
-	if countRows(t, s, "consumed_preview_tokens") != 1 || countRows(t, s, "order_events") != 1 {
-		t.Fatal("legacy authority rows missing")
-	}
-	retry, err := s.ImportLegacyOrderAuthority(t.Context(), input)
-	if err != nil || retry.Imported {
-		t.Fatalf("idempotent retry=%+v err=%v", retry, err)
-	}
-	changed := input
-	changed.SourceFingerprint = "source-b"
-	if _, err := s.ImportLegacyOrderAuthority(t.Context(), changed); !errors.Is(err, ErrLegacyImportConflict) {
-		t.Fatalf("changed-source import error=%v", err)
-	}
-	if countRows(t, s, "consumed_preview_tokens") != 1 || countRows(t, s, "order_events") != 1 {
-		t.Fatal("conflicting import changed authority rows")
-	}
-}
-
 func TestTypedEventsAndStatementProjection(t *testing.T) {
 	s, _ := openTestStore(t)
 	ctx := t.Context()

@@ -32,28 +32,10 @@ type DaemonProcess struct {
 	Foreground bool
 }
 
-// IsDaemonRunning reads the daemon's PID file (co-located with the
-// socket, written by internal/daemon/lock.go) and reports whether the
-// PID is currently a live process.
-//
-// Returns (0, false) on any missing/malformed/stale case so the caller
-// can treat the absence the same way regardless of cause — "no daemon
-// to restart, skip the step."
-func IsDaemonRunning() (int, bool) {
-	pid := dial.LockHolderPID(dial.LockPath(dial.DefaultSocketPath()))
-	if pid <= 0 {
-		return 0, false
-	}
-	if !dial.IsProcessAlive(pid) {
-		return pid, false
-	}
-	return pid, true
-}
-
 // FindDaemonProcess returns the live Canary daemon process for socketPath.
 //
-// It is intentionally stricter than IsDaemonRunning: commands that send
-// signals must not trust a stale or forged pidfile. A live pidfile holder is
+// Commands that send signals must not trust a stale or forged pidfile. A live
+// pidfile holder is
 // accepted only when its command line uses the canonical `canary daemon` or a
 // pre-upgrade `ibkr daemon` process that must be quiesced. A responding
 // socket without a verifiable pidfile is treated as unverified rather than
@@ -133,13 +115,6 @@ var (
 	restartTimeout = 5 * time.Second
 	restartPoll    = 100 * time.Millisecond
 )
-
-// RestartDaemon stops pid with the standard graceful-shutdown timeout. The
-// next daemon-backed command may autospawn the installed binary; this function
-// does not start a replacement process. An already-exited process is success.
-func RestartDaemon(pid int) error {
-	return StopDaemon(pid, restartTimeout)
-}
 
 // StopDaemon sends SIGTERM to pid and waits until it exits. It does not
 // verify the PID; callers that read a pidfile should call FindDaemonProcess

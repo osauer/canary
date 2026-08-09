@@ -18,6 +18,24 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
+func readHistoricalStateDocument(t *testing.T, path, scope, kind string) []byte {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&_pragma=foreign_keys(ON)&_dqs=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var raw, digest []byte
+	if err := db.QueryRowContext(context.Background(), `SELECT document_json, document_sha256 FROM state_documents WHERE scope_key=? AND kind=?`, scope, kind).Scan(&raw, &digest); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	if !bytes.Equal(digest, sum[:]) {
+		t.Fatalf("state document %s/%s digest mismatch", scope, kind)
+	}
+	return raw
+}
+
 func TestAlertEventMaintenanceResumesEveryDurableBoundary(t *testing.T) {
 	phases := []string{
 		coreSchemaPhaseIntent,
@@ -762,183 +780,12 @@ func TestCoreSchemaUpgradeLegacyManifestChainsThroughCurrentTarget(t *testing.T)
 	}
 }
 
-func TestCoreSchemaUpgradeLegacyManifestRealPlanChainsBeforeAndAfterPublication(t *testing.T) {
-	for _, crashPhase := range []string{coreSchemaPhaseCandidate, coreSchemaPhaseRenamed} {
-		t.Run(crashPhase, func(t *testing.T) {
-			fixture := historicalUpgradeFixtureByID(t, "v2.3.0-schema-v1-authority")
-			root := privateTestDir(t)
-			materializeHistoricalUpgradeFixture(t, fixture, root)
-			databasePath := filepath.Join(root, "daemon.db")
-			minimum, err := loadAuthorityWatermark(databasePath + ".head")
-			if err != nil || minimum == nil {
-				t.Fatalf("load historical source watermark=%+v err=%v", minimum, err)
-			}
-			source, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
-				Path: databasePath, MinimumHead: minimum,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			legacy := coreSchemaUpgradeManifest{
-				Version:       coreSchemaUpgradeLegacyManifestVersion,
-				UpgradeID:     "1234567890abcdef12345678",
-				Status:        coreSchemaUpgradePreparing,
-				CreatedAt:     time.Now().UTC(),
-				SourceVersion: source.SchemaVersion,
-				TargetVersion: 2,
-				SourceHead:    source.Head,
-			}
-			if err := writeCoreSchemaUpgradeManifest(databasePath, legacy); err != nil {
-				t.Fatal(err)
-			}
-
-			ops := productionCoreSchemaUpgradeOps()
-			ops.after = func(phase string) error {
-				if phase == crashPhase {
-					return errors.New("injected legacy-manifest crash")
-				}
-				return nil
-			}
-			if _, err := ensureCoreStoreSchemaCurrentWithOps(
-				t.Context(), databasePath, minimum, time.Now(), ops,
-			); err == nil {
-				t.Fatalf("legacy real-plan upgrade did not stop after %s", crashPhase)
-			}
-			pending, exists, err := loadCoreSchemaUpgradeManifest(databasePath)
-			if err != nil || !exists || pending.TargetVersion != 2 {
-				t.Fatalf("legacy manifest after %s: exists=%v manifest=%+v err=%v", crashPhase, exists, pending, err)
-			}
-			resumeMinimum, err := loadAuthorityWatermark(databasePath + ".head")
-			if err != nil || resumeMinimum == nil {
-				t.Fatalf("load legacy resume watermark=%+v err=%v", resumeMinimum, err)
-			}
-			if crashPhase == coreSchemaPhaseRenamed {
-				mid, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
-					Path: databasePath, MinimumHead: resumeMinimum,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if mid.SchemaVersion != 2 || mid.Status != corestore.InspectionUpgradeRequired {
-					t.Fatalf("published legacy target was not a real schema-2 prefix: %+v", mid)
-				}
-			}
-
-			finalHead, err := ensureCoreStoreSchemaCurrentWithOps(
-				t.Context(), databasePath, resumeMinimum, time.Now(), productionCoreSchemaUpgradeOps(),
-			)
-			if err != nil {
-				t.Fatalf("resume legacy real-plan upgrade after %s: %v", crashPhase, err)
-			}
-			wantHead := source.Head
-			wantHead.HeadGeneration += 2
-			if finalHead == nil || *finalHead != wantHead {
-				t.Fatalf("legacy chained head=%+v want %+v", finalHead, wantHead)
-			}
-			current, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
-				Path: databasePath, MinimumHead: finalHead,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if current.Status != corestore.InspectionCurrent ||
-				current.SchemaVersion != betaOperationalPruneMigrationVersion {
-				t.Fatalf("legacy chain did not reach current schema: %+v", current)
-			}
-			if pending, err := coreSchemaUpgradePending(databasePath); err != nil || pending {
-				t.Fatalf("legacy chain manifest pending=%v err=%v", pending, err)
-			}
-		})
-	}
-}
-
-func TestCoreSchemaUpgradePreparingIntentResetsUnboundRealPlanArtifacts(t *testing.T) {
-	fixture := historicalUpgradeFixtureByID(t, "v2.5.4-schema-v3-authority")
-	root := privateTestDir(t)
-	materializeHistoricalUpgradeFixture(t, fixture, root)
-	databasePath := filepath.Join(root, "daemon.db")
-	minimum, err := loadAuthorityWatermark(databasePath + ".head")
-	if err != nil || minimum == nil {
-		t.Fatalf("load historical v3 watermark=%+v err=%v", minimum, err)
-	}
-	source, err := corestore.Inspect(t.Context(), corestore.InspectOptions{
-		Path: databasePath, MinimumHead: minimum,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest := coreSchemaUpgradeManifest{
-		Version:        coreSchemaUpgradeManifestVersion,
-		UpgradeID:      "abcdef1234567890abcdef12",
-		Status:         coreSchemaUpgradePreparing,
-		CreatedAt:      time.Now().UTC(),
-		SourceVersion:  source.SchemaVersion,
-		TargetVersion:  source.TargetVersion,
-		SourceHead:     source.Head,
-		HeadTransition: source.HeadTransition,
-	}
-	if err := writeCoreSchemaUpgradeManifest(databasePath, manifest); err != nil {
-		t.Fatal(err)
-	}
-	artifacts, err := coreSchemaUpgradeArtifactPaths(databasePath, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := corestore.PrepareUpgrade(t.Context(), corestore.UpgradeOptions{
-		SourcePath:       databasePath,
-		BackupPath:       artifacts.backup,
-		CandidatePath:    artifacts.candidate,
-		TargetVersion:    manifest.TargetVersion,
-		MinimumHead:      &source.Head,
-		ReplaceCandidate: true,
-	}); err != nil {
-		t.Fatalf("seed unbound prepared artifacts: %v", err)
-	}
-	// A safe rebuild unlinks the seeded candidate and creates the replacement at
-	// the same path, so on a filesystem that recycles inode numbers — ext4, as CI
-	// runs on — the rebuilt file can land on the freed inode and be indistinguishable
-	// from the seeded one by device and inode alone. Holding this descriptor open
-	// keeps the seeded inode allocated for the whole upgrade, so os.SameFile below
-	// stays an identity test rather than an allocator coin flip.
-	unboundHandle, err := os.Open(artifacts.candidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unboundHandle.Close()
-	unboundCandidate, err := unboundHandle.Stat()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ops := productionCoreSchemaUpgradeOps()
-	productionPrepare := ops.prepare
-	var sawReset bool
-	ops.prepare = func(ctx context.Context, options corestore.UpgradeOptions) (corestore.UpgradeResult, error) {
-		sawReset = options.ResetUnboundArtifacts
-		return productionPrepare(ctx, options)
-	}
-	finalHead, err := ensureCoreStoreSchemaCurrentWithOps(
-		t.Context(), databasePath, minimum, time.Now(), ops,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !sawReset {
-		t.Fatal("preparing resume did not request safe reset of unbound artifacts")
-	}
-	wantHead := source.Head
-	wantHead.HeadGeneration++
-	if finalHead == nil || *finalHead != wantHead {
-		t.Fatalf("preparing resume head=%+v want=%+v", finalHead, wantHead)
-	}
-	published, err := os.Stat(databasePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if os.SameFile(unboundCandidate, published) {
-		t.Fatal("unbound preparing candidate was adopted instead of safely rebuilt")
-	}
-}
+// A safe rebuild unlinks the seeded candidate and creates the replacement at
+// the same path, so on a filesystem that recycles inode numbers — ext4, as CI
+// runs on — the rebuilt file can land on the freed inode and be indistinguishable
+// from the seeded one by device and inode alone. Holding this descriptor open
+// keeps the seeded inode allocated for the whole upgrade, so os.SameFile below
+// stays an identity test rather than an allocator coin flip.
 
 func newFakeMaintenanceSchemaAuthority(t *testing.T, rows int64) (string, fakeSchemaFile) {
 	t.Helper()

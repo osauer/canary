@@ -370,13 +370,12 @@ type Server struct {
 	coreStore        *corestore.Store
 	coreStorePath    string
 	coreStorePathErr error
-	// importLegacyAuthority is true only for the production XDG database.
-	// A custom database path is isolated and always starts as a fresh epoch;
-	// it must never inspect the user's live legacy files.
-	importLegacyAuthority bool
-	persistenceLock       *persistenceLock
-	authorityCloseOnce    sync.Once
-	authorityCloseErr     error
+	// productionStateDatabase distinguishes the XDG authority from isolated
+	// test/offline databases. Only production enforces the v2-to-v3 bridge.
+	productionStateDatabase bool
+	persistenceLock         *persistenceLock
+	authorityCloseOnce      sync.Once
+	authorityCloseErr       error
 
 	// orderJournal is the durable audit log for order intents and broker
 	// lifecycle events. It is installed before order writes exist so status
@@ -631,7 +630,7 @@ func New(opts Options) *Server {
 		s.coreStorePath = opts.StateDatabasePath
 	} else {
 		s.coreStorePath, s.coreStorePathErr = defaultDaemonDatabasePath()
-		s.importLegacyAuthority = true
+		s.productionStateDatabase = true
 	}
 	s.attempterFactory = s.buildAttempter
 	s.installSubs()
@@ -2748,12 +2747,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleAlertCandidates(ctx, req) })
 	case rpc.MethodAlertStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleAlertStatus(ctx, req) })
-	case rpc.MethodRegimeHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleRegimeHistory(req) })
 	case rpc.MethodRulesHistory:
 		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(req) })
-	case rpc.MethodStressHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleStressHistory(req) })
 	case rpc.MethodReconEquity:
 		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(req) })
 	case rpc.MethodMarketEventsSnapshot:

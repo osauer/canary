@@ -105,12 +105,8 @@ const (
 	gammaSkewDiagObservationKind = "gamma_skew_diagnostic.v1"
 )
 
-func gammaSkewDiagScopeKey(scope, slice string) string {
-	return "market/gamma/skew/" + scope + "/" + slice
-}
-
-// appendLegacy preserves the old JSONL codec for the one-shot cutover
-// importer and format tests. Runtime code must attach corestore first.
+// appendLegacy is retained only for isolated codec tests. Runtime attaches
+// corestore before diagnostics can be written.
 func (j *gammaSkewDiagJournal) appendLegacy(lines []gammaSkewDiagLine) error {
 	var buf []byte
 	for _, line := range lines {
