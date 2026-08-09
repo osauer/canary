@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Require publication helpers to run from either the clean exact release tag
-# or a clean, current origin/main recovery controller. The latter keeps current
-# safety code in authority while treating an older tag only as immutable input.
+# or a clean, current recovery controller on the release line's owning branch.
+# The latter keeps current safety code in authority while treating an older tag
+# only as immutable input.
 # The mode is always explicit: a caller that cannot name its anchor does not
 # know which commit it is trusting.
 
@@ -27,6 +28,11 @@ if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
 	echo "check-release-source: version must look like vX.Y.Z (got $version)" >&2
 	exit 1
 fi
+controller_branch="main"
+case "$version" in
+	v2.*) controller_branch="release/2.x" ;;
+esac
+controller_ref="refs/heads/$controller_branch"
 
 head_commit="$(git rev-parse --verify 'HEAD^{commit}')" || {
 	echo "check-release-source: cannot resolve HEAD" >&2
@@ -55,14 +61,14 @@ if [ "$mode" = "tag" ]; then
 	exit 0
 fi
 
-remote_lines="$(git ls-remote --exit-code --refs origin refs/heads/main)" || {
-	echo "check-release-source: cannot resolve canonical controller refs/heads/main" >&2
+remote_lines="$(git ls-remote --exit-code --refs origin "$controller_ref")" || {
+	echo "check-release-source: cannot resolve canonical controller $controller_ref" >&2
 	exit 1
 }
-remote_main="$(
+remote_controller="$(
 	printf '%s\n' "$remote_lines" |
-		awk '
-			NF == 2 && $2 == "refs/heads/main" {
+		awk -v expected_ref="$controller_ref" '
+			NF == 2 && $2 == expected_ref {
 				count++
 				sha = $1
 				next
@@ -81,9 +87,9 @@ remote_main="$(
 	echo "check-release-source: origin returned malformed controller evidence" >&2
 	exit 1
 }
-if [ "$head_commit" != "$remote_main" ]; then
-	echo "check-release-source: recovery controller HEAD is not exact origin/main" >&2
+if [ "$head_commit" != "$remote_controller" ]; then
+	echo "check-release-source: recovery controller HEAD is not exact origin/$controller_branch" >&2
 	exit 1
 fi
 
-echo "check-release-source: OK mode=controller controller=$head_commit tag=$version tag_sha=$tag_commit"
+echo "check-release-source: OK mode=controller branch=$controller_branch controller=$head_commit tag=$version tag_sha=$tag_commit"

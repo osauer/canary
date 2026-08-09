@@ -26,9 +26,11 @@ git -C "$repo" add tracked.txt .gitignore
 git -C "$repo" commit -q -m tagged
 git -C "$repo" tag -a v1.2.3 -m v1.2.3
 git -C "$repo" branch -M main
+git -C "$repo" branch release/2.x
+git -C "$repo" tag -a v2.8.5 -m v2.8.5
 git init --bare -q "$remote"
 git -C "$repo" remote add origin "$remote"
-git -C "$repo" push -q origin main v1.2.3
+git -C "$repo" push -q origin main release/2.x v1.2.3 v2.8.5
 
 (
 	cd "$repo"
@@ -39,6 +41,14 @@ git -C "$repo" push -q origin main v1.2.3
 	"$checker" --mode tag v1.2.3 >/dev/null
 	"$checker" --mode controller v1.2.3 >/dev/null
 )
+
+git -C "$repo" checkout -q release/2.x
+(
+	cd "$repo"
+	"$checker" --mode tag v2.8.5 >/dev/null
+	"$checker" --mode controller v2.8.5 >/dev/null
+)
+git -C "$repo" checkout -q main
 
 expect_dirty_rejection() {
 	local label="$1"
@@ -79,6 +89,19 @@ fi
 	cd "$repo"
 	"$checker" --mode controller v1.2.3 >/dev/null
 )
+if (
+	cd "$repo"
+	"$checker" --mode controller v2.8.5 >/dev/null 2>&1
+); then
+	echo "check-release-source test: advanced main passed as v2 controller" >&2
+	exit 1
+fi
+git -C "$repo" checkout -q release/2.x
+(
+	cd "$repo"
+	"$checker" --mode controller v2.8.5 >/dev/null
+)
+git -C "$repo" checkout -q main
 
 # The registry workflow's release-publication checkout: HEAD is the tag while
 # origin/main has already moved on. Tag mode is the only anchor that holds.
