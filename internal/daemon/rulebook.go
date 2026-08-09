@@ -496,6 +496,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		in.Names = mapRuleNames(pos, pol, in.BaseCurrency)
 		earnings, infos := s.assembleEarnings(ctx, in.Names, pol, cal, now, allowMaintenance)
 		in.Earnings = earnings
+		in.Names = rulebookEconomicNames(in.Names, earnings)
 		res.Earnings = infos
 		earningsHealth, degraded := rulesEarningsSourceHealth(infos, now)
 		earningsDegraded = degraded
@@ -529,6 +530,35 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	// components (notably the positions read model) stamp their own receipt
 	res.AsOf = time.Now().UTC()
 	return res
+}
+
+// rulebookEconomicNames removes economic exposure only after exact-contract
+// authority has established that a stock-only holding is terminal and
+// non-reporting. Identity remains on the row so earnings rules 6-8 can render
+// their explicit exemption. Missing, stale, conflicted, or option-bearing
+// evidence remains untouched and therefore fails closed in the pure rules.
+func rulebookEconomicNames(names []risk.NameInput, earnings map[string]risk.EarningsInput) []risk.NameInput {
+	var out []risk.NameInput
+	for i, name := range names {
+		evidence, ok := earnings[strings.ToUpper(name.Symbol)]
+		if !ok || !evidence.TerminalNonReporting || evidence.Stale || evidence.Source != "verified_terminal" || evidence.Reason == "" || len(name.Legs) != 0 {
+			continue
+		}
+		if out == nil {
+			out = append([]risk.NameInput(nil), names...)
+		}
+		out[i] = risk.NameInput{
+			Symbol:               name.Symbol,
+			StockConID:           name.StockConID,
+			StockSecType:         name.StockSecType,
+			UnderlyingSecType:    name.UnderlyingSecType,
+			ExposureBaseComplete: true,
+		}
+	}
+	if out == nil {
+		return names
+	}
+	return out
 }
 
 func rulebookInputHealthDegraded(health []rpc.SourceHealth) bool {

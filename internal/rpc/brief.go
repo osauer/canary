@@ -257,10 +257,12 @@ type BriefAutoExtendRow struct {
 // BriefRulesRow summarizes current policy adherence. It deliberately uses no
 type BriefRulesRow struct {
 	BriefRowState
-	Pass    int `json:"pass"`
-	Watch   int `json:"watch"`
-	Act     int `json:"act"`
-	Unknown int `json:"unknown"`
+	Pass         int `json:"pass"`
+	Info         int `json:"info"`
+	Watch        int `json:"watch"`
+	Act          int `json:"act"`
+	Unknown      int `json:"unknown"`
+	NotEvaluated int `json:"not_evaluated"`
 }
 
 // BriefProposalsRow reports how many protection proposals were offered versus

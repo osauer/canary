@@ -103,7 +103,7 @@ func (s *Server) briefGammaSnapshot() *rpc.GammaZeroSPXResult {
 	if s == nil || s.zeroGamma == nil {
 		return nil
 	}
-	env := s.zeroGamma.snapshotForScope(rpc.GammaZeroScopeCombined, nil, s.briefNow)
+	env := s.zeroGamma.snapshotCurrent(rpc.GammaZeroScopeCombined, s.briefNow)
 	return &env
 }
 
@@ -1026,7 +1026,7 @@ func policyPinsReadable(inventory []rpc.PolicyPinStatus, requireMatch bool) bool
 }
 
 func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
-	row := rpc.BriefRulesRow{BriefRowState: briefOK("all current rulebook checks pass")}
+	row := rpc.BriefRulesRow{BriefRowState: briefOK("all due current rulebook checks pass")}
 	if current == nil {
 		row.BriefRowState = briefUnavailable("rulebook snapshot unavailable")
 		return row
@@ -1035,11 +1035,19 @@ func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
 		switch r.Status {
 		case risk.RuleStatusPass:
 			row.Pass++
+		case risk.RuleStatusInfo:
+			row.Info++
 		case risk.RuleStatusWatch:
 			row.Watch++
 		case risk.RuleStatusAct:
 			row.Act++
+		case risk.RuleStatusUnknown:
+			row.Unknown++
+		case risk.RuleStatusNotEvaluated:
+			row.NotEvaluated++
 		default:
+			// An unrecognized future status remains fail-closed until every
+			// brief consumer learns its semantics.
 			row.Unknown++
 		}
 	}
@@ -1047,7 +1055,9 @@ func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
 	case row.Act > 0:
 		row.BriefRowState = briefAttention(fmt.Sprintf("%d current %s require action", row.Act, pluralNoun(row.Act, "rule")))
 	case row.Watch > 0 || row.Unknown > 0 || current.Status == "degraded":
-		row.BriefRowState = briefDegraded(fmt.Sprintf("current rulebook: %d watch, %d unknown", row.Watch, row.Unknown))
+		row.BriefRowState = briefDegraded(fmt.Sprintf("current rulebook: %d watch, %d unknown, %d not evaluated", row.Watch, row.Unknown, row.NotEvaluated))
+	case row.NotEvaluated > 0:
+		row.Detail = fmt.Sprintf("all due current rulebook checks pass; %d not evaluated", row.NotEvaluated)
 	}
 	return row
 }

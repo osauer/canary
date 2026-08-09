@@ -478,9 +478,11 @@ func briefRulesSentence(p *briefProse, row rpc.BriefRulesRow) {
 	case row.Status == rpc.BriefStatusAttention:
 		p.tinted(rpc.BriefRunRoleAct, briefUpperFirst(briefCountPhrase(row.Act, "current policy check", "current policy checks"))+" require action.")
 	case row.Status == rpc.BriefStatusDegraded:
-		p.text("Current policy adherence has " + briefCountPhrase(row.Watch, "watch", "watches") + " and " + briefCountPhrase(row.Unknown, "unknown", "unknowns") + ".")
+		p.text("Current policy adherence has " + briefCountPhrase(row.Watch, "watch", "watches") + ", " + briefCountPhrase(row.Unknown, "unknown", "unknowns") + ", and " + briefCountPhrase(row.NotEvaluated, "not evaluated", "not evaluated") + ".")
+	case row.NotEvaluated > 0:
+		p.text("All due current policy checks pass; " + briefCountPhrase(row.NotEvaluated, "check is", "checks are") + " not evaluated.")
 	default:
-		p.text("All current policy checks pass.")
+		p.text("All due current policy checks pass.")
 	}
 }
 
