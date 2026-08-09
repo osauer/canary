@@ -13,6 +13,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +22,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // WireFrame mirrors pkg/ibkr.WireFrame's JSON shape. Kept as a separate
@@ -134,8 +138,23 @@ func main() {
 		loose      = flag.Bool("loose", false, "loosen budgets when gateway is in frozen/off-hours mode")
 		envPath    = flag.String("envelope-path", "", "path to a JSON file holding the command's response envelope")
 		listChecks = flag.Bool("list", false, "print the catalogue of supported checks and exit")
+		probe      = flag.String("probe", "", "run a read-only smoke probe (quote, chain-expiries, chain, regime, gamma)")
+		socket     = flag.String("socket", "", "daemon socket for --probe (default: CANARY_SOCKET)")
+		symbol     = flag.String("symbol", "SPY", "symbol for quote or chain probes")
+		expiry     = flag.String("expiry", "", "YYYY-MM-DD expiry for the chain probe")
+		width      = flag.Int("width", 1, "ATM strike width for the chain probe")
+		side       = flag.String("side", "both", "calls, puts, or both for the chain probe")
+		scope      = flag.String("scope", "", "spy or spx for the gamma probe; empty requests combined scope")
 	)
 	flag.Parse()
+
+	if *probe != "" {
+		if err := runProbe(*probe, *socket, *symbol, *expiry, *side, *scope, *width); err != nil {
+			fmt.Fprintf(os.Stderr, "wire-assert: probe %s: %v\n", *probe, err)
+			os.Exit(2)
+		}
+		return
+	}
 
 	if *listChecks {
 		for _, c := range catalogue() {
@@ -179,6 +198,83 @@ func main() {
 	os.Exit(1)
 }
 
+// runProbe reaches retained daemon authority without restoring the retired
+// quote, chain, regime, and gamma user-facing CLI adapters. It is used only by
+// the isolated wire smoke and exposes no broker-write method.
+func runProbe(name, socket, symbol, expiry, side, scope string, width int) error {
+	if socket == "" {
+		socket = dial.DefaultSocketPath()
+	}
+	conn, err := dial.Connect(socket)
+	if err != nil {
+		return fmt.Errorf("connect %s: %w", dial.DisplayPath(socket), err)
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	enc := json.NewEncoder(os.Stdout)
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+
+	switch name {
+	case "quote":
+		var out rpc.Quote
+		err = conn.Call(ctx, rpc.MethodQuoteSnapshot, rpc.QuoteSnapshotParams{
+			Contract:         rpc.ContractParams{Symbol: symbol, SecType: "STK", Currency: "USD"},
+			TimeoutMs:        5_000,
+			IncludeLiquidity: true,
+		}, &out)
+		if err == nil {
+			err = enc.Encode(out)
+		}
+	case "chain-expiries":
+		var out rpc.ChainExpiriesResult
+		err = conn.Call(ctx, rpc.MethodChainExpiries, rpc.ChainExpiriesParams{Symbol: symbol}, &out)
+		if err == nil {
+			err = enc.Encode(out)
+		}
+	case "chain":
+		if expiry == "" {
+			return fmt.Errorf("--expiry is required")
+		}
+		if width < 0 {
+			return fmt.Errorf("--width must be non-negative")
+		}
+		side = strings.ToLower(strings.TrimSpace(side))
+		if side != "calls" && side != "puts" && side != "both" {
+			return fmt.Errorf("--side must be calls, puts, or both")
+		}
+		var out rpc.ChainResult
+		err = conn.Call(ctx, rpc.MethodChainFetch, rpc.ChainFetchParams{
+			Symbol: symbol, Expiry: expiry, Width: width, Side: side,
+		}, &out)
+		if err == nil {
+			err = enc.Encode(out)
+		}
+	case "regime":
+		var out rpc.RegimeSnapshotResult
+		err = conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &out)
+		if err == nil {
+			rpc.StripRegimeGammaProfiles(&out)
+			err = enc.Encode(out)
+		}
+	case "gamma":
+		scope = strings.ToLower(strings.TrimSpace(scope))
+		if scope != "" && scope != rpc.GammaZeroScopeSPY && scope != rpc.GammaZeroScopeSPX {
+			return fmt.Errorf("--scope must be spy, spx, or empty")
+		}
+		var out rpc.GammaZeroSPXResult
+		err = conn.Call(ctx, rpc.MethodGammaZeroSPX, rpc.GammaZeroSPXParams{WaitMs: 0, Scope: scope}, &out)
+		if err == nil {
+			rpc.StripGammaProfiles(&out)
+			err = enc.Encode(out)
+		}
+	default:
+		return fmt.Errorf("unknown read-only probe %q", name)
+	}
+	return err
+}
+
 // ---- catalogue ------------------------------------------------------------
 
 // checkInputs aggregates everything a check function may need. Passing one
@@ -197,11 +293,11 @@ type checkEntry struct {
 func catalogue() []checkEntry {
 	return []checkEntry{
 		{"status-handshake", "after canary status: at least one MarketDataType notice inbound", checkStatusHandshake},
-		{"quote-spy", "after canary quote SPY: reqMktData OUT + tickPrice IN within budget", checkQuoteSPY},
+		{"quote-spy", "after the SPY quote probe: reqMktData OUT + tickPrice IN within budget", checkQuoteSPY},
 		{"account-summary", "after canary account: reqAccountSummary OUT + acctValue/accountSummary IN", checkAccountSummary},
-		{"chain-iv-source", "after canary chain SPY --width 5: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV, or per-leg IV in the chain response when no new subscribe was needed", checkChainIVSource},
-		{"regime-subs", "after canary regime: MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY", checkRegimeSubs},
-		{"gamma-no-wait-envelope", "after canary gamma --no-wait: valid cold/computing/ready/error envelope", checkGammaNoWaitEnvelope},
+		{"chain-iv-source", "after the SPY chain probe: ≥1 OPTION_COMPUTATION (msg 21) with non-NaN IV, or per-leg IV in the response", checkChainIVSource},
+		{"regime-subs", "after the regime probe: MarketDataType notice for each of VIX/VIX3M/HYG/SPY/USDJPY", checkRegimeSubs},
+		{"gamma-no-wait-envelope", "after the non-blocking gamma probe: valid cold/computing/ready/error envelope", checkGammaNoWaitEnvelope},
 	}
 }
 
@@ -404,7 +500,7 @@ func checkChainIVSource(in checkInputs) CheckResult {
 func checkChainResponseIV(in checkInputs) CheckResult {
 	if len(in.Envelope) == 0 {
 		return CheckResult{
-			Expected:   "≥1 reqMktData OUT with SecType=OPT after canary chain, or --envelope-path holding the chain response",
+			Expected:   "≥1 reqMktData OUT with SecType=OPT after the chain probe, or --envelope-path holding its response",
 			Observed:   "0 OPT subscribes and no chain response to adjudicate",
 			Hypothesis: "pass the chain --json output via --envelope-path so an already-subscribed board can be told apart from an unreachable one",
 		}

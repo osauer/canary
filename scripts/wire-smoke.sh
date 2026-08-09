@@ -6,7 +6,7 @@
 #     test/integration so `make release` works on a laptop without IBKR
 #   CANARY_SMOKE_STRICT     — 1 = FAIL on no-gateway instead of SKIP (release path)
 #   CANARY_SMOKE_FAST       — 1 = stop after boot + quote + account (~15s inner-loop
-#   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = `canary gamma --only=spx`
+#   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = the SPX gamma probe
 #                             must return real SPX data; banner-seen FAILS the run.
 #                             0 = banner-seen is a clean skip (CI / accounts without
 #                             regression between releases (design §11.2).
@@ -151,6 +151,17 @@ run_cli() {
     LAST_CMD_OUTPUT="$(timeout "$PER_CMD_TIMEOUT" "$BIN" "$@" 2>&1)" || LAST_CMD_EXIT=$?
 }
 
+# Reach retained read-only daemon methods through the internal smoke helper.
+# These probes replace retired user-facing CLI adapters without expanding the
+# product surface or granting any broker-write authority.
+run_probe() {
+    local label="$1"
+    local probe="$2"
+    shift 2
+    LAST_CMD_EXIT=0
+    LAST_CMD_OUTPUT="$(timeout "$PER_CMD_TIMEOUT" "$ASSERT" --probe "$probe" --socket "$SOCKET" "$@" 2>&1)" || LAST_CMD_EXIT=$?
+}
+
 # Run one named wire-assert check against the whole JSONL. Per-command
 # at boot (SPY for the regime path, ARCA contract lookups, etc.), so
 assert_wire() {
@@ -195,7 +206,7 @@ echo "  [boot] ok"
 # engine may be idle. In loose mode the chain-iv-source check warns
 # instead of failing.
 
-run_cli quote-spy quote SPY --json
+run_probe quote-spy quote --symbol SPY
 if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "wire-smoke: FAIL: quote SPY exit=$LAST_CMD_EXIT" >&2
     echo "$LAST_CMD_OUTPUT" >&2
@@ -270,13 +281,13 @@ fi
 # v0.24.x bug broke. In loose mode this check warns instead of failing.
 echo "  [chain SPY 1-wide]..."
 
-# Pick a near expiry. The chain expiry-listing command returns them in
-expiries="$("$BIN" chain SPY 2>/dev/null | awk '/^[[:space:]]+20[0-9]{2}-[0-9]{2}-[0-9]{2}/ {print $1}' | head -3 | tail -1)"
+# Pick the third near expiry from the retained typed daemon response.
+expiries="$("$ASSERT" --probe chain-expiries --socket "$SOCKET" --symbol SPY 2>/dev/null | grep -o '"date":[[:space:]]*"[0-9-]*"' | head -3 | tail -1 | cut -d'"' -f4)"
 if [[ -z "$expiries" ]]; then
-    echo "wire-smoke: FAIL: could not list SPY expiries via 'canary chain SPY'" >&2
+    echo "wire-smoke: FAIL: could not list SPY expiries through the daemon probe" >&2
     exit 1
 fi
-run_cli chain-iv chain SPY --expiry "$expiries" --width 1 --side both --json
+run_probe chain-iv chain --symbol SPY --expiry "$expiries" --width 1 --side both
 if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "wire-smoke: FAIL: chain exit=$LAST_CMD_EXIT" >&2
     echo "$LAST_CMD_OUTPUT" >&2
@@ -289,7 +300,7 @@ assert_wire chain-iv-source "$CHAIN_ENV"
 # 8. regime — the dashboard's fan-out. Asserts all 5 indicator
 echo "  [regime]..."
 
-run_cli regime regime --json
+run_probe regime regime
 if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "wire-smoke: FAIL: regime exit=$LAST_CMD_EXIT" >&2
     echo "$LAST_CMD_OUTPUT" >&2
@@ -300,7 +311,7 @@ assert_wire regime-subs
 # 9. gamma --no-wait — proves the non-blocking path returns a typed lifecycle
 echo "  [gamma --no-wait]..."
 
-run_cli gamma gamma --no-wait --json
+run_probe gamma gamma
 if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "wire-smoke: FAIL: gamma --no-wait exit=$LAST_CMD_EXIT" >&2
     echo "$LAST_CMD_OUTPUT" >&2
@@ -315,7 +326,7 @@ assert_wire gamma-no-wait-envelope "$GAMMA_ENV"
 # returns immediately with the current cache state. We only assert
 # the daemon ACCEPTED `--only=spx` (didn't reject the scope) and that
 echo "  [gamma --only=spx --no-wait]..."
-run_cli gamma-spx gamma --only=spx --no-wait --json
+run_probe gamma-spx gamma --scope spx
 if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "wire-smoke: FAIL: gamma --only=spx exit=$LAST_CMD_EXIT" >&2
     echo "$LAST_CMD_OUTPUT" >&2
@@ -326,7 +337,7 @@ if [[ "${SPX_EXPECTED_REACHABLE:-0}" -eq 1 ]]; then
     # `warnings` array carries "spx_unavailable:<reason>" tokens when
     # the combined-mode prewarm degraded. Note: when --only=spx is
     if echo "$LAST_CMD_OUTPUT" | grep -q '"status": *"error"'; then
-        echo "wire-smoke: FAIL: SPX_EXPECTED_REACHABLE=1 but gamma --only=spx returned error" >&2
+        echo "wire-smoke: FAIL: SPX_EXPECTED_REACHABLE=1 but the SPX gamma probe returned error" >&2
         echo "$LAST_CMD_OUTPUT" >&2
         exit 1
     fi

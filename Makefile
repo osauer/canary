@@ -81,7 +81,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -265,7 +265,7 @@ commit-check: check ## Compatibility alias for the canonical repository gate
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -733,6 +733,11 @@ release-site-check: ## Require osauer.dev/canary static site sync for non-patch 
 smoke-build: ## Compile the bin/wire-assert helper used by `make smoke`
 	@mkdir -p bin
 	go build -o bin/wire-assert ./cmd/wire-assert
+
+smoke-contract-check: ## Keep wire smoke on internal read-only probes after public CLI subtraction
+	bash -n scripts/wire-smoke.sh
+	@! grep -Eq '\$$BIN"[[:space:]]+(quote|chain|regime|gamma)|run_cli[[:space:]]+[^[:space:]]+[[:space:]]+(quote|chain|regime|gamma)' scripts/wire-smoke.sh || { echo "smoke-contract-check: retired public CLI probe returned" >&2; exit 1; }
+	@for call in 'run_probe quote-spy quote --symbol SPY' 'run_probe chain-iv chain --symbol SPY' 'run_probe regime regime' 'run_probe gamma gamma' 'run_probe gamma-spx gamma --scope spx'; do grep -Fq "$$call" scripts/wire-smoke.sh || { echo "smoke-contract-check: missing internal probe: $$call" >&2; exit 1; }; done
 
 # Run wire-smoke against the *existing* bin/canary without rebuilding it.
 # The release flow uses this so it can exercise the version-stamped
