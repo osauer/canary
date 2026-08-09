@@ -89,14 +89,16 @@ remove the existing config or state directories. `canary restart` then starts
 the new daemon, which performs any required state migration before it connects
 to the broker.
 
-Version 3 accepts a current SQLite authority or a genuinely fresh state root.
-If the installation still has file-backed authority, install and start the
-latest stable 2.x release once before starting v3. Stable 2.x owns that legacy
-decoder and converts the retained safety state into `daemon.db`; v3 refuses to
-guess or silently ignore those files. Existing databases then advance through
-an unpublished, validated candidate with an exact-head backup. This same
-major-version bridge is the upgrade model for future releases: the last stable
-major remains available while the next major stabilizes.
+Version 3 accepts current SQLite and alert authority or a genuinely fresh state
+root. If the installation still has file-backed authority or an older alert
+ledger/registry, install and start the latest stable 2.x release once before
+starting v3. Stable 2.x owns those historical decoders and converts the retained
+safety state; v3 refuses to guess or silently clear it. An unsupported app alert
+ledger is preserved byte-for-byte and notifications remain unavailable until
+the bridge is completed. Existing databases then advance through an unpublished,
+validated candidate with an exact-head backup. This same major-version bridge
+is the upgrade model for future releases: the last stable major remains
+available while the next major stabilizes.
 
 The v2.6.0 upgrade also removes the defective contract-cache snapshots that
 made some `daemon.db` files unusually large. Before changing anything, startup

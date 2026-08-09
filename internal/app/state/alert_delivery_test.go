@@ -2132,9 +2132,34 @@ func testAlertCandidate(t *testing.T, source rpc.AlertSource, kind rpc.AlertKind
 	return rpc.AlertCandidate{
 		EpisodeKey: episode, OccurrenceKey: mustAlertOccurrenceKey(t, episode, occurrenceIdentity),
 		EvidenceFingerprint: "sha256:" + strings.Repeat("a", 64), Source: source, Kind: kind,
-		PresentationCode: legacyAlertPresentationCode(source), State: rpc.AlertEpisodeOpen, Severity: rpc.AlertSeverityWatch,
+		PresentationCode: testAlertPresentationCode(source), State: rpc.AlertEpisodeOpen, Severity: rpc.AlertSeverityWatch,
 		EvidenceHealth: rpc.AlertEvidenceCurrent, Destination: rpc.AlertDestinationAlerts,
 		EvidenceAsOf: at, StateChangedAt: at, ObservedAt: at,
+	}
+}
+
+func testAlertPresentationCode(source rpc.AlertSource) rpc.AlertPresentationCode {
+	switch source {
+	case rpc.AlertSourceStress:
+		return rpc.AlertPresentationPortfolioStress
+	case rpc.AlertSourceRegime:
+		return rpc.AlertPresentationRegimeMarketStress
+	case rpc.AlertSourceRulebook:
+		return rpc.AlertPresentationRulebookSingleNameExposure
+	case rpc.AlertSourceRiskPolicy:
+		return rpc.AlertPresentationRiskPolicyDrift
+	case rpc.AlertSourceProtection:
+		return rpc.AlertPresentationProtectionReconciliationRequired
+	case rpc.AlertSourceOrderIntegrity:
+		return rpc.AlertPresentationOrderIntegrityMismatch
+	case rpc.AlertSourceReconciliation:
+		return rpc.AlertPresentationReconciliationException
+	case rpc.AlertSourceGovernance:
+		return rpc.AlertPresentationGovernanceMonthlyPulse
+	case rpc.AlertSourceDataHealth:
+		return rpc.AlertPresentationDataHealthQuality
+	default:
+		return rpc.AlertPresentationDeliveryHealth
 	}
 }
 

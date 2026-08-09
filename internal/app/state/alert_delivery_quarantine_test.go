@@ -9,333 +9,93 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-func TestOpenQuarantinesOnlyAlertDeliveryTypedDecodeFailure(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	rawAlertDelivery := json.RawMessage(`{
-    "version": 17,
-    "generation": 9,
-    "private_marker": "typed-decode-private"
-  }`)
-	var typed alertDeliveryData
-	if err := json.Unmarshal(rawAlertDelivery, &typed); err == nil {
-		t.Fatal("fixture must fail typed alert delivery decode")
-	}
-	writeAlertDeliveryQuarantineFixture(t, dir, rawAlertDelivery, AlertModeWatchAndAct)
-
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatalf("Open isolated typed failure: %v", err)
-	}
-	assertAlertDeliveryQuarantined(t, store)
-	if history := store.AlertHistory(10); len(history) != 1 || history[0].ID != "legacy-canary" {
-		t.Fatalf("legacy Canary state unavailable after quarantine: %+v", history)
-	}
-	assertAlertDeliveryQuarantineArtifact(t, dir, rawAlertDelivery)
-}
-
-func TestOpenArchivesValidLegacyUnscopedLedgerAndRecoversFromScopedV3(t *testing.T) {
-	t.Parallel()
-	seedDir := t.TempDir()
-	seed, err := Open(seedDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	at := time.Date(2026, 7, 21, 6, 0, 0, 0, time.UTC)
-	legacyCandidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "legacy-unscoped", "open", at)
-	if _, err := seed.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{legacyCandidate.Source}, []rpc.AlertSource{legacyCandidate.Source}, rpc.AlertCoverageCurrent, legacyCandidate)); err != nil {
-		t.Fatal(err)
-	}
-	seedRaw, err := os.ReadFile(filepath.Join(seedDir, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var seedTop map[string]json.RawMessage
-	if err := json.Unmarshal(seedRaw, &seedTop); err != nil {
-		t.Fatal(err)
-	}
-	var legacyLedger map[string]json.RawMessage
-	if err := json.Unmarshal(seedTop["alert_delivery"], &legacyLedger); err != nil {
-		t.Fatal(err)
-	}
-	legacyLedger["version"] = json.RawMessage(`"` + legacyAlertDeliveryVersionV1 + `"`)
-	delete(legacyLedger, "source_watermarks_by_scope")
-	delete(legacyLedger, "previous_contexts")
-	delete(legacyLedger, "previous_context_high_water_seq")
-	delete(legacyLedger, "baselines")
-	legacyLedger["attention_v2_high_water_seq"] = legacyLedger["attention_high_water_seq"]
-	legacyLedger["attention_v2_read_through_seq"] = legacyLedger["attention_read_through_seq"]
-	delete(legacyLedger, "attention_high_water_seq")
-	delete(legacyLedger, "attention_read_through_seq")
-	var legacySnapshot map[string]json.RawMessage
-	if err := json.Unmarshal(legacyLedger["snapshot"], &legacySnapshot); err != nil {
-		t.Fatal(err)
-	}
-	legacySnapshot["schema_version"] = json.RawMessage(`"` + legacyAlertSnapshotVersionV1 + `"`)
-	delete(legacySnapshot, "authority_scope")
-	delete(legacySnapshot, "sources")
-	var legacyCandidates []map[string]json.RawMessage
-	if err := json.Unmarshal(legacySnapshot["candidates"], &legacyCandidates); err != nil {
-		t.Fatal(err)
-	}
-	for i := range legacyCandidates {
-		delete(legacyCandidates[i], "presentation_code")
-		legacyCandidates[i]["delivery_preference"] = json.RawMessage(`"unapproved"`)
-	}
-	legacySnapshot["candidates"], err = json.Marshal(legacyCandidates)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyLedger["snapshot"], err = json.Marshal(legacySnapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var legacyEpisodes []map[string]json.RawMessage
-	if err := json.Unmarshal(legacyLedger["episodes"], &legacyEpisodes); err != nil {
-		t.Fatal(err)
-	}
-	for i := range legacyEpisodes {
-		delete(legacyEpisodes[i], "authority_scope")
-	}
-	legacyLedger["episodes"], err = json.Marshal(legacyEpisodes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var legacyOccurrences []map[string]json.RawMessage
-	if err := json.Unmarshal(legacyLedger["occurrences"], &legacyOccurrences); err != nil {
-		t.Fatal(err)
-	}
-	for i := range legacyOccurrences {
-		delete(legacyOccurrences[i], "authority_scope")
-		delete(legacyOccurrences[i], "presentation_code")
-		delete(legacyOccurrences[i], "disposition")
-		legacyOccurrences[i]["delivery_preference"] = json.RawMessage(`"unapproved"`)
-		legacyOccurrences[i]["transport_eligible"] = json.RawMessage(`false`)
-		legacyOccurrences[i]["attention_v2_seq"] = legacyOccurrences[i]["attention_seq"]
-		delete(legacyOccurrences[i], "attention_seq")
-		var occurrenceKey string
-		if err := json.Unmarshal(legacyOccurrences[i]["occurrence_key"], &occurrenceKey); err != nil {
-			t.Fatal(err)
-		}
-		legacyOccurrences[i]["display_id"], err = json.Marshal(legacyAlertDeliveryDisplayID(occurrenceKey))
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	legacyLedger["occurrences"], err = json.Marshal(legacyOccurrences)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rawLegacy, err := json.Marshal(legacyLedger)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dir := t.TempDir()
-	writeAlertDeliveryQuarantineFixture(t, dir, rawLegacy, AlertModeWatchAndAct)
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatalf("open recognized v1 ledger: %v", err)
-	}
-	if store.alertDeliveryQuarantinedLocked() {
-		t.Fatal("valid recognized v1 ledger remained blocked instead of being archived")
-	}
-	if view := store.AlertDelivery(at); view.Initialized || view.AuthorityScope != "" || view.CurrentState == rpc.AlertSnapshotClear || len(view.Occurrences) != 0 || len(store.AlertDeliveriesDue(at)) != 0 {
-		t.Fatalf("legacy ledger was silently assigned a scope: %+v", view)
-	}
-	artifact := assertAlertDeliveryQuarantineArtifact(t, dir, rawLegacy)
-	if _, err := os.Stat(artifact); err != nil {
-		t.Fatal(err)
-	}
-	stateRaw, err := os.ReadFile(filepath.Join(dir, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var currentTop map[string]json.RawMessage
-	if err := json.Unmarshal(stateRaw, &currentTop); err != nil {
-		t.Fatal(err)
-	}
-	if _, exists := currentTop["alert_delivery"]; exists {
-		t.Fatalf("archived legacy ledger remained live: %s", stateRaw)
-	}
-	if history := store.AlertHistory(10); len(history) != 1 || history[0].ID != "legacy-canary" {
-		t.Fatalf("unrelated app authority was not preserved: %+v", history)
-	}
-
-	currentAt := at.Add(time.Minute)
-	currentCandidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "scoped-v3", "open", currentAt)
-	view, err := store.ObserveAlertSnapshot(testAlertSnapshot(currentAt, []rpc.AlertSource{currentCandidate.Source}, []rpc.AlertSource{currentCandidate.Source}, rpc.AlertCoverageCurrent, currentCandidate))
-	if err != nil {
-		t.Fatalf("first scoped v3 observation did not recover: %v", err)
-	}
-	if !view.Initialized || view.AuthorityScope == "" || view.CurrentState != rpc.AlertSnapshotActive || len(view.Occurrences) != 1 || view.Occurrences[0].Disposition != AlertDispositionCutoverExisting {
-		t.Fatalf("scoped v3 recovery view=%+v", view)
-	}
-	assertAlertDeliveryQuarantineArtifact(t, dir, rawLegacy)
-}
-
-func TestOpenQuarantinesAlertDeliverySemanticCorruptionAndPreservesRawAcrossSaves(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	rawAlertDelivery := json.RawMessage(`{
-    "version" : "unsupported-private-version",
-    "generation" : 41,
-    "private_marker" : "semantic-private-value",
-    "source_watermarks" : {},
-    "retired_targets" : {}
-  }`)
-	var typed alertDeliveryData
-	if err := json.Unmarshal(rawAlertDelivery, &typed); err != nil {
-		t.Fatalf("fixture must reach semantic validation: %v", err)
-	}
-	writeAlertDeliveryQuarantineFixture(t, dir, rawAlertDelivery, AlertModeWatchAndAct)
-
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatalf("Open isolated semantic failure: %v", err)
-	}
-	assertAlertDeliveryQuarantined(t, store)
-	artifactPath := assertAlertDeliveryQuarantineArtifact(t, dir, rawAlertDelivery)
-	artifactBefore, err := os.Stat(artifactPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viewBefore := store.AlertDelivery(time.Now().UTC())
-
-	if err := store.SetAlertMode(AlertModeNone); err != nil {
-		t.Fatalf("unrelated legacy save failed: %v", err)
-	}
-	assertMainStateAlertDeliveryRaw(t, dir, rawAlertDelivery)
-	artifactBytes, err := os.ReadFile(artifactPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(artifactBytes, rawAlertDelivery) {
-		t.Fatalf("artifact changed after unrelated save\ngot:  %q\nwant: %q", artifactBytes, rawAlertDelivery)
-	}
-
-	// A valid new observation is not a repair authority. The save boundary
-	// rejects it and retains the exact quarantined value.
-	at := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "quarantine", "repair-attempt", at)
-	_, err = store.ObserveAlertSnapshot(testAlertSnapshot(at, []rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source}, rpc.AlertCoverageCurrent, candidate))
-	if !errors.Is(err, ErrAlertDeliveryUnavailable) {
-		t.Fatalf("automatic replacement err=%v, want ErrAlertDeliveryUnavailable", err)
-	}
-	for name, err := range map[string]error{
-		"prerequisite health": store.SetAlertDeliveryPrerequisiteHealth("", at),
-		"target retirement":   store.RetireAlertDeliveryTarget(AlertDeliveryTargetRef("device", "subscription"), at),
-		"recovery":            store.RecoverAlertDeliveries(at),
-		"compaction":          store.CompactAlertDelivery(at),
-	} {
-		if !errors.Is(err, ErrAlertDeliveryUnavailable) {
-			t.Fatalf("quarantined %s err=%v, want ErrAlertDeliveryUnavailable", name, err)
-		}
-	}
-	if err := store.AddDevice(DeviceGrant{ID: "legacy-device", CreatedAt: at}); err != nil {
-		t.Fatalf("legacy device add failed: %v", err)
-	}
-	legacySubscription := PushSubscription{ID: "legacy-subscription", DeviceID: "legacy-device", Endpoint: "https://push.example/legacy", P256DH: "key", Auth: "auth", CreatedAt: at}
-	if err := store.AddPushSubscription(legacySubscription); err != nil {
-		t.Fatalf("legacy subscription add failed: %v", err)
-	}
-	if err := store.RemovePushSubscriptionAt(legacySubscription.ID, at.Add(time.Second)); err != nil {
-		t.Fatalf("legacy subscription retirement failed: %v", err)
-	}
-	assertAlertDeliveryQuarantined(t, store)
-	assertMainStateAlertDeliveryRaw(t, dir, rawAlertDelivery)
-
-	reopened, err := Open(dir)
-	if err != nil {
-		t.Fatalf("idempotent reopen: %v", err)
-	}
-	assertAlertDeliveryQuarantined(t, reopened)
-	viewAfter := reopened.AlertDelivery(time.Now().UTC())
-	if viewAfter.Generation != viewBefore.Generation || !viewAfter.DeliveryHealth.UpdatedAt.Equal(viewBefore.DeliveryHealth.UpdatedAt) {
-		t.Fatalf("quarantine public identity drifted across restart: before=%+v after=%+v", viewBefore, viewAfter)
-	}
-	artifactAfter, err := os.Stat(artifactPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !artifactAfter.ModTime().Equal(artifactBefore.ModTime()) {
-		t.Fatalf("idempotent restart rewrote immutable artifact: before=%s after=%s", artifactBefore.ModTime(), artifactAfter.ModTime())
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	quarantineCount := 0
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), alertDeliveryQuarantinePrefix) {
-			quarantineCount++
-		}
-	}
-	if quarantineCount != 1 {
-		t.Fatalf("stable evidence hash produced %d quarantine artifacts", quarantineCount)
-	}
-}
-
-func TestOpenFailsWhenAlertDeliveryQuarantineCannotBePreserved(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	rawAlertDelivery := json.RawMessage(`{"version":false,"private_marker":"must-not-be-dropped"}`)
-	writeAlertDeliveryQuarantineFixture(t, dir, rawAlertDelivery, AlertModeWatchAndAct)
-	artifactPath := filepath.Join(dir, alertDeliveryQuarantineArtifactName(rawAlertDelivery))
-	if err := os.Mkdir(artifactPath, 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := Open(dir)
-	if store != nil || !errors.Is(err, ErrInvalidPersistedState) {
-		t.Fatalf("Open store=%v err=%v, want fatal preservation failure", store, err)
-	}
-	assertMainStateAlertDeliveryRaw(t, dir, rawAlertDelivery)
-}
-
-func TestOpenKeepsWholeFileAndLegacyAuthorityCorruptionFatal(t *testing.T) {
+func TestOpenQuarantinesUnsupportedAlertLedgerWithoutClearingIt(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
-		raw  string
+		raw  json.RawMessage
 	}{
-		{name: "whole file syntax", raw: `{"alert_settings":`},
-		{name: "whole file top level", raw: `[]`},
-		{name: "legacy authority with corrupt alert delivery", raw: `{"alert_settings":{"mode":"surprise"},"alert_delivery":{"version":17,"private_marker":"must-not-isolate-legacy"}}`},
+		{"typed decode", json.RawMessage(`{"version":17,"generation":9,"private_marker":"typed"}`)},
+		{"unsupported schema", json.RawMessage(`{"version":"alert-delivery-v3","generation":41,"private_marker":"old"}`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(tc.raw), 0o600); err != nil {
+			writeAlertDeliveryQuarantineFixture(t, dir, tc.raw)
+			store, err := Open(dir)
+			if err != nil {
+				t.Fatalf("Open isolated alert ledger: %v", err)
+			}
+			assertAlertDeliveryQuarantined(t, store)
+			if history := store.AlertHistory(10); len(history) != 1 || history[0].ID != "existing-alert" {
+				t.Fatalf("unrelated app state unavailable after quarantine: %+v", history)
+			}
+			artifact := filepath.Join(dir, alertDeliveryQuarantineArtifactName(tc.raw))
+			assertExactPrivateFile(t, artifact, tc.raw)
+
+			if err := store.SetAlertMode(AlertModeNone); err != nil {
+				t.Fatalf("save unrelated state: %v", err)
+			}
+			persisted, err := os.ReadFile(filepath.Join(dir, "state.json"))
+			if err != nil {
 				t.Fatal(err)
 			}
-			store, err := Open(dir)
-			if store != nil || err == nil {
-				t.Fatalf("Open store=%v err=%v, want fatal corruption", store, err)
+			var top map[string]json.RawMessage
+			if err := json.Unmarshal(persisted, &top); err != nil {
+				t.Fatal(err)
 			}
-			entries, readErr := os.ReadDir(dir)
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			for _, entry := range entries {
-				if strings.HasPrefix(entry.Name(), alertDeliveryQuarantinePrefix) {
-					t.Fatalf("legacy/whole-file corruption created quarantine artifact %q", entry.Name())
-				}
+			if !bytes.Equal(top["alert_delivery"], tc.raw) {
+				t.Fatalf("unsupported alert ledger was normalized or cleared: %s", top["alert_delivery"])
 			}
 		})
 	}
 }
 
-func writeAlertDeliveryQuarantineFixture(t *testing.T, dir string, rawAlertDelivery json.RawMessage, mode string) {
-	t.Helper()
-	if !json.Valid(rawAlertDelivery) {
-		t.Fatal("invalid alert delivery test fixture")
+func TestOpenFailsWhenAlertLedgerCannotBePreserved(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	raw := json.RawMessage(`{"version":false,"private_marker":"must-not-be-dropped"}`)
+	writeAlertDeliveryQuarantineFixture(t, dir, raw)
+	if err := os.Mkdir(filepath.Join(dir, alertDeliveryQuarantineArtifactName(raw)), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	raw := []byte(`{"alert_settings":{"mode":"` + mode + `"},"alert_history":[{"id":"legacy-canary","title":"legacy","body":"usable"}],"alert_delivery":`)
-	raw = append(raw, rawAlertDelivery...)
+	store, err := Open(dir)
+	if store != nil || !errors.Is(err, ErrInvalidPersistedState) {
+		t.Fatalf("Open store=%v err=%v, want fatal preservation failure", store, err)
+	}
+}
+
+func TestOpenDoesNotIsolateWholeFileOrSettingsCorruption(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		`{"alert_settings":`,
+		`[]`,
+		`{"alert_settings":{"mode":"surprise"},"alert_delivery":{"version":17}}`,
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		store, err := Open(dir)
+		if store != nil || err == nil {
+			t.Fatalf("Open store=%v err=%v, want fatal corruption", store, err)
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), alertDeliveryQuarantinePrefix) {
+				t.Fatalf("whole-file corruption created quarantine artifact %q", entry.Name())
+			}
+		}
+	}
+}
+
+func writeAlertDeliveryQuarantineFixture(t *testing.T, dir string, alertDelivery json.RawMessage) {
+	t.Helper()
+	raw := append([]byte(`{"alert_settings":{"mode":"watch_and_act"},"alert_history":[{"id":"existing-alert","title":"existing","body":"usable"}],"alert_delivery":`), alertDelivery...)
 	raw = append(raw, '}')
 	if !json.Valid(raw) {
 		t.Fatalf("invalid state fixture: %s", raw)
@@ -348,12 +108,12 @@ func writeAlertDeliveryQuarantineFixture(t *testing.T, dir string, rawAlertDeliv
 func assertAlertDeliveryQuarantined(t *testing.T, store *Store) {
 	t.Helper()
 	if store == nil || !store.alertDeliveryQuarantinedLocked() || store.data.AlertDelivery != nil {
-		t.Fatalf("store did not retain private quarantine boundary: %+v", store)
+		t.Fatalf("store did not retain quarantine boundary: %+v", store)
 	}
 	view := store.AlertDelivery(time.Now().UTC())
-	if view.Initialized || view.Generation != alertDeliveryQuarantineGeneration || view.AsOf != (time.Time{}) ||
-		view.CurrentState != "" || len(view.Occurrences) != 0 || view.Attention.UnreadCount != 0 ||
-		view.DeliveryHealth.State != AlertDeliveryHealthUnavailable || view.DeliveryHealth.Class != AlertDeliveryHealthClassInvalidPersistedState || view.DeliveryHealth.UpdatedAt.IsZero() {
+	if view.Initialized || view.Generation != alertDeliveryQuarantineGeneration || len(view.Occurrences) != 0 ||
+		view.Attention.UnreadCount != 0 || view.DeliveryHealth.State != AlertDeliveryHealthUnavailable ||
+		view.DeliveryHealth.Class != AlertDeliveryHealthClassInvalidPersistedState {
 		t.Fatalf("quarantine view is not uninitialized/default-deny: %+v", view)
 	}
 	if due := store.AlertDeliveriesDue(time.Now().UTC()); len(due) != 0 {
@@ -361,157 +121,20 @@ func assertAlertDeliveryQuarantined(t *testing.T, store *Store) {
 	}
 }
 
-func assertAlertDeliveryQuarantineArtifact(t *testing.T, dir string, rawAlertDelivery json.RawMessage) string {
+func assertExactPrivateFile(t *testing.T, path string, want []byte) {
 	t.Helper()
-	artifactPath := filepath.Join(dir, alertDeliveryQuarantineArtifactName(rawAlertDelivery))
-	persisted, err := os.ReadFile(artifactPath)
+	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read quarantine artifact: %v", err)
+		t.Fatal(err)
 	}
-	if !bytes.Equal(persisted, rawAlertDelivery) {
-		t.Fatalf("artifact did not preserve exact raw JSON value\ngot:  %q\nwant: %q", persisted, rawAlertDelivery)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("preserved bytes changed\ngot: %q\nwant: %q", got, want)
 	}
-	info, err := os.Stat(artifactPath)
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		t.Fatalf("artifact mode=%v, want private regular 0600", info.Mode())
-	}
-	dirInfo, err := os.Stat(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dirInfo.Mode().Perm() != 0o700 {
-		t.Fatalf("state directory mode=%04o, want 0700", dirInfo.Mode().Perm())
-	}
-	return artifactPath
-}
-
-func assertMainStateAlertDeliveryRaw(t *testing.T, dir string, want json.RawMessage) {
-	t.Helper()
-	persisted, err := os.ReadFile(filepath.Join(dir, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var topLevel map[string]json.RawMessage
-	if err := json.Unmarshal(persisted, &topLevel); err != nil {
-		t.Fatalf("decode saved state: %v\n%s", err, persisted)
-	}
-	if !bytes.Equal(topLevel["alert_delivery"], want) {
-		t.Fatalf("main state normalized quarantined raw value\ngot:  %q\nwant: %q", topLevel["alert_delivery"], want)
-	}
-}
-
-// TestOpenUpgradesAlertDeliveryV3StressPresentationCode proves an operator's
-// stored v3 ledger survives the portfolio-stress presentation-code rename: it
-// is upgraded in place rather than quarantined, and every occurrence keeps its
-// display identity, attention sequence, and lifecycle state.
-func TestOpenUpgradesAlertDeliveryV3StressPresentationCode(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	seed, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	at := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
-	candidate := testAlertCandidate(t, rpc.AlertSourceStress, rpc.AlertKindPortfolioRisk, "v3-upgrade", "open", at)
-	if _, err := seed.ObserveAlertSnapshot(testAlertSnapshot(at,
-		[]rpc.AlertSource{candidate.Source}, []rpc.AlertSource{candidate.Source},
-		rpc.AlertCoverageCurrent, candidate)); err != nil {
-		t.Fatal(err)
-	}
-	before := seed.AlertDelivery(at)
-	if len(before.Occurrences) != 1 {
-		t.Fatalf("fixture occurrences=%d want 1", len(before.Occurrences))
-	}
-	wantOccurrence := before.Occurrences[0]
-
-	// Rewrite the persisted ledger into the exact pre-rename v3 shape.
-	raw, err := os.ReadFile(filepath.Join(dir, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &top); err != nil {
-		t.Fatal(err)
-	}
-	var ledger map[string]json.RawMessage
-	if err := json.Unmarshal(top["alert_delivery"], &ledger); err != nil {
-		t.Fatal(err)
-	}
-	ledger["version"] = json.RawMessage(`"` + legacyAlertDeliveryVersionV3 + `"`)
-	legacyCode := json.RawMessage(`"` + string(legacyStressPresentationCode) + `"`)
-	var snapshot map[string]json.RawMessage
-	if err := json.Unmarshal(ledger["snapshot"], &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	var candidates []map[string]json.RawMessage
-	if err := json.Unmarshal(snapshot["candidates"], &candidates); err != nil {
-		t.Fatal(err)
-	}
-	for i := range candidates {
-		candidates[i]["presentation_code"] = legacyCode
-	}
-	if snapshot["candidates"], err = json.Marshal(candidates); err != nil {
-		t.Fatal(err)
-	}
-	if ledger["snapshot"], err = json.Marshal(snapshot); err != nil {
-		t.Fatal(err)
-	}
-	var occurrences []map[string]json.RawMessage
-	if err := json.Unmarshal(ledger["occurrences"], &occurrences); err != nil {
-		t.Fatal(err)
-	}
-	for i := range occurrences {
-		occurrences[i]["presentation_code"] = legacyCode
-	}
-	if ledger["occurrences"], err = json.Marshal(occurrences); err != nil {
-		t.Fatal(err)
-	}
-	if top["alert_delivery"], err = json.Marshal(ledger); err != nil {
-		t.Fatal(err)
-	}
-	legacyRaw, err := json.Marshal(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(legacyRaw, []byte(legacyStressPresentationCode)) {
-		t.Fatal("v3 fixture does not carry the pre-rename presentation code")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "state.json"), legacyRaw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := Open(dir)
-	if err != nil {
-		t.Fatalf("open a stored v3 alert-delivery ledger: %v", err)
-	}
-	if store.alertDeliveryQuarantinedLocked() {
-		t.Fatal("a stored v3 ledger was quarantined instead of upgraded")
-	}
-	after := store.AlertDelivery(at)
-	if len(after.Occurrences) != 1 {
-		t.Fatalf("upgraded occurrences=%d want 1", len(after.Occurrences))
-	}
-	got := after.Occurrences[0]
-	if got.DisplayID != wantOccurrence.DisplayID || got.AttentionSeq != wantOccurrence.AttentionSeq ||
-		got.State != wantOccurrence.State || got.FirstSeenAt != wantOccurrence.FirstSeenAt {
-		t.Fatalf("delivery history changed across the upgrade:\nbefore=%+v\nafter =%+v", wantOccurrence, got)
-	}
-	if got.PresentationCode != rpc.AlertPresentationPortfolioStress {
-		t.Fatalf("presentation code=%q want %q", got.PresentationCode, rpc.AlertPresentationPortfolioStress)
-	}
-
-	// The upgrade is written back once, so the next open is a plain load.
-	upgraded, err := os.ReadFile(filepath.Join(dir, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(upgraded, []byte(legacyStressPresentationCode)) {
-		t.Fatal("upgraded ledger still carries the pre-rename presentation code")
-	}
-	if !bytes.Contains(upgraded, []byte(`"`+AlertDeliveryVersion+`"`)) {
-		t.Fatalf("upgraded ledger was not restamped to %s", AlertDeliveryVersion)
+		t.Fatalf("preserved artifact mode=%v", info.Mode())
 	}
 }

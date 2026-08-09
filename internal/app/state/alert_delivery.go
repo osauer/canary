@@ -1,15 +1,12 @@
 package state
 
 import (
-	"bytes"
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -21,10 +18,7 @@ import (
 // attempt transitions, aggregate health, occurrence endings, and completion
 // dispositions. They do not grant transport eligibility.
 const (
-	AlertDeliveryVersion         = "alert-delivery-v4"
-	legacyAlertDeliveryVersionV3 = "alert-delivery-v3"
-	legacyAlertDeliveryVersionV2 = "alert-delivery-v2"
-	legacyAlertDeliveryVersionV1 = "alert-delivery-v1"
+	AlertDeliveryVersion = "alert-delivery-v4"
 
 	AlertDeliveryAttemptReserved       = "reserved"
 	AlertDeliveryAttemptConfirmed      = "confirmed_pending_outcome"
@@ -83,13 +77,6 @@ const (
 const (
 	defaultAlertDeliveryMaxItems = 4096
 	alertDeliveryRetention       = 90 * 24 * time.Hour
-	legacyAlertSnapshotVersionV2 = "alert-candidate-snapshot-v2"
-	legacyAlertSnapshotVersionV1 = "alert-candidate-snapshot-v1"
-	// This value exists only long enough to reuse the v2 structural validator
-	// for an archived v1 ledger. It is never persisted or treated as a broker
-	// authority; v1 had no scope that could be recovered without fabrication.
-	legacyUnscopedValidationScope = "alert-authority-scope-v1:" +
-		"0000000000000000000000000000000000000000000000000000000000000000"
 )
 
 // Alert-delivery errors expose bounded, redacted failure classes while
@@ -128,96 +115,6 @@ type alertDeliveryData struct {
 	ObservationRejectedAt   time.Time `json:"observation_rejected_at,omitzero"`
 	AttentionHighWaterSeq   uint64    `json:"attention_high_water_seq"`
 	AttentionReadThroughSeq uint64    `json:"attention_read_through_seq"`
-	// legacyUnscopedRaw is populated only while opening a structurally valid
-	// pre-scope v1 ledger. It is archived byte-for-byte and never serialized as
-	// a live v2 authority.
-	legacyUnscopedRaw json.RawMessage `json:"-"`
-	// migratedLegacy requests one atomic rewrite after exact v2 validation. It is
-	// never serialized into the active ledger.
-	migratedLegacy bool `json:"-"`
-}
-
-// legacyStressPresentationCode is the presentation code an alert-delivery v3
-// ledger stored for portfolio-stress candidates. It is no longer an accepted
-// code, so every place the ledger retained it has to be relabelled on load.
-const legacyStressPresentationCode rpc.AlertPresentationCode = "canary_portfolio_stress"
-
-// relabelAlertDeliveryV3PresentationCodes rewrites the renamed presentation
-// code everywhere a v3 ledger persisted one and restamps the version, touching
-// nothing else. It works on raw JSON rather than decoded values because the
-// candidate decoder validates presentation codes as it reads them. A value that
-// is not exactly the pre-rename code is left alone, so a corrupt or unexpected
-// ledger still reaches the ordinary fail-closed quarantine path.
-func relabelAlertDeliveryV3PresentationCodes(raw []byte) ([]byte, error) {
-	var ledger map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &ledger); err != nil {
-		return nil, err
-	}
-	relabelList := func(key string) error {
-		encoded, ok := ledger[key]
-		if !ok {
-			return nil
-		}
-		relabelled, err := relabelPresentationCodeList(encoded)
-		if err != nil {
-			return err
-		}
-		ledger[key] = relabelled
-		return nil
-	}
-	if encoded, ok := ledger["snapshot"]; ok {
-		var snapshot map[string]json.RawMessage
-		if err := json.Unmarshal(encoded, &snapshot); err != nil {
-			return nil, err
-		}
-		if candidates, ok := snapshot["candidates"]; ok {
-			relabelled, err := relabelPresentationCodeList(candidates)
-			if err != nil {
-				return nil, err
-			}
-			snapshot["candidates"] = relabelled
-		}
-		reencoded, err := json.Marshal(snapshot)
-		if err != nil {
-			return nil, err
-		}
-		ledger["snapshot"] = reencoded
-	}
-	for _, key := range []string{"occurrences", "previous_contexts"} {
-		if err := relabelList(key); err != nil {
-			return nil, err
-		}
-	}
-	version, err := json.Marshal(AlertDeliveryVersion)
-	if err != nil {
-		return nil, err
-	}
-	ledger["version"] = version
-	return json.Marshal(ledger)
-}
-
-func relabelPresentationCodeList(encoded json.RawMessage) (json.RawMessage, error) {
-	if len(encoded) == 0 || string(encoded) == "null" {
-		return encoded, nil
-	}
-	var rows []map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &rows); err != nil {
-		return nil, err
-	}
-	current, err := json.Marshal(rpc.AlertPresentationPortfolioStress)
-	if err != nil {
-		return nil, err
-	}
-	legacy, err := json.Marshal(legacyStressPresentationCode)
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		if code, ok := row["presentation_code"]; ok && bytes.Equal(code, legacy) {
-			row["presentation_code"] = current
-		}
-	}
-	return json.Marshal(rows)
 }
 
 // alertDeliveryBaseline records the first complete/current producer snapshot
@@ -226,175 +123,6 @@ func relabelPresentationCodeList(encoded json.RawMessage) (json.RawMessage, erro
 type alertDeliveryBaseline struct {
 	EstablishedAt time.Time `json:"established_at"`
 	SnapshotAsOf  time.Time `json:"snapshot_as_of"`
-}
-
-// UnmarshalJSON recognizes only the one pre-scope ledger/snapshot pair that
-// this rollout supersedes. It converts that value to an in-memory validation
-// shape and marks it for archival; no fabricated scope is ever written back.
-// Every malformed or ambiguous legacy value still reaches the ordinary
-// fail-closed quarantine path through a decode/validation error.
-func (data *alertDeliveryData) UnmarshalJSON(raw []byte) error {
-	var header struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(raw, &header); err != nil {
-		return err
-	}
-	if header.Version == legacyAlertDeliveryVersionV2 {
-		migrated, err := decodeAlertDeliveryV2(raw)
-		if err != nil {
-			return err
-		}
-		*data = *migrated
-		return nil
-	}
-	if header.Version == legacyAlertDeliveryVersionV3 {
-		// v3 and v4 have the same shape; only the portfolio-stress presentation
-		// code moved. The relabel has to happen on the raw JSON because
-		// AlertCandidate.UnmarshalJSON validates the code as it decodes, so a
-		// stored v3 ledger cannot be decoded first and fixed afterwards. Every
-		// other byte is left alone, which keeps the operator's occurrences,
-		// attempts, receipts, attention sequences, and baselines: without this
-		// the ledger would fail to decode and be quarantined wholesale.
-		relabelled, err := relabelAlertDeliveryV3PresentationCodes(raw)
-		if err != nil {
-			return err
-		}
-		type wire alertDeliveryData
-		var decoded wire
-		if err := json.Unmarshal(relabelled, &decoded); err != nil {
-			return err
-		}
-		upgraded := alertDeliveryData(decoded)
-		upgraded.Version = AlertDeliveryVersion
-		upgraded.migratedLegacy = true
-		*data = upgraded
-		return nil
-	}
-	if header.Version != legacyAlertDeliveryVersionV1 {
-		type wire alertDeliveryData
-		var decoded wire
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return err
-		}
-		*data = alertDeliveryData(decoded)
-		return nil
-	}
-
-	var legacy legacyAlertDeliveryData
-	if err := json.Unmarshal(raw, &legacy); err != nil {
-		return err
-	}
-	if legacy.Version != legacyAlertDeliveryVersionV1 || legacy.Snapshot.SchemaVersion != legacyAlertSnapshotVersionV1 {
-		return errors.New("invalid legacy alert delivery version")
-	}
-	converted := alertDeliveryData{
-		Version: legacyAlertDeliveryVersionV1, Generation: legacy.Generation,
-		Snapshot: legacy.Snapshot.validationSnapshot(), SourceWatermarks: legacy.SourceWatermarks,
-		Episodes: legacy.Episodes, Attempts: legacy.Attempts,
-		Receipts: legacy.Receipts, RetiredTargets: legacy.RetiredTargets, Health: legacy.Health,
-		AttentionHighWaterSeq: legacy.AttentionHighWaterSeq, AttentionReadThroughSeq: legacy.AttentionReadThroughSeq,
-		legacyUnscopedRaw: append(json.RawMessage(nil), raw...),
-	}
-	converted.SourceWatermarksByScope = map[string]map[rpc.AlertSource]time.Time{
-		legacyUnscopedValidationScope: cloneAlertSourceWatermarks(legacy.SourceWatermarks),
-	}
-	for i := range converted.Episodes {
-		converted.Episodes[i].AuthorityScope = legacyUnscopedValidationScope
-	}
-	for _, occurrence := range legacy.Occurrences {
-		current, err := occurrence.current()
-		if err != nil {
-			return err
-		}
-		current.AuthorityScope = legacyUnscopedValidationScope
-		converted.Occurrences = append(converted.Occurrences, current)
-	}
-	for i := range converted.Attempts {
-		converted.Attempts[i].AuthorityScope = legacyUnscopedValidationScope
-		if converted.Attempts[i].Class == "policy_unapproved" {
-			converted.Attempts[i].Class = AlertDeliveryAttemptModeSuppressed
-		}
-	}
-	for i := range converted.Receipts {
-		converted.Receipts[i].AuthorityScope = legacyUnscopedValidationScope
-	}
-	if converted.Health.State == "shadow" {
-		converted.Health.State = AlertDeliveryHealthHealthy
-		converted.Health.Class = ""
-	}
-	*data = converted
-	return nil
-}
-
-type legacyAlertDeliveryData struct {
-	Version                 string                            `json:"version"`
-	Generation              uint64                            `json:"generation"`
-	Snapshot                legacyAlertCandidateSnapshot      `json:"snapshot"`
-	SourceWatermarks        map[rpc.AlertSource]time.Time     `json:"source_watermarks"`
-	Episodes                []alertDeliveryEpisode            `json:"episodes,omitempty"`
-	Occurrences             []legacyAlertDeliveryOccurrenceV2 `json:"occurrences,omitempty"`
-	Attempts                []alertDeliveryAttempt            `json:"attempts,omitempty"`
-	Receipts                []alertDeliveryReceipt            `json:"receipts,omitempty"`
-	RetiredTargets          map[string]time.Time              `json:"retired_targets"`
-	Health                  AlertDeliveryHealth               `json:"delivery_health"`
-	AttentionHighWaterSeq   uint64                            `json:"attention_v2_high_water_seq"`
-	AttentionReadThroughSeq uint64                            `json:"attention_v2_read_through_seq"`
-}
-
-type legacyAlertCandidateSnapshot struct {
-	SchemaVersion string                 `json:"schema_version"`
-	AsOf          time.Time              `json:"as_of"`
-	CurrentState  rpc.AlertSnapshotState `json:"current_state"`
-	Coverage      rpc.AlertCoverage      `json:"coverage"`
-	Candidates    []legacyAlertCandidate `json:"candidates"`
-}
-
-func (snapshot *legacyAlertCandidateSnapshot) UnmarshalJSON(raw []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return err
-	}
-	want := []string{"schema_version", "as_of", "current_state", "coverage", "candidates"}
-	if len(fields) != len(want) {
-		return errors.New("invalid legacy alert candidate snapshot fields")
-	}
-	for _, name := range want {
-		if _, ok := fields[name]; !ok {
-			return errors.New("invalid legacy alert candidate snapshot fields")
-		}
-	}
-	type wire legacyAlertCandidateSnapshot
-	var decoded wire
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return err
-	}
-	value := legacyAlertCandidateSnapshot(decoded)
-	if value.SchemaVersion != legacyAlertSnapshotVersionV1 {
-		return errors.New("invalid legacy alert candidate snapshot schema_version")
-	}
-	for i, candidate := range value.Candidates {
-		if !validLegacyAlertDeliveryPreference(candidate.DeliveryPreference) {
-			return fmt.Errorf("invalid legacy alert candidate delivery_preference at index %d", i)
-		}
-	}
-	if err := rpc.ValidateAlertCandidateSnapshot(value.validationSnapshot()); err != nil {
-		return fmt.Errorf("invalid legacy alert candidate snapshot: %w", err)
-	}
-	*snapshot = value
-	return nil
-}
-
-func (snapshot legacyAlertCandidateSnapshot) validationSnapshot() rpc.AlertCandidateSnapshot {
-	candidates := make([]rpc.AlertCandidate, 0, len(snapshot.Candidates))
-	for _, candidate := range snapshot.Candidates {
-		candidates = append(candidates, candidate.current())
-	}
-	return rpc.AlertCandidateSnapshot{
-		SchemaVersion: rpc.AlertCandidateSnapshotVersion, AuthorityScope: legacyUnscopedValidationScope,
-		AsOf: snapshot.AsOf, CurrentState: snapshot.CurrentState, Coverage: snapshot.Coverage,
-		Sources: legacyAlertSourceRows(snapshot.Coverage), Candidates: candidates,
-	}
 }
 
 type alertDeliveryEpisode struct {
@@ -2417,11 +2145,6 @@ func alertDeliveryDisplayID(authorityScope, occurrenceKey string) string {
 	return fmt.Sprintf("alert-%x", sum[:8])
 }
 
-func legacyAlertDeliveryDisplayID(occurrenceKey string) string {
-	sum := sha256.Sum256([]byte("alert-display-v1\x00" + occurrenceKey))
-	return fmt.Sprintf("alert-%x", sum[:8])
-}
-
 func alertPreviousContextDisplayID(authorityScope, priorDisplayID string, endedAt time.Time, archiveSeq uint64) string {
 	sum := sha256.Sum256(fmt.Appendf(nil, "alert-previous-context-v1\x00%s\x00%s\x00%s\x00%d", authorityScope, priorDisplayID, endedAt.UTC().Format(time.RFC3339Nano), archiveSeq))
 	return fmt.Sprintf("alert-previous-%x", sum[:8])
@@ -2438,10 +2161,6 @@ func alertDeliveryAttemptID(receiptKey string, number int, at time.Time) string 
 
 func alertDeliveryReceiptKey(authorityScope, occurrenceKey, targetRef string) string {
 	return alertDeliveryHash("receipt-v2", authorityScope, occurrenceKey, targetRef)
-}
-
-func legacyAlertDeliveryReceiptKey(occurrenceKey, targetRef string) string {
-	return alertDeliveryHash("receipt", occurrenceKey, targetRef)
 }
 
 func alertDeliveryHash(parts ...string) string {
@@ -2532,6 +2251,19 @@ func cloneAlertSourceWatermarks(in map[rpc.AlertSource]time.Time) map[rpc.AlertS
 	return out
 }
 
+func unavailableAlertSourceRows(expected []rpc.AlertSource, reason string) []rpc.AlertSourceCoverage {
+	rows := make([]rpc.AlertSourceCoverage, 0, len(expected))
+	for _, source := range expected {
+		rows = append(rows, rpc.AlertSourceCoverage{
+			Source: source, Status: "unavailable", Reason: reason, EvidenceHealth: rpc.AlertEvidenceUnavailable,
+		})
+	}
+	slices.SortFunc(rows, func(a, b rpc.AlertSourceCoverage) int {
+		return cmp.Compare(a.Source, b.Source)
+	})
+	return rows
+}
+
 func cloneAlertSourceWatermarksByScope(in map[string]map[rpc.AlertSource]time.Time) map[string]map[rpc.AlertSource]time.Time {
 	out := make(map[string]map[rpc.AlertSource]time.Time, len(in))
 	for scope, watermarks := range in {
@@ -2546,8 +2278,7 @@ func (s *Store) validateAlertDeliveryState() error {
 		return nil
 	}
 	s.initAlertDeliveryRuntime()
-	legacyUnscoped := data.Version == legacyAlertDeliveryVersionV1 && len(data.legacyUnscopedRaw) > 0
-	if (data.Version != AlertDeliveryVersion && !legacyUnscoped) || data.Generation == 0 {
+	if data.Version != AlertDeliveryVersion || data.Generation == 0 {
 		return fmt.Errorf("%w: invalid alert delivery version or generation", ErrInvalidPersistedState)
 	}
 	if err := rpc.ValidateAlertCandidateSnapshot(data.Snapshot); err != nil {
@@ -2565,10 +2296,7 @@ func (s *Store) validateAlertDeliveryState() error {
 		data.RetiredTargets = make(map[string]time.Time)
 	}
 	if data.Baselines == nil {
-		if !legacyUnscoped {
-			return fmt.Errorf("%w: missing alert delivery baselines", ErrInvalidPersistedState)
-		}
-		data.Baselines = make(map[string]alertDeliveryBaseline)
+		return fmt.Errorf("%w: missing alert delivery baselines", ErrInvalidPersistedState)
 	}
 	if len(data.Episodes) > s.alertDeliveryMaxItems || len(data.Occurrences) > s.alertDeliveryMaxItems ||
 		len(data.PreviousContexts) > s.alertDeliveryMaxItems || len(data.Attempts) > s.alertDeliveryMaxItems || len(data.Receipts) > s.alertDeliveryMaxItems || len(data.RetiredTargets) > s.alertDeliveryMaxItems || len(data.SourceWatermarksByScope) > s.alertDeliveryMaxItems || len(data.Baselines) > s.alertDeliveryMaxItems {
@@ -2607,9 +2335,6 @@ func (s *Store) validateAlertDeliveryState() error {
 			return fmt.Errorf("%w: invalid alert delivery occurrence: %v", ErrInvalidPersistedState, err)
 		}
 		expectedDisplayID := alertDeliveryDisplayID(occurrence.AuthorityScope, occurrence.OccurrenceKey)
-		if legacyUnscoped {
-			expectedDisplayID = legacyAlertDeliveryDisplayID(occurrence.OccurrenceKey)
-		}
 		if occurrence.DisplayID != expectedDisplayID || occurrence.FirstSeenAt.IsZero() || occurrence.LastSeenAt.IsZero() || occurrence.AttentionSeq == 0 || !validAlertDisposition(occurrence.Disposition) {
 			return fmt.Errorf("%w: invalid alert delivery occurrence metadata", ErrInvalidPersistedState)
 		}
@@ -2713,9 +2438,6 @@ func (s *Store) validateAlertDeliveryState() error {
 			return fmt.Errorf("%w: invalid alert delivery attempt scope", ErrInvalidPersistedState)
 		}
 		expectedReceiptKey := alertDeliveryReceiptKey(attempt.AuthorityScope, attempt.OccurrenceKey, attempt.TargetRef)
-		if legacyUnscoped {
-			expectedReceiptKey = legacyAlertDeliveryReceiptKey(attempt.OccurrenceKey, attempt.TargetRef)
-		}
 		if !validAlertAttemptID(attempt.ID) || !validAlertHash(attempt.TargetRef) || attempt.ReceiptKey != expectedReceiptKey || attempt.AttemptNumber < 1 || attempt.AttemptNumber > 4 || attempt.ReservedAt.IsZero() || !validAlertDeliveryAttemptClass(attempt.Class) {
 			return fmt.Errorf("%w: invalid alert delivery attempt", ErrInvalidPersistedState)
 		}
@@ -2761,9 +2483,6 @@ func (s *Store) validateAlertDeliveryState() error {
 			return fmt.Errorf("%w: invalid alert delivery receipt scope", ErrInvalidPersistedState)
 		}
 		expectedReceiptKey := alertDeliveryReceiptKey(receipt.AuthorityScope, receipt.OccurrenceKey, receipt.TargetRef)
-		if legacyUnscoped {
-			expectedReceiptKey = legacyAlertDeliveryReceiptKey(receipt.OccurrenceKey, receipt.TargetRef)
-		}
 		if !validAlertHash(receipt.TargetRef) || receipt.ReceiptKey != expectedReceiptKey || receipt.AcceptedAt.IsZero() {
 			return fmt.Errorf("%w: invalid alert delivery receipt", ErrInvalidPersistedState)
 		}
@@ -2817,30 +2536,6 @@ func (s *Store) validateAlertDeliveryState() error {
 	if !ok || !maps.Equal(data.SourceWatermarks, currentWatermarks) {
 		return fmt.Errorf("%w: current alert delivery watermarks mismatch authority scope", ErrInvalidPersistedState)
 	}
-	if legacyUnscoped {
-		return s.archiveLegacyUnscopedAlertDelivery(data)
-	}
-	return nil
-}
-
-func (s *Store) archiveLegacyUnscopedAlertDelivery(data *alertDeliveryData) error {
-	if data == nil || data.Version != legacyAlertDeliveryVersionV1 || len(data.legacyUnscopedRaw) == 0 {
-		return errors.New("legacy unscoped alert delivery archive requires validated raw state")
-	}
-	raw := append(json.RawMessage(nil), data.legacyUnscopedRaw...)
-	if _, err := preserveAlertDeliveryQuarantine(filepath.Dir(s.path), raw); err != nil {
-		return fmt.Errorf("preserve legacy unscoped alert delivery: %w", err)
-	}
-	// A v1 ledger cannot be assigned to an account/mode after the fact. Preserve
-	// its exact audit evidence, then start v3 uninitialized so only the first
-	// daemon-authored scoped snapshot can establish live authority.
-	s.data.AlertDelivery = nil
-	if err := s.save(); err != nil {
-		s.data.AlertDelivery = data
-		return fmt.Errorf("retire legacy unscoped alert delivery: %w", err)
-	}
-	s.loadedAlertDeliveryRaw = nil
-	s.loadedAlertDeliveryDecodeErr = nil
 	return nil
 }
 

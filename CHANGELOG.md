@@ -6,12 +6,12 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Changed
 
-- **Major upgrades now cross an explicit stable-branch bridge.** Version 3 accepts a current `daemon.db` or a genuinely fresh state root. A file-era installation must start the latest stable 2.x daemon once; v3 fails closed with that instruction instead of carrying old file decoders in every startup. Current databases still use the out-of-place, verified, crash-resumable schema upgrade path, so future migrations and data cleanups remain first-class.
+- **Major upgrades now cross an explicit stable-branch bridge.** Version 3 accepts current daemon and alert state or a genuinely fresh state root. An older installation must start the latest stable 2.x daemon once; v3 fails closed, preserving unsupported alert ledgers byte-for-byte, instead of carrying historical decoders in every startup. Current databases still use the out-of-place, verified, crash-resumable schema upgrade path, so future migrations and data cleanups remain first-class.
 - **The daily brief is now a pure read and reports current policy adherence.** Opening it no longer acknowledges, stamps, or completes a process artefact. The post-trade Review movement summarizes current pass/watch/act/unknown rulebook evidence, while routine monthly evidence completes automatically when its due instant and current policy pins are proven. Missing or conflicting evidence remains an exception in the Action Queue.
 
 ### Removed
 
-- **File-era migration code has moved out of the v3 runtime.** The legacy order, capital, settings, market-cache and decision-journal importers, their historical binary corpus, and the retired Regime/Stress history RPC contracts are no longer shipped in v3. Stable 2.x remains the supported conversion route; current SQLite migration and cleanup machinery is retained.
+- **Historical migration code has moved out of the v3 runtime.** The legacy order, capital, settings, market-cache, decision-journal, alert-ledger and alert-registry importers, their historical binary corpus, and the retired Regime/Stress history RPC contracts are no longer shipped in v3. Stable 2.x remains the supported conversion route; current SQLite migration and cleanup machinery and fail-closed alert quarantine are retained.
 - **Routine desk attestations are gone.** The brief acknowledgement RPC, paired-app reconciliation sign-off, manual morning/EOD/weekly `policy artefact` verb, presentation baseline state, and their compatibility tests were removed. Exceptional reconciliation repair remains available through the explicit human-only policy path; broker-write authority and trading guardrails are unchanged.
 
 ## v2.8.4 — 2026-08-08 11:26 CEST

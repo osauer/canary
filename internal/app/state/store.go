@@ -297,12 +297,6 @@ func Open(dir string) (*Store, error) {
 	if s.alertDeliveryQuarantinedLocked() {
 		return s, nil
 	}
-	if s.data.AlertDelivery != nil && s.data.AlertDelivery.migratedLegacy {
-		s.data.AlertDelivery.migratedLegacy = false
-		if err := s.save(); err != nil {
-			return nil, fmt.Errorf("persist alert delivery ledger upgrade: %w", err)
-		}
-	}
 	if err := s.RecoverAlertDeliveries(time.Now().UTC()); err != nil {
 		if s.alertDeliveryStateWriteFailure() {
 			return s, nil
