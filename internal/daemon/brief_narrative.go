@@ -27,7 +27,11 @@ type briefProse struct {
 }
 
 func (p *briefProse) push(role, text string) {
-	if text == "" {
+	p.pushRun(rpc.BriefRun{Text: text, Role: role})
+}
+
+func (p *briefProse) pushRun(run rpc.BriefRun) {
+	if run.Text == "" {
 		return
 	}
 	if p.pending {
@@ -36,15 +40,18 @@ func (p *briefProse) push(role, text string) {
 			p.runs = append(p.runs, rpc.BriefRun{Text: " "})
 		}
 	}
-	p.runs = append(p.runs, rpc.BriefRun{Text: text, Role: role})
+	p.runs = append(p.runs, run)
 }
 
 // sentence marks a sentence boundary. It is a no-op at the start of a
 // paragraph, so a folded block never opens with whitespace.
 func (p *briefProse) sentence() { p.pending = true }
 
-func (p *briefProse) text(text string)              { p.push("", text) }
-func (p *briefProse) figure(text string)            { p.push(rpc.BriefRunRoleFigure, text) }
+func (p *briefProse) text(text string)   { p.push("", text) }
+func (p *briefProse) figure(text string) { p.push(rpc.BriefRunRoleFigure, text) }
+func (p *briefProse) accountFigure(text string) {
+	p.pushRun(rpc.BriefRun{Text: text, Role: rpc.BriefRunRoleFigure, AccountSensitive: true})
+}
 func (p *briefProse) tinted(role, text string)      { p.push(role, text) }
 func (p *briefProse) tintedFigure(role, fig string) { p.push(briefFigureRole(role), fig) }
 
@@ -79,7 +86,7 @@ func briefMergeRuns(runs []rpc.BriefRun) []rpc.BriefRun {
 		if run.Text == "" {
 			continue
 		}
-		if len(out) > 0 && out[len(out)-1].Role == run.Role {
+		if len(out) > 0 && out[len(out)-1].Role == run.Role && out[len(out)-1].AccountSensitive == run.AccountSensitive {
 			out[len(out)-1].Text += run.Text
 			continue
 		}
@@ -323,7 +330,7 @@ func briefReviewLastSession(p *briefProse, row rpc.BriefLastSessionRow) {
 		return
 	}
 	p.text("The last completed session (" + row.SessionDate + ") closed with Daily P/L ")
-	p.figure(briefMoney(*row.DailyPnLBase, row.BaseCurrency, true))
+	p.accountFigure(briefMoney(*row.DailyPnLBase, row.BaseCurrency, true))
 	p.text(", captured " + briefCloseCaptureClock(row.CapturedAt) + ".")
 }
 
@@ -353,20 +360,20 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 		} else {
 			p.text("Daily P/L stands at ")
 		}
-		p.figure(briefMoney(*account.DailyPnLBase, currency, true))
+		p.accountFigure(briefMoney(*account.DailyPnLBase, currency, true))
 		if sessionClosed {
 			p.text(" at off-session marks")
 		}
 		if account.EquityBase != nil {
 			p.text(" on equity of ")
-			p.figure(briefMoney(*account.EquityBase, currency, false))
+			p.accountFigure(briefMoney(*account.EquityBase, currency, false))
 			p.text(".")
 		} else {
 			p.text("; account equity is unavailable.")
 		}
 	case account.EquityBase != nil:
 		p.text("Daily P/L is unavailable; account equity stands at ")
-		p.figure(briefMoney(*account.EquityBase, currency, false))
+		p.accountFigure(briefMoney(*account.EquityBase, currency, false))
 		p.text(".")
 	default:
 		p.text("Neither Daily P/L nor account equity is available.")
@@ -391,11 +398,11 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 				p.text(", ")
 			}
 			p.text(row.Symbol + " ")
-			p.figure(briefFigure(row.DailyPnLBase, true))
+			p.accountFigure(briefFigure(row.DailyPnLBase, true))
 		}
 		if attribution.OtherPnLBase != nil && attribution.OtherCount > 0 {
 			p.text(", and " + briefCountPhrase(attribution.OtherCount, "other name", "other names") + " at ")
-			p.figure(briefFigure(*attribution.OtherPnLBase, true))
+			p.accountFigure(briefFigure(*attribution.OtherPnLBase, true))
 		}
 		p.text(".")
 	}
@@ -460,7 +467,7 @@ func briefAdjustedPeakSentence(p *briefProse, events rpc.BriefCapitalEventsRow) 
 		return
 	}
 	p.text("The adjusted peak holds at ")
-	p.figure(briefMoney(*events.AdjustedPeakBase, events.BaseCurrency, false))
+	p.accountFigure(briefMoney(*events.AdjustedPeakBase, events.BaseCurrency, false))
 	p.text(".")
 }
 
@@ -696,9 +703,9 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 		if capital.DrawdownBase != nil && capital.AdjustedPeakBase != nil {
 			p.sentence()
 			p.text("Drawdown stands at ")
-			p.figure(briefMoney(*capital.DrawdownBase, capital.BaseCurrency, false))
+			p.accountFigure(briefMoney(*capital.DrawdownBase, capital.BaseCurrency, false))
 			p.text(" from an adjusted peak of ")
-			p.figure(briefMoney(*capital.AdjustedPeakBase, capital.BaseCurrency, false))
+			p.accountFigure(briefMoney(*capital.AdjustedPeakBase, capital.BaseCurrency, false))
 			p.text(".")
 		}
 	}
@@ -733,7 +740,7 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 		p.text("Premium at risk cannot be totalled: no long option leg carries a base market value.")
 	default:
 		p.text("Premium at risk ")
-		p.figure(briefMoney(*premium.AmountBase, premium.BaseCurrency, false))
+		p.accountFigure(briefMoney(*premium.AmountBase, premium.BaseCurrency, false))
 		p.text(" across " + briefCountPhrase(premium.IncludedLegs, "long option leg", "long option legs"))
 		if premium.ExcludedLegs > 0 {
 			p.text(", with " + briefCountPhrase(premium.ExcludedLegs, "leg", "legs") + " excluded for missing base market value")
@@ -750,7 +757,7 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 		p.text("Hedge cost cannot be totalled: no classified hedge leg carries usable theta.")
 	default:
 		p.text("Hedge cost ")
-		p.figure(briefMoney(*hedge.AmountBase, hedge.BaseCurrency, false))
+		p.accountFigure(briefMoney(*hedge.AmountBase, hedge.BaseCurrency, false))
 		p.text(" per day across " + briefCountPhrase(hedge.IncludedLegs, "classified hedge leg", "classified hedge legs"))
 		if hedge.ExcludedLegs > 0 {
 			p.text(", with " + briefCountPhrase(hedge.ExcludedLegs, "candidate leg", "candidate legs") + " excluded for missing classification inputs")

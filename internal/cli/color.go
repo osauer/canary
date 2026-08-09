@@ -9,9 +9,9 @@ import (
 // ANSI SGR codes used across renderers. Kept to a tight palette so colored
 // output stays signal — green/red for sign, dim for the absent/zero
 // placeholder, yellow for warning badges, bold for the section title and
-// the single hero number per screen (e.g. Net Liquidation on `canary account`,
-// EXPECTED MOVE on `canary chain`, effective/dollar delta on the Portfolio
-// aggregate). Bold is the strongest emphasis — use it sparingly.
+// the single hero number per screen (for example Net Liquidation on
+// `canary account` or effective/dollar delta on the portfolio aggregate).
+// Bold is the strongest emphasis; use it sparingly.
 const (
 	ansiReset  = "\x1b[0m"
 	ansiRed    = "\x1b[31m"

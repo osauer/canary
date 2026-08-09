@@ -2,7 +2,7 @@
 
 Updated: 2026-07-31 19:40 CEST
 
-`canary regime` reports the broad-market stress lifecycle: `quiet`,
+The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
 or `data_quality`. It is an evidence-balance read, not a prediction, trading
 system, portfolio planner, or investment recommendation.
@@ -10,9 +10,10 @@ system, portfolio planner, or investment recommendation.
 Use it to answer one question: are several independent market-risk indicators
 confirming each other, or is the market still broadly calm?
 
-The stress read may consume this output, but Stress owns account and portfolio
-action. A portfolio concentration problem can be real even while the broad
-market regime is calm.
+The daemon's Stress engine may consume this output, but Stress owns account and
+portfolio action. A portfolio concentration problem can be real even while the
+broad market regime is calm. In v3 these are internal sensors surfaced through
+the daily brief, rules, and app rather than standalone CLI or MCP commands.
 
 ## Output shape
 

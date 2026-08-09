@@ -199,8 +199,8 @@ of everything above.
 - After Part B, restart the daemon and confirm from the daemon log that
   `daemon authority: verified in ...` has dropped from ~47 s to seconds.
 - Confirm `canary status --json` reports `connected` with all subsystems ready,
-  and that a contract-dependent read (`canary quote SPY`) still works — that
-  proves the cache reseeded from the surviving state document.
+  then run `make smoke-fast`; its retained quote probe proves contract data can
+  be resolved after the cache reseeds from the surviving state document.
 - Row-count check on the live authority before and after:
   `SELECT kind, COUNT(*), SUM(LENGTH(payload)) FROM observations GROUP BY kind`.
 

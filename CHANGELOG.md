@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 - **Historical migration code has moved out of the v3 runtime.** The legacy order, capital, settings, market-cache, decision-journal, alert-ledger and alert-registry importers, their historical binary corpus, and the retired Regime/Stress history RPC contracts are no longer shipped in v3. Stable 2.x remains the supported conversion route; current SQLite migration and cleanup machinery and fail-closed alert quarantine are retained.
 - **Routine desk attestations are gone.** The brief acknowledgement RPC, paired-app reconciliation sign-off, manual morning/EOD/weekly `policy artefact` verb, presentation baseline state, and their compatibility tests were removed. Exceptional reconciliation repair remains available through the explicit human-only policy path; broker-write authority and trading guardrails are unchanged.
+- **The two obsolete release smoke implementations are consolidated.** The `release-verify` and `release-smoke` targets remain as compatibility entry points, but both now use the retained isolated read-only wire smoke instead of scripts that called retired v2 CLI commands.
 
 ## v2.8.4 — 2026-08-08 11:26 CEST
 

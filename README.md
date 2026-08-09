@@ -1,4 +1,4 @@
-# Canary - IBKR MCP server for TWS and IB Gateway
+# Canary — local IBKR risk desk
 
 [![ci](https://github.com/osauer/canary/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/osauer/canary/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/osauer/canary?display_name=tag&sort=semver)](https://github.com/osauer/canary/releases/latest)
@@ -10,23 +10,27 @@
 
 **A local command line, MCP server, and risk desk for Interactive Brokers.**
 
-`canary` turns your local IB Gateway or TWS session into structured account and market context for the terminal, Claude Desktop, Claude Code, Cursor, Continue, Zed, and other MCP hosts. It is the local `canary mcp` TWS bridge for portfolio review, exposure mapping, options diagnostics, market-risk checks, watchlist monitoring, and position-sizing math.
+`canary` turns one local IB Gateway or TWS session into an operator brief, an
+Action Queue, typed portfolio and policy evidence, and a paired mobile desk.
+The daemon owns broker connectivity, market sensors, durable state, and risk
+semantics; the CLI, MCP server, and app render that authority for their users.
 
-For MCP users, `canary mcp` exposes the same typed reads as the command line, including Canary's assembled daily brief. The bundled MCP surface cannot place, modify, cancel, or transmit broker orders; it can analyze the book, size plans, and draft preview-only stock/ETF limit orders.
+`canary mcp` is a deliberately small read-only adapter: 13 account, position,
+brief, rulebook, technical, proposal, opportunity, order-status, settings, and
+health tools. It has no streaming resources and cannot preview, place, modify,
+cancel, exercise, or transmit a broker action.
 
 Use it from a shell:
 
 ```sh
 canary status
 canary positions --by underlying
-canary regime
-canary stress
-canary market-events --symbol GME --json
-canary watch IBM --add
-canary watch
-canary calendar --market us --date 2026-05-25
-canary quote SPY --watch
-canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
+canary brief
+canary rules
+canary technical SPY,QQQ --json
+canary proposals list --json
+canary opportunities list --json
+canary orders open --json
 canary settings show
 ```
 
@@ -38,15 +42,19 @@ Or connect it to Claude Desktop, Claude Code, Cursor, Continue, Zed, or any MCP 
 >
 > "Show my AAPL exposure, including option deltas."
 >
-> "How does the market regime look today?"
+> "What changed since the last close, and what needs attention now?"
 >
-> "Should I hold, watch, de-lever, or liquidate risk?"
+> "Which rulebook inputs are current, stale, or unavailable?"
 >
-> "Is Xetra open on Whit Monday?"
+> "Are there close or reduce-only protection candidates?"
 >
-> "If I buy 100 MSFT at 418 with a stop at 408, what's my EUR risk?"
+> "Are any option-exercise candidates blocked or ready for human review?"
 
-Your account data stays on the machine running IB Gateway or TWS unless you choose to send it to an MCP host. The project ships as one Go binary with a CLI, a local MCP server, and a Go library. No Python runtime, Java runtime, or hosted service is required.
+Your account data stays on the machine running IB Gateway or TWS unless you
+choose to send it to an MCP host or enable an optional paired-app transport.
+Releases publish read-only and separately named trading builds for four
+OS/architecture targets. No Python runtime, Java runtime, or hosted account
+service is required.
 
 **Contents** — [Install](#install) · [What you get](#what-you-get) · [Pick your path](#pick-your-path) · [How it works](#how-it-works) · [Configure](#configure) · [Safety](#safety) · [Other install paths](#other-install-paths) · [Troubleshooting](#troubleshooting)
 
@@ -79,20 +87,43 @@ For v1.0.0+ releases, the installer, `canary update`, and the MCPB release asset
 
 ## What you get
 
-- **Account and positions.** Net liquidation, buying power, cash, margin, daily P&L, positions, option Greeks, per-underlying grouping, and portfolio-level delta/theta/gamma/vega rollups. Every result names one account and says whether its data is current and complete. A missing value stays missing instead of looking like zero, and an unresolved multi-account login is refused instead of combined. Multi-currency accounts include FX exposure.
-- **Quotes and history.** Snapshot quotes, coalesced stock/ETF streaming, daily OHLCV bars, previous close, day change, and data freshness (`live`, `frozen`, `delayed`, `delayed-frozen`).
-- **Official market calendars.** US cash equities, US listed options regular sessions, and German Xetra cash equities with holidays, early closes, next open/close, and quote `session_context` when calendar state explains stale or missing data.
-- **Local watchlist.** Add/remove/clear symbols offline, list them as JSON, show an enriched quote monitor with price, currency, changes, ranges, volume, timestamps, and held-stock context, or poll the saved list with `canary watch --watch`.
-- **Options.** Expiry lists with ATM IV and implied move, strike grids with call/put quotes, deltas, and open interest. Option snapshots are supported; option streaming is not exposed.
-- **Position sizing.** Fixed-fractional sizing against live NLV, with optional target, R-multiple, and breakeven win rate. Pure math; never an order ticket.
-- **Market breadth.** S&P 500 participation from constituent daily bars: percent above 50-DMA, percent above 200-DMA, and fresh 52-week highs/lows. A fresh cache is instant; first-ever cold start can take about an hour because of IBKR pacing.
-- **Dealer gamma.** Production-ready SPX/SPXW-canonical zero-gamma and concentration view, with SPY used as corroborating context when its option surface is usable. A fresh, rankable SPX result is the stable headline signal; SPY-only is a labeled proxy. Treat the signed level as a regime hint, not a precise trading level.
-- **Risk regime.** One call returns the eight-row dashboard: VIX term structure, VVIX, HYG/SPY divergence, HY/IG OAS, funding spread, USD/JPY weekly move, SPX-canonical dealer gamma, and S&P 500 breadth. Heavy rows report `computing` instead of pretending stale data is fresh.
-- **Portfolio stress.** `canary stress` and MCP `canary_stress` produce a stateless `market regime × portfolio shape` monitor with `action`, `market_confirmation`, `portfolio_fit`, `input_health`, planner readiness, stable fingerprints, and supporting `signals[]`. It also emits bounded `portfolio.held_stress[]` rows for material held underlyings when existing positions data shows held-name daily P&L shock, near-expiry held-option delta concentration, or held-name liquidity degradation. Account-only risk stays evidence, not a DEFEND trigger; DEFEND requires confirmed market pressure, vulnerable portfolio fit, and clean enough inputs. Use `canary stress --details` for the full evidence rows.
-- **Daily brief.** `canary brief` and MCP `canary_brief` return the daemon's same written Review/Ready briefing: what changed since the last close, what matters before the next one, and which inputs could not be read. The MCP tool is a pure read. It never signs off, stamps an artefact, or advances process state.
-- **Market-event flags.** `canary market-events` and MCP `canary_market_events` annotate held or requested stock/ETF symbols with borrow inventory, extreme borrow fee, Nasdaq Reg SHO threshold-list, LULD pause, and regulatory/news halt context. Flags are context and proposal gates: active halt/LULD can block protection proposals, borrow stress can strengthen short buy-to-cover context, and unknown sources remain unknown rather than false. Borrow-fee output also discloses global versus exact-held-short coverage; the narrow TWS `FEE_RATE` fallback remains scale-unverified and cannot create or clear the 50% flag.
-- **Protection proposals and order views.** The daemon maintains trailing-stop, theta-hygiene, and risk-reduction proposals with per-row blockers; `canary proposals` and MCP `canary_proposals` read them. Order state is a local journal read (`canary orders open`, `canary orders history`, `canary order status`) that reconciles itself against the broker's open-order list after each reconnect and every 30 minutes, closing rows the broker no longer reports as `closed_reconciled`. A protective stop that no longer matches its position is flagged critical with the exact reduce-to-position quantity. These are reads; acting on any of it stays behind the separate gated order path.
-- **Platform settings.** `canary settings show` and MCP `canary_settings` report runtime preferences, trading/build capability, account mode, and compact observed market-data quality with `access`, `source`, and read-only reasons. Runtime preferences can hide stock-protection or rulebook workflows, but they never authorize broker submission.
+- **Action Queue and daily brief.** The app converges current alerts, protection
+  work, exercise candidates, and process exceptions into one queue. `canary
+  brief` and MCP `canary_brief` return the daemon's same Review/Ready briefing,
+  including explicit stale, held, unavailable, and not-due inputs.
+- **Account and positions.** Net liquidation, buying power, cash, margin, daily
+  P&L, positions, option Greeks, protection coverage, and portfolio exposure.
+  Every result identifies one account authority; missing is never zero and an
+  unresolved multi-account login is refused rather than combined.
+- **Rulebook, policy, and reconciliation.** `canary rules` evaluates the daily
+  desk discipline, `canary policy show` reports the approved risk constitution,
+  and `canary recon show` compares broker statements with declared capital.
+  Routine clean reports extend automatically; only exceptions return to the
+  operator.
+- **Daemon-owned market context.** Quotes, historical bars, official calendars,
+  breadth, dealer gamma, regime, stress, earnings, borrow, and halt sources feed
+  the brief, rulebook, proposals, alerts, and app Monitor. They preserve their
+  own data type, source health, freshness, warning codes, and session context;
+  they are not separate public v3 CLI or MCP commands.
+- **Named-symbol technical evidence.** `canary technical` and MCP
+  `canary_technical` batch daily trend, relative strength, ATR, and liquidity
+  reads for explicitly requested stock or ETF symbols.
+- **Protection and option exercise.** The daemon maintains close/reduce-only
+  proposals and option-exercise opportunities with blockers and freshness.
+  CLI, MCP, and app can inspect them; any broker action remains behind the
+  separate trading build, a fresh exact preview or preflight, daemon
+  revalidation, and a transaction-specific human instruction.
+- **Order lifecycle reads.** `canary orders open`, `canary orders history`, and
+  `canary order status` inspect the local journal and typed broker callbacks.
+  Reconciliation closes rows the broker no longer reports without inventing an
+  execution result.
+- **Paired app.** The embedded PWA provides Monitor, Brief, Alerts, Orders, and
+  Settings at desktop and mobile widths, with explicit current versus retained
+  alert state and local or optional remote pairing.
+- **Platform settings.** `canary settings show` and MCP `canary_settings` report
+  runtime preferences, build capability, account mode, and observed data
+  quality. Settings never authorize broker submission; freeze and limit changes
+  remain interactive-human-only.
 
 Every data command supports `--json`. `canary restart --json` is also useful for scripts: it reports whether a daemon was already running, old/new PIDs, whether `--force` was used, the post-start `status.health` snapshot, and any app process it refreshed. Lifecycle commands such as `setup`, `update`, `restart`, `mcp`, and `daemon` are for local operation and transport setup.
 
@@ -104,7 +135,11 @@ For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](exa
 
 ### Claude Desktop, Cursor, Continue, Zed
 
-`canary mcp` starts a local stdio MCP server. MCP hosts can call the same account, watchlist, quote, calendar, position, sizing, regime, stress, daily-brief, and preview-only order-draft tools that the CLI exposes as JSON. The order preview surface can mint a local non-submitting preview token, but it cannot place, modify, cancel, or transmit broker orders. Watchlist access through MCP can return either the saved symbols or enriched quote rows; local lifecycle verbs such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` stay outside the MCP tool set.
+`canary mcp` starts a local stdio MCP server with 13 read-only tools: status,
+trading status, settings, open orders, order history, one-order status, account,
+positions, technical analysis, brief, rules, proposals, and opportunities. It
+has no resources or order preview/execution tools. Local lifecycle and
+human-governance commands stay outside the MCP surface.
 
 For Claude Desktop, the recommended install path is the `.mcpb` asset from the latest release. For other clients, paste this into the client's MCP config (path varies):
 
@@ -141,7 +176,7 @@ claude plugin marketplace add osauer/canary
 claude plugin install canary@canary
 ```
 
-The plugin carries a skill, Claude Code MCP server config for `canary mcp`, a `PreToolUse` hook that permits read/preview order commands, blocks shell command chaining around broker-adjacent writes, and refuses broker-write verbs unless the daemon reports a paper or live write-ready trading state (failing closed for broker-adjacent `canary` commands if `jq` is missing from PATH), plus a `SessionStart` hint when the binary isn't installed. The skill's `allowed-tools` pre-allows read and preview-only patterns once the skill activates. For a global allowlist that fires *before* the skill activates, merge `settings/canary.settings.json` into `~/.claude/settings.json` by hand — it is permissions-only: read/preview patterns are allowed, and destructive daemon maintenance carries explicit deny rules while broker writes remain decided by the hook and daemon gates.
+The plugin carries a skill, Claude Code MCP server config for `canary mcp`, a `PreToolUse` hook that permits read-only commands, blocks shell command chaining around broker-adjacent writes, and refuses broker-write verbs unless the daemon reports a paper or live write-ready trading state (failing closed for broker-adjacent `canary` commands if `jq` is missing from PATH), plus a `SessionStart` hint when the binary isn't installed. The skill's `allowed-tools` lists only the retained read surfaces. For a global allowlist that fires *before* the skill activates, merge `settings/canary.settings.json` into `~/.claude/settings.json` by hand — it is permissions-only; broker writes remain decided by the hook and daemon gates.
 
 **The plugin doesn't ship the binary.** It carries the skill, hooks, MCP launcher config, and manifest — you still need the `canary` binary from [Install](#install). The MCP launcher looks at `CANARY_BIN`, the plugin's local development `bin/canary`, `PATH`, `~/.local/bin/canary`, Homebrew, and `/usr/local/bin/canary`. The binary and plugin have independent release cadences and independent update paths:
 
@@ -159,18 +194,14 @@ Restart the host (Claude for Mac, standalone Claude Code session, Cursor, …) a
 
 ```sh
 $ canary account --json | jq '.net_liquidation, .base_currency'
-$ canary watch IBM --add
-$ canary watch --list --json
-$ canary watch --json | jq '.rows[] | {sym: .symbol, price: .price, chg: .change_pct, as_of: .price_as_of}'
-$ canary quote AAPL,MSFT --json | jq '.[] | {sym: .symbol, price: .price, chg: .change_pct}'
-$ canary quote MBG --market de --json | jq '{sym: .symbol, ccy: .contract.currency, last: .last}'
-$ canary calendar --market us-options --date 2026-11-27 --json | jq '.session'
 $ canary positions --by underlying --json | jq '.portfolio.effective_delta'
-$ canary stress --json | jq '{action, market_confirmation, portfolio_fit, held_stress: .portfolio.held_stress}'
-$ canary market-events --symbol GME --json | jq '{flags, source_health, fingerprint}'
+$ canary brief --json | jq '{review: .review.status, ready: .ready.status}'
+$ canary rules --json | jq '{status, summary, input_health}'
+$ canary technical AAPL,MSFT --json
+$ canary proposals list --json
+$ canary opportunities list --json
+$ canary orders open --json
 $ canary settings show --json | jq '.features.stock_protection.enabled'
-$ canary chain NVDA --json | jq '.expiries[] | select(.iv > 0.6)'
-$ canary size --symbol AAPL --entry 207.50 --stop 202.50 --risk-pct 1
 ```
 
 `canary --help` lists subcommands; `canary <cmd> --help` lists flags. `canary status` first if anything looks off.
@@ -194,7 +225,6 @@ cfg := ibkr.DefaultConfig()    // 127.0.0.1:4001
 cfg.Port = 4002                // paper
 
 c := ibkr.NewConnector(&ibkr.ConnectorConfig{
-    ServiceName:       "myapp",
     PreferredClientID: 15,
     BaseConfig:        cfg,
 })
@@ -262,19 +292,26 @@ References:
 
 ## Safety
 
-`canary` is the stable no-broker-write binary line. It exposes read tools plus preview-only order drafts; preview tokens are local artifacts and are not broker orders. Experimental trading builds are separate, as-is, and not part of the stable update or MCP marketplace path. The Go library is not itself a complete no-write sandbox: its default build disables unrestricted order and exercise methods but retains narrowly paper-gated order wrappers for daemon use. The stable binary's no-write posture is enforced across these layers:
+`canary` is the stable no-broker-write binary line. Experimental trading builds
+are separate, as-is, and never enter the stable update or MCP marketplace path.
+The Go library is not itself a complete no-write sandbox: its default build
+disables unrestricted order and exercise methods but retains narrowly
+paper-gated wrappers for daemon use. The stable binary's no-write posture is
+enforced across these layers:
 
 1. Default `pkg/ibkr` builds return `ErrTradingDisabled` from unrestricted place/cancel and option-exercise methods before any wire write. Raw unrestricted methods require `-tags trading`; the all-build paper wrappers validate a concrete paper account and connection but do not grant application authority.
-2. The daemon's write-handler dispatch returns `ErrTradingDisabled` for place/cancel RPCs ([internal/daemon/trading_disabled.go](internal/daemon/trading_disabled.go)); preview can mint a token but reports `submit_eligible=false` unless broker WhatIf is accepted.
-3. The bundled [settings/canary.settings.json](settings/canary.settings.json) allowlists read/preview `canary` patterns only and explicitly denies destructive daemon maintenance. Broker writes are not hard-denied there; the project hook and daemon gates decide them.
+2. The daemon's write-handler dispatch returns `ErrTradingDisabled` for broker-write RPCs in the standard build ([internal/daemon/trading_disabled.go](internal/daemon/trading_disabled.go)).
+3. The bundled [settings/canary.settings.json](settings/canary.settings.json) allowlists the retained read and local-control patterns. Broker writes are not hard-denied there; the project hook and daemon gates decide them.
 4. The plugin's `PreToolUse` hook blocks shell chaining around broker-adjacent writes and refuses broker-write patterns unless the daemon reports a paper or live write-ready trading state, failing closed for broker-adjacent `canary` commands if `jq` is missing from PATH.
-5. A unit test in `internal/mcp` allows only preview/read-model order tools and refuses unallowlisted order/trade/cancel/submit/place tool names.
+5. A unit test in `internal/mcp` permits only the 13 registered read tools and refuses unallowlisted order/trade/cancel/submit/place tool names.
 
-Stable releases keep broker-write RPC handlers unavailable. Preview-only CLI, JSON, and MCP additions may appear as documented minor additions.
+Stable releases keep broker-write RPC handlers unavailable. The paired app and
+trading CLI may expose constrained review flows only when the separately built
+trading capability and all runtime gates are present.
 
 ## Other install paths
 
-- **`go install`**: `go install github.com/osauer/canary/v2/cmd/canary@latest`. Requires Go 1.26+.
+- **Public Go module and source-built v2 CLI**: `go install github.com/osauer/canary/v2/cmd/canary@latest`. The module remains on its maintained v2 line; this command does not install product v3. Use the signed installer or release assets above for product v3. Requires Go 1.26+.
 - **Claude Desktop MCPB**: download `canary.mcpb` from the latest [release](https://github.com/osauer/canary/releases/latest/download/canary.mcpb) and open it with Claude Desktop. The release also publishes `canary-vX.Y.Z.mcpb` for registry integrity and reproducible manual verification.
 - **Different install dir**: `CANARY_INSTALL_DIR=/usr/local/bin sh install.sh`. The installer won't touch your shell rc when you override; manage PATH yourself.
 - **Inspect the installer first**: `curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh -o install.sh && less install.sh && sh install.sh`.
@@ -294,11 +331,10 @@ make test-integration-live # strict live-Gateway integration; absence fails
 
 `make check` is the binding gate. It fails on stdlib vulnerabilities, so an outdated Go toolchain is a build failure. The lint/vuln tools are pinned in `go.mod` and run via `go tool`, so CI and local checks use the same versions. The gate also checks that MCP tools, streaming resources, generated references, and plugin metadata stay aligned with the CLI commands.
 
-`make test` runs the hermetic lifecycle inventory under `test/integration/`
-without probing a Gateway. The live inventory is deliberately separate:
-`IBKR_TEST_PORT=4002 make test-integration-live` requires a reachable,
-fully-handshaken Gateway and fails rather than reporting green skips. A direct
-`go test ./...` retains optional-live behavior for ordinary Go tooling.
+`make test` runs the binding repository checks, concentrated unit suites, and
+hermetic lifecycle inventory without probing a Gateway. `make smoke-fast` and
+`make smoke` are the read-only live-Gateway gates; they use an isolated daemon
+and disclose strict/loose mode, skips, and the first failure.
 
 No mock daemons. `pkg/ibkr/protocoltest/` is a wire-level encoder/decoder spec used by unit tests. Behavioural verification runs against a real IB Gateway.
 

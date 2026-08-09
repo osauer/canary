@@ -42,7 +42,7 @@ plg_mm=$(printf '%s' "$plugin_semver" | awk -F. 'NF>=2 {print $1 "." $2}')
 
 older=$(printf '%s\n%s\n' "$bin_mm" "$plg_mm" | sort -V | head -n1)
 if [ "$older" = "$bin_mm" ]; then
-	printf '\n[Canary plugin] Version skew detected.\n  binary: %s (major.minor %s)\n  plugin: %s (major.minor %s)\nThe binary is older than the plugin. The skill may reference subcommands the\nbinary does not expose yet (e.g. `canary regime`) and you would see\n`unknown subcommand` errors.\nUpdate the binary:\n  curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh\nSee the "Claude Code" section in README.md for both release channels.\n\n' \
+	printf '\n[Canary plugin] Version skew detected.\n  binary: %s (major.minor %s)\n  plugin: %s (major.minor %s)\nThe binary is older than the plugin. The skill may reference subcommands the\nbinary does not expose yet, producing `unknown subcommand` errors.\nUpdate the binary:\n  curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh\nSee the "Claude Code" section in README.md for both release channels.\n\n' \
 		"$bin_semver" "$bin_mm" "$plugin_semver" "$plg_mm" >&2
 else
 	printf '\n[Canary plugin] Version skew detected.\n  binary: %s (major.minor %s)\n  plugin: %s (major.minor %s)\nThe plugin is older than the binary. The skill may not describe subcommands\nthe binary now exposes.\nUpdate the plugin:\n  claude plugin update canary@canary\nSee the "Claude Code" section in README.md for both release channels.\n\n' \

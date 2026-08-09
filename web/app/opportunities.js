@@ -158,6 +158,7 @@ function opportunityRow(opportunity) {
 	const submitState = document.createElement("small");
 	const submitResult = state.opportunitySubmits[previewKey] || null;
 	const submitBusy = state.opportunitySubmitBusy === previewKey;
+	const submitLocked = Boolean(submitResult?.pending || submitResult?.accepted);
 	submitState.className = opportunitySubmitStateClass({ result: submitResult, gate: submitGate, busy: submitBusy });
 	submitState.textContent = opportunitySubmitStateText({ result: submitResult, gate: submitGate, busy: submitBusy, previewResult });
 	copy.append(submitState);
@@ -175,8 +176,8 @@ function opportunityRow(opportunity) {
 	submit.type = "button";
 	submit.className = "opportunity-submit";
 	submit.textContent = submitBusy ? "Submitting" : "Confirm exercise";
-	submit.disabled = submitBusy || !submitGate.ready;
-	submit.title = submitGate.reason;
+	submit.disabled = submitBusy || submitLocked || !submitGate.ready;
+	submit.title = submitResult?.accepted ? "This exact exercise instruction was already sent" : submitBusy || submitResult?.pending ? "Exercise submission is in flight" : submitGate.reason;
 	submit.addEventListener("click", () => submitOpportunityExercise(opportunity));
 	actions.append(submit);
   const ignore = document.createElement("button");
@@ -360,6 +361,8 @@ async function previewOpportunityExercise(opportunity) {
 
 async function submitOpportunityExercise(opportunity) {
 	const previewKey = opportunityPreviewStateKey(opportunity);
+	const priorSubmit = state.opportunitySubmits[previewKey] || null;
+	if (state.opportunitySubmitBusy === previewKey || priorSubmit?.pending || priorSubmit?.accepted) return;
 	const preview = state.opportunityPreviews[previewKey] || null;
 	const gate = opportunitySubmitGate(opportunity, preview);
 	if (!gate.ready) return;

@@ -42,7 +42,7 @@ type gammaZeroCache struct {
 	loadNow  time.Time
 }
 
-const gammaColdCacheAction = "Run `canary gamma --force` for a diagnostic off-hours recompute, or call again during the next regular U.S. options session."
+const gammaColdCacheAction = "Check `canary status --json` during the next regular U.S. options session; an off-hours forced recompute is an internal diagnostic."
 
 // gammaSlot is the per-scope cache cell. Mirrors the original
 type gammaSlot struct {

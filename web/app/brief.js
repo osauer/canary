@@ -1,4 +1,4 @@
-import { $, money } from "./shared.js";
+import { $, money, privacyMask } from "./shared.js";
 import { state } from "./state.js";
 
 function renderBriefCard(snap = state.snapshot || {}) {
@@ -70,7 +70,8 @@ function runsElement(tag, className, runs) {
   const el = document.createElement(tag);
   el.className = className;
   for (const run of runs) {
-    const text = String(run?.text || "");
+    const hidden = Boolean(run?.account_sensitive) && !state.accountValueVisible;
+    const text = hidden ? privacyMask() : String(run?.text || "");
     const roleClass = RUN_ROLE_CLASSES[String(run?.role || "")];
     if (!roleClass) {
       el.append(document.createTextNode(text));
@@ -78,6 +79,7 @@ function runsElement(tag, className, runs) {
     }
     const span = document.createElement(roleClass === "pd-fig" ? "b" : "span");
     span.className = roleClass;
+    span.classList.toggle("is-private", hidden);
     span.textContent = text;
     el.append(span);
   }

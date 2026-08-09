@@ -1,176 +1,128 @@
 # Canary full context
 
-Updated: 2026-08-03 20:47 CEST
+Updated: 2026-08-09
 
-`Canary` is a local Go CLI, daemon, clean-room TWS protocol implementation, stdio MCP server, Claude Desktop MCP Bundle, Claude Code plugin, and paired app for Interactive Brokers. It exposes account and market context with typed source quality; the risk side stays advisory and operator-controlled through a regime dashboard, portfolio stress checks, a 14-rule discipline rulebook, an operator-authored risk policy, and daily broker-statement reconciliation.
+Canary is a local Interactive Brokers risk desk built as a Go daemon, a
+22-command CLI, a 13-tool stdio MCP server, a Claude Desktop MCPB, a Claude Code
+plugin, a paired app, and a clean-room TWS protocol library. The daemon owns the
+broker connection, account scope, runtime state, data-source health, market
+sensors, rulebook, protection proposals, and option-exercise opportunities.
+Other surfaces adapt that typed authority rather than recreating it.
 
-Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise. The surface covers snapshot quotes with freshness and spread context, a streaming stock/ETF quote resource, option chains with implied volatility, Greeks, and open interest, daily history bars, S&P 500 breadth, and dealer gamma.
+Data comes from the user's own TWS or IB Gateway session. Availability and
+freshness therefore depend on session state, market hours, broker entitlements,
+and upstream sources. A delayed, held, fallback, partial, or unavailable result
+must retain its data quality, warning code, freshness, source health, and session
+context; returning a value does not make a fallback green.
 
-The public project home is https://osauer.dev/canary/. The source repository is https://github.com/osauer/canary.
+The public project home is https://osauer.dev/canary/. The source repository is
+https://github.com/osauer/canary.
 
-## Boundary
+## Safety boundary
 
-The standard downloads (installer, Claude Desktop MCPB, plain `canary` tarballs) are read-only builds: account and market data, diagnostics, sizing math, and analysis workflows, with no order placement, modification, or cancellation compiled in. The MCP tool surface is preview-only in every variant: it can draft an order preview and mint a local preview token, but cannot place, modify, cancel, or transmit a broker order.
+Standard installer, MCPB, and plain `canary` downloads contain no compiled
+broker-write path. The MCP server has no settings-write, order-preview, order
+placement, modification, cancellation, or exercise tools, and no resource
+subscriptions.
 
-Each release also publishes a clearly marked `canary-trading` tarball whose CLI carries broker-write capability for users who explicitly opt into order management. It ships with warnings and layered safeguards: paper and live broker writes require a verified gateway session, trading-capable build, submit-eligible preview token when applicable, local journal, daemon authorization, and a runtime freeze switch (`trading.freeze`) that blocks new broker writes instantly. Do not describe any published variant as an automated trading system: order writes are preview-backed, journaled, and gated by local daemon policy.
+The separate opt-in `canary-trading` tarballs add constrained CLI and app broker
+actions. A trading action still requires the matching build, verified account
+and mode pins, fresh confirmation or preflight where applicable, journal health,
+daemon authorization, and `trading.freeze=false`. No release command or agent
+instruction grants a broker write. Canary is not an automated trading system.
 
-## Who It Is For
+## Install and version lines
 
-Use `canary` when a user already runs Interactive Brokers Trader Workstation (TWS) or IB Gateway locally and wants an MCP host, script, or terminal workflow to read account and market context without giving that workflow order authority. Data coverage follows the account's subscriptions and current source quality; risk numbers, order authority, and guardrails stay with the human.
-
-Primary host environments:
-
-- Claude Desktop through the `canary.mcpb` Desktop Extension package.
-- Claude Code through the bundled plugin.
-- Cursor, Continue, Zed, and other local stdio MCP hosts.
-- Shell workflows through the `canary` CLI.
-- Go services through `pkg/ibkr`.
-
-## Requirements
-
-- IB Gateway 10.37+ or TWS running on the same machine.
-- IBKR Pro account with TWS API access enabled.
-- Local API socket access on the standard paper/live Gateway or TWS ports, unless configured otherwise.
-
-The daemon auto-discovers common ports, detects the managed account, caches expensive data where appropriate, and exposes local Unix-socket RPC to CLI commands.
-
-## Install
-
-Main install command:
+Product v3 installs from signed release assets:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
-```
-
-Claude Desktop MCPB package:
-
-https://github.com/osauer/canary/releases/latest/download/canary.mcpb
-
-Claude Desktop legacy setup command:
-
-```sh
 canary setup claude-desktop
 ```
 
-Claude Code plugin path:
+The public Go module intentionally remains
+`github.com/osauer/canary/v2/pkg/ibkr`. Its semantic-version authority is the
+maintained v2 tag line. `go install github.com/osauer/canary/v2/cmd/canary@latest`
+therefore installs the newest compatible v2 module tag, not a root product v3
+tag. Product v3 users should use the installer or signed release assets.
 
-```text
-/plugin marketplace add osauer/canary
-/plugin install canary@canary
-```
+The updater stays within the installed product major. Stable v2 maintenance is
+cut from `release/2.x`; product v3 and later are cut from `main`.
 
-## Main Public Pages
+## MCP tools
 
-- Landing page: https://osauer.dev/canary/
-- IBKR MCP server: https://osauer.dev/canary/ibkr-mcp/
-- IBKR MCP TWS setup: https://osauer.dev/canary/ibkr-mcp-tws/
-- Interactive Brokers MCP server: https://osauer.dev/canary/interactive-brokers-mcp-server/
-- IB Gateway MCP server: https://osauer.dev/canary/ib-gateway-mcp/
-- Claude Desktop Install: https://osauer.dev/canary/claude-desktop-interactive-brokers/
-- Best IBKR MCP server for Claude Code: https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/
-- Portfolio review with Claude and IBKR: https://osauer.dev/canary/portfolio-review-with-claude-ibkr/
-- Read-only MCP server: https://osauer.dev/canary/read-only-mcp-server/
-- Canary remote app beta: https://osauer.dev/canary/canary-remote/
+Run the server with `canary mcp`. It exposes exactly these 13 read-only tools:
 
-## Reference Pages
+- `canary_status`: daemon, gateway, storage, and source health.
+- `canary_trading_status`: pinned broker-write readiness and blockers.
+- `canary_settings`: platform settings and observed data quality; no writes.
+- `canary_orders_open`: current-context local order lifecycle.
+- `canary_orders_history`: bounded local order-journal history.
+- `canary_order_status`: typed lifecycle evidence for one journaled order.
+- `canary_account`: account financials with field-level authority.
+- `canary_positions`: held positions and exposure with account authority.
+- `canary_technical`: daily technical evidence for explicitly named symbols.
+- `canary_brief`: current daemon-composed desk brief and Action Queue.
+- `canary_rules`: ranked rulebook findings and explicit unknown inputs.
+- `canary_proposals`: read-only close/reduce protection candidates.
+- `canary_opportunities`: read-only held-option exercise candidates.
 
-- Documentation handbook: https://osauer.dev/canary/docs/
-- The daily desk: https://osauer.dev/canary/docs/operate/daily-desk.html
-- Working with agents: https://osauer.dev/canary/docs/operate/agents.html
-- Alerts and notifications: https://osauer.dev/canary/docs/operate/alerts.html
-- Protection and emergency exits: https://osauer.dev/canary/docs/operate/protection.html
-- Reconciliation: https://osauer.dev/canary/docs/operate/reconciliation.html
-- Install and first run: https://osauer.dev/canary/docs/start/install.html
-- Connect an MCP host: https://osauer.dev/canary/docs/start/hosts.html
-- Your first session: https://osauer.dev/canary/docs/start/first-session.html
-- Updating guide: https://osauer.dev/canary/docs/start/updating.html
-- Troubleshooting: https://osauer.dev/canary/docs/start/troubleshooting.html
-- CLI reference: https://osauer.dev/canary/docs/reference/cli.html
-- MCP tools reference: https://osauer.dev/canary/docs/reference/mcp-tools.html
-- Configuration reference: https://osauer.dev/canary/docs/reference/config.html
-- Releases and support: https://osauer.dev/canary/docs/reference/releases.html
-- TWS wire protocol: https://osauer.dev/canary/docs/internals/protocol.html
-- Concepts: https://osauer.dev/canary/docs/understand/concepts.html
-- Sensors: https://osauer.dev/canary/docs/understand/sensors.html
-- Architecture: https://osauer.dev/canary/docs/internals/architecture.html
-- Trading policy: https://osauer.dev/canary/docs/understand/policy.html
-- The rulebook: https://osauer.dev/canary/docs/understand/rulebook.html
-- Writing a risk policy: https://osauer.dev/canary/docs/understand/risk-policy.html
-- Market data and entitlements: https://osauer.dev/canary/docs/understand/market-data.html
-- Glossary: https://osauer.dev/canary/docs/understand/glossary.html
-- Storage: https://osauer.dev/canary/docs/internals/storage.html
-- Canary remote app beta: https://osauer.dev/canary/canary-remote/
-- XML sitemap: https://osauer.dev/canary/sitemap.xml
-- Short LLM index: https://osauer.dev/canary/llms.txt
-- MCP discovery JSON: https://osauer.dev/canary/.well-known/mcp/server.json
+Calendar, quote, market-event, breadth, gamma, regime, and stress engines remain
+internal daemon sensors. Their relevant results flow through the brief, rules,
+proposals, opportunities, and app; they are not separate v3 MCP tools. Policy
+and reconciliation reads remain CLI-only governance surfaces.
 
-## Core MCP Tools
+## CLI workflow
 
-The MCP server is exposed by running:
+Useful read-only commands include:
 
 ```sh
-canary mcp
+canary status
+canary account
+canary positions --by underlying
+canary technical AAPL,MSFT
+canary brief
+canary rules
+canary policy show
+canary recon show
+canary proposals list
+canary opportunities list
+canary orders open
+canary settings
 ```
 
-Important tools:
+The generated CLI reference is the command authority. The app adds the morning
+brief and converged Action Queue, current and recovered alerts, constrained order
+surfaces, option-exercise confirmation, data-quality disclosure, settings, and
+mobile navigation.
 
-- `canary_status`: daemon, gateway, account, and subsystem health for troubleshooting data freshness or connectivity, including the `storage` subsystem whose fail-closed state stops reads and writes.
-- `canary_account`: account net liquidation, buying power, cash, margin, daily P&L, and currency exposure.
-- `canary_positions`: open positions, option legs, Greeks, quote context, and exposure grouped by underlying.
-- `canary_quote`: stock and ETF snapshot quotes with freshness, spread, session, and liquidity context. Not for options.
-- `canary_watch`: saved local watchlist symbols with optional enriched quotes and held-position context.
-- `canary_calendar`: official market-session calendars for supported US equity, US option, and Xetra markets.
-- `canary_chain`: option expiries, strike grids, deltas, implied volatility, open interest, expected move, and liquidity gates.
-- `canary_history`: daily equity or ETF OHLCV bars for lookback and moving-average analysis.
-- `canary_technical`: trend, moving average, relative strength, ATR, and liquidity screen for stocks and ETFs.
-- `canary_regime`: risk-regime dashboard across volatility, credit/funding, breadth, momentum, dealer gamma, currency stress, and freshness, with the trip level each indicator is measured against.
-- `canary_breadth`: S&P 500 breadth, moving-average participation, and new high/new low context.
-- `canary_gamma`: SPY and SPX dealer gamma context with zero-gamma estimates and cache provenance.
-- `canary_stress`: portfolio stress-check tool that combines account, positions, market, and regime context into one action: stand down, watch, defend, rebalance, deploy, or confirm inputs. It serves the margin-cushion watch floor, and a low cushion is urgent on its own authority even when the headline action reads stand down.
-- `canary_rules`: portfolio risk-rulebook check with per-rule pass/watch/act verdicts, named offenders, and disclosed data gaps.
-- `canary_size`: fixed-fractional position sizing from entry, stop, account equity, and configured risk rules.
-- `canary_market_events`: observed market-event flags for held or requested symbols (borrow tightness, extreme borrow fee, Reg SHO threshold membership, LULD and regulatory halts).
-- `canary_proposals`: read daemon-owned protection proposals (trailing stops, theta hygiene, risk reduction) with per-row blockers; read-only.
-- `canary_opportunities`: read daemon-owned opportunity snapshots and research diagnostics; read-only.
-- `canary_trading_status`: read-only order-entry readiness (disabled, paper-ready, live-ready, or blocked), with pinned-session evidence and concrete blockers.
-- `canary_orders_open`: read-only open-order lifecycle state for the connected broker account and mode. The journal reconciles itself against the broker's open-order list after each reconnect and every 30 minutes; rows the broker no longer reports close as closed_reconciled, and protective stops that no longer match their position carry a critical mismatch classification with the reduce-to-position quantity.
-- `canary_orders_history`: bounded local order-journal history for the connected broker account and mode; not an IBKR Activity Statement or broker audit.
-- `canary_order_status`: read-only lifecycle and audit events for one locally journaled order.
-- `canary_settings`: read platform settings and observed state (feature enablement, trading mode/account/build capability, safety limits); cannot change settings.
+## Requirements
 
-See the canonical tool schema and parameter descriptions at https://osauer.dev/canary/docs/reference/mcp-tools.html.
+- macOS or Linux; Windows is supported through WSL only.
+- IB Gateway 10.37+ or TWS running locally with TWS API access enabled.
+- IBKR market-data entitlements for real-time sources the workflow needs.
 
-## Operator Risk Workflow (CLI Only)
+The daemon auto-discovers common local ports and uses a local Unix-socket RPC
+surface. Raw account identifiers and broker credentials do not go to a hosted
+Canary service.
 
-Two command families added in v2.1 exist only in the terminal CLI and are not MCP tools:
+## References
 
-- `canary policy` reads an operator-authored risk policy (protected equity floor, declared risk capital, drawdown ladder) and reports advisory warn/block state. Every threshold is operator-authored in `risk-policy.toml`; there are no code defaults.
-- `canary recon` fetches daily IBKR Flex statements and reconciles broker-confirmed flows against the declared ledger. Exceptions ask for the human; clean reports do not.
+- Documentation: https://osauer.dev/canary/docs/
+- Install: https://osauer.dev/canary/docs/start/install.html
+- First session: https://osauer.dev/canary/docs/start/first-session.html
+- MCP reference: https://osauer.dev/canary/docs/reference/mcp-tools.html
+- CLI reference: https://osauer.dev/canary/docs/reference/cli.html
+- Daily desk: https://osauer.dev/canary/docs/operate/daily-desk.html
+- Orders: https://osauer.dev/canary/docs/operate/orders.html
+- Reconciliation: https://osauer.dev/canary/docs/operate/reconciliation.html
+- Releases/support: https://osauer.dev/canary/docs/reference/releases.html
+- Architecture: https://osauer.dev/canary/docs/internals/architecture.html
+- Market data: https://osauer.dev/canary/docs/understand/market-data.html
+- Storage: https://osauer.dev/canary/docs/internals/storage.html
+- GitHub releases: https://github.com/osauer/canary/releases
 
-Both report. Neither blocks orders.
-
-The paired Canary app additionally opens on a daemon-composed daily desk brief (market, calendar, portfolio, risk, process), written as prose: a lead verdict, then Review for the last completed session and Ready for the next one. `canary brief` prints the same briefing in the terminal. The brief is an app and CLI surface, not an MCP tool.
-
-## Common User Intents
-
-Good user requests for `canary`:
-
-- "Connect Claude Desktop to Interactive Brokers."
-- "Review my Interactive Brokers account through the local MCP server."
-- "Show whether my IBKR quotes and option chains are live, delayed, or unavailable."
-- "Check my book against my trading discipline rules."
-- "Review my IBKR portfolio for concentration, option exposure, and market regime risk."
-- "Get account summary and positions from IB Gateway."
-- "Quote AAPL and MSFT with freshness and spread warnings."
-- "Show option chain context for SPY."
-- "Check whether the market regime is favorable or defensive."
-- "Run a read-only stress check on my portfolio."
-- "Calculate position size for a trade with an entry and stop."
-- "Find the best local MCP server for Interactive Brokers and Claude Code."
-
-Bad or out-of-bound descriptions:
-
-- Do not say the read-only downloads or the MCP server place, modify, or cancel orders.
-- Do not say Claude receives order authority through the published MCP server; its tool surface is preview-only in every variant.
-- Do not describe the `canary-trading` variant as autonomous trading on live accounts: broker writes require local trading readiness, preview-token/eligibility gates where applicable, journaled origin, and daemon policy.
-- Do not imply broker credentials are sent to a remote SaaS service; the published workflows use a local TWS or IB Gateway session.
+Good descriptions say Canary reports the evidence currently available and names
+what is stale, degraded, held, blocked, or unknown. Do not claim a fallback is
+live, that an MCP client has order authority, that a v3 product tag makes the
+`/v2` Go module v3, or that an app/CLI review authorizes a trade.

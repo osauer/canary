@@ -114,11 +114,11 @@ this, including what each badge string says verbatim.
 
 | Surface | What it needs |
 | --- | --- |
-| `canary quote`, position marks | Streaming or snapshot market data for that instrument. |
-| `canary chain` | Option market data for the class, typically OPRA. The expiry list alone is contract details and needs less. |
-| `canary gamma` | Option market data for SPX and SPY. After an RTH IBKR 354 it can retry once on delayed spot plus delayed option-model ticks; mixed clocks and delayed-frozen data are refused. |
-| `canary breadth`, `canary history`, `canary technical` | Historical daily bars. No streaming-quote entitlement is involved. |
-| `canary calendar` | Nothing. It makes no broker call at all. |
+| Position marks and quote sensors | Streaming or snapshot market data for that instrument. |
+| Option and exercise sensors | Option market data for the class, typically OPRA. Contract details alone need less. |
+| Gamma engine | Option market data for SPX and SPY. After an RTH IBKR 354 it can retry once on delayed spot plus delayed option-model ticks; mixed clocks and delayed-frozen data are refused. |
+| Breadth engine and `canary technical` | Historical daily bars. No streaming-quote entitlement is involved. |
+| Calendar engine | Nothing. It makes no broker call at all. |
 
 Live quotes also consume subscription slots, which retail accounts cap at
 around a hundred concurrent. That is why a wide chain serializes rather than
@@ -134,15 +134,15 @@ defect.
 
 The published series above need no broker session at all, so the vol-of-vol,
 cash-credit, and funding rows are unaffected. Daily bars are a separate
-entitlement path from streaming quotes, so
-`canary history`, `canary technical`, and the S&P 500 breadth engine keep working.
+entitlement path from streaming quotes, so `canary technical` and the S&P 500
+breadth engine keep working.
 Breadth is computed from constituent daily bars precisely because the index
 itself is not redistributed on retail subscriptions. Its first build is slow
 for pacing reasons covered in
 [Troubleshooting](../start/troubleshooting.md).
 
-Market calendars are embedded in the binary and read no broker data, so
-`canary calendar` answers whether a market is open even with the gateway down.
+Market calendars are embedded in the binary and read no broker data, so the
+brief and app retain session context even with the gateway down.
 
 ## When a quote looks wrong, read the session
 

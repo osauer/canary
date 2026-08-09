@@ -419,7 +419,7 @@ function persistenceArchitecture() {
 
   ${ownerCell(0, "user", C.slate, "Operator", "writes and approves")}
   ${matrixTile({ x: xs[0], y: tileY(0), width: colW, height: 118, iconName: "settings", color: C.greenDark, accent: C.greenDark, title: "Config & Policies", lines: ["gateway, account, client pins", "risk-policy.toml · flex-token"], format: "$XDG_CONFIG_HOME/ibkr · TOML", sensitive: true })}
-  ${matrixTile({ x: xs[1], y: tileY(0), width: colW, height: 118, iconName: "fileText", color: C.green, accent: C.green, title: "Watchlist / User Data", lines: ["watchlist.json", "explicit research exports"], format: "$XDG_DATA_HOME/ibkr · JSON" })}
+  ${matrixTile({ x: xs[1], y: tileY(0), width: colW, height: 118, iconName: "fileText", color: C.green, accent: C.green, title: "No User-Data Authority", lines: ["retired exports sealed", "no live file store"], format: "none" })}
   ${emptyCell(xs[2], tileY(0), colW, 118)}
   ${emptyCell(xs[3], tileY(0), colW, 118)}
 

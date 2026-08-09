@@ -21,8 +21,8 @@ authority. Broker WhatIf previews are also available in both builds, but they
 do not create working orders and never grant submit authority.
 
 The daemon adds trading status, pinned account/mode, preview-token, freeze,
-journal, broker, and origin checks; the MCP server remains preview/read-oriented
-and exposes no place/modify/cancel tools.
+journal, broker, and origin checks; the MCP server is read-only and exposes no
+preview, place, modify, cancel, or exercise tools.
 
 Order caps bind every equity/ETF or single-leg option order, including an
 apparent close or reduction. `reqAllOpenOrders` covers API-created orders across

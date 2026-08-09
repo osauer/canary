@@ -88,7 +88,7 @@ cat > "$stage/manifest.json" <<JSON
   "display_name": "Canary",
   "version": "$semver",
   "description": "Canary's no-broker-write Interactive Brokers MCP server for account, market analysis, and preview-only drafts.",
-  "long_description": "Canary packages a local no-broker-write Interactive Brokers (IBKR) MCP server for Claude Desktop and other MCPB-compatible clients. It exposes account, positions, quotes, watchlists, option chains, named-symbol technical screens, breadth, dealer gamma, market-risk context, and preview-only stock/ETF order drafts through the local Canary CLI. It cannot place, modify, cancel, or transmit broker orders.",
+  "long_description": "Canary packages a local no-broker-write Interactive Brokers (IBKR) MCP server for Claude Desktop and other MCPB-compatible clients. Its 13 read-only tools cover health, account, positions, named-symbol technical evidence, the daily brief, rulebook, proposals, opportunities, settings, and order-lifecycle reads. It has no resources, previews, settings writes, or broker-write tools.",
   "icon": "icon.png",
   "icons": [
     {

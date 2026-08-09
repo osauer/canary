@@ -843,3 +843,34 @@ func TestRiskPolicyManagerLoadsV3AndRejectsV3KeyUnderV2(t *testing.T) {
 		t.Fatalf("v2 key snapshot status=%s message=%q", snap.status, snap.message)
 	}
 }
+
+func TestBriefNarrativeMarksOnlyAccountMoneySensitive(t *testing.T) {
+	amount := 12345.67
+	review := briefNarrativeReview(rpc.BriefReviewSection{
+		SessionPnL: rpc.BriefAccountRow{BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK}, DailyPnLBase: &amount, EquityBase: &amount, BaseCurrency: "USD"},
+	}, rpc.BriefSessionRow{})
+	ready := briefNarrativeReady(rpc.BriefReadySection{
+		Capital:       rpc.BriefCapitalRow{BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK}, Tier: "normal", DrawdownBase: &amount, AdjustedPeakBase: &amount, BaseCurrency: "USD"},
+		PremiumAtRisk: rpc.BriefMoneyCoverageRow{BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK}, AmountBase: &amount, BaseCurrency: "USD"},
+		HedgeCost:     rpc.BriefMoneyCoverageRow{BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK}, AmountBase: &amount, BaseCurrency: "USD"},
+	})
+
+	p := &briefProse{}
+	p.figure("42.5%")
+	var sensitive, publicFigures int
+	for _, paragraph := range append(append(review, ready...), p.done()...) {
+		for _, run := range paragraph.Runs {
+			if run.AccountSensitive {
+				sensitive++
+				if run.Role != rpc.BriefRunRoleFigure {
+					t.Fatalf("sensitive run role=%q text=%q", run.Role, run.Text)
+				}
+			} else if run.Role == rpc.BriefRunRoleFigure {
+				publicFigures++
+			}
+		}
+	}
+	if sensitive < 5 || publicFigures == 0 {
+		t.Fatalf("sensitive=%d public_figures=%d", sensitive, publicFigures)
+	}
+}

@@ -7,10 +7,11 @@ Updated: 2026-07-24 08:40 CEST
 
 ## Contract
 
-Use the typed `canary` MCP tools for read-only account, market, rulebook, stress,
-proposal, opportunity, settings, reconciliation, and order-preview/status
-work. Use `canary ... --json` only when MCP is unavailable, a CLI-only diagnostic
-is required, or the project needs an exact reproducible CLI artifact.
+Use the typed `canary` MCP tools for read-only brief, account, positions,
+rulebook, named-symbol technical, proposal, opportunity, settings, trading,
+health, and order-status/history work. Use `canary ... --json` when MCP is
+unavailable, a CLI-only policy/reconciliation diagnostic is required, or the
+project needs an exact reproducible CLI artifact.
 
 The MCP surface cannot place, modify, cancel, exercise, liquidate, or
 transmit. An explicit current-turn broker-write request uses only the
@@ -32,7 +33,6 @@ This is only the repo-development safety overlay. Detailed command selection,
 schemas, and domain authority stay in:
 
 - [command catalog](../../../skills/canary/SKILL.md)
-- [response schemas](../../../skills/canary/schemas.md)
 - [Rulebook design and authority](../../../internal-docs/design/trading-rulebook.md)
 
 ## Project Workflow

@@ -233,7 +233,7 @@ async function runRound4SyntheticSmoke() {
     await waitForAuthenticatedApp(page);
     await assertVisibleRenameContract(page);
     try {
-      await page.waitForFunction(() => document.getElementById("alertUnreadBadge")?.textContent === "2", { timeout: 5000 });
+      await page.waitForFunction(() => document.getElementById("alertUnreadBadge")?.textContent === "1", { timeout: 5000 });
     } catch (error) {
       throw new Error(`synthetic unread did not render: ${errors.join(" | ") || error.message}`);
     }
@@ -252,7 +252,7 @@ async function runRound4SyntheticSmoke() {
     await attentionRead;
     await page.waitForFunction(() => (
       document.getElementById("alertsTab")?.hidden === false
-        && document.getElementById("alertUnreadBadge")?.textContent === "2"
+        && document.getElementById("alertUnreadBadge")?.textContent === "1"
         && document.getElementById("alertUnreadBadge")?.hidden === false
     ), { timeout: 5000 });
     const alertsView = await page.evaluate(() => ({
@@ -297,7 +297,7 @@ async function runRound4SyntheticSmoke() {
         };
       })(),
     }));
-    if (!monitor.active || monitor.badge !== "2" || monitor.label !== "Action queue, 2 open" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
+    if (!monitor.active || monitor.badge !== "1" || monitor.label !== "Action queue, 1 open" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
     if (!alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     // The log renders as annunciator tiles (watch lit, ended unlit) and the
     // alert authority now reports from inside the lamp-test detail.
@@ -307,6 +307,18 @@ async function runRound4SyntheticSmoke() {
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
     if (ordersView.layout.viewport_width !== 591 || ordersView.layout.grid_columns.length !== 1 || ordersView.layout.identity_width < ordersView.layout.row_width * 0.8 || ordersView.layout.horizontal_overflow) {
       throw new Error(`synthetic Orders compact layout collapsed or overflowed: ${JSON.stringify(ordersView.layout)}`);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator("#tabMonitor").click();
+    const desktopLayout = await page.evaluate(() => ({
+      viewport_width: window.innerWidth,
+      active: document.getElementById("dashboard")?.hidden === false,
+      nav_buttons: [...document.querySelectorAll("#bottomTabs button")].filter((button) => getComputedStyle(button).visibility === "visible").length,
+      account_masked: document.getElementById("accountLabel")?.textContent === "Account unresolved",
+      horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    }));
+    if (desktopLayout.viewport_width !== 1280 || !desktopLayout.active || desktopLayout.nav_buttons !== 5 || !desktopLayout.account_masked || desktopLayout.horizontal_overflow) {
+      throw new Error(`synthetic desktop layout failed: ${JSON.stringify(desktopLayout)}`);
     }
     await page.setViewportSize({ width: 390, height: 844 });
     const mutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
@@ -363,7 +375,7 @@ async function runRound4SyntheticSmoke() {
     }
     if (externalRequests.length > 0) throw new Error(`synthetic browser attempted external requests: ${JSON.stringify(externalRequests)}`);
     if (errors.length > 0) throw new Error(`synthetic browser errors: ${errors.join("\n")}`);
-    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, brief: briefView, alerts: alertsView, orders: ordersView, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
+    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, brief: briefView, alerts: alertsView, orders: ordersView, desktop_layout: desktopLayout, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
   } finally {
     await browser.close();
   }

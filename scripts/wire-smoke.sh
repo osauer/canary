@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # protocol-level invariants.
-# Wired into `make release` AFTER `release-verify` so a binary that
-# ships honest JSON but a broken wire flow can never reach a tag.
+# This is the single retained gateway/wire smoke used by ordinary and manually
+# invoked release verification targets.
 #     test/integration so `make release` works on a laptop without IBKR
 #   CANARY_SMOKE_STRICT     — 1 = FAIL on no-gateway instead of SKIP (release path)
 #   CANARY_SMOKE_FAST       — 1 = stop after boot + quote + account (~15s inner-loop
-#   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = the SPX gamma probe
+#   SPX_EXPECTED_REACHABLE  — 1 (default in `make smoke`) = the SPX daemon probe
 #                             must return real SPX data; banner-seen FAILS the run.
 #                             0 = banner-seen is a clean skip (CI / accounts without
 #                             regression between releases (design §11.2).
@@ -39,7 +39,7 @@ if [[ ! "$SMOKE_CLIENT_ID" =~ ^[0-9]+$ ]] || (( SMOKE_CLIENT_ID < 1 || SMOKE_CLI
     exit 2
 fi
 BREADTH_CLIENT_ID=$((SMOKE_CLIENT_ID + 1))
-# 60s default. The chain fetch can legitimately take ~30s when 22 legs
+# 60s default. The option-chain probe can take ~30s when 22 legs
 # need contract resolution from a cold cache (observed 2026-05-18:
 PER_CMD_TIMEOUT="${CANARY_SMOKE_TIMEOUT:-60}"
 
@@ -85,9 +85,8 @@ if [[ -z "$GATEWAY_PORT" ]]; then
 fi
 echo "wire-smoke: gateway present at ${GATEWAY_HOST}:${GATEWAY_PORT}"
 
-# 2. Isolated daemon under /tmp. Mirrors release-verify.sh so the smoke
-# gate never touches the user's canonical daemon. Wire interceptor is
-# the test surface designed for exactly this use case.
+# 2. Isolated daemon under /tmp so the smoke never touches the user's canonical
+# daemon. The wire interceptor is the test surface designed for this use case.
 TMPDIR_BASE="${TMPDIR:-/tmp}"
 SMOKE_DIR="$(mktemp -d "$TMPDIR_BASE/ibkr-wire-smoke-XXXXXX")"
 SOCKET="$SMOKE_DIR/ibkr.sock"

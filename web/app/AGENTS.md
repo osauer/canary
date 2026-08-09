@@ -100,13 +100,11 @@ Use the narrow loop while iterating:
 make app-check
 ```
 
-`make check` runs `app-contract-check`: the `web/app` Go tests statically pin
-every element id that `scripts/app-browser-smoke.mjs` and
-`scripts/app-browser-smoke.mjs` asserts against `index.html`/`app.js`. Removing
-or renaming an SPA id the scripts reference fails pre-commit — update the
-script assertions in the same change, and keep the `removedSPAIDs` allowlist
-in `web/app/browser_script_ids_test.go` in sync for surfaces the smoke
-asserts as deliberately removed.
+`make check` runs `app-contract-check`: the Node production-behavior suite
+compares the JavaScript files on disk with `assets.go`, walks the static-import
+graph from `app.js`, and rejects a missing, extra, unreachable, or dynamically
+assembled production module. Update the embedded asset list and imports in the
+same change; a loose-disk browser render is not packaging proof on its own.
 
 When rendered behavior matters, refresh the embedded app assets and smoke the
 browser:

@@ -1,75 +1,57 @@
-# Order previews and the trading build
+# Constrained orders and the trading build
 
-Updated: 2026-07-25 09:22 CEST
+Updated: 2026-08-09
 
-Stable `canary` is read-only. It can read account and market data, compute risk context, size positions, and preview stock/ETF LMT order drafts without broker submission. It does not place, modify, cancel, or transmit broker orders.
+The standard `canary` binary is read-only and compiles in no broker-write path.
+The separate opt-in trading binary exposes only constrained actions:
 
-Trading builds are a separate experimental path. They are provided as-is for explicit operator testing, not as the default product and not as an unattended automation surface.
+- submit or reduce a daemon-owned close/reduce protection proposal;
+- exercise an eligible held option when the action reduces or closes risk;
+- cancel a Canary-owned order; and
+- modify or liquidate only through the product's approved constrained flows.
 
-For the fields a preview returns, see [Working with agents](agents.md).
+There is no free-form v3 place, modify, sizing, or order-preview command. A
+proposal or opportunity preview is candidate-specific evidence and never submit
+authority. The MCP server has no preview or execution tools.
 
-## Read-only default
+## Required authority
 
-Read-only use needs no config file. With no `config.toml`, the daemon probes the standard local TWS and IB Gateway ports, auto-detects the account from `managedAccounts`, and uses client ID `15`.
+Trading configuration must pin `[gateway].port`, `[gateway].account`,
+`[gateway].client_id`, and `[trading].mode` to `paper` or `live`. A missing or
+disabled mode means no order entry. The connected account and endpoint must
+match those pins in paper and live sessions.
 
-Only create `~/.config/ibkr/config.toml` when you want active local overrides. Any value in that file is binding. Anything omitted stays auto-detected.
+Every broker action additionally keeps its exact candidate revision, fresh
+confirmation or preflight contract, quantity and exposure limits, journal
+health, daemon authorization, origin policy, and `trading.freeze` gate. An
+alert, plan, proposal, preview, prior instruction, or write-ready status is
+evidence, not authority for a new transaction.
 
-## Inactive trading config
+Keep an inactive example at `~/.config/ibkr/config.toml.trading`; the daemon does
+not load it until the `.trading` suffix is removed. Before activating it, verify
+the pins and start with a paper session. `canary trading status` reports the
+current boundary but cannot authorize a trade.
 
-Keep trading configuration inactive as:
+## Protection and exercise context
 
-```text
-~/.config/ibkr/config.toml.trading
-```
+Protection proposals carry typed market-event source health and candidate
+blockers. Active regulatory/news halts and LULD pauses block action. Borrow
+inventory and fee flags can strengthen cover context but cannot create a new
+long sell or buy-add idea. Reg SHO membership is context unless an existing
+reduce/cover candidate supplies the action authority.
 
-That file is documentation and staging only. The daemon does not load it.
+Option exercise is limited to daemon-owned candidates for held options. The
+confirmation surface must disclose the resulting underlying exposure and block
+an exercise that opens, increases, or flips risk.
 
-To activate it, remove the `.trading` suffix:
+## Release boundary
 
-```sh
-mv ~/.config/ibkr/config.toml.trading ~/.config/ibkr/config.toml
-canary restart
-canary trading status
-```
+Each release publishes standard and `canary-trading-*` artifacts side by side.
+The installer and updater select the standard artifact unless the user
+deliberately installs the trading tarball. Product v3 release publication is
+hermetic: it performs no broker preview or write. Gateway behavior is verified
+separately by the authorized read-only smoke target.
 
-Before doing that, verify the pinned account, endpoint, and client ID. Trading config must not rely on account auto-detection.
-
-## Required pins
-
-When trading is enabled, the daemon expects these values to be pinned:
-
-- `[gateway].port`
-- `[gateway].account`
-- `[gateway].client_id`
-- `[trading].mode = "paper"` or `"live"`; absent or `"disabled"` means no order entry
-
-Placing and modifying an order require a submit-eligible preview token.
-Cancelling requires an exact broker-acknowledged local order reference. Those
-are invariants, not config switches; the product does not expose free-form
-order entry.
-
-Paper mode should use a paper endpoint or account, such as TWS paper on `7497` or a `DU...` account.
-
-Live mode requires a live-looking endpoint and account, port `4001`/`7496` with a non-`DU` account. The pinned account must match what the connected TWS session advertises, and that check runs in paper mode too, not only live. That is the whole config gate. Pin the account and endpoint deliberately for the session in front of you.
-
-The former `allow_live` / `live_ack_account` / `live_ack_endpoint` keys were removed 2026-06-11 because they restated the gateway pins from the same file. They now fail config load with a targeted error if left in place.
-
-Paper-smoke evidence is reported in trading status as context but does not gate live mode. The release pipeline enforces the smoke instead: `make release` runs it at version bump and aborts on failure.
-
-## Protection market flags
-
-Protection proposals consume daemon market-event flags as context and safety gates. The proposal snapshot carries `source_fingerprints.market_events`, a top-level `market_events` snapshot, proposal `market_flags`, and `counts.market_flags` so UI and agents can tell when active flag changes require proposal revalidation.
-
-Active `halt_regulatory_or_news` and active `luld_pause` are hard blockers for preview/submit. Recent halt/LULD flags remain visible as warning tags and should be paired with fresh quote context before acting.
-
-Borrow flags are modifier-only. `borrow_inventory_tight` and `borrow_fee_extreme` can strengthen context for a proposal that buys to cover an existing short, but they must not create standalone long sells or buy-add proposals. `reg_sho_threshold` is regulatory context unless paired with an existing reduce/cover proposal.
-
-User-facing proposal copy should render any reducing short `BUY` as `Buy to cover`. Market-event squeeze-like context remains observational in Underlyings; the separate Opportunities panel is limited to daemon-calculated option-exercise opportunities and does not create buy-add or buy-to-open recommendations.
-
-## Release channel
-
-Every release publishes both builds side by side. The standard artifact keeps the plain `canary-vX.Y.Z-<os>-<arch>.tar.gz` name and is read-only; the broker-write build is named `canary-trading-...` and carries a `TRADING-WARNING.md`.
-
-`canary update` and `install.sh` match the standard filename exactly, so neither can move you onto a trading build, whatever else is attached to the release. Getting one is a deliberate download.
-
-MCP order writes stay out of both builds. There are no order-entry tools on the MCP surface, and adding any would need its own review, nonce, audit, and human-confirmation model first.
+MCP remains read-only in every build. Adding an MCP broker action would require
+a separate authority, nonce, audit, confirmation, and adversarial review; no
+current configuration turns one on.

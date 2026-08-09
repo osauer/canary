@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-07-25 11:38 CEST
+Updated: 2026-08-09
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -20,11 +20,17 @@ There is no Windows build. The daemon uses `setsid`, `flock`, and AF_UNIX socket
 | --- | --- | --- |
 | Claude Desktop bundle | Open [`canary.mcpb`](https://github.com/osauer/canary/releases/latest/download/canary.mcpb) with Claude Desktop | Claude Desktop is your only host. The bundle carries its own macOS and Linux binaries. |
 | Shell installer | `curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh \| sh` | You want one shared binary for the terminal and for every MCP host. |
-| `go install` | `go install github.com/osauer/canary/v2/cmd/canary@latest` | You already have Go 1.26 or newer and prefer building from source. |
+| Public Go module / v2 CLI | `go install github.com/osauer/canary/v2/cmd/canary@latest` | You intentionally want the maintained v2 Go line. This does not install product v3. |
 | Release tarball | Download `canary-vX.Y.Z-<os>-<arch>.tar.gz`, verify it against `SHA256SUMS` | You verify downloads by hand, or you install to a managed location. |
 | Clone and build | `make install` | You are working on the code. |
 
 The [Claude Desktop install page](../../claude-desktop-interactive-brokers/index.html) walks through the bundle step by step. [Packaging and distribution](../internals/packaging.md) describes what each artifact contains.
+
+Product v3 and later use the signed installer, MCPB, or release tarballs. The
+public Go module remains `github.com/osauer/canary/v2`: Go ignores root v3 tags
+for that module path, so `/v2/...@latest` continues to resolve the newest valid
+v2 tag. This keeps existing library consumers and source-built v2 installations
+on their maintained major instead of silently crossing the product boundary.
 
 ## What the shell installer does
 

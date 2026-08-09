@@ -519,9 +519,11 @@ function actionQueueItems(activeAlerts = []) {
       at: snapshot.opportunities?.as_of || "",
     });
   }
-  for (const nudge of snapshot.nudges?.candidates || []) {
-    items.push({ kind: "process", severity: nudge.severity || "watch", title: nudge.title, body: nudge.body, at: nudge.occurred_at || nudge.due_at || "" });
-  }
+  // Process nudges already enter the source-neutral alert registry under the
+  // same daemon-authored semantic fingerprint. Active alert occurrences are
+  // therefore their one Action Queue representation; appending the retained
+  // nudges snapshot here would double-count a condition and could promote a
+  // stale transport cache to a row labelled Current.
   return items.sort(bySeverity);
 }
 

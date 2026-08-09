@@ -49,9 +49,9 @@ isolated codec-test seams only.
 
 The daemon supports three cache scopes:
 
-- `spy+spx` for dashboard, regime, and default `canary gamma` calls.
-- `spy` for `canary gamma --only=spy`.
-- `spx` for `canary gamma --only=spx`.
+- `spy+spx` for the dashboard and Regime consumers.
+- `spy` for internal SPY-only diagnostics.
+- `spx` for internal SPX-only diagnostics.
 
 Each scope has its own stable authority key:
 

@@ -38,12 +38,10 @@ Routine clean evidence is machine work. A monthly pulse becomes complete automat
 
 ## Market context
 
-```sh
-canary regime
-canary stress
-```
-
-`canary regime` gives the broad-market stage. `canary stress` asks the narrower question of whether that state matters for the book you actually hold.
+Regime, breadth, dealer gamma, stress, market-session, and held-name event
+context arrive through the Ready movement of `canary brief`, the matching app
+Monitor windows, and rulebook evidence. They are daemon-owned sensors rather
+than separate public v3 CLI or MCP commands.
 
 One rule about the stress read is worth carrying into every session: account-only stress is evidence, not a trigger. A zero margin cushion with no confirmed market pressure renders its evidence row and still returns `stand_down`. The `defend` action needs defensive direction at act severity, confirmed market stress, high portfolio fit, and healthy inputs together.
 
@@ -59,14 +57,19 @@ A rule that cannot get clean inputs reports `unknown`. It never reports `pass`. 
 
 ## During the session
 
-The surfaces worth leaving open poll with `--watch`: `account` and `positions` (one-second default), `quote` (a 250ms render throttle), `regime` (five minutes), and `watch` for the watchlist. Those are the ones where a number moving is the information.
+The terminal surfaces worth leaving open are `account --watch` and `positions
+--watch`. Use the paired app for the continuously assembled Monitor and Action
+Queue rather than rebuilding the daemon's market authority from several shell
+commands.
 
-`stress`, `rules`, and `brief` have no watch mode. They are checkpoints you run when something changed, not tickers. For the conditions that should interrupt you, use the push path in [Alerts and notifications](alerts.md) rather than a terminal you have to keep reading.
+`rules` and `brief` are checkpoints, not tickers. For conditions that should
+interrupt you, use the push path in [Alerts and notifications](alerts.md)
+rather than a terminal you have to keep reading.
 
 ## Protection
 
 ```sh
-canary proposals
+canary proposals list
 ```
 
 With no subcommand this lists the daemon's current protection proposals; the read is the default. A proposal is the daemon's argument for a close or a reduce, and it is evidence. It is never authority to submit. Every broker write is a separate human decision made in the moment, per transaction, and the standard build cannot reach one at all: it is read-only, as [Order previews and the trading build](orders.md) sets out. [Protection and emergency exits](protection.md) covers why a row blocks.

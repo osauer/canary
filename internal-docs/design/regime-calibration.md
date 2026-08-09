@@ -545,7 +545,8 @@ Fingerprints feed alert dedupe, so new fields need an explicit stance:
 - `daemon.db` append-only decision events: the forward regime and stress
   calibration corpora, deduped by semantic fingerprint with an hourly
   heartbeat.
-- `canary regime --log <path>`: manual, opt-in JSONL of full snapshots.
+- The former manual regime JSONL logger was retired in v3; typed daemon decision
+  events are the calibration authority.
 - Historical calibration is driven by the typed decision-event corpus below;
   the retired general-purpose backtest CLI is not a product surface.
 
@@ -658,11 +659,9 @@ Additive only; raw measurements untouched:
 
 ### MCP (`internal/mcp/tools.go`)
 
-`canary_regime` (and the regime-relevant text in `canary_stress`) updated to
-documentation grade: explain eligible-vs-provisional reds, the governor (why
-severity may read watch while two rows show red), cadence freshness, and that
-`governors[]` is the place to look before concluding the engine is "ignoring"
-red rows. Then `make docs-regen`; `make check` enforces no drift.
+The pre-v3 regime and stress MCP adapters documented eligible-vs-provisional
+reds, governor behavior, and cadence freshness. V3 retired those standalone
+tools; the same typed authority now reaches MCP through the brief and rulebook.
 
 ### SPA (`web/app/app.js`)
 
@@ -720,9 +719,8 @@ red rows. Then `make docs-regen`; `make check` enforces no drift.
   across all four former call sites; fingerprint v2 projection test (age-only
   change does not re-key).
 - Verification per repo rules: `make check`; **full `make smoke`** (daemon +
-  wire-path change), `make restart-daemon`, then `canary regime` /
-  `canary regime --json --explain` and an `canary stress` output pasted in the
-  completion message.
+  wire-path change), `make restart-daemon`, then redacted `canary status`,
+  `canary brief`, and `canary rules` evidence in the completion message.
 
 ## Part 6 — Settings knobs (deliberately almost none)
 

@@ -9,7 +9,7 @@
     {
       "name": "canary",
       "source": "./claude-plugin",
-      "description": "Canary portfolio analysis and trading research for Interactive Brokers: account, positions, market data, sizing, broad-market regime context, portfolio stress checks, and preview-only order drafts. The MCP tool surface cannot place, modify, cancel, or transmit broker orders; explicit CLI broker writes remain gated by local trading status, preview tokens, and daemon policy. Requires the `canary` binary on PATH; see the project README for install and update instructions."
+      "description": "Canary's local Interactive Brokers risk desk: daily brief, account and positions, named-symbol technical evidence, rulebook, protection proposals, option-exercise opportunities, and order-lifecycle reads. The 13 MCP tools are read-only; constrained CLI broker actions remain gated by local trading status, fresh confirmation or preflight, and daemon policy. Requires the `canary` binary on PATH; see the project README for install and update instructions."
     }
   ]
 }

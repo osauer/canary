@@ -23,7 +23,10 @@ The description used in listings:
 - Requires an IBKR Pro account; IBKR Lite does not include TWS API access.
 - The bundled path is a macOS or Linux binary.
 - The plugin/skill does not ship the binary; users install `canary` separately.
-- Current bundled CLI and MCP releases expose analysis, sizing, and preview-only stock/ETF order drafts. The MCP surface has no order-entry tools at all. The CLI keeps the `canary order place|modify|cancel` verbs in every build, and in a standard build they fail closed: the daemon's write handlers are compiled out behind the `trading` build tag and return `ErrTradingDisabled` before anything reaches the broker.
+- The MCP server exposes exactly 13 read-only tools with no resources, previews,
+  settings writes, or broker actions. Standard binaries compile out broker
+  writes. The opt-in trading binary retains only constrained CLI/app order
+  actions, still bound by fresh confirmation/preflight and daemon safety gates.
 - Trading builds ship on every release as a separately named artifact. They are experimental, as-is, and outside the stable read-only channel. Do not promote them through MCP marketplaces until the execution, approval, and safety metadata are reviewed for that channel.
 - Data returned by MCP tools can include account-sensitive balances, positions, and P&L.
 
@@ -41,7 +44,7 @@ hooks, and plugin-local `.mcp.json` for `canary mcp`.
 - `.claude-plugin/plugin.json` describes the plugin.
 - `claude-plugin/.mcp.json` declares the Claude Code plugin MCP server.
 - `.claude-plugin/marketplace.json` exposes the self-hosted marketplace.
-- `skills/canary/SKILL.md` teaches Claude the current analysis, sizing, and preview-only workflow.
+- `skills/canary/SKILL.md` teaches Claude the retained desk-first workflow.
 - `hooks/hooks.json` allows preview/status order reads, blocks broker-write Bash calls, and starts the install/version warning hook.
 - `settings/canary.settings.json` is the optional global allow/deny template.
 

@@ -1513,10 +1513,9 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 		})
 	}
 
-	// Prewarm dealer zero-gamma so the first `canary regime` / `canary
-	// only need the initial kick. The Once gates against
-	// Called synchronously (no `go`): kickOrJoin only acquires the
-	// in-flight compute — closing the race where the first `canary
+	// Prewarm dealer zero-gamma for the first brief/rulebook/app consumer.
+	// The Once gates the initial kick; kickOrJoin only acquires the in-flight
+	// compute synchronously and does not wait for completion.
 	if s.zeroGamma != nil && s.serverCtx != nil {
 		s.gammaStarted.Do(func() {
 			s.prewarmZeroGamma(s.serverCtx)

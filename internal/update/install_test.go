@@ -83,6 +83,21 @@ func TestResolveInstallDirRejectsRetiredEnvironment(t *testing.T) {
 	}
 }
 
+func TestLatestReleaseForInstalledMajor(t *testing.T) {
+	releases := []Release{{TagName: "v4.0.0", Draft: true}, {TagName: "v3.1.0", Prerelease: true}, {TagName: "v3.0.1"}, {TagName: "v3.0.0"}, {TagName: "v2.8.6", Draft: true}, {TagName: "v2.8.5"}, {TagName: "v2.8.4"}, {TagName: "not-semver"}}
+	for installed, want := range map[string]string{"v2.8.4": "v2.8.5", "2.7.0": "v2.8.5", "v3.0.0": "v3.0.1", "dev": "v3.0.1", "": "v3.0.1"} {
+		t.Run(installed, func(t *testing.T) {
+			got, err := latestReleaseForInstalledMajor(releases, installed)
+			if err != nil || got.TagName != want {
+				t.Fatalf("release = %v, err = %v; want %s", got, err, want)
+			}
+		})
+	}
+	if _, err := latestReleaseForInstalledMajor(releases, "v4.0.0"); err == nil || !strings.Contains(err.Error(), "v4") {
+		t.Fatalf("missing maintained v4 line error = %v", err)
+	}
+}
+
 func TestInstallCanonicalRejectsNonRegularPublicPaths(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

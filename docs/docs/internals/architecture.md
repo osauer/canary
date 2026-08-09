@@ -9,9 +9,8 @@ app, and it adds a risk harness. One ownership rule shapes the design:
 > Every other process adapts typed contracts for its audience, and none of
 > them owns broker state.
 
-A few local workflows are deliberate exceptions: watchlist edits, setup,
-updates, process management, and offline research or backtests all run
-without daemon RPC.
+A few local workflows are deliberate exceptions: setup, updates, process
+management, and offline backtests run without daemon RPC.
 
 ## System overview
 
@@ -189,7 +188,6 @@ durability and upgrade mechanics, and current recovery limits.
 | Private signer key | `$XDG_STATE_HOME/ibkr/order-preview-key-v2` | Private token-signing material bound to the current authority generation. It is deliberately outside ordinary database state. |
 | App durable state | `$XDG_STATE_HOME/ibkr/app`, falling back to `~/.local/state/ibkr/app` | Private `state.json` with device grants, push subscriptions, VAPID material, the source-neutral alert inbox, unread cursor, delivery attempts and receipts, delivery health, and relay credentials; `app.lock` enforces one app process per state directory. |
 | Disposable scratch | `$XDG_CACHE_HOME/ibkr`, falling back to `~/.cache/ibkr` | Updater and transport scratch only; it is never daemon business-state authority. Contract, membership, regime, breadth, gamma, and decision data are SQLite projections/observations or refreshable in-memory views, not live files here. |
-| User data | `$XDG_DATA_HOME/ibkr`, falling back to `~/.local/share/ibkr` | `watchlist.json`; explicit research exports are separate operator-created files. |
 | Runtime IPC and logs | `$XDG_RUNTIME_DIR/ibkr/ibkr.sock`, falling back to `~/.cache/ibkr/ibkr.sock`; daemon log defaults to `$XDG_STATE_HOME/ibkr/ibkr-daemon.log`, falling back to `~/.local/state/ibkr/ibkr-daemon.log` | Unix socket, sibling lock/PID file, rotated daemon text log, and optional macOS LaunchAgent/app logs under `~/Library`. |
 | Browser / PWA state | Browser cookie jar, IndexedDB, and `localStorage` | Short-lived session, durable HttpOnly device continuity, P-256 device key, local recovery material, preferences, and a non-authorizing relay route identifier. |
 | Hosted relay state | Cloudflare Durable Object | Connector token and expiry for the optional route. It stores no device grants or broker state. |

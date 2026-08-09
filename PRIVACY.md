@@ -1,6 +1,6 @@
 # Privacy
 
-Last reviewed: 2026-07-22
+Last reviewed: 2026-08-09
 
 `canary` is a local Interactive Brokers client. The default/read-only binary and
 the MCP surface cannot submit broker orders. A separately published
@@ -15,7 +15,8 @@ When you run `canary`, it talks to the IB Gateway or TWS instance that you run l
 
 - account identifiers, balances, cash, margin, buying power, and P&L
 - positions, market values, option Greeks, option chains, open interest, and quotes
-- historical daily bars and scanner results returned by your IBKR gateway
+- historical daily bars, quotes, option data, and market-event inputs used by
+  daemon-owned sensors
 - local configuration paths and daemon health information
 
 Trading is disabled by default. In a trading-capable build, broker writes remain
@@ -48,12 +49,14 @@ second daemon authority or silently abandoning safety state. It is an internal
 continuity contract, not the product or command name.
 
 - daemon logs under `~/.local/state/ibkr/` by default
-- caches under `~/.cache/ibkr/`, including contract details, S&P 500 constituent data, breadth history, and gamma snapshots
-- local watchlists under `$XDG_DATA_HOME/ibkr/watchlist.json`, falling back to `~/.local/share/ibkr/watchlist.json`
+- updater and transport scratch under `~/.cache/ibkr/`; daemon business state,
+  market observations, membership, regime, breadth, and gamma authority live in
+  `daemon.db` or refreshable memory rather than cache files
 - optional user configuration under `~/.config/ibkr/config.toml`
-- optional user-requested regime JSONL logs at paths passed to `canary regime --log`
-- local order/proposal/opportunity journals and paired-app device state under
-  the configured state directories when those features are used
+- daemon state, orders, proposals, opportunities, decisions, observations, and
+  statement projections in `~/.local/state/ibkr/daemon.db` by default
+- paired-app device, alert, delivery, and relay state under the configured app
+  state directory
 - optional diagnostic wire logs only when explicitly enabled with the diagnostic environment variables documented in [SECURITY.md](./SECURITY.md#diagnostic-data-sensitivity)
 
 These files can contain account-sensitive information. Protect your local user account and avoid sharing logs without redaction.

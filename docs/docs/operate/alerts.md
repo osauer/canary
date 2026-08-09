@@ -14,9 +14,12 @@ Daemon-owned heartbeats re-observe the sources every 30 seconds, so a condition 
 
 ## Where it goes
 
-Every occurrence enters one inbox on the Alerts tab of [the paired app](app.md), under a single read-through cursor shared by all paired devices. The inbox shows a redacted display id and fixed app-authored copy; producer keys, targets, and receipts stay private.
+Every occurrence enters the Action Queue of [the paired app](app.md), under a
+single read-through cursor shared by all paired devices. The queue shows fixed
+app-authored copy; producer keys, targets, and receipts stay private.
 
-The CLI has no alerts command. `canary stress --view alert` (which requires `--json`) gives the compact stress view, and `canary brief` and `canary rules` carry the same facts as rows.
+The CLI has no alerts or stress command. `canary brief` and `canary rules` carry
+the decision-relevant facts as rows.
 
 Phone notifications are configured under Settings → Phone notifications. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.
 

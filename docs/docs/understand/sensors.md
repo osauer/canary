@@ -138,13 +138,14 @@ is a data-quality condition.
 ### Safe check
 
 ```sh
-canary gamma --json
-canary gamma --only spx --json
+canary status --json
+canary brief --json
 ```
 
-Read `status` first, then `result.quality.rankability`, `as_of`, session keys,
-coverage, and `warning_details`. Use `--force` only for an intentional
-diagnostic recompute; it is not the normal freshness mechanism.
+Read the Gamma subsystem and brief source-health rows first, including quality,
+as-of, session, coverage, and warning codes. The standalone Gamma command was
+retired in v3; forced recompute is an internal diagnostic, not the normal
+freshness mechanism.
 
 ## Regime
 
@@ -262,8 +263,8 @@ this authority health and must not present a stale publication as current.
 
 ```sh
 canary status --json
-canary regime --json
-canary regime --explain
+canary brief --json
+canary rules --json
 ```
 
 Check Regime authority health, `as_of`, lifecycle readiness, each cluster's
@@ -321,12 +322,13 @@ evidence may stay visible, but the input gap remains the headline condition.
 ### Safe check
 
 ```sh
-canary stress --json
+canary brief --json
+canary rules --json
 ```
 
-Read `input_health`, `action`, and `planner_readiness` before the summary. Then
-compare `source_as_of`, `source_health`, the embedded market lifecycle, and held
-stress.
+Read the brief's input health and source warnings before its summary, then
+compare source timestamps, embedded market lifecycle, and held stress. Stress
+remains an internal daemon sensor in v3, not a standalone CLI or MCP command.
 
 ## Rulebook
 
@@ -408,11 +410,13 @@ check the coverage note: other symbols may still lack a tick.
 ### Safe check
 
 ```sh
-canary market-events --json
-canary market-events --symbol GME --json
+canary status --json
+canary brief --json
+canary rules --symbol GME --json
 ```
 
-Read `source_health` before `flags`. For borrow fee, inspect
+Read market-event `source_health` before flags surfaced by the brief or rules.
+For borrow fee, inspect
 `borrow_fee_coverage` for global versus portfolio-only scope, entitlement, scale
 status, and `policy_eligible`.
 
@@ -422,8 +426,9 @@ Use read-only checks in this order:
 
 1. Run `canary status --json` and confirm the gateway, data farms, background
    tasks, sensor subsystems, and top-level data-quality warnings.
-2. Open the sensor's own JSON result. Check status, authority or source health,
-   scope, `as_of`, freshness, and warnings before interpreting measurements.
+2. Open the brief, rules, proposal, or app JSON surface that owns the sensor.
+   Check status, authority or source health, scope, `as_of`, freshness, and
+   warnings before interpreting measurements.
 3. Follow the named dependency. Investigate Gamma before treating Regime's gamma
    row as a problem, and Regime before treating the stress read as a portfolio
    verdict.

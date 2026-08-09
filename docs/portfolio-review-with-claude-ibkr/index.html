@@ -51,7 +51,7 @@
   <main class="wrap doc">
 <h1 id="portfolio-review-with-claude-and-ibkr">Portfolio review with Claude and IBKR</h1>
 <p>Updated: 2026-08-04 22:57 CEST</p>
-<p><code>canary mcp</code> lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The job is to give an assistant enough structured account, position, option, quote, calendar, scanner, sizing, and regime context to do the kind of review a disciplined trader would otherwise assemble by hand.</p>
+<p><code>canary mcp</code> lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The job is to give an assistant structured account, position, technical, rulebook, source-health, proposal, opportunity, and order-lifecycle context without granting execution authority.</p>
 <p>A review session can also lean on the discipline surfaces: <code>canary_rules</code> evaluates a 14-rule daily checklist over the live book (concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity) and names its offenders. Missing data degrades to unknown rather than a false pass, so a cold daemon cannot flatter the book. In the terminal, <code>canary policy</code> reports drawdown against a risk policy you wrote yourself, and <code>canary recon</code> checks the daily broker statement against your declared ledger.</p>
 <p>The review stays separate from execution: collect account and market evidence, name the missing inputs, and decide which questions deserve a closer look.</p>
 <h2 id="who-this-is-for">Who this is for</h2>
@@ -61,24 +61,20 @@
 <li>exposure by underlying, not just a flat position list</li>
 <li>options delta, theta, gamma, vega, and expiry concentration</li>
 <li>stale or delayed market data before acting on a quote</li>
-<li>watchlist names that suddenly matter because they are now near levels or have unusual volume</li>
-<li>portfolio risk in the context of volatility, breadth, credit, dealer gamma, and funding conditions</li>
-<li>sizing a trade plan before any separate execution step</li>
+<li>named holdings whose technical or liquidity evidence deserves review</li>
+<li>portfolio risk in the daemon-composed market and source-health context</li>
 </ul>
-<p>Today, the public bundled MCP tools are analysis and sizing tools. They do not place, modify, or cancel orders. That boundary keeps the review workflow clean: first collect the evidence, then decide what deserves attention, then handle execution through whatever approved trading path you trust.</p>
+<p>The public MCP tools are read-only. They do not preview, place, modify, cancel, or exercise orders. That boundary keeps the review workflow clean: first collect the evidence, then decide what deserves attention, then handle execution through a separately approved path.</p>
 <h2 id="what-claude-can-inspect">What Claude can inspect</h2>
 <p>A good portfolio review needs more than balances and positions. Through <code>canary mcp</code>, Claude can call:</p>
 <ul>
 <li><code>canary_brief</code> for Canary's assembled Review and Ready overview, including inputs it could not read</li>
 <li><code>canary_account</code> for net liquidation, buying power, cash, margin, and daily P&amp;L</li>
 <li><code>canary_positions</code> for holdings, option legs, Greeks, and per-underlying grouping</li>
-<li><code>canary_quote</code> and <code>canary://quote/{symbol}</code> for snapshot and streaming stock or ETF quotes</li>
-<li><code>canary_calendar</code> for official session, holiday, and early-close context</li>
-<li><code>canary_chain</code> for option expiries, IV, expected move, strikes, deltas, and open interest</li>
-<li><code>canary_watch</code> and <code>canary_scan</code> for watchlist and market-discovery context</li>
-<li><code>canary_breadth</code>, <code>canary_gamma</code>, and <code>canary_regime</code> for market background and broad-market lifecycle</li>
-<li><code>canary_stress</code> for portfolio-aware lifecycle, readiness, source-health, and stress checks</li>
-<li><code>canary_size</code> for fixed-fractional position sizing math</li>
+<li><code>canary_technical</code> for daily evidence on explicitly named stocks or ETFs</li>
+<li><code>canary_rules</code> for ranked rulebook findings and unknown inputs</li>
+<li><code>canary_proposals</code> and <code>canary_opportunities</code> for read-only Action Queue candidates</li>
+<li><code>canary_settings</code>, <code>canary_trading_status</code>, and the three order-lifecycle tools for observed state</li>
 </ul>
 <p>The assistant should not treat any single tool result as a trade signal. The value is in combining the evidence, naming uncertainty, and showing which follow-up checks would change the decision.</p>
 <h2 id="use-this-prompt">Use this prompt</h2>
@@ -86,7 +82,7 @@
 <p>Short version to paste into Claude:</p>
 <pre><code>Review my IBKR portfolio using the Canary MCP tools. Start with canary_brief,
 then inspect account state, positions grouped by underlying, options Greeks,
-quote freshness, and the current risk-regime lifecycle. Rank the risks I should
+data quality, and the current rulebook findings. Rank the risks I should
 inspect today, explain the evidence behind each one, and separate observations
 from possible next actions. Do not place or imply orders.</code></pre>
 <p>For a deeper review, use the full example prompt and let Claude decide which MCP calls are needed before it writes the answer.</p>
@@ -110,9 +106,9 @@ Top findings
 3. Underlying C has high implied move versus recent realized range. Review whether the option premium is still paying for the risk.
 
 Next review steps
-- Pull fresh quotes for the three largest underlyings during the regular session.
-- Inspect the option chain around the dominant expiry before changing the position.
-- Run sizing math only after the stop and invalidation level are stated in price terms.</code></pre>
+- Re-run the brief when its named source is due for refresh.
+- Inspect the dominant option expiry in the paired app before changing the position.
+- Review any protection or exercise candidate through its explicit confirmation boundary.</code></pre>
 <p>It is a structured review loop: current account state, current market context, current uncertainties, and the next checks that would make a decision better.</p>
 <h2 id="how-to-install">How to install</h2>
 <p>Claude Desktop users can install the MCP Bundle:</p>

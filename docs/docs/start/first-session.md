@@ -1,135 +1,106 @@
 # Your first session
 
-Updated: 2026-08-04 22:57 CEST
+Updated: 2026-08-09
 
-Seven steps, roughly half an hour, nothing that can reach a broker write. This assumes a working install; [Install and first run](install.md) covers getting there.
+This walkthrough uses only read-only commands. It assumes Canary is installed
+and a local IB Gateway or TWS session is available. [Install and first
+run](install.md) covers setup.
 
-The terminal output below is a synthetic example using the placeholder account `DU0000000`. Your figures will differ. The shape of each screen will not.
-
-## 1. Prove the gateway is reachable
+## 1. Prove the authority
 
 ```sh
 canary status
 ```
 
-```
-IBKR Gateway  READY
+Start with the connected account mode and gateway endpoint, then read storage,
+subsystem, data-farm, and background-task health. An idle daemon is neutral; a
+normal command starts it on demand. Missing or stale source evidence remains a
+warning or unavailable state rather than becoming a clean result.
 
-Session        DU0000000 via 127.0.0.1:4001 (tls=false, discovered), client 17
-Market data    Live
-Daemon         v1.0.0, up 30m42s
-TWS            API server 178
-SPX members    cache:2026-05-22, 503 names
-```
-
-The word beside `IBKR Gateway` is a verdict, and there are four: `READY`, `STARTING` (the API handshake is still in flight), `ATTENTION` (connected, but something below wants a look), and `OFFLINE`.
-
-Read the `Session` row next. The port names which IBKR app you actually reached: 4001 is IB Gateway live, 4002 Gateway paper, 7496 TWS live, 7497 TWS paper. `discovered` means a TCP probe found it, `pinned` means your config chose it. On a machine running both Gateway and TWS this row is the difference between paper and live money.
-
-Skip `SPX members` on a first run. It reports the constituent list behind the breadth indicator and says nothing about your connection.
-
-`canary status` exits 1 when the gateway is not connected, so it works as a guard in a script. Anything other than `READY` is covered in [Troubleshooting](troubleshooting.md).
-
-## 2. Read the account
+## 2. Read the account and book
 
 ```sh
 canary account
-```
-
-You get net liquidation and daily P&L on top, then balances, session P&L, margin, look-ahead margin, and the total P&L that IBKR's `reqPnL` stream reports. A multi-currency account gets a currency-exposure table underneath with the FX rate used for each leg.
-
-Each result belongs to one selected account. Canary now keeps a real zero apart
-from a value the broker did not send: the terminal prints the missing value as
-unavailable, and JSON includes the account, source, freshness, and a list of
-fields the broker actually supplied. If a login exposes several accounts and
-none is selected, Canary refuses the account read instead of combining them.
-
-One figure carries into everything else: net liquidation. `canary size` reads it from this same account snapshot and expresses risk as a percentage of it, so an NLV that looks wrong makes every later sizing wrong in the same direction.
-
-Leave the look-ahead margin block alone for now. It answers what happens at the next margin cycle, which matters when you are near a limit and not before.
-
-## 3. Read the book as risk
-
-```sh
 canary positions --by underlying
 ```
 
-`--by underlying` puts each stock together with the options written on it, so a covered call sits under its shares instead of in a separate table. The block under the groups is the part worth your time:
+Both reads identify one selected account and mode. A missing value stays
+missing, and an unresolved multi-account login is refused rather than combined.
+Check positions freshness and Greeks coverage before relying on aggregate
+exposure.
 
-```
-Summary
-  Effective delta               +1,847.0  share-equivalents
-  Dollar delta                326,584.50  USD
-  Daily theta                     -42.18  USD / day
-  Gamma                         +12.4000
-  Vega                         +1,205.00  / 1 vol pt
-  Greeks coverage                  5 / 5  legs  ✓
-  FX sensitivity                 -854.32  EUR per +1% FX
-```
-
-Effective delta is signed share-equivalent exposure: a stock contributes its quantity, an option contributes delta times contracts times multiplier. Daily theta is the P&L that time decay produces over a day if nothing else moves.
-
-Check `Greeks coverage` before you trust the Greek rollups above it. It counts the option legs whose Greeks arrived over the total, and anything short of full coverage means those sums were computed from part of the book.
-
-## 4. Quote a symbol
-
-```sh
-canary quote SPY
-```
-
-The fixture renders three symbols at once so the freshness cases sit side by side:
-
-```
-  SYMBOL            BID  BID_SZ         ASK  ASK_SZ       PRICE  PREV CLOSE       CHG      CHG%  VOLUME      ADV$20       IV  DATA
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  AAPL           207.82  240         207.88  510         207.85      206.40     +1.45    +0.70%  38M              —    24.7%  live
-  NVDA                —  —                —  —           128.54           —         —         —  —                —        —  live
-  SPY            461.04  —           461.20  —           461.12      463.50     -2.38    -0.51%  8.1M             —        —  delayed
-```
-
-The `DATA` column is the one to read. Market data is real-time wherever your IBKR market-data subscriptions cover it and delayed where they don't, and this column tells you which one you got for that symbol. `delayed` is normal for an unsubscribed name and means the prices are 15 to 20 minutes old. Out of hours you will see `frozen` or `delayed-frozen` instead, which is the last recorded quote with no further updates coming.
-
-A dash in the NVDA row marks a field that never arrived. The daemon leaves an absent tick absent rather than substituting a zero for it.
-
-## 5. Let one command assemble the rest
+## 3. Read the desk brief
 
 ```sh
 canary brief
 ```
 
-`canary brief` is the assembled read. `Review` covers the desk since the last regular close: session P&L and per-underlying attribution (the broker's running daily values — off-session they keep moving on extended and overnight marks), the last completed session's Daily P&L as captured at the official close (shown as not captured when the daemon was not watching that close), rules delta, proposals offered and acted on, overrides used, capital events, reconcile state, and working orders. `Ready` covers today: regime stage, breadth, dealer gamma, stress action, session state, market-event counts, and capital tier.
+Review covers what changed since the last regular close. Ready covers the next
+session: market-risk posture, portfolio fit, policy state, current protection
+work, and any source that could not be read. Quotes, calendars, breadth, gamma,
+regime, stress, earnings, borrow, and halt inputs are daemon-owned sensors in
+v3; they feed this assembled surface rather than returning as separate public
+CLI commands.
 
-Run from a terminal it also stamps the day's brief artefact when one is due, and prints the stamp line. `canary brief --json` renders without stamping, and an agent-origin invocation prints `agent-origin render — not stamped`. There is no MCP tool for `brief`; it is a CLI surface.
-
-## 6. Read the market context
+## 4. Inspect the rulebook
 
 ```sh
-canary regime
-canary stress
+canary rules
+canary policy show
+canary recon show
 ```
 
-`canary regime` returns the eight-row stress dashboard plus a lifecycle stage. `canary stress` asks the narrower question of whether today's market weather matters for the portfolio you are actually holding, and answers with an action and the evidence behind it.
+`rules` reports the hardest advisory finding and every unknown input. `policy
+show` identifies the approved risk constitution. `recon show` compares retained
+broker statements with the declared capital ledger. The read commands do not
+acknowledge, override, dismiss, or change any state.
 
-Two of the regime rows are heavy computes and will not be ready on a cold daemon. Gamma reports `status: "computing"` with an ETA and progress, and the first-ever breadth build is paced by IBKR's historical-data limits into about 74 minutes of wall clock. Neither is broken; both fill in.
+## 5. Inspect current work
 
-What the output means is owned elsewhere, and those pages go deeper than this one should. [Concepts → Regime](../understand/concepts.md#regime) and [Concepts → Stress](../understand/concepts.md#stress) give the mental model. [Sensors](../understand/sensors.md) covers authority, freshness, and the safe check for each one.
+```sh
+canary proposals list
+canary opportunities list
+canary orders open
+```
 
-## 7. Ask the same questions through an agent
+Proposals are close/reduce-only protection candidates. Opportunities are
+option-exercise candidates. Order reads inspect the local lifecycle journal.
+These records are evidence, not broker-write authority; any action requires the
+separate trading build, a fresh exact review contract, daemon revalidation, and
+an explicit instruction for that transaction.
 
-With an MCP host wired up, the same reads happen as tool calls. Ask the question rather than naming the tool:
+## 6. Analyze an explicitly named symbol
 
-| Ask | Tool the host calls |
+```sh
+canary technical SPY,QQQ
+```
+
+The technical read batches daily trend, relative strength, ATR, and liquidity
+evidence for named stocks or ETFs. It reports degraded history rather than
+silently ranking an incomplete row.
+
+## 7. Ask through an MCP host
+
+The bundled MCP server has 13 read-only tools. Ask the question rather than
+naming a tool:
+
+| Ask | Typical tool |
 | --- | --- |
-| "How does my account look right now?" | `canary_account`, then `canary_positions` |
-| "Is SPY quoting live or delayed?" | `canary_quote` |
-| "How does the market regime look?" | `canary_regime` |
+| “What needs attention today?” | `canary_brief` |
+| “How does my account look?” | `canary_account`, then `canary_positions` |
+| “Which rulebook inputs are unknown?” | `canary_rules` |
+| “Are there protection or exercise candidates?” | `canary_proposals` or `canary_opportunities` |
+| “Why is a local order still open?” | `canary_orders_open`, then `canary_order_status` |
 
-The answers are the same data with the interpretation written out, which is most of the value on the regime and stress surfaces. [Working with agents](../operate/agents.md) has the setup commands and a longer list of worked examples.
-
-Two boundaries are worth knowing before you start asking. The bundled MCP surface has no order-entry tools, so no host can place, modify, or cancel an order through it. And several CLI surfaces have no MCP tool at all, `brief` among them, along with the advisory `canary policy` and `canary recon`.
+MCP has no resource subscriptions, preview tools, settings writes, governance
+writes, or broker-write tools. [Working with agents](../operate/agents.md) has
+the host setup and evidence rules.
 
 ## Where to go next
 
-- [Order previews and the trading build](../operate/orders.md) for what a preview does, and what the read-only default means.
-- [Troubleshooting](troubleshooting.md) when a command stops answering.
-- [Updating](updating.md) for the binary, the Desktop bundle, and the S&P 500 list.
+- [The daily desk](../operate/daily-desk.md) for the recurring workflow.
+- [Orders and trading safety](../operate/orders.md) for the constrained review
+  boundary.
+- [Sensors](../understand/sensors.md) for data type, freshness, source health,
+  last-good, and warning semantics.
+- [Updating](updating.md) for stable-major update behavior.

@@ -61,7 +61,8 @@ type RateLimiterMetrics struct {
 	ConsecutiveErrors    int
 }
 
-// RateLimitedRequest wraps a request with rate limiting metadata.
+// RateLimitedRequest wraps a scheduler-owned request with rate-limit metadata.
+// It remains exported for v2 source compatibility.
 type RateLimitedRequest struct {
 	Type       RequestType
 	Priority   RequestPriority

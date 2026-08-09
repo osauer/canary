@@ -607,8 +607,8 @@ naming.
   `not_evaluated`; absent inputs are `unknown`. Never false pass.
 - `as_of`, InputHealth, and policy fingerprint ride every result.
 - MCP description states when to invoke (daily review, "what should I fix
-  today") and when not (`canary_stress` for regime×portfolio alerting,
-  `canary_proposals` for executable protection orders).
+  today") and when not (`canary_brief` for the full desk summary,
+  `canary_proposals` for executable protection candidates).
 
 ## Agent hook boundary
 

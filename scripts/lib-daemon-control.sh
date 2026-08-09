@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# lib-daemon-control.sh — shared helpers for the smoke scripts to spin
-# user's canonical daemon. Sourced by release-verify.sh, release-smoke.sh,
-#       so running two daemons with the same ID makes the second fail
-#       v0.16.0 release on first run before the workaround was added.
-#       ("release-verify", "release-smoke", "wire-smoke", …).
+# lib-daemon-control.sh — shared helpers for isolated smoke daemons. They avoid
+# stopping the user's canonical daemon and prevent client-ID collisions between
+# concurrent gateway checks.
 
 stop_existing_daemons() {
     local label="${1:-smoke}"

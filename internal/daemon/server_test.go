@@ -40,6 +40,96 @@ func shortTempDir(t *testing.T) string {
 	return d
 }
 
+func mustTestValue[T any](t *testing.T, load func() (T, error)) T {
+	t.Helper()
+	value, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func mustTestNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+type wshContractClient struct {
+	payload string
+	err     error
+	detail  *ibkrlib.ContractDetailsLite
+}
+
+func (c wshContractClient) FetchWSHEarnings(context.Context, string) (string, error) {
+	return c.payload, c.err
+}
+
+func (c wshContractClient) ResolveWSHStockIdentity(context.Context, string, int) (*ibkrlib.ContractDetailsLite, error) {
+	return c.detail, c.err
+}
+
+func TestWSHProviderAndIdentityContracts(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	for _, payload := range []string{
+		`[{"event_type":"wshe_ed","data":{"earnings_date":"20260810","time_of_day":"AFTER MARKET"}}]`,
+		`{"events":[{"event_code":"wsh_ed","date":"2026-08-10","time":"AMC"}]}`,
+	} {
+		got, err := parseWSHEarningsPayload([]byte(payload), now)
+		if err != nil || got.Status != rpc.EarningsStatusDate || got.Entry.Date != "2026-08-10" || got.Entry.TimeOfDay != "amc" {
+			t.Fatalf("valid WSH payload result = %+v, err=%v", got, err)
+		}
+	}
+	for _, payload := range []string{
+		`[] {}`,
+		`{"data":[]}`,
+		`[{"earnings_date":"20260810","date":"2026-08-11"}]`,
+	} {
+		got, err := parseWSHEarningsPayload([]byte(payload), now)
+		if !errors.Is(err, errWSHEarningsPayloadInvalid) || got.Status != rpc.EarningsStatusFormatChange || got.Failure == nil || got.Failure.Retryable {
+			t.Fatalf("invalid WSH payload result = %+v, err=%v", got, err)
+		}
+	}
+
+	for _, tc := range []struct {
+		err       error
+		status    string
+		code      string
+		stage     string
+		retryable bool
+	}{
+		{&ibkrlib.WSHError{Kind: ibkrlib.WSHErrorEntitlementRequired, Operation: "event_data"}, rpc.EarningsStatusTransportFailure, rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHEvent, false},
+		{&ibkrlib.WSHError{Kind: ibkrlib.WSHErrorMalformedResponse, Operation: "event_data"}, rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageWSHDecode, false},
+		{context.DeadlineExceeded, rpc.EarningsStatusTransportFailure, rpc.SourceFailureTimeout, rpc.SourceFailureStageWSHEvent, true},
+	} {
+		got := classifyWSHEarningsError(tc.err, now)
+		if got.Status != tc.status || got.Failure == nil || got.Failure.Code != tc.code || got.Failure.Stage != tc.stage || got.Failure.Retryable != tc.retryable {
+			t.Fatalf("WSH error %v classified as %+v", tc.err, got)
+		}
+	}
+
+	for _, tc := range []struct {
+		detail  *ibkrlib.ContractDetailsLite
+		outcome string
+		fails   bool
+	}{
+		{&ibkrlib.ContractDetailsLite{ConID: 42, SecType: "STK", StockType: "COMMON"}, earningsIdentityIssuer, false},
+		{&ibkrlib.ContractDetailsLite{ConID: 42, SecType: "STK", StockType: "ETF"}, earningsIdentityNotApplicable, false},
+		{&ibkrlib.ContractDetailsLite{ConID: 43, SecType: "STK", StockType: "COMMON"}, earningsIdentityUnknown, true},
+	} {
+		got, err := fetchEarningsIdentityFrom(t.Context(), "SYNTH", 42, now, wshContractClient{detail: tc.detail})
+		if got.Outcome != tc.outcome || (err != nil) != tc.fails || (got.Failure != nil) != tc.fails {
+			t.Fatalf("WSH identity %+v result = %+v, err=%v", tc.detail, got, err)
+		}
+	}
+
+	got, err := fetchWSHEarningsProviderFrom(t.Context(), "SYNTH", now, wshContractClient{payload: `[{"earnings_date":"20260810"}]`})
+	if err != nil || got.Status != rpc.EarningsStatusDate {
+		t.Fatalf("WSH provider result = %+v, err=%v", got, err)
+	}
+}
+
 func TestDispatchMethodsMatchRPCTimingCatalog(t *testing.T) {
 	t.Parallel()
 
@@ -340,17 +430,9 @@ func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampin
 			databasePath, source := newFakeMaintenanceSchemaAuthority(t, 2)
 			watermarkPath := databasePath + ".head"
 			fixedModTime := time.Unix(1_700_000_000, 123_000_000)
-			if err := os.Chtimes(watermarkPath, fixedModTime, fixedModTime); err != nil {
-				t.Fatal(err)
-			}
-			watermarkBefore, err := os.ReadFile(watermarkPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			watermarkInfoBefore, err := os.Stat(watermarkPath)
-			if err != nil {
-				t.Fatal(err)
-			}
+			mustTestNoError(t, os.Chtimes(watermarkPath, fixedModTime, fixedModTime))
+			watermarkBefore := mustTestValue(t, func() ([]byte, error) { return os.ReadFile(watermarkPath) })
+			watermarkInfoBefore := mustTestValue(t, func() (os.FileInfo, error) { return os.Stat(watermarkPath) })
 
 			minimum := source.Head
 			ops := fakeCoreSchemaUpgradeOps()
@@ -367,10 +449,9 @@ func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampin
 			if err != nil || !exists {
 				t.Fatalf("durable maintenance manifest after %s: exists=%v err=%v", phase, exists, err)
 			}
-			artifacts, err := coreSchemaUpgradeArtifactPaths(databasePath, manifest)
-			if err != nil {
-				t.Fatal(err)
-			}
+			artifacts := mustTestValue(t, func() (coreSchemaUpgradeArtifacts, error) {
+				return coreSchemaUpgradeArtifactPaths(databasePath, manifest)
+			})
 
 			resumedMinimum, err := loadAuthorityWatermark(watermarkPath)
 			if err != nil || resumedMinimum == nil {
@@ -384,22 +465,14 @@ func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampin
 				t.Fatalf("maintenance head=%+v want preserved %+v", gotHead, source.Head)
 			}
 			published := readFakeSchemaFile(t, databasePath)
-			if published.Version != contractCachePruneMigrationVersion ||
-				published.Head != source.Head ||
-				published.Evidence != source.Evidence {
+			if published.Version != contractCachePruneMigrationVersion || published.Head != source.Head || published.Evidence != source.Evidence {
 				t.Fatalf("published maintenance authority=%+v", published)
 			}
-			watermarkAfter, err := os.ReadFile(watermarkPath)
-			if err != nil {
-				t.Fatal(err)
-			}
+			watermarkAfter := mustTestValue(t, func() ([]byte, error) { return os.ReadFile(watermarkPath) })
 			if !bytes.Equal(watermarkBefore, watermarkAfter) {
 				t.Fatal("head-preserving maintenance rewrote watermark bytes")
 			}
-			info, err := os.Stat(watermarkPath)
-			if err != nil {
-				t.Fatal(err)
-			}
+			info := mustTestValue(t, func() (os.FileInfo, error) { return os.Stat(watermarkPath) })
 			if !info.ModTime().Equal(fixedModTime) {
 				t.Fatalf("head-preserving maintenance restamped watermark mtime: got %s want %s", info.ModTime(), fixedModTime)
 			}
@@ -419,17 +492,11 @@ func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampin
 			if err != nil || !ok {
 				t.Fatalf("maintenance receipt: ok=%v err=%v", ok, err)
 			}
-			if receipt.UpgradeID != manifest.UpgradeID ||
-				receipt.Version != 1 ||
-				receipt.Discard.MigrationVersion != contractCachePruneMigrationVersion ||
-				receipt.EventDiscard != nil ||
-				receipt.Discard.Selector != contractCachePruneSelector ||
-				receipt.Discard.RemovedRows != 2 ||
-				receipt.Discard.PayloadBytes != 200 ||
-				receipt.Source.SchemaVersion != contractCachePruneMigrationVersion-1 ||
-				receipt.Source.Head != source.Head ||
-				receipt.Target.SchemaVersion != contractCachePruneMigrationVersion ||
-				receipt.Target.Head != source.Head {
+			if receipt.UpgradeID != manifest.UpgradeID || receipt.Version != 1 || receipt.EventDiscard != nil ||
+				receipt.Discard.MigrationVersion != contractCachePruneMigrationVersion || receipt.Discard.Selector != contractCachePruneSelector ||
+				receipt.Discard.RemovedRows != 2 || receipt.Discard.PayloadBytes != 200 ||
+				receipt.Source.SchemaVersion != contractCachePruneMigrationVersion-1 || receipt.Source.Head != source.Head ||
+				receipt.Target.SchemaVersion != contractCachePruneMigrationVersion || receipt.Target.Head != source.Head {
 				t.Fatalf("maintenance receipt does not bind exact repair: %+v", receipt)
 			}
 			targetDigest, targetBytes, err := hashPrivateUpgradeArtifact(artifacts.targetBackup)
@@ -439,9 +506,7 @@ func TestCoreSchemaMaintenanceUpgradeResumesEveryDurableBoundaryWithoutRestampin
 			if receipt.Target.SHA256 != targetDigest || receipt.Target.Bytes != targetBytes {
 				t.Fatalf("maintenance receipt target fingerprint=%+v want %s/%d", receipt.Target, targetDigest, targetBytes)
 			}
-			if err := requireIndependentUpgradeArtifacts(databasePath, artifacts.targetBackup); err != nil {
-				t.Fatal(err)
-			}
+			mustTestNoError(t, requireIndependentUpgradeArtifacts(databasePath, artifacts.targetBackup))
 		})
 	}
 }
@@ -463,13 +528,10 @@ func TestCoreSchemaMaintenanceFailsClosedWithoutReceiptAfterPublication(t *testi
 	if err != nil || !exists {
 		t.Fatal(err)
 	}
-	artifacts, err := coreSchemaUpgradeArtifactPaths(databasePath, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(artifacts.backup); err != nil {
-		t.Fatal(err)
-	}
+	artifacts := mustTestValue(t, func() (coreSchemaUpgradeArtifacts, error) {
+		return coreSchemaUpgradeArtifactPaths(databasePath, manifest)
+	})
+	mustTestNoError(t, os.Remove(artifacts.backup))
 	if _, err := ensureCoreStoreSchemaCurrentWithOps(t.Context(), databasePath, &minimum, time.Now(), fakeCoreSchemaUpgradeOps()); err == nil {
 		t.Fatal("missing source backup without receipt was accepted")
 	}
@@ -481,26 +543,20 @@ func TestCoreSchemaMaintenanceFailsClosedWithoutReceiptAfterPublication(t *testi
 func newFakeMaintenanceSchemaAuthority(t *testing.T, rows int64) (string, fakeSchemaFile) {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.Chmod(root, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	mustTestNoError(t, os.Chmod(root, 0o700))
 	path := filepath.Join(root, "daemon.db")
 	source := fakeSchemaFile{
 		Version:       contractCachePruneMigrationVersion - 1,
 		TargetVersion: contractCachePruneMigrationVersion,
 		Head: corestore.AuthorityHead{
-			AuthorityEpoch:   "ffeeddccbbaa99887766554433221100",
-			HeadGeneration:   12,
-			LastEventSeq:     91,
-			SignerGeneration: 4,
+			AuthorityEpoch: "ffeeddccbbaa99887766554433221100", HeadGeneration: 12,
+			LastEventSeq: 91, SignerGeneration: 4,
 		},
 		Evidence:        "preserved-state-and-near-match-evidence",
 		MaintenanceRows: rows,
 	}
 	writeFakeSchemaFile(t, path, source)
-	if err := writeAuthorityWatermark(path+".head", source.Head); err != nil {
-		t.Fatal(err)
-	}
+	mustTestNoError(t, writeAuthorityWatermark(path+".head", source.Head))
 	return path, source
 }
 
@@ -514,10 +570,8 @@ type fakeSchemaFile struct {
 
 func fakeCoreSchemaUpgradeOps() coreSchemaUpgradeOps {
 	return coreSchemaUpgradeOps{
-		inspect:      fakeInspectSchema,
-		prepare:      fakePrepareSchemaUpgrade,
-		recompute:    fakeRecomputeSchemaUpgradeMaintenance,
-		targetBackup: fakePrepareSchemaTargetBackup,
+		inspect: fakeInspectSchema, prepare: fakePrepareSchemaUpgrade,
+		recompute: fakeRecomputeSchemaUpgradeMaintenance, targetBackup: fakePrepareSchemaTargetBackup,
 		quiesce: func(ctx context.Context, opts corestore.QuiesceOptions) (corestore.Inspection, error) {
 			inspection, err := fakeInspectSchema(ctx, corestore.InspectOptions{Path: opts.Path, MinimumHead: &opts.ExpectedHead})
 			if err != nil {
@@ -553,11 +607,8 @@ func fakeRecomputeSchemaUpgradeMaintenance(
 	}
 	return corestore.UpgradeMaintenanceResult{
 		Discards: []corestore.ObservationDiscardSummary{{
-			MigrationVersion:    contractCachePruneMigrationVersion,
-			MigrationName:       contractCachePruneMigrationName,
-			Selector:            contractCachePruneSelector,
-			RemovedRows:         file.MaintenanceRows,
-			PayloadBytes:        file.MaintenanceRows * 100,
+			MigrationVersion: contractCachePruneMigrationVersion, MigrationName: contractCachePruneMigrationName,
+			Selector: contractCachePruneSelector, RemovedRows: file.MaintenanceRows, PayloadBytes: file.MaintenanceRows * 100,
 			OrderedDigestSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		}},
 		Compacted:                      true,
@@ -709,11 +760,8 @@ func fakePrepareSchemaUpgrade(ctx context.Context, opts corestore.UpgradeOptions
 	if targetVersion == contractCachePruneMigrationVersion {
 		result.Maintenance = corestore.UpgradeMaintenanceResult{
 			Discards: []corestore.ObservationDiscardSummary{{
-				MigrationVersion:    contractCachePruneMigrationVersion,
-				MigrationName:       contractCachePruneMigrationName,
-				Selector:            contractCachePruneSelector,
-				RemovedRows:         sourceFile.MaintenanceRows,
-				PayloadBytes:        sourceFile.MaintenanceRows * 100,
+				MigrationVersion: contractCachePruneMigrationVersion, MigrationName: contractCachePruneMigrationName,
+				Selector: contractCachePruneSelector, RemovedRows: sourceFile.MaintenanceRows, PayloadBytes: sourceFile.MaintenanceRows * 100,
 				OrderedDigestSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			}},
 			Compacted:                      true,
@@ -753,12 +801,7 @@ func fakePrepareSchemaTargetBackup(ctx context.Context, opts corestore.UpgradeTa
 		backup.Head != opts.ExpectedHead {
 		return corestore.BackupInfo{}, fmt.Errorf("fake target backup mismatch")
 	}
-	return corestore.BackupInfo{
-		Path:          opts.BackupPath,
-		SchemaVersion: backup.SchemaVersion,
-		Head:          backup.Head,
-		Integrity:     backup.Integrity,
-	}, nil
+	return corestore.BackupInfo{Path: opts.BackupPath, SchemaVersion: backup.SchemaVersion, Head: backup.Head, Integrity: backup.Integrity}, nil
 }
 
 func writeFakeSchemaFile(t *testing.T, path string, file fakeSchemaFile) {
@@ -872,16 +915,8 @@ func newFakeConnector() *fakeConnector {
 }
 
 func (f *fakeConnector) SubscribeMarketData(ctx context.Context, symbol string, _ []string) error {
-	if f.subscribeError != nil {
-		return f.subscribeError
-	}
-	if f.subscribeDelay > 0 {
-
-		select {
-		case <-time.After(f.subscribeDelay):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if err := f.awaitSubscription(ctx); err != nil {
+		return err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -890,15 +925,8 @@ func (f *fakeConnector) SubscribeMarketData(ctx context.Context, symbol string, 
 }
 
 func (f *fakeConnector) SubscribeMarketDataWithContract(ctx context.Context, contract ibkrlib.Contract, _ []string) (string, error) {
-	if f.subscribeError != nil {
-		return "", f.subscribeError
-	}
-	if f.subscribeDelay > 0 {
-		select {
-		case <-time.After(f.subscribeDelay):
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
+	if err := f.awaitSubscription(ctx); err != nil {
+		return "", err
 	}
 	key := ibkrlib.MarketDataKeyForContract(contract)
 	f.mu.Lock()
@@ -906,6 +934,21 @@ func (f *fakeConnector) SubscribeMarketDataWithContract(ctx context.Context, con
 	f.subscribed[key]++
 	f.contracts[key] = contract
 	return key, nil
+}
+
+func (f *fakeConnector) awaitSubscription(ctx context.Context) error {
+	if f.subscribeError != nil {
+		return f.subscribeError
+	}
+	if f.subscribeDelay <= 0 {
+		return nil
+	}
+	select {
+	case <-time.After(f.subscribeDelay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (f *fakeConnector) UnsubscribeMarketData(symbol string) error {
@@ -971,16 +1014,8 @@ func TestFanoutSharesIBKRLine(t *testing.T) {
 	m := newTestManager(fake)
 	defer m.Close()
 
-	a, releaseA, err := m.Subscribe(context.Background(), "AAPL")
-	if err != nil {
-		t.Fatalf("Subscribe A: %v", err)
-	}
-	defer releaseA()
-	b, releaseB, err := m.Subscribe(context.Background(), "AAPL")
-	if err != nil {
-		t.Fatalf("Subscribe B: %v", err)
-	}
-	defer releaseB()
+	a := subscribeTest(t, m, "AAPL")
+	b := subscribeTest(t, m, "AAPL")
 
 	if got := fake.subCount("AAPL"); got != 1 {
 		t.Fatalf("SubscribeMarketData called %d times, want 1 (refcount must collapse)", got)
@@ -1003,11 +1038,7 @@ func TestGatewayLostEmitsTerminalFrame(t *testing.T) {
 	m := newTestManager(fake)
 	defer m.Close()
 
-	frames, release, err := m.Subscribe(context.Background(), "AAPL")
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	defer release()
+	frames := subscribeTest(t, m, "AAPL")
 
 	fake.putTick("AAPL", 100.0, 100.1, 100.05)
 	receiveFrame(t, frames, 200*time.Millisecond)
@@ -1030,6 +1061,16 @@ func TestGatewayLostEmitsTerminalFrame(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Errorf("frame channel did not close after gateway_lost")
 	}
+}
+
+func subscribeTest(t *testing.T, manager *testManager, symbol string) <-chan rpc.Frame {
+	t.Helper()
+	frames, release, err := manager.Subscribe(context.Background(), symbol)
+	if err != nil {
+		t.Fatalf("Subscribe %s: %v", symbol, err)
+	}
+	t.Cleanup(release)
+	return frames
 }
 
 func receiveFrame(t *testing.T, ch <-chan rpc.Frame, timeout time.Duration) rpc.Frame {

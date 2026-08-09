@@ -150,11 +150,9 @@ func saveMarketDocument(ctx context.Context, store *corestore.Store, scopeKey, s
 	return fmt.Errorf("save market document %s/%s: %w after %d attempts", scopeKey, stateKind, corestore.ErrRevisionConflict, marketAuthorityWriteAttempts)
 }
 
-// expiryIVCache memoises per-(symbol, expiry) ATM implied volatility lookups
-// so repeated `canary chain SYM` calls within the TTL skip the per-expiry
-// market-data subscribe cycle. The cache lives on the daemon (single
-// process) and survives across CLI invocations — that's the whole point:
-// the first call pays the gateway round-trip cost; the next ten do not.
+// expiryIVCache memoises per-(symbol, expiry) ATM implied-volatility lookups so
+// repeated daemon consumers skip the per-expiry market-data subscribe cycle.
+// The cache survives across adapter calls in the daemon process.
 //
 // TTL varies with market phase: short during regular trading hours when
 // IV moves intraday, long outside RTH when nothing is recomputing. The

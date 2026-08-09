@@ -81,13 +81,9 @@ Usually correct behavior, not a fault. Market data is real-time wherever your IB
 
 The daemon asks the gateway for market-data type 2 (frozen-aware) on every connect, deliberately: type 1 (pure live) can leave snapshot requests hanging when the market is closed, while type 2 returns the last-known price instead. If you expected `live` on a symbol and got `delayed`, the fix is a market-data subscription in IBKR's account management, not a change here.
 
-`canary quote SYM --watch` exits by itself on frozen data:
-
-```
-  stream ended — frozen data is snapshot-only. Use `canary quote SYM` for one-shots.
-```
-
-The gateway sends one snapshot in frozen mode and never streams, so there is nothing to wait for.
+The gateway sends one snapshot in frozen mode and never streams. In v3, inspect
+the relevant position or app row and its session context; the standalone quote
+watch command has been retired.
 
 ## A held name stopped updating after an overnight gateway reset
 
@@ -97,9 +93,13 @@ So the fix is a reconnect. `canary restart` gets you one immediately instead of 
 
 ## Breadth shows `0.0 %`, or stays `computing`
 
-A cold or still-computing engine has no reading yet, and `canary breadth` says so instead of printing the unset `0.0 %` for both moving-average rows. Use `canary breadth --json` and check `state`, which is one of `cold`, `computing`, `ready`, or `degraded`.
+A cold or still-computing engine has no reading yet. Use `canary status --json`
+and the daily brief to distinguish `cold`, `computing`, `ready`, and `degraded`.
 
-A `ready` reading is one specific session's close. `canary breadth` prints that session date, and marks it stale when it is no longer the latest completed session — the daemon keeps serving the last converged snapshot rather than publishing a partial one, so a lane that has stopped producing shows plausible numbers until you look at the date. `canary status` carries a breadth subsystem row for the cause: it reports `S&P 500 breadth refresh is running or waiting to retry` while a refresh is live, and `degraded` when the second broker connection breadth uses is down while the main one is up.
+A `ready` reading is one specific session's close. The brief retains that date
+and marks it stale when it is no longer the latest completed session. The daemon
+keeps serving last-good rather than publishing a partial replacement; `canary
+status` carries the subsystem cause and retry state.
 
 Computing for a long time is expected on a fresh daemon. IBKR's historical-data pacing caps the 503-name fan-out at about 6 names a minute, so the first build takes about 74 minutes. A pass that lands below 80% constituent coverage publishes nothing and retries every 12 minutes, up to 15 times, which can stretch the wait considerably. After that the state falls back to `cold` and the normal once-daily refresh takes over, 35 minutes after the official session close.
 
@@ -107,9 +107,10 @@ Computing for a long time is expected on a fresh daemon. IBKR's historical-data 
 
 Both are states rather than failures, and both exit 0. Only the `error` status exits 1.
 
-Cold means no usable result exists and nothing is computing. The daemon prewarms gamma after gateway startup and refreshes behind the served value after a 15-minute soft TTL during regular US option hours. Outside those hours automatic refresh is not due at all, so an off-hours cold cache stays cold on purpose rather than running a heavy option-chain fan against a closed market. `canary gamma --force` starts one anyway, which is mostly a troubleshooting move.
+Cold means no usable result exists and nothing is computing. The daemon prewarms gamma after gateway startup and refreshes behind the served value after a 15-minute soft TTL during regular US option hours. Outside those hours automatic refresh is not due at all, so an off-hours cold cache stays cold on purpose rather than running a heavy option-chain fan against a closed market.
 
-Computing prints the start time, an ETA, and a progress percentage. Re-running `canary gamma` blocks on the result again; `canary gamma --no-wait` returns the current status immediately instead.
+`canary status --json` and the app expose the computing state, progress, and
+typed failure without the retired force/no-wait command controls.
 
 During regular US option hours, an IBKR 354 on SPY or SPX triggers one delayed
 retry for that underlying. A successful result says `15m delayed` in text and

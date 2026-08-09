@@ -46,7 +46,7 @@ const (
 var (
 	errStartAPIFailed  = errors.New("ibkr start api failure")
 	errHandshakeNoData = errors.New("ibkr handshake: no response")
-	// errClientIDInUse marks the IBKR "code 326" condition (gateway-side
+	// errClientIDInUse marks the IBKR code-326 client-ID collision.
 	errClientIDInUse = errors.New("IBKR: client ID already in use")
 	ibkrLogger       = logging.Component("IBKR")
 	connectLogger    = logging.Component("IBKR Connect")
@@ -64,7 +64,7 @@ func clientIDInUseError(clientID int, gatewayMsg string) error {
 	return fmt.Errorf("%w: %s", errClientIDInUse, msg)
 }
 
-// String returns the uppercase name of s, or "UNKNOWN" for an unrecognized
+// String returns the uppercase name of s, or "UNKNOWN" for an unrecognized value.
 func (s ConnectionStatus) String() string {
 	switch s {
 	case StatusDisconnected:
@@ -89,12 +89,11 @@ type ConnectionConfig struct {
 	ClientID int
 	Account  string
 
-	// PacketLogPath enables the optional packet logger when non-empty. The path
-	// logs are account-sensitive and may contain order references and details.
+	// PacketLogPath enables sensitive packet logging; %d expands to the client ID.
 	PacketLogPath string
 	LogWireHex    bool // LogWireHex emits account-sensitive raw protocol frames.
 
-	// WireInterceptor records frames for this connection when non-nil. When it
+	// WireInterceptor records frames; nil uses the environment configuration.
 	WireInterceptor *WireInterceptor
 
 	// startAPI retry settings for the configured client ID.
@@ -119,7 +118,7 @@ type ConnectionConfig struct {
 	TLSServerName         string
 }
 
-// RawPosition contains the latest broker-reported position and portfolio
+// RawPosition contains the latest broker-reported values for one position.
 type RawPosition struct {
 	Account       string
 	Contract      Contract
@@ -149,7 +148,7 @@ type Contract struct {
 	SecID        string
 }
 
-// DefaultConfig returns a new connection configuration populated with the
+// DefaultConfig returns a new connection configuration with package defaults.
 func DefaultConfig() *ConnectionConfig {
 	return &ConnectionConfig{
 		Host:                  "127.0.0.1",
@@ -199,7 +198,7 @@ func (c *Connection) tlsAttempts() []bool {
 	return seq
 }
 
-// Connection owns one TWS protocol session and its request, handler, and
+// Connection owns one TWS protocol session and its request and receipt state.
 type Connection struct {
 	config   *ConnectionConfig
 	status   ConnectionStatus
@@ -235,8 +234,7 @@ type Connection struct {
 	reservedOrderIDs   map[int]struct{}
 	reservedRequestIDs map[int]struct{}
 	brokerSessionEpoch atomic.Uint64
-	// inboundEpochMu makes the second current-epoch check and all msgErrMsg
-	// separate from outbound invalidation so late receipts remain attributable.
+	// inboundEpochMu keeps late receipts attributable after outbound invalidation.
 	inboundEpochMu sync.RWMutex
 	// account holds the raw msgManagedAccts value, which is a
 	// comma-separated list for a login that carries several accounts.
@@ -252,10 +250,10 @@ type Connection struct {
 	transportMu     sync.Mutex
 	transportCond   *sync.Cond
 	transportPaused bool
-	// outboundSessionState is independent of brokerSessionEpoch: disconnect
-	// the inbound epoch is intentionally retained so late decoded receipts stay
+	// outboundSessionState is revoked at disconnect while brokerSessionEpoch and
+	// the inbound epoch remain available to attribute late decoded receipts.
 	outboundSessionState atomic.Uint64
-	// evidenceBarrier is installed by Connector and shared with structural
+	// evidenceBarrier is installed by Connector and shared with receipt publication.
 	evidenceBarrier *sync.RWMutex
 
 	packetLogger       PacketLogger
@@ -278,8 +276,7 @@ type Connection struct {
 	// Ensure write path runs serially
 	writeMu         sync.Mutex
 	writeInProgress atomic.Bool
-	// Connector-owned publication boundary. Account identity changes take its
-	// one account and reach the wire after managed-account drift.
+	// publicationBarrier keeps protected sends inside one account publication.
 	publicationBarrier *sync.RWMutex
 
 	// Guard against repeated suspicious logs per symbol/payload.
@@ -334,7 +331,7 @@ type Connection struct {
 	positionsSnapshot       map[string]*RawPosition
 	positionsSnapshotResult map[string]*RawPosition
 	positionsSnapshotActive bool
-	// portfolioProjectionMu makes the cached rows and their stream receipt
+	// portfolioProjectionMu makes cached rows and their receipt health atomic.
 	portfolioProjectionMu sync.RWMutex
 	portfolioHealthMu     sync.RWMutex
 	portfolioHealth       PortfolioStreamHealth
@@ -364,9 +361,9 @@ type Connection struct {
 	startAPIFailures    int
 	lastStartAPIFailure time.Time
 
-	// errorMessageAfterInitialEpochCheck is a deterministic race seam used to
+	// errorMessageAfterInitialEpochCheck is a deterministic receipt-race test seam.
 	errorMessageAfterInitialEpochCheck func()
-	// systemNoticeAfterInitialEpochCheck is the msg-204 equivalent. Production
+	// systemNoticeAfterInitialEpochCheck is the msg-204 equivalent; production leaves it nil.
 	systemNoticeAfterInitialEpochCheck func()
 	// messageAfterInitialEpochCheck covers ordinary authority frames.
 	messageAfterInitialEpochCheck func(msgID int)
@@ -435,8 +432,8 @@ func (c *Connection) lookupReqAlias(reqID int) (reqAliasEntry, bool) {
 	return alias, ok
 }
 
-// SetSystemNoticeHandler is the compatibility form of
-// outside this package can only ever pass nil. It will be removed in the next
+// SetSystemNoticeHandler is retained for v2 source compatibility. Its private
+// parameter types mean callers outside this package can only clear the handler.
 func (c *Connection) SetSystemNoticeHandler(handler func(note *systemNotification, alias reqAliasEntry)) {
 	if handler == nil {
 		c.SetSystemNoticeHandlerAtEpoch(nil)
@@ -447,8 +444,8 @@ func (c *Connection) SetSystemNoticeHandler(handler func(note *systemNotificatio
 	})
 }
 
-// SetSystemNoticeHandlerAtEpoch replaces the callback for parsed gateway
-// outside this package can only ever pass nil. It will be removed in the next
+// SetSystemNoticeHandlerAtEpoch is retained for v2 source compatibility. Its
+// private parameter types mean callers outside this package can only clear it.
 func (c *Connection) SetSystemNoticeHandlerAtEpoch(handler func(note *systemNotification, alias reqAliasEntry, epoch uint64)) {
 	if handler == nil {
 		c.SetSystemNoticeHandlerAtEpochWithPostAction(nil)
@@ -460,10 +457,10 @@ func (c *Connection) SetSystemNoticeHandlerAtEpoch(handler func(note *systemNoti
 	})
 }
 
-// SetSystemNoticeHandlerAtEpochWithPostAction is the Connector-facing form.
-// The returned one-shot action runs only after Connection releases its inbound
-// deferring any outbound recovery frame until reconnect can no longer deadlock
-// this package can only pass nil; the next major version unexports it.
+// SetSystemNoticeHandlerAtEpochWithPostAction installs the Connector-owned
+// callback. Its action runs after the inbound lock is released, avoiding a
+// reconnect deadlock. External callers can only pass nil because its parameter
+// types are private; the export remains for v2 source compatibility.
 func (c *Connection) SetSystemNoticeHandlerAtEpochWithPostAction(handler func(note *systemNotification, alias reqAliasEntry, epoch uint64) func()) {
 	c.systemNoticeMu.Lock()
 	c.systemNoticeHandler = handler
@@ -540,7 +537,7 @@ func (c *Connection) waitForReadStart(timeout time.Duration) {
 	}
 }
 
-// NewConnection constructs a disconnected protocol session. A nil config uses
+// NewConnection constructs a disconnected session; nil uses [DefaultConfig].
 func NewConnection(config *ConnectionConfig) *Connection {
 	if config == nil {
 		config = DefaultConfig()
@@ -644,8 +641,7 @@ func (c *Connection) dialEndpoint(ctx context.Context, useTLS bool) (net.Conn, e
 		return nil, fmt.Errorf("failed to connect to IBKR at %s: %w", addr, err)
 	}
 
-	// Disable Nagle's algorithm (TCP_NODELAY) to ensure immediate transmission.
-	// causing IBKR to receive nothing until buffer fills or connection closes.
+	// Disable Nagle's algorithm so buffered protocol frames transmit immediately.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if err := tcpConn.SetNoDelay(true); err != nil {
 			conn.Close()
@@ -667,8 +663,7 @@ func (c *Connection) dialEndpoint(ctx context.Context, useTLS bool) (net.Conn, e
 		tlsCfg.ServerName = serverName
 	}
 	tlsConn := tls.Client(conn, tlsCfg)
-	// HandshakeContext (Go 1.17+) makes the TLS handshake honor ctx
-	// server that accepts TCP but never replies to ClientHello would
+	// HandshakeContext bounds a server that accepts TCP but never completes TLS.
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("tls handshake failed: %w", err)
@@ -676,9 +671,7 @@ func (c *Connection) dialEndpoint(ctx context.Context, useTLS bool) (net.Conn, e
 	return tlsConn, nil
 }
 
-// closeConnection tears down the socket and drops the buffered transport
-// state. It must only run while no reader goroutine is alive: readMessages
-// socket first and calls this only after the goroutine wait succeeds.
+// closeConnection drops transport fields after the reader goroutine has exited.
 func (c *Connection) closeConnection() {
 	c.closeSocket()
 	c.conn = nil
@@ -687,7 +680,7 @@ func (c *Connection) closeConnection() {
 	c.scanner = nil
 }
 
-// closeSocket unblocks a reader parked on Read() without touching the fields
+// closeSocket unblocks a reader without clearing fields it may still access.
 func (c *Connection) closeSocket() {
 	if c.conn != nil {
 		_ = c.conn.Close()
@@ -733,13 +726,12 @@ func (c *Connection) ensurePacketLogger() {
 	c.SetPacketLogger(logger)
 }
 
-// isClientIDInUseError reports whether err is — or wraps — the
-// call sites where possible; this helper exists for non-IBKR-error
+// isClientIDInUseError reports whether err wraps the client-ID collision sentinel.
 func isClientIDInUseError(err error) bool {
 	return errors.Is(err, errClientIDInUse)
 }
 
-// Connect establishes and handshakes a TWS or IB Gateway connection using the
+// Connect establishes and handshakes the configured TWS or Gateway session.
 func (c *Connection) Connect(ctx context.Context) error {
 	clientID := c.config.ClientID
 
@@ -748,8 +740,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	// neighboring IDs are reserved for other ibkr lanes.
 	maxRetries := max(min(c.config.MaxClientIDRetries, 5), 1)
 
-	// The connect-attempt narration here and below (this line, the per-attempt
-	// gateway is down, so at INFO the sequence floods ibkr-daemon.log
+	// Attempt narration stays at debug so an unavailable gateway does not flood logs.
 	connectLogger.Debugf("Starting connection process with Client ID %d, MaxRetries=%d",
 		clientID, maxRetries)
 
@@ -930,9 +921,9 @@ func (c *Connection) connectAttempt(ctx context.Context, useTLS bool, outboundEp
 	return nil
 }
 
-// Disconnect closes the protocol session and stops its background work. It is
+// Disconnect closes the protocol session and stops its background work.
 func (c *Connection) Disconnect() error {
-	// Invalidate and release queued protected sends before publishing the
+	// Invalidate queued protected sends before publishing the disconnect.
 	c.invalidateOutboundSession(false)
 	c.statusMu.Lock()
 	wasConnected := c.status == StatusConnected
@@ -949,22 +940,17 @@ func (c *Connection) Disconnect() error {
 		c.rateLimiter.Stop()
 	}
 
-	// DO NOT flush the writer buffer here! There may be partial message data
-	// Flushing partial messages causes "Invalid incoming request type" errors at IBKR.
+	// Do not flush: the buffer may hold a partial frame that IBKR would reject.
 
 	// Cancel context
 	if c.cancel != nil {
 		c.cancel()
 	}
 
-	// Close the TCP socket before waiting so a reader parked on Read() exits
-	// state. Only the socket is closed here: the reader goroutine still
+	// Close the socket before waiting, but retain fields until the reader exits.
 	c.closeSocket()
 
-	// Wait for goroutines to finish, bounded. The readMessages goroutine
-	// only checks stopChan between Read() calls, so a reader parked on a
-	// blocking socket read won't honour the close — it unblocks only when the
-	// forever; user-visible symptom was "Quit doesn't work, only Force Quit."
+	// Bound the wait in case a platform socket close fails to unblock Read.
 	waitDone := make(chan struct{})
 	go func() {
 		c.wg.Wait()
@@ -978,8 +964,7 @@ func (c *Connection) Disconnect() error {
 		connectLogger.Warnf("Disconnect: goroutines still running after 2s; closing socket to unblock (Client ID: %d)", c.config.ClientID)
 	}
 
-	// A real disconnect (we were Connected) is a genuine state change worth
-	// callback below, so demoting the log never touches the disconnect path.
+	// Log only a real connected-to-disconnected transition at info.
 	if wasConnected {
 		connectLogger.Infof("Connection closed (Client ID: %d)", c.config.ClientID)
 	} else {
@@ -999,7 +984,7 @@ func (c *Connection) Disconnect() error {
 	return nil
 }
 
-// reconnectWithBackoff retries a lost session using the configured exponential
+// reconnectWithBackoff retries a lost session using configured exponential backoff.
 func (c *Connection) reconnectWithBackoff(ctx context.Context) {
 	defer c.wg.Done()
 
@@ -1165,7 +1150,7 @@ func (c *Connection) SetOnDisconnect(fn func(error)) {
 	c.onDisconnect = fn
 }
 
-// GetConnectionInfo returns a snapshot of connection diagnostics. The returned
+// GetConnectionInfo returns a detached snapshot of connection diagnostics.
 func (c *Connection) GetConnectionInfo() map[string]any {
 	c.statusMu.RLock()
 	defer c.statusMu.RUnlock()
@@ -1195,7 +1180,7 @@ func (c *Connection) ServerVersion() int {
 	return c.serverVersion
 }
 
-// UsingTLS reports whether the established session negotiated TLS. When
+// UsingTLS reports whether the established session negotiated TLS.
 func (c *Connection) UsingTLS() bool {
 	c.statusMu.RLock()
 	defer c.statusMu.RUnlock()
@@ -1360,8 +1345,8 @@ const (
 	cancelPnLSingle = 95
 )
 
-// suppressedMessageLogIDs gates the debug-log line in processMessage so
-// alone account for the bulk of inbound frames during RTH) don't
+// suppressedMessageLogIDs keeps high-volume price, size, and computation
+// frames out of debug logs during regular trading hours.
 var suppressedMessageLogIDs = map[int]bool{
 	msgTickPrice:         true, // Tick price updates (1)
 	msgTickSize:          true, // Tick size updates (2)
@@ -1582,7 +1567,7 @@ func (c *Connection) readHandshakeCString() (string, error) {
 
 // isHandshakeNoDataErr reports whether err means "the peer hung up before
 //   - io.EOF / io.ErrUnexpectedEOF: graceful close after we sent the request.
-//   - net.Error with Timeout(): the server accepted but never replied within
+//   - net.Error with Timeout(): the server accepted but did not reply in time.
 func isHandshakeNoDataErr(err error) bool {
 	if err == nil {
 		return false
@@ -1698,7 +1683,7 @@ func (c *Connection) startAPI() error {
 
 // readMessages continuously reads messages from the connection.
 // Wrapped in a panic guard because this goroutine is the only consumer of
-// unexpected wire field, …) without recovery, the reader dies silently
+// malformed wire data without letting the only receipt reader die silently.
 func (c *Connection) readMessages() {
 	defer c.wg.Done()
 	defer func() {
@@ -1989,7 +1974,7 @@ func (c *Connection) processErrorMessageAtEpoch(fields []string, epoch uint64) {
 
 // processSystemNoticeMessageAtEpoch gives msg-204 the same final socket-
 // mutations, and legacy handler delivery complete under inboundEpochMu.R.
-// Stale receipts reach only the epoch-aware system-notice owner. Any outbound
+// Stale receipts reach only the epoch-aware owner; outbound actions run later.
 func (c *Connection) processSystemNoticeMessageAtEpoch(fields []string, epoch uint64) {
 	current := false
 	var postLease func()
@@ -2442,7 +2427,7 @@ func (c *Connection) handlePosition(fields []string) {
 
 // cachedPositionKey preserves exact account+contract identity whenever the
 // broker supplies a positive ConID. Symbol-only keys caused same-symbol stock
-// own scope and risk checks. The descriptive fallbacks exist only for legacy
+// own scope checks. Descriptive fallbacks remain only for legacy zero-ConID rows.
 func cachedPositionKey(account string, contract Contract) string {
 	account = strings.ToUpper(strings.TrimSpace(account))
 	secType := strings.ToUpper(strings.TrimSpace(contract.SecType))
@@ -2863,7 +2848,7 @@ func portfolioMultiplierIsContractual(secType string) bool {
 
 // managedAccountMember reports whether account is one of the codes the
 // gateway listed in msgManagedAccts. One TWS login can hold several
-// unlinked accounts, and the account-updates service streams all of them
+// unlinked accounts, and account updates can stream all of them.
 func (c *Connection) managedAccountMember(account string) bool {
 	account = strings.TrimSpace(account)
 	if !accountCodeConcrete(account) {
@@ -3438,7 +3423,7 @@ func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Conte
 }
 
 // bufferedWriteDisposition distinguishes a writer refusal that accepted no
-// failed flush, so all newly accepted bytes still buffered proves zero wire
+// failed flush; newly accepted bytes still buffered prove zero wire exposure.
 func bufferedWriteDisposition(writer *bufio.Writer, bufferedBefore, accepted int) SendDisposition {
 	if writer == nil || bufferedBefore != 0 {
 		return SendDispositionMayHaveWritten
@@ -3923,7 +3908,7 @@ func isASCIIPrintable(s string) bool {
 }
 
 // decodeMessage decodes an IBKR message payload into trimmed string fields.
-// Empty fields are dropped; tests that need exact placeholder positions use
+// Empty fields are dropped; exact-position tests should call decodeFields.
 func (c *Connection) decodeMessage(msgBytes []byte) []string {
 	if len(msgBytes) == 0 {
 		return []string{}
@@ -4028,7 +4013,7 @@ func parseSystemNotificationPayload(payload []byte) (*systemNotification, error)
 }
 
 // snapshotHandlers returns a copy of the handler list for a message ID.
-// inside the writer's lock) can't race the loop's per-entry reads on the
+// without racing handler removal from callbacks running under other locks.
 func (c *Connection) snapshotHandlers(msgID int) []func([]string) {
 	c.handlersMu.RLock()
 	defer c.handlersMu.RUnlock()
@@ -4210,7 +4195,7 @@ func (c *Connection) SetMarketDataType(dataType int) error {
 	return c.sendMessage(msg)
 }
 
-// restoreFrozenMarketDataTypeUnlessCompeting restores the daemon's normal
+// restoreFrozenMarketDataTypeUnlessCompeting restores frozen mode when safe.
 func (c *Connection) restoreFrozenMarketDataTypeUnlessCompeting() error {
 	c.competingMu.RLock()
 	defer c.competingMu.RUnlock()
@@ -4769,7 +4754,7 @@ func (c *Connection) captureBrokerInstructionEpoch() (uint64, error) {
 	return epoch, nil
 }
 
-// BrokerSessionEpoch identifies the current socket generation. It advances
+// BrokerSessionEpoch identifies the current monotonically advancing socket generation.
 func (c *Connection) BrokerSessionEpoch() uint64 {
 	if c == nil {
 		return 0
@@ -4898,7 +4883,7 @@ func (c *Connection) IsWhatIfOrderID(orderID int) bool {
 	return ok
 }
 
-// RequestMarketData subscribes to market data for a symbol. ctx must be
+// RequestMarketData subscribes to market data for a symbol within ctx.
 func (c *Connection) RequestMarketData(ctx context.Context, symbol string) (int, error) {
 	secType, exchange, currency, primaryExchange := classifySymbol(symbol)
 	localSymbol, tradingClassHint := contractDisplayHints(symbol, secType)
@@ -4928,7 +4913,7 @@ func (c *Connection) RequestMarketData(ctx context.Context, symbol string) (int,
 	return c.RequestMarketDataWithContract(ctx, contract, "100,101,104,106,165,221,233,236", false, false)
 }
 
-// RequestMarketDataWithContract issues reqMktData for contract. ctx must be
+// RequestMarketDataWithContract issues reqMktData for contract within ctx.
 func (c *Connection) RequestMarketDataWithContract(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool) (int, error) {
 	return c.requestMarketDataWithContract(ctx, contract, genericTicks, snapshot, regulatorySnap, nil)
 }
@@ -4986,14 +4971,14 @@ func (c *Connection) requestMarketDataWithContract(ctx context.Context, contract
 
 // requestMarketDataWithContractForEpoch is the exact-socket form used by
 // broker-write previews. It binds both request-ID allocation and the final
-// transport check to expectedEpoch, so a queued quote request never crosses a
+// transport check to expectedEpoch, preventing reconnect-crossing requests.
 func (c *Connection) requestMarketDataWithContractForEpoch(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool, expectedEpoch uint64, beforeSend func(reqID int) func()) (int, error) {
 	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, snapshot, regulatorySnap, expectedEpoch, true, beforeSend)
 }
 
 // requestSharedMarketDataWithContractForEpoch is the reconnect-safe form used
 // when a shared read subscription must be re-issued on its originating socket.
-// Unlike broker-write quote evidence, a shared subscription may legitimately
+// Unlike broker-write evidence, a shared subscription may be replayed after reconnect.
 func (c *Connection) requestSharedMarketDataWithContractForEpoch(ctx context.Context, contract Contract, genericTicks string, expectedEpoch uint64, beforeSend func(reqID int) func()) (int, error) {
 	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, false, false, expectedEpoch, false, beforeSend)
 }
@@ -5253,7 +5238,7 @@ func (c *Connection) requestHistoricalDataWithIDGuard(ctx context.Context, contr
 }
 
 // normalizeHistoricalDuration coerces legacy day-based durations into IBKR-compliant
-// year tokens when they exceed the 365-day limit. This prevents error 321 without
+// year tokens above the 365-day limit, preventing IBKR error 321.
 func normalizeHistoricalDuration(duration string) string {
 	parts := strings.Fields(strings.TrimSpace(duration))
 	if len(parts) != 2 {
@@ -5326,7 +5311,7 @@ func (c *Connection) RequestSecDefOptParams(underlyingSymbol, futFopExchange, un
 }
 
 // RequestMarketDataWithPrimary subscribes to market data with an explicit
-// primary-exchange hint. ctx must be non-nil and bounds the wait for
+// primary-exchange hint, with ctx bounding contract resolution.
 func (c *Connection) RequestMarketDataWithPrimary(ctx context.Context, symbol string, primaryExchange string) (int, error) {
 	if !c.IsConnected() {
 		return 0, fmt.Errorf("not connected to IBKR")
@@ -5714,7 +5699,7 @@ type PrewarmOptionChainResult struct {
 // IBKR's reqContractDetails returns every listed strike × C/P for a given
 // and sidesteps the IBKR per-account reqContractDetails throttle that
 // semaphore (4) to avoid bursting the gateway. Failures are localised —
-// one timed-out expiry doesn't fail the others. tradingClass is
+// one timed-out expiry does not fail the others; tradingClass disambiguates classes.
 func (c *Connection) PrewarmOptionChain(
 	ctx context.Context,
 	symbol string,
@@ -5753,7 +5738,7 @@ func (c *Connection) PrewarmOptionChain(
 }
 
 // prewarmOneExpiry issues one partial-Contract reqContractDetails for
-// Wire shape: Strike and Right left empty in the outgoing contract; the
+// Wire shape leaves strike and right empty so IBKR returns the whole expiry.
 func (c *Connection) prewarmOneExpiry(
 	ctx context.Context,
 	symbol, expiry, tradingClass string,
@@ -5912,7 +5897,7 @@ func (c *Connection) cancelMarketDataForEpoch(ctx context.Context, reqID int, ep
 
 // RequestPositions requests current positions via the one-shot reqPositions
 // wire path. Library-callable; the daemon prefers the streaming portfolio
-// path through Connector.CachedPositions backed by RequestAccountUpdates
+// path through Connector.CachedPositions backed by RequestAccountUpdates.
 func (c *Connection) RequestPositions() error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
@@ -6032,7 +6017,7 @@ func (c *Connection) RequestAccountSummary(reqID int, tags string) error {
 
 // RequestAccountSummaryForAccount starts one account-bound summary read. TWS
 // still receives group "All" because account codes are not account-group
-// names; every returned row is checked against expectedAccount before it can
+// names; every row must match expectedAccount before publication.
 func (c *Connection) RequestAccountSummaryForAccount(reqID int, tags, expectedAccount string) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
@@ -6081,7 +6066,7 @@ func (c *Connection) WaitForAccountSummaryEnd(timeout time.Duration) error {
 // awaitAccountSummarySnapshot blocks until the gateway emits
 // accountSummaryEnd for reqID (or timeout elapses) and returns only the
 // accountSummary map is also fed by the streaming reqAccountUpdates
-// subscription, and a zeroed or foreign-account update batch landing
+// subscription, so unrelated updates cannot overwrite this request snapshot.
 func (c *Connection) awaitAccountSummarySnapshot(reqID int, timeout time.Duration) (map[string]string, error) {
 	c.accountMu.RLock()
 	snap := c.summarySnapshots[reqID]
@@ -6127,7 +6112,7 @@ func (c *Connection) GetPositions() map[string]*RawPosition {
 }
 
 // GetPositionsSnapshot returns the most recent complete reqPositions result.
-// It is isolated from the streaming reqAccountUpdates projection; nil means no
+// It is isolated from reqAccountUpdates; nil means no completed snapshot.
 func (c *Connection) GetPositionsSnapshot() map[string]*RawPosition {
 	c.portfolioProjectionMu.RLock()
 	defer c.portfolioProjectionMu.RUnlock()
@@ -6140,7 +6125,7 @@ func (c *Connection) GetPositionsSnapshot() map[string]*RawPosition {
 }
 
 // GetPositionsWithPortfolioHealth captures the cached portfolio rows and the
-// stream receipts under one lock order. The returned map and health value are
+// stream receipts under one lock order and returns detached values.
 func (c *Connection) GetPositionsWithPortfolioHealth() (map[string]*RawPosition, PortfolioStreamHealth) {
 	c.portfolioProjectionMu.RLock()
 	defer c.portfolioProjectionMu.RUnlock()
@@ -6225,7 +6210,7 @@ func (c *Connection) RequestAccountUpdates(account string) error {
 	return c.sendMessage(msg)
 }
 
-// RequestCurrentTime asks the gateway for its current time. The connection uses
+// RequestCurrentTime asks the gateway for its current time as a heartbeat.
 func (c *Connection) RequestCurrentTime() error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
@@ -6273,7 +6258,7 @@ func (c *Connection) beginOutboundSession() uint64 {
 	return state
 }
 
-// activateOutboundSession publishes a successfully handshaken generation. A
+// activateOutboundSession publishes a successfully handshaken generation.
 func (c *Connection) activateOutboundSession(state uint64) bool {
 	if c.transportCond == nil {
 		return state&1 != 0 && c.outboundSessionState.CompareAndSwap(state, state&^uint64(1))
@@ -6356,7 +6341,7 @@ func (c *Connection) RegisterHandler(msgID int, handler func([]string)) uint64 {
 }
 
 // RegisterHandlerAtEpoch adds a handler that receives the socket epoch that
-// the Connection reader; dynamic handlers must likewise register before the
+// the Connection reader observed; register before the corresponding request.
 func (c *Connection) RegisterHandlerAtEpoch(msgID int, handler func([]string, uint64)) uint64 {
 	if handler == nil {
 		return 0

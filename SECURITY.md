@@ -24,7 +24,13 @@ This is a personal open-source project, not a funded program — responses are b
 
 ## Supported versions
 
-Only the latest minor release of the current stable line receives security fixes. An older minor may receive a best-effort backport for a critical issue when the patch is low-risk; otherwise upgrade to the latest release.
+The current product major and its maintained N-1 line receive security fixes.
+During the v3 transition, v3 and later release from `main`, while v2
+maintenance releases cut from `release/2.x`. N-1 accepts only safety, security,
+data-loss, and broker-compatibility fixes, and every applicable fix is
+forward-ported to `main`. Retiring N-1 requires the overlap, maintenance-release,
+migration, rollback, and explicit-decision evidence documented in the
+[release policy](docs/docs/reference/releases.md#which-versions-are-supported).
 
 ## Scope
 

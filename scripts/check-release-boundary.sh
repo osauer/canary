@@ -24,6 +24,12 @@ count_literal() {
 	printf '%s\n' "$count"
 }
 
+require_line_count() {
+	[ "$(grep -Fxc "$2" "$1")" -eq "$3" ] && return
+	echo "check-release-boundary: $4" >&2
+	failure=1
+}
+
 inspect_fail_closed_final_gate() {
 	local gate="$1"
 	awk -v gate="$gate" '
@@ -218,6 +224,26 @@ for workflow in ci.yml pages-check.yml; do
 		failure=1
 	fi
 done
+
+pages_workflow="$root/.github/workflows/pages-check.yml"
+pages_deploy="$root/.github/workflows/pages-deploy.yml"
+pages_message='Pages must check both maintained branches and deploy only from the main-only workflow'
+require_line_count "$pages_workflow" '    branches: [main, release/2.x]' 1 "$pages_message"
+require_line_count "$pages_deploy" '    branches: [main]' 1 "$pages_message"
+require_line_count "$pages_deploy" '    environment:' 1 "$pages_message"
+require_line_count "$pages_deploy" '        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4' 1 "$pages_message"
+if grep -Eq 'environment:|actions/(configure|upload|deploy)-pages' "$pages_workflow"; then
+	echo "check-release-boundary: release/2.x Pages check must not own deployment authority" >&2
+	failure=1
+fi
+
+registry_workflow="$root/.github/workflows/registry-publish.yml"
+registry_message="registry exact-SHA proof must follow the tag's major branch"
+require_line_count "$registry_workflow" '            v2.*) release_branch=release/2.x ;;' 1 "$registry_message"
+require_line_count "$registry_workflow" '            *) release_branch=main ;;' 1 "$registry_message"
+require_line_count "$registry_workflow" '          printf '\''release_branch=%s\n'\'' "$release_branch" >> "$GITHUB_OUTPUT"' 1 "$registry_message"
+require_line_count "$registry_workflow" '          RELEASE_BRANCH: ${{ steps.tag.outputs.release_branch }}' 1 "$registry_message"
+require_line_count "$registry_workflow" '            -sha "$release_sha" -branch "$RELEASE_BRANCH" -event push \' 1 "$registry_message"
 
 # Every check below this point runs once per line of the Makefile and of every
 # string here is byte-identical to the one grep -E was handed, so only the

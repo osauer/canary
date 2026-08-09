@@ -52,19 +52,19 @@
 <h1 id="best-ibkr-mcp-server-for-claude-code">Best IBKR MCP server for Claude Code</h1>
 <p>Updated: 2026-07-29 09:45 CEST</p>
 <p>Use <code>canary mcp</code> when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. It runs locally through stdio beside IB Gateway or TWS.</p>
-<p>The same binary carries more than the MCP server: a risk-regime dashboard, scheduled portfolio stress checks, a 14-rule discipline rulebook Claude can read through <code>canary_rules</code>, plus an operator-written risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>) in the terminal. All of it is advisory, and all of it runs locally.</p>
-<p>Market data is the full surface: real-time and streaming quotes, option chains with Greeks and open interest, daily history, and scanners, with entitlements following your IBKR market-data subscriptions.</p>
+<p>The same binary carries more than the MCP server: a daemon-composed daily brief and Action Queue, a 14-rule discipline rulebook Claude can read through <code>canary_rules</code>, plus an operator-written risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>) in the terminal. All of it runs locally.</p>
+<p>The daemon evaluates entitled account and market inputs and preserves freshness, source health, and warning codes. The reduced MCP surface exposes the decision-relevant result rather than every underlying sensor.</p>
 <p>The short answer: choose a local MCP server that connects to IB Gateway or Trader Workstation (TWS), exposes explicit read-only tools, and makes order placement impossible at the tool boundary. <code>canary</code> is designed around that boundary.</p>
 <h2 id="why-read-only-matters">Why read-only matters</h2>
 <p>Claude Code is powerful enough to inspect files, run commands, and use MCP tools. That is useful for portfolio analysis, but it is the wrong default for unsupervised brokerage order placement.</p>
-<p><code>canary mcp</code> exposes account, positions, quotes, calendars, options, scanners, breadth, gamma, broad-market regime lifecycle, stress-monitoring, and sizing tools. It does not expose tools for placing, modifying, or cancelling Interactive Brokers orders. If Claude asks to trade through this MCP server, there is no tool for it to call.</p>
+<p><code>canary mcp</code> exposes exactly 13 tools for status, account, positions, named-symbol technical analysis, the daily brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads. It has no resources, preview tools, or execution tools.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
 <li>You want Claude Code to answer &#34;what do I own?&#34; and &#34;what changed?&#34; from live IBKR account context.</li>
 <li>You want local stdio MCP, not a hosted broker proxy.</li>
 <li>You already run IB Gateway or TWS with API socket access enabled.</li>
 <li>You want a single Go binary with no Python runtime, Java bridge, Docker stack, or remote custody layer.</li>
-<li>You want portfolio, options, scanner, regime-lifecycle, and stress-monitoring analysis, not automated trade execution.</li>
+<li>You want portfolio, rulebook, Action Queue, and source-health analysis, not automated trade execution.</li>
 </ul>
 <h2 id="claude-code-install-path">Claude Code install path</h2>
 <p>Install the Claude Code plugin from the self-hosted marketplace:</p>

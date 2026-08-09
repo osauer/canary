@@ -208,16 +208,13 @@ release-packaging-check: ## Verify tag-isolated assembly, archive contents, rele
 	@./scripts/check-release-site-sync_test.sh
 	@./scripts/canary-mcp_test.sh
 
-# Static drift gate between the Playwright app scripts and the SPA they
-# assert against, plus the other web/app contract tests. Born of the
-# 0574bd3 incident (2026-06-09): risk-plan ids were removed from
-# index.html while app-browser-smoke.mjs kept asserting them — the
-# browser smoke sat red for two days and v1.9.0 shipped anyway, because
-# the browser smokes run outside check/test/release. Pure Go (no node,
-# no Playwright, no running app), so it lives in `make check`; see
-# TestBrowserScriptIDsMatchSPA in web/app/browser_script_ids_test.go.
-app-contract-check: ## Browser-script ↔ SPA element-id drift gate + static app contracts (pure Go)
-	go test ./web/app
+# Static drift gate for the production asset boundary. Every root JavaScript
+# file must be embedded, and every embedded module other than the standalone
+# service worker must be reachable from app.js through static imports. This is
+# a Node-only filesystem/source check: no browser, running app, or network.
+app-contract-check: ## Embedded JavaScript set and app.js static-import graph stay in lockstep
+	@command -v node >/dev/null 2>&1 || { echo "app-contract-check: node not found — this gate is binding, install Node.js" >&2; exit 1; }
+	node --test --test-name-pattern='embedded app asset graph' web/app/test/production-behavior.test.mjs
 
 app-refresh: install ## Install, restart the shared app host, and print a local pairing URL
 	"$(PREFIX)/bin/canary" restart --app --timeout $(RESTART_TIMEOUT)
@@ -434,18 +431,10 @@ hook-version-check: ## Ensure session-start.sh fallback version tracks .claude-p
 		exit 1; \
 	fi
 
-# Drift gate for the MCP surface: TestParity in internal/mcp asserts that
-# every cli.Commands() entry has a matching ibkr_<name> MCP tool (or is on
-# the documented exclude list). TestStreamingParity is the streaming-
-# resource counterpart — it pins the canary://… template inventory the
-# server actually exposes. TestSkill* in internal/cli is the skill-layer
-# counterpart: every CLI command documented in skills/canary/SKILL.md (or
-# excluded with a reason), the allowed-tools list mirrored exactly in
-# settings/canary.settings.json, and no broker/state write allowlisted.
-# Cheap enough to live in the pre-commit gate.
+# Drift gate for the reduced MCP surface: the retained tests pin CLI/tool
+# mapping, read-only discovery, schemas, and inventory headroom.
 parity-check: ## Verify MCP tool inventory matches the CLI surface
-	go test -run 'TestParity|TestStreamingParity|TestNoTradingTools|TestSchemasAreValidJSON' ./internal/mcp/
-	go test -run 'TestSkill|TestAgentPolicy' ./internal/cli/
+	go test -run 'TestParity|TestNoTradingTools|TestDeskDiscoveryToolsStayReadOnly|TestMCPToolsDeclareCataloguedMethodsAndHeadroom' ./internal/mcp/
 
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the
 # Go version pinned in go.mod); `go tool modernize` runs the broader gopls
@@ -694,34 +683,15 @@ RELEASE_BUILD_JOBS ?= 4
 # `git checkout`. -buildvcs=false suppresses runtime/debug.BuildInfo's
 # vcs.modified flag — the -ldflags vars are authoritative for releases,
 # and the dirty/clean signal is only useful for in-tree dev builds.
-release-verify: ## Smoke-test the local bin/canary against a live gateway (called by `make release`)
-	@# Standalone so a release-flow failure can be diagnosed in isolation:
-	@#   make release-verify RELEASE_VERSION=v0.15.1
-	@# The script spawns an isolated daemon under /tmp, runs a fixed
-	@# matrix (version, status, account, positions, quote SPY), asserts
-	@# the v0.15+ data_type contract on each surface, and tears the
-	@# daemon down. Requires a reachable IBKR Gateway — the gate is
-	@# binding by design (see release-verify.sh).
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "release-verify: RELEASE_VERSION is required, e.g. make release-verify RELEASE_VERSION=v0.15.1" >&2; \
-		exit 1; \
-	fi
-	@if [ ! -x bin/canary ]; then \
-		echo "release-verify: bin/canary missing — run 'make build' first" >&2; \
-		exit 1; \
-	fi
-	./scripts/with-gateway-lock.sh ./scripts/release-verify.sh bin/canary $(RELEASE_VERSION)
+release-verify: release-smoke ## Compatibility alias for the retained read-only release smoke
 
-release-smoke: smoke-build ## Release gate: JSON contract + wire smoke in one reachable TWS/Gateway daemon session
+release-smoke: smoke-build ## Build a stamped binary and run the retained read-only wire smoke
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-smoke: RELEASE_VERSION is required, e.g. make release-smoke RELEASE_VERSION=v0.15.1" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -x bin/canary ]; then \
-		echo "release-smoke: bin/canary missing — run 'make build VERSION=$(RELEASE_VERSION)' first" >&2; \
-		exit 1; \
-	fi
-	CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/release-smoke.sh bin/canary $(RELEASE_VERSION) bin/wire-assert
+	$(MAKE) build VERSION=$(RELEASE_VERSION)
+	$(MAKE) smoke-only SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE)
 
 release-site-check: ## Require osauer.dev/canary static site sync for non-patch releases
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
@@ -765,8 +735,8 @@ SMOKE_STRICT ?= 0
 # SPX_EXPECTED_REACHABLE — default ON in this repo because this is the
 # dev machine with CBOE OPRA entitlement; the user's standing guardrail
 # (per internal-docs/design/gamma-spx-coverage.md §11.2): "no SPX data would be
-# a bug on my setup." If `canary gamma --only=spx` returns the
-# entitlement-skipped banner, fail loudly rather than silently passing
+# a bug on my setup." If the exact SPX daemon probe returns an
+# entitlement-skipped result, fail loudly rather than silently passing
 # the smoke. Override with `make smoke SPX_EXPECTED_REACHABLE=0` on
 # accounts that legitimately lack SPX entitlement.
 SPX_EXPECTED_REACHABLE ?= 1

@@ -727,9 +727,9 @@
       <div>
         <p class="eyebrow">Local Interactive Brokers risk desk</p>
         <h1 id="hero-title">Account, market, and risk context from your local broker session</h1>
-        <p class="lead">Canary connects TWS or IB Gateway to a command line, Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts. It adds regime context, portfolio stress checks, a discipline rulebook, an operator-written risk policy, and daily statement reconciliation.</p>
-        <p class="lead">Quotes, chains, history, scanners, dealer gamma, and breadth come through your broker session. Canary reports whether each source is live, delayed, stale, unavailable, or not yet due; coverage follows your own IBKR subscriptions.</p>
-        <p class="safety">The bundled MCP surface is read-side only: agents can analyze, monitor, and size plans without receiving order-entry tools.</p>
+        <p class="lead">Canary connects TWS or IB Gateway to a command line, a paired app, and local MCP hosts. Its daemon composes the daily brief, 14-rule desk verdict, protection proposals, option-exercise opportunities, and Action Queue.</p>
+        <p class="lead">Account and market evidence keeps typed source health, freshness, session context, and warning codes. Delayed, held, unavailable, and not-due inputs do not masquerade as live data.</p>
+        <p class="safety">The 13-tool MCP surface is read-only: no resources, settings writes, order previews, or execution tools.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="claude-desktop-interactive-brokers/">Claude Desktop Install</a>
           <a class="button" href="#install">Install other clients</a>
@@ -741,7 +741,7 @@
       </div>
       <div class="hero-media">
         <div class="hero-shot">
-          <img src="social/regime.png" width="1280" height="571" alt="Terminal screenshot of canary regime showing volatility, credit, funding, FX, gamma, and breadth indicators">
+          <img src="social/positions.png" width="1280" height="608" alt="Sanitized Canary positions output grouped by underlying">
         </div>
       </div>
     </section>
@@ -758,7 +758,7 @@
         </div>
         <div class="trust-item">
           <strong>Desk functions</strong>
-          <span>Regime context, stress checks, a 14-rule rulebook, an operator-written risk policy, and daily statement reconciliation.</span>
+          <span>Daily brief, Action Queue, 14-rule rulebook, operator-written risk policy, and daily reconciliation.</span>
         </div>
         <div class="trust-item">
           <strong>Go binary</strong>
@@ -813,7 +813,7 @@ canary setup claude-desktop
         <article class="feature">
           <small>Market data</small>
           <h3>Market data with source quality</h3>
-          <p>Snapshot quotes with freshness and spread context, a streaming quote resource, option chains with implied volatility, Greeks, and open interest, daily bars, scanners, and S&amp;P 500 breadth. Real-time where your IBKR subscriptions cover it; delayed or unavailable states stay explicit.</p>
+          <p>The daemon evaluates entitled account and market sources and preserves their freshness, warning codes, and session context. A fallback or held value never becomes green merely because it exists.</p>
         </article>
         <article class="feature">
           <small>MCP hosts</small>
@@ -821,14 +821,14 @@ canary setup claude-desktop
           <p>One binary serves Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts. The tool descriptions do the routing, so an assistant finds the right surface on its own.</p>
         </article>
         <article class="feature">
-          <small>Regime</small>
-          <h3>Risk-regime dashboard</h3>
-          <p>Volatility, credit, funding, FX stress, dealer gamma, and breadth in one view. The same regime stage selects which thresholds the rulebook applies.</p>
+          <small>Action Queue</small>
+          <h3>One queue for decisions</h3>
+          <p>Current and recovered alerts, protection proposals, and option-exercise opportunities converge into one ranked app surface with explicit boundaries.</p>
         </article>
         <article class="feature">
-          <small>Stress checks</small>
-          <h3>Portfolio stress</h3>
-          <p>Scheduled stress checks that combine account, exposure, regime, and data-quality gates into one action an agent can poll: stand down, watch, defend, rebalance, deploy, or confirm inputs.</p>
+          <small>Morning brief</small>
+          <h3>Review and Ready</h3>
+          <p>The daemon composes the last completed session, the next session, source degradation, and the few rows that need a decision.</p>
         </article>
         <article class="feature">
           <small>Discipline</small>
@@ -858,32 +858,17 @@ canary setup claude-desktop
         <article class="feature">
           <small>Boundary</small>
           <h3>Read-only by default</h3>
-          <p>Standard downloads compile in no order tools, and the MCP order surface is preview-only in every variant. A separately published trading build carries the gated CLI path: previews, tokens, journaling, and a freeze switch.</p>
+          <p>Standard downloads compile in no broker-write path, and MCP has no preview or execution tools. The opt-in trading binary keeps constrained CLI/app actions behind confirmation, journaling, daemon policy, and freeze gates.</p>
         </article>
       </div>
     </section>
 
     <section class="wrap">
       <div class="section-head">
-        <h2>Market, account, and option context.</h2>
-        <p>Terminal screenshots are generated from synthetic fixture data, so the public page shows the real CLI shape without exposing account holdings or balances.</p>
+        <h2>Account context without private account data.</h2>
+        <p>The retained terminal image uses sanitized fixture data and shows a current public CLI command.</p>
       </div>
       <div class="proof-grid">
-        <article class="proof">
-          <img src="social/regime.png" width="1280" height="571" loading="lazy" alt="canary regime terminal output">
-          <h3>Risk regime</h3>
-          <p>One dashboard for volatility, credit, funding, FX carry, dealer gamma, and S&amp;P 500 breadth.</p>
-        </article>
-        <article class="proof">
-          <img src="social/stress.png" width="1280" height="699" loading="lazy" alt="synthetic canary stress terminal output">
-          <h3>Stress monitor</h3>
-          <p>Scheduled lifecycle, readiness, source-health, and stress checks from account, exposure, regime, and data-quality gates.</p>
-        </article>
-        <article class="proof">
-          <img src="social/chain.png" width="1080" height="389" loading="lazy" alt="canary chain SPY terminal output">
-          <h3>Option chains</h3>
-          <p>Expiry lists, ATM implied volatility, and expected moves from the local IBKR market-data session.</p>
-        </article>
         <article class="proof">
           <img src="social/positions.png" width="1280" height="608" loading="lazy" alt="sanitized canary positions by underlying terminal output">
           <h3>Positions and exposure</h3>
@@ -901,13 +886,10 @@ canary setup claude-desktop
         <li>Review my portfolio and rank the risks I should look at today.</li>
         <li>What is in my IBKR account?</li>
         <li>Show my SPY exposure, including option deltas.</li>
-        <li>How does the market regime look today?</li>
-        <li>Is today a normal review, a watch day, or a data-quality problem?</li>
-        <li>Is Xetra open on Whit Monday?</li>
-        <li>Are dealers supporting or amplifying today's SPY move?</li>
-        <li>What expiries are listed for SPY and what is the implied move?</li>
-        <li>If I enter MSFT at 418 with a stop at 408, what is my EUR risk?</li>
-        <li>Quote NVDA: how fresh is the price, and how wide is the spread?</li>
+        <li>What does today's brief say is ready or blocked?</li>
+        <li>Which inputs are stale, held, degraded, or unavailable?</li>
+        <li>Show daily technical evidence for MSFT and NVDA.</li>
+        <li>Which protection or option-exercise candidates need review?</li>
         <li>Which of my discipline rules is the book breaking today?</li>
       </ul>
     </section>
@@ -920,12 +902,12 @@ canary setup claude-desktop
         <article class="feature">
           <small>MCP server</small>
           <h3>For AI assistants</h3>
-          <p><code>canary mcp</code> exposes account, positions, quote, calendar, chain, history, scanner, sizing, breadth, gamma, regime, rulebook, and stress-monitoring tools, plus a streaming quote resource. Real-time data follows your IBKR market-data subscriptions.</p>
+          <p><code>canary mcp</code> exposes 13 tools for status, account, positions, named-symbol technical analysis, brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads.</p>
         </article>
         <article class="feature">
           <small>Terminal CLI</small>
           <h3>For fast checks</h3>
-          <p>Run commands such as <code>canary status</code>, <code>canary positions</code>, <code>canary stress</code>, <code>canary calendar</code>, <code>canary chain SPY</code>, and <code>canary regime</code>. The CLI also carries the operator risk workflow: <code>canary policy show</code> reads the risk policy you declared and <code>canary recon</code> checks daily broker statements against it. Both are advisory. Every data command supports JSON; the CLI is useful, but the Claude/MCP path is the main path.</p>
+          <p>Run <code>canary status</code>, <code>canary positions</code>, <code>canary technical</code>, <code>canary brief</code>, <code>canary rules</code>, <code>canary policy show</code>, and <code>canary recon show</code>. The generated CLI reference carries the exact 22-command contract.</p>
         </article>
         <article class="feature">
           <small>Go library</small>

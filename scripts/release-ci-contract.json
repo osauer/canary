@@ -19,6 +19,13 @@
       "jobs": [
         "local page targets"
       ]
+    },
+    {
+      "file": "pages-deploy.yml",
+      "name": "pages deploy",
+      "jobs": [
+        "deploy main Pages artifact"
+      ]
     }
   ]
 }

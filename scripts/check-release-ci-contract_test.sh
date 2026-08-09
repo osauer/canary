@@ -13,7 +13,7 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 copy_fixture() {
 	fixture="$test_root/$1"
 	mkdir -p "$fixture"
-	git -C "$repo_root" ls-files | while IFS= read -r path; do
+	git -C "$repo_root" ls-files --cached --others --exclude-standard | while IFS= read -r path; do
 		[ -f "$repo_root/$path" ] || continue
 		mkdir -p "$fixture/$(dirname "$path")"
 		cp "$repo_root/$path" "$fixture/$path"

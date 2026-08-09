@@ -28,9 +28,9 @@ git -C "$test_root" add .
 "$checker" "$test_root" >/dev/null
 
 assert_rejected() {
-	local detector="$1" text="$2"
-	printf '%s\n' "$text" > "$test_root/stale.txt"
-	git -C "$test_root" add stale.txt
+	local detector="$1" text="$2" target="${3:-stale.txt}"
+	printf '%s\n' "$text" > "$test_root/$target"
+	git -C "$test_root" add "$target"
 	if "$checker" "$test_root" >/dev/null 2>"$test_root/.git/check-error"; then
 		echo "check-product-identity test: stale $detector passed" >&2
 		exit 1
@@ -40,7 +40,7 @@ assert_rejected() {
 		cat "$test_root/.git/check-error" >&2
 		exit 1
 	fi
-	git -C "$test_root" rm -q -f stale.txt
+	git -C "$test_root" rm -q -f "$target"
 }
 
 assert_rejected old-module-or-repository 'module github.com/osauer/ibkr/v2'
@@ -52,6 +52,7 @@ assert_rejected old-cli-command 'run `ibkr status --json`'
 assert_rejected old-cli-argv 'exec.Command("ibkr", "status")'
 assert_rejected old-product-name '"name": "ibkr"'
 assert_rejected old-mcp-tool 'tool = "ibkr_status"'
+assert_rejected retired-public-surface 'run `canary gamma --json`' README.md
 
 cat > "$test_root/internal/update/daemon_test.go" <<'EOF'
 package update

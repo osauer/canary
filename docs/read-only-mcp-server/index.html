@@ -52,21 +52,18 @@
 <h1 id="read-only-mcp-server-for-interactive-brokers">Read-only MCP server for Interactive Brokers</h1>
 <p>Updated: 2026-08-04 22:57 CEST</p>
 <p><code>canary mcp</code> is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it does not expose a place-order, modify-order, or cancel-order tool.</p>
-<p>The read-only boundary is what makes the rest of the platform workable. Because agents hold no order-entry tools, regime context, stress checks, the rulebook, risk policy, and statement reconciliation can use the available portfolio and market context without gaining execution authority.</p>
+<p>The read-only boundary is what makes the rest of the platform workable. Because agents hold no order-entry tools, the daily brief, rulebook, protection proposals, and opportunity review can use daemon-owned portfolio and market context without gaining execution authority.</p>
 <p>This page describes the standard downloads: the installer, the Claude Desktop bundle, and the plain <code>canary</code> tarballs. Releases also publish a separate, clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management; nothing on this page applies to that variant, and it is never installed by default.</p>
-<p>This is a capability boundary, not a claim that market data is complete. Quotes, chains, and scans still depend on the connected account's entitlements, the market session, and source freshness.</p>
+<p>This is a capability boundary, not a claim that market data is complete. Account and market inputs still depend on the connected account's entitlements, the market session, and source freshness.</p>
 <h2 id="what-read-only-means-here">What read-only means here</h2>
 <p>Allowed surfaces include:</p>
 <ul>
 <li>the assembled daily brief, read without signing off or changing process state</li>
 <li>account summary, cash, margin, buying power, daily P&amp;L</li>
 <li>positions, option legs, marks, and Greek coverage</li>
-<li>quotes, quote freshness, daily bars, official market calendars, and a local watchlist</li>
-<li>option chains, expiries, expected moves, scanners, technical screens, breadth, dealer gamma, risk regime, and portfolio stress</li>
-<li>held-name market-event flags, rulebook snapshots, protection-proposal and opportunity reads, and platform-settings reads</li>
+<li>named-symbol daily technical evidence and daemon-composed market/session context</li>
+<li>rulebook snapshots, protection-proposal and option-exercise opportunity reads, and platform-settings reads</li>
 <li>open-order, order-history, and order-status journal reads</li>
-<li>fixed-fractional position sizing as math only</li>
-<li>order previews as local drafts only — a preview token can never transmit</li>
 </ul>
 <p>Not exposed:</p>
 <ul>
@@ -98,9 +95,8 @@ canary status</code></pre>
 <li>&#34;What do I need to know before the open?&#34;</li>
 <li>&#34;Summarize my IBKR account and positions.&#34;</li>
 <li>&#34;Show positions by underlying and include option Greeks.&#34;</li>
-<li>&#34;Are any watchlist quotes stale because the market is closed?&#34;</li>
-<li>&#34;How does today&#39;s risk regime look?&#34;</li>
-<li>&#34;For this hypothetical entry and stop, what position size risks 1%?&#34;</li>
+<li>&#34;Which inputs in today&#39;s brief are stale, degraded, or held?&#34;</li>
+<li>&#34;Which rulebook or Action Queue rows need attention?&#34;</li>
 </ul>
 <p>If the assistant tries to trade through <code>canary mcp</code>, it has reached outside the tool&#39;s capability boundary.</p>
 <h2 id="references">References</h2>

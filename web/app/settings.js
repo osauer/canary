@@ -1,5 +1,5 @@
 import { renderProtectionPanel } from "./protection.js";
-import { $, accountBaseCurrency, currentSettings, labelize, money, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
+import { $, accountBaseCurrency, currentSettings, labelize, maskAccountId, money, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
 import { state } from "./state.js";
 import { currentAccountContext, renderUnderlyings } from "./underlyings.js";
 
@@ -22,7 +22,7 @@ function renderSettings() {
   const trading = settings.trading || {};
   const status = state.snapshot?.trading || {};
   $("settingsTradingStatus").textContent = tradingStatusSettingsLabel(trading, status);
-  $("settingsTradingMeta").textContent = [trading.mode?.value, trading.account?.value].filter(Boolean).join(" / ") || "Config-owned";
+  renderSettingsTradingMeta(trading);
   $("settingsTradingLimits").textContent = tradingLimitSummary(trading.limits || {});
   $("settingsTradingLimitsMeta").textContent = tradingLimitMeta(trading.limits || {});
   const quality = settings.market_data?.quality || {};
@@ -31,6 +31,16 @@ function renderSettings() {
   $("settingsBuildStatus").textContent = settings.build?.channel?.value || "stable";
   $("settingsBuildMeta").textContent = settings.build?.experimental_trading_note || "Build-controlled capability";
   renderProtectionSettings(settings.auto_trade || {}, state.snapshot?.auto_trade || {});
+}
+
+function renderSettingsTradingMeta(trading = {}) {
+  const element = $("settingsTradingMeta");
+  if (!element) return;
+  const mode = String(trading.mode?.value || "").trim();
+  const account = String(trading.account?.value || "").trim();
+  const displayAccount = account && !state.accountValueVisible ? maskAccountId(account) : account;
+  element.textContent = [mode, displayAccount].filter(Boolean).join(" / ") || "Config-owned";
+  element.classList.toggle("is-private", Boolean(account) && !state.accountValueVisible);
 }
 
 // The stamped type plate at the foot of the back panel: the same served
@@ -155,4 +165,4 @@ async function setStockProtectionEnabled(enabled) {
   renderProtectionPanel(state.snapshot?.proposals || {}, state.snapshot?.auto_trade || {}, state.snapshot?.market_events || {});
 }
 
-export { renderProtectionSettings, renderSettings, renderSettingsPlate, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };
+export { renderProtectionSettings, renderSettings, renderSettingsPlate, renderSettingsTradingMeta, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };

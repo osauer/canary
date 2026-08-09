@@ -21,10 +21,10 @@ import (
 var connectorLogger = logging.Component("IBKR Connector")
 var marketDataLogger = logging.Component("IBKR MarketData")
 
-// OptionSubscriptionGenericTicks is the generic-tick list used by
+// OptionSubscriptionGenericTicks requests option volume, OI, IV, and history.
 const OptionSubscriptionGenericTicks = "100,101,104,106"
 
-// OptionOpenInterestGenericTick is IBKR's open-interest generic tick for
+// OptionOpenInterestGenericTick requests call and put open interest.
 const OptionOpenInterestGenericTick = "101"
 
 const (
@@ -37,20 +37,18 @@ const (
 // ErrSymbolInactive indicates IBKR has reported the contract is unavailable (e.g., delisted).
 var ErrSymbolInactive = errors.New("symbol marked inactive")
 
-// ErrContractDetailsTimeout indicates that a contract-details request did not
+// ErrContractDetailsTimeout indicates contract details did not arrive in time.
 var ErrContractDetailsTimeout = errors.New("timeout waiting for contract details")
 
-// ErrContractNoDefinition reports that IBKR answered a contract-details
-// broker's own verdict and must stay distinguishable from
+// ErrContractNoDefinition is IBKR's definitive missing-contract verdict.
 var ErrContractNoDefinition = errors.New("no security definition for contract")
 
 // ErrBrokerIDNamespaceConflict reports that an explicit broker order/WhatIf
 // ID is still owned by an open read-only request. The broker-adjacent
-// operation is refused before local indexing or wire send and may be retried
+// operation is refused before local indexing or wire send and may be retried.
 var ErrBrokerIDNamespaceConflict = errors.New("broker id namespace conflict")
 
-// Connector owns one broker connection together with its subscriptions and
-// in-memory market, contract, account, and order caches. Construct a Connector
+// Connector owns one broker connection and its in-memory subscriptions and caches.
 type Connector struct {
 	name   string
 	config *ConnectorConfig
@@ -82,7 +80,7 @@ type Connector struct {
 	// Order management
 	openOrders       map[string]*trackedOrder
 	brokerOrderIndex map[string]string // IB order ID -> internal order ID
-	// orderIDHighWater is a bounded monotonic reservation frontier. Request
+	// orderIDHighWater is the bounded monotonic broker-ID reservation frontier.
 	orderIDHighWater int
 	orderMu          sync.RWMutex
 	orderLifecycleMu sync.RWMutex
@@ -93,26 +91,25 @@ type Connector struct {
 	handlerRegistrationMu sync.Mutex
 	handlerRegistrations  map[*Connection]struct{}
 	// orderLifecycleGeneration advances for every non-WhatIf order lifecycle
-	// callback accepted by this Connector. Cached all-client inventory receipts
-	// invalidates the receipt before it can authorize a negative.
+	// callback accepted by this Connector. Inventory captures compare this value
+	// so an intervening lifecycle receipt cannot authorize a false negative.
 	orderLifecycleGeneration atomic.Uint64
-	// evidenceBarrier linearizes socket/order callbacks and structural
-	// The owned Connection shares this exact lock.
+	// evidenceBarrier linearizes socket/order receipts with structural reads.
 	evidenceBarrier sync.RWMutex
 	// publicationBarrier linearizes daemon connector publication against the
 	// final transport section of a protected broker operation. It is separate
 	// from evidenceBarrier and its read side is acquired only after pacing and
 	// transport admission, so a paused sender cannot deadlock unpublication.
 	publicationBarrier sync.RWMutex
-	// brokerIDNamespaceMu makes Connector-level FEE request registration and
-	// frontier. Connection.reqIDMu remains the authority for allocation.
+	// brokerIDNamespaceMu serializes FEE ownership with the shared broker-ID
+	// frontier; Connection.reqIDMu remains the allocation authority.
 	brokerIDNamespaceMu sync.Mutex
 	// whatIfBeforeBrokerIDClaim is a deterministic rollover seam. Production
-	// leaves it nil; tests pause after the exact-session check and before the
+	// leaves it nil; tests pause before the broker-ID claim.
 	whatIfBeforeBrokerIDClaim func()
 
 	// Open-order snapshot plumbing is an epoch-bound single-flight because
-	// reqAllOpenOrders has no request ID. A timed-out wire flight remains
+	// reqAllOpenOrders has no request ID, so timed-out flights remain poisoned.
 	requestAllOpenOrders        func() error // test seam; nil uses the bound Connection
 	openOrderSnapshotMu         sync.Mutex
 	openOrderSnapshot           *openOrderSnapshotFlight
@@ -121,9 +118,8 @@ type Connector struct {
 	openOrderSnapshotBeforeSend func()
 
 	// orderStatusLogSig dedupes the high-frequency order-status log line.
-	// IBKR re-sends orderStatus frames for unchanged working orders many
-	// hours), and logging each at INFO grew ibkr-daemon.log into the
-	// signature per broker order id and demote verbatim repeats to Debug so
+	// IBKR re-sends unchanged orderStatus frames many times per second. Keep one
+	// signature per broker order ID and demote verbatim repeats to debug so
 	// INFO carries only genuine transitions. Purely a logging concern —
 	// the log path never widens the orderMu critical section.
 	orderStatusLogMu  sync.Mutex
@@ -137,40 +133,39 @@ type Connector struct {
 	inactiveCandidates map[string]inactiveCandidateState
 	// contractDetailsFlights coalesces identical unresolved contract requests.
 	// The broker sees one reqContractDetails and concurrent callers whose wait
-	// budgets remain open see the same terminal result; unrelated exact
+	// budgets remain open see the same terminal result; exact identities stay separate.
 	contractDetailsFlightMu sync.Mutex
 	contractDetailsFlights  map[string]*contractDetailsFlight
-	// contractWarningState bounds repeated unresolved-contract WARN lines. The
+	// contractWarningState bounds repeated unresolved-contract warning lines.
 	contractWarningMu    sync.Mutex
 	contractWarningState map[string]contractWarningState
 	contractWarningNow   func() time.Time
 
-	// mktDataAbsent remembers subscription keys whose market-data request
-	// In-memory only — broker entitlements must never persist (see
+	// mktDataAbsent remembers terminal rejections without persisting entitlements.
 	absenceMu     sync.Mutex
 	mktDataAbsent map[string]marketDataAbsence
 	absenceNow    func() time.Time
-	// marketDataModeMu serializes the connection-global reqMarketDataType
+	// marketDataModeMu serializes connection-global reqMarketDataType changes.
 	marketDataModeMu sync.Mutex
 
 	// acctUpdatesMu guards the account-updates resubscribe throttle (see
-	// maybeResubscribeAccountUpdates) and the account the stream is currently
+	// maybeResubscribeAccountUpdates) and the stream's current account.
 	acctUpdatesMu      sync.Mutex
 	acctUpdatesLastAt  time.Time
 	acctUpdatesAccount string
 	acctUpdatesNow     func() time.Time
 
-	// pnlResubMu guards the daily-P&L resubscribe throttle (see
+	// pnlResubMu guards the daily-P&L resubscribe throttle.
 	pnlResubMu     sync.Mutex
 	pnlResubLastAt time.Time
 	pnlResubNow    func() time.Time
 
-	// backendConnMu guards the TWS<->IBKR backend-link state driven by
-	// window is accepted locally but cannot reach the broker.
+	// backendConnMu guards backend-link health; a disconnected backend cannot
+	// carry a locally accepted broker operation.
 	backendConnMu   sync.Mutex
 	backendConnDown bool
 	backendConnAt   time.Time
-	// mdReplayInFlight collapses concurrent 1101 recoveries so each
+	// mdReplayInFlight collapses concurrent code-1101 subscription replays.
 	mdReplayInFlight atomic.Bool
 
 	// Option IV tracking (by underlying symbol or per-contract key)
@@ -184,8 +179,8 @@ type Connector struct {
 	optGreeks       map[string]Greeks  // last observed model-computation greeks per option key
 	optUnderlyingPx map[string]float64 // model-computation underlying price per option key
 
-	// In-flight reqContractDetails requests, keyed by reqID. Without this the
-	// failed to fail the pending wait (the caller burned its whole budget and
+	// In-flight reqContractDetails requests keyed by reqID let terminal notices
+	// fail the pending wait instead of burning the caller's whole budget and
 	// reported a timeout, disguising the broker's definitive answer as a
 	// transient) and never reached inactive marking.
 	contractDetailsMu   sync.Mutex
@@ -199,14 +194,12 @@ type Connector struct {
 	historicalRouteReqs    map[int]chan error
 	historicalNow          func() time.Time
 
-	// dataFarms records the latest IBKR data-farm notice per farm. The
-	// status endpoint surfaces only unhealthy entries, but keeping the
+	// dataFarms records the latest notice per farm; status exposes unhealthy rows.
 	dataFarmMu     sync.RWMutex
 	dataFarms      map[string]DataFarmStatus
 	farmRecoveryAt time.Time
 
-	// pnl holds account-level and per-conId Daily P&L subscription state.
-	// reqPnLSingle as needed. Never nil after NewConnector.
+	// pnl owns account and per-contract P&L subscriptions and is never nil.
 	pnl *pnlCache
 }
 
@@ -220,7 +213,7 @@ type DataFarmStatus struct {
 	AsOf    time.Time
 }
 
-// DataFarmStatuses returns a detached snapshot of the latest tracked farm
+// DataFarmStatuses returns a detached snapshot of tracked farm notices.
 func (c *Connector) DataFarmStatuses() []DataFarmStatus {
 	if c == nil {
 		return nil
@@ -242,27 +235,26 @@ func (c *Connector) DataFarmStatuses() []DataFarmStatus {
 
 // ConnectorConfig configures the single [Connection] owned by a [Connector].
 type ConnectorConfig struct {
-	// Deprecated: ServiceName has no effect; nothing reads it since the
+	// Deprecated: ServiceName is retained for v2 source compatibility and has no effect.
 	ServiceName       string
 	PreferredClientID int
 	BaseConfig        *ConnectionConfig
 }
 
-// Subscription holds the latest values observed for one streaming market-data
+// Subscription holds the latest values for one streaming market-data request.
 type Subscription struct {
 	Symbol string
 	// SessionEpoch is set for exact-session subscriptions. Zero identifies a
-	// legacy/shared subscription that cannot satisfy broker-write preview
+	// legacy/shared subscription that cannot satisfy broker-write authority.
 	SessionEpoch uint64
-	// Right is the normalized option right ("C" or "P") for option-leg
+	// Right is the normalized option right for option-leg subscriptions.
 	Right     string
 	ReqID     int
 	Fields    []string
 	LastPrice float64
 	Bid       float64
 	Ask       float64
-	// MarkPrice is tick 37 — the gateway's calculated "fair" price for
-	// VIX3M, and SPX, IBKR delivers tick 37 as the ONLY price (indices
+	// MarkPrice is tick 37, which may be the only price for some indices.
 	MarkPrice float64
 	BidSize   int64
 	AskSize   int64
@@ -273,50 +265,50 @@ type Subscription struct {
 	OpenInt         int64
 	OpenIntObserved bool
 	// ShortableShares is wire tick 89 (a tickSize), delivered for the
-	// generic-tick-236 request. ShortableObserved distinguishes "IBKR
+	// generic-tick-236 request; ShortableObserved distinguishes a real zero.
 	ShortableShares   int64
 	ShortableObserved bool
-	// ShortableTickAt is when this process last received wire tick 89 for
+	// ShortableTickAt is when this process last received shortable-share tick 89.
 	ShortableTickAt time.Time
 	PrevClose       float64
 	Open            float64
 	High            float64
 	Low             float64
-	// Week-range highs/lows arrive via generic tick 165 (Misc Stats) as
+	// Week-range highs/lows arrive via generic tick 165.
 	Week13Low  float64
 	Week13High float64
 	Week26Low  float64
 	Week26High float64
 	Week52Low  float64
 	Week52High float64
-	// LastTradeTime is IBKR tick-string type 45, a Unix timestamp for the
+	// LastTradeTime is the Unix timestamp carried by tick-string type 45.
 	LastTradeTime time.Time
 	// LastTickAt is when this process last received a tick message from the
 	// gateway on this subscription. Unlike LastTime it is never seeded at
 	// subscribe time and never advanced by subscription bookkeeping, so a
-	// recently". It is the only field here that can distinguish a live
+	// live receipt from subscription bookkeeping.
 	LastTickAt time.Time
 	// LastPriceTickAt is when this process last accepted a positive price tick
 	// from the gateway on this subscription. It is never seeded at subscribe
 	// volume, IV, or last-trade-time ticks. RTVolume advances it only when that
-	// broker value was struck: frozen data can still arrive now while carrying
+	// broker value was struck; frozen data can arrive now with an older trade time.
 	LastPriceTickAt time.Time
 	// IV is the option implied volatility tick (generic tick 106), present
-	// only when the streaming subscribe requested it. Stored as a fraction
+	// only when requested, stored as a fraction such as 0.30.
 	IV float64
-	// LastTime is the re-request staleness clock read by
+	// LastTime is the subscription re-request staleness clock.
 	LastTime time.Time
 	Observed bool // true once we receive any tick for this reqID
 	// RejectCh receives a [SubscriptionRejection] when the gateway returns
 	// 10197) — "the subscription will never produce ticks" semantics.
-	// Buffered 1; the producer drops on a full buffer so it never blocks
+	// Buffered one; the receipt producer never blocks on a full channel.
 	RejectCh chan SubscriptionRejection
 	// replaySpec records the wire form of this subscription so the 1101
 	// backend-recovery path can re-issue it: IBKR code 1101 means the
 	// TWS<->IBKR link was restored with server-side subscriptions LOST,
-	// so the old reqID will never tick again. Nil for exact-session
+	// so the old reqID will not tick again. Nil for exact-session subscriptions.
 	replaySpec *mdReplaySpec
-	// replayedAfter10197 bounds competing-session recovery to one transparent
+	// replayedAfter10197 bounds competing-session recovery to one replay.
 	replayedAfter10197 bool
 	// rejectedReqID records the reqID the gateway reported dead via a
 	// tears the ticker down itself, so a wire CancelMarketData for that
@@ -334,7 +326,7 @@ func wireCancelNeeded(sub *Subscription) bool {
 }
 
 // SubscriptionRejection records a terminal IBKR error for a market-data
-// subscription. Code is the broker error code and Message is untrusted broker
+// subscription. Message is untrusted broker text.
 type SubscriptionRejection struct {
 	Code    int
 	Message string
@@ -351,7 +343,7 @@ func isTerminalSubscriptionError(code int) bool {
 	return false
 }
 
-// marketDataAbsenceRetry bounds how long a terminal entitlement rejection
+// marketDataAbsenceRetry bounds terminal-rejection suppression.
 const marketDataAbsenceRetry = 30 * time.Minute
 
 // inactiveMarkTTL bounds an inactive mark the same way marketDataAbsenceRetry
@@ -403,7 +395,7 @@ func (c *Connector) rememberMarketDataAbsence(key string, code int, message stri
 	}
 }
 
-// marketDataAbsenceFor returns the active absence record for key, or nil
+// marketDataAbsenceFor returns the active absence record for key, or nil.
 func (c *Connector) marketDataAbsenceFor(key string) *MarketDataAbsenceError {
 	now := c.absenceClock()
 	c.absenceMu.Lock()
@@ -574,7 +566,7 @@ type HistoricalRequestError struct {
 	Category   string
 }
 
-// Error returns the broker message when present, otherwise a code-based
+// Error returns the broker message when present, otherwise a code-based description.
 func (e *HistoricalRequestError) Error() string {
 	if e.Message != "" {
 		return e.Message
@@ -600,7 +592,7 @@ func (e *HistoricalDataValidationError) Error() string {
 	return "historical data validation failed: " + e.Reason
 }
 
-// NewConnector constructs a stopped Connector for one broker connection. It
+// NewConnector constructs a stopped Connector for one broker connection.
 func NewConnector(config *ConnectorConfig) *Connector {
 	if config == nil {
 		config = &ConnectorConfig{}
@@ -6096,14 +6088,13 @@ func formatHistoricalDuration(lookbackDays int) string {
 	return fmt.Sprintf("%d Y", years)
 }
 
-// FetchHistoricalDailyBars requests daily bars for symbol and waits for the
-// best-effort cancels an already-sent broker request.
+// FetchHistoricalDailyBars requests daily bars; cancellation best-effort cancels the wire request.
 func (c *Connector) FetchHistoricalDailyBars(ctx context.Context, symbol string, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
 	return c.fetchHistoricalDailyBars(ctx, symbol, lookbackDays, timeout, "")
 }
 
 // FetchHistoricalDailyBarsWhatToShow requests daily bars using the normalized
-// IBKR whatToShow value supplied by the caller. It does not fall back to another
+// whatToShow value supplied by the caller, without feed fallback.
 func (c *Connector) FetchHistoricalDailyBarsWhatToShow(ctx context.Context, symbol string, lookbackDays int, whatToShow string, timeout time.Duration) ([]HistoricalBar, error) {
 	cleanWhat, err := normalizeHistoricalWhatToShow(whatToShow)
 	if err != nil {
@@ -6137,9 +6128,7 @@ func (c *Connector) fetchHistoricalDailyBars(ctx context.Context, symbol string,
 	}
 
 	secType, exchange, currency, primary := classifySymbol(symbol)
-	// Dual-class shares (BRK.B, BF.B) translate to IBKR's space-form
-	// before going on the wire — see dualClassWireSymbol. Without this
-	// translation IBKR returns code 200 "No security definition has been
+	// Dual-class shares use IBKR's space form to avoid code-200 rejection.
 	wireSymbol := dualClassWireSymbol(symbol)
 	if base, _, ok := FxPair(symbol); ok {
 		wireSymbol = base
@@ -6155,15 +6144,15 @@ func (c *Connector) fetchHistoricalDailyBars(ctx context.Context, symbol string,
 	return c.fetchHistoricalDailyBarsWithBase(ctx, symbol, baseContract, primary, lookbackDays, timeout, true, forceWhatToShow)
 }
 
-// FetchHistoricalDailyBarsWithContract requests daily bars using the routing
+// FetchHistoricalDailyBarsWithContract requests daily bars using the supplied route.
 func (c *Connector) FetchHistoricalDailyBarsWithContract(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
 	return c.fetchHistoricalDailyBarsWithContract(ctx, contract, lookbackDays, timeout)
 }
 
 // FetchHistoricalDailyFeeRates requests daily stock-borrow fee-rate bars for
-// an exact broker contract. It is intentionally narrower than the general
-// executable exchange may be completed only by a bounded exact-ConID contract
-// typed result is reused for IBKR's 15-second identical-request cooldown.
+// an exact broker contract. It pins FEE_RATE and requires a positive ConID; a
+// missing route may be completed only by exact-ConID contract details. Identical
+// concurrent requests share one result through IBKR's cooldown window.
 func (c *Connector) FetchHistoricalDailyFeeRates(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -6213,8 +6202,7 @@ func (c *Connector) FetchHistoricalDailyFeeRates(ctx context.Context, contract C
 
 // ResolveExactHistoricalStockRoute completes a missing executable exchange
 // only through an exact positive-ConID contract-details request. It rejects
-// wrong, missing, or ambiguous broker details and never resolves by symbol or
-// identity separately from the returned route used on the wire.
+// wrong, missing, or ambiguous details and never substitutes symbol identity.
 func (c *Connector) ResolveExactHistoricalStockRoute(ctx context.Context, contract Contract, timeout time.Duration) (Contract, error) {
 	return c.resolveExactHistoricalStockRoute(ctx, contract, timeout)
 }
@@ -6237,7 +6225,7 @@ var historicalFeeRateUSExchanges = map[string]struct{}{
 }
 
 // HistoricalFeeRateUSRouteSupported restricts FEE_RATE to the embedded U.S.
-// cash-equity calendar and a closed set of exact IBKR stock routes. When
+// cash-equity calendar and a closed set of exact IBKR stock routes.
 func HistoricalFeeRateUSRouteSupported(contract Contract, requireExchange bool) bool {
 	contract = normalizeExactHistoricalContract(contract)
 	if contract.SecType != "STK" || contract.Currency != "USD" {
@@ -6256,8 +6244,8 @@ func HistoricalFeeRateUSRouteSupported(contract Contract, requireExchange bool) 
 }
 
 // sendExactHistoricalStockRouteRequest is the positive-ConID contract-details
-// encoder used only by the FEE_RATE fallback. The socket epoch is checked by
-// before writer access; a reconnect can therefore never redirect this request
+// encoder used only by the FEE_RATE fallback. It checks the socket epoch before
+// writer access so reconnect cannot redirect the request.
 func (c *Connection) sendExactHistoricalStockRouteRequest(ctx context.Context, contract Contract, reqID int, epoch uint64) error {
 	c.registerReqAlias(reqID, contract)
 	fields := []any{
@@ -6284,7 +6272,7 @@ func (c *Connection) sendExactHistoricalStockRouteRequest(ctx context.Context, c
 	return c.sendMessageWithTypeContextForEpoch(ctx, c.encodeMsg(fields...), RequestTypeGeneral, epoch, true)
 }
 
-// requestHistoricalDailyFeeRateForEpoch is a deliberately closed HMDS
+// requestHistoricalDailyFeeRateForEpoch is the closed, epoch-bound FEE_RATE encoder.
 func (c *Connection) requestHistoricalDailyFeeRateForEpoch(
 	ctx context.Context,
 	contract Contract,
@@ -7093,8 +7081,8 @@ func (c *Connector) cancelHistoricalDataBestEffortWithOptions(reqID int, options
 	}()
 }
 
-// OptionIV returns the last valid implied-volatility observation for key as a
-// observation has been cached; the method performs no broker request.
+// OptionIV returns the last valid implied volatility as a fraction. False means
+// no observation has been cached; the method performs no broker request.
 func (c *Connector) OptionIV(symbol string) (float64, bool) {
 	c.optMu.RLock()
 	defer c.optMu.RUnlock()
@@ -7103,8 +7091,7 @@ func (c *Connector) OptionIV(symbol string) (float64, bool) {
 }
 
 // OptionIVWithDataType returns the last valid implied-volatility observation
-// together with the IBKR model-computation source type. dataType is 1 for
-// tick. Callers that require clock alignment must reject 0 rather than infer.
+// and model-tick source type. Callers requiring provenance must reject type zero.
 func (c *Connector) OptionIVWithDataType(symbol string) (iv float64, dataType int, ok bool) {
 	c.optMu.RLock()
 	defer c.optMu.RUnlock()
@@ -7115,8 +7102,8 @@ func (c *Connector) OptionIVWithDataType(symbol string) (iv float64, dataType in
 	return iv, c.optIVDataType[symbol], true
 }
 
-// OptionGreeks returns the last valid model-computation Greeks for an option
-// least one field has been observed; callers must not interpret absence as a
+// OptionGreeks returns the last valid model-computation Greeks for an option key.
+// False means no component has been observed and must not be treated as zero.
 func (c *Connector) OptionGreeks(symbol string) (Greeks, bool) {
 	c.optMu.RLock()
 	defer c.optMu.RUnlock()
@@ -7125,7 +7112,7 @@ func (c *Connector) OptionGreeks(symbol string) (Greeks, bool) {
 }
 
 // OptionUnderlyingPrice returns the underlying price embedded in the latest
-// price has been observed. This is the price the broker used for the associated
+// option model-computation tick. False means no valid price has been observed.
 func (c *Connector) OptionUnderlyingPrice(symbol string) (float64, bool) {
 	c.optMu.RLock()
 	defer c.optMu.RUnlock()
@@ -7134,7 +7121,7 @@ func (c *Connector) OptionUnderlyingPrice(symbol string) (float64, bool) {
 }
 
 // OptionQuoteBidAsk returns the last observed bid and ask for an option key.
-// broker request and does not itself determine freshness.
+// It performs no broker request and does not itself determine freshness.
 func (c *Connector) OptionQuoteBidAsk(symbol string) (bid, ask float64, ok bool) {
 	c.optMu.RLock()
 	defer c.optMu.RUnlock()
@@ -7146,7 +7133,7 @@ func (c *Connector) OptionQuoteBidAsk(symbol string) (bid, ask float64, ok bool)
 	return b, a, true
 }
 
-// OptionPrevClose returns the option contract's own previous regular-session
+// OptionPrevClose returns the option contract's previous regular-session close.
 func (c *Connector) OptionPrevClose(symbol string) (float64, bool) {
 	c.optMu.RLock()
 	defer c.optMu.RUnlock()
@@ -7157,8 +7144,7 @@ func (c *Connector) OptionPrevClose(symbol string) (float64, bool) {
 	return v, true
 }
 
-// CancelOptionIV cancels an option-IV subscription previously returned by
-// no-op. Best-effort on the wire — a failed CancelMarketData is logged
+// CancelOptionIV best-effort cancels an option-IV request; unknown IDs are no-ops.
 func (c *Connector) CancelOptionIV(reqID int) {
 	if reqID == 0 {
 		return
@@ -7181,12 +7167,12 @@ func (c *Connector) CancelOptionIV(reqID int) {
 	}
 }
 
-// SubscribeOptionIV starts an option market-data subscription and routes
+// SubscribeOptionIV starts option market data keyed by normalized underlying.
 func (c *Connector) SubscribeOptionIV(ctx context.Context, symbol string, expiry time.Time, strike float64, right string) (int, error) {
 	return c.subscribeOptionIV(ctx, symbol, expiry, strike, right, strings.ToUpper(symbol))
 }
 
-// SubscribeOptionIVKeyed starts one option market-data subscription and routes
+// SubscribeOptionIVKeyed starts option market data keyed by exact contract.
 func (c *Connector) SubscribeOptionIVKeyed(ctx context.Context, symbol string, expiry time.Time, strike float64, right string) (int, string, error) {
 	expStr := expiry.UTC().Format("20060102")
 	key := OptionMarketDataKey(symbol, expStr, right, strike)

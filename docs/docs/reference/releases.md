@@ -1,6 +1,6 @@
 # Releases and support
 
-Updated: 2026-07-25 11:34 CEST
+Updated: 2026-08-09
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
@@ -29,18 +29,26 @@ A release that publishes an MCP Bundle also carries MCP Registry metadata record
 
 The standard read-only artifact uses the canonical `canary` filename. Getting the broker-write-capable variant takes a deliberate `canary-trading` download.
 
-**Standard build.** Order transmission is not compiled in. The CLI keeps `canary order place`, `canary order modify`, and `canary order cancel` in every build; in a standard build the daemon's write handlers are compiled out behind the `trading` build tag and return `ErrTradingDisabled`, so the verbs exist and fail closed before anything reaches the broker. The bundled MCP surface has no order-entry tools in either build.
+**Standard build.** Broker-write handlers are not compiled in. The retained
+order, proposal, and opportunity reads remain available, while broker actions
+fail closed before a wire write. The bundled MCP surface has no preview or
+order-entry tools in either build.
 
-**Trading build.** This binary can place, modify, and cancel constrained orders once `[trading].mode` and the pinned gateway endpoint and account are set and cross-checked against the connected session. Every write still needs a submit-eligible preview token or the capability-specific one-shot review contract. Trading builds are experimental and provided as-is. [Order previews and the trading build](../operate/orders.md) has the configuration and the gates in full.
+**Trading build.** This binary can place, modify, cancel, or exercise only the
+constrained actions retained by v3, once mode, route, account, freeze, journal,
+and fresh review contracts all pass. Trading builds are experimental and
+provided as-is. [Orders and the trading build](../operate/orders.md) has the
+configuration and gates in full.
 
 To see which one you are running, `canary settings` prints a `Build` row reading either `stable` or `experimental-trading`, followed by a build note.
 
-Four install paths all land on the standard build:
+The normal install paths land on the standard build:
 
 - `install.sh` downloads `canary-<version>-<platform>.tar.gz` and nothing else.
 - `canary update` matches that exact filename, so it cannot install a trading build over your binary.
 - The MCP Bundles are assembled from the standard tarballs' binaries.
-- `go install github.com/osauer/canary/v2/cmd/canary@vX.Y.Z` compiles without the tag.
+- `go install github.com/osauer/canary/v2/cmd/canary@latest` stays on the
+  maintained v2 Go-module line and does not install product v3.
 
 ## Verifying a download
 
@@ -101,17 +109,32 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and 
 - **Minor** (`v2.2.1` to `v2.3.0`): new commands, tools, or fields, backward compatible.
 - **Major**: a breaking change to a published contract.
 
-So far, "published contract" has meant the Go library. v2.0.0, the only major bump since v1.0.0, modernized the broker-nominative `pkg/ibkr` API. The later clean-slate product rename moved the module to `github.com/osauer/canary/v2`; Go developers importing the library must update their imports.
+Canary now has two related version contracts:
+
+- Product releases version the signed binaries, MCPB, plugin, app, daemon state,
+  CLI, and MCP surface. Product v3 is a major reduction of those surfaces.
+- The public Go module remains `github.com/osauer/canary/v2`. A root `v3.0.0`
+  product tag is not a valid `/v2` module version, so Go ignores it for
+  `/v2/...@latest`; the newest maintained v2 tag remains the module and
+  source-built CLI release. Move to `/v3` only if the public Go API itself takes
+  another approved breaking change.
 
 `canary version` prints the version, commit, build date, and runtime, plus a trust line saying whether the binary is a stamped release build or something compiled locally.
 
 ## Which versions are supported
 
-One person maintains this. There is no funded support program, no long-term-support line, and no maintenance branch: every tag sits on `main`, and fixes go into the next release rather than back into an older one. In practice the latest release is the supported one.
+Product v3 and later release from `main`. While v3 stabilizes, maintained v2
+releases cut only from `release/2.x` and receive safety, security, data-loss,
+and broker-compatibility fixes. Those fixes are forward-ported to `main`;
+feature work does not land only on N-1.
 
-The written policy in [SECURITY.md](../../../SECURITY.md) says the same thing about security specifically: only the latest minor release receives security fixes. An older minor may get a best-effort backport for a critical issue when the patch is low-risk. Otherwise the answer is to upgrade.
+Retiring v2 requires at least 90 days of overlap, one maintenance release,
+proven v2-to-v3 migration and rollback, and a new explicit operator decision.
+Time alone does not end support.
 
-To find out where you stand, `canary update --check` prints your installed version beside the latest published one and exits 0 either way, installing nothing.
+`canary update` selects the newest stable release on the installed product
+major. It does not silently move a v2 installation to v3; development builds
+follow the newest stable product line.
 
 ## Reporting a security problem
 

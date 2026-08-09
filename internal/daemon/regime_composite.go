@@ -469,7 +469,7 @@ func warningForRegimeRow(row regimeEvidenceRow) (rpc.RegimeWarning, bool) {
 		w.Action = "Check IDEALPRO FX market-data entitlement, then retry when FX ticks are available."
 	case "gamma_zero":
 		if row.status == rpc.RegimeStatusComputing {
-			w.Action = "Re-run after the ETA or call canary gamma for the dedicated gamma status."
+			w.Action = "Re-run the brief after the ETA or inspect the Gamma subsystem in canary status."
 		} else {
 			w.Action = "Run during NY market hours or let the gamma prewarm finish, then retry."
 		}
@@ -477,7 +477,7 @@ func warningForRegimeRow(row regimeEvidenceRow) (rpc.RegimeWarning, bool) {
 		if row.status == rpc.RegimeStatusComputing {
 			w.Action = "Keep the daemon running until the IBKR-paced breadth refresh finishes."
 		} else {
-			w.Action = "Run canary breadth to inspect the breadth engine state and cached snapshot."
+			w.Action = "Inspect the Breadth subsystem and cached-session context in canary status."
 		}
 	}
 	return w, true

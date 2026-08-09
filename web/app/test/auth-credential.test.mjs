@@ -17,36 +17,27 @@ function loadAuthWithoutWebCrypto(pairingResponse) {
       fetches.push({ url, init });
       return {
         ok: true,
-        async json() { return pairingResponse; },
-        async text() { return JSON.stringify(pairingResponse); },
+        json: async () => pairingResponse,
+        text: async () => JSON.stringify(pairingResponse),
       };
     },
-    indexedDB: {
-      open() {
-        indexedDBCalls++;
-        throw new Error("IndexedDB must not be used without WebCrypto");
-      },
-    },
+    indexedDB: { open: () => {
+      indexedDBCalls++;
+      throw new Error("IndexedDB must not be used without WebCrypto");
+    } },
     localStorage: {
-      getItem() { return null; },
-      setItem(key, value) { storageWrites.push([key, value]); },
+      getItem: () => null,
+      setItem: (key, value) => storageWrites.push([key, value]),
     },
     navigator: { userAgent: "NoCrypto Browser" },
-    showPairing(message) { pairingMessages.push(message); },
+    showPairing: (message) => pairingMessages.push(message),
     state: {},
   });
   const executable = authSource
     .replace(/^import .*;\n/gm, "")
     .replace(/export \{([^}]+)\};\s*$/m, "globalThis.__exports = {$1};");
   vm.runInContext(executable, context, { filename: "auth.js" });
-  return {
-    context,
-    exports: context.__exports,
-    fetches,
-    indexedDBCalls: () => indexedDBCalls,
-    pairingMessages,
-    storageWrites,
-  };
+  return { context, exports: context.__exports, fetches, indexedDBCalls: () => indexedDBCalls, pairingMessages, storageWrites };
 }
 
 test("crypto-less pairing stores only the device id and ignores hostile credentials", async () => {

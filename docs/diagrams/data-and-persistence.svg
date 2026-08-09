@@ -80,14 +80,14 @@
     <text x="246" y="250" class="tile-sub"><tspan x="246" dy="0">gateway, account, client pins</tspan><tspan x="246" dy="15">risk-policy.toml · flex-token</tspan></text>
     <text x="196" y="301" class="format">$XDG_CONFIG_HOME/ibkr · TOML</text>
   </g>
-  <g role="group" aria-label="Watchlist / User Data. watchlist.json. explicit research exports. $XDG_DATA_HOME/ibkr · JSON">
+  <g role="group" aria-label="No User-Data Authority. retired exports sealed. no live file store. none">
     <rect x="452" y="196" width="256" height="118" rx="12" fill="#fffdf7" stroke="#d8d2c4"/>
     <rect x="464" y="196" width="232" height="4" rx="2" fill="#0a8a72"/>
     <rect x="466" y="212" width="36" height="36" rx="9" fill="#0a8a72"/><svg x="474" y="220" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-fileText"/></svg>
-    <text x="516" y="229" class="tile-title">Watchlist / User Data</text>
+    <text x="516" y="229" class="tile-title">No User-Data Authority</text>
     
-    <text x="516" y="250" class="tile-sub"><tspan x="516" dy="0">watchlist.json</tspan><tspan x="516" dy="15">explicit research exports</tspan></text>
-    <text x="466" y="301" class="format">$XDG_DATA_HOME/ibkr · JSON</text>
+    <text x="516" y="250" class="tile-sub"><tspan x="516" dy="0">retired exports sealed</tspan><tspan x="516" dy="15">no live file store</tspan></text>
+    <text x="466" y="301" class="format">none</text>
   </g>
   <text x="850" y="259" text-anchor="middle" class="subtitle">—</text>
   <text x="1120" y="259" text-anchor="middle" class="subtitle">—</text>
