@@ -270,16 +270,6 @@ func bucketRegimeStage(stage string) string {
 	}
 }
 
-// latchRulesRegimeStage records the snapshot's lifecycle stage for the
-// rulebook and persists it. Called from handleRegimeSnapshot's success path.
-func (s *Server) latchRulesRegimeStage(res *rpc.RegimeSnapshotResult) {
-	_ = s.latchRulesRegimeStageContext(context.Background(), res)
-}
-
-func (s *Server) latchRulesRegimeStageContext(ctx context.Context, res *rpc.RegimeSnapshotResult) error {
-	return s.projectRulesRegimeStageAt(ctx, res, time.Now().UTC())
-}
-
 func (s *Server) projectRulesRegimeStageAt(ctx context.Context, res *rpc.RegimeSnapshotResult, projectedAt time.Time) error {
 	if res == nil {
 		return nil

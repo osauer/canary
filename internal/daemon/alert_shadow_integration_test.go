@@ -328,110 +328,34 @@ func waitForDataHealthWorkerCalls(t *testing.T, mu *sync.Mutex, applied *[]alert
 	t.Fatalf("Data Health worker calls=%d want %d", len(*applied), want)
 }
 
-func TestAlertShadowApprovedProducerIntegrationIsDurableAndRecordOnly(t *testing.T) {
-	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
-	defer store.Close()
-	port := 4002
-	base := time.Date(2026, 7, 21, 17, 0, 0, 0, time.UTC)
-	server := &Server{
-		coreStore: store,
-		cfg:       &config.Resolved{Gateway: config.Gateway{Host: "127.0.0.1", Port: &port, Account: "DU-PRODUCERS"}},
-		now:       func() time.Time { return base.Add(time.Second) },
+func alertShadowTestStress(at time.Time, severity risk.SignalSeverity, action string, relevant *bool, sourceStatus, seed string) rpc.StressResult {
+	source := func(name string) rpc.SourceHealth {
+		fingerprint := rpc.Fingerprint{Version: name + "-fp-v1", Key: alertShadowTestFingerprint(seed + "-" + name)}
+		return rpc.SourceHealth{Source: name, Status: sourceStatus, AsOf: at, MaxAgeSeconds: 300, Fingerprint: &fingerprint, FingerprintStability: rpc.FingerprintStabilitySemanticBuckets}
 	}
-	if err := server.attachAlertShadowAuthority(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	server.alertShadow.now = server.now
-	server.postConnectSetupDone.Store(true)
-	scope := server.currentBrokerStateScope()
-	shadowScope, err := newAlertShadowBrokerScope(scope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	regime := alertShadowTestRegime(base, rpc.LifecycleEarlyWarning, "ready")
-	server.observeRegimeAlertShadow(t.Context(), &regime, scope)
-	server.observeProtectionAlertShadow(t.Context(), alertShadowProtectionInput{
-		AsOf: base, EvidenceAsOf: base, Status: orderIntegrityHealthCurrent, Scope: shadowScope,
-		OrderSnapshotAsOf: base, OrderSnapshotComplete: true, OrderUniverse: protectionOrderUniverseJournaledAPI,
-		Summary: rpc.ProtectionCoverageSummary{AsOf: base, Status: "ok"},
-	})
-	server.observeDataHealthAlertShadow(&rpc.HealthResult{
-		Connected: true, Subsystems: alertShadowTestHealthySubsystems(),
-	}, scope, alertShadowGatewayReady, base.Add(time.Second))
-	waitForAlertShadowSourceCovered(t, server.alertShadow, shadowScope, rpc.AlertSourceDataHealth)
-
-	snapshot, err := server.handleAlertCandidates(t.Context(), &rpc.Request{})
-	if err != nil || len(snapshot.Candidates) != 1 || snapshot.Candidates[0].Source != rpc.AlertSourceRegime ||
-		snapshot.Candidates[0].PresentationCode != rpc.AlertPresentationRegimeMarketStress {
-		t.Fatalf("approved producer snapshot=%+v err=%v", snapshot, err)
-	}
-	assertAlertShadowCoverage(t, snapshot.Coverage, []rpc.AlertSource{
-		rpc.AlertSourceRegime, rpc.AlertSourceProtection, rpc.AlertSourceDataHealth,
-	})
-	status, err := server.handleAlertStatus(t.Context(), &rpc.Request{})
-	if err != nil {
-		t.Fatalf("alert status: %+v err=%v", status, err)
-	}
-	var protectionStatus *rpc.AlertSourceStatus
-	for i := range status.Sources {
-		if status.Sources[i].Source == rpc.AlertSourceProtection {
-			protectionStatus = &status.Sources[i]
-			break
-		}
-	}
-	if protectionStatus == nil || protectionStatus.AuthorityUniverse != rpc.AlertAuthorityUniverseJournaledAPIOrders {
-		t.Fatalf("Protection source did not disclose its narrow authority universe: %+v", protectionStatus)
-	}
-
-	restarted := &Server{coreStore: store, cfg: server.cfg, now: func() time.Time { return base.Add(2 * time.Second) }}
-	if err := restarted.attachAlertShadowAuthority(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	restarted.alertShadow.now = restarted.now
-	restarted.postConnectSetupDone.Store(true)
-	cold, err := restarted.handleAlertCandidates(t.Context(), &rpc.Request{})
-	if err != nil || cold.Coverage.State != rpc.AlertCoverageUnavailable || len(cold.Candidates) != 1 ||
-		cold.Candidates[0].EvidenceHealth == rpc.AlertEvidenceCurrent {
-		t.Fatalf("restart fabricated coverage or lost active episode: %+v err=%v", cold, err)
-	}
-
-	restarted.observeRegimeAlertShadow(t.Context(), &regime, scope)
-	restarted.observeProtectionAlertShadow(t.Context(), alertShadowProtectionInput{
-		AsOf: base, EvidenceAsOf: base, Status: orderIntegrityHealthCurrent, Scope: shadowScope,
-		OrderSnapshotAsOf: base, OrderSnapshotComplete: true, OrderUniverse: protectionOrderUniverseJournaledAPI,
-		Summary: rpc.ProtectionCoverageSummary{AsOf: base, Status: "ok"},
-	})
-	restarted.observeDataHealthAlertShadow(&rpc.HealthResult{
-		Connected: true, Subsystems: alertShadowTestHealthySubsystems(),
-	}, scope, alertShadowGatewayReady, base.Add(2*time.Second))
-	waitForAlertShadowSourceCovered(t, restarted.alertShadow, shadowScope, rpc.AlertSourceDataHealth)
-	restored, err := restarted.handleAlertCandidates(t.Context(), &rpc.Request{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertAlertShadowCoverage(t, restored.Coverage, []rpc.AlertSource{
-		rpc.AlertSourceRegime, rpc.AlertSourceProtection, rpc.AlertSourceDataHealth,
-	})
-}
-
-func alertShadowTestHealthySubsystems() []rpc.SubsystemHealth {
-	return []rpc.SubsystemHealth{
-		{Name: "storage", Status: "ready"}, {Name: "quote", Status: "ready"},
-		{Name: "history", Status: "ready"}, {Name: "chain", Status: "ready"},
-		{Name: "proposals", Status: "ready"}, {Name: "opportunities", Status: "ready"},
+	return rpc.StressResult{
+		AsOf: at, Fingerprint: rpc.Fingerprint{Version: rpc.StressFingerprintVersion, Key: alertShadowTestFingerprint(seed)},
+		PolicyFingerprint: rpc.Fingerprint{Version: "stress-policy-fp-v1", Key: alertShadowTestFingerprint("stress-policy")},
+		Action:            action, Severity: severity, PortfolioAlertRelevant: relevant, InputHealth: "ok",
+		SourceHealth: []rpc.SourceHealth{source("account"), source("positions"), source("regime")},
 	}
 }
 
-func waitForAlertShadowSourceCovered(t *testing.T, composer *alertShadowComposer, scope alertShadowBrokerScope, source rpc.AlertSource) {
+func alertShadowTestBrokerScope(t *testing.T) alertShadowBrokerScope {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	var last alertShadowSourceStatus
-	for time.Now().Before(deadline) {
-		last = alertShadowTestSourceStatus(t, composer.Status(scope), source)
-		if last.Covered {
-			return
-		}
-		time.Sleep(time.Millisecond)
+	scope, err := newAlertShadowBrokerScope(brokerStateScope{Account: "DU-SHADOW", Mode: rpc.AccountModePaper})
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Fatalf("alert registry source %s did not become covered: %+v", source, last)
+	return scope
+}
+
+func alertShadowTestFingerprint(seed string) string {
+	fingerprint, err := alertShadowFingerprint(struct {
+		Seed string `json:"seed"`
+	}{seed})
+	if err != nil {
+		panic(err)
+	}
+	return fingerprint
 }

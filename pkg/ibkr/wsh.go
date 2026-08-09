@@ -308,11 +308,6 @@ func (c *Connector) resetWSHMetadataReadiness() {
 	c.wshGateMu.Unlock()
 }
 
-func (c *Connector) wshMetadataReady(conn *Connection, now time.Time) bool {
-	_, ready := c.wshMetadataEarningsTag(conn, now)
-	return ready
-}
-
 func (c *Connector) wshMetadataEarningsTag(conn *Connection, now time.Time) (string, bool) {
 	c.wshGateMu.Lock()
 	defer c.wshGateMu.Unlock()
@@ -632,11 +627,6 @@ func newWSHContextError(operation string, err error) error {
 		kind = WSHErrorTimeout
 	}
 	return &WSHError{Kind: kind, Operation: operation, cause: err}
-}
-
-func wshMetadataSupportsEarnings(raw string) bool {
-	_, ok := wshMetadataEarningsEventTag(raw)
-	return ok
 }
 
 func wshMetadataEarningsEventTag(raw string) (string, bool) {

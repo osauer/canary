@@ -46,6 +46,66 @@ func validRiskPolicyV3TOML() string {
 	return strings.Replace(v3, "max_report_age_days = 4", "max_report_age_days = 4\nmax_equity_divergence_pct = 1.0", 1)
 }
 
+func validRiskPolicyV4TOML() string {
+	return strings.Replace(validRiskPolicyV3TOML(), "policy_version = 3", "policy_version = 4", 1) + `
+
+[cadence.nudges]
+timezone = "Europe/Berlin"
+reconcile_warning_days = 2
+
+[cadence.monthly]
+class = "advisory"
+day_of_month = 1
+nudge_at_local = "09:00"
+
+[inventory.rulebook]
+id = "rulebook-v2"
+version = "2"
+
+[inventory.protection]
+id = "protection-mvp"
+version = "1"
+
+[inventory.stress]
+id = "active-v1"
+version = "risk-policy-v1"
+`
+}
+
+func newV4NudgeTestServer(t *testing.T, now time.Time) *Server {
+	t.Helper()
+	s := newRiskPolicyTestServer(t, validRiskPolicyV4TOML())
+	s.now = func() time.Time { return now }
+	s.riskCapital.now = s.now
+	if s.riskPolicies != nil {
+		s.riskPolicies.mu.Lock()
+		s.riskPolicies.now = s.now
+		s.riskPolicies.loadedAt = now
+		s.riskPolicies.lastCheckedAt = now
+		s.riskPolicies.mu.Unlock()
+	}
+	s.installNudgeStateStore()
+	manager := newProtectionPolicyManager("", false, time.Second, s.now)
+	manager.reload()
+	s.protectionPolicies = manager
+	return s
+}
+
+func primeNudgeBlockEpisode(server *Server, now time.Time, consumedKnown bool) {
+	server.riskCapital.mu.Lock()
+	defer server.riskCapital.mu.Unlock()
+	server.riskCapital.loadLocked()
+	server.riskCapital.state.Seeded = true
+	server.riskCapital.state.AdjustedPeakBase = 260000
+	if consumedKnown {
+		server.riskCapital.state.LastEquityBase = 240000
+		server.riskCapital.state.LastEquityAsOf = now
+	}
+	server.riskCapital.state.BlockLatched = true
+	server.riskCapital.state.LatchedAt = now.Add(-2 * time.Hour)
+	server.riskCapital.state.LatchEpisodeSeq = 1
+}
+
 func newTestRiskPolicyManager(t *testing.T, contents string) (*riskPolicyManager, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "risk-policy.toml")

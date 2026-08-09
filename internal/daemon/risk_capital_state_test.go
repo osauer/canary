@@ -11,6 +11,8 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+var testLiveObserveScope = brokerStateScope{Account: "U111", Mode: rpc.AccountModeLive}
+
 func testConstitution() *risk.Constitution {
 	return &risk.Constitution{
 		Kind:          risk.ConstitutionKind,

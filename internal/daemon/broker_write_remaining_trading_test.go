@@ -16,6 +16,10 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
+func opportunityTestRTH() time.Time {
+	return time.Date(2026, 6, 12, 15, 0, 0, 0, time.UTC)
+}
+
 func TestOptionExercisePreviewMintsExactOneShotAuthority(t *testing.T) {
 	t.Parallel()
 	now := opportunityTestRTH()

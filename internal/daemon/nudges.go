@@ -391,11 +391,6 @@ func cloneNudgeState(state nudgeStateFileV1) nudgeStateFileV1 {
 	return cloned
 }
 
-func (st *nudgeStateStore) confirmedSnapshot(currentRows []string) (*rpc.NudgeConfirmedFlowCoverage, []nudgeConfirmedEventState, bool) {
-	coverage, events, ok, _ := st.confirmedSnapshotContext(context.Background(), currentRows)
-	return coverage, events, ok
-}
-
 func (st *nudgeStateStore) confirmedSnapshotContext(ctx context.Context, currentRows []string) (*rpc.NudgeConfirmedFlowCoverage, []nudgeConfirmedEventState, bool, error) {
 	if st == nil {
 		return nil, nil, false, nil

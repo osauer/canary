@@ -950,14 +950,6 @@ func joinPostActions(first, second func()) func() {
 	}
 }
 
-func (c *Connector) registerInactiveCandidate(symbol, reason string) bool {
-	marked, post := c.registerInactiveCandidatePostAction(symbol, reason)
-	if post != nil {
-		post()
-	}
-	return marked
-}
-
 // registerInactiveCandidatePostAction performs only local state mutation and
 // returns any broker-side subscription cleanup to its caller. Socket readers
 // run the action after releasing inbound/publication/evidence leases.
@@ -1020,12 +1012,6 @@ func (c *Connector) registerInactiveCandidatePostAction(symbol, reason string) (
 	return false, nil
 }
 
-func (c *Connector) markSymbolInactive(symbol, reason string) {
-	if post := c.markSymbolInactivePostAction(symbol, reason); post != nil {
-		post()
-	}
-}
-
 func (c *Connector) markSymbolInactivePostAction(symbol, reason string) func() {
 	if symbol == "" {
 		return nil
@@ -1057,19 +1043,6 @@ func (c *Connector) markSymbolInactivePostAction(symbol, reason string) func() {
 	post := c.detachSubscription(symbol)
 	c.logInfo("Suppressing market data for %s (inactive: %s)", symbol, reason)
 	return post
-}
-
-func (c *Connector) processSystemNotice(alias reqAliasEntry, note *systemNotification) {
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	binding := ConnectorSessionBinding{connector: c, connection: conn}
-	if conn != nil {
-		binding.epoch = conn.BrokerSessionEpoch()
-	}
-	if post := c.processSystemNoticeFrom(binding, alias, note); post != nil {
-		post()
-	}
 }
 
 func (c *Connector) processSystemNoticeFrom(origin ConnectorSessionBinding, alias reqAliasEntry, note *systemNotification) (postBarrier func()) {
@@ -6182,21 +6155,6 @@ func (c *Connector) pushSubscriptionRejection(reqID, code int, message string) {
 	}
 }
 
-// handleIBKRError receives raw IBKR error messages for proactive recovery.
-// fields: [msgID=4, version, reqID, errorCode, errorMsg]
-func (c *Connector) handleIBKRError(fields []string) {
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	origin := ConnectorSessionBinding{connector: c, connection: conn}
-	if conn != nil {
-		origin.epoch = conn.BrokerSessionEpoch()
-	}
-	if post := c.handleIBKRErrorFrom(origin, fields); post != nil {
-		post()
-	}
-}
-
 func (c *Connector) handleIBKRErrorFrom(origin ConnectorSessionBinding, fields []string) (postBarrier func()) {
 	if len(fields) < 4 {
 		return
@@ -6613,10 +6571,6 @@ func (c *Connector) getHistoricalRequest(reqID int) *historicalRequest {
 	c.historicalMu.Lock()
 	defer c.historicalMu.Unlock()
 	return c.historicalReqs[reqID]
-}
-
-func (c *Connector) createHistoricalRequest(reqID int, symbol string) *historicalRequest {
-	return c.createHistoricalRequestWithOptions(reqID, symbol, historicalRequestOptions{})
 }
 
 type historicalRequestOptions struct {

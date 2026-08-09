@@ -43,19 +43,6 @@ func (s *Server) attachProtectionCoverage(ctx context.Context, res *rpc.Position
 	res.ProtectionCoverage = buildProtectionCoverage(res, orders, true, "", now)
 }
 
-// observeProtectionCoverageAlertShadow intentionally does nothing. Ordinary
-// positions RPCs compose a useful local-journal UI ledger, but they do not own
-// a complete broker API-order snapshot and therefore cannot open, clear, or
-// recover Protection alert episodes. The dedicated heartbeat is the sole
-// producer authority.
-func (s *Server) observeProtectionCoverageAlertShadow(ctx context.Context, summary *rpc.ProtectionCoverageSummary, symbolFilter, typeFilter string, portfolioHealth ibkrlib.PortfolioStreamHealth) {
-	_ = ctx
-	_ = summary
-	_ = symbolFilter
-	_ = typeFilter
-	_ = portfolioHealth
-}
-
 func protectionCoverageOrderPassesFilter(view rpc.OrderView, symbolFilter, typeFilter string) bool {
 	if symbolFilter = strings.ToUpper(strings.TrimSpace(symbolFilter)); symbolFilter != "" && !strings.EqualFold(view.Symbol, symbolFilter) {
 		return false

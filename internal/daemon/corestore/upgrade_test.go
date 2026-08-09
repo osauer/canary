@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,26 @@ import (
 	"testing"
 	"time"
 )
+
+func assertSQLiteHeaderVersions(t *testing.T, path string, wantWrite, wantRead byte) {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := make([]byte, 20)
+	_, readErr := io.ReadFull(f, header)
+	closeErr := f.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if string(header[:16]) != "SQLite format 3\x00" || header[18] != wantWrite || header[19] != wantRead {
+		t.Fatalf("SQLite header write/read versions=%d/%d want %d/%d", header[18], header[19], wantWrite, wantRead)
+	}
+}
 
 func TestPrepareUpgradeBuildsIndependentAtomicCandidate(t *testing.T) {
 	ctx := t.Context()

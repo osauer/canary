@@ -1011,10 +1011,6 @@ func newGovernanceTestHandler(t *testing.T, fakeClient daemonclient.Client) (*hy
 	return newGovernanceTestHandlerWithPoll(t, fakeClient, true)
 }
 
-func newGovernanceTestHandlerWithoutPoll(t *testing.T, fakeClient daemonclient.Client) (*hyperserve.Server, *state.Store, *governanceHTTPTestSender) {
-	return newGovernanceTestHandlerWithPoll(t, fakeClient, false)
-}
-
 func newGovernanceTestHandlerWithPoll(t *testing.T, fakeClient daemonclient.Client, poll bool) (*hyperserve.Server, *state.Store, *governanceHTTPTestSender) {
 	t.Helper()
 	store, err := state.Open(t.TempDir())

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -16,6 +17,15 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
+
+func nasdaqTestPayload(t testing.TB, data any, rCode int) []byte {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"data": data, "status": map[string]any{"rCode": rCode}})
+	if err != nil {
+		t.Fatal("marshal synthetic Nasdaq payload")
+	}
+	return body
+}
 
 func TestServerNewDoesNotReadLegacyFXOrEarningsBeforeLock(t *testing.T) {
 	cacheRoot := t.TempDir()

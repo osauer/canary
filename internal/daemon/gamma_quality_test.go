@@ -11,6 +11,15 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+func hasGammaWarning(details []rpc.GammaWarningDetail, code string) bool {
+	for _, detail := range details {
+		if detail.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGammaQualityRankableCombinedSPYSPX(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 6, 2, 15, 0, 0, 0, time.UTC)

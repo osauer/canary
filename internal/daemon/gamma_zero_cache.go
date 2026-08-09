@@ -968,20 +968,6 @@ func (c *gammaZeroCache) startLocked(parent context.Context, scope, key string, 
 	return job
 }
 
-// snapshot extracts a wire-shape envelope from the current job state.
-// Always returns a populated Status; Result is set only on success.
-//
-// g == nil means no compute has ever been kicked this NY trading
-// session — distinct from Computing (compute in flight). Pre-v0.27.9
-// snapshot conflated these two under Computing, so a consumer
-// couldn't tell "first caller of the day must kick" from "the kick
-// is already running." Mirror of the v0.27.3 breadth Cold state.
-//
-// nowFn is injectable for tests — production callers pass time.Now.
-func (c *gammaZeroCache) snapshot(g *gammaComputation, nowFn func() time.Time) rpc.GammaZeroSPXResult {
-	return c.snapshotForScope("", g, nowFn)
-}
-
 func (c *gammaZeroCache) snapshotCombinedSlice(scope string, nowFn func() time.Time) (rpc.GammaZeroSPXResult, bool) {
 	c.ensureLoaded()
 	key := ""

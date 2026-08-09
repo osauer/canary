@@ -90,16 +90,6 @@ func (s *Server) cachedRulebookResult(binding rulebookCacheBinding, maxAge time.
 	return cloneRulesResult(cached), true
 }
 
-func (s *Server) cacheRulebookResult(result *rpc.RulesResult, binding rulebookCacheBinding, cachedAt time.Time) bool {
-	if s == nil || result == nil || !brokerScopeConcrete(binding.scope) {
-		return false
-	}
-	if binding.connector != nil && !sameRulebookBinding(binding, s.currentRulebookBinding()) {
-		return false
-	}
-	return s.cacheRulebookResultStable(result, binding, cachedAt)
-}
-
 // cacheRulebookResultStable publishes after the caller has either validated
 // an unbound/unavailable result or entered the exact Connector evidence
 // barrier. It must not call currentRulebookBinding while that write barrier is
@@ -1502,13 +1492,6 @@ func validRulebookTerminalEarningsAuthority(info rpc.EarningsInfo, asOf time.Tim
 		!effective.After(verifiedAt) && !verifiedAt.After(reviewedAt) && !reviewedAt.After(asOf) &&
 		revalidateAfter.After(asOf) && revalidateAfter.After(verifiedAt) &&
 		revalidateAfter.Sub(verifiedAt) <= 366*24*time.Hour
-}
-
-// journalRuleTransitions keeps the JSONL branch only for legacy format and
-// import oracles. Runtime SQLite authority holds current rule state without an
-// unbounded calibration history.
-func (s *Server) journalRuleTransitions(res *rpc.RulesResult) {
-	s.journalRuleTransitionsBound(res, rulebookCacheBinding{}, false)
 }
 
 func (s *Server) journalRuleTransitionsForBinding(res *rpc.RulesResult, binding rulebookCacheBinding) {

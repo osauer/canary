@@ -3343,12 +3343,6 @@ func (c *Connection) handleAccountValue(fields []string) {
 	}
 }
 
-func (c *Connection) handleSystemNotification(fields []string) {
-	if post := c.handleSystemNotificationAtEpoch(fields, c.BrokerSessionEpoch()); post != nil {
-		post()
-	}
-}
-
 func (c *Connection) dispatchStaleSystemNotice(fields []string, epoch uint64) {
 	if len(fields) < 2 {
 		return
@@ -7007,14 +7001,6 @@ func (c *Connection) orderIDOwned(id int) bool {
 	_, open := c.openOrders[id]
 	c.ordersMu.RUnlock()
 	return open || c.IsWhatIfOrderID(id)
-}
-
-// claimOrderID consumes id for an imminent order/WhatIf send. An arbitrary
-// caller-supplied ID must be at or above the shared frontier after nextValidId;
-// only an exact local reservation or already-owned order may remain below it.
-func (c *Connection) claimOrderID(id int, alreadyOwned bool) error {
-	_, err := c.claimOrderIDCurrentEpoch(id, alreadyOwned)
-	return err
 }
 
 func (c *Connection) claimOrderIDCurrentEpoch(id int, alreadyOwned bool) (uint64, error) {

@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project adheres to 
 ### Changed
 
 - **Major upgrades now cross an explicit stable-branch bridge.** Version 3 accepts current daemon and alert state or a genuinely fresh state root. An older installation must start the latest stable 2.x daemon once; v3 fails closed, preserving unsupported alert ledgers byte-for-byte, instead of carrying historical decoders in every startup. Current databases still use the out-of-place, verified, crash-resumable schema upgrade path, so future migrations and data cleanups remain first-class.
+- **Verification now follows the product's safety boundaries instead of every historical implementation branch.** The retained spine covers broker-write admission and transport, account/data authority, option exercise, protection and reductions, current alert lifecycle, risk policy, Flex post-trade truth, current schema upgrades, paired-app routes, IBKR protocol contracts, integration lifecycle, and release containment. Superseded migration fixtures and overlapping package-local micro-tests are no longer maintained.
 - **The daily brief is now a pure read and reports current policy adherence.** Opening it no longer acknowledges, stamps, or completes a process artefact. The post-trade Review movement summarizes current pass/watch/act/unknown rulebook evidence, while routine monthly evidence completes automatically when its due instant and current policy pins are proven. Missing or conflicting evidence remains an exception in the Action Queue.
 
 ### Removed

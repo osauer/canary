@@ -77,12 +77,6 @@ func applySort(rows []rpc.PositionView, by string) {
 	}
 }
 
-// renderPositionsText is preserved as a thin wrapper for tests and
-// preview that pass an Env holding the destination writer.
-func renderPositionsText(env *Env, r *rpc.PositionsResult) int {
-	return renderPositionsTextTo(env, env.Stdout, r, false)
-}
-
 func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quoteDetails bool) int {
 	fmt.Fprintln(out)
 	unavailable := renderPositionsAuthority(env, out, r)

@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +19,78 @@ import (
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
+
+type regimeSnapshotTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (clock *regimeSnapshotTestClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+func (clock *regimeSnapshotTestClock) Set(now time.Time) {
+	clock.mu.Lock()
+	clock.now = now
+	clock.mu.Unlock()
+}
+
+func openRegimeSnapshotTestStore(t *testing.T) *corestore.Store {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(dir, "daemon.db")})
+	if err != nil {
+		t.Fatalf("open daemon SQLite authority: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+func regimeSnapshotTestNow() time.Time {
+	return time.Now().UTC().Add(time.Second)
+}
+
+func regimeSnapshotCacheFixture(at time.Time, label string) *rpc.RegimeSnapshotResult {
+	snapshot := &rpc.RegimeSnapshotResult{
+		AsOf:             at.UTC(),
+		Summary:          rpc.RegimeSummary{Label: label, DominantRisks: []string{"credit", "volatility"}},
+		VIXTermStructure: rpc.RegimeVIXTerm{Status: rpc.RegimeStatusOK},
+		VolOfVol:         rpc.RegimeVolOfVol{Status: rpc.RegimeStatusOK},
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{Status: rpc.RegimeStatusOK},
+		CreditSpreads:    rpc.RegimeCreditSpreads{Status: rpc.RegimeStatusOK},
+		FundingStress:    rpc.RegimeFundingStress{Status: rpc.RegimeStatusOK},
+		USDJPY:           rpc.RegimeUSDJPY{Status: rpc.RegimeStatusOK, Symbol: "USD.JPY"},
+		GammaZero: rpc.RegimeGammaZero{
+			Status: rpc.RegimeStatusOK,
+			Envelope: rpc.GammaZeroSPXResult{Status: "ready", Result: &rpc.GammaZeroComputed{
+				Scope: "combined", LegDiagnostics: &rpc.GammaLegDiagnostics{ByUnderlying: map[string]rpc.GammaLegDiagnosticCounts{
+					"SPX": {PricedLegs: 10, OpenInterestLegs: 8},
+				}},
+			}},
+		},
+		Breadth:        rpc.RegimeBreadth{Status: rpc.RegimeStatusOK},
+		WarningDetails: []rpc.RegimeWarning{{Code: "fixture", Scope: "test", Severity: "info", Message: "fixture warning"}},
+		SpecDoc:        "https://osauer.dev/canary/docs/internals/regime-dashboard.html",
+	}
+	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
+	return snapshot
+}
+
+func newRegimeSnapshotTestCache(t *testing.T, store regimeSnapshotStateStore, daemonContext context.Context, clock *regimeSnapshotTestClock) *regimeSnapshotCache {
+	t.Helper()
+	cache, err := loadRegimeSnapshotCache(t.Context(), daemonContext, store, regimeSnapshotCacheOptions{
+		FreshFor: time.Minute, RefreshTimeout: 5 * time.Second, FailureRetryAfter: 5 * time.Minute, Now: clock.Now,
+	})
+	if err != nil {
+		t.Fatalf("load regime snapshot cache: %v", err)
+	}
+	return cache
+}
 
 func TestRegimeProjectionReceiptIdentityAndGapRejection(t *testing.T) {
 	tests := []struct {

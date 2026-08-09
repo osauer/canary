@@ -39,14 +39,6 @@ func runAccount(ctx context.Context, env *Env, args []string) int {
 	return fetchAndRender(env.Stdout)
 }
 
-// renderAccountText is preserved for tests and preview that pass an Env
-// holding the destination writer. The new entry point with an explicit
-// writer is renderAccountTextTo; this thin wrapper keeps existing callers
-// working unchanged.
-func renderAccountText(env *Env, a *rpc.AccountResult) int {
-	return renderAccountTextTo(env, env.Stdout, a)
-}
-
 // renderAccountTextTo writes the account snapshot to out. The block is
 // laid out so the two questions a trader asks first — "what's it worth?"
 // and "how am I doing today?" — land on the first two lines, with the
