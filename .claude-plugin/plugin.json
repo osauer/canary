@@ -1,6 +1,6 @@
 {
   "name": "canary",
-  "version": "2.8.4",
+  "version": "3.0.0",
   "description": "Canary for Claude Code and MCP clients: an Interactive Brokers daily brief, portfolio analysis, account and position data, rulebook checks, protection proposals, and option-exercise opportunities through the local canary CLI. The 13 MCP tools are read-only; constrained CLI broker writes remain gated by local trading status, fresh confirmation or preflight, and daemon policy.",
   "author": {
     "name": "osauer",

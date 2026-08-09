@@ -2,7 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.0.0 — Unreleased
+## v3.0.0 — 2026-08-09 12:34 CEST
+
+### What's new
+
+- **Canary 3 is a smaller, focused risk desk.** The daily brief, Action Queue, current and recovered alerts, typed account and position authority, protection proposals, constrained option exercise, order-lifecycle reads, settings, and the public Go TWS API remain. Broad scanners, historical dashboards, the terminal UI, and duplicate CLI/MCP adapters no longer ship.
+- **Upgrading keeps the stable 2.x bridge explicit.** Install v3 from the signed release assets; existing v2 installations remain on the maintained `/v2` Go-module and updater line. When an older state root needs conversion, start the latest stable 2.x daemon once before v3.
 
 ### Changed
 
