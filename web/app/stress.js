@@ -38,6 +38,7 @@ function renderRulesCard(rules) {
   $("stressRulesCounts").textContent = rulesTileFigure(rules);
   // The sheet opens on its own tally: the same served breach_counts figure
   if (tally) tally.textContent = rulesTileFigure(rules);
+  renderRulesProvenance(rules);
 
   const order = Array.isArray(rules.ranked) && rules.ranked.length === rules.rules.length
     ? rules.ranked
@@ -80,6 +81,26 @@ function renderRulesCard(rules) {
   if (state.rulesDetailOpen) {
     renderRulesGrid(rules, order);
   }
+}
+
+// The sheet's provenance line: which Rulebook policy produced these rows and
+// when. Served values verbatim; the line hides when the daemon serves none.
+function renderRulesProvenance(rules = {}) {
+  const el = $("rulesSheetProvenance");
+  if (!el) return;
+  const parts = [];
+  if (rules.policy_id) {
+    // Print the served id verbatim, adding "Rulebook" and the version only
+    // when the id does not already carry them ("rulebook-v2" stays as is).
+    const id = String(rules.policy_id);
+    const v = rules.policy_version ? `v${rules.policy_version}` : "";
+    const name = /rulebook/i.test(id) ? id : `Rulebook ${id}`;
+    parts.push(v && id.toLowerCase().endsWith(v.toLowerCase()) ? name : `${name}${v ? ` ${v}` : ""}`);
+  }
+  const at = parseDate(rules.as_of);
+  if (at) parts.push(`evaluated ${shortTimeWithZone(at.toISOString())}`);
+  el.hidden = parts.length === 0;
+  el.textContent = parts.join(" · ");
 }
 
 // The tile figure states the served tally over its denominator, so "2 watch"
@@ -195,6 +216,8 @@ function ruleChecklistRow(r) {
     }
     evidence.textContent = text;
     row.append(evidence);
+    const meter = ruleMeasureMeter(r);
+    if (meter) row.append(meter);
   }
   const offenders = (r.offenders || []).slice(0, 3);
   if (offenders.length) {
@@ -204,6 +227,31 @@ function ruleChecklistRow(r) {
     row.append(list);
   }
   return row;
+}
+
+// ruleMeasureMeter draws observed against the rule's own served threshold: a
+// thin track scaled to max(2× threshold, observed), with a tick at the
+// threshold. It renders only served numbers — no invented policy — and only
+// for non-pass rows, so the sheet answers "how far past the line?" at a
+// glance without adding noise to clean rows.
+function ruleMeasureMeter(r = {}) {
+  const observed = r.observed;
+  const threshold = r.threshold;
+  if (typeof observed !== "number" || typeof threshold !== "number" || threshold <= 0 || observed < 0) return null;
+  const scale = Math.max(threshold * 2, observed * 1.05);
+  const meter = document.createElement("div");
+  meter.className = "rules-row__meter";
+  // The evidence line above already speaks the numbers; the meter is the
+  // picture of them, so screen readers must not hear the pair twice.
+  meter.setAttribute("aria-hidden", "true");
+  const fill = document.createElement("span");
+  fill.className = "rules-row__meter-fill";
+  fill.style.width = `${Math.min(100, (observed / scale) * 100)}%`;
+  const tick = document.createElement("span");
+  tick.className = "rules-row__meter-tick";
+  tick.style.left = `${(threshold / scale) * 100}%`;
+  meter.append(fill, tick);
+  return meter;
 }
 
 function renderStressDetail(stress, snap = state.snapshot || {}) {
@@ -308,8 +356,15 @@ function stressExplanationCards(stress, snap = state.snapshot || {}) {
 function renderStressStatus(stress, snap = state.snapshot || {}) {
   const fault = sourceTransportFault(snap, "stress");
   applyTileSeverity($("stressHero"), fault ? "stale" : String(stress.severity || "").toLowerCase());
-  $("stressSeverity").textContent = fault ? faultCaption(fault) : labelize(stress.severity || "--");
-  $("stressAction").textContent = stressStageLabel(stress);
+  const severityLabel = fault ? faultCaption(fault) : labelize(stress.severity || "--");
+  $("stressSeverity").textContent = severityLabel;
+  // The action slot earns its line only when the stage differs from the
+  // severity caption above it ("Defend", "Rebalance"); a repeated "Watch"
+  // under "Watch" is a stutter, not information.
+  const stage = stressStageLabel(stress);
+  const action = $("stressAction");
+  action.textContent = stage.toLowerCase() === severityLabel.toLowerCase() ? "" : stage;
+  action.hidden = action.textContent === "";
   const summary = $("stressSummary");
   const full = stressSummaryText(stress, snap);
   if (fault) {
@@ -786,7 +841,10 @@ function applyTileSeverity(el, severity) {
 // otherwise disclose only in a subordinate window, then the served timing
 function masterSubline(snap = {}, stress = {}) {
   const action = stressStageLabel(stress);
-  const parts = [action === "--" ? "" : action, masterSeverity(snap, stress)];
+  const severity = masterSeverity(snap, stress);
+  // Action and severity often share a word ("Watch"/"watch"); printing both
+  // reads as a stutter, so the severity only appears when it adds information.
+  const parts = [action === "--" ? "" : action, severity.toLowerCase() === action.toLowerCase() ? "" : severity];
   // Every cluster the daemon ranks now has a window, so this clause fires
   // only for a red the panel genuinely cannot show: a cluster name the served
   // appear must still be named rather than silently dropped.
@@ -1229,8 +1287,11 @@ function regimeGovernedNote(snap, market) {
   const parts = [];
   const unconfirmed = market?.unconfirmed_red_cluster_names || [];
   if (unconfirmed.length > 0) {
-    const plural = unconfirmed.length === 1 ? "" : "s";
-    parts.push(`${unconfirmed.length} stress signal${plural} pending confirmation (${unconfirmed.join(", ")})`);
+    // Name the actual signal, not its cluster key ("HYG 50-DMA", not
+    // "credit"), and say that confirmation is Canary's job with both
+    // outcomes stated: the signal confirms or clears, no operator step.
+    const verb = unconfirmed.length === 1 ? "confirms or clears" : "confirm or clear";
+    parts.push(`${humanList(unconfirmed.map(clusterInputLabel), 2)} ${verb} on the next fresh read`);
   }
   for (const g of snap.regime?.lifecycle?.governors || []) {
     if (g?.action === "severity_capped") {
@@ -1877,4 +1938,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesProvenance, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, ruleMeasureMeter, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

@@ -29,7 +29,8 @@ function renderSettings() {
   $("settingsMarketDataStatus").textContent = labelize(quality.status || "unknown");
   $("settingsMarketDataMeta").textContent = quality.summary || "Observed compact summary";
   $("settingsBuildStatus").textContent = settings.build?.channel?.value || "stable";
-  $("settingsBuildMeta").textContent = settings.build?.experimental_trading_note || "Build-controlled capability";
+  const buildNote = settings.build?.experimental_trading_note || "Build-controlled capability";
+  $("settingsBuildMeta").textContent = state.appVersion ? `v${String(state.appVersion).replace(/^v/, "")} · ${buildNote}` : buildNote;
   renderProtectionSettings(settings.auto_trade || {}, state.snapshot?.auto_trade || {});
 }
 
@@ -79,12 +80,15 @@ function tradingLimitSummary(limits = {}) {
   return parts.join(" / ") || "--";
 }
 
+// The meta line says what the figures ARE before saying who may change them:
+// a bare "€10,000.00 / 5 opt" reads as an unexplained number otherwise.
 function tradingLimitMeta(limits = {}) {
   const fields = [limits.max_notional, limits.max_option_contracts, limits.allow_stock_short, limits.allow_option_sell_to_open].filter(Boolean);
   const writable = fields.some((field) => field.access === "write");
   const firstReason = fields.map((field) => field.reason).find(Boolean);
-  if (writable) return "Runtime overrides writable";
-  return firstReason || "Config/build controlled";
+  const meaning = "Per-order caps: notional / option contracts";
+  if (writable) return `${meaning} · runtime overrides writable`;
+  return firstReason ? `${meaning} · ${firstReason}` : `${meaning} · config/build controlled`;
 }
 
 function renderProtectionSettings(autoTrade = {}, status = {}) {

@@ -68,6 +68,7 @@ async function fetchBootstrap() {
 
 function applyBootstrap(data) {
   state.snapshot = data.snapshot;
+  state.appVersion = String(data.version || "");
   state.authenticated = Boolean(data.auth?.authenticated);
   state.settings = data.settings || data.snapshot?.settings || state.settings;
   if (state.snapshot && state.settings) state.snapshot.settings = state.settings;

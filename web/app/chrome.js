@@ -103,7 +103,6 @@ function setRegimeStressExpansion(which, open) {
   renderRegimePanel(state.snapshot || {});
   renderStressDetail(state.snapshot?.stress || {});
   if (open) {
-    // The shared deck sits below the whole Desk grid, so on a phone the
     $(which === "regime" ? "regimeDetailPanel" : "stressDetailPanel")?.scrollIntoView({ block: "nearest" });
   }
 }
@@ -125,12 +124,6 @@ function panelTapIgnored(target) {
     ".account-overview-detail",
     ".portfolio-detail-panel",
   ].join(",")));
-}
-
-function handleExpandablePanelTap(event, which) {
-  if (panelTapIgnored(event.target)) return;
-  const open = which === "regime" ? !state.regimeDetailOpen : !state.stressDetailOpen;
-  setRegimeStressExpansion(which, open);
 }
 
 function handleUnderlyingPanelTap(event) {
@@ -203,4 +196,4 @@ function setUnderlyingsSheetOpen(open) {
   setSheetOpen("underlyingsSheet", open);
 }
 
-export { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, sheetElement, syncAccountPrivacyState };
+export { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, sheetElement, syncAccountPrivacyState };

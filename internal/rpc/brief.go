@@ -376,11 +376,14 @@ const (
 
 // BriefRun is one typed span of composed narrative text. Runs are text, never
 // markup. AccountSensitive marks account-derived monetary figures that the SPA
-// must hide with the account-value visibility control.
+// must hide with the account-value visibility control. Topic, when set, names
+// the closed brief-topic slug the run refers to, so a renderer can navigate to
+// the surface that owns the row; it never carries symbols or account data.
 type BriefRun struct {
 	Text             string `json:"text"`
 	Role             string `json:"role,omitempty"`
 	AccountSensitive bool   `json:"account_sensitive,omitempty"`
+	Topic            string `json:"topic,omitempty"`
 }
 
 // BriefParagraph is one composed paragraph as an ordered run sequence.

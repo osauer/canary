@@ -55,6 +55,12 @@ func (p *briefProse) accountFigure(text string) {
 func (p *briefProse) tinted(role, text string)      { p.push(role, text) }
 func (p *briefProse) tintedFigure(role, fig string) { p.push(briefFigureRole(role), fig) }
 
+// tintedTopic emits a flagged topic label carrying its closed slug, so the
+// SPA can route a tap to the surface that owns the row.
+func (p *briefProse) tintedTopic(role, text, topic string) {
+	p.pushRun(rpc.BriefRun{Text: text, Role: role, Topic: topic})
+}
+
 // paragraph closes the current paragraph. Empty paragraphs are dropped.
 func (p *briefProse) paragraph() {
 	if len(p.runs) == 0 {
@@ -86,7 +92,7 @@ func briefMergeRuns(runs []rpc.BriefRun) []rpc.BriefRun {
 		if run.Text == "" {
 			continue
 		}
-		if len(out) > 0 && out[len(out)-1].Role == run.Role && out[len(out)-1].AccountSensitive == run.AccountSensitive {
+		if len(out) > 0 && out[len(out)-1].Role == run.Role && out[len(out)-1].AccountSensitive == run.AccountSensitive && out[len(out)-1].Topic == run.Topic {
 			out[len(out)-1].Text += run.Text
 			continue
 		}
@@ -101,6 +107,22 @@ type briefTopic struct {
 	state   rpc.BriefRowState
 	role    string
 	posture bool
+}
+
+// slug is the closed wire identifier for the topic: the fixed label with
+// spaces and hyphens folded to underscores ("policy adherence" →
+// "policy_adherence"). The label set is closed — fixed literals here plus
+// "held-name <kind>" whose kinds come from the briefMarketEventRows
+// allowlist — so slugs carry no symbols or account data; loosening that
+// allowlist would widen this wire surface too.
+func (t briefTopic) slug() string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '-':
+			return '_'
+		}
+		return r
+	}, t.label)
 }
 
 func (t briefTopic) unread() bool {
@@ -274,7 +296,7 @@ func briefNarrativeLead(res *rpc.BriefResult, topics []briefTopic) []rpc.BriefRu
 			if i > 0 {
 				p.text(", ")
 			}
-			p.tinted(topic.role, topic.label)
+			p.tintedTopic(topic.role, topic.label, topic.slug())
 		}
 		p.text(".")
 	}
@@ -302,7 +324,7 @@ func briefNarrativeCoda(topics []briefTopic) []rpc.BriefRun {
 			if i > 0 {
 				p.text(", ")
 			}
-			p.tinted(topic.role, topic.label)
+			p.tintedTopic(topic.role, topic.label, topic.slug())
 		}
 		p.text(". Everything else holds.")
 	case posture:

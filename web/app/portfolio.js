@@ -79,7 +79,7 @@ function renderPortfolioUnavailable(authority = {}) {
   wrapper.dataset.open = String(state.portfolioDetailOpen);
   panel.hidden = !state.portfolioDetailOpen;
   button.setAttribute("aria-expanded", String(state.portfolioDetailOpen));
-  button.textContent = state.portfolioDetailOpen ? "Hide detail" : "Detail";
+  button.textContent = state.portfolioDetailOpen ? "Hide detail" : "Show detail";
   const list = $("portfolioDetailList");
   if (!state.portfolioDetailOpen) {
     list.replaceChildren();
@@ -256,7 +256,7 @@ function renderPortfolioDetail(portfolio, positions, baseCurrency) {
   wrapper.dataset.open = String(state.portfolioDetailOpen);
   panel.hidden = !state.portfolioDetailOpen;
   button.setAttribute("aria-expanded", String(state.portfolioDetailOpen));
-  button.textContent = state.portfolioDetailOpen ? "Hide detail" : "Detail";
+  button.textContent = state.portfolioDetailOpen ? "Hide detail" : "Show detail";
   if (!state.portfolioDetailOpen) return;
   $("portfolioDetailList").replaceChildren(...portfolioDetailRows(portfolio, positions, baseCurrency).map(detailFact));
 }
@@ -289,7 +289,7 @@ function portfolioDetailRows(portfolio, positions, baseCurrency) {
         portfolio.dollar_delta_base_currency || portfolio.dollar_delta_ccy_currency || baseCurrency,
       ),
       body: state.accountValueVisible
-        ? "Approximate portfolio move for a one-point move in the underlyings, converted to account base when possible."
+        ? "Delta-weighted market exposure, converted to account base when possible; a 1% move in the underlyings shifts P/L by about 1% of this figure."
         : "Hidden while account privacy is on. Dollar delta estimates how fast the held book moves with the market.",
       tone: "neutral",
     },

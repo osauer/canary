@@ -79,7 +79,7 @@
         </div>
         <div class="account-panel__top">
           <button class="panel-chevron account-overview-toggle" id="accountOverviewToggle" type="button" aria-expanded="false" aria-controls="accountOverviewDetail">
-            Detail
+            Show detail
           </button>
           <span class="account-panel__freshness" id="accountAsOf">--</span>
         </div>
@@ -187,12 +187,22 @@
             </div>
           </dialog>
           <div class="pd-placard pd-placard--row">
-            <span>Regime</span>
+            <span>Market Regime</span>
             <button class="signal-half__toggle" id="regimeDetailToggle" type="button" aria-expanded="false" aria-controls="regimeDetailPanel">
-              Detail
+              Show detail
             </button>
           </div>
           <div class="pd-grid regime-grid weather-na" id="regimeSummaryCard" role="group" aria-label="Market regime clusters"></div>
+          <!-- Regime detail expands directly under its own tiles, never in a
+               shared deck below the Desk section. -->
+          <div class="signal-detail-col regime-detail-panel" id="regimeDetailPanel" hidden>
+            <div class="regime-indicators" id="regimeIndicators"></div>
+            <div class="source-inline" id="regimeQualityRemarks" role="status" hidden>
+              <span>Data quality</span>
+              <b id="regimeQualityText">--</b>
+            </div>
+            <p class="regime-governed-note" id="marketRegimeMix" hidden>Waiting for market evidence</p>
+          </div>
           <div class="pd-placard pd-placard--row">
             <span>Desk</span>
             <button class="signal-half__toggle" id="stressDetailToggle" type="button" aria-expanded="false" aria-controls="stressDetailPanel">
@@ -232,36 +242,28 @@
               <div class="pd-tile__fig delta-tile__sub" id="deltaTileSub">--</div>
             </div>
           </div>
+          <!-- Desk detail expands directly under the Desk grid, above the
+               movers row, so it reads as part of its own section. -->
+          <div class="signal-detail-col detail-panel detail-panel--dark" id="stressDetailPanel" hidden>
+            <div class="detail-grid" id="stressDetailGrid"></div>
+            <div class="held-stress" id="heldStressPanel" hidden>
+              <div class="held-stress__head">
+                <span>Held stress</span>
+                <b id="heldStressSummary">--</b>
+              </div>
+              <div class="held-stress__list" id="heldStressList"></div>
+            </div>
+            <div class="detail-list" id="stressDrivers"></div>
+          </div>
           <div class="pd-placard pd-placard--sheet" id="moversPlacard" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden>Daily P/L by name</div>
           <div class="pd-movers pd-movers--sheet" id="moversRow" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden></div>
-          <div class="signal-detail-deck" id="signalDetailDeck">
-            <div class="signal-detail-col signal-detail-col--regime regime-detail-panel" id="regimeDetailPanel" hidden>
-              <div class="regime-indicators" id="regimeIndicators"></div>
-              <div class="source-inline" id="regimeQualityRemarks" role="status" hidden>
-                <span>Data quality</span>
-                <b id="regimeQualityText">--</b>
-              </div>
-              <p class="regime-governed-note" id="marketRegimeMix" hidden>Waiting for market evidence</p>
-            </div>
-            <div class="signal-detail-col signal-detail-col--stress detail-panel detail-panel--dark" id="stressDetailPanel" hidden>
-              <div class="detail-grid" id="stressDetailGrid"></div>
-              <div class="held-stress" id="heldStressPanel" hidden>
-                <div class="held-stress__head">
-                  <span>Held stress</span>
-                  <b id="heldStressSummary">--</b>
-                </div>
-                <div class="held-stress__list" id="heldStressList"></div>
-              </div>
-              <div class="detail-list" id="stressDrivers"></div>
-            </div>
-          </div>
         </article>
 
         <article class="panel portfolio-panel" id="portfolioPanel" data-open="false">
           <div class="panel-head">
             <span>Portfolio Risk</span>
             <button class="panel-chevron" id="portfolioDetailToggle" type="button" aria-expanded="false" aria-controls="portfolioDetailPanel">
-              Detail
+              Show detail
             </button>
             <span class="panel-time" id="positionsAsOf">--</span>
           </div>
@@ -271,8 +273,8 @@
               <strong id="portfolioDollarDelta">--</strong>
               <small id="portfolioDeltaMeaning">Market-risk read pending.</small>
             </div>
-            <div class="exposure-composition">
-              <span>Exposure Composition</span>
+            <div class="exposure-composition" title="How net liquidation is deployed: absolute market value of equity, options, and cash as shares of NLV. Allocation, not risk — the Delta posture readout is the risk read.">
+              <span>Capital allocation &middot; % of NLV</span>
               <div class="exposure-visual" id="portfolioExposureVisual" hidden></div>
             </div>
           </div>
@@ -287,7 +289,7 @@
               </span>
               <b id="portfolioGreeksCoverage">--</b>
             </div>
-            <p class="portfolio-risk-hint">Dollar delta is the fastest read on market risk: estimated portfolio P/L for a one-point move in the held underlyings.</p>
+            <p class="portfolio-risk-hint">Dollar delta is the fastest read on market risk: delta-weighted exposure to the held underlyings — a 1% market move shifts P/L by about 1% of it.</p>
             <div class="detail-list" id="portfolioDetailList"></div>
             <div class="exposure-list" id="portfolioExposureList" hidden></div>
             <div class="portfolio-summary">
@@ -495,7 +497,7 @@
         <span class="sync-strip__state" id="syncStatusState">standby</span>
         <span class="sync-strip__label" id="syncStatusLabel">Snapshot</span>
         <b class="sync-strip__time" id="syncStatusTime">--</b>
-        <span class="sync-strip__auto">Auto</span>
+        <span class="sync-strip__version" id="syncVersion" hidden>--</span>
       </footer>
       </div>
 
@@ -596,6 +598,7 @@
             <span>Checklist</span>
             <b id="rulesSheetTally">--</b>
           </div>
+          <p class="rules-sheet__provenance" id="rulesSheetProvenance" hidden>--</p>
           <div class="stress-rules__strip" id="stressRulesStrip" hidden>
             <div class="stress-rules__brief" id="stressRulesBrief"></div>
             <div class="stress-rules__strip-actions">

@@ -3,7 +3,7 @@ import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
-import { ensureRegimeStressExpansion, handleAccountPanelTap, handleExpandablePanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
+import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
 import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.js";
 import { renderOpenOrders } from "./orders.js";
@@ -117,7 +117,8 @@ function setupLiveRefreshLoop() {
     const snap = state.snapshot || {};
     renderTopbar(snap);
     renderSyncStrip(snap);
-    renderBriefCard(snap);
+    // The brief re-renders on every SSE event; re-rendering it on the 1s
+    // tick as well replaced its topic buttons mid-tap for no fresher data.
     if (state.snapshot) {
       renderAccountPanel(snap.account || {}, snap.positions || {}, snap.stress || {});
       renderUnderlyings(snap.positions || {}, snap.account || {}, snap.market_events || {});
@@ -252,14 +253,11 @@ $("opportunitiesRefreshButton").addEventListener("click", (event) => {
   event.stopPropagation();
   refreshOpportunities();
 });
-  $("regimeDetailToggle").addEventListener("click", () => {
+// The labeled Show/Hide detail buttons are the only expansion controls for
+// Market Regime and Desk. A tap anywhere else on those grids used to toggle a
+// panel that rendered far below — that read as erratic, so it is gone.
+$("regimeDetailToggle").addEventListener("click", () => {
   setRegimeStressExpansion("regime", !state.regimeDetailOpen);
-});
-$("regimeSummaryCard").addEventListener("click", (event) => {
-  handleExpandablePanelTap(event, "regime");
-});
-$("stressHero").addEventListener("click", (event) => {
-  handleExpandablePanelTap(event, "stress");
 });
 $("underlyingDetailToggle").addEventListener("click", () => {
   setUnderlyingExpansion(!state.underlyingDetailOpen);

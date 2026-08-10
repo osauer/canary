@@ -349,6 +349,15 @@ p {
   content: "·";
 }
 
+/* The close/open countdown is a first-order desk fact: brighter and bolder
+   than the chip text around it, ticking in place on tabular digits. */
+.session-countdown {
+  color: var(--pd-readout);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .market-strip__quotes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1257,6 +1266,17 @@ p {
   box-shadow: none;
 }
 
+/* A lamped readout (the Net $ Delta tile under a delta-family stress
+   driver) keeps its flush face but takes the severity wash; without these
+   the readout background wins the tie and the tint never shows. */
+.pd-tile--readout.pd-tile--watch {
+  background: linear-gradient(180deg, rgba(255, 180, 59, 0.14), rgba(255, 180, 59, 0.04) 55%), #21201b;
+}
+
+.pd-tile--readout.pd-tile--act {
+  background: linear-gradient(180deg, rgba(255, 79, 68, 0.15), rgba(255, 79, 68, 0.045) 55%), #231c1b;
+}
+
 /* Dead window: a darker face, no severity tint, last-good figure. */
 .pd-tile--stale {
   background: #14181e;
@@ -1472,8 +1492,6 @@ p {
    is sized for. */
 .regime-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  cursor: pointer;
-  touch-action: manipulation;
 }
 
 /* A cluster window carries four engraved lines in a narrower cell, so it
@@ -1577,14 +1595,11 @@ p {
   color: var(--pd-engraved);
 }
 
-.signal-detail-deck {
-  display: grid;
-  gap: 10px;
-}
-
-.signal-half--stress {
-  cursor: pointer;
-  touch-action: manipulation;
+/* Each detail column expands in place directly under its own section
+   (regime under the regime grid, desk under the desk grid), sharing one
+   8px rhythm with the grid gap above it. */
+.signal-detail-col {
+  margin-top: 8px;
 }
 
 .signal-half__toggle {
@@ -4772,7 +4787,7 @@ p {
 }
 
 .sync-strip__label,
-.sync-strip__auto {
+.sync-strip__version {
   min-width: 0;
   white-space: nowrap;
 }
@@ -4784,8 +4799,12 @@ p {
   white-space: nowrap;
 }
 
-.sync-strip__auto {
+.sync-strip__version {
   color: var(--pd-plate-quiet);
+  font-variant-numeric: tabular-nums;
+  /* A version string is a served value; the plate's uppercase transform
+     would rewrite the git describe form. */
+  text-transform: none;
 }
 
 .signed.ok {
@@ -4800,7 +4819,8 @@ p {
   .panel-chevron:hover,
   .segments button:hover,
   .bottom-tab:hover,
-  .alert-row:hover {
+  .alert-row:hover,
+  .brief-topic-link:hover {
     opacity: 0.82;
   }
 }
@@ -4831,11 +4851,6 @@ p {
     grid-column: 1 / -1;
   }
 
-  .signal-detail-deck:has(.signal-detail-col:not([hidden]) ~ .signal-detail-col:not([hidden])) {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-  }
 }
 
 @media (max-width: 700px) {
@@ -5472,6 +5487,63 @@ p {
 
 .rules-row .stress-rules__offenders {
   margin-left: 23px;
+}
+
+/* Observed-vs-threshold meter under a flagged rule: a thin engraved track,
+   the row-toned fill, and a tick at the rule's own served threshold. It
+   answers "how far past the line?" without adding a second number. */
+.rules-row__meter {
+  position: relative;
+  height: 3px;
+  margin: 5px 0 1px 23px;
+  border-radius: 2px;
+  background: var(--dark-line);
+}
+
+.rules-row__meter-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 2px;
+  background: var(--pd-engraved);
+}
+
+.rules-row--watch .rules-row__meter-fill {
+  background: var(--pd-watch-tint);
+}
+
+.rules-row--act .rules-row__meter-fill {
+  background: var(--pd-act-tint);
+}
+
+.rules-row__meter-tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: var(--pd-readout);
+}
+
+/* Which Rulebook produced the checklist, and when. A stamp, not a lamp —
+   the element selector outranks the dialog's generic paragraph rule. */
+p.rules-sheet__provenance {
+  margin: 2px 0 8px;
+  color: var(--pd-engraved);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+/* A flagged brief topic is a tap target: same tint as the prose run it
+   replaces, dotted underline as the affordance, no button chrome. Font
+   comes from the global button inherit so role classes keep their weight. */
+.brief-topic-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  letter-spacing: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {

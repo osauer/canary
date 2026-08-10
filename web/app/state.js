@@ -2,6 +2,7 @@
 
 const state = {
   snapshot: null,
+  appVersion: "",
   reconciliationCheck: { busy: false, state: "", error: false },
   safeNotificationTest: { busy: false, state: "", error: false },
   alertSettings: { mode: "watch_and_act" },

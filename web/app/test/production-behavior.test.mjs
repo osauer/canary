@@ -187,13 +187,13 @@ test("sync strip combines app transport health with typed account-data authority
 
   shell.renderSyncStrip(snap);
   assert.equal(dom.element("syncStatusLabel").textContent, "Snapshot");
-  assert.equal(dom.element("syncStatusState").textContent, "Live");
+  assert.equal(dom.element("syncStatusState").textContent, "Stream ok");
   assert.equal(dom.element("syncStrip").classList.contains("sync-strip--degraded"), false);
 
   snap.positions.authority = { availability: "unavailable", freshness: "unknown", reason: "unprimed" };
   shell.renderSyncStrip(snap);
   assert.equal(dom.element("syncStatusLabel").textContent, "Data gaps");
-  assert.equal(dom.element("syncStatusState").textContent, "Degraded");
+  assert.equal(dom.element("syncStatusState").textContent, "Stream ok");
   assert.equal(dom.element("syncStrip").classList.contains("sync-strip--degraded"), true);
 
   snap.positions.authority = current;
@@ -331,7 +331,7 @@ test("an alert touch preserves the card until its click opens evidence", () => {
 test("alert rows add current authenticated facts without changing fixed notification copy", () => {
   reset();
   state.snapshot = {
-    rules: { rules: [{ id: "extrinsic_budget", evidence: "Paid option time value is 14.3% of NLV. The budget is 7.5%." }] },
+    rules: { rules: [{ id: "extrinsic_budget", evidence: "Paid option time value is 14.3% of NLV. The budget is 7.5%.", offenders: [{ symbol: "SYN", leg: "SYN 20261016 P 700" }, { symbol: "ALT", leg: "ALT 20261016 C 100" }, { symbol: "THR", leg: "THR extra leg" }] }] },
     brief: { ready: { capital: { consumed_pct: 93.4 }, latch: { consumed_pct_at_latch: 101.2, report_coverage_to: "2026-08-08T00:00:00Z" } } },
   };
   const optionRow = alertInbox.alertRowElement({
@@ -339,7 +339,9 @@ test("alert rows add current authenticated facts without changing fixed notifica
     body: "The amount paid for time remaining in long options is above the Rulebook budget.", severity: "watch",
     first_seen_at: "2026-08-10T12:00:00Z", last_seen_at: "2026-08-10T12:00:00Z", state: "open", evidence_health: "current",
   });
-  assert.equal(byClass(optionRow, "pd-alert__facts")[0].textContent, "Paid option time value is 14.3% of NLV. The budget is 7.5%.");
+  // The fact line names the offending legs (capped at two) so the alert says
+  // which position it is about, not only the aggregate figure.
+  assert.equal(byClass(optionRow, "pd-alert__facts")[0].textContent, "Paid option time value is 14.3% of NLV. The budget is 7.5%. Offenders: SYN 20261016 P 700, ALT 20261016 C 100");
 
   const drawdown = alertInbox.alertFactText({ presentation_code: "risk_policy_drawdown_latched" });
   assert.match(drawdown, /Current use 93\.4%/);

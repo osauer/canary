@@ -519,6 +519,14 @@ func (h *handler) handleEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	// The server's WriteTimeout (hyperserve's default; 0 in WithTimeouts
+	// means "keep default", not "disable") would sever this stream mid-chunk
+	// (the client sees ERR_INCOMPLETE_CHUNKED_ENCODING and re-bootstraps in
+	// a loop). Lift the deadline for this response only; every other
+	// endpoint keeps the protective timeout.
+	if err := nethttp.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		slog.Warn("app events: write deadline not cleared; stream may be cut by server timeout", "err", err)
+	}
 	ch, release := h.deps.Live.Subscribe()
 	defer release()
 	msg := hyperserve.SSEMessage{Event: "snapshot", Data: h.deps.Live.Snapshot()}

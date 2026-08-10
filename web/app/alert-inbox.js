@@ -460,7 +460,11 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
   const target = alertEvidenceTarget(occurrence);
   if (target.kind === "rule") {
     const rule = (snapshot.rules?.rules || []).find((candidate) => String(candidate?.id || "") === target.id);
-    return boundedFact(rule?.evidence || rule?.reason);
+    // An alert that does not name its subject fails at its one job: append
+    // the rule's own offender legs so the row says which position it means.
+    const offenders = (rule?.offenders || []).slice(0, 2).map((o) => o.leg || o.symbol).filter(Boolean);
+    const fact = [rule?.evidence || rule?.reason, offenders.length ? `Offenders: ${offenders.join(", ")}` : ""].filter(Boolean).join(" ");
+    return boundedFact(fact);
   }
 
   const stress = snapshot.stress || {};
@@ -700,10 +704,28 @@ function bySeverity(left, right) {
   return (SEVERITY_ORDER[left.severity] ?? 9) - (SEVERITY_ORDER[right.severity] ?? 9);
 }
 
+// Delivery classes are wire enums; the banner translates them into plain
+// words so "no_active_subscription" never reaches the operator raw.
+const DELIVERY_CLASS_COPY = {
+  retry_pending: "a delivery attempt failed and will be retried",
+  transport_rejected: "the push service rejected the delivery",
+  interrupted_uncertain: "a delivery was interrupted; its outcome is unknown",
+  state_write_failure: "delivery state could not be saved",
+  capacity_overflow: "the inbox is full",
+  no_active_subscription: "no device has phone notifications enabled",
+  signing_keys_unavailable: "push signing keys are missing",
+  sender_unavailable: "no push sender is configured",
+  invalid_persisted_state: "stored delivery state is invalid",
+  retry_exhausted: "delivery retries are exhausted",
+  not_initialized: "delivery has not started yet",
+  producer_observation_rejected: "the app refused the daemon's latest alert snapshot",
+};
+
 function deliveryCopy(health) {
   if (!health || health.state === "healthy") return "";
   if (health.state === "overflow") return "Alert delivery is blocked because the inbox is full.";
-  return `Alert delivery is ${health.state}: ${health.class || "reason unavailable"}.`;
+  const reason = DELIVERY_CLASS_COPY[health.class] || (health.class ? humanAlertWord(health.class).toLowerCase() : "reason unavailable");
+  return `Alert delivery is ${health.state}: ${reason}.`;
 }
 
 function renderAttention() {

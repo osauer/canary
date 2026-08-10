@@ -1,4 +1,4 @@
-import { heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
+import { applyTileSeverity, heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
 import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, parseDate, pct, privacyMask, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
 import { state } from "./state.js";
@@ -7,7 +7,7 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
   const detail = $("accountOverviewDetail");
   const detailToggle = $("accountOverviewToggle");
   detail.hidden = !state.accountOverviewOpen;
-  detailToggle.textContent = state.accountOverviewOpen ? "Hide detail" : "Detail";
+  detailToggle.textContent = state.accountOverviewOpen ? "Hide detail" : "Show detail";
   detailToggle.setAttribute("aria-expanded", String(state.accountOverviewOpen));
   $("accountPanel").dataset.open = String(state.accountOverviewOpen);
 
@@ -56,30 +56,49 @@ function renderAccountPanel(account = {}, positions = {}, stress = {}) {
     portfolio.fx_base_currency || baseCurrency,
   ), hasNumericValue(portfolio.fx_sensitivity_per_pct));
   renderAccountLargestExposure(portfolio, stress, baseCurrency);
-  renderDeltaTile(portfolio, baseCurrency);
+  renderDeltaTile(portfolio, stress, baseCurrency);
 }
 
 
-// The Net $ Delta window is a flush readout: no lamp slot, because a delta is
-// stays behind the account privacy mask.
-function renderDeltaTile(portfolio = {}, baseCurrency = "") {
+// The Net $ Delta window reads out net dollar delta, theta decay, FX
+// sensitivity, and the largest single name. Values stay behind the account
+// privacy mask; the tile takes the stress tint only when a delta-family
+// driver is what the daemon ranks as the binding problem, so color here can
+// never disagree with the Stress window beside it.
+function renderDeltaTile(portfolio = {}, stress = {}, baseCurrency = "") {
   const lead = $("deltaTileLead");
   const sub = $("deltaTileSub");
   if (!lead || !sub) return;
   const delta = portfolio.dollar_delta_base ?? portfolio.dollar_delta_ccy;
   const theta = portfolio.daily_theta_base ?? portfolio.daily_theta_ccy;
+  // The direction word is posture, and posture stays behind the mask like
+  // every other signed tone. The delta renders compact ("-572K") so the
+  // lead's two clauses survive a 375px tile without wrapping mid-figure;
+  // the precise figure lives in the account Detail strip.
+  const direction = state.accountValueVisible && typeof delta === "number" ? (delta > 0 ? "long" : delta < 0 ? "short" : "flat") : "";
+  const deltaCurrency = portfolio.dollar_delta_base_currency || portfolio.dollar_delta_ccy_currency || baseCurrency;
+  const compactDelta = state.accountValueVisible && hasNumericValue(delta) ? compactMoney(delta, deltaCurrency) : maskedRiskMoney(delta, deltaCurrency);
   lead.textContent = [
-    maskedRiskMoney(delta, portfolio.dollar_delta_base_currency || portfolio.dollar_delta_ccy_currency || baseCurrency),
+    [direction, compactDelta].filter(Boolean).join(" "),
     `theta ${maskedRiskMoney(theta, portfolio.daily_theta_base_currency || portfolio.daily_theta_ccy_currency || baseCurrency)}/d`,
   ].join(" · ");
   const largest = (portfolio.exposure_base || [])[0];
   const top = largest?.underlying
-    ? `top ${largest.underlying}${typeof largest.market_value_pct_nlv === "number" ? ` ${pct(largest.market_value_pct_nlv)}` : ""}`
-    : "top --";
+    ? `largest ${largest.underlying}${typeof largest.market_value_pct_nlv === "number" ? ` ${pct(largest.market_value_pct_nlv)} NLV` : ""}`
+    : "largest --";
   sub.textContent = [
-    `FX1% ${maskedRiskMoney(portfolio.fx_sensitivity_per_pct, portfolio.fx_base_currency || baseCurrency)}`,
+    `FX 1% ${maskedRiskMoney(portfolio.fx_sensitivity_per_pct, portfolio.fx_base_currency || baseCurrency)}`,
     top,
   ].join(" · ");
+  const tile = $("deltaTile");
+  if (tile) {
+    const deltaDrivers = ["net_delta_high", "gross_delta_high", "single_name_delta_high", "single_name_exposure_high", "gross_exposure_high"];
+    const driven = (stress.primary_drivers || []).some((id) => deltaDrivers.includes(String(id || "").trim().toLowerCase()));
+    applyTileSeverity(tile, driven ? String(stress.severity || "").toLowerCase() : "");
+    tile.title = "Net $ delta: delta-weighted market exposure across held underlyings — a 1% move in the underlyings shifts P/L by about 1% of this figure. "
+      + "Theta: option time decay per day. FX 1%: P/L from a 1% move in non-base currencies. "
+      + "Largest: the single name with the biggest market value, as a share of net liquidation.";
+  }
 }
 
 function maskedRiskMoney(value, currency) {

@@ -126,10 +126,20 @@ function renderProtectionDerisk() {
   const section = $("protectionDerisk");
   if (!section) return;
   const d = state.protectionDerisk;
-  // Offer the sweep only when something is scope-eligible to trim, so the
   const eligible = reduceEligibleHoldings();
-  section.hidden = eligible.length === 0;
-  if (eligible.length === 0) return;
+  // The sweep control stays visible even with nothing to trim: a hidden
+  // control reads as a missing feature, a disabled one explains itself.
+  section.hidden = false;
+  if (eligible.length === 0) {
+    $("protectionDeriskPercent").disabled = true;
+    const previewBtn = $("protectionDeriskPreview");
+    previewBtn.disabled = true;
+    previewBtn.textContent = "Preview";
+    $("protectionDeriskCancel").hidden = true;
+    $("protectionDeriskBasket").hidden = true;
+    $("protectionDeriskState").textContent = "No reduce-eligible holding right now — the sweep trims stocks, ETFs, and long options; closed or defunct positions do not count.";
+    return;
+  }
   // The trim sizes by Δ-adjusted risk; when the portfolio delta itself is
   const portfolio = state.snapshot?.positions?.portfolio || {};
   const deltaUnavailable = !hasNumericValue(portfolio.dollar_delta_base ?? portfolio.dollar_delta_ccy);

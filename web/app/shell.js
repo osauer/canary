@@ -107,8 +107,21 @@ function renderTopbar(snap) {
     strip?.classList.add(label.tone);
   }
   const phase = $("sessionPhase");
-  phase.textContent = label.phase;
-  // The chip now prints the served closure word beside the countdown — a
+  // The countdown is a first-order desk fact; it renders as its own bold
+  // tabular span so it reads at a glance instead of hiding in chip text.
+  phase.replaceChildren();
+  const phaseWord = label.phaseWord || "";
+  if (phaseWord) phase.append(document.createTextNode(phaseWord));
+  if (label.countdown && label.countdown !== "--" && label.countdown !== "live") {
+    if (phaseWord) phase.append(document.createTextNode(" · "));
+    phase.append(document.createTextNode(`${label.countdownVerb} `));
+    const clock = document.createElement("b");
+    clock.className = "session-countdown";
+    clock.textContent = label.countdown;
+    phase.append(clock);
+  } else if (!phaseWord) {
+    phase.textContent = label.phase;
+  }
   phase.title = label.text || "";
   const marketDot = $("marketStateDot");
   if (marketDot) {
@@ -178,19 +191,28 @@ function renderSyncStrip(snap) {
 
   const ageMinutes = Math.max(0, Math.floor((Date.now() - updatedAt.getTime()) / 60000));
   const dataGaps = snapshotHasDataGaps(snap);
+  // "Stream …" is deliberate: the header pill already says LIVE for the
+  // trading mode, and the same bare word here twice read as duplication.
+  // The state describes only the transport; content gaps are the adjacent
+  // "Data gaps" label's job, so a healthy stream never gets blamed for them.
   const stateLabel = !state.connectionOK
-    ? "syncing"
-    : dataGaps
-      ? "degraded"
-      : ageMinutes >= 5
-        ? "stale"
-        : "live";
-  // Panel Dark foot plate: "Snapshot HH:MM:SS · Auto" in the engraved
+    ? "Stream reconnecting"
+    : ageMinutes >= 5
+      ? "Stream stale"
+      : "Stream ok";
   $("syncStatusLabel").textContent = dataGaps ? "Data gaps" : "Snapshot";
   $("syncStatusTime").textContent = shortTimeWithZone(snap.updated_at);
-  $("syncStatusState").textContent = labelize(stateLabel);
-  strip.classList.toggle("sync-strip--degraded", stateLabel !== "live");
-  strip.title = state.connectionOK ? "SSE connected" : "SSE reconnecting";
+  $("syncStatusState").textContent = stateLabel;
+  strip.classList.toggle("sync-strip--degraded", dataGaps || stateLabel !== "Stream ok");
+  strip.title = state.connectionOK ? "Live update stream connected" : "Live update stream reconnecting";
+  const version = $("syncVersion");
+  if (version) {
+    // The strip shows the short form; Settings carries the full string.
+    const full = String(state.appVersion || "").replace(/^v/, "");
+    version.hidden = !full;
+    version.textContent = full ? `v${full.split("-g")[0]}` : "--";
+    version.title = full ? `Canary app version v${full}` : "Canary app version";
+  }
   strip.hidden = false;
 }
 
@@ -220,6 +242,7 @@ function marketSessionLabel(calendar) {
       text: session.reason || "Regular cash session",
       tone: "market-open",
       phase: marketStatusPhrase(phase, "closes", timeLeft),
+      phaseWord: phase,
       countdownVerb: "closes",
       countdown: timeLeft || "live",
       side: marketSessionNow(session),
@@ -233,6 +256,7 @@ function marketSessionLabel(calendar) {
       text: session.state === "early_close" ? session.reason || "Shortened session ahead" : "Regular cash session",
       tone: "market-warn",
       phase: marketStatusPhrase("", "opens in", untilOpen),
+      phaseWord: "",
       countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -246,6 +270,7 @@ function marketSessionLabel(calendar) {
       text: session.reason || "Next regular cash session",
       tone: "market-closed",
       phase: marketStatusPhrase("", "opens in", untilOpen),
+      phaseWord: "",
       countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -259,6 +284,7 @@ function marketSessionLabel(calendar) {
       text: session.reason || "Official market holiday",
       tone: "market-closed",
       phase: marketStatusPhrase(closureWord(session, "Holiday"), "opens in", untilOpen),
+      phaseWord: closureWord(session, "Holiday"),
       countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -272,6 +298,7 @@ function marketSessionLabel(calendar) {
       text: session.reason === "weekend" ? "Weekend closure" : `Outside regular cash session${reason}`,
       tone: "market-closed",
       phase: marketStatusPhrase(closureWord(session, "Closed"), "opens in", untilOpen),
+      phaseWord: closureWord(session, "Closed"),
       countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -285,6 +312,7 @@ function marketSessionLabel(calendar) {
       text: `Calendar coverage unavailable${reason}`,
       tone: "market-warn",
       phase: marketStatusPhrase("unknown", "opens in", untilOpen),
+      phaseWord: "unknown",
       countdownVerb: "opens in",
       countdown: untilOpen || "--",
       side: marketSessionNow(session),
@@ -297,7 +325,8 @@ function marketSessionLabel(calendar) {
     text: session.reason || `Official calendar${reason}`,
     tone: "market-warn",
     phase: marketStatusPhrase(cleanDetail(session.state), "opens in", untilOpen),
-    countdownVerb: "opens",
+    phaseWord: cleanDetail(session.state),
+    countdownVerb: "opens in",
     countdown: untilOpen || "--",
     side: marketSessionNow(session),
     dotTitle: "Selected market calendar status needs attention",

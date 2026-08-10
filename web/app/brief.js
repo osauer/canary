@@ -1,3 +1,4 @@
+import { setActiveTab, setProtectionSheetOpen, setRulesSheetOpen, setUnderlyingsSheetOpen } from "./chrome.js";
 import { $, money, privacyMask } from "./shared.js";
 import { state } from "./state.js";
 
@@ -65,7 +66,9 @@ function renderNarrative(narrative, brief) {
 }
 
 // Runs are text, never markup: each span is created and filled through
-// textContent, so composed prose can never inject nodes.
+// textContent, so composed prose can never inject nodes. A run carrying a
+// served topic slug renders as a tap target that navigates to the surface
+// owning that row — navigation only, never an order action.
 function runsElement(tag, className, runs) {
   const el = document.createElement(tag);
   el.className = className;
@@ -77,6 +80,17 @@ function runsElement(tag, className, runs) {
       el.append(document.createTextNode(text));
       continue;
     }
+    const topic = String(run?.topic || "");
+    if (topic) {
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = `${roleClass} brief-topic-link`;
+      link.textContent = text;
+      link.title = "Open this topic's panel";
+      link.addEventListener("click", () => openBriefTopic(topic));
+      el.append(link);
+      continue;
+    }
     const span = document.createElement(roleClass === "pd-fig" ? "b" : "span");
     span.className = roleClass;
     span.classList.toggle("is-private", hidden);
@@ -84,6 +98,47 @@ function runsElement(tag, className, runs) {
     el.append(span);
   }
   return el;
+}
+
+// openBriefTopic routes a flagged topic to its owning surface. Rules and
+// protection are sheets; capital, latch, and reconcile rows live with the
+// daily broker report card in the lamp-test dialog, which carries the one
+// latch-related control (Check again).
+function openBriefTopic(topic) {
+  if (topic.startsWith("held_name")) {
+    setUnderlyingsSheetOpen(true);
+    return;
+  }
+  switch (topic) {
+    case "policy_adherence":
+    case "premium_at_risk":
+      setRulesSheetOpen(true);
+      return;
+    case "proposals":
+    case "protection_proposals":
+    case "index_put_theta":
+      setProtectionSheetOpen(true);
+      return;
+    case "attribution":
+      setUnderlyingsSheetOpen(true);
+      return;
+    case "capital":
+    case "capital_events":
+    case "drawdown_latch":
+    case "reconcile":
+    case "auto_extend":
+      $("lampTestDialog")?.showModal();
+      return;
+    case "working_orders":
+      setActiveTab("orders");
+      return;
+    case "policy_drift":
+    case "monthly_pulse":
+      setActiveTab("settings");
+      return;
+    default:
+      setActiveTab("monitor");
+  }
 }
 
 function briefPlacard(text) {
