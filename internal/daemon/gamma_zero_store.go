@@ -14,7 +14,15 @@ import (
 )
 
 // gammaZeroStore persists the gamma-zero compute result across daemon
+// restarts. The TTL of the result is one NY trading session, and the
+// compute itself can run 5+ minutes cold after the slot-anchored
+// expiry picker, so restart-cost matters.
+//
+// Runtime persistence uses one daemon.db state document and immutable
 // observation stream per scope. The legacy per-scope JSON codec remains only
+// for deterministic cutover import and isolated tests. The store is not folded
+// into a generic cache because gamma's invalidation semantics are domain-
+// specific and the shared code would be tiny.
 type gammaZeroStore struct {
 	// dir is the sealed legacy-cache location used only by the cutover
 	// importer and file-codec tests. authority, once attached, is the sole
@@ -112,6 +120,9 @@ func (s *gammaZeroStore) Load(scope string, nyNow time.Time) (*rpc.GammaZeroComp
 	}
 	if env.Scope != scope {
 		// Scope-mismatch gate: a file at gamma-zero-spy.json whose
+		// envelope says Scope="spy+spx" indicates a renamed/linked
+		// file or a write-to-wrong-name bug. Treat as cold rather than
+		// returning the wrong-shape payload as the requested scope.
 		return nil, nil
 	}
 	if env.Result == nil {
@@ -128,6 +139,17 @@ func (s *gammaZeroStore) Load(scope string, nyNow time.Time) (*rpc.GammaZeroComp
 }
 
 // LoadStale returns the persisted result for scope without the
+// session-key freshness gate. Mirrors Load except it accepts a result
+// whose env.SessionKey was recorded under a prior NY trading date.
+// Version / Scope / Method gates still apply — a v1-shape file from a
+// prior methodology era is still rejected as cold.
+//
+// Used by the cache boot path when today's session-keyed state is
+// absent. The stale value is loaded as last-known-good context:
+// during regular option hours kickOrJoin refreshes behind it, and
+// outside regular option hours it is served without a non-force
+// refresh. Freshness/quality gates make the stale age visible to
+// callers.
 func (s *gammaZeroStore) LoadStale(scope string) (*rpc.GammaZeroComputed, error) {
 	data, ok, err := s.loadEnvelope(scope)
 	if err != nil || !ok {
@@ -234,6 +256,7 @@ func (s *gammaZeroStore) writeAtomic(name string, v any) error {
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
+	// the cache dir doesn't accumulate junk.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()
@@ -258,8 +281,11 @@ func (s *gammaZeroStore) writeAtomic(name string, v any) error {
 // gammaZeroStoreDefaultDir resolves the on-disk cache root the daemon
 // uses by default: $XDG_CACHE_HOME/ibkr/gamma-zero/, falling back to
 // $HOME/.cache/ibkr/gamma-zero/ when XDG_CACHE_HOME is unset (XDG
+// spec's documented default).
+//
 // Returns an error only if neither XDG_CACHE_HOME nor HOME is set,
 // which on a real OS user account doesn't happen. Tests should
+// construct newGammaZeroStore directly with t.TempDir().
 func gammaZeroStoreDefaultDir() (string, error) {
 	if v := os.Getenv("XDG_CACHE_HOME"); v != "" {
 		return filepath.Join(v, "ibkr", "gamma-zero"), nil

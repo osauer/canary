@@ -45,8 +45,10 @@ func MembersDefaultPath() (string, error) {
 }
 
 // UseCoreMembersStore binds the exact runtime cache path to daemon.db. The
+// existing document is fully validated before the binding is published. Once
 // bound, LoadExternal, SaveExternal, and MembersFileExists never touch the
 // legacy JSON path. A missing document is the intended clean-slate state and
+// lets callers use the embedded release-time fallback.
 func UseCoreMembersStore(path string, store *corestore.Store) error {
 	if store == nil {
 		return errors.New("SPX members: nil corestore")

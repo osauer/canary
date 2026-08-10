@@ -23,6 +23,7 @@ const (
 )
 
 // EnforcementShadow and EnforcementAdvisory are the enforcement classes a
+// constitution control may declare. Validation rejects unsupported classes.
 const (
 	EnforcementShadow   = "shadow"
 	EnforcementAdvisory = "advisory"
@@ -57,7 +58,10 @@ type ConstitutionCapital struct {
 }
 
 // ConstitutionDrawdown is the two-tier response ladder. Both thresholds are
+// percentages of declared risk capital consumed from the cash-flow-adjusted
+// equity peak. Warn is advisory and self-clearing; block latches in daemon
 // state and clears only through a journaled human reset that re-bases the
+// peak.
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
@@ -66,7 +70,9 @@ type ConstitutionDrawdown struct {
 }
 
 // ConstitutionOverride caps the one-shot exception mechanism: human-only,
+// single named control, reason required, hard expiry. The mechanism itself
 // (origin gating, journaling) is code-owned; only the lifetime cap is
+// policy.
 type ConstitutionOverride struct {
 	MaxDurationHours *int `toml:"max_duration_hours" json:"max_duration_hours"`
 }
@@ -81,6 +87,7 @@ type ConstitutionRecon struct {
 	// DateWindowBusinessDays bounds how far apart the statement value
 	DateWindowBusinessDays *int `toml:"date_window_business_days" json:"date_window_business_days"`
 	// MaxReportAgeDays bounds how old the newest ingested statement may
+	// be for a recon report to back a reconcile sign-off.
 	MaxReportAgeDays *int `toml:"max_report_age_days" json:"max_report_age_days"`
 	// MaxEquityDivergencePct bounds the absolute same-day difference between
 	// broker statement equity and the runtime observation before v3 may
@@ -94,6 +101,8 @@ type ConstitutionCadence struct {
 	EOD     ConstitutionArtefact `toml:"eod" json:"eod"`
 	Weekly  ConstitutionArtefact `toml:"weekly" json:"weekly"`
 	// Nudges and Monthly are policy-version-4-only. Pointers preserve the
+	// distinction between an absent table and an explicitly authored one, so
+	// old policies can reject the new keys and v4 can report missing material.
 	Nudges  *ConstitutionNudgeCadence   `toml:"nudges" json:"nudges,omitempty"`
 	Monthly *ConstitutionMonthlyCadence `toml:"monthly" json:"monthly,omitempty"`
 }
@@ -118,6 +127,7 @@ const (
 	// DefaultReconcileWarningDays is the rolling reconcile warning horizon.
 	DefaultReconcileWarningDays = 2
 	// DefaultMonthlyPulseWorkingDay is the Nth working day of the month the
+	// monthly pulse becomes due (Monday through Friday, weeks start Monday).
 	DefaultMonthlyPulseWorkingDay = 1
 	// DefaultMonthlyPulseAtLocal is the local wall time the pulse fires.
 	DefaultMonthlyPulseAtLocal = "09:00"
@@ -132,6 +142,7 @@ func (c ConstitutionCadence) NudgeLocation() (*time.Location, error) {
 }
 
 // ResolvedReconcileWarningDays returns the authored override when present,
+// else the code default.
 func (c ConstitutionCadence) ResolvedReconcileWarningDays() int {
 	if c.Nudges != nil && c.Nudges.ReconcileWarningDays != nil {
 		return *c.Nudges.ReconcileWarningDays
@@ -148,6 +159,7 @@ func (c ConstitutionCadence) ResolvedMonthlyWorkingDay() int {
 }
 
 // ResolvedMonthlyNudgeAtLocal returns the authored override when present,
+// else the code default.
 func (c ConstitutionCadence) ResolvedMonthlyNudgeAtLocal() string {
 	if c.Monthly != nil && c.Monthly.NudgeAtLocal != nil {
 		return *c.Monthly.NudgeAtLocal
@@ -169,6 +181,8 @@ type ConstitutionInventory struct {
 }
 
 // ConstitutionPolicyPin identifies one sibling policy version. Version is a
+// string so integer-versioned (rulebook, protection) and string-versioned
+// (stress) policies pin uniformly.
 type ConstitutionPolicyPin struct {
 	ID      string `toml:"id" json:"id"`
 	Version string `toml:"version" json:"version"`
@@ -519,6 +533,7 @@ type CapitalRuntime struct {
 	// peak; an unseeded state evaluates unknown, never ok.
 	Seeded bool
 	// BlockLatched persists across restarts and mark recovery; only a
+	// journaled human reset clears it.
 	BlockLatched bool
 	// LastReconciledAt is the last human or automatic reconcile evidence;
 	// zero means never reconciled.
@@ -531,6 +546,7 @@ type CapitalRuntime struct {
 type CapitalVerdict struct {
 	Tier string
 	// EffectiveRiskCapitalBase = min(declared, equity − floor); nil when
+	// unapproved inputs or no usable equity observation.
 	EffectiveRiskCapitalBase *float64
 	// DrawdownBase and ConsumedPct measure from the cash-flow-adjusted
 	DrawdownBase *float64

@@ -186,7 +186,12 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 			freshnessClass = breadthCadenceClass(res, now)
 		}
 		// A session may only be banked from evidence that is current under the
+		// indicator's own schedule. Persistence is the gate that stops one
+		// reading from confirming stress, so a row measured off its cadence —
+		// a mixed-vintage VIX/VIX3M ratio pre-open, a closed-venue FX tick —
 		// must not spend a session toward it. Freezing here rather than in
+		// bandAndValue keeps the band and its hysteresis hold on display;
+		// gammaZeroStreaks has always done the same thing one layer up.
 		tickBand := band
 		if freshnessClass != rpc.RegimeFreshnessFresh {
 			tickBand = ""
@@ -209,6 +214,13 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 		// A reading may change only because the measured thing changed. When
 		// the row's banding inputs are absent — the market is shut, or TWS
 		// has lost its link to IBKR — nothing about the market is known to
+		// have moved, and recomputing from whichever partial inputs survived
+		// turns a known unknown into a false reading. Measured over the
+		// fortnight to 2026-08-04, substituting daily closes for a missing
+		// SPY tick would have banded yellow where the live tape read red in
+		// 94 of 131 cycles, always understating credit stress. So hold the
+		// last measured band instead. The row keeps its own error status, so
+		// data_quality still names the lane and the outage stays visible.
 		var (
 			heldAt   time.Time
 			bandHeld bool
@@ -257,6 +269,7 @@ func (s *Server) regimeContentionMessage() string {
 	for _, task := range tasks {
 		// The current acquisition is itself advertised so the idle watcher
 		// keeps the daemon alive. It is not contention with itself and must not
+		// appear in its own timeout diagnosis.
 		if task.Name != "regime-refresh" {
 			names = append(names, task.Name)
 		}
@@ -268,8 +281,36 @@ func (s *Server) regimeContentionMessage() string {
 }
 
 // runRegimeFanout drives the regime fetchers in parallel and
+// returns a consolidated envelope. The function honours ctx's deadline:
+// any fetcher that hasn't returned by ctx.Done is surfaced as
+// Status=error in the envelope rather than blocking the handler.
+//
+// Why this exists — pre-v0.27.6 the orchestration used a plain
+// wg.Wait() which would hang the handler indefinitely if any one
+// fetcher's goroutine blocked past the ctx deadline (e.g. an HMDS
+// history fetch queued behind breadth's cold-start fan-out, since the
+// pre-collapse FetchHistoricalDailyBars didn't honour parent ctx). The CLI
+// then timed out at its own 60 s budget and the user saw
+// "regime: context deadline exceeded" — the symptom reported on
+// 2026-05-19 that motivated v0.27.6.
+//
+// Lingering goroutines exit cleanly: the buffered results channel
+// (cap equals fetcher count) accepts late sends without blocking; the late values are
+// garbage-collected once the caller has returned. Gateway slots stay
 // held only as long as the per-call timeouts the fetchers already set
+// on their own derived contexts (productionRegimeDeps uses
+// FetchHistoricalDailyBars, which respects them).
+//
+// contentionMsg is called fresh at the deadline-fired branch to
 // produce the partial-envelope ErrorMessage. Production wires it to
+// Server.regimeContentionMessage so the message names the daemon-
+// internal task(s) running at deadline time; tests pass a fixed
+// closure.
+//
+// The function is package-private and takes the closures so tests
+// can drive it without constructing a full Server fixture — see
+// TestRunRegimeFanout_ReturnsOnCtxDoneWithPartialEnvelope and
+// TestRunRegimeFanout_PartialEnvelopeUsesContentionMessage.
 type regimeFanoutOutcome struct {
 	Snapshot *rpc.RegimeSnapshotResult
 	Complete bool
@@ -389,6 +430,9 @@ type regimeDeps struct {
 	vix3mSeries    func(ctx context.Context) ([]regimeSeriesPoint, error)
 	logWarnf       func(format string, args ...any)
 	// now overrides the fetchers' clock reads. Tests pin it so
+	// calendar-keyed behavior (the closed-date day-change pin, the
+	// off-hours banding branch) is deterministic regardless of when the
+	// suite runs; nil means time.Now().
 	now func() time.Time
 }
 
@@ -447,6 +491,7 @@ func boundedSnapshot(ctx context.Context, deps *regimeDeps, sym string, budget t
 }
 
 // boundedSnapshotWith52WHigh is the boundedSnapshot wrapper for the
+// snapshotWith52WHigh dep variant. Same rationale and structure.
 func boundedSnapshotWith52WHigh(ctx context.Context, deps *regimeDeps, sym string, budget time.Duration) snapshotQuote {
 	return boundedSnapshotCall(ctx, budget, func() snapshotQuote { return deps.snapshotWith52WHigh(ctx, sym, budget) })
 }
@@ -455,7 +500,9 @@ func boundedSnapshotCall(ctx context.Context, budget time.Duration, call func() 
 	resCh := make(chan snapshotQuote, 1)
 	go func() { resCh <- call() }()
 	// Slack over budget so the dep has a chance to return its own deadline
+	// error before we bail. The slack matters when the inner code DOES
 	// honour ctx — without it, we'd race the inner deadline and lose,
+	// returning zeros instead of the inner path's classified result.
 	select {
 	case got := <-resCh:
 		return got
@@ -470,6 +517,10 @@ func boundedSnapshotCall(ctx context.Context, budget time.Duration, call func() 
 // authority the Stress read's session-aware severity demotion uses — so value
 
 // regimeTapePinLookbackDays is the calendar-day window for the
+// closed-date pin's daily-bar fetch. Two completed sessions need ~4
+// calendar days; 15 rides out holiday clusters, and the window gets its
+// own regimeHistoryCache entry, so closed-date reads cost at most one
+// HMDS call per symbol per cache freshness window.
 const regimeTapePinLookbackDays = 15
 
 // regimePrevSessionDates returns the last n completed US-equity trading
@@ -510,6 +561,9 @@ type regimeTapePin struct {
 
 // regimeClosedDateTapePin resolves sym's official daily closes for the
 // last two completed sessions, matching bars by exact session date so a
+// stale series (or an early partial next-session bar) yields an honest
+// miss instead of a wrong-session change. reason is the calendar's
+// closed-date label ("weekend", a holiday name) for the basis string.
 func regimeClosedDateTapePin(ctx context.Context, deps *regimeDeps, sym string, now time.Time, reason string) (regimeTapePin, bool) {
 	if deps == nil || deps.history == nil {
 		return regimeTapePin{}, false
@@ -557,6 +611,8 @@ type officialVIX3MClose struct {
 }
 
 // fetchOfficialVIX3MClose reads Cboe's published VIX3M series. Failure is not
+// an error for the caller: the row still has the gateway leg, and the missing
+// corroboration is reported through the cross-check verdict instead.
 func fetchOfficialVIX3MClose(ctx context.Context, deps *regimeDeps) officialVIX3MClose {
 	if deps == nil || deps.vix3mSeries == nil {
 		return officialVIX3MClose{problem: "no Cboe official VIX3M series fetcher configured"}
@@ -588,6 +644,7 @@ func resolveVIX3MOffWindow(row *rpc.RegimeVIXTerm, official officialVIX3MClose, 
 	lastStart, lastEnd, ok := vix3mLastDisseminationWindow(now)
 	if !ok {
 		// Outside embedded calendar coverage there is no window to date a
+		// close against; the cadence classifier already reads overdue.
 		return
 	}
 	if official.ok {
@@ -691,9 +748,19 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 
 	// VIX itself usually delivers a live mark (tick 37) even off-hours.
 	// VIX3M is a thinner CBOE index whose calculation only updates with
+	// active SPX option flow; pre-open it routinely emits no live ticks
+	// at all and the snapshot helper falls back to the previous
+	// regular-session close (tick 9) so the ratio still ranks. The
+	// data-type field honestly reports "frozen" in that case so the
+	// renderer dims the row instead of pretending it's live.
 	vixQ := boundedSnapshot(ctx, deps, "VIX", 5*time.Second)
 	// VIX day-change anchor. Trading dates: populate as soon as tick 9
+	// lands alongside a live print — independent of whether VIX3M
+	// arrives, and ahead of the no-tick early return, so the dashboard
 	// header stays useful when the ratio leg fails. Closed dates: pin to
+	// official closes (see the closed-date pinning block above) — the
+	// frozen print and the tick-9 anchor may each have reset
+	// independently since the last session.
 	if state, reason, _ := rpc.TapeSessionFor(now); state == rpc.TapeSessionClosedDate {
 		if pin, ok := regimeClosedDateTapePin(ctx, deps, "VIX", now, reason); ok {
 			out.VIXPrevClose = new(pin.prev)
@@ -732,6 +799,8 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	out.VIXQuality = firmTickQuality(vixQ.observedAt, regimeNow(deps), vixQ.dataType, "VIX tick")
 	if out.VIX3M == nil {
 		// One arm of the pair is enough to be informative, but the
+		// ratio cannot be computed; surface VIX alone with an
+		// error_message so the consumer knows the ratio is missing.
 		out.DataType = vixQ.dataType
 		out.Status = rpc.RegimeStatusError
 		out.ErrorMessage = "VIX3M: no tick within budget (thin CBOE index, common off-hours)"
@@ -808,7 +877,13 @@ func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfV
 const hygSpyNotes = "HYG (high-yield corporate bond ETF) vs SPY context. Spec thresholds: green when HYG is above its 50-day SMA; yellow when HYG breaks below its 50-day SMA; red when HYG is below its 50-day SMA while SPY remains within 3% of its 52-week high. Use the row's streak.sessions to distinguish an early one-session divergence from a sustained 5+ session credit downtrend. Observation window 2-4 weeks; single-day moves are noise. Confirmation gate: a red confirms only when HYG is at least 0.25% below the 50DMA for 2 sessions (or 1.0% below day one); outside regular hours the banding input is the latest official close, never a thin pre/post-market print. When the live HYG spot is unavailable, the latest official close serves as the banding input and the row is marked stale. On official non-trading dates the SPY day-change fields are pinned to the official daily closes of the last two completed sessions (spy_change_basis names them), so a closed-date header shows the last completed session's true change, never a drifted weekend anchor."
 
 // HYGLookbackDays is the calendar-day window passed to the HMDS
+// history fetch when computing HYG's 50-day SMA. 50 trading days ≈ 70
+// calendar days when the window has zero holidays; the US market
+// closes 9-10 days per year, so a 70-day window can come up short on
+// the wrong side of Memorial Day / Labor Day / Thanksgiving. 90
 // calendar days gives ~10 days of slack — the IBKR HMDS API only
+// bills the call, not the bar count, so this is free. Widened from
+// 70 to 90 in v0.23.0 (commit 02aba13).
 const HYGLookbackDays = 90
 
 func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDivergence {
@@ -833,6 +908,12 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		out.SPYQuality = firmTickQuality(spyQ.observedAt, regimeNow(deps), spyQ.dataType, "SPY tick")
 	}
 	// SPY day-change anchor. Trading dates: the same tick-9 close the
+	// subscribe captures alongside the price triple, so the dashboard
+	// header carries "SPY 530.42 +1.20 (+0.23%)" without a separate
+	// quote call. Closed dates: pin to official closes (see the
+	// closed-date pinning block above) — the 2026-07-19 header showed
+	// SPY +0.00% beside VIX +12.19% after the SPY anchor rolled forward
+	// alone.
 	if state, reason, _ := rpc.TapeSessionFor(now); state == rpc.TapeSessionClosedDate {
 		if pin, ok := regimeClosedDateTapePin(ctx, deps, "SPY", now, reason); ok {
 			out.SPYPrevClose = new(pin.prev)
@@ -877,6 +958,7 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 	}
 
 	// 50-day SMA on HYG. See HYGLookbackDays for the
+	// calendar-day window's holiday-clipping rationale.
 	hctx, hcancel := context.WithTimeout(ctx, 20*time.Second)
 	bars, err := deps.history(hctx, "HYG", HYGLookbackDays)
 	hcancel()
@@ -1190,6 +1272,9 @@ const gammaNotes = "Combined SPY+SPX dealer gamma context. SPY and SPX are repor
 func fetchRegimeGamma(ctx context.Context, s *Server) rpc.RegimeGammaZero {
 	out := rpc.RegimeGammaZero{Notes: gammaNotes}
 	// Reuse the existing handler: daemon startup normally prewarms the cache,
+	// and kickOrJoin owns any needed RTH refresh. WaitMs=0 returns the served
+	// last-good immediately while a 15-minute soft-TTL refresh runs behind it;
+	// without a last-good it returns the current cold/computing state.
 	envelope, err := s.handleGammaZeroSPX(ctx, &rpc.Request{
 		Method: rpc.MethodGammaZeroSPX,
 		Params: json.RawMessage(`{}`),
@@ -1211,6 +1296,16 @@ func fetchRegimeGamma(ctx context.Context, s *Server) rpc.RegimeGammaZero {
 		}
 		if envelope.Result != nil {
 			// Both scalars derive from the same compute, so AsOf is the
+			// compute's completion timestamp. ZeroGamma is modelled (the
+			// BS sweep's interpolation); GammaTotalAbs is the firmer
+			// sign-agnostic notional aggregated from OI+IV observations
+			// — still an estimate because per-leg coverage varies.
+			//
+			// When DerivedIVLegs == PricedLegCount, every IV in the compute came
+			// from the BS-IV Newton-Raphson fallback against option quote
+			// mids or prior-session closes. The Source string disclosure
+			// surfaces that to the --explain reader without making the
+			// fallback look like a live model tick.
 			source := envelope.Result.Method
 			if r := envelope.Result; r.DerivedIVLegs > 0 && r.DerivedIVLegs == r.PricedLegCount {
 				source = r.Method + " · BS-IV from option quote/close fallback"
@@ -1328,6 +1423,8 @@ func minTime(a, b time.Time) time.Time {
 }
 
 // warnDeps is the per-deps log shim. Production deps wire logWarnf to
+// the daemon logger; tests inject a capture closure; nil is a no-op
+// for the rare caller that doesn't care.
 func warnDeps(d *regimeDeps, format string, args ...any) {
 	if d == nil || d.logWarnf == nil {
 		return
@@ -1378,6 +1475,11 @@ func historyBarAsOf(bar ibkrlib.HistoricalBar, fallback time.Time) time.Time {
 }
 
 // historyBarSessionDate returns the bar's trading-session date label as
+// YYYY-MM-DD. The HMDS Date string is authoritative (it is the session
+// label as the gateway reported it); the date of bar.Time in its own
+// location is the fallback. No zone conversion happens here — shifting
+// a UTC-midnight stamp into market time would relabel the bar onto the
+// prior NY date. "" means unlabelable.
 func historyBarSessionDate(bar ibkrlib.HistoricalBar) string {
 	raw := strings.TrimSpace(bar.Date)
 	for _, layout := range []string{"2006-01-02", "20060102"} {
@@ -1394,6 +1496,7 @@ func historyBarSessionDate(bar ibkrlib.HistoricalBar) string {
 // modelledQuality builds a Quality for a value produced by a model
 // (currently only the gamma compute's zero-flip estimate). The Source
 // field carries the method token so consumers can deep-link to the
+// methodology disclosure without re-reading the spec doc.
 func modelledQuality(at time.Time, method string) *rpc.Quality {
 	return &rpc.Quality{
 		AsOf:           at,

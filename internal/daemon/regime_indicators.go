@@ -27,6 +27,7 @@ type streakIndicator interface {
 	fresh(res *rpc.RegimeSnapshotResult, nowNY time.Time) bool
 	// exitHoldsRed reports whether the red-exit hysteresis threshold
 	// still holds — consulted only when the previous tick was red and the
+	// fresh classification left red, to prevent boundary flapping.
 	exitHoldsRed(res *rpc.RegimeSnapshotResult) bool
 }
 
@@ -216,6 +217,7 @@ func (vixTermStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 }
 
 // Cboe keeps publishing VIX3M for a quarter hour past the equity close, so the
+// dissemination window runs 09:31 to close+15m.
 const vix3mDisseminationTail = 15 * time.Minute
 
 // vix3mCrossSourceTolerance is how far the broker's VIX3M may sit from Cboe's
@@ -393,6 +395,9 @@ func gammaCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 		}
 	case rpc.DataCadenceMissedSession:
 		// The session's first compute is in flight inside its bounded window,
+		// so the last completed session's result is still the newest that
+		// exists. Non-confirming context, and overdue the moment the typed
+		// in-flight marker or the window goes away.
 		if served && gammaPublicationPending(&res.GammaZero.Envelope, now) {
 			return rpc.RegimeFreshnessPending
 		}
@@ -634,6 +639,7 @@ func (breadthStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 }
 
 // officialDateWithinDays reports whether a YYYY-MM-DD observation date is
+// within n calendar days of nowNY. Unparseable/empty dates are not fresh.
 func officialDateWithinDays(date string, nowNY time.Time, n int) bool {
 	d, err := time.Parse("2006-01-02", date)
 	if err != nil {

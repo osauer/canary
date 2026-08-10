@@ -341,6 +341,8 @@ func stressRenameMigration() migration {
 		name:    "stress_sensor_rename",
 		statements: []string{
 			// Unarm the append-only pair, carry the table and every row to the
+			// new name, then re-arm under the new names. Dropping first avoids
+			// depending on how SQLite rewrites trigger bodies across a rename.
 			`DROP TRIGGER canary_transitions_no_update`,
 			`DROP TRIGGER canary_transitions_no_delete`,
 			`ALTER TABLE canary_transitions RENAME TO stress_transitions`,
@@ -488,9 +490,16 @@ const betaOperationalPrunePredicate = "beta_operational_history.v1"
 var betaOperationalPruneSelector = OperationalPruneSelector{Predicate: betaOperationalPrunePredicate}
 
 // betaOperationalHistoryPrune is migration 6. Canary's beta writers retained
+// raw market refreshes and analytical histories without a bounded operational
 // reader. Current state, outage fallbacks, broker/order continuity, token
+// tombstones, capital and risk governance, reconciliation, statements,
 // receipt-bound earnings identity observations, terminal-evidence changes,
+// quarantined gamma recovery rows, operational proposal/opportunity events,
+// and the newest two regime events all survive.
+//
 // The exact statements are frozen by validateMigrationMaintenance. This is a
+// one-time semantic epoch reset, not a configurable retention engine: unknown
+// observation kinds, unknown event types/actions, and near matches survive.
 func betaOperationalHistoryPrune() migration {
 	selector := betaOperationalPruneSelector
 	statements := betaOperationalPruneStatements()
@@ -1055,7 +1064,11 @@ func validateSchemaObjectsWithPlan(ctx context.Context, db *sql.DB, expectedVers
 }
 
 // canonicalSchemaManifests memoizes the manifest each validated plan prefix
+// produces. The manifest is a pure function of the statements that prefix
 // runs, and the ledger checksums already identify those statements exactly,
+// so a hit is as strong a derivation as the rebuild it replaces. Building it
+// migrates a throwaway in-memory database, which every inspection, open,
+// backup verification, and upgrade step would otherwise pay for again.
 var canonicalSchemaManifests sync.Map
 
 func canonicalSchemaManifestWithPlan(ctx context.Context, version int, plan []migration) ([]schemaObject, error) {

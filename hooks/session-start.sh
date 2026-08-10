@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # SessionStart hook for the Canary Claude Code plugin.
+#
+# Two warnings, both written to stderr, both non-fatal:
+#   1) The canonical `canary` binary is not on PATH. A retired `ibkr` entry is
 #      detected for diagnosis but never invoked.
+#   2) Binary and plugin disagree on major.minor (skill may reference
+#      subcommands the binary doesn't expose, or vice versa).
+#
 # Never exit nonzero — a SessionStart hook must not block CC startup.
 
 set +e

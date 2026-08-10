@@ -381,6 +381,8 @@ func (c *Connector) absenceClock() time.Time {
 }
 
 // rememberMarketDataAbsence records a terminal entitlement rejection for a
+// subscription key. Logged at Info once per window so the log shows one
+// honest probe per key per marketDataAbsenceRetry instead of a churn loop.
 func (c *Connector) rememberMarketDataAbsence(key string, code int, message string) {
 	now := c.absenceClock()
 	c.absenceMu.Lock()
@@ -418,9 +420,11 @@ func (c *Connector) marketDataAbsenceFor(key string) *MarketDataAbsenceError {
 }
 
 // MarketDataAbsences snapshots every route key whose terminal entitlement
+// rejection is still inside its retry window, ordered by key. Expired records
 // are dropped on read exactly as marketDataAbsenceFor drops them, so an
 // observation surface can never name a key the subscribe paths would already
 // let through. Message stays untrusted broker text; callers that classify must
+// read Code.
 func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 	if c == nil {
 		return nil
@@ -697,6 +701,8 @@ func (c *Connector) inactiveReason(symbol string) (string, bool) {
 		return "", false
 	}
 	// Lazy TTL expiry, mirroring the absence memory: an expired mark is
+	// deleted on read and the name earns a fresh probe; re-marking needs a
+	// fresh 2-in-10-min confirmation.
 	if time.Since(state.markedAt) > inactiveMarkTTL {
 		c.inactiveMu.Lock()
 		if cur, still := c.inactiveSymbols[symbol]; still && cur.markedAt.Equal(state.markedAt) {
@@ -778,6 +784,9 @@ func (c *Connector) registerInactiveCandidatePostAction(symbol, reason string) (
 	}
 	// Choke-point farm guard: both write paths (subscription notices AND
 	// historical failures) converge here. While any tracked farm is
+	// impaired the gateway's definition errors are a session verdict, not
+	// a contract verdict — counting them is how a nightly-reset wedge
+	// marked held AMD/BB/IBM and VIX inactive (2026-07-08).
 	if c.marketDataFarmImpaired() {
 		return false, nil
 	}
@@ -806,6 +815,7 @@ func (c *Connector) registerInactiveCandidatePostAction(symbol, reason string) (
 	state := c.inactiveCandidates[symbol]
 	if !state.lastUpdated.IsZero() && now.Sub(state.lastUpdated) > inactiveCandidateWindow {
 		// Occurrences far apart are independent transients, not a
+		// confirmation.
 		state = inactiveCandidateState{}
 	}
 	state.count++
@@ -980,15 +990,26 @@ func (c *Connector) failPendingExactHistoricalRoute(reqID, code int, message str
 // recoverFromSystemNotice drives the request-scoped recovery that the
 // legacy msgErrMsg path (handleIBKRError / handleErrorMessage) promised
 // but never receives on current gateways:
+//
 //   - a pending historical request fails immediately instead of burning
 //     its timeout and then wire-cancelling a query the server already
+//     killed (the recurring error-366 source); the error — including 200
 //     "no security definition" — propagates to the caller;
+//   - in-flight market-data pollers get the RejectCh fast-abort;
+//   - terminal entitlement/definition rejections (200/354) release the
 //     rate-limiter slot, mark the exact reqID server-dead so teardown
 //     skips the futile wire cancel (the recurring error-300 source), and
+//     — for 354 — feed the absence memory so steady pollers stop
+//     re-requesting a name with no data entitlement (the recurring
+//     354+2129 source);
+//   - 10197 keeps its force-delayed side effect and transparently replays
 //     the shared request IBKR killed so the first symbol is not lost.
 //
 // Deliberately NOT ported from handleIBKRError: refreshSubscription's
+// blind alternate-routing resubscribe on 200/320/321/354 — re-requesting
 // a terminally rejected subscription is exactly the churn loop this
+// recovery exists to stop, and recovery-after-the-window is owned by the
+// absence TTL.
 func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alias reqAliasEntry, note *systemNotification) (postBarrier func()) {
 	if note.tickerID <= 0 {
 		return nil
@@ -1001,11 +1022,16 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 	}
 
 	// Contract-details requests hold no market-data slot and no subscription,
+	// so they exit here rather than falling through to the rejection and
+	// slot-release handling below.
 	if c.failPendingContractDetails(reqID, code, note.message) {
 		return nil
 	}
 
 	// A shared request rejected with 10197 gets one transparent replay after
+	// the connection enters delayed mode. Keep its RejectCh quiet until that
+	// attempt resolves so the original quote/gamma poll can receive the new
+	// reqID's delayed ticks. Every other terminal rejection still fast-aborts.
 	if code != 10197 {
 		c.pushSubscriptionRejection(reqID, code, note.message)
 	}
@@ -1049,6 +1075,9 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 
 // contractDetailsRequest tracks one in-flight reqContractDetails so a system
 // notice targeting its reqID can fail it immediately. resolutionKey is the
+// inactive-mark key a definition rejection should count against, empty for
+// derivative probes whose rejections are routine (option fan-outs request
+// strike supersets; FX resolution quotes both pair directions).
 type contractDetailsRequest struct {
 	resolutionKey string
 	fail          chan error
@@ -1084,7 +1113,9 @@ func (c *Connector) pendingContractDetailsKey(reqID int) string {
 
 // failPendingContractDetails fails the contract-details request owning reqID,
 // if any, so the caller returns on the broker's answer instead of burning its
+// full budget and reporting a timeout. Informational codes leave the request
 // running, matching failPendingHistorical. Returns true when reqID belonged to
+// a pending contract-details request.
 func (c *Connector) failPendingContractDetails(reqID, code int, message string) bool {
 	if code == 0 || code == -1 || (code >= 2100 && code < 2200) {
 		return false
@@ -1108,6 +1139,9 @@ func (c *Connector) failPendingContractDetails(reqID, code int, message string) 
 
 // failPendingHistorical fails the historical request owning reqID, if
 // any, mirroring handleIBKRError's histPending branch (162 keeps its
+// pacing backoff, anything else resets it). Informational codes leave the
+// request running. Returns true when reqID belonged to a pending
+// historical request.
 func (c *Connector) failPendingHistorical(reqID, code int, message string) bool {
 	if code == 0 || code == -1 || (code >= 2100 && code < 2200) {
 		return false
@@ -1152,6 +1186,9 @@ func (c *Connector) markSubscriptionRejected(reqID int) {
 }
 
 // maybeRememberAbsenceForReqID feeds the market-data absence memory for a
+// terminal 354, keyed by the connector's own subscription key (see
+// subscriptionKeyForNotice) so the record key is identical to what the
+// subscribe paths check.
 func (c *Connector) maybeRememberAbsenceForReqID(reqID int, alias reqAliasEntry, code int, message string) {
 	key := c.subscriptionKeyForNotice(reqID, alias)
 	if key == "" {
@@ -1162,7 +1199,14 @@ func (c *Connector) maybeRememberAbsenceForReqID(reqID int, alias reqAliasEntry,
 
 // subscriptionKeyForNotice resolves the connector-owned subscription key a
 // request-scoped notice may act on: reqIDMap[reqID], i.e. exactly what the
+// subscribe paths check before re-requesting — bare symbol for
+// SubscribeMarketData, route key for SubscribeMarketDataWithContract. Never
+// alias.symbol: for option-IV subscriptions that is the underlying and a
 // record there would blind the stock. Returns "" when the notice must not
+// feed symbol-level memory: reqIDs the connector does not own
+// (contract-details probes, snapshots, historical), option reqIDs and
+// derivative aliases, and notices arriving while a market-data farm is
+// impaired (a bounce-window error is not a verdict on the contract).
 func (c *Connector) subscriptionKeyForNotice(reqID int, alias reqAliasEntry) string {
 	if reqID <= 0 {
 		return ""
@@ -1212,8 +1256,14 @@ func (c *Connector) recordDataFarmNotice(code int, message string, asOf time.Tim
 		c.dataFarms = make(map[string]DataFarmStatus)
 	}
 	// A farm-level OK says nothing about the TWS<->IBKR link. This used to
+	// clear the connectivity mark on ANY ok notice, so a routine 2104
+	// ("market data farm connection is OK:usfarm") erased a 1100/2110 break
+	// — and because an impaired connectivity row short-circuits every farm
+	// type to unavailable in the status surface, that turned a real outage
 	// green. Only a connectivity notice writes the connectivity key now,
+	// which 1101/1102 already do through the generic path below: they carry
 	// type "connectivity" and the same forced "tws-server" name, so the
+	// overwrite and its impaired->ok stamp land there.
 	key := dataFarmKey(farm.Type, farm.Name)
 	if prev, had := c.dataFarms[key]; had && farmStatusImpaired(prev.Status) && farm.Status == "ok" {
 		c.farmRecoveryAt = time.Now()
@@ -1331,7 +1381,12 @@ type mdReplayEntry struct {
 }
 
 // handleBackendConnectivityNotice tracks the TWS<->IBKR backend link.
+// 1100: link lost — refuse new order transmissions until a restore notice.
+// 1102: restored with server-side state maintained — nothing to replay.
+// 1101: restored with subscriptions LOST server-side — the gateway will never
+// resume ticking the old request IDs, so the post action replays every live
 // shared market-data subscription and force-rebuilds the account-updates and
+// daily-P&L streams.
 func (c *Connector) handleBackendConnectivityNotice(origin ConnectorSessionBinding, note *systemNotification) func() {
 	switch note.code {
 	case 1100:
@@ -1382,7 +1437,10 @@ func (c *Connector) BackendLinkStatus() (down bool, changedAt time.Time) {
 }
 
 // recoverFromBackendDataLoss is the 1101 post action. Exact-session
+// subscriptions (SessionEpoch != 0) are excluded: they are short-lived
 // broker-write evidence bound to one request, and their owners fail and
+// retry themselves. Runs off the read loop; the in-flight guard makes a
+// duplicate 1101 a no-op instead of a double replay.
 func (c *Connector) recoverFromBackendDataLoss(origin ConnectorSessionBinding) {
 	if !c.mdReplayInFlight.CompareAndSwap(false, true) {
 		c.logDebug("1101 subscription replay already in flight; skipping duplicate")
@@ -1449,6 +1507,7 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 		}
 		if err != nil || newReqID == 0 {
 			// Drop the entry so the demand paths re-create it instead of
+			// leaving a forever-dead reqID mapping behind.
 			delete(c.subscriptions, e.key)
 			delete(c.reqIDMap, e.oldReqID)
 			c.subMu.Unlock()
@@ -1462,6 +1521,7 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 		// LastTime only: re-issuing the request is not an observation. Both
 		// LastTickAt and LastPriceTickAt must keep pointing at the last real
 		// observations so a replay that never resumes stays visible as a
+		// growing gap.
 		e.sub.LastTime = time.Now()
 		c.subMu.Unlock()
 		replayed++
@@ -1836,6 +1896,8 @@ func (c *Connector) Start(ctx context.Context) error {
 }
 
 // LastError returns the most recent connector startup error that left the
+// connector in degraded mode. Empty means either healthy or no concrete
+// connector-level diagnosis is available.
 func (c *Connector) LastError() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -1971,6 +2033,8 @@ func (c *Connector) ensureHandlersRegistered(conn *Connection) {
 }
 
 // MarketDataTypeForSymbol returns the latest gateway data-type notice for the
+// symbol's active subscription: 1=live, 2=frozen, 3=delayed,
+// 4=delayed-frozen, or 0 when the subscription or notice is absent.
 func (c *Connector) MarketDataTypeForSymbol(symbol string) int {
 	c.subMu.RLock()
 	sub, ok := c.subscriptions[strings.ToUpper(symbol)]
@@ -2366,6 +2430,8 @@ func MarketDataKeyForContract(contract Contract) string {
 }
 
 // DefaultMarketDataKeyForSymbol returns the same normalized route key used by
+// the symbol-only subscription path after applying package routing defaults.
+// It returns an empty string for a blank symbol.
 func DefaultMarketDataKeyForSymbol(symbol string) string {
 	upper := strings.ToUpper(strings.TrimSpace(symbol))
 	if upper == "" {
@@ -2567,8 +2633,10 @@ const (
 )
 
 // SeedContractDetails adds a caller-supplied contract to the Connector's
+// in-memory cache when symbol is non-empty, detail has a non-zero ConID, and no
 // resolved entry is already cached for that symbol. It never replaces a live
 // resolved entry and performs no broker request. The result reports whether the
+// seed was applied.
 func (c *Connector) SeedContractDetails(symbol string, detail ContractDetailsLite) bool {
 	if symbol == "" || detail.ConID == 0 {
 		return false
@@ -2825,6 +2893,7 @@ const contractDetailsSharedWireMinimum = 30 * time.Second
 // coalesceContractDetails shares one identical wire request. Followers retain
 // their own wait budget and timing out never cancels the leader; the flight may
 // still populate the contract cache or deliver a terminal broker answer to
+// callers whose budgets remain open.
 func (c *Connector) coalesceContractDetails(key string, timeout time.Duration, fetch func(time.Duration, func([]ContractDetailsLite)) ([]ContractDetailsLite, error)) ([]ContractDetailsLite, error) {
 	c.contractDetailsFlightMu.Lock()
 	if c.contractDetailsFlights == nil {
@@ -3440,7 +3509,14 @@ func (c *contractDetailsWireCursor) complete() bool {
 // the broker connection. It is idempotent. The Connector remains a valid value
 func (c *Connector) Stop() error {
 	// Drop c.mu BEFORE calling into conn.Disconnect — that path fires the
+	// registered onDisconnect callback (attachConnectionHooks.func2), which
+	// calls back into onConnectionLost and tries to acquire c.mu. Holding
 	// mu across the callback would deadlock the shutdown path, hanging the
+	// daemon process after idle timeout / SIGTERM.
+	//
+	// Marking running=false before releasing the lock is the right boundary:
+	// any reentrant caller that re-checks c.running mid-shutdown sees a
+	// stopped connector and no-ops.
 	c.mu.Lock()
 	if !c.running {
 		c.mu.Unlock()
@@ -3471,9 +3547,13 @@ func (c *Connector) Stop() error {
 const sharedGenericTicks = "100,101,104,106,165,221,233,236"
 
 // SubscribeMarketData ensures a symbol-keyed streaming subscription exists.
+// Repeating the call for the same normalized symbol is a no-op, including from
 // concurrent callers. ctx must be non-nil and bounds acquisition of a
 // market-data slot. fields is retained as subscription metadata; the wire tick
 // set is selected by the Connector. The slice is not copied and must not be
+// mutated while subscribed. When disconnected, the method records a local
+// subscription with no live request. Use [Connector.UnsubscribeMarketData] for
+// cleanup.
 func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fields []string) error {
 	symbol = strings.ToUpper(symbol)
 	if reason, inactive := c.inactiveReason(symbol); inactive {
@@ -3534,6 +3614,9 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 
 	// Race protection: another goroutine may have raced past the first
 	// idempotency check. If we issued a reqID to IBKR, cancel it so we
+	// don't leak a gateway-side subscription — but release subMu first
+	// so the cancel's rate-limited socket write doesn't block every
+	// other subscription reader.
 	if _, exists := c.subscriptions[symbol]; exists {
 		raceReqID := reqID
 		conn := c.conn
@@ -3750,8 +3833,11 @@ func explicitContractRouteMatches(requested, candidate Contract) bool {
 }
 
 // EnsureMarketDataSubscription creates a live symbol subscription or refreshes
+// one whose last observed tick is at least staleAfter old. A staleAfter value
+// of zero or less disables age-based refresh. The boolean reports whether a new
 // wire request was sent. ctx must be non-nil and bounds market-data slot
 // acquisition; unavailable, inactive, entitlement, and request failures are
+// returned.
 func (c *Connector) EnsureMarketDataSubscription(ctx context.Context, symbol string, fields []string, staleAfter time.Duration) (bool, error) {
 	return c.ensureMarketDataSubscription(ctx, symbol, fields, staleAfter, false)
 }
@@ -3828,6 +3914,7 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 				sub.ReqID = 0
 				sub.Observed = false
 				// Drain any stale rejection left by the previous reqID so
+				// the next poller doesn't fast-abort on it.
 				if sub.RejectCh != nil {
 					select {
 					case <-sub.RejectCh:
@@ -4027,6 +4114,7 @@ func (c *Connector) SubmitPaperOrderForSession(binding ConnectorSessionBinding, 
 }
 
 // SubmitPaperOrderForSessionGuarded is the paper-gated counterpart to
+// SubmitOrderForSessionGuarded.
 func (c *Connector) SubmitPaperOrderForSessionGuarded(ctx context.Context, binding ConnectorSessionBinding, gate PaperOrderGate, contract *Contract, order *RawOrder, guard func() error) error {
 	if err := gate.validate(); err != nil {
 		return definitelyUnsent(err)
@@ -4261,6 +4349,7 @@ func (c *Connector) nextDisjointOrderIDLocked(conn *Connection) (int, uint64, er
 		}
 		// The shared frontier remains consumed, but a skipped read-owned ID
 		// must not retain order-reservation provenance that could authorize a
+		// later explicit claim.
 		conn.discardOrderIDReservation(id)
 	}
 }
@@ -4313,6 +4402,8 @@ func (c *Connector) OrderLifecycleGeneration() uint64 {
 
 // PortfolioProjectionGeneration returns the current structural portfolio
 // frontier without issuing a broker request. It advances for scope,
+// completeness, contract-set, or quantity changes, but not mark/PnL-only
+// updates.
 func (c *Connector) PortfolioProjectionGeneration() uint64 {
 	if c == nil {
 		return 0
@@ -4336,6 +4427,8 @@ type PortfolioProjectionBinding struct {
 }
 
 // CapturePortfolioProjectionForSession snapshots positions, health, and the
+// structural generation while portfolio/session mutations are excluded.
+// False means binding is stale or the Connector is not ready.
 func (c *Connector) CapturePortfolioProjectionForSession(binding ConnectorSessionBinding) (PortfolioProjectionBinding, bool) {
 	if c == nil {
 		return PortfolioProjectionBinding{}, false
@@ -4372,6 +4465,7 @@ func (c *Connector) CapturePortfolioProjectionForBoundSession(binding ConnectorS
 }
 
 // BrokerEvidenceBinding is a point-in-time identity for the Connector session,
+// order callback frontier, and structural portfolio projection.
 type BrokerEvidenceBinding struct {
 	Session                       ConnectorSessionBinding
 	OrderLifecycleGeneration      uint64
@@ -4514,6 +4608,7 @@ func (c *Connector) CancelPaperOrderForSession(binding ConnectorSessionBinding, 
 }
 
 // CancelPaperOrderForSessionGuarded is the paper-gated counterpart to
+// CancelOrderForSessionGuarded.
 func (c *Connector) CancelPaperOrderForSessionGuarded(ctx context.Context, binding ConnectorSessionBinding, gate PaperOrderGate, orderID int, guard func() error) error {
 	if err := gate.validate(); err != nil {
 		return definitelyUnsent(err)
@@ -4592,6 +4687,9 @@ func (c *Connector) seedContractCacheFromPositions(positions map[string]*RawPosi
 }
 
 // isConnected checks if we have an active IBKR connection. Reconnection on
+// loss is the daemon's responsibility (server.triggerReconnect); the
+// connector reports honest connectivity rather than masking it with retry
+// state.
 func (c *Connector) isConnected() bool {
 	c.mu.RLock()
 	conn := c.conn
@@ -4606,6 +4704,7 @@ func (c *Connector) isConnected() bool {
 func (c *Connector) IsConnected() bool { return c.isConnected() }
 
 // UsingTLS reports the TLS mode the active session negotiated. False when
+// disconnected or when a non-TLS handshake succeeded (possibly via fallback).
 func (c *Connector) UsingTLS() bool {
 	c.mu.RLock()
 	conn := c.conn
@@ -4617,6 +4716,7 @@ func (c *Connector) UsingTLS() bool {
 }
 
 // IsReady reports whether the broker connection is established and the
+// Connector's response handlers are registered.
 func (c *Connector) IsReady() bool {
 	c.mu.RLock()
 	rd := c.ready
@@ -4655,7 +4755,10 @@ func (c *Connector) SessionCurrent(binding ConnectorSessionBinding) bool {
 }
 
 // SessionReceiptCurrent reports whether binding names the Connector's exact
+// installed inbound socket generation. Connecting is accepted because
+// startAPI synchronously processes a small frame burst before onConnect;
 // disconnected/failed/reconnecting states are never current. This does not
+// authorize outbound requests.
 func (c *Connector) SessionReceiptCurrent(binding ConnectorSessionBinding) bool {
 	if c == nil || binding.connector != c || binding.connection == nil {
 		return false
@@ -4671,16 +4774,19 @@ func (c *Connector) SessionReceiptCurrent(binding ConnectorSessionBinding) bool 
 }
 
 // CaptureHistoricalSession is the historical-data compatibility spelling for
+// [Connector.CaptureSession].
 func (c *Connector) CaptureHistoricalSession() (HistoricalSessionBinding, bool) {
 	return c.CaptureSession()
 }
 
 // HistoricalSessionCurrent is the historical-data compatibility spelling for
+// [Connector.SessionCurrent].
 func (c *Connector) HistoricalSessionCurrent(binding HistoricalSessionBinding) bool {
 	return c.SessionCurrent(binding)
 }
 
 // ServerVersion returns the IBKR server protocol version reported by the
+// gateway during the handshake. Returns 0 when no connection is established.
 func (c *Connector) ServerVersion() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -4734,6 +4840,8 @@ func (c *Connector) SubscribeOption(ctx context.Context, underlying, tradingClas
 		normalizeResolvedOptionMarketDataContract(&contract)
 	} else {
 		// Index options and other non-direct paths still resolve ConID before
+		// reqMktData. SPX/SPXW in particular needs this cache-backed path to
+		// preserve its classed contract identity.
 		if err := conn.resolveOptionContract(ctx, &contract, 5*time.Second); err != nil {
 			return "", 0, fmt.Errorf("resolve option %s %s %.2f%s: %w",
 				contract.Symbol, contract.Expiry, contract.Strike, contract.Right, err)
@@ -4820,6 +4928,10 @@ func optionMarketDataKeyForClass(underlying, tradingClass, expiryYMD, right stri
 }
 
 // PrewarmOptionChain resolves and caches option contracts for each expiry in a
+// symbol and trading-class pair. It returns one result per expiry with cache
+// counts, duration, and any error. The call returns nil when disconnected; ctx
+// and timeout bound the underlying bulk requests. Later [Connector.SubscribeOption]
+// calls can reuse the resolved contract identities.
 func (c *Connector) PrewarmOptionChain(
 	ctx context.Context,
 	symbol string,
@@ -4875,6 +4987,7 @@ func (c *Connector) resubscribeAccountUpdates() error {
 }
 
 // acctUpdatesResubscribeThrottle bounds the dead-stream self-heal below to
+// one resubscribe attempt per window, counted from the last subscribe.
 const acctUpdatesResubscribeThrottle = 30 * time.Second
 
 func (c *Connector) acctUpdatesClock() time.Time {
@@ -4997,6 +5110,10 @@ func (c *Connector) filteredCachedPositions(ibkrPositions map[string]*RawPositio
 			continue
 		}
 		// Inactive marks never hide a held row: for a true delisting the
+		// row is zero-value and stays visible anyway, so a mark-based skip
+		// here fired almost exclusively on FALSE marks — silently hiding
+		// healthy holdings during gateway-wide degradation (2026-07-08).
+		// A possibly-stale price beats a vanished position.
 		result = append(result, pos)
 	}
 	return result
@@ -5152,6 +5269,8 @@ func (c *Connector) handleTickPrice(fields []string) {
 	tickTypeStr := fields[3]
 	priceStr := strings.TrimSpace(fields[4])
 	// Parse reqID with validation. strconv.Atoi is ~10× cheaper than
+	// fmt.Sscanf on this per-tick hot path (no reflection, no format
+	// machinery) — the field is a small ASCII integer.
 	reqID, err := strconv.Atoi(reqIDStr)
 	if err != nil || reqID == 0 {
 		marketDataLogger.Warnf("Invalid reqID in tick price: %q (error: %v)", reqIDStr, err)
@@ -5307,6 +5426,9 @@ func (c *Connector) handleTickPrice(fields []string) {
 				c.optQuoteAsk[optSym] = price
 			case 9, 75:
 				// Per-contract previous close (the option's own prior settle,
+				// NOT the underlying's). Used for option-level daily P&L
+				// attribution; without this, callers fall back to the
+				// underlying's prev close which is meaningless for an option.
 				c.optPrevClose[optSym] = price
 			}
 			c.optMu.Unlock()
@@ -5341,8 +5463,16 @@ func (c *Connector) handleTickPrice(fields []string) {
 	sub.Observed = true
 
 	// Tick types: 1=bid, 2=ask, 4=last, 6=high, 7=low, 9=close, 14=open.
+	// Delayed subscriptions use 66/67/68/72/73/75/76 for the same fields.
+	// Close (9) is yesterday's regular-session close — the anchor for
 	// change-vs-prev-close. IBKR sends it automatically once per reqMktData,
+	// regardless of generic-tick flags.
+	//
 	// Tick types 15-20 (week-range highs/lows) only arrive when the
+	// streaming subscribe asked for generic tick 165 (Misc Stats). They are
+	// load-bearing for the scan-row 52w column; without them the column
+	// would be silently blank for symbols that didn't have an explicit
+	// historical-bars fetch.
 	switch tickType {
 	case 1, 66:
 		sub.Bid = price
@@ -5551,9 +5681,16 @@ func (c *Connector) SubscriptionRejectCh(key string) <-chan SubscriptionRejectio
 }
 
 // pushSubscriptionRejection signals fast-abort to any in-flight poller
+// watching this reqID's subscription. Non-blocking: the channel is
+// buffered 1 and we drop on a full buffer so the error-handler goroutine
 // never stalls. The drop is benign — the consumer's first read already
+// carries the abort signal, and the specific code/message of subsequent
+// rejections does not matter to the poller (every terminal code means
 // "this subscription will never produce ticks").
+//
 // Looked up via reqIDMap (the same lookup handleIBKRError already does
+// for recovery routing). Subscriptions created without a channel (test
+// fixtures, scaffolding) silently no-op.
 func (c *Connector) pushSubscriptionRejection(reqID, code int, message string) {
 	if reqID <= 0 || !isTerminalSubscriptionError(code) {
 		return
@@ -7539,6 +7676,7 @@ func (c *Connector) handleOrderStatus(fields []string) {
 
 	// Drop the log-dedupe signature outside orderMu so a later frame or a
 	// reused broker id logs fresh at INFO instead of being swallowed as a
+	// repeat.
 	if terminal {
 		c.forgetOrderStatusLog(orderID)
 	}
@@ -7564,6 +7702,9 @@ func orderStatusLogSignature(status string, filled, remaining float64) string {
 }
 
 // orderStatusChanged reports whether this order-status frame differs from the
+// last one logged for orderID, recording the new signature when it does. True
+// means the frame earns an INFO line; false means a verbatim repeat that
+// belongs at Debug.
 func (c *Connector) orderStatusChanged(orderID, sig string) bool {
 	c.orderStatusLogMu.Lock()
 	defer c.orderStatusLogMu.Unlock()
@@ -7618,6 +7759,9 @@ func (c *Connector) isWhatIfOrderID(orderID int) bool {
 }
 
 // isKnownBrokerOrderID reports whether id names a broker order this
+// connector owns: a journaled/open order or an in-flight WhatIf preview.
+// Used to keep request-scoped notice recovery off order-scoped msg-204
+// errors when the two integer id spaces collide.
 func (c *Connector) isKnownBrokerOrderID(id int) bool {
 	if c == nil || id <= 0 {
 		return false

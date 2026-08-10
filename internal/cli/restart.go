@@ -56,6 +56,7 @@ type restartDeps struct {
 
 // signalPolicy is the graceful-stop budget shared by `restart` and `stop`:
 // SIGTERM, wait up to timeout, and escalate to SIGKILL only when force is
+// set. quiet suppresses progress lines for the machine-readable modes.
 type signalPolicy struct {
 	force   bool
 	quiet   bool
@@ -138,6 +139,7 @@ var (
 
 // RunRestart is the top-level `canary restart` entrypoint. It intentionally does
 // not take an Env: restart is local process management and must run before the
+// normal autospawn+dial path in cmd/canary/main.go.
 func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	opts := restartOptions{
 		timeout: restartDefaultTimeout,
@@ -352,6 +354,7 @@ func quiesceAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps 
 			}
 			// Ambiguous or failed process discovery retains its exact error and
 			// flows to the fail-closed switch below. It is not evidence that
+			// launchd safely owns every possible app.
 		}
 	}
 	switch {
@@ -694,6 +697,13 @@ func signalProcessWithPolicy(policy signalPolicy, stop, kill func(int, time.Dura
 }
 
 // supervisedRestartApplies reports whether the launchd job owns this
+// restart. The app lock lives in the state directory, so lock identity —
+// not pid or argv equality — is the orphan test: a found process that
+// resolves to the job's state dir is the supervised app or its orphan,
+// while one resolving elsewhere is an independent instance (an isolated
+// smoke or preview app with its own --state-dir) — kickstarting the
+// shared host in its place would restart the wrong app and strand the
+// instance the caller asked about.
 func supervisedRestartApplies(proc appProcess, findErr error, sup appSupervisor) bool {
 	if findErr != nil {
 		return errors.Is(findErr, errAppNotRunning)

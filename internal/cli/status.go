@@ -16,6 +16,7 @@ import (
 const handshakeWaitBudget = 25 * time.Second
 
 // handshakePollInterval is the cadence at which `status` re-asks the
+// daemon for its health snapshot during the wait.
 const handshakePollInterval = 500 * time.Millisecond
 
 func runStatus(ctx context.Context, env *Env, args []string) int {
@@ -382,6 +383,8 @@ const marketDataAccessNamed = 3
 // formatMarketDataAccessValue renders the route keys the gateway is currently
 // refusing market data for. It reports the observation and the window, never a
 // verdict about the account's entitlements: a name absent from this list was
+// not necessarily requested, and features holding cached results keep serving
+// while their key is listed.
 func formatMarketDataAccessValue(items []rpc.MarketDataAccessHealth) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
@@ -586,6 +589,8 @@ func membersRefreshNeedsAttention(m rpc.MembersHealth) bool {
 }
 
 // isHandshakeInFlight reports whether the daemon has reported neither a
+// successful connection nor a connect error yet — i.e. the gateway
+// handshake goroutine started but hasn't produced a verdict.
 func isHandshakeInFlight(res rpc.HealthResult) bool {
 	switch res.GatewayPhase {
 	case rpc.GatewayPhaseConnecting, rpc.GatewayPhaseAPINotReady:
@@ -597,7 +602,10 @@ func isHandshakeInFlight(res rpc.HealthResult) bool {
 }
 
 // backgroundTaskPhrase renders a stable wire token (the one the
+// daemon's backgroundTasks() emits) as a short verb phrase suitable
 // for the status row. Unknown tokens fall through verbatim so a
+// daemon shipping a new task name still appears in `canary status`
+// even before the CLI has been updated.
 func backgroundTaskPhrase(token string) string {
 	switch token {
 	case "breadth-spx":
@@ -612,6 +620,8 @@ func backgroundTaskPhrase(token string) string {
 }
 
 // healthFetcher is the closure waitForHandshake uses to re-poll the
+// daemon. Indirected so tests can drive the wait deterministically
+// without a live socket.
 type healthFetcher func(ctx context.Context) (rpc.HealthResult, error)
 
 // waitForStatusVerdict waits out the daemon's first IB Gateway handshake

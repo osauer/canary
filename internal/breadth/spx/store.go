@@ -104,6 +104,7 @@ func (s *Store) LoadWindows() (map[string]ConstituentWindow, error) {
 	}
 	if set.Version != CurrentWindowSetVersion {
 		// Future-version files are treated as no-cache: safer to
+		// cold-rebuild than to mis-interpret an unknown schema.
 		return nil, nil
 	}
 	return set.Windows, nil
@@ -171,6 +172,9 @@ func (s *Store) checkpointWindows(windows map[string]ConstituentWindow, asOf tim
 }
 
 // LoadHistory returns the persisted rolling-history series or (nil,
+// nil) when no file exists yet. Like the other loaders, an unknown
+// schema version triggers a cold rebuild rather than an error so a
+// future format bump doesn't poison startup.
 func (s *Store) LoadHistory() ([]HistoryPoint, error) {
 	data, ok, err := s.load("history.json", breadthHistoryStateKind)
 	if err != nil || !ok {
@@ -187,6 +191,7 @@ func (s *Store) LoadHistory() ([]HistoryPoint, error) {
 }
 
 // SaveHistory persists the rolling history. Pass an empty slice to
+// wipe.
 func (s *Store) SaveHistory(points []HistoryPoint) error {
 	set := HistorySet{Version: CurrentHistorySetVersion, Points: points}
 	if s.authority != nil {
@@ -312,6 +317,7 @@ func (s *Store) writeAtomic(name string, v any) error {
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
+	// we don't litter the cache dir.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()

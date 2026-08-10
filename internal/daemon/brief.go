@@ -336,6 +336,8 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 			out.Breadth.BriefRowState = briefOK(detail)
 		case spx.PublicationPending(breadth.SessionKey, breadth.Refreshing, now):
 			// The ordinary post-close window: the newer session's fan-out is
+			// running and still inside its bounded deadline. Degrading here
+			// would light the row for ~90 min after every close.
 			out.Breadth.BriefRowState = briefOK(detail + "; the newer session is still computing")
 		default:
 			out.Breadth.BriefRowState = briefDegraded(detail + "; a newer session is overdue")
@@ -503,6 +505,8 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 			state = briefOK(inLast + "; no fresh update expected while the market is closed (source health " + worst + briefLastChecked(lastChecked) + ")")
 		default:
 			// Everything else — degraded, partial, any status outside the
+			// known vocabulary, or any non-ok state during an open session —
+			// keeps its weight: a source that misbehaved is not idle.
 			state = briefDegraded(flagged + "; source health is " + worst + briefLastChecked(lastChecked))
 		}
 		if kind == "earnings" && len(syms) > 0 {
@@ -677,6 +681,7 @@ func pluralNoun(count int, noun string) string {
 
 // briefUnknownEarningsRules cross-links the earnings event row to the rules
 // that govern earnings behavior. This is disclosure only — it names which
+// governing rules cannot currently be evaluated; it gates nothing.
 func briefUnknownEarningsRules(rules *rpc.RulesResult) []string {
 	if rules == nil {
 		return nil

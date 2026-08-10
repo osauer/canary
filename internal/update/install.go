@@ -46,6 +46,9 @@ func ResolveInstallDir() (string, error) {
 }
 
 // CacheDir returns the update cache directory: where the tarball,
+// SHA256SUMS, extracted binary, and lock file live for the duration of
+// an install. Thin wrapper around xdgcache.CacheDir so callers in this
+// package can reference one constant ("update").
 func CacheDir() (string, error) {
 	return xdgcache.CacheDir("update")
 }
@@ -81,6 +84,13 @@ func VerifySignature(sumsPath, sumsSigPath string) error {
 }
 
 // VerifyChecksum reads SHA256SUMS (one `<sha>  <filename>` line per
+// asset), looks up assetName, and compares against the SHA256 of the
+// file at tarballPath. Returns nil on match.
+//
+// The two-space-separator format is what shasum / sha256sum / GNU
+// coreutils produce by default and what the release pipeline emits.
+// Lines for other assets are ignored — the same SHA256SUMS file may
+// list every published artefact for the release.
 func VerifyChecksum(tarballPath, sumsPath, assetName string) error {
 	expected, err := lookupChecksum(sumsPath, assetName)
 	if err != nil {
@@ -134,6 +144,9 @@ func lookupChecksum(sumsPath, assetName string) (string, error) {
 }
 
 // magicNumbers are the leading bytes a freshly-extracted Linux or
+// macOS binary should start with. The smoke check rejects garbage
+// (e.g. an HTML 404 page mistakenly tarred up) before we hand the
+// file to os.Rename and inherit it as the live Canary binary.
 var magicNumbers = [][]byte{
 	{0x7F, 0x45, 0x4C, 0x46}, // ELF (Linux)
 	{0xFE, 0xED, 0xFA, 0xCE}, // Mach-O 32-bit LE
@@ -202,6 +215,7 @@ func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
 			return "", fmt.Errorf("read tar header: %w", err)
 		}
 		// Tar headers always use slash-separated paths, independent of the
+		// host OS. Reject traversal before considering the entry basename.
 		name := archivepath.Clean(hdr.Name)
 		if archivepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
 			return "", fmt.Errorf("tar entry %q escapes archive root", hdr.Name)
@@ -239,6 +253,7 @@ func ExtractTarball(tarballPath, destDir, archiveRoot string) (string, error) {
 			return "", fmt.Errorf("close %s: %w", out, err)
 		}
 		// Force the mode — archive/tar would have set it from the
+		// header but we want a single source of truth here.
 		if err := os.Chmod(out, 0o755); err != nil {
 			return "", fmt.Errorf("chmod %s: %w", out, err)
 		}
@@ -429,6 +444,15 @@ func copyBinaryIntoDir(srcBinary, destDir string) (string, error) {
 }
 
 // CleanupOnSignal installs a SIGTERM/SIGINT handler that removes the
+// given tempfiles when the signal fires. Returns a cancel function the
+// caller should defer — calling cancel removes the signal handler
+// AND removes the tempfiles, so the same cleanup path runs on both
+// successful exit (defer cancel) and signal interruption.
+//
+// The handler exits the process after cleanup so a Ctrl-C during
+// download doesn't leave the user dropped back at a half-installed
+// state. Cleanup is best-effort; remove errors are swallowed because
+// the user already wants out.
 func CleanupOnSignal(paths ...string) (cancel func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -512,6 +536,10 @@ func PlanFor(rel *Release) (*Plan, error) {
 }
 
 // RunInstall executes the install flow end-to-end against a planned
+// release: download → verify → extract → quarantine-strip → atomic
+// install. Holds an exclusive flock for the duration. Cleans up
+// tempfiles on success, error, and SIGINT/SIGTERM. Returns nil on
+// success; the prior binary is intact on every error path.
 func RunInstall(ctx context.Context, plan *Plan) error {
 	if err := os.MkdirAll(plan.CacheDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir cache: %w", err)
@@ -533,6 +561,8 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 		return fmt.Errorf("download SHA256SUMS.asc: %w", err)
 	}
 	// Signature MUST verify before we trust SHA256SUMS — without this
+	// step, an attacker who could swap both files past the same
+	// HTTPS endpoint would still pass the SHA check.
 	if err := VerifySignature(plan.SumsPath, plan.SumsSigPath); err != nil {
 		return err
 	}

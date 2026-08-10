@@ -12,6 +12,8 @@ import (
 )
 
 // alertShadowObservationEvery is an engineering heartbeat, not a market or
+// delivery threshold. It keeps alert producer coverage inside the
+// shortest one-minute silence horizon even when no UI or CLI client is open.
 const alertShadowObservationEvery = 30 * time.Second
 
 func (s *Server) startAlertShadowObservationLoops(ctx context.Context) {
@@ -151,6 +153,8 @@ func (s *Server) observeNudgesAlertShadowHeartbeatWith(ctx context.Context, comp
 }
 
 // The 30-second heartbeat is projection-only. It never issues account,
+// positions, quote, Greeks, earnings, or regime reads; it projects the latest
+// scope/generation-bound canonical result or an explicit uncovered result.
 func (s *Server) runAlertShadowRulebookLoop(ctx context.Context) {
 	ticker := time.NewTicker(alertShadowObservationEvery)
 	defer ticker.Stop()
@@ -270,6 +274,7 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeat(ctx context.Context) 
 	// commit dropped for advancing broker or journal evidence starves the
 	// silence horizon if the only retry is the next 30s tick. The final
 	// attempt is marked so a still-failing transient read is observed as
+	// honestly unavailable instead of silently dropped.
 	for attempt := range protectionHeartbeatStableAttempts {
 		final := attempt == protectionHeartbeatStableAttempts-1
 		settled := s.observeOrderIntegrityAlertShadowHeartbeatWith(ctx, final, func(readCtx context.Context) ([]rpc.OrderView, orderIntegrityEvaluation, error) {
@@ -305,6 +310,7 @@ func (s *Server) observeOrderIntegrityAlertShadowHeartbeatWithReadContext(ctx co
 	cancel()
 	if ctx.Err() != nil || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
 		// Same starvation shape as a commit drop: nothing was observed this
+		// pass. Let the bounded retry rebuild against the current scope.
 		return false
 	}
 	if readErr != nil {
@@ -354,6 +360,7 @@ type alertEvidenceArmState struct {
 }
 
 // orderViewReadArm names the failure class of an order-view/journal read for
+// the transition log; fallback labels the unclassified case per call site.
 func orderViewReadArm(err error, fallback string) string {
 	switch {
 	case errors.Is(err, errOrderJournalHeadUnstable):
@@ -369,6 +376,8 @@ func orderViewReadArm(err error, fallback string) string {
 
 // orderViewReadTransient reports whether a failed order-view read is a
 // liveness race worth one in-tick rebuild: the journal head moving under the
+// reload, or the read budget expiring under machine load. Anything else is
+// treated as real and observed immediately.
 func orderViewReadTransient(err error) bool {
 	return errors.Is(err, errOrderJournalHeadUnstable) ||
 		errors.Is(err, context.DeadlineExceeded) ||

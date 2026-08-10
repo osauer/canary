@@ -24,12 +24,15 @@ type alertCandidateClient interface {
 
 // AlertSnapshotAuthority is the single app-side owner of durable candidate
 // observation and delivery. Live reads its redacted current view only for
+// restart priming; every producer observation goes through Observe.
 type AlertSnapshotAuthority interface {
 	Observe(context.Context, rpc.AlertCandidateSnapshot) (state.AlertDeliveryView, error)
 	Current(time.Time) state.AlertDeliveryView
 }
 
 // Service owns the app host's refreshable daemon snapshot, poll serialization,
+// source-freshness metadata, and best-effort event subscribers. Values stored
+// in the snapshot are treated as immutable after publication.
 type Service struct {
 	client      daemonclient.Client
 	pollEvery   time.Duration
@@ -76,6 +79,7 @@ type Snapshot struct {
 }
 
 // publicNudgesSnapshot is the browser/SSE projection. Reconciliation uses the
+// validated ProjectReconciliation output, never the raw daemon status.
 type publicNudgesSnapshot struct {
 	AsOf                  time.Time                       `json:"as_of"`
 	Candidates            []rpc.NudgeCandidate            `json:"candidates"`
@@ -111,6 +115,7 @@ type ReconciliationEvaluation struct {
 }
 
 // ProjectReconciliation validates the daemon contract before exposing its
+// fields to the paired-app projection.
 func ProjectReconciliation(status *rpc.ReconAutomationStatus) (*Reconciliation, error) {
 	if status == nil {
 		return nil, nil
@@ -171,6 +176,7 @@ func projectPublicNudges(value *rpc.NudgesSnapshotResult) *publicNudgesSnapshot 
 }
 
 // MarshalJSON is the one public snapshot boundary shared by bootstrap,
+// snapshot reads, and full-snapshot SSE messages.
 func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 	type snapshotAlias Snapshot
 	return json.Marshal(struct {
@@ -231,12 +237,14 @@ var (
 )
 
 // Event carries one typed live-cache change to SSE adapters. Subscribers must
+// recover from dropped events by reading a full snapshot.
 type Event struct {
 	Type string `json:"type"`
 	Data any    `json:"data"`
 }
 
 // New constructs an unstarted live service. Non-positive intervals select the
+// default poll cadences.
 func New(client daemonclient.Client, pollEvery, stressEvery time.Duration) *Service {
 	if pollEvery <= 0 {
 		pollEvery = 5 * time.Second
@@ -266,7 +274,9 @@ func New(client daemonclient.Client, pollEvery, stressEvery time.Duration) *Serv
 }
 
 // SetAlertSnapshotAuthority wires the sole durable alert observer. A prior
+// durable view is synchronously invalidated through that observer before the
 // app can serve it after restart; startup fails if the transition cannot be
+// persisted.
 func (s *Service) SetAlertSnapshotAuthority(authority AlertSnapshotAuthority) error {
 	s.alertMu.Lock()
 	defer s.alertMu.Unlock()
@@ -315,6 +325,8 @@ func sourceUnavailableWithReason(prior SourceMeta, now time.Time, reason string)
 }
 
 // Start performs initial refreshes, starts quote and alert-freshness workers,
+// and blocks on periodic polling until ctx is canceled. Cancellation closes all
+// subscriber channels.
 func (s *Service) Start(ctx context.Context) {
 	go s.runAlertFreshnessGuard(ctx)
 	_ = s.pollStatus(ctx)
@@ -596,6 +608,9 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 		// Rules ride the stress cadence: same inputs (positions/account),
+		// same daily-discipline freshness needs, no extra poll knob. Observe
+		// them before reading the source-neutral snapshot so the snapshot
+		// includes this cycle's complete unfiltered Rulebook evaluation.
 		if rules, err := s.client.Rules(ctx); err != nil {
 			errors = append(errors, sourceErr("rules", err, now))
 			snap.Sources["rules"] = sourceUnavailable(snap.Sources["rules"], now)
@@ -627,6 +642,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 		// The brief composes stress and other daily-discipline inputs, so it
+		// shares this one-minute cadence instead of the five-second app poll.
 		if brief, err := s.client.Brief(ctx); err != nil {
 			errors = append(errors, sourceErr("brief", err, now))
 			snap.Sources["brief"] = sourceUnavailable(snap.Sources["brief"], now)

@@ -20,6 +20,7 @@ import (
 )
 
 // ProtocolVersion is the MCP spec revision we advertise. 2025-03-26 is the
+// stable revision Claude Desktop and the official Go/TypeScript SDKs target.
 const ProtocolVersion = "2025-03-26"
 
 // Server hosts the MCP loop. Tool calls open short-lived daemon connections
@@ -36,6 +37,9 @@ type Server struct {
 }
 
 // NewServer wires the MCP server to an optional daemon connection and the
+// version string the binary was built with (stamped via -ldflags). Production
+// stdio uses SetContextDialer instead of a long-lived conn so an idle MCP
+// process does not keep the daemon alive.
 func NewServer(conn *dial.Conn, version string) *Server {
 	return &Server{
 		conn:    conn,
@@ -53,6 +57,8 @@ func (s *Server) SetProfile(profile Profile) {
 }
 
 // SetContextDialer wires the function used to open daemon connections with the
+// current request/server context. Prefer this in production paths so shutdown
+// can abort autospawn waits promptly.
 func (s *Server) SetContextDialer(d func(context.Context) (*dial.Conn, error)) {
 	s.dialer = d
 }
@@ -139,6 +145,8 @@ func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writ
 				continue
 			}
 			// Each request is handled inline. Tools call the daemon, which may
+			// take seconds; that's fine — MCP clients send one request at a
+			// time over stdio and wait for the response.
 			if s.handle(ctx, line) {
 				return nil
 			}
@@ -168,6 +176,7 @@ type rpcError struct {
 }
 
 // JSON-RPC error codes used by the MCP server. The MCP spec inherits the
+// JSON-RPC 2.0 error model verbatim.
 const (
 	codeParseError     = -32700
 	codeInvalidRequest = -32600
@@ -177,6 +186,7 @@ const (
 )
 
 // handle dispatches one MCP JSON-RPC message. It returns true when the
+// protocol lifecycle has ended and Serve should exit after this message.
 func (s *Server) handle(ctx context.Context, line []byte) bool {
 	var req rpcRequest
 	if err := json.Unmarshal(line, &req); err != nil {
@@ -219,6 +229,7 @@ func (s *Server) handle(ctx context.Context, line []byte) bool {
 }
 
 // initializeResult is the MCP server-info payload. Capabilities advertise the
+// tools surface; we don't currently expose resources or prompts.
 type initializeResult struct {
 	ProtocolVersion string            `json:"protocolVersion"`
 	Capabilities    map[string]any    `json:"capabilities"`
@@ -295,6 +306,7 @@ func (s *Server) handleToolsList(id json.RawMessage) {
 }
 
 // callParams is the input to tools/call. We accept missing arguments as an
+// empty object; some clients omit the field for zero-arg tools.
 type callParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`

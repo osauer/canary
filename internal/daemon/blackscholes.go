@@ -3,10 +3,30 @@ package daemon
 import "math"
 
 // bsGamma computes the Black-Scholes gamma of a European option leg.
-// put-call parity makes their first derivatives differ only by a
 //
+// Gamma is the second derivative of option price with respect to the
+// underlying spot — i.e., how fast delta changes as spot moves. It's
+// identical for calls and puts at the same strike/expiry/vol because
+// put-call parity makes their first derivatives differ only by a
+// constant. For dealer-gamma aggregation we compute one γ per (spot,
+// strike, vol, t) tuple and let the caller assign the sign per the
+// dealer-positioning convention.
+//
+// Formula: γ = φ(d1) / (S · σ · √t)
+//
+// where d1 = ( ln(S/K) + (r − q + σ²/2) · t ) / ( σ · √t )
+// and φ is the standard normal probability density.
+//
+// Inputs:
+//
+//	spot   — current price of the underlying (S)
+//	strike — option strike (K)
 //	t      — time to expiry in years; must be > 0
 //	vol    — implied volatility as a decimal (0.20 == 20 %); must be > 0
+//	r      — risk-free rate (decimal); typically 0 for the zero-gamma
+//	         aggregation since rate sensitivity over the [0.85, 1.15]
+//	         sweep is negligible relative to vol-skew effects
+//	q      — continuous dividend yield (decimal); 0 for SPX index options
 func bsGamma(spot, strike, t, vol, r, q float64) float64 {
 	if spot <= 0 || strike <= 0 || t <= 0 || vol <= 0 {
 		return 0
@@ -19,6 +39,22 @@ func bsGamma(spot, strike, t, vol, r, q float64) float64 {
 }
 
 // dealerGEX returns the dollar gamma per 1 % move attributable to a
+// single option leg, signed under the Perfiliev convention: positive
+// for calls, negative for puts. The aggregate over a chain is the
+// dealer-positioning estimate at the given spot; a sign flip across
+// adjacent spot scenarios is the "zero-gamma" crossing.
+//
+// Formula: GEX = sign · γ · OI · multiplier · spot² · 0.01
+//
+// Notes:
+//   - multiplier is 100 for SPX index options (and most US-listed
+//     equity options); the caller passes it explicitly to avoid
+//     hardcoding the SPX assumption into the math.
+//   - The 0.01 scales gamma per $1 of underlying into gamma per 1 %
+//     of underlying — standard practitioner units that match every
+//     published GEX number you can cross-check against.
+//   - Returns 0 when γ degenerates (see bsGamma) so missing-data legs
+//     don't poison the sum.
 func dealerGEX(gamma, openInt float64, multiplier int, spot float64, isCall bool) float64 {
 	if openInt == 0 || multiplier == 0 || spot <= 0 {
 		return 0
@@ -66,6 +102,42 @@ func bsVega(spot, strike, t, vol, r, q float64) float64 {
 }
 
 // bsImpliedVolatility back-solves for σ from an observed option price via
+// Newton-Raphson on the BS call-price function. Puts are converted to
+// the equivalent call via put-call parity (P + S·exp(-qT) = C + K·exp(-rT))
+// before the solve, so a single forward function handles both rights.
+//
+// Inputs:
+//
+//	price    — observed option premium (per-share, not per-contract)
+//	spot     — current underlying price
+//	strike   — option strike
+//	t        — years to expiry
+//	r, q     — risk-free rate and dividend yield (decimals; both 0 is
+//	           fine for the SPY zero-gamma compute, where the sweep
+//	           horizon is hours-to-weeks and a 0.05 rate at 0.02 dividend
+//	           perturbs the implied σ by < 0.5 vol points)
+//	isCall   — true for calls, false for puts
+//
+// Initial guess uses Brenner-Subrahmanyam (1988): σ₀ ≈ √(2π/T)·(C/S).
+// For puts we form the parity-equivalent call price first. The iteration
+// terminates on |BSprice − target| < 1e-5 or 50 iterations.
+//
+// Returns 0 (the "unsolved" sentinel matching the bsGamma convention)
+// when:
+//
+//   - any of price/spot/strike ≤ 0
+//   - t < 1 hour: vega → 0 near expiry, Newton-Raphson becomes unstable
+//     and a tiny pricing error produces an enormous IV swing
+//   - intrinsic value > price: the price is stale or violates no-arbitrage,
+//     the implied σ would be imaginary
+//   - the solver converges to σ outside [0.01, 5.0]: a 1 % or 500 %
+//     implied vol on a listed equity option is almost certainly a stale
+//     deep-OTM print rather than a real market state
+//
+// The bounds are intentionally wide: SPY weeklies during quiet sessions
+// price at ~12 % IV, 2018-style stress events touched 80 %+ on the
+// front month, and the upper bound exists to refuse obvious-bad rather
+// than to cap genuine signal.
 func bsImpliedVolatility(price, spot, strike, t, r, q float64, isCall bool) float64 {
 	const (
 		// Minimum DTE: 1 hour. Below this, vega → 0 and Newton-Raphson
@@ -78,6 +150,8 @@ func bsImpliedVolatility(price, spot, strike, t, r, q float64, isCall bool) floa
 		maxInitialClamp = 1.0 // …pin it to a high-but-realistic start
 
 		// Convergence + acceptance bounds. A 1 % or 500 % implied vol on
+		// a listed SPY weekly is almost certainly a stale deep-OTM print,
+		// not real market state — refuse rather than propagate.
 		tolerance       = 1e-5
 		maxIters        = 50
 		minAcceptSigma  = 0.01

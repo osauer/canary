@@ -55,12 +55,16 @@ type regimeSnapshotRefreshFunc func(context.Context) (*rpc.RegimeSnapshotResult,
 
 type regimeSnapshotCacheOptions struct {
 	// FreshFor is an operational cache window supplied by the daemon. It is
+	// intentionally not defaulted here: choosing it belongs with the existing
+	// regime scheduler/cadence policy at the integration site.
 	FreshFor time.Duration
 	// RefreshTimeout is the upper bound for acquisition plus the authoritative
 	// never from an observing RPC request.
 	RefreshTimeout time.Duration
 	// FailureRetryAfter is the minimum quiet period after a failed attempt.
+	// It is explicit so a high-frequency observer cannot turn a fast upstream
 	// failure into sequential fan-outs, and so this cache does not invent a
+	// market-evidence cadence of its own.
 	FailureRetryAfter time.Duration
 	// Now is optional and exists for deterministic tests.
 	Now func() time.Time
@@ -76,6 +80,8 @@ type regimeSnapshotCacheView struct {
 }
 
 // regimeSnapshotCacheUnavailableError distinguishes a cold authority from a
+// caller timeout or a gateway error. Its public text is deliberately redacted;
+// Unwrap remains available to daemon-local logging and tests.
 type regimeSnapshotCacheUnavailableError struct {
 	cause error
 }
@@ -295,6 +301,8 @@ func (cache *regimeSnapshotCache) refreshing() bool {
 }
 
 // wait drains the one daemon-owned refresh, if present. Cancellation must be
+// applied to daemonContext before calling wait; serve refuses to admit another
+// refresh after that point, which makes this a stable shutdown barrier.
 func (cache *regimeSnapshotCache) wait() {
 	if cache == nil {
 		return
@@ -310,6 +318,7 @@ func (cache *regimeSnapshotCache) wait() {
 // allowRefreshNow clears only the failed-attempt backoff timestamp. A
 // successful gateway reconnect can call this once so cold or stale authority
 // retries immediately, while the prior stable failure code and every
+// authoritative byte/revision remain visible until that retry succeeds.
 func (cache *regimeSnapshotCache) allowRefreshNow() {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()

@@ -26,6 +26,7 @@ func Compute(members []string, windows map[string]ConstituentWindow, sessionKey 
 	newLows := 0
 
 	// Iterating in member order makes the exclusion list stable for
+	// tests and easy to diff in verify.log entries.
 	for _, sym := range members {
 		w, ok := windows[sym]
 		if !ok {
@@ -48,6 +49,8 @@ func Compute(members []string, windows map[string]ConstituentWindow, sessionKey 
 		}
 		coverage50++
 		// 50-DMA: slice the last WindowSize closes (Closes is
+		// chronological, oldest first). SMA includes today's close per
+		// $SPXA50R / S&P DJI convention.
 		w50 := w.Closes[len(w.Closes)-WindowSize:]
 		var sum50 float64
 		for _, c := range w50 {
@@ -104,6 +107,24 @@ func Compute(members []string, windows map[string]ConstituentWindow, sessionKey 
 }
 
 // SlideWindow folds today's close into a constituent window. It does
+// three things in one pass:
+//
+//  1. Append today's close to the chronological Closes slice and trim
+//     to the v2 cap of WindowSize200 entries.
+//  2. Update the rolling max/min over the previous RollingMaxBars
+//     closes (excluding today's), so the next Compute can detect
+//     "today made a new 252-bar high".
+//  3. Track HighRollingBarsHad / LowRollingBarsHad so a name with
+//     fewer than RollingMaxBars of history doesn't get counted as
+//     making a new high on its 30th day of trading.
+//
+// Same-day idempotency: if barDate matches w.LastBarAt, the existing
+// tail close is overwritten and counters are not double-bumped. The
+// rolling-max state for that name doesn't change on a same-day
+// re-fetch — late prints settling shouldn't kick a new-high.
+//
+// The input is not mutated; callers assign the result back if they
+// want persistence.
 func SlideWindow(w ConstituentWindow, close float64, barDate string) ConstituentWindow {
 	out := ConstituentWindow{
 		Symbol:             w.Symbol,
@@ -116,6 +137,10 @@ func SlideWindow(w ConstituentWindow, close float64, barDate string) Constituent
 	}
 	if w.LastBarAt == barDate && len(out.Closes) > 0 {
 		// Same trading day appearing twice — overwrite the tail to
+		// reflect the corrected close. Don't grow the window. Rolling
+		// max/min stays as-is: a late-print correction to today's
+		// close shouldn't kick a new-high vs the prior-251-day max
+		// that's already locked in.
 		out.Closes[len(out.Closes)-1] = close
 		return out
 	}

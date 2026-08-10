@@ -96,6 +96,8 @@ sys.exit(0)
 }
 
 # release_smoke_status_tasks_present prints the comma-joined subset of the
+# named tasks that are still listed in the payload, in the caller's order.
+# Malformed status prints nothing and returns 1.
 release_smoke_status_tasks_present() {
     local task_names="$1"
     local payload="$2"

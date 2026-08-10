@@ -21,6 +21,11 @@ const fxCacheFreshWindow = 15 * time.Minute
 
 // fxCacheTTL bounds how stale a last-known-good rate may be served when
 // live resolution fails. 72h spans a weekend: FX snapshot quotes can be
+// unavailable off-hours, and a 24h bound would resurrect the every-poll
+// base-field flap each Saturday. G10 FX drift over a closed weekend is
+// immaterial next to the alternative — dropping every *_base field and
+// flipping the positions fingerprint (which churns proposal revisions
+// mid-confirm) whenever one quote times out.
 const fxCacheTTL = 72 * time.Hour
 
 // fxPersistMinInterval throttles best-effort durable flushes of the cache.
@@ -131,6 +136,10 @@ func (f *fxRateCache) put(baseCcy, ccy string, rate float64) {
 }
 
 // persistLocked flushes the rate map to the store, best-effort and
+// throttled to fxPersistMinInterval. The write stays under f.mu — a
+// <1 KiB atomic file replace at most once a minute is cheaper than a
+// snapshot-outside-the-lock dance. Save errors WARN once per episode,
+// not once per flush.
 func (f *fxRateCache) persistLocked() {
 	if f.store == nil {
 		return
@@ -175,6 +184,7 @@ func (f *fxRateCache) harvest(ledger map[string]ibkrlib.CurrencyLedger, baseCcy 
 }
 
 // markDegraded flips the per-pair serve-mode and reports whether it
+// changed, so callers log transitions once instead of once per poll.
 func (f *fxRateCache) markDegraded(baseCcy, ccy string, degraded bool) bool {
 	if f == nil {
 		return false
@@ -194,7 +204,12 @@ func (f *fxRateCache) markDegraded(baseCcy, ccy string, degraded bool) bool {
 }
 
 // repairCurrencyLedgerFXRatesCached is the Server-scoped variant of
+// repairCurrencyLedgerFXRates: same suspicious-rate policy, but resolution
+// consults the last-known-good cache. Before this cache, one transient FX
 // snapshot failure zeroed the rate and stripped every *_base field from
+// that single response — flipping SPA money formats between consecutive
+// SSE snapshots and churning the positions fingerprint. A cached rate
+// fresher than fxCacheFreshWindow short-circuits the quote entirely.
 func (s *Server) repairCurrencyLedgerFXRatesCached(ctx context.Context, c *ibkrlib.Connector, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) map[string]ibkrlib.CurrencyLedger {
 	if s == nil || s.fxRates == nil {
 		return repairCurrencyLedgerFXRates(ctx, c, ledger, baseCcy)
@@ -359,6 +374,7 @@ func (s *fxRateStore) save(rates map[string]fxCachedRate) error {
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
+	// the cache dir doesn't accumulate junk.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()

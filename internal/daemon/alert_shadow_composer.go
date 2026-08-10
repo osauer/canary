@@ -261,6 +261,8 @@ type alertShadowSourceBatch struct {
 }
 
 // alertShadowStatusReport is the producer operational view. Counts are
+// descriptive registry measurements only: human precision and recall stay
+// explicitly unlabelled until an operator supplies outcome labels.
 type alertShadowStatusReport struct {
 	AsOf                  time.Time                 `json:"as_of,omitzero"`
 	ExpectedSources       []rpc.AlertSource         `json:"expected_sources"`
@@ -379,6 +381,7 @@ func (c *alertShadowComposer) scopeStateLocked(scope alertShadowBrokerScope) (*a
 // ObserveStress consumes the daemon-authored Stress result. Eligibility is the
 // existing legacy occurrence gate exactly, including its nil-relevance
 // fail-open for positives. A missing relevance stamp can never authorize a
+// negative or source coverage.
 func (c *alertShadowComposer) ObserveStress(ctx context.Context, scope alertShadowBrokerScope, result rpc.StressResult) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
@@ -568,6 +571,8 @@ func (c *alertShadowComposer) ObserveRulebook(ctx context.Context, scope alertSh
 // ObserveProtection consumes a complete, unfiltered protection ledger plus
 // the matching portfolio-stream receipt. The v1 producer policy opens
 // only orphaned-order and reconciliation-required episodes. Partial and
+// unprotected rows remain visible context and are authoritative negatives for
+// this deliberately narrow producer; no universal stop obligation is implied.
 func (c *alertShadowComposer) ObserveProtection(ctx context.Context, input alertShadowProtectionInput) (rpc.AlertCandidateSnapshot, error) {
 	if c == nil || c.registry == nil || ctx == nil {
 		return rpc.AlertCandidateSnapshot{}, errors.New("alert producer is unavailable")
@@ -1036,6 +1041,7 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 				if _, held := batch.NegativeHold[candidate.EpisodeKey]; held {
 					// This episode's rule is uncovered this cycle, so its
 					// absence proves nothing: the negative stays untrusted and
+					// non-current, and the registry retains the episode.
 					negativeHealth = rpc.AlertEvidencePartial
 				} else {
 					reason = alertShadowDecisionClassifiedClear
@@ -1045,6 +1051,7 @@ func (c *alertShadowComposer) applyLocked(ctx context.Context, state *alertShado
 			if evidenceFingerprint == "" && !batch.Covered {
 				// An untrusted negative may update health/source time, but must
 				// retain the producer identity needed to prove broker scope on a
+				// later authoritative observation.
 				evidenceFingerprint = candidate.EvidenceFingerprint
 			}
 			if evidenceFingerprint == "" {
@@ -2286,6 +2293,7 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 				}
 				if observedAt.UTC().After(expiresAt) {
 					// Expired at observation time is whole-snapshot staleness,
+					// not a scoped gap: nothing downstream may trust it.
 					fatal(rpc.AlertEvidenceStale, alertShadowReasonSourceHealthStale)
 					continue
 				}
@@ -2307,6 +2315,10 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 		}
 	}
 	// The producer stamps "degraded" exactly when some input health is not ok,
+	// so each direction of disagreement identifies a snapshot the real producer
+	// cannot emit: a forged all-ok "degraded" (including the deliberately
+	// uncovered unbound-evaluation clone) or an "ok" hiding a bad input.
+	// Neither may recover an episode or claim any coverage.
 	if worst == rpc.AlertEvidenceCurrent && (result.Status == "ok") == declaredNotOK {
 		batch.Status, batch.Reason, batch.EvidenceHealth = alertShadowStatusError, alertShadowReasonSnapshotInconsistent, rpc.AlertEvidenceError
 		return batch
@@ -2514,6 +2526,7 @@ const (
 
 // alertShadowRulebookSafeEarningsNotEvaluated verifies the same-result typed
 // authority behind every exempt name. A row reason is disclosure, not proof,
+// and cannot by itself recover an active alert episode.
 func alertShadowRulebookSafeEarningsNotEvaluated(row risk.RuleRow, result rpc.RulesResult) bool {
 	if result.AsOf.IsZero() || len(row.Exempt) == 0 || len(row.Offenders) != 0 {
 		return false
@@ -2627,7 +2640,9 @@ func alertShadowRulebookEarningsAuthorityFor(info rpc.EarningsInfo, asOf time.Ti
 
 // validRulebookSecurityTypeEarningsAuthority accepts the typed classification
 // the daemon emits for a security with no issuer. It carries no timestamps
+// because it depends on nothing that expires: an index does not acquire an
 // issuer later. The security type itself is the whole authority, so it must be
+// present and inside the closed vocabulary — Source alone proves nothing.
 func validRulebookSecurityTypeEarningsAuthority(info rpc.EarningsInfo) bool {
 	if strings.TrimSpace(info.Symbol) == "" || strings.TrimSpace(info.Symbol) != info.Symbol || info.Stale ||
 		info.Source != "security_type" || info.Status != rpc.EarningsStatusNotApplicable ||

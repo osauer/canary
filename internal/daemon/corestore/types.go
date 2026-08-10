@@ -20,6 +20,7 @@ import (
 )
 
 // Store errors classify authority, concurrency, and durability failures that
+// callers may handle without parsing error text.
 var (
 	ErrRevisionConflict       = errors.New("corestore: revision conflict")
 	ErrPreviewTokenConsumed   = errors.New("corestore: preview token already consumed")
@@ -57,6 +58,7 @@ type AuthorityHead struct {
 }
 
 // UpgradeRequiredError reports a valid, supported authority that must be
+// upgraded out of place before this build can open it for service.
 type UpgradeRequiredError struct {
 	CurrentVersion int
 	TargetVersion  int
@@ -101,6 +103,7 @@ type Inspection struct {
 
 // ObservationDiscardSelector identifies one exact class of derived
 // observations that a reviewed migration may discard. All three fields are
+// required; this is not a general retention or expiry surface.
 type ObservationDiscardSelector struct {
 	ScopeKey string
 	Source   string
@@ -109,7 +112,11 @@ type ObservationDiscardSelector struct {
 
 // ObservationDiscardSummary is deterministic evidence of the rows one
 // maintenance migration removed from its disposable working snapshot.
+// OrderedDigestSHA256 uses the domain "canary.observation-discard.v1\x00",
+// then each selector string as an 8-byte big-endian length plus bytes, then
+// each observation ID as 8-byte big-endian plus its stored 32-byte payload
 // digest in ascending ID order. Payload bytes are never copied into
+// coordination state.
 type ObservationDiscardSummary struct {
 	MigrationVersion    int
 	MigrationName       string
@@ -242,7 +249,9 @@ type QuiesceOptions struct {
 // Health is fail-closed mutation health. Critical failures caused by a full,
 // busy, readonly, corrupt, or I/O-failing SQLite store remain latched until an
 // explicit reopen. RecoveryEligible is true only for the narrow case where a
+// mutation committed but reading its post-commit head hit the bounded context
 // deadline; the live store may clear that latch only after an integrity,
+// identity, monotonic-head, and external-watermark proof succeeds.
 type Health struct {
 	Ready            bool
 	Code             string
@@ -270,6 +279,7 @@ type StateDocumentCAS struct {
 	// UpdatedAtNotBefore is an optional atomic commit-clock floor. The store
 	// compares it with the exact timestamp it will persist inside the same
 	// critical mutation, before touching the document or authority head. It is
+	// zero for ordinary callers.
 	UpdatedAtNotBefore time.Time
 }
 
@@ -387,6 +397,7 @@ const (
 
 // OrderEventRecord is one append-only order lifecycle event bound to an exact
 // broker scope. RawJSON is retained evidence and is not interpreted as
+// authorization.
 type OrderEventRecord struct {
 	EventSeq        int64
 	Scope           BrokerScope
@@ -433,6 +444,7 @@ type PreTransmitRequest struct {
 }
 
 // LifecycleCommit couples order lifecycle events with an optional state CAS in
+// one transaction.
 type LifecycleCommit struct {
 	Scope  BrokerScope
 	Events []OrderEventRecord
@@ -549,6 +561,7 @@ type EventRecord struct {
 }
 
 // EventQuery filters append-only events. Zero-valued filters are open and
+// AfterEventSeq provides forward pagination.
 type EventQuery struct {
 	ScopeKey      string
 	Type          string
@@ -559,6 +572,7 @@ type EventQuery struct {
 }
 
 // EventProjection is a typed tagged union; zero values append only the
+// canonical event_log row. At most one member may be non-nil.
 type EventProjection struct {
 	RegimeDecision   *RegimeDecisionProjection
 	RuleTransition   *RuleTransitionProjection
@@ -601,6 +615,7 @@ type RuleTransitionProjection struct {
 }
 
 // StressTransitionProjection is the typed searchable projection of a
+// portfolio-stress transition event.
 type StressTransitionProjection struct {
 	Action, Severity, Direction, MarketStage, InputHealth string
 	PortfolioAlertRelevant                                *bool

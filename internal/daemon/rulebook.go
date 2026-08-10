@@ -23,6 +23,9 @@ import (
 
 const (
 	// rulesPreviewTTL spans the established one-minute Stress cadence with a
+	// small scheduling margin. All cache reuse remains scope- and connector-
+	// generation-bound; after this budget a preview gets a bounded canonical
+	// evaluation or an explicit unavailable advisory.
 	rulesPreviewTTL = 75 * time.Second
 	// rulebookDaemonRefreshEvery moves the app's established complete Rulebook
 	rulebookDaemonRefreshEvery = time.Minute
@@ -85,6 +88,7 @@ func (s *Server) cachedRulebookResult(binding rulebookCacheBinding, maxAge time.
 // cacheRulebookResultStable publishes after the caller has either validated
 // an unbound/unavailable result or entered the exact Connector evidence
 // barrier. It must not call currentRulebookBinding while that write barrier is
+// held because doing so would recursively acquire its read side.
 func (s *Server) cacheRulebookResultStable(result *rpc.RulesResult, binding rulebookCacheBinding, cachedAt time.Time) bool {
 	copyResult := cloneRulesResult(result)
 	if copyResult == nil {
@@ -844,6 +848,7 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 			}
 			if o.Delta != nil && o.Underlying == nil {
 				// The aggregator can't pair this delta with a spot, so the
+				// group sum excluded the leg — no lower bound may build on it.
 				n.ExposureBaseComplete = false
 			}
 			if leg.Underlying == nil && stockSpot != nil {
@@ -868,6 +873,7 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				leg.FXToBase = new(*o.MarketValueBase / o.MarketValue)
 			}
 			// IBKR AvgCost is multiplier-inclusive on options: cost basis is
+			// AvgCost × |contracts| × fx, with NO extra multiplier.
 			if leg.FXToBase != nil && o.AvgCost > 0 {
 				leg.CostBasisBase = new(o.AvgCost * math.Abs(o.Quantity) * *leg.FXToBase)
 			}
@@ -876,6 +882,12 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				leg.DTE = int(exp.Sub(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)).Hours() / 24)
 			}
 			// A substituted leg (MarketValueBase nil) has no FX path, so its
+			// extrinsic cannot be converted either: serving the raw
+			// contract-currency figure here would feed rule 4's base-currency
+			// budget a number wrong by the exchange rate, while the rule's
+			// substitution guard sits inside its ExtrinsicBase == nil branch —
+			// unreachable for a leg this line filled. Nil routes the leg into
+			// that guarded branch, where it is disclosed as uncomputable.
 			if extPerShare, ok := risk.OptionExtrinsicPerShare(o.Right, leg.Underlying, o.Strike, o.Mark); ok && o.Quantity > 0 && o.MarketValueBase != nil {
 				ext := extPerShare * o.Quantity * leg.Multiplier
 				if o.MarketValue != 0 {
@@ -1048,6 +1060,7 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 			} else {
 				// Position groups do not carry each option leg's exact underlying
 				// ConID. A stock identity proof may therefore exempt only a
+				// stock-only name; mixed groups use ordinary provider evidence.
 				view, observed = s.earnings.resolution(sym)
 			}
 		}
@@ -1179,6 +1192,7 @@ func parseEarningsOverride(raw string, loc *time.Location) (risk.EarningsInput, 
 }
 
 // sessionsUntil counts US equity sessions from today to target inclusive,
+// in ET; nil when the target is behind us or unreasonably far.
 func sessionsUntil(cal *marketcal.Calendar, today time.Time, target time.Time) *int {
 	start := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
 	end := time.Date(target.Year(), target.Month(), target.Day(), 0, 0, 0, 0, today.Location())
@@ -1258,6 +1272,7 @@ type ruleTransitionTerminalAuthority struct {
 
 // ruleTransitionIdentityAuthority links an accepted broker-nonissuer proof to
 // its exact append-only observation and state revision without exposing the
+// held contract identifier.
 type ruleTransitionIdentityAuthority struct {
 	AuthorityRevision    int64     `json:"authority_revision"`
 	AuthorityFingerprint string    `json:"authority_fingerprint"`
@@ -1499,7 +1514,9 @@ func (s *Server) journalRuleTransitionsBound(res *rpc.RulesResult, binding ruleb
 		_ = enc.Encode(entry)
 	}
 	// rulesJournalMu is the writer-quiescence lock journal rotation
+	// excludes: held across path resolve, open, write, and close so a
 	// live-file swap can never interleave with an append. Line shape,
+	// dedupe, and the 0o644 mode are untouched.
 	s.rulesJournalMu.Lock()
 	path, err := defaultTradingStatePath("rules-decisions.jsonl")
 	if err != nil {

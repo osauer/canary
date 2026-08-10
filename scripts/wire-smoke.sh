@@ -185,6 +185,8 @@ echo "wire-smoke: wire log → $WIRE_LOG"
 echo "wire-smoke: client IDs → primary=$SMOKE_CLIENT_ID breadth=$BREADTH_CLIENT_ID"
 
 # 4. Boot the daemon by issuing a status call (which autospawns one at
+# the isolated socket). Wait for the gateway to be connected — give it
+# 25s, same budget as the integration suite.
 echo "  [boot] autospawning daemon..."
 
 # 0.25s poll granularity: the daemon typically connects in 2-4s, and a 1s
@@ -321,9 +323,16 @@ printf '%s' "$LAST_CMD_OUTPUT" > "$GAMMA_ENV"
 assert_wire gamma-no-wait-envelope "$GAMMA_ENV"
 
 # 10. SPX coverage check — exercises the `--only=spx` path landed in
+# the gamma-spx-coverage arc. Per design §11.2: on this dev machine
+# `SPX_EXPECTED_REACHABLE=1` flips banner-seen from clean-skip to
 # loud-fail, preventing silent SPX regression. CI accounts without
+# CBOE OPRA can disable via the env var.
+#
+# The check is non-blocking on the SPX compute itself — `--no-wait`
 # returns immediately with the current cache state. We only assert
 # the daemon ACCEPTED `--only=spx` (didn't reject the scope) and that
+# the result envelope doesn't carry the entitlement-skipped banner
+# when SPX_EXPECTED_REACHABLE is set.
 echo "  [gamma --only=spx --no-wait]..."
 run_probe gamma-spx gamma --scope spx
 if [[ $LAST_CMD_EXIT -ne 0 ]]; then
@@ -335,6 +344,8 @@ if [[ "${SPX_EXPECTED_REACHABLE:-0}" -eq 1 ]]; then
     # Check the result for SPX-skipped warnings. The envelope's
     # `warnings` array carries "spx_unavailable:<reason>" tokens when
     # the combined-mode prewarm degraded. Note: when --only=spx is
+    # used, the daemon runs the SPX path directly, so a real
+    # entitlement issue surfaces as Status=error here.
     if echo "$LAST_CMD_OUTPUT" | grep -q '"status": *"error"'; then
         echo "wire-smoke: FAIL: SPX_EXPECTED_REACHABLE=1 but the SPX gamma probe returned error" >&2
         echo "$LAST_CMD_OUTPUT" >&2

@@ -275,6 +275,7 @@ func (s *Server) loadScopedOrderHistoryEvents(since, until time.Time, scope brok
 		return nil, fmt.Errorf("%w: order journal is unavailable", ErrTradingDisabled)
 	}
 	// daemon.db is the sole authority. The exact Go predicates remain the
+	// semantics-defining range/scope filter over event_seq-ordered rows.
 	events, err := s.orderJournal.LoadEvents(0)
 	if err != nil {
 		return nil, err
@@ -696,8 +697,12 @@ func positionViewMatchesOrderView(row rpc.PositionView, view rpc.OrderView) bool
 }
 
 // inferDayOrderExpiry marks non-terminal stock/ETF DAY orders whose effective
+// session closed well in the past as expired_inferred. It complements the
 // broker open-order snapshot reconcile (order_reconcile.go): calendar
+// inference closes DAY rows immediately after their session, without waiting
+// for the next snapshot sweep, and works even while disconnected. The state
 // is local calendar inference, never broker-confirmed: rows are closed for
+// display and duplicate-suppression but stay cancel-ineligible.
 func inferDayOrderExpiry(views []rpc.OrderView, eventsByKey map[string][]rpc.OrderEvent, now time.Time) {
 	cal := marketcal.New()
 	for i := range views {
@@ -804,6 +809,8 @@ func (f *orderViewFold) merge(ev orderJournalEvent) {
 	}
 	if f.terminal && !orderJournalEventIsTerminal(ev) {
 		// Terminal broker evidence is sticky. A delayed local send return or a
+		// nonterminal status callback can add audit history, but cannot resurrect
+		// the product row.
 		return
 	}
 
@@ -827,6 +834,7 @@ func (f *orderViewFold) merge(ev orderJournalEvent) {
 		}
 		if attempt.resolved || f.terminal {
 			// A broker acknowledgement or terminal callback can race ahead of the
+			// local send return. That stronger evidence dominates late uncertainty.
 			return
 		}
 		if ev.Type == orderJournalEventSendCompleted {
@@ -993,6 +1001,7 @@ func buildOrderEventsByKey(events []orderJournalEvent) map[string][]rpc.OrderEve
 	}
 	// Input is authoritative event_seq order. Do not reorder callbacks by
 	// their untrusted broker timestamp: clock regressions must not rewrite the
+	// append-only lifecycle sequence.
 	return out
 }
 

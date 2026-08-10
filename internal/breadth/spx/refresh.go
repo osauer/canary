@@ -9,22 +9,32 @@ import (
 
 // RefreshState reflects the current health of the members-list
 // refresher. Surfaced on the wire by the daemon's status handler so
+// `canary status` can flag silent parser rot or a long-disabled
+// auto-refresh.
 type RefreshState string
 
 const (
 	// RefreshHealthy is the steady-state: the most recent fetch
 	RefreshHealthy RefreshState = "healthy"
 	// RefreshNetworkFailed means the most recent fetch failed at the
+	// transport layer (DNS, connect, timeout). Wikipedia
+	// unreachable, captive portal, etc.
 	RefreshNetworkFailed RefreshState = "network_failed"
 	// RefreshParseFailed means we fetched but couldn't extract a
+	// usable list — the HTML didn't contain the constituents table
+	// or the parse landed outside the sanity bounds. Surfaces a
+	// Wikipedia-side restructure or a regex regression.
 	RefreshParseFailed RefreshState = "parse_failed"
 	// RefreshDisabledConfig means the daemon's config.toml has
+	// `[spx] members_auto_refresh = false`.
 	RefreshDisabledConfig RefreshState = "disabled (config)"
 	// RefreshDisabledEnv means the CANARY_SPX_MEMBERS_AUTO_REFRESH env
 	RefreshDisabledEnv RefreshState = "disabled (env)"
 )
 
 // IsHealthy reports whether the state is the steady-state. Wraps the
+// constant comparison so external callers don't depend on string
+// equality.
 func (s RefreshState) IsHealthy() bool { return s == RefreshHealthy }
 
 // IsDisabled reports whether the refresher is intentionally off (via
@@ -34,11 +44,22 @@ func (s RefreshState) IsDisabled() bool {
 }
 
 // FetchFunc abstracts the Wikipedia round-trip so tests can inject a
+// canned response without standing up an httptest server. Production
+// passes a closure around FetchAndParse with the daemon's version
+// stamp.
 type FetchFunc func(ctx context.Context) ([]string, time.Time, error)
 
 // Refresher manages the daemon's runtime membership refresh: three
+// triggers (daily 02:30 ET ticker, startup catch-up, opportunistic
+// post-rollover) all converge on one singleflighted fetch goroutine.
+// On a successful fetch the new list is written atomically to disk
 // and pushed into the engine; failures fall back to whatever's
 // already loaded — breadth never goes silent because the network is
+// down.
+//
+// Construction is via NewRefresher; the daemon stands one of these up
+// per Server lifetime and runs Run() in a goroutine. Tests can drive
+// it via TriggerNow() and inspect via State().
 type Refresher struct {
 	engine    *Engine
 	cachePath string
@@ -49,6 +70,7 @@ type Refresher struct {
 
 	// mu guards lastFetch / lastErr / state. Held briefly for read
 	// (State) or for the post-fetch update; never held during the
+	// long network round-trip.
 	mu        sync.Mutex
 	lastFetch time.Time
 
@@ -58,6 +80,8 @@ type Refresher struct {
 }
 
 // RefresherOptions configures NewRefresher. The Pinned* fields are
+// resolved by the caller (config layer) before construction so the
+// refresher doesn't have to know about TOML / env semantics.
 type RefresherOptions struct {
 	// Engine is the breadth engine whose members list this refresher
 	Engine *Engine
@@ -70,12 +94,16 @@ type RefresherOptions struct {
 	// Clock injects a synthetic time source for tests. nil → time.Now.
 	Clock func() time.Time
 	// PinnedByConfig is true when config.toml has
+	// [spx] members_auto_refresh = false AND the env var did not
+	// force-enable. The refresher renders the state as
+	// "disabled (config)" and Run() returns immediately.
 	PinnedByConfig bool
 	// PinnedByEnv is true when CANARY_SPX_MEMBERS_AUTO_REFRESH=0 is
 	PinnedByEnv bool
 }
 
 // NewRefresher constructs a refresher. Engine and Fetch are
+// required; everything else is optional with sensible defaults.
 func NewRefresher(opts RefresherOptions) *Refresher {
 	if opts.Engine == nil {
 		panic("spx.NewRefresher: Engine is required")
@@ -148,11 +176,17 @@ func (r *Refresher) TriggerIfRolledOver(ctx context.Context) {
 }
 
 // TriggerNow forces an immediate fetch attempt for tests. Skips the
+// disabled check so the caller can verify pinned-mode behaviour
+// directly; in production the disabled check in Run() and
+// TriggerIfRolledOver gates entry.
 func (r *Refresher) TriggerNow(ctx context.Context) {
 	r.triggerAsync(ctx, "manual")
 }
 
 // triggerAsync kicks a fetch via the singleflight gate. Spawns a
+// goroutine so the caller (ticker, startup, opportunistic) returns
+// promptly. The gate ensures at most one fetch is in flight per
+// daemon at a time.
 func (r *Refresher) triggerAsync(ctx context.Context, reason string) {
 	r.flightMu.Lock()
 	if r.flightActive {
@@ -223,6 +257,7 @@ func (r *Refresher) fetchAndSwap(ctx context.Context, reason string) {
 }
 
 // setState transitions the refresher's health under r.mu. Wrapper so
+// the lock discipline is consistent across error branches.
 func (r *Refresher) setState(s RefreshState) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

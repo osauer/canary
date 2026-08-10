@@ -28,6 +28,7 @@ const (
 )
 
 // structSource is one generated table: a Go file, the root struct to
+// walk, and the markdown framing around the emitted rows.
 type structSource struct {
 	Path    string // Go source file, repo-relative
 	Root    string // root struct name inside that file
@@ -71,6 +72,7 @@ type tomlField struct {
 }
 
 // Section is everything before the last path segment ("" for a
+// top-level key); Field is the last segment.
 func (f tomlField) Section() string {
 	if i := strings.LastIndex(f.Path, "."); i >= 0 {
 		return f.Path[:i]
@@ -252,6 +254,7 @@ func goTypeName(e ast.Expr) string {
 }
 
 // commentText flattens a CommentGroup to a single line of prose,
+// stripping leading "//" markers.
 func commentText(cg *ast.CommentGroup) string {
 	if cg == nil {
 		return ""
@@ -328,6 +331,7 @@ func scanEnvVars(root string) ([]envVar, error) {
 		return nil, err
 	}
 	// Dedup by name (in case the same env var is referenced from
+	// multiple files — take the first sighting).
 	seen := map[string]bool{}
 	uniq := make([]envVar, 0, len(out))
 	for _, e := range out {
@@ -356,6 +360,8 @@ func validateDocumentedEnvReads(root string, documented []envVar) error {
 		documentedNames[env.Name] = true
 	}
 	// Retired inputs may still be read solely to fail closed or preserve an
+	// anti-bypass restriction. They are deliberately absent from the canonical
+	// configuration reference because they are not supported aliases.
 	retiredInputs := map[string]bool{
 		"IBKR_AGENT_CONTEXT": true,
 		"IBKR_INSTALL_DIR":   true,

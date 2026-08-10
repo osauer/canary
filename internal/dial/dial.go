@@ -39,6 +39,10 @@ func DefaultSocketPath() string {
 }
 
 // SocketPathOverridden reports whether CANARY_SOCKET points the CLI at a
+// non-default daemon scope. Commands that manage system-wide state by
+// process name (e.g. `canary restart`'s implicit app management) use this
+// to stay hands-off: a process found by name cannot be attributed to the
+// overridden scope, so signaling it would cross scopes.
 func SocketPathOverridden() bool {
 	// docgen:env CANARY_SOCKET | Override the daemon IPC socket path. Defaults to `$XDG_RUNTIME_DIR/ibkr/ibkr.sock` or `$HOME/.cache/ibkr/ibkr.sock`.
 	return os.Getenv("CANARY_SOCKET") != ""
@@ -58,6 +62,7 @@ func DefaultAuthorityPath() (string, error) {
 
 // DefaultLogPath returns the canonical daemon log location. It reads
 // XDG_STATE_HOME the way DefaultAuthorityPath does, so a desk that moves its
+// state directory keeps the log beside the database it describes.
 func DefaultLogPath() string {
 	// docgen:env CANARY_LOG | Override the daemon log file path. Defaults to `$XDG_STATE_HOME/ibkr/ibkr-daemon.log` or `$HOME/.local/state/ibkr/ibkr-daemon.log`.
 	if v := os.Getenv("CANARY_LOG"); v != "" {
@@ -71,7 +76,9 @@ func DefaultLogPath() string {
 }
 
 // DisplayPath renders p for a human-facing hint, abbreviating the home
+// directory to ~. Hints name the path Canary will actually use; spelling the
 // home directory out puts the account name into terminal output and
+// screenshots without telling the reader anything.
 func DisplayPath(p string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -115,6 +122,12 @@ func Connect(path string) (*Conn, error) {
 }
 
 // DaemonVersion runs a one-shot status.health call against the open Conn and
+// returns the daemon's stamped version string. Short timeout so a wedged
+// daemon doesn't delay the user's actual command — the caller (typically
+// main.go) emits a non-fatal warning on mismatch, not an error.
+//
+// Defined here rather than in main.go so internal/mcp can run the same
+// check at boot if it ever wants to.
 func (c *Conn) DaemonVersion(ctx context.Context) (string, error) {
 	var h struct {
 		DaemonVersion string `json:"daemon_version"`
@@ -134,7 +147,12 @@ func (c *Conn) Close() error {
 }
 
 // Call performs a unary request/response round trip and decodes result into
+// out. ctx cancellation forces an immediate read deadline so the in-flight
+// read returns and Call surfaces ctx.Err(), matching Stream cancellation.
+//
 // The socket deadline is cleared on return, success or failure, so a
+// subsequent caller, including a long-lived stream, starts with fresh timing
+// state rather than inheriting the unary call's deadline.
 func (c *Conn) Call(ctx context.Context, method string, params any, out any) error {
 	req, err := newRequest(method, params)
 	if err != nil {

@@ -18,8 +18,18 @@ import (
 var embeddedPublicKey []byte
 
 // ReleaseSigningKeyFingerprint is the SHA-1 fingerprint of the embedded
+// PGP public key, as printed by `gpg --fingerprint` with spaces stripped
+// and upper-cased. Cross-checked against the parsed key's fingerprint at
 // startup so a swapped .asc file at build time fails loud rather than
+// silently accepting whatever key happens to be embedded.
+//
+// Rotation: when the signing key changes, update both the .asc file and
+// this fingerprint in the same commit; TestEmbeddedKeyMatchesFingerprint
+// (run by `make check`) catches any mismatch.
+//
 // Declared `var` rather than `const` only so tests in this package can
+// swap it alongside embeddedPublicKey when exercising the wrong-key path.
+// Treat as immutable in production code.
 var ReleaseSigningKeyFingerprint = "D98426D48FED85EFA33904694D922A4F922B7D7D"
 
 // ErrSignatureInvalid means the detached PGP signature did not verify
@@ -27,6 +37,9 @@ var ReleaseSigningKeyFingerprint = "D98426D48FED85EFA33904694D922A4F922B7D7D"
 var ErrSignatureInvalid = errors.New("SHA256SUMS signature did not verify against the embedded release-signing key")
 
 // ErrSignatureMissing means the .asc file was not delivered alongside the
+// SHA256SUMS asset. Distinct from ErrSignatureInvalid so the CLI can hint
+// "this release was published before signing was required (pre-v1.0.0)"
+// vs "this release was tampered with."
 var ErrSignatureMissing = errors.New("release SHA256SUMS.asc was not present alongside SHA256SUMS")
 
 // EmbeddedKeyring parses the //go:embedded public key into a usable
@@ -51,9 +64,16 @@ func EmbeddedKeyring() (openpgp.EntityList, error) {
 }
 
 // VerifyDetachedSignature reports whether sig is a valid PGP detached
+// signature over signed, produced by the embedded release-signing key.
+// Both readers are fully consumed.
+//
 // Returns ErrSignatureInvalid on any verification failure (bad sig, wrong
+// key, corrupted SHA256SUMS) — the underlying openpgp error is wrapped
+// for diagnostics but the typed sentinel is what callers should check.
+//
 // The verifier accepts only signatures from the embedded key. A signature
 // from any other key — even a perfectly valid one — fails with
+// ErrSignatureInvalid because that key isn't in the keyring we pass.
 func VerifyDetachedSignature(signed, sig io.Reader) error {
 	keyring, err := EmbeddedKeyring()
 	if err != nil {

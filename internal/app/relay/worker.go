@@ -53,6 +53,7 @@ type WorkerOptions struct {
 
 // RouteRegistration contains relay-issued transport coordinates. RouteID is a
 // non-authorizing route selector; ConnectorToken is a bearer secret used only
+// by the outbound connector. ExpiresAt is the relay-reported route expiry.
 type RouteRegistration struct {
 	RouteID        string
 	PublicURL      string
@@ -194,6 +195,7 @@ func NewWorker(opts WorkerOptions) (*Worker, error) {
 	}
 	// Registration happens inside Run: a relay or DNS outage at startup
 	// must not kill the app (boot races here used to be fatal), and the
+	// held route already lets pairing URLs carry the stable route id.
 	return w, nil
 }
 
@@ -206,6 +208,7 @@ func connectorURLFor(baseURL, routeID, token string) string {
 // registerCurrent (re)registers at the relay, resuming the held route when
 // one exists. Only a definitive relay rejection (401/403/404/410) abandons
 // the held route for a fresh registration; transient failures keep the
+// route so paired phones survive relay or network outages.
 func (w *Worker) registerCurrent(ctx context.Context) error {
 	w.mu.RLock()
 	routeID, token := w.routeID, w.token
@@ -306,6 +309,8 @@ func (w *Worker) Run(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		// Register lazily and retryably: startup must survive a relay or
+		// DNS outage, and a held route resumes (and revives) at the relay
+		// rather than minting a new route id.
 		if !w.hasRoute() {
 			if err := w.registerCurrent(ctx); err != nil {
 				if ctx.Err() != nil {
@@ -563,6 +568,8 @@ func (w *Worker) PairingURL(raw string) string {
 }
 
 // PublicURL returns the current public relay origin. Before registration this
+// is the configured base URL; after registration it is the relay-issued URL. A
+// nil Worker returns an empty string.
 func (w *Worker) PublicURL() string {
 	if w == nil {
 		return ""

@@ -16,6 +16,16 @@ import (
 )
 
 // Default calibration window for the zero-gamma compute. Tuned for
+// the trader-side review: 6 expirations beats the SpotGamma 4-expiry
+// default in nominal coverage; ±10 % strike width defines the candidate
+// window and the nearest-80-strikes cap keeps the leg count reasonable;
+// ±15 % sweep range comfortably brackets the typical zero crossing
+// without inflating the profile point count.
+//
+// WorkerCount 4 matches the documented safe gateway throttle elsewhere
+// in this package (handleChainFetch, around handlers.go:1628). Bumping
+// it requires retuning AcquireMarketDataSlot and is a deliberate
+// follow-up, not a v1 knob.
 const (
 	defaultExpiryCount    = 6
 	defaultStrikeWidthPct = 0.10
@@ -23,6 +33,11 @@ const (
 	defaultWorkerCount    = 4
 
 	// maxGammaStrikesPerExpiry caps the listed strikes walked for each
+	// expiry after the ±StrikeWidthPct filter and ATM-outward ordering.
+	// This keeps the default fan-out at 6 × 80 × 2 = 960 option legs,
+	// matching the compute budget below. It is especially important for
+	// SPX/SPXW, where 5-point strike grids inside ±10% can otherwise
+	// expand to 3k+ subscriptions outside RTH with little extra signal.
 	maxGammaStrikesPerExpiry = 80
 
 	// Horizon bucket boundaries in fractional years.
@@ -43,6 +58,13 @@ const (
 	throttleAbortPct   = 0.05
 
 	// computeETA is the static initial seconds-to-complete estimate the
+	// cache stamps on a fresh kickoff. Calibration after the v0.24.x
+	// IV-source fix:
+	//   6 expirations × ~80 strikes × 2 sides ≈ 960 legs (worst case)
+	//   actual landing rate ≈ 1-2 s/leg on warm contract cache
+	//   960 / 4 workers × 1.5 s/leg ≈ 6 min worst case
+	//   typical wall-clock 2-4 min.
+	// 240s is the new conservative midpoint.
 	computeETA = 240
 
 	// earlyAbortAfter is how long the fan-out runs before checking
@@ -87,6 +109,14 @@ func checkLegCoverage(landed, total int, throttled bool) error {
 }
 
 // legData carries the per-leg inputs the aggregator needs from the
+// fan-out into the sweep. Captured at fetch time; iv stays fixed
+// during the spot sweep (a documented v1 limitation — sticky-strike
+// skew is on the deferred backlog).
+//
+// tradingClass disambiguates SPX-class AM-monthlies from SPXW-class
+// PM-weeklies on shared third-Friday dates. For single-class
+// underlyings (SPY) the field equals the symbol. The settlement
+// instant in dteYears branches on it.
 type legData struct {
 	expiryYMD    string
 	dte          float64 // years; positive
@@ -102,6 +132,8 @@ type legData struct {
 	oiCarried    bool
 	oiObservedAt time.Time
 	// gamma is the gateway-supplied model-computation gamma at the
+	// snapshot spot; used for the at-spot aggregate. The sweep
+	// recomputes gamma via Black-Scholes for each scenario spot.
 	gammaAtSnapshot float64
 }
 
@@ -145,12 +177,17 @@ const (
 )
 
 // gammaLogger is the minimal logging surface computeGammaZeroFor uses to
+// emit kickoff / progress / abort lines. Defined as an interface so tests
+// can drive the compute with a no-op recorder; production passes the
+// daemon's *Logger. Nil is accepted and treated as no-op.
 type gammaLogger interface {
 	Infof(format string, args ...any)
 	Warnf(format string, args ...any)
 }
 
 // gammaLogfWrap returns a struct that turns nil-safe Infof/Warnf into
+// no-ops. Lets every log call site stay free of nil checks without
+// repeating boilerplate.
 type gammaLogf struct{ inner gammaLogger }
 
 func (g gammaLogf) Infof(format string, args ...any) {
@@ -178,10 +215,36 @@ type legFetcher func(
 ) legResult
 
 // productionLegFetcher is the live-gateway implementation. It mirrors
+// the data-collection pattern in handlers.go's fillOptionLeg (the chain
+// command's per-strike fill): subscribe the option, wait for the
+// open-interest tick to land in the MarketData cache, then read the
+// per-strike IV from OptionIV and the Greeks from OptionGreeks.
 //
+// Two-stage data collection:
+//
+//	Stage 1  — gateway model tick. Tick 21 (OPTION_COMPUTATION,
+//	           tickType=13 live/frozen or 83 delayed) routes into
+//	           optIV[key] / optGreeks[key];
+//	           fastest path with the gateway's own σ. Verified to fire
+//	           off-hours under the daemon's default MarketDataType=2 —
+//	           same path the internal chain fetch relies on for ATM IV.
 //	Stage 2  — BS-IV fallback. When the gateway never pushed a model
+//	           tick, solve for σ via Newton-Raphson against the option's
+//	           bid/ask mid or prior-session close (tick 9, always pushed
+//	           on subscribe regardless of trading state). Gamma is then
+//	           computed via bsGamma using the derived σ.
 //
+// Open interest (ticks 27/28) is read opportunistically from the per-
 // subscription cache at the end — never as a gate. Missing OI is
+// unknown, not zero: the leg can enrich IV/skew fitting, but it is
+// omitted from OI-weighted dealer GEX until an OI tick is observed.
+// SPY OI may be absent outside regular option hours; SPX OI should be
+// stable across session phases, so missing SPX OI is a data-quality
+// finding rather than expected off-hours sparsity.
+//
+// Per-leg budget is 1.5 s for the model-tick poll. Active strikes
+// produce a model tick within ~500 ms; dead deep-OTM strikes time out
+// and fall through to Stage 2 which back-solves σ from cached prices.
 func productionLegFetcher(
 	ctx context.Context,
 	c *ibkrlib.Connector,
@@ -237,6 +300,7 @@ func productionLegFetcher(
 	if snapshotDataType == rpc.MarketDataDelayed {
 		// A quote/previous-close inversion has no typed source clock. Using it
 		// beside a delayed spot would recreate the exact mixed-time input this
+		// fallback is designed to prevent, so delayed runs require tick 83.
 		return legResult{Failure: gammaLegFailureTimeout}
 	}
 	// Stage 2: BS-IV fallback when model tick never arrived.
@@ -385,15 +449,76 @@ func countGammaIVSources(legs []legData) (modelTick, derivedMid, derivedClose in
 }
 
 // computeGammaZeroFor runs the full Phase 2 compute for one underlying.
+// The caller (the cache's background goroutine) supplies a ctx bounded
 // only by daemon shutdown — not RPC deadlines — and an atomic progress
+// counter the fan-out updates as it advances. Returns a populated
 // result on success or a classified error on failure (stale spot, no
-// "no security definition" errors), and active dealer hedging flow
-// has no spot trading outside RTH, so IBKR's model-computation engine
+// usable legs, gateway disconnect).
 //
-//	right). Failures (no OI, no IV, gateway dropout) are dropped
+// `underlying` is the symbol whose option chain drives the compute —
+// "SPY" or "SPX" today. The function is structurally
+// single-underlying: callers that want SPY+SPX run it once per
+// underlying and aggregate at a higher layer.
+//
+// Underlying choice notes (carried forward from the SPY-only era):
+// SPY has continuous extended-hours quoting on SMART/ARCA, a single
+// trading class (so the secDefOptParams response is a clean per-expiry
+// strike grid rather than a multi-class superset that triggers spurious
+// "no security definition" errors), and active dealer hedging flow
+// that produces real IV ticks pre-market. SPX (the index) by contrast
+// has no spot trading outside RTH, so IBKR's model-computation engine
+// doesn't push IV ticks for SPX options off-hours, and an SPX-only
+// off-hours compute will land few legs. The BS-IV fallback and a
+// permissive MinLegCoverageFractionSPX (~0.05) are the off-hours
+// posture.
+//
+// Methodology (bs-gamma-profile-v3-stickymoneyness-0dte-split):
+//
+//  1. Snapshot SPY spot. Refuse on stale (data_type != live and not
+//     empty-pending) — the compute is anchored on a single spot and a
+//     known-bad spot poisons everything downstream.
+//
+//  2. Enumerate expirations + listed strikes via FetchOptionExpiryStrikes.
+//
+//  3. Pick the nearest N non-0DTE-post-settlement expirations. The
+//     0DTE filter is the *evening* of expiration day in NY: at 09:30
+//     ET on a 3rd Friday expiry, we still include it; at 16:15 ET
+//     on any expiry day, we drop it.
+//
+//  4. Per expiry, filter listed strikes to those within ±StrikeWidthPct
+//     of spot, then cap to the nearest strikes by moneyness. Far-OTM
+//     strikes contribute negligibly to dealer GEX and just inflate the
+//     leg count / gateway pressure.
+//
+//  5. Fan-out per-leg subscriptions at WorkerCount concurrency. Each
+//     worker captures OI + IV + gateway-Γ for one (expiry, strike,
+//     right). Failures (no OI, no IV, gateway dropout) are dropped
+//     from the aggregate; the leg count surfaces on the result so
+//     consumers can flag low-coverage runs.
+//
+//  6. Aggregate at spot:
+//     dealer GEX = Σ sign(right) × Γ_leg × OI_leg × 100 × spot² × 0.01
+//     |gex|      = Σ          |Γ_leg| × OI_leg × 100 × spot² × 0.01
+//     The sign convention assumes the 2018 Perfiliev default
+//     (long calls, short puts) — documented as a regime hint, not a
+//     dollar-precise level.
+//
+//  7. Sweep spot ∈ [1−SweepRangePct, 1+SweepRangePct] × snapshot_spot
+//     in sweepPoints steps. For each scenario spot, recompute Γ_leg
+//     via bsGamma with the leg's captured IV and DTE (sticky-IV
+//     during sweep; documented v1 limitation). Sum signed
+//     contributions to build the profile.
+//
+//  8. Find the zero crossing on the swept profile via linear interp;
+//     compute GapPct from spot.
+//
+//  9. Rank legs by |Γ × OI| at snapshot spot; surface the top
+//     topStrikesK as the magnitude signal (sign-agnostic, robust to
+//     the dealer-positioning assumption).
 //
 // On any step's failure the function returns a classified error;
 // step-internal partial failures (e.g., 50/960 legs dropped) attach a
+// structured warning instead and continue.
 func computeGammaZeroFor(
 	ctx context.Context,
 	c *ibkrlib.Connector,
@@ -441,7 +566,17 @@ func computeGammaZeroFor(
 	spotAt := now()
 
 	// 2. Expirations + strikes. The secDefOptParams response is large
+	// and streams in over tens of seconds for SPX — see
+	// gammaExpiriesFetchTimeout for the measured budget rationale. A
 	// failed live fetch falls back to the persisted expiry grid when a
+	// recent one exists (expiries_stale warning discloses the age).
+	//
+	// Branch on underlying: SPX is multi-class (SPX-AM monthlies +
+	// SPXW-PM weeklies share third-Friday dates as distinct contracts),
+	// so it pulls the classed strike grid and applies a per-class
+	// settlement cutoff. SPY-style single-class underlyings keep the
+	// existing merged-across-classes path; tradingClass on each leg is
+	// just the symbol.
 	progress.Store(5)
 	picked, gridFallback, err := buildPickedExpirations(c, sym, spotAt, params.ExpiryCount, grids, log)
 	if err != nil {
@@ -623,6 +758,8 @@ func computeGammaZeroFor(
 	derivedCount := stats.derivedIVs
 	if derivedCount > 0 && derivedCount == len(legs) {
 		// All legs used the BS-IV fallback — useful signal for the
+		// renderer, since the resulting flip level reflects prior-
+		// session prices rather than live model ticks.
 		warnings = append(warnings, "all_iv_derived")
 	}
 
@@ -719,9 +856,25 @@ func computeGammaZeroFor(
 }
 
 // prewarmGammaContracts bulk-prewarms option contracts for the picked
+// expirations, then filters jobs down to the contracts the gateway actually
+// lists. The prewarm is the load-bearing optimization: without it, each of
+// the ~1600 legs would independently pay a reqContractDetails round-trip
 // with up-to-4-exchange retry loop, which the IBKR per-account throttle
+// caps at ~50 attempts before aborting the whole fan-out. The bulk prewarm
+// issues one partial-Contract reqContractDetails per expiration (no Strike,
+// no Right) and the gateway streams every listed strike × C/P back in one
 // burst — same primitive TWS uses internally to populate a chain instantly.
+// Round-trip count drops from ~1600 to len(picked) (~6).
+//
+// TradingClass is load-bearing: omitting it interleaves multi-class
+// listings (SPY+SPYW, SPX+SPXW) and cache entries shadow each other.
+// SPY+weeklies all share class "SPY"; SPX has two distinct classes
+// (SPX-AM + SPXW-PM) which require independent prewarm passes.
+//
 // Errors per expiry are localised — one timed-out expiry doesn't fail the
+// others, and the per-leg fetcher still has its own resolveOptionContract
+// fallback for cache misses. The prewarm is a fast path, not a hard
+// dependency.
 func prewarmGammaContracts(
 	ctx context.Context,
 	c *ibkrlib.Connector,
@@ -1017,6 +1170,7 @@ func buildSkewCurves(legs []legData, snapshotSpot float64) (map[string]SkewCurve
 	quality := make(map[string]rpc.SkewFitInfo, len(byExpiry))
 	var fallbacks []string
 	// Stable iteration order so the warnings list is deterministic for
+	// regression tests.
 	expiryOrder := make([]string, 0, len(byExpiry))
 	for k := range byExpiry {
 		expiryOrder = append(expiryOrder, k)
@@ -1108,11 +1262,17 @@ func (e *gammaSpotError) Error() string { return e.message }
 func (e *gammaSpotError) Unwrap() error { return e.cause }
 
 // gammaSpotUnavailableError explains why the underlying spot step found no
+// usable price. The generic "no live tick" wording is true of a budget
 // timeout and equally true of an account that is simply not subscribed to
 // the index — and only the second one is the user's to fix. pollMarketData
+// already aborts within milliseconds on a terminal gateway rejection
+// (200/321/354/10197), so when that is what happened the code belongs in
+// the phase error instead of being discarded.
+//
 // The broker's rejection text is deliberately not interpolated: it is
 // untrusted free text that would reach both the wire error and
 // summarizeGammaPhaseFailure, whose digit matching a foreign message could
+// silently retarget. The typed code carries the meaning on its own.
 func gammaSpotUnavailableError(sym string, pollErr error) error {
 	if rejected, ok := errors.AsType[*SubscriptionRejectedError](pollErr); ok {
 		// 354 — "Requested market data is not subscribed", the one
@@ -1148,10 +1308,28 @@ func throttleDetected(done, noContract int32) bool {
 }
 
 // isAcceptableDataType reports whether the gateway's per-reqID feed
+// state is acceptable for the zero-gamma compute.
+//
+// Accepted:
+//   - "live" — real-time ticks; obvious choice.
 //   - "frozen" — IBKR's term for the last live tick captured before
+//     a session boundary or feed pause. For SPX this is typically
+//     yesterday's regular-session close. The spec explicitly says
 //     a daily refresh is sufficient, and frozen is exactly that:
+//     the official anchor for an end-of-day-style compute, just
+//     labelled honestly. Renderers can dim the headline by reading
+//     `data_type=frozen` from the result envelope.
+//   - "" — no marketDataType notice has arrived yet (typical in the
+//     first few hundred ms of a fresh subscription). Treated as
+//     live per rpc.IsLiveDataType convention.
 //   - "delayed" — only when the production leg fetcher can bind every
 //     option IV to IBKR's delayed model-computation tick 83. The source is
+//     15-20 minutes old but clock-aligned end to end and labeled on the
+//     result; that is inside gamma's one-hour RTH rankability horizon.
+//
+// Rejected:
+//   - "delayed-frozen" — the prior close, not the RTH delayed stream.
+//   - Anything else (unexpected value) — stale-by-default.
 func isAcceptableDataType(dt string) bool {
 	switch dt {
 	case "", rpc.MarketDataLive, rpc.MarketDataFrozen, rpc.MarketDataDelayed:
@@ -1176,6 +1354,10 @@ func classSettlementInstant(tradingClass string, year int, month time.Month, day
 }
 
 // classSettlementBuffer is the post-settlement grace window the
+// expiry-filter uses before tagging a same-day listing as "expired."
+// Mirrors the original 15-minute buffer on the unified 16:15 cutoff;
+// applied symmetrically to AM-settled and PM-settled classes so the
+// boundary semantics stay consistent across the SPX/SPXW split.
 const classSettlementBuffer = 15 * time.Minute
 
 func selectExpirationCandidates(strikes map[string][]float64, tradingClass string, now time.Time) []string {
@@ -1209,6 +1391,7 @@ func pickExpirationSlots(candidates []string, nyNow time.Time, count int) []stri
 	picks := make([]string, 0, count)
 
 	// attempt tries to add the first candidate matching predicate that
+	// hasn't been used yet. Returns true when the slot was filled.
 	attempt := func(predicate func(string) bool) bool {
 		if len(picks) >= count {
 			return false
@@ -1647,8 +1830,20 @@ func gammaOIForLegResult(
 }
 
 // dteYears computes years-to-expiry from an option's YYYYMMDD expiry
+// string under the correct settlement-instant for the option's trading
+// class. SPX-class AM monthlies are keyed by the Thursday last-trade date
+// and settle Friday 09:30 ET; SPXW weeklies, SPY, and equities expire at
+// 16:00 ET (PM close). Empty tradingClass falls back to 16:00 ET —
+// back-compat for the SPY-only path before the SPX coverage arc.
+//
 // Zero on parse failure or non-positive deltas — the compute's per-leg
+// gate filters those out.
+//
+// Why this matters: an SPX-class third-Friday option at 10:00 ET on
+// expiry day has already settled at 09:30; pricing it with 6.5 extra
 // hours of TTE under the legacy 16:00 instant would over-state its
+// gamma. The aggregate is dollar-significant — third-Friday SPX gamma
+// dominates the day-of-expiry book.
 func dteYears(expiryYMD, tradingClass string, now time.Time) float64 {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -1686,6 +1881,17 @@ func gammaCalendarDTE(expiryYMD, tradingClass string, now time.Time) (int, bool)
 }
 
 // sweepProfile builds the (spot, signed_gex) sweep over [1−range,
+// 1+range] × snapshotSpot in sweepPoints steps. Each scenario spot
+// recomputes per-leg Γ via Black-Scholes.
+//
+// skewByExpiry maps each leg's expiryYMD to a fitted skew curve. For
+// each leg in the inner loop the IV is looked up at the
+// scenario-spot's moneyness (σ = curve.IVAtMoneyness(ln(K/S_scenario))),
+// implementing the sticky-moneyness convention. When the curve for an
+// expiry is unfit (fewer than 3 points or degenerate solve), the leg
+// falls back to its captured IV — the v1 sticky-IV behaviour for that
+// expiry only. Pass nil to disable skew lookups entirely (used by the
+// fallback test path).
 func sweepProfile(legs []legData, snapshotSpot, sweepRangePct float64, skewByExpiry map[string]SkewCurve) []rpc.GammaProfilePoint {
 	if snapshotSpot <= 0 || sweepRangePct <= 0 || sweepPoints < 2 {
 		return nil

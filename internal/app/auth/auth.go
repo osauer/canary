@@ -28,6 +28,7 @@ import (
 )
 
 // SessionTTL is the lifetime of an in-memory bearer session minted after
+// successful device authentication.
 const SessionTTL = 12 * time.Hour
 
 // Manager coordinates process-local pairing sessions, challenges, and bearer
@@ -44,11 +45,13 @@ type Manager struct {
 }
 
 // DeviceWriter persists paired-device creation and revocation through the
+// app's serialized alert-delivery controller.
 type DeviceWriter interface {
 	AddDevice(state.DeviceGrant) error
 }
 
 // PairingSession is a short-lived, one-use invitation to enroll a device. ID,
+// Nonce, and URL are sensitive because URL embeds both credentials.
 type PairingSession struct {
 	ID        string    `json:"id"`
 	Nonce     string    `json:"nonce"`
@@ -74,6 +77,9 @@ type Session struct {
 }
 
 // CompletePairingRequest contains untrusted device enrollment proof. Nonce and
+// Signature are sensitive. PublicKeyJWK and Signature prove possession of the
+// device key; a client with no WebCrypto omits both and enrolls a cookie-only
+// grant, whose continuity rests entirely on the HttpOnly device cookie.
 type CompletePairingRequest struct {
 	PairingID    string          `json:"pairing_id"`
 	Nonce        string          `json:"nonce"`
@@ -93,6 +99,7 @@ type CompletePairingResult struct {
 // NewManager constructs a Manager backed by store. Device writes are routed
 // through deviceWriter so revocation cannot race confirmed alert transport. A
 // pairingTTL of zero or less uses five minutes. Both authorities must be
+// non-nil before authentication methods are used.
 func NewManager(store *state.Store, deviceWriter DeviceWriter, pairingTTL time.Duration) *Manager {
 	if pairingTTL <= 0 {
 		pairingTTL = 5 * time.Minute
@@ -152,7 +159,10 @@ func (m *Manager) CompletePairing(req CompletePairingRequest) (CompletePairingRe
 		return CompletePairingResult{}, errors.New("pairing nonce mismatch")
 	}
 	// An enrolling client either registers a key and proves it, or registers
+	// nothing at all. Consumed nonce possession is what gates both; the
 	// signature only binds the grant to the key it just registered, so its
+	// absence widens nothing an attacker holding the pairing URL could not
+	// already do by generating a key of their own.
 	if len(bytes.TrimSpace(req.PublicKeyJWK)) > 0 {
 		if err := VerifyJWKSignature(req.PublicKeyJWK, []byte(req.Nonce), req.Signature); err != nil {
 			return CompletePairingResult{}, fmt.Errorf("verify device proof: %w", err)
@@ -234,6 +244,7 @@ func (m *Manager) CompleteChallenge(deviceID, challenge, signature string) (Sess
 // IssueDeviceCookie creates a durable continuity credential for a paired
 // device, stores only its SHA-256 hash on the device grant, and returns the raw
 // deviceID.secret value once. The returned value is a bearer secret and must be
+// protected by the HTTP cookie layer. This method does not mint a session.
 func (m *Manager) IssueDeviceCookie(deviceID string) (string, error) {
 	if _, ok := m.store.Device(deviceID); !ok {
 		return "", errors.New("unknown device")
@@ -282,6 +293,8 @@ func (m *Manager) AuthenticateDeviceCookie(value string) (Session, error) {
 }
 
 // Authenticate validates a process-local bearer token, removes it if expired,
+// and confirms that its durable device grant still exists. On success it
+// returns a copy of the Session and best-effort updates device last-seen time.
 func (m *Manager) Authenticate(token string) (Session, bool) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -306,6 +319,8 @@ func (m *Manager) Authenticate(token string) (Session, bool) {
 }
 
 // StartReaper blocks while periodically removing expired pairing sessions,
+// challenges, and bearer sessions. An every value of zero or less uses one
+// minute. The loop returns when ctx is cancelled.
 func (m *Manager) StartReaper(ctx context.Context, every time.Duration) {
 	if every <= 0 {
 		every = time.Minute

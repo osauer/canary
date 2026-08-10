@@ -54,6 +54,7 @@ type alertEpisodeObservation struct {
 // alertEpisodeEvaluation is one source-coverage boundary. Absence from
 // Observations is explicitly an omission, never negative evidence. An active
 // episode recovers only from an Active=false observation inside complete,
+// current coverage with current evidence for that covered source.
 type alertEpisodeEvaluation struct {
 	AuthorityScope       string
 	AsOf                 time.Time

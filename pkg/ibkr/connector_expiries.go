@@ -89,6 +89,7 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 	)
 
 	// Register handlers BEFORE the request goes on the wire, but key on the
+	// reqID so other in-flight reqSecDefOptParams calls (if any) don't fan in.
 	beforeSend := func(reqID int) {
 		registeredReqID = reqID
 		dataHandlerID = conn.RegisterHandler(msgSecurityDefinitionOptionalParameter, func(fields []string) {
@@ -118,7 +119,9 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 	defer timer.Stop()
 
 	// Wait for end marker or timeout. On timeout we still return whatever we
+	// observed across exchanges — partial data is more useful than nothing for
 	// the listing UX, and the IBKR-spec end marker is best-effort during
+	// degraded data-farm conditions.
 	timedOut := false
 	select {
 	case <-fetch.done:
@@ -134,6 +137,10 @@ func (c *Connector) fetchOptionExpiriesData(symbol string, timeout time.Duration
 }
 
 // FetchOptionExpiries returns a newly allocated, sorted, deduplicated list of
+// option expiry dates for symbol in YYYY-MM-DD form. A timeout of zero or less
+// uses ten seconds. If the timeout expires after at least one response, the
+// partial list is returned without an error; an empty timeout returns an error.
+// An unavailable or inactive Connector returns the corresponding sentinel.
 func (c *Connector) FetchOptionExpiries(symbol string, timeout time.Duration) ([]string, error) {
 	expiries, _, _, err := c.fetchOptionExpiriesData(symbol, timeout)
 	if err != nil {
@@ -230,6 +237,7 @@ func (c *Connector) handleSecDefOptParam(expectedReqID int, fetch *optionExpiryF
 		}
 		// Classed: keyed by tradingClass so SPX vs SPXW stay separated.
 		// Empty tradingClass (unexpected — IBKR always fills it in
+		// practice) buckets under "" rather than merging into a sibling.
 		byClass, ok := fetch.classed[exp]
 		if !ok {
 			byClass = make(map[string]map[float64]struct{})
@@ -292,6 +300,7 @@ func (f *optionExpiryFetch) snapshot() ([]string, map[string][]float64, map[stri
 		}
 		slices.Sort(out)
 		// Multiple raw expiries from different exchanges can normalise to the
+		// same key; merge instead of overwriting.
 		if existing, ok := strikes[normalised]; ok {
 			merged := append(existing, out...)
 			slices.Sort(merged)

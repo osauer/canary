@@ -56,6 +56,10 @@ type Row struct {
 	// quality is the row's compact provenance tag, e.g. "· est 18s" or
 	Quality string
 	// streak summarises the consecutive-sessions-in-band counter on a
+	// short inline marker like "day 3" — appended next to the band word
+	// so a reader sees "yellow · day 3" without scanning sideways. The
+	// streak counter is daemon-classified using the spec defaults; a
+	// renderer with custom thresholds reads the raw value cell instead.
 	Streak string
 }
 
@@ -67,7 +71,21 @@ func streakMarker(s *rpc.StreakInfo) string {
 }
 
 // qualityTag compresses a set of *rpc.Quality pointers into a short
+// suffix string for the row's right edge. Returns "" when every
+// attached Quality is firm-live (the default-case row reads as fresh
+// with no extra ink). Picks the worst-of across attached values:
+//
+//   - any modelled/proxy → "· modelled"  (e.g. gamma's BS-sweep γ-zero)
+//   - any derived/estimate → "· est"     (e.g. SPY 52w-high fallback)
+//   - any firm/frozen → "· frozen"       (gateway-frozen tick)
+//   - otherwise → ""                     (all firm/live)
+//
+// Age suffix appends when the worst Quality.AsOf is older than the
+// per-class threshold. Tick-data (est/frozen) decays over seconds, so
+// any age > 5 s surfaces as "· est 18s". Modelled outputs are stable
+// over the snapshot horizon — a 37 s old BS-sweep result is no more
 // stale than a 1 s old one — so the age suffix only fires past 5 min,
+// as a stale-model warning rather than a freshness clock.
 func qualityTag(now time.Time, qs ...*rpc.Quality) string {
 	worstAt := time.Time{}
 	rank := func(q *rpc.Quality) int {
@@ -104,6 +122,9 @@ func qualityTag(now time.Time, qs ...*rpc.Quality) string {
 	specs := map[int]tagSpec{
 		4: {"· est", 5 * time.Second, seconds},
 		// The threshold sits above the gamma compute's own wall clock (SPY and
+		// SPX run serially, ~14 min) because the model ages from its input
+		// spot — at 5 min the badge fired on every result at birth and stopped
+		// carrying meaning.
 		5: {"· modelled", 20 * time.Minute, modelledAgeText},
 		3: {"· frozen", 5 * time.Second, seconds},
 		2: {"· official", 36 * time.Hour, func(d time.Duration) string { return fmt.Sprintf("%dd old", int(d.Hours()/24)) }},
@@ -121,6 +142,8 @@ func qualityTag(now time.Time, qs ...*rpc.Quality) string {
 }
 
 // modelledAgeText spells out "min" because this table's other units are
+// seconds and days, so a bare "m" beside "1d old" reads as months. It rolls to
+// hours for an overnight model: "525 min old" is arithmetic, not a reading.
 func modelledAgeText(d time.Duration) string {
 	if m := int(d.Minutes()); m < 120 {
 		return fmt.Sprintf("%d min old", m)
@@ -357,6 +380,10 @@ func rowUSDJPY(now time.Time, r rpc.RegimeUSDJPY) Row {
 }
 
 // gammaRowLabel returns the regime row's indicator name, varying with
+// the underlying gamma envelope's Scope so combined runs don't claim
+// to be SPY. Falls back to "SPY γ-zero" for envelopes without a Scope
+// (older or incomplete envelopes) or when no Result has landed yet; the
+// fallback label preserves the established rendering contract.
 func gammaRowLabel(r rpc.RegimeGammaZero) string {
 	res := r.Envelope.Result
 	if res == nil {
@@ -505,6 +532,7 @@ func rowGammaCrossing(row Row, r rpc.RegimeGammaZero, c *rpc.GammaZeroComputed, 
 func rowGammaSignedProfile(row Row, c *rpc.GammaZeroComputed, gammaRankable bool) Row {
 	// No crossing. GammaSign tells us which side of zero the whole swept
 	// profile landed on. Magnitude is rendered only when non-zero so an
+	// empty profile or v2 daemon does not paint a misleading "$0.0bn".
 	mag := ""
 	if c.GammaTotalAbs > 0 {
 		mag = fmt.Sprintf("  |GEX| %.1fbn", c.GammaTotalAbs/1e9)
@@ -995,6 +1023,16 @@ func Breadth(now time.Time, row rpc.RegimeBreadth) Row {
 }
 
 // GammaTripAnchor is the dealer-gamma trigger a gauge face prints beside its
+// reading. Gamma's red band is a crossing rather than a fixed number, so the
+// anchor is the SERVED pair the crossing is measured against — the spot the
+// sweep was anchored at and the γ-zero level it found.
+//
+// A combined SPY+SPX result deliberately carries no blended level (the two
+// underlyings live on different spot scales), so the anchor falls back to the
+// canonical per-index result and says which index it is. Nothing is
+// interpolated and no scale is mixed. Empty when no served result has a usable
+// crossing; callers then fall back to the row's worded trip, which states the
+// rule without pretending to a level.
 func GammaTripAnchor(row rpc.RegimeGammaZero) string {
 	c := row.Envelope.Result
 	if c == nil {

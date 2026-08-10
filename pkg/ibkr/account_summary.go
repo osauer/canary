@@ -23,8 +23,13 @@ var ErrAccountSummaryScopeConflict = errors.New("account summary account scope c
 // RawAccountSummary is a point-in-time view of the account values returned by
 // IBKR. Currency-denominated top-level fields use the account's base-currency
 // row when IBKR supplied one. If a base row is absent, the parser selects a
+// currency-specific row deterministically. Currency records the first such
+// fallback; Raw preserves the currency suffix for every field.
+//
 // Fields are pointers when their absence is meaningful (IBKR may omit tags
+// the user does not have permission for, e.g., margin fields on a cash
 // account, or LookAhead* on cash). Callers must check for nil before
+// dereferencing.
 type RawAccountSummary struct {
 	AccountID            string
 	AccountType          string
@@ -126,7 +131,9 @@ type CurrencyLedger struct {
 // reads only account-level keys and the ledger extraction reads only ledger
 // keys. This is a storage namespace, not a wire form: since gateway 10.47,
 // wire tags themselves may begin with '$' ("$LEDGER-…"), so the '$' alone
+// guarantees nothing — the ':' separator is what keeps this prefix apart
 // from every wire tag, and admission canonicalizes wire-prefixed tags before
+// storing, so namespaced keys always carry the bare field name.
 const accountSummaryLedgerKeyPrefix = "$LEDGER:"
 
 // gatewayLedgerTagPrefix is the wire dialect Gateway/TWS 10.47 introduces: an
@@ -199,6 +206,7 @@ type AccountSummaryProvenance string
 
 const (
 	// AccountSummaryProvenanceRequest means the one-shot request supplied a
+	// complete row set and matching end marker.
 	AccountSummaryProvenanceRequest AccountSummaryProvenance = "request"
 	// AccountSummaryProvenanceCachedFallback means an unstamped streaming
 	AccountSummaryProvenanceCachedFallback AccountSummaryProvenance = "cached_fallback"
@@ -477,8 +485,13 @@ func (c *Connector) CurrencyLedgerSnapshot() map[string]CurrencyLedger {
 
 // AccountSummaryRaw returns a defensive copy of the connector's current raw
 // account-summary cache. The map uses IBKR keys: bare tags for base-currency
+// values and `<tag>_<currency>` for currency-specific values.
+//
+// It is empty when no connection or observations are available, and also
 // whenever the cache cannot be attributed to the session's expected account —
 // the same admissibility rule CachedAccountSummary applies, because it is the
+// same unstamped map. Emptiness alone does not describe connection state. The
+// method is safe to call concurrently with streaming cache updates.
 func (c *Connector) AccountSummaryRaw() map[string]string {
 	c.mu.RLock()
 	conn := c.conn
@@ -491,8 +504,10 @@ func (c *Connector) AccountSummaryRaw() map[string]string {
 
 // CachedAccountSummary returns a caller-owned typed snapshot of the connector's
 // streaming account-summary cache, labeled with the account it belongs to. It
+// does not issue gateway traffic and returns nil until at least one core
 // account value has been observed, or whenever the cache is not admissible for
 // the session's expected account. The method is safe to call concurrently with
+// streaming cache updates.
 func (c *Connector) CachedAccountSummary() *RawAccountSummary {
 	c.mu.RLock()
 	conn := c.conn
@@ -529,9 +544,13 @@ func extractCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
 }
 
 // namespacedCurrencyLedger reads the internal one-shot ledger namespace. ok
+// reports whether the namespace held at least one recognizable ledger key —
+// distinct from the returned map being non-empty, because the zero-balance
 // filter may drop every recognized row and that must still count as "the
+// namespace answered" rather than falling back to a scan that would
 // misattribute account-level rows. Namespaced keys always carry the bare
 // canonical field name: admission strips the 10.47 wire prefix before
+// storing.
 func namespacedCurrencyLedger(raw map[string]string) (map[string]CurrencyLedger, bool) {
 	ledger := map[string]*CurrencyLedger{}
 	recognized := false

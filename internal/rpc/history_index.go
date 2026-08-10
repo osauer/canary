@@ -619,6 +619,10 @@ func regimeClusterWithinMaxAge(r RegimeSnapshotResult, name string) bool {
 }
 
 // gammaBlockedOnSessionCadenceOnly reports whether the only thing keeping a
+// gamma result from ranking is that it was computed for a different session.
+// Decided from the typed gate list, not from reason prose: a result blocked on
+// coverage, OI, model source, entitlement, or pacing is a real defect however
+// its cadence reads.
 func gammaBlockedOnSessionCadenceOnly(c *GammaZeroComputed) bool {
 	if c == nil {
 		return false
@@ -683,6 +687,7 @@ const (
 )
 
 // Cluster indexes for the six-cluster combination. Order is part of the
+// contract (lifecycle evidence and source-health rows iterate it).
 const (
 	RegimeClusterEquityVol = iota
 	RegimeClusterCredit
@@ -694,13 +699,19 @@ const (
 )
 
 // RegimeClusterNames are the wire names for the six clusters, indexed by the
+// RegimeCluster* constants.
 var RegimeClusterNames = []string{"vol", "credit", "funding", "fx", "gamma", "breadth"}
 
 // RegimeVerdictFloor is the minimum ranked-cluster count required to claim a
+// verdict above "insufficient signal".
 const RegimeVerdictFloor = 3
 
 // RegimeCurrencyPolicyVersion identifies the input-currency policy a decision
+// event was produced under (internal-docs/design/regime-input-currency.md).
+// Behaviour changes in how inputs report currency alter the daily fingerprint
+// sequence, so the calibration corpus has to be partitionable: a backtest must
 // never blend days either side of a cutover. Bump on every change to how a
+// class is assigned or consumed.
 const RegimeCurrencyPolicyVersion = "regime-currency-v1"
 
 // RegimeGate is one indicator's confirmation-eligibility policy. Depth units
@@ -714,16 +725,23 @@ type RegimeGate struct {
 // never left green. Move them only against a corpus that actually contains
 var regimeGates = map[string]RegimeGate{
 	// depth = VIX/VIX3M ratio. Inversion is already discrete; fast path on a
+	// deep day-one inversion.
 	RegimeIndicatorVIXTerm: {MinSessions: 2, MinDepth: 1.00, FastDepth: 1.05},
 	// depth = VVIX level. 120 keeps the existing isolated-VVIX rule's level.
 	RegimeIndicatorVolOfVol: {MinSessions: 2, MinDepth: 110, FastDepth: 120},
 	// depth = percent below the 50DMA ((dma-price)/dma*100). 0.25% is the
+	// noise floor; a 1% break is eligible day one.
 	RegimeIndicatorHYGSPY: {MinSessions: 2, MinDepth: 0.25, FastDepth: 1.0},
 	// depth = HY OAS percent. The red band itself stays the gate: the band's
 	RegimeIndicatorCredit: {MinSessions: 1, FastDepth: 6.5},
 	// depth = CP−bill spread in bp. Red levels are already deep, streak 1.
 	RegimeIndicatorFunding: {MinSessions: 1, FastDepth: 105},
 	// depth = weekly yen strengthening in percent (−WeeklyChange). Speed is
+	// the depth (≥2%/week), streak 1 by design — August-2024 carry unwinds
+	// play out in three sessions. The one deviation from the rule: it yields
+	// 2.6, but a calm fortnight of journal already printed 4.58%/week, so the
+	// scale would saturate on ordinary weeks. 7.0 is the August-2024 unwind
+	// this indicator exists to catch.
 	RegimeIndicatorUSDJPY: {MinSessions: 1, FastDepth: 7.0},
 	// depth = percent below gamma-zero (−gap_pct); a wholly-short profile
 	RegimeIndicatorGammaZero: {MinSessions: 1, MinDepth: 0.5, FastDepth: 4.5},
@@ -743,6 +761,8 @@ func GammaIndexWeight(key string, c *GammaZeroComputed) float64 {
 }
 
 // GammaCombinedGapPct is the gamma-weighted mean of the per-index gaps on a
+// combined-scope result. nil when the result is not combined scope or no
+// index reports a crossing.
 func GammaCombinedGapPct(c *GammaZeroComputed) *float64 {
 	if c == nil || c.Scope != GammaZeroScopeCombined || len(c.PerIndex) == 0 {
 		return nil
@@ -776,6 +796,9 @@ func RegimeGammaDepth(c *GammaZeroComputed) *float64 {
 }
 
 // gammaIndexDepth is one index's depth: percent below its gamma-zero, or the
+// extreme a wholly-short profile with no crossing earns — dealers short across
+// the whole modelled band is the most amplifying reading gamma has, and it has
+// no line left to measure a distance from. nil when the index reports neither.
 func gammaIndexDepth(c *GammaZeroComputed) *float64 {
 	if c == nil {
 		return nil
@@ -832,6 +855,9 @@ func RegimeIndicatorCluster(indicator string) string {
 }
 
 // RegimeEligibilityInput is one red row's gate evidence. Depth is in the
+// indicator's gate units; nil means the indicator has no separate depth
+// metric (the band threshold is the depth gate). StreakSessions <= 0 is
+// treated as 1 (fresh install / deleted store).
 type RegimeEligibilityInput struct {
 	Indicator      string
 	Band           string
@@ -883,6 +909,7 @@ func EvaluateRegimeEligibility(in RegimeEligibilityInput) *RegimeEligibility {
 // regimeEligibilityCurrencyReason names the currency that blocked confirmation.
 // The reason tokens are the stable vocabulary renderers and the decisions
 // journal already carry; a class with no token of its own reports data_overdue,
+// which is what it costs the row.
 func regimeEligibilityCurrencyReason(class string) string {
 	switch strings.ToLower(strings.TrimSpace(class)) {
 	case RegimeFreshnessNotDue:
@@ -1049,6 +1076,10 @@ func stageConfirmsStress(stage string) bool {
 }
 
 // GammaTransitionGapPct is the ± band, in percent of the zero-gamma level,
+// inside which dealer positioning reads as transitional rather than long or
+// short gamma. Single copy: the daemon gamma rows and every CLI renderer
+// classify through GammaRegimeFromGap, and prose that names the band derives
+// its number from this constant.
 const GammaTransitionGapPct = 2.0
 
 // GammaRegimeFromGap maps the signed spot-vs-zero-gamma gap (percent of the
@@ -1097,6 +1128,10 @@ func HeuristicThresholds(label, green, yellow, red, trip string) *RegimeThreshol
 }
 
 // regimeThresholdText is one indicator's published band prose. Label is the
+// threshold-set version identity, persisted as
+// regime_indicators.thresholds_label so the calibration corpus can be
+// partitioned by the values a decision was produced under — not a display
+// name, which every renderer supplies for itself.
 type regimeThresholdText struct{ label, green, yellow, red, trip string }
 
 // regimeThresholdTexts is the single source for published band prose.
@@ -1133,6 +1168,10 @@ type StressInput struct {
 }
 
 // StressResult is the compact scheduled-monitor payload. The stress read is
+// stateless: it combines current broad-market regime with the current portfolio
+// shape, then emits a fresh action snapshot. Fingerprint is the canonical
+// alert identity for monitors; SourceFingerprints records the classified
+// upstream state the stress read consumed.
 type StressResult struct {
 	AsOf               time.Time                `json:"as_of"`
 	SourceAsOf         StressSourceAsOf         `json:"source_as_of,omitzero"`
@@ -1177,7 +1216,10 @@ const EstablishedAlertProjectionSchemaVersion = "stress-established-alert-v1"
 const EstablishedStressFingerprintVersion = "stress-fp-v1"
 
 // EstablishedAlertProjection atomically carries every producer-owned field
+// the pre-shadow Stress monitor used for occurrence identity and delivery-mode
+// eligibility. CanonicalFingerprint carries the established key under the
 // Stress-labelled compatibility version; it is not a new alert authority or a
+// transport authorization.
 type EstablishedAlertProjection struct {
 	SchemaVersion        string              `json:"schema_version"`
 	CanonicalFingerprint Fingerprint         `json:"canonical_fingerprint"`
@@ -1410,12 +1452,16 @@ type HeldStress struct {
 }
 
 // StressMarketSummary combines regime, tape, and source-quality context used by
+// Stress. Its cluster counts retain rankability and confirmation distinctions.
 type StressMarketSummary struct {
 	RegimeVerdict string        `json:"regime_verdict,omitempty"`
 	RegimePosture RegimePosture `json:"regime_posture,omitzero"`
 	RedClusters   int           `json:"red_clusters"`
 	// EligibleRedClusters counts reds that passed the confirmation gates
 	// (depth + persistence + freshness) — the only reds used by
+	// Stress act/urgent-grade decisions. RedClusters keeps the visible
+	// (confirmed-band) reds for watch-grade evidence; the difference is
+	// disclosed in UnconfirmedRedClusterNames.
 	EligibleRedClusters        int      `json:"eligible_red_clusters"`
 	EligibleRedClusterNames    []string `json:"eligible_red_cluster_names,omitempty"`
 	YellowClusters             int      `json:"yellow_clusters"`
@@ -1441,6 +1487,11 @@ type StressMarketSummary struct {
 }
 
 // TapeSessionState values shared by StressMarketSummary and
+// RegimeSnapshotResult. Trading dates keep full direct-tape severity at any
+// hour (pre/post/overnight moves are live prints the tape-shock row exists to
+// catch); closed dates demote frozen tape shocks to observe and bar them from
+// entering or holding tape-driven lifecycle stages until the next open
+// re-evaluates them from live prints.
 const (
 	// TapeSessionTradingDate means the calendar date has an official session.
 	TapeSessionTradingDate = "trading_date"

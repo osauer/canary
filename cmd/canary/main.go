@@ -26,6 +26,7 @@ var (
 	date    = "unknown"
 
 	// String vars so integration tests can shrink CLI wall-clock budgets with
+	// `go build -ldflags -X ...` while production builds keep the defaults.
 	cliUnaryTimeout     = "60s"
 	cliLongUnaryTimeout = "90s"
 )
@@ -61,6 +62,10 @@ func main() {
 	}
 
 	// `canary mcp` runs the stdio MCP server, spoken by Claude Desktop and
+	// other local MCP clients. Like `daemon`, special-cased before
+	// autospawn — the MCP server itself dials (and autospawns if needed)
+	// the daemon socket internally so it stays responsive across tool
+	// calls.
 	if cmd == "mcp" {
 		os.Exit(runMCP(rest))
 	}
@@ -91,6 +96,8 @@ func main() {
 	}
 
 	// `canary stop` is the same local process management, and must clear the
+	// autospawn path for a sharper reason: dialling first would start the
+	// daemon this command exists to stop.
 	if cmd == "stop" {
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer cancel()
@@ -126,7 +133,10 @@ func main() {
 	defer conn.Close()
 
 	// `status` already prints daemon_version in its body, so the extra
+	// pre-flight check would just be noise there. Every other command
+	// gets a version-skew check — a fast status.health round-trip whose
 	// only output is a stderr warning if the daemon was built from a
+	// different revision than this CLI binary.
 	if cmd != "status" {
 		warnIfDaemonVersionMismatch(conn, runtimeVersion)
 	}

@@ -26,13 +26,21 @@ type stressDecisionJournal struct {
 }
 
 // legacyStressDecisionsFile is the pre-rename on-disk name of the portfolio-
+// stress decision journal. It is deliberately NOT renamed to stress-decisions.
 // The daemon has not appended to this file since the SQLite authority cutover
+// (append() takes the corestore branch whenever core is bound, which production
 // Start always does). What remains on an operator's disk is frozen legacy
 // evidence that the cutover importer reads once and then seals under this exact
 // basename into legacy-sealed/<cutover-id>/.
+//
+// Renaming it is not merely low-value, it is unsafe: rotation derives its
+// archive prefix from this basename (journalArchiveBase), so a renamed live
+// file makes every rotated canary-decisions-*.jsonl.gz archive invisible to
+// existingArchiveNames and backfillArchives, and makes validateRotationArchives
 // reject any rotation intent a crash left pending. recoverLegacyDecisionRotations
 // treats an unresolvable intent as a hard startup failure, so the rename would
 // brick startup for exactly the operator who crashed mid-rotation. The name is
+// an evidence identifier, not a sensor name.
 const legacyStressDecisionsFile = "canary-decisions.jsonl"
 
 func stressDecisionsDefaultPath() (string, error) {
@@ -44,6 +52,8 @@ const (
 	// stressEvaluationEvery is the daemon-owned decision cadence. It matches
 	stressEvaluationEvery = time.Minute
 	// A cold daemon starts the loop before the gateway handshake. Retry the
+	// cheap prerequisite check promptly; once an evaluation is attempted, the
+	// normal minute cadence resumes even if some inputs are degraded.
 	stressEvaluationRetryEvery = 5 * time.Second
 	// stressJournalEvery remains the five-minute Regime authority window used
 	stressJournalEvery = 5 * time.Minute

@@ -117,6 +117,7 @@ func (s *Server) resolvePreviewOrderContract(ctx context.Context, authority *ord
 	}
 	// Existing unit tests may replace the complete quote/position/WhatIf
 	// authority without constructing a socket. Production never takes this
+	// path because no test seam is installed.
 	if authority == nil {
 		return contract, nil
 	}
@@ -478,6 +479,8 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 	riskEffect := position.Effect
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) {
 		// Incomplete manual-order visibility means the apparent long exit may
+		// arrive after another sell consumed that capacity. Apply the same
+		// explicit short-opening permission as a zero-position sell.
 		riskEffect = rpc.OrderPositionEffectOpenShort
 	}
 	switch {
@@ -549,6 +552,7 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	// Focused test fixtures that mint payloads directly predate the v4
 	// authority fields. Production v4 tokens are minted only by previewOrder
 	// and always carry all three; this compatibility branch is reachable only
+	// through an explicit in-process position seam.
 	if current.TestOnly && expectedGeneration == 0 && expectedAccount == "" && expectedBase == "" {
 		expectedGeneration = current.Generation
 		expectedAccount = current.Health.Account

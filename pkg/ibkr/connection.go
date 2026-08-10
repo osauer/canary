@@ -765,8 +765,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 		}
 
 		// Non-client ID error (dial refused / TLS handshake / net error) —
+		// return immediately. Logs at Debug, not Error: the daemon owns the
+		// deduped connect verdict (see the connect-narration note above and
 		// server.connectWithFailover), so at Error this single line floods
 		// ibkr-daemon.log on every demand-driven reconnect cycle while the
+		// gateway is down — 66,900 identical "connection refused" lines over a
+		// 7h outage, observed 2026-07-08. The real 326 collision above stays at
+		// Error; the daemon paces the retries themselves via reconnectBackoff.
 		connectLogger.Debugf("Connection failed with non-client ID error: %v", err)
 		return err
 	}
@@ -1082,6 +1087,7 @@ func (c *Connection) heartbeatMonitor() {
 			if err := c.RequestCurrentTime(); err != nil {
 				connectLogger.Warnf("Failed to send heartbeat: %v", err)
 				// Don't disconnect immediately on heartbeat failure,
+				// let the timeout mechanism handle it
 			} else {
 				c.lastHeartbeatNano.Store(time.Now().UnixNano())
 			}
@@ -1633,6 +1639,8 @@ func (c *Connection) startAPI() error {
 		msgBytes, err := c.readMessage()
 		if err != nil {
 			// Capture a client-ID-collision lastError observed mid-read so
+			// the caller's retry loop branches on errClientIDInUse rather
+			// than the read error itself.
 			c.statusMu.RLock()
 			if errors.Is(c.lastError, errClientIDInUse) {
 				clientIDError = c.lastError
@@ -1760,6 +1768,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 	if epoch != c.BrokerSessionEpoch() {
 		// Only epoch-aware order handlers may observe a stale frame, solely so
 		// their owner can fail closed. Never run legacy handlers or mutate the
+		// current session's request, farm, portfolio, or local-order state.
 		c.dispatchStaleInboundMessage(msgID, fields, epoch)
 		return
 	}
@@ -2626,7 +2635,9 @@ const (
 // accountSummaryRequestRowDisposition admits ordinary rows only from the
 // expected concrete account. managed is the login's managedAccounts list, which
 // decides what the other rows mean. For Account=All, it accepts only typed
+// ledger fields and ignores every unmodeled aggregate field. Unregistered
 // traffic never calls this helper and cannot seed the streaming cache through
+// it.
 func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount string, managed []string) accountSummaryRowDisposition {
 	expectedAccount = strings.TrimSpace(expectedAccount)
 	if !accountCodeConcrete(expectedAccount) {
@@ -2719,6 +2730,12 @@ func (c *Connection) handlePortfolioValue(fields []string) {
 		multiplier, multiplierErr = strconv.Atoi(multiplierRaw)
 	}
 	// IB omits multiplier — or encodes it as zero — on every frame whose
+	// contract has no real multiplier: stocks, cash, bonds, bills, funds and
+	// CFDs. One unit is the correct normalization for all of them, and the
+	// downstream renderers already treat the field that way. Derivatives do
+	// carry a real multiplier, so normalizing theirs to 1 would understate
+	// the row; they still require an explicit positive value, and options
+	// need an explicit strike.
 	derivativeIdentity := secType == "OPT" || secType == "FOP" || secType == "WAR"
 	requiresDerivativeTerms := secType == "OPT" || secType == "FOP"
 	right := strings.ToUpper(strings.TrimSpace(fields[7]))
@@ -2876,6 +2893,7 @@ func (c *Connection) portfolioStreamAccount() string {
 func (c *Connection) acceptPortfolioAccountFrame(account string, observedAt time.Time) bool {
 	account = strings.TrimSpace(account)
 	// Snapshot the managed list before taking portfolioHealthMu: no path in
+	// this file nests the two locks, and this keeps it that way.
 	sibling := c.managedAccountMember(account)
 	c.portfolioHealthMu.Lock()
 	defer c.portfolioHealthMu.Unlock()
@@ -2976,6 +2994,7 @@ func finiteFloat(value float64) bool {
 
 // invalidatePortfolioGeneration is called with portfolioProjectionMu held.
 // It retains the last published rows only as context while ensuring neither a
+// later end marker nor heartbeat can make the malformed generation current.
 func (c *Connection) invalidatePortfolioGeneration(observedAt time.Time) {
 	c.portfolioHealthMu.Lock()
 	changed := c.portfolioHealth.InvalidPayloadAt.IsZero()
@@ -3334,6 +3353,8 @@ func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Conte
 				defer c.evidenceBarrier.Unlock()
 			}
 			// Recheck cancellation while holding transportMu. If the limiter or
+			// caller returned while this dispatch was queued, no later socket
+			// write can escape after cancel closes sendCtx.
 			if err := dispatchCtx.Err(); err != nil {
 				return brokerSendError(err, SendDispositionDefinitelyUnsent, protectedSend)
 			}
@@ -3373,6 +3394,9 @@ func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Conte
 				}
 			}
 			// The outbound generation and invalidation flag are protected by
+			// transportMu, which is still held here. This is the last lifecycle
+			// read before the first byte and therefore the write linearization
+			// point relative to Disconnect/connection loss.
 			if err := dispatchCtx.Err(); err != nil {
 				return brokerSendError(err, SendDispositionDefinitelyUnsent, protectedSend)
 			}
@@ -3416,6 +3440,7 @@ func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Conte
 	// A limiter-level return after dispatch began is conservatively uncertain:
 	// the transport callback may still be finishing. The caller must poison or
 	// reconcile. A request that never entered is proven pre-wire because the
+	// canceled child is rechecked under transportMu.
 	if !dispatchEntered.Load() {
 		return brokerSendError(err, SendDispositionDefinitelyUnsent, true)
 	}
@@ -4101,6 +4126,10 @@ func (c *Connection) sendContractDetailsRequest(contract Contract, reqID int) er
 }
 
 // sendContractDetailsRequestContext is sendContractDetailsRequest with
+// caller-owned cancellation and pacing priority while queued in the rate
+// limiter. The chain prewarm and per-leg option resolution use it so a
+// background-tagged fan-out rides the limiter's background lane instead of
+// pre-booking the message bucket ahead of interactive reads.
 func (c *Connection) sendContractDetailsRequestContext(ctx context.Context, contract Contract, reqID int) error {
 	return c.sendMessageWithTypeContext(ctx, c.contractDetailsRequestMessage(contract, reqID), RequestTypeGeneral)
 }
@@ -4672,7 +4701,9 @@ func (c *Connection) resetOrderIDReadiness() {
 	c.inboundEpochMu.Lock()
 	defer c.inboundEpochMu.Unlock()
 	// The canonical order is inbound generation then evidence. msgErr handling
+	// holds the inbound read side while its side effects may take evidence read
 	// locks; reversing these here creates a writer-preference deadlock when an
+	// evidence writer is already queued.
 	unlockEvidence := c.lockEvidenceChange()
 	defer unlockEvidence()
 	c.reqIDMu.Lock()
@@ -5121,6 +5152,10 @@ func applyContractDetailLite(detail ContractDetailsLite, contract *Contract) {
 	}
 	if optionPrimaryHint != "" {
 		// Cached OPT details can contain the option listing venue as
+		// PrimaryExch; during contract resolution SPY-style stock
+		// options still want the underlying chain source hint. The
+		// market-data request normalizer clears this field again once
+		// a concrete option ConID is known.
 		contract.PrimaryExch = optionPrimaryHint
 	}
 }
@@ -5834,6 +5869,7 @@ func (c *Connection) prewarmOneExpiryAttempt(ctx context.Context, contract Contr
 		c.optionContractMu.Lock()
 		if existing, ok := c.optionContractCache[key]; ok && existing.ConID != 0 {
 			// Don't overwrite a previously-resolved entry — keeps any
+			// exchange-routing already determined.
 			c.optionContractMu.Unlock()
 			return
 		}
@@ -5921,6 +5957,8 @@ func (c *Connection) RequestPositions() error {
 }
 
 // WaitForPositionsEnd waits for the matching msgPositionEnd frame after a
+// RequestPositions call. Library-callable companion to RequestPositions
+// (daemon uses the streaming path; see RequestPositions for details).
 func (c *Connection) WaitForPositionsEnd(timeout time.Duration) error {
 	select {
 	case <-c.positionsEndChan:
@@ -6054,6 +6092,7 @@ func (c *Connection) RequestAccountSummaryForAccount(reqID int, tags, expectedAc
 }
 
 // WaitForAccountSummaryEnd waits until an account-summary request completes or
+// timeout elapses.
 func (c *Connection) WaitForAccountSummaryEnd(timeout time.Duration) error {
 	select {
 	case <-c.acctSummaryEndChan:
@@ -6423,6 +6462,8 @@ func (c *Connection) nextRequestIDForForwardingWithEpoch() (int, uint64, error) 
 }
 
 // discardRequestIDReservation drops retry provenance without moving the
+// frontier backward. It is used when an internally generated request ID never
+// reaches the Connection claim/send boundary.
 func (c *Connection) discardRequestIDReservation(id int) {
 	if c == nil || id <= 0 {
 		return

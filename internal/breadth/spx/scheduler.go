@@ -24,20 +24,40 @@ const (
 )
 
 // belowThresholdRetryDelay is how long the scheduler waits before
+// retrying a refresh that finished below MinCoverageFraction. Sized
 // to give IBKR's per-account reqContractDetails bucket (~50 / 10 min,
+// observed) time to refill — the dominant bottleneck during a 503-name
+// cold-start fan-out. A previous refresh that resolved ~50 contracts
+// drained the bucket; waiting 12 min lets the next attempt land another
+// ~50 successful resolutions on top of the windows already persisted.
 const belowThresholdRetryDelay = 12 * time.Minute
 
 // maxBelowThresholdRetries caps how many back-to-back retries the
+// scheduler performs before falling through to the daily cadence.
+// With belowThresholdRetryDelay = 12 min and ~50 new resolutions per
 // retry (IBKR's bucket math), 12 retries covers ~600 names — enough to
+// converge from a cold start for the S&P 500. The cap exists so a
+// genuinely broken gateway doesn't keep us in a tight retry loop
+// indefinitely: after the limit, we fall through to the daily 16:35 ET
+// wake-up and the operator can investigate.
 const maxBelowThresholdRetries = 15
 
 // errorRetryDelay is the back-off applied when Refresh returns an
+// error — distinct from belowThresholdRetryDelay (which assumes a
 // completed-but-partial fan-out limited by IBKR's reqContractDetails
 // bucket). Refresh errors are transport-level failures (gateway down,
+// bulk-connector not yet ready, ctx cancellation upstream); they
+// resolve in seconds, not minutes, so a short fixed back-off is
+// right. 30 s is long enough not to retry-storm a recovering gateway
+// and short enough that a one-shot blip clears within one user-visible
+// poll cycle.
 const errorRetryDelay = 30 * time.Second
 
 // nyLocation returns the America/New_York time.Location, falling back
+// to UTC if the zoneinfo database isn't available on this host. The
+// fallback degrades cadence (a daemon on a UTC-only container would
 // run at 16:35 UTC, which is mid-US-session) but never blocks the
+// scheduler from running.
 func nyLocation() *time.Location {
 	if loc, err := time.LoadLocation("America/New_York"); err == nil {
 		return loc
@@ -46,6 +66,9 @@ func nyLocation() *time.Location {
 }
 
 // nextRefreshAt returns the next US-equity session close plus the
+// settlement pad. Weekends, holidays, and known early closes come
+// from the embedded official calendar so the scheduler does not wake
+// every closed day just to discover there are no new bars.
 func nextRefreshAt(now time.Time) time.Time {
 	cal := marketcal.NewWithClock(func() time.Time { return now })
 	res, err := cal.Query(marketcal.Query{Market: marketcal.MarketUSEquity, At: now, Days: calendarLookaheadDays})
@@ -175,6 +198,20 @@ func isBreadthSession(session marketcal.Session) bool {
 }
 
 // shouldRefreshOnStartup reports whether the engine should run a
+// catch-up Refresh as soon as Run() starts, before settling into the
+// daily cadence. The conditions are:
+//
+//  1. No snapshot has ever been computed (cold install). Always run.
+//  2. The cached snapshot is for an older completed US-equity session.
+//     We missed at least one tradable post-close refresh while the
+//     daemon was down — run now rather than wait for the next close.
+//  3. The cached snapshot has the current session key but its AsOf
+//     predates that session's close-plus-pad. This catches the rare
+//     pre-close partial snapshot that would otherwise look current
+//     by date alone.
+//
+// When none of these hold, the scheduler sleeps until the next
+// tradable close plus settlement pad.
 func shouldRefreshOnStartup(snap *Snapshot, now time.Time) bool {
 	if snap == nil {
 		return true
@@ -203,7 +240,12 @@ func (e *Engine) Run(ctx context.Context) {
 		return err
 	}
 	// updateRetryState reads the post-refresh coverage signal and
+	// adjusts the retry counter for the next loop iteration. Called
 	// only after refreshes that COMPLETED (no transport error) so a
+	// below-threshold result triggers the short retry cadence —
+	// otherwise the bootstrap's below-threshold outcome would sit idle
+	// until the next 16:35 ET tick, defeating the retry mechanism.
+	// Refresh errors take the errorRetryDelay path instead.
 	updateRetryState := func() {
 		cov, mc := e.LastRefreshCoverage()
 		converged := mc > 0 && cov >= int(MinCoverageFraction*float64(mc))

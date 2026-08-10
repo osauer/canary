@@ -331,6 +331,9 @@ func checkStatusHandshake(in checkInputs) CheckResult {
 		if f.Direction == "IN" && f.MsgID == 204 {
 			// msg 204 is a system notification with a protobuf-encoded
 			// payload; the wire interceptor captures the raw blob in
+			// fields[1]. The human-readable substring "farm connection
+			// is OK" is reliably embedded — codes 2104 (market data
+			// farm), 2106 (HMDS), 2158 (sec-def farm) all carry it.
 			for _, fld := range f.Fields {
 				if strings.Contains(fld, "farm connection is OK") {
 					sawFarmNotice = true
@@ -359,6 +362,11 @@ func checkStatusHandshake(in checkInputs) CheckResult {
 func checkQuoteSPY(in checkInputs) CheckResult {
 	frames := in.Frames
 	// Expected outbound: reqMktData (msg 1) with SecType=STK and
+	// Symbol=SPY. Expected inbound: tickPrice (msg 1) with tickType in
+	// {1, 2, 4} — bid, ask, last. In loose off-hours mode, accept the
+	// same fallback ticks the quote engine documents: mark (37) and
+	// previous close (9). Live mode keeps the stricter check so a broken
+	// current-tick path does not slip through.
 	var outFound bool
 	var inTickPrice []WireFrame
 	wantTickTypes := map[string]bool{"1": true, "2": true, "4": true}
@@ -496,7 +504,11 @@ func checkChainIVSource(in checkInputs) CheckResult {
 }
 
 // checkChainResponseIV adjudicates a chain read that issued no new OPT
+// subscribe. "Already subscribed" and "cannot subscribe" are identical on the
 // wire — neither sends reqMktData — and differ in the response: a leg the
+// daemon could not reach comes back with data_status=subscribe_error and no
+// values at all, while a leg served from a live subscription carries the same
+// IV and prices it would have carried had this read opened the subscription.
 func checkChainResponseIV(in checkInputs) CheckResult {
 	if len(in.Envelope) == 0 {
 		return CheckResult{
@@ -507,6 +519,7 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 	}
 	// Only the fields this check reads; extra response fields stay
 	// forward-compatible, and the status strings are matched against an
+	// allowlist rather than parsed.
 	type strike struct {
 		CallIV         *float64 `json:"call_iv"`
 		PutIV          *float64 `json:"put_iv"`
@@ -543,6 +556,7 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 	}
 	if in.Loose && withData > 0 {
 		// Off-hours the model engine is idle, so priced legs without IV are
+		// the same tolerance the model-tick branch already grants.
 		return CheckResult{OK: true, Observed: fmt.Sprintf(
 			"loose-mode: 0 new OPT subscribes and 0 IVs, but %d of %d strikes carry option data", withData, total)}
 	}
@@ -560,6 +574,9 @@ func checkChainResponseIV(in checkInputs) CheckResult {
 func checkRegimeSubs(in checkInputs) CheckResult {
 	frames := in.Frames
 	// regime fans out to VIX, VIX3M, HYG, SPY, USDJPY. Each gets a
+	// reqMktData OUT and a MarketDataType notice IN. We require all
+	// five outbound subscribes; inbound is best-effort because
+	// off-hours some indicators (VIX3M particularly) can be slow.
 	wantSymbols := map[string]bool{
 		"VIX": false, "VIX3M": false, "HYG": false, "SPY": false, "USD": false,
 	}

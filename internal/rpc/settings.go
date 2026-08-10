@@ -79,6 +79,7 @@ type PlatformStressSettings struct {
 }
 
 // StressJournalSettings controls typed stress-decision event collection in
+// daemon.db, mirroring RegimeJournalSettings.
 type StressJournalSettings struct {
 	Enabled SettingsBool `json:"enabled"`
 }

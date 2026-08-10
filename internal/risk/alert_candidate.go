@@ -94,6 +94,8 @@ type AlertPresentationCode string
 
 // Alert presentation codes cover every producer-owned candidate class. The
 // generic condition codes exist only to preserve lifecycle identity while a
+// version-2 registry is upgraded; the next producer observation replaces them
+// with the precise code without opening a new occurrence.
 const (
 	AlertPresentationPortfolioStress                  AlertPresentationCode = "portfolio_stress"
 	AlertPresentationMarginCushion                    AlertPresentationCode = "margin_cushion"
@@ -160,6 +162,7 @@ const (
 )
 
 // AlertCoverageState describes how much of the expected source set was
+// evaluated. The zero value is invalid.
 type AlertCoverageState string
 
 // AlertCoverageComplete and the related constants classify expected-source
@@ -181,6 +184,7 @@ const (
 )
 
 // AlertSnapshotState is the state derived from validated candidates and
+// coverage. Clear requires complete, current coverage.
 type AlertSnapshotState string
 
 // AlertSnapshotClear and the related constants are derived snapshot states.
@@ -192,8 +196,16 @@ const (
 
 // AlertCandidate contains classified, redacted semantics only. It deliberately
 // has no display copy, source subject, account, symbol, order, route, display
+// ID, target ID, device ID, or delivery-attempt ID.
+//
+// EpisodeKey is stable for the same root problem. EvidenceFingerprint changes
+// when classified supporting evidence changes. OccurrenceKey changes when the
+// daemon opens/reopens the root problem or classifies an escalation as a new
+// page-worthy occurrence; it stays stable for evidence-only revisions and the
+// occurrence's recovery. App delivery records bind this private occurrence key
 // and create their own per-target attempt IDs; they never infer re-arm,
 // page-worthy escalation, or use a display ID as authority. StateChangedAt is
+// the daemon's semantic transition time.
 type AlertCandidate struct {
 	EpisodeKey          string                `json:"episode_key"`
 	OccurrenceKey       string                `json:"occurrence_key"`
@@ -278,6 +290,7 @@ func BuildAlertAuthorityScope(account, mode string) (string, error) {
 
 // ValidateAlertAuthorityScope accepts only the opaque value produced by
 // BuildAlertAuthorityScope. Raw account or mode values never belong in a
+// candidate snapshot, daemon registry document, or app inbox.
 func ValidateAlertAuthorityScope(value string) error {
 	if !validOpaqueSHA256(value, alertAuthorityScopePrefix) {
 		return errors.New("invalid alert authority_scope")
@@ -286,7 +299,9 @@ func ValidateAlertAuthorityScope(value string) error {
 }
 
 // BuildAlertEpisodeKey hashes a producer-approved semantic identity into an
+// opaque stable key. identityParts may contain sensitive source identities;
 // callers must not persist or log them. Only the returned key belongs on the
+// alert contract. Part order is significant.
 func BuildAlertEpisodeKey(source AlertSource, kind AlertKind, identityParts ...string) (string, error) {
 	if !validAlertSource(source) {
 		return "", errors.New("invalid alert episode source")
@@ -358,6 +373,7 @@ func BuildAlertOccurrenceKey(episodeKey string, identityParts ...string) (string
 }
 
 // Validate checks the candidate's opaque identities, enum values, timestamps,
+// and recovery coherence.
 func (candidate AlertCandidate) Validate() error {
 	if !validOpaqueSHA256(candidate.EpisodeKey, alertEpisodeKeyPrefix) {
 		return errors.New("invalid alert candidate episode_key")
@@ -499,6 +515,7 @@ func (coverage AlertCoverage) Validate() error {
 }
 
 // Validate checks the complete snapshot contract and verifies that
+// CurrentState is the state implied by its candidates and coverage.
 func (snapshot AlertCandidateSnapshot) Validate() error {
 	if snapshot.SchemaVersion != AlertCandidateSnapshotVersion {
 		return errors.New("invalid alert candidate snapshot schema_version")
@@ -596,6 +613,7 @@ func (snapshot AlertCandidateSnapshot) Validate() error {
 }
 
 // IsClear reports a trustworthy clear only for a fully valid snapshot. It is
+// intentionally false for empty snapshots with incomplete or stale coverage.
 func (snapshot AlertCandidateSnapshot) IsClear() bool {
 	return snapshot.CurrentState == AlertSnapshotClear && snapshot.Validate() == nil
 }
@@ -631,6 +649,8 @@ func (candidate *AlertCandidate) UnmarshalJSON(data []byte) error {
 // MarshalJSON validates source coverage before encoding it.
 func (source AlertSourceCoverage) MarshalJSON() ([]byte, error) {
 	// Snapshot validation supplies the authoritative upper time bound. Use the
+	// row's latest known time here so standalone encoding still rejects shape
+	// errors without inventing a later observation.
 	latest := source.ObservedAt
 	if source.EvidenceAsOf.After(latest) {
 		latest = source.EvidenceAsOf

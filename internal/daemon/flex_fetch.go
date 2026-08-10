@@ -174,6 +174,8 @@ func (st *flexFetchState) bindCore(ctx context.Context, core *corestore.Store) e
 		}
 	}
 	// A daemon that stopped mid-request cannot still be checking after a
+	// restart. Recover it as an automatic retry without trusting the former
+	// process's unfinished stage.
 	recoveredProjecting := state.Stage == flexFetchProjecting
 	recoveredInterrupted := state.Stage == rpc.ReconReportStateChecking || recoveredProjecting
 	if recoveredInterrupted {
@@ -341,6 +343,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 	var outcome flexFetchOutcome
 	var err error
 	// Projection failures are retried locally from retained broker evidence on
+	// the same daily target; do not redownload a report that was already saved.
 	st.mu.Lock()
 	localRetry := st.state.LastReason == rpc.ReconReportReasonProjectionFailed &&
 		failedTarget.Equal(targetDate) && evidenceOK
@@ -422,7 +425,10 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 }
 
 // fetchFlexOnce runs the two-step Flex protocol: SendRequest returns a
+// reference code, GetStatement is polled until the report is generated.
+// The saved raw file is validated through the parser before retention so a
 // service envelope can never sit in the statements dir pretending to be a
+// week with no activity.
 func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutcome, error) {
 	cfg := s.cfg.Flex
 	queryID := strings.TrimSpace(cfg.QueryID)

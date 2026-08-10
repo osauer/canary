@@ -12,9 +12,22 @@ import (
 // verdict() exactly so wire consumers (MCP, dashboard generators)
 
 // verdictFloor is the minimum ranked-row count required to claim a
+// verdict above "insufficient signal." Mirrors cli.verdictFloor —
+// kept in sync by hand at v1; if a third reader appears, lift to a
+// shared package.
 const verdictFloor = 3
 
 // buildRegimeComposite returns the same {verdict, green, yellow, red,
+// ranked, unranked} rollup the CLI renders above the indicator rows,
+// computed from the daemon-side classifiers. Always non-zero shape:
+// when every row is unranked the verdict still surfaces honestly
+// ("No ranked indicators — see rows below for state").
+// buildRegimeComposite tallies the SERVED row bands (post-hysteresis, set by
+// annotateRegimeMetadata) and fills the cluster counts through the shared
+// rpc combination — the single copy of rescue/eligibility policy. Verdict is
+// intentionally left empty here: the unified headline needs the lifecycle
+// stage, so the handler assigns it via rpc.RegimeHeadline after
+// BuildRegimeLifecycle runs.
 func buildRegimeComposite(r *rpc.RegimeSnapshotResult) rpc.RegimeComposite {
 	if r == nil {
 		return rpc.RegimeComposite{Verdict: "No usable signal yet"}
@@ -337,7 +350,9 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 }
 
 // warningForVIX3MCrossCheck names what the two independent VIX3M sources
+// established. A stale row alone reads as ordinary off-hours context, so the
 // one case an operator must act on — a broker leg that has stopped tracking the
+// index — needs to say so in its own words.
 func warningForVIX3MCrossCheck(row rpc.RegimeVIXTerm) (rpc.RegimeWarning, bool) {
 	switch row.VIX3MCrossCheck {
 	case rpc.VIX3MCrossCheckDisagree:
@@ -524,6 +539,7 @@ func bandForHYGSPY(r rpc.RegimeHYGSPYDivergence) string {
 		return "green"
 	}
 	// HYG below 50dma. Red requires SPY near highs; otherwise the row is
+	// yellow. The unranked case is "SPY 52w-high context missing".
 	if r.SPY52WHigh == nil || r.SPYPrice == nil {
 		return ""
 	}
@@ -548,6 +564,8 @@ func bandForFundingStress(r rpc.RegimeFundingStress) string {
 }
 
 // bandForUSDJPY classifies the USD/JPY row. Unranked on
+// unavailable/error/computing rows or when the weekly change didn't
+// land.
 func bandForUSDJPY(r rpc.RegimeUSDJPY) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
@@ -556,6 +574,8 @@ func bandForUSDJPY(r rpc.RegimeUSDJPY) string {
 }
 
 // bandForGamma classifies the gamma row. Three paths matching the
+// CLI's rowGamma logic: a real crossing reads on gap distance;
+// no-crossing reads on the signed-profile sign; no data stays unranked.
 func bandForGamma(r rpc.RegimeGammaZero) string {
 	if r.Status != rpc.RegimeStatusOK || r.Envelope.Result == nil {
 		return ""
@@ -565,6 +585,8 @@ func bandForGamma(r rpc.RegimeGammaZero) string {
 }
 
 // bandForBreadth classifies the SPX breadth row. Gated on
+// status=ok/stale AND envelope state=ready — the CLI does the same
+// gate before pulling the value cell.
 func bandForBreadth(r rpc.RegimeBreadth) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""

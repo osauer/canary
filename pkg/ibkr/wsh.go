@@ -121,6 +121,8 @@ func (c *Connector) ResolveWSHStockIdentity(ctx context.Context, symbol string, 
 // fetchWSHEarnings performs no broker write: it establishes daily WSH metadata
 // readiness for the current broker session, then issues a serialized event-
 // calendar read filtered to the broker-resolved event tag. IBKR permits only
+// one WSH request of each kind for a client; the gate covers the complete
+// contract-details -> metadata -> event sequence.
 func (c *Connector) fetchWSHEarnings(ctx context.Context, symbol string, exactConID int, exactIdentity bool) (WSHEarningsResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -547,6 +549,7 @@ func (c *Connection) sendWSHEventDataRequest(ctx context.Context, reqID int, req
 	}
 	if serverVersion >= minServerVerWSHEventFilterDates {
 		// Filter mode and conId/date mode are mutually exclusive. The conId is
+		// inside the allowlisted watchlist filter, so date bounds stay empty.
 		fields = append(fields, "", "", request.limit)
 	}
 	return c.sendMessageWithTypeContext(ctx, c.encodeMsg(fields...), RequestTypeGeneral)

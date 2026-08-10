@@ -1,4 +1,9 @@
 // Package config loads and validates operator-owned TOML configuration for
+// gateway identity, daemon behavior, and capability enablement.
+//
+// A missing file or absent gateway field leaves that dimension discoverable;
+// an explicitly configured value is binding. Runtime platform preferences are
+// separate daemon.db state and are not read or written by this package.
 package config
 
 import (
@@ -33,6 +38,7 @@ type Gateway struct {
 }
 
 // PortPinned reports whether the user pinned a port. Discovery skips the
+// port-probe step when true and uses Port directly.
 func (g Gateway) PortPinned() bool { return g.Port != nil }
 
 // TLSPinned reports whether the user pinned a TLS mode. The SDK's
@@ -63,6 +69,7 @@ func (g Gateway) BreadthClientIDOrDefault() int {
 }
 
 // PortOrZero returns Port (dereferenced) or 0 if unset. Callers should
+// check PortPinned first; the zero is a sentinel for "discover."
 func (g Gateway) PortOrZero() int {
 	if g.Port == nil {
 		return 0
@@ -71,6 +78,8 @@ func (g Gateway) PortOrZero() int {
 }
 
 // TLSOrFalse returns TLS (dereferenced) or false if unset. Callers should
+// check TLSPinned first; the false is a sentinel meaning "auto, try plain
+// first" — distinct from a binding tls=false.
 func (g Gateway) TLSOrFalse() bool {
 	if g.TLS == nil {
 		return false
@@ -207,6 +216,7 @@ func (f Flex) WithDefaults() Flex {
 }
 
 // FastPathEnabledResolved reports whether manual proposal actions may use the
+// immediate revalidation path; absence defaults to enabled.
 func (a AutoTrade) FastPathEnabledResolved() bool {
 	if a.FastPathEnabled == nil {
 		return true
@@ -318,6 +328,8 @@ type SPX struct {
 }
 
 // MembersAutoRefreshEnabled returns the resolved value of
+// [spx] members_auto_refresh. Defaults to true when the field is
+// absent — the refresher is opt-out, not opt-in.
 func (s SPX) MembersAutoRefreshEnabled() bool {
 	if s.MembersAutoRefresh == nil {
 		return true
@@ -384,6 +396,7 @@ func DefaultPath() string {
 }
 
 // Load reads and parses the config file at path. A missing file yields a
+// zero-value Config — every field nil/empty, meaning "fully auto."
 func Load(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultPath()
@@ -452,9 +465,23 @@ func (c *Config) Resolve() (*Resolved, error) {
 }
 
 // SPXMembersAutoRefreshFromEnv resolves CANARY_SPX_MEMBERS_AUTO_REFRESH
+// as a bidirectional override of the [spx] members_auto_refresh TOML
+// field:
 //
-//	typos are a CI friction we'd rather not fail-loud on, and there's
-//	no realistic compliance posture that wants "fail when the env is
+//   - "1"               → returns (true, true): explicit force-on.
+//   - "0"               → returns (false, true): explicit force-off.
+//   - unset / other     → returns (false, false): defer to TOML.
+//     Garbage values are silently ignored rather than rejected; env-var
+//     typos are a CI friction we'd rather not fail-loud on, and there's
+//     no realistic compliance posture that wants "fail when the env is
+//     present but malformed."
+//
+// The second return ("forced") distinguishes "env actively overrode
+// the TOML" from "env unset, TOML governs." The status renderer uses
+// this to pick the "disabled (env)" vs "disabled (config)" suffix.
+//
+// Lives next to the SPX type so the precedence rules don't have to be
+// re-derived at every call site.
 func SPXMembersAutoRefreshFromEnv() (enabled bool, forced bool) {
 	// docgen:env CANARY_SPX_MEMBERS_AUTO_REFRESH | Symmetric override of `[spx] members_auto_refresh`. `1` force-enables, `0` force-disables, unset / other defers to TOML.
 	switch os.Getenv("CANARY_SPX_MEMBERS_AUTO_REFRESH") {

@@ -9,6 +9,7 @@ import (
 )
 
 // RuleStatusPass and the related constants are rule-row outcomes. Missing,
+// pending, or partial inputs cannot produce a false pass.
 const (
 	RuleStatusPass         = "pass"
 	RuleStatusInfo         = "info"
@@ -102,6 +103,8 @@ type EarningsInput struct {
 	// reader must never mistake a typed classification for a proven contract.
 	NonIssuerSecurity bool
 	// TerminalNonReporting marks reviewed exact-contract evidence that no
+	// future issuer earnings event applies. It is neither a known date nor an
+	// unknown: rules 6-8 disclose an exemption for the relevant name.
 	TerminalNonReporting bool
 	Date                 time.Time // ET calendar date (midnight ET)
 	TimeOfDay            string    // "amc" | "bmo" | "" (unspecified)
@@ -133,6 +136,9 @@ type LegInput struct {
 	// MarketValueBase is the signed base-currency mark value of the leg.
 	MarketValueBase float64
 	// MarketValueBaseSource discloses whether MarketValueBase was converted or
+	// substituted: empty for a converted figure,
+	// MarketValueBaseSourceSubstituted when no FX rate existed and the raw
+	// contract-currency value stands in. Follows UnderlyingSource's shape.
 	MarketValueBaseSource string
 	// ExtrinsicBase is the base-currency extrinsic value for long legs;
 	// nil when uncomputable (missing underlying or mark) — never zero it.
@@ -150,6 +156,7 @@ type LegInput struct {
 
 // NameInput is the per-underlying aggregation the daemon maps from
 // PositionGroup/UnderlyingExposure. ExposureBase must be the same value the
+// canary's concentration check reads.
 type NameInput struct {
 	Symbol string
 	// StockConID and StockSecType preserve the held underlying stock's broker
@@ -207,13 +214,16 @@ type RuleInputs struct {
 	RegimeStageCarried bool
 
 	// NonBaseNLVBase is the base-currency net liquidation held in non-base
+	// currencies (rule 14). nil = unavailable (absent currency report,
 	// missing FX) — never zero it: an empty currency report on a book with
+	// non-base legs is a data gap, not a base-only book.
 	NonBaseNLVBase *float64
 	// NonBaseCurrencies names the currencies behind NonBaseNLVBase.
 	NonBaseCurrencies []string
 }
 
 // Evaluation is the pure result: rows in rulebook order plus the
+// hardest-first ranking (indexes into Rows).
 type Evaluation struct {
 	Rows   []RuleRow
 	Ranked []int
@@ -225,6 +235,7 @@ type ruleContext struct {
 	nlv    float64
 	hasNLV bool
 	// overHedged suppresses rule 5's hedge exemption (a "hedge" bigger than
+	// the band protects nothing extra; it may be a directional bet).
 	overHedged bool
 }
 
@@ -420,7 +431,13 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 }
 
 // nameExposureLowerBound computes a provable minimum |net delta-dollar|
+// exposure for a name whose material legs miss delta. Known legs are already
+// summed into ExposureBase; each delta-less leg contributes a signed
+// interval: a long call at least its intrinsic (delta·S ≥ C ≥ intrinsic) and
+// at most its notional; a long put between −notional and 0; shorts mirrored.
+// Put intrinsic is NOT a bound on |delta·S| (deep-ITM K−S can exceed S) and
 // is never used. Any delta-less leg missing underlying or FX makes the
+// interval unbounded — nothing is provable.
 func nameExposureLowerBound(n NameInput) (bound float64, ok bool) {
 	if !n.ExposureBaseComplete {
 		return 0, false // partial known sum — nothing is provable from it
@@ -480,6 +497,11 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 				continue
 			}
 			// A substituted base value is wrong by the exchange rate, and an
+			// understating pair would simply keep the leg under the tier and
+			// report a quiet pass on a line that breaches. This rule has no
+			// unknown tier of its own — tierStatus returns pass, watch or act —
+			// so an unmeasurable leg is collected and forces the row to unknown
+			// below rather than being compared or silently skipped.
 			if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted {
 				unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
 					Note: "premium not convertible to base — no FX rate for the leg's currency"})
@@ -604,6 +626,10 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 			}
 			if l.ExtrinsicBase == nil {
 				// The materiality floor decides whether an uncomputable leg is
+				// disclosed at all. A substituted base value cannot be measured
+				// against it: an understating currency pair drops the leg below
+				// the floor and suppresses the very disclosure this branch
+				// exists to make. Such a leg is therefore always listed.
 				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
 					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
 					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
@@ -612,6 +638,9 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 				continue
 			}
 			// The budget bounds speculative decay; the hedge's premium is
+			// governed by rule 2's hedge tier and rule 12's band. An
+			// unclassifiable leg (no delta yet) counts against the budget —
+			// no relief without classification.
 			if rule12HedgeLeg(l) {
 				hedgeTotal += *l.ExtrinsicBase
 				continue
@@ -748,6 +777,7 @@ func (c *ruleContext) brokerNonIssuerEarningsFor(name NameInput) (EarningsInput,
 	e, found := c.in.Earnings[name.Symbol]
 	// The broker proof identifies the held stock contract only. Without each
 	// option leg's exact underlying ConID, a mixed symbol group must use the
+	// ordinary issuer-event evidence path.
 	if len(name.Legs) != 0 || !found || !e.NotApplicable || e.Stale || e.Source != "broker_identity" || e.Reason != EarningsReasonBrokerNonIssuer {
 		return e, false
 	}
@@ -1184,6 +1214,7 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		row.Reason = "earnings_unknown"
 		row.Offenders = unknowns
 		// Each offender note names what failed — the earnings date, the delta,
+		// or the exposure measurement — so the sentence stays neutral.
 		row.Evidence = fmt.Sprintf("%d name(s) could not complete the pre-earnings size check.", len(unknowns))
 	case assessed == 0 && len(exempt) > 0:
 		row.Status = RuleStatusNotEvaluated
@@ -1272,6 +1303,7 @@ func (c *ruleContext) winnerTrim() RuleRow {
 		}
 		if *n.StockDayChangePct < c.pol.WinnerTrimDayUpPct {
 			// Not up past the trigger — a true negative on the measured tape,
+			// whatever the name's size.
 			continue
 		}
 		// The name is up past the trigger, so the size floor decides. A name
@@ -1294,6 +1326,7 @@ func (c *ruleContext) winnerTrim() RuleRow {
 	case len(offenders) > 0:
 		row.Status = RuleStatusWatch
 		// A measured breach stands; the unmeasured winners stay disclosed on
+		// the same row with no ImpactBase — no weight they cannot prove.
 		row.Offenders = append(offenders, unmeasured...)
 		row.Evidence = fmt.Sprintf("%d oversized name(s) up hard today — sell strength while the bid is there.", len(offenders))
 		for _, o := range offenders {
@@ -1363,6 +1396,10 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 			continue
 		}
 		// A name whose base exposure was never fully measured (missing FX or
+		// price, no greeks gap to catch it) contributes a degraded or zero
+		// sum. Dropping it from grossLong shrinks the ratio's denominator, so
+		// an under-hedged book reads adequately hedged — the quiet direction.
+		// Like a delta gap, it poisons the ratio itself: whole row unknown.
 		if !n.ExposureBaseComplete {
 			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol,
 				Note: "exposure not fully measured (FX or price missing) — gross long exposure cannot be trusted"})
@@ -1451,6 +1488,8 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 			}
 			if l.CostBasisBase == nil || *l.CostBasisBase <= 0 {
 				// Same materiality floor, same reason it cannot be trusted on a
+				// substituted base value: an understating pair would drop the leg
+				// below the floor and hide an unassessable position.
 				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
 					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
 					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
@@ -1528,6 +1567,8 @@ func (c *ruleContext) fxExposure() RuleRow {
 	}
 	if p >= watch {
 		// Watch-only by design: at structurally high non-base exposure a
+		// permanent act would be pure alarm fatigue. The rule exists to make
+		// the exposure explicit — hedge it or accept it, on purpose.
 		row.Status = RuleStatusWatch
 		row.ImpactBase = math.Abs(*c.in.NonBaseNLVBase)
 		row.Evidence = fmt.Sprintf("%.1f%% of NLV is held in %s (threshold %.0f%%) — hedge or accept this FX exposure explicitly; a 1%% move is ~%.1f%% of NLV.", round1(p), ccys, watch, round1(p/100))

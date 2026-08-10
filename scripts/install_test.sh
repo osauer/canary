@@ -193,6 +193,7 @@ assert_no_old_name "$fresh"
 }
 
 # A pre-upgrade executable is transactionally retired and its public path is
+# removed without retaining a runnable rollback binary.
 pre_upgrade="$test_root/pre-upgrade/bin"
 mkdir -p "$pre_upgrade"
 printf '%s\n' 'old executable' > "$pre_upgrade/ibkr"
@@ -266,6 +267,7 @@ grep -Fq "CANARY_INSTALL_DIR=$relative_legacy_physical" "$relative_output" || {
 
 # The one-time product-rename bridge tells an existing installation to restart
 # before using daemon-backed commands, so state migration happens under the
+# newly installed binary rather than leaving an unlinked old daemon running.
 bridge_hint="$test_root/bridge-hint/bin"
 bridge_output="$test_root/bridge-hint.out"
 mkdir -p "$bridge_hint"

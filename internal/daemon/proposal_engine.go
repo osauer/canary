@@ -110,6 +110,10 @@ const proposalRefreshRetryBase = 30 * time.Second
 
 // proposalRefreshBackoffCap bounds sustained-failure retries independently of
 // the healthy cadence. With a 30s clean cadence, capping failure waits at the
+// cadence would mean a blocked attempt (and its warn line) twice a minute for
+// the whole length of a gateway outage; capping at 15m keeps outage logs quiet.
+// Post-outage recovery latency does not ride on this cap — the gateway
+// reconnect kicks the loop directly (see Kick).
 const proposalRefreshBackoffCap = 15 * time.Minute
 
 func (e *proposalEngine) Run(ctx context.Context) {
@@ -130,6 +134,11 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		case <-e.kickCh():
 			// A fresh gateway handshake invalidates the escalated wait:
 			// restart the quick-retry ladder so a transient failure on the
+			// immediate post-reconnect refresh waits 30s, not the
+			// accumulated outage backoff. The logging streak in
+			// noteRefreshOutcome is deliberately untouched so the
+			// "recovered after N blocked attempts" line still closes the
+			// outage trail.
 			failures = 0
 		case <-time.After(proposalRefreshWait(e.cadence, failures)):
 		}
@@ -178,7 +187,10 @@ func refreshBackoff(cadence, base, backoffCap time.Duration, failures int) time.
 }
 
 // proposalRefreshWait returns the pause before the next automatic refresh:
+// the full cadence after a clean refresh, an escalating 30s/1m/2m/… backoff
 // while refreshes keep failing on transient session conditions, capped at
+// proposalRefreshBackoffCap (or the cadence when that is longer). See
+// refreshBackoff, which the opportunity engine shares.
 func proposalRefreshWait(cadence time.Duration, failures int) time.Duration {
 	return refreshBackoff(cadence, proposalRefreshRetryBase, proposalRefreshBackoffCap, failures)
 }
@@ -227,6 +239,8 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 	}
 	// Serve guard: proposals are generated from one account/mode session
 	// and must never surface under another (paper proposals shown on a
+	// live session was the originating incident). Proposal-free shells
+	// carry session-independent blockers and pass through unchanged.
 	if len(snap.Proposals) > 0 {
 		scope := e.currentScope()
 		if blockers := proposalScopeBlockers(snap.AccountID, snap.AccountMode, scope); len(blockers) > 0 {
@@ -257,9 +271,14 @@ func (e *proposalEngine) Refresh(ctx context.Context, show bool) (rpc.TradePropo
 }
 
 // noteRefreshOutcome advances the transient-failure streak after every
+// refresh, regardless of caller, and emits the throttled log trail.
 // Transient failures preserve the last-good snapshot and return err == nil
 // — the blocker codes are the only signal — so this is where a stalled
+// panel becomes diagnosable. Quiet below proposalRefreshWarnStreak, then
 // one warn per failed attempt: Run's backoff (refreshBackoff) paces those at
+// 30s/1m/2m/… doubling up to proposalRefreshBackoffCap, so a persistent outage
+// logs once per escalation and then once per cap (15m), not once per poll. One
+// info line closes the streak when a refresh finally lands.
 func (e *proposalEngine) noteRefreshOutcome(snap rpc.TradeProposalSnapshot, err error) {
 	failed := err != nil || proposalRefreshTransient(snap)
 	now := e.clock()
@@ -304,6 +323,7 @@ func proposalBlockerCodes(snap rpc.TradeProposalSnapshot, err error) []string {
 }
 
 // proposalRefreshHealth is the engine's refresh-streak view for the
+// status.health proposals subsystem row.
 type proposalRefreshHealth struct {
 	Streak     int
 	Since      time.Time
@@ -817,6 +837,10 @@ func thetaProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, r
 	}
 
 	// Extrinsic decomposition from fields already on the row. If the
+	// underlying spot or a usable mark is missing or the row is stale, we
+	// cannot separate intrinsic from time value and therefore cannot assert
+	// the close is non-destructive. Surface a blocked row with remediation
+	// rather than silently dropping what was previously a visible proposal.
 	mark := row.Mark
 	if mark <= 0 {
 		mark = row.ValuationMark
@@ -865,6 +889,7 @@ func thetaProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, r
 }
 
 // optionIntrinsicPerShare is the per-share in-the-money amount; 0 for an
+// out-of-the-money option or an unrecognized right.
 func optionIntrinsicPerShare(right string, underlying, strike float64) float64 {
 	switch strings.ToUpper(strings.TrimSpace(right)) {
 	case "C", "CALL":
@@ -877,6 +902,8 @@ func optionIntrinsicPerShare(right string, underlying, strike float64) float64 {
 }
 
 // optionSpreadPct is the bid/ask spread as a percentage of mid, computed from
+// the option leg's own quote. Returns ok=false when the quote is missing or
+// crossed/locked.
 func optionSpreadPct(row rpc.PositionView) (float64, bool) {
 	if row.OptionBid == nil || row.OptionAsk == nil {
 		return 0, false
@@ -1254,6 +1281,8 @@ func proposalContractFromPosition(row rpc.PositionView, secType string) rpc.Cont
 	if secType == "STK" || secType == "ETF" {
 		// msgPortfolioValue stores the *primary* exchange under row.Exchange
 		// (documented wire quirk); routing a protective order directly to it
+		// forfeits SMART routing. Route SMART and keep the venue as
+		// PrimaryExch — ConID anchors contract identity either way.
 		primary := strings.ToUpper(strings.TrimSpace(row.Exchange))
 		if primary != "" && primary != "SMART" {
 			contract.PrimaryExch = primary
@@ -1717,6 +1746,7 @@ func proposalOrderPreviewParams(prop rpc.TradeProposal, qty, timeoutMs int) rpc.
 }
 
 // proposalTIF normalizes a proposal's TIF for preview params and the
+// drift gate; proposals persisted before the field existed mean DAY.
 func proposalTIF(prop rpc.TradeProposal) string {
 	tif := strings.ToUpper(strings.TrimSpace(prop.TIF))
 	if tif == "" {
@@ -1999,6 +2029,8 @@ func (e *proposalEngine) installSnapshot(snap rpc.TradeProposalSnapshot, show bo
 	}
 	// Persist the authoritative current document and its generation events in
 	// one SQLite transaction before changing the served cache. A failed CAS,
+	// closed database, or latched integrity error therefore leaves both the
+	// previous current row and the in-memory view unchanged.
 	if proposalSnapshotPersistable(snap) {
 		if e.store == nil {
 			return errors.New("proposal store is not attached")
@@ -2066,7 +2098,9 @@ func proposalSnapshotUsable(snap rpc.TradeProposalSnapshot) bool {
 }
 
 // proposalSnapshotPersistable reports whether snap is a generated,
+// concretely scoped snapshot (including a legitimate zero-proposal
 // generation) rather than a transient error/unscoped shell. Only these
+// are written to disk; see replaceSnapshot.
 func proposalSnapshotPersistable(snap rpc.TradeProposalSnapshot) bool {
 	return snap.Revision != "" && snap.Revision != "empty" &&
 		brokerScopeConcrete(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode})
@@ -2254,7 +2288,9 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, proposals []rpc.TradeProposal) string {
 	stableSources := sources
 	// Regime and market-event evidence are informative for ranking and blockers,
+	// but their source-health fields can advance between list and preview. Keep
 	// revision anchored to policy/account/positions so the one-confirm path does
+	// not false-stale while refreshed proposals still carry live blockers.
 	stableSources.Regime = nil
 	stableSources.MarketEvents = nil
 	// Account/mode enter the revision directly: the account and positions

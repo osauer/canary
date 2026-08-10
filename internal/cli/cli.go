@@ -39,6 +39,8 @@ type Env struct {
 	// Empty classifies as agent at the daemon (fail closed).
 	Origin string
 	// Version is the running CLI version stamped by cmd/canary. Empty in
+	// renderer tests and local-only helper paths that do not need parity
+	// checks against the daemon.
 	Version string
 	// Color is true when ANSI color escapes should be emitted on Stdout.
 	Color bool
@@ -98,6 +100,8 @@ func hoistFlags(in []string) []string {
 			// Detect "--flag value" (value on next token) vs "--flag=value".
 			if !strings.Contains(a, "=") && i+1 < len(in) && !strings.HasPrefix(in[i+1], "-") {
 				// Heuristic: only treat next as value if the flag is one of the
+				// known value-taking flags. False positives are tolerable since
+				// runQuote's positional parser re-checks shape.
 				if isValueFlag(strings.TrimLeft(a, "-")) {
 					skipNext = true
 				}
@@ -198,6 +202,8 @@ type Command struct {
 }
 
 // commands is populated in init() to break the package-init cycle that
+// would otherwise form: var → handler → flagSet → lookupCommand → var.
+// Order is load-bearing for the help table (status first).
 var commands []Command
 
 func init() {
@@ -241,7 +247,10 @@ func lookupCommand(name string) (Command, bool) {
 }
 
 // IsKnown reports whether name is a registered subcommand. Used by
-// otherwise `canary nonsense` would spawn ibkrd just to fail with
+// cmd/canary to skip the daemon autospawn for typos and unknown commands —
+// otherwise `canary nonsense` would spawn the daemon just to fail with
+// "unknown subcommand", which is wasteful and confusing if it tips a
+// dormant install into a long startup.
 func IsKnown(name string) bool {
 	_, ok := lookupCommand(name)
 	return ok
@@ -255,6 +264,10 @@ func Commands() []Command {
 }
 
 // PrintUsage writes the top-level help text. Commands are listed under their
+// catalog group, in registry order inside each one, so `status` stays the
+// first line. The listing shows the catalog's short form and the full summary
+// stays in `canary <subcommand> --help` — a flat list of 36 long summaries
+// wraps into a wall on an 80-column terminal.
 func PrintUsage(w io.Writer) {
 	fmt.Fprintf(w, "%s — local trading harness (Interactive Brokers connectivity; broker writes are gated)\n", productidentity.ProductName)
 	fmt.Fprintln(w)
@@ -310,6 +323,7 @@ func printJSON(env *Env, obj any) int {
 }
 
 // printJSONTo is printJSON with an explicit destination writer. Used by
+// renderers that emit to a buffer (watch loop) before flushing to stdout.
 func printJSONTo(env *Env, out io.Writer, obj any) int {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
@@ -333,6 +347,7 @@ func fail(env *Env, format string, args ...any) int {
 }
 
 // isGatewayUnavailable matches the error.Code prefix the daemon emits for
+// CodeGatewayUnavailable. Kept loose because the message arrives flattened.
 func isGatewayUnavailable(msg string) bool {
 	return strings.Contains(msg, "gateway_unavailable")
 }
@@ -397,6 +412,9 @@ func formatMoneyBare(v float64) string {
 }
 
 // moneyPrefix maps an ISO currency code to a short prefix suitable for
+// inline money rendering. Symbols for the handful of currencies that
+// have one; the ISO code itself for everything else. Always ends in a
+// space so callers can concatenate cleanly without extra glue.
 func moneyPrefix(ccy string) string {
 	switch strings.ToUpper(strings.TrimSpace(ccy)) {
 	case "", "USD":
@@ -445,6 +463,8 @@ func (e *Env) dataTypeBadge(dt string) string {
 }
 
 // suffixBadge prefixes the badge with `  ·  ` when present, returning the
+// empty string otherwise. Callers can append this to a header line without
+// trailing whitespace on the live path.
 func (e *Env) suffixBadge(dt string) string {
 	b := e.dataTypeBadge(dt)
 	if b == "" {
@@ -496,6 +516,10 @@ func (e *Env) formatMoneyNegCcyRight(v float64, ccy string, w int) string {
 }
 
 // formatPnLRight is formatPnL but right-aligns the value within the
+// given visible width by prepending spaces. Used by the Portfolio
+// aggregate where numeric columns line up on the right edge — a
+// thousands-grouped money string varies in width and would otherwise
+// leave the trailing unit text at random positions.
 func (e *Env) formatPnLRight(v float64, width int) string {
 	s := formatMoney(v)
 	if pad := width - len(s); pad > 0 {

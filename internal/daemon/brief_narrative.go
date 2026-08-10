@@ -195,6 +195,8 @@ func briefTopics(res *rpc.BriefResult) []briefTopic {
 }
 
 // briefFlaggedTopics lists the rows that carry a decision. The posture row is
+// excluded: the lead and the coda state the stress reading in their own words,
+// and a market reading is not something the desk owes an answer to.
 func briefFlaggedTopics(topics []briefTopic) []briefTopic {
 	out := make([]briefTopic, 0, len(topics))
 	for _, topic := range topics {
@@ -281,6 +283,7 @@ func briefNarrativeLead(res *rpc.BriefResult, topics []briefTopic) []rpc.BriefRu
 
 // briefNarrativeCoda closes on what is owed. It names only topics that are
 // already flagged above; it never predicts, and it never promises that an
+// unread input is fine.
 func briefNarrativeCoda(topics []briefTopic) []rpc.BriefRun {
 	p := &briefProse{}
 	flagged := briefFlaggedTopics(topics)
@@ -321,6 +324,10 @@ func briefNarrativeReview(review rpc.BriefReviewSection, session rpc.BriefSessio
 }
 
 // briefReviewLastSession states the close capture when one exists for the
+// last completed session. Silence would hide a gap, so a resolved session
+// without a capture is named as not captured; when even the session date is
+// unresolved the live sentence's own neutral basis already says everything
+// provable.
 func briefReviewLastSession(p *briefProse, row rpc.BriefLastSessionRow) {
 	if row.SessionDate == "" {
 		return
@@ -388,6 +395,7 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 		p.text("No per-underlying daily P/L values are available.")
 	default:
 		// The currency is stated once for the list rather than stamped on
+		// every name: same served fact, less noise in running prose.
 		if currency = strings.TrimSpace(currency); currency != "" {
 			p.text("By name in " + currency + ": ")
 		} else {
@@ -681,6 +689,7 @@ func briefStressSentence(p *briefProse, stress rpc.BriefStressRow) {
 }
 
 // briefReadyBook narrates capacity and carry: what the book can lose and what
+// it pays to hold protection.
 func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 	capital := ready.Capital
 	role := briefRole(capital.BriefRowState, capital.Tier == risk.CapitalTierBlock)
@@ -895,6 +904,7 @@ func briefMarketEventsSentences(p *briefProse, events []rpc.BriefMarketEventRow)
 		p.text("No held-name events.")
 	case clean > 0:
 		// The unflagged kinds were checked and are clean; saying so keeps the
+		// paragraph from leaving their silence ambiguous.
 		p.text("The remaining held-name event " + pluralNoun(clean, "source") + " " + briefVerb(clean, "is", "are") + " clean.")
 	}
 }
@@ -930,6 +940,7 @@ func briefRegimeReading(regime rpc.BriefRegimeRow) string {
 }
 
 // briefGammaSignWords keeps the served sign word when there is one and says so
+// plainly when there is not.
 func briefGammaSignWords(sign string) string {
 	if strings.TrimSpace(sign) == "" {
 		return "unclassified"

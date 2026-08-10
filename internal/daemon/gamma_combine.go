@@ -20,6 +20,9 @@ func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed
 		return nil
 	}
 	// One-sided fallbacks. The entitlement-graceful path in
+	// computeGammaCombined returns the SPY-only result directly when
+	// SPX errors, so these branches are defensive — they should not
+	// fire on a healthy combined run.
 	if spy == nil {
 		return spx
 	}
@@ -87,6 +90,8 @@ func combineGammaResults(spy, spx *rpc.GammaZeroComputed) *rpc.GammaZeroComputed
 	sort.Strings(out.Expirations)
 
 	// A combined SPY+SPX gamma-zero level is intentionally not
+	// interpolated: the two underlyings live on different spot scales.
+	// Per-index profiles remain available under PerIndex.
 	if len(spy.Profile) > 0 && len(spx.Profile) > 0 && sameProfileGrid(spy.Profile, spx.Profile) {
 		var combinedWarnings []string
 		out.Profile, combinedWarnings = combineProfileBuckets(spy.Profile, spx.Profile, "", nil)
@@ -129,9 +134,21 @@ func combinedGammaAsOf(spyAsOf, spxAsOf time.Time) time.Time {
 }
 
 // combineProfileBuckets sums the GEX values of two sweep profiles
+// bucket-by-bucket on the assumption they share the same Spot grid.
+// Returns nil + a warning appended to warnings when:
+//   - the two lengths differ;
 //   - any pair of corresponding Spot values is not exactly equal;
+//   - either side is empty (no useful sum is possible).
 //
 // The exact-equality spot check is intentional: dealer GEX has no
+// natural interpretation across spot scales, so any drift means we
+// can't be sure the buckets represent the same scenario, and an
+// incorrect sum is worse than a missing one. In SPY+SPX production
+// the grids will always differ (SPY anchors ~540, SPX anchors ~5400)
+// so this path is effectively "bail with a warning" today. The
+// summed path exists for future per-index combinations where the
+// grids align by construction (e.g. two trading classes of the same
+// underlying).
 func combineProfileBuckets(a, b []rpc.GammaProfilePoint, mismatchWarn string, warnings []string) ([]rpc.GammaProfilePoint, []string) {
 	if len(a) == 0 || len(b) == 0 {
 		return nil, warnings
@@ -170,6 +187,23 @@ func sameProfileGrid(a, b []rpc.GammaProfilePoint) bool {
 }
 
 // classifyRegimeAgreement labels the SPY/SPX regime relationship by
+// comparing per-index γ-zero sweep outcomes. Returns one of
+// "agree:long-gamma", "agree:short-gamma", "agree:transition-gamma",
+// "disagree", or "" (unknown — at least one bucket has no_data).
+//
+// The classification reads GammaSign plus the zero-gamma gap rather
+// than fetching any external state:
+//
+//	per-index regime ∈ { long-gamma, short-gamma, transition-gamma, no-data }
+//	  long-gamma:  GammaSign == "positive"    (whole sweep > 0)
+//	  short-gamma: GammaSign == "negative"    (whole sweep < 0)
+//	  transition:  ZeroGamma != nil and spot is within ±2% of it
+//	  no-data:     GammaSign == "no_data" or anything else
+//
+// disagree fires whenever the two indices land in different non-no_data
+// regimes — the actionable case where one book is amplifying while the
+// other is stabilizing, regardless of whether the underlying prices
+// happen to be correlated.
 func classifyRegimeAgreement(spy, spx *rpc.GammaZeroComputed) string {
 	spyR := perIndexRegime(spy)
 	spxR := perIndexRegime(spx)
@@ -183,6 +217,7 @@ func classifyRegimeAgreement(spy, spx *rpc.GammaZeroComputed) string {
 }
 
 // perIndexRegime maps a single-underlying GammaZeroComputed to a
+// regime label. Returns "" on no-data or nil input.
 func perIndexRegime(c *rpc.GammaZeroComputed) string {
 	if c == nil {
 		return ""
@@ -293,10 +328,18 @@ func gammaOneSidedFallbackUsableForCombined(result *rpc.GammaZeroComputed, now t
 }
 
 // summarizeSPXFailure turns an SPX-phase error into the short token
+// the warning-list embeds. Strips the verbose context that's helpful
+// in logs but noisy in the renderer banner. Looks for the canonical
 // IBKR error code in the message; falls back to "unavailable" for
 // non-IBKR errors (gateway disconnect, ctx cancel).
+//
 // Token formats:
 //
+//	354       → entitlement gap (most common)
+//	200       → contract not found / SPX chain restricted
+//	fetch_canceled → compute context was cancelled before SPX landed
+//	timeout        → deadline / timeout before SPX landed
+//	zero_magnitude → legs landed but all gamma magnitude was zero
 //	unavailable → every unclassified failure; raw causes remain local-log only
 func summarizeGammaPhaseFailure(err error) string {
 	if err == nil {

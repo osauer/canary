@@ -24,6 +24,7 @@ type MarketData struct {
 	Mid  float64 `json:"mid"`
 	// MarkPrice is tick 37 from IBKR — the gateway's calculated fair
 	// price. Populated for every symbol, but only load-bearing for
+	// indices (VIX, VIX3M, SPX), which don't emit bid/ask/last.
 	MarkPrice float64 `json:"mark_price,omitempty"`
 	Open      float64 `json:"open"`
 	High      float64 `json:"high"`
@@ -44,6 +45,10 @@ type MarketData struct {
 	Volume    int64 `json:"volume"`
 	AvgVolume int64 `json:"avg_volume,omitempty"`
 	// LastTickAt is when this process last received a tick on the
+	// subscription, or zero when none has ever arrived. See
+	// [Subscription.LastTickAt] for the two limits that bind every reader:
+	// it is an arrival instant rather than the instant the value was struck,
+	// and it advances on any tick, size and volume included.
 	LastTickAt time.Time `json:"last_tick_at,omitzero"`
 	// LastPriceTickAt is when this process last accepted a positive price
 	// instant rather than proof of broker-source freshness.

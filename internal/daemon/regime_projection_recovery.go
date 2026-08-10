@@ -42,6 +42,7 @@ type regimeProjectionReceipt struct {
 // already match the current publication, or may advance exactly once from the
 // prior receipted publication (missing/legacy metadata is accepted only for a
 // first publication with no receipt). When the receipt already names current,
+// validateOnly forbids every content or metadata repair.
 type regimeProjectionPlan struct {
 	publication      regimeSnapshotPublication
 	receipt          regimeProjectionReceipt
@@ -132,6 +133,7 @@ func (s *Server) reconcileRegimeSnapshotProjections(ctx context.Context, cache *
 
 // commitRegimeSnapshotProjections is the normal after-publish barrier. The
 // rule-stage candidate is durable before the decision disposition and receipt,
+// but cannot become the in-memory rulebook latch until both have committed.
 func (s *Server) commitRegimeSnapshotProjections(ctx context.Context, snapshot *rpc.RegimeSnapshotResult, evaluated *StreakStore, publication regimeSnapshotPublication) error {
 	plan, err := s.prepareRegimeProjectionPlan(ctx, publication)
 	if err != nil {

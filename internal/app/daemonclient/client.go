@@ -67,6 +67,7 @@ type ReconciliationClient interface {
 }
 
 // Real opens a short-lived daemon connection for each typed call and can
+// optionally autospawn the daemon when its socket is absent.
 type Real struct {
 	SocketPath string
 	AutoSpawn  bool
@@ -250,6 +251,7 @@ func (c Real) ReconcileStatus(ctx context.Context) (*rpc.ReconStatusResult, erro
 }
 
 // ReconcileCheck requests a daemon reconciliation check and validates the
+// typed result.
 func (c Real) ReconcileCheck(ctx context.Context) (*rpc.ReconCheckResult, error) {
 	var out rpc.ReconCheckResult
 	if err := c.call(ctx, rpc.MethodReconCheck, rpc.ReconCheckParams{}, &out); err != nil {

@@ -32,6 +32,8 @@ const (
 	NudgeDestinationMonitor = "monitor"
 	NudgeDestinationAlerts  = "alerts"
 	// NudgeDestinationBrief lands a process/governance nudge on the Brief tab,
+	// where the reconcile clock, monthly pulse, and confirmed-flow context live.
+	// Act-severity governance occurrences still land on Alerts.
 	NudgeDestinationBrief = "brief"
 
 	MonthlyPulseStatusNotDue    = "not_due"
@@ -40,7 +42,9 @@ const (
 )
 
 // NudgeCandidate is the pure semantic result consumed by daemon adapters. It
+// deliberately has no details, URL, raw source identity, money,
 // symbol, account, or order fields. CanonicalizeNudgeCandidate replaces Title,
+// Body, Severity, and Destination from the candidate's kind and state.
 type NudgeCandidate struct {
 	Fingerprint string    `json:"fingerprint"`
 	Kind        string    `json:"kind"`
@@ -97,6 +101,8 @@ func reconcileWarningHorizon(days int) time.Duration {
 }
 
 // ReconcileExceptionIdentity contains only the identity/material fields the
+// daemon has already allowlisted for semantic dedupe. They are normalized and
+// hashed; none is copied into the candidate.
 type ReconcileExceptionIdentity struct {
 	Kind     string
 	Identity string
@@ -104,6 +110,7 @@ type ReconcileExceptionIdentity struct {
 }
 
 // EvaluateReconcileException returns one order-independent candidate for the
+// valid unresolved identities. It returns nil when no usable identity remains.
 func EvaluateReconcileException(unresolved []ReconcileExceptionIdentity, occurredAt time.Time) *NudgeCandidate {
 	type normalizedException struct {
 		Kind     string   `json:"kind"`
@@ -145,6 +152,7 @@ type ShadowWouldBlockInput struct {
 }
 
 // ShadowWouldBlockEvaluation carries the updated episode count and, only for
+// the first qualifying preview, its candidate.
 type ShadowWouldBlockEvaluation struct {
 	Candidate *NudgeCandidate
 	Count     int
@@ -280,7 +288,9 @@ func EvaluateMonthlyPulse(input MonthlyPulseInput) MonthlyPulseEvaluation {
 }
 
 // monthlySchedule returns the pulse clock, the working-day index (not a
+// calendar day — see nthWorkingDayOfMonth), and the local wall time. Every
 // value defaults in code; an authored override that is invalid fails the
+// schedule closed rather than falling back silently.
 func monthlySchedule(cadence ConstitutionCadence) (*time.Location, int, int, int, bool) {
 	if cadence.Monthly != nil && cadence.Monthly.Class != nil && *cadence.Monthly.Class != EnforcementAdvisory {
 		return nil, 0, 0, 0, false
@@ -408,6 +418,8 @@ func candidateTemplate(kind, state string) (title, body, severity string) {
 }
 
 // CanonicalizeNudgeCandidate validates the narrow candidate contract and
+// replaces all caller-authored display fields with approved template copy.
+// It is pure so RPC and other adapters share the same semantic boundary.
 func CanonicalizeNudgeCandidate(candidate NudgeCandidate) (NudgeCandidate, error) {
 	title, body, severity := candidateTemplate(candidate.Kind, candidate.State)
 	if title == "" {

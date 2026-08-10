@@ -1,5 +1,9 @@
 #!/bin/sh
 # Canary installer — one-shot binary install for Darwin and Linux.
+#
+#   curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+#
+# Detects your OS/arch, downloads the matching pre-built tarball from the
 # latest GitHub release, verifies the SHA-256 checksum, installs the binary
 
 set -eu
@@ -33,6 +37,7 @@ command -v curl >/dev/null 2>&1 || fail "curl is required but not on PATH"
 command -v tar  >/dev/null 2>&1 || fail "tar is required but not on PATH"
 
 # Pick a checksum verifier — macOS has shasum, most Linux distros have
+# sha256sum. We need one or the other.
 if command -v shasum >/dev/null 2>&1; then
 	SHA256_CMD="shasum -a 256"
 elif command -v sha256sum >/dev/null 2>&1; then
@@ -334,6 +339,7 @@ if [ -n "$pre_upgrade_retired" ]; then
 fi
 
 # macOS Gatekeeper marks downloads with com.apple.quarantine; clearing it
+# avoids "cannot verify developer" prompts on first run. Silent on linux.
 xattr -d com.apple.quarantine "$canonical" 2>/dev/null || true
 
 # --- PATH handling -----------------------------------------------------------

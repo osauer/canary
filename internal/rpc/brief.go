@@ -19,9 +19,14 @@ import (
 const (
 	// MethodBriefSnapshot composes the operator's daily brief. It is a pure
 	// read: callers do not supply an origin and the daemon must not stamp,
+	// journal, or advance any runtime clock while serving it.
 	MethodBriefSnapshot = "brief.snapshot"
 	// BriefStatusOK is the normal member of the brief row status vocabulary.
+	// Brief row statuses separate risk conditions from data conditions:
+	// attention means the underlying VALUES describe a state a trader must
+	// look at (latched drawdown, breached tier, active override); degraded
 	// and unavailable describe input quality only and must never be used to
+	// signal a risk condition, nor vice versa.
 	BriefStatusOK          = "ok"
 	BriefStatusAttention   = "attention"
 	BriefStatusDegraded    = "degraded"
@@ -47,6 +52,9 @@ const (
 type BriefSnapshotParams struct{}
 
 // BriefRowState is embedded by every brief row and section. Detail is
+// human-facing disclosure; Status is one of ok, attention, degraded, or
+// unavailable. Sections roll up their worst child (attention outranks
+// degraded) and state completeness in Detail.
 type BriefRowState struct {
 	Status string `json:"status"`
 	Detail string `json:"detail"`
@@ -133,6 +141,7 @@ type BriefPortfolioSection struct {
 }
 
 // BriefAccountRow reports base-currency equity and P&L. Nil amounts mean the
+// observation is unavailable.
 type BriefAccountRow struct {
 	BriefRowState
 	EquityBase   *float64  `json:"equity_base,omitempty"`
@@ -189,6 +198,8 @@ type BriefCapitalRow struct {
 	DrawdownBase     *float64 `json:"drawdown_base,omitempty"`
 	AdjustedPeakBase *float64 `json:"adjusted_peak_base,omitempty"`
 	// PeakAsOf is when the current adjusted peak was observed. Provenance,
+	// not decoration: a peak stamped during a closed session or a reconnect
+	// window is the tell that exposes a poisoned observation.
 	PeakAsOf     time.Time `json:"peak_as_of,omitzero"`
 	BaseCurrency string    `json:"base_currency,omitempty"`
 }
@@ -210,6 +221,7 @@ type BriefOverride struct {
 }
 
 // BriefOverridesRow lists active overrides; an empty list is conclusive only
+// when the embedded row state is OK.
 type BriefOverridesRow struct {
 	BriefRowState
 	Rows []BriefOverride `json:"rows"`
@@ -255,6 +267,7 @@ type BriefAutoExtendRow struct {
 }
 
 // BriefRulesRow summarizes current policy adherence. It deliberately uses no
+// per-rule identifiers: status counts are the whole payload.
 type BriefRulesRow struct {
 	BriefRowState
 	Pass         int `json:"pass"`
@@ -266,7 +279,7 @@ type BriefRulesRow struct {
 }
 
 // BriefProposalsRow reports how many protection proposals were offered versus
-// no proposal keys, symbols, order references, or tokens reach the wire.
+// acted on; no proposal keys, symbols, order references, or tokens reach the wire.
 type BriefProposalsRow struct {
 	BriefRowState
 	Day     string `json:"day,omitempty"`
@@ -281,6 +294,7 @@ type BriefReadyProposalsRow struct {
 	BriefRowState
 	// Actionable is the served count of proposals with no blockers; Blocked
 	// is the remainder of Total. Zero is a measured zero only when the
+	// embedded row state is OK.
 	Actionable int `json:"actionable"`
 	Blocked    int `json:"blocked"`
 	Total      int `json:"total"`
@@ -328,6 +342,7 @@ type BriefReviewSection struct {
 }
 
 // BriefReadySection is the pre-trade movement for today. Its rows regroup the
+// existing market, calendar, risk-capacity, and desk-readiness facts.
 type BriefReadySection struct {
 	BriefRowState
 	Regime        BriefRegimeRow         `json:"regime"`
@@ -904,6 +919,7 @@ const (
 	MethodReconSnapshot = "recon.snapshot"
 	// MethodReconCheck requests one broker-report check and returns an
 	// immediate, typed receipt. It is broker-read-only and never signs off,
+	// dismisses an exception, or changes trading controls.
 	MethodReconCheck = "recon.check"
 	// MethodReconStatus returns only the redacted daily automation state. It
 	// deliberately omits report rows, amounts, account data, and identifiers.
@@ -928,6 +944,7 @@ const (
 
 // ReconCheckParams is deliberately an exact empty object. The paired app
 // cannot smuggle report, account, policy, or trading instructions into this
+// read-only action.
 type ReconCheckParams struct{}
 
 // MarshalJSON emits the canonical empty-object request.
@@ -945,6 +962,7 @@ func (params *ReconCheckParams) UnmarshalJSON(data []byte) error {
 }
 
 // ReconStatusParams is an exact empty object because status scope is
+// daemon-owned and callers cannot request private report detail.
 type ReconStatusParams struct{}
 
 // MarshalJSON emits the canonical empty-object request.
@@ -1048,6 +1066,7 @@ type ReconException struct {
 	ValueDate   time.Time `json:"value_date,omitzero"`
 	AmountBase  *float64  `json:"amount_base,omitempty"`
 	// EventAt/EventAmountBase reference the declared event side of a
+	// mismatch or ledger_only exception.
 	EventAt         time.Time `json:"event_at,omitzero"`
 	EventAmountBase *float64  `json:"event_amount_base,omitempty"`
 	// PreGenesis marks a flow value-dated before the runtime capital
@@ -1107,6 +1126,7 @@ type ReconBacktestReplay struct {
 }
 
 // ReconBacktestResult is the full-window recon backtest payload. It is
+// read-only measurement and changes no matching, sign-off, or enforcement.
 type ReconBacktestResult struct {
 	AsOf               time.Time            `json:"as_of"`
 	Status             string               `json:"status"`
@@ -1146,6 +1166,8 @@ type ReconFetchStatus struct {
 }
 
 // ReconEvaluationStatus reports what happened after the broker report was
+// acquired. It intentionally does not expose report ids, amounts, or policy
+// thresholds.
 type ReconEvaluationStatus struct {
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
@@ -1166,6 +1188,7 @@ type ReconCheckResult struct {
 }
 
 // ReconStatusResult wraps the redacted automation status returned by
+// MethodReconStatus.
 type ReconStatusResult struct {
 	Status ReconAutomationStatus `json:"status"`
 }
@@ -1232,6 +1255,7 @@ func ValidateReconCheckResult(result ReconCheckResult) error {
 // ValidateReconAutomationStatus rejects unknown or incoherent values before
 // an adapter can publish them. The contract is intentionally exact: callers
 // must map new internal failures to an existing safe reason or revise every
+// consumer deliberately.
 func ValidateReconAutomationStatus(status ReconAutomationStatus) error {
 	reportReasons := map[string]bool{
 		ReconReportReasonNone: true, ReconReportReasonBeforeDailyWindow: true,
@@ -1385,13 +1409,17 @@ const (
 	// MethodRiskPolicySnapshot returns the effective constitution, capital
 	MethodRiskPolicySnapshot = "policy.snapshot"
 	// MethodRiskPolicyCapitalEvent declares a capital fact: deposit,
+	// withdrawal, or reconcile attestation. Human-only.
 	MethodRiskPolicyCapitalEvent = "policy.capital_event"
 	// MethodRiskPolicyOverride grants a one-shot, expiring, single-control
 	MethodRiskPolicyOverride = "policy.override"
 	// MethodRiskPolicyResetDrawdown clears a latched drawdown block and
+	// re-bases the adjusted peak. Human-only.
 	MethodRiskPolicyResetDrawdown = "policy.reset_drawdown"
 	// MethodRiskPolicyCorrectPeak lowers a corrupted adjusted peak to an
+	// evidence-anchored value without touching the drawdown latch.
 	// Corrections may only lower the peak; higher peaks are what the
+	// observation path is for. Human-only.
 	MethodRiskPolicyCorrectPeak = "policy.correct_peak"
 )
 
@@ -1442,6 +1470,9 @@ type OverrideParams struct {
 }
 
 // CorrectPeakParams repairs a poisoned adjusted peak. Exactly one anchor must
+// be chosen: FromStatements re-derives the peak from the retained-statement
+// replay (evidence-based), or PeakBase supplies an explicit value. The latch
+// is deliberately untouched — clearing it stays reset_drawdown's job.
 type CorrectPeakParams struct {
 	FromStatements bool    `json:"from_statements,omitempty"`
 	PeakBase       float64 `json:"peak_base,omitempty"`
@@ -1470,6 +1501,7 @@ type OverrideRecord struct {
 type CapitalStateReport struct {
 	Tier string `json:"tier"` // ok | warn | block | unknown | unapproved
 	// Enforcement echoes the block tier's class so a "block" tier is
+	// legible as shadow/advisory until promotion.
 	Enforcement string `json:"enforcement"`
 	// BoundAccount is the broker account this capital document adopted at its
 	// first live observation. The drawdown ladder follows this account, not
@@ -1551,6 +1583,7 @@ const MethodRulesSnapshot = "rules.snapshot"
 const RulebookPolicyFingerprintVersion = "rulebook-fp-v3"
 
 // RulesSnapshotParams selects optional evaluation scope. Zero value means the
+// full 14-rule checklist over all held names.
 type RulesSnapshotParams struct {
 	// Symbol narrows per-name offender lists to one underlying; portfolio
 	Symbol string `json:"symbol,omitempty"`
@@ -1569,7 +1602,9 @@ type EarningsInfo struct {
 	// Terminal carries the exact-contract evidence when no future issuer earnings
 	Source string `json:"source"`
 	// SecurityType names the held security type when Source is security_type —
+	// the canonical spelling of a type that has no issuer earnings at all. It is
 	// the whole authority behind that classification, so consumers re-derive the
+	// exemption from this field rather than trusting Source alone.
 	SecurityType string `json:"security_type,omitempty"`
 	// Status is date or a typed unresolved outcome. Conflicting provider
 	// dates never populate Date.
@@ -1578,6 +1613,7 @@ type EarningsInfo struct {
 	// conflicting_sources; it never contains provider free text.
 	Reason string `json:"reason,omitempty"`
 	// ObservedAt is when the fetched value was last confirmed from the
+	// provider; zero for overrides and unknowns.
 	ObservedAt time.Time              `json:"observed_at,omitzero"`
 	Stale      bool                   `json:"stale,omitempty"`
 	Providers  []EarningsProviderInfo `json:"providers,omitempty"`
@@ -1617,6 +1653,7 @@ type EarningsIdentityInfo struct {
 // BuildEarningsIdentityAuthorityBinding binds one public earnings projection
 // to the exact symbol and opaque proof receipt it describes. The digest exposes
 // neither the raw database receipt ID nor broker identity fields; consumers can
+// recompute it to reject cross-symbol or cross-proof substitution.
 func BuildEarningsIdentityAuthorityBinding(symbol string, identity EarningsIdentityInfo) string {
 	if strings.TrimSpace(symbol) == "" || strings.TrimSpace(symbol) != symbol ||
 		identity.AuthorityRevision <= 0 || strings.TrimSpace(identity.AuthorityFingerprint) == "" ||
@@ -1713,6 +1750,7 @@ type EarningsEvidenceReference struct {
 
 // EarningsProviderInfo is one provider's latest typed outcome. A transport
 // failure may coexist with a retained LastGoodDate, but Date is populated only
+// when the latest attempt itself returned a usable date.
 type EarningsProviderInfo struct {
 	Provider     string         `json:"provider"`
 	Status       string         `json:"status"`
@@ -1733,12 +1771,16 @@ type RulesResult struct {
 	Enabled bool   `json:"enabled"`
 	Status  string `json:"status"` // ok | degraded | disabled
 	// Rules holds all rows in rulebook order; Ranked holds indexes into
+	// Rules sorted hardest-first so renderers agree on ordering without
+	// re-deriving it.
 	Rules  []risk.RuleRow `json:"rules"`
 	Ranked []int          `json:"ranked,omitempty"`
 	// BreachCounts summarizes row counts by status for compact surfaces.
 	BreachCounts map[string]int `json:"breach_counts,omitempty"`
 	// InputHealth is the result-level gate: when positions or account are
+	// pending/stale/absent every portfolio-dependent row is unknown, never
 	// pass. Canonical snapshots carry exactly one entry for account,
+	// positions, earnings, regime_stage, and tape.
 	InputHealth []SourceHealth `json:"input_health,omitempty"`
 	Earnings    []EarningsInfo `json:"earnings,omitempty"`
 	// Policy provenance, mirroring proposals/Stress.

@@ -34,15 +34,27 @@ func IsSubscriptionRejected(err error) bool {
 }
 
 // pollUntil drives a polling loop on the standard cadence until fn signals
+// done, the context is cancelled, or the deadline passes. Returns nil iff
+// fn returned true; otherwise the cancellation reason (ctx.Err() or
+// context.DeadlineExceeded).
+//
 // The IBKR Subscribe/Unsubscribe call is the caller's responsibility — this
 // helper only owns the loop. Use ptrIfPos to lift the scalar fields the
+// predicate observed.
 func pollUntil(ctx context.Context, deadline time.Time, fn func() (done bool)) error {
 	return pollUntilWithReject(ctx, deadline, nil, "", fn)
 }
 
 // pollUntilWithReject is pollUntil that also selects on a subscription
+// reject channel. When the gateway pushes a terminal error for the
+// subscription, the poll exits with a [SubscriptionRejectedError]
+// carrying the original code/message — typically within a few ms of the
 // error frame arriving on the wire, instead of running out the deadline.
+//
+// Pass rejectCh = nil to fall back to plain pollUntil semantics; a nil
+// channel in a select blocks forever, so the rejection branch is dormant.
 // key is only used to label the returned error so fan-out callers can
+// log which leg was rejected.
 func pollUntilWithReject(ctx context.Context, deadline time.Time, rejectCh <-chan ibkrlib.SubscriptionRejection, key string, fn func() (done bool)) error {
 	if fn() {
 		return nil
@@ -89,9 +101,12 @@ func ptrIfPos[T int | int64 | float64](v T) *T {
 }
 
 // normCcy normalises a currency code: uppercase, trimmed. Centralises the
+// ~18 inlined `strings.ToUpper(strings.TrimSpace(...))` calls in handlers.go
+// that had already drifted (e.g. handlers.go:622 vs handlers.go:1107).
 func normCcy(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
 
 // normSym is normCcy aliased for symbol normalisation — same rule, but the
+// call site reads clearer.
 func normSym(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
 
 // runBounded runs fn(jobs[i]) concurrently with at most workers in flight.

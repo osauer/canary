@@ -27,6 +27,7 @@ type stopOptions struct {
 	daemon  bool
 	timeout time.Duration
 	// isTTY reports whether the confirmation can be asked. Tests inject it
+	// rather than touching os.Stdin.
 	isTTY bool
 	in    io.Reader
 	out   io.Writer
@@ -88,6 +89,8 @@ type stopBlocker struct {
 }
 
 // mcpProcess is a reported-only stdio MCP server. The MCP host owns that
+// process lifetime — it already exits with its parent — so `stop` names it
+// and leaves it alone rather than breaking a live AI session's tools.
 type mcpProcess struct {
 	PID    int    `json:"pid"`
 	Host   string `json:"host,omitempty"`
@@ -96,6 +99,8 @@ type mcpProcess struct {
 
 // RunStop is the top-level `canary stop` entrypoint. Like RunRestart it takes
 // no Env: stopping is local process management and must run before the
+// autospawn path in cmd/canary/main.go, which would otherwise start the very
+// daemon this command exists to stop.
 func RunStop(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	opts := stopOptions{
 		timeout: restartDefaultTimeout,
@@ -161,7 +166,9 @@ func runStopCore(ctx context.Context, opts *stopOptions, deps stopDeps) int {
 	stopApp := opts.app
 	if stopApp && dial.SocketPathOverridden() {
 		// App discovery is by process name and cannot tell which daemon
+		// scope a found app belongs to, so an overridden socket means the
 		// only app this command could find is outside the scope it was
+		// asked about. Same hands-off rule as `restart`.
 		res.App = &appStopResult{Target: "app", Action: "skipped", Reason: "socket_overridden"}
 		stopApp = false
 		fmt.Fprintf(opts.err, "%s: CANARY_SOCKET is set; the app is not part of that daemon scope and was left untouched\n", prefix)
@@ -202,6 +209,8 @@ func runStopCore(ctx context.Context, opts *stopOptions, deps stopDeps) int {
 
 // stopPreflight asks the running daemon whether it still has work that its
 // own idle watcher would refuse to exit on — working broker orders above all,
+// since a stopped daemon goes dark on fills, cancels, and the order journal.
+// A daemon that cannot be read is treated as unknown, not clean.
 func stopPreflight(ctx context.Context, opts *stopOptions, deps stopDeps, prefix string) ([]stopBlocker, int) {
 	health, running, err := deps.health(ctx, dial.DefaultSocketPath())
 	var blockers []stopBlocker
@@ -236,6 +245,7 @@ func stopPreflight(ctx context.Context, opts *stopOptions, deps stopDeps, prefix
 }
 
 // promptStop reads stdin for a [y/N] response. Unlike the update prompt this
+// defaults to no: enter or EOF keeps the desk running.
 func promptStop(in io.Reader, out io.Writer) bool {
 	fmt.Fprint(out, "Stop anyway? [y/N] ")
 	line, err := bufio.NewReader(in).ReadString('\n')
@@ -380,6 +390,7 @@ func overallStopAction(res stopResult) string {
 }
 
 // renderStopFooter says how each stopped process comes back, and names the
+// MCP servers this command deliberately did not touch.
 func renderStopFooter(opts *stopOptions, prefix string, res stopResult) {
 	if res.App != nil && res.App.Unloaded {
 		fmt.Fprintf(opts.out, "%s: the app stays stopped until `%s restart --app` or your next login\n", prefix, productidentity.Executable)
@@ -414,6 +425,7 @@ func describeMCPProcesses(procs []mcpProcess) string {
 
 // stopHealthReadTimeout bounds the pre-flight read. A daemon wedged badly
 // enough to never answer is exactly what `stop` is for, so the question must
+// not outlast a few seconds.
 const stopHealthReadTimeout = 5 * time.Second
 
 func readDaemonHealth(ctx context.Context, socketPath string) (rpc.HealthResult, bool, error) {

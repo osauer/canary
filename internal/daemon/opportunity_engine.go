@@ -42,6 +42,8 @@ type opportunityEngine struct {
 }
 
 // opportunityRefreshHealth is the engine's refresh-streak view for the
+// status.health opportunities subsystem row, mirroring
+// proposalRefreshHealth.
 type opportunityRefreshHealth struct {
 	Streak     int
 	Since      time.Time
@@ -101,6 +103,8 @@ func (e *opportunityEngine) Run(ctx context.Context) {
 		}
 		// Refresh records the outcome itself (noteRefreshOutcome); a second
 		// call here would double-count the failure streak, halving the
+		// warn threshold and inflating the "blocked N consecutive times"
+		// status trail.
 		snap, err := e.Refresh(ctx, false)
 		wait := next
 		if err != nil || opportunityRefreshTransient(snap) {
@@ -1004,6 +1008,7 @@ func sameOpportunityPolicy(snap rpc.OpportunitySnapshot, status rpc.OpportunityP
 // installPreservedSnapshot swaps the served snapshot without persisting:
 // the preserved copy carries transient blockers that must not survive a
 // restart, and the on-disk last-good copy is exactly what preservation is
+// protecting.
 func (e *opportunityEngine) installPreservedSnapshot(snap rpc.OpportunitySnapshot, show bool) {
 	e.replaceSnapshot(snap)
 	if show {

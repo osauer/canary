@@ -90,6 +90,7 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 	}
 	// Realized P&L is only rendered when at least one row carries a non-zero
 	// value — most accounts in a same-day snapshot have all zeros, and an
+	// always-on column adds dead width to the table.
 	showRealized := anyRealized(r.Stocks) || anyRealized(r.Options)
 	renderPortfolioSummaryTo(env, out, r)
 	if len(r.Stocks) > 0 {
@@ -539,6 +540,15 @@ func anyRealized(rows []rpc.PositionView) bool {
 }
 
 // renderPositionsByUnderlyingTo prints one block per underlying with the
+// stock leg (if any), the option legs (with inline Greeks), and a
+// per-underlying Total row when there's more than one leg.
+//
+// Every row uses the same column layout — LEG, QTY, AVG, MARK,
+// CHANGE/GREEKS, MKT VALUE, UNREAL P&L — so the eye reads down each
+// column instead of zigzagging across row-type-specific layouts. Money
+// columns right-align so decimal points line up; sign-coloured cells
+// (day change, unrealised P&L, Δ) pad before colour wrap so visible
+// widths stay correct under ANSI escapes.
 func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResult) int {
 	fmt.Fprintln(out)
 	unavailable := renderPositionsAuthority(env, out, r)

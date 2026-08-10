@@ -15,12 +15,26 @@ import (
 
 // defaultCoalesceInterval is the cadence at which the per-symbol tick loop
 // reads the IBKR market-data cache and (on change) emits a frame to its
+// taps. Matches the value used by the pre-fan-out implementation; chosen
+// to amortize render churn without lagging visibly behind the gateway.
 const defaultCoalesceInterval = 150 * time.Millisecond
 
 // defaultGenericTicks is the generic-tick list the daemon requests on every
+// symbol subscription. Picked to cover the fields the CLI / MCP consumers
+// expect to render: 100 = option volume, 101 = option open interest,
+// 104 = historical volatility, 106 = option implied volatility (averaged
+// across the chain — the "IV of the underlying" retail platforms display),
+// 165 = Misc Stats (delivers 13w/26w/52w highs/lows as tickPrice msgs
+// with tick types 15-20), and 236 = shortable shares. 106 and 165 enrich
+// the technical and monitor reads; 236 is evidence for the
+// market-event borrow-inventory flag.
 var defaultGenericTicks = []string{"100", "101", "104", "106", "165", "236"}
 
 // ibkrMarketConnector is the slice of *ibkrlib.Connector that subManager
+// touches. Defining it as an interface lets unit tests drive the manager
+// with a fake instead of a real gateway connection — required by the
+// project's "no mocks for daemon-internal data, but transport seams are
+// fair game" rule.
 type ibkrMarketConnector interface {
 	SubscribeMarketData(ctx context.Context, symbol string, fields []string) error
 	SubscribeMarketDataWithContract(ctx context.Context, contract ibkrlib.Contract, fields []string) (string, error)
@@ -53,6 +67,7 @@ type subEntry struct {
 	stop chan struct{}
 
 	// mu guards everything below. Per-symbol scope so fan-out and
+	// release on one symbol don't block operations on another.
 	mu       sync.Mutex
 	refcount int
 	taps     map[*frameTap]struct{}
@@ -80,6 +95,7 @@ func newSubManager(connector func() ibkrMarketConnector) *subManager {
 // symInitLock returns (creating on demand) the per-symbol init mutex.
 // Callers hold it for the duration of an IBKR SubscribeMarketData /
 // UnsubscribeMarketData call so the IBKR-side state for that symbol is
+// serialised, without blocking operations on other symbols.
 func (m *subManager) symInitLock(sym string) *sync.Mutex {
 	m.initMu.Lock()
 	defer m.initMu.Unlock()
@@ -178,8 +194,15 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 }
 
 // Subscribe acquires a market-data reference for sym and returns a frame
+// channel that delivers coalesced ticks until release is called or a
 // terminal error frame arrives. release is always safe to call exactly
+// once (typically via defer).
+//
 // When this is the first reference to sym, an IBKR market-data line is
+// opened and the per-symbol tick loop spins up. Subsequent Subscribe
+// callers attach a new tap onto the existing fan-out.
+//
+// ctx bounds the cold-path slot-acquire on first reference; see acquire.
 func (m *subManager) Subscribe(ctx context.Context, sym string) (<-chan rpc.Frame, func(), error) {
 	sym = strings.ToUpper(strings.TrimSpace(sym))
 	if sym == "" {
@@ -249,6 +272,7 @@ func (m *subManager) Hold(ctx context.Context, sym string) (func(), error) {
 
 // release drops a reference. If tap is non-nil it is also removed from the
 // fan-out and its channel closed. On the last reference, the IBKR line is
+// unsubscribed and the tick loop stopped.
 func (m *subManager) release(sym string, tap *frameTap) {
 	initLock := m.symInitLock(sym)
 	initLock.Lock()
@@ -291,6 +315,12 @@ func (m *subManager) teardown(e *subEntry, sym string) {
 }
 
 // tickLoop reads the IBKR market-data cache on the coalesce cadence and
+// fans out a Frame to every tap whenever a tick field, the size, or the
+// data-type-notice changes. Exits when sub.stop is closed.
+//
+// Gateway-loss detection is the connector() returning nil mid-stream: in
+// that case the loop emits a terminal gateway_lost frame to every tap,
+// closes them, and returns.
 func (m *subManager) tickLoop(e *subEntry) {
 	coalesce := m.coalesce
 	if coalesce <= 0 {
@@ -378,6 +408,8 @@ func (m *subManager) emitError(sym string, code, message string) {
 }
 
 // Close emits a daemon_shutdown frame to every active subscription and
+// tears them down. Called from Server.Stop so MCP clients and CLI watchers
+// see a structured terminal frame instead of an opaque socket close.
 func (m *subManager) Close() {
 	m.subsMu.Lock()
 	syms := make([]string, 0, len(m.subs))
@@ -391,6 +423,7 @@ func (m *subManager) Close() {
 }
 
 // activeCount reports the number of distinct symbols currently held by
+// the manager. Used by tests; safe to call concurrently.
 func (m *subManager) activeCount() int {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -398,7 +431,10 @@ func (m *subManager) activeCount() int {
 }
 
 // buildFrame projects an *ibkrlib.MarketData snapshot into the wire frame
+// shape, using nil pointers for fields the gateway hasn't delivered yet.
+// Note: the original code lifted on `!= 0` for all fields, but bid/ask/last
 // only carry positive prices and negative values would be a protocol bug,
+// so ptrIfPos is the safer semantic.
 func buildFrame(md *ibkrlib.MarketData, dt string) rpc.Frame {
 	return rpc.Frame{
 		T:        time.Now(),

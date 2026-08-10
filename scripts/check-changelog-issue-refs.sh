@@ -20,7 +20,9 @@ fi
 
 # The candidate is not tagged yet, so the newest reachable release tag is the
 # previous release. A first release has none and has no range to check. The
+# match filter matters: the repository also carries a separately named plugin
 # tag (`canary--vX.Y.Z`), and an unfiltered describe picks whichever is newer,
+# which silently shifts the range if the two ever stop agreeing.
 previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$range_end" 2>/dev/null || true)"
 if [ -z "$previous_tag" ]; then
 	echo "changelog-issue-refs: no previous tag reachable; nothing to reconcile"

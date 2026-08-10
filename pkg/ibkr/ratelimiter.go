@@ -14,6 +14,7 @@ import (
 var rateLimiterLogger = logging.Component("IBKR RateLimiter")
 
 // RateLimiter manages rate limiting for IBKR API requests. The IBKR limits it
+// enforces are recorded on the individual buckets and semaphores below.
 type RateLimiter struct {
 	// Token buckets for different rate limits
 	messageRate    *TokenBucket // General messages: 40/sec (safe from 50/sec max)
@@ -95,7 +96,11 @@ const (
 	// PriorityBackground requests must hold one of a small pool of
 	// in-flight slots before reserving pacing tokens. The pool bounds how
 	// many token reservations a fan-out can book ahead of an interactive
+	// arrival, so the interactive request waits behind at most the pool,
 	// not the whole fan-out. Token reservations stay FIFO across lanes and
+	// slots release as sends complete, so background work keeps the full
+	// bucket rate whenever no interactive request is competing — bounded
+	// interactive delay, no starvation in either direction.
 	PriorityBackground
 )
 
@@ -109,6 +114,8 @@ const (
 type requestPriorityContextKey struct{}
 
 // WithRequestPriority returns a context whose connector requests submit on
+// the given pacing lane. The priority travels with ctx through the
+// connector's send paths; contexts without it submit as PriorityInteractive.
 func WithRequestPriority(ctx context.Context, p RequestPriority) context.Context {
 	return context.WithValue(ctx, requestPriorityContextKey{}, p)
 }
@@ -125,6 +132,8 @@ func requestPriorityFrom(ctx context.Context) RequestPriority {
 
 // effectivePriority reads the context's pacing lane. Broker writes and
 // heartbeats never queue behind the background pool, whatever their
+// context says: orders because interactive latency is part of the write
+// contract, heartbeats because they keep the session alive.
 func effectivePriority(ctx context.Context, reqType RequestType) RequestPriority {
 	switch reqType {
 	case RequestTypeOrder, RequestTypeHeartbeat:
@@ -330,6 +339,8 @@ func NewRateLimiter(ctx context.Context) *RateLimiter {
 
 // Stop gracefully shuts down the rate limiter. The request queue is not
 // closed: producers (Submit and the retry goroutine) race with shutdown and
+// would panic on send to a closed channel. Instead, ctx cancellation signals
+// both producers and consumers to exit, and the queue is GC'd once unreferenced.
 func (rl *RateLimiter) Stop() {
 	rl.cancel()
 	rl.wg.Wait()
@@ -361,14 +372,19 @@ func submitTimeout(reqType RequestType) time.Duration {
 
 // SubmitWithRetries submits a request with a custom retry count. Requests
 // dispatch in arrival order; the only scheduling distinction is the
+// context-carried pacing lane (see WithRequestPriority), which bounds how
 // many token reservations PriorityBackground work may hold at once. A
 // "queue jump" parameter existed before v0.16.0 but was never wired and
+// was removed; the background lane is the deliberate replacement.
 func (rl *RateLimiter) SubmitWithRetries(reqType RequestType, sendFunc func() error, maxRetries int) error {
 	return rl.SubmitWithRetriesContext(context.Background(), reqType, sendFunc, maxRetries)
 }
 
 // SubmitWithRetriesContext is SubmitWithRetries plus caller-owned
+// cancellation. This matters for interactive historical reads: the historical
+// bucket can legitimately wait minutes during breadth fan-out, but a CLI/RPC
 // request with a 60 s budget must leave that queue promptly when its caller is
+// gone.
 func (rl *RateLimiter) SubmitWithRetriesContext(ctx context.Context, reqType RequestType, sendFunc func() error, maxRetries int) error {
 	return rl.SubmitWithRetriesContextFunc(ctx, reqType, func(context.Context) error {
 		return sendFunc()
@@ -376,6 +392,9 @@ func (rl *RateLimiter) SubmitWithRetriesContext(ctx context.Context, reqType Req
 }
 
 // SubmitWithRetriesContextFunc passes the limiter-owned request context to the
+// admitted callback. In addition to caller cancellation, that context is
+// canceled synchronously by the limiter's own completion timeout, so work
+// already admitted but parked behind another transport cannot run late.
 func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType RequestType, sendFunc func(context.Context) error, maxRetries int) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -460,6 +479,9 @@ func (rl *RateLimiter) processRequests() {
 }
 
 // dispatch runs one request's rate-limited execution. Extracted from the
+// processRequests loop body so per-request goroutines have a clean
+// completion-and-retry boundary. Always closes the request out via
+// req.ResultChan unless the request is re-queued for retry.
 func (rl *RateLimiter) dispatch(req *RateLimitedRequest) {
 	defer rl.wg.Done()
 
@@ -467,6 +489,8 @@ func (rl *RateLimiter) dispatch(req *RateLimitedRequest) {
 	if err != nil && rl.shouldRetry(req, err) {
 		req.Retries++
 		// Re-queue with exponential backoff. Honor rl.ctx so a
+		// shutdown mid-backoff doesn't leak a goroutine sleeping
+		// out the remainder of the delay.
 		rl.wg.Add(1)
 		go func(backoff time.Duration) {
 			defer rl.wg.Done()

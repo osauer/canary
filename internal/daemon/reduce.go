@@ -85,6 +85,7 @@ func findReducePosition(pos *rpc.PositionsResult, conID int, symbol string) (rpc
 
 // reduceQuantityForPercent floors percent×|position| to whole units so the trim
 // never rounds up into a flip, and treats 100 as an exact close. It returns a
+// blocker when the position is not reducible or the percentage rounds to zero.
 func reduceQuantityForPercent(position float64, percent int) (int, []rpc.TradingBlocker) {
 	posAbsInt, _ := closeReduceQuantity(position)
 	unit := "shares"
@@ -137,8 +138,10 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 }
 
 // prepareReduceForRow applies the hedge exclusion, sizes the order, and builds
+// the gated preview params for an already-resolved position row. It is the
 // single-position trim's primitive: it never reads positions or writes to the
 // broker. Terminal blockers (not_reducible, hedge_excluded, percent_too_small,
+// ...) come back with the row echoed so callers can disclose what was acted on.
 func prepareReduceForRow(row rpc.PositionView, p rpc.TradeProposalReduceParams) (preparedReduce, []rpc.TradingBlocker) {
 	hedge := isProtectiveShort(row)
 	if !reduceEligible(row) {
@@ -157,6 +160,9 @@ func prepareReduceForRow(row rpc.PositionView, p rpc.TradeProposalReduceParams) 
 }
 
 // buildPreparedReduce assembles the gated order-preview params for a row whose
+// quantity has already been resolved — by reduceQuantityForPercent (single
+// position) or by the portfolio sweep's dollar-delta pro-rata allocator. It is
+// the shared tail both sizing paths converge on.
 func buildPreparedReduce(row rpc.PositionView, qty int, timeoutMs int) preparedReduce {
 	secType := positionWireSecType(row.SecType)
 	action := rpc.OrderActionSell
@@ -323,6 +329,8 @@ func (s *Server) handleTradeProposalsReduceSubmit(ctx context.Context, req *rpc.
 		return nil, err
 	}
 	// Serialize the check-then-act broker write against every other writer,
+	// matching handleTradeProposalsSubmit/handleOrderPlace. proposalPlaceOrder
+	// -> placeOrder does not self-lock; the handler holds the mutex.
 	s.brokerWriteMu.Lock()
 	defer s.brokerWriteMu.Unlock()
 	return s.tradeProposalReduceSubmit(ctx, p)

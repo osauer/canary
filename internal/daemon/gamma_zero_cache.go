@@ -14,12 +14,45 @@ import (
 )
 
 // gammaZeroCache holds the current and most-recent zero-gamma compute
+// for each scope (combined / SPY / SPX), indexed by NY trading-session
+// date. Three concerns intersect here that the existing ttlMap-style
+// caches don't handle:
 //
-//	must share one in-flight job; two concurrent callers requesting
-//	DIFFERENT scopes (e.g. combined + --only=spy) must NOT collide
+//  1. Singleflight per scope. The compute is a multi-minute fan-out
+//     across hundreds of option legs against a shared market-data
+//     slot pool. Two concurrent callers requesting the SAME scope
+//     must share one in-flight job; two concurrent callers requesting
+//     DIFFERENT scopes (e.g. combined + --only=spy) must NOT collide
+//     on the cache and silently overwrite each other's results.
 //
+//  2. Background lifetime. The compute outlives any single RPC
+//     context — the first caller of the day kicks off a job that the
+//     daemon completes regardless of whether the original client
+//     hangs around. Subsequent pollers see the in-flight job's
+//     progress and pick up the result when it's done.
+//
+//  3. Scope isolation. The result envelope shape differs across
+//     scopes (combined carries PerIndex / RegimeAgreement; SPY-only
+//     and SPX-only carry single-underlying-shaped payloads). A
+//     scope-mixed cache slot would surface the wrong shape to the
+//     wrong caller.
+//
+// Session key is derived in America/New_York: the result is cached
+// for the rest of the same NY trading day and rolls over at midnight
 // NY. DST is handled by time.LoadLocation; if the zone fails to load
+// the cache falls back to UTC date, which is safe but slightly less
+// useful for international callers.
+//
+// Soft-TTL refresh-while-stale: when a kickOrJoin caller hits a
+// cached successful result that's older than the current regular
+// option-data session's softTTL (15 min RTH, infinite closed), the
+// cache serves the stale value immediately AND kicks a refresh in the
+// background. The refresh is stored in the slot's `refresh` field,
+// distinct from `current`, so further callers during the refresh keep
+// seeing the stable served value rather than blocking on the new
+// in-flight job. On completion the refresh promotes to current; on
 // error it's discarded so a transient compute failure can't poison a
+// known-good cached value.
 type gammaZeroCache struct {
 	mu sync.Mutex
 	// slots holds one entry per scope. Key is the scope string
@@ -29,9 +62,12 @@ type gammaZeroCache struct {
 	// newGammaZeroCacheWithStore — never modified after, so reads
 	store *gammaZeroStore
 	// skewDiag is the optional skew-fit calibration journal. nil = no
+	// journaling (tests, store-less constructions). Set once before
 	// the cache serves callers and never modified after, so the
+	// spawnJob goroutine reads it lock-less like store.
 	skewDiag *gammaSkewDiagJournal
 	// log is the logger used for persistence warnings. nil-safe via
+	// gammaLogf wrapper.
 	log gammaLogger
 	// onPublication is the daemon-owned cross-authority hook. It is invoked
 	// Failed, canceled, or superseded work never reaches it.
@@ -49,6 +85,9 @@ type gammaSlot struct {
 	current *gammaComputation // nil until first kickOrJoin for this scope
 	refresh *gammaComputation // soft-TTL refresh in flight behind current; nil otherwise
 	// coldReason* explains why this slot has no serveable result when
+	// the daemon can tell the difference between "never computed" and
+	// "a persisted cache existed but was unusable." Snapshot surfaces
+	// these fields on Status=cold so users do not have to grep logs.
 	coldReasonCode string
 	coldReason     string
 	coldAction     string
@@ -59,13 +98,24 @@ type gammaSlot struct {
 	lastErrSummary string // shortened single-line summary for rendering
 	lastErrResult  *rpc.GammaZeroComputed
 	// errStreak / lastFailAt drive the escalating retry gate
+	// (retryAllowed). Every finished computation bumps or resets them in
+	// noteJobOutcome; cancelled jobs are excluded there so a force()
+	// supersede or daemon shutdown doesn't count as gateway sickness.
 	// lastFailAt carries the failed job's startedAt, matching the
+	// startedAt-based age semantics gammaErrorRetryTTL documents.
 	errStreak  int
 	lastFailAt time.Time
 }
 
 // retryAllowed reports whether the slot's failure streak permits another
+// automatic compute/refresh attempt at now. Gates ALL non-force spawn
+// paths in kickOrJoin — the same-session error retry, the prior-session
+// rollover refresh, and the soft-TTL/boundary refresh. The latter two had
+// no time gate at all, which is what turned the June 9 secdef-farm outage
+// into a respawn storm: the daemon's 1-minute refresh scheduler reaped
 // each failed refresh and immediately spawned the next ~35 s burn,
+// ~60 times an hour, for the rest of the session. force() stays exempt
+// by design.
 func (s *gammaSlot) retryAllowed(now time.Time) bool {
 	if s.errStreak == 0 {
 		return true
@@ -127,9 +177,25 @@ type gammaComputation struct {
 }
 
 // gammaErrorRetryTTL is the minimum age of a cached error before
+// kickOrJoin re-attempts. Before this fix a single transient
 // gateway-side timeout (e.g. cold-start SPX contract-details race)
+// would stick in cache and poison every regime/gamma call for the
+// rest of the NY trading session — confirmed observed at v0.22.0.
+//
+// "Age" is measured against startedAt rather than the deferred
+// finishedAt: the cache's now parameter and startedAt share a clock,
+// so the TTL check stays testable with synthetic times, and the
 // production semantic ("60 s since we kicked the failing attempt") is
+// the right one — long error paths shouldn't have an extra 60-s
+// quiet period on top of their own duration.
+//
+// 60 s is long enough to dampen retry storms against a genuinely down
+// gateway while short enough that a one-shot blip clears on the
 // user's next normal poll. Consecutive failures escalate from this
+// base via gammaRetryBackoff — the flat 60 s alone proved insufficient
+// against a daylong farm outage (2026-06-09: secdef farm broken from
+// 09:33 ET; periodic pollers re-kicked a doomed ~35 s compute every
+// poll for hours).
 const gammaErrorRetryTTL = 60 * time.Second
 
 // gammaErrorRetryMaxTTL caps the escalating retry gate. Matches
@@ -187,6 +253,9 @@ func (c *gammaZeroCache) setPublicationCallback(callback func(string)) {
 }
 
 // knownGammaScopes enumerates the scopes the cache will look for
+// persisted state on startup. Adding a new scope means appending here;
+// the cache treats `scope` as an opaque string at the data layer, so
+// nothing outside this list breaks.
 var knownGammaScopes = []string{
 	rpc.GammaZeroScopeCombined,
 	rpc.GammaZeroScopeSPY,
@@ -366,11 +435,36 @@ func nySessionKey(now time.Time) string {
 }
 
 // computeFn is the contract the cache calls when it needs to kick a
+// fresh compute. It runs on the daemon's goroutine, not the caller's,
+// and gets a context bounded by the bg goroutine's lifetime (cancelled
+// when the compute is superseded or the daemon shuts down).
+//
+// Implementations should update progress periodically (the cache
+// stamps the etaSeconds once at kickoff but doesn't touch progress —
+// the compute owns it).
 type computeFn func(ctx context.Context, progress *atomic.Int32) (*rpc.GammaZeroComputed, error)
 
 // kickOrJoin returns the active or most-recent computation for the
+// current NY session. If a fresh compute is needed, it's started in
+// a background goroutine via compute(); the returned gammaComputation
+// may be in-flight or already complete. Concurrent callers always
 // share — only one fan-out per session per non-force call.
+//
+// fresh is true when this call started the compute, false when an
+// existing computation was returned (in-flight or finished).
+//
+// etaSeconds is the static initial estimate the cache stamps on a
+// fresh kickoff. The compute reports refined progress via its
+// atomic counter.
+//
+// Soft-TTL refresh: when the served result is past the regular
+// option-data session's softTTL, or was computed outside RTH and is
+// first served during RTH, kickOrJoin kicks a background refresh while
+// still returning the stale value. fresh stays false for the caller
+// (they got the cached envelope, not a new in-flight job). The next
+// caller after the refresh lands sees the new value. Closed option-data
 // sessions never trigger refresh — see the kickOrJoin body comment for
+// the gating logic.
 func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now time.Time, etaSeconds int, compute computeFn) (job *gammaComputation, fresh bool) {
 	c.ensureLoaded()
 	key := nySessionKey(now)
@@ -416,6 +510,9 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 	if slot.current != nil && slot.current.sessionKey != key &&
 		slot.current.isDone() && slot.current.err == nil && slot.current.result != nil {
 		// retryAllowed: without it, a failed refresh reaped above is
+		// respawned by the very same call, at poll rate, for as long as
+		// the gateway stays sick (observed June 9 post-restart: the
+		// LoadStale-seeded prior-day result kept this path hot).
 		if slot.refresh == nil && slot.retryAllowed(now) {
 			slot.refresh = c.spawnJob(parent, scope, key, now, etaSeconds, compute)
 		}
@@ -427,6 +524,8 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 		// gate escalates with the slot's consecutive-failure streak
 		if slot.current.isDone() && slot.current.err != nil && slot.retryAllowed(now) {
 			// Retain the failure context so the next render of the
+			// "computing" row can surface "retry of <error> at HH:MM:SS"
+			// instead of silently switching to a clean Computing state.
 			slot.rememberError(slot.current)
 			job = c.startLocked(parent, scope, key, now, etaSeconds, compute)
 			return job, true
@@ -454,7 +553,16 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 }
 
 // force starts a fresh compute for the current NY session. With no
+// successful cached value it supersedes the current job. With a successful
+// cached value already serving, it runs as a diagnostic refresh behind that
 // value and promotes only on success; failed diagnostics must not poison the
+// cache callers rely on outside market hours.
+//
+// An in-flight current job is still cancelled and superseded: there is no
+// stable value to preserve, and the caller explicitly requested force.
+//
+// Any in-flight soft-TTL refresh is also cancelled and discarded —
+// force is the active diagnostic attempt for this scope.
 func (c *gammaZeroCache) force(parent context.Context, scope string, now time.Time, etaSeconds int, compute computeFn) *gammaComputation {
 	c.ensureLoaded()
 	key := nySessionKey(now)
@@ -469,6 +577,11 @@ func (c *gammaZeroCache) force(parent context.Context, scope string, now time.Ti
 		slot.current.result != nil
 	if slot.current != nil && !slot.current.isDone() {
 		// Cancel the superseded compute — it stops fanning out and the
+		// next time the gateway responds to one of its in-flight legs
+		// the worker returns immediately. The done channel doesn't
+		// close (the goroutine returns without setting result), so
+		// any caller still waiting on the old job will block until
+		// its own ctx times out. That's the documented force tradeoff.
 		slot.current.cancel()
 	}
 	if slot.refresh != nil && !slot.refresh.isDone() {
@@ -504,8 +617,17 @@ func (c *gammaZeroCache) promoteRefreshOnDone(scope, key string, job *gammaCompu
 
 // spawnJob allocates a fresh computation and launches its background
 // goroutine. Caller must hold c.mu. Does NOT assign the job into any
+// slot — the caller decides whether to install it as `current`
+// (startLocked) or hold it separately as the soft-TTL refresh.
+//
+// scope is captured on the gammaComputation so the persist call can
+// route the save to the right per-scope file.
 func (c *gammaZeroCache) spawnJob(parent context.Context, scope, key string, now time.Time, etaSeconds int, compute computeFn) *gammaComputation {
 	// Decouple the compute's lifetime from any single RPC ctx. Use the
+	// daemon's parent context (typically Background) as the upstream
+	// signal so daemon shutdown still cancels the compute, but a
+	// client disconnect mid-compute doesn't kill a job that other
+	// pollers are waiting on.
 	bgCtx, cancel := context.WithCancel(parent)
 	job := &gammaComputation{
 		sessionKey: key,
@@ -520,11 +642,20 @@ func (c *gammaZeroCache) spawnJob(parent context.Context, scope, key string, now
 	go func() {
 		// Publication notification runs after done closes, so downstream readers
 		// can observe Status=ready, and after outcome accounting has reset the
+		// retry streak. It remains outside the cache lock while calling daemon
+		// glue so Regime acquisition may read this same cache.
 		defer func() { c.notifyJobPublication(job, bgCtx.Err() != nil) }()
 		defer close(job.done)
 		// Failure-streak accounting. Deliberately registered between the
+		// done-close and the panic guard (LIFO order: guard finalises
+		// job.err first, then this observes it, then done closes).
+		// bgCtx.Err() != nil marks cancellation — force() supersede or
+		// daemon shutdown — which says nothing about gateway health.
 		defer func() { c.noteJobOutcome(job, bgCtx.Err() != nil) }()
 		// Best-effort panic guard: a math bug or nil pointer deep in
+		// the compute pipeline shouldn't take down the daemon. The
+		// recovered error becomes job.err, which surfaces to callers
+		// as Status=error on the next poll.
 		defer func() {
 			if r := recover(); r != nil {
 				job.err = fmt.Errorf("zero-gamma compute panicked: %v", r)
@@ -569,7 +700,9 @@ func (c *gammaZeroCache) spawnJob(parent context.Context, scope, key string, now
 }
 
 // notifyJobPublication promotes a successful refresh before notifying the
+// daemon. The slot identity checks exclude force-superseded work, and the
 // callback runs only after the result is both complete and canonical for its
+// scope. Soft-TTL and forced refreshes therefore share one publication edge.
 func (c *gammaZeroCache) notifyJobPublication(job *gammaComputation, cancelled bool) {
 	if c == nil || job == nil || cancelled || job.err != nil || job.result == nil {
 		return
@@ -618,6 +751,9 @@ func (c *gammaZeroCache) noteJobOutcome(job *gammaComputation, cancelled bool) {
 }
 
 // resetRetryBackoff zeroes every slot's failure streak. Called on
+// gateway (re)connect: farm outages end with a reconnect handshake, so
+// the first attempt after one shouldn't sit out a 15-minute escalated
+// quiet period earned against the dead connection.
 func (c *gammaZeroCache) resetRetryBackoff() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -688,6 +824,7 @@ func (c *gammaZeroCache) snapshotCurrent(scope string, nowFn func() time.Time) r
 }
 
 // refreshInFlight reports whether a soft-TTL or session-rollover refresh is
+// running behind the result this scope currently serves.
 func (c *gammaZeroCache) refreshInFlight(scope string) bool {
 	if scope == "" {
 		return false
@@ -749,7 +886,15 @@ func (c *gammaZeroCache) snapshotForScope(scope string, g *gammaComputation, now
 		// flight from one that never started.
 		env.Refreshing = c.refreshInFlight(gammaSnapshotScope(scope, g))
 		// Off-hours stale tag: when we're serving a cached result outside
+		// trading hours that predates the last completed options session,
+		// append the `cache_stale_off_hours` warning so the renderer can
+		// say "computed Nh ago" loudly instead of presenting a
+		// missed-session reading as if it were fresh. The quality gates
 		// treat this tag as a rankability block, so it must not fire on a
+		// weekend serving Friday's close — that cache is the expected
+		// evidence, however many wall-clock hours old. Copy-on-write
+		// to avoid mutating the shared cache pointer that other
+		// concurrent snapshots may still be reading.
 		now := nowFn()
 		if g.result != nil && gammaClassifySession(now) == rpc.SessionClosed && gammaClosedSessionCacheStale(g.result.AsOf, now) {
 			r := *g.result
@@ -1195,6 +1340,15 @@ func summarizeGammaErr(err error) string {
 }
 
 // remainingEta returns a refined ETA in seconds. Once enough work has
+// landed (progress > 5), the estimate is projected from elapsed time:
+// remaining ≈ elapsed × (100 - progress) / progress. Before then the
+// projection is meaningless on tiny samples, so we fall back to the
+// static initial estimate minus elapsed.
+//
+// Capped at 4× the static estimate so a stalled compute (progress
+// frozen at 10 % after 10 minutes) doesn't surface absurd
+// projections. Floor at 5s so the renderer doesn't flicker between
+// "0s" and "computing" near the end of the run.
 func remainingEta(g *gammaComputation, now time.Time, progress int32) int {
 	elapsed := int(now.Sub(g.startedAt).Seconds())
 	cap := 4 * g.etaSeconds
@@ -1241,6 +1395,10 @@ func findZeroCrossing(profile []rpc.GammaProfilePoint) (zeroGamma *float64, sign
 		return nil, "negative"
 	}
 	// At this point at least one pair brackets the zero. Walk and
+	// interpolate on the FIRST bracketing pair — for dealer-gamma the
+	// sign function is monotone across the sweep range in practice
+	// (no multi-cross), but if it ever isn't, the renderer's profile
+	// chart will surface the anomaly and the user can investigate.
 	for i := 1; i < len(profile); i++ {
 		prev := profile[i-1]
 		curr := profile[i]
@@ -1250,6 +1408,7 @@ func findZeroCrossing(profile []rpc.GammaProfilePoint) (zeroGamma *float64, sign
 			return &x, ""
 		}
 		// Exact zero at a sample point — interpolate degenerates to
+		// the sample's own spot.
 		if prev.GEX == 0 {
 			x := prev.Spot
 			return &x, ""

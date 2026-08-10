@@ -83,6 +83,8 @@ const (
 )
 
 // Store serializes access to the app's private state.json and returns copies or
+// redacted projections at its public read boundaries. Its zero value is not
+// usable; callers open a store with [Open].
 type Store struct {
 	path                            string
 	mu                              sync.Mutex
@@ -190,6 +192,7 @@ type AlertRecord struct {
 }
 
 // PushAttempt records one classified Web Push transport result. OK means the
+// push service accepted the request, not that a device displayed it.
 type PushAttempt struct {
 	At             time.Time `json:"at"`
 	SubscriptionID string    `json:"subscription_id,omitempty"`
@@ -201,6 +204,7 @@ type PushAttempt struct {
 }
 
 // AttentionRef identifies one redacted legacy inbox row without exposing its
+// private fingerprint or transport identity.
 type AttentionRef struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`
@@ -301,6 +305,7 @@ func (s *Store) load() error {
 	// Decode the top-level object a second time without alert_delivery. This
 	// keeps a failure in the optional typed ledger from making the legacy
 	// stress authority unavailable, while every legacy field still uses its
+	// normal typed decoder and remains fatal on corruption.
 	rawAlertDelivery := append(json.RawMessage(nil), topLevel["alert_delivery"]...)
 	delete(topLevel, "alert_delivery")
 	legacyData, err := json.Marshal(topLevel)
@@ -601,6 +606,8 @@ func (s *Store) Devices() []DeviceGrant {
 }
 
 // PruneDevices removes device grants whose last activity predates cutoff,
+// along with their push subscriptions. Activity is the later of creation
+// and last-seen, so a freshly paired but not-yet-used device survives.
 func (s *Store) PruneDevices(cutoff time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -784,6 +791,7 @@ func (s *Store) ActivePushSubscriptions() []PushSubscription {
 }
 
 // ActivePushSubscriptionsForDevice returns subscriptions only when deviceID is
+// a current, non-revoked paired device; otherwise it returns nil.
 func (s *Store) ActivePushSubscriptionsForDevice(deviceID string) []PushSubscription {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -812,6 +820,8 @@ func (s *Store) RemovePushSubscription(id string) error {
 }
 
 // RemovePushSubscriptionAt atomically removes a subscription selected by ID or
+// endpoint and retires its targets in both delivery ledgers. A zero retiredAt
+// uses the current UTC time.
 func (s *Store) RemovePushSubscriptionAt(id string, retiredAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -896,6 +906,7 @@ func (s *Store) RecordAlert(rec AlertRecord) error {
 }
 
 // RecordAlertIfNew atomically deduplicates a semantic portfolio-stress occurrence and
+// records its durable inbox row under the same store transaction.
 func (s *Store) RecordAlertIfNew(rec AlertRecord) (bool, error) {
 	if strings.TrimSpace(rec.Fingerprint) == "" {
 		return false, errors.New("alert fingerprint required")
@@ -1049,6 +1060,7 @@ func alertRecordMatchesContext(rec AlertRecord, stressFingerprint, account, mode
 }
 
 // HasAlertFingerprint reports whether the legacy inbox retains a record with
+// the private semantic fingerprint fp.
 func (s *Store) HasAlertFingerprint(fp string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1069,6 +1081,7 @@ func (s *Store) RecordPush(attempt PushAttempt) error {
 }
 
 // LastPush returns a copy of the legacy last-attempt diagnostic, or nil when
+// no attempt has been recorded.
 func (s *Store) LastPush() *PushAttempt {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1081,6 +1094,7 @@ func (s *Store) LastPush() *PushAttempt {
 
 // EnsureVAPID returns the retained app signing keys or generates and durably
 // stores one pair. gen is called while the store is locked and only when a
+// complete retained pair is unavailable.
 func (s *Store) EnsureVAPID(now time.Time, gen func() (privateKey, publicKey string, err error)) (VAPIDKeys, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

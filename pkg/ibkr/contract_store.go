@@ -201,6 +201,8 @@ func decodeContractCache(raw []byte, strictCurrent bool) (contractCacheFile, err
 }
 
 // normalizeCurrentOptionDetail makes the canonical cache key the source of
+// truth for tuple fields omitted from the value. Malformed keys, zero ConIDs,
+// and fields that contradict the key remain errors.
 func normalizeCurrentOptionDetail(key string, detail ContractDetailsLite) (ContractDetailsLite, error) {
 	parts := strings.Split(key, "|")
 	if len(parts) != 5 {
@@ -258,9 +260,14 @@ func nyDateString(now time.Time) string {
 }
 
 // Save publishes one filtered contract-cache snapshot. It copies its map
+// inputs and does not mutate them. Contracts with a zero ConID and options
+// expired before the current New York date are omitted. Every option key and
 // value must form a valid, matching tuple; otherwise Save returns an error
+// without publishing. membersHash may be empty when membership is not tracked.
+//
 // Calls on one store are serialized. An attached authority receives one
 // encoded envelope; the legacy codec writes a temporary file and renames it
+// over dir/contracts.json.
 func (s *ContractStore) Save(contracts map[string]ContractDetailsLite, options map[string]ContractDetailsLite, membersHash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -313,6 +320,7 @@ func (s *ContractStore) Save(contracts map[string]ContractDetailsLite, options m
 	}
 	tmpPath := tmp.Name()
 	// On any error past this point, remove the orphaned temp file so
+	// we don't litter the cache dir.
 	defer func() {
 		if tmp != nil {
 			_ = tmp.Close()
@@ -342,8 +350,14 @@ func shouldPersistContract(d ContractDetailsLite) bool {
 }
 
 // MembersHash returns the first 16 lowercase hexadecimal characters of a
+// SHA-256 hash of members. It trims and uppercases each element before sorting,
+// so input order, case, and surrounding whitespace do not affect the result.
+// Duplicate elements remain significant.
 func MembersHash(members []string) string {
 	// Normalise BEFORE sorting so case/whitespace variants collapse to
+	// the same sort position. Sort-then-normalise would have left
+	// " BRK.b" sorting under leading-space, ahead of "AAPL", while the
+	// canonical "BRK.B" sorts after — different hash for the same set.
 	normalised := make([]string, len(members))
 	for i, m := range members {
 		normalised[i] = strings.ToUpper(strings.TrimSpace(m))

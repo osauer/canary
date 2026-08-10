@@ -35,6 +35,7 @@ type expiryGridEntry struct {
 
 // expiryGridPersistEnvelope is the on-disk shape. Version bumps on
 // incompatible changes; the classed map reuses the wire type the
+// connector returns so load → use needs no conversion.
 type expiryGridPersistEnvelope struct {
 	Version int                                       `json:"version"`
 	Symbol  string                                    `json:"symbol"`
@@ -124,6 +125,7 @@ func (g *expiryGridStore) fallback(sym string, now time.Time) (map[string][]ibkr
 }
 
 // heldLocked returns the in-memory entry, hydrating it from disk on the
+// first miss. Caller holds g.mu.
 func (g *expiryGridStore) heldLocked(sym string) (expiryGridEntry, bool) {
 	if entry, ok := g.mem[sym]; ok {
 		return entry, true
@@ -145,6 +147,8 @@ func (g *expiryGridStore) heldLocked(sym string) (expiryGridEntry, bool) {
 		data, err = os.ReadFile(filepath.Join(g.dir, expiryGridFilename(sym)))
 		if err != nil {
 			// Missing file is the normal cold case; read errors degrade to
+			// "no fallback available" — the caller already holds the live
+			// fetch error, which is the one worth surfacing.
 			return expiryGridEntry{}, false
 		}
 	}
@@ -161,6 +165,8 @@ func (g *expiryGridStore) heldLocked(sym string) (expiryGridEntry, bool) {
 }
 
 // writeAtomicLocked mirrors gammaZeroStore.writeAtomic — per the
+// convention there, the small duplication is preferred over a generic
+// shared store layer. Caller holds g.mu.
 func (g *expiryGridStore) writeAtomicLocked(sym string, env expiryGridPersistEnvelope) error {
 	if g.authority != nil {
 		payload, err := json.Marshal(env)
@@ -225,12 +231,17 @@ func expiryGridFilename(sym string) string {
 }
 
 // expiryGridFallbackInfo travels from buildPickedExpirations back to
+// the compute when the picked expirations came from the cache rather
+// than a live fetch: the grid's age feeds the expiries_stale warning
+// and the live error is preserved for the log line.
 type expiryGridFallbackInfo struct {
 	asOf    time.Time
 	liveErr error
 }
 
 // staleDays buckets the grid age into whole days (minimum 1) for the
+// warning code — coarse on purpose so semantically identical runs keep
+// identical warning strings.
 func (f *expiryGridFallbackInfo) staleDays(now time.Time) int {
 	if f == nil {
 		return 0

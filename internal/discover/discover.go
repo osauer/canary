@@ -1,6 +1,8 @@
 // Package discover finds an IB Gateway or TWS endpoint on the local host
+// when the user hasn't pinned one in config. The probe is TCP-only with a
 // short timeout — we do not exchange the IBKR handshake here. The actual
 // handshake runs against the winner through the daemon's broker connector,
+// whose bounded connect path reports non-responsive listeners explicitly.
 package discover
 
 import (
@@ -18,6 +20,7 @@ import (
 var StandardPorts = []int{4001, 4002, 7496, 7497}
 
 // Origin records why a dimension has its current value: was it pinned in
+// config (binding), discovered by probe, or filled from a built-in default.
 type Origin string
 
 // Origin values classify how endpoint settings were resolved.
@@ -48,6 +51,7 @@ type Endpoint struct {
 	// Alternates lists other ports that responded during the probe but
 	// lost the first-hit race. Surface them in `canary status` so the user
 	// knows e.g. "I'm on Gateway live but TWS is also up." Empty when the
+	// port was pinned (discovery skipped) or no other ports responded.
 	Alternates []int
 }
 

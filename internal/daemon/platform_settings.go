@@ -277,6 +277,8 @@ func (s *platformSettingsStore) bindCore(ctx context.Context, core *corestore.St
 		return fmt.Errorf("platform settings are missing from SQLite; cutover bootstrap was not completed")
 	}
 	// A stored version-1 document is upgraded in memory here and rewritten in the
+	// new shape by the next settings write; the daemon reports the operator's
+	// stored preference from the first read either way.
 	data, err := decodePlatformSettings(doc.JSON)
 	if err != nil {
 		return fmt.Errorf("decode platform settings from SQLite: %w", err)
@@ -618,6 +620,7 @@ func (s *Server) applyPlatformSettingsPatch(ctx context.Context, patch map[strin
 	for key := range flat {
 		// Freeze and limit authority is terminal-only in every mode. A paired
 		// device is a human broker-write origin, but it is not authorized to
+		// change the controls that govern later writes.
 		if strings.HasPrefix(key, "trading.") && !settingsTradingOriginAuthorized(origin) {
 			return errBadRequest("trading safety settings are terminal-only; use an interactive human terminal to change freeze or limits")
 		}

@@ -27,6 +27,7 @@ const dailyPnLCloseCaptureWindow = 10 * time.Minute
 
 // dailyPnLScopeSource is the broker-scope identity behind the daily P&L
 // observation authority and the close-capture authority. It is persisted only
+// as an opaque fingerprint (dailyPnLObservationSourceKey).
 func dailyPnLScopeSource(scope brokerStateScope) string {
 	return scope.Mode + "|" + strings.TrimSpace(scope.Account)
 }
@@ -39,6 +40,7 @@ type dailyPnLCloseCaptureDocument struct {
 }
 
 // persistedDailyPnLCloseCapture pins one broker scope's account Daily P&L to
+// one session's official close.
 type persistedDailyPnLCloseCapture struct {
 	SessionKey   string    `json:"session_key"`
 	DailyPnL     float64   `json:"daily_pnl"`
@@ -94,6 +96,8 @@ func (a *dailyPnLCloseCaptureAuthority) bindCore(ctx context.Context, core *core
 }
 
 // capture persists record as source's newest close capture. Re-capturing the
+// same session for the same scope is an idempotent no-op, so the monitor loop
+// cannot overwrite the first eligible frame with a later, more drifted one.
 func (a *dailyPnLCloseCaptureAuthority) capture(ctx context.Context, source string, record persistedDailyPnLCloseCapture) error {
 	if a == nil {
 		return fmt.Errorf("daily P&L close-capture authority is unavailable")
@@ -200,6 +204,7 @@ func dailyPnLCloseFrameUsable(snap ibkrlib.AccountDailyPnL, hasFrame bool, sessi
 
 // dailyPnLCloseCaptureSource is the connector slice the capture needs: the
 // newest account reqPnL frame and the streaming account cache that proves the
+// base currency the frame is denominated in.
 type dailyPnLCloseCaptureSource interface {
 	AccountDailyPnL() (ibkrlib.AccountDailyPnL, bool)
 	CachedAccountSummary() *ibkrlib.RawAccountSummary
@@ -247,6 +252,9 @@ func (s *Server) maybeCaptureDailyPnLClose(ctx context.Context, source dailyPnLC
 }
 
 // lastCompletedUSEquitySessionDate resolves which official session date the
+// brief may call "last completed" at now: today once today's close has passed,
+// otherwise the newest completed prior trading date. False when embedded
+// calendar coverage cannot prove one.
 func lastCompletedUSEquitySessionDate(now time.Time) (string, bool) {
 	sess, err := marketcal.New().SessionAt(marketcal.MarketUSEquity, now)
 	if err != nil || sess.State == marketcal.StateUnknown {

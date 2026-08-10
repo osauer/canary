@@ -1,4 +1,7 @@
 // Package update implements the local self-update lifecycle: discover a
+// published release, download and verify its signed artifacts, install the
+// binary atomically under an install lock, and coordinate explicitly requested
+// process restarts. It does not own CLI rendering or daemon runtime state.
 package update
 
 import (

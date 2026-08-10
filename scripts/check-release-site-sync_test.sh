@@ -36,6 +36,7 @@ seed_docs() {
 }
 
 # A patch release whose discovery stamps all match passes without needing any
+# git state — the early return fires after the stamp loop, not before it.
 ok="$test_root/ok"
 mkdir -p "$ok"
 seed_docs "$ok" 2.3.1 2.3.1 2.3.1 v2.3.1

@@ -11,7 +11,9 @@ import (
 )
 
 // windowCheckpointBatchSize bounds how much successful fan-out work a daemon
+// restart can discard. At the production 0.1 request/second paced rate, ten
 // names are roughly 100 seconds of progress. Checkpoints replace only the
+// current state document; finalise records the canonical observation once.
 const windowCheckpointBatchSize = 10
 
 // Logger is the minimal logging surface the engine needs. The daemon
@@ -31,8 +33,13 @@ type Options struct {
 	// matching the IBKR-side historical-data pacing headroom. Setting
 	Workers int
 	// ColdLookbackDays is how many trailing daily bars to fetch for
+	// a name with no cached history. Defaults to WindowSize + 10 to
+	// absorb holiday gaps in the trailing 50 trading days.
 	ColdLookbackDays int
 	// WarmLookbackDays is how many trailing daily bars to fetch for
+	// a name whose cached window is current except for today.
+	// Defaults to 2 — today's bar plus one for duplicate-detection
+	// during the same-session retry path.
 	WarmLookbackDays int
 	// Members lets the caller seed the engine with a non-embedded
 	Members []string
@@ -48,6 +55,22 @@ type Options struct {
 }
 
 // Engine is the breadth-spx state machine: it loads persisted state, drives a
+// background refresh against a BarFetcher when
+// asked, and serves the most recent Snapshot to callers. Safe for
+// concurrent use.
+//
+// Lifecycle:
+//   - New() loads persisted state. If the cache is fresh, Get()
+//     returns it immediately and no fetch is needed.
+//   - Refresh(ctx) is the long-running operation. Serialised against
+//     concurrent calls (the second caller waits behind the first).
+//   - Get() / Status() are fast read-only views; safe to call during
+//     a Refresh in progress.
+//
+// State is held in memory and successful window progress is persisted in
+// bounded batches during a refresh, then once more when the pass completes. A
+// crash mid-refresh therefore resumes from the last committed daemon.db
+// checkpoint without publishing an incomplete snapshot.
 type Engine struct {
 	store   *Store
 	fetcher BarFetcher
@@ -60,13 +83,17 @@ type Engine struct {
 
 	// mu protects the in-memory state below. Held briefly for read
 	// (Get) or for the swap-after-refresh; never held during a
+	// long-running fetch.
 	mu       sync.RWMutex
 	snapshot *Snapshot
 	windows  map[string]ConstituentWindow
 	history  []HistoryPoint
 	members  []string
 	// membersFn / membersOnce implement the deferred resolution
+	// documented on Options.MembersFn. membersFn is set once at
 	// construction and never modified after; membersOnce gates its
+	// single invocation (see ensureMembers). nil membersFn means the
+	// list was resolved eagerly and e.members is already final.
 	membersFn   func() []string
 	membersOnce sync.Once
 	// lastCoverage / lastMemberCount record the result of the most
@@ -78,7 +105,10 @@ type Engine struct {
 	// refreshing is set true while a Refresh is in flight. Readers
 	refreshing bool
 	// retryPending is set while Run is sleeping between below-threshold
+	// bootstrap/catch-up refresh attempts. No fetch is in flight during
+	// that wait, but the scheduler is still actively trying to converge
 	// the withheld snapshot; daemon idle shutdown must not kill the
+	// process in that gap.
 	retryPending bool
 	// progress is the current or most recently completed refresh attempt. It
 	// normally advancing paced pass from a stuck or failed one.
@@ -151,7 +181,13 @@ func New(store *Store, fetcher BarFetcher, opts Options) *Engine {
 }
 
 // Get returns the most recent successful snapshot, or (nil, false) if
+// the engine hasn't computed one yet (cold start). Fast: holds only
+// a read lock; safe during an in-flight Refresh.
+//
+// The returned snapshot is a defensive copy — the Excluded slice is
 // cloned so a caller iterating its result cannot race against an
+// in-flight refresh that's appending exclusions to the engine's
+// canonical state.
 func (e *Engine) Get() (*Snapshot, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -262,6 +298,7 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	e.beginRefreshProgress(len(plan))
 	if len(plan) == 0 {
 		// Nothing to fetch — recompute against cached windows so the
+		// snapshot timestamp moves forward even on a no-op refresh.
 		return e.finalise(members, cached)
 	}
 
@@ -277,6 +314,7 @@ func (e *Engine) Refresh(ctx context.Context) error {
 }
 
 // fetchErrorSampleSize bounds how many symbols one cause names before
+// the line switches to a count plus an example set.
 const fetchErrorSampleSize = 5
 
 // logFetchErrors collapses per-symbol fetch failures into one line per
@@ -474,6 +512,8 @@ func appendHistory(existing []HistoryPoint, point HistoryPoint) []HistoryPoint {
 	out := slices.Clone(existing)
 	if n := len(out); n > 0 && out[n-1].Date == point.Date {
 		// Same-session re-refresh: overwrite the tail rather than
+		// appending. Late prints or a forced re-run shouldn't widen
+		// the series.
 		out[n-1] = point
 		return out
 	}
@@ -492,6 +532,8 @@ func mergeBars(w ConstituentWindow, bars []Bar, symbol string) ConstituentWindow
 	for _, b := range bars {
 		if w.LastBarAt != "" && b.Date <= w.LastBarAt && b.Date != w.LastBarAt {
 			// Older than the last cached bar — ignore. The cache is
+			// the source of truth for historical closes; a fetcher
+			// that re-emits past dates shouldn't rewrite history.
 			continue
 		}
 		w = SlideWindow(w, b.Close, b.Date)
@@ -509,6 +551,7 @@ func nySessionKey(now time.Time) string {
 }
 
 // warnf is a nil-safe Logger.Warnf wrapper. The engine's logger is
+// optional; nil silences all output (used in tests).
 func (e *Engine) warnf(format string, args ...any) {
 	if e.logger != nil {
 		e.logger.Warnf(format, args...)
@@ -516,9 +559,13 @@ func (e *Engine) warnf(format string, args ...any) {
 }
 
 // ensureMembers runs the deferred Options.MembersFn resolution. Every
+// operation that touches the constituent list (Refresh, Members,
+// SetMembers) invokes it before taking e.mu; the read-only paths
 // (Get, Status, IsBusy, History) never need the list, so they stay
 // gate-free and a daemon that only polls state never pays the load.
 // No-op when the list was resolved eagerly at construction. Must not
+// be called with e.mu held — the resolved list is installed under the
+// lock here.
 func (e *Engine) ensureMembers() {
 	if e.membersFn == nil {
 		return
@@ -545,6 +592,8 @@ func (e *Engine) Members() []string {
 // SetMembers swaps the constituent list. Returns true when the new
 func (e *Engine) SetMembers(members []string) bool {
 	// Resolve the deferred list first so a refresher push can't be
+	// clobbered by a later lazy load — once the Once has fired, the
+	// swap below is the newest write and stays final.
 	e.ensureMembers()
 	e.mu.Lock()
 	defer e.mu.Unlock()

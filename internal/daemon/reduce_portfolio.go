@@ -15,6 +15,7 @@ import (
 const maxBasketLegs = 25
 
 // reduceBasketDedupeTTL is how long a submit RequestRef is remembered so a
+// double-tap or client retry replays the prior result instead of placing again.
 const reduceBasketDedupeTTL = 90 * time.Second
 
 // minNetDeltaForSweepFraction is the materiality floor for net portfolio

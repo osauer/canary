@@ -25,6 +25,14 @@ type snapshotQuote struct {
 }
 
 // briefSnapshotPriceWithClose wraps briefSnapshotFull and returns the
+// price (last → mid → bid → ask → mark → close), the previous regular-
+// session close (tick 9), the gateway data-type, and the tick observation
+// instant. Same price-fallback ladder as briefSnapshotPrice — adds the close
+// as a separate field so renderers can show day-over-day change without a
+// second subscribe.
+//
+// Used by the regime VIX fetcher so the dashboard header can carry
+// "VIX 18.4 −1.2%" alongside the term-structure ratio.
 func briefSnapshotPriceWithClose(ctx context.Context, c *ibkrlib.Connector, symbol string, timeout time.Duration, warnf func(string, ...any)) snapshotQuote {
 	t := briefSnapshotFull(ctx, c, symbol, timeout, warnf)
 	if t.dataType == "" {

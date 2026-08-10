@@ -25,6 +25,7 @@ const (
 )
 
 // Source-health statuses distinguish complete observations from partial,
+// stale, unknown, and degraded evidence.
 const (
 	SourceStatusOK       = "ok"
 	SourceStatusPartial  = "partial"
@@ -43,6 +44,9 @@ const (
 )
 
 // LifecycleState is the stable monitor/orchestration surface for regime and
+// Stress payloads. Stage is intentionally a small state machine, while
+// Evidence preserves weak/unconfirmed inputs without letting them dominate the
+// trigger.
 type LifecycleState struct {
 	Stage       string              `json:"stage,omitempty"`
 	Scope       string              `json:"scope,omitempty"`
@@ -63,7 +67,9 @@ type LifecycleState struct {
 
 // GovernorAction is one disclosed policy downgrade. Reasons are stable
 // tokens: "pending_backtest_no_tape_cosign" (heuristic threshold sets
+// confirmed the stage but no fresh tape co-signature was present) and
 // "confirming_cluster_quality" (a confirming cluster's data quality is
+// stale/partial/degraded).
 type GovernorAction struct {
 	Action   string   `json:"action"`
 	From     string   `json:"from,omitempty"`
@@ -83,6 +89,8 @@ type LifecycleEvidence struct {
 }
 
 // SourceHealth is the source-level freshness and confidence contract for
+// scheduled monitors. FingerprintStability says why downstream dedupe should
+// key off Fingerprint rather than wall-clock AsOf churn.
 type SourceHealth struct {
 	Source               string       `json:"source"`
 	Status               string       `json:"status"`
@@ -104,6 +112,8 @@ type SourceHealth struct {
 
 // SourceFailure identifies where and how the most recent source attempt
 // failed without carrying untrusted upstream text. FailedAt and Retryable are
+// scheduling context; Code and Stage are stable semantic values suitable for
+// persistence, rendering, and fingerprints.
 type SourceFailure struct {
 	Code      string    `json:"code"`
 	Stage     string    `json:"stage"`
@@ -149,6 +159,7 @@ const (
 
 // ValidSourceFailure enforces the shared allowlist. Persistence and adapters
 // call this before accepting a failure so upstream prose cannot masquerade as
+// a typed code or stage.
 func ValidSourceFailure(f *SourceFailure) bool {
 	if f == nil {
 		return true
@@ -183,6 +194,7 @@ func ValidSourceFailure(f *SourceFailure) bool {
 }
 
 // Source-refresh states describe scheduler progress separately from the
+// observation's evidence quality.
 const (
 	SourceRefreshCurrent            = "current"
 	SourceRefreshNotDue             = "not_due"
@@ -192,9 +204,20 @@ const (
 )
 
 // BuildRegimeLifecycle classifies broad-market-only regime evidence into the
+// stress lifecycle used by downstream orchestration. It does not look at
 // account, position, margin, or execution state.
+//
 // Confirmation policy (internal-docs/design/regime-calibration.md): only ELIGIBLE
+// reds — deep, persistent, cadence-fresh evidence per the shared gates —
+// count toward confirmed_stress/panic and confirmed_by. Provisional reds
 // stay visible and land in unconfirmed. They drive early_warning only while
+// the required input set is usable; broken or overdue evidence produces an
+// explicit data_quality state instead of masquerading as a market warning.
+// Independently current confirmed stress/panic is preserved even when an
+// unrelated source is impaired. A severity governor then applies the provenance gate (heuristic
+// pending_backtest evidence without a tape co-signature is capped one rung
+// down) and the evidence-keyed quality cap, disclosing every downgrade in
+// Governors.
 func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	if r == nil {
 		return LifecycleState{Stage: LifecycleDataQuality, Scope: "market", Severity: "watch", Readiness: "blocked", Timing: LifecycleTimingDataQuality, Confidence: "low"}
@@ -360,11 +383,15 @@ func tallyRegimeClusters(cb RegimeClusterBands) regimeClusterTally {
 
 // atLeastYellow counts confirmed clusters at yellow or worse. Lower-bound
 // corroboration counts must use it rather than yellow alone: a cluster that
+// deteriorates from yellow to red would otherwise leave the yellow bucket and
+// quiet the stage.
 func (t regimeClusterTally) atLeastYellow() int {
 	return t.yellow + t.red
 }
 
 // applyRegimeSeverityGovernor applies, in order, the provenance gate and the
+// evidence-keyed quality cap. Pure-tape panic (SPY ≤ −4% / −7%) is exempt
+// from both — the tape is its own co-signature and its own evidence quality.
 func applyRegimeSeverityGovernor(state *LifecycleState, r *RegimeSnapshotResult, tally regimeClusterTally) {
 	if state.Stage != LifecycleConfirmedStress && state.Stage != LifecyclePanic {
 		return
@@ -420,6 +447,11 @@ func severityRank(severity string) int {
 }
 
 // regimeTapeCosign reports whether the tape itself corroborates stress in
+// this snapshot: SPY down 1.5%+, VIX up 10%+, or a fresh same-session
+// VIX-term inversion. While threshold sets are pending_backtest, "act"
+// requires one of these as the second witness. The SPY/VIX change arms
+// (arms 1-2) require a confirmable tape — a frozen closed-date print cannot
+// co-sign. Arm 3 keeps its own status gate unchanged.
 func regimeTapeCosign(r *RegimeSnapshotResult) bool {
 	if regimeLifecycleSPYTapeCurrent(*r) && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) {
 		return true
@@ -651,6 +683,9 @@ func BuildRegimeSourceHealth(r *RegimeSnapshotResult, now time.Time) []SourceHea
 		refreshState := ""
 		if class, scheduled := RegimeClusterScheduledContext(*r, row.name); scheduled {
 			// Keep the raw row stale for evidence honesty, but normalize the
+			// aggregate source state: no newer observation is being served
+			// because the window is closed (not_due) or its refresh is in
+			// flight inside a bounded window (pending).
 			status = SourceStatusOK
 			refreshState = SourceRefreshNotDue
 			if class == RegimeFreshnessPending {
@@ -758,6 +793,8 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 
 // regimeLifecycleEarlyWarning is the home of provisional reds: any raw red
 // (eligible or not) warns immediately, even though only eligible reds may
+// confirm. The direct tape triggers require a confirmable session; cluster
+// evidence warns on any date.
 func regimeLifecycleEarlyWarning(r RegimeSnapshotResult, t regimeClusterTally, unconfirmed []string) bool {
 	return t.eligibleRed+t.provisionalRed >= 1 ||
 		t.red >= 1 ||
@@ -927,6 +964,10 @@ func regimeClusterKnown(name string) bool {
 }
 
 // regimeClusterCadenceOnlyDegraded reports a degraded cluster whose only
+// blocker is its own publication cadence while its currency is a scheduled
+// state. Gamma at the options open is the case this exists for: a
+// current-session compute is in flight, so the served prior-session result is
+// rankability-blocked on session mismatch alone.
 func regimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if _, scheduled := RegimeClusterScheduledContext(r, name); !scheduled {
@@ -939,12 +980,17 @@ func regimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool 
 }
 
 // regimeLifecycleStageEvidenceCurrent reports whether the stage stands on its
+// own current evidence. This generalizes the confirmed-stress escape hatch to
+// every stage: a defect elsewhere degrades the read, a defect in what the stage
+// is claiming blanks it.
 func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands, inputs regimeLifecycleInputs) bool {
 	switch state.Stage {
 	case LifecycleConfirmedStress, LifecyclePanic:
 		return regimeLifecycleHasIndependentCurrentStress(state, r, cb)
 	case LifecycleEarlyWarning:
 		// A warning needs at least one non-defective cluster carrying the
+		// visible evidence, or a current tape arm. An overdue red is not a
+		// market warning — it is missing evidence, and stays data_quality.
 		for i, name := range RegimeClusterNames {
 			if i >= len(cb.Raw) || (cb.Raw[i] != "red" && cb.Raw[i] != "yellow") {
 				continue
@@ -957,6 +1003,8 @@ func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotR
 			(regimeLifecycleVIXTapeCurrent(r) && pctAtLeast(r.VIXTermStructure.VIXChangePct, 10.0))
 	default:
 		// quiet, opportunity, and stabilization claim an absence. There is no
+		// single witness to check; the tolerated-defect count is what sizes
+		// how much darkness an absence claim survives.
 		return true
 	}
 }

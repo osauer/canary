@@ -194,6 +194,7 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	}
 	briefLine(env, "dealer gamma", ready.Gamma.BriefRowState, gamma)
 	// Action and severity are usually the same word; printing both reads as a
+	// stutter, so the pair collapses when equal (the SPA does the same).
 	severity := ready.Stress.Severity
 	if strings.EqualFold(severity, ready.Stress.Action) {
 		severity = ""
@@ -285,6 +286,7 @@ const (
 	// briefProseMeasure caps the prose line length. Long measures read badly
 	briefProseMeasure = 80
 	// briefProseIndent sets prose in from the section headers, matching the
+	// row render's own indent.
 	briefProseIndent = "  "
 )
 
@@ -387,6 +389,7 @@ func briefDegradedFooter(env *Env, res rpc.BriefResult, width int) {
 }
 
 // briefLabelLine prints one "label: value" line beneath the prose, wrapped to
+// the measure with a hanging indent so a long reason stays inside it.
 func briefLabelLine(env *Env, label, value string, width int) {
 	hanging := briefProseIndent + briefProseIndent
 	for i, line := range wrapVisibleText(label+": "+value, width-len(hanging)) {
@@ -402,6 +405,8 @@ func briefLabelLine(env *Env, label, value string, width int) {
 type briefDisclosure struct{ label, detail string }
 
 // briefDegradedRows walks every leaf row the brief carries, in render order,
+// and keeps the ones whose input did not fully read. Section rollups are
+// skipped: they restate their children and would double-count.
 func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 	var out []briefDisclosure
 	add := func(label string, state rpc.BriefRowState) {
@@ -443,7 +448,9 @@ func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 }
 
 // briefSeg is one tinted fragment. briefWord is one unbreakable token, which
+// may span runs: the composer emits "AAPL ", a figure "+900.00", then ", NVDA ",
 // so a token can carry fragments of two runs and a plain split on spaces would
+// lose the boundary between them.
 type briefSeg struct{ text, role string }
 
 type briefWord []briefSeg
@@ -571,6 +578,7 @@ func briefLineText(env *Env, line []briefWord) string {
 }
 
 // briefSeparatorRole keeps the space that once sat inside a run inside that
+// run's span; a space between two differently-tinted words stays plain.
 func briefSeparatorRole(prev, next briefWord) string {
 	if len(prev) == 0 || len(next) == 0 {
 		return ""

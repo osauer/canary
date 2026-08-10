@@ -342,6 +342,7 @@ type AutoTradeStatus struct {
 }
 
 // TradeProposalSourceFingerprints identifies the snapshots used to derive a
+// proposal revision. Nil members mean that source supplied no identity.
 type TradeProposalSourceFingerprints struct {
 	Account      *Fingerprint `json:"account,omitempty"`
 	Positions    *Fingerprint `json:"positions,omitempty"`
@@ -535,6 +536,7 @@ type TradeProposalSnapshotParams struct {
 }
 
 // TradeProposalRefreshParams requests daemon recomputation; Show affects only
+// the returned presentation.
 type TradeProposalRefreshParams struct {
 	Show bool `json:"show,omitempty"`
 }
@@ -635,6 +637,7 @@ type TradeProposalReduceParams struct {
 	IncludeHedges bool   `json:"include_hedges,omitempty"`
 	TimeoutMs     int    `json:"timeout_ms,omitempty"`
 	// Origin identifies who is asking (OrderOrigin*) for audit and the
+	// live-origin write gate; submit only.
 	Origin string `json:"origin,omitempty"`
 }
 

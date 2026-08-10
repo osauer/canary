@@ -176,6 +176,8 @@ func classedSPXCandidateSpecs(classed map[string][]ibkrlib.ExpiryClassedStrikes,
 	}
 
 	// Sort: date ascending, then trading-class ascending (SPX before
+	// SPXW) for ties. Stable so re-ordering doesn't churn the leg list
+	// across runs.
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].Date != candidates[j].Date {
 			return candidates[i].Date < candidates[j].Date

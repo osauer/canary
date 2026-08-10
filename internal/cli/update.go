@@ -27,6 +27,7 @@ type updateOptions struct {
 	installedVersion string
 
 	// in/out/err are the I/O streams. Stdin is read for the
+	// interactive [Y/n] prompt; tests inject a buffer.
 	in  io.Reader
 	out io.Writer
 	err io.Writer
@@ -36,6 +37,16 @@ type updateOptions struct {
 }
 
 // RunUpdate is the entrypoint cmd/canary/main.go dispatches to. It does
+// not match the CommandFunc signature because update has no Env (no
+// daemon connection) — `update` is registered in cli.commands with
+// Fn=nil and the binary's main.go calls this function directly, the
+// same pattern `setup` uses.
+//
+// args are the raw CLI args after `canary update`. version is the
+// installed binary's version string (cmd/canary stamps it at build).
+// stdin / stdout / stderr are the process I/O streams.
+//
+// Returns the process exit code.
 func RunUpdate(ctx context.Context, args []string, version string, stdin io.Reader, stdout, stderr io.Writer) int {
 	opts := updateOptions{
 		installedVersion: version,
@@ -70,6 +81,9 @@ func parseUpdateFlags(args []string, opts *updateOptions, stdout, stderr io.Writ
 }
 
 // runUpdateCore is the testable core: takes injectable adapters for
+// the three side-effectful operations (fetch metadata, run install,
+// restart the local stack) so unit tests can exercise the flag matrix and
+// version branches without HTTP / disk / signals.
 type fetchFunc func(ctx context.Context, installedVersion string) (*update.Release, error)
 type installFunc func(ctx context.Context, plan *update.Plan) error
 type stackRestartFunc func(ctx context.Context, installedExecutable string, stdout, stderr io.Writer) int
@@ -151,6 +165,8 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 }
 
 // promptRestart reads stdin for a [Y/n] response. Defaults to Y on
+// enter / EOF (matches the design's "Default Y on enter" matrix
+// entry). Returns true to restart.
 func promptRestart(in io.Reader, out io.Writer) bool {
 	fmt.Fprint(out, "Restart the local app/daemon stack now? [Y/n] ")
 	br := bufio.NewReader(in)
@@ -206,7 +222,9 @@ func versionNewer(latest, installed string) bool {
 }
 
 // isStdinTTY reports whether stdin is a real terminal. Mirrors the
+// pattern used in internal/cli/color.go (os.ModeCharDevice). Tests
 // pass a *bytes.Buffer so the type assertion fails and isTTY=false,
+// which matches headless / piped-input behaviour.
 func isStdinTTY(in io.Reader) bool {
 	f, ok := in.(*os.File)
 	if !ok {

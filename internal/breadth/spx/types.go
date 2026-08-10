@@ -1,6 +1,15 @@
 // Package spx computes S&P 500 breadth measurements locally from a validated
 // constituent universe and daily closes obtained through the daemon's broker
+// connector.
+//
+// The compute is a sliding window over a stream: for each S&P-500 name
+// keep the last 50 daily closes, count names where the most recent
+// close is ≥ the window mean, divide by member count, multiply by 100.
+// The engine owns refresh concurrency and its in-memory view. In normal daemon
+// operation, snapshots, rolling windows, history, and refreshed membership are
+// persisted as typed daemon.db state and observations. Embedded membership is
 // the cold fallback; JSON file paths remain only for explicit legacy import and
+// isolated codec tests.
 package spx
 
 import "time"
@@ -33,6 +42,8 @@ const (
 
 // RefreshProgress is the current or most recently completed fan-out attempt.
 // Processed includes both successful and failed symbol fetches; Total is the
+// plan size at StartedAt. Deadline is the calendar-based publication SLA for
+// SessionKey, not an ETA.
 type RefreshProgress struct {
 	SessionKey  string
 	StartedAt   time.Time
@@ -43,6 +54,12 @@ type RefreshProgress struct {
 }
 
 // WindowSize is the 50-day SMA lookback (S&P DJI's S5FI is the
+// 50-day variant). The window holds the 50 most recent daily closes
+// chronologically; the most recent close is window[len-1]. SMA =
+// mean(window). A name is "above 50DMA" when window[len-1] >=
+// mean(window). Today's close participates in its own SMA — this
+// matches the convention used by $SPXA50R / StockCharts and S&P
+// DJI's published S5FI methodology.
 const WindowSize = 50
 
 // WindowSize200 is the 200-day SMA lookback ($SPXA200R). Catches
@@ -70,10 +87,14 @@ type Snapshot struct {
 	// AsOf is the wall-clock instant the compute finished. Distinct
 	AsOf time.Time `json:"as_of"`
 	// SessionKey is the New-York date of the trading session the
+	// snapshot represents (YYYY-MM-DD). Resilient to UTC vs local
+	// timezone confusion when the daemon runs outside the US.
 	SessionKey string `json:"session_key"`
 	// Method is a stable token identifying the compute methodology.
 	Method string `json:"method"`
 	// MemberCount is the size of the membership list used in the
+	// compute. Should track the S&P-500 cardinality (~500–505 with
+	// the dual-class names).
 	MemberCount int `json:"member_count"`
 	// Coverage is the count of members that had enough 50-DMA history
 	Coverage int `json:"coverage"`
@@ -86,6 +107,9 @@ type Snapshot struct {
 }
 
 // ExcludedMember explains why a constituent did not contribute to the
+// compute. The codebase logs this so the verification scrape can
+// attribute small divergences to known causes (new listing, missing
+// data feed, etc.) rather than algorithm bugs.
 type ExcludedMember struct {
 	Symbol string `json:"symbol"`
 	Reason string `json:"reason"`
@@ -112,6 +136,7 @@ type WindowSet struct {
 }
 
 // CurrentWindowSetVersion is the constituent-window schema version written by
+// the engine. Other versions are not projected into current state.
 const CurrentWindowSetVersion = 2
 
 // HistoryPoint is one session's breadth reading in rolling history. The
@@ -124,6 +149,7 @@ type HistoryPoint struct {
 }
 
 // HistorySet is the versioned rolling-history persistence shape. Points are
+// stored chronologically, oldest first, and capped at MaxHistoryPoints.
 type HistorySet struct {
 	Version int            `json:"version"`
 	Points  []HistoryPoint `json:"points"`

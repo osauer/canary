@@ -159,6 +159,8 @@ func (s *Server) handleChainExpiries(ctx context.Context, req *rpc.Request) (*rp
 	}
 
 	// Workers write index-disjoint rows[j.idx], so no per-write mutex is
+	// needed — wg.Wait inside runBounded provides happens-before to the
+	// caller. The expiryIVs cache is responsible for its own locking.
 	tFanout := time.Now()
 	runBounded(jobs, chainExpiryWorkers, func(j job) {
 		if ctx.Err() != nil {
@@ -269,6 +271,9 @@ func chainExpiryIVWarnings(symbol string, rows []rpc.ChainExpiry, requireLive bo
 }
 
 // todayLocal returns today's date at midnight local time. Surfaced as a
+// helper so dteFromDate and the no-IV / AllExpiries-tail paths agree on
+// the reference instant — they all read the same wall clock at handler
+// entry.
 func todayLocal() time.Time {
 	now := time.Now()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -289,6 +294,13 @@ func dteFromDate(today time.Time, expiry string) int {
 }
 
 // computeImpliedMove returns the 1-σ expected dollar move by expiration,
+// computed from spot × IV × √(DTE/365). Industry-standard "expected move
+// by expiry" formula — same shape the CBOE option calculator uses.
+//
+// Returns (move, movePct, true) when spot > 0, IV is non-nil and > 0,
+// and DTE >= 0. The percent value is `move / spot` (a fraction, so 0.042
+// means 4.2%). A DTE of 0 yields a zero move, which is correct: at expiry
+// the option's time value collapses to intrinsic.
 func computeImpliedMove(spot float64, iv *float64, dte int) (float64, float64, bool) {
 	if spot <= 0 || iv == nil || *iv <= 0 || dte < 0 {
 		return 0, 0, false
@@ -376,6 +388,9 @@ func unavailableExpiryIV(status string) expiryIVObservation {
 }
 
 // collectExpiryATMIV subscribes to the ATM option for one expiry, polls the
+// connector's IV cache for up to perStrikeTimeout, then unsubscribes. The IV is
+// routed through a per-contract key so concurrent expiry fan-out for the same
+// underlying cannot overwrite a sibling expiry's model tick.
 func collectExpiryATMIV(ctx context.Context, c *ibkrlib.Connector, symbol, expiryYMD string, strike float64, perStrikeTimeout time.Duration) expiryIVObservation {
 	expiryT, err := time.Parse("20060102", expiryYMD)
 	if err != nil {

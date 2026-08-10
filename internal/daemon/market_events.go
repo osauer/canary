@@ -105,10 +105,12 @@ type marketEventCache struct {
 
 	// authority is the sole durable runtime store after startup attachment.
 	// Borrow-fee failure/backoff is durable; Reg SHO/halt retry timestamps and
+	// shortableAbsent remain memory-only control state.
 	authority *corestore.Store
 }
 
 // shortableAbsentRecently reports whether sym's shortable tick was
+// observed absent within the last marketEventsShortableAbsentRetry.
 func (c *marketEventCache) shortableAbsentRecently(sym string, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1223,6 +1225,7 @@ func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string
 	}
 	// Per-symbol probe results land in index-addressed slots so the
 	// bounded workers never share mutable state; flags are merged after
+	// the fan-out (res.Flags gets a global sort downstream anyway).
 	type borrowProbe struct {
 		observed bool
 		hasFlag  bool

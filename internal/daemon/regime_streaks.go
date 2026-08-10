@@ -17,6 +17,12 @@ import (
 )
 
 // StreakEntry is one indicator's persisted band history. LastBand is
+// the band classification observed on the most recent successful tick;
+// LastSession is the NY-tz session key (YYYY-MM-DD) the tick happened
+// in. Sessions counts how many NY sessions in a row the indicator has
+// reported LastBand. LastValue is the raw measurement at LastSession
+// — kept for diagnostics so a human inspecting the file can verify the
+// classification.
 type StreakEntry struct {
 	LastBand    string  `json:"last_band"`
 	SinceDate   string  `json:"since_date"`
@@ -67,6 +73,7 @@ type StreakStore struct {
 	asOf    time.Time
 	// publication is the exact authoritative snapshot tuple carried by the
 	// current SQLite projection. Revision zero is confined to legacy file and
+	// unit-helper writes which predate the snapshot publication barrier.
 	publication regimeSnapshotPublication
 	stateExists bool
 	loadErr     error
@@ -324,6 +331,7 @@ func (s *StreakStore) Tick(indicatorKey string, value float64, band string, nowN
 		entry.LastValue = value
 	default:
 		// Band change — reset to day 1 of the new band and drop the
+		// eligibility latch (it is a property of the ended red streak).
 		entry = StreakEntry{
 			LastBand:    band,
 			SinceDate:   today,
@@ -380,7 +388,9 @@ func (s *StreakStore) Latched(indicatorKey string) bool {
 }
 
 // Latch marks the indicator's current red streak as having earned
+// confirmation eligibility. No-op when the entry is missing or not red —
 // the latch only ever decorates a live red streak. Best-effort persist,
+// same contract as Tick.
 func (s *StreakStore) Latch(indicatorKey string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -403,10 +413,13 @@ func entryToInfo(e StreakEntry) *rpc.StreakInfo {
 }
 
 // StreakInfo is the in-package alias for rpc.StreakInfo so callers in
+// the daemon package can avoid importing the rpc package solely for
+// the type name.
 type StreakInfo = rpc.StreakInfo
 
 // Indicator keys for the streak store. Stable strings; each maps to
 // one regime row. Constants here so a typo at a call site fails at
+// compile time rather than silently writing to a misnamed key.
 const (
 	StreakKeyVIXTerm   = "vix_term"
 	StreakKeyVolOfVol  = "vol_of_vol"
@@ -449,6 +462,12 @@ func classifyVolOfVolBand(vvix *float64) string {
 }
 
 // classifyHYGSPYBand maps the HYG/50DMA + SPY/52w-high pair to its
+// band per the spec's §2 thresholds. Daemon-side simplification: the
+// "5+ sessions below" red trigger requires session history we don't
+// track separately, so the daemon classifies on the same-day signal
+// (HYG vs 50dma + SPY proximity to 52w high) and the consecutive-
+// sessions count emerges naturally from the streak counter itself —
+// "red · day 5" reads the same as the spec's "5+ sessions" requirement.
 func classifyHYGSPYBand(r rpc.RegimeHYGSPYDivergence) string {
 	if r.HYGPrice == nil || r.HYG50DMA == nil {
 		return ""
@@ -496,6 +515,8 @@ func classifyFundingStressBand(spreadBps *float64) string {
 }
 
 // classifyUSDJPYBand maps the weekly USD/JPY change to its band per
+// the spec's §3 thresholds. Convention: WeeklyChange negative = yen
+// strengthening = the stress signal.
 func classifyUSDJPYBand(weeklyChange *float64) string {
 	if weeklyChange == nil {
 		return ""
@@ -512,6 +533,9 @@ func classifyUSDJPYBand(weeklyChange *float64) string {
 }
 
 // classifyGammaBand maps a (gap_pct, sign) pair to its band per the
+// spec's §4 thresholds. Three paths matching the renderer's gamma-row
+// logic: a real crossing reads on gap distance; no-crossing reads on
+// the signed-profile sign.
 func classifyGammaBand(gapPct *float64, gammaSign string) string {
 	if gapPct != nil {
 		const yellowGap = 2.0 // ±2% of zero-gamma

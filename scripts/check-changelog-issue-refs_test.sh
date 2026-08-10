@@ -14,6 +14,7 @@ fails=0
 git_q() { git -c user.email=t@example.com -c user.name=t -C "$1" "${@:2}"; }
 
 # Builds a repo tagged v1.0.0, then one commit carrying $subject, then a
+# changelog whose topmost entry body is $entry.
 seed() {
 	local dir="$1" subject="$2" entry="$3"
 	rm -rf "$dir"
@@ -34,6 +35,7 @@ run_case() {
 	local dir="$work/$name" got=0
 	seed "$dir" "$subject" "$entry"
 	# A non-zero exit is the expected result in most rows, so it must be
+	# captured rather than allowed to trip `set -e`.
 	(cd "$dir" && RELEASE_VERSION=v1.1.0 CHANGELOG_PATH=CHANGELOG.md "$checker" >"$work/$name.out" 2>&1) || got=$?
 	if [ "$got" != "$want" ]; then
 		echo "FAIL $name: exit $got, want $want" >&2

@@ -330,6 +330,7 @@ const nasdaqProviderSymbolMaxLen = 32
 
 // nasdaqSymbol maps IBKR symbols to the provider's spelling: broker spaces
 // become dots. Only the provider's bounded ASCII symbol grammar may reach the
+// request URL or shape an accepted announcement prefix.
 func nasdaqSymbol(sym string) string {
 	// Only ordinary broker padding is normalized. Keeping every other byte lets
 	// of silently deleting untrusted input.
@@ -868,8 +869,12 @@ func (c *earningsCache) fetchOne(ctx context.Context, sym string) (earningsEntry
 
 // parseNasdaqEarnings accepts only the observed authority envelope and typed
 // announcement grammar for the exact provider symbol requested. Both a strict
+// future date and a no-date publication require data.status to be absent and
 // top-level status.rCode=200; they differ only in whether a date follows the
 // exactly one trailing ASCII space after the symbol-bound prefix. Missing,
+// null, empty, elapsed, or any other announcement is a format change.
+// Top-level status is also authoritative for the explicit data:null
+// unsupported envelope.
 func parseNasdaqEarnings(body []byte, providerSymbol string, now time.Time) (earningsEntry, error) {
 	if !json.Valid(body) {
 		return earningsEntry{}, providerOutcomeError(rpc.EarningsStatusFormatChange, rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageNasdaqDecode, false, errors.New("nasdaq payload is not valid JSON"))
@@ -1848,6 +1853,7 @@ func validNasdaqParserContract(status string, version int) bool {
 	default:
 		// Every exact contract labels its own outcomes coherently, so a
 		// superseded one stays readable; a version this binary never wrote is
+		// not a contract it can vouch for.
 		return version >= earningsNasdaqParserContractFirstExact && version <= earningsNasdaqParserContract
 	}
 }

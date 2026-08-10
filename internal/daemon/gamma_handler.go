@@ -50,6 +50,9 @@ func (s *Server) handleGammaZeroSPX(ctx context.Context, req *rpc.Request) (*rpc
 	}
 
 	// Background ctx for the compute goroutine — independent of the
+	// per-RPC ctx because the compute outlives any single client call.
+	// serverCtx is set on Start and matches the daemon's lifetime, so
+	// daemon shutdown cancels the compute cleanly.
 	s.mu.Lock()
 	parent := s.serverCtx
 	s.mu.Unlock()
@@ -58,7 +61,24 @@ func (s *Server) handleGammaZeroSPX(ctx context.Context, req *rpc.Request) (*rpc
 	}
 
 	// Build the compute closure. The cache layer owns goroutine
+	// lifecycle; we hand it a function that closes over the gateway
+	// connector + params.
+	//
+	// The closure acquires a refcounted Hold on the underlying for
 	// the entire lifetime of the compute. IBKR's TWS API requires a
+	// market-data subscription on the option's underlying to push
+	// OPTION_COMPUTATION (msg 21) ticks for OPT subscriptions; without
+	// it the model engine has no live spot anchor and the per-leg fan-
+	// out lands ~0% IV/greeks (observed: 12/1256 legs at 1% coverage
+	// pre-market). subManager.Hold is refcounted, so a concurrent
+	// regime snapshot on the same symbol is safe — the line stays
+	// open until the compute releases.
+	//
+	// Per-scope compute selection:
+	//   combined  → SPY phase then SPX phase, with separate Holds
+	//               (computeGammaCombined enforces the underlying-hold
+	//               transition audit checklist item from design §7.1).
+	//   spy / spx → single-underlying phase under one Hold.
 	params := normalizeGammaParams(rpc.GammaZeroParams{})
 	compute := func(bgCtx context.Context, prog *atomic.Int32) (*rpc.GammaZeroComputed, error) {
 		switch scope {
@@ -79,8 +99,16 @@ func (s *Server) handleGammaZeroSPX(ctx context.Context, req *rpc.Request) (*rpc
 	}
 
 	// kickOrJoin returns (nil, false) when the session is closed and no
+	// persisted result is available — the off-hours "never compute"
+	// contract from gamma_zero_cache.go. There's no job to wait on; go
+	// straight to snapshot, which will report Cold.
 	if job != nil && p.WaitMs > 0 {
 		// Cap the wait at the RPC deadline so we always return before
+		// the dispatcher times us out. The per-method deadline for
+		// GammaZeroSPX is intentionally long enough to make WaitMs
+		// usable but shorter than the bg compute itself, so a high
+		// WaitMs still returns "computing" if the compute hasn't
+		// finished.
 		waitCtx, waitCancel := context.WithTimeout(ctx, time.Duration(p.WaitMs)*time.Millisecond)
 		defer waitCancel()
 		select {
@@ -540,6 +568,11 @@ func fitSkewCurve(legs []legData, snapshotSpot float64) SkewCurve {
 
 // skewFitStats computes R² and the residual RMS (in IV units) in one
 // pass. The two diagnose different failures: R² is relative to the
+// smile's amplitude across strikes, so it collapses on flat smiles
+// regardless of fit error; the RMS bounds the absolute IV error the
+// sweep's repricing inherits regardless of amplitude. Both are zero
+// when the curve is unfit; on a zero-variance smile R² is 0 (undefined,
+// clamped) while the RMS stays meaningful.
 func skewFitStats(curve SkewCurve, legs []legData, snapshotSpot float64) (r2, residualRMS float64) {
 	if !curve.ok || snapshotSpot <= 0 {
 		return 0, 0

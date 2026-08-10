@@ -22,20 +22,35 @@ const startupBudgetBase = 5 * time.Second
 const startupBudgetFloorBytesPerSec = 40 << 20
 
 // startupBudgetAuthorityPasses is a conservative source-size work-amplification
+// allowance for an out-of-place schema upgrade. The v4 maintenance path may
+// validate the source, build a disposable migrated snapshot, compact it, create
 // the exact-source backup, fingerprint/reverify artifacts, and verify the
 // published authority before the socket exists. Some stages touch less after
+// pruning and raw copies are faster than integrity scans, so six full-size
+// units model the critical path without teaching this adapter schema details.
 const startupBudgetAuthorityPasses = 6
 
 // startupBudgetMax is still a hard upper bound for a live but genuinely wedged
 // daemon. At the conservative throughput above, a 50 GiB authority receives a
+// little over two hours; the four-hour ceiling covers roughly 90 GiB before it
+// saturates. A daemon that exits is detected independently and returns at once.
 const startupBudgetMax = 4 * time.Hour
 
 // StartupBudget returns how long to wait for a starting daemon to publish its
+// socket.
+//
+// A fixed constant is wrong by construction: before the daemon accepts
 // connections it validates the whole authority and may perform a crash-safe
+// out-of-place schema upgrade. Both ordinary validation and upgrade work scale
 // with the authority size. The budget therefore prices a conservative number
+// of source-size work units rather than assuming one validation pass.
+//
+// An existing daemon.db is the direct size input. When it is absent, the same
 // path can mean either a fresh install or a file-backed release that must first
 // import and seal its legacy state corpus. The latter is sized recursively
+// within the persistent namespace without following symbolic links. An
 // incomplete legacy walk receives the finite maximum budget; a daemon that
+// cannot start still reports promptly through the independent PID-death path.
 func StartupBudget() time.Duration {
 	path, err := DefaultAuthorityPath()
 	if err != nil {
@@ -71,7 +86,10 @@ func startupBudgetForAuthorityBytes(authorityBytes int64) time.Duration {
 }
 
 // legacyStateCorpusBytes returns the apparent bytes in the pre-SQLite
+// persistent namespace. Apparent size matches the amount the cutover readers
 // must consume, including sparse journals. WalkDir deliberately does not
+// follow symbolic links; explicit checks make that boundary visible and also
+// cover a symbolic-link namespace root.
 func legacyStateCorpusBytes(root string) (int64, error) {
 	rootInfo, err := os.Lstat(root)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -92,6 +110,7 @@ func legacyStateCorpusBytes(root string) (int64, error) {
 		if walkErr != nil {
 			if errors.Is(walkErr, fs.ErrNotExist) {
 				// A source disappearing during sizing can only reduce the
+				// subsequent cutover workload.
 				return nil
 			}
 			return walkErr
@@ -130,8 +149,27 @@ func saturatingAuthorityBytes(total, additional int64) int64 {
 }
 
 // AutospawnAndConnect spawns this binary's `daemon` mode (located via
+// os.Executable), waits for the Unix socket to appear at socketPath, and
 // returns a live connection. On wait failure the returned error is annotated
+// with whatever the lock file tells us plus the last daemon log line.
+//
+// Shared between the CLI entry and internal/mcp (stdio MCP server) —
+// both surfaces need the same "is the daemon up? if not, start it" dance.
+//
+// Pre-spawn check: if the lock file points at a live PID, the daemon is
+// already running — either still booting (socket not yet up) or stuck.
+// Spawning another daemon there is wasted work because the flock would
+// reject it; worse, when the lock file has been deleted out from under a
+// live daemon (manual `rm`, aggressive cleanup script), a fresh spawn
+// can co-exist with the old one and both hold a gateway connection.
+//
 // Shutdown race: the daemon's Stop sequence removes the socket BEFORE it
+// releases the lock. A CLI invocation that arrives during that window
+// sees "PID alive + lock present + socket gone" — looks identical to a
+// stuck daemon. To distinguish: poll PID liveness while waiting; when
+// the daemon finishes exiting, fall through to spawn a fresh one. Only
+// surface the "stuck daemon" error when the PID stays alive through the
+// full budget.
 func AutospawnAndConnect(socketPath string) (*Conn, error) {
 	return AutospawnAndConnectContext(context.Background(), socketPath)
 }
@@ -192,7 +230,15 @@ func AutospawnAndConnectContext(ctx context.Context, socketPath string) (*Conn, 
 }
 
 // AutospawnAndConnectContextFromExecutableWithTimeout starts exactly executable
+// and then verifies that the spawned PID owns the daemon lock before returning
+// a connection. It is intentionally stricter than the ordinary autospawn path:
+// callers use it after replacing an installed binary and stopping the prior
+// daemon, so connecting to a concurrently started daemon from an unknown
+// executable would be a false-success cutover.
+//
+// The startup budget is caller-owned rather than derived here because a
 // restart may also have to carry a validated schema migration before the
+// socket is published. A non-positive budget falls back to StartupBudget.
 func AutospawnAndConnectContextFromExecutableWithTimeout(ctx context.Context, socketPath, executable string, startupTimeout time.Duration) (*Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -266,7 +312,12 @@ func waitForSocketOrPIDDeath(ctx context.Context, socketPath string, pid int, ti
 }
 
 // spawnDaemon starts this executable's `daemon` mode detached from the caller.
+// current binary is located via os.Executable() — no PATH lookup, no separate
+// daemon binary, no executable-name environment override.
+//
+// Stdout/stderr route to the daemon log file (or /dev/null on fallback).
 // Leaving Cmd.Stdout/Stderr at the zero value wired exec to a closed fd on
+// macOS and wedged the daemon during startup before it could log.
 func spawnDaemon() (int, error) {
 	bin, err := os.Executable()
 	if err != nil {
