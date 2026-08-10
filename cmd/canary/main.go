@@ -227,7 +227,7 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 		if hasInvocationToken(rest, "reduce") && hasInvocationToken(rest, "--portfolio", "-portfolio") {
 			return []string{rpc.MethodTradeProposalsReducePortfolioPreview, rpc.MethodTradeProposalsReducePortfolioSubmit}, 30 * time.Second, ordinaryFloor
 		}
-		return []string{rpc.MethodAutoTradeStatus, rpc.MethodTradeProposalsSnapshot, rpc.MethodTradeProposalsRefresh, rpc.MethodTradeProposalsPreview, rpc.MethodTradeProposalsSubmit, rpc.MethodTradeProposalsIgnore, rpc.MethodTradeProposalsReducePreview, rpc.MethodTradeProposalsReduceSubmit}, ordinaryHeadroom, ordinaryFloor
+		return []string{rpc.MethodAutoTradeStatus, rpc.MethodTradeProposalsSnapshot, rpc.MethodTradeProposalsRefresh, rpc.MethodTradeProposalsPreview, rpc.MethodTradeProposalsSubmit, rpc.MethodTradeProposalsIgnore, rpc.MethodTradeProposalsRequestStop, rpc.MethodTradeProposalsReducePreview, rpc.MethodTradeProposalsReduceSubmit}, ordinaryHeadroom, ordinaryFloor
 	case "opportunities":
 		return []string{rpc.MethodOpportunitiesStatus, rpc.MethodOpportunitiesSnapshot, rpc.MethodOpportunitiesRefresh, rpc.MethodOpportunitiesPreviewExercise, rpc.MethodOpportunitiesSubmitExercise, rpc.MethodOpportunitiesIgnore}, ordinaryHeadroom, ordinaryFloor
 	case "trading":

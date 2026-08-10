@@ -3448,6 +3448,67 @@ p {
   color: var(--ink-2);
 }
 
+/* Coverage→repair strip: uncovered ledger rows with a Request-stop
+   affordance. Staging only — the staged proposal appears in the proposal
+   rows below and keeps the ordinary preview/submit gates. */
+.protection-repair {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.protection-repair__label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.protection-repair__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.protection-repair__copy {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.protection-repair__copy b {
+  font-size: 13px;
+}
+
+.protection-repair__copy small {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.protection-repair__request {
+  min-height: 40px;
+}
+
+.protection-repair__request:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.protection-repair__note {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.protection-repair__note--blocked {
+  color: var(--pd-money-down);
+}
+
 /* Exception-shaped advisory bar. It renders only when the daemon serves
    exercises, at the top of the Protection sheet, in the advisory-blue tile
    anatomy — a disclosure, never a standing surface. */

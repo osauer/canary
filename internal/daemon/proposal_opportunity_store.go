@@ -158,11 +158,20 @@ func (e *proposalEngine) bindCore(ctx context.Context, core *corestore.Store) er
 	}
 	ignored := map[string]struct{}{}
 	for _, ev := range events {
-		if ev.Type == "ignored" && ev.Key != "" {
-			scope := brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode}
-			if brokerScopeConcrete(scope) {
-				ignored[scopedIgnoreKey(scope, ev.Key)] = struct{}{}
-			}
+		if ev.Key == "" {
+			continue
+		}
+		scope := brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode}
+		if !brokerScopeConcrete(scope) {
+			continue
+		}
+		switch ev.Type {
+		case "ignored":
+			ignored[scopedIgnoreKey(scope, ev.Key)] = struct{}{}
+		case "unignored":
+			// An explicit stop request cleared the dismissal; replay in
+			// event order so a later re-ignore still wins.
+			delete(ignored, scopedIgnoreKey(scope, ev.Key))
 		}
 	}
 	e.mu.Lock()
@@ -560,7 +569,7 @@ func opportunityEventInputs(ctx context.Context, core *corestore.Store, events [
 }
 
 func operationalProposalEvent(eventType string) bool {
-	return eventType == "ignored" || eventType == "submitted"
+	return eventType == "ignored" || eventType == "unignored" || eventType == "submitted"
 }
 
 func operationalOpportunityEvent(eventType string) bool {
@@ -608,7 +617,7 @@ func proposalEventValid(ev proposalEvent) bool {
 	if ev.Version != proposalEventFileVersion || ev.At.IsZero() || strings.TrimSpace(ev.Type) == "" {
 		return false
 	}
-	if ev.Type == "ignored" {
+	if ev.Type == "ignored" || ev.Type == "unignored" {
 		return strings.TrimSpace(ev.Key) != "" && brokerScopeConcrete(brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode})
 	}
 	return true

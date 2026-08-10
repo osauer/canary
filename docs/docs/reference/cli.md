@@ -277,7 +277,7 @@ Protection proposals are advisory. The daemon can propose a close or a reduce, a
 Guard `confirm`. Also available as an MCP tool.
 
 ```text
-canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]
+canary proposals status|refresh|list|preview|submit|reduce|request-stop|ignore [--json]
 ```
 
 **Subcommands**
@@ -290,6 +290,7 @@ canary proposals status|refresh|list|preview|submit|reduce|ignore [--json]
 | `preview` | `read-only` |
 | `submit` | `confirm` |
 | `reduce` | `confirm` |
+| `request-stop` | `local` |
 | `ignore` | `local` |
 
 **Flags**

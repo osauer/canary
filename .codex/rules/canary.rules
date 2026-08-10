@@ -74,14 +74,15 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["ibkr", "canary"], "proposals", ["submit", "reduce", "ignore"]],
+    pattern = [["ibkr", "canary"], "proposals", ["submit", "reduce", "ignore", "request-stop"]],
     decision = "prompt",
-    justification = "Proposal submit/reduce may reach broker writes, and ignore mutates local decision state; require a current-turn user decision.",
+    justification = "Proposal submit/reduce may reach broker writes, and ignore/request-stop mutate local decision state; require a current-turn user decision.",
     match = [
         "ibkr proposals submit --key abc --revision sha256:abc --json",
         "ibkr proposals reduce AAPL --percent 25 --submit --json",
         "canary proposals submit --key abc --revision sha256:abc --json",
         "canary proposals reduce AAPL --percent 25 --submit --json",
+        "canary proposals request-stop AAPL --json",
     ],
 )
 

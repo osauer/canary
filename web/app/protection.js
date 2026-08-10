@@ -2,7 +2,7 @@ import { applyTileSeverity, quoteBySymbol } from "./stress.js";
 import { marketEventFlagVisible, marketEventHealthItems, marketEventIDLabel, marketEventTone, marketFlagRow, protectionEffectiveBlockers, protectionEffectiveMarketFlags, renderMarketFlagRail } from "./market-events.js";
 import { refreshOpenOrders } from "./orders.js";
 import { renderAll } from "./render-runtime.js";
-import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
+import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionCoverageNotionalText, protectionCoverageQuantityText, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
 import { $, accountBaseCurrency, blockerText, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
 import { currentMarketCalendar, marketSessionLabel } from "./shell.js";
 import { state } from "./state.js";
@@ -56,6 +56,7 @@ function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = st
   // The de-risk control lives in the always-visible header, so it renders
   renderProtectionDerisk();
   if (!state.protectionOpen) return;
+  renderProtectionCoverageRepair();
   const visibleRows = protectionVisibleRows(rows, marketEvents);
   $("protectionRows").replaceChildren(...(visibleRows.length > 0
     ? visibleRows.map(protectionRow)
@@ -88,6 +89,143 @@ function renderProtectionTile(proposals = {}, rows = [], theta = {}) {
   if (blocked > 0) parts.push(`${blocked} blocked`);
   figure.textContent = parts.join(" · ");
   figure.title = theta.title || "";
+}
+
+
+// The coverage→repair join: uncovered stock/ETF ledger rows get a "Request
+// stop" affordance that asks the daemon to stage a trailing-stop proposal for
+// that exact position now. Generation only — the staged proposal appears in
+// the proposal rows below and goes through the ordinary Preview stop →
+// Submit stop gates; coverage itself only turns green once a broker stop is
+// actually open.
+function renderProtectionCoverageRepair() {
+  const box = $("protectionCoverageRepair");
+  if (!box) return;
+  const rows = protectionRepairRows(currentProtectionCoverage());
+  if (rows.length === 0) {
+    box.hidden = true;
+    box.replaceChildren();
+    return;
+  }
+  box.hidden = false;
+  const heading = document.createElement("p");
+  heading.className = "protection-repair__label";
+  heading.textContent = "Uncovered positions";
+  heading.title = "Stock/ETF quantity with no matching open broker stop, from the protection coverage ledger.";
+  const trading = state.snapshot?.trading || {};
+  box.replaceChildren(heading, ...rows.map((row) => protectionRepairRow(row, trading)));
+}
+
+// protectionRepairRows keeps only rows a stop request can answer: uncovered
+// or partially covered holdings. Orphaned/reconcile-required rows need broker
+// reconciliation, not another stop, and defunct rows have no mark to stop.
+function protectionRepairRows(coverage = null) {
+  return (coverage?.by_underlying || [])
+    .filter((row) => ["unprotected", "partial"].includes(String(row.state || "").toLowerCase()))
+    .slice(0, 6);
+}
+
+function protectionRepairRow(row = {}, trading = {}) {
+  const item = document.createElement("div");
+  item.className = "protection-repair__row";
+  const symbol = normalizeSymbol(row.underlying || row.symbol || "");
+  const copy = document.createElement("div");
+  copy.className = "protection-repair__copy";
+  const name = document.createElement("b");
+  name.textContent = symbol || "Unknown";
+  const meta = document.createElement("small");
+  meta.textContent = [
+    protectionCoverageQuantityText(row),
+    protectionCoverageNotionalText(row, "", { sensitive: true }),
+  ].filter(Boolean).join(" · ");
+  copy.append(name, meta);
+  const request = document.createElement("button");
+  request.type = "button";
+  request.className = "protection-preview protection-repair__request";
+  const busy = state.protectionStopRequestBusy === symbol;
+  request.textContent = busy ? "Requesting" : "Request stop";
+  const gate = protectionStopRequestGate(trading);
+  request.disabled = state.protectionStopRequestBusy !== "" || !gate.ready;
+  request.title = gate.ready
+    ? "Ask the daemon to stage a protective trailing-stop proposal for this position; no order is placed."
+    : gate.reason;
+  request.addEventListener("click", () => requestProtectionStop(row));
+  item.append(copy, request);
+  const note = protectionStopRequestNote(symbol);
+  if (note) {
+    const status = document.createElement("small");
+    status.className = "protection-repair__note" + (note.blocked ? " protection-repair__note--blocked" : "");
+    status.textContent = note.text;
+    item.append(status);
+  }
+  return item;
+}
+
+// The request route carries the same confirm_account/confirm_mode affirmation
+// as the submit routes and requires broker writes to be enabled, so the gate
+// mirrors the submit gate's trading checks. Proposal-level blockers arrive
+// from the daemon after the request.
+function protectionStopRequestGate(trading = {}) {
+  if (!trading.can_write) return { ready: false, reason: protectionWriteUnavailableReason(trading) };
+  if (!protectionWriteConfirmation()) return { ready: false, reason: "Current trading account/mode is unavailable in this snapshot" };
+  return { ready: true, reason: "" };
+}
+
+function protectionStopRequestNote(symbol = "") {
+  const res = state.protectionStopRequests[symbol];
+  if (!res) return null;
+  if (res.pending) return { text: "Requesting a stop proposal; no order is placed", blocked: false };
+  const blocker = (res.blockers || [])[0];
+  if (blocker) return { text: blockerText(blocker), blocked: true };
+  if (res.accepted) {
+    const cleared = res.ignore_cleared ? " · prior ignore cleared" : "";
+    return { text: `Stop proposal staged below — Preview stop, then Submit stop${cleared}`, blocked: false };
+  }
+  return { text: res.message || "Request returned without a staged proposal", blocked: true };
+}
+
+// A coverage row is keyed by symbol; the daemon prefers con_id. Resolve it
+// from held stock rows when exactly one matches, else send the symbol and let
+// the daemon report ambiguity as a typed blocker.
+function protectionRepairConID(symbol = "") {
+  const stocks = state.snapshot?.positions?.stocks || [];
+  const matches = stocks.filter((row) => normalizeSymbol(row.symbol) === symbol && Number(row.con_id || 0) > 0);
+  return matches.length === 1 ? Number(matches[0].con_id) : 0;
+}
+
+async function requestProtectionStop(row = {}) {
+  const symbol = normalizeSymbol(row.underlying || row.symbol || "");
+  if (!symbol || state.protectionStopRequestBusy) return;
+  const confirmation = protectionWriteConfirmation();
+  if (!confirmation) return;
+  const conID = protectionRepairConID(symbol);
+  state.protectionStopRequestBusy = symbol;
+  state.protectionStopRequests = { ...state.protectionStopRequests, [symbol]: { pending: true } };
+  renderProtectionPanel(state.snapshot?.proposals || {}, state.snapshot?.auto_trade || {}, state.snapshot?.market_events || {});
+  try {
+    const res = await fetch("/api/proposals/request-stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        ...(conID > 0 ? { con_id: conID } : { symbol }),
+        confirm_account: confirmation.account,
+        confirm_mode: confirmation.mode,
+      }),
+    });
+    const body = await readJSONOrText(res);
+    if (!res.ok) throw new Error(body.error || body.message || String(body));
+    if (body.snapshot) applyProtectionSnapshot(body.snapshot);
+    state.protectionStopRequests = { ...state.protectionStopRequests, [symbol]: body };
+  } catch (err) {
+    state.protectionStopRequests = {
+      ...state.protectionStopRequests,
+      [symbol]: { blockers: [{ code: "request_failed", message: err.message }] },
+    };
+  } finally {
+    if (state.protectionStopRequestBusy === symbol) state.protectionStopRequestBusy = "";
+    renderAll();
+  }
 }
 
 
@@ -1917,4 +2055,4 @@ function queueProposalMarketCalendarSync(market = "") {
     });
 }
 
-export { DERISK_PREVIEW_VALID_MS, cancelProtectionDerisk, deriskBasketLine, deriskLegRow, deriskPreviewExpired, deriskPreviewRemainingMs, deriskRequestRef, deriskValidityTicker, formatExpiry, formatStrike, goDurationMinutes, ignoreProtectionProposal, marketCalendarMatches, nudgeProtectionQuantity, previewProtectionDerisk, previewProtectionProposal, proposalIsBuyToCover, proposalMarketKey, proposalMarketLabel, protectionActionLabel, protectionActionTitle, protectionBlockerText, protectionBucketLabel, protectionButtonTitle, protectionContractLabel, protectionDecisionFlags, protectionDeriskStateText, protectionEffectiveQuantity, protectionExecutionTriggerLabel, protectionExecutionWarningLabel, protectionFinalSubmitLabel, protectionHeroMarketFlags, protectionInferredReference, protectionLiveTrailStop, protectionLossCurrency, protectionMarketCalendar, protectionMarketStateHint, protectionMetricText, protectionNeedsSnapshotSync, protectionOptionLeg, protectionPositionLine, protectionPositionUnitLabel, protectionPreviewGate, protectionPreviewOutcomeLabel, protectionPreviewStale, protectionPreviewStateKey, protectionPreviewSubmitBlockedReason, protectionPreviewSubmitEligible, protectionPreviewSubmitGate, protectionPreviewText, protectionPreviewTimeoutMs, protectionProposalDTE, protectionProposalTitle, protectionQuantityAcceleratedStep, protectionQuantityStepDelta, protectionQuantityStepper, protectionQuoteFor, protectionQuoteFrozen, protectionQuoteLine, protectionQuoteStatusLabel, protectionQuoteTickDir, protectionReason, protectionReasonText, protectionReferenceLabel, protectionRiskExcessCurrency, protectionRiskExcessSummary, protectionRiskTicket, protectionRiskTicketParts, protectionRiskTicketTitle, protectionRow, protectionSideLabel, protectionSnapshotRefreshReason, protectionStopChanged, protectionStopDraftSummary, protectionStopLadder, protectionStopLadderDisplaySteps, protectionStopLadderLabel, protectionStopLadderShortLabel, protectionStopLadderStepClass, protectionStopLadderStepDetail, protectionStopLadderStepTitle, protectionStopRiskGapLabel, protectionStopRiskGapName, protectionStopRiskLossLabel, protectionSubmitButtonTitle, protectionSubmitGate, protectionSubmitLabel, protectionSubmitResultText, protectionSubmitStateClass, protectionSubmitStateText, protectionThetaSummary, protectionTrailOffsetLabel, protectionTrailSizingFallback, protectionTrailSizingLabel, protectionTrailSizingRangeLabel, protectionTrailSizingSourceLabel, protectionTransientSnapshotBlocker, protectionUsesPreviewFlow, protectionWhatIfDetails, queueProposalMarketCalendarSync, queueProtectionSnapshotSync, reduceEligibleHoldings, reduceIsOption, refreshProtectionProposals, renderProtectionDerisk, renderProtectionDeriskBasket, renderProtectionExposure, renderProtectionPanel, renderProtectionTile, renderProtectionTimestamp, setProtectionQuantity, submitProtectionDerisk, submitProtectionProposal, syncDeriskValidityTicker, syncProtectionSnapshot };
+export { DERISK_PREVIEW_VALID_MS, cancelProtectionDerisk, deriskBasketLine, deriskLegRow, deriskPreviewExpired, deriskPreviewRemainingMs, deriskRequestRef, deriskValidityTicker, formatExpiry, formatStrike, goDurationMinutes, ignoreProtectionProposal, marketCalendarMatches, nudgeProtectionQuantity, previewProtectionDerisk, previewProtectionProposal, proposalIsBuyToCover, proposalMarketKey, proposalMarketLabel, protectionActionLabel, protectionActionTitle, protectionBlockerText, protectionBucketLabel, protectionButtonTitle, protectionContractLabel, protectionDecisionFlags, protectionDeriskStateText, protectionEffectiveQuantity, protectionExecutionTriggerLabel, protectionExecutionWarningLabel, protectionFinalSubmitLabel, protectionHeroMarketFlags, protectionInferredReference, protectionLiveTrailStop, protectionLossCurrency, protectionMarketCalendar, protectionMarketStateHint, protectionMetricText, protectionNeedsSnapshotSync, protectionOptionLeg, protectionPositionLine, protectionPositionUnitLabel, protectionPreviewGate, protectionPreviewOutcomeLabel, protectionPreviewStale, protectionPreviewStateKey, protectionPreviewSubmitBlockedReason, protectionPreviewSubmitEligible, protectionPreviewSubmitGate, protectionPreviewText, protectionPreviewTimeoutMs, protectionProposalDTE, protectionProposalTitle, protectionQuantityAcceleratedStep, protectionQuantityStepDelta, protectionQuantityStepper, protectionQuoteFor, protectionQuoteFrozen, protectionQuoteLine, protectionQuoteStatusLabel, protectionQuoteTickDir, protectionReason, protectionReasonText, protectionReferenceLabel, protectionRepairConID, protectionRepairRow, protectionRepairRows, protectionRiskExcessCurrency, protectionRiskExcessSummary, protectionRiskTicket, protectionRiskTicketParts, protectionRiskTicketTitle, protectionRow, protectionSideLabel, protectionSnapshotRefreshReason, protectionStopChanged, protectionStopDraftSummary, protectionStopLadder, protectionStopLadderDisplaySteps, protectionStopLadderLabel, protectionStopLadderShortLabel, protectionStopLadderStepClass, protectionStopLadderStepDetail, protectionStopLadderStepTitle, protectionStopRequestGate, protectionStopRequestNote, protectionStopRiskGapLabel, protectionStopRiskGapName, protectionStopRiskLossLabel, protectionSubmitButtonTitle, protectionSubmitGate, protectionSubmitLabel, protectionSubmitResultText, protectionSubmitStateClass, protectionSubmitStateText, protectionThetaSummary, protectionTrailOffsetLabel, protectionTrailSizingFallback, protectionTrailSizingLabel, protectionTrailSizingRangeLabel, protectionTrailSizingSourceLabel, protectionTransientSnapshotBlocker, protectionUsesPreviewFlow, protectionWhatIfDetails, queueProposalMarketCalendarSync, queueProtectionSnapshotSync, reduceEligibleHoldings, reduceIsOption, refreshProtectionProposals, renderProtectionCoverageRepair, renderProtectionDerisk, renderProtectionDeriskBasket, renderProtectionExposure, renderProtectionPanel, renderProtectionTile, renderProtectionTimestamp, requestProtectionStop, setProtectionQuantity, submitProtectionDerisk, submitProtectionProposal, syncDeriskValidityTicker, syncProtectionSnapshot };

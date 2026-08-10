@@ -63,6 +63,8 @@ const state = {
   protectionSnapshotNotice: "",
   protectionQuoteTicks: {},
   protectionQtyOverrides: {},
+  protectionStopRequestBusy: "",
+  protectionStopRequests: {},
   protectionDerisk: { percent: 25, busy: "", result: null, submitted: null, requestRef: "", previewedAt: 0, abort: null },
   opportunityPreviewBusy: "",
   opportunityPreviews: {},

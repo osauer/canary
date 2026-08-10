@@ -139,6 +139,33 @@ func (h *handler) handleProposalsReducePortfolioSubmit(w nethttp.ResponseWriter,
 	writeJSON(w, res)
 }
 
+// handleProposalsRequestStop asks the daemon to generate a protective
+// trailing-stop proposal for one named position. Generation only — no broker
+// write happens here — but the verb exists to lead to one, so it carries the
+// same confirm_account/confirm_mode affirmation and write-enabled requirement
+// as the proposals submit routes. Preview and submit remain separately gated.
+func (h *handler) handleProposalsRequestStop(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var req struct {
+		rpc.TradeProposalRequestStopParams
+		BrokerWriteConfirmation
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, nethttp.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := h.requireBrokerWriteConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
+		writeBrokerWriteConfirmationError(w, err)
+		return
+	}
+	req.TradeProposalRequestStopParams.Show = true
+	res, err := h.deps.Daemon.TradeProposalsRequestStop(r.Context(), req.TradeProposalRequestStopParams)
+	if err != nil {
+		writeError(w, nethttp.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, res)
+}
+
 func writeBrokerWriteConfirmationError(w nethttp.ResponseWriter, err error) {
 	if rpcErr, ok := errors.AsType[*rpc.Error](err); ok {
 		writeError(w, nethttp.StatusBadRequest, rpcErr.Message)

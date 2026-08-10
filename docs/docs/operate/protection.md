@@ -19,6 +19,7 @@ close/reduce actions here; use TWS for an unmodeled emergency exit.
 | `canary proposals preview KEY REVISION` | no | mint a preview token and read the broker WhatIf verdict |
 | `canary proposals submit KEY REVISION` | yes | place that one protective order |
 | `canary proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close |
+| `canary proposals request-stop SYMBOL` | no | stage a trailing-stop proposal for one uncovered stock/ETF holding now |
 
 `canary proposals` with no subcommand runs `list`. In a standard build the submit
 path fails closed anyway: the daemon's write handler is compiled out behind the
@@ -56,6 +57,15 @@ yourself. It previews unless you pass `--submit`. Under `--portfolio` the
 percentage is the share of net delta-adjusted portfolio risk to remove rather
 than a flat per-position cut, and hedges are never selected, so
 `--include-hedges` is a hard error there instead of a silent no-op.
+
+`canary proposals request-stop` answers the coverage ledger directly: name an
+uncovered stock/ETF holding (symbol, or `--con-id` when ambiguous) and the
+daemon rebuilds the proposal set and returns that position's trailing-stop
+proposal with the key and revision to preview. It generates only — placing the
+stop still goes through `preview` and `submit` with every gate intact. An
+earlier `ignore` for that stop is cleared by the explicit request, and the
+result says so. The paired app offers the same action from the Protection
+panel's uncovered-positions list.
 
 ## A blocked row is the system working
 

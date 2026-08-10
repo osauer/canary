@@ -38,6 +38,8 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 		return runProposalsSubmit(ctx, env, args)
 	case "reduce":
 		return runProposalsReduce(ctx, env, args)
+	case "request-stop":
+		return runProposalsRequestStop(ctx, env, args)
 	case "ignore":
 		return runProposalsIgnore(ctx, env, args)
 	default:
@@ -48,7 +50,7 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 func proposalsSubcommandIndex(args []string) int {
 	for i, arg := range args {
 		switch arg {
-		case "status", "refresh", "list", "preview", "submit", "reduce", "ignore":
+		case "status", "refresh", "list", "preview", "submit", "reduce", "request-stop", "ignore":
 			return i
 		}
 	}
@@ -242,6 +244,80 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 	}
 	renderProposalReduceText(env, &res, *submit)
 	return 0
+}
+
+// runProposalsRequestStop asks the daemon to generate a protective
+// trailing-stop proposal for one named stock/ETF holding now. Generation
+// only: it never places an order. The printed KEY/REVISION feed the ordinary
+// `canary proposals preview` and `canary proposals submit` gates.
+func runProposalsRequestStop(ctx context.Context, env *Env, args []string) int {
+	fs := flagSet(env, "proposals request-stop")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	conID := fs.Int("con-id", 0, "contract ID of the holding (preferred when a symbol is ambiguous)")
+	if err := fs.Parse(args); err != nil {
+		return parseExit(err)
+	}
+	symbol := ""
+	switch fs.NArg() {
+	case 0:
+	case 1:
+		symbol = strings.TrimSpace(fs.Arg(0))
+	default:
+		return fail(env, "proposals request-stop: usage is `canary proposals request-stop [SYMBOL] [--con-id ID]`")
+	}
+	if *conID <= 0 && symbol == "" {
+		return fail(env, "proposals request-stop: provide a SYMBOL or --con-id")
+	}
+	params := rpc.TradeProposalRequestStopParams{ConID: *conID, Symbol: symbol, Show: true}
+	var res rpc.TradeProposalRequestStopResult
+	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsRequestStop, params, &res); err != nil {
+		return fail(env, "proposals request-stop: %v", err)
+	}
+	if *jsonOut {
+		return printJSON(env, res)
+	}
+	renderProposalRequestStopText(env, &res)
+	return 0
+}
+
+func renderProposalRequestStopText(env *Env, res *rpc.TradeProposalRequestStopResult) {
+	out := env.Stdout
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Request Stop  accepted=%v\n", res.Accepted)
+	holding := res.Symbol
+	if res.ConID > 0 {
+		holding = fmt.Sprintf("%s (conID %d)", res.Symbol, res.ConID)
+	}
+	statusRow(env, out, "Holding", strings.TrimSpace(holding))
+	if res.ProposalKey != "" {
+		statusRow(env, out, "Proposal", res.ProposalKey)
+		statusRow(env, out, "Revision", res.Revision)
+	}
+	if res.IgnoreCleared {
+		statusRow(env, out, "Ignore", "prior advisory ignore cleared by this request")
+	}
+	if p := res.Proposal; p != nil {
+		head := fmt.Sprintf("%s %d %s", p.Action, p.Quantity, p.Symbol)
+		if p.OrderType != "" {
+			head += "  " + p.OrderType
+		}
+		if p.Trail != nil {
+			head += " " + formatOrderTrail(p.Trail)
+		}
+		statusRow(env, out, "Order", head)
+		if sizing := formatProposalTrailSizing(p.TrailSizing); sizing != "" {
+			statusRow(env, out, "Trail sizing", sizing)
+		}
+		renderProposalRiskTicket(env, out, p)
+	}
+	if res.Message != "" {
+		statusRow(env, out, "Message", res.Message)
+	}
+	if res.Accepted && res.ProposalKey != "" {
+		statusRow(env, out, "Next", fmt.Sprintf("canary proposals preview %s %s", res.ProposalKey, res.Revision))
+	}
+	printTradingBlockers(out, "  ", res.Blockers)
+	fmt.Fprintln(out)
 }
 
 func renderProposalReduceText(env *Env, res *rpc.TradeProposalReduceResult, submitted bool) {

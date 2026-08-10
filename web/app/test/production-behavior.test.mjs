@@ -61,6 +61,7 @@ function reset() {
     portfolioDetailOpen: false, protectionOpen: false, protectionQtyOverrides: {}, protectionQuoteTicks: {},
     protectionSnapshotBusy: false, protectionSnapshotLastAt: 0, protectionSnapshotNotice: "",
     protectionDerisk: { percent: 25, busy: "", result: null, submitted: null, requestRef: "", previewedAt: 0, abort: null },
+    protectionStopRequestBusy: "", protectionStopRequests: {},
     opportunitiesOpen: false, opportunityPreviewBusy: "", opportunityPreviews: {}, opportunitySubmitBusy: "", opportunitySubmits: {},
     strategyDrafts: {}, strategyPreviewBusy: "", strategyPreviews: {}, strategySubmitBusy: "", strategySubmits: {},
     opportunitySnapshotBusy: false, opportunitySnapshotLastAt: 0, opportunitySnapshotNotice: "",
@@ -601,6 +602,61 @@ test("TestAppJSProtectionFastPathKeepsHardMarketEventBlocker replacement re-eval
   assert.equal(protection.protectionSubmitGate(proposal).ready, false);
   state.snapshot.market_events = { by_symbol: {} };
   assert.equal(protection.protectionPreviewGate(proposal).ready, true);
+});
+
+test("uncovered coverage rows stage a stop request that flows into the existing preview/submit gates", async () => {
+  reset();
+  state.protectionOpen = true;
+  state.protectionSnapshotLastAt = Date.now();
+  const coverageData = {
+    status: "review",
+    counts: { unprotected: 1, partial: 1, covered: 1 },
+    by_underlying: [
+      { underlying: "SYN", state: "unprotected", position_quantity: 12, unprotected_quantity: 12, unprotected_notional_base: 1200, unprotected_notional_base_currency: "EUR" },
+      { underlying: "PART", state: "partial", position_quantity: 10, protected_quantity: 4, unprotected_quantity: 6 },
+      { underlying: "COV", state: "covered", position_quantity: 5, protected_quantity: 5 },
+      { underlying: "GONE", state: "orphaned_order" },
+    ],
+  };
+  state.snapshot = {
+    trading: { can_write: false, can_preview: true },
+    positions: { stocks: [{ symbol: "SYN", con_id: 42, quantity: 12 }], options: [], protection_coverage: coverageData },
+    proposals: {}, auto_trade: {}, market_events: {},
+  };
+  assert.deepEqual(protection.protectionRepairRows(coverageData).map((row) => row.underlying), ["SYN", "PART"],
+    "repair rows must keep only unprotected/partial ledger rows");
+  protection.renderProtectionCoverageRepair();
+  const box = dom.element("protectionCoverageRepair");
+  assert.equal(box.hidden, false);
+  let buttons = byClass(box, "protection-repair__request");
+  assert.equal(buttons.length, 2);
+  assert.equal(buttons[0].disabled, true, "write-disabled trading must disable the request affordance");
+  state.snapshot.trading = { can_write: true, can_preview: true, account: "DU111", mode: "paper" };
+  protection.renderProtectionCoverageRepair();
+  buttons = byClass(box, "protection-repair__request");
+  assert.equal(buttons[0].disabled, false);
+  let captured = null;
+  const staged = {
+    accepted: true, con_id: 42, symbol: "SYN", proposal_key: "trailing_stop:abcd", revision: "sha256:rev",
+    ignore_cleared: true,
+    snapshot: { revision: "sha256:rev", proposals: [{ key: "trailing_stop:abcd", revision: "sha256:rev", bucket: "trailing_stop", symbol: "SYN" }], counts: { total: 1, actionable: 1 } },
+  };
+  globalThis.fetch = async (url, init) => {
+    captured = { url, body: JSON.parse(init.body) };
+    return response(staged);
+  };
+  buttons[0].click();
+  await waitFor(() => state.protectionStopRequests.SYN && !state.protectionStopRequests.SYN.pending, "stop request never settled");
+  assert.equal(captured.url, "/api/proposals/request-stop");
+  assert.equal(captured.body.con_id, 42, "unique held stock must resolve to con_id");
+  assert.equal(captured.body.confirm_account, "DU111");
+  assert.equal(captured.body.confirm_mode, "paper");
+  assert.equal(state.snapshot.proposals.revision, "sha256:rev",
+    "the returned snapshot must become the live proposals snapshot so preview uses the same revision");
+  const note = protection.protectionStopRequestNote("SYN");
+  assert.equal(note.blocked, false);
+  assert.match(note.text, /Preview stop/);
+  assert.match(note.text, /prior ignore cleared/);
 });
 
 test("TestAppJSMoneyFormattersNeverDefaultToUSD replacement preserves unknown, base, and contract currency semantics", () => {

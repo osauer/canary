@@ -47,6 +47,7 @@ type Client interface {
 	TradeProposalsReduceSubmit(context.Context, rpc.TradeProposalReduceParams) (*rpc.TradeProposalReduceResult, error)
 	TradeProposalsReducePortfolioPreview(context.Context, rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error)
 	TradeProposalsReducePortfolioSubmit(context.Context, rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error)
+	TradeProposalsRequestStop(context.Context, rpc.TradeProposalRequestStopParams) (*rpc.TradeProposalRequestStopResult, error)
 	TradeProposalsIgnore(context.Context, rpc.TradeProposalIgnoreParams) (*rpc.TradeProposalIgnoreResult, error)
 	Settings(context.Context) (*rpc.PlatformSettings, error)
 	UpdateSettings(context.Context, json.RawMessage) (*rpc.PlatformSettings, error)
@@ -407,6 +408,17 @@ func (c Real) TradeProposalsReducePortfolioPreview(ctx context.Context, params r
 func (c Real) TradeProposalsReducePortfolioSubmit(ctx context.Context, params rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error) {
 	var out rpc.TradeProposalReducePortfolioResult
 	if err := c.call(ctx, rpc.MethodTradeProposalsReducePortfolioSubmit, params, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// TradeProposalsRequestStop asks the daemon to generate a protective
+// trailing-stop proposal for one named position now. Generation only; the
+// result flows into the ordinary preview/submit gates.
+func (c Real) TradeProposalsRequestStop(ctx context.Context, params rpc.TradeProposalRequestStopParams) (*rpc.TradeProposalRequestStopResult, error) {
+	var out rpc.TradeProposalRequestStopResult
+	if err := c.call(ctx, rpc.MethodTradeProposalsRequestStop, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

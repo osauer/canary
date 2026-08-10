@@ -121,6 +121,16 @@ func TestOrderWritesRequireCurrentConfirmation(t *testing.T) {
 			path:   "/api/proposals/submit",
 			body:   `{"key":"proposal","revision":"rev-1"}`,
 		},
+		"request_stop_missing": {
+			method: http.MethodPost,
+			path:   "/api/proposals/request-stop",
+			body:   `{"symbol":"SYN"}`,
+		},
+		"request_stop_wrong_mode": {
+			method: http.MethodPost,
+			path:   "/api/proposals/request-stop",
+			body:   `{"symbol":"SYN","confirm_account":"DU123","confirm_mode":"live"}`,
+		},
 		"opportunity_exercise_missing": {
 			method: http.MethodPost,
 			path:   "/api/opportunities/exercise",
@@ -437,6 +447,10 @@ func (routeFakeClient) TradeProposalsReducePortfolioPreview(context.Context, rpc
 
 func (routeFakeClient) TradeProposalsReducePortfolioSubmit(context.Context, rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error) {
 	return &rpc.TradeProposalReducePortfolioResult{Accepted: false, Blockers: []rpc.TradingBlocker{{Code: "test", Message: "blocked"}}}, nil
+}
+
+func (routeFakeClient) TradeProposalsRequestStop(context.Context, rpc.TradeProposalRequestStopParams) (*rpc.TradeProposalRequestStopResult, error) {
+	return &rpc.TradeProposalRequestStopResult{Accepted: true, Symbol: "SYN", ProposalKey: "trailing_stop:abc", Revision: "sha256:rev"}, nil
 }
 
 func (routeFakeClient) TradeProposalsIgnore(context.Context, rpc.TradeProposalIgnoreParams) (*rpc.TradeProposalIgnoreResult, error) {

@@ -280,6 +280,10 @@ const (
 	MethodTradeProposalsPreview  = "trade_proposals.preview"
 	MethodTradeProposalsSubmit   = "trade_proposals.submit"
 	MethodTradeProposalsIgnore   = "trade_proposals.ignore"
+	// MethodTradeProposalsRequestStop asks the proposal engine to generate a
+	// protective trailing-stop proposal for one named position now. It is a
+	// generation verb: the result flows into the ordinary preview/submit gates.
+	MethodTradeProposalsRequestStop = "trade_proposals.request_stop"
 	// MethodTradeProposalsReducePreview starts a discretionary, user-initiated
 	MethodTradeProposalsReducePreview = "trade_proposals.reduce_preview"
 	MethodTradeProposalsReduceSubmit  = "trade_proposals.reduce_submit"
@@ -626,6 +630,44 @@ type TradeProposalIgnoreResult struct {
 	Revision string    `json:"revision,omitempty"`
 	Message  string    `json:"message,omitempty"`
 	AsOf     time.Time `json:"as_of"`
+}
+
+// TradeProposalRequestStopParams names a held stock/ETF position for an
+// on-demand protective trailing-stop proposal. ConID is the unambiguous key;
+// a bare Symbol is accepted only when it matches exactly one stock position.
+// The verb regenerates the advisory snapshot and clears a prior advisory
+// dismissal for that position's stop; it never places, previews, or
+// authorizes a broker order.
+type TradeProposalRequestStopParams struct {
+	ConID  int    `json:"con_id,omitempty"`
+	Symbol string `json:"symbol,omitempty"`
+	Show   bool   `json:"show,omitempty"`
+}
+
+// TradeProposalRequestStopResult reports the outcome of an on-demand
+// protective-stop generation. Accepted means an unblocked trailing-stop
+// proposal for the named position exists in the returned snapshot revision;
+// it is not a preview token or submit eligibility. The proposal flows into
+// the ordinary trade_proposals.preview / trade_proposals.submit gates.
+type TradeProposalRequestStopResult struct {
+	Accepted bool   `json:"accepted"`
+	ConID    int    `json:"con_id,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+	SecType  string `json:"sec_type,omitempty"`
+	// ProposalKey/Revision address the generated proposal for preview/submit.
+	ProposalKey string         `json:"proposal_key,omitempty"`
+	Revision    string         `json:"revision,omitempty"`
+	Proposal    *TradeProposal `json:"proposal,omitempty"`
+	// Snapshot is the full refreshed proposal snapshot the key/revision are
+	// bound to, so callers can render the current list without a racing
+	// second refresh.
+	Snapshot *TradeProposalSnapshot `json:"snapshot,omitempty"`
+	// IgnoreCleared discloses that a prior advisory ignore for this stop was
+	// cleared by this explicit request.
+	IgnoreCleared bool             `json:"ignore_cleared,omitempty"`
+	Blockers      []TradingBlocker `json:"blockers,omitempty"`
+	Message       string           `json:"message,omitempty"`
+	AsOf          time.Time        `json:"as_of"`
 }
 
 // TradeProposalReduceParams is a discretionary partial reduce of an existing

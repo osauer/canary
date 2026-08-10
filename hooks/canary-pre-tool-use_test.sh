@@ -106,6 +106,8 @@ run_case cancel-frozen 0 "$live_frozen" status 'canary order cancel 42'
 run_case reduce-submit-live-ready 0 "$live_ready" status 'canary proposals reduce BB --percent 25 --submit --json'
 run_case reduce-submit-disabled 2 "$mode_disabled" status 'canary proposals reduce BB --percent 25 --submit --json'
 run_case reduce-submit-frozen 2 "$live_frozen" status 'canary proposals reduce BB --percent 25 --submit --json'
+run_case request-stop-live-ready 0 "$live_ready" status 'canary proposals request-stop BB --json'
+run_case request-stop-frozen 2 "$live_frozen" status 'canary proposals request-stop BB --json'
 
 # Shell composition around a write is blocked before any status lookup.
 run_case compound-write 2 "$live_ready" none 'canary orders --json; canary order cancel 42'

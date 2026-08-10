@@ -212,7 +212,7 @@ allow_broker_write_or_block() {
 }
 
 broker_write_command() {
-  has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+(preview|submit|ignore)([[:space:]]|$)' ||
+  has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+(preview|submit|ignore|request-stop)([[:space:]]|$)' ||
     {
       has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+reduce([[:space:]]|$)' &&
 		has_re '(^|[[:space:]])--submit(=|[[:space:]]|$)'

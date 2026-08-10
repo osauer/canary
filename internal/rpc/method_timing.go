@@ -88,6 +88,9 @@ var methodTimings = []MethodTiming{
 	{Method: MethodTradeProposalsPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsSubmit, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsIgnore, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	// request_stop resolves positions and runs a full proposal refresh, so it
+	// carries the refresh budget, not the snapshot budget.
+	{Method: MethodTradeProposalsRequestStop, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsReducePreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsReduceSubmit, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsReducePortfolioPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 120 * time.Second},

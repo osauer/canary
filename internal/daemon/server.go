@@ -2242,6 +2242,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsSubmit(ctx, req) })
 	case rpc.MethodTradeProposalsIgnore:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsIgnore(req), nil })
+	case rpc.MethodTradeProposalsRequestStop:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsRequestStop(ctx, req) })
 	case rpc.MethodTradeProposalsReducePreview:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsReducePreview(ctx, req) })
 	case rpc.MethodTradeProposalsReduceSubmit:
