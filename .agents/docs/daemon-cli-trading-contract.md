@@ -3,8 +3,8 @@
 Updated: 2026-06-11 22:14 CEST
 
 Use this before changing daemon, RPC, CLI, MCP, trading capability, order
-preview/status, liquidation, account, position, stress, regime, gamma, breadth, or
-market-data semantics.
+preview/status, protection, exercise, account, position, stress, regime, gamma,
+breadth, or market-data semantics.
 
 ## Scope
 

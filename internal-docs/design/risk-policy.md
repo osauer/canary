@@ -101,7 +101,7 @@ displayed side by side until R5.
 ```
 internal/risk/constitution.go          schema, validation, fingerprint, EvaluateCapital
 internal/risk/constitution_explain.go  ConstitutionLimits (single copy of meanings)
-internal/rpc/risk_policy.go            methods, params, result types
+internal/rpc/brief.go                  methods, params, result types (consolidated there in v3)
 internal/daemon/risk_policy_manager.go TOML manager (absent/active/drift/error)
 internal/daemon/risk_capital_state.go  peak/latch/events/overrides + journals
 internal/daemon/risk_policy_handlers.go RPC handlers + preview cause

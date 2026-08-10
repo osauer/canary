@@ -3,6 +3,12 @@
 **Status:** Implemented 2026-07-31; policy marker `regime-currency-v1`
 **Created:** 2026-07-31 18:44 CEST
 **Owner:** osauer
+
+> **v3 citation note (2026-08-10):** file references below predate the v3
+> reduction. `internal/daemon/gamma_session.go` and
+> `internal/rpc/regime_policy.go` were consolidated; resolve cited symbols by
+> name in `internal/daemon/gamma_*.go`, `internal/rpc/brief.go`, and
+> `internal/rpc/history_index.go`.
 **Related:** `internal-docs/design/regime-calibration.md` (Part 3 is the model this
 replaces), `docs/docs/internals/regime-dashboard.md`,
 `docs/docs/understand/sensors.md`, `internal/rpc/lifecycle.go`,

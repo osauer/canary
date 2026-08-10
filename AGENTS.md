@@ -31,7 +31,7 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
 - Agent broker writes may use only the agent-origin gated CLI path. Gateway,
   account, mode, and client pins; preview tokens; broker WhatIf/eligibility;
   journaling; daemon authorization; and `trading.freeze` must all remain binding.
-  Never place, modify, cancel, submit, exercise, purge, or restore through the
+  Never place, modify, cancel, submit, or exercise through the
   paired PWA or browser automation; Browser use is read-only QA.
 - There are no exceptions. `make release` used to place a one-share paper SPY
   round-trip and carried a standing exemption for it; the round-trip was

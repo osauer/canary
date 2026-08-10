@@ -1,6 +1,6 @@
 # Documentation structure
 
-Updated: 2026-07-25 07:35 CEST
+Updated: 2026-08-10 08:25 CEST
 
 How the public documentation at <https://osauer.dev/canary/docs/> is organised,
 why it is organised that way, and what still has to be written.
@@ -71,45 +71,20 @@ and no retired URL is still listed.
 
 ## What is published
 
-Eighteen pages. Fifteen were already public. Three were written but never
-published: the paired-app guide, the order-preview and trading-build guide, and
-the opportunity research harness.
+Twenty-nine pages as of 2026-08-10, every section filled. The three reference
+pages (`cli`, `mcp-tools`, `config`) are generated from the registries they
+document via `make docs-regen`. The v3 reduction (2026-08-09) removed the
+`internals/opportunity-research` and `internals/regime-backtest` pages together
+with their features and dropped `reference/mcp-resources` when MCP resources
+were retired.
 
 ## What is missing
 
-Fourteen pages, in the order they should be written. Each one has a brief in
-`internal-docs/drafts/`.
-
-**First, because their absence is the most visible.**
-
-1. `reference/cli` — 36 subcommands, and no reference for any of them on the
-   site. This should be generated from the registry in `internal/cli`, the same
-   way `mcp-tools` and `config` are generated. Build the generator, then flip
-   the manifest entry. Roughly a day, and then it maintains itself.
-2. `start/install` — the install story lives in the README and in five separate
-   setup pages. The handbook has no entry point of its own.
-3. `start/troubleshooting` — the README section is the only version, and it is
-   the page a frustrated user goes looking for first.
-
-**Then the daily-use gaps.**
-
-4. `operate/daily-desk`
-5. `understand/rulebook` — fourteen rules on the landing page, no public page
-   explaining them. `internal-docs/design/trading-rulebook.md` is the authority to
-   distil from; it stays in the repository.
-6. `understand/risk-policy`
-7. `operate/protection`
-8. `understand/market-data`
-
-**Then the rest.**
-
-9. `start/hosts`
-10. `start/first-session`
-11. `operate/alerts`
-12. `operate/reconciliation`
-13. `understand/glossary` — once it exists, the local glossaries at the end of
-    `understand/policy.md` and `internals/storage.md` can link to it instead.
-14. `reference/releases`
+Nothing outstanding. The fourteen-page backlog this section used to hold was
+written out in July 2026 and `internal-docs/drafts/` was emptied on 2026-07-25;
+that directory's README is the record. New pages enter as `statusPlanned`
+entries in the generator manifest (`scripts/docgen/docs-html/main.go`) with a
+draft brief in `internal-docs/drafts/`.
 
 ## Page-level work, separate from structure
 

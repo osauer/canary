@@ -372,7 +372,7 @@ internal/daemon/earnings_wsh.go   typed IBKR WSH adapter + strict event parser
 internal/daemon/earnings_terminal.go
                                   exact-contract terminal evidence authority
 pkg/ibkr/wsh.go                   serialized read-only WSH wire protocol
-internal/rpc/rulebook.go          MethodRulesSnapshot, RulesResult, RuleRow
+internal/rpc/brief.go             MethodRulesSnapshot, RulesResult, RuleRow (consolidated there in v3)
 internal/cli/rules.go             `canary rules` renderer
 internal/mcp/tools.go             canary_rules tool
 internal/app/live/service.go      snapshot.rules sibling section (SSE)

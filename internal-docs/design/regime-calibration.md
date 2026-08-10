@@ -2,7 +2,15 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-07-21
+**Last update:** 2026-08-10
+
+> **v3 citation note (2026-08-10):** file references below predate the v3
+> reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
+> were consolidated into `internal/rpc/brief.go` and
+> `internal/rpc/history_index.go`; `internal/cli/regime.go`,
+> `internal/cli/backtest*.go`, and `internal/cli/canary.go` were retired with
+> their CLI surfaces. The semantics documented here still bind; resolve cited
+> symbols by name in the consolidated files.
 **Owner:** osauer
 **Related:** `docs/docs/internals/regime-dashboard.md`,
 `internal/rpc/lifecycle.go`, `internal/rpc/regime_policy.go`, `internal/daemon/regime*.go`,

@@ -38,10 +38,10 @@ At ~2 GB/day, pre-socket verification grows by roughly **50 s per day**.
 
 `Server.contractCacheSaveLoop` ([internal/daemon/server.go](../../internal/daemon/server.go))
 fires every `contractCacheSaveInterval` (60 s) and calls
-`coreContractCacheAuthority.SaveContractCache`
-([internal/daemon/market_residual_authority.go](../../internal/daemon/market_residual_authority.go)),
-which routes through `saveMarketState`
-([internal/daemon/market_observation_store.go](../../internal/daemon/market_observation_store.go)).
+`coreContractCacheAuthority.SaveContractCache`, which routes through
+`saveMarketState` (both in
+[internal/daemon/market_observation_store.go](../../internal/daemon/market_observation_store.go)
+since the v3 consolidation).
 
 `saveMarketState` does two writes in one transaction:
 

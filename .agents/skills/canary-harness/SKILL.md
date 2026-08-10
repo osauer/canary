@@ -24,8 +24,7 @@ destructive daemon maintenance remain human-only.
 Preserve typed evidence exactly: nil is unavailable rather than zero; report
 live/delayed/frozen data, freshness, stale reasons, session context, source
 health, and warning details when material. Local order history is intent and
-lifecycle evidence, not an IBKR statement or complete broker audit. Offline
-opportunity research is diagnostic only, never alpha proof or trade authority.
+lifecycle evidence, not an IBKR statement or complete broker audit.
 
 ## Canonical References
 
