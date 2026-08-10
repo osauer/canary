@@ -543,9 +543,9 @@ fmt: ## Apply gofmt -w to every tracked / non-gitignored .go file
 	@# Same scope as `make check` so `make fmt && make check` is idempotent.
 	git ls-files --cached --others --exclude-standard '*.go' | xargs gofmt -w
 
-# Library tests. The pkg/ibkr suite is fully hermetic — wire-level
-# captured fixtures (wire_fixtures_test.go, scanner_test.go) plus net.Pipe-
-# driven handshake tests; no live gateway is required. The end-to-end
+# Library tests. The pkg/ibkr suite is fully hermetic — a captured wire
+# fixture (testdata/wire) plus net.Pipe-driven handshake tests; no live
+# gateway is required. The end-to-end
 # gateway path is covered by test/integration. Timeout sized for CI's
 # slower runners — local runs typically finish in <30s.
 #

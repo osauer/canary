@@ -1274,6 +1274,7 @@ func captureOptionGreeks(ctx context.Context, c *ibkrlib.Connector, under, expir
 		return out
 	}
 	// Single-class default — captureOptionGreeks is called from the
+	// chain-prewarm path which doesn't disambiguate SPX vs SPXW today.
 	key, _, err := c.SubscribeOption(ctx, under, under, expiryYMD, strike, right)
 	if err != nil {
 		return out
@@ -1318,6 +1319,9 @@ func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionVi
 			p.Theta = &g.Theta
 			p.Vega = &g.Vega
 			// Underlying spot from the same model-computation tick that
+			// produced the Greeks. The aggregator pairs it with delta so
+			// dollar delta is computed against the spot the delta was
+			// modelled at — see rpc.PositionView.Underlying doc.
 			if e.underlying > 0 {
 				u := e.underlying
 				p.Underlying = &u
@@ -1712,6 +1716,8 @@ func addPortfolioBaseContext(p *rpc.PositionsPortfolio, groups []rpc.PositionGro
 
 // buildUnderlyingExposureBase projects the groups the aggregator could value in
 // the account base currency, and names the ones it could not. A group with no
+// base market value is dropped rather than zeroed, so the names are the only
+// evidence a consumer has that the returned rows are not the whole book.
 func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) ([]rpc.UnderlyingExposure, []string) {
 	baseCcy = normCcy(baseCcy)
 	out := make([]rpc.UnderlyingExposure, 0, len(groups))
@@ -1802,7 +1808,10 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		releaseSub = func() { _ = c.UnsubscribeMarketData(key) }
 	} else {
 		// Route through the daemon's subscription manager so a snapshot
+		// running concurrently with `quote --watch` (or another snapshot, or
 		// an MCP subscriber) shares the same IBKR market-data line via the
+		// refcount. Without this, the snapshot's deferred unsubscribe used
+		// to cancel the watcher's sub mid-stream.
 		release, err := s.subs.Hold(ctx, sym)
 		if err != nil && !errors.Is(err, ibkrlib.ErrIBKRUnavailable) {
 			if shell := s.absentQuoteShell(q, err, sessionMarket, hasSessionMarket); shell != nil {
@@ -1821,7 +1830,11 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		fallback := quoteFallbackReady(q, pollStarted, timeout)
 		if ready || fallback {
 			// Capture the gateway's feed state while the subscription is
+			// still live — once the deferred unsubscribe fires, the
+			// connector's symbol→reqID mapping is gone and the type would
 			// always read "". When IBKR omits that notice but only
+			// fallback ticks landed, label the row frozen so JSON consumers
+			// don't mistake mark/close-only data for a live quote.
 			q.DataType = quoteDataTypeName(c.MarketDataTypeForSymbol(pollKey), ready, fallback)
 		}
 		return ready || fallback
@@ -1839,6 +1852,10 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 			}
 		case IsSubscriptionRejected(err):
 			// Terminal gateway rejection (354/200): this is the
+			// once-per-absence-window honest probe. Fall through to the
+			// same shell + historical-fallback shape a quiet timeout
+			// produces — a hard error here would red-flag the app's
+			// whole market_quotes source over one dead symbol.
 			q.Stale = true
 			q.StaleReason = err.Error()
 		default:
@@ -2114,28 +2131,6 @@ func normaliseOptionQuoteContract(in rpc.ContractParams) (rpc.ContractParams, er
 		out.Currency = "USD"
 	}
 	return out, nil
-}
-
-// handleCancel terminates a streaming subscription previously started via
-// MethodQuoteSubscribe. The wire contract is intentionally strict: an
-// unknown id returns CodeBadRequest because callers only ever cancel ids
-// programming errors; successful cancellation removes the stream entry.
-func (s *Server) handleCancel(req *rpc.Request) (struct{}, error) {
-	var p rpc.CancelParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return struct{}{}, err
-	}
-	if p.ID == "" {
-		return struct{}{}, &badRequestError{msg: "id required"}
-	}
-	s.mu.Lock()
-	cancel, ok := s.streams[p.ID]
-	s.mu.Unlock()
-	if !ok {
-		return struct{}{}, &badRequestError{msg: "no active stream with id " + p.ID}
-	}
-	cancel()
-	return struct{}{}, nil
 }
 
 // handleQuoteSubscribe attaches a fan-out tap to the daemon's per-symbol
@@ -3076,7 +3071,9 @@ func computeQuoteChange(price, prevClose *float64) (*float64, *float64) {
 }
 
 // marketDataTypeName maps the gateway's numeric data-type notice
+// (1=RealTime, 2=Frozen, 3=Delayed, 4=DelayedFrozen) to a stable
 // lower-case string used on the wire and in the CLI badge. Empty for
+// unknown so callers can omit the field via omitempty.
 func marketDataTypeName(t int) string {
 	switch t {
 	case 1:
@@ -3363,6 +3360,10 @@ func (s *Server) opportunitySubsystemHealth() (rpc.SubsystemHealth, bool) {
 }
 
 // membersHealth assembles the rpc.MembersHealth wire shape for the
+// status response. Source is "cache" when the engine loaded from the
+// runtime-refreshed file, "embedded" otherwise. RefreshState reflects
+// the refresher's current health, or empty when the refresher is
+// disabled / nil (the CLI uses Source alone to render the row).
 func (s *Server) membersHealth() rpc.MembersHealth {
 	if s.breadth == nil {
 		return rpc.MembersHealth{}
@@ -3374,6 +3375,9 @@ func (s *Server) membersHealth() rpc.MembersHealth {
 		Count:  len(current),
 	}
 	// Prefer the runtime-refreshed file as the source signal when it
+	// exists and parses cleanly. A stale file (older than the embedded
+	// baseline) still counts as "cache" — the user sees the date and
+	// can decide if it's stale; we don't second-guess them.
 	if s.membersCachePath != "" {
 		if _, asOf, ok := spx.LoadExternal(s.membersCachePath); ok {
 			mh.Source = "cache"
@@ -3387,12 +3391,15 @@ func (s *Server) membersHealth() rpc.MembersHealth {
 }
 
 // sp500EmbeddedAsOf returns the asOf of the embedded list. Wrapped in
+// a helper so the per-call type-cast stays out of the status hot path.
 func sp500EmbeddedAsOf() time.Time {
 	_, asOf := spx.MemberList()
 	return asOf
 }
 
 // handleMarketCalendar returns official exchange-session context for the
+// supported first-release markets: U.S. cash equities, U.S. listed options,
+// and Xetra cash equities.
 func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResult, error) {
 	var p rpc.MarketCalendarParams
 	if err := decodeParams(req.Params, &p); err != nil {
@@ -3450,77 +3457,17 @@ func marketSessionToRPC(s marketcal.Session) rpc.MarketSession {
 	}
 }
 
-// handleHistoryDaily returns N days of daily OHLCV bars for a symbol.
-// Calendar lookback (matching IBKR HMDS): the gateway returns whatever
-func (s *Server) handleHistoryDaily(ctx context.Context, req *rpc.Request) (*rpc.HistoryDailyResult, error) {
-	var p rpc.HistoryDailyParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	sym := normSym(p.Symbol)
-	if sym == "" {
-		return nil, errBadRequest("symbol required")
-	}
-	days := p.Days
-	if days <= 0 {
-		days = 90
-	}
-	whatToShow, err := normalizeHistoryWhatToShowParam(p.WhatToShow)
-	if err != nil {
-		return nil, err
-	}
-	c := s.gatewayConnector()
-	if c == nil {
-		return nil, s.gatewayUnavailableError()
-	}
-	var bars []ibkrlib.HistoricalBar
-	if whatToShow != "" {
-		bars, err = c.FetchHistoricalDailyBarsWhatToShow(ctx, sym, days, whatToShow, 0)
-	} else {
-		bars, err = c.FetchHistoricalDailyBars(ctx, sym, days, 0)
-	}
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, fmt.Errorf("historical data deadline exceeded for %s (HMDS pacing or response exceeded request budget): %w", sym, err)
-		}
-		return nil, err
-	}
-	res := &rpc.HistoryDailyResult{
-		Symbol:     sym,
-		Days:       days,
-		WhatToShow: whatToShow,
-		AsOf:       time.Now(),
-		Bars:       make([]rpc.HistoryBar, 0, len(bars)),
-	}
-	for _, b := range bars {
-		res.Bars = append(res.Bars, rpc.HistoryBar{
-			Date:   barDate(b),
-			Open:   b.Open,
-			High:   b.High,
-			Low:    b.Low,
-			Close:  b.Close,
-			Volume: b.Volume,
-		})
-	}
-	return res, nil
-}
-
-func normalizeHistoryWhatToShowParam(value string) (string, error) {
-	clean := strings.ToUpper(strings.TrimSpace(value))
-	switch clean {
-	case "":
-		return "", nil
-	case "TRADES", "MIDPOINT", "ADJUSTED_LAST":
-		return clean, nil
-	default:
-		return "", errBadRequest("what_to_show must be TRADES, MIDPOINT, or ADJUSTED_LAST")
-	}
-}
-
 // handleBreadthSPX returns the current S&P 500 stocks-above-50DMA reading
+// plus a trailing daily series for sparkline rendering. The headline
+// number is the percentage of S&P 500 constituents trading above their
+// own 50-day SMA, in [0, 100].
+//
+// Methodology — spx.MethodConstituentFanout: we compute S5FI locally
 // from constituent daily closes pulled via IBKR's HMDS feed. IBKR
+// does not redistribute S&P DJI's S5FI index on retail subscriptions
 // (verified via reqContractDetails — see pkg/ibkr/symbols.go), so the
-// The handler is a thin projection of the engine state onto the wire
+// daemon reproduces the math from data it already has access to.
+// The handler is a thin projection of the engine state onto the wire.
 func (s *Server) handleBreadthSPX(_ context.Context, req *rpc.Request) (*rpc.BreadthSPXResult, error) {
 	return s.buildBreadthSPX(req, true)
 }
@@ -3541,10 +3488,18 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 	if s.breadth == nil {
 		// Engine construction failed at New (e.g. unresolvable cache
 		// dir). Match the pre-engine wire contract: surface as
+		// gateway-unavailable so clients render a consistent "daemon
+		// I/O dependency missing" state.
 		return nil, ibkrlib.ErrIBKRUnavailable
 	}
 
 	// Opportunistic refresh trigger: on the first breadth call after
+	// the NY-date rolls over, kick the members refresher if its
+	// on-disk file is stale. Belt-and-suspenders against the 02:30
+	// ET ticker missing (network outage, daemon paused). No-op when
+	// the refresher is pinned off, or when the loaded file is
+	// already from today, or when a fetch is already in flight
+	// (singleflighted by the refresher).
 	if allowRefresh && s.membersRefresher != nil && s.serverCtx != nil {
 		s.membersRefresher.TriggerIfRolledOver(s.serverCtx)
 	}

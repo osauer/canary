@@ -16,7 +16,6 @@ const (
 	MethodQuoteSubscribe = "quote.subscribe"
 	MethodChainFetch     = "chain.fetch"
 	MethodChainExpiries  = "chain.expiries"
-	MethodHistoryDaily   = "history.daily"
 	MethodTechnical      = "technical.snapshot"
 	MethodMarketCalendar = "market.calendar"
 	MethodStatusHealth   = "status.health"
@@ -30,7 +29,6 @@ const (
 	MethodBreadthSPX     = "breadth.spx"
 	MethodGammaZeroSPX   = "gamma.zero_spx"
 	MethodRegimeSnapshot = "regime.snapshot"
-	MethodCancel         = "cancel"
 	MethodOrderPlace     = "order.place"
 	MethodOrderModify    = "order.modify"
 	MethodOrderCancel    = "order.cancel"
@@ -49,7 +47,10 @@ const (
 )
 
 // CodeRegimeUnavailable means the daemon has no complete, validated
+// last-good regime snapshot to serve. It is deliberately distinct from
+// gateway_unavailable: a disconnected gateway does not make a persisted
 // last-good snapshot disappear, while a cold authority cannot return a
+// partial dashboard as if it were current state.
 const CodeRegimeUnavailable = "regime_unavailable"
 
 // MarketDataType values carried on Quote.DataType, Frame.DataType, and
@@ -66,6 +67,8 @@ const (
 )
 
 // IsLiveDataType reports whether the gateway's per-reqID feed state is
+// "live ticks", treating empty-string the same as live (no notice yet).
+// Used by renderers to decide whether to dim a row or show a phase badge.
 func IsLiveDataType(dt string) bool {
 	return dt == "" || dt == MarketDataLive
 }
@@ -204,6 +207,8 @@ type Error struct {
 }
 
 // Fingerprint is a semantic identity for alert/dedupe surfaces. The Key is a
+// stable sha256 over classified state, not raw prices, timestamps, or rendered
+// prose. Monitors should use it to suppress duplicate alerts.
 type Fingerprint struct {
 	Version string `json:"version"`
 	Key     string `json:"key"`
@@ -256,6 +261,11 @@ type QuoteSubscribeParams struct {
 }
 
 // PositionsListParams filters the positions response. Both fields are
+// honoured by the daemon (`internal/daemon/handlers.go::handlePositionsList`).
+// Symbol matches the underlying (or the synthetic option key); empty returns
+// every position. Type narrows to stocks ("stk") or options ("opt"); empty
+// returns both. Filters are applied before the FX / Greeks decoration, so a
+// narrowed query is also faster.
 type PositionsListParams struct {
 	Symbol string `json:"symbol,omitempty"`
 	Type   string `json:"type,omitempty"` // stk | opt
@@ -270,40 +280,9 @@ type ChainFetchParams struct {
 	TradingClass string `json:"trading_class,omitempty"` // SPX | SPXW for multi-class index chains; empty = auto
 }
 
-// CancelParams cancels an in-flight stream by id.
-type CancelParams struct {
-	ID string `json:"id"`
-}
-
-// HistoryDailyParams requests N days of daily OHLCV bars for a symbol.
-type HistoryDailyParams struct {
-	Symbol     string `json:"symbol"`
-	Days       int    `json:"days,omitempty"` // default 90 when zero
-	WhatToShow string `json:"what_to_show,omitempty"`
-}
-
-// HistoryBar is one daily OHLCV row.
-type HistoryBar struct {
-	Date   string  `json:"date"` // YYYY-MM-DD
-	Open   float64 `json:"open"`
-	High   float64 `json:"high"`
-	Low    float64 `json:"low"`
-	Close  float64 `json:"close"`
-	Volume int64   `json:"volume"`
-}
-
-// HistoryDailyResult wraps the daily bars for the CLI. Historical daily
-// is therefore unused on this response and kept only as a reserved field
-type HistoryDailyResult struct {
-	Symbol     string       `json:"symbol"`
-	Days       int          `json:"days"`
-	WhatToShow string       `json:"what_to_show,omitempty"`
-	DataType   string       `json:"data_type,omitempty"`
-	Bars       []HistoryBar `json:"bars"`
-	AsOf       time.Time    `json:"as_of"`
-}
-
 // TechnicalParams asks the daemon to compute weekly-screening indicators from
+// daily bars. Symbols may be passed as a comma-separated string by the CLI or
+// as an array by MCP after normalisation.
 type TechnicalParams struct {
 	Symbols      []string `json:"symbols"`
 	Benchmark    string   `json:"benchmark,omitempty"`     // default SPY
@@ -403,12 +382,16 @@ type MarketCalendarResult struct {
 }
 
 // BreadthSPXParams is the input for MethodBreadthSPX. All fields are
+// optional with sensible defaults — the dashboard generator calls this
+// with empty params for the canonical view.
 type BreadthSPXParams struct {
 	// HistoryDays bounds the trailing daily series. Default 30 when
 	// zero or negative; capped at 90 to keep the wire payload bounded.
 	HistoryDays int `json:"history_days,omitempty"`
 	// TimeoutMs bounds the wait when the engine has a fresh value but
 	// the wire envelope is still being assembled. Default 5000 ms when
+	// zero. Does not affect the multi-minute cold-start fan-out; that
+	// path returns immediately with State="computing".
 	TimeoutMs int `json:"timeout_ms,omitempty"`
 }
 
@@ -422,13 +405,31 @@ type BreadthDailyValue struct {
 }
 
 // BreadthState classifies the engine's compute-pipeline state at the
+// moment a result envelope was assembled. Distinct from a generic
+// "status" because the consumer's branching logic depends on which
+// state the engine is in, not just whether the value is present:
 //
-//	"indicator not yet available" — typically only seen during the
+//   - cold: no snapshot has ever been computed AND no refresh is in
+//     flight. The engine exists but hasn't been kicked yet. Treat as
+//     "indicator not yet available" — typically only seen during the
+//     ~few-second window between daemon start and postConnectSetup
+//     launching the scheduler.
+//   - computing: no snapshot exists yet and a refresh is in flight. Renderers
+//     show a loading state.
+//   - ready: a snapshot exists. Value/History are authoritative enough to
+//     rank; Refreshing says whether a newer snapshot is being computed.
+//   - degraded: a snapshot exists but its coverage is below the
+//     engine's threshold (e.g. partial fan-out completed). Value is
+//     present but should be rendered with a warning — the underlying
+//     constituent coverage is insufficient.
 //
 // Codified on the wire (rather than left as a side-channel via
+// engine.IsRefreshing) so every consumer reads the same state without
+// remembering to call a sibling method or infer readiness from zero values.
 type BreadthState string
 
 // Breadth states distinguish startup and computation progress from usable and
+// coverage-degraded snapshots.
 const (
 	BreadthStateCold      BreadthState = "cold"
 	BreadthStateComputing BreadthState = "computing"
@@ -464,6 +465,7 @@ type BreadthSPXResult struct {
 	// State classifies the engine pipeline at the moment this envelope
 	State BreadthState `json:"state"`
 	// Refreshing is true when a newer breadth run is in flight or waiting to
+	// retry while this envelope serves the last good snapshot.
 	Refreshing bool `json:"refreshing,omitempty"`
 	// Refresh is the current or most recently completed paced-pass progress.
 	// slow advancing run, a stopped run, and the last classified failure.
@@ -472,6 +474,9 @@ type BreadthSPXResult struct {
 	// divergence. Zero is meaningful only when State == "ready" (a
 	PctAbove50DMA float64 `json:"pct_above_50dma"`
 	// PctAbove200DMA is the slow-window reading: percentage above the
+	// 200-day SMA. Caught the 1999 and 2021 cyclical tops cleanly.
+	// Bands per locked plan: below 40% = red / 40-60% = yellow / above
+	// 60% = green (calibrated to the post-Mag-7 era).
 	PctAbove200DMA float64 `json:"pct_above_200dma"`
 	// NewHighsToday is the count of constituents whose latest close
 	NewHighsToday int `json:"new_highs_today"`
@@ -480,6 +485,8 @@ type BreadthSPXResult struct {
 	// NetNewHighsPct is (NewHighsToday - NewLowsToday) / coverage × 100
 	NetNewHighsPct float64 `json:"net_new_highs_pct"`
 	// History is the trailing daily series, oldest first. Length is
+	// bounded by BreadthSPXParams.HistoryDays. Each point carries
+	// both SMA readings plus the new-highs/lows counts.
 	History []BreadthDailyValue `json:"history,omitempty"`
 	// Source identifies the data provenance for the headline value.
 	Source string `json:"source"`
@@ -490,29 +497,52 @@ type BreadthSPXResult struct {
 	// AsOf is the daemon's wall-clock when the result was assembled.
 	AsOf time.Time `json:"as_of"`
 	// SessionKey is the US-equity session date represented by the
+	// computed daily bars. It may differ from AsOf on weekends,
+	// holidays, and before the current session's close is settled.
 	SessionKey string `json:"session_key,omitempty"`
 	// Stale reports that SessionKey is not the latest completed US-equity
 	Stale bool `json:"stale,omitempty"`
 	// SpotAt is the gateway-observation timestamp for the headline,
+	// distinct from AsOf which covers history + headline.
 	SpotAt time.Time `json:"spot_at,omitzero"`
 	// DataType reflects the gateway's feed state when the headline
 	DataType string `json:"data_type,omitempty"`
 }
 
 // GammaZeroSPXStatus values are returned on GammaZeroSPXResult.Status and
+// drive the dashboard generator's "render the number" vs "render a
+// loading state" choice. The compute is heavy (several minutes against
+// hundreds of option legs) and runs on a daemon-internal goroutine, so the
 // wire shape always carries a state. The daemon normally prewarms after
+// gateway startup. Successful last-good data is served while a newer compute
+// refreshes behind it after the 15-minute RTH soft TTL; outside regular option
+// hours automatic refresh is not due.
+//
+// The four states mirror BreadthState's cold/computing/ready/error
+// semantics so consumers can branch on Status uniformly across the two
+// state-machine engines.
 const (
 	// GammaZeroStatusCold — no usable last-good exists and no compute is in
+	// flight. This can persist off-hours because automatic refresh is not due.
+	// Distinct from Computing, which will resolve without another kick.
 	GammaZeroStatusCold = "cold"
 	// GammaZeroStatusComputing — a background compute is in flight and no
+	// usable last-good can be served; the EtaSeconds / Progress fields carry
+	// refresh hints. Callers who can wait may set GammaZeroSPXParams.WaitMs >
+	// 0 on the request to block up to that budget for the result.
 	GammaZeroStatusComputing = "computing"
 	// GammaZeroStatusReady — Result is the served successful last-good. During
 	GammaZeroStatusReady = "ready"
 	// GammaZeroStatusError — the last compute failed; Error carries the
+	// classified reason. Callers retry by re-invoking the method.
 	GammaZeroStatusError = "error"
 )
 
 // Scope values for GammaZeroSPXParams.Scope. Empty Scope defaults to
+// "spy+spx". The combined scope prefers fresh SPY+SPX; when a fresh SPX
+// slice is unavailable it may compose fresh/cached SPY with the last
+// successful SPX slice and mark the result degraded. If no usable SPX
+// slice exists, combined degrades to SPY-only with a structured warning.
 const (
 	GammaZeroScopeSPY      = "spy"
 	GammaZeroScopeSPX      = "spx"
@@ -520,8 +550,14 @@ const (
 )
 
 // GammaZeroSPXParams is the input for MethodGammaZeroSPX. All fields are
+// optional; defaults match the v1 calibration window documented in
+// docs/docs/internals/regime-dashboard.md.
 type GammaZeroSPXParams struct {
 	// WaitMs is the maximum time the daemon blocks on an in-flight or
+	// just-kicked-off compute before returning the current state. 0
+	// (the default) means "return immediately with whatever state we
+	// have." A non-zero value is capped daemon-side to keep the RPC
+	// under the per-method deadline.
 	WaitMs int `json:"wait_ms,omitempty"`
 	// Force, when true, starts a fresh diagnostic compute. If a good
 	// promotes the forced compute only on success. Useful for diagnostics;
@@ -533,14 +569,20 @@ type GammaZeroSPXParams struct {
 }
 
 // GammaZeroParams echoes the v1 calibration window back to the caller so
+// renderers can show "computed over N expirations within ±X%." Future
+// versions can add fields here without breaking the result shape — every
+// renderer-relevant tuning parameter lives on this echo.
 type GammaZeroParams struct {
 	// ExpiryCount is the number of nearest non-0DTE-post-settlement
 	ExpiryCount int `json:"expiry_count"`
 	// StrikeWidthPct is the half-width of the strike grid around spot,
+	// expressed as a fraction (0.10 = ATM ± 10 %).
 	StrikeWidthPct float64 `json:"strike_width_pct"`
 	// SweepRangePct is the half-range of the spot sweep used to find
 	SweepRangePct float64 `json:"sweep_range_pct"`
 	// WorkerCount is the per-leg fan-out concurrency. 4 matches the
+	// documented safe gateway throttle; bumping it requires retuning
+	// AcquireMarketDataSlot.
 	WorkerCount int `json:"worker_count"`
 }
 
@@ -556,6 +598,9 @@ type StrikeConcentration struct {
 	// the only underlying in scope.
 	Underlying string `json:"underlying,omitempty"`
 	// TradingClass is the listed class on the contract — "SPY",
+	// "SPX" (AM-settled monthly), "SPXW" (PM-settled weekly).
+	// Distinct from Underlying for SPX which lists both classes.
+	// Empty in single-class results that don't need disambiguation.
 	TradingClass string  `json:"trading_class,omitempty"`
 	Strike       float64 `json:"strike"`
 	Expiry       string  `json:"expiry"` // YYYY-MM-DD
@@ -565,7 +610,11 @@ type StrikeConcentration struct {
 }
 
 // GammaLegDiagnosticCounts splits the priced-leg funnel into the
+// conditions required for dealer GEX contribution. A leg can price and
 // still fail to contribute when open interest is missing/zero, gamma is
+// degenerate, or the resulting OI-weighted absolute GEX is zero. Missing
+// OI is unknown, not zero; OpenInterestObservedLegs keeps that distinct
+// from an observed zero-OI tick.
 type GammaLegDiagnosticCounts struct {
 	PricedLegs               int `json:"priced_legs"`
 	ModelTickLegs            int `json:"model_tick_legs,omitempty"`
@@ -686,6 +735,8 @@ type GammaQualityCoverage struct {
 }
 
 // GammaQualityGate is one explicit quality decision. Status is "pass",
+// "context", or "block"; block gates prevent rankability, context gates
+// preserve the payload as context only.
 type GammaQualityGate struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
@@ -699,14 +750,17 @@ type GammaWarningDetail struct {
 	// Code is the stable warning token, without lossy prose parsing.
 	Code string `json:"code"`
 	// Scope names the affected slice: "SPY", "SPX", "SPY+SPX", or a
+	// narrower trading class / expiry when the condition is that local.
 	Scope string `json:"scope,omitempty"`
 	// Severity is one of "info", "data_quality", or "methodology".
 	Severity string `json:"severity,omitempty"`
 	// Message is a short user-facing explanation of the condition.
 	Message string `json:"message"`
 	// Impact explains how to read the gamma result in light of the
+	// warning. Empty when the message is self-contained.
 	Impact string `json:"impact,omitempty"`
 	// Action is an optional non-advisory operational next step, such as
+	// retrying during RTH or suppressing a known SPX entitlement banner.
 	Action string `json:"action,omitempty"`
 }
 
@@ -764,11 +818,18 @@ type GammaZeroComputed struct {
 	// GapPct is (SpotUnderlying − ZeroGamma) / ZeroGamma × 100. nil iff
 	GapPct *float64 `json:"gap_pct,omitempty"`
 	// GammaSign is "positive" or "negative" and is meaningful only when
+	// ZeroGamma is nil — it tells the renderer which side of zero the
+	// whole sweep landed on so the UI can say "all long-gamma" or "all
+	// short-gamma in window."
 	GammaSign string `json:"gamma_sign,omitempty"`
 	// Profile is the full (spot, gex) sweep, oldest first. 60 points
 	Profile []GammaProfilePoint `json:"profile,omitempty"`
 
 	// GammaTotalAbs is the sign-agnostic magnitude signal at
+	// SpotUnderlying: Σ |Γ| × OI × 100 × SpotUnderlying² × 0.01. In
+	// dollar gamma terms — the total notional dealer hedging flow for
+	// a 1% underlying move, independent of any positioning assumption.
+	// Larger = market is more sensitive to dealer rebalancing.
 	GammaTotalAbs float64 `json:"gamma_total_abs"`
 	// GammaTotalAbsConvention names the sign-handling for GammaTotalAbs
 	GammaTotalAbsConvention string `json:"gamma_total_abs_convention,omitempty"`
@@ -778,6 +839,9 @@ type GammaZeroComputed struct {
 	TopConcentrationPct float64 `json:"top_concentration_pct,omitempty"`
 
 	// SweepLowAbs / SweepHighAbs are the absolute spot bounds of the
+	// sweep window in dollars: SpotUnderlying × (1 ± Params.SweepRangePct).
+	// Surfaced for renderers that want to print "γ-zero outside swept
+	// range $A.AA-$C.CC" without re-deriving the multiplication.
 	SweepLowAbs  float64 `json:"sweep_low_abs,omitempty"`
 	SweepHighAbs float64 `json:"sweep_high_abs,omitempty"`
 
@@ -790,23 +854,41 @@ type GammaZeroComputed struct {
 	PricedLegCount int `json:"priced_leg_count,omitempty"`
 	// DerivedIVLegs counts how many priced legs used the BS-IV
 	// Newton-Raphson fallback because the gateway never pushed a
+	// model-computation tick. Pre-market this is often equal to
+	// PricedLegCount (the model engine is idle); during regular hours it
+	// should stay at 0. Renderers surface a "compute used N derived
+	// IVs" disclosure so readers can tell those IVs came from option
+	// quote/close inversion rather than live model ticks.
 	DerivedIVLegs int `json:"derived_iv_legs,omitempty"`
 	// ModelTickLegs counts priced legs whose IV came from IBKR's
+	// option model-computation tick. DerivedLiveMidLegs and
+	// DerivedPrevCloseLegs split the BS-IV fallback by price anchor:
+	// live bid/ask midpoint versus prior-session option close. The
 	// split is optional and additive; legacy consumers can continue to
+	// read DerivedIVLegs as the total fallback count.
 	ModelTickLegs        int `json:"model_tick_legs,omitempty"`
 	DerivedLiveMidLegs   int `json:"derived_live_mid_legs,omitempty"`
 	DerivedPrevCloseLegs int `json:"derived_prev_close_legs,omitempty"`
 	// LegDiagnostics explains how priced legs flowed through the
+	// GEX-contribution funnel. It is especially useful when a forced
+	// off-hours run prices legs but every row has missing/zero OI.
 	LegDiagnostics *GammaLegDiagnostics `json:"leg_diagnostics,omitempty"`
 	// CollectionDiagnostics exposes the source-level request funnel per
+	// underlying/tradingClass/expiry: contracts qualified, market-data legs
+	// requested, priced legs, live-vs-carried OI, timeouts, rejects, and cap
+	// truncation. This is the production diagnostic surface for deciding
+	// whether gamma is source-limited or merely gate-blocked.
 	CollectionDiagnostics []GammaCollectionDiagnostic `json:"collection_diagnostics,omitempty"`
 	// Quality is the explicit rankability contract for gamma as an
+	// algo-trading signal. Result can be present while Quality says
 	// "context_only" or "blocked"; regime/Stress consumers must not
+	// count the gamma band unless this says "rankable".
 	Quality *GammaSignalQuality `json:"quality,omitempty"`
 	// Warnings is the daemon-internal list of non-fatal condition codes:
 	// serialized; wire consumers read WarningDetails instead.
 	Warnings []string `json:"-"`
 	// WarningDetails is the serialized warning surface: scoped,
+	// user-facing explanations plus optional impact/action text.
 	WarningDetails []GammaWarningDetail `json:"warning_details,omitempty"`
 	// Summary is a compact interpretation of the result. It is designed
 	Summary *GammaZeroSummary `json:"summary,omitempty"`
@@ -819,18 +901,30 @@ type GammaZeroComputed struct {
 	LegCount0DTE  int                 `json:"leg_count_0dte,omitempty"`
 
 	// ZeroGamma1to7 / Profile1to7 / GammaSign1to7 / LegCount1to7 are the
+	// matching triple for legs with 0 < DTE ≤ 7 days — overnight
+	// through one calendar week. Captures end-of-week dynamics
+	// (weeklies, EOW Friday flow) without commingling with the 0DTE
+	// term that swamps the bucket on a third Friday.
 	ZeroGamma1to7 *float64            `json:"zero_gamma_1to7,omitempty"`
 	Profile1to7   []GammaProfilePoint `json:"profile_1to7,omitempty"`
 	GammaSign1to7 string              `json:"gamma_sign_1to7,omitempty"`
 	LegCount1to7  int                 `json:"leg_count_1to7,omitempty"`
 
 	// ZeroGammaTerm / ProfileTerm / GammaSignTerm / LegCountTerm are the
+	// matching triple for legs with DTE > 7 days — monthly OPEX and
+	// quarterly horizons. Slower-moving than the two near buckets;
+	// dominated by collar/structured-product positioning rather than
+	// dealer-flow speed.
 	ZeroGammaTerm *float64            `json:"zero_gamma_term,omitempty"`
 	ProfileTerm   []GammaProfilePoint `json:"profile_term,omitempty"`
 	GammaSignTerm string              `json:"gamma_sign_term,omitempty"`
 	LegCountTerm  int                 `json:"leg_count_term,omitempty"`
 
 	// MethodologyCitations is the short bibliography backing the
+	// methodology disclosure. Each entry is a single line of the form
+	// "Author (Year) — short claim". Surfaced on the result envelope so
+	// renderers can show the citations alongside the headline numbers
+	// without the user having to consult out-of-band documentation.
 	MethodologyCitations []string `json:"methodology_citations,omitempty"`
 
 	// SkewModel names the IV model used during the sweep. v2 cutover:
@@ -861,6 +955,11 @@ type GammaZeroComputed struct {
 	PerIndex map[string]*GammaZeroComputed `json:"per_index,omitempty"`
 
 	// PartialClasses surfaces per-trading-class entitlement gaps when
+	// one class of an underlying lands but the other 354s. Keyed by
+	// the unreachable trading class (e.g. {"SPX": "354"} when SPX-class
+	// AM-monthlies return "not subscribed" but SPXW-class weeklies
+	// land). Empty when both classes land cleanly OR when neither
+	// lands (the latter surfaces as Status="error" upstream).
 	PartialClasses map[string]string `json:"partial_classes,omitempty"`
 
 	// RegimeAgreement classifies whether the SPY and SPX dealer-gamma
@@ -870,7 +969,10 @@ type GammaZeroComputed struct {
 }
 
 // GammaZeroSPXResult is the envelope returned by MethodGammaZeroSPX.
+// Always carries a Status; Result is populated when Status is "ready".
 // The split (envelope vs computed payload) keeps the wire stable while
+// the compute pipeline can evolve — adding fields to GammaZeroComputed
+// doesn't churn the polling contract.
 type GammaZeroSPXResult struct {
 	// Status is one of GammaZeroStatusComputing / Ready / Error.
 	Status string `json:"status"`
@@ -880,14 +982,18 @@ type GammaZeroSPXResult struct {
 	// StartedAt is when the currently-relevant compute kicked off — for
 	StartedAt *time.Time `json:"started_at,omitempty"`
 	// EtaSeconds is an initial estimate of the total wall-clock the
+	// compute will need from kickoff. Used by renderers to show a
+	// progress meter or set a polling cadence. 0 when Status != computing.
 	EtaSeconds int `json:"eta_seconds,omitempty"`
 	// Progress is a 0-100 hint, best-effort. 0 when Status != computing.
 	Progress int `json:"progress,omitempty"`
 	// Result is populated when Status == "ready".
 	Result *GammaZeroComputed `json:"result,omitempty"`
 	// DiagnosticResult is populated when a compute failed after collecting
+	// source-level evidence (for example priced option legs with no usable OI),
 	// or when a preserved ready cache has a newer failed diagnostic refresh.
 	// It must not be treated as a trading signal; it exists to expose the
+	// option-chain/OI source blocker that prevented Result from updating.
 	DiagnosticResult *GammaZeroComputed `json:"diagnostic_result,omitempty"`
 	// Error is populated when Status == "error".
 	Error string `json:"error,omitempty"`
@@ -1038,20 +1144,30 @@ type RegimeEligibility struct {
 }
 
 // RegimeThresholds names the heuristic threshold set used to classify an
+// indicator. The string bands are intentionally compact and heterogeneous:
+// each row has different units, so a label plus per-band text is friendlier
+// than forcing everything into one numeric schema.
 type RegimeThresholds struct {
 	Label  string `json:"label,omitempty"`
 	Green  string `json:"green,omitempty"`
 	Yellow string `json:"yellow,omitempty"`
 	Red    string `json:"red,omitempty"`
 	// Trip is the compact display form of Red: the trigger a gauge face
+	// prints beside its reading ("trips <40% (50d)"). It restates Red's own
 	// threshold in fewer words and never introduces a second number — the
+	// two are authored together at the single call site that owns this
 	// indicator's bands, so a renderer never has to parse Red or invent a
+	// cutoff of its own.
 	Trip            string `json:"trip,omitempty"`
 	Heuristic       bool   `json:"heuristic,omitempty"`
 	PendingBacktest bool   `json:"pending_backtest,omitempty"`
 }
 
 // RegimeAsOfSummary is the row-level freshness badge rendered in the CLI and
+// exposed in JSON/MCP. Label is the user-facing compact form ("live",
+// "15m delayed", "close D-1", "cached 11:42", "2d old", "unavailable").
+// Time is present when a real timestamp exists; Date is present for official
+// daily files whose observation date is more meaningful than midnight UTC.
 type RegimeAsOfSummary struct {
 	Label      string    `json:"label"`
 	Time       time.Time `json:"time,omitzero"`
@@ -1077,6 +1193,7 @@ type RegimeVIXTerm struct {
 	VIXPrevClose *float64 `json:"vix_prev_close,omitempty"`
 	VIXChangePct *float64 `json:"vix_change_pct,omitempty"` // (vix − prev_close) / prev_close × 100
 	// VIXChangeBasis is the day-change provenance on closed dates. Empty on
+	// trading dates (live print vs tick-9 close).
 	VIXChangeBasis string `json:"vix_change_basis,omitempty"`
 	// Per-scalar provenance. Each *Quality is nil when the corresponding
 	VIXQuality   *Quality `json:"vix_quality,omitempty"`
@@ -1138,10 +1255,17 @@ type RegimeHYGSPYDivergence struct {
 	SPYPrice   *float64 `json:"spy_price"`
 	SPY52WHigh *float64 `json:"spy_52w_high"`
 	// SPY previous regular-session close plus the day's dollar and
+	// percent change. Trading dates: tick 9, emitted automatically
+	// alongside the price triple. Official non-trading dates: pinned to
+	// the official daily closes of the last two completed sessions,
+	// because the gateway's tick-9 anchor and last print can each reset
+	// independently while the market is closed. All three nil when no
+	// anchor was resolvable.
 	SPYPrevClose *float64 `json:"spy_prev_close,omitempty"`
 	SPYChange    *float64 `json:"spy_change,omitempty"`     // last − prev_close (dollars)
 	SPYChangePct *float64 `json:"spy_change_pct,omitempty"` // (last − prev_close) / prev_close × 100
 	// SPYChangeBasis is the day-change provenance on closed dates. Empty on
+	// trading dates (live print vs tick-9 close).
 	SPYChangeBasis string   `json:"spy_change_basis,omitempty"`
 	HYGDataType    string   `json:"hyg_data_type,omitempty"`
 	Notes          string   `json:"notes,omitempty"`
@@ -1239,8 +1363,26 @@ type RegimeGammaZero struct {
 	ZeroGammaQuality     *Quality `json:"zero_gamma_quality,omitempty"`
 	GammaTotalAbsQuality *Quality `json:"gamma_total_abs_quality,omitempty"`
 	// HorizonAgreement names how a single-underlying envelope's three
+	// horizon-bucketed γ-zero readings (0DTE, 1-7, term) relate. Empty
+	// for combined SPY+SPX results, where horizon buckets live under
+	// per_index.SPY / per_index.SPX. One of:
+	//
+	//   - "all_long"             every usable bucket is long-γ
+	//   - "all_short"            every usable bucket is short-γ
+	//   - "all_transition"       every usable bucket is within ±2% of
+	//                            its γ-zero
+	//   - "diverge:0dte_vs_term"  0DTE and term buckets disagree
+	//                            (highest-information case — short-fuse
+	//                            flow disagrees with monthly positioning)
+	//   - "diverge:partial"       other mixed cases (1-7 alone disagrees,
 	//                            only two usable buckets disagree, etc.)
 	//   - "0dte_only" / "1to7_only" / "term_only" — only one bucket is
+	//                            usable
+	//   - ""                     no bucket has a usable signal
+	//
+	// The renderer annotates the row whenever the value starts with
+	// "diverge:" or ends in "_only" — those are the cases where the
+	// combined headline doesn't tell the full story.
 	HorizonAgreement string `json:"horizon_agreement,omitempty"`
 	// Streak counts consecutive sessions in the current band. See
 	Streak *StreakInfo `json:"streak,omitempty"`
@@ -1276,9 +1418,11 @@ type RegimeSnapshotParams struct{}
 type RegimeSnapshotResult struct {
 	AsOf time.Time `json:"as_of"`
 	// AuthorityHealth describes how the daemon obtained this response. It is
+	// response/cache metadata, not classified market evidence: semantic regime
 	// fingerprints must ignore it. Nil preserves compatibility with older
 	// daemons; the Phase 1 authority populates it on every served last-good
 	// snapshot. Cold authorities fail with CodeRegimeUnavailable instead of
+	// manufacturing an empty or partial RegimeSnapshotResult.
 	AuthorityHealth *RegimeAuthorityHealth `json:"authority_health,omitempty"`
 	// TapeSessionState classifies the official US cash-equity calendar date
 	// tape terms keep full effect (fail-open). Excluded from the regime
@@ -1298,15 +1442,25 @@ type RegimeSnapshotResult struct {
 	GammaZero         RegimeGammaZero        `json:"gamma_zero"`
 	Breadth           RegimeBreadth          `json:"breadth"`
 	// Composite carries the daemon-side rollup the CLI shows above the
+	// indicator rows (verdict + ranked/unranked counts), so MCP consumers
+	// don't have to recompute it from per-row Status fields. Populated on
+	// every response.
 	Composite RegimeComposite `json:"composite"`
 	// WarningDetails carries structured, row-scoped data-quality issues
 	// that affected this snapshot but did not make the whole RPC fail.
 	WarningDetails []RegimeWarning `json:"warning_details,omitempty"`
 	// DataQuality carries the same high-level data-quality summary used by
+	// status.health: degraded gamma and stale regime clusters. It is coarser
+	// than WarningDetails by design, so humans and agents can decide whether
+	// to interpret the regime read carefully without walking every row.
 	DataQuality []DataQualityHealth `json:"data_quality,omitempty"`
 	// SourceHealth is the orchestration-facing freshness/readiness summary
 	SourceHealth []SourceHealth `json:"source_health,omitempty"`
 	// SpecDoc points consumers (especially LLM-driven ones) at the
+	// canonical methodology + threshold reference so they don't
+	// hallucinate band edges. It is the published URL rather than a
+	// repository path: a remote MCP client can fetch the former and
+	// cannot open the latter. Same value on every response.
 	SpecDoc string `json:"spec_doc"`
 }
 
@@ -1372,6 +1526,9 @@ type Quote struct {
 	Last     *float64       `json:"last"`
 	Mark     *float64       `json:"mark,omitempty"`
 	// Price is the legacy selected price: QuotePrice when the gateway has a
+	// current indication, otherwise RegularClose. PriceSource names the
+	// selected input so consumers can avoid treating a close-only fallback
+	// as a live last trade.
 	Price               *float64  `json:"price,omitempty"`
 	PriceSource         string    `json:"price_source,omitempty"`
 	RegularClose        *float64  `json:"regular_close,omitempty"`
@@ -1408,11 +1565,17 @@ type Quote struct {
 	FeedType            string    `json:"feed_type,omitempty"`
 	SpreadPct           *float64  `json:"spread_pct,omitempty"`
 	// QuoteQuality is a compact machine hint: "firm", "indicative",
+	// "wide", "prev_close", "stale", or "missing". It summarizes the
+	// selected price and spread/session context; WarningDetails carries
+	// the explainable reasons.
 	QuoteQuality string `json:"quote_quality,omitempty"`
 	Indicative   bool   `json:"indicative,omitempty"`
 	VolumePhase  string `json:"volume_phase,omitempty"`
 	// PriceAt is the best timestamp for Price. For last trades this is
 	// IBKR tick-string 45 when delivered; for prev_close fallbacks it is
+	// the official prior regular-session close; otherwise it is the local
+	// observation time. PriceAsOf is the preformatted human label renderers
+	// can show directly ("At close: May 22 at 04:01:02 PM EDT").
 	PriceAt        time.Time     `json:"price_at,omitzero"`
 	PriceAsOf      string        `json:"price_as_of,omitempty"`
 	Stale          bool          `json:"stale,omitempty"`
@@ -1420,6 +1583,8 @@ type Quote struct {
 	WarningDetails []DataWarning `json:"warning_details,omitempty"`
 	AsOf           time.Time     `json:"as_of"`
 	// SessionContext explains whether the relevant market was open at the
+	// quote time. Populated when the context is useful for interpreting a
+	// stale/frozen/missing quote; omitted on ordinary live in-session rows.
 	SessionContext *MarketSession `json:"session_context,omitempty"`
 }
 
@@ -1437,6 +1602,8 @@ type Frame struct {
 }
 
 // FrameError is the terminal error payload carried in Frame.Error. Code is
+// one of the FrameErr* constants; Message is a single-sentence human
+// description suitable for surfacing in CLI/MCP client output.
 type FrameError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -1583,7 +1750,11 @@ type PositionsPortfolio struct {
 	ExposureBase            []UnderlyingExposure `json:"exposure_base,omitempty"`
 
 	// ExposureUnmeasured names the held underlyings absent from ExposureBase:
+	// no base-currency market value could be computed for the group, so it
+	// carries no row at all rather than a zero one. A consumer that compares an
 	// ExposureBase subtotal against a threshold must read a non-empty list as
+	// proof the subtotal is partial — the sum understates, and understatement
+	// is the quiet direction. Empty on a fully measured book.
 	ExposureUnmeasured []string `json:"exposure_unmeasured,omitempty"`
 
 	// FXSensitivityPerPct estimates the change in base-currency P&L for a 1%
@@ -1612,6 +1783,8 @@ type PositionGroup struct {
 }
 
 // UnderlyingExposure is the compact base-currency exposure table embedded in
+// PositionsPortfolio. Rows are sorted by absolute MarketValueBase descending
+// so agents can read the dominant exposures without re-aggregating.
 type UnderlyingExposure struct {
 	Underlying        string   `json:"underlying"`
 	MarketValueBase   float64  `json:"market_value_base"`
@@ -1624,18 +1797,42 @@ type UnderlyingExposure struct {
 }
 
 // AccountResult is the wire shape of MethodAccountSummary.
+//
+// CurrencyExposure decomposes the portfolio by contract currency: one
+// row per non-base currency the gateway reported via $LEDGER:ALL. Rows
+// reconcile within ~0.5%: NetLiquidationCcy × ExchangeRate ≈ contribution
 // to base NetLiquidation. Empty array on a same-currency account.
+//
+// UnrealizedPnL / RealizedPnL are the gateway-reported base-currency
+// session totals. Cushion is ExcessLiquidity / NetLiquidation as
+// reported by the gateway (not derived locally) — a ratio, unitless.
 // AccountType is one of IBKR's account-type strings ("INDIVIDUAL",
+// "IB-MARGIN", "REG-T-MARGIN", "PORTFOLIO", "CASH", …); empty when the
 // gateway didn't deliver it (older server versions or non-margin accounts).
+// LookAhead* fields project the post-overnight-margin-cycle state — useful
+// to spot "fine now, blown by tonight" cases on portfolio-margin books.
 // Legacy scalar fields remain float64 for wire compatibility. Authority.Fields
+// is the source of truth for whether each one was observed: an available field
+// with value zero is a genuine zero, while an unavailable field's numeric zero
 // is only the Go zero value and must render as missing.
+//
+// DailyPnL / PnLUnrealizedTotal / PnLRealizedTotal are populated from
 // the gateway's reqPnL stream (TWS msg 94). DailyPnL is start-of-
 // trading-day to now — the figure TWS shows in the portfolio header.
+// PnLUnrealizedTotal / PnLRealizedTotal come from the same msg 94 frame
 // (fields 3 & 4) but are the account's TOTAL unrealized / realized P&L
+// (inception to now), NOT a decomposition of DailyPnL — they do not sum
+// to it. They measure the same quantity as the session-running
+// UnrealizedPnL / RealizedPnL above but arrive on a different feed
 // (reqPnL vs account-updates), so the two can legitimately differ.
+// All three are *float64 — nil means "no data yet" (pre-handshake,
+// before the first stream frame), "no entitlement" (the gateway doesn't
 // emit PnL for unentitled accounts), or "DBL_MAX sentinel" (gateway
 // hasn't computed the slice). Never zero-substituted. PnLUnrealizedTotal
+// / PnLRealizedTotal stay nil on older server versions that emit only
+// the bare dailyPnL field. DailyPnLObservation carries the redacted source
 // state so a regular-session failure cannot become healthy merely because
+// the market closed.
 type AccountResult struct {
 	AccountID            string               `json:"account_id"`
 	AccountType          string               `json:"account_type,omitempty"`
@@ -1758,7 +1955,13 @@ type ChainExpiry struct {
 }
 
 // ChainExpiriesResult is MethodChainExpiries' payload. Expiries are sorted
+// ascending and deduped across exchanges by the daemon.
+//
+// Spot is the underlying mid the daemon used to pick the per-expiry ATM
 // strike and to compute ImpliedMove. Zero when the spot probe failed or
+// WithIV wasn't requested. SpotSource names the selected-price source
+// ("last", "mid", "prev_close", "historical_close", ...); SpotAsOf is the
+// best timestamp known for that selected price.
 type ChainExpiriesResult struct {
 	Symbol         string        `json:"symbol"`
 	Spot           float64       `json:"spot,omitempty"`
@@ -1875,6 +2078,7 @@ type DataQualityHealth struct {
 }
 
 // Data cadence values summarize whether a decision surface has current,
+// expected-but-not-due, missed, absent, or unclassified evidence.
 const (
 	DataCadenceCurrent       = "current"
 	DataCadenceNotDue        = "not_due"
@@ -1884,6 +2088,8 @@ const (
 )
 
 // DataFarmHealth is emitted on status.health only for data farms that
+// currently need operator attention. Healthy farms are intentionally omitted
+// to keep the normal status surface quiet.
 type DataFarmHealth struct {
 	Name    string    `json:"name"`
 	Type    string    `json:"type,omitempty"`
@@ -1906,6 +2112,7 @@ type MarketDataAccessHealth struct {
 	Reason     string    `json:"reason"`
 	ObservedAt time.Time `json:"observed_at,omitzero"`
 	// RetryAt is when the suppression window lifts and the next request for
+	// this key reaches the gateway again.
 	RetryAt time.Time `json:"retry_at,omitzero"`
 }
 
@@ -2031,6 +2238,7 @@ type TradingStatus struct {
 }
 
 // Order constants are the allowlisted action, order-type, time-in-force,
+// strategy, and trailing-offset vocabulary accepted by daemon order requests.
 const (
 	OrderActionBuy  = "BUY"
 	OrderActionSell = "SELL"
@@ -2141,6 +2349,8 @@ type OrdersOpenParams struct{}
 
 // OrdersHistoryParams reads bounded local order-journal history for the
 // current broker account/mode. Since and Until accept RFC3339 timestamps or
+// YYYY-MM-DD UTC dates; Limit caps returned grouped order rows, while
+// EventLimit caps returned lifecycle events per grouped order row.
 type OrdersHistoryParams struct {
 	Since      string `json:"since,omitempty"`
 	Until      string `json:"until,omitempty"`
@@ -2156,6 +2366,7 @@ type OrderStatusParams struct {
 
 // OrderPreviewParams asks the daemon to validate and price an order draft,
 // then mint a short-lived preview token. The preview path never places the
+// order; place/modify/cancel remain separate gated RPCs.
 type OrderPreviewParams struct {
 	Action     string          `json:"action"` // BUY | SELL, case-insensitive
 	Contract   ContractParams  `json:"contract"`
@@ -2302,6 +2513,7 @@ type OrderPlaceParams struct {
 	PreviewToken string `json:"preview_token"`
 	TimeoutMs    int    `json:"timeout_ms,omitempty"`
 	// Origin identifies who is asking (OrderOrigin*) for audit and any
+	// origin-specific policy.
 	Origin string `json:"origin,omitempty"`
 }
 

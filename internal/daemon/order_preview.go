@@ -427,6 +427,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		}
 		// Position-mismatch gate: position.Before is this preview's fresh
 		// positions read (the preview already failed closed above if
+		// positions were unavailable).
 		if err := validateProtectiveModifyQuantity(replaceView, draft, position.Before); err != nil {
 			return nil, err
 		}
@@ -558,7 +559,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}, nil
 }
 
-//lint:ignore U1000 used by trading-tag order placement and paper smoke paths
+//lint:ignore U1000 used by trading-tag order placement paths
 func (s *Server) fetchPreviewQuote(ctx context.Context, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
 	return s.fetchPreviewQuoteBound(ctx, contract, timeout, nil)
 }
@@ -1108,6 +1109,10 @@ func (s *Server) previewExactSessionQuote(ctx context.Context, authority *orderP
 }
 
 // previewExactSessionFXQuote captures one direct CASH/IDEALPRO pair from the
+// same physical session as the order preview. Currency-pair identity is fully
+// specified by Symbol/Currency/SecType/Exchange; unlike stocks and options it
+// does not need a contract-details round trip or positive ConID before market
+// data can be requested.
 func (s *Server) previewExactSessionFXQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
 	if authority == nil || authority.connector == nil ||
 		!strings.EqualFold(strings.TrimSpace(contract.SecType), "CASH") ||
@@ -1260,6 +1265,8 @@ func quoteProvesPennyIncrements(quote rpc.OrderQuoteSnapshot) bool {
 			continue
 		}
 		// Wire quotes arrive float32-truncated (19.05 reads back as
+		// 19.049999...): snap to the penny grid before testing nickel
+		// alignment, or the noise itself reads as penny proof.
 		cents := math.Round(*side * 100)
 		if math.Mod(cents, 5) != 0 {
 			return true

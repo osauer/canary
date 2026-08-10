@@ -31,6 +31,10 @@ import (
 )
 
 // maxFrameBytes caps each newline-delimited JSON-RPC request the daemon will
+// read from a single Unix-socket peer. Bound is generous (1 MiB) — every
+// real CLI/MCP request is well under 10 KiB; the cap exists to prevent a
+// hostile or buggy client from OOM'ing the daemon by sending a long
+// newline-free byte stream that bufio.ReadBytes would otherwise grow into.
 const maxFrameBytes = 1 << 20
 
 // errFrameTooLarge is the sentinel returned by readBoundedLine when a peer
@@ -67,6 +71,7 @@ type Server struct {
 	reduceBasketDedupe map[string]reduceBasketDedupeEntry
 
 	// minTickByConID caches broker-reported minimum price increments per
+	// contract (see resolveContractMinTick).
 	minTickMu      sync.Mutex
 	minTickByConID map[int]float64
 
@@ -102,6 +107,9 @@ type Server struct {
 	// connectInFlight is true while a connect attempt (initial or reconnect)
 	connectInFlight bool
 	// initialAcceptLoopStartedForTest observes the exact startup boundary after
+	// the RPC accept loop is exposed and before the initial connector goroutine
+	// is launched. It lets the startup-order regression test assert that the
+	// in-flight gate was already claimed at that boundary.
 	initialAcceptLoopStartedForTest func()
 	// reconnectFailStreak / lastReconnectAttemptAt drive the reconnect
 	// consecutive failed reconnect cycles; it is bumped in reconnectFlow on
@@ -115,6 +123,7 @@ type Server struct {
 	orderLifecycleHandlersMu sync.Mutex
 	orderLifecycleHandlers   map[*ibkrlib.Connector]*orderLifecycleJournalBinding
 	// orderLifecycleRegisterAfterCapture is a deterministic test seam for a
+	// registration delayed across same-pointer Connector republication.
 	orderLifecycleRegisterAfterCapture func()
 	// orderLifecycleSessionCurrentForTest lets daemon tests isolate publication
 	// identity from pkg/ibkr's intentionally opaque socket receipt.
@@ -127,6 +136,7 @@ type Server struct {
 	orderLifecyclePersistenceUncertain atomic.Bool
 
 	// alertEvidenceArms tracks, per alert source, the last unavailable arm the
+	// evidence heartbeat logged, so transitions log once rather than per tick.
 	alertEvidenceArmMu sync.Mutex
 	alertEvidenceArms  map[rpc.AlertSource]alertEvidenceArmState
 
@@ -151,6 +161,9 @@ type Server struct {
 	prevCloses *prevCloseCache
 
 	// greeks memoises per-option model-computation Greeks so the
+	// positions handler doesn't re-subscribe to each option leg on
+	// every invocation. Short TTL (60 s) because Greeks shift with
+	// spot, but long enough to make back-to-back calls free.
 	greeks *greeksCache
 
 	// zeroGamma holds the served dealer zero-gamma last-good plus any RTH
@@ -189,12 +202,22 @@ type Server struct {
 	// membersRefresherStarted guards Run() launch so a reconnect-
 	membersRefresherStarted sync.Once
 	// membersCachePath is captured at install so handlers reading the
+	// loaded file (status renderer) don't have to re-resolve the XDG
+	// path on every call. Empty when membersRefresher is nil.
 	membersCachePath string
 
 	// contractStore persists symbol→conID resolutions across daemon
 	// restarts. IBKR caps reqContractDetails at ~50 per 10 minutes
 	// per ACCOUNT (the per-clientID isolation breadthConnector enables
+	// doesn't help here — the cap is upstream); every restart that
+	// re-resolves the 503 SPX members from scratch pays that bucket
+	// over and over. The store loads at postConnectSetup and seeds
+	// both connectors, saves every minute + on Stop. Reconstitution
+	// is handled via a members-hash field on the file: stale members
+	// get pruned at load when the current member list differs from
 	// the cached one. nil only on the rare path where
+	// DefaultContractStoreDir returns an error (no HOME / XDG_CACHE
+	// set) — the daemon continues without persistence in that case.
 	contractStore *ibkrlib.ContractStore
 	// contractCacheLoaded records what Load() returned so both
 	contractCacheLoaded map[string]ibkrlib.ContractDetailsLite
@@ -209,6 +232,7 @@ type Server struct {
 	// regimeDecisions appends typed regime lifecycle events to daemon.db for
 	// threshold calibration. Its path-backed form exists only for legacy import
 	// and isolated unit tests; journaling remains best-effort and never fails a
+	// snapshot.
 	regimeDecisions *regimeDecisionJournal
 
 	// stressDecisions is the daemon.db-backed portfolio-stress evidence corpus
@@ -220,6 +244,8 @@ type Server struct {
 
 	// coreStore is the daemon's sole live persistence authority. New resolves
 	// its path but never opens it: only the Start winner may touch daemon.db,
+	// after both the socket-specific instance lock and state-root persistence
+	// lock have been acquired.
 	coreStore        *corestore.Store
 	coreStorePath    string
 	coreStorePathErr error
@@ -299,6 +325,9 @@ type Server struct {
 	// evidence across reconnects even when account/mode text is unchanged.
 	connectorEpoch uint64
 	// rulesRegimeStage latches the bucketed regime lifecycle stage for the
+	// rulebook's regime-conditional thresholds, persisted across restarts
+	// (rules-regime-stage.json) so a bounce mid-stress cannot reset
+	// thresholds to calm. The kick fields single-flight the async refresh.
 	rulesRegimeStageMu     sync.Mutex
 	rulesRegimeStage       rulesRegimeStageState
 	rulesRegimeStageLoaded bool
@@ -329,8 +358,17 @@ type Server struct {
 	orderWriteOriginBlockersForTest func(rpc.TradingStatus, string) []rpc.TradingBlocker
 
 	// regimePrewarming is set while prewarmRegimeSymbols' fan-out is in
+	// flight. Surfaces via backgroundTasks() so the idle watcher defers
+	// shutdown and `canary status` reflects the work — same coherence
+	// guarantee breadth-spx and gamma-zero ride. Up to ~30 s of
+	// gateway-slot pressure during postConnectSetup; if the user
+	// autospawns the daemon and walks away, the idle watcher could
+	// previously fire mid-prewarm.
 	regimePrewarming atomic.Bool
 	// regimeSeries memoises official daily public-rate series used by
+	// regime rows. These inputs change once per
+	// business day, so persisting the last good CSV across daemon restarts
+	// prevents routine HTTP flaps from making credit/funding rows vanish.
 	regimeSeries *regimeSeriesCache
 	// regimeHistory memoises daily HMDS bars used as slow baselines for
 	// and USD/JPY weekly change; transient HMDS failures must not make
@@ -342,6 +380,8 @@ type Server struct {
 	regimeProjectionRepairMu sync.Mutex
 	regimeRefreshLoopWG      sync.WaitGroup
 	// Stress evaluation is daemon-owned and independent of app presence and
+	// decision-journal retention. Regime publications and reconnects share the
+	// buffered wake; the loop drains during daemon shutdown.
 	stressEvaluationWake   chan struct{}
 	stressEvaluationLoopWG sync.WaitGroup
 	// stressEvaluationSourceReaderForTest exercises the real evaluator against
@@ -455,6 +495,7 @@ func New(opts Options) *Server {
 // installFXRateCache installs the legacy codec path without reading it.
 // Server.New runs before the persistence lock; only the unpublished cutover
 // importer may read legacy JSON. Start later attaches daemon.db and loads its
+// current FX projection.
 func (s *Server) installFXRateCache() {
 	dir, err := fxRateStoreDefaultDir()
 	if err != nil {
@@ -560,6 +601,10 @@ func (s *Server) installRegimeHistoryCache() {
 }
 
 // infof / warnf are nil-safe wrappers around s.logger. The tests that
+// construct a zero-value Server directly (breadth_connector_test.go)
+// reach installBreadthEngine / installMembersRefresher with logger=nil;
+// these wrappers let those tests keep working without seeding a logger
+// the test doesn't need.
 func (s *Server) infof(format string, args ...any) {
 	if s.logger != nil {
 		s.logger.Infof(format, args...)
@@ -579,7 +624,9 @@ func (s *Server) debugf(format string, args ...any) {
 }
 
 // installContractStore constructs the legacy contract-cache codec used to
+// locate cutover input. Runtime attachment switches it to daemon.db before any
 // load; if legacy path resolution fails, attachCoreMarketAuthority installs a
+// cold codec directly against SQLite.
 func (s *Server) installContractStore() {
 	dir, err := ibkrlib.DefaultContractStoreDir()
 	if err != nil {
@@ -608,6 +655,12 @@ func (s *Server) installBreadthEngine() {
 
 // resolveBreadthMembers is the deferred members source for the breadth
 // engine (see installBreadthEngine for why it must not run at
+// construction). Prefers the runtime-refreshed daemon.db membership
+// projection over the embedded list, so a daemon installed from a months-old
+// release that has since persisted a fresher list serves current membership
+// immediately. Falls back to the embedded list when no valid projection is
+// available. Logs the chosen source — the engine's sync.Once gate
+// guarantees at most one line per process lifetime.
 func (s *Server) resolveBreadthMembers() []string {
 	if path, perr := spx.MembersDefaultPath(); perr == nil {
 		if loaded, asOf, ok := spx.LoadExternal(path); ok {
@@ -678,7 +731,11 @@ func (s *Server) breadthGatewayConnector() *ibkrlib.Connector {
 
 // claimBreadthConnect reserves the bulk lane's single dial slot,
 // returning true iff the caller now owns it and must run
+// breadthConnectFlow (which releases it). Mirrors the gate inside
+// triggerReconnect, including the ordering: the cheap refusals come
+// first so a zero-value Server — the shape used by unit tests and by
 // autospawn race losers that never reach Start — returns before
+// touching s.now.
 func (s *Server) claimBreadthConnect() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -687,6 +744,7 @@ func (s *Server) claimBreadthConnect() bool {
 	}
 	// IsReady, not a nil check: a connector whose socket died still
 	// holds a non-nil pointer, and that state is exactly the one that
+	// stranded breadth for 7 h.
 	if s.breadthConnector != nil && s.breadthConnector.IsReady() {
 		return false
 	}
@@ -705,7 +763,13 @@ func (s *Server) claimBreadthConnect() bool {
 
 // breadthLaneDown reports whether the bulk lane is known dead, plus the
 // failure streak and the last dial attempt so a status row can describe it
+// without inventing a timestamp.
+//
+// The zero lastBreadthConnectAttemptAt is the gate that keeps daemon
+// start-up out of the "down" state: before postConnectSetup has dialled the
+// bulk lane once, a nil connector is the expected shape, not a fault. After
 // that first attempt a non-ready connector is exactly the state that
+// stranded breadth for 7 h, and saying so is the point.
 func (s *Server) breadthLaneDown() (down bool, failStreak int, lastAttempt time.Time) {
 	s.mu.Lock()
 	c := s.breadthConnector
@@ -732,6 +796,11 @@ func (s *Server) releaseBreadthConnect(ok bool) {
 }
 
 // breadthConnectWarnf surfaces the first failure of a streak at Warn and
+// drops the repeats to Debug. A gateway that stays down re-triggers this
+// lane on every breadth tick (30 s after a transport error, 12 min after
+// a below-threshold pass), and the primary lane has already learned what
+// an unthrottled per-attempt WARN does to this log: ~50k identical lines
+// over one 13.5 h overnight outage.
 func (s *Server) breadthConnectWarnf(format string, args ...any) {
 	s.mu.Lock()
 	first := s.breadthConnectFailStreak == 0
@@ -761,9 +830,29 @@ func (s *Server) triggerBreadthConnect() bool {
 }
 
 // breadthConnectFlow dials the bulk-historical IBKR client and blocks
+// until the handshake completes or breadthClientStartBudget elapses.
 // The caller must already own the dial slot via claimBreadthConnect;
+// this function releases it. postConnectSetup calls it inline (so
+// breadth.Run() starts against a settled view of the lane) and
+// triggerBreadthConnect calls it on a goroutine.
+//
+// Any previous connector is torn down first. On a mid-session gateway
+// drop the old pointer is non-nil but dead, and leaving it in place
+// would leak both the object and its clientID registration — the next
+// dial would then collide with itself on cid=16.
+//
+// The handshake is intentionally synchronous: on the postConnectSetup
+// path breadth.Run() launches shortly after on a sibling goroutine and
 // would otherwise race a not-yet-ready bulk connector, dropping all 503
+// fetches against nil on the first refresh. 12 s mirrors the primary's
+// per-candidate budget — long enough for a healthy local gateway, short
+// enough to surface a misconfigured second cid promptly.
+//
 // On failure (collision past MaxClientIDRetries, gateway unreachable,
+// handshake timeout) the function logs and returns without setting
+// s.breadthConnector. Breadth's refresh sees a nil bulk connector, the
+// fetch path re-triggers behind the backoff, and the daemon as a whole
+// continues running.
 func (s *Server) breadthConnectFlow(ctx context.Context, primaryEp discover.Endpoint) {
 	ok := false
 	defer func() { s.releaseBreadthConnect(ok) }()
@@ -807,7 +896,11 @@ func (s *Server) breadthConnectFlow(ctx context.Context, primaryEp discover.Endp
 	s.logger.Infof("breadth bulk connector ready (cid=%d, separate 40-msg/sec budget from primary)", bulkEp.ClientID)
 
 	// Seed the bulk lane from the same persisted contract cache that
+	// the primary lane was seeded from in postConnectSetup. ConIDs are
 	// globally unique so both lanes get the same wire identity for
+	// every symbol — no contract resolution churn on the bulk side
+	// across daemon restarts. seedFromContractStore is a no-op if the
+	// store wasn't successfully loaded.
 	s.seedConnectorFromCache(attempter)
 }
 
@@ -851,6 +944,9 @@ func (s *Server) seedFromContractStore(c *ibkrlib.Connector) {
 	currentHash := ibkrlib.MembersHash(members)
 	if savedHash != "" && savedHash != currentHash {
 		// SPX reconstituted since the last save. Prune entries whose
+		// symbol isn't in the current list — keep the well-known
+		// seeds (SPX, VIX, etc.) regardless since they aren't SPX
+		// members but are still useful for regime / gamma paths.
 		loaded = pruneNonMembers(loaded, members)
 		s.logger.Infof("contract cache: SPX members hash changed (%s → %s); pruned to %d current-member entries", savedHash, currentHash, len(loaded))
 	}
@@ -950,6 +1046,10 @@ func pruneNonMembers(loaded map[string]ibkrlib.ContractDetailsLite, members []st
 }
 
 // installSubs wires the per-symbol subscription manager onto s. Called by
+// New (production path) and by test helpers that construct *Server directly
+// without going through New. The connector closure re-fetches via
+// gatewayConnector on each call so a daemon-side reconnect is observed
+// without re-registering the manager.
 func (s *Server) installSubs() {
 	s.subs = newSubManager(func() ibkrMarketConnector {
 		c := s.gatewayConnector()
@@ -961,6 +1061,10 @@ func (s *Server) installSubs() {
 }
 
 // Start runs discovery against the configured (possibly partial) gateway,
+// opens the IB Gateway connection in the background, listens on the Unix
+// socket, and blocks until ctx is cancelled or Stop is called. Returns
+// the first fatal error encountered. Returns ErrAlreadyRunning (without
+// touching the gateway) if another Canary daemon holds the instance lock.
 func (s *Server) Start(ctx context.Context) error {
 	lock, err := acquireInstanceLock(s.socketPath)
 	if err != nil {
@@ -995,6 +1099,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.serverCancel = serverCancel
 	s.mu.Unlock()
 	// Registered after closeCoreStore's defer, so daemon cancellation and any
+	// in-flight Regime publication always drain before SQLite is closed.
 	defer s.stopServerContextAndWait()
 	if err := s.attachRegimeSnapshotAuthority(ctx, serverCtx); err != nil {
 		s.lock.Release()
@@ -1032,7 +1137,9 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	// closeListener is the load-bearing handoff for both clean and panic
+	// shutdown paths: idempotent, mu-guarded, unlinks the socket file via
 	// UnixListener.Close. The defer here is the safety net for a panic in
+	// acceptLoop's spawn or the idle watcher itself.
 	defer s.closeListener()
 
 	s.startedAt = time.Now()
@@ -1082,7 +1189,11 @@ func (s *Server) Start(ctx context.Context) error {
 		})
 	}
 	// Breadth scheduler launches from postConnectSetup behind a
+	// sync.Once — the cold-start bootstrap fan-out depends on a live
 	// gateway connector, and launching here would race against the
+	// in-flight connect goroutine. Once Run() is up it survives
+	// subsequent gateway disconnects via the fetcher's connector
+	// thunk.
 	s.runIdleWatcher(ctx)
 
 	s.closeListener()
@@ -1115,7 +1226,9 @@ func (s *Server) closeListener() {
 // A Server that never reached openSocket (e.g. lock contention exit) must
 func (s *Server) Stop() {
 	// Notify any live streaming subscribers BEFORE we tear the listener
+	// down: emits a daemon_shutdown error frame, lets the consumer render
 	// a clean message, and unsubscribes the IBKR market-data lines so the
+	// gateway doesn't carry zombie subs across daemon restarts.
 	if s.subs != nil {
 		s.subs.Close()
 	}
@@ -1150,6 +1263,9 @@ func (s *Server) Stop() {
 
 // connectAttempter is the subset of *ibkrlib.Connector that the daemon's
 // connect/handshake/failover path needs. *ibkrlib.Connector satisfies it
+// structurally; defining the interface here lets the per-candidate
+// handshake be unit-tested with a fake that decides per-port whether to
+// return Connected, without needing a real TCP server.
 type connectAttempter interface {
 	Start(ctx context.Context) error
 	Stop() error
@@ -1165,6 +1281,16 @@ type lastErrorReporter interface {
 }
 
 // newConnector constructs (but does not start) the IBKR connector from
+// the supplied endpoint. Returns immediately — no network I/O.
+//
+// Endpoint is passed in (not read from s.endpoint) because reconnect
+// rebuilds the connector against a freshly-resolved endpoint that may not
+// yet be the published one — the caller decides which endpoint applies.
+//
+// EnableTLSFallback comes from the discovery layer, not the raw config:
+// pinned tls (true or false) → strict, no fallback (issue #3). Auto →
+// fallback enabled so the SDK retries the alternate mode if the primary
+// gets no handshake response.
 func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	conn := ibkrlib.DefaultConfig()
 	conn.Host = ep.Host
@@ -1174,6 +1300,8 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	conn.UseTLS = ep.TLS
 	conn.EnableTLSFallback = ep.EnableTLSFallback
 	// The daemon owns reconnect/failover through triggerReconnect and
+	// reconnectFlow. Keep the low-level connection from racing that owner with
+	// a second reconnect loop on the same client ID.
 	conn.AutoReconnect = false
 
 	cc := &ibkrlib.ConnectorConfig{
@@ -1279,6 +1407,8 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		return
 	}
 	// All candidates exhausted. Publish a verdict that names what we
+	// tried so `canary status` shows the user the full picture (not just
+	// the original probe winner).
 	names := make([]string, 0, len(candidates))
 	for _, c := range candidates {
 		names = append(names, fmt.Sprintf("%s:%d", c.Host, c.Port))
@@ -1290,6 +1420,8 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 	s.mu.Lock()
 	s.lastConnectError = hint
 	// Dedupe like the per-candidate verdict above: exhaustion recurs every
+	// reconnect cycle while the gateway is down, so log once per changed
+	// verdict and demote repeats to Debug.
 	verdictChanged := s.lastNoEndpointUsable != hint
 	s.lastNoEndpointUsable = hint
 	s.mu.Unlock()
@@ -1355,6 +1487,10 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		s.mu.Lock()
 		s.lastConnectError = hint
 		// Dedupe: the daemon rebuilds and re-fails against a down gateway every
+		// reconnect cycle. Log the transition once at WARN and demote identical
+		// repeats to Debug. Compare-and-set under the same lock as
+		// lastConnectError so two racing status-driven reconnects can't both
+		// decide "changed" (see resetConnectVerdicts for the recovery reset).
 		verdictChanged := s.lastGatewayUnreachable != hint
 		s.lastGatewayUnreachable = hint
 		s.mu.Unlock()
@@ -1388,7 +1524,12 @@ func (s *Server) gatewayUnavailableError() error {
 }
 
 // resetConnectVerdicts clears the connect-retry verdict dedupe on a successful
+// handshake so the next unreachable episode logs its transition afresh. It
+// returns true iff the daemon was in a logged-unreachable episode, so the
+// caller can emit the one-line recovery bookend. lastEndpointResolvedSig is
+// intentionally left intact — it is value-keyed on the endpoint, not the
 // episode, and re-logs only when the endpoint actually changes. Caller must not
+// hold s.mu.
 func (s *Server) resetConnectVerdicts() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1401,10 +1542,13 @@ func (s *Server) resetConnectVerdicts() bool {
 // postConnectSetup runs the best-effort initialization that follows a
 // successful handshake (market-data type + account-updates stream).
 // Failures here are non-fatal: snapshot data still flows; only the
+// streaming mark/value/P&L decoration on positions is degraded.
 func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	s.mu.Lock()
 	s.lastConnectError = ""
 	// A completed handshake ends the outage: clear the reconnect backoff so a
+	// later drop reconnects immediately instead of inheriting an escalated
+	// quiet period (same reasoning as the gamma resetRetryBackoff below).
 	s.reconnectFailStreak = 0
 	s.mu.Unlock()
 	// A successful handshake ends any unreachable episode: clear the verdict
@@ -1416,6 +1560,10 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 		ep.Host, ep.Port, ep.ClientID, a.UsingTLS())
 
 	// Default to type 2 (frozen-aware): IBKR returns live ticks for
+	// entitled symbols during market hours and the last-known close
+	// otherwise. Snapshot requests reliably terminate with
+	// tickSnapshotEnd this way; pure live (type 1) can leave snapshots
+	// hanging when the market is closed.
 	if err := a.SetMarketDataType(2); err != nil {
 		s.logger.Warnf("SetMarketDataType(frozen) failed: %v", err)
 	}
@@ -1436,6 +1584,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// stream never starts, leaving positions empty for the entire daemon
 	// lifetime (observed 2026-06-11). Prefer a concrete session account,
 	// then the concrete scope account (config pin), then let the
+	// connector resolve its bound code.
 	account := strings.TrimSpace(ep.Account)
 	if !brokerScopeAccountConcrete(account) {
 		account = s.currentBrokerStateScope().Account
@@ -1491,7 +1640,24 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	go s.prewarmRegimeSymbols()
 
 	// Stand up the dedicated bulk-historical IBKR client BEFORE
+	// launching breadth.Run(). The scheduler's cold-start bootstrap
+	// fan-outs 500 historical-bar fetches and would otherwise read
+	// nil from breadthGatewayConnector on every leg until the bulk
+	// handshake lands. Synchronous start (12-s ceiling) blocks
+	// postConnectSetup briefly; in exchange, breadth.Run() launches
+	// with a guaranteed-or-nil view of the bulk connector.
+	//
+	// Runs on EVERY successful primary handshake, not once per process.
+	// A reconnect is the moment the bulk lane most needs rebuilding:
+	// whatever killed the primary's socket almost always killed cid=16
+	// alongside it. claimBreadthConnect makes the repeat a no-op when
+	// the lane is already healthy, which is what the old sync.Once was
+	// really there to guarantee.
+	//
+	// The 12-s ceiling therefore now bounds reconnects too, not just
 	// the first connect. It only binds when the second cid cannot be
+	// seated at all; a healthy local gateway seats it in about a
+	// second, which is what the reconnect path actually costs.
 	if s.breadth != nil && s.serverCtx != nil && s.claimBreadthConnect() {
 		s.breadthConnectFlow(s.serverCtx, ep)
 	}
@@ -1593,12 +1759,18 @@ var regimeSymbolSeed = map[string]ibkrlib.ContractDetailsLite{
 	"SPY":     {Symbol: "SPY", ConID: 756733, Exchange: "SMART", PrimaryExch: "ARCA"},
 	"USD.JPY": {Symbol: "USD", ConID: 15016059, Exchange: "IDEALPRO", PrimaryExch: "IDEALPRO"},
 	// SPX anchors the zero-gamma compute (Indicator 4). Without a
+	// seeded underlying conID, the compute's first step — fetching
+	// the option chain — can stall on the same reqContractDetails
+	// silence that blocks the historical fetchers above.
 	"SPX": {Symbol: "SPX", ConID: 416904, Exchange: "CBOE", PrimaryExch: "CBOE"},
 }
 
 // prewarmRegimeSymbols populates the connector's contract-details
 func (s *Server) prewarmRegimeSymbols() {
 	// Clear the sentinel on every exit path. The matching Set is in the
+	// caller (postConnectSetup) BEFORE the `go` so a status RPC arriving
+	// during the goroutine-spawn window sees the in-flight prewarm.
+	// The connector nil-return below depends on this defer running.
 	defer s.regimePrewarming.Store(false)
 	c := s.gatewayConnector()
 	if c == nil {
@@ -1624,6 +1796,14 @@ func (s *Server) prewarmRegimeSymbols() {
 }
 
 // handshakeWatchdog publishes a degraded-state hint to lastConnectError if
+// the gateway hasn't connected by `delay`. Takes isConnected as a function
+// pointer so tests can drive this directly without a real *Connector.
+//
+// The gate (s.lastConnectError == "") avoids clobbering a real error that
+// the main path may have already set. The success branch in
+// connectGatewayBackground clears the hint when the connect eventually
+// lands (e.g. via the SDK's TLS fallback retry) — so the watchdog is
+// informational only, not authoritative.
 func (s *Server) handshakeWatchdog(ctx context.Context, isConnected func() bool, delay time.Duration, ep discover.Endpoint) {
 	select {
 	case <-ctx.Done():
@@ -1699,7 +1879,11 @@ func (s *Server) triggerReconnect() bool {
 		return false
 	}
 	// Backoff gate: while the gateway is down every read handler that funnels
+	// through gatewayConnector() calls this, and a refused dial returns
+	// instantly, so absent a throttle the retries flood the log. Skip (never
+	// sleep — this runs on the request hot path) while inside the current
 	// failure streak's quiet period; the next poll after it elapses starts the
+	// real attempt.
 	now := s.now()
 	if !s.reconnectAllowed(now) {
 		s.mu.Unlock()
@@ -1768,6 +1952,8 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 	if derr != nil {
 		// Same verdict as the previous attempt → already logged; stay quiet.
 		// A changed verdict (or first failure) logs once. This keeps the
+		// reconnect-during-status-poll loop from emitting the same WARN line
+		// every 500ms while the user is waiting for the handshake.
 		if curWarn != prevWarn {
 			s.logger.Warnf("Reconnect: discovery: %v", derr)
 		}
@@ -1783,7 +1969,9 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 
 	s.connectWithFailover(ctx, ep)
 	// connectWithFailover publishes a ready connector on success (and
+	// postConnectSetup zeroes the streak); if we are still not ready this
 	// cycle failed — bump the streak so triggerReconnect's backoff paces the
+	// next attempt.
 	s.mu.Lock()
 	connected := s.connector != nil && s.connector.IsReady()
 	s.mu.Unlock()
@@ -1843,6 +2031,10 @@ func (s *Server) openSocket() error {
 		return fmt.Errorf("mkdir socket dir: %w", err)
 	}
 	// We hold the instance flock; any peer holding the socket is by
+	// definition stale (its lock would be released). Dial-probe first to
+	// distinguish "stale file from a crashed predecessor" (safe to remove)
+	// from "live peer that beat us to flock acquisition" (impossible, but
+	// surface clearly if it ever happens).
 	if fi, err := os.Stat(s.socketPath); err == nil && fi.Mode()&os.ModeSocket != 0 {
 		if c, err := net.DialTimeout("unix", s.socketPath, 200*time.Millisecond); err == nil {
 			_ = c.Close()
@@ -1940,7 +2132,11 @@ func readBoundedLine(r *bufio.Reader, maxBytes int) ([]byte, error) {
 }
 
 // recoverHandler is the defer target the dispatcher uses to convert a
+// handler panic into an internal_error response on the *same* JSON-RPC id
+// instead of letting it unwind through serveConn and kill the listener
 // goroutine. The stack trace lands in the daemon log so the panic is
+// debuggable; the misbehaving client gets a classified error and the
+// other connected clients keep working.
 func recoverHandler(logger *Logger, enc *json.Encoder, req *rpc.Request) {
 	rec := recover()
 	if rec == nil {
@@ -1978,8 +2174,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleChainFetch(ctx, req) })
 	case rpc.MethodChainExpiries:
 		s.unary(req, enc, func() (any, error) { return s.handleChainExpiries(ctx, req) })
-	case rpc.MethodHistoryDaily:
-		s.unary(req, enc, func() (any, error) { return s.handleHistoryDaily(ctx, req) })
 	case rpc.MethodTechnical:
 		s.unary(req, enc, func() (any, error) { return s.handleTechnical(ctx, req) })
 	case rpc.MethodMarketCalendar:
@@ -2077,8 +2271,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	case rpc.MethodQuoteSubscribe:
 		s.handleQuoteSubscribe(ctx, req, enc, r)
 		return true
-	case rpc.MethodCancel:
-		s.unary(req, enc, func() (any, error) { return s.handleCancel(req) })
 	case rpc.MethodOrderPlace:
 		s.unary(req, enc, func() (any, error) { return s.handleOrderPlace(ctx, req) })
 	case rpc.MethodOrderModify:

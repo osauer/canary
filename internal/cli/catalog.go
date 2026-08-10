@@ -15,7 +15,7 @@ const (
 )
 
 // HelpGroup buckets commands in the top-level help listing. It is a reading
-// aid for a 36-command registry and carries no policy; guard classes remain
+// aid for the command registry and carries no policy; guard classes remain
 // the only statement about what a command may do.
 type HelpGroup string
 
@@ -39,7 +39,7 @@ type HelpGroupSpec struct {
 func HelpGroups() []HelpGroupSpec {
 	return []HelpGroupSpec{
 		{Group: GroupDesk, Title: "Desk", Tagline: "the account, its positions, orders, and risk"},
-		{Group: GroupMarkets, Title: "Markets", Tagline: "quotes, chains, screens, and regime research"},
+		{Group: GroupMarkets, Title: "Markets", Tagline: "named-symbol technical evidence"},
 		{Group: GroupSystem, Title: "System", Tagline: "running Canary itself"},
 	}
 }
