@@ -1,5 +1,5 @@
 import { refreshPushState } from "./alerts.js";
-import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, renderAlerts, renderSelectedAlert, scheduleAlertsRefresh } from "./alert-inbox.js";
+import { handleAttentionContextChange, ingestAlerts, ingestAlertsEvent, renderAlerts, scheduleAlertsRefresh } from "./alert-inbox.js";
 import { tryDeviceLogin } from "./auth.js";
 import { refreshOpenOrders } from "./orders.js";
 import { renderAll } from "./render-runtime.js";
@@ -110,7 +110,6 @@ function connectEvents() {
       if (type === "alerts") {
         ingestAlertsEvent(event.data);
         renderAlerts();
-        renderSelectedAlert();
         state.lastEventAt = Date.now();
         setConnection("Connected", true);
         return;

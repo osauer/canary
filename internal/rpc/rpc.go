@@ -10,28 +10,29 @@ import (
 
 // Daemon method names are stable wire identifiers shared by every adapter.
 const (
-	MethodAccountSummary = "account.summary"
-	MethodPositionsList  = "positions.list"
-	MethodQuoteSnapshot  = "quote.snapshot"
-	MethodQuoteSubscribe = "quote.subscribe"
-	MethodChainFetch     = "chain.fetch"
-	MethodChainExpiries  = "chain.expiries"
-	MethodTechnical      = "technical.snapshot"
-	MethodMarketCalendar = "market.calendar"
-	MethodStatusHealth   = "status.health"
-	MethodTradingStatus  = "trading.status"
-	MethodSettingsGet    = "settings.get"
-	MethodSettingsUpdate = "settings.update"
-	MethodOrdersOpen     = "orders.open"
-	MethodOrdersHistory  = "orders.history"
-	MethodOrderStatus    = "order.status"
-	MethodOrderPreview   = "order.preview"
-	MethodBreadthSPX     = "breadth.spx"
-	MethodGammaZeroSPX   = "gamma.zero_spx"
-	MethodRegimeSnapshot = "regime.snapshot"
-	MethodOrderPlace     = "order.place"
-	MethodOrderModify    = "order.modify"
-	MethodOrderCancel    = "order.cancel"
+	MethodAccountSummary  = "account.summary"
+	MethodPositionsList   = "positions.list"
+	MethodQuoteSnapshot   = "quote.snapshot"
+	MethodQuoteSubscribe  = "quote.subscribe"
+	MethodChainFetch      = "chain.fetch"
+	MethodChainExpiries   = "chain.expiries"
+	MethodTechnical       = "technical.snapshot"
+	MethodMarketCalendar  = "market.calendar"
+	MethodStatusHealth    = "status.health"
+	MethodTradingStatus   = "trading.status"
+	MethodSettingsGet     = "settings.get"
+	MethodSettingsUpdate  = "settings.update"
+	MethodOrdersOpen      = "orders.open"
+	MethodOrdersHistory   = "orders.history"
+	MethodOrderStatus     = "order.status"
+	MethodOrderPreview    = "order.preview"
+	MethodStrategyPreview = "strategy.preview"
+	MethodBreadthSPX      = "breadth.spx"
+	MethodGammaZeroSPX    = "gamma.zero_spx"
+	MethodRegimeSnapshot  = "regime.snapshot"
+	MethodOrderPlace      = "order.place"
+	MethodOrderModify     = "order.modify"
+	MethodOrderCancel     = "order.cancel"
 )
 
 // Error codes classify terminal request failures carried by Error.Code.
@@ -1721,11 +1722,61 @@ type PositionsResult struct {
 	Stocks             []PositionView             `json:"stocks"`
 	Options            []PositionView             `json:"options"`
 	ByUnderlying       []PositionGroup            `json:"by_underlying"`
+	Strategies         []PositionStrategy         `json:"strategies,omitempty"`
+	StrategyIssues     []StrategyGroupingIssue    `json:"strategy_issues,omitempty"`
 	Portfolio          *PositionsPortfolio        `json:"portfolio,omitempty"`
 	ProtectionCoverage *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
 	AccountID          string                     `json:"account_id,omitempty"`
 	// Authority is the account scope and portfolio-stream receipt contract.
 	Authority *AccountDataAuthority `json:"authority,omitempty"`
+}
+
+// Position strategy sources, states, and operations form the typed contract
+// shared by daemon-owned grouping and read-only adapters.
+const (
+	PositionStrategySourceCanary   = "canary_lineage"
+	PositionStrategySourceBroker   = "broker_combo"
+	PositionStrategySourceInferred = "inferred"
+	PositionStrategySourceOperator = "operator_confirmed"
+
+	PositionStrategyStatusCurrent = "current"
+	PositionStrategyStatusReview  = "review_required"
+	PositionStrategyStatusClosed  = "closed"
+
+	StrategyOperationClose  = "close"
+	StrategyOperationReduce = "reduce"
+)
+
+// PositionStrategy is the daemon-owned grouping of exact held contracts.
+// Units are whole strategy units; signed ratios describe the held direction.
+type PositionStrategy struct {
+	ID                  string                `json:"id"`
+	Revision            int64                 `json:"revision"`
+	Underlying          string                `json:"underlying"`
+	Kind                string                `json:"kind,omitempty"`
+	Source              string                `json:"source"`
+	Status              string                `json:"status"`
+	Units               int                   `json:"units"`
+	Legs                []PositionStrategyLeg `json:"legs"`
+	PositionFingerprint string                `json:"position_fingerprint"`
+	GuaranteedCombo     bool                  `json:"guaranteed_combo"`
+	Actionable          bool                  `json:"actionable"`
+	Reason              string                `json:"reason,omitempty"`
+}
+
+// PositionStrategyLeg allocates an exact current position to one strategy.
+// Ratio is positive for a held long leg and negative for a held short leg.
+type PositionStrategyLeg struct {
+	Contract ContractParams `json:"contract"`
+	Quantity float64        `json:"quantity"`
+	Ratio    int            `json:"ratio"`
+}
+
+// StrategyGroupingIssue explains why current option legs remain standalone.
+type StrategyGroupingIssue struct {
+	Underlying string `json:"underlying"`
+	LegCount   int    `json:"leg_count"`
+	Reason     string `json:"reason"`
 }
 
 // PositionsPortfolio is the daemon-side aggregator across all open legs.
@@ -2304,6 +2355,9 @@ const (
 	OrderTokenScopeModify = "modify"
 	// OrderTokenScopeExercise binds a preview token to one reduce-only option exercise.
 	OrderTokenScopeExercise = "exercise"
+	// OrderTokenScopeStrategy binds a preview token to one proportional close
+	// or reduction of a daemon-owned strategy group.
+	OrderTokenScopeStrategy = "strategy"
 
 	// OrderLifecyclePreviewed is a durable order-lifecycle classification.
 	OrderLifecyclePreviewed = "previewed"
@@ -2383,23 +2437,65 @@ type OrderPreviewParams struct {
 	ReplaceID     string `json:"replace_id,omitempty"`
 	TimeoutMs     int    `json:"timeout_ms,omitempty"`
 	Source        string `json:"source,omitempty"`
+	// ResolvedStrategy is daemon-internal. External RPC callers can identify a
+	// strategy only through StrategyPreviewParams and cannot author combo legs.
+	ResolvedStrategy *StrategyOrderDraft `json:"-"`
+}
+
+// StrategyPreviewParams requests one constrained group close or reduction.
+// The daemon resolves ID and revision against current positions and constructs
+// every combo leg; adapters never submit client-authored legs.
+type StrategyPreviewParams struct {
+	StrategyID       string   `json:"strategy_id"`
+	ExpectedRevision int64    `json:"expected_revision"`
+	Operation        string   `json:"operation"`
+	Units            int      `json:"units,omitempty"`
+	LimitPrice       *float64 `json:"limit_price,omitempty"`
+	TIF              string   `json:"tif,omitempty"`
+	TimeoutMs        int      `json:"timeout_ms,omitempty"`
+	Source           string   `json:"source,omitempty"`
+}
+
+// StrategyOrderDraft is the complete group operation bound into an order
+// preview token and journaled with the parent BAG order.
+type StrategyOrderDraft struct {
+	StrategyID          string             `json:"strategy_id"`
+	StrategyRevision    int64              `json:"strategy_revision"`
+	PositionFingerprint string             `json:"position_fingerprint"`
+	Operation           string             `json:"operation"`
+	Units               int                `json:"units"`
+	UnitsBefore         int                `json:"units_before"`
+	UnitsAfter          int                `json:"units_after"`
+	GuaranteedCombo     bool               `json:"guaranteed_combo"`
+	Legs                []StrategyOrderLeg `json:"legs"`
+}
+
+// StrategyOrderLeg records one proportional before/after position change.
+type StrategyOrderLeg struct {
+	Contract ContractParams `json:"contract"`
+	Ratio    int            `json:"ratio"`
+	Action   string         `json:"action"`
+	Quantity int            `json:"quantity"`
+	Before   float64        `json:"before"`
+	After    float64        `json:"after"`
 }
 
 // OrderDraft is the canonical local intent bound into a preview token.
 type OrderDraft struct {
-	Action        string          `json:"action"`
-	Contract      ContractParams  `json:"contract"`
-	Quantity      int             `json:"quantity"`
-	OrderType     string          `json:"order_type"`
-	LimitPrice    float64         `json:"limit_price"`
-	Trail         *OrderTrailSpec `json:"trail,omitempty"`
-	TriggerMethod int             `json:"trigger_method,omitempty"`
-	TIF           string          `json:"tif"`
-	OutsideRTH    bool            `json:"outside_rth"`
-	Strategy      string          `json:"strategy"`
-	OrderRef      string          `json:"order_ref"`
-	OpenClose     string          `json:"open_close,omitempty"`
-	Source        string          `json:"source,omitempty"`
+	Action        string              `json:"action"`
+	Contract      ContractParams      `json:"contract"`
+	Quantity      int                 `json:"quantity"`
+	OrderType     string              `json:"order_type"`
+	LimitPrice    float64             `json:"limit_price"`
+	Trail         *OrderTrailSpec     `json:"trail,omitempty"`
+	TriggerMethod int                 `json:"trigger_method,omitempty"`
+	TIF           string              `json:"tif"`
+	OutsideRTH    bool                `json:"outside_rth"`
+	Strategy      string              `json:"strategy"`
+	OrderRef      string              `json:"order_ref"`
+	OpenClose     string              `json:"open_close,omitempty"`
+	Source        string              `json:"source,omitempty"`
+	StrategyGroup *StrategyOrderDraft `json:"strategy_group,omitempty"`
 }
 
 // OrderTrailSpec is the canonical broker-side trailing-stop intent. Percent

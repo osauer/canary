@@ -2082,8 +2082,9 @@ type ContractDetailsLite struct {
 // captured on one exact Connector session. Contract always has a positive
 // ConID; MinTick is zero only when the broker omitted it.
 type ResolvedOrderContract struct {
-	Contract Contract
-	MinTick  float64
+	Contract   Contract
+	MinTick    float64
+	TimeZoneID string
 }
 
 // ResolveOrderContractForSession resolves a symbol/option description to one
@@ -2255,7 +2256,7 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 	if selected.TradingClass != "" {
 		resolved.TradingClass = selected.TradingClass
 	}
-	return ResolvedOrderContract{Contract: resolved, MinTick: selected.MinTick}, nil
+	return ResolvedOrderContract{Contract: resolved, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID}, nil
 }
 
 // exactOrderContractRouteMatches applies caller-supplied routing as an
@@ -4054,6 +4055,7 @@ type RawOrder struct {
 	TotalQty        int
 	OrderType       string // MKT, LMT, STP, etc.
 	LmtPrice        float64
+	LmtPriceSet     bool
 	AuxPrice        float64 // Stop price for stop orders
 	TrailStopPrice  float64
 	TrailingPercent float64
@@ -4163,10 +4165,12 @@ func (c *Connector) submitOrderForSession(ctx context.Context, binding Connector
 		Currency:        contract.Currency,
 		LocalSymbol:     contract.LocalSymbol,
 		TradingClass:    contract.TradingClass,
+		ComboLegs:       append([]ComboLeg(nil), contract.ComboLegs...),
 		Action:          order.Action,
 		TotalQty:        order.TotalQty,
 		OrderType:       order.OrderType,
 		LmtPrice:        order.LmtPrice,
+		LmtPriceSet:     order.LmtPriceSet || strings.EqualFold(order.OrderType, "LMT"),
 		AuxPrice:        order.AuxPrice,
 		TrailStopPrice:  order.TrailStopPrice,
 		TrailingPercent: order.TrailingPercent,

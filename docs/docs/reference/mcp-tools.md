@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**13 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**14 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_status`
 
@@ -70,6 +70,12 @@ Read held positions and exposure. The `authority` block identifies one concrete 
 | `symbol` | string | no | filter to a single underlying symbol (case-insensitive) |
 | `type` | string | no | filter to stock or option positions |
 | `view` | string | no | response shape: full returns existing stocks/options/by_underlying detail plus protection_coverage; risk returns compact portfolio aggregates, top exposures, option-health counts, protection coverage, and flagged option legs |
+
+## `canary_strategies`
+
+Read how Canary groups currently held option legs into proportional strategies and which legs still need review. Use canary_positions for the full book. This tool cannot preview, submit, place, modify, cancel, or transmit an order.
+
+*No parameters.*
 
 ## `canary_technical`
 

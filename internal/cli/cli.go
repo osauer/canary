@@ -211,6 +211,7 @@ func init() {
 		{"status", "Daemon + gateway health (run this first if anything fails)", "canary status [--json]", runStatus},
 		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "canary account [--watch --rate 1s] [--json]", runAccount},
 		{"positions", "List open positions (stocks + options)", "canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},
+		{"strategies", "Group option legs and close or reduce them as one guaranteed combo", "canary strategies list [--json] | canary strategies close ID REVISION [--limit PRICE] [--submit] | canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]", runStrategies},
 		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
 		{"brief", "Combined post- and pre-trade operator brief with disclosed source degradation", "canary brief [--json]", runBrief},
 		{"rules", "Advisory 14-rule daily trading checklist, hardest breach first", "canary rules [--all] [--symbol SYM] [--json] | canary rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]", runRules},

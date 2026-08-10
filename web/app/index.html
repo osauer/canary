@@ -317,7 +317,7 @@
                 <path d="M6.5 10.5a5.5 5.5 0 0 1 11 0c0 5 2 5.5 2 7H4.5c0-1.5 2-2 2-7Z"></path>
                 <path d="M10 20a2.3 2.3 0 0 0 4 0"></path>
               </svg>
-              Action Queue
+              Alerts
             </span>
             <span class="alert-active-count" id="alertCount">0 Active</span>
           </summary>
@@ -330,28 +330,32 @@
               </div>
               <div class="alert-log" id="currentSignalList"></div>
             </section>
-            <div class="alert-focus" id="selectedAlertPanel" hidden>
-              <div>
-                <span>Selected alert</span>
-                <b id="selectedAlertTitle">--</b>
-                <p id="selectedAlertBody">--</p>
-                <small id="selectedAlertTime">--</small>
-              </div>
-              <button class="text-button text-button--dark" id="clearSelectedAlertButton" type="button">Clear</button>
-            </div>
-            <section class="alert-section alert-section--out" id="alertsHistorySection" aria-label="Extinguished annunciators" hidden>
-              <div class="pd-placard pd-placard--row">
-                <span>Extinguished &middot; last 7 days</span>
-                <b id="alertHistoryCount">0</b>
-              </div>
-              <div class="alert-log" id="alertHistoryList"></div>
-            </section>
             <p class="governance-action-status" id="attentionStatus" role="status"></p>
           </div>
         </details>
       </section>
 
       <section class="tab-panel tab-panel--orders" id="ordersTab" data-tab-panel="orders" role="tabpanel" aria-labelledby="tabOrders" hidden>
+        <article class="panel strategies-panel" id="strategiesPanel">
+          <div class="panel-head">
+            <span class="panel-title-with-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 7h4l2 3h8"></path>
+                <path d="M5 17h4l2-3h8"></path>
+                <circle cx="5" cy="7" r="1"></circle>
+                <circle cx="5" cy="17" r="1"></circle>
+              </svg>
+              Option Strategies
+            </span>
+            <span class="alert-active-count" id="strategiesCount">No groups</span>
+            <span class="panel-time" id="strategiesAsOf">--</span>
+          </div>
+          <div class="strategies-body">
+            <p class="strategies-intro">Canary keeps each grouped position together when you close or reduce it.</p>
+            <div class="strategies-list" id="strategiesList"></div>
+          </div>
+        </article>
+
         <article class="panel orders-panel" id="ordersPanel">
           <div class="panel-head">
             <span class="panel-title-with-icon">
@@ -367,11 +371,10 @@
           </div>
           <div class="orders-body">
             <div class="orders-list" id="ordersOpenList"></div>
-            <!-- Engraved foot: the journal states its own authority. Canary
-                 reads and mitigates orders; it never becomes the place an
-                 order is born. -->
+            <!-- Engraved foot: the journal states the order authority used by
+                 the open-order controls and grouped-position exits above. -->
             <div class="pd-lamptest orders-foot">
-              <span>Order journal &middot; read-only &middot; submission stays on the desk</span>
+              <span>Order journal &middot; current broker and local order state</span>
             </div>
           </div>
         </article>
@@ -416,7 +419,7 @@
                 </span>
               </div>
               <p class="settings-notification-copy">The delivery level is global for this app host and all paired devices. Browser permission and subscription belong only to this browser or installed PWA.</p>
-              <p class="settings-notification-copy">Off stops phone notifications while your in-app history remains. Action required sends urgent items only. Watch + action also sends review reminders.</p>
+              <p class="settings-notification-copy">Off stops phone notifications while current alerts remain visible. Action required sends urgent items only. Watch + action also sends review reminders.</p>
               <p class="settings-notification-copy">Risk and process eligibility is not configured here. The unread badge and read state are shared across paired devices.</p>
               <p class="governance-action-status" id="alertSettingsStatus" role="status"></p>
               <p class="governance-action-status" id="safeNotificationTestStatus" role="status"></p>
@@ -684,7 +687,7 @@
             <path d="M10 20a2.3 2.3 0 0 0 4 0"></path>
           </svg>
           <b class="bottom-tab__badge" id="alertUnreadBadge" aria-hidden="true" hidden></b>
-          <span>Queue</span>
+          <span>Alerts</span>
         </button>
         <button class="bottom-tab" id="tabOrders" type="button" data-tab="orders" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true">

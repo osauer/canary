@@ -51,6 +51,7 @@ type Client interface {
 	Settings(context.Context) (*rpc.PlatformSettings, error)
 	UpdateSettings(context.Context, json.RawMessage) (*rpc.PlatformSettings, error)
 	OrderPreview(context.Context, rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error)
+	StrategyPreview(context.Context, rpc.StrategyPreviewParams) (*rpc.OrderPreviewResult, error)
 	OrderPlace(context.Context, rpc.OrderPlaceParams) (*rpc.OrderPlaceResult, error)
 	OrderModify(context.Context, rpc.OrderModifyParams) (*rpc.OrderModifyResult, error)
 	OrderCancel(context.Context, rpc.OrderCancelParams) (*rpc.OrderCancelResult, error)
@@ -442,6 +443,16 @@ func (c Real) UpdateSettings(ctx context.Context, patch json.RawMessage) (*rpc.P
 func (c Real) OrderPreview(ctx context.Context, params rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error) {
 	var out rpc.OrderPreviewResult
 	if err := c.call(ctx, rpc.MethodOrderPreview, params, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// StrategyPreview asks the daemon to resolve one current strategy and build a
+// proportional, broker-guaranteed combo preview. The app never authors legs.
+func (c Real) StrategyPreview(ctx context.Context, params rpc.StrategyPreviewParams) (*rpc.OrderPreviewResult, error) {
+	var out rpc.OrderPreviewResult
+	if err := c.call(ctx, rpc.MethodStrategyPreview, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

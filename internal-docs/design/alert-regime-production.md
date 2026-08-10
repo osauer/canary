@@ -116,7 +116,7 @@ devices:
 
 | Operator choice | Stored value | New occurrences that may push |
 |---|---|---|
-| Off | `none` | None. Inbox history and unread state remain available. |
+| Off | `none` | None. Current alerts and unread state remain available. |
 | Action required | `act_only` | `act` and `urgent`. |
 | Watch + action | `watch_and_act` | `watch`, `act`, and `urgent`. |
 
@@ -162,8 +162,8 @@ transport acceptance; it does not claim device display or human attention.
 
 The daemon candidate carries a closed presentation code such as market stress,
 protection reconciliation, reconciliation exception, or data quality. The app
-maps that code and lifecycle state to a fixed title and body. The same mapping
-supplies resolved wording for ended inbox history; recovered rows are not sent.
+maps that code and lifecycle state to a fixed title and body. Recovered rows are
+not sent or projected into the user-facing v3 Alerts page.
 
 Producer text is never interpolated into a notification. The payload contains
 only the fixed title and body plus allowlisted severity, kind, destination,
@@ -173,8 +173,10 @@ source errors out of the transport surface.
 ## Inbox and unread state
 
 Every new occurrence receives one monotonic attention sequence. The public
-inbox exposes a redacted display ID and allowlisted presentation; producer
-keys, targets, attempts, and receipts stay private.
+Alerts page exposes current occurrences with a redacted display ID and
+allowlisted presentation; producer keys, terminal rows, targets, attempts, and
+receipts stay private. Terminal rows remain in the private ledger only for
+delivery deduplication and audit.
 
 The unread count is the exact contiguous range above one durable read-through
 cursor shared by all paired devices. The app acknowledges only a complete set
@@ -182,9 +184,10 @@ that it actually rendered. A missing row, duplicate sequence, stale response,
 or failed write leaves the cursor unchanged. The service worker mirrors the
 server count onto the app badge; it does not invent a second unread count.
 
-Unread occurrences are never removed by compaction. Read, ended history may be
-removed after the retention window. An authority-scope change creates generic
-previous context without marking the old condition recovered or read.
+Unread current occurrences are never removed by compaction. Terminal delivery
+rows may be removed from the private ledger after the retention window. An
+authority-scope change creates generic previous context without marking the old
+condition recovered or read; that context is not product alert history.
 
 ## Producer contract
 
@@ -240,8 +243,8 @@ Disable notifications immediately if the system sends from stale or uncovered
 evidence, aliases account scopes, leaks private identity, duplicates an
 accepted occurrence-and-target receipt, loses lifecycle or unread state, or
 hides a failed target behind a successful one. Turning the app mode to Off
-stops new Web Push eligibility without deleting `daemon.db`, app evidence, or
-inbox history. It does not change a broker order, freeze, limit, or risk-policy
+stops new Web Push eligibility without deleting `daemon.db` or private app
+delivery evidence. It does not change a broker order, freeze, limit, or risk-policy
 guardrail.
 
 ## Related authority

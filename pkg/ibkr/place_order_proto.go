@@ -70,7 +70,22 @@ func encodePlaceOrderContractProto(order *IBKROrder) ([]byte, error) {
 	msg = protoAppendString(msg, 12, order.TradingClass)
 	msg = protoAppendString(msg, 13, order.SecIDType)
 	msg = protoAppendString(msg, 14, order.SecID)
+	for _, leg := range order.ComboLegs {
+		msg = protoAppendMessage(msg, 20, encodeComboLegProto(leg))
+	}
 	return msg, nil
+}
+
+func encodeComboLegProto(leg ComboLeg) []byte {
+	var msg []byte
+	msg = protoAppendInt32(msg, 1, int32(leg.ConID))
+	msg = protoAppendInt32(msg, 2, int32(leg.Ratio))
+	msg = protoAppendString(msg, 3, strings.ToUpper(strings.TrimSpace(leg.Action)))
+	msg = protoAppendString(msg, 4, strings.ToUpper(strings.TrimSpace(leg.Exchange)))
+	if leg.OpenClose != 0 {
+		msg = protoAppendInt32(msg, 5, int32(leg.OpenClose))
+	}
+	return msg
 }
 
 func encodePlaceOrderOrderProto(order *IBKROrder) ([]byte, error) {
@@ -82,7 +97,7 @@ func encodePlaceOrderOrderProto(order *IBKROrder) ([]byte, error) {
 	msg = protoAppendString(msg, 6, strconv.Itoa(order.TotalQty))
 	msg = protoAppendInt32(msg, 7, int32(order.DisplaySize))
 	msg = protoAppendString(msg, 8, strings.ToUpper(order.OrderType))
-	if order.LmtPrice != 0 {
+	if order.LmtPrice != 0 || order.LmtPriceSet {
 		msg = protoAppendDouble(msg, 9, order.LmtPrice)
 	}
 	if order.AuxPrice != 0 {
@@ -145,8 +160,8 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	}
 
 	secType := strings.ToUpper(order.SecType)
-	if secType != "STK" && secType != "ETF" && secType != "OPT" {
-		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT only")
+	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" {
+		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG only")
 	}
 	orderType := strings.ToUpper(strings.TrimSpace(order.OrderType))
 	if orderType != "LMT" && orderType != "TRAIL" && orderType != "TRAIL LIMIT" {
@@ -163,7 +178,26 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	if err := validateProtoOrderTypePrices(orderType, order); err != nil {
 		return err
 	}
-	if secType == "OPT" {
+	if secType == "BAG" {
+		if err := validateComboLegs(order.ComboLegs); err != nil {
+			return err
+		}
+		for _, field := range []struct {
+			name  string
+			value string
+		}{
+			{"expiry", order.Expiry},
+			{"right", order.Right},
+			{"multiplier", order.Multiplier},
+		} {
+			if field.value != "" {
+				return unsupportedPlaceOrderProtoField(field.name)
+			}
+		}
+		if order.Strike != 0 {
+			return unsupportedPlaceOrderProtoField("strike")
+		}
+	} else if secType == "OPT" {
 		if strings.TrimSpace(order.Expiry) == "" {
 			return fmt.Errorf("protobuf placeOrder OPT requires expiry")
 		}
@@ -178,6 +212,9 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 			return fmt.Errorf("protobuf placeOrder OPT requires multiplier")
 		}
 	} else {
+		if len(order.ComboLegs) != 0 {
+			return unsupportedPlaceOrderProtoField("comboLegs")
+		}
 		for _, field := range []struct {
 			name  string
 			value string
@@ -311,6 +348,42 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	return nil
 }
 
+func validateComboLegs(legs []ComboLeg) error {
+	if len(legs) < 2 {
+		return fmt.Errorf("protobuf placeOrder BAG requires at least two combo legs")
+	}
+	seen := make(map[int]struct{}, len(legs))
+	for i, leg := range legs {
+		if err := validateProtoInt32(fmt.Sprintf("comboLegs[%d].conID", i), leg.ConID); err != nil {
+			return err
+		}
+		if err := validateProtoInt32(fmt.Sprintf("comboLegs[%d].ratio", i), leg.Ratio); err != nil {
+			return err
+		}
+		if leg.ConID <= 0 {
+			return fmt.Errorf("protobuf placeOrder BAG combo leg %d requires a positive ConID", i)
+		}
+		if leg.Ratio <= 0 {
+			return fmt.Errorf("protobuf placeOrder BAG combo leg %d requires a positive ratio", i)
+		}
+		action := strings.ToUpper(strings.TrimSpace(leg.Action))
+		if action != "BUY" && action != "SELL" {
+			return unsupportedPlaceOrderProtoValue(fmt.Sprintf("comboLegs[%d].action", i), leg.Action, "BUY/SELL only")
+		}
+		if strings.TrimSpace(leg.Exchange) == "" {
+			return fmt.Errorf("protobuf placeOrder BAG combo leg %d requires an exchange", i)
+		}
+		if leg.OpenClose < 0 || leg.OpenClose > 3 {
+			return unsupportedPlaceOrderProtoValue(fmt.Sprintf("comboLegs[%d].openClose", i), strconv.Itoa(leg.OpenClose), "IBKR values 0-3")
+		}
+		if _, exists := seen[leg.ConID]; exists {
+			return fmt.Errorf("protobuf placeOrder BAG repeats combo leg ConID %d", leg.ConID)
+		}
+		seen[leg.ConID] = struct{}{}
+	}
+	return nil
+}
+
 func validatePlaceOrderTriggerMethod(orderType string, method int) error {
 	if method == 0 {
 		return nil
@@ -331,7 +404,11 @@ func validateProtoOrderTypePrices(orderType string, order *IBKROrder) error {
 	hasPercent := order.TrailingPercent > 0
 	switch orderType {
 	case "LMT":
-		if order.LmtPrice <= 0 {
+		if strings.EqualFold(order.SecType, "BAG") {
+			if !order.LmtPriceSet || math.IsNaN(order.LmtPrice) || math.IsInf(order.LmtPrice, 0) {
+				return fmt.Errorf("protobuf placeOrder BAG requires a finite explicit lmtPrice")
+			}
+		} else if order.LmtPrice <= 0 {
 			return fmt.Errorf("protobuf placeOrder requires positive lmtPrice")
 		}
 		if order.AuxPrice != 0 || order.TrailStopPrice != 0 || order.TrailingPercent != 0 || order.LmtPriceOffset != 0 {

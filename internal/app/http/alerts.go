@@ -19,7 +19,6 @@ const (
 	// The separate version field identifies the durable ledger projection.
 	AlertSchemaVersion       = "alerts-v1"
 	alertPollInterval        = 250 * time.Millisecond
-	alertEndedHistoryLimit   = 100
 	alertHealthUninitialized = "not_initialized"
 )
 
@@ -145,7 +144,7 @@ func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
 		Generation:     view.Generation,
 		Sources:        []AlertSourceDTO{},
 		Occurrences:    []AlertOccurrenceDTO{},
-		Attention:      newAlertAttentionDTO(view.Attention),
+		Attention:      newAlertAttentionDTO(view.Attention, nil),
 		DeliveryHealth: health,
 	}
 	if !dto.Initialized {
@@ -179,6 +178,7 @@ func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
 		})
 	}
 	dto.Occurrences = newAlertOccurrenceDTOs(view.Occurrences)
+	dto.Attention = newAlertAttentionDTO(view.Attention, dto.Occurrences)
 	return dto
 }
 
@@ -220,12 +220,9 @@ func alertViewCanBeClear(view state.AlertDeliveryView, now time.Time) bool {
 
 func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView) []AlertOccurrenceDTO {
 	active := make([]state.AlertDeliveryOccurrenceView, 0, len(occurrences))
-	ended := make([]state.AlertDeliveryOccurrenceView, 0, len(occurrences))
 	for _, occurrence := range occurrences {
 		if occurrence.EndedAt.IsZero() {
 			active = append(active, occurrence)
-		} else {
-			ended = append(ended, occurrence)
 		}
 	}
 	slices.SortFunc(active, func(a, b state.AlertDeliveryOccurrenceView) int {
@@ -234,18 +231,11 @@ func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView) []A
 		}
 		return cmp.Compare(a.DisplayID, b.DisplayID)
 	})
-	slices.SortFunc(ended, func(a, b state.AlertDeliveryOccurrenceView) int {
-		if byTime := b.EndedAt.Compare(a.EndedAt); byTime != 0 {
-			return byTime
-		}
-		return cmp.Compare(a.DisplayID, b.DisplayID)
-	})
-	if len(ended) > alertEndedHistoryLimit {
-		ended = ended[:alertEndedHistoryLimit]
-	}
-
-	out := make([]AlertOccurrenceDTO, 0, len(active)+len(ended))
-	for _, occurrence := range append(active, ended...) {
+	// The durable ledger keeps terminal rows for delivery deduplication and
+	// audit, but v3 has no user-facing alert history. Only current conditions
+	// cross the public HTTP boundary.
+	out := make([]AlertOccurrenceDTO, 0, len(active))
+	for _, occurrence := range active {
 		presentation, ok := appalerts.PresentationFor(occurrence.PresentationCode, occurrence.State)
 		if !ok {
 			presentation = appalerts.Presentation{
@@ -281,20 +271,28 @@ func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView) []A
 	return out
 }
 
-func newAlertAttentionDTO(attention state.AlertDeliveryAttention) AlertAttentionDTO {
+func newAlertAttentionDTO(attention state.AlertDeliveryAttention, occurrences []AlertOccurrenceDTO) AlertAttentionDTO {
+	active := make(map[string]AlertOccurrenceDTO, len(occurrences))
+	for _, occurrence := range occurrences {
+		active[occurrence.DisplayID] = occurrence
+	}
 	dto := AlertAttentionDTO{
-		UnreadCount:    attention.UnreadCount,
 		HighWaterSeq:   attention.HighWaterSeq,
 		ReadThroughSeq: attention.ReadThroughSeq,
 		UnreadRefs:     make([]AlertAttentionRefDTO, 0, len(attention.UnreadRefs)),
 	}
 	for _, ref := range attention.UnreadRefs {
+		occurrence, ok := active[ref.DisplayID]
+		if !ok || occurrence.Source != ref.Source || occurrence.Kind != ref.Kind {
+			continue
+		}
 		dto.UnreadRefs = append(dto.UnreadRefs, AlertAttentionRefDTO{
 			DisplayID: ref.DisplayID,
 			Source:    ref.Source,
 			Kind:      ref.Kind,
 		})
 	}
+	dto.UnreadCount = len(dto.UnreadRefs)
 	return dto
 }
 

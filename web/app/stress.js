@@ -142,6 +142,8 @@ function ruleChecklistRow(r) {
   const status = String(r.status || "").toLowerCase();
   const row = document.createElement("div");
   row.className = `pd-row rules-row ${ruleTone(r.status)}`;
+  row.dataset.ruleId = String(r.id || "");
+  row.tabIndex = -1;
   if (status === "act" || status === "watch") row.classList.add(`rules-row--${status}`);
   if (status === "info") row.classList.add("rules-row--info");
   const line = document.createElement("span");

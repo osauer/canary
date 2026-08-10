@@ -57,6 +57,7 @@ var methodTimings = []MethodTiming{
 	{Method: MethodOrdersHistory, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodOrderStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodOrderPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
+	{Method: MethodStrategyPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodBreadthSPX, Lifetime: MethodLifetimeUnary, DaemonTimeout: 2 * time.Second},
 	{Method: MethodGammaZeroSPX, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodRegimeSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},

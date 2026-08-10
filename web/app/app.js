@@ -1,5 +1,5 @@
 import { enablePush, renderAlertMode, renderReconciliationCard, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
-import { renderAlerts, renderSelectedAlert, setupAttentionVisibility } from "./alert-inbox.js";
+import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
@@ -14,6 +14,7 @@ import { renderSettings, setStockProtectionEnabled } from "./settings.js";
 import { $, accountBaseCurrency, accountFieldValue, pct, renderSensitiveText } from "./shared.js";
 import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect } from "./shell.js";
 import { state } from "./state.js";
+import { renderStrategies } from "./strategies.js";
 import { positionsAuthorityView, renderAccountPanel, renderPositionsFreshness, renderUnderlyings, setUnderlyingExpansion } from "./underlyings.js";
 
 installRenderAll(renderAll);
@@ -149,10 +150,10 @@ function renderAll() {
   renderStressStatus(stress, snap);
   renderRulesCard(snap.rules);
   renderStressTimestamp(stress);
-  renderSelectedAlert();
   renderProtectionPanel(snap.proposals || {}, snap.auto_trade || {}, snap.market_events || {});
   renderOpportunitiesPanel(snap.opportunities || {});
   renderOpenOrders();
+  renderStrategies(positions);
   renderMarketContext(snap);
   renderRegimePanel(snap);
   renderStressDetail(stress, snap);
@@ -250,11 +251,6 @@ $("opportunitiesPanel").addEventListener("click", (event) => handleOpportunities
 $("opportunitiesRefreshButton").addEventListener("click", (event) => {
   event.stopPropagation();
   refreshOpportunities();
-});
-$("clearSelectedAlertButton").addEventListener("click", () => {
-  state.selectedAlertID = null;
-  renderAlerts();
-  renderSelectedAlert();
 });
   $("regimeDetailToggle").addEventListener("click", () => {
   setRegimeStressExpansion("regime", !state.regimeDetailOpen);

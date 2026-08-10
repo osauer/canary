@@ -20,6 +20,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	positionstrategy "github.com/osauer/canary/v2/internal/strategy"
 )
 
 // handleAccountSummary issues a one-shot reqAccountSummary and converts the
@@ -506,6 +507,8 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	flagOptionMarkOutsideBidAsk(res.Options)
 
 	res.ByUnderlying = groupByUnderlying(res.Stocks, res.Options, baseCcy, netLiquidationBase)
+	res.Strategies, res.StrategyIssues = positionstrategy.InferPositionStrategies(res.Options)
+	res.Strategies, res.StrategyIssues = s.reconcileJournaledStrategyGroups(res.Options, res.Strategies, res.StrategyIssues)
 	res.Portfolio = buildPortfolioAggregatesWithBase(res.Stocks, res.Options, baseCcy)
 	addPortfolioBaseContext(res.Portfolio, res.ByUnderlying, baseCcy, netLiquidationBase)
 	addFXSensitivity(res.Portfolio, ledger, baseCcy)

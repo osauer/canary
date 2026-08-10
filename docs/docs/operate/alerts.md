@@ -14,9 +14,10 @@ Daemon-owned heartbeats re-observe the sources every 30 seconds, so a condition 
 
 ## Where it goes
 
-Every occurrence enters the Action Queue of [the paired app](app.md), under a
-single read-through cursor shared by all paired devices. The queue shows fixed
-app-authored copy; producer keys, targets, and receipts stay private.
+Every current occurrence appears under **Alerts** in [the paired app](app.md),
+under a single read-through cursor shared by all paired devices. The page shows
+fixed app-authored copy; producer keys, targets, and receipts stay private.
+Recovered occurrences do not remain as a user-facing history.
 
 The CLI has no alerts or stress command. `canary brief` and `canary rules` carry
 the decision-relevant facts as rows.
@@ -25,7 +26,7 @@ Phone notifications are configured under Settings → Phone notifications. The l
 
 | Setting | Stored value | New occurrences that may push |
 | --- | --- | --- |
-| Off | `none` | None. The inbox and unread history still work. |
+| Off | `none` | None. Current alerts and unread state still work. |
 | Action required | `act_only` | `act` and `urgent`. |
 | Watch + action | `watch_and_act` | `watch`, `act`, and `urgent`. |
 
@@ -51,11 +52,18 @@ Delivery health is derived from every active target's durable attempts, so one h
 
 ## What a tap does
 
-A tap navigates to one of three allowlisted routes: the Monitor tab, the Brief tab, or the Alerts tab. Destinations are a frozen enum, and any other value, including a hostile payload string, falls back to Monitor. A URL inside a payload is never followed.
+An in-app alert tap opens the exact read-only evidence already served by the
+daemon: the matching Rulebook row, Regime detail, portfolio Stress detail,
+Protection, Orders, or Settings surface. A notification tap still navigates to
+one of three allowlisted routes: Monitor, Brief, or Alerts. Any other value,
+including a hostile payload string, falls back to Monitor. A URL inside a
+payload is never followed.
 
 A tap never marks anything read. Reading happens only through the app's own acknowledgement path, which requires an authenticated, visible, fully rendered Alerts view plus a short dwell or an in-view interaction, and advances the cursor only across the exact set the page rendered.
 
-An occurrence nobody acknowledges is not lost: unread rows survive compaction indefinitely, and only read, ended history is removed, after 90 days.
+An occurrence nobody acknowledges is not lost while it remains current. The
+private delivery ledger retains terminal rows long enough to deduplicate sends
+and audit delivery, but those rows are not projected as product alert history.
 
 ## What an alert cannot do
 

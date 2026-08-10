@@ -114,6 +114,7 @@ export async function createPairingSession(baseURL, publicURL) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ public_url: publicURL }),
+    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) {
     throw new Error(`create pairing session failed ${res.status}: ${await res.text()}`);

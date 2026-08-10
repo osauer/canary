@@ -2,6 +2,8 @@ package ibkr
 
 import (
 	"fmt"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -42,7 +44,11 @@ type IBKROrder struct {
 	TotalQty  int     // TotalQty is a positive number of shares or contracts.
 	OrderType string  // MKT, LMT, STP, etc.
 	LmtPrice  float64 // LmtPrice is in quote-currency units; zero means unspecified.
-	AuxPrice  float64 // AuxPrice is a stop price or trailing amount; zero means unspecified.
+	// LmtPriceSet distinguishes an explicit zero combo price from an omitted
+	// price. Single-contract orders continue to require a positive price.
+	LmtPriceSet bool
+	AuxPrice    float64 // AuxPrice is a stop price or trailing amount; zero means unspecified.
+	ComboLegs   []ComboLeg
 
 	// Time in force
 	TIF           string // TIF is the broker time-in-force code; empty defaults to DAY.
@@ -173,8 +179,14 @@ func ValidateOrder(order *IBKROrder) error {
 	}
 
 	// Validate limit price for limit orders
-	if order.OrderType == "LMT" && order.LmtPrice <= 0 {
-		return fmt.Errorf("limit price required for limit orders")
+	if order.OrderType == "LMT" {
+		if strings.EqualFold(order.SecType, "BAG") {
+			if !order.LmtPriceSet || math.IsNaN(order.LmtPrice) || math.IsInf(order.LmtPrice, 0) {
+				return fmt.Errorf("finite explicit limit price required for combo limit orders")
+			}
+		} else if order.LmtPrice <= 0 {
+			return fmt.Errorf("limit price required for limit orders")
+		}
 	}
 
 	// Validate stop price for stop orders

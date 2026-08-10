@@ -258,6 +258,12 @@ type Server struct {
 
 	// orderJournal is the durable audit log for order intents and broker
 	orderJournal *orderJournalStore
+	// strategyLineage is a read-through cache of durable submitted group
+	// drafts. Position polling uses it to detect broken leg ratios without
+	// rereading the complete order journal on every refresh.
+	strategyLineageMu     sync.Mutex
+	strategyLineageLoaded bool
+	strategyLineage       map[string]rpc.StrategyOrderDraft
 	// orderSnapshotFn is the open-order snapshot seam for the reconcile
 	orderSnapshotFn func(context.Context) (ibkrlib.OpenOrderSnapshot, error)
 	// Test-only final-boundary seams. Production leaves these nil. They run
@@ -2268,6 +2274,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleOrderStatus(ctx, req) })
 	case rpc.MethodOrderPreview:
 		s.unary(req, enc, func() (any, error) { return s.handleOrderPreview(ctx, req) })
+	case rpc.MethodStrategyPreview:
+		s.unary(req, enc, func() (any, error) { return s.handleStrategyPreview(ctx, req) })
 	case rpc.MethodQuoteSubscribe:
 		s.handleQuoteSubscribe(ctx, req, enc, r)
 		return true

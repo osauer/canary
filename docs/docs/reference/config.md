@@ -129,7 +129,7 @@ Read at process startup. Override TOML config where applicable; see the per-var 
 | `CANARY_APP_PUBLIC_URL` | Public trusted HTTPS base URL for the `canary app` PWA/relay origin. Defaults to a LAN URL for wildcard listen addresses, falling back to loopback when no LAN address is available. |
 | `CANARY_APP_REMOTE` | Enable the outbound Cloudflare Worker relay for `canary app`, making pairing URLs reachable through the public relay origin. |
 | `CANARY_APP_REMOTE_URL` | Cloudflare Worker relay base URL for `canary app --remote`. Defaults to `https://remote.osauer.dev`. |
-| `CANARY_APP_STATE_DIR` | Directory for `canary app` paired devices, alert settings, VAPID keys, and alert history. Defaults to `$XDG_STATE_HOME/ibkr/app` or `$HOME/.local/state/ibkr/app`. |
+| `CANARY_APP_STATE_DIR` | Directory for `canary app` paired devices, alert settings, VAPID keys, and private alert-delivery evidence. Defaults to `$XDG_STATE_HOME/ibkr/app` or `$HOME/.local/state/ibkr/app`. |
 | `CANARY_COLOR` | Force terminal colour on (`always`), off (`never`); any other value defers to NO_COLOR + TTY detection. |
 | `CANARY_CONFIG` | Override the config.toml path. Defaults to `$XDG_CONFIG_HOME/ibkr/config.toml` or `$HOME/.config/ibkr/config.toml`. |
 | `CANARY_INSTALL_DIR` | Override the install directory for `canary update`. Defaults to `$HOME/.local/bin`. The release pipeline uses this to sandbox dog-food installs to a temporary directory. |

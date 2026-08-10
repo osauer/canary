@@ -25,7 +25,7 @@ const KINDS = new Set([
   "order_integrity", "reconciliation_exception", "governance", "policy_drift",
   "data_health", "delivery_health",
 ]);
-const EPISODE_STATES = new Set(["open", "escalated", "recovered"]);
+const EPISODE_STATES = new Set(["open", "escalated"]);
 const SEVERITIES = new Set(["observe", "watch", "act", "urgent"]);
 const EVIDENCE_HEALTH = new Set(["current", "partial", "stale", "unavailable", "error"]);
 const DESTINATIONS = new Set(["monitor", "alerts", "brief"]);
@@ -191,7 +191,7 @@ function validateSource(value, index, asOf) {
   }
 }
 
-function validateOccurrence(value, index, asOf, endedSeen) {
+function validateOccurrence(value, index, asOf) {
   const path = `occurrences[${index}]`;
   exactObject(value, OCCURRENCE_KEYS, path);
   if (typeof value.display_id !== "string" || !DISPLAY_ID.test(value.display_id)) fail(`${path}.display_id`, "is invalid");
@@ -209,12 +209,7 @@ function validateOccurrence(value, index, asOf, endedSeen) {
     fail(path, "has incoherent lifecycle times");
   }
   timestamp(value.ended_at, `${path}.ended_at`, true);
-  if (value.ended_at === null) {
-    if (endedSeen || value.end_reason !== null || value.state === "recovered") fail(path, "has invalid active ordering or state");
-  } else {
-    if (typeof value.end_reason !== "string" || !CODE.test(value.end_reason)) fail(`${path}.end_reason`, "must be a safe code");
-    if (Date.parse(value.ended_at) > Date.parse(asOf)) fail(`${path}.ended_at`, "must not be after as_of");
-  }
+  if (value.ended_at !== null || value.end_reason !== null) fail(path, "must be an active alert");
   unsigned(value.attention_seq, `${path}.attention_seq`, true);
   codeValue(value.disposition, `${path}.disposition`);
 }
@@ -261,18 +256,11 @@ function validateAlerts(value) {
   });
   if (sourceIDs.size !== coverage.expected.size) fail("sources", "must contain every expected source exactly once");
   const displayIDs = new Set();
-  let endedSeen = false;
-  let endedCount = 0;
   value.occurrences.forEach((occurrence, index) => {
-    validateOccurrence(occurrence, index, value.as_of, endedSeen);
+    validateOccurrence(occurrence, index, value.as_of);
     if (displayIDs.has(occurrence.display_id)) fail("occurrences", "must have unique display ids");
     displayIDs.add(occurrence.display_id);
-    if (occurrence.ended_at !== null) {
-      endedSeen = true;
-      endedCount += 1;
-    }
   });
-  if (endedCount > 100) fail("occurrences", "contains more than 100 ended items");
   validateAttention(value.attention, value.occurrences);
   return value;
 }
@@ -412,39 +400,19 @@ function alertPlacard(occurrence) {
 // The age line reads the served timestamps back as words. A lit annunciator
 // the daemon's vocabulary only when they are not the nominal case, so a row
 function alertAgeLine(occurrence) {
-  const parts = occurrence.ended_at === null
-    ? [`Lit ${clockLabel(occurrence.first_seen_at)}`]
-    : [`Lit ${clockLabel(occurrence.first_seen_at)}, out ${clockLabel(occurrence.ended_at)}`, litDuration(occurrence.first_seen_at, occurrence.ended_at)];
-  if (occurrence.ended_at === null) {
-    if (occurrence.presentation_code === "risk_policy_drawdown_latched") parts.push("latched");
-    else if (occurrence.evidence_health !== "current") parts.push("retained");
-    else parts.push(occurrence.state);
-  } else {
-    parts.push(occurrence.state);
-  }
+  const parts = [`Lit ${clockLabel(occurrence.first_seen_at)}`];
+  if (occurrence.presentation_code === "risk_policy_drawdown_latched") parts.push("latched");
+  else if (occurrence.evidence_health !== "current") parts.push("retained");
+  else parts.push(occurrence.state);
   if (occurrence.evidence_health !== "current") parts.push(`evidence ${occurrence.evidence_health}`);
   return parts.filter(Boolean).join(" \u00b7 ");
 }
 
 function alertBodyCopy(occurrence) {
   if (occurrence.ended_at === null && occurrence.evidence_health !== "current") {
-    return `${occurrence.body} Retained: current evidence is ${occurrence.evidence_health}, so recovery is unconfirmed; this is not a fresh breach.`;
+    return `${occurrence.body} Evidence is ${occurrence.evidence_health}, so Canary keeps the condition visible until current evidence can confirm or clear it.`;
   }
   return occurrence.body;
-}
-
-function litDuration(from, to) {
-  const start = Date.parse(from);
-  const end = Date.parse(to);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "";
-  const minutes = Math.round((end - start) / 60000);
-  if (minutes < 1) return "under a minute lit";
-  if (minutes < 60) return `${minutes} min lit`;
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  if (hours < 24) return remainder === 0 ? `${hours} h lit` : `${hours} h ${remainder} min lit`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? "1 day lit" : `${days} days lit`;
 }
 
 function setText(id, copy) {
@@ -462,19 +430,64 @@ function emptyRow(copy) {
 // One annunciator tile. Lit rows carry the lamp bar and the severity wash;
 const SEVERITY_TINT = { urgent: "pd-tile--act", act: "pd-tile--act", watch: "pd-tile--watch" };
 
+const RULE_ALERT_TARGETS = {
+  rulebook_single_name_exposure: "single_name_exposure",
+  rulebook_option_line_premium: "option_line_premium",
+  rulebook_cash_sell_only: "cash_sell_only",
+  rulebook_extrinsic_budget: "extrinsic_budget",
+  rulebook_expiry_runway: "expiry_runway",
+  rulebook_catalyst_coverage: "catalyst_coverage",
+  rulebook_overwrite_earnings: "overwrite_earnings",
+  rulebook_earnings_size_freeze: "earnings_size_freeze",
+  rulebook_red_on_green: "red_on_green",
+  rulebook_winner_trim: "winner_trim",
+  rulebook_green_day_action: "green_day_action",
+  rulebook_hedge_integrity: "hedge_integrity",
+  rulebook_exit_discipline: "exit_discipline",
+  rulebook_fx_exposure: "fx_exposure",
+};
+
+function alertEvidenceTarget(occurrence = {}) {
+  const code = String(occurrence.presentation_code || "");
+  if (RULE_ALERT_TARGETS[code]) return { kind: "rule", id: RULE_ALERT_TARGETS[code] };
+  if (code === "regime_market_stress") return { kind: "regime" };
+  if (code === "portfolio_stress" || code === "margin_cushion") return { kind: "stress" };
+  if (code.startsWith("protection_") || code === "data_health_proposals" || code === "data_health_opportunities") return { kind: "protection" };
+  if (code === "order_integrity_mismatch") return { kind: "orders" };
+  if (code.startsWith("reconciliation_") || code.startsWith("governance_")) return { kind: "settings" };
+  return { kind: occurrence.destination === "brief" ? "brief" : "monitor" };
+}
+
+function openAlertEvidence(occurrence) {
+  const target = alertEvidenceTarget(occurrence);
+  if (["brief", "orders", "settings"].includes(target.kind)) {
+    $(`tab${target.kind[0].toUpperCase()}${target.kind.slice(1)}`)?.click();
+    return target;
+  }
+  $("tabMonitor")?.click();
+  if (target.kind === "rule") {
+    $("stressRulesCard")?.click();
+    const row = [...(document.querySelectorAll?.("[data-rule-id]") || [])]
+      .find((candidate) => candidate.dataset.ruleId === target.id);
+    row?.focus?.({ preventScroll: true });
+    row?.scrollIntoView?.({ block: "center" });
+  } else if (target.kind === "regime" || target.kind === "stress") {
+    const button = $(target.kind === "regime" ? "regimeDetailToggle" : "stressDetailToggle");
+    if (button?.getAttribute("aria-expanded") !== "true") button?.click();
+    $(target.kind === "regime" ? "regimeDetailPanel" : "stressDetailPanel")?.scrollIntoView?.({ block: "nearest" });
+  } else if (target.kind === "protection") {
+    $("protectionTile")?.click();
+  }
+  return target;
+}
+
 function alertRowElement(occurrence) {
   const row = document.createElement("button");
   row.type = "button";
-  const out = occurrence.ended_at !== null;
-  const tint = out ? "" : SEVERITY_TINT[occurrence.severity] || "";
-  row.className = `alert-row pd-tile pd-alert${out ? " pd-alert--out" : ""}${tint ? ` ${tint}` : ""}`;
+  const tint = SEVERITY_TINT[occurrence.severity] || "";
+  row.className = `alert-row pd-tile pd-alert${tint ? ` ${tint}` : ""}`;
   row.dataset.displayId = occurrence.display_id;
-  row.classList.toggle("active", occurrence.display_id === state.selectedAlertID);
-  row.addEventListener("click", () => {
-    state.selectedAlertID = occurrence.display_id;
-    renderAlerts();
-    renderSelectedAlert();
-  });
+  row.addEventListener("click", () => openAlertEvidence(occurrence));
   if (tint) {
     const bar = document.createElement("span");
     bar.className = "pd-tile__bar";
@@ -497,73 +510,11 @@ function alertRowElement(occurrence) {
   return row;
 }
 
-// The queue is a presentation over existing authorities, not a new policy
-function actionQueueItems(activeAlerts = []) {
-  const snapshot = state.snapshot || {};
-  const items = activeAlerts.map((alert) => ({ kind: "alert", severity: alert.severity, at: alert.last_seen_at, alert }));
-  for (const proposal of snapshot.proposals?.proposals || []) {
-    items.push({
-      kind: "protection",
-      severity: String(proposal.state || "").toLowerCase() === "blocked" ? "watch" : "act",
-      title: `${proposal.symbol || proposal.contract?.symbol || "Position"} · ${String(proposal.bucket || "protection").replaceAll("_", " ")}`,
-      body: "Review the daemon-authored protection action and its warnings.",
-      at: snapshot.proposals?.as_of || "",
-    });
-  }
-  for (const opportunity of snapshot.opportunities?.opportunities || []) {
-    items.push({
-      kind: "exercise",
-      severity: (opportunity.blockers || []).length > 0 ? "watch" : "act",
-      title: `${opportunity.symbol || opportunity.contract?.symbol || "Option"} · option exercise`,
-      body: "Review warnings and the fresh exercise preflight before confirmation.",
-      at: snapshot.opportunities?.as_of || "",
-    });
-  }
-  // Process nudges already enter the source-neutral alert registry under the
-  // same daemon-authored semantic fingerprint. Active alert occurrences are
-  // therefore their one Action Queue representation; appending the retained
-  // nudges snapshot here would double-count a condition and could promote a
-  // stale transport cache to a row labelled Current.
-  return items.sort(bySeverity);
-}
-
-function actionQueueRowElement(item) {
-  if (item.kind === "alert") return alertRowElement(item.alert);
-  const row = document.createElement("button");
-  row.type = "button";
-  const tint = SEVERITY_TINT[item.severity] || "";
-  row.className = `alert-row pd-tile pd-alert${tint ? ` ${tint}` : ""}`;
-  if (tint) {
-    const bar = document.createElement("span");
-    bar.className = "pd-tile__bar";
-    bar.setAttribute("aria-hidden", "true");
-    row.append(bar);
-  }
-  const source = document.createElement("span");
-  source.className = "alert-row__source pd-alert__src";
-  source.textContent = item.kind === "protection" ? "Protection" : item.kind === "exercise" ? "Option exercise" : "Process";
-  const title = document.createElement("b");
-  title.className = "pd-alert__title";
-  title.textContent = item.title || "Review required";
-  const body = document.createElement("p");
-  body.className = "pd-alert__body";
-  body.textContent = item.body || "Review the current evidence.";
-  const age = document.createElement("span");
-  age.className = "pd-alert__age";
-  age.textContent = item.at ? `Current ${clockLabel(item.at)}` : "Current";
-  row.append(source, title, body, age);
-  row.addEventListener("click", () => {
-    if (item.kind === "process") {
-      $("tabBrief")?.click();
-      return;
-    }
-    $("tabMonitor")?.click();
-    state.protectionOpen = true;
-    state.opportunitiesOpen = item.kind === "exercise";
-    const sheet = $("protectionSheet");
-    if (sheet && !sheet.open) sheet.showModal();
-  });
-  return row;
+// Process nudges enter the source-neutral registry as alert occurrences. The
+// Alerts tab uses that current authority only; protection proposals and option
+// exercise opportunities remain on their dedicated Monitor surfaces.
+function activeAlertItems(activeAlerts = []) {
+  return activeAlerts.map((alert) => ({ severity: alert.severity, alert })).sort(bySeverity);
 }
 
 // The engraved unlit poster: the quiet desk stated as a fact, and only when
@@ -588,20 +539,6 @@ function bySeverity(left, right) {
   return (SEVERITY_ORDER[left.severity] ?? 9) - (SEVERITY_ORDER[right.severity] ?? 9);
 }
 
-const EXTINGUISHED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-// The extinguished register is the last seven days off the SERVED clock. An
-// reference to have been rendered, and a display window must never quietly
-function extinguishedRegister(value, ended) {
-  const asOf = Date.parse(value.as_of);
-  const unread = new Set(value.attention.unread_refs.map((ref) => ref.display_id));
-  return ended.filter((item) => {
-    if (unread.has(item.display_id)) return true;
-    const endedAt = Date.parse(item.ended_at);
-    return !Number.isFinite(asOf) || !Number.isFinite(endedAt) || asOf - endedAt <= EXTINGUISHED_WINDOW_MS;
-  });
-}
-
 function deliveryCopy(health) {
   if (!health || health.state === "healthy") return "";
   if (health.state === "overflow") return "Alert delivery is blocked because the inbox is full.";
@@ -614,19 +551,19 @@ function renderAttention() {
   const feedInvalid = state.alertsFeedValid === false;
   const known = Number.isSafeInteger(unread) && unread >= 0 && !feedInvalid;
   const activeAlerts = feedInvalid ? [] : (state.alerts?.occurrences || []).filter((item) => item.ended_at === null);
-  const queueCount = actionQueueItems(activeAlerts).length;
+  const alertCount = activeAlertItems(activeAlerts).length;
   const badge = $("alertUnreadBadge");
   const tab = $("tabAlerts");
   if (badge) {
-    badge.hidden = queueCount === 0;
-    badge.textContent = queueCount > 0 ? (queueCount > 99 ? "99+" : String(queueCount)) : "";
+    badge.hidden = alertCount === 0;
+    badge.textContent = alertCount > 0 ? (alertCount > 99 ? "99+" : String(alertCount)) : "";
     badge.setAttribute("aria-hidden", "true");
     const severity = highestActiveAlertSeverity();
     badge.classList.toggle("bottom-tab__badge--act", severity === "act");
     badge.classList.toggle("bottom-tab__badge--watch", severity === "watch");
   }
   // An invalidated feed makes the unread state unknown, not zero: never
-  if (tab) tab.setAttribute("aria-label", queueCount > 0 ? `Action queue, ${queueCount} open` : feedInvalid ? "Action queue, alert state unknown" : "Action queue, empty");
+  if (tab) tab.setAttribute("aria-label", alertCount > 0 ? `Alerts, ${alertCount} open` : feedInvalid ? "Alerts, state unknown" : "Alerts, none open");
   if (!feedInvalid) syncAppIconBadge(known ? unread : 0);
   const status = $("attentionStatus");
   if (status) {
@@ -691,20 +628,16 @@ function renderAlerts() {
   const value = state.alerts;
   const valid = state.alertsFeedValid !== false;
   const currentList = $("currentSignalList");
-  const historyList = $("alertHistoryList");
   const placard = $("currentSignalPlacard");
   if (!value || !valid || !value.initialized) {
-    const actions = actionQueueItems([]);
+    const alerts = activeAlertItems([]);
     state.renderedAlertAttention = null;
     if (placard) placard.hidden = false;
-    setText("alertCount", actions.length > 0 ? `${actions.length} Open` : "Unknown");
-    setText("currentSignalCount", String(actions.length));
+    setText("alertCount", alerts.length > 0 ? `${alerts.length} Open` : "Unknown");
+    setText("currentSignalCount", String(alerts.length));
     setText("alertAuthorityState", "Unknown");
     setText("alertCoverageSummary", valid ? "Alert authority is not initialized." : "The latest alert update was rejected; retained evidence is not a current verdict.");
-    if (currentList) currentList.replaceChildren(...(actions.length > 0 ? actions.map(actionQueueRowElement) : [emptyRow("Current alert state is unavailable.")]));
-    if (historyList) historyList.replaceChildren();
-    const history = $("alertsHistorySection");
-    if (history) history.hidden = true;
+    if (currentList) currentList.replaceChildren(...(alerts.length > 0 ? alerts.map((item) => alertRowElement(item.alert)) : [emptyRow("Current alert state is unavailable.")]));
     renderSources(null);
     // Delivery health shares the feed's authority: an invalid or
     // uninitialized feed must not keep presenting the retained health as
@@ -714,28 +647,22 @@ function renderAlerts() {
   }
 
   const active = value.occurrences.filter((item) => item.ended_at === null);
-  const queue = actionQueueItems(active);
-  const ended = value.occurrences.filter((item) => item.ended_at !== null);
+  const alerts = activeAlertItems(active);
   const clear = canAssertAlertClear(value);
   const completeCurrent = value.coverage.state === "complete" && value.coverage.freshness === "current";
   const authorityState = clear ? "Clear" : value.current_state === "active" && completeCurrent ? "Active" : value.current_state === "active" ? "Degraded" : "Unknown";
-  setText("alertCount", queue.length > 0 ? `${queue.length} Open` : authorityState);
-  setText("currentSignalCount", String(queue.length));
+  setText("alertCount", alerts.length > 0 ? `${alerts.length} Open` : authorityState);
+  setText("currentSignalCount", String(alerts.length));
   setText("alertAuthorityState", authorityState);
   setText("alertCoverageSummary", `${value.coverage.state} coverage · ${value.coverage.freshness} · ${value.coverage.covered_sources.length}/${value.coverage.expected_sources.length} sources · ${timeLabel(value.coverage.as_of)}`);
-  const extinguished = extinguishedRegister(value, ended);
   // The poster is the count: an engraved ALL DARK under an "ACTIVE 0" legend
-  const posted = queue.length === 0 && clear;
+  const posted = alerts.length === 0 && clear;
   if (placard) placard.hidden = posted;
   if (currentList) {
-    currentList.replaceChildren(...(queue.length > 0
-      ? queue.map(actionQueueRowElement)
+    currentList.replaceChildren(...(alerts.length > 0
+      ? alerts.map((item) => alertRowElement(item.alert))
       : [posted ? allDarkPoster(value) : emptyRow("No active alert can be confirmed because source coverage is incomplete or stale.")]));
   }
-  if (historyList) historyList.replaceChildren(...extinguished.map(alertRowElement));
-  const history = $("alertsHistorySection");
-  if (history) history.hidden = extinguished.length === 0;
-  setText("alertHistoryCount", String(extinguished.length));
   renderSources(value);
   renderDelivery(value);
   renderAttention();
@@ -748,28 +675,7 @@ function renderAlerts() {
   state.renderedAlertAttention = allUnreadRendered
     ? { high_water_seq: value.attention.high_water_seq, refs: clone(value.attention.unread_refs) }
     : null;
-  return { state: authorityState.toLowerCase(), active, ended };
-}
-
-function renderSelectedAlert() {
-  // An invalid feed quarantines the detail panel with the other alert
-  const occurrence = state.alertsFeedValid === false
-    ? null
-    : state.alerts?.occurrences?.find((item) => item.display_id === state.selectedAlertID);
-  const panel = $("selectedAlertPanel");
-  if (!panel) return;
-  panel.hidden = !occurrence;
-  if (!occurrence) return;
-  setText("selectedAlertTitle", occurrence.title);
-  setText("selectedAlertBody", alertBodyCopy(occurrence));
-  const lifecycle = occurrence.ended_at !== null
-    ? "extinguished"
-    : occurrence.presentation_code === "risk_policy_drawdown_latched"
-      ? "latched prior breach"
-      : occurrence.evidence_health !== "current"
-        ? "retained; recovery unconfirmed"
-        : occurrence.state;
-  setText("selectedAlertTime", `${alertSourceLabel(occurrence.source)} · ${lifecycle} · evidence ${occurrence.evidence_health} · ${timeLabel(occurrence.last_seen_at)}`);
+  return { state: authorityState.toLowerCase(), active, ended: [] };
 }
 
 function attentionViewReady() {
@@ -841,7 +747,6 @@ async function refreshAlerts(options = {}) {
       if (result.status === "rejected") throw new Error("alerts malformed");
       if (state.attentionStatus.state === ALERTS_REFRESH_FAILED_COPY) setAttentionStatus("");
       renderAlerts();
-      renderSelectedAlert();
       return true;
     } catch {
       // A failed or timed-out recovery GET is weaker evidence than the
@@ -849,7 +754,6 @@ async function refreshAlerts(options = {}) {
       // malformed or equivocating) and surface the failure as status.
       setAttentionStatus(ALERTS_REFRESH_FAILED_COPY, true);
       renderAlerts();
-      renderSelectedAlert();
       return false;
     } finally {
       state.alertsRefreshInFlight = null;
@@ -880,8 +784,10 @@ async function acknowledgeAttention(options = {}) {
       const accepted = ingestAlerts(alerts);
       if (accepted.status === "rejected") throw new Error("alerts malformed");
       renderAlerts();
-      renderSelectedAlert();
-      if (!attentionViewReady()) throw new Error("view not visible");
+      // An alert tap intentionally leaves this tab to show its evidence. That
+      // navigation cancels acknowledgement; it is not a render failure and
+      // must not leave a false unread-error banner behind.
+      if (!attentionViewReady()) return false;
       if (!sameAttention(attention, state.alerts.attention) || !state.renderedAlertAttention ||
           state.renderedAlertAttention.high_water_seq !== attention.high_water_seq ||
           !sameAttention(state.renderedAlertAttention.refs, attention.unread_refs)) {
@@ -900,10 +806,10 @@ async function acknowledgeAttention(options = {}) {
       if (state.attentionEpoch !== epoch || readResult.status === "rejected") return false;
       setAttentionStatus("");
       renderAlerts();
-      renderSelectedAlert();
       return true;
     } catch {
       if (state.attentionEpoch !== epoch) return false;
+      if (!attentionViewReady()) return false;
       setAttentionStatus("Alerts stayed unread because the current server set was not fully rendered.", true);
       if (options.retry !== false) scheduleAttentionRetry();
       return false;
@@ -971,7 +877,8 @@ export {
   AlertContractError,
   acknowledgeAttention,
   acknowledgeAttentionNow,
-  actionQueueItems,
+  activeAlertItems,
+  alertEvidenceTarget,
   alertRowElement,
   alertSourceLabel,
   attentionViewReady,
@@ -979,10 +886,10 @@ export {
   handleAttentionContextChange,
   ingestAlerts,
   ingestAlertsEvent,
+  openAlertEvidence,
   refreshAlerts,
   renderAlerts,
   renderAttention,
-  renderSelectedAlert,
   scheduleAlertsRefresh,
   setupAttentionVisibility,
   validateAlerts,

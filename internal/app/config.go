@@ -96,7 +96,7 @@ func relayDefaultURL() string {
 // CANARY_APP_STATE_DIR, XDG_STATE_HOME, or the user's home directory, in that
 // order. It does not create the directory.
 func DefaultStateDir() string {
-	// docgen:env CANARY_APP_STATE_DIR | Directory for `canary app` paired devices, alert settings, VAPID keys, and alert history. Defaults to `$XDG_STATE_HOME/ibkr/app` or `$HOME/.local/state/ibkr/app`.
+	// docgen:env CANARY_APP_STATE_DIR | Directory for `canary app` paired devices, alert settings, VAPID keys, and private alert-delivery evidence. Defaults to `$XDG_STATE_HOME/ibkr/app` or `$HOME/.local/state/ibkr/app`.
 	if v := strings.TrimSpace(os.Getenv("CANARY_APP_STATE_DIR")); v != "" {
 		return v
 	}

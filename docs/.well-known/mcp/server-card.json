@@ -149,6 +149,14 @@
       }
     },
     {
+      "name": "canary_strategies",
+      "description": "Read how Canary groups currently held option legs into proportional strategies and which legs still need review. Use canary_positions for the full book. This tool cannot preview, submit, place, modify, cancel, or transmit an order.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "canary_technical",
       "description": "One-call trend, moving-average, relative-strength, ATR, and liquidity screen for stocks and ETFs.",
       "inputSchema": {

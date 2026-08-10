@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -188,6 +189,24 @@ var Tools = []Tool{
 				return json.Marshal(rpc.CompactPositionsRisk(&res, 5))
 			}
 			return json.Marshal(res)
+		},
+	},
+	{
+		Name:        "canary_strategies",
+		RPCMethods:  []string{rpc.MethodPositionsList},
+		Title:       "Canary Option Strategies",
+		Description: "Read how Canary groups currently held option legs into proportional strategies and which legs still need review. Use canary_positions for the full book. This tool cannot preview, submit, place, modify, cancel, or transmit an order.",
+		JSONSchema:  schemaObject(nil, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
+			var res rpc.PositionsResult
+			if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{Type: "opt"}, &res); err != nil {
+				return nil, err
+			}
+			return json.Marshal(struct {
+				Strategies []rpc.PositionStrategy      `json:"strategies"`
+				Issues     []rpc.StrategyGroupingIssue `json:"issues,omitempty"`
+				AsOf       time.Time                   `json:"as_of"`
+			}{res.Strategies, res.StrategyIssues, res.AsOf})
 		},
 	},
 	{

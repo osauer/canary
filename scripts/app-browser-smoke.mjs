@@ -50,12 +50,11 @@ async function runRound4SyntheticSmoke() {
   let pairingAttempts = 0;
   const externalRequests = [];
   let attention = {
-    unread_count: 2,
+    unread_count: 1,
     high_water_seq: 4,
     read_through_seq: 2,
     unread_refs: [
       { display_id: "alert-0123456789abcdef", source: "canary", kind: "portfolio_risk" },
-      { display_id: "alert-abcdef0123456789", source: "governance", kind: "governance" },
     ],
   };
   const now = new Date().toISOString();
@@ -77,7 +76,6 @@ async function runRound4SyntheticSmoke() {
     sources: [alertSource("canary"), alertSource("governance")],
     occurrences: [
       alertOccurrence({ display_id: "alert-0123456789abcdef", source: "canary", kind: "portfolio_risk", presentation_code: "portfolio_stress", title: "Synthetic watch", body: "Review the current Canary alert.", state: "open", severity: "watch", ended_at: null, end_reason: null, attention_seq: 3 }),
-      alertOccurrence({ display_id: "alert-abcdef0123456789", source: "governance", kind: "governance", presentation_code: "governance_monthly_pulse", title: "Synthetic process review", body: "Review the retained process alert.", state: "recovered", severity: "act", ended_at: now, end_reason: "recovered", attention_seq: 4 }),
     ],
     attention,
     delivery_health: { state: "healthy", class: "", updated_at: now, last_push_service_acceptance_at: now },
@@ -91,7 +89,18 @@ async function runRound4SyntheticSmoke() {
     vapid_public_key: "",
     snapshot: {
       account: {},
-      positions: { stocks: [], options: [], portfolio: {} },
+      positions: {
+        stocks: [], options: [], portfolio: {}, as_of: now,
+        strategies: [{
+          id: "strategy-synthetic-vertical", revision: 2, underlying: "SYN", kind: "vertical",
+          source: "inferred", status: "current", units: 2, guaranteed_combo: true, actionable: true,
+          position_fingerprint: "synthetic-position-fingerprint",
+          legs: [
+            { contract: { conid: 1101, symbol: "SYN", sec_type: "OPT", currency: "USD", expiry: "20260918", strike: 100, right: "C", trading_class: "SYN" }, quantity: 2, ratio: 1 },
+            { contract: { conid: 1102, symbol: "SYN", sec_type: "OPT", currency: "USD", expiry: "20260918", strike: 105, right: "C", trading_class: "SYN" }, quantity: -2, ratio: -1 },
+          ],
+        }],
+      },
       stress: { portfolio_fit: "low", portfolio: {}, fingerprint: { key: "synthetic-stress" } },
       brief: {
         as_of: now,
@@ -105,7 +114,7 @@ async function runRound4SyntheticSmoke() {
         review: { rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
         ready: { stress: { severity: "watch" } },
       },
-      trading: { mode: "disabled", can_preview: false, can_write: false },
+      trading: { mode: "paper", account: "SYNTHETIC-PAPER", can_preview: true, can_write: true },
       proposals: {},
       opportunities: {},
       sources: { nudges: { state: "current", updated_at: now, last_success_at: now } },
@@ -196,6 +205,36 @@ async function runRound4SyntheticSmoke() {
         lifecycle_state: "working",
       }],
     });
+    if (method === "POST" && requestPath === "/api/strategies/preview") {
+      const body = request.postDataJSON();
+      if (body.strategy_id !== "strategy-synthetic-vertical" || body.expected_revision !== 2 || body.operation !== "close") {
+        return json({ error: "unexpected synthetic strategy preview" }, 400);
+      }
+      return json({
+        preview_token: "synthetic-strategy-preview-token",
+        preview_token_scope: "strategy",
+        token_minted: true,
+        submit_eligible: true,
+        executable: true,
+        mode: "paper",
+        account: "SYNTHETIC-PAPER",
+        draft: {
+          action: "SELL", order_type: "LMT", limit_price: 1.2, tif: "DAY", strategy: "group-close",
+          contract: { symbol: "SYN", sec_type: "BAG", currency: "USD" },
+          strategy_group: {
+            strategy_id: "strategy-synthetic-vertical", strategy_revision: 2, operation: "close",
+            units: 2, units_before: 2, units_after: 0, guaranteed_combo: true,
+            legs: [
+              { contract: { expiry: "20260918", strike: 100, right: "C" }, action: "SELL", quantity: 2, before: 2, after: 0 },
+              { contract: { expiry: "20260918", strike: 105, right: "C" }, action: "BUY", quantity: 2, before: -2, after: 0 },
+            ],
+          },
+        },
+        notional_currency: "USD",
+        what_if: { status: "accepted", available: true, margin: { commission: 1.15, commission_currency: "USD" } },
+        as_of: now,
+      });
+    }
     if (method === "POST" && requestPath === "/api/alerts/attention/read") {
       const body = request.postDataJSON();
       if (Object.keys(body).length !== 1 || body.through_seq !== 4) return json({ error: "unexpected synthetic watermark" }, 400);
@@ -257,10 +296,8 @@ async function runRound4SyntheticSmoke() {
     ), { timeout: 5000 });
     const alertsView = await page.evaluate(() => ({
       activeAlerts: document.getElementById("currentSignalList")?.textContent || "",
-      endedAlerts: document.getElementById("alertHistoryList")?.textContent || "",
       authority: document.getElementById("alertAuthorityState")?.textContent || "",
       litTiles: document.querySelectorAll("#currentSignalList .alert-row.pd-tile--watch").length,
-      outTiles: document.querySelectorAll("#alertHistoryList .alert-row.pd-alert--out").length,
       authoritySeated: document.getElementById("lampTestDialog")?.contains(document.getElementById("alertAuthorityState")) === true,
     }));
     await page.locator("#tabSettings").click();
@@ -297,14 +334,27 @@ async function runRound4SyntheticSmoke() {
         };
       })(),
     }));
-    if (!monitor.active || monitor.badge !== "1" || monitor.label !== "Action queue, 1 open" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
-    if (!alertsView.activeAlerts.includes("Synthetic watch") || !alertsView.endedAlerts.includes("Synthetic process review") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
-    // The log renders as annunciator tiles (watch lit, ended unlit) and the
-    // alert authority now reports from inside the lamp-test detail.
-    if (alertsView.litTiles !== 1 || alertsView.outTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
-    if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while your in-app history remains") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
+    await page.waitForFunction(() => document.getElementById("strategiesCount")?.textContent === "1 group", { timeout: 5000 });
+    const strategyBefore = await page.evaluate(() => ({
+      count: document.getElementById("strategiesCount")?.textContent || "",
+      text: document.getElementById("strategiesList")?.textContent || "",
+      previewButtons: document.querySelectorAll("#strategiesList .strategy-preview").length,
+    }));
+    await page.locator("#strategiesList .strategy-preview").click();
+    await page.waitForFunction(() => document.querySelector("#strategiesList .strategy-submit")?.textContent === "Send combo order", { timeout: 5000 });
+    const strategyAfter = await page.evaluate(() => ({
+      text: document.getElementById("strategiesList")?.textContent || "",
+      submitEnabled: document.querySelector("#strategiesList .strategy-submit")?.disabled === false,
+      submitRequests: globalThis.__canarySmoke?.fetches?.filter((item) => item.url.endsWith("/api/strategies/submit")).length || 0,
+    }));
+    if (!monitor.active || monitor.badge !== "1" || monitor.label !== "Alerts, 1 open" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
+    if (!alertsView.activeAlerts.includes("Synthetic watch") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
+    if (alertsView.litTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
+    if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
     if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
+    if (strategyBefore.count !== "1 group" || !strategyBefore.text.includes("SYN · Vertical spread") || !strategyBefore.text.includes("2 units") || strategyBefore.previewButtons !== 1) throw new Error(`synthetic strategy group failed: ${JSON.stringify(strategyBefore)}`);
+    if (!strategyAfter.text.includes("$1.20 per strategy") || !strategyAfter.text.includes("Broker preview Accepted") || !strategyAfter.text.includes("0 remaining") || !strategyAfter.submitEnabled || strategyAfter.submitRequests !== 0) throw new Error(`synthetic strategy preview failed: ${JSON.stringify(strategyAfter)}`);
     if (ordersView.layout.viewport_width !== 591 || ordersView.layout.grid_columns.length !== 1 || ordersView.layout.identity_width < ordersView.layout.row_width * 0.8 || ordersView.layout.horizontal_overflow) {
       throw new Error(`synthetic Orders compact layout collapsed or overflowed: ${JSON.stringify(ordersView.layout)}`);
     }
@@ -322,7 +372,7 @@ async function runRound4SyntheticSmoke() {
     }
     await page.setViewportSize({ width: 390, height: 844 });
     const mutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
-    if (JSON.stringify(mutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read"]) || JSON.parse(mutationRequests[1].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
+    if (JSON.stringify(mutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read", "POST /api/strategies/preview"]) || JSON.parse(mutationRequests[1].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
     if (pairingAttempts !== 1 || expectedPairingErrors.length !== 1 || bootstrapRequests < 1) throw new Error(`synthetic pairing recovery did not execute exactly once: ${JSON.stringify({ pairingAttempts, expectedPairingErrors, bootstrapRequests })}`);
 
     await page.evaluate(() => localStorage.setItem("canaryActiveTab", "monitor"));
@@ -370,12 +420,12 @@ async function runRound4SyntheticSmoke() {
       throw new Error(`synthetic device-cookie auth recovery failed: ${JSON.stringify({ authRecovery, deviceRecoveryRequired, deviceCookieRecoveries, bootstrapRequests, recoveryBootstrapBefore, cookieCount: recoveredCookieNames.size })}`);
     }
     const finalMutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
-    if (JSON.stringify(finalMutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read", "POST /api/pairing/complete"])) {
+    if (JSON.stringify(finalMutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read", "POST /api/strategies/preview", "POST /api/pairing/complete"])) {
       throw new Error(`unexpected synthetic mutations after fresh pairing: ${JSON.stringify(mutationRequests)}`);
     }
     if (externalRequests.length > 0) throw new Error(`synthetic browser attempted external requests: ${JSON.stringify(externalRequests)}`);
     if (errors.length > 0) throw new Error(`synthetic browser errors: ${errors.join("\n")}`);
-    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, brief: briefView, alerts: alertsView, orders: ordersView, desktop_layout: desktopLayout, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
+    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, brief: briefView, alerts: alertsView, orders: ordersView, strategies: { grouped: strategyBefore, preview: strategyAfter, submit_clicked: false }, desktop_layout: desktopLayout, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
   } finally {
     await browser.close();
   }
@@ -463,6 +513,7 @@ await context.addInitScript(() => {
   globalThis.__canarySmoke = {
     eventCounts: {},
     fetches: [],
+    alertCursors: [],
     openedEvents: 0,
     attentionReadDiverted: 0,
   };
@@ -492,6 +543,21 @@ await context.addInitScript(() => {
     try {
       const res = await nativeFetch(...fetchArgs);
       globalThis.__canarySmoke.fetches.push({ url, status: res.status, at: Date.now() });
+      if (res.ok && method === "GET" && (url.endsWith("/api/alerts") || url.endsWith("/api/alerts/attention"))) {
+        res.clone().json().then((body) => {
+          const attention = url.endsWith("/api/alerts/attention") ? body : body?.attention;
+          globalThis.__canarySmoke.alertCursors.push({
+            path: url.endsWith("/api/alerts/attention") ? "/api/alerts/attention" : "/api/alerts",
+            unread_count: attention?.unread_count,
+            high_water_seq: attention?.high_water_seq,
+            read_through_seq: attention?.read_through_seq,
+            unread_refs: Array.isArray(attention?.unread_refs)
+              ? attention.unread_refs.map((ref) => `${ref.source}/${ref.kind}/${ref.display_id}`)
+              : [],
+          });
+          if (globalThis.__canarySmoke.alertCursors.length > 8) globalThis.__canarySmoke.alertCursors.shift();
+        }).catch(() => {});
+      }
       if (res.ok && url.endsWith("/api/bootstrap")) {
         res.clone().json().then((body) => {
           globalThis.__canarySmoke.latestStressHeldStress = body?.snapshot?.stress?.portfolio?.held_stress?.length || 0;
@@ -560,6 +626,20 @@ page.on("pageerror", (err) => pageErrors.push(String(err?.message || err)));
 
 try {
   await page.goto(pairing.url, { waitUntil: "domcontentloaded", timeout: 15000 });
+  try {
+    await page.waitForSelector("#bottomTabs:not([hidden])", { timeout: 15000 });
+  } catch (error) {
+    const pairingState = await page.evaluate(() => ({
+      pairing_hidden: document.getElementById("pairingPanel")?.hidden !== false,
+      pairing_text: document.getElementById("pairingStatus")?.textContent?.trim() || "",
+      retry_visible: document.getElementById("retryAuthButton")?.hidden === false,
+      path: location.pathname,
+    }));
+    throw new Error(`paired app did not authenticate: ${JSON.stringify(pairingState)}; ${error.message}`);
+  }
+  if (await page.locator("#dashboard").getAttribute("hidden") !== null) {
+    await page.locator("#tabMonitor").click();
+  }
   await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
   await waitForSnapshotEvent(page, 0);
   const title = await page.title();
@@ -581,7 +661,7 @@ try {
   const marketContext = await exerciseMarketContext(page);
   const portfolioDetail = await exercisePortfolioDetail(page);
   const protectionRiskRendering = await exerciseProtectionRiskRendering(page);
-  const alertHistory = await exerciseAlertHistory(page);
+  const alertSurface = await exerciseAlerts(page);
   const lampTestDetail = await exerciseLampTestDetail(page);
   const briefNarrative = await assertBriefNarrative(page);
   // Prove the attention-read guard was armed and effective: the alerts tab
@@ -601,8 +681,9 @@ try {
     const attentionState = await page.evaluate(() => ({
       aria: document.getElementById("tabAlerts")?.getAttribute("aria-label") || "",
       attentionGets: globalThis.__canarySmoke.fetches.filter((item) => item.url.endsWith("/api/alerts/attention")).length,
+      unread: globalThis.__canarySmoke.alertCursors?.at(-1)?.unread_count,
     }));
-    if (!/no unread alerts/i.test(attentionState.aria)) {
+    if (attentionState.unread !== 0) {
       throw new Error(`attention read guard never fired with unread pending: ${JSON.stringify(attentionState)}`);
     }
     if (attentionState.attentionGets === 0) {
@@ -654,7 +735,7 @@ try {
     market_context: marketContext,
     portfolio_detail: portfolioDetail,
     protection_risk_rendering: protectionRiskRendering,
-    alert_history: alertHistory,
+    alerts: alertSurface,
     lamp_test_detail: lampTestDetail,
     brief_narrative: briefNarrative,
     open_orders: openOrders,
@@ -927,7 +1008,6 @@ async function assertVisibleRenameContract(page) {
       alertSourceText: [
         ...document.querySelectorAll(".alert-row__source"),
         ...document.querySelectorAll("#alertSourceList b"),
-        document.getElementById("selectedAlertTime"),
       ].filter(Boolean).map((node) => node.textContent || "").join(" "),
     };
   });
@@ -1787,12 +1867,32 @@ async function exerciseProtectionRiskRendering(page) {
   return info;
 }
 
-// Alerts is the annunciator log: lit tiles above, the extinguished register
-// below, and nothing else. Every row must carry the engraved source placard,
-// the served title, and a worded age line; act tiles must never sit under
-// watch tiles; and an extinguished row must read unlit.
-async function exerciseAlertHistory(page) {
+// Alerts is the current annunciator log. Terminal delivery evidence stays
+// private and must not reappear as a user-facing history register.
+async function exerciseAlerts(page) {
   const SEVERITY_RANK = { act: 0, watch: 1, "": 2 };
+  await page.locator("#tabAlerts").click();
+  await page.waitForFunction(() => document.getElementById("alertsTab")?.hidden === false, { timeout: 5000 });
+  await page.waitForTimeout(2200);
+  try {
+    await page.waitForFunction(() => (
+      (globalThis.__canarySmoke?.attentionReadDiverted || 0) > 0
+        || globalThis.__canarySmoke?.alertCursors?.at(-1)?.unread_count === 0
+    ), { timeout: 10000 });
+  } catch (error) {
+    const attentionState = await page.evaluate(() => ({
+      tab_visible: document.getElementById("alertsTab")?.hidden === false,
+      document_visibility: document.visibilityState,
+      aria: document.getElementById("tabAlerts")?.getAttribute("aria-label") || "",
+      rendered_rows: document.querySelectorAll("#currentSignalList .alert-row").length,
+      status: document.getElementById("attentionStatus")?.textContent?.trim() || "",
+      fetches: (globalThis.__canarySmoke?.fetches || [])
+        .filter((item) => String(item.url || "").includes("/api/alerts"))
+        .map((item) => ({ path: new URL(item.url, location.origin).pathname, status: item.status, diverted: item.diverted === true })),
+      cursors: globalThis.__canarySmoke?.alertCursors || [],
+    }));
+    throw new Error(`attention acknowledgement did not settle: ${JSON.stringify(attentionState)}; ${error.message}`);
+  }
   const initiallyOpen = await page.locator("#alertsPanel").evaluate((el) => !!el.open);
   if (!initiallyOpen) {
     await page.locator("#alertsPanel summary").click();
@@ -1809,33 +1909,20 @@ async function exerciseAlertHistory(page) {
     return {
       count: Number.parseInt(document.getElementById("alertCount")?.textContent || "0", 10) || 0,
       currentRows: document.querySelectorAll("#currentSignalList .alert-row").length,
-      historyRows: document.querySelectorAll("#alertHistoryList .alert-row").length,
       currentCount: Number.parseInt(document.getElementById("currentSignalCount")?.textContent || "0", 10) || 0,
-      historyCount: Number.parseInt(document.getElementById("alertHistoryCount")?.textContent || "0", 10) || 0,
       authority: document.getElementById("alertAuthorityState")?.textContent || "",
       coverage: document.getElementById("alertCoverageSummary")?.textContent || "",
       active: readLog("currentSignalList"),
-      extinguished: readLog("alertHistoryList"),
       poster: document.querySelector("#currentSignalList .pd-poster__word")?.textContent?.trim() || "",
       quiet: document.querySelector("#currentSignalList .empty-row")?.textContent?.trim() || "",
       // A placard row carries its count or chip alongside the legend; the
       placards: [...document.querySelectorAll("#alertsTab .pd-placard")].map((el) => (el.querySelector("span") || el).textContent?.trim() || ""),
-      historyHidden: document.getElementById("alertsHistorySection")?.hidden !== false,
+      terminalSectionPresent: document.getElementById("alertsHistorySection") !== null,
       activeLegendHidden: document.getElementById("currentSignalPlacard")?.hidden !== false,
     };
   });
-  let selected = false;
-  const firstAlert = page.locator("#currentSignalList .alert-row:visible, #alertHistoryList .alert-row:visible").first();
-  if ((await firstAlert.count()) > 0) {
-    await firstAlert.click();
-    await page.waitForFunction(() => {
-      const panel = document.getElementById("selectedAlertPanel");
-      return panel && !panel.hidden && document.getElementById("selectedAlertTitle")?.textContent?.trim();
-    }, { timeout: 5000 });
-    selected = true;
-  }
   if (!info.authority || !info.coverage) throw new Error(`active alert authority did not render: ${JSON.stringify(info)}`);
-  for (const row of [...info.active, ...info.extinguished]) {
+  for (const row of info.active) {
     if (!row.placard || !row.title || !/^Lit /.test(row.age)) {
       throw new Error(`annunciator tile is incomplete: ${JSON.stringify(row)}`);
     }
@@ -1844,11 +1931,6 @@ async function exerciseAlertHistory(page) {
   if (ranks.some((rank, index) => index > 0 && rank < ranks[index - 1])) {
     throw new Error(`act tiles must sit above watch tiles: ${JSON.stringify(info.active.map((row) => row.tint))}`);
   }
-  for (const row of info.extinguished) {
-    if (!row.out || row.tint !== "" || !/, out /.test(row.age)) {
-      throw new Error(`extinguished tile must read unlit with its burn window: ${JSON.stringify(row)}`);
-    }
-  }
   // A quiet log is either the engraved poster or the honest coverage
   // sentence — never an empty panel that could be mistaken for calm.
   if (info.active.length === 0 && info.poster !== "ALL DARK." && !/coverage is incomplete or stale/.test(info.quiet)) {
@@ -1856,16 +1938,14 @@ async function exerciseAlertHistory(page) {
   }
   // Process evidence lives on the Settings back panel since WP5; the log
   // carries only its own placards, and the old one reappearing here would
-  if (!info.placards.includes("Active") || info.placards.includes("Process evidence")) {
+  if (!info.placards.includes("Open") || info.placards.includes("Process evidence")) {
     throw new Error(`alerts placards are incomplete or carry relocated sections: ${JSON.stringify(info.placards)}`);
   }
   // The ALL DARK poster is the count; every other state keeps the legend.
   if (info.activeLegendHidden !== (info.poster === "ALL DARK.")) {
     throw new Error(`the Active legend must yield to the poster and only to the poster: ${JSON.stringify({ poster: info.poster, activeLegendHidden: info.activeLegendHidden })}`);
   }
-  if (!info.historyHidden && !info.placards.some((placard) => /^Extinguished/.test(placard))) {
-    throw new Error(`the extinguished register must carry its own placard: ${JSON.stringify(info.placards)}`);
-  }
+  if (info.terminalSectionPresent) throw new Error("terminal alert history must not be rendered in v3");
   if (!initiallyOpen) {
     await page.locator("#alertsPanel summary").click();
   }
@@ -1874,9 +1954,7 @@ async function exerciseAlertHistory(page) {
     opens: true,
     count: info.count,
     current_rows: info.currentRows,
-    history_rows: info.historyRows,
     current_count: info.currentCount,
-    history_count: info.historyCount,
     authority: info.authority,
     coverage: info.coverage,
     placards: info.placards,
@@ -1884,7 +1962,7 @@ async function exerciseAlertHistory(page) {
     active_legend_hidden: info.activeLegendHidden,
     active_tints: info.active.map((row) => row.tint),
     first_age: info.active[0]?.age || info.extinguished[0]?.age || "",
-    selected,
+    terminal_history_present: info.terminalSectionPresent,
   };
 }
 
@@ -1945,7 +2023,7 @@ async function exerciseLampTestDetail(page) {
 // Review movement exactly when the served row says it is signable.
 async function assertBriefNarrative(page) {
   // Declared inside the function: the smoke invokes itself through a
-  const MOVEMENT_PLACARDS = ["Review \u00b7 last session", "Ready \u00b7 next open"];
+  const MOVEMENT_PLACARDS = ["Review \u00b7 since last close", "Ready \u00b7 next open"];
   const SEVERITY_WORDS = ["observe", "watch", "act", "ok", "attention", "degraded", "unavailable"];
   const MARKUP_LEAKS = ["[f]", "[/f]", "[w]", "[/w]", "[a]", "[/a]", "<span", "<b>"];
   const FIXTURE_REPORT = "smoke-signoff-fixture";
@@ -2077,8 +2155,8 @@ async function exerciseOpenOrders(page) {
   if (!info.panelPresent) {
     throw new Error("Orders panel should always be present once the Orders tab is active");
   }
-  if (!info.foot.includes("Order journal") || !info.foot.includes("read-only") || !info.foot.includes("submission stays on the desk")) {
-    throw new Error(`orders journal must state its read-only authority at the foot: ${JSON.stringify(info.foot)}`);
+  if (!info.foot.includes("Order journal") || !info.foot.includes("current broker") || !info.foot.includes("local order state")) {
+    throw new Error(`orders journal must state its broker and local-state authority at the foot: ${JSON.stringify(info.foot)}`);
   }
   if (info.bars !== info.rows || info.legends.length !== info.rows || info.legends.some((legend) => !legend) || info.readings.length !== info.rows || info.readings.some((reading) => !reading)) {
     throw new Error(`open orders must render as engraved order bars: ${JSON.stringify({ rows: info.rows, bars: info.bars, legends: info.legends, readings: info.readings })}`);
@@ -2164,7 +2242,7 @@ async function exerciseSettingsTab(page) {
     modes: [...document.querySelectorAll("#alertSegments button")].map((button) => button.textContent.trim()),
     copy: document.querySelector(".settings-notification-card")?.textContent || "",
   }));
-  if (JSON.stringify(notification.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !notification.copy.includes("global for this app host and all paired devices") || !notification.copy.includes("Off stops phone notifications while your in-app history remains") || !notification.copy.includes("Action required sends urgent items only") || !notification.copy.includes("Watch + action also sends review reminders") || !notification.copy.includes("not configured here") || !notification.copy.includes("shared across paired devices")) {
+  if (JSON.stringify(notification.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !notification.copy.includes("global for this app host and all paired devices") || !notification.copy.includes("Off stops phone notifications while current alerts remain visible") || !notification.copy.includes("Action required sends urgent items only") || !notification.copy.includes("Watch + action also sends review reminders") || !notification.copy.includes("not configured here") || !notification.copy.includes("shared across paired devices")) {
     throw new Error(`Settings notification card is incomplete: ${JSON.stringify(notification)}`);
   }
   // The back panel: engraved banks, slide switches that print their state,
@@ -2182,7 +2260,7 @@ async function exerciseSettingsTab(page) {
       throw new Error(`Settings back panel is missing the ${JSON.stringify(placard)} bank: ${JSON.stringify(backPanel.placards)}`);
     }
   }
-  if (backPanel.switches !== 2 || JSON.stringify(backPanel.statusCells) !== JSON.stringify(["Trading", "Limits", "Market data", "Build", "Protection", "Policy"])) {
+  if (backPanel.switches !== 1 || JSON.stringify(backPanel.statusCells) !== JSON.stringify(["Trading", "Limits", "Market data", "Build", "Protection", "Policy"])) {
     throw new Error(`Settings back panel banks are incomplete: ${JSON.stringify(backPanel)}`);
   }
   if (!backPanel.plate.startsWith("CANARY") || !backPanel.plate.endsWith("MADE FOR ONE DESK") || !backPanel.plateMode) {

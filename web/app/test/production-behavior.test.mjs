@@ -27,10 +27,10 @@ const { state } = await import("../state.js");
 const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
   "alerts", "alert-inbox", "brief", "chrome", "lifecycle", "market-events", "opportunities", "orders",
-  "portfolio", "protection", "protection-coverage", "settings", "shared", "shell", "stress", "underlyings",
+  "portfolio", "protection", "protection-coverage", "settings", "shared", "shell", "strategies", "stress", "underlyings",
 ];
 const modules = Object.fromEntries(await Promise.all(moduleNames.map(async (name) => [name, await import(`../${name}.js`)])));
-const { alerts, brief, chrome, lifecycle, opportunities, orders, portfolio, protection, settings, shared, shell, stress, underlyings } = modules;
+const { alerts, brief, chrome, lifecycle, opportunities, orders, portfolio, protection, settings, shared, shell, strategies, stress, underlyings } = modules;
 const alertInbox = modules["alert-inbox"];
 const coverage = modules["protection-coverage"];
 const marketEvents = modules["market-events"];
@@ -61,6 +61,7 @@ function reset() {
     protectionSnapshotBusy: false, protectionSnapshotLastAt: 0, protectionSnapshotNotice: "",
     protectionDerisk: { percent: 25, busy: "", result: null, submitted: null, requestRef: "", previewedAt: 0, abort: null },
     opportunitiesOpen: false, opportunityPreviewBusy: "", opportunityPreviews: {}, opportunitySubmitBusy: "", opportunitySubmits: {},
+    strategyDrafts: {}, strategyPreviewBusy: "", strategyPreviews: {}, strategySubmitBusy: "", strategySubmits: {},
     opportunitySnapshotBusy: false, opportunitySnapshotLastAt: 0, opportunitySnapshotNotice: "",
     governance: null, governanceRefreshSucceeded: null, reconciliationCheck: { busy: false, state: "", error: false },
     safeNotificationTest: { busy: false, state: "", error: false }, pushInspection: { state: "unsupported", busy: false },
@@ -142,6 +143,17 @@ test("TestAppJSTradingStateUsesSnapshotCanWrite replacement exercises typed writ
   assert.equal(orders.orderCancelGate(order, frozen).ready, true);
   assert.equal(orders.tradingCancelAllowed({ ...frozen, write_blockers: [{ code: "policy_blocked" }] }), false);
   assert.equal(orders.orderCancelGate(order, { ...frozen, account: "" }).ready, false);
+});
+
+test("strategy operations keep midpoint, credit, and debit terms explicit", () => {
+  reset();
+  assert.equal(strategies.strategyLimit({ priceMode: "midpoint", amount: "" }), undefined);
+  assert.equal(strategies.strategyLimit({ priceMode: "credit", amount: "1.25" }), 1.25);
+  assert.equal(strategies.strategyLimit({ priceMode: "debit", amount: "1.25" }), -1.25);
+  assert.equal(strategies.strategyPriceTerms({ draft: { limit_price: 1.25 }, notional_currency: "USD" }), "Receive at least $1.25 per strategy");
+  assert.equal(strategies.strategyPriceTerms({ draft: { limit_price: -0.8 }, notional_currency: "USD" }), "Pay up to $0.80 per strategy");
+  assert.equal(strategies.strategyKind("vertical"), "Vertical spread");
+  assert.match(strategies.formatExpiry("20260821"), /2026/);
 });
 
 test("TestAppJSSnapshotBannerClaimsLastGoodOnlyWhenPresent replacement keeps cold data distinct from retained data", () => {
@@ -226,7 +238,7 @@ test("Settings masks the configured account everywhere until account values are 
   assert.equal(dom.element("settingsTradingMeta").classList.contains("is-private"), false);
 });
 
-test("Action Queue uses alert occurrences as the sole nudge representation", () => {
+test("Alerts uses current occurrences as the sole nudge representation", () => {
   reset();
   const now = "2026-08-09T00:00:00Z";
   state.snapshot = {
@@ -243,12 +255,64 @@ test("Action Queue uses alert occurrences as the sole nudge representation", () 
     presentation_code: "governance_monthly_pulse", title: "Same process condition", body: "Review it",
     severity: "act", last_seen_at: now, ended_at: null,
   }];
-  const queue = alertInbox.actionQueueItems(active);
-  assert.deepEqual(queue.map((item) => item.kind), ["alert"]);
-  assert.equal(alertInbox.actionQueueItems([]).length, 0, "a retained raw nudge is not current queue authority");
+  const alerts = alertInbox.activeAlertItems(active);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].alert.display_id, "alert-synthetic-process");
+  assert.equal(alertInbox.activeAlertItems([]).length, 0, "a retained raw nudge is not current alert authority");
   state.snapshot.proposals = { as_of: now, proposals: [{ key: "protect", symbol: "SYN", bucket: "stock_stop" }] };
   state.snapshot.opportunities = { as_of: now, opportunities: [{ key: "exercise", symbol: "SYN", blockers: [] }] };
-  assert.deepEqual(alertInbox.actionQueueItems([]).map((item) => item.kind).sort(), ["exercise", "protection"]);
+  assert.equal(alertInbox.activeAlertItems([]).length, 0, "non-alert actions stay on their dedicated Monitor surfaces");
+});
+
+test("alert taps resolve to exact evidence targets", () => {
+  assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "rulebook_hedge_integrity" }), { kind: "rule", id: "hedge_integrity" });
+  assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "rulebook_catalyst_coverage" }), { kind: "rule", id: "catalyst_coverage" });
+  assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "regime_market_stress" }), { kind: "regime" });
+  assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "portfolio_stress" }), { kind: "stress" });
+  assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "order_integrity_mismatch" }), { kind: "orders" });
+});
+
+test("Rulebook rows expose stable alert destinations", () => {
+  const row = stress.ruleChecklistRow({ id: "hedge_integrity", number: 12, title: "Hedge sized to the book", status: "act", evidence: "Directional short." });
+  assert.equal(row.dataset.ruleId, "hedge_integrity");
+  assert.equal(row.tabIndex, -1);
+});
+
+test("leaving Alerts for alert evidence cancels acknowledgement without a false error", async () => {
+  reset();
+  const now = "2026-08-09T12:00:00Z";
+  const freshUntil = "2099-08-09T12:10:00Z";
+  const attention = { unread_count: 0, high_water_seq: 4, read_through_seq: 4, unread_refs: [] };
+  const current = {
+    schema_version: "alerts-v1", version: "alert-delivery-v4", initialized: true, generation: 1,
+    as_of: now, current_state: "clear",
+    coverage: { state: "complete", freshness: "current", as_of: now, expected_sources: ["canary"], covered_sources: ["canary"] },
+    sources: [{ source: "canary", status: "current", reason: "authoritative", evidence_health: "current", input_as_of: now, observed_at: now, evidence_as_of: now, fresh_until: freshUntil, covered: true }],
+    occurrences: [], attention,
+    delivery_health: { state: "healthy", class: "", updated_at: now, last_push_service_acceptance_at: null },
+  };
+  state.alerts = current;
+  state.alertsFeedValid = true;
+  state.activeTab = "alerts";
+  state.attentionReadInFlight = null;
+  state.attentionStatus = { state: "", error: false };
+  dom.element("alertsTab").hidden = false;
+  let releaseAttention;
+  const attentionGate = new Promise((resolve) => { releaseAttention = resolve; });
+  globalThis.fetch = async (url) => {
+    if (String(url) === "/api/alerts/attention") {
+      await attentionGate;
+      return response(attention);
+    }
+    if (String(url) === "/api/alerts") return response(current);
+    return response({ error: "unexpected request" }, 500);
+  };
+  const pending = alertInbox.acknowledgeAttention();
+  state.activeTab = "monitor";
+  dom.element("alertsTab").hidden = true;
+  releaseAttention();
+  assert.equal(await pending, false);
+  assert.deepEqual(state.attentionStatus, { state: "", error: false });
 });
 
 test("option exercise renders blockers, stale previews, explicit confirmation, and exact-once submit", async () => {

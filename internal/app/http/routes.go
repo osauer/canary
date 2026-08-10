@@ -112,6 +112,8 @@ func Register(deps Dependencies) {
 	srv.POST("/api/orders/{id}/cancel", h.requireAuth(h.handleOrderCancel))
 	srv.POST("/api/orders/{id}/preview-modify", h.requireAuth(h.handleOrderPreviewModify))
 	srv.POST("/api/orders/{id}/modify", h.requireAuth(h.handleOrderModify))
+	srv.POST("/api/strategies/preview", h.requireAuth(h.handleStrategyPreview))
+	srv.POST("/api/strategies/submit", h.requireAuth(h.handleStrategySubmit))
 	srv.GET("/api/proposals", h.requireAuth(h.handleProposalsSnapshot))
 	srv.POST("/api/proposals/refresh", h.requireAuth(h.handleProposalsRefresh))
 	srv.POST("/api/proposals/preview", h.requireAuth(h.handleProposalsPreview))

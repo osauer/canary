@@ -198,7 +198,7 @@ func (s *orderTokenSigner) mint(payload orderPreviewTokenPayload) (token string,
 		payload.Scope = rpc.OrderTokenScopePlace
 	}
 	switch payload.Scope {
-	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify, rpc.OrderTokenScopeExercise:
+	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify, rpc.OrderTokenScopeExercise, rpc.OrderTokenScopeStrategy:
 	default:
 		return "", "", time.Time{}, fmt.Errorf("unsupported order preview token scope %q", payload.Scope)
 	}
@@ -253,7 +253,7 @@ func (s *orderTokenSigner) verify(token string) (orderPreviewTokenPayload, error
 		return orderPreviewTokenPayload{}, fmt.Errorf("order preview token belongs to signer generation %d in a different authority epoch", payload.SignerGeneration)
 	}
 	switch payload.Scope {
-	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify, rpc.OrderTokenScopeExercise:
+	case rpc.OrderTokenScopePlace, rpc.OrderTokenScopeModify, rpc.OrderTokenScopeExercise, rpc.OrderTokenScopeStrategy:
 	default:
 		return orderPreviewTokenPayload{}, fmt.Errorf("unsupported order preview token scope %q", payload.Scope)
 	}
@@ -600,9 +600,9 @@ func (s *Server) fetchPreviewWhatIfBound(ctx context.Context, status rpc.Trading
 	var result ibkrlib.OrderWhatIfResult
 	var err error
 	if authority != nil {
-		result, err = c.PreviewOrderWhatIfForSession(whatIfCtx, authority.session, previewIBKRContract(draft.Contract), previewIBKROrderForStatus(draft, status))
+		result, err = c.PreviewOrderWhatIfForSession(whatIfCtx, authority.session, previewIBKRStrategyContract(draft), previewIBKROrderForStatus(draft, status))
 	} else {
-		result, err = c.PreviewOrderWhatIf(whatIfCtx, previewIBKRContract(draft.Contract), previewIBKROrderForStatus(draft, status))
+		result, err = c.PreviewOrderWhatIf(whatIfCtx, previewIBKRStrategyContract(draft), previewIBKROrderForStatus(draft, status))
 	}
 	if err != nil {
 		return rpc.OrderWhatIfResult{}, err
@@ -631,9 +631,9 @@ func (s *Server) fetchModifyPreviewWhatIfBound(ctx context.Context, status rpc.T
 	var result ibkrlib.OrderWhatIfResult
 	var err error
 	if authority != nil {
-		result, err = c.PreviewOrderWhatIfWithOrderIDForSession(whatIfCtx, authority.session, previewIBKRContract(draft.Contract), previewIBKROrderForStatus(draft, status), view.ReservedOrderID)
+		result, err = c.PreviewOrderWhatIfWithOrderIDForSession(whatIfCtx, authority.session, previewIBKRStrategyContract(draft), previewIBKROrderForStatus(draft, status), view.ReservedOrderID)
 	} else {
-		result, err = c.PreviewOrderWhatIfWithOrderID(whatIfCtx, previewIBKRContract(draft.Contract), previewIBKROrderForStatus(draft, status), view.ReservedOrderID)
+		result, err = c.PreviewOrderWhatIfWithOrderID(whatIfCtx, previewIBKRStrategyContract(draft), previewIBKROrderForStatus(draft, status), view.ReservedOrderID)
 	}
 	if err != nil {
 		return rpc.OrderWhatIfResult{}, err
@@ -661,7 +661,7 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 	if secType != "OPT" {
 		multiplier = 0
 	}
-	return &ibkrlib.Contract{
+	out := &ibkrlib.Contract{
 		ConID:        contract.ConID,
 		Symbol:       strings.ToUpper(strings.TrimSpace(contract.Symbol)),
 		SecType:      secType,
@@ -675,6 +675,36 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 		Right:        strings.ToUpper(strings.TrimSpace(contract.Right)),
 		Multiplier:   multiplier,
 	}
+	return out
+}
+
+func previewIBKRStrategyContract(draft rpc.OrderDraft) *ibkrlib.Contract {
+	contract := previewIBKRContract(draft.Contract)
+	if draft.StrategyGroup == nil {
+		return contract
+	}
+	contract.ComboLegs = make([]ibkrlib.ComboLeg, 0, len(draft.StrategyGroup.Legs))
+	for _, leg := range draft.StrategyGroup.Legs {
+		action := rpc.OrderActionBuy
+		if leg.Ratio < 0 {
+			action = rpc.OrderActionSell
+		}
+		exchange := strings.ToUpper(strings.TrimSpace(leg.Contract.Exchange))
+		if exchange == "" {
+			exchange = "SMART"
+		}
+		contract.ComboLegs = append(contract.ComboLegs, ibkrlib.ComboLeg{
+			ConID: leg.Contract.ConID, Ratio: absOrderRatio(leg.Ratio), Action: action, Exchange: exchange, OpenClose: 2,
+		})
+	}
+	return contract
+}
+
+func absOrderRatio(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func previewIBKROrder(draft rpc.OrderDraft) *ibkrlib.RawOrder {
@@ -683,6 +713,7 @@ func previewIBKROrder(draft rpc.OrderDraft) *ibkrlib.RawOrder {
 		TotalQty:      draft.Quantity,
 		OrderType:     strings.ToUpper(strings.TrimSpace(draft.OrderType)),
 		LmtPrice:      draft.LimitPrice,
+		LmtPriceSet:   strings.EqualFold(strings.TrimSpace(draft.OrderType), rpc.OrderTypeLMT),
 		TIF:           strings.ToUpper(strings.TrimSpace(draft.TIF)),
 		TriggerMethod: draft.TriggerMethod,
 		OrderRef:      draft.OrderRef,

@@ -126,6 +126,11 @@ func TestOrderWritesRequireCurrentConfirmation(t *testing.T) {
 			path:   "/api/opportunities/exercise",
 			body:   `{"key":"opportunity","revision":"rev-1"}`,
 		},
+		"strategy_submit_missing": {
+			method: http.MethodPost,
+			path:   "/api/strategies/submit",
+			body:   `{"preview_token":"strategy-token"}`,
+		},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte(tc.body)))
 		req.AddCookie(cookie)
@@ -155,6 +160,49 @@ func TestOpportunityExerciseHTTPDoesNotAuthorizeWrites(t *testing.T) {
 	}
 	if exercise.Accepted || len(exercise.Blockers) == 0 {
 		t.Fatalf("unexpected opportunity exercise result: %#v", exercise)
+	}
+}
+
+func TestStrategyPreviewAndSubmitUseDaemonAuthority(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()
+	cookie := routeSessionCookie(t, handler)
+
+	previewReq := httptest.NewRequest(http.MethodPost, "/api/strategies/preview", bytes.NewReader([]byte(`{
+		"strategy_id":"strategy-1","expected_revision":3,"operation":"close","source":"client-claimed"
+	}`)))
+	previewReq.AddCookie(cookie)
+	previewRes := httptest.NewRecorder()
+	handler.ServeHTTP(previewRes, previewReq)
+	if previewRes.Code != http.StatusOK {
+		t.Fatalf("strategy preview status=%d, want 200; body=%s", previewRes.Code, previewRes.Body.String())
+	}
+	var preview rpc.OrderPreviewResult
+	if err := json.NewDecoder(previewRes.Body).Decode(&preview); err != nil {
+		t.Fatalf("decode strategy preview: %v", err)
+	}
+	if preview.Draft.StrategyGroup == nil || preview.Draft.StrategyGroup.StrategyID != "strategy-1" {
+		t.Fatalf("strategy preview lost daemon-authored group: %#v", preview.Draft.StrategyGroup)
+	}
+	if preview.Draft.Source != "strategy_app" {
+		t.Fatalf("strategy preview source=%q, want server-assigned strategy_app", preview.Draft.Source)
+	}
+
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/strategies/submit", bytes.NewReader([]byte(`{
+		"preview_token":"redacted-strategy-token","confirm_account":"DU123","confirm_mode":"paper"
+	}`)))
+	submitReq.AddCookie(cookie)
+	submitRes := httptest.NewRecorder()
+	handler.ServeHTTP(submitRes, submitReq)
+	if submitRes.Code != http.StatusOK {
+		t.Fatalf("strategy submit status=%d, want 200; body=%s", submitRes.Code, submitRes.Body.String())
+	}
+	var placed rpc.OrderPlaceResult
+	if err := json.NewDecoder(submitRes.Body).Decode(&placed); err != nil {
+		t.Fatalf("decode strategy submit: %v", err)
+	}
+	if !placed.Accepted {
+		t.Fatalf("strategy submit result=%#v, want accepted fake result", placed)
 	}
 }
 
@@ -446,6 +494,31 @@ func (routeFakeClient) OrderPreview(_ context.Context, params rpc.OrderPreviewPa
 			TIF:        rpc.OrderTIFDay,
 			Strategy:   params.Strategy,
 			OrderRef:   "ord-1",
+		},
+		WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true},
+		AsOf:   time.Now().UTC(),
+	}, nil
+}
+
+func (routeFakeClient) StrategyPreview(_ context.Context, params rpc.StrategyPreviewParams) (*rpc.OrderPreviewResult, error) {
+	return &rpc.OrderPreviewResult{
+		PreviewToken:          "redacted-strategy-token",
+		PreviewTokenID:        "strategy-token-1",
+		PreviewTokenScope:     rpc.OrderTokenScopeStrategy,
+		PreviewTokenExpiresAt: time.Now().UTC().Add(time.Minute),
+		TokenMinted:           true,
+		SubmitEligible:        true,
+		Executable:            true,
+		Mode:                  "paper",
+		Account:               "DU123",
+		Draft: rpc.OrderDraft{
+			Action: rpc.OrderActionSell, OrderType: rpc.OrderTypeLMT, LimitPrice: 1.25,
+			TIF: rpc.OrderTIFDay, Strategy: "group-close", OrderRef: "strategy-order-1", Source: params.Source,
+			StrategyGroup: &rpc.StrategyOrderDraft{
+				StrategyID: params.StrategyID, StrategyRevision: params.ExpectedRevision,
+				Operation: params.Operation, Units: 1, UnitsBefore: 1, UnitsAfter: 0,
+				GuaranteedCombo: true,
+			},
 		},
 		WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true},
 		AsOf:   time.Now().UTC(),

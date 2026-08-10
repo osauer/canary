@@ -86,8 +86,9 @@ func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.O
 	if err := s.orderJournal.StagePreTransmit(payload.TokenID, payload.AuthorityEpoch, payload.SignerGeneration, reservedOrderID, corestore.ActionPlace, coreOrderOrigin(p.Origin), []orderJournalEvent{confirm, attempt}); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTradingDisabled, err)
 	}
+	s.rememberStrategyLineage(payload.Draft.StrategyGroup)
 
-	contract := previewIBKRContract(payload.Draft.Contract)
+	contract := previewIBKRStrategyContract(payload.Draft)
 	order := previewIBKROrder(payload.Draft)
 	order.OrderID = reservedOrderID
 	order.ClientID = status.ClientID
@@ -190,7 +191,7 @@ func (s *Server) modifyOrder(ctx context.Context, p rpc.OrderModifyParams) (*rpc
 	binding.orderID = view.ReservedOrderID
 	binding.orderEventSeq = stagedOrderEventSeq
 
-	contract := previewIBKRContract(modifiedDraft.Contract)
+	contract := previewIBKRStrategyContract(modifiedDraft)
 	order := previewIBKROrder(modifiedDraft)
 	order.OrderID = view.ReservedOrderID
 	order.ClientID = status.ClientID
@@ -570,6 +571,7 @@ func orderJournalEventForDraft(draft rpc.OrderDraft, eventType string, status rp
 		LimitPrice:      draft.LimitPrice,
 		Trail:           cloneTrailSpec(draft.Trail),
 		OpenClose:       draft.OpenClose,
+		StrategyGroup:   draft.StrategyGroup,
 		Source:          draft.Source,
 	}
 }

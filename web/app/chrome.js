@@ -124,7 +124,6 @@ function panelTapIgnored(target) {
     ".underlying-action-result",
     ".account-overview-detail",
     ".portfolio-detail-panel",
-    ".alert-focus",
   ].join(",")));
 }
 

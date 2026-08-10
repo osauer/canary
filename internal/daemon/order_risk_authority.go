@@ -236,6 +236,29 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 	return authority, nil
 }
 
+func (s *Server) captureBoundStrategyPositionAuthority(ctx context.Context, connector *ibkrlib.Connector, session ibkrlib.ConnectorSessionBinding, status rpc.TradingStatus, draft rpc.StrategyOrderDraft) (orderPositionAuthority, error) {
+	if len(draft.Legs) < 2 || draft.Units <= 0 || draft.UnitsBefore <= 0 || draft.UnitsAfter != draft.UnitsBefore-draft.Units {
+		return orderPositionAuthority{}, fmt.Errorf("%w: invalid strategy position binding", ErrTradingDisabled)
+	}
+	first := draft.Legs[0]
+	base, err := s.captureBoundOrderPositionAuthority(ctx, connector, session, status, first.Contract, first.Action, first.Quantity)
+	if err != nil {
+		return orderPositionAuthority{}, err
+	}
+	projection, ok := connector.CapturePortfolioProjectionForSession(session)
+	if !ok || projection.Generation != base.Generation {
+		return orderPositionAuthority{}, brokerWriteTransactionDriftError()
+	}
+	if err := verifyStrategyPositionProjection(projection.Positions, draft); err != nil {
+		return orderPositionAuthority{}, fmt.Errorf("%w: strategy position changed: %v", ErrTradingDisabled, err)
+	}
+	base.Impact = rpc.OrderPositionImpact{
+		Before: float64(draft.UnitsBefore), After: float64(draft.UnitsAfter),
+		Effect: classifyPositionEffect(float64(draft.UnitsBefore), float64(draft.UnitsAfter)),
+	}
+	return base, nil
+}
+
 // captureWireOrderPositionAuthority reads only already-bound, in-memory
 // evidence. Base currency is the session-invariant value captured again at
 // preview-token redemption; the first-byte guard deliberately reuses that
@@ -267,6 +290,16 @@ func (s *Server) captureWireOrderPositionAuthority(binding brokerWriteTransactio
 	if !cachedPositionsMatchBrokerScope(projection.Positions, scope) {
 		return orderPositionAuthority{}, fmt.Errorf("%w: portfolio evidence belongs to another account; refresh and preview again", ErrTradingDisabled)
 	}
+	if draft.StrategyGroup != nil {
+		if err := verifyStrategyPositionProjection(projection.Positions, *draft.StrategyGroup); err != nil {
+			return orderPositionAuthority{}, fmt.Errorf("%w: strategy position changed: %v", ErrTradingDisabled, err)
+		}
+		return orderPositionAuthority{
+			Impact:     rpc.OrderPositionImpact{Before: float64(draft.StrategyGroup.UnitsBefore), After: float64(draft.StrategyGroup.UnitsAfter), Effect: classifyPositionEffect(float64(draft.StrategyGroup.UnitsBefore), float64(draft.StrategyGroup.UnitsAfter))},
+			Generation: projection.Generation, Health: projection.Health, EvidenceAt: portfolioStreamEvidenceAsOf(projection.Health),
+			BaseCurrency: binding.riskBaseCurrency, BaseCurrencyProvenance: binding.riskBaseCurrencyProvenance,
+		}, nil
+	}
 	before, err := exactRiskPositionQuantity(projection.Positions, draft.Contract)
 	if err != nil {
 		return orderPositionAuthority{}, fmt.Errorf("%w: exact contract position evidence unavailable: %v", ErrTradingDisabled, err)
@@ -284,6 +317,27 @@ func (s *Server) captureWireOrderPositionAuthority(binding brokerWriteTransactio
 		Health:     projection.Health, EvidenceAt: portfolioStreamEvidenceAsOf(projection.Health),
 		BaseCurrency: binding.riskBaseCurrency, BaseCurrencyProvenance: binding.riskBaseCurrencyProvenance,
 	}, nil
+}
+
+func verifyStrategyPositionProjection(positions []*ibkrlib.RawPosition, draft rpc.StrategyOrderDraft) error {
+	if !draft.GuaranteedCombo || len(draft.Legs) < 2 {
+		return fmt.Errorf("strategy is not submit-eligible")
+	}
+	seen := make(map[int]struct{}, len(draft.Legs))
+	for _, leg := range draft.Legs {
+		if _, exists := seen[leg.Contract.ConID]; exists {
+			return fmt.Errorf("duplicate strategy ConID %d", leg.Contract.ConID)
+		}
+		seen[leg.Contract.ConID] = struct{}{}
+		before, err := exactRiskPositionQuantity(positions, leg.Contract)
+		if err != nil {
+			return err
+		}
+		if math.Abs(before-leg.Before) > 1e-9 {
+			return fmt.Errorf("ConID %d quantity is %.10g, preview expected %.10g", leg.Contract.ConID, before, leg.Before)
+		}
+	}
+	return nil
 }
 
 // exactRiskPositionQuantity deliberately has no symbol/fallback matching.
@@ -476,6 +530,12 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 	if notional.BaseNotional > cfg.MaxNotional {
 		return fmt.Errorf("order notional %.2f %s exceeds [trading].max_notional %.2f %s", notional.BaseNotional, baseCurrency, cfg.MaxNotional, baseCurrency)
 	}
+	if draft.StrategyGroup != nil {
+		if err := validateStrategyReductionDraft(draft, position, cfg.MaxOptionContracts); err != nil {
+			return err
+		}
+		return nil
+	}
 	riskEffect := position.Effect
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) {
 		// Incomplete manual-order visibility means the apparent long exit may
@@ -488,6 +548,37 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 		return fmt.Errorf("stock short/flip requires [trading].allow_stock_short = true")
 	case strings.EqualFold(draft.Contract.SecType, "OPT") && optionSellToOpen(draft.Action, riskEffect) && !cfg.AllowOptionSellToOpen:
 		return fmt.Errorf("option sell-to-open requires [trading].allow_option_sell_to_open = true")
+	}
+	return nil
+}
+
+func validateStrategyReductionDraft(draft rpc.OrderDraft, position rpc.OrderPositionImpact, maxOptionContracts int) error {
+	group := draft.StrategyGroup
+	if group == nil || !group.GuaranteedCombo || len(group.Legs) < 2 || draft.Contract.SecType != "BAG" || draft.Action != rpc.OrderActionSell || draft.Quantity != group.Units {
+		return fmt.Errorf("strategy order is not one guaranteed proportional combo")
+	}
+	if position.Before != float64(group.UnitsBefore) || position.After != float64(group.UnitsAfter) || group.UnitsAfter < 0 || group.UnitsAfter >= group.UnitsBefore {
+		return fmt.Errorf("strategy order does not reduce the current group")
+	}
+	for _, leg := range group.Legs {
+		wantQuantity := absOrderRatio(leg.Ratio) * group.Units
+		if wantQuantity <= 0 || leg.Quantity != wantQuantity || leg.Quantity > maxOptionContracts || !strings.EqualFold(leg.Contract.SecType, "OPT") {
+			return fmt.Errorf("strategy leg %d violates the proportional option quantity limit", leg.Contract.ConID)
+		}
+		if math.Abs(leg.After) > math.Abs(leg.Before)+1e-9 || (leg.Before != 0 && leg.After != 0 && math.Signbit(leg.After) != math.Signbit(leg.Before)) {
+			return fmt.Errorf("strategy leg %d would not reduce its current position", leg.Contract.ConID)
+		}
+		expectedAfter := leg.Before
+		if leg.Action == rpc.OrderActionSell {
+			expectedAfter -= float64(leg.Quantity)
+		} else if leg.Action == rpc.OrderActionBuy {
+			expectedAfter += float64(leg.Quantity)
+		} else {
+			return fmt.Errorf("strategy leg %d has an invalid action", leg.Contract.ConID)
+		}
+		if math.Abs(expectedAfter-leg.After) > 1e-9 {
+			return fmt.Errorf("strategy leg %d has inconsistent before/after quantities", leg.Contract.ConID)
+		}
 	}
 	return nil
 }
@@ -517,6 +608,11 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	if controlGeneration != binding.tradingControlGeneration || controlGeneration != payload.TradingControlGeneration {
 		return fmt.Errorf("%w: trading controls changed after preview; preview again", ErrTradingDisabled)
 	}
+	if draft.StrategyGroup != nil {
+		if err := s.ensureNoOtherOpenStrategyOrder(status, draft.StrategyGroup.StrategyID, draft.OrderRef); err != nil {
+			return err
+		}
+	}
 	var current orderPositionAuthority
 	var err error
 	if binding.testOnly && s.orderRiskAuthorityForTest == nil && s.orderPreviewPositionImpact == nil {
@@ -537,6 +633,11 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 		if current.BaseCurrency == "" {
 			current.BaseCurrency = strings.ToUpper(strings.TrimSpace(draft.Contract.Currency))
 			current.BaseCurrencyProvenance = ibkrlib.AccountBaseCurrencyExplicitTag
+		}
+	} else if draft.StrategyGroup != nil {
+		current, err = s.captureBoundStrategyPositionAuthority(ctx, binding.connector, binding.session, status, *draft.StrategyGroup)
+		if err != nil {
+			return err
 		}
 	} else {
 		current, err = s.captureBoundOrderPositionAuthority(ctx, binding.connector, binding.session, status, draft.Contract, draft.Action, draft.Quantity)
@@ -599,5 +700,38 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	binding.riskBaseCurrency = current.BaseCurrency
 	binding.riskBaseCurrencyProvenance = current.BaseCurrencyProvenance
 	binding.riskNotional = currentNotional
+	return nil
+}
+
+func (s *Server) ensureNoOtherOpenStrategyOrder(status rpc.TradingStatus, strategyID, currentOrderRef string) error {
+	events, err := s.orderJournal.LoadEvents(0)
+	if err != nil {
+		return fmt.Errorf("%w: current order history is unavailable: %v", ErrTradingDisabled, err)
+	}
+	strategyByRef := make(map[string]string)
+	strategyByOrderID := make(map[int]string)
+	for _, event := range events {
+		if event.StrategyGroup == nil || event.StrategyGroup.StrategyID == "" {
+			continue
+		}
+		if event.OrderRef != "" {
+			strategyByRef[event.OrderRef] = event.StrategyGroup.StrategyID
+		}
+		if event.ReservedOrderID > 0 {
+			strategyByOrderID[event.ReservedOrderID] = event.StrategyGroup.StrategyID
+		}
+	}
+	for _, view := range buildOrderViews(events) {
+		if !view.Open || !strings.EqualFold(strings.TrimSpace(view.Account), strings.TrimSpace(status.Account)) || !strings.EqualFold(strings.TrimSpace(view.Mode), strings.TrimSpace(status.Mode)) {
+			continue
+		}
+		groupID := strategyByRef[view.OrderRef]
+		if groupID == "" && view.ReservedOrderID > 0 {
+			groupID = strategyByOrderID[view.ReservedOrderID]
+		}
+		if groupID == strategyID && view.OrderRef != currentOrderRef {
+			return fmt.Errorf("%w: another order for this strategy is still open; wait for it to finish or cancel it before previewing again", ErrTradingDisabled)
+		}
+	}
 	return nil
 }

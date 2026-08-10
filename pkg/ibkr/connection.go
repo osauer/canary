@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"reflect"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -146,6 +147,18 @@ type Contract struct {
 	TradingClass string
 	SecIDType    string
 	SecID        string
+	ComboLegs    []ComboLeg
+}
+
+// ComboLeg is one exact contract inside an IBKR BAG contract. Ratio is a
+// positive integer; Action describes the BAG's held direction. A parent SELL
+// order reverses these actions to close or reduce the strategy.
+type ComboLeg struct {
+	ConID     int
+	Ratio     int
+	Action    string
+	Exchange  string
+	OpenClose int
 }
 
 // DefaultConfig returns a new connection configuration with package defaults.
@@ -2492,7 +2505,13 @@ func samePortfolioStructure(existing, next *RawPosition) bool {
 	}
 	return strings.EqualFold(strings.TrimSpace(existing.Account), strings.TrimSpace(next.Account)) &&
 		existing.Position == next.Position &&
-		normalizedContractIdentity(existing.Contract) == normalizedContractIdentity(next.Contract)
+		sameContractIdentity(existing.Contract, next.Contract)
+}
+
+func sameContractIdentity(a, b Contract) bool {
+	a = normalizedContractIdentity(a)
+	b = normalizedContractIdentity(b)
+	return reflect.DeepEqual(a, b)
 }
 
 func (c *Connection) lockEvidenceChange() func() {
