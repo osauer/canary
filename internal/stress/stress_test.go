@@ -378,3 +378,49 @@ func TestStressIncident20260612Regression(t *testing.T) {
 		t.Fatalf("confirmed stress signal fired on provisional reds: %+v", res.Signals)
 	}
 }
+
+func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
+	t.Parallel()
+	r := healthyStressRegime()
+	hyg, average, spy, high := 79.51, 79.70, 100.0, 100.0
+	r.HYGSPYDivergence.HYGPrice = &hyg
+	r.HYGSPYDivergence.HYG50DMA = &average
+	r.HYGSPYDivergence.SPYPrice = &spy
+	r.HYGSPYDivergence.SPY52WHigh = &high
+	r.HYGSPYDivergence.Band = "red"
+	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Reasons: []string{"depth_below_min"}}
+
+	rows := stressMarketIndicators(r, stressTestNow)
+	var got StressMarketIndicator
+	for _, row := range rows {
+		if row.Name == "HYG vs SPY" {
+			got = row
+			break
+		}
+	}
+	if got.Status != "amber" {
+		t.Fatalf("status = %q, want amber while confirmation is provisional", got.Status)
+	}
+	if !strings.Contains(got.Reading, "0.24% below 50d 79.70") {
+		t.Fatalf("reading = %q, want measured gap and average", got.Reading)
+	}
+	if !strings.Contains(got.Comment, "confirmation starts at 0.25%") {
+		t.Fatalf("comment = %q, want confirmation floor", got.Comment)
+	}
+
+	r.HYGSPYDivergence.Eligibility = nil
+	rows = stressMarketIndicators(r, stressTestNow)
+	for _, row := range rows {
+		if row.Name == "HYG vs SPY" && row.Status != "amber" {
+			t.Fatalf("missing-eligibility status = %q, want amber", row.Status)
+		}
+	}
+
+	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Eligible: true}
+	rows = stressMarketIndicators(r, stressTestNow)
+	for _, row := range rows {
+		if row.Name == "HYG vs SPY" && row.Status != "red" {
+			t.Fatalf("confirmed status = %q, want red", row.Status)
+		}
+	}
+}

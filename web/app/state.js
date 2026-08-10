@@ -6,6 +6,7 @@ const state = {
   safeNotificationTest: { busy: false, state: "", error: false },
   alertSettings: { mode: "watch_and_act" },
   alertSettingsUpdate: { busy: false, state: "", error: false },
+  alertEvidenceTarget: null,
   alerts: null,
   alertsFeedValid: null,
   alertsFeedError: "",

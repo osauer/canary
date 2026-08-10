@@ -546,7 +546,10 @@ web/app/*                         rules card + drill-in
   source-neutral alert authority. Current watch/act rows open or escalate
   episodes; only a current, complete, account/positions-bound negative can
   recover them. The app owns inbox, unread, delivery attempts, receipts, and
-  fixed presentation copy; neither side gains broker-write authority.
+  fixed presentation copy; neither side gains broker-write authority. Inside
+  the authenticated app, each Rulebook alert may repeat the matching current
+  `RuleRow.Evidence`, and a tap visibly marks that exact row. Private evidence
+  never enters fixed Web Push copy.
 - Evidence: rule-status transitions append as typed events to the daemon's
   sole live authority, `~/.local/state/ibkr/daemon.db`, so threshold
   calibration has data. Every transition payload carries sorted, deduplicated

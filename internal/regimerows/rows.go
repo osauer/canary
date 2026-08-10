@@ -245,12 +245,18 @@ func rowHYGSPY(now time.Time, r rpc.RegimeHYGSPYDivergence) Row {
 		row.Reason = shortUnavailableReason(r.ErrorMessage, "HYG not in this read")
 		return row
 	}
-	// Value cell: HYG vs its 50dma is the structural signal; SPY's
-	hyg50 := "—"
-	if r.HYG50DMA != nil {
-		hyg50 = fmt.Sprintf("%.2f", *r.HYG50DMA)
+	// State the size of the break as well as the two prices. Two rounded
+	// prices can look identical even when the unrounded comparison crossed.
+	row.Value = fmt.Sprintf("HYG %.2f · 50d unavailable", *r.HYGPrice)
+	if r.HYG50DMA != nil && *r.HYG50DMA > 0 {
+		gap := (*r.HYGPrice - *r.HYG50DMA) / *r.HYG50DMA * 100
+		relation := "above"
+		if gap < 0 {
+			relation = "below"
+			gap = -gap
+		}
+		row.Value = fmt.Sprintf("HYG %.2f · %.2f%% %s 50d %.2f", *r.HYGPrice, gap, relation, *r.HYG50DMA)
 	}
-	row.Value = fmt.Sprintf("HYG %.2f vs 50d %s", *r.HYGPrice, hyg50)
 	row.Quality = qualityTag(now, r.HYGQuality, r.HYG50DMAQuality, r.SPYQuality, r.SPY52WHighQuality)
 	// Banding. HYG below 50dma while SPY is near highs is the credit-
 	switch {

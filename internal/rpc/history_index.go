@@ -1157,6 +1157,13 @@ func RegimeThresholdsFor(indicator string) *RegimeThresholds {
 	return HeuristicThresholds(t.label, t.green, t.yellow, t.red, t.trip)
 }
 
+// RegimeGateFor returns the confirmation gate used by the daemon for one
+// indicator. Presentation code may explain this gate; it must not alter it.
+func RegimeGateFor(indicator string) (RegimeGate, bool) {
+	gate, ok := regimeGates[indicator]
+	return gate, ok
+}
+
 // StressInput is the pure state input shared by the CLI and MCP tool. It
 // risk-data path: account margin, portfolio exposure, and market regime stay
 type StressInput struct {

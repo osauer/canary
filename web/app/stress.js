@@ -151,6 +151,10 @@ function ruleChecklistRow(r) {
   row.className = `pd-row rules-row ${ruleTone(r.status, r.mode)}`;
   row.dataset.ruleId = String(r.id || "");
   row.tabIndex = -1;
+  if (state.alertEvidenceTarget?.kind === "rule" && state.alertEvidenceTarget.id === row.dataset.ruleId) {
+    row.classList.add("is-alert-evidence-target");
+    row.setAttribute("aria-current", "location");
+  }
   if ((r.mode || "alert") === "alert" && (status === "act" || status === "watch")) row.classList.add(`rules-row--${status}`);
   if (status === "info") row.classList.add("rules-row--info");
   const line = document.createElement("span");
@@ -1015,6 +1019,7 @@ function clusterSourceAsOf(cluster, snap = {}, stress = {}) {
 function regimeClusterBand(cluster, snap = {}, stress = {}) {
   const market = stress.market || {};
   if (clusterFault(cluster, snap, stress)) return "stale";
+  if (clusterNameListed(market.unconfirmed_red_cluster_names, cluster) && !clusterNameListed(market.eligible_red_cluster_names, cluster)) return "yellow";
   for (const item of snap.regime?.lifecycle?.evidence || []) {
     if (String(item?.signal || "").toLowerCase() !== "cluster") continue;
     if (!cluster.sources.includes(String(item?.source || "").trim().toLowerCase())) continue;
@@ -1054,6 +1059,18 @@ function indicatorBand(indicator = {}) {
   const status = String(indicator.band || indicator.status || "").trim().toLowerCase();
   if (status === "amber") return "yellow";
   return status;
+}
+
+function indicatorPresentationStatus(indicator = {}, stress = {}) {
+  const status = String(indicator.status || "").trim().toLowerCase();
+  if (status !== "red") return status;
+  const name = String(indicator.name || "").toLowerCase();
+  const cluster = REGIME_CLUSTERS.find((candidate) => candidate.match.some((needle) => name.includes(needle)));
+  if (!cluster) return status;
+  const market = stress.market || {};
+  return clusterNameListed(market.unconfirmed_red_cluster_names, cluster) && !clusterNameListed(market.eligible_red_cluster_names, cluster)
+    ? "amber"
+    : status;
 }
 
 function bandRank(band) {
@@ -1639,7 +1656,7 @@ function renderRegimeDetail(indicators, snap = {}, stress = {}) {
     const row = document.createElement("div");
     row.className = "indicator-row";
     const dot = document.createElement("span");
-    dot.className = "indicator-status " + indicatorStatusClass(indicator.status);
+    dot.className = "indicator-status " + indicatorStatusClass(indicatorPresentationStatus(indicator, stress));
     const body = document.createElement("div");
     body.className = "indicator-body";
     const head = document.createElement("div");

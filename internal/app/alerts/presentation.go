@@ -17,13 +17,13 @@ type Presentation struct {
 }
 
 var presentations = map[rpc.AlertPresentationCode]Presentation{
-	rpc.AlertPresentationPortfolioStress:                  {Title: "Portfolio risk", Body: "Portfolio exposure is at a watch or action level. Tap for the drivers and the response."},
+	rpc.AlertPresentationPortfolioStress:                  {Title: "Portfolio risk", Body: "Portfolio exposure is at a watch or action level."},
 	rpc.AlertPresentationMarginCushion:                    {Title: "Margin cushion", Body: "The account margin cushion is below its safety threshold."},
-	rpc.AlertPresentationRegimeMarketStress:               {Title: "Market warning", Body: "Broad-market conditions crossed a warning level. Tap for the signal, its confirmation status, and the input dates."},
-	rpc.AlertPresentationRulebookSingleNameExposure:       {Title: "Exposure to one underlying", Body: "One underlying is above its Rulebook concentration limit. Tap for the position and its share of NLV."},
+	rpc.AlertPresentationRegimeMarketStress:               {Title: "Market warning", Body: "Broad-market conditions crossed a warning level."},
+	rpc.AlertPresentationRulebookSingleNameExposure:       {Title: "Exposure to one underlying", Body: "One underlying is above its Rulebook concentration limit."},
 	rpc.AlertPresentationRulebookOptionLinePremium:        {Title: "Premium at risk", Body: "One option position holds more premium than its Rulebook level."},
 	rpc.AlertPresentationRulebookCashSellOnly:             {Title: "Cash reserve", Body: "Available funds are below the Rulebook reserve."},
-	rpc.AlertPresentationRulebookExtrinsicBudget:          {Title: "Option time value at risk", Body: "Paid option time value is above the Rulebook budget."},
+	rpc.AlertPresentationRulebookExtrinsicBudget:          {Title: "Option time value at risk", Body: "The amount paid for time remaining in long options is above the Rulebook budget."},
 	rpc.AlertPresentationRulebookExpiryRunway:             {Title: "Option nearing expiry", Body: "A long option is inside the Rulebook expiry window."},
 	rpc.AlertPresentationRulebookCatalystCoverage:         {Title: "Earnings timing", Body: "An option expires before the next earnings announcement."},
 	rpc.AlertPresentationRulebookOverwriteEarnings:        {Title: "Short option through earnings", Body: "A short option remains open through the next earnings announcement."},
@@ -46,7 +46,7 @@ var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationDataHealthGamma:                  {Title: "Options positioning needs attention", Body: "The options positioning calculation is incomplete or too old."},
 	rpc.AlertPresentationDataHealthQuality:                {Title: "Current result not ready", Body: "One or more inputs needed for a current result are incomplete or too old."},
 	rpc.AlertPresentationRiskPolicyLimitWouldBlock:        {Title: "Risk limit would block", Body: "A current position would be blocked by the active risk policy."},
-	rpc.AlertPresentationRiskPolicyDrawdownLatched:        {Title: "Drawdown review needed", Body: "The latch opened after the latest daily broker report. Check the report date in Brief; a later cash transfer may be part of the move."},
+	rpc.AlertPresentationRiskPolicyDrawdownLatched:        {Title: "Drawdown latch open", Body: "Account value crossed the limit. Canary has not confirmed whether the move came from trading or an external cash flow."},
 	rpc.AlertPresentationRiskPolicyDrift:                  {Title: "Risk policy drift", Body: "The active risk policy differs from its required state."},
 	rpc.AlertPresentationReconciliationDue:                {Title: "Reconciliation due", Body: "A broker reconciliation is due."},
 	rpc.AlertPresentationReconciliationException:          {Title: "Reconciliation exception", Body: "A broker reconciliation has an unresolved exception."},

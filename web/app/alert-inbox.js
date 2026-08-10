@@ -447,7 +447,7 @@ const RULE_ALERT_TARGETS = {
 function alertEvidenceTarget(occurrence = {}) {
   const code = String(occurrence.presentation_code || "");
   if (RULE_ALERT_TARGETS[code]) return { kind: "rule", id: RULE_ALERT_TARGETS[code] };
-  if (code === "regime_market_stress") return { kind: "regime" };
+  if (["regime_market_stress", "data_health_regime", "data_health_gamma"].includes(code)) return { kind: "regime" };
   if (code === "portfolio_stress" || code === "margin_cushion") return { kind: "stress" };
   if (code === "risk_policy_drawdown_latched" || code === "risk_policy_limit_would_block") return { kind: "brief" };
   if (code.startsWith("protection_") || code === "data_health_proposals" || code === "data_health_opportunities") return { kind: "protection" };
@@ -456,26 +456,177 @@ function alertEvidenceTarget(occurrence = {}) {
   return { kind: occurrence.destination === "brief" ? "brief" : "monitor" };
 }
 
+function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
+  const target = alertEvidenceTarget(occurrence);
+  if (target.kind === "rule") {
+    const rule = (snapshot.rules?.rules || []).find((candidate) => String(candidate?.id || "") === target.id);
+    return boundedFact(rule?.evidence || rule?.reason);
+  }
+
+  const stress = snapshot.stress || {};
+  if (occurrence.presentation_code === "risk_policy_drawdown_latched") {
+    const capital = snapshot.brief?.ready?.capital || {};
+    const latch = snapshot.brief?.ready?.latch || {};
+    const parts = [];
+    if (Number.isFinite(capital.consumed_pct)) parts.push(`Current use ${formatAlertPercent(capital.consumed_pct)} of drawdown budget`);
+    if (Number.isFinite(latch.consumed_pct_at_latch)) parts.push(`latched at ${formatAlertPercent(latch.consumed_pct_at_latch)}`);
+    if (latch.report_coverage_to) parts.push(`broker report through ${formatAlertDate(latch.report_coverage_to)}`);
+    if (latch.report_checked_at) parts.push(`checked ${formatAlertDateTime(latch.report_checked_at)}`);
+    return boundedFact(parts.join(" · "));
+  }
+  if (occurrence.presentation_code === "regime_market_stress") {
+    const indicators = stress.market_indicators || [];
+    const indicator = indicators.find((item) => item?.status === "red") || indicators.find((item) => item?.status === "amber");
+    const confirmation = stress.market_confirmation === "confirmed" ? "Confirmed" : stress.market_confirmation === "partial" ? "Not confirmed" : "";
+    const provisionalAt = String(indicator?.comment || "").toLowerCase().indexOf("provisional:");
+    const provisional = provisionalAt >= 0 ? String(indicator.comment).slice(provisionalAt).split(";")[0].trim() : "";
+    return boundedFact([
+      indicator?.name && indicator?.reading ? `${indicator.name}: ${indicator.reading}` : "",
+      provisional,
+      confirmation,
+    ].filter(Boolean).join(" · "));
+  }
+  if (occurrence.presentation_code === "portfolio_stress") {
+    const driver = stress.primary_drivers?.[0];
+    const portfolio = stress.portfolio || {};
+    const driverFacts = {
+      gross_delta_high: ["Gross delta", portfolio.gross_delta_pct_nlv],
+      net_delta_high: ["Net delta", portfolio.net_delta_pct_nlv],
+      gross_exposure_high: ["Gross exposure", portfolio.gross_exposure_pct_nlv],
+      single_name_delta_high: [`${portfolio.largest_delta_exposure || "Largest underlying"} delta`, portfolio.largest_delta_pct_nlv],
+      single_name_exposure_high: [portfolio.largest_exposure || "Largest underlying", portfolio.largest_exposure_pct_nlv],
+    }[driver];
+    if (driverFacts && Number.isFinite(driverFacts[1])) return `${driverFacts[0]} ${formatAlertPercent(driverFacts[1])} of NLV`;
+    const row = (stress.rows || []).find((candidate) => ["urgent", "act", "watch"].includes(String(candidate?.severity || "")) && candidate?.evidence);
+    return boundedFact(row?.evidence || stress.summary);
+  }
+  if (occurrence.presentation_code === "margin_cushion") {
+    const cushion = stress.portfolio?.cushion_pct;
+    const trip = stress.portfolio?.cushion_trip_pct;
+    return Number.isFinite(cushion)
+      ? `Margin cushion ${formatAlertPercent(cushion)}${Number.isFinite(trip) ? ` · Rulebook level ${formatAlertPercent(trip)}` : ""}`
+      : "";
+  }
+  if (target.kind === "brief") return boundedFact(snapshot.brief?.ready?.capital?.reason || snapshot.brief?.ready?.latch?.reason);
+  if (target.kind === "protection") {
+    const counts = snapshot.proposals?.counts || {};
+    const total = Object.values(counts).filter(Number.isFinite).reduce((sum, value) => sum + value, 0);
+    if (total > 0) return `${total} current ${total === 1 ? "suggestion" : "suggestions"}`;
+  }
+  if (target.kind === "settings") {
+    const reconcile = snapshot.brief?.review?.reconcile || {};
+    const parts = [];
+    if (reconcile.last_reconciled_at) parts.push(`Last reconciled ${formatAlertDate(reconcile.last_reconciled_at)}`);
+    if (Number.isFinite(reconcile.days_remaining)) parts.push(`${reconcile.days_remaining} days remaining`);
+    if (parts.length > 0) return parts.join(" · ");
+  }
+  if (String(occurrence.presentation_code || "").startsWith("data_health_")) {
+    const surface = String(occurrence.presentation_code || "").replace("data_health_", "");
+    const qualityRows = snapshot.status?.data_quality || [];
+    const quality = qualityRows.find((item) => String(item?.surface || "").toLowerCase() === surface) || qualityRows.find((item) => String(item?.status || "").toLowerCase() !== "ok");
+    if (quality) {
+      const clusters = [
+        ...(quality.partial_clusters || []),
+        ...(quality.degraded_clusters || []),
+        ...(quality.stale_clusters || []),
+      ];
+      const subject = clusters.length > 0 ? clusters.map(humanAlertWord).join(", ") : humanAlertWord(quality.surface || "Input");
+      return boundedFact(`${subject} inputs ${humanAlertWord(quality.status || "need attention").toLowerCase()}${quality.as_of ? ` · as of ${formatAlertDateTime(quality.as_of)}` : ""}`);
+    }
+    const indicator = (stress.market_indicators || []).find((item) => ["n/a", "context"].includes(String(item?.status || "").toLowerCase()));
+    if (indicator) {
+      return boundedFact(`${indicator.name}: ${indicator.comment || indicator.reading || "input unavailable"}${indicator.as_of ? ` · as of ${indicator.as_of}` : ""}`);
+    }
+    const degraded = Object.entries(snapshot.sources || {}).find(([, source]) => source && !["current", "ok"].includes(String(source.state || source.status || "").toLowerCase()));
+    if (degraded) {
+      const [name, source] = degraded;
+      return boundedFact(`${humanAlertWord(name)}: ${humanAlertWord(source.reason || source.state || source.status || "needs attention")}${source.as_of ? ` · ${formatAlertDateTime(source.as_of)}` : ""}`);
+    }
+  }
+  return occurrence.evidence_as_of ? `Evidence checked ${formatAlertDateTime(occurrence.evidence_as_of)}` : "";
+}
+
+function boundedFact(value) {
+  const clean = String(value || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  return clean.length > 280 ? `${clean.slice(0, 277).trimEnd()}…` : clean;
+}
+
+function formatAlertPercent(value) {
+  return `${Number(value).toFixed(1)}%`;
+}
+
+function formatAlertDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  return date.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatAlertDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  return `${formatAlertDate(value)} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+}
+
+function humanAlertWord(value) {
+  return String(value || "").replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function evidenceElement(target) {
+  if (target.kind === "rule") {
+    return [...(document.querySelectorAll?.("[data-rule-id]") || [])]
+      .find((candidate) => candidate.dataset.ruleId === target.id) || null;
+  }
+  const ids = {
+    brief: "briefPanel",
+    orders: "ordersPanel",
+    settings: "settingsTab",
+    regime: "regimeDetailPanel",
+    stress: "stressDetailPanel",
+    protection: "protectionPanel",
+    monitor: "signalPanel",
+  };
+  return $(ids[target.kind]);
+}
+
+function markAlertEvidenceTarget(target) {
+  state.alertEvidenceTarget = target;
+  const element = evidenceElement(target);
+  if (!element) return null;
+  for (const previous of document.querySelectorAll?.(".is-alert-evidence-target") || []) {
+    previous.classList.remove("is-alert-evidence-target");
+    previous.removeAttribute("aria-current");
+  }
+  element.classList.add("is-alert-evidence-target");
+  element.setAttribute("aria-current", "location");
+  element.focus?.({ preventScroll: true });
+  element.scrollIntoView?.({ block: target.kind === "rule" ? "center" : "nearest" });
+  return element;
+}
+
+function scheduleAlertEvidenceMark(target) {
+  markAlertEvidenceTarget(target);
+  const frame = globalThis.requestAnimationFrame || ((callback) => setTimeout(callback, 0));
+  frame(() => frame(() => markAlertEvidenceTarget(target)));
+}
+
 function openAlertEvidence(occurrence) {
   const target = alertEvidenceTarget(occurrence);
   if (["brief", "orders", "settings"].includes(target.kind)) {
     $(`tab${target.kind[0].toUpperCase()}${target.kind.slice(1)}`)?.click();
+    scheduleAlertEvidenceMark(target);
     return target;
   }
   $("tabMonitor")?.click();
   if (target.kind === "rule") {
     $("stressRulesCard")?.click();
-    const row = [...(document.querySelectorAll?.("[data-rule-id]") || [])]
-      .find((candidate) => candidate.dataset.ruleId === target.id);
-    row?.focus?.({ preventScroll: true });
-    row?.scrollIntoView?.({ block: "center" });
   } else if (target.kind === "regime" || target.kind === "stress") {
     const button = $(target.kind === "regime" ? "regimeDetailToggle" : "stressDetailToggle");
     if (button?.getAttribute("aria-expanded") !== "true") button?.click();
-    $(target.kind === "regime" ? "regimeDetailPanel" : "stressDetailPanel")?.scrollIntoView?.({ block: "nearest" });
   } else if (target.kind === "protection") {
     $("protectionTile")?.click();
   }
+  scheduleAlertEvidenceMark(target);
   return target;
 }
 
@@ -485,7 +636,14 @@ function alertRowElement(occurrence) {
   const tint = SEVERITY_TINT[occurrence.severity] || "";
   row.className = `alert-row pd-tile pd-alert${tint ? ` ${tint}` : ""}`;
   row.dataset.displayId = occurrence.display_id;
-  row.addEventListener("click", () => openAlertEvidence(occurrence));
+  // A touch starts with pointerdown. Stop the panel-wide unread refresh here:
+  // it replaces the alert rows and can otherwise remove this button before
+  // the browser delivers the corresponding click.
+  row.addEventListener("pointerdown", prepareAlertNavigation);
+  row.addEventListener("click", () => {
+    prepareAlertNavigation();
+    openAlertEvidence(occurrence);
+  });
   if (tint) {
     const bar = document.createElement("span");
     bar.className = "pd-tile__bar";
@@ -501,10 +659,15 @@ function alertRowElement(occurrence) {
   const body = document.createElement("p");
   body.className = "pd-alert__body";
   body.textContent = alertBodyCopy(occurrence);
+  const factText = alertFactText(occurrence);
+  const facts = document.createElement("small");
+  facts.className = "pd-alert__facts";
+  facts.textContent = factText;
+  facts.hidden = !factText;
   const age = document.createElement("span");
   age.className = "pd-alert__age";
   age.textContent = alertAgeLine(occurrence);
-  row.append(placard, title, body, age);
+  row.append(placard, title, body, facts, age);
   return row;
 }
 
@@ -808,7 +971,7 @@ async function acknowledgeAttention(options = {}) {
     } catch {
       if (state.attentionEpoch !== epoch) return false;
       if (!attentionViewReady()) return false;
-      setAttentionStatus("Alerts stayed unread because the current server set was not fully rendered.", true);
+      setAttentionStatus(ATTENTION_RENDER_FAILED_COPY, true);
       if (options.retry !== false) scheduleAttentionRetry();
       return false;
     } finally {
@@ -820,12 +983,32 @@ async function acknowledgeAttention(options = {}) {
 
 const ATTENTION_DWELL_MS = 2000;
 const ATTENTION_RETRY_MS = 1500;
+const ATTENTION_RENDER_FAILED_COPY = "Alerts stayed unread because the current server set was not fully rendered.";
 let attentionDwellTimer = null;
 let attentionVisibilityBound = false;
 
 function cancelAttentionDwell() {
   if (attentionDwellTimer) clearTimeout(attentionDwellTimer);
   attentionDwellTimer = null;
+}
+
+function alertRowContains(target) {
+  for (let element = target; element; element = element.parentElement) {
+    if (element.classList?.contains("alert-row")) return true;
+  }
+  return false;
+}
+
+function prepareAlertNavigation(event) {
+  event?.stopPropagation?.();
+  cancelAttentionDwell();
+  if (state.attentionRetryTimer) clearTimeout(state.attentionRetryTimer);
+  state.attentionRetryTimer = null;
+  // Any acknowledgement already waiting on the network must lose authority
+  // before it can re-render the row being touched.
+  state.attentionEpoch = (state.attentionEpoch || 0) + 1;
+  if (state.attentionStatus.state === ATTENTION_RENDER_FAILED_COPY) setAttentionStatus("");
+  return true;
 }
 
 function scheduleAttentionRetry() {
@@ -859,6 +1042,13 @@ function acknowledgeAttentionNow() {
   return attentionViewReady() ? acknowledgeAttention() : false;
 }
 
+function handleAttentionPointerDown(event) {
+  // Alert rows own their tap. Acknowledgement is handled by dwell, scrolling,
+  // or a touch on the non-actionable panel background.
+  if (alertRowContains(event?.target)) return false;
+  return acknowledgeAttentionNow();
+}
+
 function setupAttentionVisibility() {
   if (attentionVisibilityBound) return;
   attentionVisibilityBound = true;
@@ -867,7 +1057,7 @@ function setupAttentionVisibility() {
     else handleAttentionContextChange();
   });
   const panel = $("alertsTab");
-  panel?.addEventListener("pointerdown", acknowledgeAttentionNow);
+  panel?.addEventListener("pointerdown", handleAttentionPointerDown);
   panel?.addEventListener("scroll", acknowledgeAttentionNow, { capture: true, passive: true });
 }
 
@@ -877,13 +1067,16 @@ export {
   acknowledgeAttentionNow,
   activeAlertItems,
   alertEvidenceTarget,
+  alertFactText,
   alertRowElement,
   alertSourceLabel,
   attentionViewReady,
   canAssertAlertClear,
   handleAttentionContextChange,
+  handleAttentionPointerDown,
   ingestAlerts,
   ingestAlertsEvent,
+  markAlertEvidenceTarget,
   openAlertEvidence,
   refreshAlerts,
   renderAlerts,

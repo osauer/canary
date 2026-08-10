@@ -56,7 +56,11 @@ Delivery health is derived from every active target's durable attempts, so one h
 
 An in-app alert tap opens the exact read-only evidence already served by the
 daemon: the matching Rulebook row, Regime detail, portfolio Stress detail,
-Protection, Orders, or Settings surface. A notification tap still navigates to
+Protection, Orders, or Settings surface. The destination is scrolled into view
+and marked, so the operator can see which row or panel the alert opened. The
+authenticated Alerts view adds current figures from the same typed snapshot;
+lock-screen notification copy remains fixed and contains no account, position,
+symbol, or order data. A notification tap still navigates to
 one of three allowlisted routes: Monitor, Brief, or Alerts. Any other value,
 including a hostile payload string, falls back to Monitor. A URL inside a
 payload is never followed.

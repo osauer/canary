@@ -54,6 +54,7 @@ function reset() {
   dom.document.body.dataset = {};
   renderCount = 0;
   if (state.alertsRefreshTimer) clearTimeout(state.alertsRefreshTimer);
+  if (state.attentionRetryTimer) clearTimeout(state.attentionRetryTimer);
   Object.assign(state, {
     snapshot: null, settings: null, authenticated: true, activeTab: "monitor", accountValueVisible: false,
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
@@ -66,6 +67,8 @@ function reset() {
     governance: null, governanceRefreshSucceeded: null, reconciliationCheck: { busy: false, state: "", error: false },
     safeNotificationTest: { busy: false, state: "", error: false }, pushInspection: { state: "unsupported", busy: false },
     alertSettings: { mode: "watch_and_act" }, alertsRefreshInFlight: null, alertsRefreshTimer: null,
+    alertEvidenceTarget: null, attentionEpoch: 0, attentionReadInFlight: null, attentionRetryTimer: null,
+    attentionStatus: { state: "", error: false },
     alertsRefreshDueAt: 0, alertsLastRefreshAt: 0,
   });
   globalThis.fetch = async () => response({});
@@ -268,14 +271,117 @@ test("alert taps resolve to exact evidence targets", () => {
   assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "rulebook_hedge_integrity" }), { kind: "rule", id: "hedge_integrity" });
   assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "rulebook_catalyst_coverage" }), { kind: "rule", id: "catalyst_coverage" });
   assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "regime_market_stress" }), { kind: "regime" });
+  assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "data_health_regime" }), { kind: "regime" });
   assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "portfolio_stress" }), { kind: "stress" });
   assert.deepEqual(alertInbox.alertEvidenceTarget({ presentation_code: "order_integrity_mismatch" }), { kind: "orders" });
+
+  const rule = stress.ruleChecklistRow({ id: "hedge_integrity", number: 12, title: "Protection assignment", status: "act", evidence: "Directional short." });
+  const originalQuery = dom.document.querySelectorAll;
+  dom.document.querySelectorAll = (selector) => selector === "[data-rule-id]" ? [rule] : selector === ".is-alert-evidence-target" && rule.classList.contains("is-alert-evidence-target") ? [rule] : [];
+  alertInbox.openAlertEvidence({ presentation_code: "rulebook_hedge_integrity" });
+  assert.equal(rule.classList.contains("is-alert-evidence-target"), true);
+  assert.equal(rule.getAttribute("aria-current"), "location");
+  const rerenderedRule = stress.ruleChecklistRow({ id: "hedge_integrity", number: 12, title: "Protection assignment", status: "act", evidence: "Directional short." });
+  assert.equal(rerenderedRule.classList.contains("is-alert-evidence-target"), true, "selected Rulebook target survives a render");
+  assert.equal(rerenderedRule.getAttribute("aria-current"), "location");
+  dom.document.querySelectorAll = originalQuery;
+
+  alertInbox.openAlertEvidence({ presentation_code: "regime_market_stress" });
+  assert.equal(dom.element("regimeDetailPanel").classList.contains("is-alert-evidence-target"), true);
+  assert.equal(dom.element("regimeDetailPanel").getAttribute("aria-current"), "location");
+});
+
+test("an alert touch preserves the card until its click opens evidence", () => {
+  reset();
+  state.activeTab = "alerts";
+  dom.element("alertsTab").hidden = false;
+  let fetches = 0;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    return response({}, 500);
+  };
+  const row = alertInbox.alertRowElement({
+    display_id: "alert-touch-target",
+    presentation_code: "rulebook_extrinsic_budget",
+    title: "Option time value at risk",
+    body: "Synthetic alert body.",
+    severity: "act",
+    first_seen_at: "2026-08-10T12:00:00Z",
+    last_seen_at: "2026-08-10T12:00:00Z",
+    state: "open",
+    evidence_health: "current",
+  });
+  const title = byClass(row, "pd-alert__title")[0];
+  let propagationStopped = false;
+
+  row.dispatchEvent({
+    type: "pointerdown",
+    target: title,
+    stopPropagation: () => { propagationStopped = true; },
+  });
+  assert.equal(propagationStopped, true);
+  assert.equal(alertInbox.handleAttentionPointerDown({ target: title }), false);
+  assert.equal(fetches, 0, "touching an alert must not start a refresh that can replace it");
+
+  row.click();
+  assert.deepEqual(state.alertEvidenceTarget, { kind: "rule", id: "extrinsic_budget" });
+  assert.equal(fetches, 0);
+});
+
+test("alert rows add current authenticated facts without changing fixed notification copy", () => {
+  reset();
+  state.snapshot = {
+    rules: { rules: [{ id: "extrinsic_budget", evidence: "Paid option time value is 14.3% of NLV. The budget is 7.5%." }] },
+    brief: { ready: { capital: { consumed_pct: 93.4 }, latch: { consumed_pct_at_latch: 101.2, report_coverage_to: "2026-08-08T00:00:00Z" } } },
+  };
+  const optionRow = alertInbox.alertRowElement({
+    display_id: "alert-option-facts", presentation_code: "rulebook_extrinsic_budget", title: "Option time value at risk",
+    body: "The amount paid for time remaining in long options is above the Rulebook budget.", severity: "watch",
+    first_seen_at: "2026-08-10T12:00:00Z", last_seen_at: "2026-08-10T12:00:00Z", state: "open", evidence_health: "current",
+  });
+  assert.equal(byClass(optionRow, "pd-alert__facts")[0].textContent, "Paid option time value is 14.3% of NLV. The budget is 7.5%.");
+
+  const drawdown = alertInbox.alertFactText({ presentation_code: "risk_policy_drawdown_latched" });
+  assert.match(drawdown, /Current use 93\.4%/);
+  assert.match(drawdown, /latched at 101\.2%/);
+  assert.match(drawdown, /broker report through/);
+
+  state.snapshot.stress = {
+    primary_drivers: ["single_name_exposure_high"],
+    portfolio: { largest_exposure: "SYN", largest_exposure_pct_nlv: 47.2 },
+    market_indicators: [{ name: "Gamma", status: "n/a", comment: "Current options positioning is incomplete", as_of: "2026-08-10" }],
+  };
+  assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "SYN 47.2% of NLV");
+  assert.equal(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), "Gamma: Current options positioning is incomplete · as of 2026-08-10");
+  state.snapshot.status = { data_quality: [{ surface: "regime", status: "partial", partial_clusters: ["credit"], as_of: "2026-08-10T15:58:00Z" }] };
+  assert.match(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), /^Credit inputs partial · as of /);
+  state.snapshot.stress.market_confirmation = "partial";
+  state.snapshot.stress.market_indicators = [{ name: "HYG vs SPY", status: "amber", reading: "HYG 79.51 · 0.24% below 50d 79.70", comment: "credit lagging; est 317011s; Provisional: confirmation starts at 0.25% below the 50-day average" }];
+  const marketFact = alertInbox.alertFactText({ presentation_code: "regime_market_stress" });
+  assert.equal(marketFact, "HYG vs SPY: HYG 79.51 · 0.24% below 50d 79.70 · Provisional: confirmation starts at 0.25% below the 50-day average · Not confirmed");
+  assert.doesNotMatch(marketFact, /est \d+s/);
 });
 
 test("Rulebook rows expose stable alert destinations", () => {
   const row = stress.ruleChecklistRow({ id: "hedge_integrity", number: 12, title: "Hedge sized to the book", status: "act", evidence: "Directional short." });
   assert.equal(row.dataset.ruleId, "hedge_integrity");
   assert.equal(row.tabIndex, -1);
+});
+
+test("unconfirmed red market clusters render as provisional amber", () => {
+  const credit = stress.REGIME_CLUSTERS.find((cluster) => cluster.key === "credit");
+  const market = {
+    unconfirmed_red_cluster_names: ["credit"],
+    eligible_red_cluster_names: [],
+    red_cluster_names: ["credit"],
+  };
+  const current = { market, market_indicators: [{ name: "HYG vs SPY", status: "amber" }] };
+  assert.equal(stress.regimeClusterBand(credit, {}, current), "yellow");
+  state.regimeDetailOpen = true;
+  current.market_indicators[0].status = "red";
+  stress.renderRegimeDetail(current.market_indicators, {}, current);
+  assert.equal(byClass(dom.element("regimeIndicators"), "indicator-status")[0].classList.contains("amber"), true);
+  state.regimeDetailOpen = false;
 });
 
 test("leaving Alerts for alert evidence cancels acknowledgement without a false error", async () => {

@@ -888,21 +888,23 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 	}
 	contextClusters := stressMarketContextClusters(r, now)
 	rows := []struct {
-		cluster string
-		row     regimerows.Row
-		asOf    *rpc.RegimeAsOfSummary
-		date    string
-		status  string
-		trip    string
+		indicator   string
+		cluster     string
+		row         regimerows.Row
+		asOf        *rpc.RegimeAsOfSummary
+		date        string
+		status      string
+		trip        string
+		eligibility *rpc.RegimeEligibility
 	}{
-		{cluster: "vol", row: regimerows.VIXTerm(now, r.VIXTermStructure), asOf: r.VIXTermStructure.AsOf, status: r.VIXTermStructure.Status, trip: stressIndicatorTrip(r.VIXTermStructure.Thresholds)},
-		{cluster: "vol", row: regimerows.VolOfVol(now, r.VolOfVol), asOf: r.VolOfVol.AsOf, date: r.VolOfVol.AsOfDate, status: r.VolOfVol.Status, trip: stressIndicatorTrip(r.VolOfVol.Thresholds)},
-		{cluster: "credit", row: regimerows.HYGSPY(now, r.HYGSPYDivergence), asOf: r.HYGSPYDivergence.AsOf, status: r.HYGSPYDivergence.Status, trip: stressIndicatorTrip(r.HYGSPYDivergence.Thresholds)},
-		{cluster: "credit", row: regimerows.CreditSpreads(now, r.CreditSpreads), asOf: r.CreditSpreads.AsOf, date: r.CreditSpreads.AsOfDate, status: r.CreditSpreads.Status, trip: stressIndicatorTrip(r.CreditSpreads.Thresholds)},
-		{cluster: "funding", row: regimerows.FundingStress(now, r.FundingStress), asOf: r.FundingStress.AsOf, date: r.FundingStress.AsOfDate, status: r.FundingStress.Status, trip: stressIndicatorTrip(r.FundingStress.Thresholds)},
-		{cluster: "fx", row: regimerows.USDJPY(now, r.USDJPY), asOf: r.USDJPY.AsOf, status: r.USDJPY.Status, trip: stressIndicatorTrip(r.USDJPY.Thresholds)},
-		{cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status, trip: stressGammaTrip(r.GammaZero)},
-		{cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status, trip: stressIndicatorTrip(r.Breadth.Thresholds)},
+		{indicator: rpc.RegimeIndicatorVIXTerm, cluster: "vol", row: regimerows.VIXTerm(now, r.VIXTermStructure), asOf: r.VIXTermStructure.AsOf, status: r.VIXTermStructure.Status, trip: stressIndicatorTrip(r.VIXTermStructure.Thresholds), eligibility: r.VIXTermStructure.Eligibility},
+		{indicator: rpc.RegimeIndicatorVolOfVol, cluster: "vol", row: regimerows.VolOfVol(now, r.VolOfVol), asOf: r.VolOfVol.AsOf, date: r.VolOfVol.AsOfDate, status: r.VolOfVol.Status, trip: stressIndicatorTrip(r.VolOfVol.Thresholds), eligibility: r.VolOfVol.Eligibility},
+		{indicator: rpc.RegimeIndicatorHYGSPY, cluster: "credit", row: regimerows.HYGSPY(now, r.HYGSPYDivergence), asOf: r.HYGSPYDivergence.AsOf, status: r.HYGSPYDivergence.Status, trip: stressIndicatorTrip(r.HYGSPYDivergence.Thresholds), eligibility: r.HYGSPYDivergence.Eligibility},
+		{indicator: rpc.RegimeIndicatorCredit, cluster: "credit", row: regimerows.CreditSpreads(now, r.CreditSpreads), asOf: r.CreditSpreads.AsOf, date: r.CreditSpreads.AsOfDate, status: r.CreditSpreads.Status, trip: stressIndicatorTrip(r.CreditSpreads.Thresholds), eligibility: r.CreditSpreads.Eligibility},
+		{indicator: rpc.RegimeIndicatorFunding, cluster: "funding", row: regimerows.FundingStress(now, r.FundingStress), asOf: r.FundingStress.AsOf, date: r.FundingStress.AsOfDate, status: r.FundingStress.Status, trip: stressIndicatorTrip(r.FundingStress.Thresholds), eligibility: r.FundingStress.Eligibility},
+		{indicator: rpc.RegimeIndicatorUSDJPY, cluster: "fx", row: regimerows.USDJPY(now, r.USDJPY), asOf: r.USDJPY.AsOf, status: r.USDJPY.Status, trip: stressIndicatorTrip(r.USDJPY.Thresholds), eligibility: r.USDJPY.Eligibility},
+		{indicator: rpc.RegimeIndicatorGammaZero, cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status, trip: stressGammaTrip(r.GammaZero), eligibility: r.GammaZero.Eligibility},
+		{indicator: rpc.RegimeIndicatorBreadth, cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status, trip: stressIndicatorTrip(r.Breadth.Thresholds), eligibility: r.Breadth.Eligibility},
 	}
 	out := make([]StressMarketIndicator, 0, len(rows))
 	for _, item := range rows {
@@ -913,10 +915,10 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		contextOnly := contextClusters[item.cluster]
 		out = append(out, StressMarketIndicator{
 			Name:    item.row.Name,
-			Status:  stressIndicatorStatus(item.row.Band, item.status, contextOnly),
+			Status:  stressIndicatorStatus(item.row.Band, item.status, contextOnly, item.eligibility),
 			AsOf:    stressIndicatorAsOf(item.asOf, item.date, item.row.AsOf),
 			Reading: reading,
-			Comment: stressIndicatorComment(item.row, reading, contextOnly),
+			Comment: stressIndicatorComment(item.row, reading, contextOnly, stressEligibilityComment(item.indicator, item.eligibility)),
 			Trip:    item.trip,
 		})
 	}
@@ -939,7 +941,7 @@ func stressGammaTrip(g rpc.RegimeGammaZero) string {
 	return stressIndicatorTrip(g.Thresholds)
 }
 
-func stressIndicatorStatus(b regimerows.Band, status string, contextOnly bool) string {
+func stressIndicatorStatus(b regimerows.Band, status string, contextOnly bool, eligibility *rpc.RegimeEligibility) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case rpc.RegimeStatusComputing, rpc.RegimeStatusError, rpc.RegimeStatusUnavailable:
 		if b == regimerows.BandUnranked {
@@ -952,6 +954,9 @@ func stressIndicatorStatus(b regimerows.Band, status string, contextOnly bool) s
 	case regimerows.BandYellow:
 		return "amber"
 	case regimerows.BandRed:
+		if eligibility == nil || !eligibility.Eligible {
+			return "amber"
+		}
 		return "red"
 	default:
 		if contextOnly {
@@ -979,7 +984,7 @@ func stressIndicatorAsOf(meta *rpc.RegimeAsOfSummary, date, fallback string) str
 	return regimerows.IfNonEmpty(fallback, "—")
 }
 
-func stressIndicatorComment(row regimerows.Row, reading string, contextOnly bool) string {
+func stressIndicatorComment(row regimerows.Row, reading string, contextOnly bool, eligibilityComment string) string {
 	parts := []string{}
 	add := func(part string) {
 		part = strings.TrimSpace(part)
@@ -989,6 +994,7 @@ func stressIndicatorComment(row regimerows.Row, reading string, contextOnly bool
 		parts = append(parts, part)
 	}
 	add(row.Reason)
+	add(eligibilityComment)
 	if row.Status == rpc.RegimeStatusStale && !strings.Contains(strings.ToLower(row.Reason), "context") {
 		if contextOnly {
 			add("closed-session cached context")
@@ -1000,6 +1006,24 @@ func stressIndicatorComment(row regimerows.Row, reading string, contextOnly bool
 		add(strings.TrimSpace(strings.TrimPrefix(row.Quality, "·")))
 	}
 	return strings.Join(parts, "; ")
+}
+
+func stressEligibilityComment(indicator string, eligibility *rpc.RegimeEligibility) string {
+	if eligibility == nil || eligibility.Eligible {
+		return ""
+	}
+	if indicator == rpc.RegimeIndicatorHYGSPY {
+		gate, _ := rpc.RegimeGateFor(indicator)
+		if slices.Contains(eligibility.Reasons, "depth_below_min") {
+			return fmt.Sprintf("Provisional: confirmation starts at %.2f%% below the 50-day average", gate.MinDepth)
+		}
+		for _, reason := range eligibility.Reasons {
+			if strings.HasPrefix(reason, "streak_") {
+				return fmt.Sprintf("Provisional: confirmation needs %d sessions", gate.MinSessions)
+			}
+		}
+	}
+	return "Provisional: waiting for confirmation"
 }
 
 func stressGammaDegraded(g rpc.RegimeGammaZero) bool {
