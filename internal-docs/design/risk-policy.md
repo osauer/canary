@@ -27,9 +27,16 @@ must not duplicate numbers.
    Block targets risk-increasing orders only; reductions, closes, cancels,
    and rulebook-hedge-classified entries stay exempt. Block ships
    shadow-first.
-5. **Resumption:** a block breach latches in daemon state regardless of
-   mark recovery; clearing requires a journaled human reset with reason,
-   which re-bases the peak. Re-stating declared risk is a policy revision.
+5. **Resumption (two-stage since 2026-08-10):** a block breach latches in
+   daemon state regardless of mark recovery. Engagement is provisional: the
+   statement window covering the latch day decides it. A statement-confirmed
+   external flow that explains the drop dissolves the latch automatically
+   (the ordinary statement peak corrections apply); anything else promotes
+   it to durable. The engagement equity stays frozen for that replay, so
+   mark recovery never dissolves a latch, and every ambiguity — missing
+   policy numbers, incomplete engagement evidence — promotes. Clearing a
+   durable latch requires a journaled human reset with reason, which
+   re-bases the peak. Re-stating declared risk is a policy revision.
 6. **Exceptions:** one-shot overrides (human-only, single control, reason,
    hard expiry, journaled with fingerprint) for time-bounded exceptions;
    fingerprinted revisions for durable change.
@@ -80,6 +87,20 @@ same-day equity pair fresh within `recon.max_report_age_days`, and
 divergence within `recon.max_equity_divergence_pct`, journaled as origin
 `daemon-auto` with the report id. Declared vs statement cumFlows are
 displayed side by side until R5.
+
+Since the two-stage latch (operator sign-off 2026-08-10):
+`drawdown_block_latched` journals carry `provisional: true` plus the frozen
+engagement equity in state; when statement coverage first reaches the latch
+day, `IncorporateStatementSnapshotForScope` journals exactly one
+`drawdown_latch_dissolved` or `drawdown_latch_promoted` with the replayed
+consumed share and the statement flows value-dated through the latch day.
+Pre-two-stage latches carry no provisional mark and stay durable. Promotion
+does not re-alert: the engagement alert copy already describes the
+unconfirmed state, and the brief, CLI, and report surfaces carry the stage.
+The post-latch Flex recheck is a bounded backoff (half-hourly for the first
+two hours, two-hourly through the first day, then six-hourly) that stops
+when retained coverage reaches the latch day; it honors the fetch state's
+own failure and pacing schedule.
 
 ## Safety invariants
 

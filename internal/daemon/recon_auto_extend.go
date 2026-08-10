@@ -50,7 +50,7 @@ func (s *Server) evaluateRiskPolicyV3Reconciliation() (extended bool) {
 		return false
 	}
 	if rep.Status == rpc.ReconStatusActive && statementsHealthOK(rep.InputHealth) && snapshot != nil {
-		if err := s.riskCapital.IncorporateStatementSnapshotForScope(*snapshot); err != nil {
+		if err := s.riskCapital.IncorporateStatementSnapshotForScope(*snapshot, pol); err != nil {
 			s.warnf("risk-policy statement capital snapshot unavailable: %v", err)
 			return false
 		}

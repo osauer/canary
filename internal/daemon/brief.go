@@ -244,6 +244,7 @@ func briefCapitalEvents(capital rpc.BriefCapitalRow, latch rpc.BriefLatchRow) rp
 		BriefRowState:      briefOK("no capital events this session; adjusted-peak provenance shown"),
 		Latched:            latch.Latched,
 		LatchedAt:          latch.At,
+		LatchProvisional:   latch.Provisional,
 		LatchAgeDays:       latch.AgeDays,
 		ConsumedPctAtLatch: latch.ConsumedPctAtLatch,
 		AdjustedPeakBase:   capital.AdjustedPeakBase,
@@ -255,6 +256,8 @@ func briefCapitalEvents(capital rpc.BriefCapitalRow, latch rpc.BriefLatchRow) rp
 	switch {
 	case capital.Status == rpc.BriefStatusUnavailable:
 		row.BriefRowState = briefUnavailable("risk constitution absent; capital events cannot be evaluated")
+	case latch.Latched && latch.Provisional:
+		row.BriefRowState = briefAttention("drawdown latch engaged provisionally; awaiting the broker statement that covers the latch day")
 	case latch.Latched:
 		row.BriefRowState = briefAttention("drawdown latch engaged this episode and remains open until a human reset")
 	}
@@ -922,12 +925,16 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 		out.Capital.BriefRowState = briefDegraded("capital state cannot be evaluated from current inputs")
 	}
 	out.Latch = rpc.BriefLatchRow{BriefRowState: briefOK("drawdown latch is not engaged"), Latched: c.BlockLatched, At: c.LatchedAt,
-		ConsumedPctAtLatch: c.LatchConsumedPct}
+		Provisional: c.LatchProvisional, ConsumedPctAtLatch: c.LatchConsumedPct}
 	if c.BlockLatched {
 		age := max(int(now.Sub(c.LatchedAt).Hours()/24), 0)
 		out.Latch.AgeDays = &age
 		// An engaged latch is an active risk state, not a healthy steady
-		out.Latch.BriefRowState = briefAttention("drawdown latch is engaged and remains so until a human reset")
+		if c.LatchProvisional {
+			out.Latch.BriefRowState = briefAttention("drawdown latch is engaged provisionally; the broker statement covering the latch day will confirm it or dissolve it")
+		} else {
+			out.Latch.BriefRowState = briefAttention("drawdown latch is engaged and remains so until a human reset")
+		}
 	}
 	out.Overrides.BriefRowState = briefOK("no active overrides")
 	for _, o := range policy.Overrides {

@@ -139,8 +139,12 @@ Only an override on `capital.max_unreconciled_days` currently reaches
 evaluation, and it can extend that deadline, never shorten it. Others are
 recorded and displayed.
 
-A latched drawdown block is not an override case. It clears through
-`canary policy reset-drawdown --reason "..."`, which re-bases the adjusted peak.
+A latched drawdown block is not an override case. It engages provisionally:
+the broker statement covering the latch day releases it automatically when a
+confirmed withdrawal explains the drop, and confirms it otherwise. A confirmed
+latch clears only through `canary policy reset-drawdown --reason "..."`, which
+re-bases the adjusted peak — the ladder then measures future drawdown from
+today's lower equity and will not warn again about the loss you accepted.
 
 `canary policy` is a CLI surface with no MCP tool. That command and the other
 governance verbs (`capital-event`, `override`, `reset-drawdown`, `correct-peak`) are

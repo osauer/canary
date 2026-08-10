@@ -104,11 +104,17 @@ at 06:30 Europe/Berlin on each local calendar day and retries a temporary
 failure every 30 minutes. Every ingest regenerates the report from the retained
 files, so the result is deterministic and the report id pins its content.
 
-A newly opened drawdown latch starts one additional Flex check when the last
-attempt predates the latch. This can pick up a daily statement IBKR published
-after the scheduled check. Flex does not provide intraday cash-flow truth, so
-Brief always shows the report coverage date and last check time; a report that
-ends before the latch cannot explain a later deposit or withdrawal.
+A newly opened drawdown latch is provisional: Canary has seen the drop but not
+yet whether it came from trading or an external cash flow. While the latch
+waits, additional Flex checks run on a widening schedule — half-hourly at
+first, then two-hourly, then six-hourly — until a report's coverage reaches
+the latch day. That report decides the latch by replaying the engagement
+equity against its confirmed flows: a withdrawal that explains the drop
+releases the latch automatically, and anything else confirms it, after which
+only `canary policy reset-drawdown` clears it. Flex does not provide intraday
+cash-flow truth, so Brief always shows the report coverage date and last check
+time; a report that ends before the latch cannot explain a later deposit or
+withdrawal, and market recovery alone never releases a latch.
 
 Under risk-policy v3 a clean report extends the reconcile clock by itself. The
 conditions are checked rather than assumed: the policy active, the report free

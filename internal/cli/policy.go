@@ -112,11 +112,13 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "This is a human-only action: run it yourself in an interactive terminal after deciding")
 		fmt.Fprintln(env.Stdout, "that risk may resume. It clears the latch, re-bases the high-water mark to current")
-		fmt.Fprintln(env.Stdout, "equity, and journals your reason. It does not change policy")
-		fmt.Fprintln(env.Stdout, "thresholds, declared risk capital, trading.freeze, or any broker-write guardrail.")
+		fmt.Fprintln(env.Stdout, "equity, and journals your reason. Re-basing has a cost: the ladder forgets the loss")
+		fmt.Fprintln(env.Stdout, "you just accepted and measures future drawdown from today's lower equity. It does not")
+		fmt.Fprintln(env.Stdout, "change policy thresholds, declared risk capital, trading.freeze, or any broker-write guardrail.")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "A deposit, withdrawal, market recovery or tomorrow's reconciliation does not clear")
-		fmt.Fprintln(env.Stdout, "the latch. Check the state first with `canary policy show`.")
+		fmt.Fprintln(env.Stdout, "A deposit, market recovery or tomorrow's reconciliation does not clear a confirmed latch.")
+		fmt.Fprintln(env.Stdout, "Only a freshly engaged provisional latch can clear itself, and only when the broker")
+		fmt.Fprintln(env.Stdout, "statement confirms a withdrawal explains the drop. Check the state first with `canary policy show`.")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "Example:")
 		fmt.Fprintln(env.Stdout, "  canary policy reset-drawdown --reason \"Reviewed the breach and approved risk resumption\"")
@@ -223,7 +225,11 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		fmt.Fprintf(env.Stdout, "  loss from the mark  %14.2f %s  = %.1f%% of your declared risk capital%s\n", deref(c.DrawdownBase), cur, *c.ConsumedPct, drawdownLadderHint(res.Limits))
 	}
 	if c.BlockLatched {
-		fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — it stays on until you release it: `canary policy reset-drawdown --reason \"...\"`\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+		if c.LatchProvisional {
+			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED (provisional) since %s — waiting for the broker statement that covers the latch day: a confirmed withdrawal releases it automatically; a trading loss makes it permanent until you release it\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+		} else {
+			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — it stays on until you release it: `canary policy reset-drawdown --reason \"...\"`\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+		}
 	}
 	if c.LastReconciledAt.IsZero() {
 		fmt.Fprintln(env.Stdout, ledgerNeverVerifiedMessage(c))

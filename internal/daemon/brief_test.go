@@ -458,8 +458,8 @@ func TestRestartAfterRawRetentionResumesProjectionWithoutRedownload(t *testing.T
 	}
 }
 
-func TestDrawdownLatchStartsOnePostLatchFlexRecheck(t *testing.T) {
-	now := berlinTestTime(t, 2026, 8, 10, 9, 0)
+func TestDrawdownLatchFlexRechecksBackOffUntilCoverage(t *testing.T) {
+	current := berlinTestTime(t, 2026, 8, 10, 9, 0)
 	stateHome := privateTestDir(t)
 	t.Setenv("XDG_STATE_HOME", stateHome)
 	core, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(stateHome, "daemon.db")})
@@ -468,14 +468,14 @@ func TestDrawdownLatchStartsOnePostLatchFlexRecheck(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = core.Close() })
 	s := &Server{
-		now:    func() time.Time { return now },
+		now:    func() time.Time { return current },
 		cfg:    &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}},
 		logger: NewLogger(&bytes.Buffer{}, "error"),
 	}
 	if err := s.flexFetch.bindCore(t.Context(), core); err != nil {
 		t.Fatal(err)
 	}
-	latchAt := now.Add(-30 * time.Minute)
+	latchAt := current.Add(-30 * time.Minute)
 	s.flexFetch.mu.Lock()
 	s.flexFetch.state.LastAttempt = latchAt.Add(-time.Hour)
 	if err := s.flexFetch.persistLocked(t.Context()); err != nil {
@@ -488,16 +488,35 @@ func TestDrawdownLatchStartsOnePostLatchFlexRecheck(t *testing.T) {
 		fetchCalls++
 		return flexFetchOutcome{}, errors.New("test fetch stopped")
 	}
+	fire := func(want bool, note string) {
+		t.Helper()
+		if got := s.maybeFetchFlexForLatch(t.Context(), latchAt); got != want {
+			t.Fatalf("%s: recheck fired=%v, want %v (calls=%d)", note, got, want, fetchCalls)
+		}
+		s.flexFetch.wg.Wait()
+	}
 
-	if !s.maybeFetchFlexForLatch(t.Context(), latchAt) {
-		t.Fatal("new latch did not start a post-latch Flex recheck")
+	fire(true, "first post-latch recheck")
+	fire(false, "immediate repeat")
+	// The failed attempt scheduled its own retry window; the young-latch
+	// half-hourly cadence resumes once that window passes.
+	current = current.Add(31 * time.Minute)
+	fire(true, "half-hourly recheck after the retry window")
+	// An older latch widens to the two-hourly cadence.
+	current = current.Add(time.Hour + 29*time.Minute)
+	fire(false, "two-hourly cadence not yet due")
+	current = current.Add(32 * time.Minute)
+	fire(true, "two-hourly recheck")
+	if fetchCalls != 3 {
+		t.Fatalf("fetch calls=%d, want three", fetchCalls)
 	}
-	s.flexFetch.wg.Wait()
-	if fetchCalls != 1 {
-		t.Fatalf("fetch calls=%d, want one", fetchCalls)
-	}
-	if s.maybeFetchFlexForLatch(t.Context(), latchAt) {
-		t.Fatal("same latch started a second Flex recheck")
+
+	// Retained coverage reaching the latch day ends the rechecks.
+	writeFlexFixture(t, "flex-latch-covered.xml", "20260810;170000", "20260810", "20260810", "")
+	current = current.Add(6 * time.Hour)
+	fire(false, "coverage reached the latch day")
+	if fetchCalls != 3 {
+		t.Fatalf("fetch calls after coverage=%d, want three", fetchCalls)
 	}
 }
 
@@ -766,6 +785,167 @@ func TestRiskCapitalBlockLatchPersistsAndResets(t *testing.T) {
 	}
 	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 262000 {
 		t.Fatalf("peak after reset = %v, want re-based to last equity 262000", rep.AdjustedPeakBase)
+	}
+}
+
+func testConstitutionV3() *risk.Constitution {
+	c := testConstitution()
+	c.PolicyVersion = 3
+	c.Recon.MaxEquityDivergencePct = new(1.0)
+	return c
+}
+
+func TestDrawdownLatchEngagesProvisionallyAndWithdrawalDissolvesIt(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitutionV3()
+	reconcileNow(t, st)
+	now := time.Now()
+
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if !rep.BlockLatched || !rep.LatchProvisional {
+		t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
+	}
+	if !strings.Contains(strings.Join(rep.Reasons, " "), "provisionally") {
+		t.Fatalf("provisional latch reasons = %v", rep.Reasons)
+	}
+
+	// A statement window ending before the latch day decides nothing.
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now.Add(-72 * time.Hour),
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	if rep = st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || !rep.LatchProvisional {
+		t.Fatalf("short coverage decided the latch: latched=%v provisional=%v", rep.BlockLatched, rep.LatchProvisional)
+	}
+
+	// Coverage reaching the latch day with a withdrawal that explains the
+	// whole drop dissolves the latch without any human action.
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now,
+		Flows:     []reconFlow{{id: "wd-1", typ: "Deposits/Withdrawals", valueDate: now.Add(-2 * time.Minute), amountBase: -20000}},
+		FlowsBase: -20000,
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	rep = st.Report(c, nil, testLiveObserveScope)
+	if rep.BlockLatched || rep.LatchProvisional || !rep.LatchedAt.IsZero() {
+		t.Fatalf("withdrawal-explained latch did not dissolve: %+v", rep)
+	}
+	if rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("tier after dissolution = %s (%v), want ok", rep.Tier, rep.Reasons)
+	}
+}
+
+func TestDrawdownLatchPromotesToDurableWithoutExplainingFlow(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitutionV3()
+	reconcileNow(t, st)
+	now := time.Now()
+
+	st.Observe(260000, now.Add(-4*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	// Mark recovery keeps the latch: the engagement equity is frozen.
+	st.Observe(258000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	if rep := st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierBlock {
+		t.Fatalf("tier after mark recovery = %s, want block (latched)", rep.Tier)
+	}
+
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now,
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if !rep.BlockLatched || rep.LatchProvisional {
+		t.Fatalf("unexplained latch did not promote: latched=%v provisional=%v", rep.BlockLatched, rep.LatchProvisional)
+	}
+	if !strings.Contains(strings.Join(rep.Reasons, " "), "human reset") {
+		t.Fatalf("durable latch reasons = %v", rep.Reasons)
+	}
+
+	// A later window with a fresh withdrawal cannot dissolve a durable latch.
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now.Add(24 * time.Hour),
+		Flows:     []reconFlow{{id: "wd-late", typ: "Deposits/Withdrawals", valueDate: now, amountBase: -20000}},
+		FlowsBase: -20000,
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	if rep = st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
+		t.Fatal("durable latch dissolved from statement flows; only a human reset may clear it")
+	}
+
+	if err := st.ResetDrawdown("reviewed the confirmed trading loss; resuming at reduced size", c); err != nil {
+		t.Fatal(err)
+	}
+	if rep = st.Report(c, nil, testLiveObserveScope); rep.BlockLatched || rep.LatchProvisional {
+		t.Fatalf("reset left latch state behind: %+v", rep)
+	}
+}
+
+func TestPreTwoStageLatchStaysDurableUnderStatements(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitutionV3()
+	reconcileNow(t, st)
+	now := time.Now()
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.mu.Lock()
+	// A latch persisted before the two-stage semantics carries neither field.
+	st.state.LatchProvisional = false
+	st.state.LatchEquityBase = 0
+	st.mu.Unlock()
+
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now,
+		Flows:     []reconFlow{{id: "wd-legacy", typ: "Deposits/Withdrawals", valueDate: now.Add(-2 * time.Minute), amountBase: -20000}},
+		FlowsBase: -20000,
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	if rep := st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || rep.LatchProvisional {
+		t.Fatalf("pre-two-stage latch was decided by statements: %+v", rep)
+	}
+}
+
+func TestDrawdownLatchStatementReplayDecidesProvisionalLatch(t *testing.T) {
+	day := time.Now().UTC().Format("20060102")
+	for _, tc := range []struct {
+		name      string
+		body      string
+		dissolved bool
+	}{
+		{"withdrawal_explains_drop", cashLine("latch-wd", "Deposits/Withdrawals", -20000, day) + "\n" + equityRow(day, 240000), true},
+		{"no_flow_promotes_to_durable", equityRow(day, 240000), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newReconV3TestServer(t)
+			pol := s.riskPolicies.snapshot().policy
+			scope := brokerStateScope{Account: "U1234567", Mode: rpc.AccountModeLive}
+			now := time.Now()
+			reconcileNow(t, s.riskCapital)
+			s.riskCapital.Observe(260000, now.Add(-90*time.Minute), pol, scope)
+			s.riskCapital.Observe(240000, now.Add(-60*time.Minute), pol, scope)
+			rep := s.riskCapital.Report(pol, nil, scope)
+			if !rep.BlockLatched || !rep.LatchProvisional {
+				t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
+			}
+
+			writeFlexFixture(t, "flex-latch.xml", recentGenerated(), day, day, tc.body)
+			s.evaluateRiskPolicyV3Reconciliation()
+
+			rep = s.riskCapital.Report(pol, nil, scope)
+			if tc.dissolved {
+				if rep.BlockLatched || rep.LatchProvisional {
+					t.Fatalf("withdrawal-explained latch did not dissolve: %+v", rep)
+				}
+			} else if !rep.BlockLatched || rep.LatchProvisional {
+				t.Fatalf("unexplained latch did not promote: latched=%v provisional=%v", rep.BlockLatched, rep.LatchProvisional)
+			}
+		})
 	}
 }
 

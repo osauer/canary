@@ -755,7 +755,11 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 	case latch.Status == rpc.BriefStatusUnavailable:
 		p.text("The drawdown latch state is unavailable.")
 	case latch.Latched:
-		p.tinted(rpc.BriefRunRoleAct, "The drawdown latch needs review")
+		headline := "The drawdown latch needs review"
+		if latch.Provisional {
+			headline = "The drawdown latch is engaged provisionally"
+		}
+		p.tinted(rpc.BriefRunRoleAct, headline)
 		if latch.AgeDays != nil {
 			p.tinted(rpc.BriefRunRoleAct, ", "+briefCountPhrase(*latch.AgeDays, "day", "days")+" old")
 		}
@@ -765,6 +769,10 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 			p.text("It engaged at ")
 			p.figure(briefPercent(*latch.ConsumedPctAtLatch, false))
 			p.text(" consumed.")
+		}
+		if latch.Provisional {
+			p.sentence()
+			p.text("A statement-confirmed withdrawal covering the latch day releases it automatically; anything else makes it permanent until you reset it.")
 		}
 		if !latch.ReportCoverageTo.IsZero() && latch.ReportCoverageTo.Before(latch.At) {
 			p.sentence()

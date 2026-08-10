@@ -52,18 +52,24 @@ type riskCapitalStateFileV1 struct {
 	// SQLite gives every account/mode its own document; the legacy file helper
 	// A non-live observation can never write a live peak
 	// state dir ratcheted the live peak with the paper account's equity).
-	AccountID                         string               `json:"account_id,omitempty"`
-	AccountMode                       string               `json:"account_mode,omitempty"`
-	AdjustedPeakBase                  float64              `json:"adjusted_peak_base"`
-	PeakAsOf                          time.Time            `json:"peak_as_of,omitzero"`
-	LastEquityBase                    float64              `json:"last_equity_base"`
-	LastEquityAsOf                    time.Time            `json:"last_equity_as_of,omitzero"`
-	DailyEquity                       map[string]float64   `json:"daily_equity,omitempty"`
-	LastTier                          string               `json:"last_tier,omitempty"`
-	BlockLatched                      bool                 `json:"block_latched"`
-	LatchedAt                         time.Time            `json:"latched_at,omitzero"`
-	LatchEpisodeSeq                   uint64               `json:"latch_episode_seq,omitempty"`
-	LatchConsumedPct                  float64              `json:"latch_consumed_pct,omitempty"`
+	AccountID        string             `json:"account_id,omitempty"`
+	AccountMode      string             `json:"account_mode,omitempty"`
+	AdjustedPeakBase float64            `json:"adjusted_peak_base"`
+	PeakAsOf         time.Time          `json:"peak_as_of,omitzero"`
+	LastEquityBase   float64            `json:"last_equity_base"`
+	LastEquityAsOf   time.Time          `json:"last_equity_as_of,omitzero"`
+	DailyEquity      map[string]float64 `json:"daily_equity,omitempty"`
+	LastTier         string             `json:"last_tier,omitempty"`
+	BlockLatched     bool               `json:"block_latched"`
+	LatchedAt        time.Time          `json:"latched_at,omitzero"`
+	LatchEpisodeSeq  uint64             `json:"latch_episode_seq,omitempty"`
+	LatchConsumedPct float64            `json:"latch_consumed_pct,omitempty"`
+	// LatchProvisional marks a latch the statement window covering its day
+	// has not yet decided; absent on pre-two-stage latches, which therefore
+	// stay durable. LatchEquityBase freezes the engagement equity so the
+	// statement replay can never dissolve a latch on mark recovery.
+	LatchProvisional                  bool                 `json:"latch_provisional,omitempty"`
+	LatchEquityBase                   float64              `json:"latch_equity_base,omitempty"`
 	Overrides                         []rpc.OverrideRecord `json:"overrides,omitempty"`
 	StatementFlowsBase                float64              `json:"statement_flows_base,omitempty"`
 	StatementCoverageTo               time.Time            `json:"statement_coverage_to,omitzero"`
@@ -672,6 +678,7 @@ func (st *riskCapitalStore) runtimeLocked(c *risk.Constitution, now time.Time) r
 		CumExternalFlowsBase:      flows,
 		Seeded:                    st.state.Seeded,
 		BlockLatched:              st.state.BlockLatched,
+		LatchProvisional:          st.state.LatchProvisional,
 		LastReconciledAt:          st.lastReconciledAt,
 		UnreconciledOverrideUntil: overrideUntil,
 	}
@@ -787,10 +794,16 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 		st.state.BlockLatched = true
 		st.state.LatchedAt = now.UTC()
 		st.state.LatchConsumedPct = *v.ConsumedPct
+		// Engagement is provisional: the breach journals and alerts now,
+		// and the statement window covering the latch day later dissolves
+		// it (an external flow explains the drop) or promotes it to durable.
+		st.state.LatchProvisional = true
+		st.state.LatchEquityBase = equityBase
 		force = true
 		st.appendRiskPolicyJournal(map[string]any{
 			"version": 1, "at": now.UTC(), "kind": "drawdown_block_latched",
 			"consumed_pct": *v.ConsumedPct, "enforcement": constitutionEnforcement(c),
+			"provisional":        true,
 			"policy_fingerprint": constitutionFingerprint(c),
 		})
 	}
@@ -1030,13 +1043,11 @@ type statementCapitalSnapshot struct {
 	NudgeConfirmedFlows nudgeConfirmedFlowSnapshot
 }
 
-// IncorporateStatementSnapshot installs one fully healthy reconstruction.
-// broker value dates for the one-time R4 peak correction.
-func (st *riskCapitalStore) IncorporateStatementSnapshot(snap statementCapitalSnapshot) {
-	_ = st.IncorporateStatementSnapshotForScope(snap)
-}
-
-func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementCapitalSnapshot) error {
+// IncorporateStatementSnapshotForScope installs one fully healthy
+// reconstruction: statement-authoritative flows and coverage, the one-time R4
+// peak corrections keyed by broker value dates, and — once coverage reaches
+// the latch day — the provisional-latch decision.
+func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementCapitalSnapshot, c *risk.Constitution) error {
 	st.mu.Lock()
 	st.loadLocked()
 	if st.core != nil {
@@ -1073,6 +1084,7 @@ func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementC
 	st.state.StatementAuthorityActive = true
 	st.state.StatementFlowsBase = snap.FlowsBase
 	st.state.StatementCoverageTo = snap.CoverageTo
+	st.resolveProvisionalLatchLocked(snap, c)
 	persistErr := st.persistLocked(true)
 	persisted := persistErr == nil
 	st.mu.Unlock()
@@ -1085,6 +1097,58 @@ func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementC
 		return persistErr
 	}
 	return nil
+}
+
+// resolveProvisionalLatchLocked decides a provisional latch once statement
+// coverage includes the latch day. The engagement equity is replayed against
+// statement-true flows value-dated through that day: a drop those flows
+// explain dissolves the latch automatically; anything else — trading loss,
+// missing policy numbers, incomplete engagement evidence — promotes it to
+// durable, which only a human reset clears. The equity term stays frozen at
+// engagement, so mark recovery can never dissolve a latch (decision 5), and
+// every ambiguity promotes: a wrong promotion returns to the human, a wrong
+// dissolution would release the brake.
+func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalSnapshot, c *risk.Constitution) {
+	if !st.state.BlockLatched || !st.state.LatchProvisional || st.state.LatchedAt.IsZero() {
+		return
+	}
+	if snap.CoverageTo.IsZero() || utcDateBefore(snap.CoverageTo, st.state.LatchedAt) {
+		return // the statement window cannot see the latch day yet
+	}
+	now := st.now().UTC()
+	entry := map[string]any{
+		"version": 1, "at": now, "latched_at": st.state.LatchedAt,
+		"latch_consumed_pct": st.state.LatchConsumedPct, "coverage_to": snap.CoverageTo,
+		"policy_fingerprint": constitutionFingerprint(c),
+	}
+	dissolve := false
+	if c != nil && c.Capital.DeclaredRiskCapital != nil && c.Drawdown.BlockConsumedPct != nil && st.state.LatchEquityBase > 0 {
+		flows := 0.0
+		for _, flow := range snap.Flows {
+			if !utcDateAfter(flow.valueDate, st.state.LatchedAt) {
+				flows += flow.amountBase
+			}
+		}
+		dd := max(st.state.AdjustedPeakBase-(st.state.LatchEquityBase-flows), 0)
+		pct := dd / *c.Capital.DeclaredRiskCapital * 100
+		entry["statement_flows_to_latch_base"] = flows
+		entry["statement_consumed_pct"] = pct
+		dissolve = pct < *c.Drawdown.BlockConsumedPct
+	} else {
+		entry["reason"] = "policy numbers or engagement evidence incomplete; promoted for human review"
+	}
+	if dissolve {
+		entry["kind"] = "drawdown_latch_dissolved"
+		st.state.BlockLatched = false
+		st.state.LatchedAt = time.Time{}
+		st.state.LatchProvisional = false
+		st.state.LatchConsumedPct = 0
+		st.state.LatchEquityBase = 0
+	} else {
+		entry["kind"] = "drawdown_latch_promoted"
+		st.state.LatchProvisional = false
+	}
+	st.appendRiskPolicyJournal(entry)
 }
 
 func (st *riskCapitalStore) ActivateStatementAuthorityWithoutStatements() {
@@ -1190,9 +1254,12 @@ func (st *riskCapitalStore) ResetDrawdownForScope(reason string, c *risk.Constit
 	}
 	now := st.now().UTC()
 	wasLatched := st.state.BlockLatched
+	wasProvisional := st.state.LatchProvisional
 	st.state.BlockLatched = false
 	st.state.LatchedAt = time.Time{}
 	st.state.LatchConsumedPct = 0
+	st.state.LatchProvisional = false
+	st.state.LatchEquityBase = 0
 	if st.state.LastEquityBase > 0 {
 		flows, _, _ := st.effectiveFlowsLocked(c)
 		st.state.AdjustedPeakBase = st.state.LastEquityBase - flows
@@ -1201,7 +1268,8 @@ func (st *riskCapitalStore) ResetDrawdownForScope(reason string, c *risk.Constit
 	}
 	st.appendRiskPolicyJournal(map[string]any{
 		"version": 1, "at": now, "kind": "drawdown_reset", "reason": reason,
-		"was_latched": wasLatched, "policy_fingerprint": constitutionFingerprint(c),
+		"was_latched": wasLatched, "was_provisional": wasProvisional,
+		"policy_fingerprint": constitutionFingerprint(c),
 	})
 	return st.persistLocked(true)
 }
@@ -1241,8 +1309,9 @@ func (st *riskCapitalStore) unavailableScopeReportLocked(c *risk.Constitution, r
 	rep := rpc.CapitalStateReport{
 		Tier: risk.CapitalTierUnknown, Enforcement: constitutionEnforcement(c),
 		BoundAccount: st.state.AccountID, BlockLatched: st.state.BlockLatched,
-		LatchedAt: st.state.LatchedAt, LatchConsumedPct: latchConsumedPct(st.state),
-		Reasons: []string{reason},
+		LatchedAt: st.state.LatchedAt, LatchProvisional: st.state.LatchProvisional,
+		LatchConsumedPct: latchConsumedPct(st.state),
+		Reasons:          []string{reason},
 	}
 	if c != nil {
 		rep.BaseCurrency = c.Capital.BaseCurrency
@@ -1298,6 +1367,7 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 			BoundAccount:     st.state.AccountID,
 			BlockLatched:     st.state.BlockLatched,
 			LatchedAt:        st.state.LatchedAt,
+			LatchProvisional: st.state.LatchProvisional,
 			LatchConsumedPct: latchConsumedPct(st.state),
 			Reasons:          []string{reason},
 		}
@@ -1329,6 +1399,7 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 		ConsumedPct:              v.ConsumedPct,
 		BlockLatched:             st.state.BlockLatched,
 		LatchedAt:                st.state.LatchedAt,
+		LatchProvisional:         st.state.LatchProvisional,
 		LatchConsumedPct:         latchConsumedPct(st.state),
 		LastReconciledAt:         st.lastReconciledAt,
 		LastReconcileReportID:    st.lastReconcileReportID,

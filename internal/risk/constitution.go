@@ -60,8 +60,10 @@ type ConstitutionCapital struct {
 // ConstitutionDrawdown is the two-tier response ladder. Both thresholds are
 // percentages of declared risk capital consumed from the cash-flow-adjusted
 // equity peak. Warn is advisory and self-clearing; block latches in daemon
-// state and clears only through a journaled human reset that re-bases the
-// peak.
+// state provisionally until the broker statement covering the latch day
+// decides it: a statement-confirmed external flow that explains the drop
+// dissolves the latch, anything else promotes it to durable, and a durable
+// latch clears only through a journaled human reset that re-bases the peak.
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
@@ -532,9 +534,13 @@ type CapitalRuntime struct {
 	// Seeded is false until the first equity observation establishes the
 	// peak; an unseeded state evaluates unknown, never ok.
 	Seeded bool
-	// BlockLatched persists across restarts and mark recovery; only a
-	// journaled human reset clears it.
+	// BlockLatched persists across restarts and mark recovery. A durable
+	// latch clears only through a journaled human reset; a provisional one
+	// may also dissolve when statement truth explains the drop.
 	BlockLatched bool
+	// LatchProvisional marks a latch the statement window covering its day
+	// has not yet confirmed or explained.
+	LatchProvisional bool
 	// LastReconciledAt is the last human or automatic reconcile evidence;
 	// zero means never reconciled.
 	LastReconciledAt time.Time
@@ -634,10 +640,15 @@ func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation
 		v.ConsumedPct = &pct
 	}
 
-	// The latch dominates: a breached block stays block until a human
+	// The latch dominates: a breached block stays block until it is decided
+	// by statement truth (provisional) or a human reset (durable).
 	if rt.BlockLatched {
 		v.Tier = CapitalTierBlock
-		v.Reasons = append(v.Reasons, "drawdown block is latched; a journaled human reset (with re-based peak) is required to resume risk")
+		if rt.LatchProvisional {
+			v.Reasons = append(v.Reasons, "drawdown block is latched provisionally; the broker statement covering the latch day will dissolve it (external flow explains the drop) or promote it to durable")
+		} else {
+			v.Reasons = append(v.Reasons, "drawdown block is latched; a journaled human reset (with re-based peak) is required to resume risk")
+		}
 		return v
 	}
 	if len(v.Unapproved) > 0 {

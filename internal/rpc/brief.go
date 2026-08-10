@@ -204,12 +204,15 @@ type BriefCapitalRow struct {
 	BaseCurrency string    `json:"base_currency,omitempty"`
 }
 
-// BriefLatchRow reports durable drawdown-latch state and its original trigger.
+// BriefLatchRow reports drawdown-latch state and its original trigger.
 type BriefLatchRow struct {
 	BriefRowState
 	Latched bool      `json:"latched"`
 	At      time.Time `json:"latched_at,omitzero"`
-	AgeDays *int      `json:"age_days,omitempty"`
+	// Provisional means the broker statement covering the latch day has not
+	// yet confirmed the latch or dissolved it.
+	Provisional bool `json:"provisional,omitempty"`
+	AgeDays     *int `json:"age_days,omitempty"`
 	// ConsumedPctAtLatch is the consumed share recorded when the latch
 	ConsumedPctAtLatch *float64  `json:"consumed_pct_at_latch,omitempty"`
 	ReportCoverageTo   time.Time `json:"report_coverage_to,omitzero"`
@@ -308,6 +311,7 @@ type BriefCapitalEventsRow struct {
 	BriefRowState
 	Latched            bool      `json:"latched"`
 	LatchedAt          time.Time `json:"latched_at,omitzero"`
+	LatchProvisional   bool      `json:"latch_provisional,omitempty"`
 	LatchAgeDays       *int      `json:"latch_age_days,omitempty"`
 	ConsumedPctAtLatch *float64  `json:"consumed_pct_at_latch,omitempty"`
 	AdjustedPeakBase   *float64  `json:"adjusted_peak_base,omitempty"`
@@ -1530,6 +1534,10 @@ type CapitalStateReport struct {
 	ConsumedPct              *float64  `json:"consumed_pct,omitempty"`
 	BlockLatched             bool      `json:"block_latched"`
 	LatchedAt                time.Time `json:"latched_at,omitzero"`
+	// LatchProvisional marks a latch broker statements have not yet decided:
+	// coverage reaching the latch day either dissolves it (a confirmed
+	// external flow explains the drop) or promotes it to durable.
+	LatchProvisional bool `json:"latch_provisional,omitempty"`
 	// LatchConsumedPct is the consumed share at the moment the latch engaged.
 	LatchConsumedPct      *float64  `json:"latch_consumed_pct,omitempty"`
 	LastReconciledAt      time.Time `json:"last_reconciled_at,omitzero"`

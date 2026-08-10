@@ -47,8 +47,10 @@ wider industry uses a word differently, the entry says so.
   [Architecture](../internals/architecture.md).
 - **Drawdown ladder:** two tiers in the personal risk policy, warn and block,
   each a percent of declared risk capital consumed from the cash-flow-adjusted
-  equity peak. Warn is advisory and self-clearing; block latches until a
-  journaled human reset. Schema version 1 rejects hard enforcement outright.
+  equity peak. Warn is advisory and self-clearing; block latches provisionally
+  until the broker statement covering the latch day explains the drop (the
+  latch releases itself) or confirms it (a journaled human reset is required).
+  Schema version 1 rejects hard enforcement outright.
   See [Trading policy](policy.md).
 - **Effective risk capital:** the lesser of declared risk capital and equity
   above the protected floor. Deposits and profits never raise it; only a policy
