@@ -173,17 +173,23 @@ func briefTopics(res *rpc.BriefResult) []briefTopic {
 		topics = append(topics, briefTopic{label: "held-name events", state: briefUnavailable("held-name event coverage is unavailable")})
 	}
 	for _, event := range ready.MarketEvents {
+		role := briefRole(event.BriefRowState, false)
+		if event.Kind == "earnings" && event.Status == rpc.BriefStatusAttention {
+			// An unresolved provider date is context, not an operator decision.
+			// The Rulebook names the missing date and waits for a concrete breach.
+			role = ""
+		}
 		topics = append(topics, briefTopic{
 			label: "held-name " + briefEventKindLabel(event.Kind),
 			state: event.BriefRowState,
-			role:  briefRole(event.BriefRowState, false),
+			role:  role,
 		})
 	}
 	topics = append(topics,
 		briefTopic{label: "capital", state: ready.Capital.BriefRowState, role: briefRole(ready.Capital.BriefRowState, ready.Capital.Tier == risk.CapitalTierBlock)},
 		briefTopic{label: "drawdown latch", state: ready.Latch.BriefRowState, role: briefRole(ready.Latch.BriefRowState, ready.Latch.Latched)},
 		briefTopic{label: "premium at risk", state: ready.PremiumAtRisk.BriefRowState, role: briefRole(ready.PremiumAtRisk.BriefRowState, false)},
-		briefTopic{label: "hedge cost", state: ready.HedgeCost.BriefRowState, role: briefRole(ready.HedgeCost.BriefRowState, false)},
+		briefTopic{label: "index-put theta", state: ready.HedgeCost.BriefRowState, role: briefRole(ready.HedgeCost.BriefRowState, false)},
 		briefTopic{label: "protection proposals", state: ready.Proposals.BriefRowState, role: briefRole(ready.Proposals.BriefRowState, false)},
 		briefTopic{label: "policy drift", state: ready.PolicyDrift.BriefRowState, role: briefRole(ready.PolicyDrift.BriefRowState, false)},
 	)
@@ -251,7 +257,7 @@ func briefNarrativeLead(res *rpc.BriefResult, topics []briefTopic) []rpc.BriefRu
 	case ready.Regime.Stage == "" && ready.Regime.Verdict == "":
 		p.text("The regime read carries no stage or verdict.")
 	default:
-		p.text("Regime " + briefRegimeReading(ready.Regime) + ".")
+		p.text(briefUpperFirst(briefRegimeReading(ready.Regime)) + ".")
 	}
 
 	flagged := briefFlaggedTopics(topics)
@@ -459,7 +465,7 @@ func briefReviewDeskEvents(p *briefProse, review rpc.BriefReviewSection) {
 	case events.Status == rpc.BriefStatusUnavailable:
 		p.text("Capital events cannot be evaluated: the risk constitution is absent.")
 	case events.Latched:
-		p.tinted(rpc.BriefRunRoleAct, "The drawdown latch engaged this episode and remains open until a human reset.")
+		p.tinted(rpc.BriefRunRoleAct, "The drawdown latch needs review.")
 		p.sentence()
 		briefAdjustedPeakSentence(p, events)
 	default:
@@ -534,7 +540,7 @@ func briefReviewAdmin(p *briefProse, review rpc.BriefReviewSection) {
 func briefReconcileSentence(p *briefProse, row rpc.BriefReconcileRow) {
 	switch {
 	case row.Status == rpc.BriefStatusUnavailable:
-		p.text("Reconcile evidence is unavailable.")
+		p.text("No current reconciliation result is available.")
 	case row.LastReconciledAt.IsZero():
 		p.text("No reconcile evidence has been recorded.")
 	case row.DaysRemaining == nil:
@@ -614,7 +620,7 @@ func briefReadyTape(p *briefProse, ready rpc.BriefReadySection) {
 		p.text("The regime read carries no stage or verdict.")
 		p.sentence()
 	case ready.Regime.Status == rpc.BriefStatusDegraded:
-		p.text("Regime " + briefRegimeReading(ready.Regime) + ", on partial evidence.")
+		p.text(briefUpperFirst(briefRegimeReading(ready.Regime)) + ", using partial inputs.")
 		p.sentence()
 	}
 
@@ -678,7 +684,7 @@ func briefStressSentence(p *briefProse, stress rpc.BriefStressRow) {
 		p.text("Stress carries no action or severity.")
 		return
 	default:
-		p.text("Stress reads ")
+		p.text("Portfolio risk: ")
 		p.tinted(role, briefStressReading(stress))
 	}
 	if stress.Status == rpc.BriefStatusDegraded {
@@ -727,16 +733,23 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 	case latch.Status == rpc.BriefStatusUnavailable:
 		p.text("The drawdown latch state is unavailable.")
 	case latch.Latched:
-		p.tinted(rpc.BriefRunRoleAct, "The drawdown latch is engaged")
+		p.tinted(rpc.BriefRunRoleAct, "The drawdown latch needs review")
 		if latch.AgeDays != nil {
 			p.tinted(rpc.BriefRunRoleAct, ", "+briefCountPhrase(*latch.AgeDays, "day", "days")+" old")
 		}
-		p.tinted(rpc.BriefRunRoleAct, ", and remains so until a human reset.")
+		p.tinted(rpc.BriefRunRoleAct, ".")
 		if latch.ConsumedPctAtLatch != nil {
 			p.sentence()
 			p.text("It engaged at ")
 			p.figure(briefPercent(*latch.ConsumedPctAtLatch, false))
 			p.text(" consumed.")
+		}
+		if !latch.ReportCoverageTo.IsZero() && latch.ReportCoverageTo.Before(latch.At) {
+			p.sentence()
+			if !latch.ReportCheckedAt.IsZero() {
+				p.text("Canary checked IBKR again at " + latch.ReportCheckedAt.In(time.Local).Format("Jan 2 15:04") + ". ")
+			}
+			p.text("The newest daily report still covers through " + latch.ReportCoverageTo.In(time.Local).Format("Jan 2") + ", so a later cash transfer may not be reflected yet.")
 		}
 	default:
 		p.text("The drawdown latch is open.")
@@ -763,15 +776,15 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 	hedge := ready.HedgeCost
 	switch {
 	case hedge.Status == rpc.BriefStatusUnavailable:
-		p.text("Hedge cost is unavailable.")
+		p.text("No current index-put theta total is available.")
 	case hedge.AmountBase == nil:
-		p.text("Hedge cost cannot be totalled: no classified hedge leg carries usable theta.")
+		p.text("Index-put theta cannot be totalled because theta is missing.")
 	default:
-		p.text("Hedge cost ")
+		p.text("Index-put theta ")
 		p.accountFigure(briefMoney(*hedge.AmountBase, hedge.BaseCurrency, false))
-		p.text(" per day across " + briefCountPhrase(hedge.IncludedLegs, "classified hedge leg", "classified hedge legs"))
+		p.text(" per day across " + briefCountPhrase(hedge.IncludedLegs, "long index put", "long index puts"))
 		if hedge.ExcludedLegs > 0 {
-			p.text(", with " + briefCountPhrase(hedge.ExcludedLegs, "candidate leg", "candidate legs") + " excluded for missing classification inputs")
+			p.text(", with " + briefCountPhrase(hedge.ExcludedLegs, "position", "positions") + " excluded because theta, delta, price, or FX is missing")
 		}
 		p.text(".")
 	}
@@ -911,31 +924,47 @@ func briefMarketEventsSentences(p *briefProse, events []rpc.BriefMarketEventRow)
 
 // ---- shared readings and formatting -----------------------------------
 
-// briefStressReading prints the daemon's stress vocabulary verbatim. Action
 func briefStressReading(stress rpc.BriefStressRow) string {
 	action := strings.TrimSpace(stress.Action)
 	severity := strings.TrimSpace(stress.Severity)
+	severityWords := severity
+	if strings.EqualFold(severityWords, string(risk.SeverityAct)) {
+		severityWords = "action"
+	}
 	switch {
 	case action == "" && severity == "":
 		return ""
 	case action == "":
-		return severity + " severity"
+		return severityWords
 	case severity == "" || strings.EqualFold(action, severity):
-		return action
+		if strings.EqualFold(action, string(risk.SeverityAct)) {
+			return "action"
+		}
+		return strings.ReplaceAll(action, "_", " ")
 	default:
-		return action + " at " + severity + " severity"
+		return strings.ReplaceAll(action, "_", " ") + ", with " + severityWords + "-level conditions"
 	}
 }
 
 func briefRegimeReading(regime rpc.BriefRegimeRow) string {
 	stage, verdict := strings.TrimSpace(regime.Stage), strings.TrimSpace(regime.Verdict)
+	stageWords := map[string]string{
+		"quiet":            "quiet",
+		"early_warning":    "in an early warning",
+		"confirmed_stress": "in confirmed stress",
+		"panic":            "in panic",
+		"stabilization":    "stabilizing",
+		"opportunity":      "in an opportunity phase",
+		"data_quality":     "waiting for current inputs",
+	}[strings.ToLower(stage)]
+	if stage != "" && stageWords == "" {
+		stageWords = "in " + strings.ReplaceAll(strings.ToLower(stage), "_", " ")
+	}
 	switch {
-	case stage != "" && verdict != "":
-		return "stage " + stage + ", verdict " + verdict
 	case stage != "":
-		return "stage " + stage + " with no verdict"
+		return "market conditions are " + stageWords
 	default:
-		return "verdict " + verdict + " with no stage"
+		return "market conditions: " + verdict
 	}
 }
 

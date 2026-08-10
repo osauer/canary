@@ -71,6 +71,13 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
 	portfolio := s.composeBriefPortfolio(acct, pos, acctErr, posErr, sessionOpen)
 	riskLimits := composeBriefRisk(policy, now)
+	if recon != nil {
+		riskLimits.Latch.ReportCoverageTo = recon.CoverageTo
+		riskLimits.Latch.ReportCheckedAt = recon.Fetch.LastAttempt
+		if riskLimits.Latch.Latched && !recon.CoverageTo.IsZero() && recon.CoverageTo.Before(riskLimits.Latch.At) {
+			riskLimits.Latch.Detail = fmt.Sprintf("drawdown review needed; latest daily broker report covers through %s", recon.CoverageTo.In(time.Local).Format(time.DateOnly))
+		}
+	}
 	process := s.composeBriefProcessForAuthority(policy, constitution, recon, rules, renderAuthority, now)
 
 	// The five domain sections above are composition intermediates: the two
@@ -242,6 +249,8 @@ func briefCapitalEvents(capital rpc.BriefCapitalRow, latch rpc.BriefLatchRow) rp
 		AdjustedPeakBase:   capital.AdjustedPeakBase,
 		PeakAsOf:           capital.PeakAsOf,
 		BaseCurrency:       capital.BaseCurrency,
+		ReportCoverageTo:   latch.ReportCoverageTo,
+		ReportCheckedAt:    latch.ReportCheckedAt,
 	}
 	switch {
 	case capital.Status == rpc.BriefStatusUnavailable:
@@ -834,7 +843,7 @@ func briefPremiumAtRisk(pos *rpc.PositionsResult, base string) rpc.BriefMoneyCov
 }
 
 func briefHedgeCost(pos *rpc.PositionsResult, base string) rpc.BriefMoneyCoverageRow {
-	row := rpc.BriefMoneyCoverageRow{BriefRowState: briefOK("daily theta of rulebook-classified hedge legs"), BaseCurrency: base}
+	row := rpc.BriefMoneyCoverageRow{BriefRowState: briefOK("daily theta of long index puts"), BaseCurrency: base}
 	pol := risk.DefaultRulebookPolicy()
 	var sum float64
 	for _, p := range pos.Options {
@@ -842,8 +851,7 @@ func briefHedgeCost(pos *rpc.PositionsResult, base string) rpc.BriefMoneyCoverag
 		if !candidate {
 			continue
 		}
-		leg := risk.LegInput{Right: p.Right, Quantity: p.Quantity, Delta: p.Delta, Underlying: p.Underlying, HedgeListed: true}
-		if !risk.RulebookHedgeLeg(leg) || p.Theta == nil {
+		if p.Delta == nil || p.Underlying == nil || p.Theta == nil {
 			row.ExcludedLegs++
 			continue
 		}
@@ -861,9 +869,9 @@ func briefHedgeCost(pos *rpc.PositionsResult, base string) rpc.BriefMoneyCoverag
 		row.AmountBase = new(sum)
 	}
 	if row.ExcludedLegs > 0 {
-		row.BriefRowState = briefDegraded(fmt.Sprintf("%d candidate hedge %s excluded because classification Greeks/theta/FX are unavailable", row.ExcludedLegs, pluralNoun(row.ExcludedLegs, "leg")))
+		row.BriefRowState = briefDegraded(fmt.Sprintf("%d long index-put %s excluded because Greeks, theta, or FX are unavailable", row.ExcludedLegs, pluralNoun(row.ExcludedLegs, "leg")))
 	} else if row.IncludedLegs == 0 {
-		row.BriefRowState = briefOK("no rulebook-classified hedge legs")
+		row.BriefRowState = briefOK("no long index puts")
 		zero := 0.0
 		row.AmountBase = &zero
 	}
@@ -1037,6 +1045,23 @@ func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
 		return row
 	}
 	for _, r := range current.Rules {
+		mode := r.Mode
+		if mode == "" {
+			mode = risk.RuleModeAlert
+		}
+		if mode == risk.RuleModeOff {
+			row.NotEvaluated++
+			continue
+		}
+		if mode == risk.RuleModeTrack {
+			if r.Status != risk.RuleStatusPass && r.Status != risk.RuleStatusNotEvaluated {
+				row.Track++
+			}
+			if r.Status == risk.RuleStatusPass {
+				row.Pass++
+			}
+			continue
+		}
 		switch r.Status {
 		case risk.RuleStatusPass:
 			row.Pass++
@@ -1061,6 +1086,8 @@ func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
 		row.BriefRowState = briefAttention(fmt.Sprintf("%d current %s require action", row.Act, pluralNoun(row.Act, "rule")))
 	case row.Watch > 0 || row.Unknown > 0 || current.Status == "degraded":
 		row.BriefRowState = briefDegraded(fmt.Sprintf("current rulebook: %d watch, %d unknown, %d not evaluated", row.Watch, row.Unknown, row.NotEvaluated))
+	case row.Track > 0:
+		row.Detail = fmt.Sprintf("no alerting rule needs attention; %d tracked finding(s), %d not evaluated", row.Track, row.NotEvaluated)
 	case row.NotEvaluated > 0:
 		row.Detail = fmt.Sprintf("all due current rulebook checks pass; %d not evaluated", row.NotEvaluated)
 	}

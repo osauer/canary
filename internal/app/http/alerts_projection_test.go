@@ -33,8 +33,12 @@ func TestAlertProjectionExposesOnlyCurrentOccurrences(t *testing.T) {
 	ended.EndedAt = now
 	ended.EndReason = state.AlertDeliveryEndRecovered
 	ended.AttentionSeq = 1
+	retained := active
+	retained.DisplayID = "alert-retained"
+	retained.EvidenceHealth = rpc.AlertEvidencePartial
+	retained.AttentionSeq = 3
 
-	got := newAlertOccurrenceDTOs([]state.AlertDeliveryOccurrenceView{ended, active})
+	got := newAlertOccurrenceDTOs([]state.AlertDeliveryOccurrenceView{ended, retained, active})
 	if len(got) != 1 || got[0].DisplayID != active.DisplayID {
 		t.Fatalf("projected occurrences=%+v, want only current alert", got)
 	}

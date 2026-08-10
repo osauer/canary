@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-07-23 07:48 CEST
+Updated: 2026-08-10 CEST
 Status: implemented, advisory, and active as compiled `rulebook-v2`. The
 initial 12-rule surface shipped in v1.15.0; the current 14-rule contract folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -137,6 +137,20 @@ contradiction:
    truth. (c) A freshly fetched elapsed date is `no_date_published`, not a
    format change (Nasdaq parser contract v5). Alert-side, rulebook coverage
    became per-rule the same day; see alert-regime-production.md.
+9. Amendment (2026-08-10, operator decisions): each rule has a closed mode:
+   `off`, `track`, or `alert`. Track rows remain visible but cannot create an
+   alert episode; off rows are not evaluated. The default modes are part of
+   the compiled policy until a dedicated versioned Rulebook policy loader and
+   editor ship. Rule 3 now measures broker-reported available funds against a
+   75% NLV reserve. Rule 6 is an earnings-timing fact in track mode. Rule 8 is
+   a tracked size proxy until quantified earnings-event loss is implemented.
+   Rules 9-11 default off and rule 14 defaults track.
+10. Amendment (2026-08-10): a structurally eligible index put receives
+    protection treatment only when its short delta can plausibly protect the
+    current gross-long book. With no long book, or above twice the widest
+    configured protection band, it is directional short exposure. Directional
+    exposure follows ordinary concentration, premium, time-value, expiry, and
+    loss rules; rule 12 does not size it as protection.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
@@ -147,36 +161,36 @@ threshold in the compiled model.
 Inputs available today unless marked otherwise. "Exposure" for a name =
 stock shares×spot + Σ(option delta×100×contracts×spot), from
 `UnderlyingExposure`/`PositionGroup` aggregation (base currency).
-Rules 3/4/12 thresholds are regime-conditional: calm / early_warning /
+Rules 4/12 thresholds are regime-conditional: calm / early_warning /
 confirmed sets selected by the latched regime lifecycle stage (see the
 regime-conditionality notes).
 
-| # | Rule id | Check | Default threshold | Status when breached |
+| # | Rule id | Check | Default threshold | Default mode |
 |---|---|---|---|---|
-| 1 | `single_name_exposure` | per-name exposure / NLV; rule-12-sized short hedge exposure exempt (see notes); provable lower-bound breaches under greeks gaps (see notes) | > 40% | act; watch ≥ 30% |
-| 2 | `option_line_premium` | single option line market value / NLV; rule-12-classified hedge legs use the hedge tier | watch ≥ 5%; hedge watch ≥ 15% | act > 10%; hedge act > 25% |
-| 3 | `cash_sell_only` | total cash / NLV | < −25 / 0 / +10% by regime | act (advisory "sell-only posture", not an order gate) |
-| 4 | `extrinsic_budget` | Σ long-option extrinsic / NLV, excluding rule-12-classified hedge legs (hedge extrinsic disclosed in notes) | watch ≥ 10 / 7.5 / 5% by regime | act > 15 / 12 / 10% by regime |
-| 5 | `expiry_runway` | long option DTE < 14 unless ≥70-delta ITM or hedge leg | < 14 DTE | watch; act < 7 DTE |
-| 6 | `catalyst_coverage` | OTM long option expiring before the name's next earnings; legs with no underlying spot are named unknowns, never skipped | expiry < earnings | watch |
-| 7 | `overwrite_earnings` | short option spanning earnings: short calls act; short puts watch, act on assignment notional (≥ 10% NLV line, ≥ 20% name) | see ET semantics below | act / watch |
-| 8 | `earnings_size_freeze` | name ≤3 US sessions from earnings while rule 1 breached on it; greeks-gapped names stay unknown unless earnings provably outside the window | ≤3 sessions | act |
-| 9 | `red_on_green` | stock-leg day-change ≤ −1.5% while SPY day-change ≥ +0.5% | intraday only | watch |
-| 10 | `winner_trim` | stock-leg day-change ≥ +4% with per-name exposure ≥ 15% NLV | intraday only | watch |
-| 11 | `green_day_action` | account daily P&L > 0 while any act-severity rule open | portfolio tape | info (nudge, never act) |
-| 12 | `hedge_integrity` | hedge short-delta / gross long delta outside the regime band | 25–35 / 30–50 / 40–70% by regime | watch; act > 2× band top |
-| 13 | `exit_discipline` | long option line unrealized loss / premium paid; rule-12-classified hedge legs exempt (decay is the cost of protection) | ≥ 40% | watch; act ≥ 60% |
-| 14 | `fx_exposure` | Σ non-base-currency NLV / NLV | ≥ 60% | watch only (see notes) |
+| 1 | `single_name_exposure` | exposure by underlying / NLV; only protection-classified short delta is exempt | watch ≥ 30%; act > 40% | alert |
+| 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act > 10%; protection 15% / 25% | track |
+| 3 | `cash_sell_only` | broker AvailableFunds / NLV; the stable id is retained for history compatibility | watch < 75% | alert |
+| 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act > 15 / 12 / 10% by regime | alert |
+| 5 | `expiry_runway` | long option DTE < 14 unless ≥70-delta ITM or protection-classified | watch < 14 DTE; act < 7 DTE | alert |
+| 6 | `catalyst_coverage` | OTM long option expiring before the next earnings announcement | expiry < earnings | track |
+| 7 | `overwrite_earnings` | short option spanning earnings; short-put assignment notional ≥10% NLV line or ≥20% name escalates | see ET semantics below | alert |
+| 8 | `earnings_size_freeze` | underlying ≤3 US sessions from earnings while rule 1 is breached | ≤3 sessions | track |
+| 9 | `red_on_green` | stock day change ≤−1.5% while SPY ≥+0.5% | intraday only | off |
+| 10 | `winner_trim` | stock day change ≥+4% with exposure ≥15% NLV | intraday only | off |
+| 11 | `green_day_action` | account daily P&L >0 while an act-level rule is open | informational | off |
+| 12 | `hedge_integrity` | protection-classified short delta / gross long delta | 25–35 / 30–50 / 40–70% by regime | alert |
+| 13 | `exit_discipline` | each long option position's unrealized loss / premium paid; protection-classified legs exempt | watch ≥40%; act ≥60% | alert |
+| 14 | `fx_exposure` | Σ non-base-currency NLV / NLV | track ≥60% | track |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The
 five non-pass states are load-bearing: **no input condition may ever
 produce `pass` by absence of data.**
 
-Rules 1–8 and 12–13 are portfolio-discipline controls in this advisory model.
-Rules 9–10 are tactical tape heuristics, rule 11 is a behavioral nudge, and
-rule 14 is a structural visibility condition. None is an enforced risk-policy
-limit; rule 3's sell-only wording describes a posture, not a broker control.
+Rules 1–8 and 12–13 are portfolio-discipline checks in this advisory model.
+Rules 9–10 are optional tape heuristics, rule 11 is an optional behavioral
+nudge, and rule 14 is structural tracking. None is an enforced risk-policy
+limit.
 
 Semantics notes:
 
@@ -186,27 +200,18 @@ Semantics notes:
   salvageable premium in base currency); rules 3, 9, 11, 14 rank by
   severity then rule number. Impact definition lives beside each rule in
   the policy file.
-- Hedge legs (rules 1, 5, 12): long puts on a policy-owned index list (default
-  `SPY, SPX, SPXW, QQQ, IWM`). Classification is disclosed per leg in the
-  result; rule 5 lists which legs it exempted; while rule 12's band is
-  breached high (over-hedged) the rule-5 hedge exemption is suppressed so a
-  misclassified directional put resurfaces. Short index puts have positive
-  delta and are never classified hedge.
-- Rule 1 hedge exemption (post-ship amendments, 2026-07-07, from the first
-  live-market run): a policy-hedge index name carrying net-short delta is
-  the hedge, not concentration — rule 12 owns its sizing, and ranking the same
-  hedge again here can bury the actual single-name offenders. The exemption
-  covers only what rule 12 can actually size: legs passing the shared
-  `rule12HedgeLeg` predicate (long put on a hedge-listed underlying with
-  delta and underlying present), capped at the name's net-short exposure,
-  disclosed in the row's Exempt list with a rule-12 pointer — never
-  silently dropped. Residual short beyond the sized legs stays a
-  concentration offender, and a hedge-symbol short with no sizeable legs
-  (short stock, short calls) gets no Exempt row at all — it ranks as
+- Index-put roles (rules 1, 2, 4, 5, 12, 13): eligible long puts use the
+  policy-owned index list (`SPY, SPX, SPXW, QQQ, IWM`). They are protection
+  only when the current book gives them plausible gross-long exposure to
+  protect. With no gross-long book, or when short delta exceeds twice the
+  widest configured protection band, they are directional short exposure.
+  Directional positions receive no protection exemptions. Missing delta,
+  underlying price, or stock-leg mark provenance leaves the role unclassified.
+- Rule 1 exempts only the portion of net-short index exposure carried by
+  protection-classified legs, capped at the name's net-short exposure and
+  disclosed in `Exempt`. Any residual, unclassified, or directional short is
   ordinary concentration. Long index exposure is always ordinary
-  concentration. Unlike rule 5, this exemption is not suppressed while
-  rule 12 is over-band: the oversized short is exactly what rule 12 flags,
-  and double-counting it as concentration was the original failure mode.
+  concentration.
 - Rules 9/10 evaluate only during the US equity session
   (`marketcal.SessionAt`) and only from existing stock-leg quote enrichment
   (`DayChangePct`) plus one dedicated best-effort SPY snapshot quote per

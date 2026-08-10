@@ -19,7 +19,7 @@ const (
 )
 
 // RegimeThresholds is one stage's threshold set for the regime-conditional
-// rules: rule 3 cash floor, rule 4 extrinsic budget (ex-hedge), rule 12
+// rules: rule 4 extrinsic budget (ex-protection), rule 12 protection band.
 // hedge band.
 type RegimeThresholds struct {
 	CashSellOnlyPct   float64 `toml:"cash_sell_only_pct" json:"cash_sell_only_pct"`
@@ -36,10 +36,16 @@ type RegimeThresholds struct {
 type RulebookPolicy struct {
 	ID      string `toml:"id" json:"id"`
 	Version int    `toml:"version" json:"version"`
+	// Modes controls whether each hard-coded rule is off, visible for tracking,
+	// or allowed to create alert episodes.
+	Modes map[string]string `toml:"modes" json:"modes"`
 
 	// Rule 1 — single_name_exposure (% of NLV, delta-dollar exposure).
 	SingleNameWatchPct float64 `toml:"single_name_watch_pct" json:"single_name_watch_pct"`
 	SingleNameActPct   float64 `toml:"single_name_act_pct" json:"single_name_act_pct"`
+
+	// Rule 3 — minimum broker-reported available funds as a share of NLV.
+	CashReserveMinPct float64 `toml:"cash_reserve_min_pct" json:"cash_reserve_min_pct"`
 
 	// Rule 2 — option_line_premium (% of NLV, long option line market value).
 	// Hedge-classified legs (rule12HedgeLeg) evaluate against the hedge tier;
@@ -70,7 +76,7 @@ type RulebookPolicy struct {
 	WinnerTrimDayUpPct    float64 `toml:"winner_trim_day_up_pct" json:"winner_trim_day_up_pct"`
 	WinnerTrimMinExpoPct  float64 `toml:"winner_trim_min_exposure_pct" json:"winner_trim_min_exposure_pct"`
 
-	// Rules 3/4/12 — regime-conditional threshold sets. A fresh regime stage
+	// Rules 4/12 — regime-conditional threshold sets. A fresh regime stage
 	// selects its set; a carried or never-seen stage evaluates the carried set
 	// AND the calm set
 	// and keeps the worse verdict, so stale regime data can hold or tighten
@@ -107,10 +113,27 @@ type RulebookPolicy struct {
 // DefaultRulebookPolicy returns a complete baseline policy.
 func DefaultRulebookPolicy() RulebookPolicy {
 	return RulebookPolicy{
-		ID:                     "rulebook-v2",
-		Version:                2,
+		ID:      "rulebook-v2",
+		Version: 2,
+		Modes: map[string]string{
+			RuleSingleNameExposure: RuleModeAlert,
+			RuleOptionLinePremium:  RuleModeTrack,
+			RuleCashSellOnly:       RuleModeAlert,
+			RuleExtrinsicBudget:    RuleModeAlert,
+			RuleExpiryRunway:       RuleModeAlert,
+			RuleCatalystCoverage:   RuleModeTrack,
+			RuleOverwriteEarnings:  RuleModeAlert,
+			RuleEarningsSizeFreeze: RuleModeTrack,
+			RuleRedOnGreen:         RuleModeOff,
+			RuleWinnerTrim:         RuleModeOff,
+			RuleGreenDayAction:     RuleModeOff,
+			RuleHedgeIntegrity:     RuleModeAlert,
+			RuleExitDiscipline:     RuleModeAlert,
+			RuleFXExposure:         RuleModeTrack,
+		},
 		SingleNameWatchPct:     30,
 		SingleNameActPct:       40,
+		CashReserveMinPct:      75,
 		OptionLineWatchPct:     5,
 		OptionLineActPct:       10,
 		HedgeLineWatchPct:      15,
@@ -177,6 +200,20 @@ func (p *RulebookPolicy) Normalize() {
 		p.HedgeSymbols[i] = strings.ToUpper(strings.TrimSpace(s))
 	}
 	sort.Strings(p.HedgeSymbols)
+	if p.Modes == nil {
+		p.Modes = map[string]string{}
+	}
+}
+
+// ModeFor returns one rule's notification mode. Missing entries retain the
+// historical alert behavior for compatibility with older policy fixtures.
+func (p RulebookPolicy) ModeFor(id string) string {
+	switch p.Modes[id] {
+	case RuleModeOff, RuleModeTrack, RuleModeAlert:
+		return p.Modes[id]
+	default:
+		return RuleModeAlert
+	}
 }
 
 // FingerprintKey hashes the full policy so every result discloses exactly
@@ -188,39 +225,43 @@ func (p RulebookPolicy) FingerprintKey() string {
 	q.HedgeSymbols = slices.Clone(p.HedgeSymbols)
 	q.Normalize()
 	projection := struct {
-		ID                       string           `json:"id"`
-		Version                  int              `json:"version"`
-		SingleNameWatchPct       float64          `json:"single_name_watch_pct"`
-		SingleNameActPct         float64          `json:"single_name_act_pct"`
-		OptionLineWatchPct       float64          `json:"option_line_watch_pct"`
-		OptionLineActPct         float64          `json:"option_line_act_pct"`
-		HedgeLineWatchPct        float64          `json:"hedge_line_watch_pct"`
-		HedgeLineActPct          float64          `json:"hedge_line_act_pct"`
-		RunwayWatchDTE           int              `json:"runway_watch_dte"`
-		RunwayActDTE             int              `json:"runway_act_dte"`
-		RunwayITMDeltaFloor      float64          `json:"runway_itm_delta_floor"`
-		ShortPutActLinePctNLV    float64          `json:"short_put_act_line_pct_nlv"`
-		ShortPutActNamePctNLV    float64          `json:"short_put_act_name_pct_nlv"`
-		EarningsFreezeSessions   int              `json:"earnings_freeze_sessions"`
-		RedOnGreenNameDropPct    float64          `json:"red_on_green_name_drop_pct"`
-		RedOnGreenSPYUpPct       float64          `json:"red_on_green_spy_up_pct"`
-		WinnerTrimDayUpPct       float64          `json:"winner_trim_day_up_pct"`
-		WinnerTrimMinExpoPct     float64          `json:"winner_trim_min_exposure_pct"`
-		RegimeCalm               RegimeThresholds `json:"regime_calm"`
-		RegimeEarlyWarning       RegimeThresholds `json:"regime_early_warning"`
-		RegimeConfirmed          RegimeThresholds `json:"regime_confirmed"`
-		RegimeStageMaxAgeMinutes int              `json:"regime_stage_max_age_minutes"`
-		ExitWatchLossPct         float64          `json:"exit_watch_loss_pct"`
-		ExitActLossPct           float64          `json:"exit_act_loss_pct"`
-		FXExposureWatchPct       float64          `json:"fx_exposure_watch_pct"`
-		HedgeSymbols             []string         `json:"hedge_symbols"`
-		GreeksGapFloorPctNLV     float64          `json:"greeks_gap_floor_pct_nlv"`
-		EarningsStaleDays        int              `json:"earnings_stale_days"`
+		ID                       string            `json:"id"`
+		Version                  int               `json:"version"`
+		Modes                    map[string]string `json:"modes"`
+		SingleNameWatchPct       float64           `json:"single_name_watch_pct"`
+		SingleNameActPct         float64           `json:"single_name_act_pct"`
+		CashReserveMinPct        float64           `json:"cash_reserve_min_pct"`
+		OptionLineWatchPct       float64           `json:"option_line_watch_pct"`
+		OptionLineActPct         float64           `json:"option_line_act_pct"`
+		HedgeLineWatchPct        float64           `json:"hedge_line_watch_pct"`
+		HedgeLineActPct          float64           `json:"hedge_line_act_pct"`
+		RunwayWatchDTE           int               `json:"runway_watch_dte"`
+		RunwayActDTE             int               `json:"runway_act_dte"`
+		RunwayITMDeltaFloor      float64           `json:"runway_itm_delta_floor"`
+		ShortPutActLinePctNLV    float64           `json:"short_put_act_line_pct_nlv"`
+		ShortPutActNamePctNLV    float64           `json:"short_put_act_name_pct_nlv"`
+		EarningsFreezeSessions   int               `json:"earnings_freeze_sessions"`
+		RedOnGreenNameDropPct    float64           `json:"red_on_green_name_drop_pct"`
+		RedOnGreenSPYUpPct       float64           `json:"red_on_green_spy_up_pct"`
+		WinnerTrimDayUpPct       float64           `json:"winner_trim_day_up_pct"`
+		WinnerTrimMinExpoPct     float64           `json:"winner_trim_min_exposure_pct"`
+		RegimeCalm               RegimeThresholds  `json:"regime_calm"`
+		RegimeEarlyWarning       RegimeThresholds  `json:"regime_early_warning"`
+		RegimeConfirmed          RegimeThresholds  `json:"regime_confirmed"`
+		RegimeStageMaxAgeMinutes int               `json:"regime_stage_max_age_minutes"`
+		ExitWatchLossPct         float64           `json:"exit_watch_loss_pct"`
+		ExitActLossPct           float64           `json:"exit_act_loss_pct"`
+		FXExposureWatchPct       float64           `json:"fx_exposure_watch_pct"`
+		HedgeSymbols             []string          `json:"hedge_symbols"`
+		GreeksGapFloorPctNLV     float64           `json:"greeks_gap_floor_pct_nlv"`
+		EarningsStaleDays        int               `json:"earnings_stale_days"`
 	}{
 		ID:                       q.ID,
 		Version:                  q.Version,
+		Modes:                    q.Modes,
 		SingleNameWatchPct:       q.SingleNameWatchPct,
 		SingleNameActPct:         q.SingleNameActPct,
+		CashReserveMinPct:        q.CashReserveMinPct,
 		OptionLineWatchPct:       q.OptionLineWatchPct,
 		OptionLineActPct:         q.OptionLineActPct,
 		HedgeLineWatchPct:        q.HedgeLineWatchPct,

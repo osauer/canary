@@ -1,13 +1,21 @@
 import { stressProtectionCoverageFor, protectionCoverageBaseCurrency, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestText, protectionCoverageStaleText } from "./protection-coverage.js";
 import { unknownEventRuleNote } from "./earnings-relevance.js";
-import { earningsApplicabilitySummary, earningsHealthNotes, ruleStatusLabel, rulesCountSummary, wshEntitlementNotice } from "./rules-presentation.js";
+import { earningsApplicabilitySummary, earningsHealthNotes, ruleStatusLabel, wshEntitlementNotice } from "./rules-presentation.js";
 import { $, cleanDetail, firstNumber, labelize, normalizeSymbol, numberRead, parseDate, pct, quoteTimestamp, renderFreshnessTimestamp, shortTimeWithZone, signedClass, signedPct, wholePct } from "./shared.js";
 import { state } from "./state.js";
 
 const RULE_TONES = { act: "risk", watch: "warn", pass: "ok", info: "neutral", unknown: "neutral", not_evaluated: "neutral" };
 
-function ruleTone(status) {
+function ruleTone(status, mode = "alert") {
+  if (mode === "track" || mode === "off") return "neutral";
   return RULE_TONES[status] || "neutral";
+}
+
+function trackedRuleStatus(status, reason = "") {
+  if (status === "pass") return "within level";
+  if (status === "watch" || status === "act") return "above level";
+  if (status === "unknown") return "waiting for input";
+  return ruleStatusLabel(status, reason);
 }
 
 // Rules card: advisory 14-rule daily checklist from snapshot.rules
@@ -44,8 +52,9 @@ function renderRulesCard(rules) {
     if (shown >= 3) break;
     shown++;
     const pill = document.createElement("span");
-    pill.className = `severity-pill stress-rules__pill ${ruleTone(r.status)}`;
-    pill.textContent = `${r.number} · ${r.title} · ${ruleStatusLabel(r.status, r.reason)}`;
+    pill.className = `severity-pill stress-rules__pill ${ruleTone(r.status, r.mode)}`;
+    const stateLabel = r.mode === "track" ? `Track · ${trackedRuleStatus(r.status, r.reason)}` : r.mode === "off" ? "Off" : ruleStatusLabel(r.status, r.reason);
+    pill.textContent = `${r.number} · ${r.title} · ${stateLabel}`;
     pill.title = r.evidence || "";
     brief.appendChild(pill);
   }
@@ -76,11 +85,9 @@ function renderRulesCard(rules) {
 // The tile figure states the served tally over its denominator, so "2 watch"
 function rulesTileFigure(rules = {}) {
   const rows = Array.isArray(rules.rules) ? rules.rules : [];
-  const pass = typeof rules.breach_counts?.pass === "number"
-    ? rules.breach_counts.pass
-    : rows.filter((row) => row?.status === "pass").length;
-  const summary = rulesCountSummary(rules);
-  return summary === "all pass" ? `${pass} pass` : `${pass} pass · ${summary}`;
+  const alerts = rows.filter((row) => (row?.mode || "alert") === "alert" && ["act", "watch"].includes(row?.status)).length;
+  const tracked = rows.filter((row) => row?.mode === "track" && !["pass", "not_evaluated"].includes(row?.status)).length;
+  return `${alerts} ${alerts === 1 ? "alert" : "alerts"}${tracked ? ` · ${tracked} tracked` : ""}`;
 }
 
 
@@ -92,12 +99,12 @@ function renderRulesTileState(rules, order) {
   const caption = $("stressRulesState");
   const dot = $("stressRulesInfoDot");
   if (!card || !caption || !dot) return;
-  const worst = order.map((ix) => rules.rules[ix]).find((rule) => rule && rule.status !== "pass");
+  const worst = order.map((ix) => rules.rules[ix]).find((rule) => rule && (rule.mode || "alert") === "alert" && ["act", "watch"].includes(rule.status));
   const status = String(worst?.status || "").toLowerCase();
   const infoOnly = Boolean(worst) && status === "info";
   applyTileSeverity(card, status === "act" ? "act" : status === "watch" ? "watch" : "");
   dot.hidden = !infoOnly;
-  caption.textContent = worst ? cleanDetail(worst.title) : "No breaches";
+  caption.textContent = worst ? cleanDetail(worst.title) : "No alerts";
   caption.title = worst ? `${worst.number} · ${worst.title} · ${ruleStatusLabel(worst.status, worst.reason)}` : "Every evaluated rule passes";
 }
 
@@ -141,10 +148,10 @@ function renderRulesGrid(rules, order) {
 function ruleChecklistRow(r) {
   const status = String(r.status || "").toLowerCase();
   const row = document.createElement("div");
-  row.className = `pd-row rules-row ${ruleTone(r.status)}`;
+  row.className = `pd-row rules-row ${ruleTone(r.status, r.mode)}`;
   row.dataset.ruleId = String(r.id || "");
   row.tabIndex = -1;
-  if (status === "act" || status === "watch") row.classList.add(`rules-row--${status}`);
+  if ((r.mode || "alert") === "alert" && (status === "act" || status === "watch")) row.classList.add(`rules-row--${status}`);
   if (status === "info") row.classList.add("rules-row--info");
   const line = document.createElement("span");
   line.className = "rules-row__line";
@@ -172,7 +179,7 @@ function ruleChecklistRow(r) {
   }
   const statusWord = document.createElement("b");
   statusWord.className = "rules-row__status";
-  statusWord.textContent = ruleStatusLabel(r.status, r.reason);
+  statusWord.textContent = r.mode === "off" ? "off" : r.mode === "track" ? `track · ${trackedRuleStatus(r.status, r.reason)}` : ruleStatusLabel(r.status, r.reason);
   line.append(statusWord);
   row.append(line);
   if (status !== "pass") {
@@ -1853,4 +1860,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, rulesCountSummary, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

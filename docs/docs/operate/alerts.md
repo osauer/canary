@@ -14,10 +14,12 @@ Daemon-owned heartbeats re-observe the sources every 30 seconds, so a condition 
 
 ## Where it goes
 
-Every current occurrence appears under **Alerts** in [the paired app](app.md),
+Every occurrence backed by current producer evidence appears under **Alerts** in [the paired app](app.md),
 under a single read-through cursor shared by all paired devices. The page shows
 fixed app-authored copy; producer keys, targets, and receipts stay private.
-Recovered occurrences do not remain as a user-facing history.
+Recovered occurrences do not remain as a user-facing history. An episode held
+privately because a rule now lacks a required input is also omitted: it is
+neither a current alert nor a cleared condition.
 
 The CLI has no alerts or stress command. `canary brief` and `canary rules` carry
 the decision-relevant facts as rows.

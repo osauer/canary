@@ -2338,6 +2338,21 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 			continue
 		}
 		seenRules[id] = struct{}{}
+		mode := strings.ToLower(strings.TrimSpace(row.Mode))
+		if mode == "" {
+			mode = risk.RuleModeAlert
+		}
+		if mode != risk.RuleModeOff && mode != risk.RuleModeTrack && mode != risk.RuleModeAlert {
+			fatal(rpc.AlertEvidenceError, alertShadowReasonCandidateInvalid)
+			continue
+		}
+		// Track and off rows remain Rulebook evidence, but they are outside the
+		// alert universe. Their current absence is therefore allowed to recover
+		// any episode opened under an older policy revision, even when the
+		// tracked measurement is unknown.
+		if mode != risk.RuleModeAlert {
+			continue
+		}
 		if id == risk.RuleGreenDayAction {
 			// Coverage-neutral by operator decision (2026-08-03): the nudge's
 			// status ceiling is info, so it can never alert; a row that cannot
@@ -2444,7 +2459,7 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleSingleNameExposure: {"account", "positions"},
 	risk.RuleOptionLinePremium:  {"account", "positions"},
-	risk.RuleCashSellOnly:       {"account", "positions", "regime_stage"},
+	risk.RuleCashSellOnly:       {"account", "positions"},
 	risk.RuleExtrinsicBudget:    {"account", "positions", "regime_stage"},
 	risk.RuleExpiryRunway:       {"account", "positions"},
 	risk.RuleCatalystCoverage:   {"account", "positions", "earnings"},
@@ -2508,7 +2523,7 @@ func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResul
 	case risk.RuleRedOnGreen, risk.RuleWinnerTrim:
 		return row.Reason == risk.RuleReasonOffSession
 	case risk.RuleHedgeIntegrity:
-		return row.Reason == risk.RuleReasonNoLongBook
+		return row.Reason == risk.RuleReasonNoLongBook || row.Reason == risk.RuleReasonNoProtection
 	default:
 		// Rule 11 never reaches here: it is coverage-neutral and skipped
 		return false

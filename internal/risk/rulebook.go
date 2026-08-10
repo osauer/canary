@@ -3,6 +3,7 @@ package risk
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,15 @@ const (
 	RuleStatusNotEvaluated = "not_evaluated"
 )
 
+// RuleModeOff, RuleModeTrack, and RuleModeAlert separate calculation from
+// notification policy. Track rows stay visible in the Rulebook but cannot
+// create alert episodes; off rows are not evaluated.
+const (
+	RuleModeOff   = "off"
+	RuleModeTrack = "track"
+	RuleModeAlert = "alert"
+)
+
 // These are the closed, policy-owned reasons that can make one canonical
 const (
 	EarningsReasonTerminalNonReporting = "terminal_non_reporting"
@@ -28,6 +38,16 @@ const (
 	RuleReasonOffSession               = "off_session"
 	RuleReasonNoLongBook               = "no_long_book"
 	RuleReasonPnLUnavailable           = "pnl_unavailable"
+	RuleReasonRuleOff                  = "rule_off"
+	RuleReasonNoProtection             = "no_index_protection"
+)
+
+// IndexPutRoleProtection and the related values describe the economic role
+// assigned to a hedge-capable long index put for this evaluation.
+const (
+	IndexPutRoleProtection   = "protection"
+	IndexPutRoleDirectional  = "directional"
+	IndexPutRoleUnclassified = "unclassified"
 )
 
 // RuleSingleNameExposure and the related constants identify rules in stable
@@ -75,6 +95,7 @@ type RuleRow struct {
 	ID         string         `json:"id"`
 	Number     int            `json:"number"`
 	Title      string         `json:"title"`
+	Mode       string         `json:"mode"`
 	Status     string         `json:"status"`
 	Observed   *float64       `json:"observed,omitempty"`
 	Threshold  *float64       `json:"threshold,omitempty"`
@@ -152,6 +173,9 @@ type LegInput struct {
 	UnderlyingSource string
 	// HedgeListed marks the underlying as being on the policy hedge list.
 	HedgeListed bool
+	// IndexPutRole distinguishes portfolio protection from directional short
+	// exposure. Product shape alone is not an economic intent.
+	IndexPutRole string
 }
 
 // NameInput is the per-underlying aggregation the daemon maps from
@@ -195,9 +219,13 @@ type RuleInputs struct {
 	Positions SourceState
 	Account   SourceState
 
-	NLVBase      *float64
-	CashBase     *float64
-	DailyPnLBase *float64
+	NLVBase  *float64
+	CashBase *float64
+	// AvailableFundsBase is broker-reported liquidity available without
+	// closing a position. It is the cash-reserve input because option
+	// obligations and margin use reduce it while gross cash may not.
+	AvailableFundsBase *float64
+	DailyPnLBase       *float64
 
 	Names []NameInput
 
@@ -242,6 +270,7 @@ type ruleContext struct {
 // EvaluateRulebook computes all 14 rules. It never returns fewer than 14
 func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 	pol.Normalize()
+	in = classifyIndexPutRoles(in, pol)
 	ctx := &ruleContext{in: in, pol: pol}
 	if in.NLVBase != nil && *in.NLVBase > 0 {
 		ctx.nlv = *in.NLVBase
@@ -267,7 +296,68 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 		ctx.fxExposure(),
 	}
 	rows[10] = ctx.greenDayAction(rows)
+	for i := range rows {
+		rows[i].Mode = pol.ModeFor(rows[i].ID)
+		if rows[i].Mode == RuleModeOff {
+			rows[i].Status = RuleStatusNotEvaluated
+			rows[i].Reason = RuleReasonRuleOff
+			rows[i].Observed = nil
+			rows[i].Threshold = nil
+			rows[i].Offenders = nil
+			rows[i].Exempt = nil
+			rows[i].ImpactBase = 0
+			rows[i].Evidence = "Turned off in the Rulebook policy."
+			rows[i].Notes = nil
+		}
+	}
 	return Evaluation{Rows: rows, Ranked: rankRows(rows)}
+}
+
+// classifyIndexPutRoles reserves hedge treatment for positions that can
+// plausibly protect the current long book. With no long book, or with short
+// delta above twice the widest configured protection band, the position is
+// ordinary directional short exposure. Borderline cases remain protection so
+// rule 12 can report their sizing without guessing intent.
+func classifyIndexPutRoles(in RuleInputs, pol RulebookPolicy) RuleInputs {
+	in.Names = slices.Clone(in.Names)
+	for i := range in.Names {
+		in.Names[i].Legs = slices.Clone(in.Names[i].Legs)
+	}
+	grossLong := 0.0
+	indexPutShort := make([]float64, len(in.Names))
+	for ni, n := range in.Names {
+		if n.ExposureBaseComplete && n.ExposureBase > 0 {
+			grossLong += n.ExposureBase
+		}
+		for _, l := range n.Legs {
+			if indexPutRoleEligible(l) {
+				indexPutShort[ni] += math.Abs(*l.Delta * l.Quantity * l.Multiplier * *l.Underlying)
+			}
+		}
+	}
+	widestBand := math.Max(pol.RegimeCalm.HedgeBandMaxPct, math.Max(pol.RegimeEarlyWarning.HedgeBandMaxPct, pol.RegimeConfirmed.HedgeBandMaxPct))
+	for ni := range in.Names {
+		directional := grossLong <= 0 || pct(indexPutShort[ni], grossLong) > 2*widestBand
+		for li := range in.Names[ni].Legs {
+			leg := &in.Names[ni].Legs[li]
+			switch {
+			case !indexPutRoleEligible(*leg):
+				if leg.HedgeListed && isPut(leg.Right) && leg.Quantity > 0 {
+					leg.IndexPutRole = IndexPutRoleUnclassified
+				}
+			case directional:
+				leg.IndexPutRole = IndexPutRoleDirectional
+			default:
+				leg.IndexPutRole = IndexPutRoleProtection
+			}
+		}
+	}
+	return in
+}
+
+func indexPutRoleEligible(l LegInput) bool {
+	return l.HedgeListed && isPut(l.Right) && l.Quantity > 0 && l.Delta != nil && l.Underlying != nil &&
+		l.UnderlyingSource != UnderlyingSourceStockLegMark
 }
 
 // regimeEval runs a regime-conditional rule body under the applicable
@@ -305,18 +395,18 @@ func (c *ruleContext) portfolioGate(id string, num int, title string) *RuleRow {
 	if !c.in.Positions.Healthy {
 		return &RuleRow{ID: id, Number: num, Title: title, Status: RuleStatusUnknown,
 			Reason:   nonEmpty(c.in.Positions.Reason, "positions_unavailable"),
-			Evidence: "Positions source not healthy — not asserting a pass."}
+			Evidence: "Canary does not have a current positions snapshot."}
 	}
 	if !c.in.Account.Healthy || !c.hasNLV {
 		return &RuleRow{ID: id, Number: num, Title: title, Status: RuleStatusUnknown,
 			Reason:   nonEmpty(c.in.Account.Reason, "account_unavailable"),
-			Evidence: "Account NLV not available — not asserting a pass."}
+			Evidence: "Canary does not have a current account value."}
 	}
 	return nil
 }
 
 func (c *ruleContext) singleNameExposure() RuleRow {
-	row := RuleRow{ID: RuleSingleNameExposure, Number: 1, Title: "Per-name exposure cap", Unit: "% NLV"}
+	row := RuleRow{ID: RuleSingleNameExposure, Number: 1, Title: "Exposure to one underlying", Unit: "% NLV"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -346,14 +436,18 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 				Note: "exposure not fully measured (FX or price missing) — not compared against the cap"})
 			continue
 		}
-		// A policy-hedge index name carrying net-short delta is the hedge:
+		// A protection-classified index name carrying net-short delta is the hedge:
 		// the real concentration offenders. Exempt only what rule 12 can
 		// Disclosed via Exempt, never silently dropped.
 		if c.pol.IsHedgeSymbol(n.Symbol) && n.ExposureBase < 0 {
 			sized := 0.0
+			directional := false
 			for _, l := range n.Legs {
 				if rule12HedgeLeg(l) {
 					sized += math.Abs(*l.Delta * l.Quantity * l.Multiplier * *l.Underlying)
+				}
+				if l.IndexPutRole == IndexPutRoleDirectional {
+					directional = true
 				}
 			}
 			exempt := math.Min(sized, math.Abs(n.ExposureBase))
@@ -369,8 +463,12 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 			p := pct(resid, c.nlv)
 			worst = math.Max(worst, p)
 			if p >= watch {
+				note := "short exposure outside the protection position"
+				if directional {
+					note = "directional index short"
+				}
 				offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: round1(p),
-					ImpactBase: resid, Note: "short exposure beyond rule-12-sized hedge legs"})
+					ImpactBase: resid, Note: note})
 			}
 			continue
 		}
@@ -407,13 +505,13 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 		switch {
 		case len(gaps) == 0:
 			row.Reason = "exposure_incomplete"
-			row.Evidence = fmt.Sprintf("%d name(s) with exposure never fully measured (FX or price missing) — not asserting a pass.", len(unmeasured))
+			row.Evidence = fmt.Sprintf("Canary could not measure %d underlying exposure(s) because a price or FX rate is missing.", len(unmeasured))
 		case len(unmeasured) == 0:
 			row.Reason = "greeks_gap"
-			row.Evidence = fmt.Sprintf("%d name(s) missing delta on material legs — exposure not trustworthy.", len(gaps))
+			row.Evidence = fmt.Sprintf("Canary could not measure %d underlying exposure(s) because option delta is missing.", len(gaps))
 		default:
 			row.Reason = "greeks_gap"
-			row.Evidence = fmt.Sprintf("%d name(s) missing delta and %d with unmeasured exposure — exposure not trustworthy.", len(gaps), len(unmeasured))
+			row.Evidence = fmt.Sprintf("Canary is missing option delta for %d underlying(s) and a price or FX rate for %d.", len(gaps), len(unmeasured))
 		}
 	default:
 		row.Status = RuleStatusPass
@@ -482,7 +580,7 @@ func nameExposureLowerBound(n NameInput) (bound float64, ok bool) {
 }
 
 func (c *ruleContext) optionLinePremium() RuleRow {
-	row := RuleRow{ID: RuleOptionLinePremium, Number: 2, Title: "Single option line premium", Unit: "% NLV"}
+	row := RuleRow{ID: RuleOptionLinePremium, Number: 2, Title: "Premium at risk in one option position", Unit: "% NLV"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -558,13 +656,13 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 	switch {
 	case status == RuleStatusUnknown:
 		// Must precede the tier cases: with every leg unconvertible both
-		row.Evidence = fmt.Sprintf("%d option leg(s) have no FX rate to base — their premium was not measured, so no pass is asserted.", len(unmeasured))
+		row.Evidence = fmt.Sprintf("Canary could not measure premium for %d option position(s) because an FX rate is missing.", len(unmeasured))
 	case status == RuleStatusPass:
-		row.Evidence = fmt.Sprintf("Largest option line %.1f%% of NLV, under the %.0f%% cap.", round1(worst), watch)
+		row.Evidence = fmt.Sprintf("The largest option position holds %.1f%% of NLV in premium, below %.0f%%.", round1(worst), watch)
 	case hedgeWins:
-		row.Evidence = fmt.Sprintf("%s holds %.1f%% of NLV in one hedge line (hedge tier %.0f%%/%.0f%%).", hedgeOff[0].Leg, hedgeOff[0].Observed, hWatch, hAct)
+		row.Evidence = fmt.Sprintf("%s holds %.1f%% of NLV in protection premium; watch starts at %.0f%% and act at %.0f%%.", hedgeOff[0].Leg, hedgeOff[0].Observed, hWatch, hAct)
 	default:
-		row.Evidence = fmt.Sprintf("%s holds %.1f%% of NLV in one option line (cap %.0f%%).", normalOff[0].Leg, normalOff[0].Observed, watch)
+		row.Evidence = fmt.Sprintf("%s holds %.1f%% of NLV in premium; watch starts at %.0f%%.", normalOff[0].Leg, normalOff[0].Observed, watch)
 	}
 	if hedgeWorst > 0 {
 		row.Notes = append(row.Notes, fmt.Sprintf("largest hedge line %.1f%% of NLV against the %.0f%%/%.0f%% hedge tier", round1(hedgeWorst), hWatch, hAct))
@@ -588,32 +686,29 @@ func tierStatus(observed, watch, act float64) string {
 }
 
 func (c *ruleContext) cashSellOnly() RuleRow {
-	row := RuleRow{ID: RuleCashSellOnly, Number: 3, Title: "Negative cash sell-only posture", Unit: "% NLV"}
-	if !c.in.Account.Healthy || !c.hasNLV || c.in.CashBase == nil {
+	row := RuleRow{ID: RuleCashSellOnly, Number: 3, Title: "Cash reserve", Unit: "% NLV"}
+	if !c.in.Account.Healthy || !c.hasNLV || c.in.AvailableFundsBase == nil {
 		row.Status = RuleStatusUnknown
-		row.Reason = nonEmpty(c.in.Account.Reason, "cash_unavailable")
-		row.Evidence = "Cash balance not available — not asserting a pass."
+		row.Reason = nonEmpty(c.in.Account.Reason, "available_funds_unavailable")
+		row.Evidence = "Canary does not have the broker's current available-funds value."
 		return row
 	}
-	ratio := pct(*c.in.CashBase, c.nlv)
-	return c.regimeEval(func(rt RegimeThresholds) RuleRow {
-		r := row
-		limit := rt.CashSellOnlyPct
-		r.Observed = new(round1(ratio))
-		r.Threshold = new(limit)
-		if ratio < limit {
-			r.Status = RuleStatusAct
-			r.Evidence = fmt.Sprintf("Cash at %.1f%% of NLV is below %.0f%% — take an advisory sell-only posture until the debit shrinks (margin interest is negative carry too).", round1(ratio), limit)
-		} else {
-			r.Status = RuleStatusPass
-			r.Evidence = fmt.Sprintf("Cash at %.1f%% of NLV, above the %.0f%% floor.", round1(ratio), limit)
-		}
-		return r
-	})
+	ratio := pct(*c.in.AvailableFundsBase, c.nlv)
+	limit := c.pol.CashReserveMinPct
+	row.Observed = new(round1(ratio))
+	row.Threshold = new(limit)
+	if ratio < limit {
+		row.Status = RuleStatusWatch
+		row.Evidence = fmt.Sprintf("Available funds are %.1f%% of NLV. The reserve is %.0f%%.", round1(ratio), limit)
+	} else {
+		row.Status = RuleStatusPass
+		row.Evidence = fmt.Sprintf("Available funds are %.1f%% of NLV, above the %.0f%% reserve.", round1(ratio), limit)
+	}
+	return row
 }
 
 func (c *ruleContext) extrinsicBudget() RuleRow {
-	row := RuleRow{ID: RuleExtrinsicBudget, Number: 4, Title: "Portfolio extrinsic budget", Unit: "% NLV"}
+	row := RuleRow{ID: RuleExtrinsicBudget, Number: 4, Title: "Option time value at risk", Unit: "% NLV"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -657,7 +752,7 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 		row.Status = RuleStatusUnknown
 		row.Reason = "extrinsic_uncomputable"
 		row.Offenders = unknowns
-		row.Evidence = fmt.Sprintf("%d material leg(s) with uncomputable extrinsic — budget not trustworthy.", len(unknowns))
+		row.Evidence = fmt.Sprintf("Canary could not calculate time value for %d material option position(s).", len(unknowns))
 		return row
 	}
 	sortOffenders(offenders)
@@ -675,20 +770,20 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 		switch {
 		case p > act:
 			r.Status = RuleStatusAct
-			r.Evidence = fmt.Sprintf("Paying decay on %.1f%% of NLV in speculative extrinsic (budget %.0f%%).", round1(p), watch)
+			r.Evidence = fmt.Sprintf("Paid option time value is %.1f%% of NLV. The budget is %.0f%%.", round1(p), watch)
 		case p >= watch:
 			r.Status = RuleStatusWatch
-			r.Evidence = fmt.Sprintf("Speculative extrinsic at %.1f%% of NLV against a %.0f%% budget.", round1(p), watch)
+			r.Evidence = fmt.Sprintf("Paid option time value is %.1f%% of NLV. The budget is %.0f%%.", round1(p), watch)
 		default:
 			r.Status = RuleStatusPass
-			r.Evidence = fmt.Sprintf("Speculative extrinsic at %.1f%% of NLV, inside the %.0f%% budget.", round1(p), watch)
+			r.Evidence = fmt.Sprintf("Paid option time value is %.1f%% of NLV, below the %.0f%% budget.", round1(p), watch)
 		}
 		return r
 	})
 }
 
 func (c *ruleContext) expiryRunway() RuleRow {
-	row := RuleRow{ID: RuleExpiryRunway, Number: 5, Title: "Expiry runway", Unit: "DTE"}
+	row := RuleRow{ID: RuleExpiryRunway, Number: 5, Title: "Options nearing expiry", Unit: "DTE"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -740,7 +835,7 @@ func (c *ruleContext) expiryRunway() RuleRow {
 	}
 	row.Observed = new(minDTE)
 	row.Status = worstStatus
-	row.Evidence = fmt.Sprintf("%d long option line(s) inside %d DTE — roll or close before the final-week decay cliff.", len(offenders), watchDTE)
+	row.Evidence = fmt.Sprintf("%d long option position(s) expire within %d days.", len(offenders), watchDTE)
 	return row
 }
 
@@ -849,7 +944,7 @@ func earningsExemptionReason(terminal, broker, secType int) string {
 }
 
 func (c *ruleContext) catalystCoverage() RuleRow {
-	row := RuleRow{ID: RuleCatalystCoverage, Number: 6, Title: "Option outlives its catalyst"}
+	row := RuleRow{ID: RuleCatalystCoverage, Number: 6, Title: "Earnings timing"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -947,7 +1042,7 @@ func (c *ruleContext) catalystCoverage() RuleRow {
 	switch {
 	case len(offenders) > 0:
 		row.Status = RuleStatusWatch
-		row.Evidence = fmt.Sprintf("%d OTM long option(s) die before their name's earnings — decay with no catalyst inside the option's life.", len(offenders))
+		row.Evidence = fmt.Sprintf("%d out-of-the-money long option(s) expire before the next earnings announcement.", len(offenders))
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
@@ -956,20 +1051,20 @@ func (c *ruleContext) catalystCoverage() RuleRow {
 			row.Reason = "earnings_unknown"
 		}
 		row.Offenders = unknowns
-		row.Evidence = fmt.Sprintf("%d name(s) not assessable (missing earnings date or option underlying).", len(unknowns))
+		row.Evidence = fmt.Sprintf("Canary needs an earnings date or underlying price for %d position(s).", len(unknowns))
 	case assessed == 0 && len(exempt) > 0:
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = earningsExemptionReason(terminalExempt, brokerExempt, secTypeExempt)
-		row.Evidence = fmt.Sprintf("%d exact contract(s) are exempt from issuer earnings catalyst checks.", len(exempt))
+		row.Evidence = fmt.Sprintf("Issuer earnings do not apply to %d contract(s).", len(exempt))
 	default:
 		row.Status = RuleStatusPass
-		row.Evidence = "Every OTM long option outlives its name's next earnings (or no OTM longs held)."
+		row.Evidence = "No out-of-the-money long option expires before the next earnings announcement."
 	}
 	return row
 }
 
 func (c *ruleContext) overwriteEarnings() RuleRow {
-	row := RuleRow{ID: RuleOverwriteEarnings, Number: 7, Title: "Overwrite spans earnings"}
+	row := RuleRow{ID: RuleOverwriteEarnings, Number: 7, Title: "Short options held through earnings"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -1094,30 +1189,30 @@ func (c *ruleContext) overwriteEarnings() RuleRow {
 	switch {
 	case len(actOffenders) > 0:
 		row.Status = RuleStatusAct
-		row.Evidence = fmt.Sprintf("%d short option line(s) span an earnings print at act severity — capped upside or forced assignment through the exact event that pays.", len(actOffenders))
+		row.Evidence = fmt.Sprintf("%d short option position(s) remain open through earnings and exceed the assignment-exposure limit.", len(actOffenders))
 		row.Offenders = append(offenders, unknowns...)
 	case len(watchOffenders) > 0:
 		row.Status = RuleStatusWatch
-		row.Evidence = fmt.Sprintf("%d short put line(s) span an earnings print — assignment risk through the gap.", len(watchOffenders))
+		row.Evidence = fmt.Sprintf("%d short option position(s) remain open through the next earnings announcement.", len(watchOffenders))
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
 		row.Reason = "earnings_unknown"
 		row.Offenders = unknowns
-		row.Evidence = fmt.Sprintf("%d name(s) have no usable earnings date for the overwrite check.", len(unknowns))
+		row.Evidence = fmt.Sprintf("Canary needs a current earnings date for %d position(s).", len(unknowns))
 	case assessed == 0 && len(exempt) > 0:
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = earningsExemptionReason(terminalExempt, brokerExempt, secTypeExempt)
-		row.Evidence = fmt.Sprintf("%d exact contract(s) are exempt from issuer earnings print checks.", len(exempt))
+		row.Evidence = fmt.Sprintf("Issuer earnings do not apply to %d contract(s).", len(exempt))
 	default:
 		row.Status = RuleStatusPass
-		row.Evidence = "No short option spans a known earnings print."
+		row.Evidence = "No short option remains open through a known earnings announcement."
 	}
 	return row
 }
 
 func (c *ruleContext) earningsSizeFreeze() RuleRow {
-	row := RuleRow{ID: RuleEarningsSizeFreeze, Number: 8, Title: "At size before earnings", Unit: "sessions"}
+	row := RuleRow{ID: RuleEarningsSizeFreeze, Number: 8, Title: "Position size near earnings", Unit: "sessions"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -1207,7 +1302,7 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 	switch {
 	case len(offenders) > 0:
 		row.Status = RuleStatusAct
-		row.Evidence = fmt.Sprintf("%d oversized name(s) inside %d sessions of earnings — hold only what you'd buy fresh today.", len(offenders), freeze)
+		row.Evidence = fmt.Sprintf("%d position(s) exceed the size level within %d trading sessions of earnings.", len(offenders), freeze)
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
@@ -1215,20 +1310,20 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		row.Offenders = unknowns
 		// Each offender note names what failed — the earnings date, the delta,
 		// or the exposure measurement — so the sentence stays neutral.
-		row.Evidence = fmt.Sprintf("%d name(s) could not complete the pre-earnings size check.", len(unknowns))
+		row.Evidence = fmt.Sprintf("Canary needs a current earnings date or complete exposure for %d position(s).", len(unknowns))
 	case assessed == 0 && len(exempt) > 0:
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = earningsExemptionReason(terminalExempt, brokerExempt, secTypeExempt)
-		row.Evidence = fmt.Sprintf("%d exact contract(s) are exempt from issuer pre-earnings freeze checks.", len(exempt))
+		row.Evidence = fmt.Sprintf("Issuer earnings do not apply to %d contract(s).", len(exempt))
 	default:
 		row.Status = RuleStatusPass
-		row.Evidence = "No oversized name inside the pre-earnings freeze window."
+		row.Evidence = "No position exceeds the size level near earnings."
 	}
 	return row
 }
 
 func (c *ruleContext) redOnGreen() RuleRow {
-	row := RuleRow{ID: RuleRedOnGreen, Number: 9, Title: "Relative weakness on a green tape", Unit: "% day"}
+	row := RuleRow{ID: RuleRedOnGreen, Number: 9, Title: "Holding falls while the market rises", Unit: "% day"}
 	if !c.in.SessionOpen {
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = RuleReasonOffSession
@@ -1285,7 +1380,7 @@ func (c *ruleContext) redOnGreen() RuleRow {
 }
 
 func (c *ruleContext) winnerTrim() RuleRow {
-	row := RuleRow{ID: RuleWinnerTrim, Number: 10, Title: "Trim winners into strength", Unit: "% day"}
+	row := RuleRow{ID: RuleWinnerTrim, Number: 10, Title: "Large winner today", Unit: "% day"}
 	if !c.in.SessionOpen {
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = RuleReasonOffSession
@@ -1346,7 +1441,7 @@ func (c *ruleContext) winnerTrim() RuleRow {
 }
 
 func (c *ruleContext) greenDayAction(rows []RuleRow) RuleRow {
-	row := RuleRow{ID: RuleGreenDayAction, Number: 11, Title: "Green day is an execution day"}
+	row := RuleRow{ID: RuleGreenDayAction, Number: 11, Title: "Positive day with urgent risks open"}
 	if !c.in.Account.Healthy || c.in.DailyPnLBase == nil ||
 		math.IsNaN(*c.in.DailyPnLBase) || math.IsInf(*c.in.DailyPnLBase, 0) {
 		row.Status = RuleStatusNotEvaluated
@@ -1378,18 +1473,17 @@ func rule12HedgeLeg(l LegInput) bool {
 // RulebookHedgeLeg exposes the policy-owned hedge classification to daemon
 // typed position row into LegInput and receive the exact classification used
 func RulebookHedgeLeg(l LegInput) bool {
-	return l.HedgeListed && isPut(l.Right) && l.Quantity > 0 && l.Delta != nil && l.Underlying != nil &&
-		l.UnderlyingSource != UnderlyingSourceStockLegMark
+	return indexPutRoleEligible(l) && l.IndexPutRole == IndexPutRoleProtection
 }
 
 func (c *ruleContext) hedgeIntegrity() RuleRow {
-	row := RuleRow{ID: RuleHedgeIntegrity, Number: 12, Title: "Hedge sized to the book", Unit: "% gross long"}
+	row := RuleRow{ID: RuleHedgeIntegrity, Number: 12, Title: "Index protection size", Unit: "% gross long"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
 	grossLong, hedgeShort := 0.0, 0.0
 	var gaps, unmeasured []RuleOffender
-	var hedgeLegs []RuleOffender
+	var hedgeLegs, directionalLegs []RuleOffender
 	for _, n := range c.in.Names {
 		if c.greeksGapMaterial(n) {
 			gaps = append(gaps, RuleOffender{Symbol: n.Symbol, Note: "delta unavailable on material legs"})
@@ -1412,7 +1506,9 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 			if rule12HedgeLeg(l) {
 				short := math.Abs(*l.Delta * l.Quantity * l.Multiplier * *l.Underlying)
 				hedgeShort += short
-				hedgeLegs = append(hedgeLegs, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Observed: round1(short), Note: "classified hedge"})
+				hedgeLegs = append(hedgeLegs, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Observed: round1(short), Note: "portfolio protection"})
+			} else if l.IndexPutRole == IndexPutRoleDirectional {
+				directionalLegs = append(directionalLegs, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Note: "directional index short"})
 			}
 		}
 	}
@@ -1422,13 +1518,13 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 		switch {
 		case len(gaps) == 0:
 			row.Reason = "exposure_incomplete"
-			row.Evidence = "Unmeasured exposure makes the hedge ratio untrustworthy."
+			row.Evidence = "Canary cannot calculate protection size because an exposure is incomplete."
 		case len(unmeasured) == 0:
 			row.Reason = "greeks_gap"
-			row.Evidence = "Delta gaps make the hedge ratio untrustworthy."
+			row.Evidence = "Canary cannot calculate protection size because option delta is missing."
 		default:
 			row.Reason = "greeks_gap"
-			row.Evidence = "Delta gaps and unmeasured exposure make the hedge ratio untrustworthy."
+			row.Evidence = "Canary cannot calculate protection size because exposure and option delta are incomplete."
 		}
 		return row
 	}
@@ -1436,6 +1532,23 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 		row.Status = RuleStatusNotEvaluated
 		row.Reason = RuleReasonNoLongBook
 		row.Evidence = "No net-long exposure to hedge."
+		return row
+	}
+	if hedgeShort == 0 {
+		row.Status = RuleStatusNotEvaluated
+		row.Reason = RuleReasonNoProtection
+		if len(directionalLegs) > 0 {
+			row.Evidence = "The open index puts are directional short exposure. No portfolio-protection position is open."
+			for _, leg := range directionalLegs {
+				label := strings.TrimSpace(leg.Leg)
+				if label == "" {
+					label = leg.Symbol
+				}
+				row.Notes = append(row.Notes, label+" is directional short exposure")
+			}
+		} else {
+			row.Evidence = "No index protection position is open."
+		}
 		return row
 	}
 	ratio := pct(hedgeShort, grossLong)
@@ -1452,23 +1565,23 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 		switch {
 		case ratio > 2*maxB:
 			r.Status = RuleStatusAct
-			r.Evidence = fmt.Sprintf("Hedge short-delta at %.1f%% of gross long exposure — more than twice the %.0f–%.0f%% band top. This is a directional short wearing a hedge's clothing; the flag is sizing honesty, not a directive to get long.", round1(ratio), minB, maxB)
+			r.Evidence = fmt.Sprintf("Protection short delta is %.1f%% of gross long exposure. The range is %.0f–%.0f%%.", round1(ratio), minB, maxB)
 		case ratio > maxB:
 			r.Status = RuleStatusWatch
-			r.Evidence = fmt.Sprintf("Hedge short-delta at %.1f%% of gross long exposure — over the %.0f–%.0f%% band; oversized hedges are directional bets in disguise.", round1(ratio), minB, maxB)
+			r.Evidence = fmt.Sprintf("Protection short delta is %.1f%% of gross long exposure. The range is %.0f–%.0f%%.", round1(ratio), minB, maxB)
 		case ratio < minB:
 			r.Status = RuleStatusWatch
-			r.Evidence = fmt.Sprintf("Hedge short-delta covers %.1f%% of gross long exposure — under the %.0f–%.0f%% band; the book is barer than it feels (a decayed hedge shrinks here first).", round1(ratio), minB, maxB)
+			r.Evidence = fmt.Sprintf("Protection short delta is %.1f%% of gross long exposure. The range is %.0f–%.0f%%.", round1(ratio), minB, maxB)
 		default:
 			r.Status = RuleStatusPass
-			r.Evidence = fmt.Sprintf("Hedge at %.1f%% of gross long exposure, inside the %.0f–%.0f%% band.", round1(ratio), minB, maxB)
+			r.Evidence = fmt.Sprintf("Protection short delta is %.1f%% of gross long exposure, within the %.0f–%.0f%% range.", round1(ratio), minB, maxB)
 		}
 		return r
 	})
 }
 
 func (c *ruleContext) exitDiscipline() RuleRow {
-	row := RuleRow{ID: RuleExitDiscipline, Number: 13, Title: "Exit the dead thesis", Unit: "% premium lost"}
+	row := RuleRow{ID: RuleExitDiscipline, Number: 13, Title: "Long option loss limit", Unit: "% premium lost"}
 	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
 		return *g
 	}
@@ -1524,37 +1637,37 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 	case len(actOff) > 0:
 		row.Status = RuleStatusAct
 		row.Observed = new(round1(worst))
-		row.Evidence = fmt.Sprintf("%d long line(s) past the -%.0f%% loss fence — decide the exit; theta is deciding it for you.", len(actOff), act)
+		row.Evidence = fmt.Sprintf("%d long option position(s) have lost at least %.0f%% of premium paid.", len(actOff), act)
 		row.Offenders = append(offenders, unknowns...)
 	case len(watchOff) > 0:
 		row.Status = RuleStatusWatch
 		row.Observed = new(round1(worst))
-		row.Evidence = fmt.Sprintf("%d long line(s) past the -%.0f%% loss fence — restate the thesis or exit while premium remains.", len(watchOff), watch)
+		row.Evidence = fmt.Sprintf("%d long option position(s) have lost at least %.0f%% of premium paid.", len(watchOff), watch)
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
 		row.Reason = "cost_basis_unavailable"
 		row.Offenders = unknowns
-		row.Evidence = fmt.Sprintf("%d material long line(s) missing cost basis — losses not assessable.", len(unknowns))
+		row.Evidence = fmt.Sprintf("Canary needs cost basis for %d material long option position(s).", len(unknowns))
 	default:
 		row.Status = RuleStatusPass
-		row.Evidence = fmt.Sprintf("No long option line past the -%.0f%% loss fence (note: averaging down resets the basis; the fence does not follow it down).", watch)
+		row.Evidence = fmt.Sprintf("No long option position has lost %.0f%% of premium paid.", watch)
 	}
 	return row
 }
 
 func (c *ruleContext) fxExposure() RuleRow {
-	row := RuleRow{ID: RuleFXExposure, Number: 14, Title: "Non-base currency exposure", Unit: "% NLV"}
+	row := RuleRow{ID: RuleFXExposure, Number: 14, Title: "Foreign-currency exposure", Unit: "% NLV"}
 	if !c.in.Account.Healthy || !c.hasNLV {
 		row.Status = RuleStatusUnknown
 		row.Reason = nonEmpty(c.in.Account.Reason, "account_unavailable")
-		row.Evidence = "Account NLV not available — not asserting a pass."
+		row.Evidence = "Canary does not have a current account value."
 		return row
 	}
 	if c.in.NonBaseNLVBase == nil {
 		row.Status = RuleStatusUnknown
 		row.Reason = "fx_unavailable"
-		row.Evidence = "Currency exposure report unavailable — not asserting a pass (an empty report on a book with non-base legs is a data gap, not a base-only book)."
+		row.Evidence = "Canary could not calculate foreign-currency exposure from the current positions."
 		return row
 	}
 	watch := c.pol.FXExposureWatchPct
@@ -1571,7 +1684,7 @@ func (c *ruleContext) fxExposure() RuleRow {
 		// the exposure explicit — hedge it or accept it, on purpose.
 		row.Status = RuleStatusWatch
 		row.ImpactBase = math.Abs(*c.in.NonBaseNLVBase)
-		row.Evidence = fmt.Sprintf("%.1f%% of NLV is held in %s (threshold %.0f%%) — hedge or accept this FX exposure explicitly; a 1%% move is ~%.1f%% of NLV.", round1(p), ccys, watch, round1(p/100))
+		row.Evidence = fmt.Sprintf("%.1f%% of NLV is exposed to %s. The tracking level is %.0f%%; a 1%% currency move changes NLV by about %.1f%%.", round1(p), ccys, watch, round1(p/100))
 	} else {
 		row.Status = RuleStatusPass
 		row.Evidence = fmt.Sprintf("%.1f%% of NLV in non-base currencies, under the %.0f%% threshold.", round1(p), watch)
@@ -1644,6 +1757,9 @@ func rankRows(rows []RuleRow) []int {
 	}
 	sort.SliceStable(idx, func(a, b int) bool {
 		ra, rb := rows[idx[a]], rows[idx[b]]
+		if ruleModeWeight(ra.Mode) != ruleModeWeight(rb.Mode) {
+			return ruleModeWeight(ra.Mode) > ruleModeWeight(rb.Mode)
+		}
 		if statusWeight(ra.Status) != statusWeight(rb.Status) {
 			return statusWeight(ra.Status) > statusWeight(rb.Status)
 		}
@@ -1653,6 +1769,17 @@ func rankRows(rows []RuleRow) []int {
 		return ra.Number < rb.Number
 	})
 	return idx
+}
+
+func ruleModeWeight(mode string) int {
+	switch mode {
+	case RuleModeAlert:
+		return 3
+	case RuleModeTrack:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func worseRunway(current string, dte, actDTE int) string {

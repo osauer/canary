@@ -12,7 +12,7 @@ function earningsSymbol(value) {
 function unknownEventRuleNote(rules = {}) {
   const governing = { catalyst_coverage: true, earnings_size_freeze: true, overwrite_earnings: true };
   const unknownRules = (rules.rules || [])
-    .filter((rule) => governing[rule.id] && rule.status === "unknown")
+    .filter((rule) => governing[rule.id] && rule.status === "unknown" && (rule.mode || "alert") === "alert")
     .map((rule) => (rule.number ? `rule ${rule.number} (${rule.title || earningsLabel(rule.id)})` : earningsLabel(rule.id)));
   if (unknownRules.length === 0) return "";
 
@@ -26,10 +26,10 @@ function unknownEventRuleNote(rules = {}) {
     .map((entry) => `${earningsSymbol(entry.symbol)} (${earningsLabel(entry.reason || entry.status)})`);
   if (unresolved.length > 0) {
     const knownContext = upcoming.length > 0 ? `; other dates ahead: ${upcoming.join(" · ")}` : "";
-    return `Earnings unresolved (${unresolved.join(" · ")}${knownContext}) while ${unknownRules.join(" and ")} ${unknownRules.length === 1 ? "is" : "are"} unknown — the held-name earnings controls cannot be confirmed.`;
+    return `Earnings dates need attention: ${unresolved.join(" · ")}${knownContext}. ${unknownRules.join(" and ")} ${unknownRules.length === 1 ? "is" : "are"} waiting for those dates.`;
   }
   if (upcoming.length === 0) return "";
-  return `Earnings ahead (${upcoming.join(" · ")}) while ${unknownRules.join(" and ")} ${unknownRules.length === 1 ? "is" : "are"} unknown — the held-name earnings controls cannot be confirmed.`;
+  return `Earnings ahead: ${upcoming.join(" · ")}. ${unknownRules.join(" and ")} ${unknownRules.length === 1 ? "is" : "are"} waiting for a complete date.`;
 }
 
 export { earningsLabel, unknownEventRuleNote };

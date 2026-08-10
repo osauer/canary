@@ -1,5 +1,7 @@
 function ruleStatusLabel(status, reason = "") {
   if (status === "not_evaluated") {
+    if (reason === "rule_off") return "off";
+    if (reason === "no_index_protection") return "no protection position";
     if (reason === "broker_nonissuer") return "broker nonissuer";
     if (reason === "terminal_non_reporting") return "terminal/non-reporting";
     if (reason === "earnings_not_applicable") return "issuer earnings not applicable";
@@ -10,18 +12,14 @@ function ruleStatusLabel(status, reason = "") {
 
 function rulesCountSummary(rules = {}) {
   const rows = Array.isArray(rules.rules) ? rules.rules : [];
-  const supplied = rules.breach_counts || {};
-  const count = (status) => {
-    if (typeof supplied[status] === "number") return supplied[status];
-    return rows.filter((row) => row?.status === status).length;
-  };
   const bits = [];
-  for (const [status, label] of [["act", "act"], ["watch", "watch"], ["unknown", "unknown"], ["info", "info"], ["not_evaluated", "not evaluated"]]) {
-    const value = count(status);
+  for (const [status, label] of [["act", "act"], ["watch", "watch"], ["unknown", "data note"]]) {
+    const value = rows.filter((row) => (row?.mode || "alert") === "alert" && row?.status === status).length;
     if (value) bits.push(`${value} ${label}`);
   }
-  if (bits.length) return bits.join(" · ");
-  return rows.length > 0 && rows.every((row) => row?.status === "pass") ? "all pass" : "no active breaches";
+  const tracked = rows.filter((row) => row?.mode === "track" && !["pass", "not_evaluated"].includes(row?.status)).length;
+  if (tracked) bits.push(`${tracked} tracked`);
+  return bits.length ? bits.join(" · ") : "no alerts";
 }
 
 function earningsApplicabilitySummary(rules = {}) {
@@ -37,7 +35,7 @@ function earningsApplicabilitySummary(rules = {}) {
 function earningsHealthNotes(rules = {}) {
   const health = (rules.input_health || []).find((item) => item?.source === "earnings" && item?.status === "ok");
   if (!health || !Array.isArray(health.notes) || health.notes.length === 0) return "";
-  return `Earnings evidence informational issue: ${health.notes.join("; ")}.`;
+	return `Earnings source note: ${health.notes.join("; ")}.`;
 }
 
 function wshEntitlementNotice(rules = {}) {

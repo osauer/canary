@@ -221,7 +221,9 @@ func alertViewCanBeClear(view state.AlertDeliveryView, now time.Time) bool {
 func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView) []AlertOccurrenceDTO {
 	active := make([]state.AlertDeliveryOccurrenceView, 0, len(occurrences))
 	for _, occurrence := range occurrences {
-		if occurrence.EndedAt.IsZero() {
+		// A durable episode may be held open while its producer evidence is
+		// incomplete. That retained safety state is not a current user alert.
+		if occurrence.EndedAt.IsZero() && occurrence.EvidenceHealth == rpc.AlertEvidenceCurrent {
 			active = append(active, occurrence)
 		}
 	}

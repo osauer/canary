@@ -437,6 +437,9 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		if accountAuthority.TotalCashAvailable {
 			in.CashBase = new(acct.TotalCash)
 		}
+		if accountAuthority.AvailableFundsAvailable {
+			in.AvailableFundsBase = new(acct.AvailableFunds)
+		}
 		in.DailyPnLBase = acct.DailyPnL
 		if accountAuthority.BaseCurrencyAvailable {
 			if baseCurrency, ok := rulebookBaseCurrency(acct.BaseCurrency); ok {
@@ -618,8 +621,8 @@ func rulebookAccountSourceHealth(scope brokerStateScope, account *rpc.AccountRes
 	if _, ok := rulebookBaseCurrency(account.BaseCurrency); !authority.BaseCurrencyAvailable || !ok {
 		missing = append(missing, "base currency")
 	}
-	if !authority.TotalCashAvailable || math.IsNaN(account.TotalCash) || math.IsInf(account.TotalCash, 0) {
-		missing = append(missing, "total cash")
+	if !authority.AvailableFundsAvailable || math.IsNaN(account.AvailableFunds) || math.IsInf(account.AvailableFunds, 0) {
+		missing = append(missing, "available funds")
 	}
 	pnlFailed, pnlNotDue := rulebookDailyPnLState(account, dailyPnLDue)
 	if pnlFailed {
@@ -1123,6 +1126,20 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 			continue
 		}
 
+		// Broad-market option underlyings have no issuer earnings event. Option-
+		// only groups do not carry an underlying stock identity, so recognize the
+		// closed built-in index/fund vocabulary before polling issuer providers.
+		if secType, nonIssuer := rulebookIndexUnderlyingSecurityType(sym); nonIssuer {
+			earnings[sym] = risk.EarningsInput{NonIssuerSecurity: true, Source: "security_type",
+				Reason: risk.EarningsReasonNonIssuerSecurity}
+			info.Source = "security_type"
+			info.Status = rpc.EarningsStatusNotApplicable
+			info.Reason = risk.EarningsReasonNonIssuerSecurity
+			info.SecurityType = secType
+			infos = append(infos, info)
+			continue
+		}
+
 		// A security type with no issuer cannot have an issuer earnings date, so
 		if secType, nonIssuer := nonIssuerEarningsSecurityType(n.UnderlyingSecType); nonIssuer {
 			earnings[sym] = risk.EarningsInput{NonIssuerSecurity: true, Source: "security_type",
@@ -1172,6 +1189,17 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 		s.earnings.kickRefreshTargets(context.WithoutCancel(ctx), toFetch)
 	}
 	return earnings, infos
+}
+
+func rulebookIndexUnderlyingSecurityType(symbol string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(symbol)) {
+	case "SPX", "SPXW":
+		return rpc.SecTypeIndex, true
+	case "SPY", "QQQ", "IWM":
+		return "FUND", true
+	default:
+		return "", false
+	}
 }
 
 // parseEarningsOverride accepts "YYYY-MM-DD" or "YYYY-MM-DDTamc"/"Tbmo".

@@ -224,9 +224,11 @@ function renderReadySection(section, sources = {}) {
       latchAgeValue(section.latch),
       percentValue(section.latch, "consumed_pct_at_latch", "Engaged at"),
       dateValue(section.latch?.latched_at),
+      section.latch?.report_coverage_to ? `Report through ${dateValue(section.latch.report_coverage_to)}` : "",
+      section.latch?.report_checked_at ? `Checked ${dateTimeValue(section.latch.report_checked_at)}` : "",
     )),
     briefRow("Premium at risk", section.premium_at_risk, moneyCoverageValue(section.premium_at_risk)),
-    briefRow("Hedge cost / day", section.hedge_cost, moneyCoverageValue(section.hedge_cost)),
+    briefRow("Index-put theta / day", section.hedge_cost, moneyCoverageValue(section.hedge_cost)),
     briefRow("Protection proposals", section.proposals, readyProposalsValue(section.proposals || {})),
     briefRow("Policy drift", section.policy_drift, (section.policy_drift?.rows || []).map((row) => joinValues(row.policy, row.status, row.live_id, row.live_version)).join(" · ")),
   );
@@ -388,6 +390,7 @@ function rulesValue(row = {}) {
     integerValue(row, "pass", "Pass"),
     integerValue(row, "watch", "Watch"),
     integerValue(row, "act", "Act"),
+    integerValue(row, "track", "Tracked"),
     integerValue(row, "unknown", "Unknown"),
   );
 }

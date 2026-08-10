@@ -20,15 +20,16 @@ func healthyInputs() RuleInputs {
 	bbEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 30), TimeOfDay: "amc", SessionsUntil: new(17), Source: "fetched"}
 	msftEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 29), TimeOfDay: "amc", SessionsUntil: new(16), Source: "fetched"}
 	return RuleInputs{
-		AsOf:            now,
-		BaseCurrency:    "EUR",
-		Positions:       SourceState{Healthy: true},
-		Account:         SourceState{Healthy: true},
-		NLVBase:         new(245000.0),
-		CashBase:        new(-62000.0),
-		DailyPnLBase:    new(9700.0),
-		SessionOpen:     true,
-		SPYDayChangePct: new(1.0),
+		AsOf:               now,
+		BaseCurrency:       "EUR",
+		Positions:          SourceState{Healthy: true},
+		Account:            SourceState{Healthy: true},
+		NLVBase:            new(245000.0),
+		CashBase:           new(-62000.0),
+		AvailableFundsBase: new(196000.0),
+		DailyPnLBase:       new(9700.0),
+		SessionOpen:        true,
+		SPYDayChangePct:    new(1.0),
 		Names: []NameInput{
 			{
 				Symbol: "NOW", ExposureBase: 380000, MarketValueBase: 120000, HasStockLeg: true, ExposureBaseComplete: true,
@@ -115,7 +116,7 @@ func TestNeverFalsePass(t *testing.T) {
 	t.Run("account absent", func(t *testing.T) {
 		in := healthyInputs()
 		in.Account = SourceState{Healthy: false, Reason: "account_unavailable"}
-		in.NLVBase, in.CashBase, in.DailyPnLBase = nil, nil, nil
+		in.NLVBase, in.CashBase, in.AvailableFundsBase, in.DailyPnLBase = nil, nil, nil, nil
 		ev := EvaluateRulebook(in, pol)
 		assertNoPass(t, ev, append(portfolioRules, RuleCashSellOnly, RuleGreenDayAction, RuleFXExposure)...)
 	})
@@ -228,8 +229,9 @@ func TestNeverFalsePass(t *testing.T) {
 		in := healthyInputs()
 		in.SPYDayChangePct = nil
 		ev := EvaluateRulebook(in, pol)
-		if got := rowByID(t, ev, RuleRedOnGreen).Status; got != RuleStatusUnknown {
-			t.Errorf("red_on_green = %s without SPY tape, want unknown", got)
+		row := rowByID(t, ev, RuleRedOnGreen)
+		if row.Status != RuleStatusNotEvaluated || row.Reason != RuleReasonRuleOff {
+			t.Errorf("red_on_green = %s/%s, want off", row.Status, row.Reason)
 		}
 	})
 }
@@ -257,7 +259,7 @@ func TestBrokerNonIssuerStockProofCannotExemptMixedOptionGroup(t *testing.T) {
 	}
 }
 
-func TestHedgeExemptionSuppressedWhenOverHedged(t *testing.T) {
+func TestExtremeIndexPutPositionIsDirectional(t *testing.T) {
 	in := healthyInputs()
 
 	spy := &in.Names[3].Legs[0]
@@ -268,37 +270,44 @@ func TestHedgeExemptionSuppressedWhenOverHedged(t *testing.T) {
 
 	hedge := rowByID(t, ev, RuleHedgeIntegrity)
 
-	if hedge.Status != RuleStatusAct || !strings.Contains(hedge.Evidence, "twice") {
-		t.Fatalf("hedge row = %s (%s), want act past 2× band top", hedge.Status, hedge.Evidence)
+	if hedge.Status != RuleStatusNotEvaluated || hedge.Reason != RuleReasonNoProtection || !strings.Contains(hedge.Evidence, "directional short") {
+		t.Fatalf("protection row = %s/%s (%s), want directional short", hedge.Status, hedge.Reason, hedge.Evidence)
 	}
-	runway := rowByID(t, ev, RuleExpiryRunway)
+	exposure := rowByID(t, ev, RuleSingleNameExposure)
 	found := false
-	for _, o := range runway.Offenders {
-		if o.Symbol == "SPY" && strings.Contains(o.Note, "suppressed") {
+	for _, o := range exposure.Offenders {
+		if o.Symbol == "SPY" && strings.Contains(o.Note, "directional") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("over-hedged SPY leg should lose its runway exemption; offenders = %+v, exempt = %+v", runway.Offenders, runway.Exempt)
+		t.Fatalf("directional SPY exposure must follow the ordinary concentration rule: %+v", exposure)
+	}
+}
+
+func TestIndexPutRoleClassificationDoesNotMutateInputs(t *testing.T) {
+	in := healthyInputs()
+	before := in.Names[3].Legs[0].IndexPutRole
+	_ = EvaluateRulebook(in, DefaultRulebookPolicy())
+	if got := in.Names[3].Legs[0].IndexPutRole; got != before {
+		t.Fatalf("EvaluateRulebook mutated caller input role from %q to %q", before, got)
 	}
 }
 
 func TestRegimeConditionalThresholds(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 
-	t.Run("fresh confirmed tightens the cash floor", func(t *testing.T) {
+	t.Run("cash reserve uses available funds", func(t *testing.T) {
 		in := healthyInputs()
-		in.CashBase = new(-12250.0)
-		in.RegimeStage = RegimeBucketConfirmed
-		in.RegimeStageAsOf = in.AsOf
+		in.AvailableFundsBase = new(171500.0)
 		ev := EvaluateRulebook(in, pol)
-		if got := rowByID(t, ev, RuleCashSellOnly).Status; got != RuleStatusAct {
-			t.Errorf("cash at -5%% under fresh confirmed (+10 floor) = %s, want act", got)
+		if got := rowByID(t, ev, RuleCashSellOnly).Status; got != RuleStatusWatch {
+			t.Errorf("available funds at 70%% = %s, want watch", got)
 		}
-		in.RegimeStage = RegimeBucketCalm
+		in.AvailableFundsBase = new(196000.0)
 		ev = EvaluateRulebook(in, pol)
 		if got := rowByID(t, ev, RuleCashSellOnly).Status; got != RuleStatusPass {
-			t.Errorf("cash at -5%% under fresh calm (-25 floor) = %s, want pass", got)
+			t.Errorf("available funds at 80%% = %s, want pass", got)
 		}
 	})
 
@@ -332,21 +341,10 @@ func TestRegimeConditionalThresholds(t *testing.T) {
 		}
 	})
 
-	t.Run("carried confirmed still tightens cash", func(t *testing.T) {
-		in := healthyInputs()
-		in.CashBase = new(-12250.0)
-		in.RegimeStage = RegimeBucketConfirmed
-		in.RegimeStageCarried = true
-		ev := EvaluateRulebook(in, pol)
-		if got := rowByID(t, ev, RuleCashSellOnly).Status; got != RuleStatusAct {
-			t.Errorf("cash -5%% under carried confirmed = %s, want act (worse-of)", got)
-		}
-	})
-
 	t.Run("never-seen stage uses calm with disclosure", func(t *testing.T) {
 		in := healthyInputs()
 		ev := EvaluateRulebook(in, pol)
-		r := rowByID(t, ev, RuleCashSellOnly)
+		r := rowByID(t, ev, RuleExtrinsicBudget)
 		found := false
 		for _, n := range r.Notes {
 			if strings.Contains(n, "never observed") {

@@ -458,6 +458,49 @@ func TestRestartAfterRawRetentionResumesProjectionWithoutRedownload(t *testing.T
 	}
 }
 
+func TestDrawdownLatchStartsOnePostLatchFlexRecheck(t *testing.T) {
+	now := berlinTestTime(t, 2026, 8, 10, 9, 0)
+	stateHome := privateTestDir(t)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	core, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(stateHome, "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = core.Close() })
+	s := &Server{
+		now:    func() time.Time { return now },
+		cfg:    &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}},
+		logger: NewLogger(&bytes.Buffer{}, "error"),
+	}
+	if err := s.flexFetch.bindCore(t.Context(), core); err != nil {
+		t.Fatal(err)
+	}
+	latchAt := now.Add(-30 * time.Minute)
+	s.flexFetch.mu.Lock()
+	s.flexFetch.state.LastAttempt = latchAt.Add(-time.Hour)
+	if err := s.flexFetch.persistLocked(t.Context()); err != nil {
+		s.flexFetch.mu.Unlock()
+		t.Fatal(err)
+	}
+	s.flexFetch.mu.Unlock()
+	var fetchCalls int
+	s.flexFetchOnceFn = func(context.Context, time.Time) (flexFetchOutcome, error) {
+		fetchCalls++
+		return flexFetchOutcome{}, errors.New("test fetch stopped")
+	}
+
+	if !s.maybeFetchFlexForLatch(t.Context(), latchAt) {
+		t.Fatal("new latch did not start a post-latch Flex recheck")
+	}
+	s.flexFetch.wg.Wait()
+	if fetchCalls != 1 {
+		t.Fatalf("fetch calls=%d, want one", fetchCalls)
+	}
+	if s.maybeFetchFlexForLatch(t.Context(), latchAt) {
+		t.Fatal("same latch started a second Flex recheck")
+	}
+}
+
 func berlinTestTime(t *testing.T, year int, month time.Month, day, hour, minute int) time.Time {
 	t.Helper()
 	berlin, err := time.LoadLocation(flexScheduleZone)
@@ -872,6 +915,53 @@ func TestBriefNarrativeMarksOnlyAccountMoneySensitive(t *testing.T) {
 	}
 	if sensitive < 5 || publicFigures == 0 {
 		t.Fatalf("sensitive=%d public_figures=%d", sensitive, publicFigures)
+	}
+}
+
+func TestBriefNarrativeNamesPostLatchReportCheck(t *testing.T) {
+	latchedAt := time.Date(2026, 8, 10, 6, 14, 0, 0, time.UTC)
+	checkedAt := time.Date(2026, 8, 10, 14, 44, 0, 0, time.UTC)
+	paragraphs := briefNarrativeReady(rpc.BriefReadySection{
+		Latch: rpc.BriefLatchRow{
+			BriefRowState:    rpc.BriefRowState{Status: rpc.BriefStatusAttention},
+			Latched:          true,
+			At:               latchedAt,
+			ReportCoverageTo: latchedAt.Add(-72 * time.Hour),
+			ReportCheckedAt:  checkedAt,
+		},
+	})
+	var text strings.Builder
+	for _, paragraph := range paragraphs {
+		for _, run := range paragraph.Runs {
+			text.WriteString(run.Text)
+		}
+	}
+	got := text.String()
+	if !strings.Contains(got, "Canary checked IBKR again") || !strings.Contains(got, "The newest daily report still covers through") {
+		t.Fatalf("drawdown report status missing from narrative: %q", got)
+	}
+}
+
+func TestBriefNarrativeUsesHumanMarketWords(t *testing.T) {
+	got := briefRegimeReading(rpc.BriefRegimeRow{Stage: "early_warning", Verdict: "Stress signal present"})
+	if got != "market conditions are in an early warning" {
+		t.Fatalf("regime words = %q", got)
+	}
+	if strings.Contains(got, "_") || strings.Contains(got, "verdict") || strings.Contains(got, "stage") {
+		t.Fatalf("technical regime vocabulary leaked into narrative: %q", got)
+	}
+}
+
+func TestBriefNarrativeDoesNotAssignUnresolvedEarningsToOperator(t *testing.T) {
+	res := &rpc.BriefResult{Ready: rpc.BriefReadySection{MarketEvents: []rpc.BriefMarketEventRow{{
+		BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusAttention},
+		Kind:          "earnings",
+		Count:         1,
+	}}}}
+	for _, topic := range briefFlaggedTopics(briefTopics(res)) {
+		if topic.label == "held-name earnings" {
+			t.Fatal("unresolved earnings date was assigned to the operator")
+		}
 	}
 }
 

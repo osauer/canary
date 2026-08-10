@@ -280,6 +280,33 @@ func (s *Server) kickFlexFetch(ctx context.Context) bool {
 	return s.startFlexFetch(ctx, true)
 }
 
+// maybeFetchFlexForLatch performs one bounded statement recheck after a new
+// drawdown latch. It does not poll continuously: IBKR Flex is daily statement
+// truth, not intraday cash-flow telemetry. A post-latch attempt is enough to
+// capture a report IBKR has published since the morning check, while the UI
+// continues to disclose the report's actual coverage date.
+func (s *Server) maybeFetchFlexForLatch(ctx context.Context, latchedAt time.Time) bool {
+	if s == nil || latchedAt.IsZero() {
+		return false
+	}
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	status := s.flexFetchStatusAt(now)
+	if !status.LastAttempt.IsZero() && !status.LastAttempt.Before(latchedAt.UTC()) {
+		return false
+	}
+	if !status.CoverageTo.IsZero() {
+		coverageDay := status.CoverageTo.In(time.Local).Format(time.DateOnly)
+		latchDay := latchedAt.In(time.Local).Format(time.DateOnly)
+		if coverageDay >= latchDay {
+			return false
+		}
+	}
+	return s.startFlexFetch(ctx, true)
+}
+
 func (s *Server) startFlexFetch(ctx context.Context, manual bool) bool {
 	if s == nil || s.cfg == nil || !s.cfg.Flex.Enabled || strings.TrimSpace(s.cfg.Flex.QueryID) == "" {
 		return false

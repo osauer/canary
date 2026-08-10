@@ -211,7 +211,9 @@ type BriefLatchRow struct {
 	At      time.Time `json:"latched_at,omitzero"`
 	AgeDays *int      `json:"age_days,omitempty"`
 	// ConsumedPctAtLatch is the consumed share recorded when the latch
-	ConsumedPctAtLatch *float64 `json:"consumed_pct_at_latch,omitempty"`
+	ConsumedPctAtLatch *float64  `json:"consumed_pct_at_latch,omitempty"`
+	ReportCoverageTo   time.Time `json:"report_coverage_to,omitzero"`
+	ReportCheckedAt    time.Time `json:"report_checked_at,omitzero"`
 }
 
 // BriefOverride identifies one active control override and expiry.
@@ -274,6 +276,7 @@ type BriefRulesRow struct {
 	Info         int `json:"info"`
 	Watch        int `json:"watch"`
 	Act          int `json:"act"`
+	Track        int `json:"track"`
 	Unknown      int `json:"unknown"`
 	NotEvaluated int `json:"not_evaluated"`
 }
@@ -310,6 +313,8 @@ type BriefCapitalEventsRow struct {
 	AdjustedPeakBase   *float64  `json:"adjusted_peak_base,omitempty"`
 	PeakAsOf           time.Time `json:"peak_as_of,omitzero"`
 	BaseCurrency       string    `json:"base_currency,omitempty"`
+	ReportCoverageTo   time.Time `json:"report_coverage_to,omitzero"`
+	ReportCheckedAt    time.Time `json:"report_checked_at,omitzero"`
 }
 
 // BriefLastSessionRow is the daemon's close capture of the last completed

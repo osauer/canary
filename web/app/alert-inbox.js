@@ -400,18 +400,15 @@ function alertPlacard(occurrence) {
 // The age line reads the served timestamps back as words. A lit annunciator
 // the daemon's vocabulary only when they are not the nominal case, so a row
 function alertAgeLine(occurrence) {
-  const parts = [`Lit ${clockLabel(occurrence.first_seen_at)}`];
+  const parts = [`Since ${clockLabel(occurrence.first_seen_at)}`];
   if (occurrence.presentation_code === "risk_policy_drawdown_latched") parts.push("latched");
   else if (occurrence.evidence_health !== "current") parts.push("retained");
-  else parts.push(occurrence.state);
+  else parts.push(occurrence.severity);
   if (occurrence.evidence_health !== "current") parts.push(`evidence ${occurrence.evidence_health}`);
   return parts.filter(Boolean).join(" \u00b7 ");
 }
 
 function alertBodyCopy(occurrence) {
-  if (occurrence.ended_at === null && occurrence.evidence_health !== "current") {
-    return `${occurrence.body} Evidence is ${occurrence.evidence_health}, so Canary keeps the condition visible until current evidence can confirm or clear it.`;
-  }
   return occurrence.body;
 }
 
@@ -452,6 +449,7 @@ function alertEvidenceTarget(occurrence = {}) {
   if (RULE_ALERT_TARGETS[code]) return { kind: "rule", id: RULE_ALERT_TARGETS[code] };
   if (code === "regime_market_stress") return { kind: "regime" };
   if (code === "portfolio_stress" || code === "margin_cushion") return { kind: "stress" };
+  if (code === "risk_policy_drawdown_latched" || code === "risk_policy_limit_would_block") return { kind: "brief" };
   if (code.startsWith("protection_") || code === "data_health_proposals" || code === "data_health_opportunities") return { kind: "protection" };
   if (code === "order_integrity_mismatch") return { kind: "orders" };
   if (code.startsWith("reconciliation_") || code.startsWith("governance_")) return { kind: "settings" };

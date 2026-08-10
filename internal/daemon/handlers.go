@@ -38,6 +38,7 @@ type accountSummaryAuthority struct {
 	AsOf                    time.Time
 	NetLiquidationAvailable bool
 	TotalCashAvailable      bool
+	AvailableFundsAvailable bool
 	BaseCurrencyAvailable   bool
 }
 
@@ -83,6 +84,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		Provenance: provenance, AsOf: observedAt.UTC(),
 		NetLiquidationAvailable: raw.NetLiquidation != nil,
 		TotalCashAvailable:      raw.TotalCashValue != nil,
+		AvailableFundsAvailable: raw.AvailableFunds != nil,
 		BaseCurrencyAvailable:   raw.BaseCurrencyProvenance.Proven() && strings.TrimSpace(raw.BaseCurrency) != "",
 	}
 	baseCurrency := ""
@@ -201,9 +203,16 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		}
 		if pol == nil || pol.Capital.BaseCurrency == "" || res.BaseCurrency == "" ||
 			strings.EqualFold(pol.Capital.BaseCurrency, res.BaseCurrency) {
-			if firstDailyObservation := s.riskCapital.Observe(res.NetLiquidation, res.AsOf, pol, s.currentBrokerStateScope()); firstDailyObservation {
+			capitalScope := s.currentBrokerStateScope()
+			if firstDailyObservation := s.riskCapital.Observe(res.NetLiquidation, res.AsOf, pol, capitalScope); firstDailyObservation {
 				// Re-evaluate when today's first runtime account observation arrives.
 				s.evaluateRiskPolicyV3Reconciliation()
+			}
+			// Account observation is the authority that can open the latch. A
+			// bounded post-latch Flex check belongs here, not on a read-only
+			// policy or Brief request. The fetch state suppresses repeats.
+			if open, _, latchedAt := s.riskCapital.NudgeLatchForScope(capitalScope); open {
+				s.maybeFetchFlexForLatch(context.Background(), latchedAt)
 			}
 		}
 	}

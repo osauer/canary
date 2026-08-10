@@ -11,24 +11,29 @@ component as a measurement: authority, freshness, and evidence reuse.
 
 ## The fourteen rules
 
-| # | Rule | What it is protecting against |
-|---|---|---|
-| 1 | Per-name exposure cap | One name growing large enough to decide the account's outcome by itself. |
-| 2 | Single option line premium | One line holding so much premium that a volatility crush becomes a portfolio event. Hedge lines get their own higher tier. |
-| 3 | Negative cash sell-only posture | Adding risk on borrowed cash, where margin interest is negative carry on top of the position risk. |
-| 4 | Portfolio extrinsic budget | Paying decay on too much of the book at once. Classified hedge legs are excluded; rules 2 and 12 govern those. |
-| 5 | Expiry runway | Long options carried into the final-week decay cliff. Deep in-the-money legs are exempt, disclosed per row. |
-| 6 | Option outlives its catalyst | An out-of-the-money long that expires before the earnings gap it was bought for. |
-| 7 | Overwrite spans earnings | A short option alive through an earnings print: capped upside or forced assignment through the exact event that pays. |
-| 8 | At size before earnings | Carrying an oversized name into an earnings print instead of trimming to what you would buy fresh today. |
-| 9 | Relative weakness on a green tape | Missing that the market is naming your exits, when a held name is red while the tape is green. |
-| 10 | Trim winners into strength | Failing to sell an oversized winner while the bid is still there. |
-| 11 | Green day is an execution day | Deferring an open de-risk list to a hypothetical better day. |
-| 12 | Hedge sized to the book | A hedge too small to protect anything, or so large it is a directional short wearing a hedge's clothing. |
-| 13 | Exit the dead thesis | Letting theta decide an exit the thesis should have decided. |
-| 14 | Non-base currency exposure | Currency risk taken by accident rather than on purpose. Watch-only by design, because a permanent alarm here would be pure fatigue. |
+| # | Rule | What it measures | Default mode |
+|---|---|---|---|
+| 1 | Exposure to one underlying | Share value plus option delta exposure for each underlying, as a share of NLV. A directional index short is an ordinary position here. | Alert |
+| 2 | Premium at risk in one option position | The market value of each long option position as a share of NLV. | Track |
+| 3 | Cash reserve | Broker-reported available funds as a share of NLV. The default reserve is 75%. | Alert |
+| 4 | Option time value at risk | Paid option time value as a share of NLV. Positions classified as portfolio protection use rules 2 and 12 instead. | Alert |
+| 5 | Options nearing expiry | Long options with fewer than 14 days remaining. Deep in-the-money positions and portfolio protection are listed separately. | Alert |
+| 6 | Earnings timing | Whether an out-of-the-money long option expires before the next earnings announcement. This is a timing fact; it does not assume the position should span earnings. | Track |
+| 7 | Short options held through earnings | Short options that remain open through the next earnings announcement, including assignment exposure for short puts. | Alert |
+| 8 | Position size near earnings | Positions above the concentration level within three trading sessions of earnings. This remains a proxy until Canary calculates event loss. | Track |
+| 9 | Holding falls while the market rises | A held stock falling while SPY rises during the regular session. | Off |
+| 10 | Large winner today | A large holding above its daily gain level. | Off |
+| 11 | Positive day with urgent risks open | A positive account day while an act-level Rulebook item remains open. | Off |
+| 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure. Large directional index shorts are not treated as protection. | Alert |
+| 13 | Long option loss limit | Loss on premium paid for each long option position. | Alert |
+| 14 | Foreign-currency exposure | Non-base-currency exposure as a share of NLV. | Track |
 
-Rules 3, 4, and 12 take their thresholds from the classified regime stage, so
+`alert` rules can create alert episodes, `track` rules remain visible without
+creating alerts, and `off` rules are not evaluated. These modes and thresholds
+are compiled today. The planned operator policy will make them adjustable as a
+versioned Rulebook policy; generic app settings do not own them.
+
+Rules 4 and 12 take their thresholds from the classified regime stage, so
 the same book can pass in a calm regime and breach in a confirmed one. A stale
 or never-observed stage is evaluated against both its own threshold set and
 the calm set, keeping the worse verdict: old market state may tighten a rule,
@@ -57,9 +62,9 @@ one in a specific case and still see the flag.
 **A rule that cannot get clean data reports that it could not evaluate. It
 never passes.**
 
-When positions or account evidence is unhealthy, the affected rows report
-`unknown` with the evidence line "not asserting a pass" rather than quietly
-returning a clean result. Partial data may indict but never acquit: where a
+When a required input is missing, the affected row reports `unknown` and names
+the missing input rather than quietly returning a clean result. Partial data
+may identify a breach but never clear one: where a
 provable minimum alone breaches a cap, the breach is reported as a disclosed
 lower bound; where it does not, the row degrades to `unknown` instead of
 passing on incomplete arithmetic.
@@ -78,12 +83,11 @@ separately from passes for that reason.
 Read `input_health` before you count passes. It is the result-level gate, with
 one row each for account, positions, earnings, regime stage, and tape.
 
-## Hardest breach first
+## Alerts first
 
-Rows are ranked `act`, `watch`, `unknown`, `info`, `not_evaluated`, `pass`.
-Ties break on base-currency impact, then rule number. `unknown` outranks
-`info` on purpose, so a rule you cannot evaluate surfaces above one that is
-merely noting something.
+Rows in `alert` mode come first, followed by `track`, then `off`. Within each
+mode they are ranked `act`, `watch`, `unknown`, `info`, `not_evaluated`,
+`pass`. Ties break on base-currency impact, then rule number.
 
 Plain `canary rules` shows breaches and hides passes. `--all` prints the full
 checklist, `--symbol` narrows offender lists to one underlying, and `--json`
