@@ -1,6 +1,6 @@
 # Connect an MCP host
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-08-09
 
 `canary mcp` is a local MCP server that speaks JSON-RPC over stdin and stdout. Your host starts it as a child process, and it exits when that parent goes away. It opens no network listener of its own: each request dials the daemon's Unix socket, and the daemon is the only thing holding the gateway connection.
 

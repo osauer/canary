@@ -9,8 +9,8 @@ app, and it adds a risk harness. One ownership rule shapes the design:
 > Every other process adapts typed contracts for its audience, and none of
 > them owns broker state.
 
-A few local workflows are deliberate exceptions: setup, updates, process
-management, and offline backtests run without daemon RPC.
+A few local workflows are deliberate exceptions: setup, updates, and process
+management run without daemon RPC.
 
 ## System overview
 

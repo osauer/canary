@@ -98,7 +98,7 @@ wider industry uses a word differently, the entry says so.
   With `[gateway].account` empty the daemon auto-detects from that list, which
   is fine for a single-account login and needs an explicit pin when the login
   carries several. See
-  [Order previews and the trading build](../operate/orders.md#read-only-default).
+  [Constrained orders and the trading build](../operate/orders.md#required-authority).
 - **NLV:** net liquidation value, the account's liquidating value in base
   currency as the gateway reports it. Exposure percentages, position sizing,
   and the risk policy's equity reading all key off it. See
@@ -116,12 +116,12 @@ wider industry uses a word differently, the entry says so.
   non-`DU` account, reads as live; anything else is unknown. The pinned account
   must match what the connected session advertises, and that check runs in
   paper mode too. See
-  [Order previews and the trading build](../operate/orders.md#required-pins).
-- **Preview token:** a daemon-signed artifact minted by an order preview.
-  Placing, modifying, and cancelling an order each require a submit-eligible
+  [Constrained orders and the trading build](../operate/orders.md#required-authority).
+- **Preview token:** a daemon-signed artifact minted by a proposal or
+  opportunity preview. Submitting the resulting order requires a submit-eligible
   token; minting one is not eligibility, and the preview itself submits nothing
   to the broker. See
-  [Order previews and the trading build](../operate/orders.md#required-pins).
+  [Constrained orders and the trading build](../operate/orders.md#required-authority).
 - **R-multiple:** the reward-to-risk ratio, `|target − entry| ÷ |entry − stop|`.
   The related standalone sizing command was retired in v3.
 - **Reg SHO:** the SEC short-sale rule whose threshold-securities list `canary`

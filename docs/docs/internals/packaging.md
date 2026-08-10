@@ -1,6 +1,6 @@
 # Packaging and distribution
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-08-10 08:25 CEST
 
 Canary ships as a Claude Code plugin, a Claude Desktop `.mcpb` bundle, and a
 separately installed binary. This page covers what each package contains and
@@ -45,7 +45,7 @@ hooks, and plugin-local `.mcp.json` for `canary mcp`.
 - `claude-plugin/.mcp.json` declares the Claude Code plugin MCP server.
 - `.claude-plugin/marketplace.json` exposes the self-hosted marketplace.
 - `skills/canary/SKILL.md` teaches Claude the retained desk-first workflow.
-- `hooks/hooks.json` allows preview/status order reads, blocks broker-write Bash calls, and starts the install/version warning hook.
+- `hooks/hooks.json` allows order-status and proposal/opportunity preview reads, blocks broker-write Bash calls, and starts the install/version warning hook.
 - `settings/canary.settings.json` is the optional global allow/deny template.
 
 ## Claude Desktop MCPB

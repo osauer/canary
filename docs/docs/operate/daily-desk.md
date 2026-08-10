@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-08-04 22:57 CEST
+Updated: 2026-08-10 08:25 CEST
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -72,7 +72,7 @@ rather than a terminal you have to keep reading.
 canary proposals list
 ```
 
-With no subcommand this lists the daemon's current protection proposals; the read is the default. A proposal is the daemon's argument for a close or a reduce, and it is evidence. It is never authority to submit. Every broker write is a separate human decision made in the moment, per transaction, and the standard build cannot reach one at all: it is read-only, as [Order previews and the trading build](orders.md) sets out. [Protection and emergency exits](protection.md) covers why a row blocks.
+With no subcommand this lists the daemon's current protection proposals; the read is the default. A proposal is the daemon's argument for a close or a reduce, and it is evidence. It is never authority to submit. Every broker write is a separate human decision made in the moment, per transaction, and the standard build cannot reach one at all: it is read-only, as [Constrained orders and the trading build](orders.md) sets out. [Protection and risk reduction](protection.md) covers why a row blocks.
 
 ## After the close
 

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Updated: 2026-07-25 11:33 CEST
+Updated: 2026-08-09
 
 Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected.
 

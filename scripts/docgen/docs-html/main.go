@@ -1,7 +1,11 @@
 // Command docs-html renders the public documentation site from its Markdown
 // sources into a build directory. Markdown is the only prose authority;
 // generated HTML is never tracked.
+//
+// Markdown sits beside the HTML it produces, so a source path is the published
 // URL and there is nothing to keep in step. The manifest below adds only what
+// the file system cannot say: which section a page belongs to, how it is
+// described on the handbook index, and which retired URLs still redirect to it.
 package main
 
 import (
@@ -28,12 +32,14 @@ import (
 const (
 	publicBaseURL = "https://osauer.dev/canary/"
 	// hubOutput is the handbook index. The site root is docs/, so the public
+	// /canary/docs/ prefix lands at docs/docs/ on disk.
 	hubOutput = "docs/docs/index.html"
 	hubHref   = "docs/"
 )
 
 // pageStatus separates pages that render from pages that are only announced on
 // the handbook index. A planned page has no HTML output and never reaches the
+// sitemap, so nothing thin is ever indexed.
 type pageStatus string
 
 const (
@@ -48,6 +54,7 @@ type sectionSpec struct {
 }
 
 // sections run from "get it running" to "how it is built". Order is the
+// reading order on the handbook index.
 var sections = []sectionSpec{
 	{
 		Slug:  "start",
@@ -81,6 +88,7 @@ type pageSpec struct {
 	Source string
 	// Draft points at the repository stub that holds the scope of a planned
 	// page. It is never rendered and never served. Page is where that draft
+	// will publish once written; published pages derive it from Source.
 	Draft string
 	Page  string
 	// Section keys into sections; NavTitle and Summary drive the handbook index
@@ -94,12 +102,15 @@ type pageSpec struct {
 	SocialImage string
 	Status      pageStatus
 	// Legacy lists paths that used to serve this page. Each one is rendered as
+	// a redirect stub so old links and search results keep working.
 	Legacy []string
 }
 
 func (p pageSpec) planned() bool { return p.Status == statusPlanned }
 
 // output is the published HTML path. Markdown sits beside the HTML it
+// produces, so the source path is the URL and there is no mapping to keep
+// honest. Planned pages declare Page directly because they have no source yet.
 func (p pageSpec) output() string {
 	if p.planned() {
 		return p.Page
@@ -129,8 +140,8 @@ var pages = []pageSpec{
 		Source:      "docs/docs/start/first-session.md",
 		Section:     "start",
 		NavTitle:    "Your first session",
-		Summary:     "A guided half hour: read the account, quote a symbol, run a brief, and interpret what comes back.",
-		Description: "A seven-command walkthrough of a first Canary session: gateway health, account, positions, quote freshness, the daily brief, market context, and the same reads through an agent.",
+		Summary:     "A guided half hour: read the account, run the brief, inspect the rulebook, and interpret what comes back.",
+		Description: "A seven-step walkthrough of a first Canary session: gateway health, account, positions, the daily brief, rulebook and policy reads, named-symbol technicals, and the same reads through an agent.",
 		Status:      statusPublished,
 	},
 	{
@@ -156,7 +167,7 @@ var pages = []pageSpec{
 		Source:      "docs/docs/operate/daily-desk.md",
 		Section:     "operate",
 		NavTitle:    "The daily desk",
-		Summary:     "A working routine from the morning brief through regime, stress, and rules to the end-of-day read.",
+		Summary:     "A working routine from the morning brief through discipline and protection to the after-close read.",
 		Description: "The recurring Canary trading-day loop in time order: which command to run before the open, how to read the brief's row statuses, what to leave watching during the session, and which checks the daemon already absorbs.",
 		Status:      statusPublished,
 	},
@@ -188,17 +199,17 @@ var pages = []pageSpec{
 	{
 		Source:      "docs/docs/operate/orders.md",
 		Section:     "operate",
-		NavTitle:    "Order previews and the trading build",
-		Summary:     "The read-only default, what an order preview does and does not do, and the separate opt-in trading build.",
-		Description: "The read-only default in Canary, what the order preview surface does, and how the separate experimental trading build is configured.",
+		NavTitle:    "Constrained orders and the trading build",
+		Summary:     "The read-only default, the constrained order lifecycle that remains, and the separate opt-in trading build.",
+		Description: "The read-only default in Canary, which constrained order surfaces remain, and how the separate experimental trading build is configured.",
 		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/operate/protection.md",
 		Section:     "operate",
-		NavTitle:    "Protection and emergency exits",
-		Summary:     "Trailing-stop and risk-reduction proposals, per-row blockers, and what purge and restore actually do.",
-		Description: "How Canary generates protection proposals, why a row blocks, how to fix a protective stop that no longer matches its position, and why purge and restore cannot reach the broker today.",
+		NavTitle:    "Protection and risk reduction",
+		Summary:     "Trailing-stop and risk-reduction proposals, per-row blockers, and how a proposal becomes an order.",
+		Description: "How Canary generates protection proposals, why a row blocks, and how to fix a protective stop that no longer matches its position.",
 		Status:      statusPublished,
 	},
 	{
@@ -498,7 +509,20 @@ func navHTML(rootPrefix string) string {
 }
 
 // sideNavHTML renders the between-page navigation tree that every generated
+// page carries. It reads the same manifest as the handbook index, so a page
+// added there reaches the tree with no second edit, and a planned page appears
 // without a link exactly as the index shows it. current is the
+// repository-relative output path of the page being rendered; hubOutput asks
+// for the handbook index itself.
+//
+// The tree ships no JavaScript. <details> collapses it on a phone, and wide
+// screens force it open through ::details-content; a browser without that
+// pseudo-element keeps a collapsed control that still opens on click.
+//
+// Each section is its own <details>, open on the section being read. Fully
+// expanded the tree runs about 1100px against a 720px laptop viewport, so a
+// reader on the last section could not see their own position without
+// scrolling the sidebar, which is the question the tree exists to answer.
 func sideNavHTML(rootPrefix, current string) (string, error) {
 	currentDir := filepath.Dir(current)
 
@@ -519,6 +543,7 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 	out.WriteString("      <summary class=\"sidenav-summary\">Documentation")
 	if hereTitle != "" {
 		// The closed control on a phone says which section the reader is in,
+		// so the tree does not have to be opened to answer "where am I".
 		fmt.Fprintf(&out, "<span class=\"sidenav-here\">%s</span>", template.HTMLEscapeString(hereTitle))
 	}
 	out.WriteString("</summary>\n")
@@ -569,6 +594,8 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 	}
 	out.WriteString("        </ul>\n")
 	// The key belongs only where something is dimmed. Nine pages open a
+	// section that is fully written (the eight under "Under the hood", plus
+	// the index, which opens nothing), and a legend with no referent is noise.
 	for _, page := range pages {
 		if page.Section == here && page.planned() {
 			out.WriteString("        <p class=\"sidenav-note\">Dimmed entries are not written yet.</p>\n")

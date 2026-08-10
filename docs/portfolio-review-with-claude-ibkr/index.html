@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-18T21:05:00+02:00",
+    "dateModified": "2026-08-10T08:25:00+02:00",
     "description": "Use Canary and Claude to review an Interactive Brokers portfolio from the trader's existing local IB Gateway or TWS session.",
     "headline": "Portfolio review with Claude and IBKR",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="portfolio-review-with-claude-and-ibkr">Portfolio review with Claude and IBKR</h1>
-<p>Updated: 2026-08-04 22:57 CEST</p>
+<p>Updated: 2026-08-10 08:25 CEST</p>
 <p><code>canary mcp</code> lets Claude review an Interactive Brokers portfolio from the same local IB Gateway or TWS session a trader already uses. The job is to give an assistant structured account, position, technical, rulebook, source-health, proposal, opportunity, and order-lifecycle context without granting execution authority.</p>
 <p>A review session can also lean on the discipline surfaces: <code>canary_rules</code> evaluates a 14-rule daily checklist over the live book (concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity) and names its offenders. Missing data degrades to unknown rather than a false pass, so a cold daemon cannot flatter the book. In the terminal, <code>canary policy</code> reports drawdown against a risk policy you wrote yourself, and <code>canary recon</code> checks the daily broker statement against your declared ledger.</p>
 <p>The review stays separate from execution: collect account and market evidence, name the missing inputs, and decide which questions deserve a closer look.</p>
@@ -86,7 +86,7 @@ data quality, and the current rulebook findings. Rank the risks I should
 inspect today, explain the evidence behind each one, and separate observations
 from possible next actions. Do not place or imply orders.</code></pre>
 <p>For a deeper review, use the full example prompt and let Claude decide which MCP calls are needed before it writes the answer.</p>
-<p>For a scheduled stress check that preserves lifecycle stage, planner readiness, source health, fingerprints, confidence, rows, and warnings, use <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_stress_prompt.md">examples/canary_portfolio_stress_prompt.md</a>.</p>
+<p>For a scheduled review built on the daily brief, with source health, confidence, and warnings preserved, use <a href="https://github.com/osauer/canary/blob/main/examples/canary_portfolio_stress_prompt.md">examples/canary_portfolio_stress_prompt.md</a>.</p>
 <h2 id="what-a-useful-answer-looks-like">What a useful answer looks like</h2>
 <p>A strong review is compact, evidence-led, and explicit about missing data. It should read like a desk note, not a stream of tool output.</p>
 <p>Sanitized sample:</p>

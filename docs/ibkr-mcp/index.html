@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-29T09:45:00+02:00",
+    "dateModified": "2026-08-10T08:25:00+02:00",
     "description": "Canary exposes local Interactive Brokers account, portfolio, and market context to stdio MCP hosts through IB Gateway or TWS.",
     "headline": "IBKR MCP server",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="ibkr-mcp-server">IBKR MCP server</h1>
-<p>Updated: 2026-08-04 22:57 CEST</p>
+<p>Updated: 2026-08-10 08:25 CEST</p>
 <p><code>canary mcp</code> is a local MCP server for Interactive Brokers portfolio analysis and trading research. It connects Claude Desktop, Claude Code, Cursor, Zed, Continue, and other stdio MCP hosts to the machine already running IB Gateway or Trader Workstation (TWS).</p>
 <p>Canary adds a local daemon, command line, daily brief, discipline rulebook, operator-written risk policy, and Action Queue around that MCP connection. The available data depends on the trader's IBKR subscriptions and current market session; unavailable or stale inputs stay visible instead of being presented as current.</p>
 <p>Install the Claude Desktop MCP Bundle or the <code>canary</code> binary, run it beside the local IBKR session, and use 13 typed tools for status, account, positions, technical evidence, the brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads. The MCP surface has no resources, preview tools, or order-entry tools.</p>
@@ -84,8 +84,7 @@ canary setup claude-desktop</code></pre>
 <ul>
 <li>Canary's assembled daily brief through <code>canary_brief</code>, without signing off or changing process state.</li>
 <li>Account summary, buying power, cash, margin, daily P&amp;L, positions, option legs, and Greek coverage.</li>
-<li>Snapshot stock and ETF quotes, daily history, previous close, and quote freshness.</li>
-<li>Named-symbol trend, relative strength, ATR, and liquidity evidence.</li>
+<li>Named-symbol trend, relative strength, ATR, and liquidity evidence with explicit data quality.</li>
 <li>Daemon-composed market, session, source-health, rulebook, proposal, and opportunity evidence.</li>
 </ul>
 <p>The full schema is in the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a>.</p>

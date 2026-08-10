@@ -2,187 +2,187 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://osauer.dev/canary/</loc>
-    <lastmod>2026-08-09</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/start/install.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/start/hosts.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/start/first-session.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/start/updating.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/start/troubleshooting.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/daily-desk.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/agents.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/app.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/alerts.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/orders.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/protection.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/operate/reconciliation.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/concepts.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/sensors.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/policy.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/rulebook.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/risk-policy.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/market-data.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/understand/glossary.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/reference/cli.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/reference/mcp-tools.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/reference/config.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/reference/releases.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/internals/architecture.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/internals/storage.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/internals/protocol.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/internals/regime-dashboard.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/internals/gamma-cache.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/docs/internals/packaging.html</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
@@ -194,79 +194,79 @@
   </url>
   <url>
     <loc>https://osauer.dev/canary/feedback/</loc>
-    <lastmod>2026-06-11</lastmod>
+    <lastmod>2026-07-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/ibkr-mcp/</loc>
-    <lastmod>2026-07-29</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/ibkr-mcp-tws/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/interactive-brokers-mcp-server/</loc>
-    <lastmod>2026-08-09</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/ib-gateway-mcp/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/claude-desktop-interactive-brokers/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/best-ibkr-mcp-server-claude-code/</loc>
-    <lastmod>2026-07-29</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/portfolio-review-with-claude-ibkr/</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/read-only-mcp-server/</loc>
-    <lastmod>2026-07-29</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/llms.txt</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/llms-full.txt</loc>
-    <lastmod>2026-07-25</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/.well-known/mcp/server.json</loc>
-    <lastmod>2026-07-29</lastmod>
+    <lastmod>2026-08-09</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://osauer.dev/canary/.well-known/mcp/server-card.json</loc>
-    <lastmod>2026-07-29</lastmod>
+    <lastmod>2026-08-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>

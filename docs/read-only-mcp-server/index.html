@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-29T09:45:00+02:00",
+    "dateModified": "2026-08-10T08:25:00+02:00",
     "description": "Canary reads Interactive Brokers account and market context but cannot place, modify, cancel, or transmit broker orders through MCP.",
     "headline": "Read-only MCP server for Interactive Brokers",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="read-only-mcp-server-for-interactive-brokers">Read-only MCP server for Interactive Brokers</h1>
-<p>Updated: 2026-08-04 22:57 CEST</p>
+<p>Updated: 2026-08-10 08:25 CEST</p>
 <p><code>canary mcp</code> is intentionally a read-only MCP server for Interactive Brokers. It gives AI assistants account and market context from IB Gateway or TWS, but it does not expose a place-order, modify-order, or cancel-order tool.</p>
 <p>The read-only boundary is what makes the rest of the platform workable. Because agents hold no order-entry tools, the daily brief, rulebook, protection proposals, and opportunity review can use daemon-owned portfolio and market context without gaining execution authority.</p>
 <p>This page describes the standard downloads: the installer, the Claude Desktop bundle, and the plain <code>canary</code> tarballs. Releases also publish a separate, clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management; nothing on this page applies to that variant, and it is never installed by default.</p>
@@ -74,7 +74,7 @@
 <li>no remote service sitting between the assistant and IBKR</li>
 </ul>
 <h2 id="why-this-matters-for-agents">Why this matters for agents</h2>
-<p>Agentic workflows are useful for analysis: &#34;what do I own?&#34;, &#34;what changed today?&#34;, &#34;which positions carry option delta?&#34;, &#34;is the market regime stressed?&#34;, and &#34;how large is this hypothetical trade?&#34;. Those questions need account and market data, not order-entry authority.</p>
+<p>Agentic workflows are useful for analysis: &#34;what do I own?&#34;, &#34;what changed today?&#34;, &#34;which positions carry option delta?&#34;, &#34;what does the desk brief flag today?&#34;, and &#34;which rulebook findings need attention?&#34;. Those questions need account and market data, not order-entry authority.</p>
 <p><code>canary</code> keeps that boundary explicit. The MCP tool list is generated from the same source as the CLI documentation, and the public references call out that lifecycle and trading verbs stay outside the MCP surface.</p>
 <h2 id="install">Install</h2>
 <pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh

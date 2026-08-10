@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-07-25 12:07 CEST
+Updated: 2026-08-10 08:25 CEST
 
 Nothing here submits an order for you. The daemon can propose a close or a
 reduce and can price one against the broker. Placing it stays an explicit
@@ -23,7 +23,7 @@ close/reduce actions here; use TWS for an unmodeled emergency exit.
 `canary proposals` with no subcommand runs `list`. In a standard build the submit
 path fails closed anyway: the daemon's write handler is compiled out behind the
 `trading` build tag and returns `ErrTradingDisabled`. See
-[Order previews and the trading build](orders.md).
+[Constrained orders and the trading build](orders.md).
 
 ## Proposals are advisory, and close or reduce only
 

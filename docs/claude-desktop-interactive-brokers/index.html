@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-18T21:05:00+02:00",
+    "dateModified": "2026-08-10T08:25:00+02:00",
     "description": "Install Canary for Claude Desktop on Mac with the MCPB bundle. Review prerequisites, download the real bundle, enable IB Gateway or TWS API access, and run the first Claude check.",
     "headline": "Claude Desktop Install for Interactive Brokers",
     "isPartOf": {
@@ -67,9 +67,9 @@
   </header>
   <main class="wrap doc">
 <h1 id="claude-desktop-install-for-interactive-brokers">Claude Desktop Install for Interactive Brokers</h1>
-<p>Updated: 2026-07-18 21:05 CEST</p>
+<p>Updated: 2026-08-10 08:25 CEST</p>
 <p>This is the Mac install path for using Claude Desktop with Interactive Brokers through <code>canary</code>. The MCP Bundle (<code>.mcpb</code>) packages the <code>canary</code> MCP server for Claude Desktop, but it does not install Interactive Brokers software or enable broker API access for you.</p>
-<p>After install, Claude can read the account, portfolio, and market context that your local IBKR session and subscriptions make available. It can also read Canary's regime, stress, and advisory rulebook views.</p>
+<p>After install, Claude can read the account, portfolio, and market context that your local IBKR session and subscriptions make available. It can also read the daily desk brief and the advisory rulebook verdict.</p>
 <p>If search results show Interactive Brokers&#39; IBKR Desktop trading platform, that is a different product. This page is about Claude Desktop using the local <code>canary mcp</code> server through IB Gateway or TWS.</p>
 <h2 id="what-the-download-installs">What the download installs</h2>
 <p>The MCPB installs a <code>canary</code> Claude Desktop extension. On Mac, the bundle carries both Apple Silicon and Intel binaries and Claude runs the bundled server locally through stdio.</p>
@@ -103,10 +103,10 @@
 <ul>
 <li>&#34;What&#39;s in my IBKR account?&#34;</li>
 <li>&#34;Show my AAPL exposure, including option deltas.&#34;</li>
-<li>&#34;What expiries are listed for SPY and what is the implied move?&#34;</li>
-<li>&#34;Is Xetra open on Whit Monday?&#34;</li>
-<li>&#34;Are dealers supporting or amplifying today&#39;s SPY move?&#34;</li>
-<li>&#34;If I enter MSFT at 418 with a stop at 408, what is my EUR risk?&#34;</li>
+<li>&#34;What does the technical picture for SPY look like?&#34;</li>
+<li>&#34;Read today&#39;s desk brief and summarize what needs attention.&#34;</li>
+<li>&#34;Which rulebook findings are failing or unknown right now?&#34;</li>
+<li>&#34;What orders filled this week?&#34;</li>
 </ul>
 <p>Claude receives structured account and market data from <code>canary mcp</code>; it does not receive an order-entry tool.</p>
 <h2 id="shell-managed-alternative">Shell-managed alternative</h2>

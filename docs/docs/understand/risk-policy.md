@@ -1,6 +1,6 @@
 # Writing a risk policy
 
-Updated: 2026-08-04 22:57 CEST
+Updated: 2026-08-10 08:25 CEST
 
 The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
@@ -143,6 +143,6 @@ A latched drawdown block is not an override case. It clears through
 `canary policy reset-drawdown --reason "..."`, which re-bases the adjusted peak.
 
 `canary policy` is a CLI surface with no MCP tool. That command and the other
-governance verbs (`capital-event`, `override`, `correct-peak`, `artefact`) are
+governance verbs (`capital-event`, `override`, `reset-drawdown`, `correct-peak`) are
 human-origin only, so an agent session can read the policy result and never
 operate this file.

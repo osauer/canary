@@ -72,7 +72,7 @@ decision.
 | Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Stress, and related results | Reviewed code and release change |
 | Broker safety controls | Explicit human transaction decision plus non-overridable daemon/code checks | The path stays unavailable | Can block a broker write; cannot be weakened by policy or settings | Exact human decision plus reviewed guardrail change where applicable |
 
-MCP exposes research and preview surfaces, not broker-write tools. An agent may
+MCP exposes read-only research surfaces, never broker-write tools. An agent may
 use the gated CLI only after an explicit transaction-specific instruction from
 the user in that turn. Apps and dashboards render daemon results; they do not
 create policy or submission authority.

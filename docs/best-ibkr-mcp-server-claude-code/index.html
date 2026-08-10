@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-07-29T09:45:00+02:00",
+    "dateModified": "2026-08-10T08:25:00+02:00",
     "description": "Use Canary with Claude Code to read Interactive Brokers account and market data through a local MCP server that has no order-entry tools.",
     "headline": "Best IBKR MCP server for Claude Code",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="best-ibkr-mcp-server-for-claude-code">Best IBKR MCP server for Claude Code</h1>
-<p>Updated: 2026-07-29 09:45 CEST</p>
+<p>Updated: 2026-08-10 08:25 CEST</p>
 <p>Use <code>canary mcp</code> when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. It runs locally through stdio beside IB Gateway or TWS.</p>
 <p>The same binary carries more than the MCP server: a daemon-composed daily brief and Action Queue, a 14-rule discipline rulebook Claude can read through <code>canary_rules</code>, plus an operator-written risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>) in the terminal. All of it runs locally.</p>
 <p>The daemon evaluates entitled account and market inputs and preserves freshness, source health, and warning codes. The reduced MCP surface exposes the decision-relevant result rather than every underlying sensor.</p>
@@ -86,17 +86,17 @@ claude plugin install canary@canary</code></pre>
 <li>&#34;What&#39;s in my IBKR account?&#34;</li>
 <li>&#34;Show my positions by underlying and include option deltas.&#34;</li>
 <li>&#34;What changed in my portfolio today?&#34;</li>
-<li>&#34;Which SPY expiries are listed and what is the implied move?&#34;</li>
-<li>&#34;How does the risk regime look today?&#34;</li>
-<li>&#34;If I enter AAPL at 180 with a stop at 175, how many shares fit 1% risk?&#34;</li>
+<li>&#34;What does the technical picture for SPY look like?&#34;</li>
+<li>&#34;Read today&#39;s desk brief and summarize what needs attention.&#34;</li>
+<li>&#34;Which rulebook findings are failing or unknown right now?&#34;</li>
 </ul>
 <h2 id="how-to-evaluate-ibkr-mcp-servers">How to evaluate IBKR MCP servers</h2>
 <table>
 <thead><tr><th>Question</th><th>Why it matters</th></tr></thead>
 <tbody>
-<tr><td>Does it expose order tools?</td><td>Read-only is the safer default for Claude Code and live brokerage data.</td></tr>
+<tr><td>Does it expose order-entry tools?</td><td>Read-only is the safer default for Claude Code and live brokerage data.</td></tr>
 <tr><td>Does it run locally?</td><td>IB Gateway and TWS are local API sessions; local stdio avoids a remote custody or broker proxy layer.</td></tr>
-<tr><td>Does it handle account and market context?</td><td>Useful portfolio analysis needs positions, quotes, options, calendars, and freshness metadata.</td></tr>
+<tr><td>Does it handle account and market context?</td><td>Useful portfolio analysis needs positions, option legs, technical evidence, and freshness metadata.</td></tr>
 <tr><td>Does it have clear MCP tool descriptions?</td><td>Claude routes tool calls from descriptions, so vague schemas lead to bad tool selection.</td></tr>
 <tr><td>Does it fail clearly when TWS or IB Gateway is unavailable?</td><td>Agents need actionable connection state before they can explain missing data.</td></tr>
 </tbody>

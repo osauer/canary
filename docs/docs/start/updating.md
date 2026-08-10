@@ -1,6 +1,6 @@
 # Updating
 
-Updated: 2026-08-08
+Updated: 2026-08-10 08:25 CEST
 
 Four things can affect data freshness: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
 
@@ -226,7 +226,7 @@ The `cache:DATE` vs `embedded:DATE` source token tells you whether the in-proces
 
 Market calendars are embedded official exchange schedules in this first release. The supported calendars are US cash equities, US listed options regular sessions, and German Xetra cash equities. They do not cold-start, hit a network cache, or apply an IBKR-specific overlay at runtime; the official exchange calendar is the binding source for open/closed/holiday/early-close context.
 
-Each response includes `coverage_start` and `coverage_end`. Queries outside embedded coverage return `state: "unknown"` rather than guessing from weekdays. The CLI/MCP `days` horizon is capped at 400 calendar days, which covers the practical risk-manager lookahead for next-session, long-weekend, year-end, and next-year holiday checks while keeping responses bounded.
+Each response includes `coverage_start` and `coverage_end`. Queries outside embedded coverage return `state: "unknown"` rather than guessing from weekdays. Calendar lookahead is capped at 400 calendar days, which covers the practical risk-manager lookahead for next-session, long-weekend, year-end, and next-year holiday checks while keeping responses bounded.
 
 Calendar updates arrive with normal `canary` binary updates. If a supported exchange publishes an unscheduled closure or changes a future holiday after your installed binary was built, update the binary once a release carrying the refreshed calendar is available.
 

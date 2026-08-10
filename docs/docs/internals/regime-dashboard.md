@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-07-31 19:40 CEST
+Updated: 2026-08-09
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,

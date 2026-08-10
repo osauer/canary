@@ -171,7 +171,7 @@ dashboards, and alternate files cannot replace this durable safety evidence.
 | Question | Supported path | Present limitation |
 |---|---|---|
 | Current product or dashboard state | Typed daemon RPC and a daemon-owned reader | A new dashboard needs a defined contract before it gets a query. |
-| Regime, rules, Stress, or capital history | Existing CLI commands over typed daemon RPC | Most paths still scan canonical event JSON instead of indexed projections. |
+| Rules or capital history | `canary rules history` and `canary recon equity` over typed daemon RPC | Regime and Stress history remain internal event evidence, not product surfaces. |
 | Orders | `canary orders open`, `canary orders history`, and `canary order status` | Local lifecycle records explain intent and evidence; the broker Activity Statement remains execution truth. |
 | Statement-derived equity | Typed reconciliation and equity readers | The current reader has a fixed result ceiling rather than a general paginated API. |
 | Retained observations | Narrow daemon-owned readers for their product purpose | General research access awaits a corrected time-and-ID pagination cursor. |

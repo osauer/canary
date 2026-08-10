@@ -55,7 +55,7 @@
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
         "softwareVersion": "3.0.1",
-        "dateModified": "2026-08-09T15:51:00+02:00",
+        "dateModified": "2026-08-10T08:25:00+02:00",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -74,14 +74,13 @@
         "featureList": [
           "Entitlement-aware market data with freshness and source-quality fields",
           "MCP server for Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts",
-          "Risk-regime dashboard across volatility, credit, funding, FX, dealer gamma, and S&P 500 breadth",
-          "Scheduled portfolio stress checks that return a typed action: stand down, watch, defend, rebalance, deploy, or confirm inputs",
+          "Daily desk brief composing market regime, dealer gamma, and portfolio stress context with typed freshness",
           "Advisory 14-rule trading discipline rulebook that never renders a false pass",
           "Operator-authored risk policy with advisory drawdown reporting (CLI)",
           "Daily broker-statement ingestion and reconciliation (CLI)",
           "Daemon-owned protection proposals: trailing stops, theta hygiene, risk reduction (read-only via MCP)",
           "Paired Canary app with a written daily briefing, a monitor grid of regime and desk instruments, and an experimental remote relay beta",
-          "Read-only builds by default with a preview-only MCP order surface in every variant"
+          "Read-only MCP surface in every build: no settings writes, order previews, or execution tools"
         ]
       },
       {
@@ -163,7 +162,7 @@
             "name": "Does Canary provide real-time market data?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise. Stock and ETF quotes are also exposed as a streaming MCP resource."
+              "text": "Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise."
             }
           },
           {
@@ -1000,7 +999,7 @@ canary setup claude-desktop
         </article>
         <article class="feature">
           <h3>Is the market data real-time?</h3>
-          <p>Broker data comes through your own TWS or IB Gateway session, so entitlements match what you see in TWS: real-time where you hold IBKR market-data subscriptions, delayed otherwise. Stock and ETF quotes are also exposed as a streaming MCP resource.</p>
+          <p>Broker data comes through your own TWS or IB Gateway session, so entitlements match what you see in TWS: real-time where you hold IBKR market-data subscriptions, delayed otherwise.</p>
         </article>
         <article class="feature">
           <h3>Where does the market data come from?</h3>

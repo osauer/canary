@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-08-09
+Updated: 2026-08-10 08:25 CEST
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -103,4 +103,4 @@ No config file is needed for this. The daemon probes `4001` (Gateway live), `400
 
 ## Next
 
-Wire an agent to the server in [Connect an MCP host](hosts.md). Keep the binary current with [Updating](updating.md). Read [Order previews and the trading build](../operate/orders.md) before assuming anything about what this can and cannot send to the broker.
+Wire an agent to the server in [Connect an MCP host](hosts.md). Keep the binary current with [Updating](updating.md). Read [Constrained orders and the trading build](../operate/orders.md) before assuming anything about what this can and cannot send to the broker.
