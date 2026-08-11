@@ -28,6 +28,9 @@
   --pd-nominal: #4bd07a;
   --pd-watch-tint: #d3b285;
   --pd-act-tint: #d9938f;
+  /* The caption tint for a measured-healthy lamp, at the same muted weight as
+     the watch and act tints so nominal reads as a state, not as an alarm. */
+  --pd-ok-tint: #8fbf9f;
   --pd-money-up: #8fbf9f;
   --pd-money-down: #d9938f;
   --pd-hairline: #1e232b;
@@ -1247,6 +1250,13 @@ p {
   background: var(--pd-advisory);
 }
 
+/* Nominal: a window the daemon measured and called healthy. The bar carries
+   the full accent, at the same weight as caution and warning, so "measured
+   and healthy" is a lit lamp rather than a dark slot. */
+.pd-tile--ok .pd-tile__bar {
+  background: var(--pd-nominal);
+}
+
 /* Washes composite over a warm dark base so red stays red and amber amber. */
 .pd-tile--watch {
   background: linear-gradient(180deg, rgba(255, 180, 59, 0.14), rgba(255, 180, 59, 0.04) 55%), #21201b;
@@ -1258,6 +1268,15 @@ p {
 
 .pd-tile--info {
   background: linear-gradient(180deg, rgba(111, 179, 255, 0.1), rgba(111, 179, 255, 0.03) 55%), #1b1f26;
+}
+
+/* Nominal takes the quietest wash in the family — a healthy read is never a
+   call to action, and six lit windows on a calm day must not shout — while
+   the bar above keeps the full accent so the state still reads at a glance.
+   The green is --pd-nominal (#4bd07a), spelled out here because every wash in
+   this family composites raw rgba over its own warm or cool base. */
+.pd-tile--ok {
+  background: linear-gradient(180deg, rgba(75, 208, 122, 0.1), rgba(75, 208, 122, 0.03) 55%), #1b211d;
 }
 
 /* Readout class: a flush face with no relief and no lamp slot. */
@@ -1318,6 +1337,10 @@ p {
 
 .pd-tile--info .pd-tile__cap {
   color: var(--pd-advisory);
+}
+
+.pd-tile--ok .pd-tile__cap {
+  color: var(--pd-ok-tint);
 }
 
 .pd-tile--stale .pd-tile__cap {

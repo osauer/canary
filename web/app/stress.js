@@ -826,14 +826,19 @@ function masterSeverity(snap = {}, stress = {}) {
 
 
 // applyTileSeverity is the one place a severity word becomes a lamp class.
-function applyTileSeverity(el, severity) {
+// The nominal lamp is opt-in. Every other caller here passes the severity
+// vocabulary (observe/watch/act/urgent), which has no healthy word in it, so a
+// tile that cannot positively measure health must keep reading unlit rather
+// than acquire a green lamp from a band word that drifts into its input.
+function applyTileSeverity(el, severity, { nominal = false } = {}) {
   if (!el) return;
-  el.classList.remove("pd-tile--watch", "pd-tile--act", "pd-tile--info", "pd-tile--stale");
+  el.classList.remove("pd-tile--ok", "pd-tile--watch", "pd-tile--act", "pd-tile--info", "pd-tile--stale");
   const key = String(severity || "").trim().toLowerCase();
   if (key === "watch" || key === "yellow") el.classList.add("pd-tile--watch");
   else if (key === "act" || key === "urgent" || key === "red") el.classList.add("pd-tile--act");
   else if (key === "info") el.classList.add("pd-tile--info");
   else if (key === "stale") el.classList.add("pd-tile--stale");
+  else if (nominal && key === "green") el.classList.add("pd-tile--ok");
 }
 
 
@@ -952,7 +957,10 @@ function regimeClusterTile(cluster, snap = {}, stress = {}) {
   const lead = clusterLeadIndicator(cluster, stress);
   const tile = document.createElement("div");
   tile.className = "pd-tile";
-  applyTileSeverity(tile, band);
+  // A window the daemon measured and called green is a state, not the absence
+  // of one, so this is the one grid that asks for the nominal lamp. Muted now
+  // means exactly one thing: no band could be read.
+  applyTileSeverity(tile, band, { nominal: true });
   const bar = document.createElement("span");
   bar.className = "pd-tile__bar";
   bar.setAttribute("aria-hidden", "true");
