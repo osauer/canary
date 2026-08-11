@@ -947,6 +947,8 @@ func TestPreTwoStageLatchStaysDurableUnderStatements(t *testing.T) {
 	st.state.LatchEquityBase = 0
 	st.mu.Unlock()
 
+	// Without a statement equity row for the exact latch day, the legacy
+	// replay has no engagement-equity reconstruction and must refuse.
 	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
 		Scope: testLiveObserveScope, CoverageTo: now,
 		Flows:     []reconFlow{{id: "wd-legacy", typ: "Deposits/Withdrawals", valueDate: now.Add(-2 * time.Minute), amountBase: -20000}},
@@ -955,7 +957,59 @@ func TestPreTwoStageLatchStaysDurableUnderStatements(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rep := st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || rep.LatchProvisional {
-		t.Fatalf("pre-two-stage latch was decided by statements: %+v", rep)
+		t.Fatalf("pre-two-stage latch was decided without equity evidence: %+v", rep)
+	}
+}
+
+func TestPreTwoStageLatchDissolvesFromStatementEquity(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitutionV3()
+	reconcileNow(t, st)
+	now := time.Now()
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.mu.Lock()
+	st.state.LatchProvisional = false
+	st.state.LatchEquityBase = 0
+	st.mu.Unlock()
+	day := now.UTC().Format("2006-01-02")
+
+	// The broker's own end-of-latch-day equity plus a withdrawal explaining
+	// the whole drop releases the brake without a human attestation.
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now,
+		Flows:           []reconFlow{{id: "wd-legacy", typ: "Deposits/Withdrawals", valueDate: now.Add(-2 * time.Minute), amountBase: -20000}},
+		FlowsBase:       -20000,
+		EquityDayTotals: map[string]float64{day: 240000},
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if rep.BlockLatched {
+		t.Fatalf("statement-explained legacy latch did not dissolve: %+v", rep)
+	}
+	if rep.Tier != risk.CapitalTierOK {
+		t.Fatalf("tier after backfill dissolution = %s (%v), want ok", rep.Tier, rep.Reasons)
+	}
+
+	// A legacy latch whose replay shows a real loss stays durable even with
+	// equity evidence present.
+	st2 := newTestRiskCapitalStore(t)
+	reconcileNow(t, st2)
+	st2.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st2.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st2.mu.Lock()
+	st2.state.LatchProvisional = false
+	st2.state.LatchEquityBase = 0
+	st2.mu.Unlock()
+	if err := st2.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now,
+		EquityDayTotals: map[string]float64{day: 240000},
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	if rep := st2.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
+		t.Fatal("unexplained legacy latch dissolved; only a human reset may clear it")
 	}
 }
 

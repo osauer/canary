@@ -1036,10 +1036,15 @@ func (st *riskCapitalStore) ApplyAutomaticReconcileForScope(reportID string, cov
 }
 
 type statementCapitalSnapshot struct {
-	Scope               brokerStateScope
-	FlowsBase           float64
-	CoverageTo          time.Time
-	Flows               []reconFlow
+	Scope      brokerStateScope
+	FlowsBase  float64
+	CoverageTo time.Time
+	Flows      []reconFlow
+	// EquityDayTotals maps calendar days ("2006-01-02") to the broker
+	// statement's official end-of-day equity in base currency, already
+	// filtered to this reconciliation scope. The legacy-latch replay uses
+	// the latch day's row as its engagement-equity reconstruction.
+	EquityDayTotals     map[string]float64
 	NudgeConfirmedFlows nudgeConfirmedFlowSnapshot
 }
 
@@ -1085,6 +1090,7 @@ func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementC
 	st.state.StatementFlowsBase = snap.FlowsBase
 	st.state.StatementCoverageTo = snap.CoverageTo
 	st.resolveProvisionalLatchLocked(snap, c)
+	st.resolveLegacyLatchLocked(snap, c)
 	persistErr := st.persistLocked(true)
 	persisted := persistErr == nil
 	st.mu.Unlock()
@@ -1153,6 +1159,66 @@ func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalS
 		st.state.LatchProvisional = false
 	}
 	st.appendRiskPolicyJournal(entry)
+}
+
+// resolveLegacyLatchLocked decides a latch engaged before the two-stage
+// feature existed. Such a latch carries no provisional marker and no frozen
+// engagement equity, so it reads as durable — but durable is meant to be
+// the OUTCOME of a statement replay that failed to explain the drop, and a
+// pre-feature latch never received that replay. The broker statement's own
+// end-of-day equity for the latch day reconstructs the engagement equity
+// (it already reflects that day's flows, exactly as the frozen value would
+// have), and the replay is otherwise identical to the provisional path:
+// flows through the latch day that explain the drop below the block line
+// dissolve the latch with the full evidence journaled. Anything less than
+// complete evidence — no statement equity row for the exact latch day,
+// missing policy numbers, coverage short of the latch day — leaves the
+// latch untouched, where the human reset path still applies. A prior-day
+// equity row is deliberately NOT a substitute: it predates the drop, so it
+// would understate the replayed drawdown and dissolve unsafely. Operator
+// decision 2026-08-11: a statement-proven withdrawal must release the
+// brake without a human attestation.
+func (st *riskCapitalStore) resolveLegacyLatchLocked(snap statementCapitalSnapshot, c *risk.Constitution) {
+	if !st.state.BlockLatched || st.state.LatchProvisional || st.state.LatchedAt.IsZero() || st.state.LatchEquityBase > 0 {
+		return
+	}
+	if snap.CoverageTo.IsZero() || utcDateBefore(snap.CoverageTo, st.state.LatchedAt) {
+		return
+	}
+	if c == nil || c.Capital.DeclaredRiskCapital == nil || c.Drawdown.BlockConsumedPct == nil {
+		return
+	}
+	day := st.state.LatchedAt.UTC().Format("2006-01-02")
+	equity, ok := snap.EquityDayTotals[day]
+	if !ok || equity <= 0 {
+		return
+	}
+	flows := 0.0
+	lineIDs := []string{}
+	for _, flow := range snap.Flows {
+		if !utcDateAfter(flow.valueDate, st.state.LatchedAt) {
+			flows += flow.amountBase
+			lineIDs = append(lineIDs, flow.id)
+		}
+	}
+	dd := max(st.state.AdjustedPeakBase-(equity-flows), 0)
+	pct := dd / *c.Capital.DeclaredRiskCapital * 100
+	if pct >= *c.Drawdown.BlockConsumedPct {
+		return // not explained: the latch stays durable, human path unchanged
+	}
+	st.appendRiskPolicyJournal(map[string]any{
+		"version": 1, "at": st.now().UTC(), "kind": "drawdown_latch_backfill_dissolved",
+		"latched_at": st.state.LatchedAt, "latch_consumed_pct": st.state.LatchConsumedPct,
+		"coverage_to": snap.CoverageTo, "statement_equity_day": day,
+		"statement_equity_base":         equity,
+		"statement_flows_to_latch_base": flows, "statement_consumed_pct": pct,
+		"statement_line_ids": lineIDs,
+		"policy_fingerprint": constitutionFingerprint(c),
+	})
+	st.state.BlockLatched = false
+	st.state.LatchedAt = time.Time{}
+	st.state.LatchConsumedPct = 0
+	st.state.LatchEquityBase = 0
 }
 
 func (st *riskCapitalStore) ActivateStatementAuthorityWithoutStatements() {

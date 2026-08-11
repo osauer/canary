@@ -219,9 +219,10 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	res.ReportID = reconReportID(exceptions, baseline, confirmed, matchableFlows, bridgeEvents, res.CoverageFrom, res.CoverageTo, res.StatementAsOf, pol, reconScopeIdentity(scope))
 	res.InputHealth = health
 	snapshot := &statementCapitalSnapshot{
-		Scope:      scope,
-		CoverageTo: res.CoverageTo,
-		Flows:      matchableFlows,
+		Scope:           scope,
+		CoverageTo:      res.CoverageTo,
+		Flows:           matchableFlows,
+		EquityDayTotals: equityDayTotals(merged.equityByDay),
 		NudgeConfirmedFlows: nudgeConfirmedFlowSnapshot{
 			PolicyVersion:     pol.PolicyVersion,
 			PolicyIdentity:    nudgePolicyIdentity(pol),
@@ -525,6 +526,20 @@ func partitionReconBaselineFlows(flows []reconFlow, ctx capitalReplayContext) ([
 		})
 	}
 	return matchable, baseline
+}
+
+// equityDayTotals projects the account-keyed statement equity rows onto
+// their calendar days for the capital replay; the statement pool was
+// already filtered to the reconciliation scope before the merge.
+func equityDayTotals(rows map[string]flexstmt.EquityRow) map[string]float64 {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		out[row.ReportDate.Format("2006-01-02")] = row.TotalBase
+	}
+	return out
 }
 
 func utcDateBefore(a, b time.Time) bool {
