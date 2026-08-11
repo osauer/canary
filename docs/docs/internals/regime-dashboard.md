@@ -132,7 +132,17 @@ government to borrow over a similar short horizon.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
-| CP 90-day AA financial minus 3-month T-bill | < 25 bp | 25-75 bp | > 75 bp |
+| CP 90-day AA financial minus 3-month T-bill | < 25 bp, or at level but not widening | >= 25 bp and +10 bp over 5 publications | >= 75 bp |
+
+Funding's yellow is a transition, not a zone (funding_cp_tbill_v2). The
+spread's calm level ranged 6-31 bp across rate regimes, so the earlier static
+25 bp gate was amber on 26.6% of calm days in an eleven-year replay; requiring
+the level plus a 10 bp rise over the last five commercial-paper publications
+cut that to 5.3%. No definition, the static band included, showed real onset
+lead for the 2020-2024 stress events — funding confirms late by nature — so
+the quieter definition costs no warning. Red at 75 bp is unchanged (ten days
+in eleven years, eight of them March 2020), and a missing five-publication
+change holds yellow at level rather than softening the warning.
 
 ### FX carry
 

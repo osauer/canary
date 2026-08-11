@@ -26,6 +26,7 @@ const (
 	hyOASWidenRed      = 1.00
 	fundingYellowBps   = 25.0
 	fundingRedBps      = 75.0
+	fundingRise5Bps    = 10.0 // bp rise over 5 CP publications that makes an at-level spread an amber transition (funding_cp_tbill_v2)
 	usdJpyMoveYellow   = 1.0  // % weekly yen strengthening
 	usdJpyMoveRed      = 2.0  // % weekly yen strengthening
 	hygSpyNearHighProx = 0.97 // SPY ≥ 0.97 × 52-w high = "near highs"
@@ -349,14 +350,24 @@ func rowFundingStress(now time.Time, r rpc.RegimeFundingStress) Row {
 		tb = fmt.Sprintf("%.2f", *r.TBill3M)
 	}
 	row.Value = fmt.Sprintf("%.0fbp  CP %s / bills %s", *r.SpreadBps, cp, tb)
+	if r.Change5Bps != nil {
+		row.Value += fmt.Sprintf("  %+.0fbp/5obs", *r.Change5Bps)
+	}
 	row.Quality = qualityTag(now, r.CP3MQuality, r.TBill3MQuality, r.SpreadQuality)
+	// funding_cp_tbill_v2: amber is a transition (level AND rise over five CP
+	// publications), never a resting state; an unknown rise is a data defect
+	// and holds amber. Mirrors the daemon classifier.
 	switch {
+	case *r.SpreadBps >= fundingRedBps:
+		row.Band, row.Reason = BandRed, "funding stress"
 	case *r.SpreadBps < fundingYellowBps:
 		row.Band, row.Reason = BandGreen, "funding calm"
-	case *r.SpreadBps < fundingRedBps:
-		row.Band, row.Reason = BandYellow, "funding spread wider"
+	case r.Change5Bps == nil:
+		row.Band, row.Reason = BandYellow, "funding at level, rise unknown"
+	case *r.Change5Bps >= fundingRise5Bps:
+		row.Band, row.Reason = BandYellow, "funding spread widening"
 	default:
-		row.Band, row.Reason = BandRed, "funding stress"
+		row.Band, row.Reason = BandGreen, "funding at level, not widening"
 	}
 	return row
 }

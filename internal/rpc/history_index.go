@@ -1186,7 +1186,7 @@ var regimeThresholdTexts = map[string]regimeThresholdText{
 	RegimeIndicatorVolOfVol:  {"vvix_daily_v2", "VVIX < 90, or at level but not rising", "VVIX >= 90 and +3% over 5 sessions", "VVIX >= 110", "trips >=110"},
 	RegimeIndicatorHYGSPY:    {"hyg_spy_credit_proxy_v1", "HYG >= 50-day SMA", "HYG < 50-day SMA", "HYG < 50-day SMA and SPY >= 97% of 52-week high", "trips HYG <50dma with SPY >=97% of 52w high"},
 	RegimeIndicatorCredit:    {"hy_ig_oas_v1", "HY OAS < 4.0 and 20d widening < 0.50 pp", "HY OAS 4.0-5.5 or 20d widening >= 0.50 pp", "HY OAS >= 5.5 or 20d widening >= 1.00 pp", "trips HY OAS >=5.5"},
-	RegimeIndicatorFunding:   {"funding_cp_tbill_v1", "CP/T-bill spread < 25 bp", "25 <= spread < 75 bp", "spread >= 75 bp", "trips >=75 bp"},
+	RegimeIndicatorFunding:   {"funding_cp_tbill_v2", "spread < 25 bp, or at level but not widening", "spread >= 25 bp and +10 bp over 5 publications", "spread >= 75 bp", "trips >=75 bp"},
 	RegimeIndicatorUSDJPY:    {"usd_jpy_carry_proxy_v1", "yen strengthening < 1% over the week", "yen strengthening 1-2% over the week", "yen strengthening >= 2% over the week", "trips yen +2%/week"},
 	RegimeIndicatorGammaZero: {"dealer_gamma_v3", "spot > 2% above gamma-zero or profile wholly long-gamma", "spot within +/-2% of gamma-zero or mixed gamma profile", "spot > 2% below gamma-zero, profile wholly short-gamma, or dominant/equal exposure is amplifying", "trips spot >2% below gamma-zero"},
 	RegimeIndicatorBreadth:   {"spx_breadth_50dma_v1", "SPX members above 50-DMA > 55%", "40% <= members above 50-DMA <= 55%", "members above 50-DMA < 40%", "trips <40% (50d)"},

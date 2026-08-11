@@ -130,7 +130,7 @@ func (fundingStressStreaks) bandAndValue(res *rpc.RegimeSnapshotResult) (string,
 	if res.FundingStress.Status != rpc.RegimeStatusOK && res.FundingStress.Status != rpc.RegimeStatusStale {
 		return "", 0
 	}
-	band := classifyFundingStressBand(res.FundingStress.SpreadBps)
+	band := classifyFundingStressBand(res.FundingStress.SpreadBps, res.FundingStress.Change5Bps)
 	var value float64
 	if res.FundingStress.SpreadBps != nil {
 		value = *res.FundingStress.SpreadBps

@@ -515,17 +515,30 @@ func classifyCreditSpreadsBand(r rpc.RegimeCreditSpreads) string {
 	return "green"
 }
 
-func classifyFundingStressBand(spreadBps *float64) string {
+// classifyFundingStressBand applies funding_cp_tbill_v2: amber is a
+// transition, not a zone. The spread's calm level ranged 6-31 bp across rate
+// regimes, so the v1 static 25 bp gate was amber on 26.6% of calm days in an
+// 11-year replay; requiring the level AND a +10 bp rise over the last five CP
+// publications cuts that to 5.3% with no measured onset cost (funding
+// confirmed late in every 2020+ event under any definition). Red at 75 bp is
+// untouched — it fired 10 days in 11 years, 8 of them March 2020. A missing
+// rise is a data defect and holds amber, matching vvix_daily_v2. Operator
+// decision 2026-08-11 (replay tradeoff presented and signed).
+const fundingRise5Bps = 10.0
+
+func classifyFundingStressBand(spreadBps, rise5Bps *float64) string {
 	if spreadBps == nil {
 		return ""
 	}
 	switch {
+	case *spreadBps >= 75:
+		return "red"
 	case *spreadBps < 25:
 		return "green"
-	case *spreadBps < 75:
+	case rise5Bps == nil || *rise5Bps >= fundingRise5Bps:
 		return "yellow"
 	default:
-		return "red"
+		return "green"
 	}
 }
 

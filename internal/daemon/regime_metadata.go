@@ -231,9 +231,15 @@ func fundingBandReason(r rpc.RegimeFundingStress) string {
 	}
 	switch bandForFundingStress(r) {
 	case "green":
+		if r.SpreadBps != nil && *r.SpreadBps >= 25 {
+			return ">=25bp but not widening"
+		}
 		return "<25bp"
 	case "yellow":
-		return "25-75bp"
+		if r.Change5Bps == nil {
+			return ">=25bp, 5-publication rise unknown"
+		}
+		return ">=25bp and widening"
 	case "red":
 		return ">=75bp funding stress"
 	default:

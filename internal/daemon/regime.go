@@ -1142,7 +1142,7 @@ const (
 	fredSeriesTBill3M = "DTB3"
 )
 
-const fundingStressNotes = "Funding stress proxy from the OFR FSI source set: 90-day AA financial commercial paper rate minus 13-week Treasury bill bank-discount rate. The commercial-paper leg comes from the Federal Reserve Commercial Paper Data Download Program; the bill leg comes from U.S. Treasury Daily Treasury Bill Rates. Units are basis points. Default heuristic bands: <25 bp green, 25-75 bp yellow, >75 bp red. This is a slow daily funding/liquidity check, not an intraday funding-stress detector. Confirmation gate: the 75 bp red level is the depth gate; a fresh red confirms after 1 session."
+const fundingStressNotes = "Funding stress proxy from the OFR FSI source set: 90-day AA financial commercial paper rate minus 13-week Treasury bill bank-discount rate. The commercial-paper leg comes from the Federal Reserve Commercial Paper Data Download Program; the bill leg comes from U.S. Treasury Daily Treasury Bill Rates. Units are basis points. Bands (funding_cp_tbill_v2): green below 25 bp, or at 25-75 bp without a rise; yellow when at or above 25 bp AND up at least 10 bp over the last five CP publications (amber is a transition, not a resting zone — the calm-level range spans rate regimes, and the v1 static band was amber on 26.6% of calm days in an 11-year replay); red at or above 75 bp regardless of trend. A missing five-publication change holds yellow at level rather than softening the warning. This is a slow daily funding/liquidity check that confirms rather than leads equity-driven stress. Confirmation gate: the 75 bp red level is the depth gate; a fresh red confirms after 1 session."
 
 func fetchRegimeFundingStress(ctx context.Context, deps *regimeDeps) rpc.RegimeFundingStress {
 	out := rpc.RegimeFundingStress{
@@ -1185,6 +1185,16 @@ func fetchRegimeFundingStress(ctx context.Context, deps *regimeDeps) rpc.RegimeF
 	out.TBill3M = new(tb.Value)
 	spread := (cp.Value - tb.Value) * 100
 	out.SpreadBps = &spread
+	// Spread five CP publications back, on the sparse leg's own dates with
+	// the newest bill print at or before each one — the same join the
+	// funding_cp_tbill_v2 calibration replay used.
+	if cp5, ok := laggedSeriesPoint(cpPoints, 5); ok {
+		if bill5, ok := latestSeriesPointAtOrBefore(tbPoints, cp5.Date, 3); ok {
+			prior := (cp5.Value - bill5.Value) * 100
+			rise := spread - prior
+			out.Change5Bps = &rise
+		}
+	}
 	asOf := minTime(cp.Date, tb.Date)
 	out.AsOfDate = asOf.Format("2006-01-02")
 	out.CP3MQuality = officialDailyQuality(cp.Date, "Federal Reserve Commercial Paper DDP RIFSPPFAAD90_N.B")

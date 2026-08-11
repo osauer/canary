@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -305,6 +306,23 @@ func laggedSeriesPoint(points []regimeSeriesPoint, observationsBack int) (regime
 		return regimeSeriesPoint{}, false
 	}
 	return points[len(points)-1-observationsBack], true
+}
+
+// latestSeriesPointAtOrBefore finds the newest observation dated at or before
+// the given day, within slackDays calendar days — the tolerance a two-legged
+// join allows before the legs stop describing the same market moment.
+func latestSeriesPointAtOrBefore(points []regimeSeriesPoint, day time.Time, slackDays int) (regimeSeriesPoint, bool) {
+	cutoff := day.AddDate(0, 0, -slackDays)
+	for _, point := range slices.Backward(points) {
+		if point.Date.After(day) {
+			continue
+		}
+		if point.Date.Before(cutoff) {
+			return regimeSeriesPoint{}, false
+		}
+		return point, true
+	}
+	return regimeSeriesPoint{}, false
 }
 
 func seriesObservationAge(date time.Time, now time.Time) time.Duration {

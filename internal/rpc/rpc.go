@@ -1335,6 +1335,7 @@ type RegimeFundingStress struct {
 	CP3M           *float64    `json:"cp_3m_rate"`
 	TBill3M        *float64    `json:"tbill_3m_rate"`
 	SpreadBps      *float64    `json:"spread_bps"`
+	Change5Bps     *float64    `json:"change_5obs_bps,omitempty"` // spread now minus five CP publications back; funding_cp_tbill_v2 amber input
 	AsOfDate       string      `json:"as_of_date,omitempty"`
 	Source         string      `json:"source,omitempty"`
 	Notes          string      `json:"notes,omitempty"`

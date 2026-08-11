@@ -560,7 +560,7 @@ func bandForFundingStress(r rpc.RegimeFundingStress) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
 	}
-	return classifyFundingStressBand(r.SpreadBps)
+	return classifyFundingStressBand(r.SpreadBps, r.Change5Bps)
 }
 
 // bandForUSDJPY classifies the USD/JPY row. Unranked on
