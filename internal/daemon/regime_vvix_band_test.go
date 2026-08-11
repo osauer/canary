@@ -1,6 +1,10 @@
 package daemon
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+)
 
 // vvix_daily_v2: amber is a transition (level AND 5-session rise), never a
 // resting zone; red at 110 ignores trend; a missing rise holds amber at
@@ -27,6 +31,34 @@ func TestClassifyVolOfVolBandV2(t *testing.T) {
 		if got := classifyVolOfVolBand(tc.vvix, tc.rise5d); got != tc.want {
 			t.Errorf("%s: band = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// The funding fetcher must serve the five-publication rise the v2 band keys
+// on: CP-dated observations joined to the newest bill print at or before each
+// date, within the calibration replay's three-day slack.
+func TestFetchRegimeFundingStressComputesChange5(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2026, 8, d, 0, 0, 0, 0, time.UTC) }
+	cp := []regimeSeriesPoint{}
+	bill := []regimeSeriesPoint{}
+	// Business days Jul 28 .. Aug 10 style: 3,4,5,6,7,10 plus three prior.
+	for i, d := range []int{1, 4, 5, 6, 7, 8, 10} {
+		cp = append(cp, regimeSeriesPoint{Date: day(d), Value: 3.80 + float64(i)*0.01})
+		bill = append(bill, regimeSeriesPoint{Date: day(d), Value: 3.70})
+	}
+	deps := &regimeDeps{officialSeries: func(_ context.Context, id string) ([]regimeSeriesPoint, error) {
+		if id == fredSeriesCP3M {
+			return cp, nil
+		}
+		return bill, nil
+	}}
+	out := fetchRegimeFundingStress(context.Background(), deps)
+	if out.SpreadBps == nil || out.Change5Bps == nil {
+		t.Fatalf("spread=%v change5=%v, want both computed (status %s %s)", out.SpreadBps, out.Change5Bps, out.Status, out.ErrorMessage)
+	}
+	// Latest Aug 10 spread 16bp minus five publications back (Aug 4) 11bp.
+	if got := *out.Change5Bps; got < 4.9 || got > 5.1 {
+		t.Fatalf("change5 = %.2f bp, want ~5", got)
 	}
 }
 

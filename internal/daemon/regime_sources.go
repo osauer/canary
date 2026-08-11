@@ -136,19 +136,31 @@ func parseFedDDPSeriesCSV(r io.Reader, valueColumn string) ([]regimeSeriesPoint,
 
 func fetchTreasury13WeekBill(ctx context.Context) ([]regimeSeriesPoint, error) {
 	now := time.Now().UTC()
-	months := []string{now.Format("200601"), now.AddDate(0, -1, 0).Format("200601")}
+	// The previous AND current month merge into one series. The funding
+	// row's five-publication replay walks the sparse CP leg across month
+	// starts (CP prints carry ND gaps), and a current-month-only bill file
+	// left the join without an at-or-before print for the first days of
+	// every month — the v2 rise read nil exactly then.
+	months := []string{now.AddDate(0, -1, 0).Format("200601"), now.Format("200601")}
+	merged := []regimeSeriesPoint{}
 	var lastErr error
 	for _, month := range months {
 		points, err := fetchTreasury13WeekBillMonth(ctx, month)
-		if err == nil && len(points) > 0 {
-			return points, nil
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		lastErr = err
+		merged = append(merged, points...)
 	}
-	if lastErr != nil {
-		return nil, lastErr
+	if len(merged) == 0 {
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, fmt.Errorf("treasury 13-week bill XML contained no usable observations")
 	}
-	return nil, fmt.Errorf("treasury 13-week bill XML contained no usable observations")
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Date.Before(merged[j].Date) })
+	merged = slices.CompactFunc(merged, func(a, b regimeSeriesPoint) bool { return a.Date.Equal(b.Date) })
+	return merged, nil
 }
 
 func fetchTreasury13WeekBillMonth(ctx context.Context, month string) ([]regimeSeriesPoint, error) {
