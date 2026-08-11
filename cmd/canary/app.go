@@ -178,6 +178,7 @@ func runAppServeWithIO(args []string, stdout, stderr io.Writer) int {
 	remote := fs.Bool("remote", opts.Remote, "enable the outbound Cloudflare Worker relay")
 	remoteURL := fs.String("remote-url", opts.RemoteURL, "Cloudflare Worker relay base URL")
 	stateDir := fs.String("state-dir", opts.StateDir, "local app state directory")
+	previewReadGrant := fs.Bool("preview-read-grant", false, "serve read-only views to unpaired loopback browsers (isolated preview instances only; refuses a non-loopback --addr)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			usage()
@@ -199,6 +200,7 @@ func runAppServeWithIO(args []string, stdout, stderr io.Writer) int {
 		opts.PublicURL = mobileapp.PublicURLForAddr(opts.Addr)
 	}
 	opts.StateDir = strings.TrimSpace(*stateDir)
+	opts.PreviewReadGrant = *previewReadGrant
 
 	app, err := mobileapp.New(opts)
 	if err != nil {

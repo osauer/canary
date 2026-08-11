@@ -70,6 +70,7 @@ function applyBootstrap(data) {
   state.snapshot = data.snapshot;
   state.appVersion = String(data.version || "");
   state.authenticated = Boolean(data.auth?.authenticated);
+  state.readOnlyPreview = Boolean(data.auth?.read_only);
   state.settings = data.settings || data.snapshot?.settings || state.settings;
   if (state.snapshot && state.settings) state.snapshot.settings = state.settings;
   state.alertSettings = data.alert_settings || state.alertSettings;

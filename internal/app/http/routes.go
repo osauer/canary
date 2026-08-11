@@ -39,6 +39,12 @@ type Dependencies struct {
 	PublicURL       string
 	Version         string
 	AlertController AlertDeliveryController
+	// Addr is the listen address; the preview read grant derives its exact
+	// allowed Host values from it and stays disabled when it is unparsable.
+	Addr string
+	// PreviewReadGrant lets unpaired loopback browsers reach GET read routes.
+	// See the preview read grant contract in previewread.go.
+	PreviewReadGrant bool
 }
 
 // AlertDeliveryController serializes every production mode or target-topology
@@ -52,18 +58,29 @@ type AlertDeliveryController interface {
 }
 
 type handler struct {
-	deps Dependencies
-	web  nethttp.Handler
+	deps        Dependencies
+	web         nethttp.Handler
+	readHosts   []string
+	readOrigins []string
 }
 
 type contextKey string
 
-const sessionKey contextKey = "canary-app-session"
+const (
+	sessionKey  contextKey = "canary-app-session"
+	readOnlyKey contextKey = "canary-app-read-only"
+)
 
 // Register installs the embedded SPA, pairing, authenticated read, settings,
 // preview, and paired-device action routes on deps.Server.
 func Register(deps Dependencies) {
 	h := &handler{deps: deps}
+	if deps.PreviewReadGrant {
+		h.readHosts = previewReadHosts(deps.Addr)
+		for _, host := range h.readHosts {
+			h.readOrigins = append(h.readOrigins, "http://"+host)
+		}
+	}
 	sub, err := fs.Sub(appweb.Files, ".")
 	if err != nil {
 		panic(err)
@@ -96,25 +113,25 @@ func Register(deps Dependencies) {
 	srv.POST("/api/auth/challenge", h.handleAuthChallenge)
 	srv.POST("/api/auth/session", h.handleAuthSession)
 
-	srv.GET("/api/bootstrap", h.requireAuth(h.handleBootstrap))
-	srv.GET("/api/snapshot", h.requireAuth(h.handleSnapshot))
-	srv.GET("/api/settings", h.requireAuth(h.handleGetSettings))
+	srv.GET("/api/bootstrap", h.requireRead(h.handleBootstrap))
+	srv.GET("/api/snapshot", h.requireRead(h.handleSnapshot))
+	srv.GET("/api/settings", h.requireRead(h.handleGetSettings))
 	srv.PATCH("/api/settings", h.requireAuth(h.handlePatchSettings))
-	srv.GET("/api/market-calendar", h.requireAuth(h.handleMarketCalendar))
-	srv.GET("/api/events", h.requireAuth(h.handleEvents))
-	srv.GET("/api/alerts/settings", h.requireAuth(h.handleGetAlertSettings))
+	srv.GET("/api/market-calendar", h.requireRead(h.handleMarketCalendar))
+	srv.GET("/api/events", h.requireRead(h.handleEvents))
+	srv.GET("/api/alerts/settings", h.requireRead(h.handleGetAlertSettings))
 	srv.PUT("/api/alerts/settings", h.requireAuth(h.handlePutAlertSettings))
-	srv.GET("/api/alerts", h.requireAuth(h.handleAlerts))
-	srv.GET("/api/alerts/attention", h.requireAuth(h.handleAlertAttention))
+	srv.GET("/api/alerts", h.requireRead(h.handleAlerts))
+	srv.GET("/api/alerts/attention", h.requireRead(h.handleAlertAttention))
 	srv.POST("/api/alerts/attention/read", h.requireAuth(h.handleAlertAttentionRead))
-	srv.GET("/api/orders/open", h.requireAuth(h.handleOrdersOpen))
-	srv.GET("/api/orders/{id}", h.requireAuth(h.handleOrderStatus))
+	srv.GET("/api/orders/open", h.requireRead(h.handleOrdersOpen))
+	srv.GET("/api/orders/{id}", h.requireRead(h.handleOrderStatus))
 	srv.POST("/api/orders/{id}/cancel", h.requireAuth(h.handleOrderCancel))
 	srv.POST("/api/orders/{id}/preview-modify", h.requireAuth(h.handleOrderPreviewModify))
 	srv.POST("/api/orders/{id}/modify", h.requireAuth(h.handleOrderModify))
 	srv.POST("/api/strategies/preview", h.requireAuth(h.handleStrategyPreview))
 	srv.POST("/api/strategies/submit", h.requireAuth(h.handleStrategySubmit))
-	srv.GET("/api/proposals", h.requireAuth(h.handleProposalsSnapshot))
+	srv.GET("/api/proposals", h.requireRead(h.handleProposalsSnapshot))
 	srv.POST("/api/proposals/refresh", h.requireAuth(h.handleProposalsRefresh))
 	srv.POST("/api/proposals/preview", h.requireAuth(h.handleProposalsPreview))
 	srv.POST("/api/proposals/submit", h.requireAuth(h.handleProposalsSubmit))
@@ -124,12 +141,12 @@ func Register(deps Dependencies) {
 	srv.POST("/api/proposals/reduce-portfolio/submit", h.requireAuth(h.handleProposalsReducePortfolioSubmit))
 	srv.POST("/api/proposals/request-stop", h.requireAuth(h.handleProposalsRequestStop))
 	srv.POST("/api/proposals/ignore", h.requireAuth(h.handleProposalsIgnore))
-	srv.GET("/api/opportunities", h.requireAuth(h.handleOpportunitiesSnapshot))
+	srv.GET("/api/opportunities", h.requireRead(h.handleOpportunitiesSnapshot))
 	srv.POST("/api/opportunities/refresh", h.requireAuth(h.handleOpportunitiesRefresh))
 	srv.POST("/api/opportunities/preview-exercise", h.requireAuth(h.handleOpportunitiesPreviewExercise))
 	srv.POST("/api/opportunities/exercise", h.requireAuth(h.handleOpportunitiesSubmitExercise))
 	srv.POST("/api/opportunities/ignore", h.requireAuth(h.handleOpportunitiesIgnore))
-	srv.GET("/api/recon/status", h.requireAuth(h.handleReconcileStatus))
+	srv.GET("/api/recon/status", h.requireRead(h.handleReconcileStatus))
 	srv.POST("/api/recon/check", h.requireAuth(h.handleReconcileCheck))
 	srv.POST("/api/push/subscribe", h.requireAuth(h.handlePushSubscribe))
 	srv.DELETE("/api/push/{id}", h.requireAuth(h.handlePushDelete))
@@ -657,22 +674,43 @@ func (h *handler) handleSafePushTest(w nethttp.ResponseWriter, r *nethttp.Reques
 
 func (h *handler) requireAuth(next nethttp.HandlerFunc) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		token := bearerToken(r)
-		if token == "" {
-			if c, err := r.Cookie("ibkr_app_session"); err == nil {
-				token = c.Value
-			}
-		}
-		sess, ok := h.deps.Auth.Authenticate(token)
-		if !ok {
-			sess, ok = h.deviceCookieSession(w, r)
-		}
+		sess, ok := h.authenticatedSession(w, r)
 		if !ok {
 			writeError(w, nethttp.StatusUnauthorized, "unauthorized")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), sessionKey, sess)))
 	}
+}
+
+// requireRead protects GET read routes: a paired-device session as in
+// requireAuth, or the preview read grant for unpaired loopback browsers.
+func (h *handler) requireRead(next nethttp.HandlerFunc) nethttp.HandlerFunc {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if sess, ok := h.authenticatedSession(w, r); ok {
+			next(w, r.WithContext(context.WithValue(r.Context(), sessionKey, sess)))
+			return
+		}
+		if h.previewReadGranted(r) {
+			next(w, r.WithContext(context.WithValue(r.Context(), readOnlyKey, true)))
+			return
+		}
+		writeError(w, nethttp.StatusUnauthorized, "unauthorized")
+	}
+}
+
+func (h *handler) authenticatedSession(w nethttp.ResponseWriter, r *nethttp.Request) (auth.Session, bool) {
+	token := bearerToken(r)
+	if token == "" {
+		if c, err := r.Cookie("ibkr_app_session"); err == nil {
+			token = c.Value
+		}
+	}
+	sess, ok := h.deps.Auth.Authenticate(token)
+	if !ok {
+		sess, ok = h.deviceCookieSession(w, r)
+	}
+	return sess, ok
 }
 
 // deviceCookieSession mints a session from the long-lived device cookie.
@@ -707,6 +745,11 @@ func (h *handler) session(r *nethttp.Request) (auth.Session, bool) {
 func (h *handler) authStatus(r *nethttp.Request) map[string]any {
 	sess, ok := h.session(r)
 	if !ok {
+		// The preview read grant is authenticated enough to render: without
+		// this the SPA would show the pairing screen over data it already has.
+		if granted, _ := r.Context().Value(readOnlyKey).(bool); granted {
+			return map[string]any{"authenticated": true, "read_only": true}
+		}
 		return map[string]any{"authenticated": false}
 	}
 	device, _ := h.deps.Store.Device(sess.DeviceID)

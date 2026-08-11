@@ -38,6 +38,11 @@ type Options struct {
 	PairingTTL       time.Duration
 	PollEvery        time.Duration
 	StressEvery      time.Duration
+	// PreviewReadGrant serves GET read routes to unpaired loopback browsers so
+	// an isolated preview instance renders without a pairing round-trip.
+	// Mutating routes still require a paired device. [New] refuses this option
+	// on a non-loopback listen address; the shared LAN host must never carry it.
+	PreviewReadGrant bool
 }
 
 // DefaultOptions returns environment-aware defaults for an app host serving

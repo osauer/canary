@@ -46,6 +46,9 @@ func New(opts Options) (*App, error) {
 	if opts.Addr == "" {
 		opts = DefaultOptions(opts.Version)
 	}
+	if opts.PreviewReadGrant && !loopbackBindAddr(opts.Addr) {
+		return nil, errors.New("preview read grant requires a loopback listen address; it must never run on the shared LAN host")
+	}
 	lock, err := acquireAppLock(opts.StateDir)
 	if err != nil {
 		return nil, err
@@ -169,15 +172,17 @@ func newWithParts(opts Options, store *state.Store, authMgr *auth.Manager, daemo
 		Server:  srv,
 	}
 	apphttp.Register(apphttp.Dependencies{
-		Server:          srv,
-		Store:           store,
-		Auth:            authMgr,
-		Daemon:          daemonClient,
-		Live:            liveSvc,
-		Relay:           relayClient,
-		PublicURL:       opts.PublicURL,
-		Version:         opts.Version,
-		AlertController: alertController,
+		Server:           srv,
+		Store:            store,
+		Auth:             authMgr,
+		Daemon:           daemonClient,
+		Live:             liveSvc,
+		Relay:            relayClient,
+		PublicURL:        opts.PublicURL,
+		Version:          opts.Version,
+		AlertController:  alertController,
+		Addr:             opts.Addr,
+		PreviewReadGrant: opts.PreviewReadGrant,
 	})
 	return a, nil
 }

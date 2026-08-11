@@ -4,28 +4,26 @@ description: Bring up the Canary SPA in the Claude Code preview pane. Use when a
 ---
 
 Isolated Canary SPA instance in the preview pane — never the shared LAN host.
-Three tool calls, nothing else:
+One tool call, nothing else:
 
-1. `preview_start` launch config `canary-app`; take `port` from the result
-   (autoPort — 8766 only when free).
-2. `sh .claude/skills/canary-preview/pair.sh <port>` — prints the pairing URL,
-   one line. Always run it, even when the server was `reused`; re-pairing is
-   idempotent and cheaper than probing whether the tab is still paired.
-3. `navigate` the preview tab to that URL.
+1. `preview_start` launch config `canary-app`.
 
-Done when the navigate result itself shows the tab at `http://127.0.0.1:<port>`
-titled `Canary`. That is the whole proof — no `read_page`, no screenshot, no
-console check; the user sees the pane. Report success in one line.
+The instance runs with `--preview-read-grant`, so the tab the harness opens
+renders the app read-only immediately — no pairing, no navigate. Done when the
+`preview_start` result shows the tab open at the assigned port (autoPort —
+8766 only when free). That is the whole proof — no `read_page`, no screenshot,
+no console check; the user sees the pane. Report success in one line.
+
+Only when a session must exercise paired-device action flows in the preview,
+pair on top: `sh .claude/skills/canary-preview/pair.sh <port>` prints a
+pairing URL; `navigate` the tab to it. Never submit broker writes from the
+browser regardless of pairing — browser QA is read-only by project rule.
 
 Guardrails:
-- The `preview_start` tab auto-opens at the unpaired app origin before any
-  token exists. That first load is harness behavior and expected — do not
-  probe it, verify it, or reorder around it. Pairing cannot precede the
-  server: `canary app pair` mints by POSTing the running instance.
 - Never adopt, kill, or bind the shared `0.0.0.0:8765` host — it is phone-paired
   over LAN; touching it breaks pairing.
 - Blank preview with zero console errors = no server running (the Launch panel
   falls back to a static `file://` load whose absolute-path assets can't
-  resolve). Start `canary-app` and re-pair; don't debug the SPA.
-- After editing `web/app`: `make install`, restart the preview server, re-pair —
-  the instance serves the installed binary, not loose source.
+  resolve). Start `canary-app`; don't debug the SPA.
+- After editing `web/app`: `make install`, restart the preview server — the
+  instance serves the installed binary, not loose source.

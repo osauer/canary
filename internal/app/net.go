@@ -57,6 +57,19 @@ func isWildcardHost(host string) bool {
 	return host == "" || host == "0.0.0.0" || host == "::"
 }
 
+// loopbackBindAddr reports whether addr binds only the loopback interface.
+func loopbackBindAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func firstLANIPv4(addrs interfaceAddrsFunc) string {
 	if addrs == nil {
 		return ""

@@ -251,6 +251,11 @@ func newTestHandlerWithClient(t *testing.T, fakeClient daemonclient.Client) *hyp
 
 func newTestHandlerWithClientAndRelay(t *testing.T, fakeClient daemonclient.Client, relayClient relay.Client) *hyperserve.Server {
 	t.Helper()
+	return newTestHandlerWithDependencies(t, fakeClient, relayClient, nil)
+}
+
+func newTestHandlerWithDependencies(t *testing.T, fakeClient daemonclient.Client, relayClient relay.Client, mutate func(*Dependencies)) *hyperserve.Server {
+	t.Helper()
 	store, err := state.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -271,7 +276,7 @@ func newTestHandlerWithClientAndRelay(t *testing.T, fakeClient daemonclient.Clie
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	Register(Dependencies{
+	deps := Dependencies{
 		Server:          srv,
 		Store:           store,
 		Auth:            authMgr,
@@ -281,7 +286,11 @@ func newTestHandlerWithClientAndRelay(t *testing.T, fakeClient daemonclient.Clie
 		PublicURL:       "https://relay.example",
 		Version:         "test-version",
 		AlertController: alertController,
-	})
+	}
+	if mutate != nil {
+		mutate(&deps)
+	}
+	Register(deps)
 	return srv
 }
 

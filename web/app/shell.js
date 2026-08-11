@@ -100,6 +100,7 @@ function renderTopbar(snap) {
   const line = $("connectionLine");
   const strip = document.querySelector(".market-strip");
   line.textContent = label.side || label.text || state.connectionText;
+  if (state.readOnlyPreview) line.textContent += " · read-only";
   line.classList.remove("market-open", "market-closed", "market-warn");
   strip?.classList.remove("market-open", "market-closed", "market-warn");
   if (label.tone) {
