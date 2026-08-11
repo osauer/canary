@@ -146,8 +146,20 @@ run_case path-arg-grep 0 "$live_ready" none 'grep -n ibkr hooks/canary-pre-tool-
 # Quote normalization strips the pattern's quotes before tokenizing, so a
 # retired spelling inside a search pattern must still read as an argument.
 run_case pattern-arg-quoted 0 "$live_ready" none "grep -cE 'legacy/ibkr' Makefile"
+run_case repo-path-grep 0 "$live_ready" none 'grep -rln "pattern" /Users/osauer/dev/ibkr --include="*_test.go"'
 run_case path-arg-canary 0 "$live_ready" none 'git -C /srv/canary log --oneline -3'
 run_case path-arg-then-write 2 "$live_ready" none 'git -C /Users/osauer/dev/ibkr status; canary settings set trading.freeze=true'
+
+# Quoted and escaped separators are data, not command boundaries: a search
+# pattern or commit message mentioning the retired name after `|` or `;`
+# is not an invocation, while the same name reached through quoting at a
+# real command position still is.
+run_case pattern-arg-alternation 0 "$live_ready" none 'grep -n "retired\|ibkr" hooks/canary-pre-tool-use.sh'
+run_case pattern-arg-ere-alternation 0 "$live_ready" none 'grep -rlnE "canary|ibkr" docs --include="*_test.go"'
+run_case commit-msg-separator 0 "$live_ready" none 'git commit -m "retire the spelling; ibkr is gone"'
+run_case sh-c-quoted-pattern 0 "$live_ready" none "bash -c \"grep -c 'a|ibkr' Makefile\""
+run_case retired-quoted-name 2 "$live_ready" none '"ibkr" status --json'
+run_case retired-dquote-subshell 2 "$live_ready" none 'echo "$(ibkr status --json)"'
 
 # A bare `cd` into the primary working directory must pass. Substring matching
 run_case cd-primary-tree 0 "$live_ready" none 'cd /Users/osauer/dev/ibkr'

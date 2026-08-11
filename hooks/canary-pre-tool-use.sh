@@ -48,8 +48,11 @@ command_line="$(
 
 command_line="${command_line#"${command_line%%[![:space:]]*}"}"
 command_line="${command_line%"${command_line##*[![:space:]]}"}"
-# Normalize trivial quoting so quoted invocations cannot slip past the verb
-# matching below. `ibkr` is retained only as a retired anti-bypass spelling.
+# The raw line feeds the command-position scanner, which needs the quoting
+# intact to tell data from code. The has_re gates below then run with quotes
+# stripped so trivially quoted invocations cannot slip past the verb
+# matching. `ibkr` is retained only as a retired anti-bypass spelling.
+command_line_raw="$command_line"
 command_line="${command_line//\'/}"
 command_line="${command_line//\"/}"
 
@@ -59,45 +62,194 @@ has_re() {
 
 # A CLI name is an invocation only where a segment actually runs it. A path
 # argument that merely ends in the name — `git -C /Users/osauer/dev/ibkr status`
-# — is not, and blocking it broke read-only tooling. Segments begin at the head
-# and after every shell separator; environment prefixes, leading flags, and
-# wrapper words do not consume the position, so neither `FOO=1 canary …` nor a
-# `sh -c` payload can hide an invocation.
-cli_command_names() {
-  local line="$command_line" token sep
-  local -a tokens=()
-  line="${line//$'\n'/ ; }"
-  for sep in ';' '&' '|' '(' ')' '`' '{' '}'; do
-    line="${line//"$sep"/ $sep }"
-  done
-  read -r -a tokens <<<"$line"
-  if [[ "${#tokens[@]}" -eq 0 ]]; then
+# — is not, and neither is quoted data: `grep -n "retired\|ibkr" f` and a
+# commit message carrying "; ibkr" reach an exec in no shell, yet a
+# quote-blind scan promoted them to command position and broke read-only
+# tooling. The scanner therefore walks the raw line under shell quoting
+# rules: quoted and escaped separators stay data, a quoted name at command
+# position ("ibkr" status) still matches, `$(`/backtick substitutions open
+# command position even inside double quotes, and `sh -c` payloads re-enter
+# as nested command lines. Environment prefixes, leading flags, and wrapper
+# words do not consume the position, so neither `FOO=1 canary …` nor
+# `env ibkr …` can hide an invocation.
+scan_flush() {
+  local t="$scan_token" had="$scan_has_token"
+  local sep_chars=$' \t\n;&|(){}`'
+  scan_token=''
+  scan_has_token=0
+  if [[ -z "$t" && "$had" -eq 0 ]]; then
     return 0
   fi
-  local expect_command=1
-  for token in "${tokens[@]}"; do
-    case "$token" in
-    ';' | '&' | '|' | '(' | ')' | '`' | '{' | '}')
-      expect_command=1
-      continue
-      ;;
-    esac
-    if [[ "$expect_command" -ne 1 ]]; then
+  if [[ "$scan_expect" -ne 1 ]]; then
+    return 0
+  fi
+  if [[ "$t" == [[:alpha:]_]*=* || "$t" == -* ]]; then
+    return 0
+  fi
+  if [[ "$scan_shellc" -eq 1 && "$t" == *["$sep_chars"]* ]]; then
+    scan_shellc=0
+    scan_command_names "$t" "$((scan_depth + 1))"
+    scan_expect=0
+    return 0
+  fi
+  scan_shellc=0
+  case "${t##*/}" in
+  sh | bash | zsh | dash)
+    scan_shellc=1
+    return 0
+    ;;
+  command | builtin | exec | env | time | nohup | nice | ionice | stdbuf | sudo | doas | xargs)
+    return 0
+    ;;
+  ibkr | canary)
+    printf '%s\n' "${t##*/}"
+    ;;
+  esac
+  scan_expect=0
+}
+
+scan_sep() {
+  scan_expect=1
+  scan_shellc=0
+}
+
+scan_command_names() {
+  local scan_line="$1" scan_depth="${2:-0}"
+  if [[ "$scan_depth" -gt 4 ]]; then
+    return 0
+  fi
+  local scan_token='' scan_has_token=0 scan_expect=1 scan_shellc=0
+  local scan_state='' scan_stack='' rest top
+  local i=0 n=${#scan_line} ch nx
+  while [[ "$i" -lt "$n" ]]; do
+    ch="${scan_line:$i:1}"
+    if [[ "$scan_state" == "'" ]]; then
+      if [[ "$ch" == "'" ]]; then
+        scan_state=''
+      else
+        scan_token+="$ch"
+      fi
+      i=$((i + 1))
       continue
     fi
-    if [[ "$token" == [[:alpha:]_]*=* || "$token" == -* ]]; then
+    if [[ "$scan_state" == '"' ]]; then
+      case "$ch" in
+      '"')
+        scan_state=''
+        ;;
+      '\')
+        nx="${scan_line:$((i + 1)):1}"
+        if [[ -n "$nx" ]]; then
+          scan_token+="$nx"
+          i=$((i + 1))
+        fi
+        ;;
+      '`')
+        scan_flush
+        scan_sep
+        scan_stack+='G'
+        scan_state=''
+        ;;
+      '$')
+        if [[ "${scan_line:$((i + 1)):1}" == '(' ]]; then
+          scan_flush
+          scan_sep
+          scan_stack+='d'
+          scan_state=''
+          i=$((i + 1))
+        else
+          scan_token+="$ch"
+        fi
+        ;;
+      *)
+        scan_token+="$ch"
+        ;;
+      esac
+      i=$((i + 1))
       continue
     fi
-    case "${token##*/}" in
-    command | builtin | exec | env | time | nohup | nice | ionice | stdbuf | sudo | doas | xargs | sh | bash | zsh | dash)
-      continue
+    case "$ch" in
+    "'")
+      scan_state="'"
+      scan_has_token=1
       ;;
-    ibkr | canary)
-      printf '%s\n' "${token##*/}"
+    '"')
+      scan_state='"'
+      scan_has_token=1
+      ;;
+    '\')
+      nx="${scan_line:$((i + 1)):1}"
+      if [[ -n "$nx" ]]; then
+        if [[ "$nx" != $'\n' ]]; then
+          scan_token+="$nx"
+        fi
+        i=$((i + 1))
+      fi
+      ;;
+    ' ' | $'\t')
+      scan_flush
+      ;;
+    '$')
+      if [[ "${scan_line:$((i + 1)):1}" == '(' ]]; then
+        scan_flush
+        scan_sep
+        scan_stack+='p'
+        i=$((i + 1))
+      else
+        scan_token+="$ch"
+      fi
+      ;;
+    '(')
+      scan_flush
+      scan_sep
+      scan_stack+='p'
+      ;;
+    ')')
+      scan_flush
+      scan_sep
+      if [[ -n "$scan_stack" ]]; then
+        rest="${scan_stack%?}"
+        top="${scan_stack#"$rest"}"
+        scan_stack="$rest"
+        if [[ "$top" == 'd' ]]; then
+          scan_state='"'
+          scan_has_token=1
+        fi
+      fi
+      ;;
+    '`')
+      scan_flush
+      scan_sep
+      top=''
+      if [[ -n "$scan_stack" ]]; then
+        rest="${scan_stack%?}"
+        top="${scan_stack#"$rest"}"
+      fi
+      if [[ "$top" == 'g' ]]; then
+        scan_stack="$rest"
+      elif [[ "$top" == 'G' ]]; then
+        scan_stack="$rest"
+        scan_state='"'
+        scan_has_token=1
+      else
+        scan_stack+='g'
+      fi
+      ;;
+    $'\n' | ';' | '&' | '|' | '{' | '}')
+      scan_flush
+      scan_sep
+      ;;
+    *)
+      scan_token+="$ch"
       ;;
     esac
-    expect_command=0
+    i=$((i + 1))
   done
+  scan_flush
+}
+
+cli_command_names() {
+  scan_command_names "$command_line_raw" 0
 }
 
 # The write gates below stay deliberately broad: a name anywhere on the line
