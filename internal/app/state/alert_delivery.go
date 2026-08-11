@@ -43,6 +43,7 @@ const (
 	AlertDeliveryHealthClassNoSubscription = "no_active_subscription"
 	AlertDeliveryHealthClassSigningKeys    = "signing_keys_unavailable"
 	AlertDeliveryHealthClassSender         = "sender_unavailable"
+	AlertDeliveryHealthClassFuse           = "push_fuse_tripped"
 
 	AlertDeliveryEndRecovered  = "recovered"
 	AlertDeliveryEndOmitted    = "authoritative_omission"
@@ -2633,9 +2634,30 @@ func validAlertDeliveryHealth(health AlertDeliveryHealth) bool {
 
 func validAlertDeliveryPrerequisiteClass(class string) bool {
 	switch class {
-	case AlertDeliveryHealthClassNoSubscription, AlertDeliveryHealthClassSigningKeys, AlertDeliveryHealthClassSender:
+	case AlertDeliveryHealthClassNoSubscription, AlertDeliveryHealthClassSigningKeys, AlertDeliveryHealthClassSender, AlertDeliveryHealthClassFuse:
 		return true
 	default:
 		return false
 	}
+}
+
+// AcceptedAlertPushesSince counts push-service-accepted deliveries since the
+// given instant. It backs the runaway fuse: a guard against software
+// malfunction, never an alarm-policy cap — distinct real events are always
+// deliverable below the fuse rate.
+func (s *Store) AcceptedAlertPushesSince(since time.Time) int {
+	since = since.UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := s.data.AlertDelivery
+	if data == nil {
+		return 0
+	}
+	n := 0
+	for _, receipt := range data.Receipts {
+		if !receipt.AcceptedAt.IsZero() && !receipt.AcceptedAt.Before(since) {
+			n++
+		}
+	}
+	return n
 }

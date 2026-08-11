@@ -595,3 +595,33 @@ func assertExactPrivateFile(t *testing.T, path string, want []byte) {
 		t.Fatalf("preserved artifact mode=%v", info.Mode())
 	}
 }
+
+// The runaway fuse counts push-service-accepted receipts in its window. It
+// is a malfunction guard, not an alarm cap: distinct events below the fuse
+// rate always deliver, and the tripped class is a valid prerequisite health
+// value so the pause itself is published.
+func TestAcceptedAlertPushesSinceCountsReceiptWindow(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 11, 18, 0, 0, 0, time.UTC)
+	if got := store.AcceptedAlertPushesSince(now.Add(-24 * time.Hour)); got != 0 {
+		t.Fatalf("empty store accepted count = %d, want 0", got)
+	}
+	store.mu.Lock()
+	store.data.AlertDelivery = newAlertDeliveryData()
+	store.data.AlertDelivery.Receipts = []alertDeliveryReceipt{
+		{ReceiptKey: "in-window-1", AcceptedAt: now.Add(-time.Hour)},
+		{ReceiptKey: "in-window-2", AcceptedAt: now.Add(-23 * time.Hour)},
+		{ReceiptKey: "out-of-window", AcceptedAt: now.Add(-25 * time.Hour)},
+	}
+	store.mu.Unlock()
+	if got := store.AcceptedAlertPushesSince(now.Add(-24 * time.Hour)); got != 2 {
+		t.Fatalf("windowed accepted count = %d, want 2", got)
+	}
+	if !validAlertDeliveryPrerequisiteClass(AlertDeliveryHealthClassFuse) {
+		t.Fatal("fuse class must be a valid prerequisite health class")
+	}
+}

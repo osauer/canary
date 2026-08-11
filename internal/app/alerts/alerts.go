@@ -146,6 +146,17 @@ type transportReadiness struct {
 	keys          state.VAPIDKeys
 }
 
+// alertPushFuseMax and alertPushFuseWindow form the runaway fuse: a guard
+// against software malfunction (a flapping producer, a dispatch loop), never
+// an alarm-policy cap. Distinct real events always deliver below this rate —
+// operator decision 2026-08-11: four or five important events in a day must
+// all arrive. When the fuse trips, delivery pauses and the tripped class is
+// published in delivery health, so the suppression itself is loud.
+const (
+	alertPushFuseMax    = 12
+	alertPushFuseWindow = 24 * time.Hour
+)
+
 func (d *Dispatcher) refreshTransportReadinessLocked(now time.Time) (transportReadiness, error) {
 	readiness := transportReadiness{enabled: d.Store.AlertSettings().Mode != state.AlertModeNone}
 	if readiness.enabled {
@@ -160,6 +171,8 @@ func (d *Dispatcher) refreshTransportReadinessLocked(now time.Time) (transportRe
 				readiness.class = state.AlertDeliveryHealthClassSigningKeys
 			} else if d.Sender == nil {
 				readiness.class = state.AlertDeliveryHealthClassSender
+			} else if d.Store.AcceptedAlertPushesSince(now.Add(-alertPushFuseWindow)) >= alertPushFuseMax {
+				readiness.class = state.AlertDeliveryHealthClassFuse
 			}
 		}
 	}

@@ -162,6 +162,11 @@ type alertShadowScopeState struct {
 	lastProtection       alertShadowInputCursor
 	lastOrderIntegrity   alertShadowInputCursor
 	lastDataHealth       alertShadowInputCursor
+	// regimePagePrev is the previous regime observation's page rank
+	// (alertShadowRegimePageRank) for the two-snapshot hold. In-memory only:
+	// a daemon restart mid-stress costs at most one extra poll before the
+	// first page, which the hold already tolerates by design.
+	regimePagePrev       int
 	orderConfirmations   map[string]struct{}
 	pendingApplyFailures uint64
 	applied              bool
@@ -514,8 +519,14 @@ func (c *alertShadowComposer) ObserveRegime(ctx context.Context, scope alertShad
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
 	}
+	// Two-snapshot hold: a confirmed-stress act state pages only when the
+	// PREVIOUS regime observation was already page-worthy; panic pages
+	// immediately. An episode that already paged stays active through the
+	// hold because its own prior rank satisfies it.
+	pageRank := alertShadowRegimePageRank(result.Lifecycle)
+	heldOK := pageRank == 2 || (pageRank == 1 && state.regimePagePrev >= 1)
 	previous := state.sources[rpc.AlertSourceRegime]
-	state.sources[rpc.AlertSourceRegime] = alertShadowMapRegime(scope, result, observedAt, previousSeverity)
+	state.sources[rpc.AlertSourceRegime] = alertShadowMapRegime(scope, result, observedAt, previousSeverity, heldOK)
 	cursor := alertShadowInputCursor{AsOf: observedAt.UTC(), Fingerprint: inputFingerprint}
 	snapshot, err := c.applyLocked(ctx, state, observedAt, []rpc.AlertSource{rpc.AlertSourceRegime}, alertShadowCursorRegime, cursor)
 	if err != nil {
@@ -524,6 +535,7 @@ func (c *alertShadowComposer) ObserveRegime(ctx context.Context, scope alertShad
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 	state.lastRegime = cursor
+	state.regimePagePrev = pageRank
 	return snapshot, nil
 }
 
@@ -1152,7 +1164,7 @@ func alertShadowExpectedSourceSlice() []rpc.AlertSource {
 
 var alertShadowRegimeRequiredSources = [...]string{"breadth", "credit", "funding", "fx", "gamma", "vol"}
 
-func alertShadowMapRegime(scope alertShadowBrokerScope, result rpc.RegimeSnapshotResult, observedAt time.Time, previousSeverity rpc.AlertSeverity) alertShadowSourceBatch {
+func alertShadowMapRegime(scope alertShadowBrokerScope, result rpc.RegimeSnapshotResult, observedAt time.Time, previousSeverity rpc.AlertSeverity, heldOK bool) alertShadowSourceBatch {
 	policyFingerprint := opaqueIdentity("alert-shadow-regime-policy", "market-stress-v1")
 	batch := alertShadowSourceBatch{
 		Source: rpc.AlertSourceRegime, Status: alertShadowStatusUnavailable, Reason: alertShadowReasonSourceHealthUnavailable,
@@ -1187,6 +1199,9 @@ func alertShadowMapRegime(scope alertShadowBrokerScope, result rpc.RegimeSnapsho
 		return batch
 	}
 	if !active {
+		return batch
+	}
+	if !heldOK {
 		return batch
 	}
 	if result.AuthorityHealth == nil || result.AuthorityHealth.Status != rpc.RegimeAuthorityFresh {
@@ -1368,6 +1383,15 @@ func alertShadowRegimeSourceEvidence(result rpc.RegimeSnapshotResult, name strin
 	}
 }
 
+// alertShadowRegimeStagePolicy decides which lifecycle states mint an active
+// page-worthy episode. D2 (operator decision 2026-08-11): the page channel
+// inherits the composite's own eligibility discipline — only confirmed stress
+// at act severity and panic at act or urgent page; early-warning and every
+// watch-grade state are panel-and-brief surfaces, never pages. Replay
+// evidence: the 3,248 retained decisions (2026-07-20 → 08-11) carry 950
+// governor-held confirmed_stress@watch lines and this rule pages none of
+// them, while the two legitimate July VIX-shock act windows would each have
+// paged once.
 func alertShadowRegimeStagePolicy(lifecycle rpc.LifecycleState) (rpc.AlertSeverity, bool, bool) {
 	severity := rpc.AlertSeverity(strings.ToLower(strings.TrimSpace(lifecycle.Severity)))
 	if alertShadowSeverityRank(severity) < 0 {
@@ -1375,11 +1399,11 @@ func alertShadowRegimeStagePolicy(lifecycle rpc.LifecycleState) (rpc.AlertSeveri
 	}
 	switch lifecycle.Stage {
 	case rpc.LifecycleEarlyWarning:
-		return severity, true, severity == rpc.AlertSeverityWatch
+		return severity, false, severity == rpc.AlertSeverityWatch
 	case rpc.LifecycleConfirmedStress:
-		return severity, true, severity == rpc.AlertSeverityWatch || severity == rpc.AlertSeverityAct
+		return severity, severity == rpc.AlertSeverityAct, severity == rpc.AlertSeverityWatch || severity == rpc.AlertSeverityAct
 	case rpc.LifecyclePanic:
-		return severity, true, severity == rpc.AlertSeverityWatch || severity == rpc.AlertSeverityAct || severity == rpc.AlertSeverityUrgent
+		return severity, severity == rpc.AlertSeverityAct || severity == rpc.AlertSeverityUrgent, severity == rpc.AlertSeverityWatch || severity == rpc.AlertSeverityAct || severity == rpc.AlertSeverityUrgent
 	case rpc.LifecycleQuiet:
 		return severity, false, severity == rpc.AlertSeverityObserve
 	case rpc.LifecycleStabilization:
@@ -1391,6 +1415,20 @@ func alertShadowRegimeStagePolicy(lifecycle rpc.LifecycleState) (rpc.AlertSeveri
 	default:
 		return "", false, false
 	}
+}
+
+// alertShadowRegimePageRank orders page-worthiness for the two-snapshot hold:
+// 0 = not page-worthy, 1 = confirmed stress at act (held one snapshot before
+// paging), 2 = panic (pages immediately — the tape is its own co-sign).
+func alertShadowRegimePageRank(lifecycle rpc.LifecycleState) int {
+	_, active, valid := alertShadowRegimeStagePolicy(lifecycle)
+	if !valid || !active {
+		return 0
+	}
+	if lifecycle.Stage == rpc.LifecyclePanic {
+		return 2
+	}
+	return 1
 }
 
 func alertShadowSeverityRank(severity rpc.AlertSeverity) int {
