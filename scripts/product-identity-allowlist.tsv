@@ -3,7 +3,7 @@ old-cli-argv	.codex/rules/canary.rules	9	retired command anti-bypass patterns
 old-cli-command	.codex/rules/canary.rules	14	retired command anti-bypass examples
 old-mcp-resource	cmd/canary/mcp_test.go	1	negative MCP identity assertion
 old-product-path	cmd/canary/setup_test.go	1	negative setup migration assertion
-old-cli-command	hooks/canary-pre-tool-use_test.sh	9	retired command rejection cases, one per invocation shape
+old-cli-command	hooks/canary-pre-tool-use_test.sh	10	retired command rejection cases, one per invocation shape
 old-module-or-repository	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
 old-site	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
 old-mcp-server	internal/mcp/identity_contract_test.go	1	negative MCP identity assertion
