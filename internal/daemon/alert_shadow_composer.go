@@ -2901,6 +2901,14 @@ func alertShadowMapNudges(input alertShadowNudgeInput, observedAt time.Time) (ma
 			}
 			continue
 		}
+		// Housekeeping never pages: only capital protection mints an active
+		// alert episode from the nudge surface. Process kinds keep their nudge
+		// chip on the Brief tab and their Action Queue entry — this composer
+		// simply mints no page-worthy episode for them. Operator decision
+		// 2026-08-11 (companion to the D2 regime page policy).
+		if !alertNudgeKindPages(canonical.Kind) {
+			continue
+		}
 		severity, severityOK := alertShadowNudgeSeverity(canonical.Severity)
 		destination, destinationOK := alertShadowNudgeDestination(canonical.Destination)
 		if !severityOK || !destinationOK || !validAlertRegistryFingerprint(canonical.Fingerprint) {
@@ -3053,6 +3061,12 @@ func alertShadowNudgeStoreHealthValid(health rpc.NudgeInputHealth, asOf time.Tim
 	default:
 		return false, alertShadowReasonHealthError
 	}
+}
+
+// alertNudgeKindPages names the nudge kinds allowed to mint page-worthy alert
+// episodes. Exactly one qualifies: the drawdown latch — capital protection.
+func alertNudgeKindPages(kind string) bool {
+	return kind == rpc.NudgeKindDrawdownLatched
 }
 
 func alertShadowNudgeOwner(kind string) (rpc.AlertSource, rpc.AlertKind, bool) {

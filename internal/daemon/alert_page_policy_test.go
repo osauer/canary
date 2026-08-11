@@ -35,6 +35,22 @@ func TestAlertShadowRegimeStagePolicyPagesOnlyConfirmedActAndPanic(t *testing.T)
 	}
 }
 
+// Housekeeping never pages: of the whole nudge surface, only the drawdown
+// latch — capital protection — may mint a page-worthy episode.
+func TestAlertNudgeKindPagesOnlyCapitalProtection(t *testing.T) {
+	if !alertNudgeKindPages(rpc.NudgeKindDrawdownLatched) {
+		t.Fatal("drawdown latch must page")
+	}
+	for _, kind := range []string{
+		rpc.NudgeKindReconcileDue, rpc.NudgeKindReconcileException, rpc.NudgeKindPolicyDrift,
+		rpc.NudgeKindMonthlyPulse, rpc.NudgeKindShadowWouldBlock, rpc.NudgeKindConfirmedFlow,
+	} {
+		if alertNudgeKindPages(kind) {
+			t.Fatalf("housekeeping kind %q must not page", kind)
+		}
+	}
+}
+
 // The two-snapshot hold: confirmed-act ranks 1 (pages only after a prior
 // page-worthy observation), panic ranks 2 (pages immediately), everything
 // else ranks 0.

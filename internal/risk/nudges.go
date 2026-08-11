@@ -363,16 +363,24 @@ func resolveUniqueLocalInstant(location *time.Location, year int, month time.Mon
 	return matches[0], true
 }
 
+// nudgeKindDestination picks the presentation surface by KIND, never by
+// severity. Only capital protection lands on the Alerts surface — the paging
+// channel; every process/housekeeping kind lands on the Brief tab and the
+// Action Queue however urgent, because urgency orders the queue, it does not
+// pick the surface. Operator decision 2026-08-11: housekeeping never pages.
+func nudgeKindDestination(kind string) string {
+	if kind == NudgeKindDrawdownLatched {
+		return NudgeDestinationAlerts
+	}
+	return NudgeDestinationBrief
+}
+
 func newNudgeCandidate(kind, state string, occurredAt, dueAt, expiresAt time.Time, identity any) *NudgeCandidate {
 	title, body, severity := candidateTemplate(kind, state)
 	if title == "" {
 		return nil
 	}
-	// Process-kind nudges land on the Brief tab (the process artifact); only
-	destination := NudgeDestinationBrief
-	if severity == NudgeSeverityAct {
-		destination = NudgeDestinationAlerts
-	}
+	destination := nudgeKindDestination(kind)
 	return &NudgeCandidate{
 		Fingerprint: semanticNudgeFingerprint(kind, identity), Kind: kind, State: state,
 		Severity: severity, Title: title, Body: body, OccurredAt: occurredAt,
@@ -457,10 +465,7 @@ func CanonicalizeNudgeCandidate(candidate NudgeCandidate) (NudgeCandidate, error
 	candidate.Title = title
 	candidate.Body = body
 	candidate.Severity = severity
-	candidate.Destination = NudgeDestinationBrief
-	if severity == NudgeSeverityAct {
-		candidate.Destination = NudgeDestinationAlerts
-	}
+	candidate.Destination = nudgeKindDestination(candidate.Kind)
 	return candidate, nil
 }
 
