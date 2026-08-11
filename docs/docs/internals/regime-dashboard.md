@@ -95,16 +95,20 @@ stocks. HYG holds high-yield corporate bonds, meaning lower-rated company debt
 that behaves more like risk assets than Treasuries; SPY is the stock-market
 side of the comparison.
 
-HYG/SPY is the faster market proxy. HY/IG OAS is the slower official
-cash-credit read, comparing high-yield and investment-grade corporate bond
+HYG/SPY is the faster market proxy. The Credit spreads row is the slower
+official cash-credit read, comparing high-yield and investment-grade corporate bond
 spreads, where OAS means the extra yield investors demand over Treasuries after
 adjusting for bond options. Credit stress matters because equity rallies are
 less sturdy when lenders are already demanding more compensation for risk.
 
 HYG/SPY can still show a red row by itself. For the cluster count, that
-single proxy red is treated as a yellow watch unless cash credit is also red or
-another independent cluster is red. The row stays visible; it just does not get
-to call broad stress alone.
+single proxy red is treated as a yellow watch only when the official cash
+gauge affirmatively disagrees: a recent OAS read (within 5 calendar days)
+that is neither red nor widening 0.50 pp or more over 20 observations. Cash
+that is red, cash that is widening at that pace, an absent or stale official
+read, or another independent red cluster all leave the proxy red standing —
+unknown cash evidence never softens a live warning. The row stays visible
+either way; it just does not get to call broad stress alone.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
@@ -401,7 +405,8 @@ string:
 | --- | --- |
 | 0 red and 0-2 yellow | Normal regime |
 | 0 red and 3+ yellow | Elevated stress watch |
-| any visible red (eligible or provisional) below confirmation | Stress signal present |
+| provisional (unconfirmed) red only | Watch: one unconfirmed stress signal |
+| any eligible red below confirmation | Stress signal present |
 | stage `confirmed_stress`/`panic` (2 eligible reds, or 1 + tape) | Confirmed stress regime |
 | 3+ eligible red | Broad stress regime |
 | all ranked clusters eligible red | Full risk-off conditions |

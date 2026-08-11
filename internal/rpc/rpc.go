@@ -1267,11 +1267,12 @@ type RegimeHYGSPYDivergence struct {
 	SPYChangePct *float64 `json:"spy_change_pct,omitempty"` // (last − prev_close) / prev_close × 100
 	// SPYChangeBasis is the day-change provenance on closed dates. Empty on
 	// trading dates (live print vs tick-9 close).
-	SPYChangeBasis string   `json:"spy_change_basis,omitempty"`
-	HYGDataType    string   `json:"hyg_data_type,omitempty"`
-	Notes          string   `json:"notes,omitempty"`
-	ErrorMessage   string   `json:"error_message,omitempty"`
-	FieldsMissing  []string `json:"fields_missing,omitempty"`
+	SPYChangeBasis string          `json:"spy_change_basis,omitempty"`
+	HYGDataType    string          `json:"hyg_data_type,omitempty"`
+	HYGRange52W    *RegimeRange52W `json:"hyg_range_52w,omitempty"`
+	Notes          string          `json:"notes,omitempty"`
+	ErrorMessage   string          `json:"error_message,omitempty"`
+	FieldsMissing  []string        `json:"fields_missing,omitempty"`
 	// Per-scalar provenance. SPY52WHigh has two paths (live tick 165 vs
 	HYGQuality        *Quality `json:"hyg_quality,omitempty"`
 	HYG50DMAQuality   *Quality `json:"hyg_50dma_quality,omitempty"`
@@ -1281,19 +1282,30 @@ type RegimeHYGSPYDivergence struct {
 	Streak *StreakInfo `json:"streak,omitempty"`
 }
 
+// RegimeRange52W situates an indicator's latest reading inside its trailing
+// 52-week low-high range. Pos is 0 at the low and 100 at the high. It is
+// display context only — bands and gates never read it — and is omitted when
+// the available history does not actually span the year it claims.
+type RegimeRange52W struct {
+	Low  float64 `json:"low"`
+	High float64 `json:"high"`
+	Pos  float64 `json:"pos"`
+}
+
 // RegimeVolOfVol is the VVIX vol-of-vol row. It uses Cboe's official
 type RegimeVolOfVol struct {
 	RegimeIndicatorMeta
-	Status       string      `json:"status"`
-	Symbol       string      `json:"symbol,omitempty"` // "VVIX"
-	Last         *float64    `json:"last"`
-	Change20D    *float64    `json:"change_20d_pct,omitempty"` // (last − t-20) / t-20 × 100
-	AsOfDate     string      `json:"as_of_date,omitempty"`     // YYYY-MM-DD observation date
-	Source       string      `json:"source,omitempty"`
-	Notes        string      `json:"notes,omitempty"`
-	ErrorMessage string      `json:"error_message,omitempty"`
-	ValueQuality *Quality    `json:"value_quality,omitempty"`
-	Streak       *StreakInfo `json:"streak,omitempty"`
+	Status       string          `json:"status"`
+	Symbol       string          `json:"symbol,omitempty"` // "VVIX"
+	Last         *float64        `json:"last"`
+	Change20D    *float64        `json:"change_20d_pct,omitempty"` // (last − t-20) / t-20 × 100
+	AsOfDate     string          `json:"as_of_date,omitempty"`     // YYYY-MM-DD observation date
+	Range52W     *RegimeRange52W `json:"range_52w,omitempty"`
+	Source       string          `json:"source,omitempty"`
+	Notes        string          `json:"notes,omitempty"`
+	ErrorMessage string          `json:"error_message,omitempty"`
+	ValueQuality *Quality        `json:"value_quality,omitempty"`
+	Streak       *StreakInfo     `json:"streak,omitempty"`
 }
 
 // RegimeCreditSpreads is the official cash-credit companion to the HYG
@@ -1336,15 +1348,16 @@ type RegimeFundingStress struct {
 // RegimeUSDJPY is the FX-carry stress row: USD/JPY exchange rate. Spec measures
 type RegimeUSDJPY struct {
 	RegimeIndicatorMeta
-	Status        string   `json:"status"`
-	Symbol        string   `json:"symbol"` // "USD.JPY" canonical form
-	Last          *float64 `json:"last"`
-	Close7DAgo    *float64 `json:"close_7d_ago"`      // close from 7 trading days ago
-	WeeklyChange  *float64 `json:"weekly_change_pct"` // (last − close_7d_ago) / close_7d_ago × 100
-	DataType      string   `json:"data_type,omitempty"`
-	Notes         string   `json:"notes,omitempty"`
-	ErrorMessage  string   `json:"error_message,omitempty"`
-	FieldsMissing []string `json:"fields_missing,omitempty"`
+	Status        string          `json:"status"`
+	Symbol        string          `json:"symbol"` // "USD.JPY" canonical form
+	Last          *float64        `json:"last"`
+	Close7DAgo    *float64        `json:"close_7d_ago"`      // close from 7 trading days ago
+	WeeklyChange  *float64        `json:"weekly_change_pct"` // (last − close_7d_ago) / close_7d_ago × 100
+	Range52W      *RegimeRange52W `json:"range_52w,omitempty"`
+	DataType      string          `json:"data_type,omitempty"`
+	Notes         string          `json:"notes,omitempty"`
+	ErrorMessage  string          `json:"error_message,omitempty"`
+	FieldsMissing []string        `json:"fields_missing,omitempty"`
 	// Per-scalar provenance. Last is firm-live (or firm-frozen);
 	LastQuality       *Quality `json:"last_quality,omitempty"`
 	Close7DAgoQuality *Quality `json:"close_7d_ago_quality,omitempty"`

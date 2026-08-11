@@ -242,11 +242,11 @@ func CompactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 		SourceHealth:    compactSourceHealth(r.SourceHealth),
 		Indicators: []RegimeMonitorIndicator{
 			{Name: "VIX/VIX3M", Status: r.VIXTermStructure.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorVIXTerm), Band: r.VIXTermStructure.Band, AsOf: r.VIXTermStructure.AsOf, Reading: readingJoin(formatPtr("ratio", r.VIXTermStructure.Ratio), formatPtr("VIX", r.VIXTermStructure.VIX), formatPtr("VIX3M", r.VIXTermStructure.VIX3M)), Thresholds: r.VIXTermStructure.Thresholds, Eligibility: r.VIXTermStructure.Eligibility, FreshnessClass: freshnessClass(r.VIXTermStructure.Freshness)},
-			{Name: "VVIX", Status: r.VolOfVol.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorVolOfVol), Band: r.VolOfVol.Band, AsOf: regimeAsOf(r.VolOfVol.AsOf, r.VolOfVol.AsOfDate), Reading: readingJoin(formatPtr("last", r.VolOfVol.Last), formatPtr("20d", r.VolOfVol.Change20D)), Thresholds: r.VolOfVol.Thresholds, Eligibility: r.VolOfVol.Eligibility, FreshnessClass: freshnessClass(r.VolOfVol.Freshness)},
-			{Name: "HYG/SPY", Status: r.HYGSPYDivergence.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorHYGSPY), Band: r.HYGSPYDivergence.Band, AsOf: r.HYGSPYDivergence.AsOf, Reading: readingJoin(formatPtr("HYG", r.HYGSPYDivergence.HYGPrice), formatPtr("SPY", r.HYGSPYDivergence.SPYPrice), formatPtr("SPY chg%", r.HYGSPYDivergence.SPYChangePct)), Thresholds: r.HYGSPYDivergence.Thresholds, Eligibility: r.HYGSPYDivergence.Eligibility, FreshnessClass: freshnessClass(r.HYGSPYDivergence.Freshness)},
-			{Name: "HY/IG OAS", Status: r.CreditSpreads.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorCredit), Band: r.CreditSpreads.Band, AsOf: regimeAsOf(r.CreditSpreads.AsOf, r.CreditSpreads.AsOfDate), Reading: readingJoin(formatPtr("HY", r.CreditSpreads.HYOAS), formatPtr("IG", r.CreditSpreads.IGOAS), formatPtr("HY-IG", r.CreditSpreads.HYIGSpread)), Thresholds: r.CreditSpreads.Thresholds, Eligibility: r.CreditSpreads.Eligibility, FreshnessClass: freshnessClass(r.CreditSpreads.Freshness)},
+			{Name: "VVIX", Status: r.VolOfVol.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorVolOfVol), Band: r.VolOfVol.Band, AsOf: regimeAsOf(r.VolOfVol.AsOf, r.VolOfVol.AsOfDate), Reading: readingJoin(formatPtr("last", r.VolOfVol.Last), formatPtr("20d", r.VolOfVol.Change20D), range52WReading(r.VolOfVol.Range52W)), Thresholds: r.VolOfVol.Thresholds, Eligibility: r.VolOfVol.Eligibility, FreshnessClass: freshnessClass(r.VolOfVol.Freshness)},
+			{Name: "HYG/SPY", Status: r.HYGSPYDivergence.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorHYGSPY), Band: r.HYGSPYDivergence.Band, AsOf: r.HYGSPYDivergence.AsOf, Reading: readingJoin(formatPtr("HYG", r.HYGSPYDivergence.HYGPrice), formatPtr("SPY", r.HYGSPYDivergence.SPYPrice), formatPtr("SPY chg%", r.HYGSPYDivergence.SPYChangePct), range52WReading(r.HYGSPYDivergence.HYGRange52W)), Thresholds: r.HYGSPYDivergence.Thresholds, Eligibility: r.HYGSPYDivergence.Eligibility, FreshnessClass: freshnessClass(r.HYGSPYDivergence.Freshness)},
+			{Name: "Credit spreads", Status: r.CreditSpreads.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorCredit), Band: r.CreditSpreads.Band, AsOf: regimeAsOf(r.CreditSpreads.AsOf, r.CreditSpreads.AsOfDate), Reading: readingJoin(formatPtr("HY", r.CreditSpreads.HYOAS), formatPtr("IG", r.CreditSpreads.IGOAS), formatPtr("HY-IG", r.CreditSpreads.HYIGSpread)), Thresholds: r.CreditSpreads.Thresholds, Eligibility: r.CreditSpreads.Eligibility, FreshnessClass: freshnessClass(r.CreditSpreads.Freshness)},
 			{Name: "Funding", Status: r.FundingStress.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorFunding), Band: r.FundingStress.Band, AsOf: regimeAsOf(r.FundingStress.AsOf, r.FundingStress.AsOfDate), Reading: formatPtr("spread bp", r.FundingStress.SpreadBps), Thresholds: r.FundingStress.Thresholds, Eligibility: r.FundingStress.Eligibility, FreshnessClass: freshnessClass(r.FundingStress.Freshness)},
-			{Name: "USD/JPY", Status: r.USDJPY.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorUSDJPY), Band: r.USDJPY.Band, AsOf: r.USDJPY.AsOf, Reading: readingJoin(formatPtr("last", r.USDJPY.Last), formatPtr("week%", r.USDJPY.WeeklyChange)), Thresholds: r.USDJPY.Thresholds, Eligibility: r.USDJPY.Eligibility, FreshnessClass: freshnessClass(r.USDJPY.Freshness)},
+			{Name: "USD/JPY", Status: r.USDJPY.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorUSDJPY), Band: r.USDJPY.Band, AsOf: r.USDJPY.AsOf, Reading: readingJoin(formatPtr("last", r.USDJPY.Last), formatPtr("week%", r.USDJPY.WeeklyChange), range52WReading(r.USDJPY.Range52W)), Thresholds: r.USDJPY.Thresholds, Eligibility: r.USDJPY.Eligibility, FreshnessClass: freshnessClass(r.USDJPY.Freshness)},
 			{Name: "Gamma", Status: r.GammaZero.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorGammaZero), Band: r.GammaZero.Band, AsOf: r.GammaZero.AsOf, Reading: gammaMonitorReading(r.GammaZero), Thresholds: r.GammaZero.Thresholds, Eligibility: r.GammaZero.Eligibility, FreshnessClass: freshnessClass(r.GammaZero.Freshness)},
 			{Name: "Breadth", Status: r.Breadth.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorBreadth), Band: r.Breadth.Band, AsOf: r.Breadth.AsOf, Reading: readingJoin(formatFloat("50dma%", r.Breadth.PctAbove50DMA), formatFloat("200dma%", r.Breadth.PctAbove200DMA), formatFloat("net highs%", r.Breadth.NetNewHighsPct)), Thresholds: r.Breadth.Thresholds, Eligibility: r.Breadth.Eligibility, FreshnessClass: freshnessClass(r.Breadth.Freshness)},
 		},
@@ -549,6 +549,15 @@ func formatFloat(label string, v float64) string {
 		return ""
 	}
 	return fmt.Sprintf("%s %.2f", label, v)
+}
+
+// range52WReading renders the served 52-week range and the reading's position
+// in it for a monitor reading line, e.g. "52w 81.72-147.14 (pos 15%)".
+func range52WReading(r *RegimeRange52W) string {
+	if r == nil {
+		return ""
+	}
+	return fmt.Sprintf("52w %.2f-%.2f (pos %.0f%%)", r.Low, r.High, r.Pos)
 }
 
 func gammaMonitorReading(g RegimeGammaZero) string {

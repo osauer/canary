@@ -70,6 +70,16 @@ func streakMarker(s *rpc.StreakInfo) string {
 	return fmt.Sprintf("day %d", s.Sessions)
 }
 
+// range52WMarker renders the served trailing-year position compactly:
+// " · 15% of 52w" means the reading sits 15% of the way up its 52-week
+// low-high range. Empty when the daemon served no range.
+func range52WMarker(r *rpc.RegimeRange52W) string {
+	if r == nil {
+		return ""
+	}
+	return fmt.Sprintf(" · %.0f%% of 52w", r.Pos)
+}
+
 // qualityTag compresses a set of *rpc.Quality pointers into a short
 // suffix string for the row's right edge. Returns "" when every
 // attached Quality is firm-live (the default-case row reads as fresh
@@ -213,6 +223,7 @@ func rowVolOfVol(now time.Time, r rpc.RegimeVolOfVol) Row {
 	if r.Change20D != nil {
 		row.Value += fmt.Sprintf("  %+.1f%%/20d", *r.Change20D)
 	}
+	row.Value += range52WMarker(r.Range52W)
 	row.Quality = qualityTag(now, r.ValueQuality)
 	switch {
 	case *r.Last < vvixYellow:
@@ -257,6 +268,7 @@ func rowHYGSPY(now time.Time, r rpc.RegimeHYGSPYDivergence) Row {
 		}
 		row.Value = fmt.Sprintf("HYG %.2f · %.2f%% %s 50d %.2f", *r.HYGPrice, gap, relation, *r.HYG50DMA)
 	}
+	row.Value += range52WMarker(r.HYGRange52W)
 	row.Quality = qualityTag(now, r.HYGQuality, r.HYG50DMAQuality, r.SPYQuality, r.SPY52WHighQuality)
 	// Banding. HYG below 50dma while SPY is near highs is the credit-
 	switch {
@@ -276,7 +288,7 @@ func rowHYGSPY(now time.Time, r rpc.RegimeHYGSPYDivergence) Row {
 }
 
 func rowCreditSpreads(now time.Time, r rpc.RegimeCreditSpreads) Row {
-	row := Row{Name: "HY/IG OAS", Cluster: "credit", Status: r.Status, AsOf: asOfLabel(r.AsOf, r.Status), Streak: streakMarker(r.Streak)}
+	row := Row{Name: "Credit spreads", Cluster: "credit", Status: r.Status, AsOf: asOfLabel(r.AsOf, r.Status), Streak: streakMarker(r.Streak)}
 	if r.Status == rpc.RegimeStatusError || r.Status == rpc.RegimeStatusUnavailable || r.HYOAS == nil {
 		if row.Status == "" {
 			row.Status = rpc.RegimeStatusUnavailable
@@ -367,6 +379,7 @@ func rowUSDJPY(now time.Time, r rpc.RegimeUSDJPY) Row {
 		wkly = fmt.Sprintf("%s%.2f%%/wk", sign, *r.WeeklyChange)
 	}
 	row.Value = fmt.Sprintf("%.4f  %s", *r.Last, wkly)
+	row.Value += range52WMarker(r.Range52W)
 	row.Quality = qualityTag(now, r.LastQuality, r.Close7DAgoQuality)
 	// Spec: yen strengthening (USD/JPY *falling*) is the risk signal.
 	if r.WeeklyChange == nil {

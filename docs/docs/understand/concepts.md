@@ -32,7 +32,7 @@ The eight-row risk-regime dashboard summarizes the market's current posture. Eac
 1. **VIX term structure** (VIX vs VIX3M). Backwardation, short-dated vol pricing above 3-month vol, is the stress fingerprint. The deeper and more sustained the inversion, the bigger the dislocation. IBKR quotes drive the row in session; once Cboe's publication window shuts, the VIX3M leg is Cboe's own dated close, which also cross-checks what the broker is still reporting.
 2. **VVIX vol-of-vol**. Cboe's VIX-of-VIX reading catches convexity demand inside the equity-vol cluster.
 3. **HYG vs SPY divergence**. High-yield credit leads equity selloffs on the way down. A HYG breakdown while SPY is still near highs is the classic late-cycle warning.
-4. **HY/IG OAS**. Official ICE BofA cash-credit spreads via FRED: slower than HYG, harder to dismiss as ETF noise.
+4. **Credit spreads**. Official ICE BofA HY and IG cash-credit spreads (OAS) via FRED: slower than HYG, harder to dismiss as ETF noise.
 5. **Funding spread**. 90-day AA financial commercial paper minus 3-month T-bill, flagging slow funding and liquidity pressure.
 6. **USD/JPY weekly move**. JPY funding-pair unwinds are a recurring stress amplifier (Aug 2024, Dec 2018, Jan 2016). The row turns amber when the yen strengthens 1-2% in a week and red above 2%.
 7. **Dealer zero-gamma** (SPX canonical, SPY corroboration). Whether the dealer book stabilizes or amplifies day-over-day moves. See [Gamma](#gamma).

@@ -986,7 +986,7 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 		redEligible(r.Breadth.RegimeIndicatorMeta),
 	}
 	confirmed := append([]string(nil), raw...)
-	if r.HYGSPYDivergence.Band == "red" && r.CreditSpreads.Band != "red" && !hasIndependentEligibleRed(raw, eligible, RegimeClusterCredit) {
+	if r.HYGSPYDivergence.Band == "red" && creditCashVetoesProxy(r.CreditSpreads, r.AsOf) && !hasIndependentEligibleRed(raw, eligible, RegimeClusterCredit) {
 		confirmed[RegimeClusterCredit] = "yellow"
 	}
 	if r.USDJPY.Band == "red" && !hasIndependentEligibleRed(raw, eligible, RegimeClusterFX) {
@@ -1000,6 +1000,44 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 
 func redEligible(meta RegimeIndicatorMeta) bool {
 	return meta.Band == "red" && meta.Eligibility != nil && meta.Eligibility.Eligible
+}
+
+// creditVetoMaxAgeDays bounds how old the official cash-credit read may be
+// and still soften the HYG proxy. OAS publishes T+1, so a weekend plus a
+// holiday naturally reaches four calendar days; anything older is an outage,
+// not a disagreement.
+const creditVetoMaxAgeDays = 5
+
+// creditWideningCoSignPP mirrors the published yellow threshold: a 20d HY
+// OAS widening at this pace is the cash market echoing the proxy's warning.
+const creditWideningCoSignPP = 0.50
+
+// creditCashVetoesProxy reports whether the official cash-credit gauge may
+// soften a row-confirmed HYG red to a cluster yellow. The veto is an
+// evidentiary claim — "current cash pricing disagrees" — so it requires an
+// affirmatively recent official read that fails to corroborate. A red band
+// or a fresh 20-observation widening corroborates the proxy (no veto), and
+// an absent or stale gauge abstains (no veto): unknown cash evidence never
+// softens a live warning. Operator decision 2026-08-11: when the official
+// state is unknown, assume the worst.
+func creditCashVetoesProxy(cs RegimeCreditSpreads, asOf time.Time) bool {
+	if cs.Band == "red" {
+		return false
+	}
+	if cs.HYOAS == nil || strings.TrimSpace(cs.AsOfDate) == "" {
+		return false
+	}
+	observed, err := time.Parse("2006-01-02", cs.AsOfDate)
+	if err != nil {
+		return false
+	}
+	if asOf.IsZero() || asOf.UTC().Sub(observed) > creditVetoMaxAgeDays*24*time.Hour {
+		return false
+	}
+	if cs.HY20DChange != nil && *cs.HY20DChange >= creditWideningCoSignPP {
+		return false
+	}
+	return true
 }
 
 // gammaRedEligible additionally requires the rankability gate the gamma vote
@@ -1057,8 +1095,15 @@ func RegimeHeadline(c RegimeComposite, stage string) string {
 		return "Broad stress regime"
 	case stageConfirmsStress(stage):
 		return "Confirmed stress regime"
-	case c.ClusterRedCount >= 1 || c.ClusterEligibleRedCount+c.ClusterProvisionalRedCount >= 1:
+	case c.ClusterRedCount >= 1 || c.ClusterEligibleRedCount >= 1:
 		return "Stress signal present"
+	// A provisional red is one the cluster logic itself refused to count —
+	// demoted for a missing co-sign or an unmet depth/persistence gate. The
+	// headline must not read louder than the composite's own verdict.
+	case c.ClusterProvisionalRedCount == 1:
+		return "Watch: one unconfirmed stress signal"
+	case c.ClusterProvisionalRedCount > 1:
+		return "Watch: unconfirmed stress signals"
 	case c.ClusterYellowCount >= 3:
 		return "Elevated stress watch"
 	default:
@@ -1412,7 +1457,9 @@ type StressMarketIndicator struct {
 	Reading string `json:"reading,omitempty"`
 	Comment string `json:"comment,omitempty"`
 	// Trip is the served trigger anchor a gauge face prints beside Reading:
-	// and its face stays reading-only; a renderer must never supply one.
+	// the red trip, prefixed with the amber band prose while the row is amber,
+	// so an amber face names the line it crossed. A renderer must never
+	// supply its own cutoff text.
 	Trip string `json:"trip,omitempty"`
 }
 

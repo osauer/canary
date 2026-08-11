@@ -412,7 +412,7 @@ function stressDriverReading(label, value) {
 // that explains it, and never a word this renderer invented.
 function faultCaption(fault = null) {
   const reason = cleanDetail(fault?.reason);
-  return reason === "--" ? "Fault" : `Fault · ${reason}`;
+  return reason === "--" ? "No data" : `Fault · ${reason}`;
 }
 
 
@@ -1086,9 +1086,10 @@ function regimeClusterBand(cluster, snap = {}, stress = {}) {
   }
   if (clusterNameListed(market.red_cluster_names, cluster)) return "red";
   if (clusterNameListed(market.yellow_cluster_names, cluster)) return "yellow";
-  const indicators = clusterIndicators(cluster, stress);
-  if (indicators.length === 0) return "stale";
-  return indicators.map(indicatorBand).reduce((worst, band) => (bandRank(band) > bandRank(worst) ? band : worst), "green");
+  // The daemon serves every cluster's band (lifecycle evidence or the name
+  // lists above). A cluster absent from all of them has no served verdict,
+  // and this renderer computes none of its own.
+  return "stale";
 }
 
 function clusterNameListed(names, cluster) {
@@ -1289,8 +1290,9 @@ function regimeGovernedNote(snap, market) {
   if (unconfirmed.length > 0) {
     // Name the actual signal, not its cluster key ("HYG 50-DMA", not
     // "credit"), and say that confirmation is Canary's job with both
-    // outcomes stated: the signal confirms or clears, no operator step.
-    const verb = unconfirmed.length === 1 ? "confirms or clears" : "confirm or clear";
+    // outcomes stated: the signal earns its co-sign or clears, no operator
+    // step. "Awaits" not "unconfirmed" — the row's own gate already passed.
+    const verb = unconfirmed.length === 1 ? "awaits its co-sign or clears" : "await their co-signs or clear";
     parts.push(`${humanList(unconfirmed.map(clusterInputLabel), 2)} ${verb} on the next fresh read`);
   }
   for (const g of snap.regime?.lifecycle?.governors || []) {

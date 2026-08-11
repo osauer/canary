@@ -265,9 +265,9 @@ func regimeHistoryMinBars(days int) int {
 	switch {
 	case days >= 365:
 		return 50
-	case days >= HYGLookbackDays:
+	case days >= 90: // legacy HYG SMA window
 		return 50
-	case days >= USDJPYLookbackDays:
+	case days >= 14: // legacy USD.JPY weekly window
 		return 8
 	default:
 		return 1

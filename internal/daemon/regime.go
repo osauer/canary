@@ -870,6 +870,7 @@ func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfV
 		chg := (latest.Value - lagged.Value) / lagged.Value * 100
 		out.Change20D = &chg
 	}
+	out.Range52W = range52WFromSeries(points, latest.Value, time.Now())
 	out.Status = statusForOfficialDaily(latest.Date, time.Now())
 	return out
 }
@@ -877,14 +878,13 @@ func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfV
 const hygSpyNotes = "HYG (high-yield corporate bond ETF) vs SPY context. Spec thresholds: green when HYG is above its 50-day SMA; yellow when HYG breaks below its 50-day SMA; red when HYG is below its 50-day SMA while SPY remains within 3% of its 52-week high. Use the row's streak.sessions to distinguish an early one-session divergence from a sustained 5+ session credit downtrend. Observation window 2-4 weeks; single-day moves are noise. Confirmation gate: a red confirms only when HYG is at least 0.25% below the 50DMA for 2 sessions (or 1.0% below day one); outside regular hours the banding input is the latest official close, never a thin pre/post-market print. When the live HYG spot is unavailable, the latest official close serves as the banding input and the row is marked stale. On official non-trading dates the SPY day-change fields are pinned to the official daily closes of the last two completed sessions (spy_change_basis names them), so a closed-date header shows the last completed session's true change, never a drifted weekend anchor."
 
 // HYGLookbackDays is the calendar-day window passed to the HMDS
-// history fetch when computing HYG's 50-day SMA. 50 trading days ≈ 70
-// calendar days when the window has zero holidays; the US market
-// closes 9-10 days per year, so a 70-day window can come up short on
-// the wrong side of Memorial Day / Labor Day / Thanksgiving. 90
-// calendar days gives ~10 days of slack — the IBKR HMDS API only
-// bills the call, not the bar count, so this is free. Widened from
-// 70 to 90 in v0.23.0 (commit 02aba13).
-const HYGLookbackDays = 90
+// history fetch. The 50-day SMA needs only the newest 50 bars; the
+// window is a full year so the same fetch also anchors the 52-week
+// range context. Exactly 365: formatHistoricalDuration maps anything
+// larger to a years-unit request ("2 Y"), a heavier HMDS shape than
+// the "365 D" the SPY 52w-high fallback already relies on. Widened
+// from 90 in the range-context change.
+const HYGLookbackDays = 365
 
 func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDivergence {
 	out := rpc.RegimeHYGSPYDivergence{Notes: hygSpyNotes}
@@ -990,6 +990,10 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 			}
 			out.HYGQuality = derivedQuality(historyBarAsOf(bars[len(bars)-1], now), qualityLabel)
 		}
+	}
+
+	if out.HYGPrice != nil {
+		out.HYGRange52W = range52WFromBars(bars, *out.HYGPrice, now)
 	}
 
 	if out.HYGPrice == nil || out.SPYPrice == nil {
@@ -1192,7 +1196,10 @@ func fetchRegimeFundingStress(ctx context.Context, deps *regimeDeps) rpc.RegimeF
 const usdJpyNotes = "USD/JPY exchange rate. Spec thresholds: stable or <1% weekly move (green); 1-2% weekly yen strength i.e. USD/JPY falling (yellow); >2% in 3 days or >3% in a week (red). Speed of move matters more than absolute level; August 2024 carry unwind played out in 3 sessions. Daemon returns last + close 7 trading days ago so the consumer can compute weekly_change_pct themselves. Source: IBKR CASH/IDEALPRO FX (Symbol=USD, Currency=JPY, SecType=CASH) — routed via the dotted-pair classifier. If the gateway has no live/frozen FX tick, the row falls back to the latest HMDS MIDPOINT daily close and reports Status=stale; it is unavailable only when both the tick and midpoint history are unusable. Confirmation gate: speed is the depth — a fresh >= 2% weekly yen move confirms after 1 session."
 
 // USDJPYLookbackDays is the calendar-day window passed to the HMDS
-const USDJPYLookbackDays = 14
+// history fetch. The weekly-change math needs only 8 bars; a full year
+// also anchors the 52-week range context. Exactly 365 — see
+// HYGLookbackDays for the duration-unit knee.
+const USDJPYLookbackDays = 365
 
 func fetchRegimeUSDJPY(ctx context.Context, deps *regimeDeps) rpc.RegimeUSDJPY {
 	out := rpc.RegimeUSDJPY{
@@ -1251,6 +1258,9 @@ func fetchRegimeUSDJPY(ctx context.Context, deps *regimeDeps) rpc.RegimeUSDJPY {
 	if out.Close7DAgo != nil && out.Last != nil {
 		chg := (*out.Last - *out.Close7DAgo) / *out.Close7DAgo * 100
 		out.WeeklyChange = &chg
+	}
+	if out.Last != nil {
+		out.Range52W = range52WFromBars(bars, *out.Last, now)
 	}
 
 	if last > 0 && rpc.IsLiveDataType(dt) {

@@ -617,7 +617,8 @@ func regimePostureTone(c RegimeComposite, lifecycle LifecycleState) string {
 	switch label {
 	case "Broad stress regime", "Confirmed stress regime":
 		return RegimeToneStress
-	case "Stress signal present", "Elevated stress watch":
+	case "Stress signal present", "Elevated stress watch",
+		"Watch: one unconfirmed stress signal", "Watch: unconfirmed stress signals":
 		return RegimeToneWatch
 	case "No usable signal yet", "Insufficient signal — too few inputs ready":
 		return RegimeToneDataQuality

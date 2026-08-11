@@ -895,16 +895,17 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		date        string
 		status      string
 		trip        string
+		thresholds  *rpc.RegimeThresholds
 		eligibility *rpc.RegimeEligibility
 	}{
-		{indicator: rpc.RegimeIndicatorVIXTerm, cluster: "vol", row: regimerows.VIXTerm(now, r.VIXTermStructure), asOf: r.VIXTermStructure.AsOf, status: r.VIXTermStructure.Status, trip: stressIndicatorTrip(r.VIXTermStructure.Thresholds), eligibility: r.VIXTermStructure.Eligibility},
-		{indicator: rpc.RegimeIndicatorVolOfVol, cluster: "vol", row: regimerows.VolOfVol(now, r.VolOfVol), asOf: r.VolOfVol.AsOf, date: r.VolOfVol.AsOfDate, status: r.VolOfVol.Status, trip: stressIndicatorTrip(r.VolOfVol.Thresholds), eligibility: r.VolOfVol.Eligibility},
-		{indicator: rpc.RegimeIndicatorHYGSPY, cluster: "credit", row: regimerows.HYGSPY(now, r.HYGSPYDivergence), asOf: r.HYGSPYDivergence.AsOf, status: r.HYGSPYDivergence.Status, trip: stressIndicatorTrip(r.HYGSPYDivergence.Thresholds), eligibility: r.HYGSPYDivergence.Eligibility},
-		{indicator: rpc.RegimeIndicatorCredit, cluster: "credit", row: regimerows.CreditSpreads(now, r.CreditSpreads), asOf: r.CreditSpreads.AsOf, date: r.CreditSpreads.AsOfDate, status: r.CreditSpreads.Status, trip: stressIndicatorTrip(r.CreditSpreads.Thresholds), eligibility: r.CreditSpreads.Eligibility},
-		{indicator: rpc.RegimeIndicatorFunding, cluster: "funding", row: regimerows.FundingStress(now, r.FundingStress), asOf: r.FundingStress.AsOf, date: r.FundingStress.AsOfDate, status: r.FundingStress.Status, trip: stressIndicatorTrip(r.FundingStress.Thresholds), eligibility: r.FundingStress.Eligibility},
-		{indicator: rpc.RegimeIndicatorUSDJPY, cluster: "fx", row: regimerows.USDJPY(now, r.USDJPY), asOf: r.USDJPY.AsOf, status: r.USDJPY.Status, trip: stressIndicatorTrip(r.USDJPY.Thresholds), eligibility: r.USDJPY.Eligibility},
-		{indicator: rpc.RegimeIndicatorGammaZero, cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status, trip: stressGammaTrip(r.GammaZero), eligibility: r.GammaZero.Eligibility},
-		{indicator: rpc.RegimeIndicatorBreadth, cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status, trip: stressIndicatorTrip(r.Breadth.Thresholds), eligibility: r.Breadth.Eligibility},
+		{indicator: rpc.RegimeIndicatorVIXTerm, cluster: "vol", row: regimerows.VIXTerm(now, r.VIXTermStructure), asOf: r.VIXTermStructure.AsOf, status: r.VIXTermStructure.Status, trip: stressIndicatorTrip(r.VIXTermStructure.Thresholds), thresholds: r.VIXTermStructure.Thresholds, eligibility: r.VIXTermStructure.Eligibility},
+		{indicator: rpc.RegimeIndicatorVolOfVol, cluster: "vol", row: regimerows.VolOfVol(now, r.VolOfVol), asOf: r.VolOfVol.AsOf, date: r.VolOfVol.AsOfDate, status: r.VolOfVol.Status, trip: stressIndicatorTrip(r.VolOfVol.Thresholds), thresholds: r.VolOfVol.Thresholds, eligibility: r.VolOfVol.Eligibility},
+		{indicator: rpc.RegimeIndicatorHYGSPY, cluster: "credit", row: regimerows.HYGSPY(now, r.HYGSPYDivergence), asOf: r.HYGSPYDivergence.AsOf, status: r.HYGSPYDivergence.Status, trip: stressIndicatorTrip(r.HYGSPYDivergence.Thresholds), thresholds: r.HYGSPYDivergence.Thresholds, eligibility: r.HYGSPYDivergence.Eligibility},
+		{indicator: rpc.RegimeIndicatorCredit, cluster: "credit", row: regimerows.CreditSpreads(now, r.CreditSpreads), asOf: r.CreditSpreads.AsOf, date: r.CreditSpreads.AsOfDate, status: r.CreditSpreads.Status, trip: stressIndicatorTrip(r.CreditSpreads.Thresholds), thresholds: r.CreditSpreads.Thresholds, eligibility: r.CreditSpreads.Eligibility},
+		{indicator: rpc.RegimeIndicatorFunding, cluster: "funding", row: regimerows.FundingStress(now, r.FundingStress), asOf: r.FundingStress.AsOf, date: r.FundingStress.AsOfDate, status: r.FundingStress.Status, trip: stressIndicatorTrip(r.FundingStress.Thresholds), thresholds: r.FundingStress.Thresholds, eligibility: r.FundingStress.Eligibility},
+		{indicator: rpc.RegimeIndicatorUSDJPY, cluster: "fx", row: regimerows.USDJPY(now, r.USDJPY), asOf: r.USDJPY.AsOf, status: r.USDJPY.Status, trip: stressIndicatorTrip(r.USDJPY.Thresholds), thresholds: r.USDJPY.Thresholds, eligibility: r.USDJPY.Eligibility},
+		{indicator: rpc.RegimeIndicatorGammaZero, cluster: "gamma", row: regimerows.Gamma(now, r.GammaZero), asOf: r.GammaZero.AsOf, status: r.GammaZero.Status, trip: stressGammaTrip(r.GammaZero), thresholds: r.GammaZero.Thresholds, eligibility: r.GammaZero.Eligibility},
+		{indicator: rpc.RegimeIndicatorBreadth, cluster: "breadth", row: regimerows.Breadth(now, r.Breadth), asOf: r.Breadth.AsOf, status: r.Breadth.Status, trip: stressIndicatorTrip(r.Breadth.Thresholds), thresholds: r.Breadth.Thresholds, eligibility: r.Breadth.Eligibility},
 	}
 	out := make([]StressMarketIndicator, 0, len(rows))
 	for _, item := range rows {
@@ -919,10 +920,24 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 			AsOf:    stressIndicatorAsOf(item.asOf, item.date, item.row.AsOf),
 			Reading: reading,
 			Comment: stressIndicatorComment(item.row, reading, contextOnly, stressEligibilityComment(item.indicator, item.eligibility)),
-			Trip:    item.trip,
+			Trip:    stressBandTrip(item.row.Band, item.thresholds, item.trip),
 		})
 	}
 	return out
+}
+
+// stressBandTrip anchors an amber row with the served amber band prose, so an
+// amber face names the line it crossed instead of only the red trip it hasn't.
+// Green and red rows keep the red trip alone. All prose is served threshold
+// text; this layer authors no cutoff of its own.
+func stressBandTrip(b regimerows.Band, t *rpc.RegimeThresholds, trip string) string {
+	if b != regimerows.BandYellow || t == nil || t.Yellow == "" {
+		return trip
+	}
+	if trip == "" {
+		return t.Yellow
+	}
+	return t.Yellow + " · " + trip
 }
 
 // stressIndicatorTrip passes the row's served compact trip through untouched.
