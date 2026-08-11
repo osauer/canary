@@ -18,6 +18,10 @@ titled `Canary`. That is the whole proof — no `read_page`, no screenshot, no
 console check; the user sees the pane. Report success in one line.
 
 Guardrails:
+- The `preview_start` tab auto-opens at the unpaired app origin before any
+  token exists. That first load is harness behavior and expected — do not
+  probe it, verify it, or reorder around it. Pairing cannot precede the
+  server: `canary app pair` mints by POSTing the running instance.
 - Never adopt, kill, or bind the shared `0.0.0.0:8765` host — it is phone-paired
   over LAN; touching it breaks pairing.
 - Blank preview with zero console errors = no server running (the Launch panel
