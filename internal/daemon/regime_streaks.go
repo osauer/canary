@@ -447,19 +447,34 @@ func classifyVIXTermBand(ratio *float64) string {
 	}
 }
 
-func classifyVolOfVolBand(vvix *float64) string {
+// classifyVolOfVolBand applies vvix_daily_v2: amber is a transition, not a
+// zone. VVIX's structural floor sits at 85-90, so the v1 static 90-110 band
+// kept the row amber on 47% of calm days (10y Cboe replay, 2026-08-11);
+// requiring the level AND a +3% rise over 5 sessions cuts that to 17% while
+// every labeled crisis 2015-2024 still lit ahead of its date (COVID lead 7
+// sessions). Red at 110 is untouched. A missing 5-session change is a data
+// defect and must not soften the warning: level alone then holds amber,
+// matching the credit veto's unknown-assumes-the-worst rule. Operator
+// decision 2026-08-11 (backtest tradeoff curve presented and signed).
+func classifyVolOfVolBand(vvix, rise5d *float64) string {
 	if vvix == nil {
 		return ""
 	}
 	switch {
+	case *vvix >= 110:
+		return "red"
 	case *vvix < 90:
 		return "green"
-	case *vvix < 110:
+	case rise5d == nil || *rise5d >= vvixRise5DPct:
 		return "yellow"
 	default:
-		return "red"
+		return "green"
 	}
 }
+
+// vvixRise5DPct is the 5-session rise that turns an at-level VVIX into an
+// amber transition under vvix_daily_v2.
+const vvixRise5DPct = 3.0
 
 // classifyHYGSPYBand maps the HYG/50DMA + SPY/52w-high pair to its
 // band per the spec's §2 thresholds. Daemon-side simplification: the

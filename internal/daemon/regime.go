@@ -836,7 +836,7 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	return out
 }
 
-const volOfVolNotes = "VVIX (Cboe VIX-of-VIX) from Cboe's official daily VVIX time series. Default heuristic bands: <90 green (vol-of-vol contained), 90-110 yellow (volatility demand rising), >110 red (vol-of-vol shock / convexity demand). This is an evidence-balance input, not a volatility forecast; use with VIX term structure because both live in the equity-vol cluster and can disagree. Confirmation gate: a red confirms after 2 sessions at >= 110 (or >= 120 day one) on a current official close."
+const volOfVolNotes = "VVIX (Cboe VIX-of-VIX) from Cboe's official daily VVIX time series. Bands (vvix_daily_v2): green below 90, or at 90-110 without upward motion; yellow when at or above 90 AND risen at least 3% over the last 5 sessions (amber is a transition, not a resting zone — VVIX's structural floor sits near 85-90, and the v1 static band was amber on 47% of calm days in a 10-year replay); red at or above 110 regardless of trend. A missing 5-session change holds yellow at level rather than softening the warning. This is an evidence-balance input, not a volatility forecast; use with VIX term structure because both live in the equity-vol cluster and can disagree. Confirmation gate: a red confirms after 2 sessions at >= 110 (or >= 120 day one) on a current official close."
 
 func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfVol {
 	out := rpc.RegimeVolOfVol{
@@ -869,6 +869,10 @@ func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfV
 	if lagged, ok := laggedSeriesPoint(points, 20); ok && lagged.Value > 0 {
 		chg := (latest.Value - lagged.Value) / lagged.Value * 100
 		out.Change20D = &chg
+	}
+	if lagged, ok := laggedSeriesPoint(points, 5); ok && lagged.Value > 0 {
+		chg := (latest.Value - lagged.Value) / lagged.Value * 100
+		out.Change5D = &chg
 	}
 	out.Range52W = range52WFromSeries(points, latest.Value, time.Now())
 	out.Status = statusForOfficialDaily(latest.Date, time.Now())

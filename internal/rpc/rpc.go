@@ -1299,6 +1299,7 @@ type RegimeVolOfVol struct {
 	Symbol       string          `json:"symbol,omitempty"` // "VVIX"
 	Last         *float64        `json:"last"`
 	Change20D    *float64        `json:"change_20d_pct,omitempty"` // (last − t-20) / t-20 × 100
+	Change5D     *float64        `json:"change_5d_pct,omitempty"`  // (last − t-5) / t-5 × 100; vvix_daily_v2 amber input
 	AsOfDate     string          `json:"as_of_date,omitempty"`     // YYYY-MM-DD observation date
 	Range52W     *RegimeRange52W `json:"range_52w,omitempty"`
 	Source       string          `json:"source,omitempty"`

@@ -174,9 +174,15 @@ func volOfVolBandReason(r rpc.RegimeVolOfVol) string {
 	}
 	switch bandForVolOfVol(r) {
 	case "green":
+		if r.Last != nil && *r.Last >= 90 {
+			return ">=90 but not rising"
+		}
 		return "<90 vol-of-vol"
 	case "yellow":
-		return "90-110"
+		if r.Change5D == nil {
+			return ">=90, 5-session rise unknown"
+		}
+		return ">=90 and rising"
 	case "red":
 		return ">=110 vol-of-vol shock"
 	default:

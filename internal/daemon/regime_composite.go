@@ -524,7 +524,7 @@ func bandForVolOfVol(r rpc.RegimeVolOfVol) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
 	}
-	return classifyVolOfVolBand(r.Last)
+	return classifyVolOfVolBand(r.Last, r.Change5D)
 }
 
 // bandForHYGSPY classifies the HYG vs SPY row. HYG below its 50dma

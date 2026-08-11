@@ -67,7 +67,7 @@ func (volOfVolStreaks) bandAndValue(res *rpc.RegimeSnapshotResult) (string, floa
 	if res.VolOfVol.Status != rpc.RegimeStatusOK && res.VolOfVol.Status != rpc.RegimeStatusStale {
 		return "", 0
 	}
-	band := classifyVolOfVolBand(res.VolOfVol.Last)
+	band := classifyVolOfVolBand(res.VolOfVol.Last, res.VolOfVol.Change5D)
 	var value float64
 	if res.VolOfVol.Last != nil {
 		value = *res.VolOfVol.Last

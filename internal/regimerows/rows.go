@@ -19,6 +19,7 @@ const (
 	vixRatioRed        = 1.00 // above this is backwardation
 	vvixYellow         = 90.0
 	vvixRed            = 110.0
+	vvixRise5D         = 3.0 // % rise over 5 sessions that makes an at-level VVIX an amber transition (vvix_daily_v2)
 	hyOASYellow        = 4.0
 	hyOASRed           = 5.5
 	hyOASWidenYellow   = 0.50 // percentage points over ~20 observations
@@ -220,18 +221,28 @@ func rowVolOfVol(now time.Time, r rpc.RegimeVolOfVol) Row {
 		return row
 	}
 	row.Value = fmt.Sprintf("%.1f", *r.Last)
+	if r.Change5D != nil {
+		row.Value += fmt.Sprintf("  %+.1f%%/5d", *r.Change5D)
+	}
 	if r.Change20D != nil {
 		row.Value += fmt.Sprintf("  %+.1f%%/20d", *r.Change20D)
 	}
 	row.Value += range52WMarker(r.Range52W)
 	row.Quality = qualityTag(now, r.ValueQuality)
+	// vvix_daily_v2: amber is a transition (level AND 5-session rise), never
+	// a resting state; an unknown rise is a data defect and holds amber
+	// rather than softening the warning. Mirrors the daemon classifier.
 	switch {
+	case *r.Last >= vvixRed:
+		row.Band, row.Reason = BandRed, "vol-of-vol shock"
 	case *r.Last < vvixYellow:
 		row.Band, row.Reason = BandGreen, "vol-of-vol calm"
-	case *r.Last < vvixRed:
-		row.Band, row.Reason = BandYellow, "vol-of-vol elevated"
+	case r.Change5D == nil:
+		row.Band, row.Reason = BandYellow, "vol-of-vol at level, rise unknown"
+	case *r.Change5D >= vvixRise5D:
+		row.Band, row.Reason = BandYellow, "vol-of-vol rising"
 	default:
-		row.Band, row.Reason = BandRed, "vol-of-vol shock"
+		row.Band, row.Reason = BandGreen, "vol-of-vol at level, not rising"
 	}
 	return row
 }

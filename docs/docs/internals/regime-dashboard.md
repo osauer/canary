@@ -86,7 +86,14 @@ vol-of-vol pop dominate the broad-market read.
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
 | VIX/VIX3M | < 0.92 | 0.92-1.00 | > 1.00 |
-| VVIX | < 90 | 90-110 | > 110 |
+| VVIX | < 90, or at level but not rising | >= 90 and +3% over 5 sessions | >= 110 |
+
+VVIX's yellow is a transition, not a zone (vvix_daily_v2). The index has a
+structural floor near 85-90, so the earlier static 90-110 band was amber on
+47% of calm days in a ten-year replay; requiring the level plus a 3% rise
+over five sessions cut that to 17% while every labeled 2015-2024 stress
+onset still lit ahead of its date. Red at 110 is unchanged, and a missing
+five-session change holds yellow at level rather than softening the warning.
 
 ### Credit
 
