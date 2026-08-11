@@ -21,6 +21,11 @@ import (
 const (
 	governanceNudgeStateFile    = "governance-nudges-state.json"
 	governanceNudgeStateVersion = 1
+	// confirmedFlowNudgeVisibility bounds how long a statement-confirmed cash
+	// movement surfaces as a nudge. The statement itself is the confirmation,
+	// so the candidate is awareness, not a pending action: two daily brief
+	// cycles, then only the journal remembers it.
+	confirmedFlowNudgeVisibility = 48 * time.Hour
 )
 
 // nudgeStateFileV1 contains only opaque identities and allowlisted lifecycle
@@ -867,6 +872,15 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 			default:
 				result.SourceHealth.ConfirmedFlow = setHealth(rpc.NudgeInputStatusOK, rpc.NudgeHealthReasonNone)
 				for _, event := range events {
+					// The statement is the confirmation — the operator attests
+					// nothing. The fact surfaces for two brief cycles as
+					// awareness (an unrecognized movement is worth a look),
+					// then leaves; the journal keeps it permanently. Operator
+					// decision 2026-08-11: statement-confirmed flows must
+					// never accumulate as pending confirmations.
+					if now.Sub(event.OccurredAt) > confirmedFlowNudgeVisibility {
+						continue
+					}
 					if candidate := risk.EvaluateConfirmedFlow(event.ContentIdentity, event.OccurredAt); candidate != nil {
 						result.Candidates = append(result.Candidates, rpcNudgeCandidate(candidate))
 					}

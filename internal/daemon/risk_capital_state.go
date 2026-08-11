@@ -1124,15 +1124,19 @@ func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalS
 	dissolve := false
 	if c != nil && c.Capital.DeclaredRiskCapital != nil && c.Drawdown.BlockConsumedPct != nil && st.state.LatchEquityBase > 0 {
 		flows := 0.0
+		lineIDs := []string{}
 		for _, flow := range snap.Flows {
 			if !utcDateAfter(flow.valueDate, st.state.LatchedAt) {
 				flows += flow.amountBase
+				lineIDs = append(lineIDs, flow.id)
 			}
 		}
 		dd := max(st.state.AdjustedPeakBase-(st.state.LatchEquityBase-flows), 0)
 		pct := dd / *c.Capital.DeclaredRiskCapital * 100
 		entry["statement_flows_to_latch_base"] = flows
 		entry["statement_consumed_pct"] = pct
+		// The decision's evidence: which broker statement lines were replayed.
+		entry["statement_line_ids"] = lineIDs
 		dissolve = pct < *c.Drawdown.BlockConsumedPct
 	} else {
 		entry["reason"] = "policy numbers or engagement evidence incomplete; promoted for human review"

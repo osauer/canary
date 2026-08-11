@@ -839,6 +839,54 @@ func TestDrawdownLatchEngagesProvisionallyAndWithdrawalDissolvesIt(t *testing.T)
 	}
 }
 
+func TestDrawdownLatchDepositNeverAssistsDissolution(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitutionV3()
+	reconcileNow(t, st)
+	now := time.Now()
+
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	if rep := st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || !rep.LatchProvisional {
+		t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
+	}
+
+	// A latch-day deposit deepens the replayed drawdown; it must promote,
+	// never dissolve — only withdrawals explain a drop.
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
+		Scope: testLiveObserveScope, CoverageTo: now,
+		Flows:     []reconFlow{{id: "dep-1", typ: "Deposits/Withdrawals", valueDate: now.Add(-2 * time.Minute), amountBase: 20000}},
+		FlowsBase: 20000,
+	}, c); err != nil {
+		t.Fatal(err)
+	}
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if !rep.BlockLatched || rep.LatchProvisional {
+		t.Fatalf("deposit-day latch: latched=%v provisional=%v, want durable promotion", rep.BlockLatched, rep.LatchProvisional)
+	}
+}
+
+func TestDrawdownLatchProvisionalSurvivesRestart(t *testing.T) {
+	st := newTestRiskCapitalStore(t)
+	c := testConstitutionV3()
+	reconcileNow(t, st)
+	now := time.Now()
+
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	if rep := st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || !rep.LatchProvisional {
+		t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
+	}
+
+	// A restart must reload the latch still provisional, so the statement
+	// window can decide it later instead of defaulting to a durable latch.
+	st2 := &riskCapitalStore{now: time.Now}
+	rep := st2.Report(c, nil, testLiveObserveScope)
+	if !rep.BlockLatched || !rep.LatchProvisional {
+		t.Fatalf("after restart: latched=%v provisional=%v, want provisional preserved", rep.BlockLatched, rep.LatchProvisional)
+	}
+}
+
 func TestDrawdownLatchPromotesToDurableWithoutExplainingFlow(t *testing.T) {
 	st := newTestRiskCapitalStore(t)
 	c := testConstitutionV3()
