@@ -153,15 +153,15 @@ type alertShadowComposer struct {
 }
 
 type alertShadowScopeState struct {
-	scope                alertShadowBrokerScope
-	sources              map[rpc.AlertSource]alertShadowSourceBatch
-	lastStress           alertShadowInputCursor
-	lastNudges           alertShadowInputCursor
-	lastRegime           alertShadowInputCursor
-	lastRulebook         alertShadowInputCursor
-	lastProtection       alertShadowInputCursor
-	lastOrderIntegrity   alertShadowInputCursor
-	lastDataHealth       alertShadowInputCursor
+	scope              alertShadowBrokerScope
+	sources            map[rpc.AlertSource]alertShadowSourceBatch
+	lastStress         alertShadowInputCursor
+	lastNudges         alertShadowInputCursor
+	lastRegime         alertShadowInputCursor
+	lastRulebook       alertShadowInputCursor
+	lastProtection     alertShadowInputCursor
+	lastOrderIntegrity alertShadowInputCursor
+	lastDataHealth     alertShadowInputCursor
 	// regimePagePrev is the previous regime observation's page rank
 	// (alertShadowRegimePageRank) for the two-snapshot hold. In-memory only:
 	// a daemon restart mid-stress costs at most one extra poll before the
