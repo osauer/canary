@@ -134,6 +134,48 @@ func TestKnownNoiseExplosionBecomesOneSignal(t *testing.T) {
 	}
 }
 
+func TestSpacedRestartsAreNotALoop(t *testing.T) {
+	var lines []string
+	for i := range 10 {
+		stop := time.Date(2026, 8, 11, 7+i, 6, 0, 0, time.UTC)
+		start := stop.Add(2 * time.Second)
+		lines = append(lines,
+			`time=`+stop.Format(time.RFC3339)+` level=INFO msg="Shutting down server." reason=terminated`,
+			`time=`+start.Format(time.RFC3339)+` level=INFO msg="canary app serving" listen=0.0.0.0:8765`)
+	}
+	got := classifyApp(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
+	if len(got.Signals) != 0 {
+		t.Fatalf("hourly restarts should not signal: %+v", got.Signals)
+	}
+	if got.Families["lifecycle"] != 20 {
+		t.Fatalf("lifecycle count = %d, want 20", got.Families["lifecycle"])
+	}
+}
+
+func TestAppStoppedWithErrorPages(t *testing.T) {
+	got := classifyApp(scannedLog{state: "scanned", lines: []string{
+		`time=2026-08-11T07:06:00Z level=ERROR msg="canary app stopped" error="listen tcp 0.0.0.0:8765: address already in use"`,
+	}}, defaultMaxSignals)
+	if len(got.Signals) != 1 || got.Signals[0].Severity != "ERROR" {
+		t.Fatalf("app stopped with error should signal: %+v", got.Signals)
+	}
+	if got.Families["lifecycle"] != 0 {
+		t.Fatalf("error exit must not count as routine lifecycle: %+v", got.Families)
+	}
+}
+
+func TestClusteredRestartsAreALoop(t *testing.T) {
+	var lines []string
+	for i := range 5 {
+		ts := time.Date(2026, 8, 11, 7, i, 0, 0, time.UTC)
+		lines = append(lines, `time=`+ts.Format(time.RFC3339)+` level=INFO msg="canary app serving" listen=0.0.0.0:8765`)
+	}
+	got := classifyApp(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
+	if len(got.Signals) != 1 || got.Signals[0].Kind != "restart_loop" || got.Signals[0].Count != 5 {
+		t.Fatalf("clustered restarts report = %+v", got.Signals)
+	}
+}
+
 func writeTestFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {

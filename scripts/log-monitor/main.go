@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +21,12 @@ const (
 	reportVersion      = 1
 	defaultMaxSignals  = 10
 	maxScannerCapacity = 1024 * 1024
+
+	// A scan window spans however long it has been since the last check, so
+	// counting lifecycle markers across it reads a day of deliberate restarts
+	// as a crash loop. Only starts this close together are evidence of one.
+	restartLoopWindow = 10 * time.Minute
+	restartLoopStarts = 4
 )
 
 type options struct {
@@ -231,7 +237,7 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 	if len(scanned.lines) == 0 {
 		return result
 	}
-	restarts := daemonRestartTimes(scanned.lines)
+	restarts := lifecycleTimes(scanned.lines, isDaemonLifecycle)
 	for _, line := range scanned.lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
@@ -263,8 +269,8 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 	if count := result.Families["market_data_farm_disconnect"]; count > 2 {
 		addSignal(&result, maxSignals, "WARN", "repeated_farm_disconnect", "market-data farm disconnected repeatedly", count)
 	}
-	if count := result.Families["lifecycle"]; count > 4 {
-		addSignal(&result, maxSignals, "WARN", "restart_loop", "daemon lifecycle markers repeated in one scan window", count)
+	if count := restartLoopCount(lifecycleTimes(scanned.lines, isDaemonStart)); count > restartLoopStarts {
+		addSignal(&result, maxSignals, "WARN", "restart_loop", "daemon connected repeatedly within "+restartLoopWindow.String(), count)
 	}
 	for family, count := range result.Families {
 		if family != "lifecycle" && family != "market_data_farm_disconnect" && count > 150 {
@@ -321,8 +327,8 @@ func classifyApp(scanned scannedLog, maxSignals int) logReport {
 			addSignal(&result, maxSignals, "WARN", "missing_level", "production app line omitted an explicit severity", 0)
 		}
 	}
-	if count := result.Families["lifecycle"]; count > 4 {
-		addSignal(&result, maxSignals, "WARN", "restart_loop", "app lifecycle markers repeated in one scan window", count)
+	if count := restartLoopCount(lifecycleTimes(scanned.lines, isAppStart)); count > restartLoopStarts {
+		addSignal(&result, maxSignals, "WARN", "restart_loop", "app started repeatedly within "+restartLoopWindow.String(), count)
 	}
 	return result
 }
@@ -374,18 +380,35 @@ func daemonBenignFamily(line string) string {
 	}
 }
 
-func daemonRestartTimes(lines []string) []time.Time {
+func lifecycleTimes(lines []string, lifecycle func(string) bool) []time.Time {
 	var out []time.Time
 	for _, line := range lines {
-		if !isDaemonLifecycle(line) {
+		if !lifecycle(line) {
 			continue
 		}
 		if ts, ok := logTime(line); ok {
 			out = append(out, ts)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Before(out[j]) })
+	slices.SortFunc(out, func(a, b time.Time) int { return a.Compare(b) })
 	return out
+}
+
+// restartLoopCount reports the most lifecycle markers falling inside any single
+// restartLoopWindow, so restarts spread across a day never read as a loop.
+func restartLoopCount(sorted []time.Time) int {
+	worst := 0
+	for i, start := range sorted {
+		n := 0
+		for _, ts := range sorted[i:] {
+			if ts.Sub(start) > restartLoopWindow {
+				break
+			}
+			n++
+		}
+		worst = max(worst, n)
+	}
+	return worst
 }
 
 func nearRestart(line string, restarts []time.Time) bool {
@@ -501,11 +524,22 @@ func isRequestCompleted(line string) bool {
 }
 
 func isDaemonLifecycle(line string) bool {
-	return strings.Contains(line, "Connected to IB Gateway") || strings.Contains(line, "IBKR connector stopped")
+	return isDaemonStart(line) || strings.Contains(line, "IBKR connector stopped")
 }
 
+func isDaemonStart(line string) bool {
+	return strings.Contains(line, "Connected to IB Gateway")
+}
+
+// isAppLifecycle covers a clean start/stop pair. "canary app stopped" is
+// deliberately absent: the app logs it only when Run returns an error, so it
+// must reach the severity switch and page rather than count as routine.
 func isAppLifecycle(line string) bool {
-	return strings.Contains(line, "canary app serving") || strings.Contains(line, "canary app stopped")
+	return isAppStart(line) || strings.Contains(line, "Shutting down server.")
+}
+
+func isAppStart(line string) bool {
+	return strings.Contains(line, "canary app serving")
 }
 
 func isRateLimiterWarning(line string) bool {
