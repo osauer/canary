@@ -35,6 +35,8 @@ type Gateway struct {
 	Account string `toml:"account"`
 	// TLS pins TLS mode for the API socket: absent (nil) auto-tries plain first then TLS, `true` forces TLS-only with no plain fallback, `false` forces plain — setting the field disables fallback in either direction.
 	TLS *bool `toml:"tls"`
+	// MaintenanceWindows lists the broker's scheduled reset windows as "DAY[-DAY] HH:MM-HH:MM TZ" specs, e.g. "Sat-Thu 23:45-00:45 America/New_York". Backend-link losses inside a window are annotated as expected maintenance rather than incident evidence. Absent (nil) uses IBKR's documented North America schedule; an explicit empty list disables the annotation.
+	MaintenanceWindows []string `toml:"maintenance_windows"`
 }
 
 // PortPinned reports whether the user pinned a port. Discovery skips the

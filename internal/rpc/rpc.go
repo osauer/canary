@@ -2167,13 +2167,16 @@ type DataFarmHealth struct {
 
 // BackendLinkHealth counts TWS↔IBKR upstream-link losses (code 1100) and the
 // paired restore outcomes (1101/1102) since the daemon's broker connection
-// started. Durations are whole seconds.
+// started. Durations are whole seconds. LossesInMaintenanceWindow is the
+// subset of Losses that began inside a configured broker maintenance window
+// (expected resets, not incident evidence).
 type BackendLinkHealth struct {
-	Down                 bool      `json:"down"`
-	ChangedAt            time.Time `json:"changed_at,omitzero"`
-	Losses               int       `json:"losses"`
-	LastOutageSeconds    int64     `json:"last_outage_seconds,omitempty"`
-	LongestOutageSeconds int64     `json:"longest_outage_seconds,omitempty"`
+	Down                      bool      `json:"down"`
+	ChangedAt                 time.Time `json:"changed_at,omitzero"`
+	Losses                    int       `json:"losses"`
+	LossesInMaintenanceWindow int       `json:"losses_in_maintenance_window,omitempty"`
+	LastOutageSeconds         int64     `json:"last_outage_seconds,omitempty"`
+	LongestOutageSeconds      int64     `json:"longest_outage_seconds,omitempty"`
 }
 
 // MarketDataAccessHealth reports one route key the gateway is currently

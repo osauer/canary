@@ -464,6 +464,9 @@ func formatBackendLinkValue(link rpc.BackendLinkHealth) string {
 		state = "down"
 	}
 	value := fmt.Sprintf("%s; %d losses this session", state, link.Losses)
+	if link.LossesInMaintenanceWindow > 0 {
+		value += fmt.Sprintf(" (%d in maintenance windows)", link.LossesInMaintenanceWindow)
+	}
 	if link.LastOutageSeconds > 0 {
 		value += fmt.Sprintf(", last outage %s", time.Duration(link.LastOutageSeconds)*time.Second)
 	}

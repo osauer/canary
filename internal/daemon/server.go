@@ -188,6 +188,9 @@ type Server struct {
 	// breadthConnector is a dedicated IBKR client connection (separate
 	// Read through breadthGatewayConnector, never directly: that
 	breadthConnector *ibkrlib.Connector
+	// maintenanceWindows is the parsed broker reset schedule applied to
+	// every connector this server constructs; see resolveMaintenanceWindows.
+	maintenanceWindows []ibkrlib.MaintenanceWindow
 	// breadthConnectInFlight / breadthConnectFailStreak /
 	// connectInFlight / reconnectFailStreak / lastReconnectAttemptAt,
 	// connector a once-per-PROCESS resource: the 2026-08-03 23:45 TWS
@@ -1072,6 +1075,12 @@ func (s *Server) installSubs() {
 // the first fatal error encountered. Returns ErrAlreadyRunning (without
 // touching the gateway) if another Canary daemon holds the instance lock.
 func (s *Server) Start(ctx context.Context) error {
+	// Fail on a malformed [gateway] maintenance_windows before anything else
+	// starts: a schedule typo silently ignored would misclassify every
+	// backend-link loss for the whole session.
+	if err := s.resolveMaintenanceWindows(); err != nil {
+		return err
+	}
 	lock, err := acquireInstanceLock(s.socketPath)
 	if err != nil {
 		return err
@@ -1314,7 +1323,30 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 		PreferredClientID: ep.ClientID,
 		BaseConfig:        conn,
 	}
-	return ibkrlib.NewConnector(cc)
+	connector := ibkrlib.NewConnector(cc)
+	connector.SetBackendMaintenanceWindows(s.maintenanceWindows)
+	connector.SetBackendSessionOpen(usEquityRTHOpen)
+	return connector
+}
+
+// resolveMaintenanceWindows parses [gateway] maintenance_windows once for
+// the daemon's lifetime. nil config means IBKR's documented North America
+// defaults; an explicit empty list disables the classification.
+func (s *Server) resolveMaintenanceWindows() error {
+	if s.cfg == nil || s.cfg.Gateway.MaintenanceWindows == nil {
+		windows, err := ibkrlib.DefaultIBKRMaintenanceWindows()
+		if err != nil {
+			return fmt.Errorf("default broker maintenance windows: %w", err)
+		}
+		s.maintenanceWindows = windows
+		return nil
+	}
+	windows, err := ibkrlib.ParseMaintenanceWindows(s.cfg.Gateway.MaintenanceWindows)
+	if err != nil {
+		return fmt.Errorf("[gateway] maintenance_windows: %w", err)
+	}
+	s.maintenanceWindows = windows
+	return nil
 }
 
 // buildAttempter is the production attempter factory. Tests replace

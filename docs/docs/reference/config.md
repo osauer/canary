@@ -23,6 +23,7 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[gateway]` | `breadth_client_id` | `*int` | BreadthClientID is the IBKR clientID used by the dedicated historical-bar connector that backs the SPX breadth refresh. |
 | `[gateway]` | `client_id` | `*int` | ClientID pins the IBKR API clientID for the primary connection (default 15); collisions are treated as a stale-client/operator issue and are not auto-walked to neighboring reserved IDs. |
 | `[gateway]` | `host` | `string` | Host pins the IB Gateway / TWS host; empty (the default) defers to auto-discovery on loopback (127.0.0.1), any non-empty value skips probing. |
+| `[gateway]` | `maintenance_windows` | `[]string` | MaintenanceWindows lists the broker's scheduled reset windows as "DAY[-DAY] HH:MM-HH:MM TZ" specs, e.g. |
 | `[gateway]` | `port` | `*int` | Port pins the IB Gateway / TWS API port (typically 4001/4002 for IB Gateway live/paper, 7496/7497 for TWS live/paper); absent (nil) defers to port-probing during discovery. |
 | `[gateway]` | `tls` | `*bool` | TLS pins TLS mode for the API socket: absent (nil) auto-tries plain first then TLS, `true` forces TLS-only with no plain fallback, `false` forces plain — setting the field disables fallback in either direction. |
 | `[opportunities]` | `enabled` | `*bool` | Enabled controls whether the daemon may produce advisory opportunities; default true, and opportunities are not broker writes unless separately submitted by an explicitly enabled trading path. |

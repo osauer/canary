@@ -171,13 +171,29 @@ type Connector struct {
 	// backendConnMu guards backend-link health; a disconnected backend cannot
 	// carry a locally accepted broker operation. The counters make chronic
 	// link flapping (dozens of loss/restore cycles a night) one first-class
-	// status observation instead of a scattering of repeated warnings.
-	backendConnMu            sync.Mutex
-	backendConnDown          bool
-	backendConnAt            time.Time
-	backendConnLosses        int
-	backendConnLastOutage    time.Duration
-	backendConnLongestOutage time.Duration
+	// status observation instead of a scattering of repeated warnings, and
+	// the episode state coalesces the log to one disturbance per summary —
+	// see backend_link.go.
+	backendConnMu             sync.Mutex
+	backendConnDown           bool
+	backendConnAt             time.Time
+	backendConnLosses         int
+	backendConnLossesInWindow int
+	backendConnLastOutage     time.Duration
+	backendConnLongestOutage  time.Duration
+	maintWindows              []MaintenanceWindow
+	backendSessionOpen        func(time.Time) bool
+	epActive                  bool
+	epStart                   time.Time
+	epLastRestore             time.Time
+	epLosses                  int
+	epLossesInWindow          int
+	epLongest                 time.Duration
+	epTimer                   *time.Timer
+	// epGen invalidates an already-fired finalize timer that lost the mutex
+	// race against a new loss extending the episode.
+	epGen int
+	epGap time.Duration // test override; 0 means backendEpisodeGap
 	// mdReplayInFlight collapses concurrent code-1101 subscription replays.
 	mdReplayInFlight atomic.Bool
 
@@ -1540,35 +1556,100 @@ func (c *Connector) setBackendConnectivityDown(down bool, at time.Time) {
 		c.backendConnMu.Unlock()
 		return
 	}
-	var outage time.Duration
+	gap := c.epGap
+	if gap <= 0 {
+		gap = backendEpisodeGap
+	}
 	if down {
 		c.backendConnLosses++
-	} else if !c.backendConnAt.IsZero() {
+		inWindow := maintenanceWindowsContain(c.maintWindows, at)
+		if inWindow {
+			c.backendConnLossesInWindow++
+		}
+		sessionOpen := c.backendSessionOpen != nil && c.backendSessionOpen(at)
+		c.epGen++
+		if c.epTimer != nil {
+			c.epTimer.Stop()
+			c.epTimer = nil
+		}
+		newEpisode := !c.epActive
+		if newEpisode {
+			c.epActive = true
+			c.epStart = at
+			c.epLosses = 0
+			c.epLossesInWindow = 0
+			c.epLongest = 0
+		}
+		c.epLosses++
+		if inWindow {
+			c.epLossesInWindow++
+		}
+		episodeLosses := c.epLosses
+		c.backendConnDown = true
+		c.backendConnAt = at
+		c.backendConnMu.Unlock()
+
+		suffix := ""
+		if inWindow {
+			suffix += " (inside IBKR maintenance window)"
+		}
+		msg := "TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice" + suffix
+		switch {
+		case sessionOpen:
+			// A loss with the session open is an order-transmission hole —
+			// always loud, even mid-episode.
+			c.logWarn("%s — during open trading session", msg)
+		case newEpisode:
+			c.logWarn("%s", msg)
+		default:
+			c.logInfo("%s (episode loss %d)", msg, episodeLosses)
+		}
+		return
+	}
+
+	var outage time.Duration
+	if !c.backendConnAt.IsZero() {
 		outage = max(at.Sub(c.backendConnAt), 0)
 		c.backendConnLastOutage = outage
 		c.backendConnLongestOutage = max(c.backendConnLongestOutage, outage)
+		c.epLongest = max(c.epLongest, outage)
 	}
 	losses := c.backendConnLosses
-	c.backendConnDown = down
+	firstOfEpisode := c.epActive && c.epLosses == 1
+	c.backendConnDown = false
 	c.backendConnAt = at
+	c.epLastRestore = at
+	if c.epActive {
+		gen := c.epGen
+		c.epTimer = time.AfterFunc(gap, func() { c.finalizeBackendEpisode(gen) })
+	}
 	c.backendConnMu.Unlock()
-	if down {
-		c.logWarn("TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice")
-	} else {
-		// WARN, not INFO: this line is the only evidence pairing a 1100 loss
-		// with its recovery, and it must survive the warn default log level.
+
+	switch {
+	case outage > backendOutageAttention:
+		// A blip heals in seconds; anything past the threshold was a real
+		// hole in availability and stays loud regardless of episode state.
+		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session) — outage exceeded %s", outage.Round(time.Second), losses, backendOutageAttention)
+	case firstOfEpisode:
+		// WARN, not INFO: this pairs the episode's opening loss warning and
+		// must survive the warn default log level.
 		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session)", outage.Round(time.Second), losses)
+	default:
+		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session)", outage.Round(time.Second), losses)
 	}
 }
 
 // BackendLinkReport summarizes the TWS-to-IBKR upstream link: the live latch
 // plus loss/outage counters accumulated since the connector started.
+// LossesInMaintenance counts the subset of Losses that began inside a
+// configured broker maintenance window — expected, not incident evidence.
 type BackendLinkReport struct {
-	Down          bool
-	ChangedAt     time.Time
-	Losses        int
-	LastOutage    time.Duration
-	LongestOutage time.Duration
+	Down                bool
+	ChangedAt           time.Time
+	Losses              int
+	LossesInMaintenance int
+	LastOutage          time.Duration
+	LongestOutage       time.Duration
 }
 
 // BackendLink returns the current upstream-link latch and its session-scoped
@@ -1580,11 +1661,12 @@ func (c *Connector) BackendLink() BackendLinkReport {
 	c.backendConnMu.Lock()
 	defer c.backendConnMu.Unlock()
 	return BackendLinkReport{
-		Down:          c.backendConnDown,
-		ChangedAt:     c.backendConnAt,
-		Losses:        c.backendConnLosses,
-		LastOutage:    c.backendConnLastOutage,
-		LongestOutage: c.backendConnLongestOutage,
+		Down:                c.backendConnDown,
+		ChangedAt:           c.backendConnAt,
+		Losses:              c.backendConnLosses,
+		LossesInMaintenance: c.backendConnLossesInWindow,
+		LastOutage:          c.backendConnLastOutage,
+		LongestOutage:       c.backendConnLongestOutage,
 	}
 }
 
@@ -3701,6 +3783,8 @@ func (c *Connector) Stop() error {
 
 	// Debug, not Info: the daemon calls Stop on every reconnect-cycle teardown
 	c.logDebug("Stopping IBKR connector")
+
+	c.stopBackendEpisodeTimer()
 
 	// Cancel any live PnL subscriptions before the connection drops.
 	c.cancelAllPnL()
