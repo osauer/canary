@@ -427,6 +427,38 @@ test("healthy lamp-test line hides and a served source fault reveals it", () => 
   assert.match(dom.element("lampTestStamp").textContent, /gamma.*stale/i);
 });
 
+test("master subline separates an allowed portfolio rebalance from an unavailable market signal", () => {
+  const evidence = ["breadth", "vol", "credit", "gamma", "funding", "fx"]
+    .map((source) => ({ source, signal: "cluster", bucket: "green" }));
+  const snap = {
+    regime: {
+      lifecycle: { stage: "data_quality", timing: "data_quality", evidence },
+      posture: { tone: "data_quality", readiness: "blocked" },
+    },
+  };
+  const current = {
+    action: "rebalance",
+    direction: "rebalance",
+    severity: "watch",
+    planner_mode_hint: "rebalance",
+    planner_readiness: "ready",
+    market: { stale_clusters: ["breadth", "funding"] },
+  };
+  assert.equal(
+    stress.masterSubline(snap, current),
+    "Rebalance based on portfolio risk · Market signal unavailable until Breadth and Funding recover",
+  );
+
+  current.action = "confirm_inputs";
+  current.direction = "data_quality";
+  current.planner_mode_hint = "confirm_data";
+  current.planner_readiness = "blocked";
+  assert.equal(
+    stress.masterSubline(snap, current),
+    "No market-stress action · Wait for Breadth and Funding to recover",
+  );
+});
+
 test("Protection tile never presents zero actionable theta as portfolio theta", () => {
   reset();
   protection.renderProtectionTile({ counts: { actionable: 0 } }, [], { value: 0, currency: "EUR", title: "No theta-hygiene action is above policy threshold." });

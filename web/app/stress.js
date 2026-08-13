@@ -857,30 +857,57 @@ function applyTileSeverity(el, severity, { nominal = false } = {}) {
 }
 
 
-// masterSubline avoids restating the headline when the governed-note already
-// explains the watch. It still names off-panel/dark evidence and timing.
+// masterSubline answers the operator's immediate question: what decision is
+// still allowed, and what evidence may not be used. Diagnostic lifecycle words
+// stay in the detail and lamp-test surfaces rather than becoming a word salad
+// under the master verdict.
 function masterSubline(snap = {}, stress = {}) {
   const action = stressStageLabel(stress);
   const severity = masterSeverity(snap, stress);
+  const dark = REGIME_CLUSTERS
+    .filter((cluster) => regimeClusterBand(cluster, snap, stress) === "stale");
+  const dataQualityDecision = masterDataQualityDecision(snap, stress, action, dark);
   // Action and severity often share a word ("Watch"/"watch"); printing both
   // reads as a stutter, so the severity only appears when it adds information.
   const governed = regimeGovernedNote(snap, stress.market || {});
-  const parts = governed
-    ? [governed]
-    : [action === "--" ? "" : action, severity.toLowerCase() === action.toLowerCase() ? "" : severity];
+  const parts = dataQualityDecision
+    ? [dataQualityDecision]
+    : governed
+      ? [governed]
+      : [action === "--" ? "" : action, severity.toLowerCase() === action.toLowerCase() ? "" : severity];
   // Every cluster the daemon ranks now has a window, so this clause fires
   // only for a red the panel genuinely cannot show: a cluster name the served
   // appear must still be named rather than silently dropped.
   const reds = offPanelRedClusters(stress);
   if (reds.length > 0) parts.push(`${reds.length} red: ${reds.join(", ")}`);
   // A dead window under a quiet master is the same silent disagreement as a
-  const dark = REGIME_CLUSTERS
-    .filter((cluster) => regimeClusterBand(cluster, snap, stress) === "stale")
-    .map((cluster) => cluster.legend.toLowerCase());
-  if (dark.length > 0) parts.push(`${dark.join(", ")} dark`);
+  if (!dataQualityDecision && dark.length > 0) {
+    parts.push(`${dark.map((cluster) => cluster.legend.toLowerCase()).join(", ")} dark`);
+  }
   const timing = cleanDetail(snap.regime?.lifecycle?.timing);
-  if (timing !== "--") parts.push(labelize(timing).toLowerCase());
+  if (!dataQualityDecision && timing !== "--") parts.push(labelize(timing).toLowerCase());
   return parts.filter(Boolean).join(" · ");
+}
+
+
+// When market evidence is incomplete but the portfolio planner remains ready,
+// the two authorities must not collapse into one ambiguous "watch". The user
+// may follow the portfolio action; the unavailable market signal may not be
+// used to time, escalate, or dismiss it.
+function masterDataQualityDecision(snap = {}, stress = {}, action = "", dark = []) {
+  const lifecycle = snap.regime?.lifecycle || {};
+  const posture = snap.regime?.posture || stress.market?.regime_posture || {};
+  const dataQuality = [lifecycle.stage, lifecycle.timing, posture.stage, posture.tone]
+    .some((value) => String(value || "").trim().toLowerCase() === "data_quality");
+  if (!dataQuality || dark.length === 0) return "";
+  const sources = humanList(dark.map((cluster) => cluster.legend), 3);
+  if (["Rebalance", "Defend"].includes(action) && !stressInputCheckBlocksAction(stress)) {
+    return `${action} based on portfolio risk · Market signal unavailable until ${sources} recover`;
+  }
+  if (stressInputCheckBlocksAction(stress)) {
+    return `No market-stress action · Wait for ${sources} to recover`;
+  }
+  return "";
 }
 
 
