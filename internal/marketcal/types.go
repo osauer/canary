@@ -21,6 +21,14 @@ const (
 	MarketDEXetra Market = "de_xetra"
 )
 
+// AllMarkets returns every supported market calendar. Consumers that reason
+// about "any supported market" (session-open unions, coverage checks) must
+// iterate this instead of naming markets, so adding a calendar extends them
+// automatically.
+func AllMarkets() []Market {
+	return []Market{MarketUSEquity, MarketUSOptions, MarketDEXetra}
+}
+
 // State classifies a market at an instant or a calendar date.
 type State string
 

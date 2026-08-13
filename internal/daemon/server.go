@@ -27,6 +27,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -1325,8 +1326,23 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	}
 	connector := ibkrlib.NewConnector(cc)
 	connector.SetBackendMaintenanceWindows(s.maintenanceWindows)
-	connector.SetBackendSessionOpen(usEquityRTHOpen)
+	connector.SetBackendSessionOpen(anySupportedMarketOpen)
 	return connector
+}
+
+// anySupportedMarketOpen reports whether any market this system trades is in
+// its regular session at t — the union over every marketcal calendar (US
+// equities, US options, Xetra today). A backend-link loss during any of them
+// is an order-transmission hole worth a per-event warning; there is no
+// global quiet hour to special-case, only the union of what we trade.
+func anySupportedMarketOpen(t time.Time) bool {
+	cal := marketcal.New()
+	for _, market := range marketcal.AllMarkets() {
+		if s, err := cal.SessionAt(market, t); err == nil && s.IsOpen {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveMaintenanceWindows parses [gateway] maintenance_windows once for
