@@ -2929,6 +2929,10 @@ func stressRegimeSourceHealth(regime rpc.RegimeSnapshotResult, now time.Time, fp
 	}
 	health := stressTimedSourceHealth("regime", regime.AsOf, now, fp, status, dataConfidence)
 	health.Notes = notes
+	// The cluster-inherited portion of this row's status is typed, not just
+	// prose: consumers must not count this aggregate as an independent
+	// failure next to the leaf clusters it names.
+	health.DerivedFrom = stressUniqueClusters(m.StaleClusters, m.DegradedClusters, m.PartialClusters, m.AmbiguousClusters)
 	return health
 }
 

@@ -901,7 +901,7 @@ function renderLampTest(snap = {}, stress = {}) {
   const line = $("lampTest");
   if (!stamp || !line) return;
   const health = lampTestSources(snap, stress);
-  line.hidden = health.faults.length === 0;
+  line.hidden = health.faults.length === 0 && health.inherited.length === 0;
   if (line.hidden) {
     const dialog = $("lampTestDialog");
     if (dialog?.open) dialog.close();
@@ -915,14 +915,16 @@ function renderLampTest(snap = {}, stress = {}) {
   count.className = health.faults.length > 0 ? "pd-dimcount" : "";
   count.textContent = `${health.ok}/${health.total} sources ok`;
   stamp.append(lead, count);
-  if (health.faults.length > 0) {
+  const noteParts = health.faults.length > 0 ? health.faults : health.inherited;
+  if (noteParts.length > 0) {
     const note = document.createElement("span");
     note.className = "pd-stale-note";
-    note.textContent = ` · ${humanList(health.faults, 2)}`;
+    note.textContent = ` · ${humanList(noteParts, 2)}`;
     stamp.append(note);
   }
-  stamp.title = health.faults.length > 0
-    ? `Served source health: ${health.ok} of ${health.total} ok; ${health.faults.join(", ")}`
+  const detail = [...health.faults, ...health.inherited];
+  stamp.title = detail.length > 0
+    ? `Served source health: ${health.ok} of ${health.total} ok; ${detail.join(", ")}`
     : `Served source health: ${health.ok} of ${health.total} ok`;
 }
 
@@ -931,11 +933,25 @@ function lampTestSources(snap = {}, stress = {}) {
   for (const source of [...(snap.regime?.source_health || []), ...(stress.source_health || [])]) {
     const name = String(source?.source || "").trim().toLowerCase();
     if (!name || seen.has(name)) continue;
-    seen.set(name, String(source?.status || "").trim().toLowerCase());
+    seen.set(name, source);
   }
   const faults = [];
+  const inherited = [];
   let ok = 0;
-  for (const [name, status] of seen) {
+  let total = 0;
+  for (const [name, source] of seen) {
+    const status = String(source?.status || "").trim().toLowerCase();
+    const derivedFrom = Array.isArray(source?.derived_from) ? source.derived_from : [];
+    if (derivedFrom.length > 0) {
+      // A served aggregate row inheriting its inputs' health is not an
+      // extra failed source: name the leaves it inherits instead of
+      // counting one cause twice.
+      if (status && status !== "ok") {
+        inherited.push(`${clusterInputLabel(name)} ${status} — inherits ${humanList(derivedFrom.map(clusterInputLabel), 3)}`);
+      }
+      continue;
+    }
+    total++;
     if (!status || status === "ok") {
       ok++;
       continue;
@@ -949,7 +965,7 @@ function lampTestSources(snap = {}, stress = {}) {
     if (!meta?.error && transport !== "unavailable" && transport !== "stale") continue;
     faults.push(`${snapshotSourceName(name)} ${meta?.error || transport === "unavailable" ? "unavailable" : "stale"}`);
   }
-  return { ok, total: seen.size, faults: [...new Set(faults)] };
+  return { ok, total, faults: [...new Set(faults)], inherited: [...new Set(inherited)] };
 }
 
 function snapshotSourceName(name) {
@@ -1643,10 +1659,20 @@ function stressInputIssueLabels(stress, snap = {}) {
       case "positions":
         add("positions snapshot");
         break;
-      case "regime":
-        if (sourceHealthMentions(source, "gamma")) add("gamma cache");
-        else add("regime snapshot");
+      case "regime": {
+        // A derived row names its leaf causes; those cluster labels are
+        // already added above, so a second "regime snapshot" entry would
+        // make one cause read as two.
+        const derivedFrom = Array.isArray(source.derived_from) ? source.derived_from : [];
+        if (derivedFrom.length > 0) {
+          for (const cluster of derivedFrom) add(clusterInputLabel(cluster));
+        } else if (sourceHealthMentions(source, "gamma")) {
+          add("gamma cache");
+        } else {
+          add("regime snapshot");
+        }
         break;
+      }
       case "market_events":
         add("market-event sources");
         break;

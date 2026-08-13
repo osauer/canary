@@ -447,16 +447,25 @@ const (
 	BreadthRefreshFailureFetch     BreadthRefreshFailure = "fetch_failed"
 	BreadthRefreshFailurePersist   BreadthRefreshFailure = "persist_failed"
 	BreadthRefreshFailureCancelled BreadthRefreshFailure = "cancelled"
+	// BreadthRefreshFailureTransport marks an attempt refused or aborted by
+	// the engine's transport gate (bulk lane down, historical farm broken):
+	// the universe was not swept, so the failure is not a coverage verdict.
+	BreadthRefreshFailureTransport BreadthRefreshFailure = "transport_unavailable"
 )
 
 // BreadthRefreshProgress makes the long IBKR-paced fan-out observable without
 // exposing symbols or broker text. Processed includes successful and failed
+// symbol fetches; Failed counts only the failures, so a completed pass with
+// zero usable bars is distinguishable from a healthy one. NextAttempt is the
+// scheduler's next planned refresh.
 type BreadthRefreshProgress struct {
 	SessionKey  string                `json:"session_key"`
 	StartedAt   time.Time             `json:"started_at"`
 	Processed   int                   `json:"processed"`
+	Failed      int                   `json:"failed,omitempty"`
 	Total       int                   `json:"total"`
 	Deadline    time.Time             `json:"deadline,omitzero"`
+	NextAttempt time.Time             `json:"next_attempt,omitzero"`
 	LastFailure BreadthRefreshFailure `json:"last_failure,omitempty"`
 }
 

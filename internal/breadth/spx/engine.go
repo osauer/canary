@@ -52,6 +52,13 @@ type Options struct {
 	// DeferStoreLoad constructs the engine cold without reading Store. The
 	// Engine.UseCoreStore to attach and load daemon.db before serving. Legacy
 	DeferStoreLoad bool
+	// HealthGate, when set, is consulted before and during a refresh
+	// fan-out. A non-nil return means the transport path is known-dead
+	// (lane down, historical farm broken) and the fan-out must not run:
+	// burning a full universe of per-symbol timeouts into a dead farm
+	// costs the whole publication window. The gate must be cheap — it is
+	// called once per planned symbol.
+	HealthGate func() error
 }
 
 // Engine is the breadth-spx state machine: it loads persisted state, drives a
@@ -113,6 +120,15 @@ type Engine struct {
 	// progress is the current or most recently completed refresh attempt. It
 	// normally advancing paced pass from a stuck or failed one.
 	progress RefreshProgress
+	// nextAttempt is when the scheduler will next try a refresh; zero until
+	// Run's first sleep.
+	nextAttempt time.Time
+
+	healthGate func() error
+	// kick wakes a sleeping Run immediately (capacity 1, non-blocking send).
+	// The daemon fires it when the bulk lane finishes a rebuild, so recovery
+	// does not wait out whatever delay the scheduler was sleeping on.
+	kick chan struct{}
 }
 
 // New constructs an Engine. Loads any persisted state from store
@@ -143,6 +159,8 @@ func New(store *Store, fetcher BarFetcher, opts Options) *Engine {
 		windows:      map[string]ConstituentWindow{},
 		members:      members,
 		membersFn:    membersFn,
+		healthGate:   opts.HealthGate,
+		kick:         make(chan struct{}, 1),
 	}
 	if e.clock == nil {
 		e.clock = time.Now
@@ -238,6 +256,7 @@ func (e *Engine) recordRefreshProcessed(failure RefreshFailure) {
 	e.mu.Lock()
 	e.progress.Processed++
 	if failure != "" {
+		e.progress.Failed++
 		e.progress.LastFailure = failure
 	}
 	e.mu.Unlock()
@@ -256,6 +275,38 @@ func (e *Engine) setRetryPending(pending bool) {
 	e.mu.Lock()
 	e.retryPending = pending
 	e.mu.Unlock()
+}
+
+// CoverageShort reports whether the most recently completed refresh pass
+// stayed below the publication threshold — the engine is serving its last
+// good snapshot while the scheduler keeps trying to converge a fresher one.
+func (e *Engine) CoverageShort() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastMemberCount > 0 && e.lastCoverage < int(MinCoverageFraction*float64(e.lastMemberCount))
+}
+
+func (e *Engine) setNextAttempt(at time.Time) {
+	e.mu.Lock()
+	e.nextAttempt = at
+	e.mu.Unlock()
+}
+
+// NextAttempt reports when the scheduler will next try a refresh. Zero/false
+// until Run has slept once.
+func (e *Engine) NextAttempt() (time.Time, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.nextAttempt, !e.nextAttempt.IsZero()
+}
+
+// Kick wakes a sleeping Run immediately instead of letting it finish a
+// transport or retry delay. Non-blocking; safe from any goroutine.
+func (e *Engine) Kick() {
+	select {
+	case e.kick <- struct{}{}:
+	default:
+	}
 }
 
 // MarkPendingBootstrap pre-sets refreshing=true if Run() would fire a
@@ -280,6 +331,14 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	e.refreshMu.Lock()
 	defer e.refreshMu.Unlock()
 
+	if e.healthGate != nil {
+		if err := e.healthGate(); err != nil {
+			e.beginRefreshProgress(0)
+			e.recordRefreshFailure(RefreshFailureTransport)
+			return err
+		}
+	}
+
 	e.mu.Lock()
 	e.refreshing = true
 	members := slices.Clone(e.members)
@@ -302,13 +361,21 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		return e.finalise(members, cached)
 	}
 
-	fetchErrs := e.execute(ctx, plan, cached)
+	fetchErrs, transportErr := e.execute(ctx, plan, cached)
 	if ctx.Err() != nil {
 		e.recordRefreshFailure(RefreshFailureCancelled)
 		return ctx.Err()
 	}
 
 	e.logFetchErrors(fetchErrs)
+
+	if transportErr != nil {
+		// The gate turned red mid-fan-out. Progress so far is
+		// checkpointed; classify the attempt as transport, not coverage,
+		// so the scheduler retries on its short cadence.
+		e.recordRefreshFailure(RefreshFailureTransport)
+		return transportErr
+	}
 
 	return e.finalise(members, cached)
 }
@@ -365,8 +432,9 @@ func (e *Engine) planFetches(members []string, cached map[string]ConstituentWind
 // execute runs the fetch plan in parallel with bounded concurrency. Successful
 // touched here: finalise remains the only publication gate, so a checkpoint
 // graceful daemon stop therefore keeps every completed name; an abrupt crash
-func (e *Engine) execute(ctx context.Context, plan []fetchPlan, windows map[string]ConstituentWindow) map[string]error {
+func (e *Engine) execute(ctx context.Context, plan []fetchPlan, windows map[string]ConstituentWindow) (map[string]error, error) {
 	errs := make(map[string]error)
+	var transportErr error
 
 	var mu sync.Mutex
 	dirty := 0
@@ -390,6 +458,15 @@ func (e *Engine) execute(ctx context.Context, plan []fetchPlan, windows map[stri
 
 dispatch:
 	for _, item := range plan {
+		// A gate that turns red mid-sweep means every remaining fetch
+		// would time out against a dead farm; stop dispatching and let
+		// the checkpointed progress carry into the next attempt.
+		if e.healthGate != nil {
+			if err := e.healthGate(); err != nil {
+				transportErr = err
+				break dispatch
+			}
+		}
 		// Acquire one slot or bail if ctx fires first. Labelled break
 		// because plain `break` would only exit the select.
 		select {
@@ -428,7 +505,7 @@ dispatch:
 	mu.Lock()
 	checkpointLocked()
 	mu.Unlock()
-	return errs
+	return errs, transportErr
 }
 
 func constituentWindowsEqual(a, b ConstituentWindow) bool {

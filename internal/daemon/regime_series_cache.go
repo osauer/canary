@@ -32,6 +32,7 @@ type regimeSeriesCache struct {
 	mem            map[string]regimeSeriesCacheEntry
 	freshFor       time.Duration
 	maxFallbackAge time.Duration
+	warnf          func(format string, args ...any)
 }
 
 type regimeSeriesCacheEntry struct {
@@ -40,12 +41,19 @@ type regimeSeriesCacheEntry struct {
 	Points    []regimeSeriesPoint `json:"points"`
 }
 
-func newRegimeSeriesCache(dir string) *regimeSeriesCache {
+func newRegimeSeriesCache(dir string, warnf func(format string, args ...any)) *regimeSeriesCache {
 	return &regimeSeriesCache{
 		dir:            dir,
 		mem:            map[string]regimeSeriesCacheEntry{},
 		freshFor:       regimeSeriesCacheFreshFor,
 		maxFallbackAge: regimeSeriesCacheMaxFallbackAge,
+		warnf:          warnf,
+	}
+}
+
+func (c *regimeSeriesCache) warn(format string, args ...any) {
+	if c.warnf != nil {
+		c.warnf(format, args...)
 	}
 }
 
@@ -84,12 +92,14 @@ func (c *regimeSeriesCache) fetch(ctx context.Context, seriesID string, fetcher 
 	}
 	points, err := fetcher(ctx, seriesID)
 	if err == nil {
-		c.put(seriesID, points, now)
-		return points, nil
+		return c.put(seriesID, points, now), nil
 	}
 	if points, ok := c.cachedUsable(seriesID, now, false); ok {
+		latest, _ := latestSeriesPoint(points)
+		c.warn("official series %s: fetch failed (%v); serving cached series ending %s", seriesID, err, latest.Date.Format("2006-01-02"))
 		return points, nil
 	}
+	c.warn("official series %s: fetch failed (%v); no usable cached fallback", seriesID, err)
 	return nil, err
 }
 
@@ -121,19 +131,45 @@ func (c *regimeSeriesCache) get(seriesID string) (regimeSeriesCacheEntry, bool) 
 	return cloneRegimeSeriesEntry(entry), true
 }
 
-func (c *regimeSeriesCache) put(seriesID string, points []regimeSeriesPoint, fetchedAt time.Time) {
+// put stores a freshly fetched series and returns the series the cache
+// retained, which is what the caller must use for this read. A fetch whose
+// newest observation is older than the stored entry's is refused: an upstream
+// that silently serves truncated content must not replace a better copy and
+// then be trusted for the full fresh window. The kept entry is re-stamped
+// with the fetch time — upstream was just consulted and had nothing newer, so
+// retrying before the fresh window lapses would only refetch the same
+// regression.
+func (c *regimeSeriesCache) put(seriesID string, points []regimeSeriesPoint, fetchedAt time.Time) []regimeSeriesPoint {
 	if len(points) == 0 {
-		return
+		return nil
+	}
+	candidate, _ := latestSeriesPoint(points)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	existing, ok := c.mem[seriesID]
+	if !ok {
+		if loaded, err := c.loadLocked(seriesID); err == nil {
+			existing, ok = loaded, true
+		}
+	}
+	if ok {
+		if prev, has := latestSeriesPoint(existing.Points); has && prev.Date.After(candidate.Date) {
+			c.warn("official series %s: refusing fetched series ending %s; keeping cached series ending %s",
+				seriesID, candidate.Date.Format("2006-01-02"), prev.Date.Format("2006-01-02"))
+			existing.FetchedAt = fetchedAt
+			c.mem[seriesID] = cloneRegimeSeriesEntry(existing)
+			_ = c.saveLocked(existing)
+			return cloneRegimeSeries(existing.Points)
+		}
 	}
 	entry := regimeSeriesCacheEntry{
 		SeriesID:  seriesID,
 		FetchedAt: fetchedAt,
 		Points:    cloneRegimeSeries(points),
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.mem[seriesID] = cloneRegimeSeriesEntry(entry)
 	_ = c.saveLocked(entry)
+	return cloneRegimeSeries(entry.Points)
 }
 
 func (c *regimeSeriesCache) loadLocked(seriesID string) (regimeSeriesCacheEntry, error) {

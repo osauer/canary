@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -141,22 +142,40 @@ func fetchTreasury13WeekBill(ctx context.Context) ([]regimeSeriesPoint, error) {
 	// starts (CP prints carry ND gaps), and a current-month-only bill file
 	// left the join without an at-or-before print for the first days of
 	// every month — the v2 rise read nil exactly then.
+	//
+	// The merge is all-or-error: a month that fails to fetch fails the whole
+	// read. A shorter merged series is indistinguishable from a complete one
+	// downstream, and the series cache would hold it as a fresh success for
+	// its full TTL; failing instead lets the cache serve its last complete
+	// entry. The months fetch concurrently so a slow response for one cannot
+	// starve the other inside the caller's shared budget.
 	months := []string{now.AddDate(0, -1, 0).Format("200601"), now.Format("200601")}
-	merged := []regimeSeriesPoint{}
-	var lastErr error
+	type monthResult struct {
+		points []regimeSeriesPoint
+		err    error
+	}
+	ch := make(chan monthResult, len(months))
 	for _, month := range months {
-		points, err := fetchTreasury13WeekBillMonth(ctx, month)
-		if err != nil {
-			lastErr = err
+		go func() {
+			points, err := fetchTreasury13WeekBillMonth(ctx, month)
+			if err != nil {
+				err = fmt.Errorf("month %s: %w", month, err)
+			}
+			ch <- monthResult{points: points, err: err}
+		}()
+	}
+	merged := []regimeSeriesPoint{}
+	var errs []error
+	for range months {
+		res := <-ch
+		if res.err != nil {
+			errs = append(errs, res.err)
 			continue
 		}
-		merged = append(merged, points...)
+		merged = append(merged, res.points...)
 	}
-	if len(merged) == 0 {
-		if lastErr != nil {
-			return nil, lastErr
-		}
-		return nil, fmt.Errorf("treasury 13-week bill XML contained no usable observations")
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	sort.Slice(merged, func(i, j int) bool { return merged[i].Date.Before(merged[j].Date) })
 	merged = slices.CompactFunc(merged, func(a, b regimeSeriesPoint) bool { return a.Date.Equal(b.Date) })

@@ -108,6 +108,11 @@ type SourceHealth struct {
 	// transport, provider, and parser text must never cross the RPC boundary.
 	LastFailure *SourceFailure `json:"last_failure,omitempty"`
 	Notes       []string       `json:"notes,omitempty"`
+	// DerivedFrom names the upstream inputs whose degraded health this
+	// aggregate row inherits. Empty means the status is the row's own leaf
+	// observation. Consumers must not count a derived row as an independent
+	// failure alongside the leaves it names.
+	DerivedFrom []string `json:"derived_from,omitempty"`
 }
 
 // SourceFailure identifies where and how the most recent source attempt

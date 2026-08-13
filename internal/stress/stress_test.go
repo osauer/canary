@@ -468,3 +468,24 @@ func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
 		}
 	}
 }
+
+// The stress regime source row deliberately inherits governed-cluster
+// staleness; DerivedFrom types that inheritance so consumers can render the
+// cause chain instead of counting the aggregate as an extra failed source.
+func TestStressRegimeSourceHealthTypesInheritance(t *testing.T) {
+	t.Parallel()
+	regime := rpc.RegimeSnapshotResult{AsOf: stressTestNow.Add(-time.Minute)}
+	m := StressMarketSummary{StaleClusters: []string{"breadth", "funding"}}
+	health := stressRegimeSourceHealth(regime, stressTestNow, rpc.Fingerprint{}, "medium", m)
+	if health.Status != rpc.RegimeStatusStale {
+		t.Fatalf("status = %q, want stale", health.Status)
+	}
+	if !slices.Equal(health.DerivedFrom, []string{"breadth", "funding"}) {
+		t.Fatalf("derived_from = %v, want [breadth funding]", health.DerivedFrom)
+	}
+
+	healthy := stressRegimeSourceHealth(regime, stressTestNow, rpc.Fingerprint{}, "high", StressMarketSummary{})
+	if len(healthy.DerivedFrom) != 0 {
+		t.Fatalf("healthy derived_from = %v, want empty", healthy.DerivedFrom)
+	}
+}

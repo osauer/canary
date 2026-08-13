@@ -3,10 +3,12 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"strings"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const (
@@ -25,6 +27,9 @@ func (s *Server) statusDataQuality() []rpc.DataQualityHealth {
 		if q, ok := gammaStatusQuality(s.zeroGamma.snapshotCurrent(rpc.GammaZeroScopeCombined, time.Now)); ok {
 			out = append(out, q)
 		}
+	}
+	if q, ok := s.breadthStatusQuality(time.Now()); ok {
+		out = append(out, q)
 	}
 	if s.regimeSnapshots != nil {
 		if snapshot, err := s.currentDecisionReadyRegimeSnapshot(s.regimeConsumerContext()); err == nil {
@@ -52,6 +57,50 @@ func (s *Server) statusDataQuality() []rpc.DataQualityHealth {
 		}
 	}
 	return out
+}
+
+// breadthStatusQuality reports the breadth surface on status.health when it
+// is behind or serving a coverage-degraded snapshot. A converged
+// current-session snapshot reports nothing — healthy surfaces stay silent
+// here, matching the gamma row's convention. The summary carries what the
+// operator would otherwise need the daemon log for: last-pass coverage and
+// the scheduler's next attempt.
+func (s *Server) breadthStatusQuality(now time.Time) (rpc.DataQualityHealth, bool) {
+	if s.breadth == nil {
+		return rpc.DataQualityHealth{}, false
+	}
+	snap, ok := s.breadth.Get()
+	if !ok {
+		return rpc.DataQualityHealth{}, false
+	}
+	target := spx.CompletedSessionKey(now)
+	stale := snap.SessionKey != "" && snap.SessionKey != target
+	short := s.breadth.CoverageShort()
+	if !stale && !short {
+		return rpc.DataQualityHealth{}, false
+	}
+	q := rpc.DataQualityHealth{
+		Surface: "breadth",
+		AsOf:    snap.AsOf,
+	}
+	var parts []string
+	if stale {
+		q.Status = "stale"
+		q.StaleClusters = []string{"breadth"}
+		parts = append(parts, fmt.Sprintf("stale: snapshot is for session %s, latest completed session is %s", snap.SessionKey, target))
+	} else {
+		q.Status = "degraded"
+		q.DegradedClusters = []string{"breadth"}
+	}
+	if short {
+		cov, mc := s.breadth.LastRefreshCoverage()
+		parts = append(parts, fmt.Sprintf("last refresh pass covered %d/%d constituents, below the %.0f%% publication threshold", cov, mc, spx.MinCoverageFraction*100))
+	}
+	if next, exists := s.breadth.NextAttempt(); exists && next.After(now) {
+		parts = append(parts, "next refresh attempt "+next.UTC().Format(time.RFC3339))
+	}
+	q.Summary = strings.Join(parts, "; ")
+	return q, true
 }
 
 func (s *Server) regimeConsumerContext() context.Context {

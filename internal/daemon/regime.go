@@ -1377,11 +1377,15 @@ func fetchRegimeBreadth(ctx context.Context, s *Server) rpc.RegimeBreadth {
 	case rpc.BreadthStateComputing:
 		out.Status = rpc.RegimeStatusComputing
 		return out
-	case rpc.BreadthStateCold, rpc.BreadthStateDegraded:
+	case rpc.BreadthStateCold:
 		out.Status = rpc.RegimeStatusUnavailable
 		return out
 	}
-	// State == "ready" — fall through to the populated-envelope path.
+	// "ready" and "degraded" both carry a populated envelope — degraded
+	// means the engine serves its last-good snapshot while below-coverage
+	// refreshes keep retrying, which is a freshness question, not a
+	// missing-data one. The session check below stamps it stale when the
+	// snapshot is genuinely behind.
 
 	// The value is computed (not a live gateway tick). derivedQuality
 	out.ValueQuality = derivedQuality(envelope.AsOf, envelope.Method)

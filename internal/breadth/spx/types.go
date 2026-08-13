@@ -38,16 +38,23 @@ const (
 	RefreshFailureFetch     RefreshFailure = "fetch_failed"
 	RefreshFailurePersist   RefreshFailure = "persist_failed"
 	RefreshFailureCancelled RefreshFailure = "cancelled"
+	// RefreshFailureTransport marks an attempt the health gate refused or
+	// aborted: the lane or its historical farm was known-dead, so no (or not
+	// every) per-symbol fetch was even tried. Distinct from fetch_failed so a
+	// dead transport is not read as a data-coverage problem.
+	RefreshFailureTransport RefreshFailure = "transport_unavailable"
 )
 
 // RefreshProgress is the current or most recently completed fan-out attempt.
-// Processed includes both successful and failed symbol fetches; Total is the
-// plan size at StartedAt. Deadline is the calendar-based publication SLA for
-// SessionKey, not an ETA.
+// Processed includes both successful and failed symbol fetches; Failed counts
+// only the failures, so a completed pass with zero usable bars is
+// distinguishable from a healthy one. Total is the plan size at StartedAt.
+// Deadline is the calendar-based publication SLA for SessionKey, not an ETA.
 type RefreshProgress struct {
 	SessionKey  string
 	StartedAt   time.Time
 	Processed   int
+	Failed      int
 	Total       int
 	Deadline    time.Time
 	LastFailure RefreshFailure
